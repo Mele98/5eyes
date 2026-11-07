@@ -490,7 +490,10 @@ def _expected_death_year_offset_from_mandate(mandate, run_context=None) -> int |
         # Modulkante nach config (Architektur-Ratsche fan_out) ueber das
         # uebergebene Objekt: ist der Kontext nicht an dieses Mandat gebunden,
         # wirft ensure_bound_to die Mismatch-Exception erneut; sonst bleibt
-        # der bisherige Fallback unveraendert.
+        # der bisherige Fallback unveraendert. ``run_context`` ist ein
+        # ``config.RunContext`` (N-843-1); ein Objekt ohne ``ensure_bound_to``
+        # wirft hier bewusst AttributeError statt still ``None`` zu liefern --
+        # ``resolve_mortality_cutoff`` ruft dieselbe Methode ohnehin auf.
         if run_context is not None:
             run_context.ensure_bound_to(mandate)
         return None

@@ -6,7 +6,9 @@ name: Packaging Smoke
 # exakt den Release-Weg (`npm run pack` = build:reporting -> build:backend ->
 # preflight:release -> scan:bundle-secrets -> electron-builder --dir, ohne
 # Signierung/Publish) und startet danach das gepackte Backend-EXE in einem
-# isolierten Temp-Verzeichnis (scripts/packaging_smoke.py).
+# isolierten Temp-Verzeichnis (scripts/packaging_smoke.py). Dabei rendert die
+# gepackte EXE ueber die API Kunden-PDFs (B-9), die auf Fusszeile aus dem
+# Laenderpaket-Text und eingebettete Editorial-Fonts geprueft werden.
 # Windows-only: das Release ist Windows-only.
 
 on:
