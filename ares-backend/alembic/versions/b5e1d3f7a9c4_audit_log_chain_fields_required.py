@@ -16,7 +16,7 @@ SQLite: dort erzwingt der Trigger ``trg_audit_log_require_chain``
 nicht im Boot-Pfad, die Revision ist dort ein No-op.
 
 Revision ID: b5e1d3f7a9c4
-Revises: f6a2c8e4b1d7
+Revises: b4f8d0e2a6c3
 Create Date: 2026-11-05
 """
 from __future__ import annotations
@@ -27,7 +27,7 @@ from alembic import op
 
 
 revision: str = "b5e1d3f7a9c4"
-down_revision: Union[str, Sequence[str], None] = "f6a2c8e4b1d7"
+down_revision: Union[str, Sequence[str], None] = "b4f8d0e2a6c3"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
