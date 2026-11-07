@@ -242,3 +242,18 @@ def pytest_unconfigure(config):  # noqa: D103
         supervision.emit("exit_watchdog_fired", after_s=seconds, exit_code=code)
 
     guard.arm_exit_watchdog(exit_status=exit_status, on_fire=_on_fire)
+
+
+@_pytest.fixture(autouse=True)
+def _pdf_missing_glyph_guard(request):
+    """N-877-07: jeder PDF-Test laeuft unter dem Glyphen-Guard -- ein Zeichen
+    ohne Glyphe im eingebetteten Font (.notdef-Kasten) ist rot. Opt-out nur
+    per ``@pytest.mark.allow_missing_glyphs`` (Positivkontrollen)."""
+    import _pdf_glyph_guard as guard
+
+    if (request.node.get_closest_marker("allow_missing_glyphs")
+            or not guard.is_pdf_test(request.node.path)):
+        yield
+        return
+    with guard.glyph_guard(request.node.nodeid):
+        yield

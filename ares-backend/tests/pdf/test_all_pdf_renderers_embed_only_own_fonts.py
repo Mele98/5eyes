@@ -24,7 +24,6 @@ Beratungsbericht (Courier fuer Hash/Kennziffern).
 """
 from __future__ import annotations
 
-import contextlib
 import importlib.util
 import inspect
 import sys
@@ -256,31 +255,12 @@ def _assert_only_own_fonts(pdf: bytes, label: str) -> None:
     assert not stray, f"{label}: nicht eingebettete Font-Resource deklariert: {stray[:5]}"
 
 
-@contextlib.contextmanager
 def _glyph_guard(label: str):
-    """N-877-02: jede Glyphe, die ein eingebetteter TTF-Font darstellen soll,
-    muss in dessen cmap stehen. ReportLab setzt fehlende Zeichen still auf
-    .notdef (leerer Kasten); hier ist das fail-closed rot -- mit Renderer,
-    Font, Zeichen und Codepoint. NBSP mappt ReportLab selbst auf Space."""
-    from reportlab.pdfbase.ttfonts import TTFont
+    """N-877-02: geteilter Guard (tests/_pdf_glyph_guard.py), hier explizit je
+    Render mit Renderer-Label; zusaetzlich laeuft er per conftest autouse."""
+    from tests._pdf_glyph_guard import glyph_guard
 
-    missing: set[tuple[str, str, str]] = set()
-    original = TTFont.splitString
-
-    def split(self, text, doc, encoding="utf-8"):
-        chars = text.decode("utf-8") if isinstance(text, bytes) else text
-        cmap = self.face.charToGlyph
-        for ch in chars:
-            if ord(ch) != 0xA0 and ord(ch) not in cmap:
-                missing.add((self.fontName, ch, f"U+{ord(ch):04X}"))
-        return original(self, text, doc, encoding)
-
-    TTFont.splitString = split
-    try:
-        yield
-    finally:
-        TTFont.splitString = original
-    assert not missing, f"{label}: Zeichen ohne Glyphe im eingebetteten Font: {sorted(missing)}"
+    return glyph_guard(label)
 
 
 def test_every_document_renderer_is_covered():
@@ -306,6 +286,7 @@ def test_advisory_report_embeds_only_own_fonts(variant):
     _assert_only_own_fonts(pdf, f"beratungsbericht_{variant}.pdf")
 
 
+@pytest.mark.allow_missing_glyphs
 def test_glyph_guard_detects_missing_glyph():
     """Positivkontrolle: ein Zeichen ausserhalb der Inter-cmap ist rot."""
     import io
