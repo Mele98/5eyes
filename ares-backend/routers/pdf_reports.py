@@ -342,7 +342,12 @@ def _strategy_basis_from_allocation(
     """
     payload = engine_payload if isinstance(engine_payload, dict) else {}
     current = int(current_advisory_wealth_rappen or 0)
-    advisory = int(getattr(ta_obj, "advisory_wealth_at_generation_rappen", 0) or 0) or current
+    # I-02 (Integrationsprobe 2026-11-07): ein Snapshot von 0 ist ein Betrag,
+    # kein fehlender Wert -- nur None (Altbestand) faellt aufs aktuelle
+    # Beratungsvermoegen zurueck (wie N-858-11).
+    snapshot = getattr(ta_obj, "advisory_wealth_at_generation_rappen", None)
+    advisory = int(snapshot) if snapshot is not None else current
+    has_basis = snapshot is not None or bool(advisory)
     stored = getattr(ta_obj, "external_reserve_at_generation_rappen", None)
     reserve = int(stored) if stored is not None else int(payload.get("external_reserve_rappen") or 0)
     reserve = min(max(0, reserve), max(0, advisory))
@@ -356,7 +361,7 @@ def _strategy_basis_from_allocation(
             f"Die Liquiditätsreserve ({amount(reserve)}) umfasst das ganze Beratungsvermögen: "
             "keine investierbare Strategiebasis."
         )
-    if advisory and current and abs(current - advisory) >= 100:
+    if has_basis and current and abs(current - advisory) >= 100:
         date_label = _generation_date_label(getattr(ta_obj, "created_at", None))
         notes.append(
             f"Strategie berechnet auf Beratungsvermögen {amount(advisory)} per {date_label}; "
@@ -365,8 +370,8 @@ def _strategy_basis_from_allocation(
         )
     note = " ".join(notes) or None
     return {
-        "advisory_wealth_rappen": advisory or None,
-        "strategy_base_rappen": advisory - reserve if advisory else None,
+        "advisory_wealth_rappen": advisory if has_basis else None,
+        "strategy_base_rappen": advisory - reserve if has_basis else None,
         "external_reserve_rappen": reserve,
         "note": note,
     }
