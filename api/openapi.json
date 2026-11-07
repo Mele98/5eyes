@@ -14194,6 +14194,13 @@
               }
             ]
           },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ProductIdMappingCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
           "detail": {
             "anyOf": [
               {
@@ -14260,6 +14267,28 @@
               }
             ],
             "title": "Exch Code"
+          },
+          "exchange_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange Code"
+          },
+          "exchange_code_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange Code Status"
           },
           "figi": {
             "anyOf": [

@@ -357,10 +357,9 @@ def test_openfigi_mapping_preview_normalizes_space_separated_ticker(monkeypatch)
     erkennt nur '.', ':', '/', '=' als expliziten Market-Suffix -- ein rohes
     Leerzeichen fuehrt dazu, dass beim Preisabruf ein zweiter Suffix
     angehaengt wird ("UBSG SW" + Exchange "SW" -> "UBSG SW.SW", fuer keinen
-    Provider aufloesbar). Der Kandidat muss daher bereits hier auf die
-    Yahoo-Style-Notation ("UBSG.SW") normalisiert werden, identisch zur
-    bereits korrekten Normalisierung in
-    services/market_data/providers/openfigi_provider.py."""
+    Provider aufloesbar). Seit OF-1 (Audit 2026-11/06 O5) wird der
+    Boersenteil abgetrennt und ueber die explizite Tabelle auf den internen
+    Boersencode abgebildet; der Kandidat traegt das blanke Symbol."""
     import services.openfigi_client as openfigi_client
 
     class FakeResponse:
@@ -395,7 +394,16 @@ def test_openfigi_mapping_preview_normalizes_space_separated_ticker(monkeypatch)
 
     result = preview_openfigi_mapping(isin="CH0244767585", currency="CHF")
 
-    assert result["candidates"][0]["ticker"] == "UBSG.SW"
+    # OF-1 / Audit O5: blankes Symbol plus interner Boersencode statt eines
+    # aus dem Bloomberg-Code gebauten Suffixes ("VWRL LN" -> "VWRL.LN" loeste
+    # kein Provider auf). Die Yahoo-Notation entsteht erst im Lookup.
+    candidate = result["candidates"][0]
+    assert candidate["ticker"] == "UBSG"
+    assert candidate["exchange_code"] == "SW"
+    assert candidate["exchange_code_status"] == "mapped"
+    from services.product_market_data import provider_lookup_symbol
+
+    assert provider_lookup_symbol(candidate["ticker"], candidate["exchange_code"], "yfinance") == "UBSG.SW"
 
 
 def test_openfigi_mapping_preview_requires_basis():
