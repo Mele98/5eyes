@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
@@ -26,10 +27,12 @@ from services.audit import (
     AuditAnchorNotVerified,
     audit_log_integrity_report,
     backup_snapshot_anchor,
+    STATUS_READ_MARKER,
     export_audit_anchor,
     format_anchor_text,
     get_audit_verification_status,
     log as audit_log,
+    log_anchor_verification,
     run_startup_audit_chain_check as _run_startup_audit_chain_check,
     verify_audit_anchor,
 )
@@ -214,6 +217,7 @@ def run_startup_audit_chain_check() -> dict | None:
 
 @router.get('/audit-log/verification-status', response_model=AuditChainVerificationStatusOut)
 def get_audit_log_verification_status(
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_audit_chain_verifier),
 ):
@@ -221,8 +225,23 @@ def get_audit_log_verification_status(
     Kette (pending/running/ok/broken/error, Fortschritt, letzter erfolgreich
     gepruefter Kopf). integrity_confirmed nur bei 'ok'. Keine Inhalte. Die
     Admin-Uebersicht zeigt den Status zusaetzlich als Compliance-Warnung
-    (GET /admin/system/compliance)."""
-    return get_audit_verification_status(db)
+    (GET /admin/system/compliance). N-880-08: jede Abfrage wird auditiert
+    (CREATE/VERIFICATION_STATUS_READ, Wert = Zustand)."""
+    status = get_audit_verification_status(db)
+    with operator_bypass(db):
+        audit_log(
+            db,
+            user_id=current_user.id,
+            user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+            table_name="audit_chain_verification_status",
+            record_id="singleton",
+            action="CREATE",
+            field_name=STATUS_READ_MARKER,
+            new_value=str(status["state"]),
+            ip_address=_extract_client_ip(request),
+        )
+        db.commit()
+    return status
 
 
 @router.post('/audit-log/anchor/export', response_model=AuditAnchorExport)
@@ -263,17 +282,29 @@ def export_audit_log_anchor(
 @router.post('/audit-log/anchor/verify', response_model=AuditAnchorVerification)
 def verify_audit_log_anchor(
     payload: AuditAnchorVerifyRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_audit_chain_verifier),
 ):
     """F4: Anker verifizieren -- enthaelt die heutige Kette den Anker-Stand
-    unveraendert (Kette 1..N, Kopf, Bestandssiegel)? Nur lesend; Antwort
-    ohne Inhalte. Ein unlesbarer Anker ergibt 422."""
+    unveraendert (Kette 1..N, Kopf, Bestandssiegel)? Antwort ohne Inhalte.
+    Ein unlesbarer Anker ergibt 422. N-880-08: das Ergebnis wird auditiert
+    (CREATE/ANCHOR_VERIFY mit ok, Fingerabdruck, Sequenzen, Gruenden)."""
     with operator_bypass(db):
         try:
-            return verify_audit_anchor(db, payload.anchor_text, key=settings.backup_hmac_key)
+            result = verify_audit_anchor(
+                db, payload.anchor_text, key=settings.backup_hmac_key,
+                allow_unsigned=payload.allow_unsigned,
+            )
         except AuditAnchorError as exc:
             raise HTTPException(status_code=422, detail=f"Audit-Anker nicht lesbar: {exc}") from None
+        log_anchor_verification(
+            db, result, user_id=current_user.id,
+            user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+            ip_address=_extract_client_ip(request),
+        )
+        db.commit()
+    return result
 
 
 @router.get('/db/integrity')
@@ -347,12 +378,14 @@ def backup_database(
 ):
     # F4: Manifest mit Kettenkopf + Bestandssiegel des Snapshots.
     result = create_backup(snapshot_anchor=backup_snapshot_anchor)
+    # N-880-05: im Audit nur der Dateiname, kein absoluter Pfad/Benutzerprofil.
+    backup_ref = result.get("backup_file") or result.get("backup_path") or result.get("filename")
     audit_log(
         db,
         user_id=current_user.id,
         user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
         table_name="system_backups",
-        record_id=str(result.get("backup_path") or result.get("filename") or "backup"),
+        record_id=Path(str(backup_ref)).name if backup_ref else "backup",
         action="BACKUP",
         new_value=str(result.get("size_bytes") or result.get("bytes") or ""),
         ip_address=_extract_client_ip(request),
@@ -393,6 +426,19 @@ def get_compliance_status(
         audit_status = get_audit_verification_status(db)
     except Exception:  # noqa: BLE001 -- Compliance-Status darf nie crashen
         audit_status = {'state': 'unknown', 'integrity_confirmed': False}
+    # N-880-08: Die Kette ist installationsweit. Wer sie nicht pruefen darf
+    # (Firmen-Admin in einer mandantenfaehigen Installation), sieht nur den
+    # Zustand, keine installationsweiten Zaehler -- als installationsweit
+    # gekennzeichnet.
+    try:
+        require_audit_chain_verifier(current_user)
+        audit_status = {**audit_status, 'scope': 'installation'}
+    except HTTPException:
+        audit_status = {
+            'state': audit_status.get('state'),
+            'integrity_confirmed': bool(audit_status.get('integrity_confirmed')),
+            'scope': 'installation_summary',
+        }
     return build_compliance_status(audit_verification=audit_status)
 
 

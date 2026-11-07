@@ -535,15 +535,16 @@ def _verify_audit_chain_detail(db: Session) -> dict:
     Inhalte (Admin-Endpoint, H-865-2); 'errors' bleibt als lesbare Liste
     fuer Logs und Tests.
     """
-    scan = _ChainScan()
+    # N-880-03: Zaehler VOR dem Scan lesen (Snapshot des Ziel-Kopfs). Ein
+    # waehrend des Scans committeter Eintrag liegt dann hinter dem Zielkopf
+    # und wird mitgeprueft; frueher las der Pfad den Zaehler erst danach und
+    # meldete in diesem Fenster faelschlich "Kettenende fehlt". Das
+    # Kettenende wird ueber watch_sequence am Zaehlerstand geprueft (gleiches
+    # Muster wie die Hintergrundpruefung).
+    counter_value, counter_last_hash = _read_counter(db)
+    scan = _ChainScan(watch_sequence=counter_value)
     for row in _iter_chain_rows(db):
         scan.feed(row)
-    counter = db.execute(
-        select(AuditLogSequenceCounter.value, AuditLogSequenceCounter.last_hash)
-        .where(AuditLogSequenceCounter.id == "singleton")
-    ).first()
-    counter_value = int(counter[0]) if counter is not None and counter[0] is not None else None
-    counter_last_hash = counter[1] if counter is not None else None
     return scan.finish(counter_value, counter_last_hash)
 
 
@@ -1576,7 +1577,10 @@ def _check_signature(anchor: dict, key: str | None) -> str:
     signature = str(anchor.get("signature") or _NONE)
     signing_key = (key or "").strip()
     if signature == _NONE:
-        return "none"
+        # N-880-02: mit konfiguriertem Schluessel ist ein unsignierter Anker
+        # (auch eine auf 'none' gesetzte Signaturzeile -- der Fingerabdruck
+        # deckt die Signatur nicht ab) nicht ok, wie verify_backup_manifest.
+        return "missing" if signing_key else "none"
     if not signature.startswith(_SIG_PREFIX):
         return "invalid"
     if not signing_key:
@@ -1584,20 +1588,24 @@ def _check_signature(anchor: dict, key: str | None) -> str:
     return "valid" if hmac.compare_digest(signature, _signature(anchor, signing_key)) else "invalid"
 
 
-def verify_audit_anchor(db: Session, payload: str | dict, *, key: str | None) -> dict:
+def verify_audit_anchor(
+    db: Session, payload: str | dict, *, key: str | None, allow_unsigned: bool = False
+) -> dict:
     """Prueft, ob die heutige Kette den Anker-Stand unveraendert enthaelt.
 
-    ``ok`` nur wenn: Fingerabdruck stimmt, Signatur gueltig (oder der Anker
-    unsigniert ist), Kette 1..N ohne Befund und Kopf N hash-gleich, Siegel-
-    Eintrag und versiegelter Altbestand unveraendert. Gibt nur Zaehler,
-    Sequenznummern und Gruende zurueck."""
+    ``ok`` nur wenn: Fingerabdruck stimmt, Signatur gueltig, Kette 1..N ohne
+    Befund und Kopf N hash-gleich, Siegel-Eintrag und versiegelter Altbestand
+    unveraendert. Unsigniert ist nur ok, solange kein Schluessel konfiguriert
+    ist, oder mit ``allow_unsigned`` (bewusst unsignierter Altanker, z.B. vor
+    Einfuehrung von BACKUP_HMAC_KEY; das Ergebnis weist es aus). Gibt nur
+    Zaehler, Sequenznummern und Gruende zurueck."""
     reasons: list[str] = []
     anchor = parse_anchor_text(payload) if isinstance(payload, str) else dict(payload)
     fingerprint_ok = hmac.compare_digest(str(anchor.get("fingerprint") or ""), anchor_fingerprint(anchor))
     if not fingerprint_ok:
         reasons.append("fingerprint_mismatch")
     signature = _check_signature(anchor, key)
-    if signature in ("invalid", "key_missing"):
+    if signature in ("invalid", "key_missing") or (signature == "missing" and not allow_unsigned):
         reasons.append(f"signature_{signature}")
 
     anchor_sequence = int(anchor["chain_sequence"]) if anchor["chain_sequence"] != _NONE else 0
@@ -1635,6 +1643,7 @@ def verify_audit_anchor(db: Session, payload: str | dict, *, key: str | None) ->
         "anchor_fingerprint": str(anchor.get("fingerprint")),
         "anchor_verified_at_export": anchor.get("verified") == "yes",
         "signature": signature,
+        "unsigned_accepted": signature == "missing" and allow_unsigned,
         "fingerprint_ok": fingerprint_ok,
         "chain_prefix_ok": prefix_ok,
         "head_match": head_match,
@@ -1643,6 +1652,41 @@ def verify_audit_anchor(db: Session, payload: str | dict, *, key: str | None) ->
         "current_sequence": int(current["chain_sequence"]),
         "full_chain_ok": bool(report["ok"]),
     }
+
+
+# N-880-08: Nachweis eines Anker-Abgleichs (GeBueV-Nachvollziehbarkeit der
+# Restore-Abgleiche). action='CREATE' mit Merkmal field_name, kein neuer
+# action-Wert (sonst Tabellen-Neuaufbau, siehe LEGACY_SEAL). Nur Ergebnis,
+# Fingerabdruck, Sequenzen und Gruende -- keine Inhalte.
+ANCHOR_VERIFY_TABLE = "audit_anchor"
+ANCHOR_VERIFY_MARKER = "ANCHOR_VERIFY"
+STATUS_READ_MARKER = "VERIFICATION_STATUS_READ"
+
+
+def log_anchor_verification(
+    db: Session, result: dict, *, user_id: str, user_name: str | None, ip_address: str | None = None,
+    target: str = "live",
+) -> None:
+    """Auditeintrag fuer eine Anker-Pruefung (Endpoint und CLI). Der Aufrufer
+    committet (unter PG im Operator-Bypass)."""
+    log(
+        db,
+        user_id=user_id,
+        user_name=user_name,
+        table_name=ANCHOR_VERIFY_TABLE,
+        record_id=str(result.get("anchor_fingerprint") or "unbekannt"),
+        action="CREATE",
+        field_name=ANCHOR_VERIFY_MARKER,
+        new_value=json.dumps({
+            "ok": bool(result.get("ok")),
+            "target": target,
+            "anchor_sequence": result.get("anchor_sequence"),
+            "current_sequence": result.get("current_sequence"),
+            "signature": result.get("signature"),
+            "reasons": list(result.get("reasons") or []),
+        }, sort_keys=True, separators=(",", ":")),
+        ip_address=ip_address,
+    )
 
 
 def backup_snapshot_anchor(fetch: Fetch, key: str | None) -> dict:

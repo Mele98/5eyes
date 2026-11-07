@@ -15,9 +15,14 @@ Aufruf
         Vollpruefung; nur bei intakter Kette wird die Quittung ausgegeben
         (sonst Exit 2). Mit --out wird die Datei neu angelegt (bestehende
         Datei: Exit 2, nie ueberschreiben). Der Export wird auditiert.
-    python scripts/audit_anchor.py verify DATEI
+    python scripts/audit_anchor.py verify DATEI [--allow-unsigned]
         Exit 0 = Anker-Stand unveraendert enthalten, Exit 1 = Abweichung,
-        Exit 2 = Anker unlesbar.
+        Exit 2 = Anker unlesbar. Mit BACKUP_HMAC_KEY ist ein unsignierter
+        Anker nicht ok (ausser --allow-unsigned). Wird auditiert.
+    python scripts/audit_anchor.py verify --from-manifest BACKUP.db.json
+        Restore-Abgleich: Manifest pruefen (Signatur, db_sha256), dann dessen
+        Anker gegen DB_PATH (die wiederhergestellte Kopie). Exit 2 bei
+        ungueltigem Manifest.
     python scripts/audit_anchor.py verify-manifest BACKUP.db.json
         Signatur und db_sha256 eines Backup-Manifests pruefen und dessen
         Anker anzeigen (Exit 0/1).
@@ -87,19 +92,41 @@ def _export(out: str | None) -> int:
     return 0
 
 
-def _verify(path: str) -> int:
+def _verify(path: str, *, from_manifest: bool, allow_unsigned: bool) -> int:
+    """Anker (Quittung oder, mit --from-manifest, der Anker aus einem
+    signaturgeprueften Backup-Manifest) gegen DB_PATH pruefen. Das Ergebnis
+    wird auditiert (N-880-08)."""
     from config import settings
     from database import SessionLocal
-    from services.audit import AuditAnchorError, verify_audit_anchor
+    from services.audit import AuditAnchorError, log_anchor_verification, verify_audit_anchor
+    from services.backup import verify_backup_manifest
     from services.tenant_context import operator_bypass
 
-    payload = Path(path).expanduser().read_text(encoding="ascii")
+    if from_manifest:
+        # N-880-01: Restore-Abgleich gegen den Anker desselben Backups. Erst
+        # Manifest (Signatur, db_sha256) pruefen, sonst kein Abgleich.
+        manifest = verify_backup_manifest(path)
+        if not manifest["ok"] or not manifest.get("audit_anchor"):
+            print(json.dumps({k: manifest[k] for k in ("ok", "signature", "db_sha256_ok", "audit_anchor_error")},
+                             indent=2, sort_keys=True))
+            print("Manifest nicht ok oder ohne Anker; kein Abgleich.", file=sys.stderr)
+            return 2
+        payload = manifest["audit_anchor"]
+    else:
+        payload = Path(path).expanduser().read_text(encoding="ascii")
     with SessionLocal() as db, operator_bypass(db):
         try:
-            result = verify_audit_anchor(db, payload, key=settings.backup_hmac_key)
+            result = verify_audit_anchor(
+                db, payload, key=settings.backup_hmac_key, allow_unsigned=allow_unsigned
+            )
         except AuditAnchorError as exc:
             print(f"Anker nicht lesbar: {exc}", file=sys.stderr)
             return 2
+        log_anchor_verification(
+            db, result, user_id=AUDIT_ACTOR, user_name=AUDIT_ACTOR,
+            target="manifest" if from_manifest else "receipt",
+        )
+        db.commit()
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result["ok"] else 1
 
@@ -118,7 +145,15 @@ def main(argv: list[str] | None = None) -> int:
     export_parser = sub.add_parser("export", help="Anker nach Vollpruefung ausgeben")
     export_parser.add_argument("--out", default=None, help="Zieldatei (wird neu angelegt)")
     verify_parser = sub.add_parser("verify", help="Anker gegen die heutige Kette pruefen")
-    verify_parser.add_argument("path")
+    verify_parser.add_argument("path", help="Quittung bzw. mit --from-manifest das Backup-Manifest")
+    verify_parser.add_argument(
+        "--from-manifest", action="store_true",
+        help="Anker aus einem Backup-Manifest (<backup>.json) pruefen (Restore-Abgleich)",
+    )
+    verify_parser.add_argument(
+        "--allow-unsigned", action="store_true",
+        help="bewusst unsignierten Altanker trotz BACKUP_HMAC_KEY akzeptieren (wird ausgewiesen)",
+    )
     manifest_parser = sub.add_parser("verify-manifest", help="Backup-Manifest pruefen")
     manifest_parser.add_argument("path")
     args = parser.parse_args(argv)
@@ -127,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "export":
         return _export(args.out)
     if args.command == "verify":
-        return _verify(args.path)
+        return _verify(args.path, from_manifest=args.from_manifest, allow_unsigned=args.allow_unsigned)
     return _verify_manifest(args.path)
 
 

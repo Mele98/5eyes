@@ -34,6 +34,7 @@ tests/test_f17_foundation_runtime_split.py).
 from __future__ import annotations
 
 import sys
+import warnings
 from pathlib import Path
 
 import pytest
@@ -123,6 +124,8 @@ def _seed_foundation(session_factory) -> tuple[str, str]:
 # F17: injizierte Optimierer-Laufzeit der Fachtests (weit unter 8000 ms, damit
 # das Verdikt nur von der Fachlogik abhaengt).
 INJECTED_ELAPSED_MS = 1234
+# F17: Fruehwarnschwelle des seriellen Sentinels (Warnung, nicht rot).
+FOUNDATION_EARLY_WARNING_MS = 13000
 
 
 class _InjectedWallclock:
@@ -325,6 +328,15 @@ def test_foundation_wallclock_budget_sentinel(session_factory, monkeypatch, reco
     elapsed = int(payload["elapsed_ms"]["stochastic"])
     record_property("elapsed_ms", elapsed)
     record_property("verdict", payload["verdict"])
+    # F17-Empfehlung (Pruefrunde H4): Fruehwarnung ab 13000 ms -- Warnung im
+    # Testbericht (und ::warning:: im CI-Job), NICHT rot. Hart bleibt 15000.
+    record_property("early_warning", elapsed > FOUNDATION_EARLY_WARNING_MS)
+    if elapsed > FOUNDATION_EARLY_WARNING_MS:
+        warnings.warn(
+            f"Foundation-Laufzeit {elapsed} ms > Fruehwarnschwelle "
+            f"{FOUNDATION_EARLY_WARNING_MS} ms (hart: 15000 ms)",
+            stacklevel=1,
+        )
     assert payload["verdict"] in {"green", "yellow"}, payload.get("verdict_notes")
     assert elapsed <= 15000, f"Foundation-Laufzeit {elapsed} ms > 15000 ms (Laufzeitbefund)"
 

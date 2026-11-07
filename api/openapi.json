@@ -2113,11 +2113,17 @@
             "enum": [
               "valid",
               "none",
+              "missing",
               "invalid",
               "key_missing"
             ],
             "title": "Signature",
             "type": "string"
+          },
+          "unsigned_accepted": {
+            "default": false,
+            "title": "Unsigned Accepted",
+            "type": "boolean"
           }
         },
         "required": [
@@ -2140,6 +2146,11 @@
       },
       "AuditAnchorVerifyRequest": {
         "properties": {
+          "allow_unsigned": {
+            "default": false,
+            "title": "Allow Unsigned",
+            "type": "boolean"
+          },
           "anchor_text": {
             "maxLength": 4000,
             "minLength": 1,
@@ -28060,7 +28071,7 @@
     },
     "/admin/system/audit-log/anchor/verify": {
       "post": {
-        "description": "F4: Anker verifizieren -- enthaelt die heutige Kette den Anker-Stand\nunveraendert (Kette 1..N, Kopf, Bestandssiegel)? Nur lesend; Antwort\nohne Inhalte. Ein unlesbarer Anker ergibt 422.",
+        "description": "F4: Anker verifizieren -- enthaelt die heutige Kette den Anker-Stand\nunveraendert (Kette 1..N, Kopf, Bestandssiegel)? Antwort ohne Inhalte.\nEin unlesbarer Anker ergibt 422. N-880-08: das Ergebnis wird auditiert\n(CREATE/ANCHOR_VERIFY mit ok, Fingerabdruck, Sequenzen, Gruenden).",
         "operationId": "verify_audit_log_anchor_admin_system_audit_log_anchor_verify_post",
         "requestBody": {
           "content": {
@@ -28107,7 +28118,7 @@
     },
     "/admin/system/audit-log/verification-status": {
       "get": {
-        "description": "F6 (Codex-Entscheid Runde 3): sichtbarer Integritaetsstatus der Audit-\nKette (pending/running/ok/broken/error, Fortschritt, letzter erfolgreich\ngepruefter Kopf). integrity_confirmed nur bei 'ok'. Keine Inhalte. Die\nAdmin-Uebersicht zeigt den Status zusaetzlich als Compliance-Warnung\n(GET /admin/system/compliance).",
+        "description": "F6 (Codex-Entscheid Runde 3): sichtbarer Integritaetsstatus der Audit-\nKette (pending/running/ok/broken/error, Fortschritt, letzter erfolgreich\ngepruefter Kopf). integrity_confirmed nur bei 'ok'. Keine Inhalte. Die\nAdmin-Uebersicht zeigt den Status zusaetzlich als Compliance-Warnung\n(GET /admin/system/compliance). N-880-08: jede Abfrage wird auditiert\n(CREATE/VERIFICATION_STATUS_READ, Wert = Zustand).",
         "operationId": "get_audit_log_verification_status_admin_system_audit_log_verification_status_get",
         "responses": {
           "200": {

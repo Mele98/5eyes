@@ -240,6 +240,20 @@ def backup_database(
     )
 
 
+def mask_user_path(path: str | Path) -> str:
+    """N-880-05 (F3/N-867-4): Pfad ohne Benutzerprofil fuer Manifest und
+    Audit. Unter dem Benutzerprofil -> ``%USERPROFILE%/...`` (Windows) bzw.
+    ``~/...``; sonst nur der Dateiname. Der Restore braucht den Pfad nicht
+    (er bekommt die Backup-Datei als Argument, das Manifest liegt daneben)."""
+    p = Path(path)
+    try:
+        rel = p.expanduser().resolve().relative_to(Path.home().resolve())
+    except (ValueError, OSError, RuntimeError):
+        return p.name
+    prefix = "%USERPROFILE%" if os.name == "nt" else "~"
+    return prefix + "/" + rel.as_posix()
+
+
 def _manifest_canonical(manifest: dict) -> bytes:
     body = {k: v for k, v in manifest.items() if k != "manifest_signature"}
     return json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
@@ -297,7 +311,9 @@ def _write_backup_manifest(
     manifest = {
         "scheme": BACKUP_MANIFEST_SCHEME,
         "created_at": timestamp.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
-        "db_file": str(target),
+        # N-880-05: ohne Benutzerprofil (Manifest kann extern abgelegt werden).
+        "db_file": mask_user_path(target),
+        "db_file_name": target.name,
         "db_sha256": sha256,
         "db_size_bytes": int(size_bytes),
         # SEC-007: True nur wenn backup_hmac_key konfiguriert war.

@@ -437,3 +437,167 @@ def test_cli_export_verify_and_never_overwrite(session_local, tmp_path, monkeypa
     assert cli.main(["verify", str(out)]) == 1
     captured = capsys.readouterr()
     assert SECRET not in captured.out + captured.err
+
+
+
+# ---------------------------------------------------------------------------
+# Nachbesserung Pruefrunde H4 (Dok. 86): N-880-01/02/05/08
+# ---------------------------------------------------------------------------
+
+def _cli():
+    scripts = str(BACKEND_ROOT / "scripts")
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    import audit_anchor as cli
+
+    return cli
+
+
+def test_runbook_4_5a_steps_end_to_end(session_local, db_file, tmp_path, monkeypatch, client_for, capsys):
+    """N-880-01: spielt Runbook 95 Abschnitt 4.5a in der korrigierten
+    Reihenfolge durch (Variante b). Das App-Backup schreibt NACH dem Snapshot
+    den Audit-Eintrag BACKUP; ein danach exportierter Anker liegt deshalb
+    hinter dem Backup. Der Restore-Abgleich laeuft gegen den Anker AUS DEM
+    MANIFEST desselben Backups, der exportierte Anker gegen die Live-DB."""
+    cli = _cli()
+    import backup_now
+
+    monkeypatch.setattr(config.settings, "backup_hmac_key", KEY)          # Schritt 1
+    monkeypatch.setattr(config.settings, "db_path", str(db_file))
+    monkeypatch.setattr(config.settings, "backup_dir", str(tmp_path / "backups"))
+    monkeypatch.setattr(database, "SessionLocal", session_local)
+    _prepared(session_local)
+    run_startup_audit_chain_check(session_local, max_rows=10_000)
+
+    client = client_for("super_admin")
+    status = client.get("/admin/system/audit-log/verification-status").json()   # Schritt 2
+    assert status["state"] == "ok" and status["integrity_confirmed"] is True
+
+    backup = client.post("/admin/system/db/backup")                              # Schritt 3
+    assert backup.status_code == 200, backup.text
+    manifest = Path(backup.json()["manifest_file"])
+    backup_file = Path(backup.json()["backup_file"])
+    with session_local() as s:
+        backup_entry = s.query(AuditLog).filter(AuditLog.action == "BACKUP").one()
+    assert backup_entry.record_id == backup_file.name, "N-880-05: nur Dateiname im Audit"
+    assert cli.main(["verify-manifest", str(manifest)]) == 0
+
+    anchor_file = tmp_path / "anker.txt"                                         # Schritt 4
+    assert cli.main(["export", "--out", str(anchor_file)]) == 0
+    assert cli.main(["verify", str(anchor_file)]) == 0, "exportierter Anker gegen Live-DB"
+
+    restored = tmp_path / "wegwerf" / "ares.db"                                  # Schritt 6
+    monkeypatch.setattr(sys, "argv", ["backup_now.py", "--restore", str(backup_file), "--target", str(restored)])
+    assert backup_now.main() == 0
+    engine, restored_factory = _factory_for(restored)
+    try:
+        monkeypatch.setattr(database, "SessionLocal", restored_factory)
+        assert cli.main(["verify", "--from-manifest", str(manifest)]) == 0
+        # Die alte Reihenfolge (exportierter Anker gegen das fruehere Backup)
+        # ergibt zwangslaeufig einen Befund -- deshalb steht sie nicht mehr im
+        # Runbook.
+        assert cli.main(["verify", str(anchor_file)]) == 1
+    finally:
+        engine.dispose()
+    out = capsys.readouterr()
+    assert SECRET not in out.out + out.err
+
+
+def test_from_manifest_refuses_tampered_manifest(session_local, db_file, tmp_path, monkeypatch):
+    cli = _cli()
+    monkeypatch.setattr(config.settings, "backup_hmac_key", KEY)
+    monkeypatch.setattr(database, "SessionLocal", session_local)
+    _prepared(session_local)
+    result = backup_engine.backup_database(
+        tmp_path / "backups", source_db_path=db_file, snapshot_anchor=backup_snapshot_anchor
+    )
+    data = json.loads(result.manifest_path.read_text(encoding="utf-8"))
+    data["audit_anchor"]["chain_head_hash"] = "0" * 64
+    result.manifest_path.write_text(json.dumps(data), encoding="utf-8")
+    assert cli.main(["verify", "--from-manifest", str(result.manifest_path)]) == 2
+
+
+def test_unsigned_anchor_is_not_ok_once_key_is_configured(session_local):
+    """N-880-02: mit Schluessel fail-closed wie verify_backup_manifest."""
+    _prepared(session_local)
+    unsigned = format_anchor_text(_export(session_local, key=None))
+    result = _verify(session_local, unsigned, key=KEY)
+    assert result["ok"] is False and "signature_missing" in result["reasons"]
+    with session_local() as s:
+        accepted = verify_audit_anchor(s, unsigned, key=KEY, allow_unsigned=True)
+    assert accepted["ok"] is True and accepted["unsigned_accepted"] is True
+    assert _verify(session_local, unsigned, key=None)["ok"] is True, "ohne Schluessel wie bisher"
+
+
+def test_signature_line_set_to_none_is_rejected(session_local):
+    _prepared(session_local)
+    anchor = _export(session_local, key=KEY)
+    stripped = format_anchor_text(anchor).replace(f"signature: {anchor['signature']}", "signature: none")
+    result = _verify(session_local, stripped, key=KEY)
+    assert result["ok"] is False and result["signature"] == "missing"
+
+
+def test_manifest_has_no_absolute_user_path(session_local, db_file, tmp_path, monkeypatch):
+    """N-880-05: Manifest ohne Benutzerprofil; Restore bleibt moeglich."""
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    _prepared(session_local)
+    result = backup_engine.backup_database(
+        tmp_path / "backups", source_db_path=db_file, snapshot_anchor=backup_snapshot_anchor
+    )
+    raw = result.manifest_path.read_text(encoding="utf-8")
+    manifest = json.loads(raw)
+    assert str(tmp_path) not in raw and tmp_path.as_posix() not in raw
+    assert manifest["db_file"].endswith("backups/" + result.path.name)
+    assert manifest["db_file"].split("/")[0] in ("%USERPROFILE%", "~")
+    assert manifest["db_file_name"] == result.path.name
+    backup_engine.restore_database(result.path, target_db_path=tmp_path / "r" / "ares.db")
+    assert backup_engine.verify_backup_manifest(result.manifest_path)["ok"] is True
+
+
+def test_mask_user_path_outside_home_keeps_only_name(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    assert backup_engine.mask_user_path(tmp_path / "anderswo" / "b.db") == "b.db"
+
+
+def test_verify_and_status_reads_are_audited(session_local, client_for):
+    """N-880-08: Anker-Pruefung und Statusabfrage hinterlassen einen
+    Audit-Eintrag ohne Inhalte."""
+    _prepared(session_local)
+    run_startup_audit_chain_check(session_local, max_rows=10_000)
+    client = client_for("super_admin")
+    receipt = client.post("/admin/system/audit-log/anchor/export").json()["text"]
+    assert client.post("/admin/system/audit-log/anchor/verify", json={"anchor_text": receipt}).json()["ok"]
+    assert client.get("/admin/system/audit-log/verification-status").status_code == 200
+    with session_local() as s:
+        verify_entry = s.query(AuditLog).filter(AuditLog.field_name == "ANCHOR_VERIFY").one()
+        status_entry = s.query(AuditLog).filter(AuditLog.field_name == "VERIFICATION_STATUS_READ").one()
+        report = audit_log_integrity_report(s)
+    detail = json.loads(verify_entry.new_value)
+    assert detail["ok"] is True and detail["reasons"] == [] and verify_entry.action == "CREATE"
+    assert status_entry.new_value == "ok"
+    assert SECRET not in verify_entry.new_value
+    assert report["ok"], "Audit-Eintraege haengen sauber an der Kette"
+
+
+def test_compliance_for_tenant_admin_is_summary_only(session_local, monkeypatch):
+    """N-880-08: Firmen-Admin in mandantenfaehiger Installation sieht nur den
+    Zustand (installationsweit gekennzeichnet), keine Zaehler."""
+    from routers import system as system_router
+
+    monkeypatch.setattr(config.settings, "strict_tenant_isolation", True, raising=False)
+    _log_n(session_local, 3)
+    _sql(session_local, "UPDATE audit_log SET old_value = 'x' WHERE sequence = 1")
+    run_startup_audit_chain_check(session_local, max_rows=10_000)
+
+    def _call(role):
+        user = SimpleNamespace(id=f"u-{role}", role=role, tenant_id="tenant-a", full_name="A", email="a@x.invalid")
+        with session_local() as s:
+            return system_router.get_compliance_status(db=s, current_user=user)
+
+    tenant_admin = _call("admin")
+    platform = _call("super_admin")
+    assert tenant_admin["controls"]["audit_chain_verification_scope"] == "installation_summary"
+    warning = tenant_admin["warnings"][0]
+    assert "installationsweit" in warning and "Befunde" not in warning
+    assert platform["controls"]["audit_chain_verification_scope"] == "installation"
+    assert "Befunde" in platform["warnings"][0]

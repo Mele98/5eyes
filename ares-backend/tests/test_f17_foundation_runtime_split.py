@@ -63,12 +63,51 @@ def test_no_flaky_marker_on_foundation_tests(smoketest_tests):
 _RERUN = re.compile(r"--reruns\b|--last-failed\b|--lf\b|--failed-first\b|--ff\b|--sw\b|--stepwise\b")
 
 
+def _run_blocks(node):
+    """Alle ``run:``-Bloecke eines Workflows (auch verschachtelt)."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "run" and isinstance(value, str):
+                yield value
+            else:
+                yield from _run_blocks(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _run_blocks(item)
+
+
+def _rerun_findings(run: str) -> list[str]:
+    """N-880-06: den ganzen run-Block pruefen (Fortsetzungszeilen mit
+    Backslash, Zeilen, die mit -o/-m beginnen), nicht nur Zeilen mit
+    'pytest'. Bloecke ohne pytest-Aufruf sind ausgenommen (z.B. git pull
+    --ff-only)."""
+    if "pytest" not in run:
+        return []
+    return [m.group(0) for m in _RERUN.finditer(run)]
+
+
 @pytest.mark.parametrize("workflow", sorted(WORKFLOWS.glob("*.yml")), ids=lambda p: p.name)
 def test_ci_workflows_do_not_rerun_pytest(workflow):
-    text = workflow.read_text(encoding="utf-8")
-    for line in text.splitlines():
-        if "pytest" in line or line.strip().startswith("--"):
-            assert not _RERUN.search(line), f"{workflow.name}: {line.strip()}"
+    import yaml
+
+    data = yaml.safe_load(workflow.read_text(encoding="utf-8"))
+    for run in _run_blocks(data):
+        assert not _rerun_findings(run), f"{workflow.name}: {run.strip()[:200]}"
+
+
+_MULTILINE_RUNS = [
+    "python -m pytest tests/ \\\n  -o junit_family=xunit1 --reruns 2",
+    "python -m pytest tests/ \\\n  -m wallclock_budget \\\n  --lf",
+    "pytest -q \\\n-o addopts=--reruns=1",
+]
+
+
+@pytest.mark.parametrize("run", _MULTILINE_RUNS)
+def test_rerun_guard_catches_multiline_commands(run):
+    # Fortsetzungszeilen beginnen mit -o/-m bzw. Leerzeichen, nicht mit "--"
+    # und enthalten kein "pytest" -- die alte Zeilenpruefung liess sie durch.
+    assert "\n" in run
+    assert _rerun_findings(run)
 
 
 def test_pytest_addopts_do_not_rerun():
@@ -85,4 +124,7 @@ def test_wallclock_job_documents_runner_class():
     job = workflow["jobs"]["backend-test-wallclock"]
     assert job["runs-on"] == "ubuntu-latest"
     step = next(s for s in job["steps"] if s.get("name") == "Record runner class")
-    assert "nproc" in step["run"] and "GITHUB_STEP_SUMMARY" in step["run"]
+    assert "nproc --all" in step["run"] and "GITHUB_STEP_SUMMARY" in step["run"]
+    report = next(s for s in job["steps"] if s.get("name") == "Report wallclock measurements")
+    assert report.get("if") == "always()"
+    assert "elapsed_ms" in report["run"] and "::warning::" in report["run"] and "13000" in report["run"]

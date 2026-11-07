@@ -56,7 +56,9 @@ GOLDEN_SORTED_TABLES_SHA256 = "119de678ec42d2944c9871dc23e8054a527ced25cb6ee447d
 # POST .../anchor/export und .../anchor/verify, neue Schemas AuditAnchor*,
 # AuditChainVerificationStatusOut, AuditVerificationFindings. Kein bestehender
 # Pfad, kein bestehendes Schema geaendert (Diff gegen 2e5dfcc3 geprueft).
-GOLDEN_OPENAPI_SHA256 = "ee72a0890a1cc39af924ffdb19ab8ac9d8fcd4340448ea672e84d1a3f1b4a449"
+# Pruefrunde H4: AuditAnchorVerifyRequest + allow_unsigned, AuditAnchorVerification
+# + unsigned_accepted/signature "missing" (nur die neuen Schemas).
+GOLDEN_OPENAPI_SHA256 = "0e973cc87685937ef40e46d9400ff055cb3a2136bebd4ca8d66fec90b77f83dc"
 
 _PROBE = """
 import hashlib, json

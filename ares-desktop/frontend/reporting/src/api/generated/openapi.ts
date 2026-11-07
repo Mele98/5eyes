@@ -348,8 +348,9 @@ export interface paths {
         /**
          * Verify Audit Log Anchor
          * @description F4: Anker verifizieren -- enthaelt die heutige Kette den Anker-Stand
-         *     unveraendert (Kette 1..N, Kopf, Bestandssiegel)? Nur lesend; Antwort
-         *     ohne Inhalte. Ein unlesbarer Anker ergibt 422.
+         *     unveraendert (Kette 1..N, Kopf, Bestandssiegel)? Antwort ohne Inhalte.
+         *     Ein unlesbarer Anker ergibt 422. N-880-08: das Ergebnis wird auditiert
+         *     (CREATE/ANCHOR_VERIFY mit ok, Fingerabdruck, Sequenzen, Gruenden).
          */
         post: operations["verify_audit_log_anchor_admin_system_audit_log_anchor_verify_post"];
         delete?: never;
@@ -371,7 +372,8 @@ export interface paths {
          *     Kette (pending/running/ok/broken/error, Fortschritt, letzter erfolgreich
          *     gepruefter Kopf). integrity_confirmed nur bei 'ok'. Keine Inhalte. Die
          *     Admin-Uebersicht zeigt den Status zusaetzlich als Compliance-Warnung
-         *     (GET /admin/system/compliance).
+         *     (GET /admin/system/compliance). N-880-08: jede Abfrage wird auditiert
+         *     (CREATE/VERIFICATION_STATUS_READ, Wert = Zustand).
          */
         get: operations["get_audit_log_verification_status_admin_system_audit_log_verification_status_get"];
         put?: never;
@@ -6186,10 +6188,20 @@ export interface components {
              * Signature
              * @enum {string}
              */
-            signature: "valid" | "none" | "invalid" | "key_missing";
+            signature: "valid" | "none" | "missing" | "invalid" | "key_missing";
+            /**
+             * Unsigned Accepted
+             * @default false
+             */
+            unsigned_accepted?: boolean;
         };
         /** AuditAnchorVerifyRequest */
         AuditAnchorVerifyRequest: {
+            /**
+             * Allow Unsigned
+             * @default false
+             */
+            allow_unsigned?: boolean;
             /** Anchor Text */
             anchor_text: string;
         };

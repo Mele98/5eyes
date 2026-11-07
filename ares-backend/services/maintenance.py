@@ -406,12 +406,20 @@ def _audit_verification_warning(status: dict[str, Any]) -> str | None:
     state = status.get('state')
     if state == 'ok':
         return None
+    # N-880-08: Zusammenfassung fuer Rollen ohne Kettenpruefung -- ohne
+    # installationsweite Zaehler, als installationsweit gekennzeichnet.
+    summary = status.get('scope') == 'installation_summary'
     if state == 'broken':
+        if summary:
+            return ('Audit-Log-Integritaet verletzt (installationsweit; Details beim Plattformbetreiber).')
         return (
             f"Audit-Log-Integritaet verletzt ({status.get('finding_count') or 0} Befunde). "
             'Details: GET /admin/system/audit-log/verify.'
         )
     if state in ('pending', 'running'):
+        if summary:
+            return ('Audit-Kettenpruefung laeuft im Hintergrund (installationsweit). '
+                    'Integritaet bis zum Abschluss nicht bestaetigt.')
         done = status.get('checked') or 0
         total = status.get('total_rows') or status.get('target_sequence') or 0
         return (
@@ -467,6 +475,8 @@ def build_compliance_status(audit_verification: dict[str, Any] | None = None) ->
             'backups_colocated_with_db': backups_colocated,
             'audit_chain_verification_state': audit_status.get('state'),
             'audit_chain_integrity_confirmed': bool(audit_status.get('integrity_confirmed')),
+            # N-880-08: Geltungsbereich (Kette ist installationsweit).
+            'audit_chain_verification_scope': audit_status.get('scope') or 'installation',
         },
         'warnings': warnings,
     }

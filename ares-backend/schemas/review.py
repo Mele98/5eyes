@@ -2317,6 +2317,8 @@ class AuditAnchorExport(BaseModel):
 
 class AuditAnchorVerifyRequest(BaseModel):
     anchor_text: str = Field(min_length=1, max_length=4000)
+    # N-880-02: bewusst unsignierter Altanker trotz konfiguriertem Schluessel.
+    allow_unsigned: bool = False
 
 
 class AuditAnchorVerification(BaseModel):
@@ -2326,7 +2328,8 @@ class AuditAnchorVerification(BaseModel):
     anchor_created_at: str
     anchor_fingerprint: str
     anchor_verified_at_export: bool
-    signature: Literal["valid", "none", "invalid", "key_missing"]
+    signature: Literal["valid", "none", "missing", "invalid", "key_missing"]
+    unsigned_accepted: bool = False
     fingerprint_ok: bool
     chain_prefix_ok: bool
     head_match: bool

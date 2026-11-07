@@ -382,3 +382,38 @@ def test_status_endpoint_shows_progress_without_contents(
 def test_status_endpoint_rejects_non_admin_roles(session_local, monkeypatch, clean_overrides, role):
     client = _client(session_local, role, monkeypatch)
     assert client.get("/admin/system/audit-log/verification-status").status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# N-880-03 (Pruefrunde H4): Zaehler vor dem Scan -- kein falsches
+# "Kettenende fehlt", wenn waehrend des Scans ein Eintrag hinzukommt.
+# ---------------------------------------------------------------------------
+
+def test_sync_scan_reads_counter_before_rows(session_local, monkeypatch):
+    _log_n(session_local, 4)
+    original = audit_service._iter_chain_rows
+
+    def iter_then_append(db, batch=audit_service._CHAIN_SCAN_BATCH):
+        yield from original(db, batch)
+        # Ein anderer Schreiber schliesst nach dem letzten Teilschritt ab
+        # (hier: dieselbe Session, damit SQLite nicht sperrt).
+        log(db, user_id="u2", user_name="spaet", table_name="clients", record_id="late",
+            action="UPDATE", field_name="note", new_value="x", tenant_id="tenant-a")
+        db.flush()
+
+    monkeypatch.setattr(audit_service, "_iter_chain_rows", iter_then_append)
+    with session_local() as s:
+        detail = audit_service._verify_audit_chain_detail(s)
+        s.rollback()
+    assert detail["ok"] is True, detail["errors"]
+    assert detail["counter_value"] == 4 and detail["last_sequence"] == 4
+
+
+def test_sync_scan_still_detects_replaced_chain_end(session_local):
+    _log_n(session_local, 3)
+    with session_local() as s:
+        s.execute(text("UPDATE audit_log_sequence_counter SET last_hash = :h"), {"h": "f" * 64})
+        s.commit()
+        detail = audit_service._verify_audit_chain_detail(s)
+    assert detail["ok"] is False
+    assert any("Kettenende passt nicht" in e for e in detail["errors"])
