@@ -69,11 +69,12 @@
   "audit_log_sequence_counter": {
    "columns": [
     "id",
+    "last_hash",
     "value"
    ],
    "row_count": 1,
    "row_sha256": [
-    "eaeadb6587334471600526cf9b4d36f5"
+    "0615f58fc5cb0a2bf9fac76d72521742"
    ]
   },
   "building_blocks": {

@@ -108,8 +108,13 @@ def _assert_immutable(engine) -> None:
     with engine.begin() as conn:
         conn.execute(
             text(
-                "INSERT INTO audit_log (id, user_name, table_name, record_id, action, created_at)"
-                " VALUES (:id, 'probe', 'probe_table', 'r1', 'CREATE', '2026-10-24T00:00:00Z')"
+                # N-869-3: ab b5e1d3f7a9c4 verlangt eine CHECK-Constraint die
+                # Ketten-Felder fuer neue Zeilen; die Probe setzt sie, damit sie
+                # vor und nach dieser Revision gleich laeuft.
+                "INSERT INTO audit_log (id, user_name, table_name, record_id, action, created_at,"
+                " sequence, integrity_hash, previous_hash)"
+                " VALUES (:id, 'probe', 'probe_table', 'r1', 'CREATE', '2026-10-24T00:00:00Z',"
+                " 1, 'probe-hash', '')"
             ),
             {"id": row_id},
         )
@@ -181,3 +186,43 @@ def test_rename_refuses_when_a_trigger_is_missing(pg_schema):
     with pytest.raises(Exception, match="audit_log immutability triggers missing"):
         command.upgrade(cfg, RENAME_REVISION)
     assert _head(engine) == PREVIOUS_REVISION
+
+
+CHAIN_GUARD_REVISION = "b5e1d3f7a9c4"
+
+
+def _insert_probe(engine, *, with_chain_fields: bool) -> None:
+    columns = "id, user_name, table_name, record_id, action, created_at"
+    values = ":id, 'probe', 'probe_table', 'r1', 'CREATE', '2026-11-05T00:00:00Z'"
+    if with_chain_fields:
+        columns += ", sequence, integrity_hash, previous_hash"
+        values += ", 7, 'probe-hash', ''"
+    with engine.begin() as conn:
+        conn.execute(
+            text(f"INSERT INTO audit_log ({columns}) VALUES ({values})"),
+            {"id": f"audit-{uuid.uuid4().hex[:8]}"},
+        )
+
+
+def test_chain_guard_rejects_rows_outside_the_chain_and_downgrades(pg_schema):
+    """N-869-3: nach b5e1d3f7a9c4 scheitert jedes INSERT ohne sequence/
+    integrity_hash/previous_hash; Altzeilen (vor der Revision geschrieben)
+    bleiben (NOT VALID). Downgrade entfernt die Constraint, erneutes Upgrade
+    legt sie wieder an."""
+    cfg, engine, _schema = pg_schema
+    previous = ScriptDirectory(str(BACKEND_ROOT / "alembic")).get_revision(CHAIN_GUARD_REVISION).down_revision
+    command.upgrade(cfg, previous)
+    _insert_probe(engine, with_chain_fields=False)  # Altzeile vor der Revision
+
+    command.upgrade(cfg, CHAIN_GUARD_REVISION)
+    with pytest.raises(Exception, match="ck_audit_log_chain_fields_required"):
+        _insert_probe(engine, with_chain_fields=False)
+    _insert_probe(engine, with_chain_fields=True)
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM audit_log WHERE sequence IS NULL")).scalar_one() == 1
+
+    command.downgrade(cfg, previous)
+    _insert_probe(engine, with_chain_fields=False)
+    command.upgrade(cfg, "head")
+    with pytest.raises(Exception, match="ck_audit_log_chain_fields_required"):
+        _insert_probe(engine, with_chain_fields=False)
