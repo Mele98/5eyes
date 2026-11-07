@@ -32,6 +32,7 @@ assertions (not hand-derived in the abstract).
 from __future__ import annotations
 
 import sys
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -49,6 +50,21 @@ from models import (  # noqa: E402,F401
 configure_mappers()
 
 from services.optimizer.goal_liabilities import goal_to_liability  # noqa: E402
+from services.valuation_clock import bound_valuation_date  # noqa: E402
+
+
+# Fester Bewertungsstichtag ("heute"). Die Fenster unten liegen fest in
+# 2027-2029; die Kalenderjahr-Buckets (ADR-2) beginnen beim Jahr des
+# Stichtags, den die Engine nur ueber ``services.valuation_clock`` bezieht
+# (ausserhalb eines Laufs die Wanduhr). Mit der Wanduhr lagen die Fenster
+# ab 2028 ganz oder teilweise in der Vergangenheit (0 bzw. 1 statt 3 Buckets).
+AS_OF = date(2026, 10, 10)
+
+
+@pytest.fixture(autouse=True)
+def _fixed_valuation_date():
+    with bound_valuation_date(AS_OF):
+        yield
 
 CHF = 100  # 1 CHF == 100 Rappen
 ANNUAL_AMOUNT_RAPPEN = 100 * CHF  # CHF100 (per-frequency-period amount)

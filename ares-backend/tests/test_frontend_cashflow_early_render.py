@@ -7,12 +7,13 @@ beim App-Start blieb "Wird geladen …" in den Cashflow-Listen stehen, bis die
 gesamte Strategie-Hydration fertig war (oder der guard die Anzeige ganz verhinderte).
 """
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def test_cashflows_render_before_risk_hydration():

@@ -38,6 +38,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -313,7 +314,7 @@ def test_monolith_row_renders_the_lossless_value_in_three_distinct_states():
     identische "0" und der Test geht rot.
     """
     _require_node()
-    mapper_src = _extract_row_mapper(HTML_PATH.read_text(encoding="utf-8"))
+    mapper_src = _extract_row_mapper(read_monolith_bundle())
     assert "weighted_objective_contribution_decimal" in mapper_src, (
         "Sanity: der extrahierte Renderer liest das verlustfreie Feld nicht "
         "-- Extraktion zeigt auf die falsche Stelle."
@@ -381,7 +382,7 @@ def test_monolith_does_not_round_the_displayed_contribution():
     und der Berater saehe trotzdem "0". Deshalb ist der Renderer bewusst
     ungerundet, und das wird hier festgehalten.
     """
-    mapper_src = _extract_row_mapper(HTML_PATH.read_text(encoding="utf-8"))
+    mapper_src = _extract_row_mapper(read_monolith_bundle())
     contribution_part = mapper_src[
         mapper_src.index("weighted_objective_contribution_decimal"):
     ]

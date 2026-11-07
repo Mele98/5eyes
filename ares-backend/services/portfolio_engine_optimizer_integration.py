@@ -401,7 +401,10 @@ def _run_stochastic_optimizer_pass(
     external_wealth_rappen: int = 0,
     external_wealth_series_rappen: list[int] | None = None,
     mandate=None,  # Sprint 4 Phase 3: fuer BFS-Mortalitaets-Sampling
-    run_context=None,  # X2b: RunContext des Laufs (duck-typed), optional
+    # X2b: RunContext des Laufs, optional. Kein beliebiges duck-typed Objekt
+    # (N-843-1): Leser rufen ``ensure_bound_to(mandate)`` auf (Mortalitaet,
+    # Payload-Fallback); ein Objekt ohne diese Methode wirft AttributeError.
+    run_context=None,
     # CERT-ALLOCATION-INTENT-001 (MANUAL-TARGET-SEMANTICS-001): explicit,
     # partial Soft-Preference Target Intent -- extracted by the caller via
     # services.optimizer.allocation_intent.extract_soft_preference_bps from
