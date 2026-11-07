@@ -293,6 +293,13 @@ def ensure_column(conn, table_name: str, column_name: str, sql_type: str) -> Non
 # (database.py importiert keine services/), synchron mit
 # services/portfolio_engine_payload.py::THEME_SUB_ASSET_CLASSES -- per Test
 # gepinnt (tests/test_esg_premium_criteria.py).
+PRODUCT_INTERNAL_ID_INDEX = "ux_products_tenant_internal_id"
+PRODUCT_INTERNAL_ID_INDEX_DDL = (
+    f"CREATE UNIQUE INDEX IF NOT EXISTS {PRODUCT_INTERNAL_ID_INDEX} "
+    "ON products(tenant_id, internal_product_id) "
+    "WHERE internal_product_id IS NOT NULL AND deleted_at IS NULL"
+)
+
 THEME_TAG_BACKFILL: tuple[tuple[str, str], ...] = (
     ("Thema Fossile Energie", '["fossil"]'),
     ("Thema Verteidigung", '["defense"]'),
@@ -772,6 +779,8 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         'conflict_of_interest_disclosures': [
             ('reimbursed_to_client', 'INTEGER', 0),
             ('waiver_document_id', 'TEXT'),
+            # N-861-1: optionale Produktbindung, siehe models/review.py.
+            ('product_id', 'TEXT'),
         ],
         # 2026-06-18 (#84): Miete-Teuerungsindexierung pro Immobilien-Position.
         # NOT NULL DEFAULT 0 -> Bestandszeilen werden auf 0 gesetzt (Response-Schema
@@ -1122,6 +1131,30 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # theme_tags fuer "Thema X"-Produkte weiter unten.
             ('climate_benchmark', 'TEXT'),
             ('theme_tags', 'TEXT'),
+            # AUDIT-2026-11 P1 (PO-6, L1): Produkt-Stammdaten, siehe
+            # models/review.py::Product und Alembic a8d3c5e7f9b1. Ohne
+            # Default/Backfill: NULL = nicht erfasst (nichts erfinden).
+            ('domicile', 'TEXT'),
+            ('is_hedged', 'INTEGER'),
+            ('hedge_currency', 'TEXT'),
+            ('ter_source', 'TEXT'),
+            ('ter_as_of', 'TEXT'),
+            ('retrocession_bps', 'INTEGER'),
+            ('retrocession_source', 'TEXT'),
+            ('is_house_product', 'INTEGER'),
+            ('distribution_policy', 'TEXT'),
+            ('valor', 'TEXT'),
+            ('minimum_investment_minor_units', 'INTEGER'),
+            # Owner-Anforderung P1 (eigene Fonds), Alembic c2e6f8a1b3d5.
+            ('listing_status', 'TEXT'),
+            ('internal_product_id', 'TEXT'),
+            ('price_source', 'TEXT'),
+            ('nav_frequency', 'TEXT'),
+            ('nav_as_of', 'TEXT'),
+            ('redemption_period_days', 'INTEGER'),
+            ('notice_period_days', 'INTEGER'),
+            ('has_gating', 'INTEGER'),
+            ('gating_terms', 'TEXT'),
             # 2026-08-01 (Laender-Skalierung, Cross-Jurisdiktions-Leck-Fix):
             # siehe models/review.py::Product.jurisdiction. NULL = "CH".
             ('jurisdiction', 'TEXT'),
@@ -1228,6 +1261,21 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
                     "WHERE status IS NULL"
                 )
             )
+
+        # Owner-Anforderung P1 (eigene Fonds): interne Produkt-ID eindeutig je
+        # Tenant (aktive Zeilen). Identisch zu Alembic c2e6f8a1b3d5.
+        # products.tenant_id kommt sonst erst spaeter (ensure_column im
+        # Fondsuniversum-Patch) -- hier idempotent vorziehen, damit der Index
+        # auf jeder Bootstrap-Reihenfolge angelegt werden kann.
+        if inspector.has_table('products'):
+            product_columns = {
+                row[1] for row in conn.execute(text("PRAGMA table_info(products)"))
+            } if target_engine.dialect.name == 'sqlite' else {
+                column['name'] for column in inspect(conn).get_columns('products')
+            }
+            if 'tenant_id' not in product_columns:
+                conn.execute(text('ALTER TABLE products ADD COLUMN tenant_id TEXT'))
+            conn.execute(text(PRODUCT_INTERNAL_ID_INDEX_DDL))
 
         # ESG-PREMIUM-CRITERIA-001 (2026-10-14): idempotenter Backfill --
         # Produkte mit Sub-Anlageklasse "Thema X" erhalten den Tag X, sofern
