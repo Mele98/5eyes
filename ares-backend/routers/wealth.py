@@ -1402,6 +1402,13 @@ GOAL_RANK_ADJUSTED_NOTICE = (
     "Priorität angepasst – der frühere Rang ist inzwischen belegt, das Ziel "
     "steht jetzt am Ende. Bitte Reihenfolge prüfen und Strategie neu berechnen."
 )
+# H-868-D2: Reaktivierung mit ausdruecklichem, aber belegtem Wunschrang; das
+# Ziel behaelt seinen frueheren (freien) Rang.
+GOAL_RANK_REQUEST_NOT_APPLIED_NOTICE = (
+    "Gewünschte Priorität nicht übernommen – der gewünschte Rang ist belegt, "
+    "das Ziel behält seinen früheren Rang. Reihenfolge bitte über „Reihenfolge "
+    "festlegen“ ändern und Strategie neu berechnen."
+)
 
 
 @router.put("/mandates/{mandate_id}/goals/{goal_id}", response_model=GoalResponse)
@@ -1424,12 +1431,14 @@ def update_goal(
     updates = _normalize_goal_payload(updates, goal)
     _validate_goal_link(mandate.client_id, updates, db)
     new_rank = updates.get("rank")
+    requested_rank = int(new_rank) if new_rank is not None else None
     if new_rank is not None and int(new_rank) != int(goal.rank or 0):
         # Sprint 2026-06-06 Fix: Rang-Konflikt beim Update auto-aufloesen statt 409.
         updates["rank"] = _resolve_goal_rank_conflict(
             mandate_id, int(new_rank), db, existing_id=goal_id,
         )
     rank_adjustment: tuple[int, int] | None = None
+    rank_notice = GOAL_RANK_ADJUSTED_NOTICE
     if updates.get("is_active") and not int(goal.is_active or 0):
         # N-865-1 (Geschwister-Pfad): Ein reaktiviertes Ziel tritt wieder
         # unter ux_goals_rank_active. Belegt inzwischen ein aktives Ziel
@@ -1442,7 +1451,14 @@ def update_goal(
         wanted = int(updates.get("rank") or goal.rank or 1)
         updates["rank"] = _resolve_goal_rank_conflict(mandate_id, wanted, db)
         if int(updates["rank"]) != wanted:
-            rank_adjustment = (wanted, int(updates["rank"]))
+            rank_adjustment = (requested_rank or wanted, int(updates["rank"]))
+        elif requested_rank is not None and requested_rank != int(updates["rank"]):
+            # H-868-D2: Der ausdrueckliche Wunschrang war belegt, der fruehere
+            # Rang ist frei. Kein Hochstufen per Edit (GOAL-RANK-HARDNESS-
+            # ROUNDTRIP-001), aber der verworfene Wunsch wird nicht still
+            # uebergangen: Response-Hinweis und Rang-Audit (Wunsch -> Ergebnis).
+            rank_adjustment = (requested_rank, int(updates["rank"]))
+            rank_notice = GOAL_RANK_REQUEST_NOT_APPLIED_NOTICE
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0
@@ -1465,7 +1481,7 @@ def update_goal(
         return GoalResponse.model_validate(goal).model_copy(update={
             "rank_adjusted_from": rank_adjustment[0],
             "rank_adjusted_to": rank_adjustment[1],
-            "rank_adjustment_notice": GOAL_RANK_ADJUSTED_NOTICE,
+            "rank_adjustment_notice": rank_notice,
         })
     return goal
 

@@ -292,3 +292,61 @@ def _rank_audit(session_factory, goal_id) -> list[tuple]:
             AuditLog.field_name == "rank",
         ).all()
         return [(r.field_name, r.old_value, r.new_value) for r in rows]
+
+
+def test_reactivation_with_occupied_explicit_rank_is_not_silently_dropped(
+    auth_client, advisor_user, session_factory,
+):
+    """H-868-D2 (Dok. 86): g3 (Rang 3) wird deaktiviert und mit dem
+    ausdruecklichen Wunschrang 1 reaktiviert. Rang 1 ist belegt, Rang 3 frei.
+    Das Ziel behaelt Rang 3 (kein Hochstufen per Edit), aber Response und
+    Audit nennen den verworfenen Wunsch. Vorher: Rang 3, Felder null."""
+    _assert_real_index(session_factory)
+    mid, (g1, g2, g3) = _mandate_with_goals(auth_client, advisor_user)
+    assert auth_client.put(f"/mandates/{mid}/goals/{g3}", json={"is_active": False}).status_code == 200
+    on = auth_client.put(f"/mandates/{mid}/goals/{g3}", json={"is_active": True, "rank": 1})
+    assert on.status_code == 200, on.text
+    body = on.json()
+    assert body["rank"] == 3
+    assert _ranks(auth_client, mid) == {g1: 1, g2: 2, g3: 3}
+    assert body["rank_adjusted_from"] == 1
+    assert body["rank_adjusted_to"] == 3
+    assert "Gewünschte Priorität nicht übernommen" in body["rank_adjustment_notice"]
+    assert _rank_audit(session_factory, g3) == [("rank", "1", "3")]
+
+
+def test_reactivation_with_occupied_explicit_and_old_rank_names_the_wish(
+    auth_client, advisor_user, session_factory,
+):
+    """H-868-D2, Gegenstueck: Wunschrang 1 UND frueherer Rang 3 belegt -> ans
+    Ende (N-868-3); "von" nennt den Wunsch, nicht den Zwischenwert."""
+    _assert_real_index(session_factory)
+    mid, (g1, g2, g3) = _mandate_with_goals(auth_client, advisor_user)
+    assert auth_client.put(f"/mandates/{mid}/goals/{g3}", json={"is_active": False}).status_code == 200
+    new = auth_client.post(f"/mandates/{mid}/goals", json={
+        "goal_family": "Vermögen", "goal_type": "Vermögensziel",
+        "label": "neu", "rank": 3, "target_wealth_rappen": 100_000_00,
+        "horizon_years": 10, "hardness": "Primär", "value_mode": "nominal",
+    })
+    assert new.status_code == 201 and new.json()["rank"] == 3, new.text
+    on = auth_client.put(f"/mandates/{mid}/goals/{g3}", json={"is_active": True, "rank": 1})
+    assert on.status_code == 200, on.text
+    body = on.json()
+    assert body["rank"] == 4
+    assert (body["rank_adjusted_from"], body["rank_adjusted_to"]) == (1, 4)
+    assert "Priorität angepasst" in body["rank_adjustment_notice"]
+    assert _rank_audit(session_factory, g3) == [("rank", "1", "4")]
+
+
+def test_plain_edit_with_occupied_rank_on_active_goal_stays_quiet(
+    auth_client, advisor_user, session_factory,
+):
+    """Abgrenzung: ein gewoehnlicher Edit eines AKTIVEN Ziels (das Frontend
+    sendet den Rang bei jedem Speichern mit) bleibt ohne Hinweis."""
+    _assert_real_index(session_factory)
+    mid, (g1, g2, g3) = _mandate_with_goals(auth_client, advisor_user)
+    res = auth_client.put(f"/mandates/{mid}/goals/{g3}", json={"rank": 1})
+    assert res.status_code == 200, res.text
+    assert res.json()["rank"] == 3
+    assert res.json()["rank_adjusted_from"] is None
+    assert _rank_audit(session_factory, g3) == []
