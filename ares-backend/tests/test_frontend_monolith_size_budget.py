@@ -16,6 +16,15 @@ N-861-9: 1908660 = gemessener gemeinsamer Stand nach dem Merge von #858
 Kein Anheben gegenueber einem gemergten Stand: das Budget existierte nur auf
 #861 (1902644), #858 brachte seine geprueften Live-Test-Fixes (+6016 Bytes)
 ohne Byte-Budget mit; beide Staende werden hier zusammengefuehrt.
+
+H3/I-04 (2026-11-07): Nach der Integrationsprobe lag der Monolith exakt am
+Budget (31190 Zeilen / 1908660 Bytes). Drei in sich geschlossene Bloecke
+wurden verhaltensneutral ausgelagert (ares.css, intro-sequence.js,
+goal-review-runtime.js; siehe tests/monolith_source.py). Budget gesenkt auf
+den neuen Stand 27675 / 1695550 (der Ratchet bleibt: nur sinkend). Die
+ausgelagerten Dateien bekommen je ein eigenes Budget nach derselben Regel
+(Stand beim Einfuehren, Toleranz 0) -- sonst waere die Auslagerung ein
+Schlupfloch, ueber das der Monolith unbemerkt weiterwaechst.
 """
 from __future__ import annotations
 
@@ -24,10 +33,17 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 31190
+MONOLITH_MAX_LINES = 27675
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1908660
+MONOLITH_MAX_BYTES = 1695550
 TOLERANCE_BYTES = 0
+
+# Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
+EXTRACTED_PART_BUDGETS = {
+    "ares.css": (1162, 91800),
+    "intro-sequence.js": (761, 36861),
+    "goal-review-runtime.js": (1589, 84633),
+}
 
 
 def _line_count(path: Path) -> int:
@@ -70,3 +86,18 @@ def test_byte_budget_counts_appended_code_on_existing_lines(tmp_path):
 def test_budget_has_no_tolerance():
     assert TOLERANCE_LINES == 0
     assert TOLERANCE_BYTES == 0
+
+
+def test_extracted_parts_do_not_grow_beyond_budget():
+    from tests.monolith_source import EXTRACTED_PARTS
+
+    assert {name for name, _kind in EXTRACTED_PARTS} == set(EXTRACTED_PART_BUDGETS)
+    for name, (max_lines, max_bytes) in EXTRACTED_PART_BUDGETS.items():
+        path = MONOLITH.parent / name
+        lines, size = _line_count(path), _byte_count(path)
+        assert lines <= max_lines + TOLERANCE_LINES, (
+            f"{name} hat {lines} Zeilen, Budget {max_lines}. Neue Logik in eigene Module."
+        )
+        assert size <= max_bytes + TOLERANCE_BYTES, (
+            f"{name} hat {size} Bytes, Budget {max_bytes}. Neue Logik in eigene Module."
+        )

@@ -20,6 +20,17 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_HTML = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 DEFAULT_OUTPUT = REPO_ROOT / "docs" / "audits" / "2026-06-02-monolith-inventory.json"
 
+# H3/I-04: verhaltensneutral aus ares.html ausgelagerte Bloecke (Dateiname,
+# Art) in Dokumentreihenfolge. Sie gehoeren fachlich weiter zum Monolithen;
+# ihre CSS-Selektoren und JS-Deklarationen werden mit ``source`` = Dateiname
+# (Zeilen relativ zur Datei) mitinventarisiert, damit das Sicherheitsnetz
+# durch die Auslagerung nicht duenner wird.
+EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
+    ("ares.css", "css"),
+    ("intro-sequence.js", "js"),
+    ("goal-review-runtime.js", "js"),
+)
+
 _JS_PATTERNS = (
     ("function", re.compile(r"\b(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(")),
     (
@@ -111,6 +122,23 @@ def build_inventory(html_path: Path = DEFAULT_HTML) -> dict[str, Any]:
     sub_sections = _collect_sub_sections(parser.elements)
     css_selectors = _collect_css_selectors(parser.style_blocks)
     js_functions = _collect_js_functions(parser.script_blocks)
+    extracted_parts = []
+    for name, kind in EXTRACTED_MONOLITH_PARTS:
+        part_path = html_path.parent / name
+        if not part_path.is_file():
+            continue
+        part_text = part_path.read_text(encoding="utf-8").replace("\r\n", "\n")
+        block = [{"line": 1, "col": 0, "text": part_text}]
+        rows = _collect_css_selectors(block) if kind == "css" else _collect_js_functions(block)
+        for row in rows:
+            row["source"] = name
+        (css_selectors if kind == "css" else js_functions).extend(rows)
+        extracted_parts.append({
+            "path": _repo_relative(part_path),
+            "kind": kind,
+            "sha256": hashlib.sha256(part_text.encode("utf-8")).hexdigest(),
+            "size_bytes": len(part_text.encode("utf-8")),
+        })
 
     inventory = {
         "inventory_version": 1,
@@ -133,6 +161,7 @@ def build_inventory(html_path: Path = DEFAULT_HTML) -> dict[str, Any]:
         "css_selectors": css_selectors,
         "modal_structures": modal_structures,
         "sub_sections": sub_sections,
+        "extracted_parts": extracted_parts,
     }
     return inventory
 

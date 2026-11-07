@@ -29,6 +29,7 @@ from services.goal_success_status import (
     goal_status_from_success_pct,
 )
 from services.portfolio_engine_payload import _merge_goal_analysis_with_monte_carlo
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 
@@ -121,7 +122,7 @@ def test_foundation_example_uses_same_weighted_success():
 # --------------------------------------------------------------------------
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _function_source(html: str, name: str) -> str:
