@@ -170,13 +170,32 @@ def build_protokoll_flowables(ctx: PDFContext, data) -> list:
 
     # RISK-PROFILE-SIGNOFF-001: Signoff-/Decision-Referenz des aktuellen
     # Risikoprofils -- dieselben Zeilen wie im Risikoprofil-PDF.
-    signoff_lines = tuple(getattr(data, "risk_signoff_lines", ()) or ())
-    if signoff_lines:
-        from services.pdf.documents.risikoprofil import signoff_lines_table
+    # H5-Luecke: Version des Risikofragebogens als erste Zeile.
+    from services.pdf.documents.risikoprofil import signoff_lines_table
 
+    version_line = tuple(getattr(data, "risk_questionnaire_line", ()) or ())
+    signoff_lines = ((version_line,) if version_line else ()) + tuple(
+        getattr(data, "risk_signoff_lines", ()) or ()
+    )
+    if signoff_lines:
         flowables.append(Spacer(1, 4 * mm))
         flowables.append(_section_title("Risikoprofil-Signoff"))
         flowables.append(signoff_lines_table(signoff_lines, styles))
+
+    # E3 (Dok. 106): Nachhaltigkeitspraeferenzen -- Antworten, Version,
+    # Bestaetigung, Review-Frist (Hauspolitik) und was im Portfolio heute nicht
+    # beruecksichtigt wird. Neutrale Texte (Claim-Waechter-Test).
+    sustainability_lines = tuple(getattr(data, "sustainability_lines", ()) or ())
+    if sustainability_lines:
+        flowables.append(Spacer(1, 4 * mm))
+        flowables.append(_section_title("Nachhaltigkeitspräferenzen"))
+        flowables.append(signoff_lines_table(sustainability_lines, styles))
+        for note in tuple(getattr(data, "sustainability_notes", ()) or ()):
+            flowables.append(Spacer(1, 1.5 * mm))
+            flowables.append(Paragraph(
+                f'<font name="{FONT_DEFAULT}" size="8.5" color="#475569">{_esc(str(note))}</font>',
+                styles["body"],
+            ))
 
     flowables.append(Spacer(1, 8 * mm))
     flowables.extend(make_unterschrift_section())

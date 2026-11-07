@@ -12,7 +12,7 @@ from database import get_db, new_uuid
 from models.users import User
 from models.mandates import Mandate
 from models.allocation import TargetAllocation, OptimizerPolicy, OptimizerRun, CapitalMarketAssumption, HouseMatrix, BuildingBlock
-from models.profiling import RiskAssessment
+from models.profiling import RiskAssessment, current_investment_preference
 from models.review import MandateReportNotes
 from schemas.allocation import (
     TargetAllocationCreate, TargetAllocationResponse,
@@ -26,6 +26,8 @@ from schemas.allocation import (
     OptimizerPolicyDetailResponse, HouseMatrixRowsReplace,
 )
 from schemas.review import ReportNotesResponse, ReportNotesUpdate
+from core import sustainability_preference as sustainability
+from core.reason_codes import DomainError, ReasonCode
 from services.auth import (
     get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin,
     require_portfolio_management, require_reference_data_reader,
@@ -61,6 +63,7 @@ from jurisdictions.resolve import resolve_pack
 from services.cma_currency_guard import attach_to_strategy_payload as attach_cma_currency_guard
 from services.portfolio_engine import (
     BUCKET_FIELDS,
+    _allocation_snapshot_preferences,
     _current_risk_assessment_or_none,
     _current_target_allocation_or_none,
     build_target_payload_from_allocation,
@@ -686,6 +689,46 @@ def update_cma(
     return cma
 
 
+def assert_sustainability_preference_floor(db: Session, mandate, preferences: dict | None) -> None:
+    """E3 (Dok. 106): Ausschlusswuensche der aktuellen Nachhaltigkeitspraeferenz
+    sind die Untergrenze der Strategiebausteine. Ein nicht verzichtetes Thema
+    muss wirksam gescreent sein (Ausschliessen/Untergewichten bzw. Neutral bei
+    Negativ-Screening); sonst 422. Lockern nur ueber einen dokumentierten
+    Kundenverzicht (nur Anlageberatung) in einer neuen Praeferenz-Version.
+    ``preferences`` None = Praeferenzen der aktuellen Soll-Allokation (wie
+    generate_target_allocation). Keine Engine-Wirkung, nur Validierung."""
+    decision = current_investment_preference(db, mandate.id)
+    if decision is None:
+        return
+    try:
+        exclusions = json.loads(decision.exclusions_json or "[]")
+        waived = json.loads(decision.waived_exclusions_json or "[]")
+    except (TypeError, ValueError) as exc:
+        raise DomainError(
+            ReasonCode.SUSTAINABILITY_PREFERENCE_UNREADABLE,
+            "Die Nachhaltigkeitspräferenz ist nicht lesbar -- Empfehlung blockiert.",
+            http_status=409,
+        ) from exc
+    if not exclusions:
+        return
+    if preferences is None:
+        preferences = _allocation_snapshot_preferences(
+            _current_target_allocation_or_none(db, mandate.id)
+        ) or {}
+    violations = sustainability.floor_violations(preferences, exclusions, waived)
+    if violations:
+        labels = ", ".join(sustainability.exclusion_labels(violations))
+        raise DomainError(
+            ReasonCode.SUSTAINABILITY_PREFERENCE_FLOOR_VIOLATED,
+            f"Kundenpräferenz (Nachhaltigkeit): Ausschluss {labels} darf in den "
+            "Strategiebausteinen nicht gelockert werden. Bitte «Ausschliessen» oder "
+            "«Untergewichten» wählen; Lockern nur mit dokumentiertem Kundenverzicht "
+            "(nur Anlageberatung) in den Nachhaltigkeitspräferenzen.",
+            http_status=422,
+            extra={"themes": violations},
+        )
+
+
 @router.post("/mandates/{mandate_id}/target-allocation/generate",
              response_model=TargetAllocationGenerateResponse)
 def generate_target_allocation_endpoint(
@@ -718,12 +761,15 @@ def generate_target_allocation_endpoint(
                         "(require_suitability_before_recommendation=True)."
                     ),
                 )
+        preferences = body.preferences.model_dump() if body.preferences else None
         try:
+            # E3: Kunden-Ausschluesse als Untergrenze (vor jeder Berechnung).
+            assert_sustainability_preference_floor(db, mandate, preferences)
             result = generate_target_allocation(
                 db=db,
                 mandate=mandate,
                 user_id=current_user.id,
-                preferences=body.preferences.model_dump() if body.preferences else None,
+                preferences=preferences,
             )
         except AllocationInputError as exc:
             # AUDIT-2026-11 A5 / H-859-5: unerfuellbare oder widerspruechliche

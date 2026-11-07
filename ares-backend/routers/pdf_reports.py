@@ -17,8 +17,10 @@ from database import get_db
 from models.clients import Client
 
 logger = logging.getLogger(__name__)
+from core import sustainability_preference as sustainability
 from core.http_filenames import content_disposition
 from models.mandates import Mandate
+from models.profiling import current_investment_preference
 from models.users import User
 from routers.auth import _extract_client_ip
 from services.auth import get_current_user, get_mandate_for_user_or_404
@@ -1913,6 +1915,85 @@ def _risk_signoff_view(db: Session, ra) -> dict:
     return view
 
 
+# E3 (Dok. 106): Abschnitt "Nachhaltigkeitspraeferenzen" im Beratungsprotokoll.
+# Liest die aktuelle InvestmentPreferenceDecisionV1; Texte ausschliesslich aus
+# core/sustainability_preference.py (Claim-Waechter-geprueft). Fehlt die
+# Erfassung, steht das ausdruecklich im Protokoll; ein Ladefehler wird
+# sichtbar ausgewiesen (fail-closed, nie stilles Weglassen).
+_SUSTAINABILITY_LOAD_FAILED = {
+    "state": "unreadable",
+    "lines": (("Nachhaltigkeitspräferenz", "Konnte nicht geladen werden -- bitte prüfen"),),
+    "notes": (),
+}
+_RELEVANCE_LABELS = {
+    sustainability.RELEVANCE_YES: "Ja",
+    sustainability.RELEVANCE_NOT_RELEVANT: "Nicht relevant",
+}
+
+
+def _sustainability_protocol_view(db: Session, mandate: Mandate) -> dict:
+    row = current_investment_preference(db, mandate.id)
+    if row is None:
+        return {
+            "state": "missing",
+            "lines": (("Nachhaltigkeitspräferenz", "Nicht erfasst. Die Erhebung erfolgt nach dem Risikoprofil."),),
+            "notes": (sustainability.NO_RISK_EFFECT_TEXT,),
+        }
+    exclusions = list(json.loads(row.exclusions_json or "[]"))
+    waived = list(json.loads(row.waived_exclusions_json or "[]"))
+    effective = [key for key in exclusions if key not in waived]
+    question1 = _RELEVANCE_LABELS.get(row.esg_relevance) or "Keine Angabe"
+    question2 = "entfällt"
+    if row.esg_characteristic:
+        options = {o["value"]: o["label"] for o in sustainability.QUESTIONS[1]["options"]}
+        question2 = options.get(row.esg_characteristic, row.esg_characteristic)
+    review_state = sustainability.review_status(row.review_due_on, date.today().isoformat())
+    lines = [
+        ("Erhebung", (
+            f"Fragebogen {row.questionnaire_version} · Version {int(row.sequence_no)} · "
+            f"erfasst am {sustainability.format_date_ch(row.captured_at)}"
+        )),
+        ("Frage 1 · Relevanz", question1),
+        ("Frage 2 · Merkmal", question2),
+        ("Ausschlusswünsche", ", ".join(sustainability.exclusion_labels(exclusions)) or "keine"),
+    ]
+    if waived:
+        lines.append(("Kundenverzicht", (
+            ", ".join(sustainability.exclusion_labels(waived))
+            + " (dokumentierter Verzicht in der Anlageberatung, Begründung im Nachweis)"
+        )))
+    lines += [
+        ("Ergebnis", sustainability.PROFILE_TEXTS.get(row.profile_code, row.profile_code)),
+        ("Information", "Information zu Nachhaltigkeitspräferenzen abgegeben und zur Kenntnis genommen"
+         if row.information_acknowledged else "nicht dokumentiert"),
+        ("Kundenbestätigung", "bestätigt" if row.client_confirmed else "ausstehend"),
+        ("Überprüfung", (
+            sustainability.review_policy_label(int(row.review_policy_months))
+            + f" Nächste Überprüfung bis {sustainability.format_date_ch(row.review_due_on)}."
+        )),
+        ("Nachweis", f"Definition {row.definition_hash[:16]}… · Erfassung {row.decision_hash[:16]}…"),
+    ]
+    notes = list(sustainability.limit_texts(row.profile_code, effective))
+    if effective:
+        notes.append(sustainability.HARD_EXCLUSION_LOCKED_NOTE)
+    notes.append(sustainability.NO_RISK_EFFECT_TEXT)
+    if review_state == sustainability.REVIEW_DUE:
+        notes.insert(0, sustainability.review_due_text(row.review_due_on))
+    return {"state": review_state, "lines": tuple(lines), "notes": tuple(notes)}
+
+
+def _risk_questionnaire_version_line(ra) -> tuple:
+    """H5-Luecke: Version des Risikofragebogens im Beratungsprotokoll."""
+    if ra is None:
+        return ("Risikofragebogen", "Kein aktuelles Risikoprofil")
+    version = getattr(ra, "questionnaire_version", None)
+    if not version:
+        return ("Risikofragebogen", "Version v1 (Standard-Fragebogen)")
+    digest = str(getattr(ra, "questionnaire_hash", "") or "")[:16]
+    suffix = f" · Definition {digest}…" if digest else ""
+    return ("Risikofragebogen", f"Version {version}{suffix}")
+
+
 def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     """Beratungsprotokoll-Daten aus AdvisoryLog + letzter Empfehlung."""
     advisory_wealth = None
@@ -2035,15 +2116,23 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
 
     # RISK-PROFILE-SIGNOFF-001: dieselbe Signoff-/Decision-Referenz wie im
     # Risikoprofil-PDF.
+    risk_version_line = ("Risikofragebogen", "Version konnte nicht geladen werden -- pruefen")
     try:
         from services.portfolio_engine import _current_risk_assessment_or_none
 
-        risk_signoff_view = _risk_signoff_view(
-            db, _current_risk_assessment_or_none(db, mandate.id),
-        )
+        current_ra = _current_risk_assessment_or_none(db, mandate.id)
+        risk_version_line = _risk_questionnaire_version_line(current_ra)
+        risk_signoff_view = _risk_signoff_view(db, current_ra)
     except Exception as exc:  # noqa: BLE001 — PDF darf nicht crashen
         logger.warning("Protokoll data: risk signoff load failed: %s", exc)
         risk_signoff_view = {"state": None, "lines": _SIGNOFF_LOAD_FAILED}
+
+    # E3 (Dok. 106): Nachhaltigkeitspraeferenzen (Ladefehler sichtbar).
+    try:
+        sustainability_view = _sustainability_protocol_view(db, mandate)
+    except Exception as exc:  # noqa: BLE001 — PDF darf nicht crashen
+        logger.warning("Protokoll data: sustainability preference load failed: %s", exc)
+        sustainability_view = _SUSTAINABILITY_LOAD_FAILED
 
     # KNOWLEDGE-GAP-ASSET-CLASS-001: SAA-Klassen ohne dokumentierte Kenntnis.
     knowledge_gap_hints: list[str] = []
@@ -2066,6 +2155,10 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
         risk_signoff_hash=risk_signoff_view.get("signoff_hash"),
         risk_signoff_lines=risk_signoff_view.get("lines", ()),
         knowledge_gap_hints=knowledge_gap_hints,
+        risk_questionnaire_line=risk_version_line,
+        sustainability_state=sustainability_view["state"],
+        sustainability_lines=sustainability_view["lines"],
+        sustainability_notes=sustainability_view["notes"],
     )
 
 

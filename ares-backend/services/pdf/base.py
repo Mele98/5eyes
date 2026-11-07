@@ -330,6 +330,17 @@ class ProtokollData:
     # Reiner Hinweis -- die Allokation wurde dadurch nicht veraendert.
     knowledge_gap_hints: list = field(default_factory=list)
 
+    # H5-Luecke (Dok. 105/106): Version des Risikofragebogens (v1/v2) als
+    # (Label, Wert); steht vor den Signoff-Zeilen.
+    risk_questionnaire_line: tuple = ()
+
+    # E3 Nachhaltigkeitspraeferenzen (Dok. 106): Zeilen (Label, Wert) und
+    # Hinweise (was im Portfolio heute nicht beruecksichtigt wird, Review).
+    # state: missing | current | due | unreadable.
+    sustainability_state: str | None = None
+    sustainability_lines: tuple = ()
+    sustainability_notes: tuple = ()
+
 
 @dataclass(frozen=True)
 class CostDisclosurePDFData:
