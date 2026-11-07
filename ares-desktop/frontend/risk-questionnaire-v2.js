@@ -42,7 +42,6 @@ riskV2AddQ10Footnote();
 var RISK_V2={policy:null,status:'idle',pending:null,lastSaved:null,inBase:false};
 var RISK_V2_POLICY_ERROR='Die Fragebogen-Version konnte nicht vom Server geladen werden. '
   +'Speichern ist gesperrt, bis die Verbindung wiederhergestellt ist (bitte Seite neu laden).';
-var RISK_V2_GROWTH_PROFILES=['Wachstumsorientiert','Dynamisch','Aktien'];
 var RISK_V2_Q12_PCT=[5,10,20,20];
 
 function riskV2Active(){
@@ -178,30 +177,31 @@ function riskV2Caps(policy,behavPoints,opts){
 }
 
 // N-886-06: Kenntnis ODER Aufklaerung (wie ELIG-KNOWLEDGE-001); Erfahrung allein genuegt nicht.
-function riskV2InstrumentDocumented(instruments,row){
+function riskV2InstrumentDocumented(instruments,row,keys){
   var v=instruments&&instruments[row];
-  return !!(v&&(v.known===1||v.informed===1));
+  return !!(v&&(keys||['known','informed']).some(function(k){return v[k]===1;}));
 }
 
 // K4 "wenig Erfahrung" (N-886-07): neue Erhebung ohne Erfahrung in den
 // Aktien-Zeilen der Policy; Altprofile ohne Erfahrungs-Spalte: nicht bewertbar.
-function riskV2LittleExperience(policy,instruments){
+function riskV2LittleExperience(fp,instruments){
   var rows=Object.keys(instruments||{}).map(function(k){return instruments[k];})
     .filter(function(v){return v&&typeof v==='object';});
   if(!rows.length||!rows.some(function(v){return 'experienced' in v;}))return false;
-  return !(policy.k4_experience_rows||[]).some(function(r){
+  return !(fp.k4_experience_rows||[]).some(function(r){
     var v=instruments[r];return !!(v&&v.experienced===1);
   });
 }
 
+// N-886-10: Regelparameter aus der Definition (policy.flag_params), wie der Server.
 function riskV2Flags(policy,q9,q10,q11,q13,effectiveProfile,instruments){
-  var flags=[];
-  if(q9===1&&q10>=3)flags.push('K1');
-  if(q10>=3&&q11<=2)flags.push('K2');
-  if(Math.max(q9,q10,q11)-Math.min(q9,q10,q11)>=2)flags.push('K3');
-  var growth=RISK_V2_GROWTH_PROFILES.indexOf(effectiveProfile)>=0;
-  if(growth&&(q13===policy.q13_not_invested_option||riskV2LittleExperience(policy,instruments)))flags.push('K4');
-  if(growth&&!riskV2InstrumentDocumented(instruments,'Aktien'))flags.push('K5');
+  var fp=policy.flag_params, flags=[];
+  if(q9===fp.k1.q9_equals&&q10>=fp.k1.q10_min)flags.push('K1');
+  if(q10>=fp.k2.q10_min&&q11<=fp.k2.q11_max)flags.push('K2');
+  if(Math.max(q9,q10,q11)-Math.min(q9,q10,q11)>=fp.k3.spread_min)flags.push('K3');
+  var growth=(fp.growth_profiles||[]).indexOf(effectiveProfile)>=0;
+  if(growth&&(q13===fp.q13_not_invested_option||riskV2LittleExperience(fp,instruments)))flags.push('K4');
+  if(growth&&!riskV2InstrumentDocumented(instruments,fp.k5_row,fp.knowledge_evidence_keys))flags.push('K5');
   return flags;
 }
 

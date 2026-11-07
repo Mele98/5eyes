@@ -53,7 +53,7 @@ EXTRACTED_PART_BUDGETS = {
     "ares.css": (1162, 91800),
     "intro-sequence.js": (761, 36861),
     "goal-review-runtime.js": (1589, 84633),
-    "risk-questionnaire-v2.js": (473, 20377),
+    "risk-questionnaire-v2.js": (473, 20529),
     "sustainability-preferences.js": (330, 17184),
 }
 

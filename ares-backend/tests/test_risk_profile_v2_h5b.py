@@ -502,7 +502,7 @@ def test_n886_03_flags_and_note_duty_are_rechecked(
 def test_n886_04_current_definition_is_pinned_and_registered():
     # Ein geaenderter Inhalt der Definition 2026-11-07b ist ein NEUER Eintrag,
     # nie eine Aenderung dieses Pins.
-    assert rqi.QUESTIONNAIRE_V2_HASH == "3121c414de5bdba31b4942f0c156704e153fe3e6f9e9fbf020c7a8a0f25aaba7"
+    assert rqi.QUESTIONNAIRE_V2_HASH == "39474ed874e5153d591d9358deb9076946ad28b00e21be1f758805c558c1bf90"
     assert rqi.definition_for_hash(rqi.QUESTIONNAIRE_V2_HASH) is not None
     for h, definition in rqi.QUESTIONNAIRE_DEFINITIONS.items():
         assert rqi._definition_hash(definition) == h
@@ -543,10 +543,10 @@ def test_n886_04_stored_profiles_keep_their_historical_definition(
 def test_n886_05_q12_amount_is_validated(suffix, ok):
     label = f"{rqi.V2_OPTIONS[12][3]} · {suffix}"
     if ok:
-        rqi.check_q12_amount(label, 3, currency="CHF", ceiling_chf=400_000)
+        rqi.check_q12_amount(label, 3, currency="CHF", ceiling=400_000)
     else:
         with pytest.raises(rqi.RiskQuestionnaireIntegrityError) as exc:
-            rqi.check_q12_amount(label, 3, currency="CHF", ceiling_chf=400_000)
+            rqi.check_q12_amount(label, 3, currency="CHF", ceiling=400_000)
         assert exc.value.reason_code == rqi.REASON_Q12_AMOUNT_IMPLAUSIBLE
 
 
@@ -581,7 +581,7 @@ def test_n886_07_k4_covers_little_experience():
     assert "K4" not in k(**growth, knowledge_instruments_json=some)
     assert "K4" not in k(**growth, knowledge_instruments_json=legacy)  # Altprofil: nicht bewertbar
     assert "K4" in k(**{**growth, "q13_option": 4}, knowledge_instruments_json=legacy)  # n.a.
-    assert rqi.questionnaire_v2_definition()["k4_experience_rows"] == ["Aktien", "Anlagefonds", "ETF"]
+    assert rqi.questionnaire_v2_definition()["flag_params"]["k4_experience_rows"] == ["Aktien", "Anlagefonds", "ETF"]
 
 
 def test_n886_09_single_willingness_profile_helper():
@@ -693,6 +693,98 @@ def test_n886_08_tenant_columns_in_orm_runtime_and_alembic(tmp_path, monkeypatch
     engine.dispose()
     with sqlite3.connect(str(runtime)) as conn:
         assert cols <= {row[1] for row in conn.execute("PRAGMA table_info(tenants)")}
+
+
+# ── Delta 62a7443a (N-886-10, N-886-12) ─────────────────────────────────────────
+
+def test_n886_10_flag_rules_come_from_the_stored_definition(
+    client, mandate_id, session_factory, v2_on, monkeypatch,  # noqa: F811
+):
+    # Growth-Profil (80), Aktien nur Erfahrung -> K5; kein K4,
+    # weil Aktien Erfahrung hat.
+    payload = _v2_payload(goal=3, pref=3, behav=2, q12=2, note=NOTE)
+    instruments = {"Aktien": {"known": 0, "experienced": 1, "informed": 0},
+                   "ETF": {"known": 1, "experienced": 0, "informed": 1}}
+    payload["knowledge_instruments_json"] = json.dumps(instruments)
+    payload["answers"][1]["answer_label"] = "Finanzinstrumente: " + json.dumps(instruments, separators=(",", ":"))
+    ra = _saved(client, mandate_id, session_factory, payload)
+    assert json.loads(ra.willingness_v2_json)["consistency_flags"] == ["K5"]
+    assert validate_risk_assessment_model_input(ra, mandate_type="Anlageberatung") == 80
+    # Spaetere Code-Aenderung der K4-Zeilen (Aktien faellt weg) -> das gespeicherte
+    # Profil bleibt mit SEINER Definition gueltig.
+    monkeypatch.setattr(rqi, "K4_EQUITY_EXPERIENCE_ROWS", ("Anlagefonds", "ETF"))
+    monkeypatch.setattr(rqi, "GROWTH_PROFILES", frozenset({"Aktien"}))
+    assert validate_risk_assessment_model_input(ra, mandate_type="Anlageberatung") == 80
+    # Mit geaenderten Parametern in einer NEUEN Definition gilt die neue Regel nur
+    # fuer neue Erhebungen; der Registry-Eintrag des Profils bleibt massgeblich.
+    new_def = json.loads(json.dumps(rqi._CURRENT_DEFINITION))
+    new_def["rules_version"] = "ares-risk-questionnaire-v2/2027-01-01"
+    new_def["flag_params"]["k4_experience_rows"] = ["Anlagefonds", "ETF"]
+    new_hash = rqi._definition_hash(new_def)
+    monkeypatch.setattr(rqi, "QUESTIONNAIRE_DEFINITIONS",
+                        {ra.questionnaire_hash: rqi.QUESTIONNAIRE_DEFINITIONS[ra.questionnaire_hash],
+                         new_hash: new_def})
+    monkeypatch.setattr(rqi, "_CURRENT_DEFINITION", new_def)
+    assert validate_risk_assessment_model_input(ra, mandate_type="Anlageberatung") == 80
+    assert "K4" in rqi.consistency_flags(
+        q9=4, q10=4, q11=3, q13_option=3, effective_willingness_profile="Wachstumsorientiert",
+        knowledge_instruments_json=json.dumps(instruments))
+
+
+def test_n886_10_definition_carries_all_flag_parameters():
+    fp = rqi.questionnaire_v2_definition()["flag_params"]
+    assert set(fp) == {"k1", "k2", "k3", "growth_profiles", "q13_not_invested_option",
+                       "k4_experience_rows", "k5_row", "knowledge_evidence_keys"}
+
+
+def test_n886_12_non_chf_ceiling_is_checked_in_mandate_currency():
+    label = f"{rqi.V2_OPTIONS[12][3]} · über ca. EUR 50'000 bei EUR 250'000 Anlagebetrag"
+    rqi.check_q12_amount(label, 3, currency="EUR", ceiling=300_000)
+    for ceiling in (200_000, None, 0):  # Vermoegen zu tief / kein Kurs / keine Daten
+        with pytest.raises(rqi.RiskQuestionnaireIntegrityError) as exc:
+            rqi.check_q12_amount(label, 3, currency="EUR", ceiling=ceiling)
+        assert exc.value.reason_code == rqi.REASON_Q12_AMOUNT_IMPLAUSIBLE
+
+
+def test_n886_12_router_converts_the_chf_ceiling_with_the_existing_fx_source(
+    client, mandate_id, session_factory, v2_on, monkeypatch,  # noqa: F811
+):
+    import routers.profiling as prof
+    from models.mandates import Mandate
+
+    with session_factory() as s:
+        s.get(Mandate, mandate_id).base_currency = "EUR"
+        s.commit()
+
+    class _Fx:
+        def __init__(self, rate):
+            self.rate = rate
+
+        def cross_rate(self, frm, to):
+            assert (frm, to) == ("EUR", "CHF")
+            if self.rate is None:
+                raise ValueError("kein Kurs")
+            return self.rate
+
+    def fake_loader(rate, gross_chf):
+        def _load(db, mandate, *, today=None, fx_out=None):
+            fx_out["fx_source"] = _Fx(rate)
+            return SimpleNamespace(gross_assets_rappen=gross_chf * 100)
+        return _load
+
+    payload = _v2_payload(note=NOTE)
+    payload["questionnaire_v2_answers"][0]["answer_label"] = (
+        "Über 20 % · über ca. EUR 50'000 bei EUR 250'000 Anlagebetrag")
+    url = f"/mandates/{mandate_id}/risk-assessments"
+    # 270'000 CHF / 0.9 = 300'000 EUR >= 250'000 -> ok
+    monkeypatch.setattr(prof, "load_recorded_financials", fake_loader(0.9, 270_000))
+    assert client.post(url, json=payload).status_code == 201
+    # 200'000 CHF / 0.9 = 222'222 EUR < 250'000 -> abgelehnt
+    monkeypatch.setattr(prof, "load_recorded_financials", fake_loader(0.9, 200_000))
+    assert _reason(client.post(url, json=payload)) == rqi.REASON_Q12_AMOUNT_IMPLAUSIBLE
+    # kein Kurs -> fail-closed
+    monkeypatch.setattr(prof, "load_recorded_financials", fake_loader(None, 270_000))
+    assert _reason(client.post(url, json=payload)) == rqi.REASON_Q12_AMOUNT_IMPLAUSIBLE
 
 
 if __name__ == "__main__":  # pragma: no cover

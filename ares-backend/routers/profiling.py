@@ -338,15 +338,21 @@ def create_risk_assessment(
         # 1-11 und die Kernformel bleiben unveraendert. Konsistenz-Flags
         # verlangen eine Beraternotiz, aendern das Profil aber nicht.
         try:
-            # N-886-05: Obergrenze fuer den Frankenbetrag in Frage 12.
+            # N-886-05/-12: Obergrenze fuer den Betrag in Frage 12 = erfasstes
+            # Bruttovermoegen, umgerechnet in die Mandatswaehrung (bestehende
+            # FX-Quelle). Kein Kurs bzw. keine Daten -> None -> fail-closed.
+            currency = str(getattr(mandate, "base_currency", None) or "CHF").upper()
             try:
-                ceiling = load_recorded_financials(db, mandate).gross_assets_rappen // 100
-            except ValueError:
+                fx: dict = {}
+                gross_chf = load_recorded_financials(db, mandate, fx_out=fx).gross_assets_rappen / 100
+                rate = 1.0 if currency == "CHF" else float(fx["fx_source"].cross_rate(currency, "CHF"))
+                ceiling = int(gross_chf / rate) if rate > 0 else None
+            except (ValueError, KeyError, ZeroDivisionError):
                 ceiling = None
             v2 = evaluate_v2_submission(
                 body, core_willingness_score_x10=scores.risk_willingness_score_x10,
-                currency=str(getattr(mandate, "base_currency", None) or "CHF"),
-                ceiling_chf=ceiling,
+                currency=currency,
+                ceiling=ceiling,
             )
         except RiskQuestionnaireIntegrityError as exc:
             raise HTTPException(status_code=422, detail=exc.as_detail()) from exc
