@@ -620,6 +620,35 @@ def _require_strategy_decision_anchors(mandate: Mandate, db: Session):
     return allocation, policy, assessment, snapshot_cma
 
 
+def _mc_has_distribution(mc: dict) -> bool:
+    """N-873-04: Der MC-Erzeuger liefert fuer leere bzw. einelementige
+    Stichproben den Platzhalter 0 (``_percentile([])``, ``_stddev_bps`` bei
+    < 2 Werten). Bei weniger als zwei Pfaden oder Horizont < 1 Jahr ist eine
+    0 also kein gerechneter Wert. Altpayloads ohne diese Angaben gelten als
+    vollstaendig (keine Aussage moeglich)."""
+    for key, minimum in (("simulations", 2), ("horizon_years", 1)):
+        raw = mc.get(key)
+        if raw is None:
+            continue
+        try:
+            if int(raw) < minimum:
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
+def _optional_mc_bps(mc: dict, key: str) -> int | None:
+    """MC-Kennzahl in bps; None nur bei fehlendem Wert, 0 bleibt 0 (N-858-12).
+    Ohne auswertbare Verteilung (N-873-04) ist jede Kennzahl None."""
+    if not _mc_has_distribution(mc):
+        return None
+    raw = mc.get(key)
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    return int(raw)
+
+
 def _knowledge_map_from_json(raw) -> dict[str, bool]:
     if not raw:
         return {}
@@ -1012,12 +1041,15 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     if engine_payload is not None:
         mc = engine_payload.get("monte_carlo") or {}
         try:
-            max_dd_bps = int(mc.get("target_max_drawdown_p50_bps", 0) or 0) or None
-            var_95_bps = int(mc.get("target_var_95_1y_bps", 0) or 0) or None
-            median_cagr_bps = int(mc.get("target_annualized_return_p50_bps", 0) or 0) or None
-            current_cagr_bps = int(mc.get("current_annualized_return_p50_bps", 0) or 0) or None
-            target_vol_1y_bps = int(mc.get("target_volatility_1y_bps", 0) or 0) or None
-            current_vol_1y_bps = int(mc.get("current_volatility_1y_bps", 0) or 0) or None
+            # N-858-12: 0 bps ist ein gueltiger gerechneter Wert (z. B. reine
+            # Liquiditaet: Drawdown 0, VaR 0) und darf nicht als "keine
+            # Angabe" erscheinen. Nur ein fehlender Wert ist None.
+            max_dd_bps = _optional_mc_bps(mc, "target_max_drawdown_p50_bps")
+            var_95_bps = _optional_mc_bps(mc, "target_var_95_1y_bps")
+            median_cagr_bps = _optional_mc_bps(mc, "target_annualized_return_p50_bps")
+            current_cagr_bps = _optional_mc_bps(mc, "current_annualized_return_p50_bps")
+            target_vol_1y_bps = _optional_mc_bps(mc, "target_volatility_1y_bps")
+            current_vol_1y_bps = _optional_mc_bps(mc, "current_volatility_1y_bps")
 
             # Die SOLL-Endwerte netten die externe Reserve aus dem investierten
             # Kapital heraus (Optimizer-Konvention) -- fuer eine mit dem
