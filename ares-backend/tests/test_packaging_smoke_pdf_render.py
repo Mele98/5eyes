@@ -244,8 +244,8 @@ def _as_type0(*, with_stream: bool = True, with_descendants: bool = True):
 def test_c_853_01_reportlab_fonts_are_embedded_as_font_file2():
     import pypdf
 
-    states = smoke._page_font_embedding(pypdf.PdfReader(io.BytesIO(_pdf())).pages)
-    embedded = {n: s for n, s in states.items() if s.startswith("eingebettet (/FontFile2")}
+    used, _ = smoke._font_resource_usage(pypdf.PdfReader(io.BytesIO(_pdf())).pages)
+    embedded = {u.base_font: u.state for u in used if u.state.startswith("eingebettet (/FontFile2")}
     assert any("+Inter" in n for n in embedded) and any("+CormorantGaramond" in n for n in embedded)
 
 
@@ -288,3 +288,300 @@ def test_c_853_01_type0_without_descendant_fonts_fails():
     pdf = _rewrite_fonts(_pdf(), _as_type0(with_descendants=False))
     with pytest.raises(smoke.SmokeError, match="nicht eingebettet.*Type0 ohne /DescendantFonts"):
         smoke.check_pdf_bytes(pdf, "x.pdf", ())
+
+
+# --- C-853-02 (Codex 2026-11-05): je TATSAECHLICH verwendeter Font-Resource ---
+# Pruefgegenstand ist die Resource, mit der Text gezeigt wird -- nicht der
+# /BaseFont-Name. Eine unbenutzte eingebettete Dublette belegt nichts.
+EDITORIAL = ("+Inter", "+CormorantGaramond")
+
+
+def _is_editorial(font) -> bool:
+    return any(tag in str(font.get_object().get("/BaseFont", "")) for tag in EDITORIAL)
+
+
+def _unembedded_copy(writer, font_ref, *, empty: bool = False):
+    """Kopie der Font-Resource mit eigenem /FontDescriptor ohne (bzw. mit leerem)
+    Font-Stream; gleicher /BaseFont, das Original bleibt unveraendert."""
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+    font = font_ref.get_object()
+    descriptor = font["/FontDescriptor"].get_object()
+    stripped = DictionaryObject(
+        {k: v for k, v in descriptor.items() if k not in smoke.FONT_FILE_KEYS}
+    )
+    if empty:
+        stripped[NameObject("/FontFile2")] = writer._add_object(DecodedStreamObject())
+    copy = DictionaryObject(dict(font.items()))
+    copy[NameObject("/FontDescriptor")] = writer._add_object(stripped)
+    return writer._add_object(copy)
+
+
+def _own_font_dict(page):
+    """Seite bekommt eigene /Resources und /Font (ReportLab teilt sie)."""
+    from pypdf.generic import DictionaryObject, NameObject
+
+    resources = DictionaryObject(dict(page["/Resources"].get_object().items()))
+    fonts = DictionaryObject(dict(resources["/Font"].get_object().items()))
+    resources[NameObject("/Font")] = fonts
+    page[NameObject("/Resources")] = resources
+    return fonts
+
+
+def _writer(pdf: bytes):
+    import pypdf
+
+    return pypdf.PdfWriter(clone_from=pypdf.PdfReader(io.BytesIO(pdf)))
+
+
+def _write(writer) -> bytes:
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def _set_contents(writer, page, data: bytes) -> None:
+    from pypdf.generic import DecodedStreamObject, NameObject
+
+    content = DecodedStreamObject()
+    content.set_data(data)
+    page[NameObject("/Contents")] = writer._add_object(content)
+
+
+def _with_unused_embedded_duplicate(pdf: bytes, *, empty: bool = False) -> bytes:
+    """Codex-Reproducer: der vom Inhalt verwendete Key zeigt auf eine Resource
+    ohne Stream; das eingebettete Original bleibt unbenutzt unter ``<Key>Dup``."""
+    from pypdf.generic import NameObject
+
+    writer = _writer(pdf)
+    for page in writer.pages:
+        fonts = _own_font_dict(page)
+        for key in list(fonts.keys()):
+            if _is_editorial(fonts[key]):
+                original = fonts.raw_get(key)
+                fonts[NameObject(key + "Dup")] = original
+                fonts[NameObject(key)] = _unembedded_copy(writer, original, empty=empty)
+    return _write(writer)
+
+
+def _two_page_pdf() -> bytes:
+    from services.pdf.fonts import register_editorial_fonts
+
+    assert register_editorial_fonts()
+    buf = io.BytesIO()
+    canvas = Canvas(buf)
+    for _ in range(2):
+        y = 800
+        for font in ("Inter", "CormorantGaramond"):
+            canvas.setFont(font, 6)
+            canvas.drawString(20, y, FOOTER)
+            y -= 20
+        canvas.showPage()
+    canvas.save()
+    return buf.getvalue()
+
+
+def _second_page_unembedded(pdf: bytes, *, empty: bool = False) -> bytes:
+    from pypdf.generic import NameObject
+
+    writer = _writer(pdf)
+    fonts = _own_font_dict(writer.pages[1])
+    for key in list(fonts.keys()):
+        if _is_editorial(fonts[key]):
+            fonts[NameObject(key)] = _unembedded_copy(writer, fonts.raw_get(key), empty=empty)
+    return _write(writer)
+
+
+def _key_for(fonts, family: str) -> str:
+    return next(k for k in fonts if f"+{family}" in str(fonts[k].get_object()["/BaseFont"]))
+
+
+def _forms_pdf(*, nested: bool, embedded: bool) -> bytes:
+    """Die Seite zeigt Text nur in Cormorant und ruft das Form-XObject /Fm0 auf;
+    dort (bzw. im darin aufgerufenen /Inner) wird mit Inter Text gezeigt --
+    eingebettet oder als Kopie ohne Stream. Die eingebettete Inter-Resource
+    bleibt zusaetzlich unbenutzt in den Seiten-Resources deklariert."""
+    from pypdf.generic import ArrayObject, DecodedStreamObject, DictionaryObject, FloatObject, NameObject
+
+    writer = _writer(_pdf(fonts=("CormorantGaramond",)))
+    page = writer.pages[0]
+    page_text = page.get_contents().get_data()
+    fonts = _own_font_dict(page)
+    inter_writer = _writer(_pdf(fonts=("Inter",)))
+    inter_fonts = inter_writer.pages[0]["/Resources"]["/Font"]
+    inter = writer._add_object(inter_fonts[_key_for(inter_fonts, "Inter")].get_object().clone(writer))
+    fonts[NameObject("/FInterDeclared")] = inter
+    font_ref = inter if embedded else _unembedded_copy(writer, inter)
+
+    def form(content: bytes, resources):
+        stream = DecodedStreamObject()
+        stream.set_data(content)
+        stream.update({
+            NameObject("/Type"): NameObject("/XObject"),
+            NameObject("/Subtype"): NameObject("/Form"),
+            NameObject("/BBox"): ArrayObject([FloatObject(0), FloatObject(0), FloatObject(600), FloatObject(600)]),
+            NameObject("/Resources"): resources,
+        })
+        return writer._add_object(stream)
+
+    top = form(b"BT /FX 6 Tf 20 600 Td (Formtext) Tj ET",
+               DictionaryObject({NameObject("/Font"): DictionaryObject({NameObject("/FX"): font_ref})}))
+    if nested:
+        top = form(b"q /Inner Do Q", DictionaryObject({
+            NameObject("/XObject"): DictionaryObject({NameObject("/Inner"): top})}))
+    resources = page["/Resources"]
+    xobjects = DictionaryObject(dict((resources.get("/XObject") or DictionaryObject()).items()))
+    xobjects[NameObject("/Fm0")] = top
+    resources[NameObject("/XObject")] = xobjects
+    _set_contents(writer, page, page_text + b"\nq /Fm0 Do Q\n")
+    return _write(writer)
+
+
+def test_c_853_02_unused_embedded_duplicate_does_not_mask_used_font_without_stream():
+    pdf = _with_unused_embedded_duplicate(_pdf())
+    with pytest.raises(smoke.SmokeError, match=r"Editorial-Font Inter nicht eingebettet.*Seite 1 Seite /F[\w+]+ [A-Z]{6}\+Inter-Regular: ohne Font-Stream"):
+        smoke.check_pdf_bytes(pdf, "x.pdf", (FOOTER,))
+
+
+def test_c_853_02_unused_embedded_duplicate_does_not_mask_used_empty_stream():
+    pdf = _with_unused_embedded_duplicate(_pdf(), empty=True)
+    with pytest.raises(smoke.SmokeError, match="Editorial-Font Inter nicht eingebettet.*leerer Font-Stream"):
+        smoke.check_pdf_bytes(pdf, "x.pdf", (FOOTER,))
+
+
+@pytest.mark.parametrize("empty", [False, True], ids=["ohne_stream", "leerer_stream"])
+def test_c_853_02_embedded_page_one_does_not_mask_unembedded_page_two(empty):
+    assert "2 Seite(n)" in smoke.check_pdf_bytes(_two_page_pdf(), "x.pdf", (FOOTER,))
+    pdf = _second_page_unembedded(_two_page_pdf(), empty=empty)
+    with pytest.raises(smoke.SmokeError, match=r"verwendete Font-Resource nicht eingebettet: .*Seite 2 Seite /F[\w+]+ [A-Z]{6}\+Inter-Regular"):
+        smoke.check_pdf_bytes(pdf, "x.pdf", (FOOTER,))
+
+
+def test_c_853_02_two_embedded_resources_of_one_family_pass():
+    from pypdf.generic import NameObject
+
+    writer = _writer(_pdf())
+    fonts = _own_font_dict(writer.pages[0])
+    for key in list(fonts.keys()):
+        if _is_editorial(fonts[key]):
+            fonts[NameObject(key + "Dup")] = fonts.raw_get(key)
+    assert "1 Seite(n)" in smoke.check_pdf_bytes(_write(writer), "x.pdf", (FOOTER,))
+
+
+@pytest.mark.parametrize("nested", [False, True], ids=["form", "form_in_form"])
+def test_c_853_02_font_used_only_in_form_xobject_without_stream_fails(nested):
+    pdf = _forms_pdf(nested=nested, embedded=False)
+    where = "Seite>/Fm0>/Inner" if nested else "Seite>/Fm0"
+    with pytest.raises(smoke.SmokeError, match=rf"Seite 1 {where} /FX [A-Z]{{6}}\+Inter-Regular: ohne Font-Stream"):
+        smoke.check_pdf_bytes(pdf, "x.pdf", ())
+
+
+@pytest.mark.parametrize("nested", [False, True], ids=["form", "form_in_form"])
+def test_c_853_02_font_used_only_in_form_xobject_embedded_passes(nested):
+    import pypdf
+
+    pdf = _forms_pdf(nested=nested, embedded=True)
+    used, _ = smoke._font_resource_usage(pypdf.PdfReader(io.BytesIO(pdf)).pages)
+    inter = [u for u in used if "+Inter" in u.base_font]
+    assert inter and all(u.where.startswith("Seite>/Fm0") for u in inter)
+    assert "1 Seite(n)" in smoke.check_pdf_bytes(pdf, "x.pdf", ())
+
+
+def test_c_853_02_type0_descendant_without_stream_masked_by_duplicate_fails():
+    from pypdf.generic import ArrayObject, DictionaryObject, NameObject
+
+    writer = _writer(_pdf())
+    fonts = _own_font_dict(writer.pages[0])
+    for key in list(fonts.keys()):
+        if not _is_editorial(fonts[key]):
+            continue
+        original = fonts.raw_get(key)
+        stripped = _unembedded_copy(writer, original).get_object()
+
+        def cid(descriptor):
+            return writer._add_object(DictionaryObject({
+                NameObject("/Type"): NameObject("/Font"),
+                NameObject("/Subtype"): NameObject("/CIDFontType2"),
+                NameObject("/BaseFont"): stripped["/BaseFont"],
+                NameObject("/FontDescriptor"): descriptor,
+            }))
+
+        type0 = DictionaryObject({
+            NameObject("/Type"): NameObject("/Font"),
+            NameObject("/Subtype"): NameObject("/Type0"),
+            NameObject("/BaseFont"): stripped["/BaseFont"],
+            NameObject("/Encoding"): NameObject("/Identity-H"),
+            # erster Descendant eingebettet, zweiter ohne Stream
+            NameObject("/DescendantFonts"): ArrayObject([
+                cid(original.get_object().raw_get("/FontDescriptor")),
+                cid(stripped.raw_get("/FontDescriptor")),
+            ]),
+        })
+        fonts[NameObject(key + "Dup")] = original
+        fonts[NameObject(key)] = writer._add_object(type0)
+    # Identity-H ohne /ToUnicode: Text nicht extrahierbar, deshalb ohne Pflichttext.
+    with pytest.raises(smoke.SmokeError, match="Inter nicht eingebettet.*Type0-Descendant ohne Font-Stream"):
+        smoke.check_pdf_bytes(_write(writer), "x.pdf", ())
+
+
+def test_c_853_02_used_standard_14_font_without_embedding_fails():
+    pdf = _pdf(fonts=("Inter", "CormorantGaramond", "Helvetica"))
+    with pytest.raises(smoke.SmokeError, match="verwendete Font-Resource nicht eingebettet: .*Helvetica: ohne /FontDescriptor"):
+        smoke.check_pdf_bytes(pdf, "x.pdf", (FOOTER,))
+
+
+def test_c_853_02_declared_but_unused_standard_14_font_is_not_a_use():
+    """ReportLab setzt je Seite ``/F1 12 Tf`` (Helvetica) ohne Textausgabe."""
+    import pypdf
+
+    used, declared = smoke._font_resource_usage(pypdf.PdfReader(io.BytesIO(_pdf())).pages)
+    assert any(d.base_font == "Helvetica" for d in declared)
+    assert not any(u.base_font == "Helvetica" for u in used)
+    assert {u.base_font.split("+")[1] for u in used} == {"Inter-Regular", "CormorantGaramond-Regular"}
+
+
+@pytest.mark.parametrize(
+    "snippet,needle",
+    [
+        (b"BT 20 20 Td (x) Tj ET", "Textausgabe ohne Font"),
+        (b"BT /Fnope 6 Tf 20 20 Td (x) Tj ET", r"/Fnope \?: Resource fehlt"),
+        (b"q /Xnope Do Q", "nicht lesbar: ValueError: XObject /Xnope fehlt"),
+    ],
+    ids=["ohne_tf", "unbekannter_font_key", "unbekanntes_xobject"],
+)
+def test_c_853_02_unresolvable_font_use_fails_closed(snippet, needle):
+    writer = _writer(_pdf())
+    page = writer.pages[0]
+    _set_contents(writer, page, snippet + b"\n" + page.get_contents().get_data())
+    with pytest.raises(smoke.SmokeError, match=needle):
+        smoke.check_pdf_bytes(_write(writer), "x.pdf", (FOOTER,))
+
+
+def test_c_853_02_real_ares_pdfs_pass():
+    """Echte Ares-Renderer: die Smoke-Dokumente Risikoprofil und Vertrag sowie
+    die 19-seitige Anlagestrategie bestehen die verschaerfte Pruefung."""
+    from datetime import date
+
+    from services.pdf.base import AnlagestrategieData, PDFContext, RisikoprofilData, VertragData
+    from services.pdf.reportlab_renderer import ReportLabRenderer
+
+    ctx = PDFContext(mandate_name="Hans Muster", advisor_name="Anna Berater",
+                     advisor_org="Muster & Partner AG", report_date=date(2026, 5, 17),
+                     audit_hash="abc123def456789012345678", locale="de-CH")
+    renderer = ReportLabRenderer()
+    pdfs = {
+        "risikoprofil.pdf": renderer.render_risikoprofil(ctx, RisikoprofilData(
+            risk_profile_label="Ausgewogen", risk_capacity_score=65, risk_tolerance_score=58,
+            knowledge_services={"Anlageberatung": True}, knowledge_instruments={"Aktien": True},
+            experience_years=8, suitability_note="kompatibel")),
+        "vertrag.pdf": renderer.render_vertrag(ctx, VertragData(praeambel="P", haftungsklausel="H")),
+        "anlagestrategie.pdf": renderer.render_anlagestrategie(ctx, AnlagestrategieData(
+            target_allocation_bps={"equities": 4000, "bonds": 3000, "real_estate": 1500,
+                                   "alternatives": 1000, "liquidity": 500},
+            cma_expected_return_bps=485, cma_expected_vol_bps=1120, horizon_years=15,
+            monte_carlo_stats={"p10": 80_000_000, "p50": 150_000_000, "p90": 250_000_000},
+            optimizer_reasoning="Begruendung", risk_profile_label="Ausgewogen")),
+    }
+    for label, pdf in pdfs.items():
+        summary = smoke.check_pdf_bytes(pdf, label, ())
+        assert summary.startswith(label) and "verwendete Font-Resource(n) eingebettet" in summary
