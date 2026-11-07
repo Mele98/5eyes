@@ -36,6 +36,15 @@ Quellbaum:
    in den (temporaeren) userData-Ordner. Der Erststart erzeugt genau eine
    DPAPI-Ablage (Benutzer-Scope, Format-Kennung), der Schluessel steht in
    keinem Log; ein zweiter Start laedt dieselbe Ablage byte-identisch.
+8. PDF-Render (B-9, Laufzeit): auf der frischen Smoke-DB werden ueber die
+   HTTP-API ein Admin (Ersteinrichtung), ein synthetischer Kunde und ein
+   Mandat angelegt; danach rendert die gepackte EXE Kunden-PDFs
+   (``PDF_SMOKE_DOCUMENTS``). Jedes muss ein vollstaendiges PDF sein
+   (``%PDF-`` ... ``%%EOF``, mit pypdf lesbar), die Fusszeile aus dem
+   Laenderpaket-Text ``legal.footer.disclaimer`` tragen und die
+   Editorial-Fonts (Inter, Cormorant Garamond) eingebettet haben. Faellt
+   der Renderer still auf Standard-Fonts zurueck (Fonts im Paket nicht
+   gefunden), ist der Smoke rot -- ebenso bei einer Font-Warnung im Log.
 
 Fail-closed: jede Abweichung, jede fehlende Pruefgrundlage (z.B. PyInstaller
 nicht importierbar) und jeder Timeout fuehrt zu Exit 1. Nur Windows.
@@ -52,9 +61,11 @@ import argparse
 import ctypes
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import re
+import secrets
 import shutil
 import signal
 import socket
@@ -81,6 +92,18 @@ ARCHIVE_FONT_PREFIX = 'assets/fonts/'
 ARCHIVE_REPORTING_INDEX = 'reporting_dist/index.html'
 JURISDICTIONS_ROOT = BACKEND_ROOT / 'jurisdictions'
 ARCHIVE_JURISDICTIONS_PREFIX = 'jurisdictions/'
+
+# B-9: PDF-Render in der gepackten EXE. Risikoprofil und Vertrag brauchen nur
+# ein Mandat (kein Risikoprofil, keine Empfehlung) und tragen die Fusszeile aus
+# dem Laenderpaket-Text (services/pdf/components/footer.py).
+PDF_SMOKE_DOCUMENTS = ('risikoprofil', 'vertrag')
+FOOTER_DISCLAIMER_KEY = 'legal.footer.disclaimer'
+# Die Fusszeile kuerzt Disclaimer + Datum auf 220 Zeichen (footer.py,
+# ``max_chars``); geprueft wird deshalb der stets gedruckte Anfang.
+FOOTER_REQUIRED_PREFIX_CHARS = 120
+# services/pdf/fonts.py: eingebettete TrueType-Subsets heissen ``/ABCDEF+<Name>``.
+EDITORIAL_FONT_FAMILIES = ('Inter', 'CormorantGaramond')
+FONT_FALLBACK_LOG_MARKERS = ('Editorial PDF fonts missing', 'Editorial PDF font registration failed')
 
 # RB-1: Vertrag der KEK-Ablage (ares-backend/config.py, KEK_STORE_*).
 KEK_STORE_NAME = 'tenant-master-kek.dpapi'
@@ -314,13 +337,172 @@ def port_open(port: int) -> bool:
         return s.connect_ex(('127.0.0.1', port)) == 0
 
 
-def http_get(url: str, timeout: float = 5.0) -> tuple[int, dict, bytes]:
-    req = urllib.request.Request(url, headers={'Accept': '*/*'})
+def http_request(url: str, *, method: str = 'GET', json_body: object | None = None,
+                 headers: Mapping[str, str] | None = None,
+                 timeout: float = 5.0) -> tuple[int, dict, bytes]:
+    all_headers = {'Accept': '*/*', **(headers or {})}
+    data = None
+    if json_body is not None:
+        data = json.dumps(json_body).encode('utf-8')
+        all_headers['Content-Type'] = 'application/json'
+    req = urllib.request.Request(url, data=data, headers=all_headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, dict(resp.headers), resp.read()
     except urllib.error.HTTPError as exc:
         return exc.code, dict(exc.headers or {}), exc.read() or b''
+
+
+def http_get(url: str, timeout: float = 5.0) -> tuple[int, dict, bytes]:
+    return http_request(url, timeout=timeout)
+
+
+# ---------------------------------------------------------------------------
+# 8. PDF-Render (B-9)
+# ---------------------------------------------------------------------------
+def expected_footer_disclaimer() -> str:
+    """Anfang des Fusszeilen-Texts aus dem Quellbaum (produktiver Loader).
+
+    Die Paket-Bytes derselben Datei sind in ``check_jurisdiction_documents``
+    als byte-identisch belegt; der Text im gerenderten PDF stammt also aus der
+    Datei im Paket."""
+    documents_mod = _load_jurisdiction_loader('jurisdictions.documents')
+    text = documents_mod.default_documents().text(FOOTER_DISCLAIMER_KEY)
+    if not isinstance(text, str) or not text.strip():
+        fail(f'{FOOTER_DISCLAIMER_KEY} im Quellbaum leer -- PDF-Pruefung hat keine Grundlage.')
+    return text[:FOOTER_REQUIRED_PREFIX_CHARS]
+
+
+def _squash(text: str) -> str:
+    return ' '.join(text.split())
+
+
+def check_pdf_bytes(pdf: bytes, label: str, required_texts: tuple[str, ...]) -> str:
+    """Gerendertes PDF pruefen; liefert eine Kurzbeschreibung fuer das Log."""
+    if not pdf.startswith(b'%PDF-'):
+        fail(f'{label}: Antwort ist kein PDF (Anfang {pdf[:40]!r}).')
+    if b'%%EOF' not in pdf[-1024:]:
+        fail(f'{label}: PDF unvollstaendig (kein %%EOF am Ende, {len(pdf)} bytes).')
+    try:
+        import pypdf
+    except ImportError as exc:  # fail-closed: ohne Leser keine Inhaltspruefung
+        fail(f'pypdf nicht importierbar, PDF-Inhalt nicht pruefbar: {exc}')
+    try:
+        reader = pypdf.PdfReader(io.BytesIO(pdf))
+        pages = list(reader.pages)
+        text = _squash(' '.join(page.extract_text() or '' for page in pages))
+        fonts = _page_font_embedding(pages)
+    except Exception as exc:  # pypdf-Fehler jeder Art -- fail-closed mit Ursache
+        fail(f'{label}: PDF nicht lesbar: {type(exc).__name__}: {exc}')
+    if not pages:
+        fail(f'{label}: PDF ohne Seiten.')
+    for needle in required_texts:
+        if _squash(needle) not in text:
+            fail(f'{label}: Pflichttext fehlt im PDF: {needle[:80]!r}')
+    for family in EDITORIAL_FONT_FAMILIES:
+        pattern = re.compile(r'[A-Z]{6}\+' + family + r'(-\w+)?')
+        named = {name: state for name, state in fonts.items() if pattern.fullmatch(name)}
+        if not any(state.startswith('eingebettet') for state in named.values()):
+            # C-853-01: der Subset-Name allein belegt keine Einbettung -- verlangt
+            # ist ein lesbarer, nichtleerer /FontFile, /FontFile2 oder /FontFile3.
+            fail(f'{label}: Editorial-Font {family} nicht eingebettet '
+                 f'(Fallback auf Standard-Fonts?); Fonts im PDF: '
+                 f'{sorted(f"{n}: {st}" for n, st in fonts.items())}')
+    return f'{label} ({len(pdf)} bytes, {len(pages)} Seite(n))'
+
+
+FONT_FILE_KEYS = ('/FontFile', '/FontFile2', '/FontFile3')
+
+
+def _font_embedding_state(font) -> str:
+    """C-853-01: Fontobjekt bis zum /FontDescriptor aufloesen (Type0 ueber
+    /DescendantFonts) und den Font-Stream lesen. Liefert ``eingebettet (n bytes)``
+    oder den Grund, warum nicht."""
+    try:
+        target = font.get_object()
+        if target.get('/Subtype') == '/Type0':
+            descendants = target.get('/DescendantFonts')
+            descendants = descendants.get_object() if descendants is not None else None
+            if not descendants:
+                return 'Type0 ohne /DescendantFonts'
+            target = descendants[0].get_object()
+        descriptor = target.get('/FontDescriptor')
+        if descriptor is None:
+            return 'ohne /FontDescriptor'
+        descriptor = descriptor.get_object()
+        keys = [k for k in FONT_FILE_KEYS if k in descriptor]
+        if not keys:
+            return 'ohne Font-Stream'
+        data = descriptor[keys[0]].get_object().get_data()
+    except Exception as exc:  # kaputter Stream/Verweis -- fail-closed mit Ursache
+        return f'Font-Stream nicht lesbar ({type(exc).__name__}: {exc})'
+    if not data:
+        return f'leerer Font-Stream ({keys[0]})'
+    return f'eingebettet ({keys[0]}, {len(data)} bytes)'
+
+
+def _page_font_embedding(pages) -> dict[str, str]:
+    """/BaseFont-Name -> Einbettungszustand fuer alle Seiten-Fonts. Gibt es
+    einen Namen mehrfach, zaehlt der beste Zustand."""
+    out: dict[str, str] = {}
+    for page in pages:
+        resources = page.get('/Resources') or {}
+        for font in (resources.get('/Font') or {}).values():
+            base = font.get_object().get('/BaseFont')
+            if base is None:
+                continue
+            name = str(base).lstrip('/')
+            state = _font_embedding_state(font)
+            if not out.get(name, '').startswith('eingebettet'):
+                out[name] = state
+    return out
+
+
+def run_pdf_render_smoke(base: str, documents: tuple[str, ...] = PDF_SMOKE_DOCUMENTS) -> list[str]:
+    """Admin, Kunde und Mandat ueber die API anlegen und PDFs rendern lassen."""
+    footer = expected_footer_disclaimer()
+    password = 'Smoke-' + secrets.token_urlsafe(18) + '-9a'
+
+    def call(method: str, path: str, body: object | None = None,
+             token: str | None = None) -> tuple[int, dict, bytes]:
+        headers = {'Authorization': f'Bearer {token}'} if token else {}
+        return http_request(base + path, method=method, json_body=body, headers=headers,
+                            timeout=60.0)
+
+    def created(step: str, status: int, body: bytes) -> dict:
+        if status != 201:
+            fail(f'PDF-Smoke: {step} antwortet HTTP {status}: {body[:300]!r}')
+        return json.loads(body)
+
+    status, _, body = call('POST', '/auth/bootstrap-admin', {
+        'username': 'packaging-smoke', 'password': password, 'full_name': 'Packaging Smoke',
+    })
+    admin = created('Ersteinrichtung (/auth/bootstrap-admin)', status, body)
+    token = admin['access_token']
+    status, _, body = call('POST', '/clients', {
+        'client_number': 'SMOKE-1', 'first_name': 'Smoke', 'last_name': 'Paket',
+        'advisor_id': admin['user']['id'], 'data_classification': 'synthetic',
+    }, token)
+    client = created('Kunde anlegen (/clients)', status, body)
+    status, _, body = call('POST', f"/clients/{client['id']}/mandates", {
+        'mandate_number': 'SMOKE-M1', 'data_classification': 'synthetic',
+    }, token)
+    mandate = created('Mandat anlegen', status, body)
+    rendered = []
+    for name in documents:
+        status, headers, pdf = call('GET', f"/mandates/{mandate['id']}/reports/{name}.pdf",
+                                    token=token)
+        ctype = {k.lower(): v for k, v in headers.items()}.get('content-type', '')
+        if status != 200 or 'application/pdf' not in ctype:
+            fail(f'PDF-Smoke: {name}.pdf antwortet HTTP {status} ({ctype}): {pdf[:300]!r}')
+        rendered.append(check_pdf_bytes(pdf, f'{name}.pdf', (footer,)))
+    return rendered
+
+
+def assert_no_font_fallback(logtext: str) -> None:
+    hits = [m for m in FONT_FALLBACK_LOG_MARKERS if m in logtext]
+    if hits:
+        fail(f'Backend-Log meldet Font-Fallback beim PDF-Render: {", ".join(hits)}')
 
 
 def _load_db_location():
@@ -612,6 +794,10 @@ def run_start_smoke(exe: Path, timeout: float, grace: float, keep: bool) -> None
                 if status_spa != 200:
                     fail(f'Reporting-SPA-Fallback antwortet HTTP {status_spa}.')
                 log(f'OK Reporting-Mount: /reporting, {asset_refs[0]} ({len(asset_body)} bytes), SPA-Fallback')
+
+                rendered = run_pdf_render_smoke(base)
+                log('OK PDF-Render in der gepackten EXE: ' + '; '.join(rendered)
+                    + ' -- Fusszeile aus dem Laenderpaket-Text, Editorial-Fonts eingebettet')
             finally:
                 if proc.poll() is None:
                     graceful = stop_process(proc, port, grace)
@@ -630,6 +816,7 @@ def run_start_smoke(exe: Path, timeout: float, grace: float, keep: bool) -> None
                  f'--- backend.log ---\n{tail(log_file)}')
         if 'Reporting-Dist nicht gefunden' in logtext:
             fail('Backend-Log meldet fehlende Reporting-Dist.')
+        assert_no_font_fallback(logtext)
         log('OK Lifespan-Shutdown sauber durchlaufen (Application shutdown complete)')
 
         if not db_path.is_file():
