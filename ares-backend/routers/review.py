@@ -44,7 +44,7 @@ from schemas.review import (
     ProductReferenceApplyRequest, ProductReferenceApplyResponse,
     ProductReferenceBatchApplyRequest, ProductReferenceBatchApplyResponse,
     ProductUniverseEntryCreate, ProductUniverseEntryUpdate, ProductUniverseEntryResponse,
-    RecommendationRunCreate, RecommendationRunResponse,
+    RecommendationRunCreate, RecommendationRunResponse, RecommendationFinalizeResponse, finalize_warning_codes,
     RecommendationPositionCreate, RecommendationPositionResponse,
     RecommendationHoldingUpsert, RecommendationHoldingResponse,
     RecommendationGenerateRequest, RecommendationGenerateResponse,
@@ -91,7 +91,7 @@ from services.review_engine import (
 )
 from services.signature_artifact import CLIENT_SIGNATURE_REQUIRES_CLIENT_PRINCIPAL
 from services.suitability_audit import audit_mandate_suitability, suitability_gate_blocks
-from services.product_eligibility_finalization import finalization_eligibility_findings
+from services.product_eligibility_finalization import finalization_eligibility_findings, saa_bucket_reconciliation_warnings
 from services.product_eligibility_governance import parse_utc_timestamp
 from services.review_calendar_feed import (
     build_ics_feed,
@@ -544,6 +544,9 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
         profile = resolve_market_profile(product)
         if not (profile.get("lookup_symbol") or profile.get("isin")):
             warnings.append(f"Marktdaten-Mapping fehlt fuer {product.product_name}.")
+    # PO-16 (Audit 2026-11): Anlageklassen-Quoten der Positionen gegen die SAA
+    # -- nur Warnung (Blockieren ist Owner-Entscheid Q2).
+    warnings.extend(saa_bucket_reconciliation_warnings(allocation, positions, products))
     if assessment is not None:
         # ELIG-FINAL-001: Produkteignung jeder aggregierten Position mit
         # demselben Kern wie Generate (inkl. Angemessenheit/Override).
@@ -3601,7 +3604,7 @@ def get_recommendation_payload_by_id(
 
 
 @recommendations_router.put("/mandates/{mandate_id}/recommendations/{run_id}/finalize",
-                             response_model=RecommendationRunResponse)
+                             response_model=RecommendationFinalizeResponse)
 def finalize_recommendation(
     mandate_id: str, run_id: str,
     request: Request,
@@ -3697,7 +3700,11 @@ def finalize_recommendation(
         mandate_id=mandate_id, ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(run)
-    return run
+    # N-856-7: Warnungen (u. a. [SAA_BUCKET_DEVIATION]) auch in der Antwort,
+    # nicht nur im Audit-Log; Codes strukturiert.
+    return RecommendationFinalizeResponse.model_validate(run).model_copy(
+        update={"warnings": list(warnings), "warning_codes": finalize_warning_codes(warnings)},
+    )
 
 
 @recommendations_router.get("/mandates/{mandate_id}/recommendations/{run_id}/positions",
