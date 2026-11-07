@@ -389,7 +389,7 @@ def add_opt_history(
     return entry
 
 
-# ── Due Diligence (KYC-01: GwG Art. 3-6 / FINMA-RS 2016/7) ────────────────────
+# ── Due Diligence (KYC-01: GwG Art. 3-6 / GwV-FINMA) ────────────────────
 
 @router.get("/{client_id}/due-diligence", response_model=ClientDueDiligenceResponse)
 def get_due_diligence(
@@ -413,7 +413,7 @@ def upsert_due_diligence(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
-    """1:1-Erfassung (GwG Art. 3-6 / FINMA-RS 2016/7 Sorgfaltspflichten) --
+    """1:1-Erfassung (GwG Art. 3-6 / GwV-FINMA Sorgfaltspflichten) --
     anders als Nationalitaeten/Opt-History keine Liste, sondern genau eine
     Zeile pro Kunde. Upsert: legt die Zeile beim ersten Aufruf an, aktualisiert
     sie bei jedem weiteren -- ein PUT-nur-Create haette erzwungen, dass der

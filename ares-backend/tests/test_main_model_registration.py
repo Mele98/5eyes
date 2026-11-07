@@ -51,7 +51,8 @@ GOLDEN_SORTED_TABLES_SHA256 = "751a13f478745fdb7729d3191e5d5bf93e52f53b5f2a4d41d
 # gefuehrt; api/openapi.json (Git-Merge ohne Konflikt) besteht
 # scripts/export_openapi.py --check.
 # H7 C-1: nur description von POST /clients/{client_id}/erase (Direktpfad stillgelegt, 409), Feld-Diff geprueft.
-GOLDEN_OPENAPI_SHA256 = "62f9184acfcced20b41ee49867f4aa7ff96f91775c8df485794b87d08134ba64"
+# H7 C-6: neu POST /privacy/policies/baseline (+BaselineProposal); description GET/POST /clients/{client_id}/due-diligence (GwV-FINMA statt RS 2016/7), Feld-Diff geprueft.
+GOLDEN_OPENAPI_SHA256 = "eea650238979bb2d08baf789a1e2375f27ef6b6b380fb5d1aeea10a84f35f046"
 
 _PROBE = """
 import hashlib, json

@@ -3,7 +3,8 @@
 Zentralisiert:
 - JSON-Serialisierung der List-Felder (participants, topics, risk_warnings, …)
 - Integrity-Hash-Berechnung beim Persist
-- retain_until-Berechnung (= entry_datetime + 10 Jahre)
+- retain_until-Berechnung (H7 C-6: Mandatsende + 10 Jahre, nie kuerzer als
+  entry_datetime + 10 Jahre; offenes Mandat = NULL, Frist laeuft noch nicht)
 - Versions-Geschichte: Update legt neue Zeile an, alte wird superseded
 - Response-Serialisierung (DB-Strings -> Python-Listen)
 - Read-Audit (last_read_at / last_read_by)
@@ -17,6 +18,7 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy import text as _sql_text
 from sqlalchemy.orm import Session
 
 from database import new_uuid
@@ -24,7 +26,8 @@ from models.review import AdvisoryLog
 from models.users import User
 from services.advisory_log_integrity import (
     compute_integrity_hash,
-    compute_retain_until,
+    compute_relationship_retain_until,
+    extended_retain_until,
     verify_integrity_hash,
 )
 
@@ -260,6 +263,25 @@ def _resolve_cost_disclosure_snapshot(
     return json.dumps(snapshot, ensure_ascii=False, sort_keys=True), None
 
 
+def apply_mandate_end_retention(db: Session, mandate) -> int:
+    """H7 C-6: ``retain_until`` aller Protokolleintraege eines Mandats an das
+    Mandatsende anpassen (Aufruf bei Aenderung von ``closed_at``).
+
+    Nie verkuerzend: beendet -> Maximum aus bisheriger Frist, Eintrag + 10 J.
+    und Mandatsende + 10 J.; wieder geoeffnet -> NULL (Frist laeuft nicht).
+    ``retain_until`` ist nicht Teil des Integritaets-Hashes. Rueckgabe: Zahl
+    der geaenderten Zeilen.
+    """
+    closed_at = getattr(mandate, "closed_at", None)
+    changed = 0
+    for row in db.query(AdvisoryLog).filter(AdvisoryLog.mandate_id == mandate.id).all():
+        new_value = extended_retain_until(row.retain_until, row.entry_datetime, closed_at)
+        if new_value != row.retain_until:
+            row.retain_until = new_value
+            changed += 1
+    return changed
+
+
 def create_advisory_log(
     db: Session,
     *,
@@ -294,6 +316,16 @@ def create_advisory_log(
             # nachweisloses `cost_disclosure_given=True` gespeichert werden.
             raise AdvisoryLogCostEvidenceError(block_reason, named_run_id)
 
+    # H7 C-6: Frist ab Mandatsende statt ab Eintrag (validiert entry_datetime
+    # weiterhin fail-closed). Ohne uebergebenes Mandat wird es nachgelesen.
+    if mandate is not None:
+        closed_at = getattr(mandate, "closed_at", None)
+    else:
+        closed_at = db.execute(
+            _sql_text("SELECT closed_at FROM mandates WHERE id = :id"), {"id": mandate_id},
+        ).scalar()
+    retain_until = compute_relationship_retain_until(entry_datetime, closed_at)
+
     entry = AdvisoryLog(
         id=new_uuid(),
         mandate_id=mandate_id,
@@ -322,7 +354,7 @@ def create_advisory_log(
         cost_disclosure_snapshot_json=cost_disclosure_snapshot_json,
         conflict_disclosure_ids_json=_dump_json(payload.conflict_disclosure_ids),
         suitability_check_id=payload.suitability_check_id,
-        retain_until=compute_retain_until(entry_datetime),
+        retain_until=retain_until,
         version=1,
         created_at=now,
         updated_at=now,
