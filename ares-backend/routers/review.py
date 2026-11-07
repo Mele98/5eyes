@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 import logging
 from collections.abc import Callable
 
@@ -24,6 +25,7 @@ from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAl
 from models.profiling import RiskAssessment, SuitabilityCheck
 from models.tenant import Tenant
 from schemas.review import (
+    master_data_consistency_errors,
     ReviewTriggerCreate, ReviewTriggerResolve, ReviewTriggerResponse,
     ReviewTriggerFrequencyUpdate, CalendarFeedTokenResponse,
     normalize_trigger_frequency, trigger_frequency_months,
@@ -186,6 +188,46 @@ def _get_product_or_404(product_id: str, db: Session, current_user: User | None 
             if product_tid != str(user_tid).strip():
                 raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
     return product
+
+
+GLOBAL_CATALOG_WRITE_FORBIDDEN_DETAIL = (
+    "Globale Katalogfonds gelten fuer alle Verwaltungen und koennen hier nicht "
+    "geaendert oder deaktiviert werden. Nutzen Sie fuer Ihre Verwaltung die "
+    "Positivliste (Fonds-Universum) oder erfassen Sie einen eigenen Fonds."
+)
+
+
+def _may_write_global_catalog(current_user: User) -> bool:
+    """AUDIT-FIX Fondsuniversum R3/F1 (2026-11): globale Katalogfonds
+    (Product.tenant_id IS NULL) wirken fuer JEDEN Tenant. In einer echten
+    Multi-Tenant-Installation (strict_tenant_isolation) darf sie nur die
+    bestehende Plattform-Rolle super_admin aendern -- ein firmengebundener
+    admin bekam bisher 200 und konnte fremden Firmen Fonds deaktivieren oder
+    die TER verfaelschen. Tier-1 (ein Betreiber, kein Tenant-Konzept) bleibt
+    unveraendert, gleiches Muster wie CMA/FX in services/auth.py
+    (require_portfolio_management / *_for_global_reference_data)."""
+    if getattr(current_user, "role", None) == "super_admin":
+        return True
+    return not _effective_strict_tenant_isolation(settings)
+
+
+def _get_product_for_write_or_404(product_id: str, db: Session, current_user: User) -> Product:
+    """Wie _get_product_or_404, plus 403 (fail-closed) fuer Schreibzugriffe
+    auf globale Katalogfonds ohne Plattform-Recht (R3/F1)."""
+    product = _get_product_or_404(product_id, db, current_user)
+    if product.tenant_id is None and not _may_write_global_catalog(current_user):
+        raise HTTPException(status_code=403, detail=GLOBAL_CATALOG_WRITE_FORBIDDEN_DETAIL)
+    return product
+
+
+def _writable_products_query(db: Session, current_user: User):
+    """Kandidaten fuer die Batch-Schreibpfade (OpenFIGI/EODHD auto-apply):
+    ohne Plattform-Recht nur die eigenen Fonds, nie der globale Katalog."""
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    q = _active_products_query(db, tenant_id=tenant_id)
+    if not _may_write_global_catalog(current_user):
+        q = q.filter(Product.tenant_id == tenant_id)
+    return q
 
 
 def _enforce_run_preferences(
@@ -1179,7 +1221,7 @@ def get_my_review_calendar_feed(
     user = resolve_user_by_calendar_feed_token(db, token)
     if not user:
         raise HTTPException(status_code=404, detail="Ungültiger oder abgelaufener Kalender-Token")
-    ics_text = build_ics_feed(db, user)
+    ics_text = build_ics_feed(db, user, domain=settings.ares_domain)
     return Response(
         content=ics_text,
         media_type="text/calendar; charset=utf-8",
@@ -1733,6 +1775,17 @@ def create_conflict(
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     fields = body.model_dump()
+    # N-861-1: eine Produktbindung muss auf ein fuer diesen Tenant sichtbares
+    # Produkt zeigen (fremde private Produkte -> 404, kein Existenz-Leck).
+    # Unabhaengig von strict_tenant_isolation: global oder eigener Tenant.
+    if fields.get("product_id"):
+        bound = db.query(Product).filter(
+            Product.id == str(fields["product_id"]), Product.deleted_at.is_(None),
+        ).first()
+        bound_tid = str(getattr(bound, "tenant_id", None) or "").strip() if bound else ""
+        if bound is None or (bound_tid and bound_tid != str(_resolve_tenant_id_for_user(current_user)).strip()):
+            raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
+        fields["product_id"] = bound.id
     # 2026-07-25 (Generalaudit): siehe create_document -- kein DB-Spalten-
     # Aequivalent auf ConflictOfInterestDisclosure, nur Enforcement.
     enforce_data_classification(fields.pop("data_classification", None))
@@ -2140,6 +2193,11 @@ def create_product(
                 status_code=409,
                 detail=f"ISIN {body.isin} ist bereits einem Fonds zugeordnet.",
             )
+    if _internal_product_id_taken(db, _resolve_tenant_id_for_user(current_user), body.internal_product_id):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Interne Produkt-ID {body.internal_product_id} ist in Ihrer Verwaltung bereits vergeben.",
+        )
     now = _now()
     product_fields = body.model_dump(exclude={
         "suitability_profile_from", "suitability_profile_to",
@@ -2151,7 +2209,7 @@ def create_product(
         id=new_uuid(), is_active=1,
         tenant_id=_resolve_tenant_id_for_user(current_user),
         created_at=now, updated_at=now,
-        **product_fields
+        **_product_master_data_columns(product_fields)
     )
     db.add(product)
     db.flush()
@@ -2164,7 +2222,7 @@ def create_product(
         db,
         product=product,
         created_by_user_id=current_user.id,
-        jurisdiction=product.jurisdiction or "CH",
+        jurisdiction=_product_rule_jurisdiction(product),
         profile_from=body.suitability_profile_from,
         profile_to=body.suitability_profile_to,
         service_modes=[] if body.suitability_prohibited else list(body.suitability_service_modes),
@@ -2178,6 +2236,46 @@ def create_product(
     db.commit()
     db.refresh(product)
     return product
+
+
+def _product_rule_jurisdiction(product: Product) -> str:
+    """Jurisdiktion der Eignungsregel eines Tenant-Produkts (NULL = CH,
+    Altsemantik); eine Stelle fuer Erfassen, Import und Re-Import."""
+    return product.jurisdiction or "CH"
+
+
+# AUDIT-2026-11 P1 (PO-6): Ja/Nein-Stammdaten liegen als 0/1-Integer in der
+# DB (gleiches Muster wie is_active). Ein Python-bool direkt an eine
+# INTEGER-Spalte zu binden funktioniert unter SQLite, nicht aber unter
+# Postgres -- deshalb hier an EINER Stelle fuer Erfassen, Import und
+# Bearbeiten umgewandelt.
+_PRODUCT_FLAG_FIELDS = ("is_hedged", "is_house_product", "has_gating")
+
+
+def _internal_product_id_taken(
+    db: Session, tenant_id, internal_product_id, *, exclude_product_id: str | None = None,
+) -> bool:
+    """Owner-Anforderung P1: interne Produkt-ID eindeutig je Tenant (aktive
+    Zeilen). Nur der eigene Tenant wird geprueft -- die Antwort verraet nie,
+    ob ein fremder Tenant dieselbe ID fuehrt (vgl. FU-F7)."""
+    if not internal_product_id:
+        return False
+    query = db.query(Product.id).filter(
+        Product.internal_product_id == internal_product_id,
+        Product.deleted_at.is_(None),
+        Product.tenant_id.is_(None) if tenant_id is None else Product.tenant_id == tenant_id,
+    )
+    if exclude_product_id is not None:
+        query = query.filter(Product.id != exclude_product_id)
+    return query.first() is not None
+
+
+def _product_master_data_columns(fields: dict) -> dict:
+    converted = dict(fields)
+    for field in _PRODUCT_FLAG_FIELDS:
+        if field in converted and converted[field] is not None:
+            converted[field] = 1 if converted[field] else 0
+    return converted
 
 
 _PRODUCT_IMPORT_CSV_FIELDS = (
@@ -2195,6 +2293,15 @@ _PRODUCT_IMPORT_CSV_FIELDS = (
     # und die Themen-Zuordnung (theme_tags, Semikolon-getrennt). Am Ende
     # angehaengt, damit bestehende Dateien spaltengleich bleiben.
     "esg_score_x10", "climate_benchmark", "theme_tags",
+    # AUDIT-2026-11 P1 (PO-6, L1): Produkt-Stammdaten und Retrozession. Am
+    # Ende angehaengt, damit bestehende Dateien spaltengleich bleiben.
+    # Leere Zellen = nicht erfasst (beim Re-Import: unveraendert).
+    "domicile", "is_hedged", "hedge_currency", "ter_source", "ter_as_of",
+    "retrocession_bps", "retrocession_source", "is_house_product",
+    "distribution_policy", "valor", "minimum_investment_minor_units",
+    # Owner-Anforderung P1: eigene Fonds, Bewertung, Liquiditaetsrhythmus.
+    "listing_status", "internal_product_id", "price_source", "nav_frequency", "nav_as_of",
+    "redemption_period_days", "notice_period_days", "has_gating", "gating_terms",
 )
 _PRODUCT_IMPORT_SUITABILITY_FIELDS = (
     "suitability_profile_from", "suitability_profile_to", "suitability_service_modes",
@@ -2230,7 +2337,7 @@ def _normalize_csv_import_row(raw: dict) -> dict:
         if field not in _PRODUCT_IMPORT_CSV_FIELDS:
             continue
         if isinstance(value, str):
-            value = value.strip()
+            value = _csv_unescape_cell(value.strip())
         if field == "suitability_service_modes" and isinstance(value, str) and value:
             # CSV-Zelle kann nur eine Liste nicht direkt abbilden -- Semikolon
             # ODER Komma als Trenner zulassen (Komma ist bereits das
@@ -2266,6 +2373,10 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
       damit ein Asset Manager mit 300 Fonds nicht wegen einer einzigen
       Tippfehler-Zeile neu anfangen muss.
     """
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): siehe create_product();
+    # R7/F3: reauthor_tenant_product_rule_on_import fuer den Upsert-Pfad.
+    from services.product_eligibility import author_tenant_product_rule, reauthor_tenant_product_rule_on_import
+
     tenant_id = _resolve_tenant_id_for_user(current_user)
     now = _now()
     items: list[ProductImportResultItem] = []
@@ -2294,6 +2405,14 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
                 Product.tenant_id == tenant_id, Product.symbol == payload["symbol"],
                 Product.deleted_at.is_(None),
             ).first()
+        elif payload.get("internal_product_id"):
+            # Owner-Anforderung P1: eigener (nicht kotierter) Fonds ohne
+            # ISIN/Symbol -- Abgleich ueber die tenant-eindeutige interne ID.
+            existing = db.query(Product).filter(
+                Product.tenant_id == tenant_id,
+                Product.internal_product_id == payload["internal_product_id"],
+                Product.deleted_at.is_(None),
+            ).first()
         else:
             # 2026-08-05 (Live-Smoketest-Fund): ein nicht-kotierter Fonds hat
             # weder ISIN noch Symbol als Abgleichs-Schluessel -- ohne diesen
@@ -2310,11 +2429,55 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
                 Product.deleted_at.is_(None),
             ).first()
         if existing is not None:
-            for field, value in payload.items():
-                setattr(existing, field, value)
+            # AUDIT-FIX Fondsuniversum R7/F3 (2026-11): nur explizit gelieferte,
+            # nicht leere Felder ueberschreiben. Vorher setzte der Upsert JEDES
+            # Feld aus model_dump() -- auch nicht gelieferte (None) --, und ein
+            # Re-Upload loeschte gepflegte Exposures, Liquiditaet, Rating usw.
+            # Leere Importfelder bedeuten "unveraendert".
+            if payload.get("internal_product_id") and _internal_product_id_taken(
+                db, tenant_id, payload["internal_product_id"], exclude_product_id=existing.id,
+            ):
+                items.append(ProductImportResultItem(
+                    row=idx, status="failed", product_name=name_hint,
+                    error=f"Interne Produkt-ID {payload['internal_product_id']} ist bereits vergeben.",
+                ))
+                continue
+            merged_errors = _merged_master_data_errors(existing, {
+                field: value for field, value in payload.items()
+                if field in body.model_fields_set and value is not None
+            })
+            if merged_errors:
+                items.append(ProductImportResultItem(
+                    row=idx, status="failed", product_name=name_hint,
+                    error="; ".join(merged_errors),
+                ))
+                continue
+            for field, value in _product_master_data_columns(payload).items():
+                if field in body.model_fields_set and value is not None:
+                    setattr(existing, field, value)
             existing.updated_at = now
+            eligibility_draft, retired_draft_ids = reauthor_tenant_product_rule_on_import(
+                db, product=existing, jurisdiction=_product_rule_jurisdiction(existing),
+                created_by_user_id=current_user.id,
+                row={**payload, **suitability}, explicit_fields=set(body.model_fields_set), now=now,
+            )
+            # N-855-4: Zurueckziehen und neuer Entwurf je eigener Audit-Eintrag.
+            for retired_id in retired_draft_ids:
+                log(db, user_id=current_user.id, user_name=current_user.full_name,
+                    table_name="product_eligibility_rules", record_id=retired_id, action="UPDATE",
+                    field_name="status", old_value="draft",
+                    new_value=f"retired;reason=reimport_superseded_draft;product={existing.id}")
+            if eligibility_draft is not None:
+                log(db, user_id=current_user.id, user_name=current_user.full_name,
+                    table_name="product_eligibility_rules", record_id=eligibility_draft.id, action="CREATE",
+                    new_value=(f"draft;reason=reimport_eligibility_change;product={existing.id};"
+                               f"supersedes={eligibility_draft.supersedes_id or ''}"))
             items.append(ProductImportResultItem(
                 row=idx, status="updated", product_id=existing.id, product_name=existing.product_name,
+                eligibility_note=(
+                    "Geaenderte Eignung als Entwurf angelegt; die bisherige Regel gilt bis zur "
+                    "Vier-Augen-Freigabe weiter." if eligibility_draft is not None else None
+                ),
             ))
             updated += 1
         else:
@@ -2326,6 +2489,12 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
             # rohen IntegrityError abbrechen und (weil der Commit erst am
             # Ende des gesamten Batches passiert) den KOMPLETTEN Import
             # ruinieren statt nur diese eine Zeile als Fehler zu melden.
+            if _internal_product_id_taken(db, tenant_id, payload.get("internal_product_id")):
+                items.append(ProductImportResultItem(
+                    row=idx, status="failed", product_name=name_hint,
+                    error=f"Interne Produkt-ID {payload['internal_product_id']} ist bereits vergeben.",
+                ))
+                continue
             if payload.get("isin"):
                 global_conflict = db.query(Product).filter(
                     Product.isin == payload["isin"], Product.deleted_at.is_(None),
@@ -2338,17 +2507,16 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
                     continue
             product = Product(
                 id=new_uuid(), is_active=1, tenant_id=tenant_id,
-                created_at=now, updated_at=now, **payload,
+                created_at=now, updated_at=now, **_product_master_data_columns(payload),
             )
             db.add(product)
             db.flush()
             # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): siehe create_product()
-            from services.product_eligibility import author_tenant_product_rule
             author_tenant_product_rule(
                 db,
                 product=product,
                 created_by_user_id=current_user.id,
-                jurisdiction=product.jurisdiction or "CH",
+                jurisdiction=_product_rule_jurisdiction(product),
                 profile_from=suitability["suitability_profile_from"],
                 profile_to=suitability["suitability_profile_to"],
                 service_modes=(
@@ -2386,7 +2554,9 @@ def import_products_bulk(
     Tenant-User-Account, meldet sich ueber POST /auth/login an und ruft
     diesen Endpoint mit dem erhaltenen Token auf. Siehe _import_products
     fuer die Upsert-/Isolationslogik."""
-    rows = [p.model_dump() for p in body.products]
+    # R7/F3: exclude_unset, damit _import_products nicht gelieferte Felder
+    # von gelieferten unterscheiden kann (Upsert ueberschreibt nur diese).
+    rows = [p.model_dump(exclude_unset=True) for p in body.products]
     return _import_products(rows, db, current_user)
 
 
@@ -2453,17 +2623,29 @@ def download_products_csv_template(
     Beispiel fuer einen kotierten (mit ISIN/Symbol) und einen
     nicht-kotierten Fonds (ISIN/Symbol leer)."""
     header = ",".join(_PRODUCT_IMPORT_CSV_FIELDS)
+    # AUDIT-2026-11 P1: Beispiel-ISIN mit gueltiger Pruefziffer (ISO 6166),
+    # aber dem nicht vergebenen Praefix "ZZ" -- kann keinem echten
+    # Wertpapier gehoeren. Die vorherige Beispiel-ISIN war 13 Zeichen lang
+    # und waere am eigenen Import gescheitert. Die Stammdaten-Spalten zeigen
+    # beide Faelle: Retrozession erfasst (0 = frei, mit Quelle) und leer
+    # (= unbekannt; das Produkt gilt dann NICHT als retrozessionsfrei).
     example_listed = (
         "Global Equity UCITS ETF,Beispiel Asset Management,Fonds,Aktien,"
-        "Global,CHF,IE00BEXAMPLE1,GEQC,25,8,AA,daily,"
+        "Global,CHF,ZZEXAMPLE019,GEQC,25,8,AA,daily,"
         "4,10,investment_advice;portfolio_management,false,false,false,2500,"
-        "720,PAB,"
+        "720,PAB,,"
+        "IE,ja,CHF,Basisinformationsblatt,2026-01-31,0,Bestaetigung Anbieter,nein,"
+        "accumulating,,,"
+        "listed,,market,daily,,,,,"
     )
     example_unlisted = (
         "Privatmarkt-Anlagestiftung,Beispiel Asset Management,Fonds,Alternative,"
         "Private Equity,CHF,,,150,,,illiquid,"
         "7,10,investment_advice;portfolio_management,false,true,false,4000,"
-        ",,"
+        ",,,"
+        "CH,nein,,Factsheet,2026-01-31,,,ja,"
+        "accumulating,,10000000,"
+        "unlisted,PM-ANST-01,manual_nav,quarterly,2026-09-30,30,90,ja,Ruecknahmen je Quartal begrenzbar"
     )
     csv_content = "\n".join([header, example_listed, example_unlisted]) + "\n"
     return Response(
@@ -2473,7 +2655,114 @@ def download_products_csv_template(
     )
 
 
+# N-861-4 (Pruefrunde #861): CSV-/Formel-Injection. Eine Zelle, die mit
+# = + - @ Tab oder CR beginnt, wird von Tabellenprogrammen als Formel
+# ausgewertet. Export: mit ' praefixen (OWASP-Empfehlung). Import: ein so
+# praefixierter Wert wird wieder ohne ' gelesen (Export -> Import verlustfrei).
+_CSV_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_needs_escape(value: str) -> bool:
+    """Trigger am Anfang -- oder bereits ein ' vor einem (rekursiv) zu
+    schuetzenden Wert. N-861-10: so bleibt auch ein Originalwert wie
+    "'=x" beim Export -> Import verlustfrei ("''=x" -> "'=x")."""
+    if value.startswith(_CSV_FORMULA_TRIGGERS):
+        return True
+    return value.startswith("'") and _csv_needs_escape(value[1:])
+
+
+def _csv_safe_cell(value: str) -> str:
+    return "'" + value if _csv_needs_escape(value) else value
+
+
+def _csv_unescape_cell(value: str) -> str:
+    if value.startswith("'") and _csv_needs_escape(value[1:]):
+        return value[1:]
+    return value
+
+
+@products_router.get("/export/csv")
+def export_products_csv(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """AUDIT-2026-11 P1 (PO-6): Export der fuer diesen Tenant sichtbaren,
+    aktiven Fonds im Spaltenformat des CSV-Imports (globaler Katalog plus
+    eigene Fonds, nie die eines anderen Tenants -- dieselbe Abfrage wie
+    GET /products).
+
+    Zweck: Stammdaten (ISIN, Domizil, TER-Quelle, Retrozession ...) extern
+    ergaenzen und wieder einspielen. Die Eignungsspalten bleiben leer: die
+    Eignung wird ueber die Vier-Augen-Regeln gepflegt und ist kein
+    Stammdatum. Fuer einen Re-Import muessen sie ergaenzt werden (eine
+    geaenderte Eignung wird dabei als Regel-Entwurf angelegt). Leere Zellen
+    bedeuten "nicht erfasst" -- es wird nichts vorbelegt.
+    """
+    products = (
+        _active_products_query(db, tenant_id=_resolve_tenant_id_for_user(current_user))
+        .order_by(Product.asset_class, Product.product_name)
+        .all()
+    )
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(_PRODUCT_IMPORT_CSV_FIELDS)
+    for product in products:
+        row = []
+        for field in _PRODUCT_IMPORT_CSV_FIELDS:
+            if field in _PRODUCT_IMPORT_SUITABILITY_FIELDS:
+                row.append("")
+                continue
+            value = getattr(product, field, None)
+            if field in _PRODUCT_FLAG_FIELDS and value is not None:
+                value = "ja" if int(value) else "nein"
+            elif field == "theme_tags" and value:
+                try:
+                    parsed = json.loads(str(value))
+                except (TypeError, ValueError):
+                    parsed = None
+                value = ";".join(str(tag) for tag in parsed) if isinstance(parsed, list) else ""
+            row.append(_csv_safe_cell("" if value is None else str(value)))
+        writer.writerow(row)
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=fondsuniversum-export.csv"},
+    )
+
+
 _PRODUCT_CLEARABLE_ESG_FIELDS = ("sfdr_class", "esg_rating", "esg_score_x10", "climate_benchmark")
+# AUDIT-2026-11 P1 (PO-6, L1): Stammdaten lassen sich per explizitem null
+# wieder auf "nicht erfasst" setzen (z.B. ein falsch erfasster Retro-Satz:
+# zurueck auf unbekannt statt auf eine erfundene 0).
+_PRODUCT_CLEARABLE_MASTER_DATA_FIELDS = (
+    "domicile", "is_hedged", "hedge_currency", "ter_source", "ter_as_of",
+    "retrocession_bps", "retrocession_source", "is_house_product",
+    "distribution_policy", "valor", "minimum_investment_minor_units",
+    "listing_status", "internal_product_id", "price_source", "nav_frequency", "nav_as_of",
+    "redemption_period_days", "notice_period_days", "has_gating", "gating_terms",
+)
+
+
+def _merged_master_data_errors(product: Product, changes: dict) -> list[str]:
+    """Querpruefung der Stammdaten auf dem Stand NACH der Aenderung
+    (Bearbeiten und Re-Import liefern nur Teilmengen der Felder)."""
+    merged = {
+        field: getattr(product, field, None)
+        for field in ("ter_bps", "isin", *_PRODUCT_CLEARABLE_MASTER_DATA_FIELDS)
+    }
+    for field in _PRODUCT_FLAG_FIELDS:
+        if merged.get(field) is not None:
+            merged[field] = bool(merged[field])
+    merged.update(changes)
+    return master_data_consistency_errors(merged)
+# AUDIT-FIX Fondsuniversum R6/F6 (2026-11): Identifikation und Produkttyp sind
+# nach dem Erfassen fix (ISIN global eindeutig, Marktdaten-Mapping haengt daran).
+_PRODUCT_IMMUTABLE_FIELDS = ("isin", "symbol", "product_type")
+
+
+def _normalized_identifier(value) -> str | None:
+    text_value = str(value).strip() if value is not None else ""
+    return text_value or None
 
 
 @products_router.put("/{product_id}", response_model=ProductResponse)
@@ -2492,19 +2781,42 @@ def update_product(
     services/product_exposures.py::_parse_or_proxy bleibt zusaetzlich
     fault-tolerant fuer bereits vor dem Fix gespeicherte Legacy-Daten.
     """
-    product = _get_product_or_404(product_id, db, current_user)
-    payload = body.model_dump(exclude_none=True)
+    product = _get_product_for_write_or_404(product_id, db, current_user)
+    changed_immutable = [
+        field for field in _PRODUCT_IMMUTABLE_FIELDS
+        if field in body.model_fields_set
+        and _normalized_identifier(getattr(body, field)) != _normalized_identifier(getattr(product, field))
+    ]
+    if changed_immutable:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Nicht editierbar: {', '.join(changed_immutable)}. ISIN, Symbol und Produkttyp "
+                "koennen nach dem Erfassen nicht geaendert werden; die Aenderung wurde nicht gespeichert."
+            ),
+        )
+    payload = body.model_dump(exclude_none=True, exclude=set(_PRODUCT_IMMUTABLE_FIELDS))
     # ESG-PREMIUM-CRITERIA-001 (Self-Review 2026-10-18): ESG-Nachweisfelder
     # lassen sich per explizitem null wieder entfernen. Sonst blieb z.B. ein
     # einmal gesetztes climate_benchmark='PAB' fuer immer und das Produkt
     # galt weiter als net_zero-zulaessig, obwohl der Nachweis entfallen ist.
     # Nicht gesendete Felder bleiben unveraendert (model_fields_set).
-    for field in _PRODUCT_CLEARABLE_ESG_FIELDS:
+    for field in (*_PRODUCT_CLEARABLE_ESG_FIELDS, *_PRODUCT_CLEARABLE_MASTER_DATA_FIELDS):
         if field in body.model_fields_set and getattr(body, field) is None:
             payload[field] = None
     if not payload:
         return product
-    for field, value in payload.items():
+    merged_errors = _merged_master_data_errors(product, payload)
+    if merged_errors:
+        raise HTTPException(status_code=422, detail="; ".join(merged_errors))
+    if payload.get("internal_product_id") and _internal_product_id_taken(
+        db, product.tenant_id, payload["internal_product_id"], exclude_product_id=product.id,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Interne Produkt-ID {payload['internal_product_id']} ist in Ihrer Verwaltung bereits vergeben.",
+        )
+    for field, value in _product_master_data_columns(payload).items():
         setattr(product, field, value)
     product.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -2575,7 +2887,7 @@ def approve_product_eligibility_rule(
     from services.product_eligibility_governance import RuleApprovalConflict, approve_rule
 
     body = body or ProductEligibilityApprovalRequest()
-    product = _get_product_or_404(product_id, db, current_user)
+    product = _get_product_for_write_or_404(product_id, db, current_user)
     tenant_id = _resolve_tenant_id_for_user(current_user)
     draft_ids = [
         row[0] for row in db.query(ProductEligibilityRule.id).filter(
@@ -2586,6 +2898,7 @@ def approve_product_eligibility_rule(
     if not draft_ids:
         raise HTTPException(status_code=409, detail="Keine offene Entwurfs-Eignungsregel fuer dieses Produkt.")
     approved: list[str] = []
+    superseded: list[str] = []
     modes: set[str] = set()
     try:
         for rule_id in draft_ids:
@@ -2596,6 +2909,15 @@ def approve_product_eligibility_rule(
             )
             approved.append(rule_id)
             modes.add(rule.approval_mode)
+            if rule.supersedes_id:
+                previous = db.get(ProductEligibilityRule, rule.supersedes_id)
+                if previous is not None and previous.status == "retired":
+                    superseded.append(previous.id)
+                    # N-855-4: Abloesung der bisher geltenden Regel als eigener Eintrag.
+                    log(db, user_id=current_user.id, user_name=current_user.full_name,
+                        table_name="product_eligibility_rules", record_id=previous.id, action="UPDATE",
+                        field_name="status", old_value="approved",
+                        new_value=f"retired;superseded_by={rule.id};valid_to={previous.valid_to}")
     except LookupError:
         db.rollback()
         raise HTTPException(status_code=404, detail="Eignungsregel nicht gefunden.")
@@ -2604,6 +2926,8 @@ def approve_product_eligibility_rule(
         raise HTTPException(status_code=409, detail=str(exc))
     approval_mode = ",".join(sorted(modes))
     audit_value = f"approved:{','.join(approved)};approval_mode={approval_mode}"
+    if superseded:
+        audit_value += f";superseded:{','.join(superseded)}"
     if "single_approver_attested" in modes:
         audit_value += f";attestation_reason={(body.attestation_reason or '').strip()}"
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -2622,7 +2946,7 @@ def set_product_market_override(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = _get_product_or_404(product_id, db, current_user)
+    product = _get_product_for_write_or_404(product_id, db, current_user)
     product.lookup_mode_override = body.lookup_mode_override or None
     product.lookup_symbol_override = body.lookup_symbol_override.strip() if body.lookup_symbol_override else None
     product.updated_at = _now()
@@ -2678,7 +3002,7 @@ def apply_product_id_mapping(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = _get_product_or_404(body.product_id, db, current_user)
+    product = _get_product_for_write_or_404(body.product_id, db, current_user)
     preview = _preview_openfigi_or_raise(
         product=product,
         isin=body.isin,
@@ -2726,7 +3050,7 @@ def auto_apply_product_id_mappings(
     current_user: User = Depends(require_admin),
 ):
     products = (
-        _active_products_query(db, tenant_id=_resolve_tenant_id_for_user(current_user))
+        _writable_products_query(db, current_user)
         .filter(
             Product.isin.is_not(None),
             (Product.symbol.is_(None) | (Product.symbol == "")),
@@ -2855,7 +3179,7 @@ def apply_product_reference_data(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = _get_product_or_404(body.product_id, db, current_user)
+    product = _get_product_for_write_or_404(body.product_id, db, current_user)
     preview = _preview_eodhd_or_raise(
         product=product,
         isin=body.isin,
@@ -2904,7 +3228,7 @@ def auto_apply_product_reference_data(
     current_user: User = Depends(require_admin),
 ):
     products = (
-        _active_products_query(db, tenant_id=_resolve_tenant_id_for_user(current_user))
+        _writable_products_query(db, current_user)
         .filter(
             (Product.reference_data_provider.is_(None) | (Product.reference_data_provider == "")),
         )
@@ -3058,7 +3382,8 @@ def list_product_universe_entries(
         ProductUniverseEntry.deleted_at.is_(None),
     )
     if jurisdiction is not None:
-        q = q.filter(ProductUniverseEntry.jurisdiction == jurisdiction)
+        # R5/F5: gleiche Normalisierung wie beim Anlegen (trim, Grossschreibung).
+        q = q.filter(ProductUniverseEntry.jurisdiction == jurisdiction.strip().upper())
     return q.order_by(ProductUniverseEntry.jurisdiction, ProductUniverseEntry.created_at).all()
 
 
@@ -3143,6 +3468,21 @@ def delete_product_universe_entry(
     entry.deleted_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="product_universe_entries", record_id=entry.id, action="DELETE")
+    # AUDIT-FIX Fondsuniversum R5/F5 (2026-11): war das der letzte Eintrag der
+    # Jurisdiktion, gilt ab jetzt wieder der volle Katalog -- nicht still,
+    # sondern als eigener Audit-Eintrag (und als Warnung in jeder Generierung,
+    # services/portfolio_engine_payload.py::universe_emptied_warning).
+    db.flush()
+    remaining = db.query(ProductUniverseEntry.id).filter(
+        ProductUniverseEntry.tenant_id == entry.tenant_id,
+        ProductUniverseEntry.jurisdiction == entry.jurisdiction,
+        ProductUniverseEntry.deleted_at.is_(None),
+    ).first()
+    if remaining is None:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="product_universe_entries", record_id=entry.id, action="UPDATE",
+            field_name="universe_scope",
+            new_value=f"Positivliste {entry.jurisdiction} leer: Empfehlungen nutzen den vollen Katalog")
     db.commit()
     return None
 

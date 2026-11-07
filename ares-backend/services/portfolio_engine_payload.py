@@ -118,6 +118,7 @@ from sqlalchemy.orm import Session
 from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
 from models.mandates import Mandate
 from models.review import Product, ProductUniverseEntry
+from models.tenant import DEFAULT_TENANT_ID as _DEFAULT_TENANT_ID
 from models.wealth import Goal
 from services.calendar_horizon import calendar_years_until
 from services.cashflow_timeline import future_value_with_cashflow_series, normalize_frequency
@@ -490,7 +491,10 @@ def _expected_death_year_offset_from_mandate(mandate, run_context=None) -> int |
         # Modulkante nach config (Architektur-Ratsche fan_out) ueber das
         # uebergebene Objekt: ist der Kontext nicht an dieses Mandat gebunden,
         # wirft ensure_bound_to die Mismatch-Exception erneut; sonst bleibt
-        # der bisherige Fallback unveraendert.
+        # der bisherige Fallback unveraendert. ``run_context`` ist ein
+        # ``config.RunContext`` (N-843-1); ein Objekt ohne ``ensure_bound_to``
+        # wirft hier bewusst AttributeError statt still ``None`` zu liefern --
+        # ``resolve_mortality_cutoff`` ruft dieselbe Methode ohnehin auf.
         if run_context is not None:
             run_context.ensure_bound_to(mandate)
         return None
@@ -1721,3 +1725,28 @@ def _filter_products_by_universe(
         ]
     allowed_product_ids = {entry.product_id for entry in entries}
     return [product for product in products if product.id in allowed_product_ids]
+
+
+UNIVERSE_EMPTIED_WARNING = (
+    "Positivliste (Fonds-Universum) {jurisdiction} ist leer, weil alle Eintraege "
+    "entfernt wurden. Die Empfehlung nutzt deshalb den vollen Katalog statt einer "
+    "kuratierten Auswahl. Bitte die Positivliste pruefen."
+)
+
+
+def universe_emptied_warning(db: Session, mandate: Mandate, run_context) -> str | None:
+    """AUDIT-FIX Fondsuniversum R5/F5 (2026-11): _filter_products_by_universe
+    faellt bei 0 aktiven Eintraegen auf den vollen Katalog zurueck. Fuer einen
+    Tenant, der NIE eine Liste hatte, ist das gewollt (Bestandsverhalten,
+    keine Warnung). Wurde die Liste aber geleert (nur noch soft-geloeschte
+    Eintraege), geschah der Rueckfall bisher still -- jetzt sichtbar als
+    Warnung im Generierungs-Ergebnis. Die Produktwahl selbst bleibt unveraendert."""
+    tenant_id = getattr(mandate, "tenant_id", None) or _DEFAULT_TENANT_ID
+    jurisdiction = run_context.ensure_bound_to(mandate).jurisdiction  # X2b: Lauf-Kontext
+    rows = db.query(ProductUniverseEntry.deleted_at).filter(
+        ProductUniverseEntry.tenant_id == tenant_id,
+        ProductUniverseEntry.jurisdiction == jurisdiction,
+    ).all()
+    if rows and all(row[0] is not None for row in rows):
+        return UNIVERSE_EMPTIED_WARNING.format(jurisdiction=jurisdiction)
+    return None
