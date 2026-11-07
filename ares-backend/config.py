@@ -889,6 +889,18 @@ class RunContext:
     - ``bound_mandate``: das Mandatsobjekt, aus dem der Kontext gebildet wurde
       (nur fuer die Bindungspruefung ungespeicherter Mandate ohne ``id``;
       nicht Teil von Vergleich/Repr).
+
+    Grenzen der Identitaetsbindung bei ``mandate_id=None``:
+
+    - N-843-2: Die Bindung haengt an der Objektidentitaet (``is``). Sie
+      ueberlebt weder ``pickle``/``copy.deepcopy`` des Kontexts noch ein
+      ``db.merge``/Neuladen des Mandats; danach wirft ``ensure_bound_to``
+      ``RunContextMandateMismatch`` (fail-closed, nie eine falsche Bindung).
+      ``copy.copy`` und ``dataclasses.replace`` behalten das Objekt.
+    - N-843-3: Der Kontext haelt das Mandatsobjekt fuer seine ganze
+      Lebensdauer fest. Heute ist er lauf- bzw. requestlokal. Wer ihn
+      kuenftig cached, serialisiert oder in Evidence schreibt, muss
+      ``bound_mandate`` ausschliessen (es ist kein Fachwert des Laufs).
     """
 
     mandate_id: Any
