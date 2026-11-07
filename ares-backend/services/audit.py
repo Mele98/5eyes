@@ -62,13 +62,46 @@ def _claim_next_audit_sequence(db: Session) -> tuple[int, str]:
         # numerischer Vorgaenger. Altdaten (sequence IS NULL) werden bewusst
         # nicht rueckwirkend verkettet, siehe models.review.AuditLog.sequence.
         return new_sequence, ""
-    previous_entry = (
-        db.query(AuditLog)
-        .filter(AuditLog.sequence == new_sequence - 1)
-        .first()
-    )
+    previous_entry = _pending_audit_entry(db, new_sequence - 1)
+    if previous_entry is None:
+        previous_entry = (
+            db.query(AuditLog)
+            .filter(AuditLog.sequence == new_sequence - 1)
+            .first()
+        )
     previous_hash = str(previous_entry.integrity_hash or "") if previous_entry else ""
     return new_sequence, previous_hash
+
+
+def _pending_audit_entry(db: Session, sequence: int) -> AuditLog | None:
+    """N-862-1 (Pruefrunde #862): Vorgaenger aus den PENDING-Objekten der
+    eigenen Session.
+
+    Die Sessions laufen mit autoflush=False (database.SessionLocal). Ein in
+    derselben Transaktion zuvor per log() angelegter, noch nicht geflushter
+    Eintrag liegt nur in ``db.new`` -- die DB-Abfrage nach ``sequence - 1``
+    findet ihn nicht, previous_hash wurde "" und verify_audit_chain meldete
+    "Kette gebrochen" fuer JEDE Transaktion mit zwei oder mehr Eintraegen
+    (z.B. Risikoprofil + Plausibilitaets-Befund, FX-Upsert mehrerer
+    Waehrungen, Ziel-Reihenfolge).
+
+    Bewusst KEIN db.flush() an dieser Stelle: log() wuerde sonst ALLE
+    ausstehenden Objekte des Aufrufers vorzeitig schreiben. Ein Aufrufer
+    darf ein Objekt nach db.add() noch vervollstaendigen; bei append-only-
+    Tabellen (Unveraenderlichkeits-Trigger auf UPDATE) machte ein
+    vorgezogener Flush daraus ein UPDATE, das der Trigger abweist, und
+    Constraint-Fehler kaemen an einer Stelle, die der Aufrufer nicht
+    abfaengt. Die Sequenz selbst ist davon
+    unberuehrt: der Zaehler-UPDATE laeuft sofort gegen die DB und haelt den
+    Schreib-Lock bis zum Commit (siehe _claim_next_audit_sequence).
+
+    Ein Rollback (auch eines Savepoints) entfernt die pending Eintraege UND
+    setzt den Zaehler zurueck -- beides bleibt konsistent.
+    """
+    for obj in db.new:
+        if isinstance(obj, AuditLog) and obj.sequence == sequence:
+            return obj
+    return None
 
 
 def _audit_integrity_payload(
