@@ -21053,6 +21053,32 @@
         "title": "RiskProfileSignRequest",
         "type": "object"
       },
+      "RiskQuestionnairePolicyUpdate": {
+        "description": "H5 (N-886-08): PUT /tenants/me/risk-questionnaire-policy.\n\nAktivieren nur mit Vermerk der IC-/Compliance-Freigabe der Grenzwerte\n(Referenz, Datum, Gremium); Deaktivieren jederzeit.",
+        "properties": {
+          "approval_reference": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Reference"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "RiskQuestionnairePolicyUpdate",
+        "type": "object"
+      },
       "RoleGrant": {
         "properties": {
           "privacy_role": {
@@ -23769,6 +23795,44 @@
             ],
             "title": "Max Users"
           },
+          "risk_questionnaire_v2_approval_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Questionnaire V2 Approval Ref"
+          },
+          "risk_questionnaire_v2_changed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Questionnaire V2 Changed At"
+          },
+          "risk_questionnaire_v2_changed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Questionnaire V2 Changed By"
+          },
+          "risk_questionnaire_v2_enabled": {
+            "default": 0,
+            "title": "Risk Questionnaire V2 Enabled",
+            "type": "integer"
+          },
           "slug": {
             "title": "Slug",
             "type": "string"
@@ -23925,6 +23989,44 @@
               }
             ],
             "title": "Max Users"
+          },
+          "risk_questionnaire_v2_approval_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Questionnaire V2 Approval Ref"
+          },
+          "risk_questionnaire_v2_changed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Questionnaire V2 Changed At"
+          },
+          "risk_questionnaire_v2_changed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Questionnaire V2 Changed By"
+          },
+          "risk_questionnaire_v2_enabled": {
+            "default": 0,
+            "title": "Risk Questionnaire V2 Enabled",
+            "type": "integer"
           },
           "slug": {
             "title": "Slug",
@@ -41811,7 +41913,7 @@
     },
     "/risk-questionnaire/policy": {
       "get": {
-        "description": "H5b: aktive Fragebogen-Version und Definition v2 (Texte, Optionen,\nKappungen, Konsistenz-Flags). v2 ist hinter einem Feature-Flag (Default\naus) bis zur Freigabe der Grenzwerte durch IC/Compliance.",
+        "description": "H5b: aktive Fragebogen-Version der Firma und Definition v2 (Texte,\nOptionen, Kappungen, Konsistenz-Flags). v2 ist per Tenant-Policy aus,\nbis die Grenzwerte durch IC/Compliance freigegeben und vermerkt sind.",
         "operationId": "get_risk_questionnaire_policy_risk_questionnaire_policy_get",
         "responses": {
           "200": {
@@ -42053,6 +42155,53 @@
           }
         ],
         "summary": "Update My Tenant",
+        "tags": [
+          "Tenants"
+        ]
+      }
+    },
+    "/tenants/me/risk-questionnaire-policy": {
+      "put": {
+        "description": "H5 (N-886-08): Risikoprofil-Fragebogen v2 fuer die EIGENE Firma.\n\nDefault aus. Aktivieren nur mit Vermerk der IC-/Compliance-Freigabe der\nGrenzwerte (Schema-Pflicht); jede Aenderung wird mit altem und neuem Stand\nsamt Vermerk auditiert. Ab Aktivierung nimmt der Server fuer diese Firma\nnur noch neue v2-Erhebungen an; bestehende Profile bleiben gueltig.",
+        "operationId": "update_my_risk_questionnaire_policy_tenants_me_risk_questionnaire_policy_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RiskQuestionnairePolicyUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update My Risk Questionnaire Policy",
         "tags": [
           "Tenants"
         ]

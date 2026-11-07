@@ -7,16 +7,16 @@ from typing import Any
 from services.override_reason_quality import validate_override_reason_quality
 from services.risk_questionnaire_integrity import (
     REASON_NOT_STANDARD, known_nonstandard_evidence, nonstandard_profile_message,
-    validate_v2_persisted,
+    v2_columns_empty, validate_v2_persisted,
 )
 from services.risk_scoring import (
     HORIZON_YEARS,
     QUESTIONNAIRE_V1,
     QUESTIONNAIRE_V2,
-    WILLINGNESS_SCORE_TO_PROFILE,
     canonicalize_horizon_label,
     compute_scores,
     profile_for_score_x10,
+    willingness_profile_for_score_x10,
 )
 
 
@@ -30,13 +30,6 @@ class RiskQuestionnaireNotStandardError(RiskAssessmentInputError):
     reason_code = REASON_NOT_STANDARD
 
 
-def _willingness_profile_for(score_x10: int) -> str:
-    for (lo, hi), name in WILLINGNESS_SCORE_TO_PROFILE.items():
-        if lo <= score_x10 <= hi:
-            return name
-    return "Kapitalschutz"
-
-
 def _effective_willingness(assessment: Any, derived) -> tuple[int, str, int]:
     """H5b: (Bereitschaft, Profil, Final ohne FZK) nach Fragebogen-Version.
 
@@ -46,6 +39,13 @@ def _effective_willingness(assessment: Any, derived) -> tuple[int, str, int]:
     """
     version = getattr(assessment, "questionnaire_version", None)
     if version is None or version == QUESTIONNAIRE_V1:
+        # N-886-02: ohne Version keine v2-Reste (sonst liesse sich eine
+        # v2-Kappung durch Entfernen der Version aushebeln).
+        if not v2_columns_empty(assessment):
+            raise RiskAssessmentInputError(
+                "Fragebogen-Version fehlt, aber v2-Angaben sind gespeichert; "
+                "die fachliche Score-Herleitung ist nicht pruefbar."
+            )
         return (
             derived.risk_willingness_score_x10,
             derived.risk_willingness_profile,
@@ -66,7 +66,7 @@ def _effective_willingness(assessment: Any, derived) -> tuple[int, str, int]:
         ) from exc
     return (
         effective,
-        _willingness_profile_for(effective),
+        willingness_profile_for_score_x10(effective),
         min(int(derived.risk_capacity_score_x10), effective),
     )
 

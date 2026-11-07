@@ -3,7 +3,7 @@
     "css_selectors": 1120,
     "event_handlers": 461,
     "ids": 1018,
-    "js_functions": 1330,
+    "js_functions": 1332,
     "modal_structures": 110,
     "script_blocks": 26,
     "style_blocks": 2,
@@ -9260,8 +9260,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/risk-questionnaire-v2.js",
-      "sha256": "6ffb2a05fb13bb03a6fd5184502650b7cbbfb065d3ff1ab097372a0b5f873fac",
-      "size_bytes": 18378
+      "sha256": "e35261e936c13cfaf4a42346962b0fe5b8681bb5a79252fc029781a55bb2f58c",
+      "size_bytes": 20377
     }
   ],
   "ids": [
@@ -21963,49 +21963,49 @@
     },
     {
       "declaration": "function",
-      "line": 345,
+      "line": 390,
       "name": "riskKeCell",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 353,
+      "line": 398,
       "name": "riskKeCheckbox",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 374,
+      "line": 419,
       "name": "riskKeExtendTable",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 402,
+      "line": 447,
       "name": "riskKeHasLegacyRows",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 368,
+      "line": 413,
       "name": "riskKeInputs",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 363,
+      "line": 408,
       "name": "riskKeInsertAfter",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 411,
+      "line": 456,
       "name": "riskKeLegacyHint",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 46,
+      "line": 48,
       "name": "riskV2Active",
       "source": "risk-questionnaire-v2.js"
     },
@@ -22017,115 +22017,127 @@
     },
     {
       "declaration": "function",
-      "line": 106,
+      "line": 131,
       "name": "riskV2AdvisoryChf",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 118,
+      "line": 143,
       "name": "riskV2AmountSuffix",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 195,
+      "line": 232,
       "name": "riskV2ApplyToResult",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 267,
+      "line": 304,
       "name": "riskV2BaseResult",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 143,
+      "line": 168,
       "name": "riskV2Caps",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 114,
+      "line": 139,
       "name": "riskV2Currency",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 61,
+      "line": 86,
       "name": "riskV2Esc",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 181,
+      "line": 218,
       "name": "riskV2Evaluate",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 160,
+      "line": 197,
       "name": "riskV2Flags",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 100,
+      "line": 125,
       "name": "riskV2FormatAmount",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 235,
+      "line": 272,
       "name": "riskV2Hydrate",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 277,
+      "line": 314,
       "name": "riskV2InstallWrappers",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 155,
+      "line": 181,
       "name": "riskV2InstrumentDocumented",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 251,
+      "line": 288,
       "name": "riskV2Issues",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 50,
+      "line": 188,
+      "name": "riskV2LittleExperience",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 55,
       "name": "riskV2LoadPolicy",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 176,
+      "line": 81,
+      "name": "riskV2NeedsPolicy",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 213,
       "name": "riskV2NoteOk",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 171,
+      "line": 208,
       "name": "riskV2NoteText",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 65,
+      "line": 90,
       "name": "riskV2Render",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 215,
+      "line": 252,
       "name": "riskV2RenderStatus",
       "source": "risk-questionnaire-v2.js"
     },
@@ -22137,13 +22149,13 @@
     },
     {
       "declaration": "function",
-      "line": 135,
+      "line": 160,
       "name": "riskV2SelectedIndex",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 126,
+      "line": 151,
       "name": "riskV2UpdateAmounts",
       "source": "risk-questionnaire-v2.js"
     }

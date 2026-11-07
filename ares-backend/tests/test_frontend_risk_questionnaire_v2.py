@@ -168,10 +168,10 @@ console.log(JSON.stringify({keys:Object.keys(r.payload).sort(),will:r.willScore,
 
 def test_caps_and_flags_in_the_mask_equal_the_server_for_every_combination():
     out = _run(_v2_script(r"""
-var rows=[], P=RISK_V2.policy, INSTR=[{Aktien:{known:0,informed:0}},{Aktien:{known:0,experienced:1,informed:0}}];
+var rows=[], P=RISK_V2.policy, INSTR=[{Aktien:{known:0,informed:0}},{Aktien:{known:0,experienced:1,informed:0}},{Aktien:{known:1,experienced:0,informed:1}}];
 for(var q9=1;q9<=4;q9++)for(var q10=1;q10<=4;q10++)for(var q11=1;q11<=4;q11++){
   var core=Math.max(10,Math.min(100,Math.round(((q9+q10+q11-3)/9)*90+10)));
-  for(var a=0;a<4;a++)for(var b=0;b<5;b++)for(var c=0;c<4;c++)for(var k=0;k<2;k++){
+  for(var a=0;a<4;a++)for(var b=0;b<5;b++)for(var c=0;c<4;c++)for(var k=0;k<3;k++){
     var cc=riskV2Caps(P,q11,{12:a,13:b,14:c});
     var eff=Math.min(core,cc.cap);
     rows.push([q9,q10,q11,a,b,c,k,core,cc.cap,eff,cc.caps.map(function(x){return x.source;}),
@@ -181,9 +181,11 @@ for(var q9=1;q9<=4;q9++)for(var q10=1;q10<=4;q10++)for(var q11=1;q11<=4;q11++){
 console.log(JSON.stringify(rows));
 """))
     instr = [json.dumps({"Aktien": {"known": 0, "informed": 0}}),
-             json.dumps({"Aktien": {"known": 0, "experienced": 1, "informed": 0}})]
+             json.dumps({"Aktien": {"known": 0, "experienced": 1, "informed": 0}}),
+             json.dumps({"Aktien": {"known": 1, "experienced": 0, "informed": 1}})]
     rows = json.loads(out)
-    assert len(rows) == 64 * 80 * 2
+    assert len(rows) == 64 * 80 * 3
+    assert any("K4" in r[-1] for r in rows if r[6] == 2)  # wenig Erfahrung (N-886-07)
     for q9, q10, q11, a, b, c, k, core, cap, eff, sources, flags in rows:
         r = compute_willingness_v2(core_willingness_score_x10=core, q_risk_behavior_points=q11,
                                    q12_option=a, q13_option=b, q14_option=c)
@@ -210,7 +212,7 @@ console.log(JSON.stringify({{payload:r?r.payload:null,will:r&&r.willScore,fin:r&
 def test_mask_payload_with_full_agreement_equals_v1_and_is_accepted_by_the_server(
     client, mandate_id, monkeypatch,  # noqa: F811
 ):
-    monkeypatch.setattr(rqi, "RISK_QUESTIONNAIRE_V2_ENABLED", True)
+    monkeypatch.setattr(rqi, "tenant_policy_row", lambda db, tid: (1, "IC-Beschluss 2026-11-07 Nr. 12 (Probe)"))
     data = _js_v2_payload(2, 2, 2, {"12": 3, "13": 3, "14": 3})
     p = data["payload"]
     assert p["questionnaire_version"] == "v2"
@@ -225,7 +227,7 @@ def test_mask_payload_with_full_agreement_equals_v1_and_is_accepted_by_the_serve
 def test_mask_payload_with_panic_answer_is_capped_identically_on_the_server(
     client, mandate_id, monkeypatch,  # noqa: F811
 ):
-    monkeypatch.setattr(rqi, "RISK_QUESTIONNAIRE_V2_ENABLED", True)
+    monkeypatch.setattr(rqi, "tenant_policy_row", lambda db, tid: (1, "IC-Beschluss 2026-11-07 Nr. 12 (Probe)"))
     note = "Panik-Antwort besprochen, Kunde bestaetigt defensive Haltung."
     data = _js_v2_payload(3, 3, 0, {"12": 3, "13": 3, "14": 3}, note=note)
     assert (data["will"], data["fin"], data["prof"]) == (40, 40, "Defensiv")
@@ -256,3 +258,30 @@ saveRiskProfile().then(function(ok){
     assert data["saved"] is False and data["base"] == 0
     assert data["issues"] == ["Beraternotiz zu den Konsistenzhinweisen"]
     assert "Beraternotiz" in data["fb"][0]
+
+
+def test_n886_01_policy_load_failure_blocks_saving_fail_closed():
+    out = _run(_v2_script(r"""
+RISK_V2.policy=null; RISK_V2.status='idle';
+var API={get:function(){return Promise.reject(new Error('offline'));}};
+function getActiveMandateId(){return 'm-real';}
+function isDemoMandateId(){return false;}
+STATE=state(2,2,2);
+saveRiskProfile().then(function(ok){
+  console.log(JSON.stringify({saved:ok,base:SAVED.length,fb:FEEDBACK,status:RISK_V2.status}));
+});
+"""))
+    data = json.loads(out)
+    assert data["saved"] is False and data["base"] == 0 and data["status"] == "error"
+    assert "Speichern ist gesperrt" in data["fb"][0]
+
+
+def test_n886_01_demo_mandate_saves_without_policy():
+    out = _run(_v2_script(r"""
+RISK_V2.policy=null; RISK_V2.status='idle';
+function getActiveMandateId(){return 'demo-1';}
+function isDemoMandateId(){return true;}
+STATE=state(2,2,2);
+saveRiskProfile().then(function(ok){console.log(JSON.stringify({saved:ok,base:SAVED.length}));});
+"""))
+    assert json.loads(out) == {"saved": True, "base": 1}

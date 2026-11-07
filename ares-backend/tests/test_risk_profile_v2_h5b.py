@@ -137,12 +137,23 @@ def test_v2_question_texts_are_identical_in_pdf_and_integrity():
     assert {q: t for q, (_s, t) in V2_QUESTION_CATALOG.items()} == rqi.V2_QUESTIONS
 
 
-def test_flag_is_off_by_default_and_hash_is_stable():
-    assert rqi.RISK_QUESTIONNAIRE_V2_ENABLED is False
-    assert rqi.questionnaire_v2_enabled() is False
-    policy = rqi.questionnaire_v2_policy()
+def test_policy_is_off_without_tenant_flag_and_approval_and_hash_is_stable():
+    db = None
+    assert not hasattr(rqi, "RISK_QUESTIONNAIRE_V2_ENABLED")  # N-886-08: keine Code-Konstante
+    user = SimpleNamespace(tenant_id="t-x")
+    for row, expected in ((None, False), ((0, "IC 2026-11-07 Nr. 12"), False),
+                          ((1, None), False), ((1, "zu kurz"), False),
+                          ((1, "IC-Beschluss 2026-11-07 Nr. 12"), True)):
+        rqi_row = row
+        orig = rqi.tenant_policy_row
+        rqi.tenant_policy_row = lambda _db, _tid, r=rqi_row: r
+        try:
+            assert rqi.questionnaire_v2_enabled(db, user) is expected, row
+        finally:
+            rqi.tenant_policy_row = orig
+    policy = rqi.questionnaire_v2_policy(enabled=False)
     assert policy["v2_enabled"] is False and policy["active_version"] == "v1"
-    assert "IC/Compliance" in policy["approval_status"]
+    assert "IC-/Compliance" in policy["approval_status"]
     assert re.fullmatch(r"[0-9a-f]{64}", rqi.QUESTIONNAIRE_V2_HASH)
 
 
@@ -167,7 +178,7 @@ def _reason(resp):
 
 @pytest.fixture()
 def v2_on(monkeypatch):
-    monkeypatch.setattr(rqi, "RISK_QUESTIONNAIRE_V2_ENABLED", True)
+    monkeypatch.setattr(rqi, "tenant_policy_row", lambda db, tid: (1, "IC-Beschluss 2026-11-07 Nr. 12 (Probe)"))
 
 
 def test_policy_endpoint_reports_v2_disabled_by_default(client):
@@ -199,11 +210,15 @@ def test_v1_save_is_unchanged_and_unversioned(client, mandate_id):
 
 
 def test_v2_full_agreement_saves_identical_profile_to_v1(client, mandate_id, v2_on):
-    v1 = client.post(f"/mandates/{mandate_id}/risk-assessments", json=standard_risk_payload()).json()
+    p = standard_risk_payload()
+    v1 = compute_scores(**{k: p[k] for k in (
+        "q_income_points", "q_obligations_points", "q_savings_points", "q_wealth_points",
+        "investment_horizon_label", "q_investment_goal_points", "q_risk_preference_points",
+        "q_risk_behavior_points")})
     v2 = client.post(f"/mandates/{mandate_id}/risk-assessments", json=_v2_payload(note=NOTE)).json()
     for key in ("risk_capacity_score_x10", "risk_willingness_score_x10", "risk_willingness_profile",
                 "final_score_x10", "final_profile"):
-        assert v2[key] == v1[key], key
+        assert v2[key] == getattr(v1, key), key
     assert v2["questionnaire_version"] == "v2"
     assert v2["questionnaire_hash"] == rqi.QUESTIONNAIRE_V2_HASH
     evidence = json.loads(v2["willingness_v2_json"])
@@ -257,9 +272,6 @@ def test_unknown_v2_option_or_missing_question_is_rejected(client, mandate_id, v
 
 def test_q12_label_may_carry_the_precomputed_franc_amount_only(client, mandate_id, v2_on):
     payload = _v2_payload(note=NOTE)
-    payload["questionnaire_v2_answers"][0]["answer_label"] = (
-        "Über 20 % · über ca. CHF 50'000 bei CHF 250'000 Anlagebetrag")
-    assert client.post(f"/mandates/{mandate_id}/risk-assessments", json=payload).status_code == 201
     payload["questionnaire_v2_answers"][0]["answer_label"] = "Über 20 % · beliebiger Text"
     assert _reason(client.post(f"/mandates/{mandate_id}/risk-assessments", json=payload)) == rqi.REASON_NOT_STANDARD
 
@@ -278,7 +290,7 @@ def test_v1_profile_stays_valid_and_is_never_rescored_after_enabling_v2(
 ):
     payload = standard_risk_payload(goal=3, pref=3, behav=0)  # v1: Panik-Antwort, 70
     assert client.post(f"/mandates/{mandate_id}/risk-assessments", json=payload).status_code == 201
-    monkeypatch.setattr(rqi, "RISK_QUESTIONNAIRE_V2_ENABLED", True)
+    monkeypatch.setattr(rqi, "tenant_policy_row", lambda db, tid: (1, "IC-Beschluss 2026-11-07 Nr. 12 (Probe)"))
     ra = _current(session_factory, mandate_id)
     assert ra.questionnaire_version is None
     assert validate_risk_assessment_model_input(ra, mandate_type="Anlageberatung") == 70
@@ -395,7 +407,8 @@ def test_alembic_single_head_adds_and_removes_the_columns(tmp_path):
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
-    assert script.get_heads() == ["e7c4a9b2d6f1"]
+    assert script.get_heads() == ["f3a8c1d5e9b2"]
+    assert script.get_revision("f3a8c1d5e9b2").down_revision == "e7c4a9b2d6f1"
     assert script.get_revision("e7c4a9b2d6f1").down_revision == "d3b7f1a5c9e2"
     db_url = f"sqlite:///{tmp_path / 'alembic.db'}"
     cfg = _alembic_cfg(db_url)
@@ -418,6 +431,265 @@ def test_consistency_note_is_redacted_on_erasure():
     assert "consistency_note" in columns
     source = (BACKEND_ROOT / "services" / "client_erasure.py").read_text(encoding="utf-8")
     assert '("consistency_note", "")' in source
+
+
+# ── Pruefrunde 2f74edc8 (N-886-01 .. -09) ───────────────────────────────────────
+
+_APPROVED = (1, "IC-Beschluss 2026-11-07 Nr. 12 (Probe)")
+
+
+def test_n886_01_active_v2_rejects_new_v1_surveys(client, mandate_id, v2_on):
+    resp = client.post(f"/mandates/{mandate_id}/risk-assessments", json=standard_risk_payload())
+    assert resp.status_code == 422 and _reason(resp) == rqi.REASON_V2_REQUIRED
+    assert client.get("/risk-questionnaire/policy").json()["active_version"] == "v2"
+
+
+def _saved(client, mandate_id, session_factory, payload):  # noqa: F811
+    resp = client.post(f"/mandates/{mandate_id}/risk-assessments", json=payload)
+    assert resp.status_code == 201, resp.text
+    return _current(session_factory, mandate_id)
+
+
+def test_n886_02_removed_version_with_v2_remnants_fails_closed(
+    client, mandate_id, session_factory, v2_on,  # noqa: F811
+):
+    ra = _saved(client, mandate_id, session_factory, _v2_payload(goal=3, pref=3, behav=0, note=NOTE))
+    lifted = copy.copy(ra)
+    lifted.questionnaire_version = None          # Version entfernt ...
+    lifted.risk_willingness_score_x10 = 70       # ... und v1-Kern eingesetzt
+    lifted.risk_willingness_profile = "Wachstumsorientiert"
+    lifted.final_score_x10 = 70
+    lifted.final_profile = "Wachstumsorientiert"
+    with pytest.raises(RiskAssessmentInputError, match="v2-Angaben"):
+        validate_risk_assessment_model_input(lifted, mandate_type="Anlageberatung")
+    for column in ("questionnaire_hash", "willingness_v2_json", "consistency_note"):
+        only = copy.copy(lifted)
+        for other in ("questionnaire_hash", "willingness_v2_json", "consistency_note"):
+            setattr(only, other, getattr(ra, other) if other == column else None)
+        with pytest.raises(RiskAssessmentInputError):
+            validate_risk_assessment_model_input(only, mandate_type="Anlageberatung")
+    clean = copy.copy(lifted)
+    clean.questionnaire_hash = clean.willingness_v2_json = clean.consistency_note = None
+    assert validate_risk_assessment_model_input(clean, mandate_type="Anlageberatung") == 70
+
+
+def test_n886_03_flags_and_note_duty_are_rechecked(
+    client, mandate_id, session_factory, v2_on,  # noqa: F811
+):
+    ra = _saved(client, mandate_id, session_factory, _v2_payload(goal=3, pref=3, behav=0, note=NOTE))
+    assert json.loads(ra.willingness_v2_json)["consistency_flags"] == ["K2", "K3"]
+    cleared = copy.copy(ra)
+    evidence = json.loads(ra.willingness_v2_json)
+    evidence["consistency_flags"] = []
+    evidence["consistency_messages"] = []
+    cleared.willingness_v2_json = json.dumps(evidence)
+    with pytest.raises(RiskAssessmentInputError, match="consistency"):
+        validate_risk_assessment_model_input(cleared, mandate_type="Anlageberatung")
+    no_note = copy.copy(ra)
+    no_note.consistency_note = None
+    with pytest.raises(RiskAssessmentInputError, match="Beraternotiz"):
+        validate_risk_assessment_model_input(no_note, mandate_type="Anlageberatung")
+    erased = copy.copy(ra)
+    erased.consistency_note = rqi.ERASURE_REDACTION_MARKER  # DSG-Loeschung bleibt gueltig
+    assert validate_risk_assessment_model_input(erased, mandate_type="Anlageberatung") == 40
+    from services.client_erasure import REDACTION_MARKER
+    assert rqi.ERASURE_REDACTION_MARKER == REDACTION_MARKER
+
+
+def test_n886_04_current_definition_is_pinned_and_registered():
+    # Ein geaenderter Inhalt der Definition 2026-11-07b ist ein NEUER Eintrag,
+    # nie eine Aenderung dieses Pins.
+    assert rqi.QUESTIONNAIRE_V2_HASH == "3121c414de5bdba31b4942f0c156704e153fe3e6f9e9fbf020c7a8a0f25aaba7"
+    assert rqi.definition_for_hash(rqi.QUESTIONNAIRE_V2_HASH) is not None
+    for h, definition in rqi.QUESTIONNAIRE_DEFINITIONS.items():
+        assert rqi._definition_hash(definition) == h
+    assert rqi.definition_for_hash("0" * 64) is None
+
+
+def test_n886_04_stored_profiles_keep_their_historical_definition(
+    client, mandate_id, session_factory, v2_on, monkeypatch,  # noqa: F811
+):
+    ra = _saved(client, mandate_id, session_factory, _v2_payload(goal=3, pref=3, behav=0, note=NOTE))
+    old_hash, old_def = ra.questionnaire_hash, rqi.QUESTIONNAIRE_DEFINITIONS[ra.questionnaire_hash]
+    # Spaetere IC-Freigabe mit anderen Grenzwerten -> neue aktuelle Definition.
+    new_def = json.loads(json.dumps(old_def))
+    new_def["rules_version"] = "ares-risk-questionnaire-v2/2027-01-01"
+    new_def["q11_knockout"]["max_score_x10"] = 30
+    new_hash = rqi._definition_hash(new_def)
+    monkeypatch.setattr(rqi, "_CURRENT_DEFINITION", new_def)
+    monkeypatch.setattr(rqi, "QUESTIONNAIRE_V2_HASH", new_hash)
+    monkeypatch.setattr(rqi, "QUESTIONNAIRE_DEFINITIONS", {old_hash: old_def, new_hash: new_def})
+    # Das gespeicherte Profil bleibt mit SEINER Definition gueltig (40, nicht 30).
+    assert validate_risk_assessment_model_input(ra, mandate_type="Anlageberatung") == 40
+    # Manipulierter Registry-Eintrag (Inhalt passt nicht zum Hash) -> fail-closed.
+    monkeypatch.setattr(rqi, "QUESTIONNAIRE_DEFINITIONS", {old_hash: new_def})
+    with pytest.raises(RiskAssessmentInputError):
+        validate_risk_assessment_model_input(ra, mandate_type="Anlageberatung")
+
+
+@pytest.mark.parametrize("suffix,ok", [
+    ("über ca. CHF 50'000 bei CHF 250'000 Anlagebetrag", True),
+    ("über ca. CHF 50’000 bei CHF 250’000 Anlagebetrag", True),
+    ("über ca. CHF 1 bei CHF 250'000 Anlagebetrag", False),          # passt nicht zu 20 %
+    ("über ca. CHF 0 bei CHF 0 Anlagebetrag", False),
+    ("über ca. CHF 300'000 bei CHF 250'000 Anlagebetrag", False),    # > Anlagebetrag
+    ("bis ca. CHF 50'000 bei CHF 250'000 Anlagebetrag", False),      # bis/ueber falsch
+    ("über ca. EUR 50'000 bei EUR 250'000 Anlagebetrag", False),     # Waehrung
+    ("über ca. CHF 200'000 bei CHF 1'000'000 Anlagebetrag", False),  # > Vermoegen
+])
+def test_n886_05_q12_amount_is_validated(suffix, ok):
+    label = f"{rqi.V2_OPTIONS[12][3]} · {suffix}"
+    if ok:
+        rqi.check_q12_amount(label, 3, currency="CHF", ceiling_chf=400_000)
+    else:
+        with pytest.raises(rqi.RiskQuestionnaireIntegrityError) as exc:
+            rqi.check_q12_amount(label, 3, currency="CHF", ceiling_chf=400_000)
+        assert exc.value.reason_code == rqi.REASON_Q12_AMOUNT_IMPLAUSIBLE
+
+
+def test_n886_05_amount_without_recorded_wealth_is_rejected(client, mandate_id, v2_on):
+    payload = _v2_payload(note=NOTE)
+    payload["questionnaire_v2_answers"][0]["answer_label"] = (
+        "Über 20 % · über ca. CHF 50'000 bei CHF 250'000 Anlagebetrag")
+    resp = client.post(f"/mandates/{mandate_id}/risk-assessments", json=payload)
+    assert resp.status_code == 422 and _reason(resp) == rqi.REASON_Q12_AMOUNT_IMPLAUSIBLE
+
+
+def test_n886_06_experience_alone_is_no_knowledge_evidence_for_k5():
+    only_exp = json.dumps({"Aktien": {"known": 0, "experienced": 1, "informed": 0}})
+    flags = rqi.consistency_flags(q9=3, q10=3, q11=3, q13_option=2,
+                                  effective_willingness_profile="Wachstumsorientiert",
+                                  knowledge_instruments_json=only_exp)
+    assert "K5" in flags
+    informed = json.dumps({"Aktien": {"known": 0, "experienced": 1, "informed": 1}})
+    assert "K5" not in rqi.consistency_flags(q9=3, q10=3, q11=3, q13_option=2,
+                                             effective_willingness_profile="Wachstumsorientiert",
+                                             knowledge_instruments_json=informed)
+
+
+def test_n886_07_k4_covers_little_experience():
+    k = rqi.consistency_flags
+    none = json.dumps({"Aktien": {"known": 1, "experienced": 0, "informed": 1}})
+    some = json.dumps({"Aktien": {"known": 1, "experienced": 0, "informed": 1},
+                       "ETF": {"known": 1, "experienced": 1, "informed": 0}})
+    legacy = json.dumps({"Aktien": {"known": 1, "informed": 1}})
+    growth = dict(q9=3, q10=3, q11=3, q13_option=2, effective_willingness_profile="Wachstumsorientiert")
+    assert "K4" in k(**growth, knowledge_instruments_json=none)        # wenig Erfahrung
+    assert "K4" not in k(**growth, knowledge_instruments_json=some)
+    assert "K4" not in k(**growth, knowledge_instruments_json=legacy)  # Altprofil: nicht bewertbar
+    assert "K4" in k(**{**growth, "q13_option": 4}, knowledge_instruments_json=legacy)  # n.a.
+    assert rqi.questionnaire_v2_definition()["k4_experience_rows"] == ["Aktien", "Anlagefonds", "ETF"]
+
+
+def test_n886_09_single_willingness_profile_helper():
+    import services.risk_assessment_semantics as sem
+
+    assert not hasattr(sem, "_willingness_profile_for")
+    from services.risk_scoring import willingness_profile_for_score_x10
+    assert [willingness_profile_for_score_x10(v) for v in (10, 40, 60, 80, 90, 100)] == [
+        "Kapitalschutz", "Defensiv", "Ausgewogen", "Wachstumsorientiert", "Dynamisch", "Aktien"]
+
+
+# ── N-886-08: Tenant-Policy, auditierte Admin-Einstellung ───────────────────────
+
+@pytest.fixture()
+def admin_client(session_factory, monkeypatch):  # noqa: F811
+    from fastapi.testclient import TestClient
+
+    from database import get_db
+    from main import app
+    from models.tenant import Tenant
+    from models.users import User
+    from services.auth import get_current_user
+    from tests.risk_fixture_helpers import noop_lifespan
+
+    now = "2026-11-07T00:00:00.000Z"
+    admin = User(id="u-h5-admin", username="h5-admin", password_hash="h", full_name="H5 Admin",
+                 role="admin", is_active=1, tenant_id="main", created_at=now, updated_at=now)
+    with session_factory() as s:
+        s.add(Tenant(id="main", display_name="Firma", slug="firma", created_at=now, updated_at=now))
+        s.add(admin)
+        s.commit()
+
+    def override_db():
+        with session_factory() as session:
+            yield session
+
+    monkeypatch.setattr(app.router, "lifespan_context", noop_lifespan)
+    app.dependency_overrides[get_db] = override_db
+    holder = {"user": admin}
+    app.dependency_overrides[get_current_user] = lambda: holder["user"]
+    with TestClient(app) as tc:
+        yield tc, holder
+    app.dependency_overrides.clear()
+
+
+def test_n886_08_tenant_policy_default_off_and_audited_activation(admin_client, session_factory):  # noqa: F811
+    from models.review import AuditLog
+
+    tc, _holder = admin_client
+    assert tc.get("/risk-questionnaire/policy").json()["v2_enabled"] is False
+    bad = tc.put("/tenants/me/risk-questionnaire-policy", json={"enabled": True})
+    assert bad.status_code == 422
+    ref = "IC-Beschluss 2026-11-07 Nr. 12"
+    ok = tc.put("/tenants/me/risk-questionnaire-policy", json={"enabled": True, "approval_reference": ref})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["risk_questionnaire_v2_enabled"] == 1
+    policy = tc.get("/risk-questionnaire/policy").json()
+    assert policy["v2_enabled"] is True and policy["approval_reference"] == ref
+    with session_factory() as s:
+        entry = s.query(AuditLog).filter(AuditLog.field_name == "risk_questionnaire_v2_enabled").one()
+        assert json.loads(entry.old_value)["enabled"] == 0
+        assert json.loads(entry.new_value) == {"enabled": 1, "approval_reference": ref}
+    off = tc.put("/tenants/me/risk-questionnaire-policy", json={"enabled": False})
+    assert off.status_code == 200 and off.json()["risk_questionnaire_v2_enabled"] == 0
+    assert tc.get("/risk-questionnaire/policy").json()["v2_enabled"] is False
+
+
+def test_n886_08_only_admins_change_the_policy(admin_client):
+    from models.users import User
+
+    tc, holder = admin_client
+    holder["user"] = User(id="u-h5-adv", username="adv", password_hash="h", full_name="Adv",
+                          role="advisor", is_active=1, tenant_id="main",
+                          created_at="t", updated_at="t")
+    resp = tc.put("/tenants/me/risk-questionnaire-policy",
+                  json={"enabled": True, "approval_reference": "IC-Beschluss 2026-11-07 Nr. 12"})
+    assert resp.status_code == 403
+
+
+def test_n886_08_tenant_columns_in_orm_runtime_and_alembic(tmp_path, monkeypatch):
+    import database as db_module
+    from alembic import command
+    from models.tenant import Tenant
+
+    cols = {"risk_questionnaire_v2_enabled", "risk_questionnaire_v2_approval_ref",
+            "risk_questionnaire_v2_changed_at", "risk_questionnaire_v2_changed_by"}
+    assert cols <= {c.name for c in Tenant.__table__.columns}
+    db_url = f"sqlite:///{tmp_path / 'alembic_t.db'}"
+    cfg = _alembic_cfg(db_url)
+    command.upgrade(cfg, "head")
+    engine = create_engine(db_url)
+    assert cols <= {c["name"] for c in inspect(engine).get_columns("tenants")}
+    engine.dispose()
+    command.downgrade(cfg, "e7c4a9b2d6f1")
+    engine = create_engine(db_url)
+    assert not cols & {c["name"] for c in inspect(engine).get_columns("tenants")}
+    engine.dispose()
+    # SQLite-Laufzeitpatch ergaenzt die Spalten auf Bestands-DBs.
+    runtime = tmp_path / "rt.db"
+    db_module.bootstrap_sqlite_schema(db_path=runtime, schema_path=BACKEND_ROOT / "ares_schema.sql")
+    engine = create_engine(f"sqlite:///{runtime}")
+    Tenant.__table__.create(bind=engine, checkfirst=True)
+    with sqlite3.connect(str(runtime)) as conn:  # Bestands-DB ohne die neuen Spalten
+        for column in sorted(cols):
+            conn.execute(f"ALTER TABLE tenants DROP COLUMN {column}")
+        conn.commit()
+    monkeypatch.setattr(db_module, "engine", engine)
+    db_module.ensure_runtime_columns()
+    engine.dispose()
+    with sqlite3.connect(str(runtime)) as conn:
+        assert cols <= {row[1] for row in conn.execute("PRAGMA table_info(tenants)")}
 
 
 if __name__ == "__main__":  # pragma: no cover

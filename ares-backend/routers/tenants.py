@@ -16,6 +16,7 @@ Tier 3 sind diese Endpoints deaktiviert via settings.tenant_admin_ui_enabled.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -29,6 +30,7 @@ from models.clients import Client
 from models.tenant import DEFAULT_TENANT_ID, Tenant
 from models.users import User
 from schemas.tenants import (
+    RiskQuestionnairePolicyUpdate,
     TenantCreate,
     TenantResponse,
     TenantSelfResponse,
@@ -120,6 +122,53 @@ def update_my_tenant(
     log(
         db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="tenants", record_id=tenant.id, action="UPDATE",
+        ip_address=_extract_client_ip(request),
+    )
+    db.commit()
+    db.refresh(tenant)
+    return tenant
+
+
+@router.put("/me/risk-questionnaire-policy", response_model=TenantResponse)
+def update_my_risk_questionnaire_policy(
+    body: RiskQuestionnairePolicyUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """H5 (N-886-08): Risikoprofil-Fragebogen v2 fuer die EIGENE Firma.
+
+    Default aus. Aktivieren nur mit Vermerk der IC-/Compliance-Freigabe der
+    Grenzwerte (Schema-Pflicht); jede Aenderung wird mit altem und neuem Stand
+    samt Vermerk auditiert. Ab Aktivierung nimmt der Server fuer diese Firma
+    nur noch neue v2-Erhebungen an; bestehende Profile bleiben gueltig.
+    """
+    tenant_id = getattr(current_user, "tenant_id", None) or DEFAULT_TENANT_ID
+    tenant = db.query(Tenant).filter(
+        Tenant.id == tenant_id, Tenant.deleted_at.is_(None),
+    ).first()
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Eigene Firma nicht gefunden")
+    old = {
+        "enabled": int(tenant.risk_questionnaire_v2_enabled or 0),
+        "approval_reference": tenant.risk_questionnaire_v2_approval_ref,
+    }
+    now = _now_iso()
+    ref = " ".join(str(body.approval_reference or "").split()) or None
+    tenant.risk_questionnaire_v2_enabled = 1 if body.enabled else 0
+    if body.enabled:
+        tenant.risk_questionnaire_v2_approval_ref = ref
+    tenant.risk_questionnaire_v2_changed_at = now
+    tenant.risk_questionnaire_v2_changed_by = current_user.id
+    tenant.updated_at = now
+    new_state = {"enabled": tenant.risk_questionnaire_v2_enabled,
+                 "approval_reference": tenant.risk_questionnaire_v2_approval_ref}
+    log(
+        db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="tenants", record_id=tenant.id, action="UPDATE",
+        field_name="risk_questionnaire_v2_enabled",
+        old_value=json.dumps(old, sort_keys=True, ensure_ascii=False),
+        new_value=json.dumps(new_state, sort_keys=True, ensure_ascii=False),
         ip_address=_extract_client_ip(request),
     )
     db.commit()

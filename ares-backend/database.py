@@ -867,6 +867,11 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # bleiben funktionsfaehig; neue Tenants starten via
             # schemas/tenants.py::TenantCreate explizit mit False.
             ('discretionary_management_licensed', 'INTEGER', 1),
+            # H5 (N-886-08): Fragebogen v2 als Firmen-Policy, Default aus.
+            ('risk_questionnaire_v2_enabled', 'INTEGER', 0),
+            ('risk_questionnaire_v2_approval_ref', 'TEXT'),
+            ('risk_questionnaire_v2_changed_at', 'TEXT'),
+            ('risk_questionnaire_v2_changed_by', 'TEXT'),
         ],
         # CERT-HANDOFF-EXECUTION-001 (2026-10-25): siehe models/portfolio_handoff.py
         # und Alembic c7e4a19b3d52. Nullable, kein Backfill.

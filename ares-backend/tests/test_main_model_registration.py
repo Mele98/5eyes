@@ -52,8 +52,9 @@ GOLDEN_SORTED_TABLES_SHA256 = "751a13f478745fdb7729d3191e5d5bf93e52f53b5f2a4d41d
 # scripts/export_openapi.py --check.
 # H5b (2026-11-07): RiskAssessmentCreate/-Response um Fragebogen-Version,
 # v2-Antworten, Hash, Evidenz und Beraternotiz ergaenzt (nur additiv, alle
-# optional) + GET /risk-questionnaire/policy.
-GOLDEN_OPENAPI_SHA256 = "4d3678bc8a92e260f2389a735c4df2e14f423ba08da57dcde3dce83ead73cf6d"
+# optional) + GET /risk-questionnaire/policy. N-886-08: TenantResponse um die
+# Firmen-Policy v2 ergaenzt (additiv) + PUT /tenants/me/risk-questionnaire-policy.
+GOLDEN_OPENAPI_SHA256 = "d0d30dd7ea9fe43b41709266ce387726fb313841ba2ea731703db460daec9dd3"
 
 _PROBE = """
 import hashlib, json

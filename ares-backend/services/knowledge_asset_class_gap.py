@@ -54,8 +54,11 @@ Abgeleitet aus dem bestehenden Code, nicht erfunden:
   ihrer Anlageklasse zurueck; unbekannte Alternative-Sub-Klassen gelten
   konservativ als "keine Zeile".
 
-"Dokumentiert" heisst: Zeile mit ``known``, ``experienced`` (H5c) ODER
-``informed`` (bzw. Legacy ``has_experience``/bool) -- identische Semantik wie
+"Dokumentiert" heisst: Zeile mit ``known`` ODER ``informed`` (bzw. Legacy
+``has_experience``/bool). N-886-06 (Art. 11 FIDLEG, konservativ wie
+ELIG-KNOWLEDGE-001): die seit H5c getrennt erfasste Erfahrung
+(``experienced``) ALLEIN genuegt nicht; die Luecke bleibt mit dem Hinweis
+"Aufklaerung dokumentieren" -- identische Semantik wie
 ``routers/pdf_reports._knowledge_map_from_json``. Eine erhaltene Aufklaerung
 gilt als dokumentierte Information.
 
@@ -161,15 +164,27 @@ def documented_instrument_rows(raw: Any) -> set[str]:
     covered: set[str] = set()
     for key, value in parsed.items():
         if isinstance(value, Mapping):
-            ok = bool(
-                value.get("known") or value.get("experienced")
-                or value.get("informed") or value.get("has_experience")
-            )
+            ok = bool(value.get("known") or value.get("informed") or value.get("has_experience"))
         else:
             ok = bool(value)
         if ok:
             covered.add(str(key).strip())
     return covered
+
+
+def experience_only_rows(raw: Any) -> set[str]:
+    """Zeilen mit dokumentierter Erfahrung, aber ohne Kenntnis/Aufklaerung (H5c)."""
+    try:
+        parsed = raw if isinstance(raw, Mapping) else json.loads(raw or "{}")
+    except (TypeError, ValueError):
+        return set()
+    if not isinstance(parsed, Mapping):
+        return set()
+    return {
+        str(k).strip() for k, v in parsed.items()
+        if isinstance(v, Mapping) and v.get("experienced") == 1
+        and not (v.get("known") or v.get("informed"))
+    }
 
 
 def required_rows_for(asset_class: str, sub_asset_class: str | None) -> tuple[str, ...] | None:
@@ -236,6 +251,7 @@ def evaluate_knowledge_gaps(
         return base
 
     covered = documented_instrument_rows(knowledge_instruments)
+    experience_only = experience_only_rows(knowledge_instruments)
     groups: dict[str, dict[str, Any]] = {}
     for sleeve in sub_allocations or []:
         if not isinstance(sleeve, Mapping):
@@ -272,6 +288,13 @@ def evaluate_knowledge_gaps(
             finding["label"], finding["target_weight_bps"],
             tuple(finding["required_questionnaire_rows"]),
         )
+        rows_exp = [r for r in finding["required_questionnaire_rows"] if r in experience_only]
+        finding["experience_only"] = bool(rows_exp)
+        if rows_exp:
+            finding["message"] += (
+                " Erfahrung ist dokumentiert, Kenntnisse bzw. Aufklärung fehlen: "
+                "Aufklärung dokumentieren."
+            )
     base["findings"] = findings
     base["status"] = STATUS_GAP if findings else STATUS_OK
     base["reason_code"] = REASON_CODE if findings else None

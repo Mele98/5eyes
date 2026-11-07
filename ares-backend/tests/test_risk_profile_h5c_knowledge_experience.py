@@ -104,13 +104,20 @@ def test_new_rows_cover_alternatives_and_private_equity():
     saa = [{"asset_class": "Alternative", "sub_asset_class": "Private Equity", "target_weight_bps": 300}]
     gap = evaluate_knowledge_gaps(saa, "{}", client_classification="Privatkunde")
     assert gap["findings"][0]["questionnaire_row_available"] is True
-    ok = evaluate_knowledge_gaps(saa, json.dumps({"Private Equity": {"known": 0, "experienced": 1, "informed": 0}}),
+    ok = evaluate_knowledge_gaps(saa, json.dumps({"Private Equity": {"known": 1, "experienced": 0, "informed": 0}}),
                                  client_classification="Privatkunde")
     assert ok["findings"] == []
+    # N-886-06: Erfahrung allein ist kein Kenntnisnachweis -> Hinweis bleibt.
+    exp = evaluate_knowledge_gaps(saa, json.dumps({"Private Equity": {"known": 0, "experienced": 1, "informed": 0}}),
+                                  client_classification="Privatkunde")
+    assert exp["findings"][0]["experience_only"] is True
+    assert "Aufklärung dokumentieren" in exp["findings"][0]["message"]
 
 
-def test_experience_alone_documents_a_row():
-    assert documented_instrument_rows({"Derivate": {"known": 0, "experienced": 1, "informed": 0}}) == {"Derivate"}
+def test_experience_alone_does_not_document_a_row():
+    # N-886-06 (Art. 11 FIDLEG, wie ELIG-KNOWLEDGE-001): Kenntnis ODER Aufklaerung noetig.
+    assert documented_instrument_rows({"Derivate": {"known": 0, "experienced": 1, "informed": 0}}) == set()
+    assert _knowledge_summary({"Derivate": {"known": 0, "experienced": 1, "informed": 0}}) ==         "Derivate: Erfahrung vorhanden, Kenntnisse/Aufklärung nicht dokumentiert"
 
 
 # ── Maske (Node, minimaler DOM) ─────────────────────────────────────────────────

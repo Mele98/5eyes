@@ -247,14 +247,19 @@ def profile_for_score_x10(score_x10: int) -> str:
     return _profile_from_score(score_x10)
 
 
+def willingness_profile_for_score_x10(score_x10: int) -> str:
+    """Public wrapper: Bereitschafts-Profil eines score_x10 (eine Quelle, N-886-09)."""
+    return _willingness_profile(score_x10)
+
+
 # ── Fragebogen v2: Kappung der Risikobereitschaft (H5b, Dok. 105) ──────────────
 #
 # Die Kernformel oben bleibt unveraendert (Vorlage, v1). v2 ergaenzt nur
 # Obergrenzen: will_v2 = MIN(will_core, Kappungen) -> final = MIN(Faehigkeit,
 # will_v2). Eine Kappung kann nie anheben; bei voller Zustimmung ist v2
 # identisch mit v1. Grenzwerte 40/60/80 = konservative Startwerte (E3); die
-# Freigabe durch IC/Compliance steht aus, deshalb ist v2 per Feature-Flag aus
-# (services/risk_questionnaire_integrity.RISK_QUESTIONNAIRE_V2_ENABLED).
+# Freigabe durch IC/Compliance steht aus, deshalb ist v2 per Tenant-Policy aus
+# (services/risk_questionnaire_integrity, Abschnitt Fragebogen v2).
 
 QUESTIONNAIRE_V1 = "v1"
 QUESTIONNAIRE_V2 = "v2"
@@ -298,8 +303,19 @@ def compute_willingness_v2(
     q12_option: int,
     q13_option: int,
     q14_option: int,
+    caps_table: dict[int, tuple[int, ...]] | None = None,
+    knockout_max_score_x10: int = Q11_KNOCKOUT_MAX_SCORE_X10,
 ) -> WillingnessV2Result:
-    """Bereitschaft v2 = MIN(Kern-Bereitschaft, Kappungen); nur absenkend."""
+    """Bereitschaft v2 = MIN(Kern-Bereitschaft, Kappungen); nur absenkend.
+
+    ``caps_table``/``knockout_max_score_x10``: Grenzwerte der Definition, mit
+    der ein Profil erhoben wurde (Registry historischer Definitionen,
+    N-886-04). Default = aktuelle Definition. Grenzwerte > 100 sind unzulaessig
+    (eine Kappung darf nie anheben).
+    """
+    table_all = V2_WILLINGNESS_CAPS_X10 if caps_table is None else caps_table
+    if not 10 <= int(knockout_max_score_x10) <= NO_WILLINGNESS_CAP_X10:
+        raise ValueError("Knock-out-Grenze ausserhalb [10,100]")
     core = int(core_willingness_score_x10)
     if not 10 <= core <= 100:
         raise ValueError(f"core_willingness_score_x10={core} ausserhalb [10,100]")
@@ -308,9 +324,11 @@ def compute_willingness_v2(
         raise ValueError(f"q_risk_behavior_points={behavior} ausserhalb [1,4]")
     caps: list[WillingnessCap] = []
     if behavior == Q11_KNOCKOUT_POINTS:
-        caps.append(WillingnessCap("Q11", behavior - 1, Q11_KNOCKOUT_MAX_SCORE_X10))
+        caps.append(WillingnessCap("Q11", behavior - 1, int(knockout_max_score_x10)))
     for question, option in ((12, q12_option), (13, q13_option), (14, q14_option)):
-        table = V2_WILLINGNESS_CAPS_X10[question]
+        table = tuple(table_all[question])
+        if any(not 10 <= int(v) <= NO_WILLINGNESS_CAP_X10 for v in table):
+            raise ValueError(f"Frage {question}: Grenzwert ausserhalb [10,100]")
         idx = int(option)
         if isinstance(option, bool) or not 0 <= idx < len(table):
             raise ValueError(f"Frage {question}: Option {option!r} ausserhalb [0,{len(table) - 1}]")
