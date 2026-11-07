@@ -70,6 +70,15 @@ def test_advisor_or_house_minimum_source_is_left_to_existing_messages():
 
 
 def test_both_modes_call_the_check_with_the_floor_source():
+    # I-01 (Integrationsprobe 2026-11-07): die Aufrufe liegen seit der
+    # Auslagerung in portfolio_engine_house_matrix; die Engine verdrahtet sie.
+    import services.portfolio_engine_house_matrix as hm
+
     source = inspect.getsource(pe.generate_target_allocation)
-    assert 'min_sources={"liquidity": "zwingend vorzuhaltende Zielreserve"}' in source  # stochastisch
-    assert 'min_sources={"liquidity": liquidity_floor_source}' in source  # Hausmatrix (E-1)
+    assert 'source="zwingend vorzuhaltende Zielreserve", name_source_always=True' in source  # stochastisch
+    assert "resolve_liquidity_floor(" in source  # Hausmatrix (E-1)
+    assert "liquidity_source=source if (name_source_always or raised) else None" in inspect.getsource(hm.raise_liquidity_floor)
+    assert 'min_sources={"liquidity": liquidity_source} if liquidity_source is not None else None' in inspect.getsource(
+        hm.raise_if_locked_floor_infeasible
+    )
+    assert 'min_sources={"liquidity": liquidity_floor_source}' in inspect.getsource(hm.resolve_liquidity_floor)

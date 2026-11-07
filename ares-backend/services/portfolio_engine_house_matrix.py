@@ -1069,6 +1069,194 @@ def system_liquidity_floor_from_allocation(allocation, bands: dict | None) -> in
     return persisted_min
 
 
+# --- #859-Verdrahtung fuer generate_target_allocation / Payload -------------
+# I-01 (Integrationsprobe 2026-11-07): reine Verschiebung der von #859 in
+# services/portfolio_engine.py eingefuegten Aufrufbloecke (Engine-Zeilenbudget).
+# Reihenfolge der Aufrufe und Argumente sind unveraendert; die Engine reicht
+# nur ihre lokalen Werte durch. Keine neuen Modulkanten (BUCKET_LABELS und der
+# Begruendungs-Validator kommen als Argument).
+
+
+def raise_if_locked_floor_infeasible(
+    targets: dict[str, int],
+    preferred_bps: dict[str, int],
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    locked: Collection[str],
+    *,
+    bucket_labels: dict[str, str],
+    liquidity_source: str | None,
+) -> None:
+    """H-859-2: eine (globale bzw. reservebedingte) Liquiditaets-Untergrenze
+    kann fixierte Berater-Ziele unerfuellbar machen -- dann 422 statt
+    stiller Kappung. ``liquidity_source`` None = Untergrenze nicht angehoben."""
+    raise_if_locked_targets_infeasible(
+        {**targets, **preferred_bps}, minimums, locked, bucket_labels=bucket_labels,
+        min_sources={"liquidity": liquidity_source} if liquidity_source is not None else None,
+        maximums=maximums,
+    )
+
+
+def raise_liquidity_floor(
+    targets: dict[str, int],
+    preferred_bps: dict[str, int],
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    locked: Collection[str],
+    *,
+    floor_bps: int,
+    source: str,
+    name_source_always: bool,
+    apply_stochastic: bool,
+    system_floor_bps: int,
+    bucket_labels: dict[str, str],
+) -> int:
+    """Stochastischer Pfad: hebt die Liquiditaets-Untergrenze auf
+    ``floor_bps`` (globale Mindestliquiditaet bzw. Zielreserve). M2 / AA-7.2:
+    nur im wirksamen stochastischen Pfad zaehlt sie als systembedingte
+    Untergrenze (Rueckgabe). H-859-2: die Untergrenze kann fixierte Ziele
+    unerfuellbar machen -- dann 422 statt stiller Kappung; die globale
+    Untergrenze wird nur als Herkunft genannt, wenn sie das Minimum anhob."""
+    raised = int(minimums["liquidity"]) < floor_bps
+    if apply_stochastic:
+        system_floor_bps = max(system_floor_bps, floor_bps)
+    minimums["liquidity"] = max(int(minimums["liquidity"]), floor_bps)
+    raise_if_locked_floor_infeasible(
+        targets, preferred_bps, minimums, maximums, locked, bucket_labels=bucket_labels,
+        liquidity_source=source if (name_source_always or raised) else None,
+    )
+    return system_floor_bps
+
+
+def resolve_liquidity_floor(
+    apply_stochastic: bool,
+    targets: dict[str, int],
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    bands: dict | None,
+    preferred_bps: dict[str, int],
+    locked: Collection[str],
+    *,
+    reserve_split,
+    investable_rappen: int,
+    reserve_needed_rappen: int,
+    model_floor_bps: int,
+    reserve_floor_bps: int,
+    system_floor_bps: int,
+    bucket_labels: dict[str, str],
+) -> tuple[str, int]:
+    """Delta-Pruefung #859 E-1 (Entscheid Owner-Vertretung, AA-7.2): auch im
+    Hausmatrix-Modus ist die Liquiditaets-Untergrenze
+    max(Hausmatrix-/Berater-Minimum, Zielreserve, globale Mindestliquiditaet).
+    Vorher hob die Reserve nur das Ziel an; eine Einzelziel-Kappung konnte die
+    Liquiditaet bis aufs Haus-Minimum (0 %) absenken. Liefert (Herkunft der
+    Untergrenze, systembedingte Untergrenze M2); H-859-2 auch mit dieser
+    Untergrenze."""
+    if apply_stochastic:
+        liquidity_floor_source = (
+            "zwingend vorzuhaltende Zielreserve"
+            if int(reserve_floor_bps) > int(model_floor_bps)
+            else "globale Mindestliquiditaet des Modells"
+        )
+        return liquidity_floor_source, system_floor_bps
+    house_floor_bps, liquidity_floor_source = apply_house_mode_liquidity_floor(
+        minimums, maximums, bands,
+        reserve_internal_rappen=int(reserve_split.internal_rappen),
+        investable_rappen=int(investable_rappen),
+        reserve_needed_rappen=int(reserve_needed_rappen),
+        model_floor_bps=model_floor_bps,
+    )
+    if liquidity_floor_source != "Mindestquote":
+        system_floor_bps = max(system_floor_bps, house_floor_bps)
+    raise_if_locked_targets_infeasible(
+        {**targets, **preferred_bps}, minimums, locked,
+        bucket_labels=bucket_labels, min_sources={"liquidity": liquidity_floor_source},
+        maximums=maximums,
+    )
+    return liquidity_floor_source, system_floor_bps
+
+
+def disclose_final_allocation_deviations(
+    preferred_bps: dict[str, int],
+    anchor: tuple[dict, dict, dict],
+    final_bps: dict[str, int],
+    reasoning: list[str],
+    warnings: list,
+    *,
+    bucket_labels: dict[str, str],
+    optimizer_applied: bool,
+    fallback_risk_budget_bps: int | None,
+    liquidity_before_projection_bps: int,
+    liquidity_floor_source: str,
+    system_floor_bps: int,
+    house_matrix: HouseMatrix,
+    policy: OptimizerPolicy,
+    external_reserve: bool,
+) -> list[dict]:
+    """AUDIT-2026-11 A1 / H-859-1: Offenlegung gegen die GESPEICHERTE Quote
+    (``anchor`` = Ziele, Minima, Maxima vor der Projektion). D-1: der
+    Reserve-Satz "Die SAA-Liquiditaet bleibt auf x %" entsteht VOR der
+    Projektion und nennt die gespeicherte Liquiditaet, wenn sie abweicht.
+    D-2: systembedingte Erweiterung des Liquiditaetsbands (M2) ausweisen;
+    F-1: Quelle wie im Reasoning. Liefert die Zusatz-Meldungen (Banner)."""
+    disclose_manual_target_deviations(
+        preferred_bps, anchor[0], final_bps, anchor[1], anchor[2], reasoning, warnings,
+        bucket_labels=bucket_labels,
+        optimizer_applied=optimizer_applied,
+        fallback_risk_budget_bps=fallback_risk_budget_bps,
+        liquidity_before_projection_bps=liquidity_before_projection_bps,
+        liquidity_floor_bps=int(anchor[1]["liquidity"]),
+        liquidity_floor_source=liquidity_floor_source,
+    )
+    restate_saa_liquidity_sentence(reasoning, int(final_bps["liquidity"]))
+    messages_extra: list[dict] = []
+    disclose_system_liquidity_band_extension(
+        system_floor_bps,
+        int(_baseline_target_bands(house_matrix, policy)[2]["liquidity"]),
+        reasoning, messages_extra,
+        reserve_driven=liquidity_floor_source == "zwingend vorzuhaltende Zielreserve",
+        external_reserve=external_reserve,
+    )
+    return messages_extra
+
+
+def with_band_deviation_messages(
+    messages: list,
+    bands: dict | None,
+    house_matrix: HouseMatrix,
+    policy: OptimizerPolicy,
+    *,
+    reason,
+    reason_validator,
+    score_bucket: int | None,
+    only_if_missing: bool = False,
+    extra: list | tuple = (),
+) -> list:
+    """Live-Test 04 / M3: Abweichung vom Eignungsrahmen auch in ``messages``
+    (Banner), ohne tragfaehige Begruendung als Konflikt. ``reason_validator``
+    ist dieselbe Qualitaetsregel wie das Freigabe-Gate (routers/review.py)
+    fuer ``bandDeviationReason``. ``only_if_missing``: Payload aus dem
+    Snapshot, falls nicht schon persistiert (Hausmatrix-Modus, Altbestand).
+    F-1: ``extra`` (D-2-Meldungen) dahinter."""
+    if only_if_missing and any(
+        isinstance(msg, dict) and msg.get("code") == "WARN_BAND_OUTSIDE_HOUSE_MATRIX"
+        for msg in messages
+    ):
+        return messages
+    _house_targets, house_minimums, house_maximums = _baseline_target_bands(house_matrix, policy)
+    try:
+        reason_validator(reason)
+    except ValueError:
+        reason_is_valid = False
+    else:
+        reason_is_valid = True
+    return list(messages) + band_deviation_messages(
+        bands, house_minimums, house_maximums,
+        reason_is_valid=reason_is_valid,
+        house_profile=house_matrix.profile_name, score_bucket=score_bucket,
+    ) + list(extra)
+
+
 def _apply_band_min_max_overrides(
     bands: dict | None,
     minimums: dict[str, int],
