@@ -7,8 +7,9 @@ OR 127). Regel (identisch zu services/advisory_log_integrity.py::
 extended_retain_until und database.py::
 migrate_advisory_log_retention_from_mandate_end fuer SQLite):
 
-* Mandat offen (``closed_at`` leer/unlesbar): ``retain_until = NULL`` --
-  die Frist laeuft noch nicht (aufbewahren bis Mandatsende + 10 Jahre).
+* Mandat offen (``closed_at`` leer/unlesbar): die Altberechnung
+  ``Eintrag + 10 J.`` wird NULL -- die Frist laeuft noch nicht (aufbewahren
+  bis Mandatsende + 10 Jahre). Jede andere Frist bleibt als Mindestfrist.
 * Mandat beendet: Maximum aus bisheriger Frist, Eintrag + 10 Jahre und
   Mandatsende + 10 Jahre. Nie verkuerzend.
 
@@ -53,7 +54,10 @@ def _plus_years(value: str | None) -> str | None:
 def _target(current: str | None, entry_datetime: str | None, closed_at: str | None) -> str | None:
     end = _plus_years(closed_at)
     if end is None:
-        return None
+        # Offenes Mandat: nur die Altberechnung "Eintrag + 10 J." entfaellt;
+        # jede andere Frist bleibt als Mindestfrist (N-884-06).
+        kept = str(current).strip()[:10] if str(current or "").strip() else None
+        return None if kept is not None and kept == _plus_years(entry_datetime) else current
     candidates = [end]
     floor = _plus_years(entry_datetime)
     if floor is not None:
@@ -73,7 +77,10 @@ OFFLINE_PG_SQL = (
     "to_char(substr(m.closed_at, 1, 10)::date + INTERVAL '10 years', 'YYYY-MM-DD'), "
     f"CASE WHEN a.entry_datetime ~ {_DATE_RE} THEN "
     "to_char(substr(a.entry_datetime, 1, 10)::date + INTERVAL '10 years', 'YYYY-MM-DD') "
-    "ELSE '' END) ELSE NULL END "
+    "ELSE '' END) "
+    f"WHEN a.entry_datetime ~ {_DATE_RE} AND substr(a.retain_until, 1, 10) = "
+    "to_char(substr(a.entry_datetime, 1, 10)::date + INTERVAL '10 years', 'YYYY-MM-DD') "
+    "THEN NULL ELSE a.retain_until END "
     "FROM mandates AS m WHERE m.id = a.mandate_id"
 )
 BYPASS_GUC = "app.rls_bypass"

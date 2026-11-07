@@ -167,17 +167,21 @@ def extended_retain_until(
 ) -> str | None:
     """Neue Frist bei Aenderung des Mandatsendes -- nie verkuerzend.
 
-    Offenes Mandat -> ``None`` (unbefristet bis Mandatsende + 10 Jahre).
     Beendetes Mandat -> Maximum aus bisheriger Frist, Eintrag + 10 Jahre und
     Mandatsende + 10 Jahre. Ein unlesbarer Eintragszeitpunkt (Altdaten)
     zaehlt nicht als Untergrenze, verhindert die Berechnung aber nicht.
+    Mandat (wieder) offen oder Ende unlesbar -> bisherige Frist bleibt
+    unveraendert stehen (N-884-06: bei Wiedereroeffnung Mindestfrist, nie
+    verworfen); ein nie beendetes Mandat behaelt ``None`` (Frist laeuft
+    noch nicht).
     """
+    kept = str(current).strip()[:10] if str(current or "").strip() else None
     if not str(relationship_end_iso or "").strip():
-        return None
+        return kept
     try:
         end = compute_retain_until(str(relationship_end_iso))
     except AdvisoryLogDatetimeError:
-        return None
+        return kept
     candidates = [end]
     try:
         candidates.append(compute_retain_until(str(entry_datetime_iso or "")))

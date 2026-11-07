@@ -268,7 +268,8 @@ def apply_mandate_end_retention(db: Session, mandate) -> int:
     Mandatsende anpassen (Aufruf bei Aenderung von ``closed_at``).
 
     Nie verkuerzend: beendet -> Maximum aus bisheriger Frist, Eintrag + 10 J.
-    und Mandatsende + 10 J.; wieder geoeffnet -> NULL (Frist laeuft nicht).
+    und Mandatsende + 10 J.; wieder geoeffnet -> bisherige Frist bleibt als
+    Mindestfrist stehen (N-884-06).
     ``retain_until`` ist nicht Teil des Integritaets-Hashes. Rueckgabe: Zahl
     der geaenderten Zeilen.
     """

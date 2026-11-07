@@ -1654,12 +1654,21 @@ def migrate_advisory_log_hash_scheme_cost_disclosure_snapshot(target_engine: Eng
 
 
 # H7 C-6: retain_until der Beratungsprotokolle ab Mandatsende statt ab Eintrag.
-# Offenes Mandat -> NULL (Frist laeuft noch nicht); beendetes Mandat ->
-# Maximum aus bisheriger Frist, Eintrag + 10 J. und Mandatsende + 10 J. (nie
+# Offenes Mandat -> NULL, aber nur fuer die Altberechnung "Eintrag + 10 J."
+# (Python-Regel inkl. 29.02. -> 28.02.); jede andere Frist (z.B. nach
+# Wiedereroeffnung, N-884-06) bleibt als Mindestfrist stehen. Beendetes Mandat
+# -> Maximum aus bisheriger Frist, Eintrag + 10 J. und Mandatsende + 10 J. (nie
 # verkuerzend). Gleiche Regel wie services/advisory_log_integrity.py::
 # extended_retain_until und Alembic e1c6a7d4b2f9 (PG). Idempotent.
+_ADVISORY_LEGACY_RETAIN_SQL = (
+    "CASE WHEN strftime('%m-%d', substr(advisory_log.entry_datetime, 1, 10)) = '02-29' "
+    "THEN date(substr(advisory_log.entry_datetime, 1, 10), '+10 years', '-1 day') "
+    "ELSE date(substr(advisory_log.entry_datetime, 1, 10), '+10 years') END"
+)
 _ADVISORY_RETAIN_FROM_MANDATE_END_SQL = (
-    "(SELECT CASE WHEN date(substr(m.closed_at, 1, 10)) IS NULL THEN NULL "
+    "(SELECT CASE WHEN date(substr(m.closed_at, 1, 10)) IS NULL THEN "
+    "(CASE WHEN substr(advisory_log.retain_until, 1, 10) = "
+    f"{_ADVISORY_LEGACY_RETAIN_SQL} THEN NULL ELSE advisory_log.retain_until END) "
     "ELSE MAX(COALESCE(substr(advisory_log.retain_until, 1, 10), ''), "
     "date(substr(m.closed_at, 1, 10), '+10 years'), "
     "COALESCE(date(substr(advisory_log.entry_datetime, 1, 10), '+10 years'), '')) END "

@@ -86,8 +86,13 @@ def test_extension_is_never_shortening():
     assert extended_retain_until("2040-01-01", "2020-01-01T00:00:00Z", "2026-01-01") == "2040-01-01"
     # bestehende, fruehere Frist wird verlaengert
     assert extended_retain_until("2030-01-01", "2020-01-01T00:00:00Z", "2026-01-01") == "2036-01-01"
-    # Mandat (wieder) offen -> Frist laeuft nicht (unbefristet)
-    assert extended_retain_until("2030-01-01", "2020-01-01T00:00:00Z", None) is None
+    # N-884-06: Mandat wieder offen -> bisherige Frist bleibt als Mindestfrist
+    assert extended_retain_until("2036-12-31", "2020-01-01T00:00:00Z", None) == "2036-12-31"
+    # nie beendetes Mandat bleibt unbefristet
+    assert extended_retain_until(None, "2020-01-01T00:00:00Z", None) is None
+    # Wiedereroeffnen und frueheres Ende: nie kuerzer als vor dem Wiedereroeffnen
+    kept = extended_retain_until("2036-12-31", "2020-01-01T00:00:00Z", None)
+    assert extended_retain_until(kept, "2020-01-01T00:00:00Z", "2026-01-15") == "2036-12-31"
     # unlesbarer Altwert des Eintrags verhindert die Berechnung nicht
     assert extended_retain_until(None, "kaputt", "2026-01-01") == "2036-01-01"
 
@@ -112,7 +117,9 @@ def engine(tmp_path):
             "('a-closed', 'closed', '2020-01-01T10:00:00Z', '2030-01-01'),"
             "('a-later', 'closed', '2020-01-01T10:00:00Z', '2045-05-05'),"
             "('a-bad', 'bad', '2020-01-01T10:00:00Z', '2030-01-01'),"
-            "('a-orphan', 'gone', '2020-01-01T10:00:00Z', '2030-01-01')"
+            "('a-orphan', 'gone', '2020-01-01T10:00:00Z', '2030-01-01'),"
+            "('a-reopened', 'open', '2020-01-01T10:00:00Z', '2036-12-31'),"
+            "('a-leap', 'open', '2024-02-29T10:00:00Z', '2034-02-28')"
         ))
     yield eng
     eng.dispose()
@@ -126,12 +133,14 @@ def _retain(eng):
 def test_sqlite_inventory_migration_moves_retention_to_mandate_end(engine):
     changed = migrate_advisory_log_retention_from_mandate_end(engine)
     values = _retain(engine)
-    assert values["a-open"] is None            # Mandat offen: Frist laeuft nicht
+    assert values["a-open"] is None            # Mandat offen: Altfrist entfaellt
+    assert values["a-reopened"] == "2036-12-31"  # N-884-06: Mindestfrist bleibt
+    assert values["a-leap"] is None            # Altfrist 29.02. -> 28.02. erkannt
     assert values["a-closed"] == "2036-11-30"  # Mandatsende + 10 J.
     assert values["a-later"] == "2045-05-05"   # nie verkuerzend
     assert values["a-bad"] is None             # unlesbares Ende: nicht befristet
     assert values["a-orphan"] == "2030-01-01"  # ohne Mandat unveraendert
-    assert changed == 3
+    assert changed == 4
     # idempotent
     assert migrate_advisory_log_retention_from_mandate_end(engine) == 0
     assert _retain(engine) == values
@@ -144,8 +153,12 @@ def test_alembic_migration_rule_matches_runtime_rule():
     spec = importlib.util.spec_from_file_location("mig_e1c6", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    # offenes Mandat: Altfrist (Eintrag + 10 J.) -> NULL, sonst bleibt die Frist
+    assert module._target("2030-01-01", "2020-01-01T10:00:00Z", None) is None
+    assert module._target("2034-02-28", "2024-02-29T10:00:00Z", None) is None
+    assert module._target("2036-12-31", "2020-01-01T10:00:00Z", None) == "2036-12-31"
+    assert module._target(None, "2020-01-01T10:00:00Z", None) is None
     cases = [
-        ("2030-01-01", "2020-01-01T10:00:00Z", None),
         ("2030-01-01", "2020-01-01T10:00:00Z", "2026-11-30"),
         ("2045-05-05", "2020-01-01T10:00:00Z", "2026-11-30"),
         (None, "kaputt", "2026-01-01"),
@@ -250,8 +263,9 @@ def test_advisory_log_retention_follows_mandate_end(http_client):
 
     reopened = client.put(f"/mandates/{mandate.id}", json={"closed_at": None})
     assert reopened.status_code == 200, reopened.text
-    assert _retain_until(session, entry_id) is None
+    # N-884-06: Wiedereroeffnen verwirft die bisherige Frist nicht.
+    assert _retain_until(session, entry_id) == "2036-12-31"
 
     client.put(f"/mandates/{mandate.id}", json={"closed_at": "2026-01-15"})
-    # nie kuerzer als Eintrag + 10 J. (Eintrag 2026-05-28)
-    assert _retain_until(session, entry_id) == "2036-05-28"
+    # frueheres Ende nach Wiedereroeffnung: nie kuerzer als zuvor
+    assert _retain_until(session, entry_id) == "2036-12-31"
