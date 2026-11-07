@@ -20,6 +20,8 @@ Vertrag (wie tests/test_dsg_erasure_append_only_tables.py):
 from __future__ import annotations
 
 import json
+from datetime import date
+from unittest import mock
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -62,19 +64,31 @@ def session_factory(tmp_path):
         engine.dispose()
 
 
+class _PinnedToday(date):
+    """``date`` mit ``today() == TODAY`` fuer die Stichtagspruefung der Bestaetigung."""
+
+    @classmethod
+    def today(cls):
+        return TODAY
+
+
 def _post_attestation(session, advisor):
     from schemas.wealth import FinancialCoverageAttestationCreate
     from routers.wealth import create_financial_coverage_attestation
 
-    return create_financial_coverage_attestation(
-        mandate_id="m-rcp",
-        body=FinancialCoverageAttestationCreate(
-            household_persons=PERSONS, income_complete=True, expenses_complete=True,
-            obligations_complete=True, irregular_expenses_reviewed=True,
-            as_of_date=TODAY.isoformat(), source="Kundengespräch", note=NOTE,
-        ),
-        db=session, current_user=advisor,
-    )
+    # Der Router reicht kein ``today`` durch; ``create_attestation`` prueft den
+    # festen Stichtag TODAY dann gegen ``date.today()`` (max. 365 Tage alt).
+    # Ohne Festhalten der Uhr war der Test ab TODAY + 366 Tagen rot.
+    with mock.patch.object(fca, "date", _PinnedToday):
+        return create_financial_coverage_attestation(
+            mandate_id="m-rcp",
+            body=FinancialCoverageAttestationCreate(
+                household_persons=PERSONS, income_complete=True, expenses_complete=True,
+                obligations_complete=True, irregular_expenses_reviewed=True,
+                as_of_date=TODAY.isoformat(), source="Kundengespräch", note=NOTE,
+            ),
+            db=session, current_user=advisor,
+        )
 
 
 def _seed_all(session):
