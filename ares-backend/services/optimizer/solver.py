@@ -87,6 +87,7 @@ from .house_prior import (
     REASON_NOT_WORSE,
     REASON_TEST_DISABLED,
     goal_probability_rows,
+    house_deviation_bps,
     house_prior_penalty,
     house_prior_sentence,
     paired_bootstrap_disclosure,
@@ -4691,6 +4692,15 @@ def _house_prior_disclosure(
             "decision": decision,
             "reason": reason,
             "final_bps": dict(final_bps),
+            # HOUSE-PRIOR-APPROVAL-001 (AA-4): Abweichung je Klasse, nur
+            # Offenlegung -- gegen die projizierte Hausquote (Anker des
+            # Priors) und gegen die rohe Hausmatrix-Zielquote.
+            "deviation_vs_house_bps": house_deviation_bps(
+                final_bps, anchor_projected_bps,
+            ),
+            "deviation_vs_house_raw_bps": house_deviation_bps(
+                final_bps, house_anchor_bps,
+            ),
             "tracking_error_vs_house_bps": round(
                 tracking_error_bps(final_w, house_w, cov), 4
             ),

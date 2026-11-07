@@ -98,6 +98,7 @@ derzeit 3 Dateien, deren Pfad einen frueheren Produktnamen enthaelt.
 | `docs/adr/ADR-012-postgres-rls-tenant-isolation.md` | KEEP | Architekturentscheid (Ordner wird von Test gelesen) |
 | `docs/adr/ADR-013-tax-plugin-architecture.md` | KEEP | Architekturentscheid (Ordner wird von Test gelesen) |
 | `docs/adr/ADR-014-engine-module-split-plan.md` | KEEP | Architekturentscheid (Ordner wird von Test gelesen) |
+| `docs/adr/ADR-015-haus-prior-kappa-v1.md` | KEEP | Architekturentscheid (Ordner wird von Test gelesen) |
 | `docs/adr/README.md` | KEEP | Architekturentscheid (Ordner wird von Test gelesen) |
 | `docs/architecture/tax-plugin-sdk.md` | KEEP | Entwickler: Schnittstelle fuer Steuer-Plugins |
 | `docs/audits/2026-05-25-advisory-report-audit.md` | ARCHIVE | Audit-Bericht, historisch |
