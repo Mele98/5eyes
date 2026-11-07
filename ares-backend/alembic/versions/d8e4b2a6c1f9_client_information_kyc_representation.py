@@ -75,6 +75,7 @@ def _pg_trigger(table: str) -> str:
 def upgrade() -> None:
     op.create_table(
         "tenant_legal_profiles",
+        sa.Column("id", sa.String(), nullable=False),
         sa.Column("tenant_id", sa.String(), nullable=False),
         sa.Column("legal_name", sa.String(), nullable=True),
         sa.Column("address_street", sa.String(), nullable=True),
@@ -96,7 +97,8 @@ def upgrade() -> None:
         sa.Column("updated_by", sa.String(), nullable=True),
         sa.Column("created_at", sa.String(), nullable=False),
         sa.Column("updated_at", sa.String(), nullable=False),
-        sa.PrimaryKeyConstraint("tenant_id"),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("tenant_id"),
     )
     op.create_table(
         "client_information_deliveries",

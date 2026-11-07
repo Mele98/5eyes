@@ -53,7 +53,7 @@ def ensure_test_legal_profile(db, tenant_id: str, **overrides) -> TenantLegalPro
     values = {**TEST_LEGAL_PROFILE, **overrides}
     profile = db.query(TenantLegalProfile).filter(TenantLegalProfile.tenant_id == tenant_id).first()
     if profile is None:
-        profile = TenantLegalProfile(tenant_id=tenant_id, created_at=_PAST, updated_at=_PAST)
+        profile = TenantLegalProfile(id=new_uuid(), tenant_id=tenant_id, created_at=_PAST, updated_at=_PAST)
         db.add(profile)
     for name, value in values.items():
         setattr(profile, name, value)

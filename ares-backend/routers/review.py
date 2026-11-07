@@ -1943,7 +1943,9 @@ def update_tenant_legal_profile(
     profile = db.query(TenantLegalProfile).filter(TenantLegalProfile.tenant_id == tenant_id).first()
     created = profile is None
     if created:
-        profile = TenantLegalProfile(tenant_id=tenant_id, revision=0, created_at=now, updated_at=now)
+        profile = TenantLegalProfile(
+            id=new_uuid(), tenant_id=tenant_id, revision=0, created_at=now, updated_at=now,
+        )
         db.add(profile)
     changes: list[tuple[str, str | None, str | None]] = []
     for name, value in body.model_dump(exclude_unset=True).items():

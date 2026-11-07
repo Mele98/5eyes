@@ -176,7 +176,10 @@ ALLOWED_SUPERVISION_TYPES = (
 class TenantLegalProfile(Base):
     __tablename__ = "tenant_legal_profiles"
 
-    tenant_id = Column(String, primary_key=True)
+    # Eigene ``id`` wie jede Tenant-Tabelle (RLS-/Inventar-Konvention);
+    # ``tenant_id`` ist eindeutig -- eine Zeile je Tenant.
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, nullable=False, unique=True)
     legal_name = Column(String)
     address_street = Column(String)
     address_postal_code = Column(String)
