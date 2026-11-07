@@ -88,6 +88,7 @@ from services.recommendation_release_gate import (
     RECOMMENDATION_DOCUMENT_TYPES,
     SIGNOFF_BOUND_DOCUMENT_TYPES,
     assert_recommendation_release_eligible,
+    assert_retrocession_release_eligible,
     assert_risk_signoff_release_eligible,
     risk_budget_release_errors,
 )
@@ -307,6 +308,18 @@ def _enforce_run_cma_currency(db: Session, mandate: Mandate, run: Recommendation
     if guard["status"] == STATUS_ACKNOWLEDGED:
         return f"{guard['message']} Beraterbestaetigung: {guard['acknowledgement_reason']}"
     return None
+
+
+def _retro_block_audit(db: Session, current_user: User, request: Request, mandate, field_name: str):
+    """H7 N-884-04: Audit-Eintrag fuer eine Retro-Sperre (vor dem 409)."""
+    def _on_block(reason_code: str, run_id):
+        db.rollback()
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="recommendation_runs", record_id=run_id or mandate.id, action="UPDATE",
+            field_name=field_name, new_value=reason_code,
+            mandate_id=mandate.id, ip_address=_extract_client_ip(request))
+        db.commit()
+    return _on_block
 
 
 def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run: RecommendationRun) -> tuple[list[str], list[str]]:
@@ -1810,6 +1823,12 @@ def sign_document(
     if str(doc.document_type or "") in RECOMMENDATION_DOCUMENT_TYPES:
         assert_recommendation_release_eligible(
             db, mandate, channel=CHANNEL_SIGNATURE,
+        )
+        # H7 N-884-04: keine Signatur, solange die finale Empfehlung keinen
+        # geklaerten Retrozessions-Ausweis traegt (fail-closed, Audit).
+        assert_retrocession_release_eligible(
+            db, mandate, channel=CHANNEL_SIGNATURE,
+            on_block=_retro_block_audit(db, current_user, request, mandate, "signature_blocked"),
         )
         # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
         assert_portfolio_data_release_eligible(db, mandate, action="signature")

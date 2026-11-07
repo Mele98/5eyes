@@ -153,3 +153,100 @@ def test_gate_blocks_manual_inducement_without_waiver():
         block = retrocession_finalization_block(None, SimpleNamespace(), SimpleNamespace(id="r"))
     assert block["reason_code"] == RETRO_INCOMPLETE
     assert "Anbieter A" in block["message"]
+
+
+# ---------------------------------------------------------------------------
+# N-884-04: bereits finale Laeufe (vor dem Gate finalisiert) werden weder
+# weitergeleitet noch unterzeichnet, solange die Retrozession nicht geklaert
+# ist. Gelesen wird das eingefrorene L1-Urteil.
+# ---------------------------------------------------------------------------
+
+from core.reason_codes import DomainError  # noqa: E402
+from services.recommendation_release_gate import (  # noqa: E402
+    CHANNEL_HANDOFF,
+    CHANNEL_SIGNATURE,
+    assert_retrocession_release_eligible,
+)
+
+
+def _final_run(session_factory, suffix):
+    advisor_id, mid, run_id = _draft_run_with_product(session_factory, suffix, retro_bps=0)
+    _finalize(session_factory, advisor_id, mid, run_id)
+    return mid, run_id
+
+
+def _tamper_snapshot(session_factory, run_id, mutate):
+    with session_factory() as s:
+        run = s.get(RecommendationRun, run_id)
+        envelope = json.loads(run.cost_disclosure_snapshot_json)
+        mutate(envelope["payload"])
+        run.cost_disclosure_snapshot_json = json.dumps(envelope)
+        s.commit()
+
+
+def _check(session_factory, mid, run_id=None, channel=CHANNEL_SIGNATURE):
+    from models.mandates import Mandate
+
+    calls = []
+    with session_factory() as s:
+        run = s.get(RecommendationRun, run_id) if run_id else None
+        assert_retrocession_release_eligible(
+            s, s.get(Mandate, mid), channel=channel, run=run,
+            on_block=lambda code, rid: calls.append((code, rid)),
+        )
+    return calls
+
+
+def test_clean_final_run_is_releasable(session_factory):
+    mid, run_id = _final_run(session_factory, "c4-rel-clean")
+    assert _check(session_factory, mid) == []
+    assert _check(session_factory, mid, run_id, CHANNEL_HANDOFF) == []
+
+
+def test_legacy_final_run_with_incomplete_retro_blocks_signature_and_handoff(session_factory):
+    mid, run_id = _final_run(session_factory, "c4-rel-legacy")
+    _tamper_snapshot(
+        session_factory, run_id,
+        lambda payload: payload["product_retrocessions"].update(complete=False),
+    )
+    for channel, rid in ((CHANNEL_SIGNATURE, None), (CHANNEL_HANDOFF, run_id)):
+        calls = []
+        from models.mandates import Mandate
+
+        with session_factory() as s:
+            run = s.get(RecommendationRun, rid) if rid else None
+            with pytest.raises(DomainError) as excinfo:
+                assert_retrocession_release_eligible(
+                    s, s.get(Mandate, mid), channel=channel, run=run,
+                    on_block=lambda code, r: calls.append((code, r)),
+                )
+        assert excinfo.value.http_status == 409
+        assert excinfo.value.as_detail()["reason_code"] == RETRO_INCOMPLETE
+        assert calls == [(RETRO_INCOMPLETE, run_id)]
+
+
+def test_final_run_without_snapshot_and_unknown_retro_blocks(session_factory):
+    mid, run_id = _final_run(session_factory, "c4-rel-nosnap")
+    with session_factory() as s:
+        run = s.get(RecommendationRun, run_id)
+        run.cost_disclosure_snapshot_json = None
+        position = s.query(RecommendationPosition).filter(RecommendationPosition.run_id == run_id).one()
+        s.get(Product, position.product_id).retrocession_bps = None
+        s.commit()
+    with pytest.raises(DomainError) as excinfo:
+        _check(session_factory, mid, run_id, CHANNEL_HANDOFF)
+    assert excinfo.value.as_detail()["reason_code"] == RETRO_UNAVAILABLE
+
+
+def test_signature_and_handoff_routers_call_the_retro_release_gate():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "routers"
+    for rel, needle in (
+        ("review.py", '"signature_blocked"'),
+        ("portfolio_handoff.py", '"handoff_blocked"'),
+        ("onsite_signature.py", "assert_retrocession_release_eligible(db, mandate, channel=CHANNEL_SIGNATURE)"),
+    ):
+        source = (root / rel).read_text(encoding="utf-8")
+        assert "assert_retrocession_release_eligible(" in source, rel
+        assert needle in source, rel
