@@ -543,10 +543,22 @@ def test_c_853_02_used_standard_14_font_without_embedding_fails():
 
 
 def test_c_853_02_declared_but_unused_standard_14_font_is_not_a_use():
-    """ReportLab setzt je Seite ``/F1 12 Tf`` (Helvetica) ohne Textausgabe."""
-    import pypdf
+    """ReportLab setzt je Seite ``/F1 12 Tf`` (Startfont) ohne Textausgabe.
 
-    used, declared = smoke._font_resource_usage(pypdf.PdfReader(io.BytesIO(_pdf())).pages)
+    Seit H1 (N-853-8) ist der Ares-Startfont das eingebettete Inter; der Fall
+    wird deshalb mit explizitem Standard-14-Startfont nachgestellt."""
+    import pypdf
+    from services.pdf.fonts import register_editorial_fonts
+
+    assert register_editorial_fonts()
+    buf = io.BytesIO()
+    canvas = Canvas(buf, initialFontName="Helvetica")
+    for y, font in ((800, "Inter"), (780, "CormorantGaramond")):
+        canvas.setFont(font, 6)
+        canvas.drawString(20, y, FOOTER)
+    canvas.showPage()
+    canvas.save()
+    used, declared = smoke._font_resource_usage(pypdf.PdfReader(io.BytesIO(buf.getvalue())).pages)
     assert any(d.base_font == "Helvetica" for d in declared)
     assert not any(u.base_font == "Helvetica" for u in used)
     assert {u.base_font.split("+")[1] for u in used} == {"Inter-Regular", "CormorantGaramond-Regular"}
