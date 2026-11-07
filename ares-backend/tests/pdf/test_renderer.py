@@ -60,7 +60,7 @@ def risk_data():
         risk_tolerance_score=58,
         knowledge_services={"Anlageberatung": True, "Vermoegensverwaltung": False},
         knowledge_instruments={"Aktien": True, "Anleihen": True, "Derivate": False},
-        experience_years=8,
+        investment_horizon_label="8 bis 11 Jahre",
         suitability_note="Risikofaehigkeit und Toleranz sind kompatibel.",
     )
 
@@ -384,7 +384,7 @@ def test_risikoprofil_pdf_hides_internal_scores_and_mentions_override(ctx):
         risk_profile_label="Wachstumsorientiert",
         risk_capacity_score=65,
         risk_tolerance_score=58,
-        experience_years=12,
+        investment_horizon_label="Mehr als 12 Jahre",
         is_overridden=True,
         override_reason="Kundenwunsch dokumentiert",
         override_client_confirmed=True,

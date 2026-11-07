@@ -15555,28 +15555,19 @@ function hydrateRiskQuestionnaire(saved){
   var rfSections=document.querySelectorAll('#r-rf .qsec');
   var rbSections=document.querySelectorAll('#r-rb .qsec');
 
-  if(saved.knowledge_services_json){
+  // H5c: eine Schleife fuer beide Tabellen und alle Spalten (Erfahrung neu getrennt).
+  [['ke-svc',saved.knowledge_services_json],['ke-ins',saved.knowledge_instruments_json]].forEach(function(t){
+    if(!t[1])return;
     try{
-      var svc=JSON.parse(saved.knowledge_services_json);
-      Object.keys(svc).forEach(function(row){
-        ['known','informed'].forEach(function(col){
-          var cb=document.querySelector('input.ke-svc[data-row="'+row+'"][data-col="'+col+'"]');
-          if(cb) cb.checked=!!(svc[row]&&svc[row][col]);
+      var tbl=JSON.parse(t[1]);
+      Object.keys(tbl).forEach(function(row){
+        ['known','experienced','informed'].forEach(function(col){
+          var cb=document.querySelector('input.'+t[0]+'[data-row="'+row+'"][data-col="'+col+'"]');
+          if(cb) cb.checked=!!(tbl[row]&&tbl[row][col]);
         });
       });
     }catch(e){}
-  }
-  if(saved.knowledge_instruments_json){
-    try{
-      var ins=JSON.parse(saved.knowledge_instruments_json);
-      Object.keys(ins).forEach(function(row){
-        ['known','informed'].forEach(function(col){
-          var cb=document.querySelector('input.ke-ins[data-row="'+row+'"][data-col="'+col+'"]');
-          if(cb) cb.checked=!!(ins[row]&&ins[row][col]);
-        });
-      });
-    }catch(e){}
-  }
+  });
 
   var sourcesToRestore=[];
   if(saved.income_sources_json){
@@ -27670,6 +27661,6 @@ function openStammdatenModal(){
 </div>
 <!-- ─────────────────────────────────────────────────────────── -->
 
-<script src="./goal-review-runtime.js"></script>
+<script src="./goal-review-runtime.js"></script><script src="./risk-questionnaire-v2.js"></script>
 </body>
 </html>

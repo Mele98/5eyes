@@ -25,6 +25,11 @@ den neuen Stand 27675 / 1695446 (der Ratchet bleibt: nur sinkend). Die
 ausgelagerten Dateien bekommen je ein eigenes Budget nach derselben Regel
 (Stand beim Einfuehren, Toleranz 0) -- sonst waere die Auslagerung ein
 Schlupfloch, ueber das der Monolith unbemerkt weiterwaechst.
+
+H5 Risikoprofil (2026-11-07): Maskenergaenzungen (Q10-Fussnote, Fragebogen v2,
+Kenntnis/Erfahrung) liegen im neuen Teil risk-questionnaire-v2.js mit eigenem
+Budget. Im Monolithen nur die Einbindung und eine zusammengefasste
+Kenntnis-Wiederherstellung; er schrumpft dabei (Budget auf den neuen Stand).
 """
 from __future__ import annotations
 
@@ -33,9 +38,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 27675
+MONOLITH_MAX_LINES = 27666
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1695446
+MONOLITH_MAX_BYTES = 1695267
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -43,6 +48,7 @@ EXTRACTED_PART_BUDGETS = {
     "ares.css": (1162, 91800),
     "intro-sequence.js": (761, 36861),
     "goal-review-runtime.js": (1589, 84633),
+    "risk-questionnaire-v2.js": (32, 1581),
 }
 
 

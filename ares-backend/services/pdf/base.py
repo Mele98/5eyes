@@ -420,7 +420,10 @@ class RisikoprofilData:
     knowledge_services: Mapping[str, bool] = field(default_factory=dict)
     knowledge_instruments: Mapping[str, bool] = field(default_factory=dict)
     risk_answers: list = field(default_factory=list)
-    experience_years: int = 0
+    # H5a (Dok. 105, Kleinbefund 3.3): Anlagehorizont als Kundenantwort
+    # (Antwortlabel Frage 8), nicht als interner Matrix-Stuetzwert. Ersetzt
+    # das irrefuehrend benannte Feld ``experience_years``.
+    investment_horizon_label: str = ""
     suitability_note: str = ""
     is_overridden: bool = False
     override_reason: str | None = None

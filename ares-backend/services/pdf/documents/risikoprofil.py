@@ -41,6 +41,10 @@ def build_risikoprofil_flowables(
     flowables.append(Spacer(1, 4 * mm))
 
     flowables.append(_profile_summary_table(data, styles))
+    binding_text = binding_side_text(data)
+    if binding_text:
+        flowables.append(Spacer(1, 2 * mm))
+        flowables.append(Paragraph(_esc(binding_text), styles["body"]))
 
     if data.is_overridden:
         flowables.append(Spacer(1, 4 * mm))
@@ -117,7 +121,7 @@ def _intro_block(styles) -> Table:
 def _profile_summary_table(data: RisikoprofilData, styles) -> Table:
     page_width, _ = PAGE_SIZE
     table_width = page_width - 24 * mm
-    horizon = f"{data.experience_years} Jahre" if data.experience_years else "Nicht dokumentiert"
+    horizon = str(data.investment_horizon_label or "").strip() or "Nicht dokumentiert"
     mandate_type = data.mandate_type or "Nicht dokumentiert"
     override = "Ja" if data.is_overridden else "Nein"
     rows = [
@@ -140,6 +144,52 @@ def _profile_summary_table(data: RisikoprofilData, styles) -> Table:
         ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
     ]))
     return table
+
+
+FZK_SCORE_CAP_X10 = 75
+
+
+def binding_side_text(data: RisikoprofilData) -> str:
+    """H5a (Dok. 105, 3.3/4.4): welche Seite das Profil bestimmt.
+
+    Endprofil = MIN(Risikofaehigkeit, Risikobereitschaft); bei FZK-Mandaten
+    zusaetzlich hoechstens Score 75. Ohne erfasste Scores (kein Profil) kein
+    Satz. Ein Berater-Override wird benannt, aendert die Aussage ueber das
+    Fragebogen-Ergebnis aber nicht.
+    """
+    capacity = int(data.risk_capacity_score or 0)
+    willingness = int(data.risk_tolerance_score or 0)
+    if willingness <= 0 and capacity <= 0:
+        return ""
+    if capacity < willingness:
+        text = (
+            "Bestimmend für das Risikoprofil ist die Risikofähigkeit; "
+            "die Risikobereitschaft liegt höher."
+        )
+    elif willingness < capacity:
+        text = (
+            "Bestimmend für das Risikoprofil ist die Risikobereitschaft; "
+            "die Risikofähigkeit liegt höher."
+        )
+    else:
+        text = (
+            "Risikofähigkeit und Risikobereitschaft liegen gleich hoch und "
+            "bestimmen das Risikoprofil gemeinsam."
+        )
+    if (
+        str(data.mandate_type or "").strip().upper() == "FZK"
+        and min(capacity, willingness) > FZK_SCORE_CAP_X10
+    ):
+        text += (
+            " Für das Freizügigkeitsmandat gilt zusätzlich eine Obergrenze, "
+            "die das Profil begrenzt."
+        )
+    if data.is_overridden:
+        text += (
+            " Das Profil wurde anschliessend durch den Berater übersteuert "
+            "(siehe Übersteuerung)."
+        )
+    return text
 
 
 def _metric_cell(label: str, value: str, styles) -> Paragraph:

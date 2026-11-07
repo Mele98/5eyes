@@ -80,6 +80,16 @@ QUESTION_CATALOG: dict[int, tuple[str, str]] = {
     ),
 }
 
+# H5a (E5, Dok. 105 G3): Aufklaerung zur Bandbreite in Frage 10. Rein textlich,
+# ohne Score-Wirkung; gilt fuer jede Fragebogen-Version. Wortgleich in der
+# Maske (risk-questionnaire-v2.js, RISK_Q10_BAND_FOOTNOTE; Paritaetstest).
+Q10_BAND_FOOTNOTE = (
+    "Hinweis zu Frage 10: Die genannte Bandbreite umfasst rund 80 % der zu "
+    "erwartenden Wertentwicklungen innerhalb eines Jahres. Mit je rund 10 % "
+    "Wahrscheinlichkeit fällt das Ergebnis besser bzw. schlechter aus – ein "
+    "Verlust kann also auch grösser sein als die untere Grenze der Bandbreite."
+)
+
 
 def make_eignungspruefung_section(
     *,
@@ -141,9 +151,13 @@ def make_eignungspruefung_section(
             "",
         ])
         for qn, question_text, answer_text in sorted(entries, key=lambda x: x[0]):
+            footnote = (
+                f'<br/><font size="5.8" color="#64748b"><i>{_esc(Q10_BAND_FOOTNOTE)}</i></font>'
+                if qn == 10 else ""
+            )
             rows.append([
                 Paragraph(
-                    f'<font name="{FONT_BOLD}">Frage {qn}</font><br/>{_esc(question_text)}',
+                    f'<font name="{FONT_BOLD}">Frage {qn}</font><br/>{_esc(question_text)}{footnote}',
                     _para_q(),
                 ),
                 Paragraph(
