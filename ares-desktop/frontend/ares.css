@@ -358,7 +358,7 @@ input[type=range]#ov-sl{accent-color:var(--n5);}
 .tsoll{background:var(--soll-lt);color:var(--soll);}
 /* AA-UX-FORMAT-001: Zahlenzellen mit Tabellenziffern (gleich breite Ziffern ->
    Spalten stehen ruhig); .num zusaetzlich rechtsbuendig. */
-table td,table th,.num,.qti,.as,.alloc-legend-values,[id^="aa-proj-"],[id^="ub-"]{font-variant-numeric:tabular-nums;}
+table td,table th,.num,.qti,.as,[id^="aa-proj-"],[id^="ub-"]{font-variant-numeric:tabular-nums;}
 .num{text-align:right;}
 .tr2{background:var(--neg-lt);color:var(--neg);}
 .ta{background:var(--warn-lt);color:var(--warn);}
@@ -645,11 +645,6 @@ table td,table th,.num,.qti,.as,.alloc-legend-values,[id^="aa-proj-"],[id^="ub-"
 .fpv-k{font-size:9px;color:var(--n4);}
 .fpv-v{font-size:11px;font-weight:500;color:var(--n8);}
 
-/* DONUT */
-.donut-wrap{position:relative;width:290px;height:290px;margin:0 auto;}
-.dc{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;}
-.dcv{font-family:var(--f-d);font-size:20px;color:var(--n8);text-align:center;line-height:1.08;}
-.dcl{font-size:10px;color:var(--n4);letter-spacing:0.07em;text-transform:uppercase;}
 .aa-main-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-bottom:18px;align-items:start;}
 .aa-assets-col,.aa-projection-col{min-width:0;}
 .aa-assets-col .alloc-top-grid{grid-template-columns:1fr;margin-bottom:0;}
@@ -706,17 +701,6 @@ table td,table th,.num,.qti,.as,.alloc-legend-values,[id^="aa-proj-"],[id^="ub-"
 .sbb-status{font-size:10px;color:var(--n4);}
 .sbb-foot-actions{display:flex;gap:8px;}
 @media(prefers-reduced-motion:reduce){.sbb-caret{transition:none;}}
-.alloc-donut-card{display:flex;flex-direction:column;align-items:center;padding:16px 18px;}
-.alloc-donut-card .section-kicker{font-size:9px;font-weight:600;letter-spacing:0.09em;text-transform:uppercase;color:var(--n4);margin-bottom:12px;text-align:center;}
-.alloc-donut-subline{margin-top:10px;font-size:10px;color:var(--n5);line-height:1.55;text-align:center;max-width:240px;}
-.alloc-legend{margin-top:12px;width:100%;display:grid;gap:7px;}
-.alloc-legend-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--b1);border-radius:var(--r);background:var(--bg);}
-.alloc-legend-left{display:flex;align-items:center;gap:8px;min-width:0;}
-.alloc-legend-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
-.alloc-legend-name{font-size:10px;color:var(--n7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.alloc-legend-values{display:flex;align-items:center;gap:10px;flex-shrink:0;}
-.alloc-legend-pct{font-size:10px;font-weight:600;color:var(--n8);}
-.alloc-legend-amt{font-size:10px;color:var(--n4);min-width:66px;text-align:right;}
 /* Roadmap #105: Barrierefreiheit Charts -- sr-only (nicht display:none, sonst
    ignorieren Screenreader den Inhalt komplett). Nutzung: versteckte Tabellen-
    Fallbacks neben Chart.js-<canvas>-Elementen (Screenreader-Nutzer erhalten
@@ -1141,9 +1125,6 @@ table td,table th,.num,.qti,.as,.alloc-legend-values,[id^="aa-proj-"],[id^="ub-"
 .qtmanual-status:empty{display:none;}
 .qtmanual-status .ok{color:var(--pos);font-weight:600;}
 .qtmanual-status .bad{color:var(--neg);font-weight:600;}
-/* dcv dcl for donut center */
-.dcv{font-family:var(--f-d);font-size:14px;color:var(--n8);text-align:center;line-height:1.2;}
-.dcl{font-size:8px;color:var(--n4);letter-spacing:0.05em;text-transform:uppercase;}
 /* App-Notice Toast-System (2026-05-16) */
 .app-notice-stack{position:fixed;top:60px;right:20px;display:flex;flex-direction:column;gap:8px;z-index:10000;pointer-events:none;max-width:380px;}
 .app-notice{pointer-events:auto;display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border-radius:var(--r2);border:1px solid var(--b2);background:#fff;box-shadow:0 4px 14px rgba(15,30,52,0.12);font-size:11px;line-height:1.5;color:var(--n7);animation:appNoticeIn 0.22s ease-out;}
