@@ -1435,6 +1435,8 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _goal_timing_label,
     _goal_weight,
     _implementation_steps,
+    ZERO_STRATEGY_BASE_WARNING,
+    resolve_investable_wealth_rappen,
     _inflate_real_goal_target_rappen,
     _items_with_known_ter,
     _merge_goal_analysis_with_monte_carlo,
@@ -6323,7 +6325,7 @@ def build_recommendation_payload_from_run(
         preferences=preferences,
     )
     advisory_wealth_rappen = int(target_payload["advisory_wealth_rappen"] or 0)
-    investable_advisory_wealth_rappen = int(target_payload.get("investable_advisory_wealth_rappen") or advisory_wealth_rappen)
+    investable_advisory_wealth_rappen = resolve_investable_wealth_rappen(target_payload, advisory_wealth_rappen)  # N-858-11: 0 != fehlt
     positions = db.query(RecommendationPosition).filter(
         RecommendationPosition.run_id == run.id,
     ).order_by(RecommendationPosition.target_weight_bps.desc()).all()
@@ -6377,6 +6379,8 @@ def build_recommendation_payload_from_run(
         }
 
     warnings: list[str] = []
+    if investable_advisory_wealth_rappen <= 0 < advisory_wealth_rappen:
+        warnings.append(ZERO_STRATEGY_BASE_WARNING)
     if stale_recommendation_targets:
         warnings.append(
             "Die gespeicherte Empfehlung basiert auf einer frueheren Soll-Allokation. "
@@ -6700,9 +6704,11 @@ def generate_recommendation_run(
     products = _filter_products_by_universe(db, mandate, products, run_context=run_context)
     sub_allocations = [s for s in target_payload["sub_allocations"] if int(s.get("target_weight_bps") or 0) > 0]  # Kontextzeilen (0 bps) ohne Position
     advisory_wealth_rappen = int(target_payload["advisory_wealth_rappen"] or 0)
-    investable_advisory_wealth_rappen = int(target_payload.get("investable_advisory_wealth_rappen") or advisory_wealth_rappen)
+    investable_advisory_wealth_rappen = resolve_investable_wealth_rappen(target_payload, advisory_wealth_rappen)  # N-858-11: 0 != fehlt
     prefs = _normalize_preferences(preferences)
     warnings = [legacy_snapshot_warning] if legacy_snapshot_warning else []
+    if investable_advisory_wealth_rappen <= 0 < advisory_wealth_rappen:
+        warnings.append(ZERO_STRATEGY_BASE_WARNING)
     # ESG-THEME-EXCLUSION-EFFECTIVE-001 (Audit 2026-10-14): sobald ein Thema
     # ausgeschlossen/untergewichtet ist (direkt oder via negative_screening),
     # wird offengelegt, dass der Filter auf der Katalog-Klassifikation beruht
