@@ -218,6 +218,76 @@ def test_fresh_session_on_a_harmless_temp_db_runs_normally(tmp_path):
 
 
 # --------------------------------------------------------------------------
+# 3b. Backup- und Log-Verzeichnis (A2b B-1): nie im Profil-Datenordner
+# --------------------------------------------------------------------------
+
+_DATA_DIRS_PROBE = textwrap.dedent(
+    """
+    import json, sys
+    sys.path[:0] = [{tests!r}, {backend!r}]
+    import conftest
+    from config import settings
+    from core.logging_setup import resolve_log_dir
+    from services.maintenance import ensure_backup_dir
+    result = {{
+        "db_path": settings.db_path,
+        "backup_dir": str(ensure_backup_dir()),
+        "log_dir": str(resolve_log_dir()),
+    }}
+    print("PROBE=" + json.dumps(result))
+    """
+)
+
+
+def _profile_data_dir(home: Path) -> Path:
+    """Datenordner im (umgebogenen) Profil -- aus der einen Quelle abgeleitet."""
+    return _fake_live_db(home).parent
+
+
+def test_session_settings_keep_backup_and_log_dirs_out_of_the_profile():
+    """Die laufende Test-Session selbst: kein Datenpfad unter dem Profil-Datenordner."""
+    from config import settings
+    from core.db_location import default_db_path
+
+    profile_data_dir = default_db_path().parent
+    for name in ("db_path", "backup_dir", "log_dir"):
+        value = str(getattr(settings, name) or "").strip()
+        assert value, f"{name} ist in der Test-Session nicht umgelenkt"
+        resolved = Path(value).expanduser().resolve()
+        assert resolved != profile_data_dir and profile_data_dir not in resolved.parents, (name, value)
+
+
+def test_fresh_session_never_creates_backup_or_log_dirs_in_the_profile(tmp_path):
+    """Frische Session (Subprozess, umgebogenes Home): selbst wenn die Umgebung
+    BACKUP_DIR/LOG_DIR auf den Profil-Datenordner setzt, legen
+    ``ensure_backup_dir()`` und ``resolve_log_dir()`` dort nichts an."""
+    home = tmp_path / "home"
+    profile_data_dir = _profile_data_dir(home)
+    before = sorted(p.name for p in profile_data_dir.iterdir())
+
+    code = _DATA_DIRS_PROBE.format(tests=str(TESTS_DIR), backend=str(BACKEND_ROOT))
+    env = _fake_home_env(
+        home,
+        BACKUP_DIR=str(profile_data_dir / "backups"),
+        LOG_DIR=str(profile_data_dir / "logs"),
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code], cwd=str(tmp_path),
+        env=env, capture_output=True, text=True, timeout=120,
+    )
+    lines = [ln for ln in proc.stdout.splitlines() if ln.startswith("PROBE=")]
+    assert proc.returncode == 0 and lines, (proc.returncode, proc.stdout[-2000:], proc.stderr[-2000:])
+    result = json.loads(lines[-1][len("PROBE="):])
+
+    db_dir = Path(result["db_path"]).resolve().parent
+    assert Path(result["backup_dir"]).resolve() == db_dir / "backups"
+    assert Path(result["log_dir"]).resolve() == db_dir / "logs"
+    for name in ("backup_dir", "log_dir"):
+        assert profile_data_dir.resolve() not in Path(result[name]).resolve().parents
+    assert sorted(p.name for p in profile_data_dir.iterdir()) == before
+
+
+# --------------------------------------------------------------------------
 # 4. Kommandozeile (fuer die PowerShell-Skripte) und Tools
 # --------------------------------------------------------------------------
 

@@ -234,6 +234,13 @@ class ConflictOfInterestDisclosure(Base):
     # unterschriebene Verzichts-Dokument fuer Beweiszwecke.
     reimbursed_to_client = Column(Integer, nullable=False, default=0)
     waiver_document_id = Column(String)
+    # N-861-1 (Pruefrunde #861, 2026-11-04): optionale Bindung einer
+    # Retrozessions-Zeile an ein konkretes Produkt. NULL = Zuordnung wie
+    # bisher ueber den Anbieternamen (inducement_provider). Bewusst ohne
+    # Fremdschluessel-Constraint (gleiches Muster wie waiver_document_id);
+    # der Router prueft, dass das Produkt fuer den Tenant sichtbar ist.
+    # Alembic d4f7a9c2e1b6, SQLite-Runtime-Patch database.py.
+    product_id = Column(String)
     disclosed_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
@@ -245,6 +252,15 @@ class ConflictOfInterestDisclosure(Base):
 
 class Product(Base):
     __tablename__ = "products"
+    # Owner-Anforderung P1: interne Produkt-ID eindeutig je Tenant (aktive
+    # Zeilen). Identisch in Alembic c2e6f8a1b3d5 und im SQLite-Runtime-Patch.
+    __table_args__ = (
+        Index(
+            "ux_products_tenant_internal_id", "tenant_id", "internal_product_id", unique=True,
+            sqlite_where=text("internal_product_id IS NOT NULL AND deleted_at IS NULL"),
+            postgresql_where=text("internal_product_id IS NOT NULL AND deleted_at IS NULL"),
+        ),
+    )
 
     id = Column(String, primary_key=True)
     isin = Column(String)
@@ -294,6 +310,39 @@ class Product(Base):
     # py::product_theme_keys). Backfill fuer "Thema X"-Produkte: database.py
     # ensure_runtime_columns() + Alembic d7c3e9a2f5b1.
     theme_tags = Column(String)
+    # AUDIT-2026-11 P1 (Entscheid PO-6, Luecke L1): Produkt-Stammdaten.
+    # Alle Felder nullable, NULL = "nicht erfasst" -- nichts wird erfunden
+    # (der Standardkatalog fuehrt keine echten ISIN/Retrozessionssaetze).
+    # Validierung: schemas/review.py (Abschnitt P1); Alembic a8d3c5e7f9b1;
+    # SQLite-Runtime-Patch: database.py::ensure_runtime_columns.
+    # Die Auswahl-/Scoring-Logik liest diese Felder in P1 NICHT (P13).
+    domicile = Column(String)                # ISO 3166-1 alpha-2, z.B. 'IE'
+    is_hedged = Column(Integer)              # 1/0, NULL = nicht erfasst
+    hedge_currency = Column(String)          # ISO 4217 der Absicherung
+    ter_source = Column(String)              # Quelle der TER (z.B. KID/Factsheet)
+    ter_as_of = Column(String)               # Stichtag der TER (YYYY-MM-DD)
+    # Retrozessionssatz in bps p.a. auf dem investierten Volumen.
+    # NULL = UNBEKANNT (nie "retrozessionsfrei"), 0 = ausdruecklich frei.
+    retrocession_bps = Column(Integer)
+    retrocession_source = Column(String)
+    is_house_product = Column(Integer)       # 1/0, NULL = nicht erfasst
+    distribution_policy = Column(String)     # 'accumulating' | 'distributing'
+    valor = Column(String)                   # Valorennummer (optional)
+    # Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).
+    minimum_investment_minor_units = Column(BigInteger)
+    # Owner-Anforderung P1 (eigene Fonds, kotiert/nicht kotiert), Alembic
+    # c2e6f8a1b3d5: Kotierung, interne tenant-eindeutige ID (Pflicht bei
+    # unlisted ohne ISIN; Unique-Index je Tenant), Bewertungsquelle,
+    # NAV-Rhythmus/-Stichtag, Liquiditaetsrhythmus. Alle nullable.
+    listing_status = Column(String)          # 'listed' | 'unlisted'
+    internal_product_id = Column(String)
+    price_source = Column(String)            # 'market' | 'manual_nav' | 'provider'
+    nav_frequency = Column(String)           # 'daily' | 'weekly' | 'monthly' | 'quarterly'
+    nav_as_of = Column(String)               # YYYY-MM-DD, manuell pflegbar
+    redemption_period_days = Column(Integer)
+    notice_period_days = Column(Integer)
+    has_gating = Column(Integer)             # 1/0, NULL = nicht erfasst
+    gating_terms = Column(String)
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)

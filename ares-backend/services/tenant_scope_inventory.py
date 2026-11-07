@@ -26,7 +26,7 @@ table therefore cannot ship unclassified.
 """
 from __future__ import annotations
 
-INVENTORY_VERSION = "2026-10-30.2"
+INVENTORY_VERSION = "2026-11-04.1"
 
 TENANT_DIRECT = "tenant_direct"
 GLOBAL_REFERENCE = "global_reference"
@@ -64,6 +64,8 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: append-only Plausibilitaets-
     # Evidenz, Mandant aus dem Mandat (hash-gebunden).
     "risk_capacity_plausibility_evaluations",
+    # AUDIT-2026-11 T1: Hausstandard Nachhaltigkeitsschwellen je Tenant.
+    "sustainability_exclusion_standards",
     "users",
     # PG-002 (Closure-Review PR #666): bisher nur transitiv ueber clients.
     "wealth_inflows",
@@ -75,6 +77,8 @@ GLOBAL_REFERENCE_TENANT_TABLES: frozenset[str] = frozenset({
     "capital_market_assumptions",
     "product_eligibility_rule_sets",
     "product_eligibility_rules",
+    # AUDIT-2026-11 T1: NULL = Plattform-Nachweis eines globalen Katalogfonds.
+    "product_sustainability_attributes",
     "products",
 })
 
