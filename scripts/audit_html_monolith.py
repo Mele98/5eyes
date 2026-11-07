@@ -25,9 +25,15 @@ DEFAULT_OUTPUT = REPO_ROOT / "docs" / "audits" / "2026-06-02-monolith-inventory.
 # ihre CSS-Selektoren und JS-Deklarationen werden mit ``source`` = Dateiname
 # (Zeilen relativ zur Datei) mitinventarisiert, damit das Sicherheitsnetz
 # durch die Auslagerung nicht duenner wird.
+# H6 (2026-11-07): aa-chart.css/aa-chart.js -- Asset-Allocation-Grafik (SOLL-
+# Torte, Legende, SOLL-Quoten mit Bandbreite). Neue Darstellungslogik, die zum
+# Monolithen gehoert; als Teil (statt eigenstaendiges Modul) gefuehrt, damit
+# Bundle, Budget und die Verbots-Guards sie automatisch abdecken.
 EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     ("ares.css", "css"),
+    ("aa-chart.css", "css"),
     ("intro-sequence.js", "js"),
+    ("aa-chart.js", "js"),
     ("goal-review-runtime.js", "js"),
 )
 

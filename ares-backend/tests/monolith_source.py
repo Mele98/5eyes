@@ -9,6 +9,12 @@ klassische synchrone Skripte bzw. Stylesheet an derselben Stelle):
 * ``intro-sequence.js``     -- Intro-Animation + arrMin/arrMax-Helfer
 * ``goal-review-runtime.js``-- letzter Skriptblock (Ziele/Allokation/Review)
 
+H6 (Asset-Allocation-Grafik) fuehrt zwei neue Teile nach derselben Regel:
+``aa-chart.css`` (direkt nach ``ares.css``) und ``aa-chart.js`` (direkt nach
+``intro-sequence.js``). Sie waren nie inline; die Rekonstruktion setzt sie wie
+die anderen Teile an ihrer Einbindung ein (die sha256-Aussage unten gilt fuer
+den Stand vor H6).
+
 Quelltext-Vertragstests, die Code aus diesen Bloecken pruefen, lesen ueber
 :func:`read_monolith_bundle` die rekonstruierte Gesamtquelle: jede Einbindung
 wird durch den Dateiinhalt im urspruenglichen Inline-Format ersetzt. Das
