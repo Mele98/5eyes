@@ -183,6 +183,9 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
            method=TIER_A_REDACTION),
         _c(RECORD, "mandate_contract"),
     ),
+    # H8 C-2: Abgabenachweis der Kundeninformation (append-only, keine
+    # Personendaten ausser dem Bezug).
+    "client_information_deliveries": _t(_MANDATE, _c(RECORD, "mandate_contract")),
     "contract_documents": _t(
         _MANDATE,
         _c(SIGNATURE, "mandate_contract",

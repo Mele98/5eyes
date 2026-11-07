@@ -684,6 +684,23 @@ CLIENT_PII_KEYS_SQLITE_TABLE_DDL: tuple[str, ...] = (
 )""",
 )
 
+# H8 C-2 (Compliance-Audit 2026-11-07): append-only Abgabenachweis der
+# Kundeninformation (Art. 8/9 FIDLEG). Die Tabelle legt create_all an (Modell
+# in models/review.py, after_create); Alembic d8e4b2a6c1f9 fuer PostgreSQL.
+def _append_only_sqlite_triggers(table: str) -> tuple[str, ...]:
+    return (
+        f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_update "
+        f"BEFORE UPDATE ON {table} FOR EACH ROW "
+        f"BEGIN SELECT RAISE(ABORT, '{table} is immutable'); END",
+        f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_delete "
+        f"BEFORE DELETE ON {table} FOR EACH ROW "
+        f"BEGIN SELECT RAISE(ABORT, '{table} is immutable'); END",
+    )
+
+
+CLIENT_INFORMATION_DELIVERY_SQLITE_TRIGGERS = _append_only_sqlite_triggers("client_information_deliveries")
+
+
 CLIENT_PII_KEYS_SQLITE_TRIGGERS: tuple[str, ...] = (
     "CREATE TRIGGER IF NOT EXISTS trg_client_pii_keys_shred_only "
     "BEFORE UPDATE ON client_pii_keys FOR EACH ROW "

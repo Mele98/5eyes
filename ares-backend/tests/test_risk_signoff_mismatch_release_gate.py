@@ -267,6 +267,11 @@ def test_signing_bound_document_blocked_without_mutation(mismatch, document_type
 def test_signing_unbound_document_not_gated_by_signoff(mismatch):
     session, advisor = mismatch
     doc_id = _add_document(session, advisor, "Beratungsvertrag")
+    # H8 C-2/C-5: Vertragsunterzeichnung erst nach Kundeninformation und KYC.
+    from client_onboarding_fixture import satisfy_client_onboarding
+
+    satisfy_client_onboarding(session, session.get(Mandate, _MID))
+    session.commit()
     doc = _sign_doc(session, advisor, doc_id)
     assert doc.signed_by_advisor == 1
 

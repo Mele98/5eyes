@@ -172,8 +172,13 @@ def _add_position(SF, mandate_id, run_id, advisor_id, product_id, weight=500):
 def _finalize(SF, mandate_id, run_id, advisor_id):
     from routers.review import finalize_recommendation
 
+    from client_onboarding_fixture import satisfy_client_onboarding
+    from models.mandates import Mandate
+
     with SF() as s:
         user = s.get(User, advisor_id)
+        # H8 C-2/C-5: Kundeninformations-/KYC-Gate mit Testwerten erfuellen.
+        satisfy_client_onboarding(s, s.get(Mandate, mandate_id))
         try:
             return finalize_recommendation(
                 mandate_id=mandate_id, run_id=run_id, request=_FakeRequest(), db=s, current_user=user,

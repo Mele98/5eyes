@@ -29,8 +29,12 @@ Verletzung).
 """
 from __future__ import annotations
 
+import hashlib
+import json
+from datetime import datetime, timezone
 from typing import Any, Optional
 
+from sqlalchemy import text as _sql_text
 from sqlalchemy.orm import Session
 
 from core.reason_codes import DomainError
@@ -42,11 +46,14 @@ RELEASE_ALLOCATION_MISSING = "RELEASE_ALLOCATION_MISSING"
 CHANNEL_ADVISORY_PDF = "advisory_pdf"
 CHANNEL_SIGNATURE = "signature"
 CHANNEL_HANDOFF = "handoff"
+# H8: Finalisierung als eigener Kanal des Kundeninformations-/KYC-Gates.
+CHANNEL_FINALIZATION = "finalization"
 
 _CHANNEL_LABELS = {
     CHANNEL_ADVISORY_PDF: "Der Advisory-Report kann nicht exportiert werden",
     CHANNEL_SIGNATURE: "Das Dokument kann nicht unterzeichnet werden",
     CHANNEL_HANDOFF: "Die Handelsliste kann nicht weitergeleitet werden",
+    CHANNEL_FINALIZATION: "Die Empfehlung kann nicht finalisiert werden",
 }
 
 # Dokumenttypen, die die Anlageempfehlung/Soll-Allokation verkoerpern. Ein
@@ -314,4 +321,352 @@ def assert_current_allocation_without_adr12a_hold(
         allocation,
         channel=channel,
         channel_label=_CHANNEL_LABELS.get(channel, "Freigabe nicht möglich"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# H8 C-2 (Compliance-Audit 2026-11-07, Luecke 2):
+# Kundeninformation nach Art. 8/9 FIDLEG als Gate vor Finalisierung und
+# Vertragsunterzeichnung.
+# ---------------------------------------------------------------------------
+#
+# Fail-closed, ohne Override:
+# - Rechtliche Angaben der Firma (models/tenant.py::TenantLegalProfile) fehlen
+#   oder sind unvollstaendig -> Sperre mit Liste der fehlenden Angaben. Ares
+#   belegt keinen Wert vor (keine Firma, Adresse, Ombudsstelle, Aufsicht).
+# - Sitz ausserhalb der abgebildeten Regime (heute nur Schweiz = FIDLEG) ->
+#   Sperre statt stiller Freigabe.
+# - Kein gueltiger Abgabenachweis der Kundeninformation (archiviertes PDF,
+#   Byte-Hash stimmt) oder Abgabe erst NACH dem Vertragsabschluss -> Sperre.
+#
+# Gelesen wird per SQL (Muster H7 N-884-04 oben): dieses Modul ist das eine
+# Freigabe-Gate der Kanaele und bekommt dafuer keine neuen Modulkanten.
+
+CLIENT_ONBOARDING_INCOMPLETE = "CLIENT_ONBOARDING_INCOMPLETE"
+CLIENT_INFORMATION_TENANT_DATA_MISSING = "CLIENT_INFORMATION_TENANT_DATA_MISSING"
+CLIENT_INFORMATION_REGIME_UNSUPPORTED = "CLIENT_INFORMATION_REGIME_UNSUPPORTED"
+CLIENT_INFORMATION_NOT_DELIVERED = "CLIENT_INFORMATION_NOT_DELIVERED"
+CLIENT_INFORMATION_DELIVERED_AFTER_CONTRACT = "CLIENT_INFORMATION_DELIVERED_AFTER_CONTRACT"
+
+
+CLIENT_INFORMATION_DOCUMENT_TYPE = "Kundeninformation"
+CLIENT_INFORMATION_TEMPLATE_VERSION = "ARES-KI-FIDLEG-1"
+# Dokumenttypen, deren Unterzeichnung den Vertragsabschluss markiert. Die
+# Kundeninformation muss VOR der ersten Unterschrift auf einem davon liegen.
+CONTRACT_CONCLUSION_DOCUMENT_TYPES = frozenset({
+    "Beratungsvertrag",
+    "Anlagestrategie",
+    "Anlagerezept",
+})
+# Sitzlaender, fuer die Ares ein Informationsregime abbildet (Art. 8/9 FIDLEG).
+CLIENT_INFORMATION_SEAT_REGIMES = {"CH": "FIDLEG"}
+
+CLIENT_INFORMATION_DELIVERY_CHANNELS = (
+    "persoenlich_papier",
+    "post",
+    "email",
+    "kundenportal",
+)
+
+# (Feld, Bezeichnung fuer den Owner-Hinweis) -- Reihenfolge = Anzeige.
+LEGAL_PROFILE_FIELDS: tuple[tuple[str, str], ...] = (
+    ("legal_name", "Firma (vollstaendiger Name)"),
+    ("address_street", "Adresse: Strasse und Nummer"),
+    ("address_postal_code", "Adresse: PLZ"),
+    ("address_city", "Adresse: Ort"),
+    ("address_country", "Adresse: Land (Sitz, ISO-Code)"),
+    ("business_activity", "Taetigkeitsfeld"),
+    ("supervision_type", "Aufsichtsstatus"),
+    ("supervisory_authority", "Aufsichtsbehoerde"),
+    ("supervisory_organisation", "Aufsichtsorganisation (AO)"),
+    ("license_reference", "Bewilligungs- bzw. Registerangabe"),
+    ("ombudsman_name", "Ombudsstelle: Name"),
+    ("ombudsman_address", "Ombudsstelle: Adresse"),
+    ("contact_phone", "Kontakt: Telefon"),
+    ("contact_email", "Kontakt: E-Mail"),
+    ("contact_website", "Kontakt: Website"),
+)
+_LEGAL_PROFILE_LABELS = dict(LEGAL_PROFILE_FIELDS)
+_BASE_REQUIRED = (
+    "legal_name", "address_street", "address_postal_code", "address_city",
+    "address_country", "business_activity", "supervision_type",
+    "ombudsman_name", "ombudsman_address",
+)
+# Aufsichtsstatus -> zusaetzlich verlangte Angaben (Werte aus models/tenant.py).
+SUPERVISION_REQUIREMENTS: dict[str, tuple[str, ...]] = {
+    "vermoegensverwalter_finig": ("supervisory_authority", "supervisory_organisation"),
+    "andere_finma_bewilligung": ("supervisory_authority",),
+    "anlageberater_ohne_prudenzielle_aufsicht": ("license_reference",),
+}
+SUPERVISION_LABELS: dict[str, str] = {
+    "vermoegensverwalter_finig": "Vermoegensverwalter mit Bewilligung der FINMA (FINIG)",
+    "andere_finma_bewilligung": "Finanzinstitut mit anderer Bewilligung der FINMA",
+    "anlageberater_ohne_prudenzielle_aufsicht": (
+        "Kundenberater ohne prudenzielle Aufsicht (Eintrag in einem Beraterregister)"
+    ),
+}
+_OWNER_PROFILE_ACTION = (
+    "Ein Firmen-Admin ergaenzt unter Administration > Rechtliche Angaben "
+    "(Kundeninformation FIDLEG): "
+)
+
+
+def _clean(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def legal_profile_missing_fields(profile: Optional[dict]) -> list[str]:
+    """Fehlende Pflichtangaben (Feldnamen) der rechtlichen Angaben."""
+    profile = profile or {}
+    missing = [name for name in _BASE_REQUIRED if not _clean(profile.get(name))]
+    supervision = _clean(profile.get("supervision_type"))
+    if supervision and supervision not in SUPERVISION_REQUIREMENTS:
+        missing.append("supervision_type")
+    for name in SUPERVISION_REQUIREMENTS.get(supervision, ()):
+        if not _clean(profile.get(name)):
+            missing.append(name)
+    if not (_clean(profile.get("contact_phone")) or _clean(profile.get("contact_email"))):
+        missing.append("contact_phone")
+    seen: set[str] = set()
+    return [name for name in missing if not (name in seen or seen.add(name))]
+
+
+def legal_profile_hash(profile: Optional[dict]) -> str:
+    """SHA-256 ueber die kanonischen Inhaltsfelder (ohne Metadaten)."""
+    payload = {name: _clean((profile or {}).get(name)) for name, _label in LEGAL_PROFILE_FIELDS}
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+
+def load_tenant_legal_profile(db: Session, tenant_id: Optional[str]) -> Optional[dict]:
+    if not tenant_id:
+        return None
+    row = db.execute(
+        _sql_text("SELECT * FROM tenant_legal_profiles WHERE tenant_id = :tid"),
+        {"tid": str(tenant_id)},
+    ).mappings().first()
+    return dict(row) if row is not None else None
+
+
+# Gleicher Wert wie models/tenant.py::DEFAULT_TENANT_ID (Test
+# test_h8_c2_client_information prueft die Gleichheit); hier als Literal,
+# damit das Freigabe-Gate keine neue Modulkante bekommt.
+_DEFAULT_TENANT_ID = "main"
+
+
+def mandate_tenant_id(db: Session, mandate: Any) -> str:
+    """Mandant des Mandats: eigene Spalte, sonst die des Kunden, sonst der
+    Standard-Mandant -- dieselbe Semantik wie routers/mandates.py (Anlage)
+    und services/auth.py::_resolve_tenant_id_for_user (NULL = 'main', Tier 1)."""
+    tenant_id = getattr(mandate, "tenant_id", None)
+    if tenant_id:
+        return str(tenant_id)
+    row = db.execute(
+        _sql_text("SELECT tenant_id FROM clients WHERE id = :cid"),
+        {"cid": str(getattr(mandate, "client_id", "") or "")},
+    ).first()
+    return str(row[0]) if row is not None and row[0] else _DEFAULT_TENANT_ID
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _finding(reason_code: str, message: str, owner_action: str, scope: str, **extra: Any) -> dict:
+    return {"reason_code": reason_code, "message": message,
+            "owner_action": owner_action, "scope": scope, **extra}
+
+
+def contract_concluded_at(db: Session, mandate_id: str) -> Optional[str]:
+    """Fruehester Signaturzeitpunkt eines Vertragsdokuments (Vertragsabschluss)."""
+    placeholders = ", ".join(f":t{i}" for i in range(len(CONTRACT_CONCLUSION_DOCUMENT_TYPES)))
+    params = {f"t{i}": value for i, value in enumerate(sorted(CONTRACT_CONCLUSION_DOCUMENT_TYPES))}
+    params["mid"] = str(mandate_id)
+    row = db.execute(
+        _sql_text(
+            "SELECT MIN(signed_at) FROM contract_documents WHERE mandate_id = :mid "
+            "AND deleted_at IS NULL AND signed_at IS NOT NULL "
+            f"AND document_type IN ({placeholders})"
+        ),
+        params,
+    ).first()
+    return str(row[0]) if row is not None and row[0] else None
+
+
+def client_information_deliveries(db: Session, mandate_id: str) -> list[dict]:
+    """Abgabenachweise des Mandats mit Integritaetspruefung gegen das Archiv."""
+    rows = db.execute(
+        _sql_text(
+            "SELECT d.*, c.checksum_sha256 AS archived_sha256, c.document_type AS archived_type, "
+            "c.mandate_id AS archived_mandate_id, c.deleted_at AS archived_deleted_at "
+            "FROM client_information_deliveries d "
+            "LEFT JOIN contract_documents c ON c.id = d.contract_document_id "
+            "WHERE d.mandate_id = :mid ORDER BY d.delivered_at, d.recorded_at"
+        ),
+        {"mid": str(mandate_id)},
+    ).mappings().all()
+    out: list[dict] = []
+    for row in rows:
+        item = dict(row)
+        item["archive_verified"] = bool(
+            item.get("archived_sha256")
+            and item.get("archived_sha256") == item.get("pdf_sha256")
+            and item.get("archived_type") == CLIENT_INFORMATION_DOCUMENT_TYPE
+            and str(item.get("archived_mandate_id") or "") == str(mandate_id)
+            and not item.get("archived_deleted_at")
+        )
+        for key in ("archived_sha256", "archived_type", "archived_mandate_id", "archived_deleted_at"):
+            item.pop(key, None)
+        out.append(item)
+    return out
+
+
+def client_onboarding_findings(
+    db: Session,
+    mandate: Any,
+    *,
+    reference_time: Optional[str] = None,
+) -> list[dict]:
+    """Alle offenen Punkte vor Vertragsabschluss/Finalisierung (leer = frei)."""
+    findings: list[dict] = []
+    now = reference_time or _utc_now_iso()
+    profile = load_tenant_legal_profile(db, mandate_tenant_id(db, mandate))
+    missing = legal_profile_missing_fields(profile)
+    if missing:
+        labels = [_LEGAL_PROFILE_LABELS.get(name, name) for name in missing]
+        if "contact_phone" in missing:
+            labels = [
+                "Kontakt: Telefon oder E-Mail" if label == _LEGAL_PROFILE_LABELS["contact_phone"] else label
+                for label in labels
+            ]
+        findings.append(_finding(
+            CLIENT_INFORMATION_TENANT_DATA_MISSING,
+            "Die Kundeninformation nach Art. 8 FIDLEG kann nicht erstellt werden: "
+            "Pflichtangaben der Firma fehlen (" + ", ".join(labels) + ").",
+            _OWNER_PROFILE_ACTION + ", ".join(labels) + ".",
+            "tenant",
+            missing_fields=missing,
+            missing_labels=labels,
+        ))
+    elif _clean(profile.get("address_country")).upper() not in CLIENT_INFORMATION_SEAT_REGIMES:
+        findings.append(_finding(
+            CLIENT_INFORMATION_REGIME_UNSUPPORTED,
+            "Fuer den Sitz der Firma ("
+            f"{_clean(profile.get('address_country')) or 'unbekannt'}) bildet Ares "
+            "kein Informationsregime ab (heute nur Schweiz/FIDLEG).",
+            "Owner/Compliance: Informationspflichten ausserhalb von Ares regeln; "
+            "Ares gibt die Kundeninformation fuer diesen Sitz nicht frei.",
+            "tenant",
+        ))
+    mandate_id = str(getattr(mandate, "id", "") or "")
+    deliveries = [d for d in client_information_deliveries(db, mandate_id) if d["archive_verified"]]
+    concluded = contract_concluded_at(db, mandate_id)
+    cutoff = min(concluded, now) if concluded else now
+    if not deliveries:
+        findings.append(_finding(
+            CLIENT_INFORMATION_NOT_DELIVERED,
+            "Fuer dieses Mandat ist keine Abgabe der Kundeninformation (Art. 8/9 "
+            "FIDLEG) mit archivierter Fassung nachgewiesen.",
+            "Berater: Kundeninformation als PDF erstellen, dem Kunden vor "
+            "Vertragsabschluss uebergeben und die Uebergabe erfassen.",
+            "mandate",
+        ))
+    elif not any(str(d.get("delivered_at") or "") <= cutoff for d in deliveries):
+        findings.append(_finding(
+            CLIENT_INFORMATION_DELIVERED_AFTER_CONTRACT,
+            "Die Kundeninformation wurde erst nach dem Vertragsabschluss "
+            f"({cutoff}) uebergeben (Art. 9 FIDLEG: vor Vertragsabschluss).",
+            "Owner/Compliance: Vorgang pruefen; der Vertrag ist neu abzuschliessen, "
+            "nachdem die Kundeninformation uebergeben wurde.",
+            "mandate",
+            contract_concluded_at=concluded,
+        ))
+    return findings
+
+
+def client_onboarding_status(db: Session, mandate: Any) -> dict:
+    """Anzeige-Status fuer die Maske (gleiche Quelle wie das Gate)."""
+    tenant_id = mandate_tenant_id(db, mandate)
+    profile = load_tenant_legal_profile(db, tenant_id)
+    findings = client_onboarding_findings(db, mandate)
+    deliveries = client_information_deliveries(db, str(mandate.id))
+    current_hash = legal_profile_hash(profile) if profile else None
+    for delivery in deliveries:
+        delivery["legal_profile_current"] = bool(
+            current_hash and delivery.get("legal_profile_hash") == current_hash
+        )
+    latest = db.execute(
+        _sql_text(
+            "SELECT id, version, checksum_sha256, content_json, created_at FROM contract_documents "
+            "WHERE mandate_id = :mid AND document_type = :dtype AND deleted_at IS NULL "
+            "ORDER BY version DESC LIMIT 1"
+        ),
+        {"mid": str(mandate.id), "dtype": CLIENT_INFORMATION_DOCUMENT_TYPE},
+    ).mappings().first()
+    latest_document = None
+    if latest is not None:
+        try:
+            meta = json.loads(latest["content_json"] or "{}")
+        except (TypeError, ValueError):
+            meta = {}
+        meta = meta if isinstance(meta, dict) else {}
+        latest_document = {
+            "id": latest["id"],
+            "version": latest["version"],
+            "checksum_sha256": latest["checksum_sha256"],
+            "created_at": latest["created_at"],
+            "template_version": meta.get("template_version"),
+            "legal_profile_revision": meta.get("legal_profile_revision"),
+            "current": bool(
+                current_hash
+                and meta.get("legal_profile_hash") == current_hash
+                and meta.get("template_version") == CLIENT_INFORMATION_TEMPLATE_VERSION
+            ),
+        }
+    return {
+        "mandate_id": str(mandate.id),
+        "client_id": str(mandate.client_id),
+        "release_ready": not findings,
+        "findings": findings,
+        "legal_profile": {
+            "present": profile is not None,
+            "revision": int((profile or {}).get("revision") or 0),
+            "profile_hash": current_hash,
+            "missing_fields": legal_profile_missing_fields(profile),
+        },
+        "contract_concluded_at": contract_concluded_at(db, str(mandate.id)),
+        "deliveries": deliveries,
+        "template_version": CLIENT_INFORMATION_TEMPLATE_VERSION,
+        "latest_document": latest_document,
+    }
+
+
+def assert_client_onboarding_release_eligible(
+    db: Session,
+    mandate: Any,
+    *,
+    channel: str,
+    http_status: int = 409,
+) -> None:
+    """Sperrt Finalisierung bzw. Vertragsunterzeichnung, solange Kunden-
+    information (Art. 8/9 FIDLEG) fehlt. Wirft
+    ``DomainError`` mit ``reason_code`` CLIENT_ONBOARDING_INCOMPLETE und der
+    Liste ``findings`` (je eigener Reason-Code + Owner-Hinweis), BEVOR der
+    Kanal irgendeine Wirkung hat."""
+    findings = client_onboarding_findings(db, mandate)
+    if not findings:
+        return
+    raise DomainError(
+        CLIENT_ONBOARDING_INCOMPLETE,
+        (
+            f"{_CHANNEL_LABELS.get(channel, 'Freigabe nicht möglich')}: "
+            + " ".join(f["message"] for f in findings)
+        ),
+        http_status=http_status,
+        extra={
+            "channel": channel,
+            "findings": findings,
+            "finding_codes": [f["reason_code"] for f in findings],
+        },
     )

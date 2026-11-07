@@ -1469,7 +1469,10 @@ CREATE TABLE IF NOT EXISTS contract_documents (
                         -- 2026-10-09): Standalone-Kostenausweis wird jetzt
                         -- render-once/archive-once via archive_generated_pdf()
                         -- archiviert, siehe schemas/review.py::ContractDocumentCreate.
-                        'Kostenausweis')),
+                        'Kostenausweis',
+                        -- H8 C-2 (2026-11-07): Kundeninformation Art. 8/9 FIDLEG,
+                        -- archiviert via archive_generated_pdf() (Abgabenachweis).
+                        'Kundeninformation')),
     title           TEXT NOT NULL,
     content_json    TEXT CHECK(content_json IS NULL OR json_valid(content_json)),
     pdf_path        TEXT,

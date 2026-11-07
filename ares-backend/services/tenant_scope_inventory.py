@@ -26,7 +26,7 @@ table therefore cannot ship unclassified.
 """
 from __future__ import annotations
 
-INVENTORY_VERSION = "2026-11-04.1"
+INVENTORY_VERSION = "2026-11-07.1"
 
 TENANT_DIRECT = "tenant_direct"
 GLOBAL_REFERENCE = "global_reference"
@@ -37,6 +37,9 @@ CATEGORIES = (TENANT_DIRECT, GLOBAL_REFERENCE, TENANT_DERIVED, SYSTEM_ONLY)
 
 TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     "audit_log",
+    # H8 C-2 (Compliance-Audit 2026-11-07): Abgabenachweis der Kundeninformation
+    # und rechtliche Angaben der Firma -- tenant_id direkt bei der Erfassung.
+    "client_information_deliveries",
     "clients",
     # PG-002 (Red-Team 2026-10-28, Befund 6): append-only Mandats-Evidenz,
     # Mandant aus dem Mandat (core/mandate_evidence_tenant_boundary.py).
@@ -66,6 +69,7 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     "risk_capacity_plausibility_evaluations",
     # AUDIT-2026-11 T1: Hausstandard Nachhaltigkeitsschwellen je Tenant.
     "sustainability_exclusion_standards",
+    "tenant_legal_profiles",
     "users",
     # PG-002 (Closure-Review PR #666): bisher nur transitiv ueber clients.
     "wealth_inflows",

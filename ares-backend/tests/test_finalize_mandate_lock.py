@@ -122,10 +122,14 @@ def _allocation_policy_and_cma(session_factory, allocation_id):
         return allocation.policy_id, allocation.capital_market_assumptions_id
 
 
-def _add_full_position(session_factory, run_id) -> None:
+def _add_full_position(session_factory, run_id, *, client_onboarding: bool = True) -> None:
     """Fuegt genau eine Position mit 10000 bps hinzu, referenziert auf ein
     aktives Produkt -- erfuellt die Positions-/Gewichts-Checks in
-    _validate_recommendation_for_finalization."""
+    _validate_recommendation_for_finalization.
+
+    H8 C-2/C-5: ``client_onboarding`` erfuellt zusaetzlich das Kunden-
+    informations-/KYC-Gate mit offen gekennzeichneten Testwerten
+    (tests/client_onboarding_fixture.py); Tests des Gates selbst setzen False."""
     now = _iso(datetime.now(timezone.utc))
     pid = new_uuid()
     with session_factory() as s:
@@ -157,6 +161,11 @@ def _add_full_position(session_factory, run_id) -> None:
             target_weight_bps=10000, target_amount_rappen=500_000_00,
             created_at=now, updated_at=now,
         ))
+        if client_onboarding:
+            from client_onboarding_fixture import satisfy_client_onboarding
+
+            run = s.get(RecommendationRun, run_id)
+            satisfy_client_onboarding(s, s.get(Mandate, run.mandate_id))
         s.commit()
 
 
