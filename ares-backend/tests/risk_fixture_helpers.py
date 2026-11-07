@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 
 from models.profiling import RiskAssessmentAnswer
 from services.risk_scoring import HORIZON_YEARS, canonicalize_horizon_label, compute_scores
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 CURRENT_RISK_SCHEMA_MARKERS = {
@@ -113,7 +114,7 @@ _OPTION_GROUPS = ("rf-income", "rf-oblig", "rf-wealth", "rf-savings", "rf-horizo
 
 
 def monolith_risk_questionnaire() -> dict:
-    src = MONOLITH_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     options = {}
     for group in _OPTION_GROUPS:
         found = _re.findall(

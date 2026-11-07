@@ -22729,8 +22729,8 @@
     }
   ],
   "source_path": "ares-desktop/frontend/ares.html",
-  "source_sha256": "0572d232f9b7f19d15155cb8ecc857f21e339d5782250f5b50d97824bb2722dc",
-  "source_size_bytes": 1695550,
+  "source_sha256": "ccd41cd95369cb74f85132f04fa27d2081ce46a2dd4517456a9480a1f849c002",
+  "source_size_bytes": 1695446,
   "sub_sections": [
     {
       "class": "sbb",

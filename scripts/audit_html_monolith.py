@@ -31,6 +31,23 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     ("goal-review-runtime.js", "js"),
 )
 
+# N-875-05: Bewusste, dokumentierte Ausnahmeliste der VOR H3 bereits eigen-
+# staendigen Frontend-Module. Sie sind kein Teil des Monolithen (kein Bundle,
+# kein Monolith-Budget), sondern haben je eigene Modul-Vertragstests. Jede
+# weitere lokal von ares.html eingebundene Datei muss entweder hier (mit
+# Begruendung) oder in EXTRACTED_MONOLITH_PARTS stehen -- sonst ist
+# test_frontend_monolith_bundle_coverage rot. Vendor-Dateien (vendor/) sind
+# Drittcode und ausgenommen.
+STANDALONE_FRONTEND_MODULES: dict[str, str] = {
+    "eligibility-overrides.js": "eigenes Modul, test_frontend_eligibility_overrides.py",
+    "desktop-api.js": "Desktop-Bridge, test_desktop_bridge_contract.py",
+    "risk-capacity-recheck.js": "eigenes Modul, test_frontend_risk_capacity_recheck.py",
+    "trade-list-preview.js": "eigenes Modul, test_frontend_trade_list_preview.py",
+    "goal-analysis-integrity.js": "eigenes Modul, test_frontend_goal_analysis_integrity.py",
+    "advisory-log-finma.js": "eigenes Modul, test_monolith_advisory_log_finma_fields.py",
+    "product-master-data.js": "eigenes Modul, test_audit_2026_11_p1_ui.py",
+}
+
 _JS_PATTERNS = (
     ("function", re.compile(r"\b(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(")),
     (
@@ -126,7 +143,8 @@ def build_inventory(html_path: Path = DEFAULT_HTML) -> dict[str, Any]:
     for name, kind in EXTRACTED_MONOLITH_PARTS:
         part_path = html_path.parent / name
         if not part_path.is_file():
-            continue
+            # N-875-05: fehlender Teil ist ein Fehler, kein stilles Ueberspringen.
+            raise FileNotFoundError(f"ausgelagerter Monolith-Teil fehlt: {part_path}")
         part_text = part_path.read_text(encoding="utf-8").replace("\r\n", "\n")
         block = [{"line": 1, "col": 0, "text": part_text}]
         rows = _collect_css_selectors(block) if kind == "css" else _collect_js_functions(block)

@@ -12,8 +12,20 @@ klassische synchrone Skripte bzw. Stylesheet an derselben Stelle):
 Quelltext-Vertragstests, die Code aus diesen Bloecken pruefen, lesen ueber
 :func:`read_monolith_bundle` die rekonstruierte Gesamtquelle: jede Einbindung
 wird durch den Dateiinhalt im urspruenglichen Inline-Format ersetzt. Das
-Ergebnis ist byte-identisch zum Monolithen vor der Auslagerung, d. h.
-Positions-/Reihenfolge-Pruefungen bleiben gueltig.
+Ergebnis ist byte-identisch zum Monolithen vor der Auslagerung (sha256 gleich
+dem Stand 2e5dfcc3), d. h. Positions-/Reihenfolge-Pruefungen bleiben gueltig.
+
+N-875-01: ALLE Tests, die den Monolithen als Quelltext lesen, gehen ueber
+:func:`read_monolith_bundle` -- insbesondere die "darf nirgends vorkommen"-
+Guards (native Dialoge, Token-Speicher, Storage-Key-Praefix, Claims,
+Kundentexte, Fenstertitel). test_frontend_monolith_bundle_coverage erzwingt
+das statisch und per Mutation.
+
+N-875-04 (Hinweis, kein Verhaltensunterschied heute): Unter ``file://``
+(Electron ``loadFile``) gilt ``ares.css`` als cross-origin --
+``document.styleSheets[i].cssRules`` wirft dort ``SecurityError`` (inline ging
+das). Aktuell liest kein Frontend-Code ``cssRules``; kuenftiger Code (z. B. ein
+Theme-/Druck-Export) darf sich nicht darauf verlassen.
 """
 from __future__ import annotations
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 DESKTOP_ROOT = Path(__file__).resolve().parents[2] / "ares-desktop"
 FACADE_JS = DESKTOP_ROOT / "frontend" / "desktop-api.js"
@@ -26,7 +27,7 @@ def test_facade_is_exposed_as_ares_api():
 
 
 def test_main_html_uses_only_ares_api_facade():
-    html = MAIN_HTML.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     facades = set(re.findall(r"window\.(\w+API)\b", html))
     assert facades == {"AresAPI"}
     assert "window.AresAPI.resolveBaseUrl" in html

@@ -21,7 +21,7 @@ H3/I-04 (2026-11-07): Nach der Integrationsprobe lag der Monolith exakt am
 Budget (31190 Zeilen / 1908660 Bytes). Drei in sich geschlossene Bloecke
 wurden verhaltensneutral ausgelagert (ares.css, intro-sequence.js,
 goal-review-runtime.js; siehe tests/monolith_source.py). Budget gesenkt auf
-den neuen Stand 27675 / 1695550 (der Ratchet bleibt: nur sinkend). Die
+den neuen Stand 27675 / 1695446 (der Ratchet bleibt: nur sinkend). Die
 ausgelagerten Dateien bekommen je ein eigenes Budget nach derselben Regel
 (Stand beim Einfuehren, Toleranz 0) -- sonst waere die Auslagerung ein
 Schlupfloch, ueber das der Monolith unbemerkt weiterwaechst.
@@ -35,7 +35,7 @@ MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
 MONOLITH_MAX_LINES = 27675
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1695550
+MONOLITH_MAX_BYTES = 1695446
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).

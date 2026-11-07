@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND = REPO_ROOT / "ares-desktop" / "frontend"
@@ -84,7 +85,16 @@ def test_detector_ignores_service_and_lookalikes(sample):
 
 
 def test_monolith_has_no_native_dialogs():
-    assert _scan(MONOLITH) == []
+    # H3/I-04: Gesamtquelle inkl. der aus ares.html ausgelagerten Teile.
+    from tests.monolith_source import read_monolith_bundle
+
+    rel = MONOLITH.relative_to(REPO_ROOT).as_posix()
+    hits = [
+        f"{rel}(+ausgelagerte Teile):{lineno}: {line}"
+        for lineno, line in _violations(read_monolith_bundle())
+        if (rel, line) not in ALLOWED_NATIVE_DIALOG_CALLS
+    ]
+    assert hits == []
 
 
 def test_react_app_has_no_native_dialogs():
@@ -95,7 +105,7 @@ def test_react_app_has_no_native_dialogs():
 
 
 def test_monolith_provides_dialog_service_on_modal_component():
-    html = MONOLITH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     for sig in (
         "function uiConfirm(opts){",
         "function uiPrompt(opts){",

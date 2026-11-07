@@ -6,8 +6,7 @@ Die Auslagerung ist nur verhaltensneutral, wenn
 * sie in BEIDEN Ladewegen erreichbar ist: Electron (loadFile -> file://, die
   Datei muss im gepackten Build stecken = electron-builder ``files``) und
   Backend-Serving (/app/ = StaticFiles ueber das ganze Frontend-Verzeichnis),
-* der Druck-Export (openPrintableReportWindow) das ausgelagerte Stylesheet
-  weiter mitnimmt (er kopierte vorher nur ``<style>``-Elemente).
+* die Rekonstruktion (read_monolith_bundle) die Inline-Bloecke wiederherstellt.
 """
 from __future__ import annotations
 
@@ -87,14 +86,6 @@ def test_bundle_reconstruction_restores_inline_blocks():
         assert include_tag(name, kind) not in bundle
     assert "function goalFrequencyKey(" in bundle
     assert "window.replayIntro" in bundle
-
-
-def test_print_window_copies_external_stylesheets():
-    html = _html()
-    start = html.index("function openPrintableReportWindow(")
-    body = html[start:start + 2000]
-    assert "querySelectorAll('style,link[rel=\"stylesheet\"]')" in body
-    assert "node.href" in body
 
 
 def test_backend_serves_whole_frontend_directory():

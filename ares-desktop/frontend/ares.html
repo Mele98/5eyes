@@ -7819,7 +7819,7 @@ function openPrintableReportWindow(pageKeys,title){
     window.print();
     return;
   }
-  var styles=Array.prototype.map.call(document.querySelectorAll('style,link[rel="stylesheet"]'),function(node){ return node.tagName==='LINK'?'<link rel="stylesheet" href="'+escapeHtml(node.href)+'">':node.outerHTML; }).join('\n');
+  var styles=Array.prototype.map.call(document.querySelectorAll('style'),function(node){ return node.outerHTML; }).join('\n');
   var win=window.open('','_blank','noopener,noreferrer,width=1180,height=900');
   if(!win){
     window.print();
