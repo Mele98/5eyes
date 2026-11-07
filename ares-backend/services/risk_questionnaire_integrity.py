@@ -372,7 +372,7 @@ def nonstandard_profile_message(evidence: str) -> str:
 # Startwerte. Vor der Freigabe durch IC/Compliance nimmt der Server keinen
 # v2-Fragebogen an (422 RISK_QUESTIONNAIRE_V2_DISABLED) und die Maske zeigt ihn
 # nicht. Aktivierung = bewusste Code-Aenderung mit Review (gleiches Muster wie
-# suitability_loss_tolerance.LOSS_TOLERANCE_CHECK_ENABLED, P11).
+# LOSS_TOLERANCE_CHECK_ENABLED der Verlusttoleranz-Pruefung, P11).
 RISK_QUESTIONNAIRE_V2_ENABLED = False
 V2_APPROVAL_STATUS = (
     "Startwerte 40/60/80 (Entscheid E3); Freigabe durch IC/Compliance ausstehend."
@@ -416,7 +416,7 @@ CONSISTENCY_FLAGS: dict[str, str] = {
     "K5": "Risikobereitschaft ab «Wachstumsorientiert», aber für Aktien sind weder Kenntnisse, Erfahrung noch Aufklärung dokumentiert (Art. 11/14 FIDLEG).",
     "K6": "Verlustgrenze der Strategie (P10) liegt unter der Untergrenze der Schwankungstoleranz (Frage 10); Verhalten gemäss Verlusttoleranz-Prüfung.",
 }
-# K6 haengt an der Verlusttoleranz-Pruefung P11 (suitability_loss_tolerance,
+# K6 haengt an der Verlusttoleranz-Pruefung P11 (eigenes Modul,
 # inaktiv bis P2b, Entscheid E7) und wird erst mit deren Aktivierung gesetzt.
 GROWTH_PROFILES = frozenset({"Wachstumsorientiert", "Dynamisch", "Aktien"})
 CONSISTENCY_NOTE_MIN_CHARS = 20

@@ -244,6 +244,9 @@ def _answer_text(
 
 
 def _clean_answer_label(question_number: int, label: str) -> str:
+    if question_number == 8:
+        # H5a: Kundenantwort ohne internen Zusatz "· Matrix-Faktor".
+        return label.split("·", 1)[0].strip() or label
     if question_number not in (1, 2):
         return label
     if ":" not in label:

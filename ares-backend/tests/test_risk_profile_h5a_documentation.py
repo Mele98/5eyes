@@ -164,5 +164,6 @@ def test_saved_profile_pdf_shows_horizon_answer_footnote_and_binding_side(client
     text = _pdf_text(pdf.content)
     assert "Mehr als 12 Jahre" in text
     assert "15 Jahre" not in text
+    assert "Matrix-Faktor" not in text  # interner Zusatz auch nicht in der Antwort zu Frage 8
     assert "Hinweis zu Frage 10" in text
     assert "Bestimmend für das Risikoprofil ist die Risikobereitschaft" in text
