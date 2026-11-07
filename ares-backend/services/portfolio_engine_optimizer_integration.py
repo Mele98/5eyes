@@ -123,6 +123,13 @@ from services.risk_matrix import (
     compute_portfolio_risky_fraction_bps,
 )
 
+# F17 (Codex-Entscheid Runde 3): Wanduhr fuer elapsed_ms des Optimierer-Laufs
+# (Verdikt-Schwellen 8000/15000 ms in services/shadow_comparison.py). Eigene
+# Naht, damit Fachtests die Laufzeit injizieren koennen, ohne die Zeitmessung
+# des Solvers selbst zu beruehren; der echte Laufzeitvertrag wird seriell
+# unter dem Marker wallclock_budget geprueft.
+optimizer_wallclock = time.perf_counter
+
 
 def _assessment_score_x10(assessment) -> int:
     """0-100 Score-Wert aus Assessment, konsistent zu _risk_score_bucket-Logik."""
@@ -567,7 +574,7 @@ def _run_stochastic_optimizer_pass(
 
     optimizer_context = None
     try:
-        t0 = time.perf_counter()
+        t0 = optimizer_wallclock()
         context_kwargs = dict(
             cma=cma,
             goals=list(goals),
@@ -604,7 +611,7 @@ def _run_stochastic_optimizer_pass(
                 bucket: int(value) for bucket, value in targets.items()
             },
         )
-        elapsed_ms = int(round((time.perf_counter() - t0) * 1000))
+        elapsed_ms = int(round((optimizer_wallclock() - t0) * 1000))
         object.__setattr__(result, "elapsed_ms", elapsed_ms)
     except (SolverTechnicalError, FloatingPointError, LinAlgError) as exc:
         # The House Matrix is a last-resort safety net for an explicitly
