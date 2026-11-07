@@ -633,7 +633,10 @@ jobs:
         # durch die gesamte Suite; genau so blieben die drei fehlenden
         # Reporting-Views unbemerkt. Laeuft auf derselben Postgres-Instanz,
         # eigenes Schema pro Lauf.
-        run: python -m pytest tests/test_postgres_rls_adversarial.py tests/test_authten07_login_guard_postgres_ddl.py tests/test_rls_dynamic_table_coverage_guard.py tests/test_postgres_alembic_views_live.py tests/test_postgres_rls_global_reference_rows.py tests/test_postgres_wealth_tenant_boundary_live.py tests/test_postgres_risk_evidence_tenant_boundary_live.py tests/test_portfolio_handoff_db_invariants.py tests/test_postgres_money_bigint_live.py tests/test_postgres_mandate_evidence_tenant_boundary_live.py tests/test_postgres_tenant_direct_followup_live.py -q
+        # W4-d: test_postgres_audit_immutable_function_live.py prueft die
+        # RENAME-Revision der audit_log-Immutability-Funktion (Trigger greifen
+        # vor/nach Upgrade und Downgrade, gleiche OID, No-op wenn schon umbenannt).
+        run: python -m pytest tests/test_postgres_rls_adversarial.py tests/test_authten07_login_guard_postgres_ddl.py tests/test_rls_dynamic_table_coverage_guard.py tests/test_postgres_alembic_views_live.py tests/test_postgres_rls_global_reference_rows.py tests/test_postgres_wealth_tenant_boundary_live.py tests/test_postgres_risk_evidence_tenant_boundary_live.py tests/test_portfolio_handoff_db_invariants.py tests/test_postgres_money_bigint_live.py tests/test_postgres_mandate_evidence_tenant_boundary_live.py tests/test_postgres_tenant_direct_followup_live.py tests/test_postgres_audit_immutable_function_live.py -q
 
   vitest:
     # Sprint U-53 (2026-06-04): Frontend Reporting Sub-App vitest in CI.
@@ -642,7 +645,11 @@ jobs:
     # CI verifiziert.
     name: Frontend Reporting Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    # N-858-4: der Pflicht-Browsertest unten laeuft wie die Backend-Shards
+    # unter dem Supervisor mit scharfem Leak-Guard.
+    env:
+      ARES_STRICT_LEAK_GUARD: "1"
 
     steps:
       - name: Checkout
@@ -674,6 +681,31 @@ jobs:
       - name: Run vitest
         working-directory: ares-desktop/frontend/reporting
         run: npx vitest run
+
+      # N-858-4 (Pruefrunde #858): Chart.js-Verhaltenstest der SOLL-Prognose
+      # (Live-Test H5) mit echtem Chromium. In den Backend-Shards fehlt
+      # Playwright, dort waere der Test nur ein Skip; hier ist er Pflicht
+      # (ARES_REQUIRE_PLAYWRIGHT=1: fehlendes Playwright ist rot).
+      - name: Set up Python (Chart.js-Verhaltenstest)
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: ares-backend/requirements.txt
+
+      - name: Install backend test dependencies + Playwright + Chromium
+        working-directory: ares-backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt playwright==1.62.0
+          python -m playwright install --with-deps chromium
+
+      - name: Chart.js-Verhaltenstest SOLL-Faecher (Playwright Pflicht)
+        working-directory: ares-backend
+        env:
+          ARES_REQUIRE_PLAYWRIGHT: "1"
+        run: |
+          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/chartjs-h5             --startup-timeout 300 --test-timeout 300 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_h5_soll_fan_chart_points_match_axis.py -p no:xdist -rs --tb=short
 
       - name: Upload vitest log on failure
         if: failure()

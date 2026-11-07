@@ -67,8 +67,11 @@ def test_both_charts_redrawn_after_axis_sync():
     body = _sync_fn_body()
     # Ohne erneutes .update() auf BEIDEN Charts bleiben angeglichene Achsen
     # unsichtbar (der urspruengliche 2026-06-14-Bug).
-    assert "charts.opt.update('none')" in body
-    assert "charts.aaCurrent.update('none')" in body
+    # Live-Test 2026-11 H5: Neuzeichnen ueber chartUpdateSettled() (stop() +
+    # update('none')), damit eine laufende Animation die neu berechneten
+    # Punkte nicht auf die alte Skala zurueckzieht.
+    assert "chartUpdateSettled(charts.opt)" in body
+    assert "chartUpdateSettled(charts.aaCurrent)" in body
 
 
 def test_sync_called_after_projection_chart_updates():

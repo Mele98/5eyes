@@ -165,7 +165,8 @@ KENNZAHLEN_DEFINITIONS = [
         "Rendite über einen gegebenen Anlagehorizont mit einer gegebenen "
         "Wahrscheinlichkeit nicht unterschritten wird. Die angegebenen Werte "
         "wurden für einen Anlagehorizont von einem Jahr und eine "
-        "Wahrscheinlichkeit von 99% simuliert.",
+        "Wahrscheinlichkeit von 95% simuliert (5-%-Quantil der simulierten"
+        " 1-Jahres-Renditen).",
     ),
     (
         "Standardabweichung",
