@@ -3885,6 +3885,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/mandates/{mandate_id}/sustainability-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Sustainability Preferences
+         * @description E1/E2: aktuelle Nachhaltigkeitspraeferenz, Historie (neueste zuerst) und
+         *     Review-Status (Hauspolitik; 'due' = Eignungspruefung faellig, Hinweis).
+         */
+        get: operations["get_sustainability_preferences_mandates__mandate_id__sustainability_preferences_get"];
+        put?: never;
+        /**
+         * Create Sustainability Preference
+         * @description E1: neue Version der Nachhaltigkeitspraeferenz (append-only).
+         */
+        post: operations["create_sustainability_preference_mandates__mandate_id__sustainability_preferences_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/mandates/{mandate_id}/target-allocation": {
         parameters: {
             query?: never;
@@ -5187,6 +5212,27 @@ export interface paths {
          *     aus) bis zur Freigabe der Grenzwerte durch IC/Compliance.
          */
         get: operations["get_risk_questionnaire_policy_risk_questionnaire_policy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sustainability-preferences/definition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Sustainability Preference Definition
+         * @description E1: versionierte Fragebogen-Definition (Texte, Optionen, Ableitung) mit
+         *     Definitions-Hash. Die Anzeigetexte sind Entwurf (Compliance-Freigabe offen).
+         */
+        get: operations["get_sustainability_preference_definition_sustainability_preferences_definition_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -11969,6 +12015,142 @@ export interface components {
             /** Kinds */
             kinds: string[];
         };
+        /** SustainabilityPreferenceCreate */
+        SustainabilityPreferenceCreate: {
+            /**
+             * Client Confirmed
+             * @default false
+             */
+            client_confirmed?: boolean;
+            /** Data Classification */
+            data_classification?: string | null;
+            /** Definition Hash */
+            definition_hash: string;
+            /** Esg Characteristic */
+            esg_characteristic?: ("sdg_alignment" | "esg_factors" | "no_specific") | null;
+            /** Esg Relevance */
+            esg_relevance?: ("yes" | "not_relevant") | null;
+            /**
+             * Exclusions
+             * @default []
+             */
+            exclusions?: string[];
+            /** Expected Current Id */
+            expected_current_id?: string | null;
+            /**
+             * Hard Exclusion Requested
+             * @default false
+             */
+            hard_exclusion_requested?: boolean;
+            /**
+             * Information Acknowledged
+             * @default false
+             */
+            information_acknowledged?: boolean;
+            /** Questionnaire Version */
+            questionnaire_version: string;
+            /**
+             * Response Status
+             * @enum {string}
+             */
+            response_status: "answered" | "declined";
+            /**
+             * Waivers
+             * @default {}
+             */
+            waivers?: {
+                [key: string]: string;
+            };
+        };
+        /** SustainabilityPreferenceResponse */
+        SustainabilityPreferenceResponse: {
+            /** Captured At */
+            captured_at: string;
+            /** Captured By */
+            captured_by: string;
+            /** Client Confirmed */
+            client_confirmed: boolean;
+            /** Decision Hash */
+            decision_hash: string;
+            /** Definition Hash */
+            definition_hash: string;
+            /** Derivation Version */
+            derivation_version: string;
+            /** Esg Characteristic */
+            esg_characteristic?: string | null;
+            /** Esg Relevance */
+            esg_relevance?: string | null;
+            /**
+             * Exclusions
+             * @default []
+             */
+            exclusions?: string[];
+            /** Id */
+            id: string;
+            /** Information Acknowledged */
+            information_acknowledged: boolean;
+            /**
+             * Limit Texts
+             * @default []
+             */
+            limit_texts?: string[];
+            /** Mandate Id */
+            mandate_id: string;
+            /** Mandate Type At Capture */
+            mandate_type_at_capture?: string | null;
+            /** Profile Code */
+            profile_code: string;
+            /** Profile Text */
+            profile_text: string;
+            /** Questionnaire Version */
+            questionnaire_version: string;
+            /** Response Status */
+            response_status: string;
+            /** Review Due On */
+            review_due_on: string;
+            /** Review Policy Months */
+            review_policy_months: number;
+            /** Schema Version */
+            schema_version: string;
+            /** Sequence No */
+            sequence_no: number;
+            /** Supersedes Id */
+            supersedes_id?: string | null;
+            /**
+             * Waived Exclusions
+             * @default []
+             */
+            waived_exclusions?: string[];
+        };
+        /** SustainabilityPreferenceState */
+        SustainabilityPreferenceState: {
+            current?: components["schemas"]["SustainabilityPreferenceResponse"] | null;
+            /** Hard Exclusion Locked Note */
+            hard_exclusion_locked_note: string;
+            /**
+             * Hard Exclusions Available
+             * @default false
+             */
+            hard_exclusions_available?: boolean;
+            /**
+             * History
+             * @default []
+             */
+            history?: components["schemas"]["SustainabilityPreferenceResponse"][];
+            /** Review Notice */
+            review_notice?: string | null;
+            /** Review Policy Label */
+            review_policy_label: string;
+            /** Review Policy Months */
+            review_policy_months: number;
+            /**
+             * Review Status
+             * @enum {string}
+             */
+            review_status: "current" | "due" | "missing";
+            /** Waiver Allowed */
+            waiver_allowed: boolean;
+        };
         /** SustainabilityStandardItem */
         SustainabilityStandardItem: {
             /** Approval Mode */
@@ -12593,6 +12775,8 @@ export interface components {
             slug: string;
             /** Storage Quota Mb */
             storage_quota_mb?: number | null;
+            /** Sustainability Review Months */
+            sustainability_review_months?: number | null;
             /** Updated At */
             updated_at: string;
         };
@@ -12657,6 +12841,8 @@ export interface components {
             slug: string;
             /** Storage Quota Mb */
             storage_quota_mb?: number | null;
+            /** Sustainability Review Months */
+            sustainability_review_months?: number | null;
             /** Updated At */
             updated_at: string;
         };
@@ -12678,6 +12864,8 @@ export interface components {
             display_name?: string | null;
             /** Home Jurisdiction */
             home_jurisdiction?: string | null;
+            /** Sustainability Review Months */
+            sustainability_review_months?: number | null;
         };
         /**
          * TenantUpdate
@@ -12712,6 +12900,8 @@ export interface components {
             max_users?: number | null;
             /** Storage Quota Mb */
             storage_quota_mb?: number | null;
+            /** Sustainability Review Months */
+            sustainability_review_months?: number | null;
         };
         /** TokenResponse */
         TokenResponse: {
@@ -20337,6 +20527,72 @@ export interface operations {
             };
         };
     };
+    get_sustainability_preferences_mandates__mandate_id__sustainability_preferences_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityPreferenceState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_sustainability_preference_mandates__mandate_id__sustainability_preferences_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SustainabilityPreferenceCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityPreferenceState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_target_allocation_mandates__mandate_id__target_allocation_post: {
         parameters: {
             query?: never;
@@ -22621,6 +22877,26 @@ export interface operations {
         };
     };
     get_risk_questionnaire_policy_risk_questionnaire_policy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_sustainability_preference_definition_sustainability_preferences_definition_get: {
         parameters: {
             query?: never;
             header?: never;

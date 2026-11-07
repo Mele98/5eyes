@@ -33,7 +33,9 @@ from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
-GOLDEN_SORTED_TABLES_SHA256 = "751a13f478745fdb7729d3191e5d5bf93e52f53b5f2a4d41da1d495efa0ea2b1"
+# E1 Nachhaltigkeitspraeferenzen (Dok. 106, 2026-11-07): neue append-only
+# Tabelle investment_preference_decisions (+ tenants.sustainability_review_months).
+GOLDEN_SORTED_TABLES_SHA256 = "ca0230439ccd77dc47c1a6e7e72c77ddb64f469d896d4d1361e6ce43dc3d8ec1"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -53,7 +55,11 @@ GOLDEN_SORTED_TABLES_SHA256 = "751a13f478745fdb7729d3191e5d5bf93e52f53b5f2a4d41d
 # H5b (2026-11-07): RiskAssessmentCreate/-Response um Fragebogen-Version,
 # v2-Antworten, Hash, Evidenz und Beraternotiz ergaenzt (nur additiv, alle
 # optional) + GET /risk-questionnaire/policy.
-GOLDEN_OPENAPI_SHA256 = "4d3678bc8a92e260f2389a735c4df2e14f423ba08da57dcde3dce83ead73cf6d"
+# E1 Nachhaltigkeitspraeferenzen (Dok. 106): GET /sustainability-preferences/
+# definition, GET/POST /mandates/{id}/sustainability-preferences und die
+# Schemas SustainabilityPreference*; Tenant*-Schemas + optionales
+# sustainability_review_months (nur additiv).
+GOLDEN_OPENAPI_SHA256 = "4a65a0672d012ba25f73cf6b79871d6c9718a5509304474dce24edc013e8ec3f"
 
 _PROBE = """
 import hashlib, json
