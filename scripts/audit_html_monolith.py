@@ -37,9 +37,13 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     ("goal-review-runtime.js", "js"),
 )
 
-# N-875-05: Bewusste, dokumentierte Ausnahmeliste der VOR H3 bereits eigen-
+# N-875-05: Bewusste, dokumentierte Liste der VOR H3 bereits eigen-
 # staendigen Frontend-Module. Sie sind kein Teil des Monolithen (kein Bundle,
-# kein Monolith-Budget), sondern haben je eigene Modul-Vertragstests. Jede
+# kein Monolith-Budget) und haben je eigene Modul-Vertragstests. N-875-07:
+# Die globalen Verbots-Guards (native Dialoge, Token-/Storage-Keys,
+# Kundentexte, Claims, Fenstertitel, Reachability) lesen sie trotzdem mit
+# (tests/monolith_source.read_frontend_sources) -- die Liste ist KEINE
+# Freistellung vom Verbotsnetz. Jede
 # weitere lokal von ares.html eingebundene Datei muss entweder hier (mit
 # Begruendung) oder in EXTRACTED_MONOLITH_PARTS stehen -- sonst ist
 # test_frontend_monolith_bundle_coverage rot. Vendor-Dateien (vendor/) sind

@@ -39,7 +39,10 @@ def test_optimizer_panel_has_limiting_factor_and_achievability_table():
 
 
 def test_no_forbidden_customer_copy_added_in_stage6_surface():
-    html = _html()
+    # N-875-07: Bundle + alle eigenstaendigen Frontend-Module.
+    from tests.monolith_source import read_frontend_sources
+
+    html = read_frontend_sources()
     for forbidden in [
         "Erhöhen Sie Ihr Risiko",
         "Erhoehen Sie Ihr Risiko",

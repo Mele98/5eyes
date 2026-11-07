@@ -46,11 +46,21 @@ def test_login_overlay_shows_product_name():
     assert '>Ares</div>' in block
 
 
+_TITLE_ASSIGN = re.compile(r"document\.title\s*=\s*(['\"`])(.*?)\1")
+
+
 def test_dynamic_window_titles_use_product_name():
-    html = _html()
-    titles = re.findall(r"document\.title\s*=\s*'([^']*)'", html)
+    # N-875-07/-08: alle Frontendquellen, alle Quote-Stile.
+    from tests.monolith_source import read_frontend_sources
+
+    titles = [m.group(2) for m in _TITLE_ASSIGN.finditer(read_frontend_sources())]
     assert titles, "keine dynamischen Fenstertitel gefunden"
     assert all(t.startswith(PRODUCT) for t in titles), titles
+
+
+def test_title_detector_handles_all_quote_styles():
+    text = "document.title='Ares a';document.title=\"X b\";document.title=`Y ${c}`"
+    assert [m.group(2) for m in _TITLE_ASSIGN.finditer(text)] == ["Ares a", "X b", "Y ${c}"]
 
 
 def test_reporting_index_title_and_cover():

@@ -77,7 +77,51 @@ def _raw_monolith_reads(path: Path) -> list[str]:
             for arg in node.args:
                 if (isinstance(arg, ast.Name) and arg.id in names) or _is_html_path_expr(arg):
                     hits.append(f"{path.name}:{node.lineno}")
+    # N-875-06: Verzeichnis-Leser -- glob/rglob auf *.html, sowie glob/rglob/
+    # iterdir/os.listdir auf das Haupt-Frontend-Verzeichnis (nicht reporting/).
+    frontend_names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+            if _is_main_frontend_expr(node.value):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                frontend_names |= {t.id for t in targets if isinstance(t, ast.Name)}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        patterns = [a.value for a in node.args if isinstance(a, ast.Constant) and isinstance(a.value, str)]
+        if isinstance(func, ast.Attribute) and func.attr in {"glob", "rglob"}:
+            if any(".html" in p for p in patterns):
+                hits.append(f"{path.name}:{node.lineno} (glob *.html)")
+                continue
+            if any("frontend/" in p and "reporting" not in p for p in patterns):
+                hits.append(f"{path.name}:{node.lineno} (glob frontend/)")
+                continue
+        if isinstance(func, ast.Attribute) and func.attr in {"glob", "rglob", "iterdir"}:
+            base = func.value
+            if ((isinstance(base, ast.Name) and base.id in frontend_names)
+                    or (not isinstance(base, ast.Name) and _is_main_frontend_expr(base))):
+                if not any("reporting" in p for p in patterns):
+                    hits.append(f"{path.name}:{node.lineno} ({func.attr} frontend)")
+        elif isinstance(func, ast.Attribute) and func.attr == "listdir":
+            for arg in node.args:
+                if (isinstance(arg, ast.Name) and arg.id in frontend_names) or _is_main_frontend_expr(arg):
+                    hits.append(f"{path.name}:{node.lineno} (listdir frontend)")
     return hits
+
+
+def _is_main_frontend_expr(node: ast.AST) -> bool:
+    """Pfadausdruck, der auf ``.../frontend`` endet (Hauptfrontend, nicht reporting)."""
+    consts = [
+        sub.value for sub in ast.walk(node)
+        if isinstance(sub, ast.Constant) and isinstance(sub.value, str)
+    ]
+    if any("reporting" in c for c in consts):
+        return False
+    if not consts:
+        return False
+    last = consts[-1]
+    return last == "frontend" or last.endswith("/frontend")
 
 
 def test_no_test_reads_the_monolith_raw_outside_allowlist():
@@ -108,25 +152,47 @@ def test_static_detector_flags_raw_reads(tmp_path):
     assert len(_raw_monolith_reads(sample)) == 3
 
 
-# --- Mutation: verbotene Zeile in jeder ausgelagerten Datei -> Guards rot ----
+# --- Mutation: verbotene Zeile in jeder Frontendquelle -> Guards rot ---------
+#
+# Ein Spiegel des Frontend-Verzeichnisses (ares.html, ausgelagerte Teile,
+# eigenstaendige Module) wird mutiert; monolith_source wird auf den Spiegel
+# umgebogen. Die echten Guard-Funktionen muessen dann rot werden.
 
 _PAYLOAD = (
     "\nif(window.__h3probe){alert('x');localStorage.getItem('ares.token');"
     "localStorage.setItem('h3probe_key','1');}\n"
 )
 
+# N-875-07/-08: je ein Payload pro Guard, bewusst mit doppelten Quotes bzw.
+# Template-Strings (die alten Regexe sahen nur einfache Quotes).
+_MATRIX_PAYLOADS = {
+    "native_dialogs": '\nif(window.__h3probe){alert("x");}\n',
+    "token_any_quote": '\nif(window.__h3probe){localStorage.setItem("ares.token",t);}\n',
+    "storage_keys": "\nif(window.__h3probe){localStorage.getItem(`h3probe.${k}`);}\n",
+    "customer_copy": '\nif(window.__h3probe){var __c="Rendite garantiert";}\n',
+}
+
 
 def _guards():
     from tests import (
+        test_claim_register_002_no_unconditional_validated_claim as claims,
+        test_frontend_messages_banner as banner,
         test_frontend_no_native_dialogs as dialogs,
         test_frontend_refresh_token_wiring as tokens,
         test_frontend_storage_keys_contract as keys,
+        test_goal_reachability_field_honesty as reach,
+        test_product_name_visible_ui as titles,
     )
 
     return {
         "native_dialogs": dialogs.test_monolith_has_no_native_dialogs,
         "refresh_token": tokens.test_refresh_token_storage_functions_exist_and_are_distinct_from_access_token,
+        "token_any_quote": tokens.test_no_token_slot_in_local_storage_any_quote_any_source,
         "storage_keys": keys.test_every_literal_storage_key_is_ares_prefixed_or_neutral,
+        "customer_copy": banner.test_no_forbidden_customer_copy_added_in_stage6_surface,
+        "claims": claims.test_splash_screen_does_not_claim_unconditional_risk_budget_validation,
+        "window_titles": titles.test_dynamic_window_titles_use_product_name,
+        "reachability": reach.test_no_frontend_or_report_consumer_reads_the_reachability_fields,
     }
 
 
@@ -134,15 +200,24 @@ def _mirror_frontend(tmp_path: Path) -> Path:
     target = tmp_path / "frontend"
     target.mkdir()
     shutil.copy2(monolith_source.MONOLITH_PATH, target / "ares.html")
-    for name, _kind in monolith_source.EXTRACTED_PARTS:
+    names = [name for name, _kind in monolith_source.EXTRACTED_PARTS]
+    names += sorted(STANDALONE_FRONTEND_MODULES)
+    for name in names:
         shutil.copy2(monolith_source.FRONTEND_DIR / name, target / name)
     return target
 
 
-def test_guards_are_green_on_unmutated_mirror(tmp_path, monkeypatch):
-    mirror = _mirror_frontend(tmp_path)
+def _use_mirror(monkeypatch, mirror: Path) -> None:
     monkeypatch.setattr(monolith_source, "FRONTEND_DIR", mirror)
     monkeypatch.setattr(monolith_source, "MONOLITH_PATH", mirror / "ares.html")
+
+
+def _append(path: Path, payload: str) -> None:
+    path.write_text(path.read_text(encoding="utf-8") + payload, encoding="utf-8")
+
+
+def test_guards_are_green_on_unmutated_mirror(tmp_path, monkeypatch):
+    _use_mirror(monkeypatch, _mirror_frontend(tmp_path))
     for guard in _guards().values():
         guard()
 
@@ -151,10 +226,8 @@ def test_guards_are_green_on_unmutated_mirror(tmp_path, monkeypatch):
 @pytest.mark.parametrize("guard_name", ["native_dialogs", "refresh_token", "storage_keys"])
 def test_forbidden_line_in_extracted_part_turns_guard_red(tmp_path, monkeypatch, part, guard_name):
     mirror = _mirror_frontend(tmp_path)
-    target = mirror / part
-    target.write_text(target.read_text(encoding="utf-8") + _PAYLOAD, encoding="utf-8")
-    monkeypatch.setattr(monolith_source, "FRONTEND_DIR", mirror)
-    monkeypatch.setattr(monolith_source, "MONOLITH_PATH", mirror / "ares.html")
+    _append(mirror / part, _PAYLOAD)
+    _use_mirror(monkeypatch, mirror)
     with pytest.raises(AssertionError):
         _guards()[guard_name]()
 
@@ -167,12 +240,50 @@ def test_original_review_mutation_comment_replaced_in_runtime_turns_guards_red(t
     idx = next(i for i, line in enumerate(lines) if line.lstrip().startswith("//"))
     lines[idx] = "if(window.__p){alert('x');localStorage.getItem('ares.token');}"
     target.write_text("\n".join(lines), encoding="utf-8")
-    monkeypatch.setattr(monolith_source, "FRONTEND_DIR", mirror)
-    monkeypatch.setattr(monolith_source, "MONOLITH_PATH", mirror / "ares.html")
+    _use_mirror(monkeypatch, mirror)
     guards = _guards()
-    for name in ("native_dialogs", "refresh_token"):
+    for name in ("native_dialogs", "refresh_token", "token_any_quote"):
         with pytest.raises(AssertionError):
             guards[name]()
+
+
+def test_n875_06_reachability_access_in_runtime_turns_guard_red(tmp_path, monkeypatch):
+    """N-875-06: Zugriff auf reachable_at_tau in goal-review-runtime.js -> rot."""
+    mirror = _mirror_frontend(tmp_path)
+    _append(mirror / "goal-review-runtime.js", "\nvar __r=a.reachable_at_tau;\n")
+    _use_mirror(monkeypatch, mirror)
+    with pytest.raises(AssertionError):
+        _guards()["reachability"]()
+
+
+@pytest.mark.parametrize("module", sorted(STANDALONE_FRONTEND_MODULES))
+@pytest.mark.parametrize("guard_name", sorted(_MATRIX_PAYLOADS))
+def test_n875_07_matrix_payload_in_standalone_module_turns_guard_red(tmp_path, monkeypatch, module, guard_name):
+    """N-875-07: 4 Payloads x 7 eigenstaendige Module -> jeder Guard rot."""
+    mirror = _mirror_frontend(tmp_path)
+    _append(mirror / module, _MATRIX_PAYLOADS[guard_name])
+    _use_mirror(monkeypatch, mirror)
+    with pytest.raises(AssertionError):
+        _guards()[guard_name]()
+
+
+@pytest.mark.parametrize("guard_name", sorted(_MATRIX_PAYLOADS))
+def test_n875_08_double_quote_and_template_payloads_in_extracted_part_turn_guard_red(
+    tmp_path, monkeypatch, guard_name
+):
+    mirror = _mirror_frontend(tmp_path)
+    _append(mirror / "intro-sequence.js", _MATRIX_PAYLOADS[guard_name])
+    _use_mirror(monkeypatch, mirror)
+    with pytest.raises(AssertionError):
+        _guards()[guard_name]()
+
+
+def test_n875_08_double_quoted_window_title_turns_guard_red(tmp_path, monkeypatch):
+    mirror = _mirror_frontend(tmp_path)
+    _append(mirror / "desktop-api.js", '\nif(window.__h3probe){document.title="Legacy Suite";}\n')
+    _use_mirror(monkeypatch, mirror)
+    with pytest.raises(AssertionError):
+        _guards()["window_titles"]()
 
 
 # --- N-875-05: keine lokal eingebundene Datei ohne Zuordnung ------------------
