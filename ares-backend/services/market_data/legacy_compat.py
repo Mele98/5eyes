@@ -45,6 +45,8 @@ logger = logging.getLogger(__name__)
 # Aggregator-Konfiguration die Ursache ist. Der Preis-Updater faellt fuer
 # so markierte Symbole NICHT auf seinen eigenen Fallback (stooq) zurueck.
 AUTHORITATIVE_FAILURE_MARKER = "[AUTHORITATIVE_SOURCE_FAILED]"
+# Fehlercode (provider_code) fuer eine ungueltige explizite Konfiguration.
+AGGREGATOR_CONFIGURATION_INVALID = "AGGREGATOR_CONFIGURATION_INVALID"
 
 
 def _to_rappen(amount: Decimal) -> int:
@@ -86,7 +88,7 @@ def fetch_latest_prices_via_aggregator(
         except ProviderConfigurationError as exc:
             # Explizite Konfiguration nicht erfuellbar (W2-804-02, N-862-3):
             # fail-closed, auch kein Fallback im Preis-Updater.
-            message = f"{AUTHORITATIVE_FAILURE_MARKER} [AGGREGATOR_CONFIGURATION_INVALID] {exc}"
+            message = f"{AUTHORITATIVE_FAILURE_MARKER} [{AGGREGATOR_CONFIGURATION_INVALID}] {exc}"
             return {}, {symbol: message for symbol in cleaned}
 
     resolved: dict[str, dict[str, Any]] = {}

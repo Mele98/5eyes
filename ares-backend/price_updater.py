@@ -27,7 +27,11 @@ from services.product_market_data import (
     resolve_market_profile,
 )
 from services.twelvedata_client import fetch_twelvedata_latest_prices
-from services.market_data.legacy_compat import AUTHORITATIVE_FAILURE_MARKER, fetch_latest_prices_via_aggregator
+from services.market_data.legacy_compat import (
+    AGGREGATOR_CONFIGURATION_INVALID,
+    AUTHORITATIVE_FAILURE_MARKER,
+    fetch_latest_prices_via_aggregator,
+)
 
 try:
     import yfinance as yf
@@ -569,12 +573,26 @@ def fetch_latest_prices_batch(products: list[Product]) -> tuple[dict[str, PriceP
             error = symbol_errors.get(primary_symbol)
             if symbol_fallback_allowed and fallback_lookup_symbol:
                 error = error or fallback_errors.get(fallback_lookup_symbol)
+            # N-862-7: Der interne Steuermarker gehoert nicht in die
+            # Betreibermeldung (er steuert nur den Fallback-Entscheid).
+            if error:
+                error = str(error).replace(f"{AUTHORITATIVE_FAILURE_MARKER} ", "").replace(
+                    AUTHORITATIVE_FAILURE_MARKER, ""
+                )
             if not symbol_fallback_allowed and _fallback_configured():
+                if _error_code(str(primary_error or "").replace(AUTHORITATIVE_FAILURE_MARKER, "")) == (
+                    AGGREGATOR_CONFIGURATION_INVALID
+                ):
+                    # Bei ungueltiger Konfiguration ist gar keine massgebliche
+                    # Quelle wirksam; der Grund ist die Konfiguration selbst.
+                    fallback_reason = "Marktdaten-Konfiguration ungueltig, bitte MARKET_DATA_PROVIDERS korrigieren"
+                else:
+                    fallback_reason = (
+                        f"massgebliche bzw. nicht freigegebene Primaerquelle {_normalized_provider(PRICE_SOURCE)}"
+                    )
                 error = (
                     f"{error or f'Kein Batch-Ergebnis fuer {primary_symbol}'} "
-                    f"(kein Fallback auf {_normalized_provider(FALLBACK_PRICE_SOURCE)}: "
-                    f"massgebliche bzw. nicht freigegebene Primaerquelle "
-                    f"{_normalized_provider(PRICE_SOURCE)})"
+                    f"(kein Fallback auf {_normalized_provider(FALLBACK_PRICE_SOURCE)}: {fallback_reason})"
                 )
             error = _append_market_warning(
                 error or f"Kein Batch-Ergebnis fuer {primary_symbol}",

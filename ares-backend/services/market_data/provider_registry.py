@@ -102,7 +102,7 @@ def resolve_providers(settings: object) -> list[MarketDataProvider]:
     if missing:
         known = sorted(BUILTIN_PROVIDERS) + list(external)
         raise ProviderConfigurationError(
-            "Explizit konfigurierte Marktdaten-Provider sind nicht verfuegbar "
+            "MARKET_DATA_PROVIDERS: explizit konfigurierte Marktdaten-Provider sind nicht verfuegbar "
             f"(fehlen, nicht ladbar oder ungueltige Klasse): {', '.join(missing)}. "
             f"Verfuegbar: {', '.join(known)}. Ladefehler externer Pakete "
             f"(Entry-Point-Gruppe {provider_discovery.ENTRY_POINT_GROUP!r}) "
