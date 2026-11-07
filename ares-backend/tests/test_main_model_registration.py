@@ -54,12 +54,13 @@ GOLDEN_SORTED_TABLES_SHA256 = "ca0230439ccd77dc47c1a6e7e72c77ddb64f469d896d4d136
 # scripts/export_openapi.py --check.
 # H5b (2026-11-07): RiskAssessmentCreate/-Response um Fragebogen-Version,
 # v2-Antworten, Hash, Evidenz und Beraternotiz ergaenzt (nur additiv, alle
-# optional) + GET /risk-questionnaire/policy.
+# optional) + GET /risk-questionnaire/policy. N-886-08: TenantResponse um die
+# Firmen-Policy v2 ergaenzt (additiv) + PUT /tenants/me/risk-questionnaire-policy.
 # E1 Nachhaltigkeitspraeferenzen (Dok. 106): GET /sustainability-preferences/
 # definition, GET/POST /mandates/{id}/sustainability-preferences und die
 # Schemas SustainabilityPreference*; Tenant*-Schemas + optionales
 # sustainability_review_months (nur additiv).
-GOLDEN_OPENAPI_SHA256 = "4a65a0672d012ba25f73cf6b79871d6c9718a5509304474dce24edc013e8ec3f"
+GOLDEN_OPENAPI_SHA256 = "e9c4acfdcc7396eaf9a854eb4356a820acf88649288b614ea5085d3b5cdd4e0e"
 
 _PROBE = """
 import hashlib, json

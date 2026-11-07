@@ -282,6 +282,9 @@ def _knowledge_summary(items: Mapping) -> str:
                 states.append("Erfahrung vorhanden")
             if informed:
                 states.append("Aufklärung erhalten")
+            if experienced and not (known or informed):
+                # N-886-06: Erfahrung allein ist kein Kenntnisnachweis (Art. 11 FIDLEG).
+                states.append("Kenntnisse/Aufklärung nicht dokumentiert")
             parts.append(f"{label}: {', '.join(states) if states else 'keine Angabe'}")
         else:
             parts.append(f"{label}: {'Kenntnisse vorhanden' if value else 'keine Angabe'}")

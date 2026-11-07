@@ -921,6 +921,11 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # bleiben funktionsfaehig; neue Tenants starten via
             # schemas/tenants.py::TenantCreate explizit mit False.
             ('discretionary_management_licensed', 'INTEGER', 1),
+            # H5 (N-886-08): Fragebogen v2 als Firmen-Policy, Default aus.
+            ('risk_questionnaire_v2_enabled', 'INTEGER', 0),
+            ('risk_questionnaire_v2_approval_ref', 'TEXT'),
+            ('risk_questionnaire_v2_changed_at', 'TEXT'),
+            ('risk_questionnaire_v2_changed_by', 'TEXT'),
             # E1 Nachhaltigkeitspraeferenzen (2026-11-07): Review-Frist als
             # Hauspolitik je Tenant. NULL = Default 36 Monate
             # (core/sustainability_preference.py), keine gesetzliche Frist.

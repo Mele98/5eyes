@@ -5207,9 +5207,9 @@ export interface paths {
         };
         /**
          * Get Risk Questionnaire Policy
-         * @description H5b: aktive Fragebogen-Version und Definition v2 (Texte, Optionen,
-         *     Kappungen, Konsistenz-Flags). v2 ist hinter einem Feature-Flag (Default
-         *     aus) bis zur Freigabe der Grenzwerte durch IC/Compliance.
+         * @description H5b: aktive Fragebogen-Version der Firma und Definition v2 (Texte,
+         *     Optionen, Kappungen, Konsistenz-Flags). v2 ist per Tenant-Policy aus,
+         *     bis die Grenzwerte durch IC/Compliance freigegeben und vermerkt sind.
          */
         get: operations["get_risk_questionnaire_policy_risk_questionnaire_policy_get"];
         put?: never;
@@ -5331,6 +5331,31 @@ export interface paths {
          *     kein Zugriff auf hosting_tier/license_status/max_users etc.
          */
         put: operations["update_my_tenant_tenants_me_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/me/risk-questionnaire-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update My Risk Questionnaire Policy
+         * @description H5 (N-886-08): Risikoprofil-Fragebogen v2 fuer die EIGENE Firma.
+         *
+         *     Default aus. Aktivieren nur mit Vermerk der IC-/Compliance-Freigabe der
+         *     Grenzwerte (Schema-Pflicht); jede Aenderung wird mit altem und neuem Stand
+         *     samt Vermerk auditiert. Ab Aktivierung nimmt der Server fuer diese Firma
+         *     nur noch neue v2-Erhebungen an; bestehende Profile bleiben gueltig.
+         */
+        put: operations["update_my_risk_questionnaire_policy_tenants_me_risk_questionnaire_policy_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -11771,6 +11796,19 @@ export interface components {
             /** Note */
             note?: string | null;
         };
+        /**
+         * RiskQuestionnairePolicyUpdate
+         * @description H5 (N-886-08): PUT /tenants/me/risk-questionnaire-policy.
+         *
+         *     Aktivieren nur mit Vermerk der IC-/Compliance-Freigabe der Grenzwerte
+         *     (Referenz, Datum, Gremium); Deaktivieren jederzeit.
+         */
+        RiskQuestionnairePolicyUpdate: {
+            /** Approval Reference */
+            approval_reference?: string | null;
+            /** Enabled */
+            enabled: boolean;
+        };
         /** RoleGrant */
         RoleGrant: {
             /** Privacy Role */
@@ -12771,6 +12809,17 @@ export interface components {
             max_mandates?: number | null;
             /** Max Users */
             max_users?: number | null;
+            /** Risk Questionnaire V2 Approval Ref */
+            risk_questionnaire_v2_approval_ref?: string | null;
+            /** Risk Questionnaire V2 Changed At */
+            risk_questionnaire_v2_changed_at?: string | null;
+            /** Risk Questionnaire V2 Changed By */
+            risk_questionnaire_v2_changed_by?: string | null;
+            /**
+             * Risk Questionnaire V2 Enabled
+             * @default 0
+             */
+            risk_questionnaire_v2_enabled?: number;
             /** Slug */
             slug: string;
             /** Storage Quota Mb */
@@ -12837,6 +12886,17 @@ export interface components {
             max_mandates?: number | null;
             /** Max Users */
             max_users?: number | null;
+            /** Risk Questionnaire V2 Approval Ref */
+            risk_questionnaire_v2_approval_ref?: string | null;
+            /** Risk Questionnaire V2 Changed At */
+            risk_questionnaire_v2_changed_at?: string | null;
+            /** Risk Questionnaire V2 Changed By */
+            risk_questionnaire_v2_changed_by?: string | null;
+            /**
+             * Risk Questionnaire V2 Enabled
+             * @default 0
+             */
+            risk_questionnaire_v2_enabled?: number;
             /** Slug */
             slug: string;
             /** Storage Quota Mb */
@@ -23052,6 +23112,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["TenantSelfServiceUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_my_risk_questionnaire_policy_tenants_me_risk_questionnaire_policy_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RiskQuestionnairePolicyUpdate"];
             };
         };
         responses: {

@@ -689,7 +689,6 @@ def _knowledge_map_from_json(raw) -> dict[str, bool]:
         if isinstance(value, dict):
             result[str(key)] = bool(
                 value.get("known")
-                or value.get("experienced")
                 or value.get("informed")
                 or value.get("has_experience")
             )

@@ -39,7 +39,9 @@ riskV2AddQ10Footnote();
 // Maske exakt beim Standard-Fragebogen (v1) und der Payload unveraendert.
 // Konsistenz-Flags K1-K5 (K6 erst mit P11) aendern das Profil nie und
 // blockieren nichts, verlangen aber eine Beraternotiz.
-var RISK_V2={policy:null,requested:false,lastSaved:null,inBase:false};
+var RISK_V2={policy:null,status:'idle',pending:null,lastSaved:null,inBase:false};
+var RISK_V2_POLICY_ERROR='Die Fragebogen-Version konnte nicht vom Server geladen werden. '
+  +'Speichern ist gesperrt, bis die Verbindung wiederhergestellt ist (bitte Seite neu laden).';
 var RISK_V2_GROWTH_PROFILES=['Wachstumsorientiert','Dynamisch','Aktien'];
 var RISK_V2_Q12_PCT=[5,10,20,20];
 
@@ -47,15 +49,38 @@ function riskV2Active(){
   return !!(RISK_V2.policy&&RISK_V2.policy.v2_enabled===true&&Array.isArray(RISK_V2.policy.questions));
 }
 
+// N-886-01: ein Fehler beim Laden der Policy wird nicht still geschluckt --
+// status='error' sperrt das Speichern echter Mandate (fail-closed), statt
+// ungeprueft den Standard-Fragebogen zu senden.
 function riskV2LoadPolicy(){
-  if(RISK_V2.requested||typeof API==='undefined'||!API||typeof API.get!=='function')return;
-  RISK_V2.requested=true;
-  Promise.resolve().then(function(){return API.get('/risk-questionnaire/policy');}).then(function(p){
-    RISK_V2.policy=p||null;
+  if(RISK_V2.status==='ok')return Promise.resolve(RISK_V2.policy);
+  if(RISK_V2.pending)return RISK_V2.pending;
+  if(typeof API==='undefined'||!API||typeof API.get!=='function'){
+    RISK_V2.status='error';
+    return Promise.resolve(null);
+  }
+  RISK_V2.status='loading';
+  RISK_V2.pending=Promise.resolve().then(function(){return API.get('/risk-questionnaire/policy');}).then(function(p){
+    if(!p||typeof p.v2_enabled!=='boolean')throw new Error('policy');
+    RISK_V2.policy=p;
+    RISK_V2.status='ok';
+    RISK_V2.pending=null;
     riskV2Render();
     if(RISK_V2.lastSaved)riskV2Hydrate(RISK_V2.lastSaved);
     if(typeof calcRiskScore==='function')calcRiskScore();
-  }).catch(function(){RISK_V2.requested=false;});
+    return p;
+  }).catch(function(){
+    RISK_V2.policy=null;
+    RISK_V2.status='error';
+    RISK_V2.pending=null;
+    return null;
+  });
+  return RISK_V2.pending;
+}
+
+function riskV2NeedsPolicy(){
+  var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
+  return !!mid&&!(typeof isDemoMandateId==='function'&&isDemoMandateId(mid));
 }
 
 function riskV2Esc(v){
@@ -152,9 +177,21 @@ function riskV2Caps(policy,behavPoints,opts){
   return {caps:caps,cap:cap};
 }
 
+// N-886-06: Kenntnis ODER Aufklaerung (wie ELIG-KNOWLEDGE-001); Erfahrung allein genuegt nicht.
 function riskV2InstrumentDocumented(instruments,row){
   var v=instruments&&instruments[row];
-  return !!(v&&(v.known===1||v.experienced===1||v.informed===1));
+  return !!(v&&(v.known===1||v.informed===1));
+}
+
+// K4 "wenig Erfahrung" (N-886-07): neue Erhebung ohne Erfahrung in den
+// Aktien-Zeilen der Policy; Altprofile ohne Erfahrungs-Spalte: nicht bewertbar.
+function riskV2LittleExperience(policy,instruments){
+  var rows=Object.keys(instruments||{}).map(function(k){return instruments[k];})
+    .filter(function(v){return v&&typeof v==='object';});
+  if(!rows.length||!rows.some(function(v){return 'experienced' in v;}))return false;
+  return !(policy.k4_experience_rows||[]).some(function(r){
+    var v=instruments[r];return !!(v&&v.experienced===1);
+  });
 }
 
 function riskV2Flags(policy,q9,q10,q11,q13,effectiveProfile,instruments){
@@ -163,7 +200,7 @@ function riskV2Flags(policy,q9,q10,q11,q13,effectiveProfile,instruments){
   if(q10>=3&&q11<=2)flags.push('K2');
   if(Math.max(q9,q10,q11)-Math.min(q9,q10,q11)>=2)flags.push('K3');
   var growth=RISK_V2_GROWTH_PROFILES.indexOf(effectiveProfile)>=0;
-  if(growth&&q13===policy.q13_not_invested_option)flags.push('K4');
+  if(growth&&(q13===policy.q13_not_invested_option||riskV2LittleExperience(policy,instruments)))flags.push('K4');
   if(growth&&!riskV2InstrumentDocumented(instruments,'Aktien'))flags.push('K5');
   return flags;
 }
@@ -296,11 +333,19 @@ function riskV2InstallWrappers(){
   if(typeof saveRiskProfile==='function'&&!_riskV2BaseSave){
     _riskV2BaseSave=saveRiskProfile;
     saveRiskProfile=function(){
-      if(riskV2Issues().length){
-        showRiskSaveFeedback(formatRiskAssessmentIssues(collectRiskAssessmentUiIssues()),true);
-        return Promise.resolve(false);
-      }
-      return _riskV2BaseSave.apply(this,arguments);
+      var self=this, args=arguments;
+      var ready=riskV2NeedsPolicy()&&RISK_V2.status!=='ok'?riskV2LoadPolicy():Promise.resolve(RISK_V2.policy);
+      return ready.then(function(){
+        if(riskV2NeedsPolicy()&&RISK_V2.status!=='ok'){
+          showRiskSaveFeedback(RISK_V2_POLICY_ERROR,true);
+          return false;
+        }
+        if(riskV2Issues().length){
+          showRiskSaveFeedback(formatRiskAssessmentIssues(collectRiskAssessmentUiIssues()),true);
+          return false;
+        }
+        return _riskV2BaseSave.apply(self,args);
+      });
     };
   }
   if(typeof hydrateRiskQuestionnaire==='function'&&!_riskV2BaseHydrate){

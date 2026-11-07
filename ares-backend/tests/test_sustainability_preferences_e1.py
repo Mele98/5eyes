@@ -284,7 +284,7 @@ def test_alembic_single_head_creates_and_drops_table_and_tenant_column(tmp_path)
 
     script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
     assert script.get_heads() == ["f3a8c1e5b7d2"]
-    assert script.get_revision("f3a8c1e5b7d2").down_revision == "e7c4a9b2d6f1"
+    assert script.get_revision("f3a8c1e5b7d2").down_revision == "f3a8c1d5e9b2"
     db_url = f"sqlite:///{tmp_path / 'alembic.db'}"
     cfg = _alembic_cfg(db_url)
     command.upgrade(cfg, "head")
@@ -300,7 +300,7 @@ def test_alembic_single_head_creates_and_drops_table_and_tenant_column(tmp_path)
             "trg_investment_preference_decisions_no_delete",
             "trg_investment_preference_decisions_tenant_guard"} <= triggers
     engine.dispose()
-    command.downgrade(cfg, "e7c4a9b2d6f1")
+    command.downgrade(cfg, "f3a8c1d5e9b2")
     engine = create_engine(db_url)
     insp = inspect(engine)
     assert "investment_preference_decisions" not in insp.get_table_names()

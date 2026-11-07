@@ -1,5 +1,5 @@
 {
- "dump_sha256": "9827d77e084620be8c3f355869530ec025731c19fcf5c35a5935a106dbe4f44e",
+ "dump_sha256": "a325c61d767bdbc0a6ebcd9beac33613222ae16ea6371b9679327400f2b1059d",
  "tables": {
   "asset_class_annual_returns": {
    "columns": [
@@ -651,6 +651,10 @@
     "license_valid_until",
     "max_mandates",
     "max_users",
+    "risk_questionnaire_v2_approval_ref",
+    "risk_questionnaire_v2_changed_at",
+    "risk_questionnaire_v2_changed_by",
+    "risk_questionnaire_v2_enabled",
     "slug",
     "storage_quota_mb",
     "sustainability_review_months",
@@ -658,7 +662,7 @@
    ],
    "row_count": 1,
    "row_sha256": [
-    "467204ebdcfa5f9eb153e2b3b2b37eff"
+    "173aad4f8f38e27223e9d180476e05ef"
    ]
   },
   "users": {

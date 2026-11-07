@@ -28,6 +28,8 @@ import re
 import unicodedata
 from typing import Any, Iterable
 
+from sqlalchemy import text
+
 from services.risk_scoring import (
     HORIZON_YEARS,
     Q11_KNOCKOUT_MAX_SCORE_X10,
@@ -368,22 +370,31 @@ def nonstandard_profile_message(evidence: str) -> str:
 # per CHECK begrenzt), sondern als kanonische Evidenz in
 # risk_assessments.willingness_v2_json; Version und Definitions-Hash am Profil.
 #
-# FEATURE-FLAG, Default AUS: Die Grenzwerte 40/60/80 (E3) sind konservative
-# Startwerte. Vor der Freigabe durch IC/Compliance nimmt der Server keinen
-# v2-Fragebogen an (422 RISK_QUESTIONNAIRE_V2_DISABLED) und die Maske zeigt ihn
-# nicht. Aktivierung = bewusste Code-Aenderung mit Review (gleiches Muster wie
-# LOSS_TOLERANCE_CHECK_ENABLED der Verlusttoleranz-Pruefung, P11).
-RISK_QUESTIONNAIRE_V2_ENABLED = False
-V2_APPROVAL_STATUS = (
-    "Startwerte 40/60/80 (Entscheid E3); Freigabe durch IC/Compliance ausstehend."
-)
+# AKTIVIERUNG (N-886-08): Tenant-Policy, Default AUS. tenants.
+# risk_questionnaire_v2_enabled wird nur ueber die auditierte Admin-Einstellung
+# PUT /tenants/me/risk-questionnaire-policy gesetzt, und nur mit Vermerk der
+# IC-/Compliance-Freigabe der Grenzwerte (E3: 40/60/80 sind Startwerte).
+# Wirksam ist v2 nur, wenn Flag UND Vermerk gesetzt sind. Ist v2 aktiv, nimmt
+# der Server keine neue v1-Erhebung mehr an (N-886-01).
+#
+# DEFINITIONEN (N-886-04): Jede gespeicherte v2-Erhebung traegt den Hash ihrer
+# Definition und wird mit genau dieser Definition nachgerechnet
+# (QUESTIONNAIRE_DEFINITIONS). Eine geaenderte Definition (z. B. andere
+# Grenzwerte nach IC-Freigabe) ist ein NEUER Eintrag; bestehende Eintraege
+# werden nie veraendert (Hash-Pin im Test).
 
 REASON_V2_DISABLED = "RISK_QUESTIONNAIRE_V2_DISABLED"
+REASON_V2_REQUIRED = "RISK_QUESTIONNAIRE_V2_REQUIRED"
 REASON_CONSISTENCY_NOTE_REQUIRED = "RISK_CONSISTENCY_NOTE_REQUIRED"
+REASON_Q12_AMOUNT_IMPLAUSIBLE = "RISK_Q12_AMOUNT_IMPLAUSIBLE"
 
-V2_RULES_VERSION = "ares-risk-questionnaire-v2/2026-11-07"
+V2_APPROVAL_STATUS = (
+    "Startwerte 40/60/80 (Entscheid E3); Aktivierung je Firma nur mit Vermerk "
+    "der IC-/Compliance-Freigabe."
+)
 V2_EVIDENCE_SCHEMA = "RiskQuestionnaireV2Evidence/1"
 REQUIRED_QUESTIONS_V2 = (12, 13, 14)
+APPROVAL_REF_MIN_CHARS = 10
 
 V2_QUESTIONS: dict[int, str] = {
     12: "Verlusttoleranz in Franken – Welcher vorübergehende Wertrückgang Ihres Anlagebetrags innerhalb eines Jahres wäre für Sie gerade noch tragbar, ohne die Anlagestrategie zu ändern?",
@@ -401,10 +412,12 @@ V2_OPTIONS: dict[int, tuple[str, ...]] = {
     ),
     14: ("Weniger als 1 Jahr", "1 bis 2 Jahre", "2 bis 4 Jahre", "Mehr als 4 Jahre"),
 }
-# Frage 12 darf den von der Maske vorgerechneten Frankenbetrag tragen
-# ("Bis 5 % · bis ca. CHF 12'500 bei CHF 250'000 Anlagebetrag"); sonst nichts.
+# Frage 12: Prozentsatz je Option fuer den vorgerechneten Frankenbetrag.
+Q12_PCT: tuple[int, ...] = (5, 10, 20, 20)
+# "Bis 5 % · bis ca. CHF 12'500 bei CHF 250'000 Anlagebetrag"
 _Q12_AMOUNT_SUFFIX = re.compile(
-    r"^(?:bis|über|ueber) ca\. [A-Z]{3} [0-9'’]{1,15} bei [A-Z]{3} [0-9'’]{1,15} Anlagebetrag$"
+    r"^(?P<prefix>bis|über|ueber) ca\. (?P<cur>[A-Z]{3}) (?P<amount>[0-9'’]{1,15}) "
+    r"bei (?P<cur2>[A-Z]{3}) (?P<base>[0-9'’]{1,15}) Anlagebetrag$"
 )
 
 # Konsistenz-Flags (Dok. 105, 4.3): keine Punkte, nie Profilaenderung, kein Block.
@@ -412,16 +425,24 @@ CONSISTENCY_FLAGS: dict[str, str] = {
     "K1": "Anlageziel Kapitalerhalt (Frage 9) widerspricht der gewählten Risikopräferenz (Frage 10).",
     "K2": "Toleriertes Schwankungsband (Frage 10) passt nicht zur Reaktion auf einen Verlust von 20 % (Frage 11).",
     "K3": "Die Antworten zu den Fragen 9 bis 11 liegen weit auseinander; bitte mit dem Kunden besprechen.",
-    "K4": "Risikobereitschaft ab «Wachstumsorientiert» ohne eigene Krisenerfahrung (Frage 13); erhöhte Aufklärung über Verlustrisiken.",
-    "K5": "Risikobereitschaft ab «Wachstumsorientiert», aber für Aktien sind weder Kenntnisse, Erfahrung noch Aufklärung dokumentiert (Art. 11/14 FIDLEG).",
+    "K4": "Risikobereitschaft ab «Wachstumsorientiert» bei wenig Erfahrung (keine eigene Krisenerfahrung nach Frage 13 oder keine dokumentierte Erfahrung mit Aktien bzw. Aktienfonds); erhöhte Aufklärung über Verlustrisiken.",
+    "K5": "Risikobereitschaft ab «Wachstumsorientiert», aber für Aktien sind weder Kenntnisse noch Aufklärung dokumentiert (Art. 11/14 FIDLEG).",
     "K6": "Verlustgrenze der Strategie (P10) liegt unter der Untergrenze der Schwankungstoleranz (Frage 10); Verhalten gemäss Verlusttoleranz-Prüfung.",
 }
-# K6 haengt an der Verlusttoleranz-Pruefung P11 (eigenes Modul,
-# inaktiv bis P2b, Entscheid E7) und wird erst mit deren Aktivierung gesetzt.
+# K4 "wenig Erfahrung" (Dok. 105 4.3: Q13 n.a. oder LB-A-Stufe "wenig"; N-886-07):
+# Ares kennt die LB-A-Stufen nicht, sondern seit H5c die getrennte Erfahrung je
+# Instrument. "Wenig" = in keiner dieser Zeilen Erfahrung dokumentiert. Bei
+# Altprofilen ohne Erfahrungs-Spalte ist das nicht bewertbar -> nur Q13.
+K4_EQUITY_EXPERIENCE_ROWS = ("Aktien", "Anlagefonds", "ETF")
+# K6 haengt an der Verlusttoleranz-Pruefung P11 (eigenes Modul, inaktiv bis
+# P2b, Entscheid E7) und wird erst mit deren Aktivierung gesetzt.
 GROWTH_PROFILES = frozenset({"Wachstumsorientiert", "Dynamisch", "Aktien"})
 CONSISTENCY_NOTE_MIN_CHARS = 20
 CONSISTENCY_NOTE_MIN_WORDS = 3
 CONSISTENCY_NOTE_MAX_CHARS = 4000
+# Bei einer DSG-Loeschung wird die Notiz redigiert (services/client_erasure.py,
+# REDACTION_MARKER); die Notizpflicht gilt dann als erfuellt dokumentiert.
+ERASURE_REDACTION_MARKER = "[ERASED-DSG-ART-32]"
 _CAP_PROFILE = {40: "Defensiv", 60: "Ausgewogen", 80: "Wachstumsorientiert"}
 
 _V2_OPTION_INDEX = {
@@ -430,16 +451,19 @@ _V2_OPTION_INDEX = {
 }
 
 
-def questionnaire_v2_enabled(enabled: bool | None = None) -> bool:
-    """Feature-Flag v2 (Default aus). ``enabled`` nur fuer Tests/Probe."""
-    return bool(RISK_QUESTIONNAIRE_V2_ENABLED if enabled is None else enabled)
+def _canonical_json(payload) -> str:
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def questionnaire_v2_definition() -> dict:
-    """Kanonische Definition v2 (Texte, Optionen, Kappungen, Regeln)."""
+def _definition_hash(definition: dict) -> str:
+    return hashlib.sha256(_canonical_json(definition).encode("utf-8")).hexdigest()
+
+
+def _v2_definition_2026_11_07() -> dict:
+    """Definition v2 vom 2026-11-07 (Texte, Optionen, Grenzwerte, Regeln). Nie aendern."""
     return {
         "questionnaire_version": QUESTIONNAIRE_V2,
-        "rules_version": V2_RULES_VERSION,
+        "rules_version": "ares-risk-questionnaire-v2/2026-11-07b",
         "base_questions": "Fragen 1-11 unveraendert (v1, Vorlage)",
         "questions": [
             {
@@ -450,34 +474,104 @@ def questionnaire_v2_definition() -> dict:
             }
             for q in REQUIRED_QUESTIONS_V2
         ],
+        "q12_amount_pct": list(Q12_PCT),
         "q11_knockout": {"q_risk_behavior_points": 1, "max_score_x10": Q11_KNOCKOUT_MAX_SCORE_X10},
         "q13_not_invested_option": Q13_NOT_INVESTED_INDEX,
+        "k4_experience_rows": list(K4_EQUITY_EXPERIENCE_ROWS),
         "consistency_flags": [{"code": c, "message": m} for c, m in CONSISTENCY_FLAGS.items()],
+        "flag_rules": "K1-K6/2026-11-07b: K4 = Q13 n.a. oder keine Erfahrung in "
+                      + "/".join(K4_EQUITY_EXPERIENCE_ROWS) + "; K5 = Aktien ohne Kenntnis/Aufklaerung",
         "consistency_note_min_chars": CONSISTENCY_NOTE_MIN_CHARS,
+        "consistency_note_min_words": CONSISTENCY_NOTE_MIN_WORDS,
         "formula": "will_v2 = MIN(will_core, caps); final = MIN(capacity, will_v2); FZK <= 75",
     }
 
 
-def _canonical_json(payload) -> str:
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+_CURRENT_DEFINITION = _v2_definition_2026_11_07()
+QUESTIONNAIRE_V2_HASH = _definition_hash(_CURRENT_DEFINITION)
+V2_RULES_VERSION = _CURRENT_DEFINITION["rules_version"]
+# Registry: Hash -> Definition. Neue Definitionen werden ergaenzt, nie ersetzt.
+QUESTIONNAIRE_DEFINITIONS: dict[str, dict] = {QUESTIONNAIRE_V2_HASH: _CURRENT_DEFINITION}
 
 
-QUESTIONNAIRE_V2_HASH = hashlib.sha256(
-    _canonical_json(questionnaire_v2_definition()).encode("utf-8")
-).hexdigest()
+def questionnaire_v2_definition() -> dict:
+    """Aktuelle (fuer neue Erhebungen gueltige) Definition v2."""
+    return json.loads(_canonical_json(_CURRENT_DEFINITION))
 
 
-def questionnaire_v2_policy(enabled: bool | None = None) -> dict:
-    """Antwort von GET /risk-questionnaire/policy (die Maske liest die Texte hier)."""
-    on = questionnaire_v2_enabled(enabled)
+def definition_for_hash(definition_hash) -> dict | None:
+    definition = QUESTIONNAIRE_DEFINITIONS.get(str(definition_hash or ""))
+    if definition is None or _definition_hash(definition) != definition_hash:
+        return None
+    return definition
+
+
+def _definition_caps(definition: dict) -> dict[int, tuple[int, ...]]:
+    return {int(q["number"]): tuple(int(v) for v in q["max_score_x10"]) for q in definition["questions"]}
+
+
+def _definition_options(definition: dict) -> dict[int, tuple[str, ...]]:
+    return {int(q["number"]): tuple(q["options"]) for q in definition["questions"]}
+
+
+# ── Tenant-Policy (N-886-08) ──────────────────────────────────────────────────
+
+_DEFAULT_TENANT_ID = "main"
+
+
+def tenant_policy_row(db, tenant_id) -> tuple[int, str | None] | None:
+    """(Flag, Freigabe-Vermerk) der Firma; None = keine Firma gefunden."""
+    row = db.execute(
+        text(
+            "SELECT risk_questionnaire_v2_enabled, risk_questionnaire_v2_approval_ref "
+            "FROM tenants WHERE id = :tid AND deleted_at IS NULL"
+        ),
+        {"tid": str(tenant_id or _DEFAULT_TENANT_ID)},
+    ).first()
+    if row is None:
+        return None
+    return int(row[0] or 0), (str(row[1]) if row[1] is not None else None)
+
+
+def approval_ref_ok(ref) -> bool:
+    return len(re.sub(r"\s+", " ", str(ref or "")).strip()) >= APPROVAL_REF_MIN_CHARS
+
+
+def questionnaire_v2_state(db, user) -> dict:
+    """Wirksame Policy der Firma des Benutzers (fail-closed: im Zweifel aus)."""
+    row = tenant_policy_row(db, getattr(user, "tenant_id", None))
+    flag, ref = row if row is not None else (0, None)
+    return {
+        "v2_enabled": bool(flag == 1 and approval_ref_ok(ref)),
+        "approval_reference": ref if flag == 1 else None,
+    }
+
+
+def questionnaire_v2_enabled(db, user) -> bool:
+    return questionnaire_v2_state(db, user)["v2_enabled"]
+
+
+def questionnaire_v2_policy(db=None, user=None, *, enabled: bool | None = None) -> dict:
+    """Antwort von GET /risk-questionnaire/policy (die Maske liest die Texte hier).
+
+    ``enabled`` nur fuer Tests ohne Datenbank.
+    """
+    if enabled is None:
+        state = questionnaire_v2_state(db, user)
+    else:
+        state = {"v2_enabled": bool(enabled), "approval_reference": None}
+    on = state["v2_enabled"]
     return {
         "v2_enabled": on,
         "active_version": QUESTIONNAIRE_V2 if on else QUESTIONNAIRE_V1,
+        "approval_reference": state["approval_reference"],
         "questionnaire_hash": QUESTIONNAIRE_V2_HASH,
         "approval_status": V2_APPROVAL_STATUS,
         **questionnaire_v2_definition(),
     }
 
+
+# ── Erhebung ─────────────────────────────────────────────────────────────────
 
 def submission_version(body) -> str:
     version = getattr(body, "questionnaire_version", None) or QUESTIONNAIRE_V1
@@ -486,8 +580,13 @@ def submission_version(body) -> str:
     return version
 
 
-def derive_v2_options(v2_answers) -> tuple[dict[int, int], list[dict]]:
+def derive_v2_options(v2_answers, *, definition: dict | None = None) -> tuple[dict[int, int], list[dict]]:
     """Option je Zusatzfrage 12-14 und die kanonischen Antwortzeilen (fail-closed)."""
+    options_by_q = _definition_options(definition) if definition else V2_OPTIONS
+    index = (
+        {q: {option_key(label): i for i, label in enumerate(labels)} for q, labels in options_by_q.items()}
+        if definition else _V2_OPTION_INDEX
+    )
     by_question: dict[int, str] = {}
     for answer in v2_answers or ():
         question = _int_or_none(_answer_value(answer, "question_number"))
@@ -506,7 +605,7 @@ def derive_v2_options(v2_answers) -> tuple[dict[int, int], list[dict]]:
         base, sep, suffix = label.partition(" · ")
         if sep and (question != 12 or not _Q12_AMOUNT_SUFFIX.match(suffix.strip())):
             raise _not_standard(f"Frage {question}: unbekannte Antwortoption", question_number=question)
-        idx = _V2_OPTION_INDEX[question].get(option_key(base))
+        idx = index[question].get(option_key(base))
         if idx is None:
             raise _not_standard(f"Frage {question}: unbekannte Antwortoption", question_number=question)
         options[question] = idx
@@ -514,15 +613,80 @@ def derive_v2_options(v2_answers) -> tuple[dict[int, int], list[dict]]:
     return options, rows
 
 
+def _amount(raw: str) -> int:
+    return int(re.sub(r"['’]", "", raw))
+
+
+def check_q12_amount(label: str, option_index: int, *, currency: str, ceiling_chf: int | None) -> None:
+    """N-886-05: vorgerechneter Frankenbetrag in Frage 12 (falls vorhanden) pruefen.
+
+    Betrag > 0, Anlagebetrag > 0, Betrag <= Anlagebetrag, Betrag = Prozentsatz
+    der Option (Rundung +-1), Waehrung = Referenzwaehrung des Mandats und
+    Anlagebetrag <= erfasstes Bruttovermoegen (nur CHF, ``ceiling_chf``).
+    """
+    _base, sep, suffix = str(label).partition(" · ")
+    if not sep:
+        return
+    match = _Q12_AMOUNT_SUFFIX.match(suffix.strip())
+
+    def fail(problem: str):
+        raise RiskQuestionnaireIntegrityError(
+            REASON_Q12_AMOUNT_IMPLAUSIBLE,
+            f"Frage 12: Der Frankenbetrag ist nicht plausibel ({problem}). Bitte das "
+            "Vermoegen pruefen und den Fragebogen neu laden.",
+            question_number=12,
+        )
+
+    if match is None:
+        fail("Format")
+    amount, base = _amount(match["amount"]), _amount(match["base"])
+    cur = str(currency or "CHF").upper()
+    if match["cur"] != match["cur2"] or match["cur"] != cur:
+        fail("Waehrung")
+    if amount <= 0 or base <= 0 or amount > base:
+        fail("Betrag ausserhalb des Anlagebetrags")
+    expected = round(base * Q12_PCT[option_index] / 100)
+    if abs(amount - expected) > 1:
+        fail("Betrag passt nicht zur gewaehlten Prozentstufe")
+    if (option_index < 3) != (match["prefix"] == "bis"):
+        fail("bis/ueber passt nicht zur Option")
+    if cur == "CHF":
+        if not ceiling_chf or ceiling_chf <= 0:
+            fail("kein Vermoegen erfasst")
+        if base > ceiling_chf + 1:
+            fail("Anlagebetrag uebersteigt das erfasste Vermoegen")
+
+
+def _instrument_value(knowledge_instruments_json, row: str) -> dict | None:
+    try:
+        parsed = json.loads(knowledge_instruments_json or "{}")
+    except (TypeError, ValueError):
+        return None
+    value = parsed.get(row) if isinstance(parsed, dict) else None
+    return value if isinstance(value, dict) else None
+
+
 def _instrument_documented(knowledge_instruments_json, row: str) -> bool:
+    """N-886-06: Kenntnis ODER Aufklaerung (wie ELIG-KNOWLEDGE-001); Erfahrung allein genuegt nicht."""
+    value = _instrument_value(knowledge_instruments_json, row) or {}
+    return any(value.get(k) == 1 for k in ("known", "informed"))
+
+
+def _little_experience(knowledge_instruments_json) -> bool:
+    """K4-Teil "wenig Erfahrung": neue Erhebung (Spalte vorhanden) ohne Erfahrung."""
     try:
         parsed = json.loads(knowledge_instruments_json or "{}")
     except (TypeError, ValueError):
         return False
-    value = parsed.get(row) if isinstance(parsed, dict) else None
-    if isinstance(value, dict):
-        return any(value.get(k) == 1 for k in ("known", "experienced", "informed"))
-    return False
+    if not isinstance(parsed, dict):
+        return False
+    rows = [v for v in parsed.values() if isinstance(v, dict)]
+    if not rows or not any("experienced" in v for v in rows):
+        return False  # Altprofil: Erfahrung nicht getrennt erfasst -> nicht bewertbar
+    return not any(
+        (_instrument_value(knowledge_instruments_json, r) or {}).get("experienced") == 1
+        for r in K4_EQUITY_EXPERIENCE_ROWS
+    )
 
 
 def consistency_flags(
@@ -544,7 +708,7 @@ def consistency_flags(
     if max(q9, q10, q11) - min(q9, q10, q11) >= 2:
         flags.append("K3")
     growth = effective_willingness_profile in GROWTH_PROFILES
-    if growth and q13_option == Q13_NOT_INVESTED_INDEX:
+    if growth and (q13_option == Q13_NOT_INVESTED_INDEX or _little_experience(knowledge_instruments_json)):
         flags.append("K4")
     if growth and not _instrument_documented(knowledge_instruments_json, "Aktien"):
         flags.append("K5")
@@ -554,10 +718,10 @@ def consistency_flags(
 
 
 def consistency_note_ok(note) -> bool:
-    text = re.sub(r"\s+", " ", str(note or "")).strip()
+    text_ = re.sub(r"\s+", " ", str(note or "")).strip()
     return (
-        CONSISTENCY_NOTE_MIN_CHARS <= len(text) <= CONSISTENCY_NOTE_MAX_CHARS
-        and len(text.split(" ")) >= CONSISTENCY_NOTE_MIN_WORDS
+        CONSISTENCY_NOTE_MIN_CHARS <= len(text_) <= CONSISTENCY_NOTE_MAX_CHARS
+        and len(text_.split(" ")) >= CONSISTENCY_NOTE_MIN_WORDS
     )
 
 
@@ -568,18 +732,38 @@ def _caps_payload(result) -> list[dict]:
     ]
 
 
-def evaluate_v2_submission(body, *, core_willingness_score_x10: int) -> dict:
+def _compute_for(definition: dict, *, core: int, q11: int, options: dict[int, int]):
+    return compute_willingness_v2(
+        core_willingness_score_x10=core,
+        q_risk_behavior_points=q11,
+        q12_option=options[12],
+        q13_option=options[13],
+        q14_option=options[14],
+        caps_table=_definition_caps(definition),
+        knockout_max_score_x10=int(definition["q11_knockout"]["max_score_x10"]),
+    )
+
+
+def _flag_messages(definition: dict) -> dict[str, str]:
+    return {f["code"]: f["message"] for f in definition.get("consistency_flags") or []}
+
+
+def evaluate_v2_submission(
+    body,
+    *,
+    core_willingness_score_x10: int,
+    currency: str = "CHF",
+    ceiling_chf: int | None = None,
+) -> dict:
     """v2-Teil beim Speichern: Optionen, Kappung, Flags, Notizpflicht, Evidenz.
 
     Raises RiskQuestionnaireIntegrityError (fail-closed).
     """
+    definition = _CURRENT_DEFINITION
     options, rows = derive_v2_options(getattr(body, "questionnaire_v2_answers", None))
-    result = compute_willingness_v2(
-        core_willingness_score_x10=core_willingness_score_x10,
-        q_risk_behavior_points=int(body.q_risk_behavior_points),
-        q12_option=options[12],
-        q13_option=options[13],
-        q14_option=options[14],
+    check_q12_amount(rows[0]["answer_label"], options[12], currency=currency, ceiling_chf=ceiling_chf)
+    result = _compute_for(
+        definition, core=core_willingness_score_x10, q11=int(body.q_risk_behavior_points), options=options,
     )
     flags = consistency_flags(
         q9=int(body.q_investment_goal_points),
@@ -600,9 +784,20 @@ def evaluate_v2_submission(body, *, core_willingness_score_x10: int) -> dict:
         )
     if len(note) > CONSISTENCY_NOTE_MAX_CHARS:
         raise _not_standard("Beraternotiz zu lang")
+    evidence = _evidence(definition, rows, result, flags)
+    return {
+        "result": result,
+        "flags": flags,
+        "note": note or None,
+        "evidence_json": _canonical_json(evidence),
+        "definition_hash": QUESTIONNAIRE_V2_HASH,
+    }
+
+
+def _evidence(definition: dict, rows: list[dict], result, flags: list[str]) -> dict:
     evidence = {
         "schema": V2_EVIDENCE_SCHEMA,
-        "rules_version": V2_RULES_VERSION,
+        "rules_version": definition["rules_version"],
         "answers": rows,
         "core_willingness_score_x10": result.core_score_x10,
         "willingness_cap_x10": result.cap_score_x10,
@@ -611,23 +806,20 @@ def evaluate_v2_submission(body, *, core_willingness_score_x10: int) -> dict:
         "consistency_flags": flags,
     }
     # Kundenlesbare Saetze fuer PDF/Protokoll, mit der Evidenz gebunden.
-    evidence["cap_reasons"] = v2_cap_reason_lines(evidence)
-    evidence["consistency_messages"] = v2_flag_lines(evidence)
-    return {
-        "result": result,
-        "flags": flags,
-        "note": note or None,
-        "evidence_json": _canonical_json(evidence),
-    }
+    evidence["cap_reasons"] = v2_cap_reason_lines(evidence, definition=definition)
+    evidence["consistency_messages"] = v2_flag_lines(evidence, definition=definition)
+    return evidence
 
 
 def validate_v2_persisted(assessment, *, core_willingness_score_x10: int) -> int:
-    """Gespeichertes v2-Profil nachrechnen; liefert die wirksame Bereitschaft.
+    """Gespeichertes v2-Profil mit SEINER Definition nachrechnen.
 
-    Raises ValueError, wenn Definition (Hash) oder Evidenz nicht zur
-    Herleitung passen (fail-closed, kein Raten).
+    Prueft Kappung, Begruendungen, Konsistenz-Flags (neu abgeleitet aus Q9-Q11,
+    Q13 und den Kenntnissen) und die Notizpflicht (N-886-03). Liefert die
+    wirksame Bereitschaft. Raises ValueError (fail-closed, kein Raten).
     """
-    if getattr(assessment, "questionnaire_hash", None) != QUESTIONNAIRE_V2_HASH:
+    definition = definition_for_hash(getattr(assessment, "questionnaire_hash", None))
+    if definition is None:
         raise ValueError("Fragebogen-v2-Definition (Hash) unbekannt")
     try:
         evidence = json.loads(getattr(assessment, "willingness_v2_json", None) or "")
@@ -636,30 +828,37 @@ def validate_v2_persisted(assessment, *, core_willingness_score_x10: int) -> int
     if not isinstance(evidence, dict) or evidence.get("schema") != V2_EVIDENCE_SCHEMA:
         raise ValueError("willingness_v2_json hat ein unbekanntes Schema")
     try:
-        options, rows = derive_v2_options(evidence.get("answers"))
+        options, rows = derive_v2_options(evidence.get("answers"), definition=definition)
     except RiskQuestionnaireIntegrityError as exc:
         raise ValueError(exc.message) from exc
     if evidence.get("answers") != rows:
         raise ValueError("v2-Antwortindex passt nicht zum Antworttext")
-    result = compute_willingness_v2(
-        core_willingness_score_x10=core_willingness_score_x10,
-        q_risk_behavior_points=int(getattr(assessment, "q_risk_behavior_points", 0) or 0),
-        q12_option=options[12],
+    q11 = int(getattr(assessment, "q_risk_behavior_points", 0) or 0)
+    result = _compute_for(definition, core=core_willingness_score_x10, q11=q11, options=options)
+    flags = consistency_flags(
+        q9=int(getattr(assessment, "q_investment_goal_points", 0) or 0),
+        q10=int(getattr(assessment, "q_risk_preference_points", 0) or 0),
+        q11=q11,
         q13_option=options[13],
-        q14_option=options[14],
+        effective_willingness_profile=result.effective_profile,
+        knowledge_instruments_json=getattr(assessment, "knowledge_instruments_json", None),
     )
-    expected = {
-        "rules_version": V2_RULES_VERSION,
-        "core_willingness_score_x10": result.core_score_x10,
-        "willingness_cap_x10": result.cap_score_x10,
-        "effective_willingness_score_x10": result.effective_score_x10,
-        "caps": _caps_payload(result),
-    }
-    expected["cap_reasons"] = v2_cap_reason_lines(expected)
+    expected = _evidence(definition, rows, result, flags)
     for key, value in expected.items():
         if evidence.get(key) != value:
             raise ValueError(f"willingness_v2_json.{key} passt nicht zur Herleitung")
+    note = getattr(assessment, "consistency_note", None)
+    if flags and not (consistency_note_ok(note) or str(note or "").strip() == ERASURE_REDACTION_MARKER):
+        raise ValueError("Konsistenzhinweise ohne dokumentierte Beraternotiz")
     return result.effective_score_x10
+
+
+def v2_columns_empty(assessment) -> bool:
+    """N-886-02: ohne Version muessen alle v2-Spalten leer sein."""
+    return all(
+        getattr(assessment, name, None) in (None, "")
+        for name in ("questionnaire_hash", "willingness_v2_json", "consistency_note")
+    )
 
 
 def v2_evidence(raw) -> dict:
@@ -672,9 +871,10 @@ def v2_evidence(raw) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def v2_cap_reason_lines(raw) -> list[str]:
+def v2_cap_reason_lines(raw, *, definition: dict | None = None) -> list[str]:
     """Kundenlesbare Saetze zu wirksamen Kappungen (ohne interne Punkte)."""
     evidence = v2_evidence(raw)
+    options_by_q = _definition_options(definition) if definition else V2_OPTIONS
     core = int(evidence.get("core_willingness_score_x10") or 0)
     lines = []
     for cap in evidence.get("caps") or []:
@@ -686,7 +886,7 @@ def v2_cap_reason_lines(raw) -> list[str]:
             reason = "Frage 11: Bei einem Verlust von 20 % alle Anlagen sofort verkaufen"
         else:
             q = int(source[1:]) if source[1:].isdigit() else 0
-            opts = V2_OPTIONS.get(q, ())
+            opts = options_by_q.get(q, ())
             idx = int(cap.get("option_index") or 0)
             reason = f"Frage {q}: {opts[idx] if 0 <= idx < len(opts) else '?'}"
         profile = _CAP_PROFILE.get(limit, "eine tiefere Stufe")
@@ -694,9 +894,10 @@ def v2_cap_reason_lines(raw) -> list[str]:
     return lines
 
 
-def v2_flag_lines(raw) -> list[str]:
+def v2_flag_lines(raw, *, definition: dict | None = None) -> list[str]:
+    messages = _flag_messages(definition) if definition else CONSISTENCY_FLAGS
     return [
-        f"{code}: {CONSISTENCY_FLAGS[code]}"
+        f"{code}: {messages[code]}"
         for code in v2_evidence(raw).get("consistency_flags") or []
-        if code in CONSISTENCY_FLAGS
+        if code in messages
     ]

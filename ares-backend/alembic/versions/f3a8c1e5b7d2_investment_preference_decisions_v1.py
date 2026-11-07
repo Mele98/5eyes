@@ -19,7 +19,7 @@ Monate als Hauspolitik, keine gesetzliche Frist). Gleiche DDL wie
 database.py (SQLite-Laufzeitpatch) und ares_schema.sql.
 
 Revision ID: f3a8c1e5b7d2
-Revises: e7c4a9b2d6f1
+Revises: f3a8c1d5e9b2
 Create Date: 2026-11-07
 """
 from __future__ import annotations
@@ -31,7 +31,7 @@ from alembic import context, op
 
 
 revision: str = "f3a8c1e5b7d2"
-down_revision: Union[str, Sequence[str], None] = "e7c4a9b2d6f1"
+down_revision: Union[str, Sequence[str], None] = "f3a8c1d5e9b2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
