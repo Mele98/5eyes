@@ -16666,43 +16666,6 @@ async function loadAdminAuditLog(offset) {
   }
 }
 
-function renderAuditLogTable(entries, container) {
-  if (!container) return;
-  if (!entries.length) {
-    container.textContent = 'Keine Einträge.';
-    return;
-  }
-  var html = '<table style="width:100%;border-collapse:collapse;font-size:10px">'
-    + '<thead><tr style="border-bottom:1px solid var(--b2);color:var(--n4)">'
-    + '<th style="text-align:left;padding:3px 6px;font-weight:500">Zeitpunkt</th>'
-    + '<th style="text-align:left;padding:3px 6px;font-weight:500">Benutzer</th>'
-    + '<th style="text-align:left;padding:3px 6px;font-weight:500">Tabelle</th>'
-    + '<th style="text-align:left;padding:3px 6px;font-weight:500">Aktion</th>'
-    + '<th style="text-align:left;padding:3px 6px;font-weight:500">ID</th>'
-    + '<th style="text-align:left;padding:3px 6px;font-weight:500">Feld / Wert</th>'
-    + '</tr></thead><tbody>';
-  entries.forEach(function(entry) {
-    var rawTs = String(entry.created_at || '');
-    var ts = rawTs ? (typeof formatIsoLocal === 'function' ? formatIsoLocal(rawTs) : rawTs.slice(0, 16).replace('T', ' ')) : '—';
-    var rawId = String(entry.record_id || '');
-    var shortId = escapeHtml(rawId.slice(0, 8)) + (rawId.length > 8 ? '…' : '');
-    var fieldVal = entry.field_name
-      ? escapeHtml(String(entry.field_name)) + (entry.new_value ? ' → ' + escapeHtml(String(entry.new_value).slice(0, 30)) : '')
-      : '';
-    var actionColor = {CREATE:'var(--pos)',UPDATE:'var(--warn)',DELETE:'var(--neg)',LOGIN:'var(--g4)',PASSWORD_RESET:'var(--warn)',EXPORT:'var(--n6)'}[entry.action] || 'var(--n6)';
-    html += '<tr style="border-bottom:1px solid var(--b1)">'
-      + '<td style="padding:3px 6px;color:var(--n5)">' + escapeHtml(ts) + '</td>'
-      + '<td style="padding:3px 6px">' + escapeHtml(entry.user_name || '—') + '</td>'
-      + '<td style="padding:3px 6px;color:var(--n4)">' + escapeHtml(entry.table_name || '—') + '</td>'
-      + '<td style="padding:3px 6px;font-weight:500;color:' + actionColor + '">' + escapeHtml(entry.action || '—') + '</td>'
-      + '<td style="padding:3px 6px;color:var(--n4);font-family:monospace">' + shortId + '</td>'
-      + '<td style="padding:3px 6px;color:var(--n4)">' + fieldVal + '</td>'
-      + '</tr>';
-  });
-  html += '</tbody></table>';
-  container.innerHTML = html;
-}
-
 function renderAuditLogPagination(container) {
   if (!container) return;
   var from = _auditLogTotal > 0 ? (_auditLogOffset + 1) : 0;
@@ -27670,6 +27633,6 @@ function openStammdatenModal(){
 </div>
 <!-- ─────────────────────────────────────────────────────────── -->
 
-<script src="./goal-review-runtime.js"></script>
+<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script>
 </body>
 </html>
