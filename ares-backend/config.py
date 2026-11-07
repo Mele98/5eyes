@@ -133,6 +133,23 @@ def resolve_env_file() -> str:
     return '.env'
 
 
+# SQLCIPHER-DB-KEY-FORMAT-001 (Pruefrunde #864, S-1): erlaubter Zeichensatz fuer
+# den SQLCipher-Schluessel. Nur URL-unreservierte ASCII-Zeichen, 32-512 Zeichen
+# (empfohlen: 64 Hex-Zeichen). Schliesst Leerzeichen, Anfuehrungszeichen, %, +,
+# Nullbyte, Steuerzeichen, Nicht-ASCII und die SQLCipher-Rohschluesselform
+# x'...' aus. Fail-closed beim Start; die Meldung nennt den Schluessel nie.
+_DB_KEY_RE = re.compile(r'[A-Za-z0-9._~-]{32,512}')
+DB_KEY_FORMAT_MESSAGE = (
+    'db_key enthaelt unzulaessige Zeichen oder hat eine unzulaessige Laenge '
+    '(erlaubt: 32-512 Zeichen aus A-Z a-z 0-9 . _ ~ -; empfohlen: 64 Hex-Zeichen). '
+    'Der Schluessel wird nicht ausgegeben.'
+)
+
+
+def db_key_format_ok(key: object) -> bool:
+    return isinstance(key, str) and _DB_KEY_RE.fullmatch(key) is not None
+
+
 _HOSTNAME_RE = re.compile(r'(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+')
 
 
@@ -141,6 +158,9 @@ class Settings(BaseSettings):
         env_file=resolve_env_file(),
         env_file_encoding='utf-8',
         extra='ignore',
+        # S-1 (Pruefrunde #864): ValidationError zeigt sonst input_value, also die
+        # gesamte Konfiguration inkl. DB_KEY/SECRET_KEY, in Exception und Log.
+        hide_input_in_errors=True,
     )
 
     app_name: str = 'Ares API'
@@ -153,12 +173,13 @@ class Settings(BaseSettings):
     log_backup_count: int = 5
 
     # Database
-    database_url: str | None = None
+    database_url: str | None = Field(default=None, repr=False)
     # Default aus EINER Quelle (core/db_location.py); die Live-DB-Waechter
     # vergleichen gegen dieselbe Funktion.
     db_path: str = Field(default_factory=lambda: str(_db_location.default_db_path()))
     db_echo: bool = False
-    db_key: str | None = None
+    # repr=False: der Schluessel erscheint nie in repr/ValidationError (S-1).
+    db_key: str | None = Field(default=None, repr=False)
     db_use_sqlcipher: bool = False
     db_bootstrap_schema_on_startup: bool = True
 
@@ -170,7 +191,7 @@ class Settings(BaseSettings):
     log_dir: str = ''
 
     # Auth
-    secret_key: str = DEFAULT_SECRET_KEY
+    secret_key: str = Field(default=DEFAULT_SECRET_KEY, repr=False)
     algorithm: str = 'HS256'
     access_token_expire_minutes: int = 480
     # Roadmap #28 (Standpunkt 2026-08-07): Refresh-Token-Rotation. Deutlich
@@ -274,12 +295,12 @@ class Settings(BaseSettings):
     target_macro_euro_provider: str = 'ecb'
     target_macro_swiss_provider: str = 'snb'
     target_enterprise_reference_provider: str = 'six'
-    twelvedata_api_key: str | None = None
-    eodhd_api_key: str | None = None
-    openfigi_api_key: str | None = None
-    fred_api_key: str | None = None
-    six_api_key: str | None = None
-    alphavantage_api_key: str | None = None
+    twelvedata_api_key: str | None = Field(default=None, repr=False)
+    eodhd_api_key: str | None = Field(default=None, repr=False)
+    openfigi_api_key: str | None = Field(default=None, repr=False)
+    fred_api_key: str | None = Field(default=None, repr=False)
+    six_api_key: str | None = Field(default=None, repr=False)
+    alphavantage_api_key: str | None = Field(default=None, repr=False)
 
     # V3 Sprint 2026-05 (Multi-Source Data Aggregator).
     # Komma-separierte Reihenfolge der Provider; erste = Primary.
@@ -311,7 +332,7 @@ class Settings(BaseSettings):
     market_data_daily_refresh_max_symbols: int = 500
 
     # P22 — Webhook-Notifier fuer Validation-Alerts. Default leer = no-op.
-    market_data_alert_webhook_url: str = ''
+    market_data_alert_webhook_url: str = Field(default='', repr=False)
     market_data_alert_webhook_timeout_seconds: float = 5.0
 
     # System / diagnostics
@@ -341,7 +362,7 @@ class Settings(BaseSettings):
 
     # Sprint U-64 (2026-06-04): Telemetrie-Adapter (opt-in).
     telemetry_enabled: bool = False
-    telemetry_dsn: str = ''
+    telemetry_dsn: str = Field(default='', repr=False)
     telemetry_environment: str = ''
     telemetry_sample_rate: float = 1.0
 
@@ -379,7 +400,7 @@ class Settings(BaseSettings):
     # Setting statt Wiederverwendung von market_data_alert_webhook_url, da
     # ein Betreiber Backup- und Marktdaten-Alerts an unterschiedliche Kanaele
     # routen koennte. Default leer = no-op, kein Netzwerkverkehr.
-    backup_alert_webhook_url: str = ''
+    backup_alert_webhook_url: str = Field(default='', repr=False)
     backup_alert_webhook_timeout_seconds: float = 5.0
 
     # U-19 — Aggregator-Cache (Roadmap-Punkt 19). compute_advisory_report
@@ -483,7 +504,7 @@ class Settings(BaseSettings):
     smtp_host: str = ''
     smtp_port: int = 587
     smtp_user: str = ''
-    smtp_password: str = ''
+    smtp_password: str = Field(default='', repr=False)
     # W4-d: kein erfundener Absender. Ohne SMTP_FROM (<ARES_NO_REPLY_EMAIL>,
     # Owner-Wert) verschickt services/mailer.py nichts (fail-closed, klare
     # Meldung im Log); der Invite-Flow faellt auf Link-Copy zurueck.
@@ -499,7 +520,7 @@ class Settings(BaseSettings):
     allow_real_client_data: bool = True
     # Tenant-DEK envelope encryption. Production/Tier-2 should supply this via
     # env/vault (TENANT_MASTER_KEK); development can pass an explicit KEK in tests.
-    tenant_master_kek: str = ''
+    tenant_master_kek: str = Field(default='', repr=False)
     # RB-1: Pfad der DPAPI-geschuetzten KEK-Ablage (Datei im userData-Ordner der
     # Desktop-Shell; Electron setzt ihn beim Spawn). Leer = keine Ablage: die
     # KEK kommt dann ausschliesslich aus TENANT_MASTER_KEK (Server/Staging,
@@ -516,7 +537,7 @@ class Settings(BaseSettings):
     # verifiziert/scheitert fail-closed bei fehlendem oder falschem Sidecar.
     # Default leer -> unveraendertes Verhalten (reiner Tier-1-Desktop-Betrieb,
     # kein zusaetzliches Schluesselmaterial zu verwalten).
-    backup_hmac_key: str = ''
+    backup_hmac_key: str = Field(default='', repr=False)
 
     # Browser-Hosting (2026-06-10): Haupt-App (ares.html) ueber das Backend
     # ausliefern, damit ein einzelner Host/Tunnel die komplette App im Browser
@@ -827,6 +848,8 @@ class Settings(BaseSettings):
             )
         if self.db_use_sqlcipher and not self.db_key:
             raise ValueError('db_key must be set when db_use_sqlcipher=true')
+        if self.db_use_sqlcipher and not db_key_format_ok(self.db_key):
+            raise ValueError(DB_KEY_FORMAT_MESSAGE)
         if self.recent_log_lines_default > self.recent_log_lines_max:
             raise ValueError('recent_log_lines_default must not exceed recent_log_lines_max')
         # Sprint U-59 (2026-06-01): Bearer-Token-TTL hard cap in production.

@@ -5,13 +5,13 @@ import sys
 import uuid
 from pathlib import Path
 from typing import Any, Generator
-from urllib.parse import quote_plus
 
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.pool import QueuePool
 
-from config import settings
+from config import DB_KEY_FORMAT_MESSAGE, db_key_format_ok, settings
 from core.mandate_evidence_tenant_boundary import (
     MANDATE_BOUND_TENANT_TABLES,
     create_sqlite_guards_after_metadata_create,
@@ -53,6 +53,40 @@ def _sqlcipher_enabled(db_key: str | None = None) -> bool:
     return bool(getattr(settings, 'db_use_sqlcipher', False) and key)
 
 
+# SQLCIPHER-KEY-PRAGMA-001 (Pruefrunde #861): SQLite bindet in PRAGMA-Anweisungen
+# keine Parameter -- ``PRAGMA key = ?`` ist mit dem echten sqlcipher3 ein
+# Syntaxfehler (``near "?"``). Der Schluessel wird deshalb als SQL-Literal mit
+# verdoppelten Hochkommas gesetzt (gleiche Form wie der Migrator-Codec); danach
+# die Cipher-Parameter in fester Reihenfolge, vor dem ersten Lesezugriff.
+# SQLCIPHER-SINGLE-KEY-PATH-001 (Pruefrunde #864, S-1): das ist der EINZIGE Weg,
+# auf dem der Schluessel gesetzt wird -- Engine (connect-Event), Rohschema-
+# Bootstrap und Backup. Er steht nicht mehr in der URL (quote_plus/unquote machte
+# aus einem Leerzeichen still ein "+", das Dialekt-PRAGMA key="..." brach an ").
+SQLCIPHER_CIPHER_PRAGMAS = (
+    'PRAGMA cipher_page_size = 4096',
+    'PRAGMA kdf_iter = 256000',
+    'PRAGMA cipher_hmac_algorithm = HMAC_SHA512',
+    'PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512',
+)
+
+
+def sqlcipher_key_pragma(key: str) -> str:
+    return "PRAGMA key = '" + str(key).replace("'", "''") + "'"
+
+
+def apply_sqlcipher_key(conn: Any, key: str) -> None:
+    """Schluessel + Cipher-Parameter auf eine rohe sqlcipher3-Verbindung setzen.
+
+    Fail-closed: ein Schluessel ausserhalb des erlaubten Formats (config.py,
+    SQLCIPHER-DB-KEY-FORMAT-001) wird nie gesetzt; die Meldung nennt ihn nicht.
+    """
+    if not db_key_format_ok(key):
+        raise ValueError(DB_KEY_FORMAT_MESSAGE)
+    conn.execute(sqlcipher_key_pragma(key))
+    for pragma in SQLCIPHER_CIPHER_PRAGMAS:
+        conn.execute(pragma)
+
+
 def _configured_database_url(database_url: str | None = None) -> str | None:
     configured = database_url if database_url is not None else getattr(settings, "database_url", None)
     if configured and str(configured).strip():
@@ -83,8 +117,9 @@ def build_database_url(
                 'DB_USE_SQLCIPHER=true ist gesetzt, aber sqlcipher3 ist nicht installiert. '
                 'Installiere sqlcipher3-binary oder sqlcipher3.'
             )
-        key = quote_plus((db_key or settings.db_key or ''))
-        return f'sqlite+pysqlcipher://:{key}@/{db_file}'
+        # SQLCIPHER-SINGLE-KEY-PATH-001: kein Schluessel in der URL; die Engine
+        # nutzt den pysqlite-Dialekt mit module=sqlcipher3 und setzt den
+        # Schluessel per connect-Event (create_app_engine).
     return f'sqlite:///{db_file}'
 
 
@@ -100,14 +135,19 @@ def build_connect_args(
 
 
 def attach_sqlite_pragmas(target_engine: Engine, db_key: str | None = None) -> None:
+    if _sqlcipher_enabled(db_key=db_key):
+        key = db_key or settings.db_key or ''
+
+        # insert=True: vor jedem anderen connect-Handler, auch vor der
+        # Dialekt-Initialisierung beim ersten Connect -- der Schluessel muss
+        # vor dem ersten Lesezugriff stehen.
+        @event.listens_for(target_engine, 'connect', insert=True)
+        def _set_sqlcipher_key(dbapi_connection, connection_record):
+            apply_sqlcipher_key(dbapi_connection, key)
+
     @event.listens_for(target_engine, 'connect')
     def _set_sqlite_pragma(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
-        if _sqlcipher_enabled(db_key=db_key):
-            cursor.execute('PRAGMA cipher_page_size = 4096')
-            cursor.execute('PRAGMA kdf_iter = 256000')
-            cursor.execute('PRAGMA cipher_hmac_algorithm = HMAC_SHA512')
-            cursor.execute('PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512')
         cursor.execute('PRAGMA foreign_keys = ON')
         cursor.execute('PRAGMA journal_mode = WAL')
         cursor.execute('PRAGMA busy_timeout = 5000')
@@ -130,6 +170,14 @@ def create_app_engine(
         kwargs['connect_args'] = connect_args
     if is_sqlite_database_url(database_url) and _sqlcipher_enabled(db_key=db_key):
         kwargs['module'] = sqlcipher3
+        # SQLCIPHER-ENGINE-POOL-001 (N-861-6): Der pysqlcipher-Dialekt von
+        # SQLAlchemy 2.0 waehlte immer SingletonThreadPool (auch fuer eine
+        # Datei-DB). Der kennt kein ``pool_timeout`` -> create_engine brach mit
+        # TypeError ab und der SQLCipher-Pfad startete nie. Seit S-1 laeuft die
+        # verschluesselte DB ueber den pysqlite-Dialekt mit module=sqlcipher3;
+        # der Pool ist explizit derselbe wie bei der Klartext-Datei-DB
+        # (QueuePool, pool_timeout=30).
+        kwargs['poolclass'] = QueuePool
     app_engine = create_engine(database_url, **kwargs)
     if app_engine.dialect.name == "sqlite":
         attach_sqlite_pragmas(app_engine, db_key=db_key)
@@ -210,12 +258,11 @@ def bootstrap_sqlite_schema(
                 'DB_USE_SQLCIPHER=true ist gesetzt, aber sqlcipher3 ist nicht installiert. '
                 'Installiere sqlcipher3-binary oder sqlcipher3.'
             )
+        key = db_key or settings.db_key or ''
+        if not db_key_format_ok(key):
+            raise ValueError(DB_KEY_FORMAT_MESSAGE)
         with sqlcipher3.connect(str(db_file)) as conn:
-            conn.execute("PRAGMA key = ?", [db_key or settings.db_key or ''])
-            conn.execute('PRAGMA cipher_page_size = 4096')
-            conn.execute('PRAGMA kdf_iter = 256000')
-            conn.execute('PRAGMA cipher_hmac_algorithm = HMAC_SHA512')
-            conn.execute('PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512')
+            apply_sqlcipher_key(conn, key)
             conn.execute('PRAGMA foreign_keys = OFF')
             conn.executescript(sql)
             conn.execute('PRAGMA foreign_keys = ON')
