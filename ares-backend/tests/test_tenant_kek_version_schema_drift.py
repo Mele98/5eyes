@@ -191,10 +191,10 @@ def test_new_dek_is_stored_with_current_kek_version_2(session_factory):
             )
         )
         db.commit()
-        get_tenant_dek(db, "kv-firm", master_kek="kv-test-master")
+        get_tenant_dek(db, "kv-firm", master_kek="kv-test-master-passphrase-0123456789")
         assert db.execute(
             text("SELECT kek_version FROM tenants WHERE id = 'kv-firm'")
         ).scalar_one() == 2
-        rotate_tenant_dek(db, "kv-firm", master_kek="kv-test-master")
+        rotate_tenant_dek(db, "kv-firm", master_kek="kv-test-master-passphrase-0123456789")
         db.commit()
         assert db.get(Tenant, "kv-firm").kek_version == 2

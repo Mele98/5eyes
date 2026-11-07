@@ -9,6 +9,7 @@ from typing import Any, Generator
 
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import QueuePool
 
@@ -212,6 +213,54 @@ def _session_for(target_engine: Engine | None = None) -> Session:
     return sessionmaker(
         autocommit=False, autoflush=False, expire_on_commit=False, bind=target_engine,
     )()
+
+
+logger = logging.getLogger(__name__)
+
+# SEED-FK-HYGIENE (2026-11-05): Seeds/Backfills beim Start verschluckten jede
+# Ausnahme (``except Exception: pass``). So fiel der DE-Seed unter
+# PRAGMA foreign_keys=ON still aus. Jetzt gezielt: nur "Schema noch nicht da"
+# (Tabelle/Spalte fehlt in einer alten/partiellen DB) wird mit WARNING
+# uebersprungen; jeder andere Fehler (Integritaet, FK, Unique, Programmfehler)
+# wird mit ERROR geloggt und bricht den Start ab (fail-closed).
+_SCHEMA_NOT_READY_MARKERS = (
+    "no such table",
+    "no such column",
+    "has no column named",
+    "undefinedtable",
+    "undefinedcolumn",
+)
+
+
+def _db_error_summary(exc: BaseException) -> str:
+    """Kurzform fuer Logs: Fehlerklasse + erste Zeile der Treibermeldung.
+    Ohne SQL-Parameter (str(exc) von SQLAlchemy haengt sie an)."""
+    orig = getattr(exc, "orig", None)
+    detail = str(orig if orig is not None else "").strip().splitlines()
+    first = detail[0][:200] if detail else ""
+    return f"{type(exc).__name__}: {first}" if first else type(exc).__name__
+
+
+def _is_schema_not_ready(exc: BaseException) -> bool:
+    if not isinstance(exc, (OperationalError, ProgrammingError)):
+        return False
+    orig = getattr(exc, "orig", None)
+    text_ = f"{type(orig).__name__} {orig}".lower()
+    return any(marker in text_ for marker in _SCHEMA_NOT_READY_MARKERS) or (
+        "does not exist" in text_ and ("relation" in text_ or "column" in text_)
+    )
+
+
+def _handle_startup_step_error(step: str, exc: BaseException) -> None:
+    """Fehler eines Start-Seeds/-Backfills behandeln: Schema-nicht-bereit ->
+    WARNING und weiter; alles andere -> ERROR und erneut ausloesen."""
+    if _is_schema_not_ready(exc):
+        logger.warning("Startschritt %s uebersprungen (Schema unvollstaendig): %s",
+                       step, _db_error_summary(exc))
+        return
+    logger.error("Startschritt %s fehlgeschlagen, Start abgebrochen: %s",
+                 step, _db_error_summary(exc))
+    raise exc
 
 
 class Base(DeclarativeBase):
@@ -2334,10 +2383,10 @@ def ensure_default_tenant(target_engine: Engine | None = None) -> None:
             )
             db.add(tenant)
             db.commit()
-    except Exception:
-        # Boot-Robustheit: Default-Tenant-Setup darf den Backend-Start
-        # nicht stoppen. Logging kann der Caller verarbeiten.
-        pass
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        # Fail-closed (SEED-FK-HYGIENE): ohne 'main' scheitern Tenant-Backfill
+        # und Lizenzpruefung; nur ein unvollstaendiges Schema wird uebersprungen.
+        _handle_startup_step_error("ensure_default_tenant", exc)
 
 
 def ensure_default_ch_jurisdiction(target_engine: Engine | None = None) -> None:
@@ -2386,10 +2435,8 @@ def ensure_default_ch_jurisdiction(target_engine: Engine | None = None) -> None:
             )
             db.add(profile)
             db.commit()
-    except Exception:
-        # Boot-Robustheit: Default-Jurisdiktion-Setup darf den Backend-Start
-        # nicht stoppen. Logging kann der Caller verarbeiten.
-        pass
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        _handle_startup_step_error("ensure_default_ch_jurisdiction", exc)
 
 
 def ensure_default_de_jurisdiction(target_engine: Engine | None = None) -> None:
@@ -2400,13 +2447,21 @@ def ensure_default_de_jurisdiction(target_engine: Engine | None = None) -> None:
     ensure_default_ch_jurisdiction() direkt darueber -- beruehrt NIE eine
     CH-Zeile und blockiert den Boot nie."""
     try:
-        from services.jurisdiction.de_seed import ensure_de_jurisdiction_seed
+        from services.jurisdiction.de_seed import (
+            ensure_de_jurisdiction_seed,
+            log_legacy_pseudo_created_by_repair,
+        )
 
         with _session_for(target_engine) as db:
-            ensure_de_jurisdiction_seed(db)
+            repaired = ensure_de_jurisdiction_seed(db)
             db.commit()
-    except Exception:
-        pass
+        # N-870-5: erst nach erfolgreichem Commit melden; bei Rollback keine
+        # Erfolgszeile.
+        log_legacy_pseudo_created_by_repair(repaired)
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        # Hier fiel der DE-Seed unter PRAGMA foreign_keys=ON still aus
+        # (Pseudo-Kennung in created_by, SEED-FK-HYGIENE).
+        _handle_startup_step_error("ensure_default_de_jurisdiction", exc)
 
 
 def ensure_client_login_user_tenant_backfill(engine_to_use=None) -> None:
@@ -2449,9 +2504,11 @@ def ensure_client_login_user_tenant_backfill(engine_to_use=None) -> None:
                     """
                 )
             )
-    except Exception:
-        # Tabelle/Spalte (noch) nicht vorhanden -> ueberspringen (Boot-Robustheit).
-        pass
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        # Tabelle/Spalte (noch) nicht vorhanden -> ueberspringen. Jeder andere
+        # Fehler bricht ab: sonst zoege ensure_tenant_backfill() danach die
+        # Client-User pauschal nach 'main' (Bruch der Mandantentrennung).
+        _handle_startup_step_error("ensure_client_login_user_tenant_backfill", exc)
 
 
 def ensure_tenant_backfill(engine_to_use=None) -> None:
@@ -2498,23 +2555,19 @@ def ensure_tenant_backfill(engine_to_use=None) -> None:
     if _effective_strict_tenant_isolation(settings):
         return
     eng = engine_to_use if engine_to_use is not None else engine
-    try:
-        from models.tenant import DEFAULT_TENANT_ID
-        from sqlalchemy import text as _sql_text
-        for table in ("users", "clients", "mandates", "protocol_bausteine"):
-            try:
-                with eng.begin() as conn:
-                    conn.execute(
-                        _sql_text(
-                            f"UPDATE {table} SET tenant_id = :tid WHERE tenant_id IS NULL"
-                        ),
-                        {"tid": DEFAULT_TENANT_ID},
-                    )
-            except Exception:
-                # Tabelle/Spalte (noch) nicht vorhanden -> ueberspringen.
-                pass
-    except Exception:
-        pass
+    from models.tenant import DEFAULT_TENANT_ID
+    for table in ("users", "clients", "mandates", "protocol_bausteine"):
+        try:
+            with eng.begin() as conn:
+                conn.execute(
+                    text(
+                        f"UPDATE {table} SET tenant_id = :tid WHERE tenant_id IS NULL"
+                    ),
+                    {"tid": DEFAULT_TENANT_ID},
+                )
+        except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+            # Tabelle/Spalte (noch) nicht vorhanden -> ueberspringen; sonst Abbruch.
+            _handle_startup_step_error(f"ensure_tenant_backfill[{table}]", exc)
 
 
 _LEGACY_HOUSE_MATRIX_REAL_ESTATE_MAX = {
@@ -2564,8 +2617,10 @@ def migrate_house_matrix_real_estate_cap_20(engine_to_use=None) -> int:
                 )
                 if result.rowcount and result.rowcount > 0:
                     updated += int(result.rowcount)
-    except Exception:
-        # Boot-Robustheit: eine alte/partielle DB darf den Start nicht stoppen.
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        # Eine alte/partielle DB (Tabelle/Spalte fehlt) darf den Start nicht
+        # stoppen; ein echter Fehler der Datenmigration schon.
+        _handle_startup_step_error("migrate_house_matrix_real_estate_cap_20", exc)
         return 0
     return updated
 
