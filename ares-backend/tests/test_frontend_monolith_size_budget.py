@@ -30,6 +30,11 @@ H5 Risikoprofil (2026-11-07): Maskenergaenzungen (Q10-Fussnote, Fragebogen v2,
 Kenntnis/Erfahrung) liegen im neuen Teil risk-questionnaire-v2.js mit eigenem
 Budget. Im Monolithen nur die Einbindung und eine zusammengefasste
 Kenntnis-Wiederherstellung; er schrumpft dabei (Budget auf den neuen Stand).
+
+E2 Nachhaltigkeitspraeferenzen (Dok. 106, 2026-11-07): Kundenmaske im neuen
+Teil sustainability-preferences.js mit eigenem Budget. Im Monolithen nur die
+Einbindung; Platz dafuer durch eine gemeinsame Themen-Namensliste
+(AA_THEME_NAMES statt dreier gleicher Literale), er schrumpft dabei.
 """
 from __future__ import annotations
 
@@ -40,7 +45,7 @@ MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
 MONOLITH_MAX_LINES = 27666
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1695267
+MONOLITH_MAX_BYTES = 1695130
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -49,6 +54,7 @@ EXTRACTED_PART_BUDGETS = {
     "intro-sequence.js": (761, 36861),
     "goal-review-runtime.js": (1589, 84633),
     "risk-questionnaire-v2.js": (428, 18378),
+    "sustainability-preferences.js": (321, 16514),
 }
 
 

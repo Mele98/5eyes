@@ -3,9 +3,9 @@
     "css_selectors": 1120,
     "event_handlers": 461,
     "ids": 1018,
-    "js_functions": 1330,
+    "js_functions": 1352,
     "modal_structures": 110,
-    "script_blocks": 26,
+    "script_blocks": 27,
     "style_blocks": 2,
     "sub_sections": 42
   },
@@ -9262,6 +9262,12 @@
       "path": "ares-desktop/frontend/risk-questionnaire-v2.js",
       "sha256": "6ffb2a05fb13bb03a6fd5184502650b7cbbfb065d3ff1ab097372a0b5f873fac",
       "size_bytes": 18378
+    },
+    {
+      "kind": "js",
+      "path": "ares-desktop/frontend/sustainability-preferences.js",
+      "sha256": "1438f9c19ffa419cc68376b723fc974f40d8023bf85b6c916fc3a1b51789a4c6",
+      "size_bytes": 16514
     }
   ],
   "ids": [
@@ -22146,6 +22152,138 @@
       "line": 126,
       "name": "riskV2UpdateAmounts",
       "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "var",
+      "line": 108,
+      "name": "pick",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 267,
+      "name": "sustActiveExclusions",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 274,
+      "name": "sustApplyFloorToStrategyBlocks",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 36,
+      "name": "sustCard",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 191,
+      "name": "sustCollect",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 181,
+      "name": "sustErrors",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 18,
+      "name": "sustEsc",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 131,
+      "name": "sustExclusionLabel",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 105,
+      "name": "sustHydrate",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 300,
+      "name": "sustInstallWrappers",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 26,
+      "name": "sustIsRealMandate",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 248,
+      "name": "sustLoad",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 240,
+      "name": "sustLoadDefinition",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 22,
+      "name": "sustMandateId",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 30,
+      "name": "sustQuestion",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 51,
+      "name": "sustRadio",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 56,
+      "name": "sustRender",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 218,
+      "name": "sustSave",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 125,
+      "name": "sustSelectedExclusions",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 156,
+      "name": "sustShowState",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 137,
+      "name": "sustSyncVisibility",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 120,
+      "name": "sustValue",
+      "source": "sustainability-preferences.js"
     }
   ],
   "modal_structures": [
@@ -22921,8 +23059,8 @@
     }
   ],
   "source_path": "ares-desktop/frontend/ares.html",
-  "source_sha256": "2fe386b0b1087b3b7dddf58ad996590e50e96b453a3cb2a6a038b6c58e9ca2c7",
-  "source_size_bytes": 1695267,
+  "source_sha256": "004be22c3e03fa4ee905de64a0606f7db5db8f214e1720265b79f31bdd5237dd",
+  "source_size_bytes": 1695130,
   "sub_sections": [
     {
       "class": "sbb",
