@@ -41,7 +41,10 @@ def make_risiko_metriken_section(
     boxes = [
         ("Erwartete Rendite", _fmt_pct(expected_return_bps), "p.a. langfristig", COLOR_BORDER),
         ("Median CAGR", _fmt_pct(median_cagr_bps), "geometrisch", COLOR_BORDER),
-        ("Volatilität", _fmt_pct(volatility_bps), "p.a. annualisiert", COLOR_BORDER),
+        # Live-Test 2026-11 M8: Modell-Volatilitaet sqrt(w'Sigma w) der SAA --
+        # nicht identisch mit der in der Simulation realisierten 1-Jahres-
+        # Volatilitaet im SOLL/IST-Vergleich; daher eindeutig beschriftet.
+        ("Volatilität (Modell)", _fmt_pct(volatility_bps), "p.a., aus Kapitalmarktannahmen", COLOR_BORDER),
         # DRAWDOWN-TIME-GRID-001: die Quellenangabe lautete "historisch". Der
         # Wert ist aber `target_max_drawdown_p50_bps` -- der Median der
         # simulierten Max-Drawdown-Verteilung, in einem Abschnitt, der selbst

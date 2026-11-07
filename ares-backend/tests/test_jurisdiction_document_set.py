@@ -166,15 +166,19 @@ def test_footer_constant_and_runtime_text_come_from_the_document_set(monkeypatch
     expected = footer.FIDLEG_DISCLAIMER + " Erstellt am 15.01.2026."
     canvas = _Canvas()
     footer.make_footer_callback(ctx)(canvas, None)
-    # Zeile 1 ist wie bisher (inkl. Kuerzung auf 220 Zeichen).
-    assert canvas.strings[0] == (expected if len(expected) <= 220 else expected[:217] + "...")
+    # Live-Test 2026-11: Pflichttext vollstaendig (umgebrochen, nie gekuerzt);
+    # die Disclaimer-Zeilen stehen vor "Seite N".
+    def _disclaimer(strings):
+        return " ".join(strings[:next(i for i, t in enumerate(strings) if t.startswith("Seite "))])
+
+    assert _disclaimer(canvas.strings) == expected
 
     # Laufzeit-Lookup ueber das DocumentSet (nicht ueber die Modulkonstante).
     stub = SimpleNamespace(text=lambda key: f"<{key}>")
     monkeypatch.setattr(footer, "default_documents", lambda: stub)
     canvas = _Canvas()
     footer.make_footer_callback(ctx)(canvas, None)
-    assert canvas.strings[0] == "<legal.footer.disclaimer> Erstellt am 15.01.2026."
+    assert _disclaimer(canvas.strings) == "<legal.footer.disclaimer> Erstellt am 15.01.2026."
 
 
 def test_cost_disclosure_cover_reads_title_subtitle_and_articles_from_the_document_set(monkeypatch):
