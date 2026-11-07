@@ -38,6 +38,7 @@
       "frontend/ares.css",
       "frontend/intro-sequence.js",
       "frontend/goal-review-runtime.js",
+      "frontend/risk-questionnaire-v2.js",
       "frontend/eligibility-overrides.js",
       "frontend/desktop-api.js",
       "frontend/risk-capacity-recheck.js",

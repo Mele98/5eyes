@@ -118,6 +118,14 @@ class RiskAssessment(Base):
     signoff_id = Column(String)
     signoff_hash = Column(String)
     signoff_status = Column(String)             # signed | signature_required | legacy_unbound
+    # H5b (Dok. 105): Fragebogen-Version am Profil. NULL = Altprofil (v1) --
+    # bleibt gueltig und wird nie mit v2-Regeln neu berechnet. 'v2': Hash der
+    # v2-Definition, kanonische Evidenz (Antworten 12-14, Kern-Bereitschaft,
+    # wirksame Kappungen, Konsistenz-Flags) und Pflichtnotiz des Beraters.
+    questionnaire_version = Column(String)
+    questionnaire_hash = Column(String)
+    willingness_v2_json = Column(String)
+    consistency_note = Column(String)
     assessed_at = Column(String, nullable=False)
     assessed_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)

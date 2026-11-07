@@ -5173,6 +5173,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/risk-questionnaire/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Risk Questionnaire Policy
+         * @description H5b: aktive Fragebogen-Version der Firma und Definition v2 (Texte,
+         *     Optionen, Kappungen, Konsistenz-Flags). v2 ist per Tenant-Policy aus,
+         *     bis die Grenzwerte durch IC/Compliance freigegeben und vermerkt sind.
+         */
+        get: operations["get_risk_questionnaire_policy_risk_questionnaire_policy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tax/estimate": {
         parameters: {
             query?: never;
@@ -5263,6 +5285,31 @@ export interface paths {
          *     kein Zugriff auf hosting_tier/license_status/max_users etc.
          */
         put: operations["update_my_tenant_tenants_me_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tenants/me/risk-questionnaire-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Update My Risk Questionnaire Policy
+         * @description H5 (N-886-08): Risikoprofil-Fragebogen v2 fuer die EIGENE Firma.
+         *
+         *     Default aus. Aktivieren nur mit Vermerk der IC-/Compliance-Freigabe der
+         *     Grenzwerte (Schema-Pflicht); jede Aenderung wird mit altem und neuem Stand
+         *     samt Vermerk auditiert. Ab Aktivierung nimmt der Server fuer diese Firma
+         *     nur noch neue v2-Erhebungen an; bestehende Profile bleiben gueltig.
+         */
+        put: operations["update_my_risk_questionnaire_policy_tenants_me_risk_questionnaire_policy_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -11518,6 +11565,8 @@ export interface components {
         RiskAssessmentCreate: {
             /** Answers */
             answers?: Record<string, unknown>[] | null;
+            /** Consistency Note */
+            consistency_note?: string | null;
             /**
              * Data Classification
              * @default synthetic
@@ -11551,6 +11600,10 @@ export interface components {
             q_savings_points: number;
             /** Q Wealth Points */
             q_wealth_points: number;
+            /** Questionnaire V2 Answers */
+            questionnaire_v2_answers?: Record<string, unknown>[] | null;
+            /** Questionnaire Version */
+            questionnaire_version?: ("v1" | "v2") | null;
         };
         /** RiskAssessmentOverride */
         RiskAssessmentOverride: {
@@ -11597,6 +11650,8 @@ export interface components {
             client_signed_at?: string | null;
             /** Client Signed Method */
             client_signed_method?: string | null;
+            /** Consistency Note */
+            consistency_note?: string | null;
             /** Created At */
             created_at: string;
             /** Final Profile */
@@ -11651,6 +11706,10 @@ export interface components {
             q_savings_points: number;
             /** Q Wealth Points */
             q_wealth_points: number;
+            /** Questionnaire Hash */
+            questionnaire_hash?: string | null;
+            /** Questionnaire Version */
+            questionnaire_version?: string | null;
             /** Risk Capacity Profile */
             risk_capacity_profile: string;
             /** Risk Capacity Score X10 */
@@ -11675,6 +11734,8 @@ export interface components {
             valid_from: string;
             /** Version */
             version: number;
+            /** Willingness V2 Json */
+            willingness_v2_json?: string | null;
         };
         /** RiskProfileSignRequest */
         RiskProfileSignRequest: {
@@ -11688,6 +11749,19 @@ export interface components {
             expected_signoff_id?: string | null;
             /** Note */
             note?: string | null;
+        };
+        /**
+         * RiskQuestionnairePolicyUpdate
+         * @description H5 (N-886-08): PUT /tenants/me/risk-questionnaire-policy.
+         *
+         *     Aktivieren nur mit Vermerk der IC-/Compliance-Freigabe der Grenzwerte
+         *     (Referenz, Datum, Gremium); Deaktivieren jederzeit.
+         */
+        RiskQuestionnairePolicyUpdate: {
+            /** Approval Reference */
+            approval_reference?: string | null;
+            /** Enabled */
+            enabled: boolean;
         };
         /** RoleGrant */
         RoleGrant: {
@@ -12553,6 +12627,17 @@ export interface components {
             max_mandates?: number | null;
             /** Max Users */
             max_users?: number | null;
+            /** Risk Questionnaire V2 Approval Ref */
+            risk_questionnaire_v2_approval_ref?: string | null;
+            /** Risk Questionnaire V2 Changed At */
+            risk_questionnaire_v2_changed_at?: string | null;
+            /** Risk Questionnaire V2 Changed By */
+            risk_questionnaire_v2_changed_by?: string | null;
+            /**
+             * Risk Questionnaire V2 Enabled
+             * @default 0
+             */
+            risk_questionnaire_v2_enabled?: number;
             /** Slug */
             slug: string;
             /** Storage Quota Mb */
@@ -12617,6 +12702,17 @@ export interface components {
             max_mandates?: number | null;
             /** Max Users */
             max_users?: number | null;
+            /** Risk Questionnaire V2 Approval Ref */
+            risk_questionnaire_v2_approval_ref?: string | null;
+            /** Risk Questionnaire V2 Changed At */
+            risk_questionnaire_v2_changed_at?: string | null;
+            /** Risk Questionnaire V2 Changed By */
+            risk_questionnaire_v2_changed_by?: string | null;
+            /**
+             * Risk Questionnaire V2 Enabled
+             * @default 0
+             */
+            risk_questionnaire_v2_enabled?: number;
             /** Slug */
             slug: string;
             /** Storage Quota Mb */
@@ -22584,6 +22680,26 @@ export interface operations {
             };
         };
     };
+    get_risk_questionnaire_policy_risk_questionnaire_policy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     estimate_tax_tax_estimate_post: {
         parameters: {
             query?: never;
@@ -22720,6 +22836,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["TenantSelfServiceUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_my_risk_questionnaire_policy_tenants_me_risk_questionnaire_policy_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RiskQuestionnairePolicyUpdate"];
             };
         };
         responses: {

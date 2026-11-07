@@ -867,6 +867,11 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # bleiben funktionsfaehig; neue Tenants starten via
             # schemas/tenants.py::TenantCreate explizit mit False.
             ('discretionary_management_licensed', 'INTEGER', 1),
+            # H5 (N-886-08): Fragebogen v2 als Firmen-Policy, Default aus.
+            ('risk_questionnaire_v2_enabled', 'INTEGER', 0),
+            ('risk_questionnaire_v2_approval_ref', 'TEXT'),
+            ('risk_questionnaire_v2_changed_at', 'TEXT'),
+            ('risk_questionnaire_v2_changed_by', 'TEXT'),
         ],
         # CERT-HANDOFF-EXECUTION-001 (2026-10-25): siehe models/portfolio_handoff.py
         # und Alembic c7e4a19b3d52. Nullable, kein Backfill.
@@ -1507,6 +1512,11 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         for ddl in RISK_PROFILE_SIGNOFF_SQLITE_TABLE_DDL + RISK_PROFILE_SIGNOFF_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
         ensure_column(conn, "risk_profile_signoffs", "tenant_id", "TEXT")
+        # H5b Risikoprofil-Fragebogen v2 (2026-11-07): Version/Hash/Evidenz/
+        # Beraternotiz am Assessment; Altprofile bleiben NULL (= v1).
+        for column in ("questionnaire_version", "questionnaire_hash",
+                       "willingness_v2_json", "consistency_note"):
+            ensure_column(conn, "risk_assessments", column, "TEXT")
         conn.execute(text(RISK_PROFILE_SIGNOFF_SQLITE_TENANT_INDEX))
         conn.execute(text(RISK_PROFILE_SIGNOFF_LEGACY_BACKFILL))
         # DSG-ERASURE-APPEND-ONLY-001 (2026-10-21): Kundenschluessel fuer das

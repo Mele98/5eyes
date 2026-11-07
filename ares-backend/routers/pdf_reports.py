@@ -620,6 +620,59 @@ def _require_strategy_decision_anchors(mandate: Mandate, db: Session):
     return allocation, policy, assessment, snapshot_cma
 
 
+def _risk_horizon_answer_label(risk_answers: list, ra) -> str:
+    """H5a: Anlagehorizont, wie der Kunde ihn in Frage 8 beantwortet hat.
+
+    Das Antwortlabel traegt den Zusatz "· Matrix-Faktor" (interne Herkunft);
+    der Kunde liest nur seine Antwort. Ohne Antwortzeile (Altbestand) das
+    gespeicherte Horizont-Label -- nie der interne Matrix-Stuetzwert in Jahren.
+    """
+    for answer in risk_answers:
+        if answer.get("question_number") == 8:
+            label = str(answer.get("answer_label") or "").split("·", 1)[0].strip()
+            if label:
+                return label
+    return str(getattr(ra, "investment_horizon_label", "") or "").strip()
+
+
+def _risk_questionnaire_v2_doc(ra) -> dict:
+    """H5b: PDF-Angaben eines versionierten Profils (Fragebogen v2).
+
+    Liest ausschliesslich die beim Speichern gebundene Evidenz
+    (willingness_v2_json): Antworten 12-14, wirksame Kappungen mit Grund,
+    Konsistenz-Flags; dazu Version, Erhebungsdatum und Beraternotiz.
+    Altprofile (Version NULL) -> leer, PDF unveraendert.
+    """
+    version = getattr(ra, "questionnaire_version", None)
+    if not version:
+        return {}
+    try:
+        evidence = json.loads(getattr(ra, "willingness_v2_json", None) or "{}")
+    except (TypeError, ValueError):
+        evidence = {}
+    if not isinstance(evidence, dict):
+        evidence = {}
+    assessed = str(getattr(ra, "assessed_at", "") or "")[:10]
+    assessed_on = ".".join(reversed(assessed.split("-"))) if len(assessed) == 10 else assessed
+    return {
+        "questionnaire_version": str(version),
+        "assessed_on": assessed_on,
+        "willingness_cap_reasons": tuple(str(x) for x in evidence.get("cap_reasons") or ()),
+        "consistency_messages": tuple(str(x) for x in evidence.get("consistency_messages") or ()),
+        "consistency_note": str(getattr(ra, "consistency_note", "") or ""),
+        "answers": [
+            {
+                "question_number": int(row.get("question_number") or 0),
+                "question_section": "Risikobereitschaft",
+                "answer_label": str(row.get("answer_label") or ""),
+                "answer_points": 0,
+            }
+            for row in evidence.get("answers") or ()
+            if isinstance(row, dict)
+        ],
+    }
+
+
 def _knowledge_map_from_json(raw) -> dict[str, bool]:
     if not raw:
         return {}
@@ -1262,7 +1315,8 @@ def get_risikoprofil_pdf(
     risk_capacity = 0
     risk_tolerance = 0
     risk_score_x10 = None
-    experience_years = 0
+    investment_horizon_label = ""
+    v2_doc: dict = {}
     suitability_note = ""
     is_overridden = False
     override_reason = None
@@ -1317,7 +1371,6 @@ def get_risikoprofil_pdf(
             )
             risk_capacity = int(getattr(ra, "risk_capacity_score_x10", 0) or 0)
             risk_tolerance = int(getattr(ra, "risk_willingness_score_x10", 0) or 0)
-            experience_years = int(getattr(ra, "investment_horizon_years", 0) or 0)
             knowledge_services = _knowledge_map_from_json(getattr(ra, "knowledge_services_json", None))
             knowledge_instruments = _knowledge_map_from_json(getattr(ra, "knowledge_instruments_json", None))
             for a in (
@@ -1332,6 +1385,9 @@ def get_risikoprofil_pdf(
                     "answer_label": str(getattr(a, "answer_label", "") or ""),
                     "answer_points": int(getattr(a, "answer_points", 0) or 0),
                 })
+            investment_horizon_label = _risk_horizon_answer_label(risk_answers, ra)
+            v2_doc = _risk_questionnaire_v2_doc(ra)
+            risk_answers.extend(v2_doc.pop("answers", []))
             if is_overridden:
                 override_reason = str(getattr(ra, "override_reason", "") or "").strip() or None
                 override_client_confirmed = bool(getattr(ra, "override_client_confirmed", 0))
@@ -1396,7 +1452,7 @@ def get_risikoprofil_pdf(
         knowledge_services=knowledge_services,
         knowledge_instruments=knowledge_instruments,
         risk_answers=risk_answers,
-        experience_years=experience_years,
+        investment_horizon_label=investment_horizon_label,
         suitability_note=suitability_note,
         is_overridden=is_overridden,
         override_reason=override_reason,
@@ -1410,6 +1466,7 @@ def get_risikoprofil_pdf(
         signoff_hash=signoff_view.get("signoff_hash"),
         signoff_lines=signoff_view.get("lines", ()),
         capacity_plausibility_note=capacity_plausibility_note,
+        **v2_doc,
     )
 
     pdf_bytes = ReportLabRenderer().render_risikoprofil(ctx, risk_data)

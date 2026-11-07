@@ -73,6 +73,12 @@ class RiskAssessmentCreate(BaseModel):
     # WealthPosition/WealthInflow/Knowledge nachgezogen.
     data_classification: Literal["synthetic", "real"] = "synthetic"
     income_sources_json: Optional[str] = None
+    # H5b (Dok. 105): Fragebogen v2 -- nur hinter Feature-Flag (Default aus).
+    # None/'v1' = Standard-Fragebogen (Fragen 1-11, unveraendert). 'v2' =
+    # zusaetzlich Fragen 12-14 (nur absenkend) + Pflichtnotiz bei Konsistenz-Flags.
+    questionnaire_version: Optional[Literal["v1", "v2"]] = None
+    questionnaire_v2_answers: Optional[list[dict]] = None
+    consistency_note: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_points(self):
@@ -202,6 +208,11 @@ class RiskAssessmentResponse(BaseResponse):
     knowledge_services_json: Optional[str] = None
     knowledge_instruments_json: Optional[str] = None
     income_sources_json: Optional[str] = None
+    # H5b: NULL = Altprofil (v1, nie neu berechnet); 'v1' | 'v2'.
+    questionnaire_version: Optional[str] = None
+    questionnaire_hash: Optional[str] = None
+    willingness_v2_json: Optional[str] = None
+    consistency_note: Optional[str] = None
 
 
 # ── Suitability Check ──────────────────────────────────────────────────────────
