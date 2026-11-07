@@ -37,8 +37,8 @@ from schemas.portfolio_handoff import (
     PortfolioHandoffPreviewResponse,
     PortfolioHandoffResponse,
 )
-from services.audit import log
-from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor
+from services.audit import log, release_block_audit
+from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor, set_tenant_context
 from services.portfolio_handoff import (
     HoldingsValuationIncompleteError,
     NoTradeListAvailableError,
@@ -49,6 +49,7 @@ from services.portfolio_handoff import (
 from services.recommendation_release_gate import (
     CHANNEL_HANDOFF,
     assert_recommendation_release_eligible,
+    assert_retrocession_release_eligible,
     assert_risk_signoff_release_eligible,
 )
 
@@ -242,6 +243,16 @@ def create_portfolio_handoff(
     # Persistierung.
     assert_recommendation_release_eligible(
         db, mandate, channel=CHANNEL_HANDOFF, run=run,
+    )
+    # H7 N-884-04: auch ein bereits finaler Lauf ohne geklaerte Retrozession
+    # wird nicht weitergeleitet (fail-closed, Sperre im Audit-Log).
+    assert_retrocession_release_eligible(
+        db, mandate, channel=CHANNEL_HANDOFF, run=run,
+        on_block=release_block_audit(
+                db, user=current_user, ip_address=_extract_client_ip(request),
+                mandate_id=mandate.id, field_name="handoff_blocked",
+                set_tenant_context=set_tenant_context,
+            ),
     )
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
     from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible

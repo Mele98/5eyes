@@ -82,6 +82,9 @@ GLOBAL_REFERENCE_TABLES: frozenset[str] = frozenset({
     "capital_market_assumptions",
     "product_eligibility_rule_sets",
     "product_eligibility_rules",
+    # AUDIT-2026-11 T1: Nachhaltigkeitsnachweise -- tenant_id NULL = Plattform-
+    # Nachweis eines globalen Katalogfonds (Migration d7f3b1a9c5e2).
+    "product_sustainability_attributes",
     "products",
 })
 

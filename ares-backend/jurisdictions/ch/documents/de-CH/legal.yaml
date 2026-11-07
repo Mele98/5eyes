@@ -1,6 +1,10 @@
 # CH-Laenderpaket, Schritt X3 (DocumentSet), Locale de-CH.
 #
 # Rechtstexte: PDF-Fusszeile (services/pdf/components/footer.py).
+# H7 N-884-03: Fusszeile je Mandatstyp (Schluessel footer.disclaimer.<typ>),
+# sonst neutral (footer.disclaimer). Keine Dienstleistungs- oder
+# Normbehauptung, die nicht zum Mandat passt; jurisdiktionsneutral (CH/DE).
+# Wortlaut: Compliance-Gegenlesen offen.
 #
 # Byte-gleich aus den bisherigen Konstanten uebernommen; Nachweis in
 # tests/test_jurisdiction_document_set.py (Digest je Schluessel, vorher == nachher).
@@ -8,4 +12,8 @@
 # Texten oder Liste von [Begriff, Erklaerung]-Paaren.
 namespace: "legal"
 texts:
-  "footer.disclaimer": "Dieses Dokument wurde in Übereinstimmung mit dem Bundesgesetz über die Finanzdienstleistungen (FIDLEG) erstellt. Es dient der Dokumentation der Anlageberatung und stellt keine Garantie für Anlageergebnisse dar. Vergangenheitswerte sind kein verlässlicher Indikator für zukünftige Ergebnisse."
+  "footer.disclaimer": "Dieses Dokument dient der Dokumentation der mit Ihnen vereinbarten Dienstleistung und stellt keine Garantie für Anlageergebnisse dar. Vergangenheitswerte sind kein verlässlicher Indikator für zukünftige Ergebnisse."
+  "footer.disclaimer.vermoegensverwaltung": "Dieses Dokument dient der Dokumentation im Rahmen des Vermögensverwaltungsauftrags und stellt keine Garantie für Anlageergebnisse dar. Vergangenheitswerte sind kein verlässlicher Indikator für zukünftige Ergebnisse."
+  "footer.disclaimer.anlageberatung": "Dieses Dokument dient der Dokumentation im Rahmen des Anlageberatungsauftrags und stellt keine Garantie für Anlageergebnisse dar. Vergangenheitswerte sind kein verlässlicher Indikator für zukünftige Ergebnisse."
+  "footer.disclaimer.finanzplanung": "Dieses Dokument dient der Dokumentation im Rahmen des Finanzplanungsauftrags und stellt keine Garantie für Anlageergebnisse dar. Vergangenheitswerte sind kein verlässlicher Indikator für zukünftige Ergebnisse."
+  "footer.disclaimer.reporting": "Dieses Dokument dient der Dokumentation im Rahmen des Reporting-Auftrags und stellt keine Garantie für Anlageergebnisse dar. Vergangenheitswerte sind kein verlässlicher Indikator für zukünftige Ergebnisse."
