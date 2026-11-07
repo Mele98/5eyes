@@ -26,7 +26,10 @@ HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / 
 
 
 def test_splash_screen_does_not_claim_unconditional_risk_budget_validation():
-    html = read_monolith_bundle()
+    # N-875-07: Bundle + alle eigenstaendigen Frontend-Module.
+    from tests.monolith_source import read_frontend_sources
+
+    html = read_frontend_sources()
     assert "RISK BUDGET VALIDATED" not in html, (
         "the decorative splash screen must not claim an unconditional "
         "'RISK BUDGET VALIDATED' state -- this contradicts the still-open "

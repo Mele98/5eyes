@@ -85,13 +85,14 @@ def test_detector_ignores_service_and_lookalikes(sample):
 
 
 def test_monolith_has_no_native_dialogs():
-    # H3/I-04: Gesamtquelle inkl. der aus ares.html ausgelagerten Teile.
-    from tests.monolith_source import read_monolith_bundle
+    # H3/I-04 + N-875-07: Monolith-Bundle inkl. ausgelagerter Teile UND alle
+    # eigenstaendigen Frontend-Module (ohne vendor/).
+    from tests.monolith_source import read_frontend_sources
 
     rel = MONOLITH.relative_to(REPO_ROOT).as_posix()
     hits = [
-        f"{rel}(+ausgelagerte Teile):{lineno}: {line}"
-        for lineno, line in _violations(read_monolith_bundle())
+        f"{rel}(+ausgelagerte Teile/Module):{lineno}: {line}"
+        for lineno, line in _violations(read_frontend_sources())
         if (rel, line) not in ALLOWED_NATIVE_DIALOG_CALLS
     ]
     assert hits == []
