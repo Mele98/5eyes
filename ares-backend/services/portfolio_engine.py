@@ -104,8 +104,19 @@ from services.risk_assessment_semantics import (
     OVERRIDE_AFTER_ALLOCATION_MESSAGE,
     assessment_overridden_after_allocation,
     risk_score_bucket_from_validated_score,
+    validate_override_reason_quality,
     validate_risk_assessment_model_input,
 )
+
+
+def _band_deviation_reason_is_valid(reason) -> bool:
+    """Live-Test 04 / M3: dieselbe Qualitaetsregel wie das Freigabe-Gate
+    (routers/review.py) fuer ``bandDeviationReason``."""
+    try:
+        validate_override_reason_quality(reason)
+    except ValueError:
+        return False
+    return True
 
 
 BUCKET_FIELDS = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
@@ -1249,10 +1260,18 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     _disclose_global_cap_clamp,
     _apply_goal_and_reserve_tilts,
     _apply_illiquid_cap,
+    illiquid_limit_scope_note,
     _asset_risky_weight_fallbacks,
     _baseline_target_bands,
     house_matrix_bands_payload,
+    band_deviation_messages,
+    disclose_system_liquidity_band_extension,
+    restate_saa_liquidity_sentence,
+    system_liquidity_floor_from_allocation,
     policy_band_clamp_notes,
+    policy_band_bound_keys,
+    raise_if_locked_targets_infeasible,
+    apply_house_mode_liquidity_floor,
     _building_block_risky_map,
     _building_block_rows_for_policy,
     _build_stochastic_sub_allocation_plan,
@@ -1261,6 +1280,8 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     _enrich_sub_allocations_with_risk,
     _growth_goals_for_equity_tilt,
     _has_manual_target_overrides,
+    _manual_target_buckets,
+    disclose_manual_target_deviations,
     _house_matrix_mid_targets,
     _house_matrix_or_default,
     _normalize_house_matrix_defaults,
@@ -1590,6 +1611,8 @@ from services.portfolio_engine_mc_simulation import (  # noqa: F401,E402
     _simulation_stress_multiplier,
     _simulation_transaction_cost_bps,
     _simulation_use_tail_risk,
+    path_simulation_method_sentence,
+    path_simulation_projection_sentence,
     _stddev_bps,
     _target_bucket_values,
     _twr_annualized_bps,
@@ -3096,6 +3119,12 @@ def generate_target_allocation(
     from services.optimizer.allocation_intent import extract_soft_preference_bps
 
     manual_preferred_target_bps = extract_soft_preference_bps(prefs["bands"])
+    # AUDIT-2026-11 A1: Buckets mit explizitem Berater-Ziel werden in jeder
+    # Summen-Projektion (_rebalance_to_total) und von den Ziel-Tilts
+    # respektiert; jede verbleibende Abweichung (Kappen am Bandrand, Engpass
+    # der uebrigen Klassen, Reserve) wird unten offengelegt statt still
+    # verworfen.
+    manual_locked_buckets = frozenset(manual_preferred_target_bps)
     inputs = _load_allocation_inputs(db, mandate, prefs["simulation"], cma=cma)
     advisory_summary = inputs["advisory_summary"]
     total_summary = inputs["total_summary"]
@@ -3151,6 +3180,7 @@ def generate_target_allocation(
     _apply_band_preferences(  # BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-1): Austritt aus dem Hausband offenlegen
         prefs["bands"], targets, minimums, maximums, reasoning,
         warnings=warnings, house_profile=house_matrix.profile_name, score_bucket=score_bucket,
+        policy_bound_keys=policy_band_bound_keys(house_matrix, policy),  # H-859-4
     )
     if manual_target_override:
         reasoning.append("Explizit gesetzte Soll-Quoten uebersteuern automatische Exposure-Tilts; harte Risiko- und Liquiditaetsregeln bleiben aktiv.")
@@ -3186,7 +3216,9 @@ def generate_target_allocation(
     )
     reserve_needed_rappen, external_reserve_rappen = _apply_goal_and_reserve_tilts(
         targets=targets, minimums=minimums, maximums=maximums, reasoning=reasoning, **reserve_inputs,
+        locked_buckets=manual_locked_buckets,
     )
+    liquidity_before_projection_bps = int(targets["liquidity"])  # H-859-2
     reserve_split = generation_reserve_split(reserve_needed_rappen, external_reserve_rappen, ceiling_bps=saa_liquidity_ceiling_bps, **reserve_inputs)  # RESERVE-CEILING-001
     uncertain_inflow_info = uncertain_inflow_sensitivity(  # INFLOW-CERTAINTY-001: nur Info
         uncertain_inflows=inputs.get("uncertain_wealth_inflows") or [], projection_years=len(cashflow_projection_series_rappen),
@@ -3269,13 +3301,16 @@ def generate_target_allocation(
     optimizer_minimums = dict(minimums)
     optimizer_maximums = dict(maximums)
     optimizer_plan_reasoning = reasoning if apply_stochastic else []
+    system_liquidity_floor_bps = 0  # M2 / AA-7.2: Floor + Reserve, ohne Berater
+    from services.optimizer.constraints import (
+        MAX_ALTERNATIVES,
+        MAX_REAL_ESTATE,
+        MIN_LIQUIDITY,
+        OptimizerInputError,
+    )
+
+    model_liquidity_floor_bps = int(round(MIN_LIQUIDITY * 10000))  # D-1
     if run_stochastic:
-        from services.optimizer.constraints import (
-            MAX_ALTERNATIVES,
-            MAX_REAL_ESTATE,
-            MIN_LIQUIDITY,
-            OptimizerInputError,
-        )
 
         global_caps_bps = {
             "real_estate": int(round(MAX_REAL_ESTATE * 10000)),
@@ -3300,14 +3335,29 @@ def generate_target_allocation(
                 f"Mindestquote ({optimizer_maximums['liquidity']} < "
                 f"{global_liquidity_floor_bps} bps)."
             )
+        floor_raised_liquidity = int(optimizer_minimums["liquidity"]) < global_liquidity_floor_bps
+        if apply_stochastic:
+            system_liquidity_floor_bps = global_liquidity_floor_bps
         optimizer_minimums["liquidity"] = max(
             int(optimizer_minimums["liquidity"]),
             global_liquidity_floor_bps,
+        )
+        # H-859-2: die globale Liquiditaets-Untergrenze kann fixierte Ziele
+        # unerfuellbar machen -- dann 422 statt stiller Kappung.
+        raise_if_locked_targets_infeasible(
+            {**optimizer_targets, **manual_preferred_target_bps}, optimizer_minimums,
+            manual_locked_buckets, bucket_labels=BUCKET_LABELS,
+            min_sources=(
+                {"liquidity": "globale Liquiditaets-Untergrenze des Modells"}
+                if floor_raised_liquidity else None
+            ),
+            maximums=optimizer_maximums,
         )
         optimizer_targets = _rebalance_to_total(
             optimizer_targets,
             optimizer_minimums,
             optimizer_maximums,
+            locked=manual_locked_buckets,
         )
     reserve_floor_bps = 0
     # Reserve ist im deterministischen Pfad bereits in die Zielquote getiltet.
@@ -3362,12 +3412,21 @@ def generate_target_allocation(
         optimizer_minimums["liquidity"] = max(
             int(optimizer_minimums["liquidity"]), int(reserve_floor_bps)
         )
+        if apply_stochastic:
+            system_liquidity_floor_bps = max(system_liquidity_floor_bps, int(reserve_floor_bps))
+        raise_if_locked_targets_infeasible(  # H-859-2: Zielreserve als Untergrenze
+            {**optimizer_targets, **manual_preferred_target_bps}, optimizer_minimums,
+            manual_locked_buckets, bucket_labels=BUCKET_LABELS,
+            min_sources={"liquidity": "zwingend vorzuhaltende Zielreserve"},
+            maximums=optimizer_maximums,
+        )
         if int(optimizer_targets["liquidity"]) < int(optimizer_minimums["liquidity"]):
             optimizer_targets["liquidity"] = int(optimizer_minimums["liquidity"])
             optimizer_targets = _rebalance_to_total(
                 optimizer_targets,
                 optimizer_minimums,
                 optimizer_maximums,
+                locked=manual_locked_buckets,
             )
         optimizer_plan_reasoning.append(
             "Die innerhalb der SAA zu haltende Zielreserve ist eine harte "
@@ -3378,6 +3437,8 @@ def generate_target_allocation(
     # Referenzmethodik-konform: Illiquiditaet wird auf Baustein-Ebene (Private Equity)
     # gedeckelt, nicht pauschal auf der ganzen Alternatives-Quote.
     max_illiquid_bps = _parse_bps_percent(prefs["limits"].get("maxIlliquid"))
+    if max_illiquid_bps is not None:  # AUDIT-2026-11 C4: Wirkungsbereich offenlegen
+        reasoning.append(illiquid_limit_scope_note(max_illiquid_bps))
 
     # Phase 5.1: Building-Block-Aware Risky-Fractions fuer Solver
     # WP-A (2026-08-01): jurisdiction durchgereicht, damit ein DE-Mandat NUR
@@ -3429,6 +3490,7 @@ def generate_target_allocation(
             optimizer_targets,
             optimizer_minimums,
             optimizer_maximums,
+            locked=manual_locked_buckets,
         )
         (
             optimizer_sub_allocation_plan,
@@ -3444,6 +3506,13 @@ def generate_target_allocation(
         }
 
     house_targets_before_optimizer = dict(optimizer_targets)
+    # AUDIT-2026-11 A1 / H-859-1: Anker und wirksame Grenzen fuer die
+    # Offenlegung festhalten; offengelegt wird nach dem Fallback mit der
+    # gespeicherten Quote.
+    manual_target_anchor = (
+        (dict(optimizer_targets), dict(optimizer_minimums), dict(optimizer_maximums))
+        if apply_stochastic else None
+    )
     effective_bounds_bps = {
         bucket: (
             int(optimizer_minimums[bucket]),
@@ -3540,8 +3609,40 @@ def generate_target_allocation(
                 f"dabei teilweise oder vollstaendig aufheben."
             )
 
+    # Delta-Pruefung #859 E-1 (Entscheid Owner-Vertretung, AA-7.2): auch im
+    # Hausmatrix-Modus ist die Liquiditaets-Untergrenze
+    # max(Hausmatrix-/Berater-Minimum, Zielreserve, globale Mindestliquiditaet).
+    # Vorher hob die Reserve nur das Ziel an; eine Einzelziel-Kappung konnte die
+    # Liquiditaet bis aufs Haus-Minimum (0 %) absenken.
+    liquidity_floor_source = "Mindestquote"
+    if not apply_stochastic:  # E-1 (AA-7.2): Untergrenze auch im Hausmatrix-Modus
+        house_floor_bps, liquidity_floor_source = apply_house_mode_liquidity_floor(
+            minimums, maximums, prefs["bands"],
+            reserve_internal_rappen=int(reserve_split.internal_rappen),
+            investable_rappen=int(investable_advisory_wealth_rappen),
+            reserve_needed_rappen=int(reserve_needed_rappen),
+            model_floor_bps=model_liquidity_floor_bps,
+        )
+        if liquidity_floor_source != "Mindestquote":
+            system_liquidity_floor_bps = max(system_liquidity_floor_bps, house_floor_bps)
+        raise_if_locked_targets_infeasible(  # H-859-2 auch mit dieser Untergrenze
+            {**targets, **manual_preferred_target_bps}, minimums, manual_locked_buckets,
+            bucket_labels=BUCKET_LABELS, min_sources={"liquidity": liquidity_floor_source},
+            maximums=maximums,
+        )
+    else:
+        liquidity_floor_source = (
+            "zwingend vorzuhaltende Zielreserve"
+            if int(reserve_floor_bps) > int(model_liquidity_floor_bps)
+            else "globale Mindestliquiditaet des Modells"
+        )
     targets_before_final_rebalance = dict(targets)
-    targets = _rebalance_to_total(targets, minimums, maximums)
+    targets = _rebalance_to_total(
+        targets, minimums, maximums,
+        locked=manual_locked_buckets,
+    )
+    if manual_target_anchor is None:  # AUDIT-2026-11 A1: aktive Hausmatrix-Allokation
+        manual_target_anchor = (dict(targets), dict(minimums), dict(maximums))
     if optimizer_replaced_targets and targets != targets_before_final_rebalance:
         # A validated stochastic candidate is immutable.  A downstream
         # "repair" would mean that optimizer, analytics and persisted output
@@ -3613,6 +3714,9 @@ def generate_target_allocation(
             bands_restored = _apply_band_min_max_overrides(
                 prefs["bands"], minimums, maximums
             )
+            # E-1: die Liquiditaets-Untergrenze gilt auch im Fallback.
+            minimums["liquidity"] = max(int(minimums["liquidity"]), int(manual_target_anchor[1]["liquidity"]))
+            maximums["liquidity"] = max(int(maximums["liquidity"]), int(minimums["liquidity"]))
         if bands_restored:
             reasoning.append(
                 "Risikobudget-Fallback: die automatische Ziel-Allokation wurde auf die "
@@ -3760,6 +3864,30 @@ def generate_target_allocation(
                 assert_risk_budget_ok(realized_risky_bps, risk_budget_bps, slack_bps=0)
         warnings.append(format_message(WARN_FALLBACK))
         reasoning.append("Die aktive Allokation wurde auf die Bandbreiten-Mitte des Risikoprofils zurueckgesetzt, weil das Risikobudget strikt limitiert.")
+    # AUDIT-2026-11 A1 / H-859-1: Offenlegung gegen die GESPEICHERTE Quote.
+    disclose_manual_target_deviations(
+        manual_preferred_target_bps, manual_target_anchor[0], targets,
+        manual_target_anchor[1], manual_target_anchor[2], reasoning, warnings,
+        bucket_labels=BUCKET_LABELS,
+        optimizer_applied=bool(optimizer_replaced_targets and not risk_budget_fallback),
+        fallback_risk_budget_bps=int(risk_budget_bps) if risk_budget_fallback else None,
+        liquidity_before_projection_bps=liquidity_before_projection_bps,
+        liquidity_floor_bps=int(manual_target_anchor[1]["liquidity"]),
+        liquidity_floor_source=liquidity_floor_source,
+    )
+    # Delta-Pruefung #859 D-1: der Reserve-Satz "Die SAA-Liquiditaet bleibt
+    # auf x %" entsteht VOR der Projektion und nennt jetzt die gespeicherte
+    # Liquiditaet, wenn sie davon abweicht.
+    restate_saa_liquidity_sentence(reasoning, int(targets["liquidity"]))
+    # D-2: systembedingte Erweiterung des Liquiditaetsbands (M2) ausweisen.
+    messages_extra: list[dict] = []
+    disclose_system_liquidity_band_extension(
+        system_liquidity_floor_bps,
+        int(_baseline_target_bands(house_matrix, policy)[2]["liquidity"]),
+        reasoning, messages_extra,
+        reserve_driven=liquidity_floor_source == "zwingend vorzuhaltende Zielreserve",
+        external_reserve=int(external_reserve_rappen) > 0,  # F-1: Quelle wie im Reasoning
+    )
     risky_fraction_total_bps = int(realized_risky_bps)
     if (
         optimizer_mode == "stochastic"
@@ -3888,7 +4016,7 @@ def generate_target_allocation(
         summaries_key="current_goal_summaries",
     )
     goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo, achievability=goal_achievability)
-    reasoning.append("Eine Pfadsimulation mit normalverteilten Jahresrenditen quantifiziert Zielwahrscheinlichkeit, Verlustband und Rebalancing-Risiko.")
+    reasoning.append(path_simulation_method_sentence(prefs["simulation"]))  # AUDIT-2026-11 D1
     reasoning.append(inputs["projection_horizon"]["sentence"])
 
     # Race-Hardening: pessimistic Lock, damit parallele
@@ -3971,6 +4099,14 @@ def generate_target_allocation(
         mandate,
         assessment,
     )
+    # Live-Test 04 / M3: Abweichung vom Eignungsrahmen auch in ``messages``
+    # (Banner), ohne tragfaehige Begruendung als Konflikt.
+    _house_targets_m3, house_minimums_m3, house_maximums_m3 = _baseline_target_bands(house_matrix, policy)
+    messages = list(messages) + band_deviation_messages(  # F-1: messages_extra dahinter
+        prefs["bands"], house_minimums_m3, house_maximums_m3,
+        reason_is_valid=_band_deviation_reason_is_valid(prefs.get("bandDeviationReason")),
+        house_profile=house_matrix.profile_name, score_bucket=score_bucket,
+    ) + messages_extra
     # Phase 6: Stress-Eval als JSON persistieren, damit /current/payload sie
     # ohne erneuten Solver-Lauf liefern kann. Nur im stochastic-Modus.
     stress_evaluations_json: str | None = None
@@ -4236,7 +4372,10 @@ def generate_target_allocation(
         "house_matrix_profile": house_matrix.profile_name,
         # BAND-DEVIATION-REASON-REQUIRED-001: Vergleichsbasis fuer das
         # Begruendungsfeld im Bandbreiten-Editor.
-        "house_matrix_bands": house_matrix_bands_payload(house_matrix, policy),
+        "house_matrix_bands": house_matrix_bands_payload(
+            house_matrix, policy,
+            system_liquidity_floor_bps=system_liquidity_floor_bps,  # M2 / AA-7.2
+        ),
         "score_bucket": score_bucket,
         "advisory_wealth_rappen": advisory_wealth_rappen,
         "investable_advisory_wealth_rappen": investable_advisory_wealth_rappen,
@@ -4764,6 +4903,8 @@ def evaluate_goal_sensitivity(
         live_manual_target_override = _has_manual_target_overrides(
             sensitivity_prefs["bands"]
         )
+        # AUDIT-2026-11 A1: identisch zum Generate-Pfad.
+        live_locked_buckets = _manual_target_buckets(sensitivity_prefs["bands"])
         _apply_external_exposure_tilts(
             live_targets,
             live_minimums,
@@ -4801,6 +4942,7 @@ def evaluate_goal_sensitivity(
                     inputs.get("inflow_projection_series_rappen") or []
                 ),
                 goal_inflation_series_bps=inflation_series_bps,
+                locked_buckets=live_locked_buckets,
             )
         )
 
@@ -4834,6 +4976,7 @@ def evaluate_goal_sensitivity(
             live_targets,
             live_minimums,
             live_maximums,
+            locked=live_locked_buckets,
         )
 
         live_investable_wealth = _investable_advisory_wealth_rappen(
@@ -4896,6 +5039,7 @@ def evaluate_goal_sensitivity(
                     live_targets,
                     live_minimums,
                     live_maximums,
+                    locked=live_locked_buckets,
                 )
 
         live_max_illiquid_bps = _parse_bps_percent(
@@ -4918,6 +5062,7 @@ def evaluate_goal_sensitivity(
             live_targets,
             live_minimums,
             live_maximums,
+            locked=live_locked_buckets,
         )
         live_risky_map = _building_block_risky_map(
             db,
@@ -6091,6 +6236,18 @@ def build_target_payload_from_allocation(
         mandate,
         assessment,
     )
+    # Live-Test 04 / M3: Abweichung vom Eignungsrahmen aus dem Snapshot,
+    # falls nicht schon persistiert (Hausmatrix-Modus, Altbestand).
+    if not any(
+        isinstance(msg, dict) and msg.get("code") == "WARN_BAND_OUTSIDE_HOUSE_MATRIX"
+        for msg in messages
+    ):
+        _house_targets_m3, house_minimums_m3, house_maximums_m3 = _baseline_target_bands(house_matrix, policy)
+        messages = list(messages) + band_deviation_messages(
+            prefs.get("bands"), house_minimums_m3, house_maximums_m3,
+            reason_is_valid=_band_deviation_reason_is_valid(prefs.get("bandDeviationReason")),
+            house_profile=house_matrix.profile_name, score_bucket=score_bucket,
+        )
     total_allocation_payload = _build_total_wealth_allocation(
         total_summary, mortgage_liabilities_rappen, total_wealth_rappen, targets,
         foundation_projection=external_foundation_projection,
@@ -6107,7 +6264,12 @@ def build_target_payload_from_allocation(
         "house_matrix_profile": house_matrix.profile_name,
         # BAND-DEVIATION-REASON-REQUIRED-001: Vergleichsbasis fuer das
         # Begruendungsfeld im Bandbreiten-Editor.
-        "house_matrix_bands": house_matrix_bands_payload(house_matrix, policy),
+        "house_matrix_bands": house_matrix_bands_payload(
+            house_matrix, policy,
+            system_liquidity_floor_bps=system_liquidity_floor_from_allocation(  # M2 / AA-7.2
+                allocation, prefs.get("bands"),
+            ),
+        ),
         "score_bucket": score_bucket,
         "advisory_wealth_rappen": advisory_wealth_rappen,
         "investable_advisory_wealth_rappen": investable_advisory_wealth_rappen,
@@ -6146,7 +6308,7 @@ def build_target_payload_from_allocation(
         "reasoning": (
             [
                 "Verwendet die bestehende aktuelle Soll-Allokation.",
-                "Die Projektion wird zusaetzlich ueber normalverteilte Jahresrenditen als Pfadsimulation verdichtet.",
+                path_simulation_projection_sentence(prefs["simulation"]),  # AUDIT-2026-11 D1
                 projection_horizon["sentence"],
             ]
             + (
