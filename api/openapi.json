@@ -5043,7 +5043,19 @@
       "ClientDueDiligenceResponse": {
         "properties": {
           "acting_for_own_account": {
-            "title": "Acting For Own Account",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acting For Own Account"
+          },
+          "acting_for_own_account_answered": {
+            "default": 0,
+            "title": "Acting For Own Account Answered",
             "type": "integer"
           },
           "beneficial_owner_name": {
@@ -5153,7 +5165,6 @@
           "client_id",
           "pep_status",
           "pep_details",
-          "acting_for_own_account",
           "beneficial_owner_name",
           "source_of_wealth",
           "id_document_type",
@@ -5170,9 +5181,15 @@
       "ClientDueDiligenceUpdate": {
         "properties": {
           "acting_for_own_account": {
-            "default": true,
-            "title": "Acting For Own Account",
-            "type": "boolean"
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acting For Own Account"
           },
           "beneficial_owner_name": {
             "anyOf": [
@@ -5338,6 +5355,553 @@
           "erased_at"
         ],
         "title": "ClientErasureResponse",
+        "type": "object"
+      },
+      "ClientInformationDeliveryCreate": {
+        "description": "Abgabe der Kundeninformation: welche archivierte Fassung, wann, wie.",
+        "properties": {
+          "contract_document_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Contract Document Id",
+            "type": "string"
+          },
+          "data_classification": {
+            "default": "synthetic",
+            "enum": [
+              "synthetic",
+              "real"
+            ],
+            "title": "Data Classification",
+            "type": "string"
+          },
+          "delivered_at": {
+            "title": "Delivered At",
+            "type": "string"
+          },
+          "delivery_channel": {
+            "enum": [
+              "persoenlich_papier",
+              "post",
+              "email",
+              "kundenportal"
+            ],
+            "title": "Delivery Channel",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_document_id",
+          "delivered_at",
+          "delivery_channel"
+        ],
+        "title": "ClientInformationDeliveryCreate",
+        "type": "object"
+      },
+      "ClientInformationDeliveryResponse": {
+        "properties": {
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "contract_document_id": {
+            "title": "Contract Document Id",
+            "type": "string"
+          },
+          "delivered_at": {
+            "title": "Delivered At",
+            "type": "string"
+          },
+          "delivery_channel": {
+            "title": "Delivery Channel",
+            "type": "string"
+          },
+          "delivery_hash": {
+            "title": "Delivery Hash",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "legal_profile_hash": {
+            "title": "Legal Profile Hash",
+            "type": "string"
+          },
+          "legal_profile_revision": {
+            "title": "Legal Profile Revision",
+            "type": "integer"
+          },
+          "mandate_id": {
+            "title": "Mandate Id",
+            "type": "string"
+          },
+          "pdf_sha256": {
+            "title": "Pdf Sha256",
+            "type": "string"
+          },
+          "recorded_at": {
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "recorded_by": {
+            "title": "Recorded By",
+            "type": "string"
+          },
+          "template_version": {
+            "title": "Template Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "mandate_id",
+          "client_id",
+          "contract_document_id",
+          "template_version",
+          "legal_profile_revision",
+          "legal_profile_hash",
+          "pdf_sha256",
+          "delivered_at",
+          "delivery_channel",
+          "recorded_by",
+          "recorded_at",
+          "delivery_hash"
+        ],
+        "title": "ClientInformationDeliveryResponse",
+        "type": "object"
+      },
+      "ClientOnboardingFinding": {
+        "properties": {
+          "confirmation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmation Id"
+          },
+          "contract_concluded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Concluded At"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "missing_fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing Fields"
+          },
+          "missing_labels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing Labels"
+          },
+          "owner_action": {
+            "title": "Owner Action",
+            "type": "string"
+          },
+          "reason_code": {
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason_code",
+          "message",
+          "owner_action",
+          "scope"
+        ],
+        "title": "ClientOnboardingFinding",
+        "type": "object"
+      },
+      "ClientOnboardingStatusResponse": {
+        "properties": {
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "contract_concluded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Concluded At"
+          },
+          "deliveries": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Deliveries",
+            "type": "array"
+          },
+          "due_diligence": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Diligence"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/ClientOnboardingFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "kyc_confirmation": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kyc Confirmation"
+          },
+          "kyc_requires_second_approval": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kyc Requires Second Approval"
+          },
+          "latest_document": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Document"
+          },
+          "legal_profile": {
+            "title": "Legal Profile",
+            "type": "object"
+          },
+          "mandate_id": {
+            "title": "Mandate Id",
+            "type": "string"
+          },
+          "release_ready": {
+            "title": "Release Ready",
+            "type": "boolean"
+          },
+          "template_version": {
+            "title": "Template Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mandate_id",
+          "client_id",
+          "release_ready",
+          "findings",
+          "legal_profile",
+          "deliveries",
+          "template_version"
+        ],
+        "title": "ClientOnboardingStatusResponse",
+        "type": "object"
+      },
+      "ClientRepresentationCreate": {
+        "properties": {
+          "data_classification": {
+            "default": "synthetic",
+            "enum": [
+              "synthetic",
+              "real"
+            ],
+            "title": "Data Classification",
+            "type": "string"
+          },
+          "disposal_rule": {
+            "anyOf": [
+              {
+                "enum": [
+                  "einzeln",
+                  "gemeinsam"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disposal Rule"
+          },
+          "effective_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "effective_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Until"
+          },
+          "evidence_reference": {
+            "title": "Evidence Reference",
+            "type": "string"
+          },
+          "mandate_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mandate Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "representation_type": {
+            "enum": [
+              "vollmacht",
+              "vorsorgeauftrag",
+              "beistandschaft",
+              "gemeinschaftsdepot"
+            ],
+            "title": "Representation Type",
+            "type": "string"
+          },
+          "representative_name": {
+            "title": "Representative Name",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "representation_type",
+          "representative_name",
+          "scope",
+          "evidence_reference"
+        ],
+        "title": "ClientRepresentationCreate",
+        "type": "object"
+      },
+      "ClientRepresentationResponse": {
+        "properties": {
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "disposal_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disposal Rule"
+          },
+          "effective_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "effective_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Until"
+          },
+          "evidence_reference": {
+            "title": "Evidence Reference",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "mandate_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mandate Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "recorded_at": {
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "recorded_by": {
+            "title": "Recorded By",
+            "type": "string"
+          },
+          "representation_type": {
+            "title": "Representation Type",
+            "type": "string"
+          },
+          "representative_name": {
+            "title": "Representative Name",
+            "type": "string"
+          },
+          "revocation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revocation Reason"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "revoked_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked By"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "client_id",
+          "representation_type",
+          "representative_name",
+          "scope",
+          "evidence_reference",
+          "recorded_by",
+          "recorded_at"
+        ],
+        "title": "ClientRepresentationResponse",
+        "type": "object"
+      },
+      "ClientRepresentationRevoke": {
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "ClientRepresentationRevoke",
         "type": "object"
       },
       "ClientResponse": {
@@ -10154,6 +10718,257 @@
         "title": "KnowledgeResponse",
         "type": "object"
       },
+      "KycConfirmationApprovalCreate": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "title": "KycConfirmationApprovalCreate",
+        "type": "object"
+      },
+      "KycConfirmationApprovalResponse": {
+        "properties": {
+          "approval_hash": {
+            "title": "Approval Hash",
+            "type": "string"
+          },
+          "approved_at": {
+            "title": "Approved At",
+            "type": "string"
+          },
+          "approved_by": {
+            "title": "Approved By",
+            "type": "string"
+          },
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "confirmation_id": {
+            "title": "Confirmation Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "id",
+          "confirmation_id",
+          "client_id",
+          "approved_by",
+          "approved_at",
+          "approval_hash"
+        ],
+        "title": "KycConfirmationApprovalResponse",
+        "type": "object"
+      },
+      "KycConfirmationCreate": {
+        "description": "Bestaetigung, dass die GwG-Abklaerung im Prozess der SRO/AO bzw. im\nFremdsystem erfolgt ist. Alle fachlichen Felder ohne Vorbelegung --\ninsbesondere ``is_pep`` und ``risk_category`` muessen ausdruecklich\nbeantwortet werden.",
+        "properties": {
+          "data_classification": {
+            "default": "synthetic",
+            "enum": [
+              "synthetic",
+              "real"
+            ],
+            "title": "Data Classification",
+            "type": "string"
+          },
+          "external_reference": {
+            "title": "External Reference",
+            "type": "string"
+          },
+          "form_completed_on": {
+            "title": "Form Completed On",
+            "type": "string"
+          },
+          "form_type": {
+            "enum": [
+              "A",
+              "K",
+              "S",
+              "T"
+            ],
+            "title": "Form Type",
+            "type": "string"
+          },
+          "is_pep": {
+            "title": "Is Pep",
+            "type": "boolean"
+          },
+          "mandate_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mandate Id"
+          },
+          "next_review_due": {
+            "title": "Next Review Due",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "risk_category": {
+            "enum": [
+              "normal",
+              "erhoeht"
+            ],
+            "title": "Risk Category",
+            "type": "string"
+          }
+        },
+        "required": [
+          "form_type",
+          "form_completed_on",
+          "external_reference",
+          "risk_category",
+          "is_pep",
+          "next_review_due"
+        ],
+        "title": "KycConfirmationCreate",
+        "type": "object"
+      },
+      "KycConfirmationResponse": {
+        "properties": {
+          "approval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KycConfirmationApprovalResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "confirmation_hash": {
+            "title": "Confirmation Hash",
+            "type": "string"
+          },
+          "external_reference": {
+            "title": "External Reference",
+            "type": "string"
+          },
+          "form_completed_on": {
+            "title": "Form Completed On",
+            "type": "string"
+          },
+          "form_type": {
+            "title": "Form Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_pep": {
+            "title": "Is Pep",
+            "type": "integer"
+          },
+          "mandate_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mandate Id"
+          },
+          "next_review_due": {
+            "title": "Next Review Due",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "process_scope": {
+            "title": "Process Scope",
+            "type": "string"
+          },
+          "recorded_at": {
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "recorded_by": {
+            "title": "Recorded By",
+            "type": "string"
+          },
+          "requires_second_approval": {
+            "default": false,
+            "title": "Requires Second Approval",
+            "type": "boolean"
+          },
+          "risk_category": {
+            "title": "Risk Category",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "client_id",
+          "process_scope",
+          "form_type",
+          "form_completed_on",
+          "external_reference",
+          "risk_category",
+          "is_pep",
+          "next_review_due",
+          "recorded_by",
+          "recorded_at",
+          "confirmation_hash"
+        ],
+        "title": "KycConfirmationResponse",
+        "type": "object"
+      },
       "LegalHoldExtension": {
         "properties": {
           "expires_at": {
@@ -12145,6 +12960,16 @@
             ],
             "title": "Notes"
           },
+          "opt_out_criteria": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OptOutCriteria"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "to_classification": {
             "enum": [
               "Privatkunde",
@@ -12199,6 +13024,17 @@
             "title": "Created At",
             "type": "string"
           },
+          "document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
           "documented_at": {
             "title": "Documented At",
             "type": "string"
@@ -12252,6 +13088,17 @@
             ],
             "title": "Notes"
           },
+          "opt_out_criteria_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opt Out Criteria Json"
+          },
           "to_classification": {
             "title": "To Classification",
             "type": "string"
@@ -12292,6 +13139,50 @@
           "created_at"
         ],
         "title": "OptHistoryResponse",
+        "type": "object"
+      },
+      "OptOutCriteria": {
+        "description": "H8 Luecke 7: Kriterien-Checkliste fuer ein Opting-out nach Art. 5 FIDLEG\n(vermoegende Privatkunden erklaeren, als professionelle Kunden gelten zu\nwollen). Kriterien gemaess Art. 5 Abs. 2 FIDLEG [Compliance pruefen]:\nlit. a Kenntnisse aus Ausbildung/Berufserfahrung UND anrechenbares\nVermoegen von mindestens CHF 500 000, oder lit. b anrechenbares Vermoegen\nvon mindestens CHF 2 Mio. Ares prueft nicht das Vermoegen selbst, sondern\nverlangt die dokumentierte Bestaetigung je Kriterium.",
+        "properties": {
+          "basis": {
+            "enum": [
+              "kenntnisse_und_vermoegen_500k",
+              "vermoegen_2mio"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "client_informed_of_protection_loss": {
+            "title": "Client Informed Of Protection Loss",
+            "type": "boolean"
+          },
+          "declaration_in_text_form": {
+            "title": "Declaration In Text Form",
+            "type": "boolean"
+          },
+          "eligible_assets_verified": {
+            "title": "Eligible Assets Verified",
+            "type": "boolean"
+          },
+          "knowledge_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Basis"
+          }
+        },
+        "required": [
+          "basis",
+          "eligible_assets_verified",
+          "client_informed_of_protection_loss",
+          "declaration_in_text_form"
+        ],
+        "title": "OptOutCriteria",
         "type": "object"
       },
       "OptimizerConstraintResponse": {
@@ -23571,6 +24462,456 @@
         "title": "TenantCreate",
         "type": "object"
       },
+      "TenantLegalProfileResponse": {
+        "properties": {
+          "address_city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address City"
+          },
+          "address_country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address Country"
+          },
+          "address_postal_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address Postal Code"
+          },
+          "address_street": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address Street"
+          },
+          "business_activity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Activity"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Email"
+          },
+          "contact_phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Phone"
+          },
+          "contact_website": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Website"
+          },
+          "field_labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Field Labels",
+            "type": "object"
+          },
+          "legal_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legal Name"
+          },
+          "license_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Reference"
+          },
+          "missing_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Fields",
+            "type": "array"
+          },
+          "missing_labels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Labels",
+            "type": "array"
+          },
+          "ombudsman_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ombudsman Address"
+          },
+          "ombudsman_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ombudsman Name"
+          },
+          "present": {
+            "title": "Present",
+            "type": "boolean"
+          },
+          "profile_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Hash"
+          },
+          "revision": {
+            "default": 0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "supervision_labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Supervision Labels",
+            "type": "object"
+          },
+          "supervision_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supervision Type"
+          },
+          "supervisory_authority": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supervisory Authority"
+          },
+          "supervisory_organisation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supervisory Organisation"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "present",
+          "missing_fields",
+          "missing_labels",
+          "field_labels",
+          "supervision_labels",
+          "complete"
+        ],
+        "title": "TenantLegalProfileResponse",
+        "type": "object"
+      },
+      "TenantLegalProfileUpdate": {
+        "description": "Teil-Update der rechtlichen Angaben (nur gesetzte Felder). Leerer\nString loescht eine Angabe. Kein Feld hat einen Vorgabewert.",
+        "properties": {
+          "address_city": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address City"
+          },
+          "address_country": {
+            "anyOf": [
+              {
+                "maxLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address Country"
+          },
+          "address_postal_code": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address Postal Code"
+          },
+          "address_street": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address Street"
+          },
+          "business_activity": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Activity"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Email"
+          },
+          "contact_phone": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Phone"
+          },
+          "contact_website": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Website"
+          },
+          "legal_name": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legal Name"
+          },
+          "license_reference": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Reference"
+          },
+          "ombudsman_address": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ombudsman Address"
+          },
+          "ombudsman_name": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ombudsman Name"
+          },
+          "supervision_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "vermoegensverwalter_finig",
+                  "andere_finma_bewilligung",
+                  "anlageberater_ohne_prudenzielle_aufsicht",
+                  ""
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supervision Type"
+          },
+          "supervisory_authority": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supervisory Authority"
+          },
+          "supervisory_organisation": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supervisory Organisation"
+          }
+        },
+        "title": "TenantLegalProfileUpdate",
+        "type": "object"
+      },
       "TenantResponse": {
         "description": "Public Tenant-Response fuer API-Endpoints.",
         "properties": {
@@ -30444,6 +31785,181 @@
         ]
       }
     },
+    "/clients/{client_id}/kyc-confirmations": {
+      "get": {
+        "description": "Verlauf der KYC-Bestaetigungen (juengste zuerst; es gilt die juengste).",
+        "operationId": "list_kyc_confirmations_clients__client_id__kyc_confirmations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/KycConfirmationResponse"
+                  },
+                  "title": "Response List Kyc Confirmations Clients  Client Id  Kyc Confirmations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Kyc Confirmations",
+        "tags": [
+          "Kunden"
+        ]
+      },
+      "post": {
+        "description": "H8 C-5: Ares fuehrt die GwG-Abklaerung nicht selbst; sie erfolgt im\nProzess der SRO/AO bzw. im Fremdsystem. Erfasst wird die Pflicht-\nBestaetigung (Formular A/K/S/T, Datum, Referenz, Risikokategorie, PEP,\nnaechste Aktualisierung). Append-only: eine Korrektur ist eine neue\nBestaetigung. Bei PEP oder erhoehtem Risiko erst nach Freigabe durch eine\nzweite Person wirksam (Gate vor Finalisierung/Vertragsunterzeichnung).",
+        "operationId": "create_kyc_confirmation_clients__client_id__kyc_confirmations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KycConfirmationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KycConfirmationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Kyc Confirmation",
+        "tags": [
+          "Kunden"
+        ]
+      }
+    },
+    "/clients/{client_id}/kyc-confirmations/{confirmation_id}/approve": {
+      "post": {
+        "description": "Vier-Augen-Freigabe (PEP/erhoehtes Risiko): nur eine zweite Person mit\nAdmin-Rolle (Geschaeftsleitung/Compliance), nie die erfassende Person.",
+        "operationId": "approve_kyc_confirmation_clients__client_id__kyc_confirmations__confirmation_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "confirmation_id",
+            "required": true,
+            "schema": {
+              "title": "Confirmation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KycConfirmationApprovalCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KycConfirmationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Kyc Confirmation",
+        "tags": [
+          "Kunden"
+        ]
+      }
+    },
     "/clients/{client_id}/mandates": {
       "get": {
         "operationId": "list_mandates_clients__client_id__mandates_get",
@@ -30758,6 +32274,180 @@
           }
         ],
         "summary": "Add Opt History",
+        "tags": [
+          "Kunden"
+        ]
+      }
+    },
+    "/clients/{client_id}/representations": {
+      "get": {
+        "operationId": "list_representations_clients__client_id__representations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ClientRepresentationResponse"
+                  },
+                  "title": "Response List Representations Clients  Client Id  Representations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Representations",
+        "tags": [
+          "Kunden"
+        ]
+      },
+      "post": {
+        "description": "Vollmacht, Vorsorgeauftrag, Beistandschaft oder Gemeinschaftsdepot mit\nUmfang, Beleg und Wirksamkeit. Dokumentarisch (kein Gate); erscheint im\nBeratungsprotokoll-PDF.",
+        "operationId": "create_representation_clients__client_id__representations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientRepresentationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientRepresentationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Representation",
+        "tags": [
+          "Kunden"
+        ]
+      }
+    },
+    "/clients/{client_id}/representations/{representation_id}/revoke": {
+      "post": {
+        "description": "Widerruf statt Loeschen: der Eintrag bleibt als Nachweis erhalten.",
+        "operationId": "revoke_representation_clients__client_id__representations__representation_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "representation_id",
+            "required": true,
+            "schema": {
+              "title": "Representation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientRepresentationRevoke"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientRepresentationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Revoke Representation",
         "tags": [
           "Kunden"
         ]
@@ -31708,6 +33398,78 @@
         "summary": "Validate Policy",
         "tags": [
           "CMA-Policy"
+        ]
+      }
+    },
+    "/compliance/legal-profile": {
+      "get": {
+        "description": "Rechtliche Angaben der eigenen Firma fuer die Kundeninformation nach\nArt. 8 Abs. 1 FIDLEG, samt Liste der fehlenden Pflichtangaben.",
+        "operationId": "get_tenant_legal_profile_compliance_legal_profile_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantLegalProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Tenant Legal Profile",
+        "tags": [
+          "Review & Dokumente"
+        ]
+      },
+      "put": {
+        "description": "Pflege durch einen Firmen-Admin. Jede geaenderte Angabe wird feldweise\n(alt/neu) im Audit-Log festgehalten; Revision und Inhalts-Hash werden\nnachgefuehrt. Ares belegt keinen Wert vor.",
+        "operationId": "update_tenant_legal_profile_compliance_legal_profile_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantLegalProfileUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantLegalProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Tenant Legal Profile",
+        "tags": [
+          "Review & Dokumente"
         ]
       }
     },
@@ -33134,6 +34896,112 @@
         "summary": "Get Backtest Stress Replays",
         "tags": [
           "Allokation"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/client-information/deliveries": {
+      "post": {
+        "description": "Abgabenachweis der Kundeninformation: archivierte Fassung (Byte-Hash),\nVorlagenversion, Revision/Hash der rechtlichen Angaben, Zeitpunkt und Kanal.\nAppend-only. Nur die zu den aktuellen rechtlichen Angaben passende Fassung\nist abgebbar; der Zeitpunkt darf nicht in der Zukunft liegen.",
+        "operationId": "record_client_information_delivery_mandates__mandate_id__client_information_deliveries_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientInformationDeliveryCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientInformationDeliveryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Record Client Information Delivery",
+        "tags": [
+          "Review & Dokumente"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/client-onboarding/status": {
+      "get": {
+        "description": "Stand von Kundeninformation (Art. 8/9 FIDLEG) und GwG-Bestaetigung --\ndieselbe Quelle wie das Gate vor Finalisierung und Vertragsunterzeichnung.",
+        "operationId": "get_client_onboarding_status_mandates__mandate_id__client_onboarding_status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOnboardingStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Client Onboarding Status",
+        "tags": [
+          "Review & Dokumente"
         ]
       }
     },
@@ -37351,6 +39219,50 @@
           }
         ],
         "summary": "Get Depotcheck Pdf",
+        "tags": [
+          "PDF Reports"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/reports/kundeninformation.pdf": {
+      "get": {
+        "description": "Kundeninformation nach Art. 8/9 FIDLEG als PDF (vor Vertragsabschluss\nzu uebergeben). Fail-closed: ohne vollstaendige rechtliche Angaben der\nFirma (Firma, Adresse, Aufsichtsstatus, Ombudsstelle, Kontakt) wird kein\nDokument erstellt (409 mit Liste der fehlenden Angaben). Render-once/\narchive-once; die archivierte Fassung traegt Vorlagenversion und Revision/\nHash der rechtlichen Angaben (Grundlage des Abgabenachweises).",
+        "operationId": "get_kundeninformation_pdf_mandates__mandate_id__reports_kundeninformation_pdf_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Kundeninformation Pdf",
         "tags": [
           "PDF Reports"
         ]
