@@ -809,6 +809,22 @@ class Settings(BaseSettings):
                 'strict_tenant_isolation muss in staging/production mit PostgreSQL '
                 'aktiv sein (Multi-Tenant-Isolation-Backstop).'
             )
+        # AUDIT-FIX Fondsuniversum N-855-3 (2026-11): die Tenant-Admin-UI legt
+        # weitere Tenants an. Ohne effektive strikte Mandantentrennung (gleiche
+        # Regel wie services/auth.py::_effective_strict_tenant_isolation)
+        # griffen dann die Tier-1-Ausnahmen (globaler Fondskatalog, CMA, FX)
+        # in einer Installation mit mehreren Firmen. Fail-closed ablehnen.
+        effective_strict = (
+            bool(self.strict_tenant_isolation)
+            or str(self.deployment_tier or '').strip().lower() == 'tier2'
+            or str(self.tenancy_mode or '').strip().lower() == 'multi'
+        )
+        if self.tenant_admin_ui_enabled and not effective_strict:
+            raise ValueError(
+                'tenant_admin_ui_enabled=true erfordert strikte Mandantentrennung: '
+                'strict_tenant_isolation=true oder deployment_tier=tier2 bzw. '
+                'tenancy_mode=multi setzen.'
+            )
         if self.db_use_sqlcipher and not self.db_key:
             raise ValueError('db_key must be set when db_use_sqlcipher=true')
         if self.recent_log_lines_default > self.recent_log_lines_max:
