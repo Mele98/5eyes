@@ -1319,6 +1319,7 @@ def reorder_goals(
         GoalOrderConflictError,
         GoalOrderError,
         acquire_goal_order_write_lock,
+        is_goal_order_lock_conflict,
         is_goal_rank_unique_violation,
         resolve_goal_order,
     )
@@ -1333,17 +1334,28 @@ def reorder_goals(
         if "locked" in str(getattr(exc, "orig", exc)).lower():
             raise HTTPException(status_code=409, detail=GOAL_ORDER_CHANGED_DETAIL) from exc
         raise
-    goals = (
-        db.query(Goal)
-        .filter(
-            Goal.mandate_id == mandate_id,
-            Goal.deleted_at.is_(None),
-            Goal.is_active == 1,
+    try:
+        goals = (
+            db.query(Goal)
+            .filter(
+                Goal.mandate_id == mandate_id,
+                Goal.deleted_at.is_(None),
+                Goal.is_active == 1,
+            )
+            # H-868-D1: feste Sperrreihenfolge (PG FOR UPDATE), sonst koennen
+            # zwei Reorders Zeilensperren gegenlaeufig nehmen -> Deadlock.
+            .order_by(Goal.id)
+            .with_for_update()
+            .populate_existing()
+            .all()
         )
-        .with_for_update()
-        .populate_existing()
-        .all()
-    )
+    except OperationalError as exc:
+        # H-868-D1: PG-Deadlock/Lock-Timeout entsteht beim SELECT, nicht in
+        # acquire_goal_order_write_lock -> ebenfalls 409 statt 500.
+        db.rollback()
+        if is_goal_order_lock_conflict(exc):
+            raise HTTPException(status_code=409, detail=GOAL_ORDER_CHANGED_DETAIL) from exc
+        raise
     try:
         new_ranks = resolve_goal_order(goals, body.goal_ids, body.expected_goal_ids)
     except GoalOrderConflictError as exc:
@@ -1358,6 +1370,11 @@ def reorder_goals(
         # Teilstand -- der Client laedt neu und sortiert erneut.
         db.rollback()
         if is_goal_rank_unique_violation(exc):
+            raise HTTPException(status_code=409, detail=GOAL_ORDER_CHANGED_DETAIL) from exc
+        raise
+    except OperationalError as exc:
+        db.rollback()
+        if is_goal_order_lock_conflict(exc):
             raise HTTPException(status_code=409, detail=GOAL_ORDER_CHANGED_DETAIL) from exc
         raise
     if changed:
