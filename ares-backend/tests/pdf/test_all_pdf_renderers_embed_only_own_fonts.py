@@ -11,6 +11,11 @@ Zusaetzlich (strenger als der Smoke): auch keine nur DEKLARIERTE, nicht
 eingebettete Font-Resource -- ein Ares-PDF referenziert keinen Standard-14-
 Font, auch nicht ungenutzt.
 
+N-877-02: waehrend jedes Renders prueft ein Hook auf ``TTFont.splitString``,
+dass jedes Zeichen im eingebetteten Font eine Glyphe hat (sonst .notdef-
+Kasten). Gegenprobe vor N-877-01 rot fuer die Anlagestrategie (Emoji-Titel,
+Baumstrich U+2517, Balken U+25B0/U+25B1).
+
 Gegenprobe auf der Basis 2e5dfcc3 (vor H1): rot fuer Kostenausweis
 (Seite 2 /F6 Courier), Anlagestrategie mit vollen Referenzdaten (Seite 11/12
 /F1 Helvetica, Tabellenzellen ohne FONTNAME), Anlagestrategie mit
@@ -19,6 +24,7 @@ Beratungsbericht (Courier fuer Hash/Kennziffern).
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import inspect
 import sys
@@ -250,6 +256,33 @@ def _assert_only_own_fonts(pdf: bytes, label: str) -> None:
     assert not stray, f"{label}: nicht eingebettete Font-Resource deklariert: {stray[:5]}"
 
 
+@contextlib.contextmanager
+def _glyph_guard(label: str):
+    """N-877-02: jede Glyphe, die ein eingebetteter TTF-Font darstellen soll,
+    muss in dessen cmap stehen. ReportLab setzt fehlende Zeichen still auf
+    .notdef (leerer Kasten); hier ist das fail-closed rot -- mit Renderer,
+    Font, Zeichen und Codepoint. NBSP mappt ReportLab selbst auf Space."""
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    missing: set[tuple[str, str, str]] = set()
+    original = TTFont.splitString
+
+    def split(self, text, doc, encoding="utf-8"):
+        chars = text.decode("utf-8") if isinstance(text, bytes) else text
+        cmap = self.face.charToGlyph
+        for ch in chars:
+            if ord(ch) != 0xA0 and ord(ch) not in cmap:
+                missing.add((self.fontName, ch, f"U+{ord(ch):04X}"))
+        return original(self, text, doc, encoding)
+
+    TTFont.splitString = split
+    try:
+        yield
+    finally:
+        TTFont.splitString = original
+    assert not missing, f"{label}: Zeichen ohne Glyphe im eingebetteten Font: {sorted(missing)}"
+
+
 def test_every_document_renderer_is_covered():
     """Neue Renderer muessen hier mit Fixture aufgenommen werden."""
     renderers = {name for name, _ in inspect.getmembers(ReportLabRenderer, inspect.isfunction)
@@ -259,7 +292,8 @@ def test_every_document_renderer_is_covered():
 
 @pytest.mark.parametrize("method", sorted(RENDERER_CASES))
 def test_renderer_embeds_only_own_fonts(method):
-    pdf = getattr(ReportLabRenderer(), method)(_ctx(), RENDERER_CASES[method]())
+    with _glyph_guard(f"{method}.pdf"):
+        pdf = getattr(ReportLabRenderer(), method)(_ctx(), RENDERER_CASES[method]())
     _assert_only_own_fonts(pdf, f"{method}.pdf")
 
 
@@ -267,5 +301,23 @@ def test_renderer_embeds_only_own_fonts(method):
 def test_advisory_report_embeds_only_own_fonts(variant):
     from services.pdf.documents.advisory_report import render_advisory_report_pdf_from_payload
 
-    pdf = render_advisory_report_pdf_from_payload(_advisory_payloads()[variant]())
+    with _glyph_guard(f"beratungsbericht_{variant}.pdf"):
+        pdf = render_advisory_report_pdf_from_payload(_advisory_payloads()[variant]())
     _assert_only_own_fonts(pdf, f"beratungsbericht_{variant}.pdf")
+
+
+def test_glyph_guard_detects_missing_glyph():
+    """Positivkontrolle: ein Zeichen ausserhalb der Inter-cmap ist rot."""
+    import io
+
+    from reportlab.pdfgen.canvas import Canvas
+
+    from services.pdf.fonts import register_editorial_fonts
+
+    assert register_editorial_fonts()
+    with pytest.raises(AssertionError, match=r"x\.pdf: .*'Inter', '┗', 'U\+2517'"):
+        with _glyph_guard("x.pdf"):
+            canvas = Canvas(io.BytesIO())
+            canvas.setFont("Inter", 9)
+            canvas.drawString(10, 10, "Unterklasse ┗ Aktien")
+            canvas.save()

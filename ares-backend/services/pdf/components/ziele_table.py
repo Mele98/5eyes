@@ -29,15 +29,36 @@ from services.pdf.styles import (
 )
 
 
-def _achievement_bars(score: float) -> str:
-    """Score 0-100 → 8-stufige ▰▱-Balken-Visualisierung wie Vorlage.
+ACHIEVEMENT_SEGMENTS = 8
 
-    Skala (Vorlage): jeder Balken = 12.5%, Color per goal_color helper.
+
+def _achievement_segments(score: float) -> int:
+    """Score 0-100 -> gefuellte Segmente (je 12.5 %, wie Vorlage)."""
+    return max(0, min(ACHIEVEMENT_SEGMENTS, int(round(score / 12.5))))
+
+
+def _make_achievement_segments(score: float) -> Drawing:
+    """N-877-01: Zielerreichung als gezeichnete 8-Segment-Leiste statt der
+    Blockzeichen U+25B0/U+25B1 (in keinem eingebetteten Font enthalten).
+
+    Barrierearm: gefuellte Segmente sind farbig gefuellt, leere nur weiss mit
+    grauer Kontur -- der Fuellgrad ist auch ohne Farbwahrnehmung ablesbar;
+    die Zahl ``NN/100`` steht zusaetzlich darunter.
     """
-    n_filled = max(0, min(8, int(round(score / 12.5))))
-    filled = "▰" * n_filled
-    empty = "▱" * (8 - n_filled)
-    return filled + empty
+    seg_w, seg_h, gap = 4.5 * mm, 2.6 * mm, 0.8 * mm
+    width = ACHIEVEMENT_SEGMENTS * seg_w + (ACHIEVEMENT_SEGMENTS - 1) * gap
+    drawing = Drawing(width, seg_h + 1)
+    filled = _achievement_segments(score)
+    fill = goal_color(score)
+    for i in range(ACHIEVEMENT_SEGMENTS):
+        is_filled = i < filled
+        drawing.add(Rect(
+            i * (seg_w + gap), 0.5, seg_w, seg_h,
+            fillColor=fill if is_filled else colors.white,
+            strokeColor=fill if is_filled else colors.HexColor("#94a3b8"),
+            strokeWidth=0.6,
+        ))
+    return drawing
 
 
 def make_ziele_section(goals: Iterable[Mapping], *, base_currency: str = "CHF") -> list:
@@ -56,17 +77,12 @@ def make_ziele_section(goals: Iterable[Mapping], *, base_currency: str = "CHF") 
         target_text = str(g.get("target_text", "") or "")
         shortfall_rappen = int(g.get("shortfall_rappen", 0) or 0)
 
-        # Sprint 14 Phase 3: filled-Balken in goal_color, empty-Balken grau
-        color_hex = goal_color(score).hexval()[2:]
-        n_filled = max(0, min(8, int(round(score / 12.5))))
-        filled = "▰" * n_filled
-        empty = "▱" * (8 - n_filled)
-        achievement_cell = Paragraph(
-            f'<font color="#{color_hex}" size="12"><b>{filled}</b></font>'
-            f'<font color="#cbd5e1" size="12">{empty}</font>'
-            f'<br/><font color="#64748b" size="7">{int(score)}/100</font>',
-            _para_compact(),
-        )
+        # Sprint 14 Phase 3 / N-877-01: gezeichnete Segmente in goal_color,
+        # leere Segmente als Kontur, Score als Zahl darunter.
+        achievement_cell = [
+            _make_achievement_segments(score),
+            Paragraph(f'<font color="#64748b" size="7">{int(score)}/100</font>', _para_compact()),
+        ]
 
         # Fehlbetrag-Anzeige
         if shortfall_rappen > 0:
