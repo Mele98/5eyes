@@ -92,6 +92,7 @@ from services.review_engine import (
 from services.signature_artifact import CLIENT_SIGNATURE_REQUIRES_CLIENT_PRINCIPAL
 from services.suitability_audit import audit_mandate_suitability, suitability_gate_blocks
 from services.product_eligibility_finalization import finalization_eligibility_findings
+from services.product_eligibility_governance import parse_utc_timestamp
 from services.review_calendar_feed import (
     build_ics_feed,
     issue_calendar_feed_token,
@@ -1836,7 +1837,8 @@ def _get_conflict_or_404(
 
 
 def _validated_event_timestamp(
-    raw, *, conflict, field_label: str,
+    raw, *, conflict, field_label: str, not_before: str | None = None,
+    not_before_label: str | None = None,
 ) -> str:
     """Ein nachgetragener Zeitpunkt, in plausible Grenzen gezwungen.
 
@@ -1850,18 +1852,23 @@ def _validated_event_timestamp(
     if not raw:
         return now
     candidate = str(raw).strip()
-    if len(candidate) < 10:
+    # C-860-01-Folgebefund: Grenzen auf echten UTC-Zeitpunkten pruefen, nicht
+    # als Text. Ein erfasster Zeitpunkt mit Offset (z. B. '+01:00') oder in
+    # anderer Schreibweise als '...Z' wurde als Text falsch eingeordnet.
+    candidate_at = parse_utc_timestamp(candidate) if len(candidate) >= 10 else None
+    if candidate_at is None:
         raise HTTPException(
             status_code=422,
             detail=f"{field_label} ist kein gueltiger Zeitpunkt: {candidate!r}",
         )
-    if candidate > now:
+    if candidate_at > parse_utc_timestamp(now):
         raise HTTPException(
             status_code=422,
             detail=f"{field_label} darf nicht in der Zukunft liegen.",
         )
     created_at = str(getattr(conflict, "created_at", "") or "")
-    if created_at and candidate < created_at:
+    created_at_utc = parse_utc_timestamp(created_at) if created_at else None
+    if created_at_utc is not None and candidate_at < created_at_utc:
         raise HTTPException(
             status_code=422,
             detail=(
@@ -1869,6 +1876,18 @@ def _validated_event_timestamp(
                 f"({created_at}) -- bitte den tatsaechlichen Zeitpunkt erfassen."
             ),
         )
+    # C-867-01: zusaetzliche Untergrenze (Kenntnisnahme nie vor der
+    # Offenlegung). Der Aufrufer stellt sicher, dass sie lesbar ist.
+    if not_before is not None:
+        not_before_utc = parse_utc_timestamp(not_before)
+        if not_before_utc is None or candidate_at < not_before_utc:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"{field_label} liegt vor der {not_before_label or 'Untergrenze'} "
+                    f"({not_before}) -- bitte den tatsaechlichen Zeitpunkt erfassen."
+                ),
+            )
     return candidate
 
 
@@ -1975,8 +1994,25 @@ def acknowledge_conflict(
                 "urspruengliche Zeitpunkt wird nicht ueberschrieben."
             ),
         )
+    # C-867-01: Die Kenntnisnahme kann nicht vor der Offenlegung liegen.
+    # Ohne lesbaren Offenlegungszeitpunkt ist der Zustand nicht belegbar ->
+    # fail-closed (409), statt eine zeitlich unpruefbare Kenntnisnahme zu
+    # protokollieren.
+    disclosed_at = str(getattr(conflict, "disclosed_at", "") or "").strip()
+    if not disclosed_at or parse_utc_timestamp(disclosed_at) is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Der Offenlegungszeitpunkt fehlt oder ist nicht lesbar. Eine "
+                "Kenntnisnahme laesst sich zeitlich nicht gegen die Offenlegung "
+                "pruefen und wird nicht erfasst."
+            ),
+        )
+    # Ohne Angabe gilt die Serverzeit -- auch sie wird gegen die Untergrenzen
+    # geprueft.
     acknowledged_at = _validated_event_timestamp(
-        body.acknowledged_at, conflict=conflict, field_label="acknowledged_at",
+        body.acknowledged_at or _now(), conflict=conflict, field_label="acknowledged_at",
+        not_before=disclosed_at, not_before_label="Offenlegung",
     )
     conflict.client_acknowledged = 1
     conflict.client_acknowledged_at = acknowledged_at

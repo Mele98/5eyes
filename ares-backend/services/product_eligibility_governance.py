@@ -100,6 +100,32 @@ def parse_utc_timestamp(value) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def instant_within_validity(valid_from, valid_to, as_of) -> bool:
+    """``valid_from <= as_of < valid_to`` auf echten UTC-Zeitpunkten (C-860-01).
+
+    Die Gueltigkeitsfelder (valid_from/valid_to/expires_at) sind Text und
+    kommen in zwei Schreibweisen vor: ``isoformat()`` mit ``+00:00`` (dieses
+    Modul, Governance, Override) und Millisekunden mit ``Z``
+    (services.portfolio_engine._now, Katalog-Bootstrap). Als Text verglichen
+    sortiert ``...SS+00:00`` vor ``...SS.000Z`` -- eine eben geseedete Regel
+    galt dann bis zum Sekundenwechsel als noch nicht gueltig. Deshalb wird
+    beim Vergleich geparst (parse_utc_timestamp); die gespeicherten Werte
+    (und damit alle Hashes, in die sie einfliessen) bleiben unveraendert.
+
+    ``valid_to`` ``None`` heisst offen. Ein nicht lesbarer Wert (auch ein
+    leerer ``valid_to``) macht das Fenster ungueltig -- fail-closed, wie der
+    fruehere Textvergleich fuer solche Werte.
+    """
+    moment = parse_utc_timestamp(as_of)
+    start = parse_utc_timestamp(valid_from)
+    if moment is None or start is None or start > moment:
+        return False
+    if valid_to is None:
+        return True
+    end = parse_utc_timestamp(valid_to)
+    return end is not None and moment < end
+
+
 class RuleApprovalConflict(Exception):
     """Four-eyes violation or invalid approval state (router maps to 409)."""
 
