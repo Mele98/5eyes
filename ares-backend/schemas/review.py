@@ -2295,3 +2295,298 @@ class ProductEligibilityDraftsResponse(BaseModel):
     approver_count: int
     current_user_is_sole_approver: bool
     drafts: list[ProductEligibilityDraftItem]
+
+
+# ===========================================================================
+# AUDIT-2026-11 T1 (Audit 05 §4.1/§4.2): Nachhaltigkeits- und
+# Ausschlussnachweise je Produkt, Hausstandard je Tenant.
+# Die Literale spiegeln die Kataloge in models/product_eligibility.py
+# (Quelle der Wahrheit; ein Sync-Test haelt beide gleich). Die fachliche
+# Querpruefung (Art je Kategorie, Schwellen, Quelle, Gueltigkeit) liegt in
+# services/product_eligibility_governance.py::sustainability_attribute_errors,
+# damit Erfassen, Bearbeiten und Import dieselbe Regel nutzen.
+# ===========================================================================
+
+SustainabilityCategory = Literal[
+    "controversial_weapons",
+    "conventional_weapons",
+    "weapons",
+    "tobacco",
+    "thermal_coal",
+    "fossil_fuels",
+    "gambling",
+    "adult_entertainment",
+    "alcohol",
+    "nuclear_power",
+    "animal_testing",
+    "ungc_violation",
+    "sfdr_classification",
+    "impact_theme",
+]
+SustainabilityKind = Literal["exclusion_policy", "measured_exposure", "certification", "classification"]
+SustainabilitySourceType = Literal[
+    "prospectus",
+    "fund_contract",
+    "kid",
+    "factsheet",
+    "provider_exclusion_policy",
+    "provider_confirmation",
+    "data_vendor",
+    "house_analysis",
+]
+# N-863-6: Katalog der neutralen Kunden-Quellbezeichnungen (Codes; Texte in
+# models/product_eligibility.py::SUSTAINABILITY_CLIENT_SOURCE_LABELS).
+SustainabilityClientSourceLabel = Literal[
+    "prospectus",
+    "fund_contract",
+    "kid",
+    "factsheet",
+    "provider_exclusion_policy",
+    "provider_confirmation",
+    "data_vendor",
+    "house_analysis",
+]
+SustainabilityStatus = Literal["draft", "approved", "retired"]
+SustainabilityEvidenceStatus = Literal["draft", "retired", "not_yet_valid", "expired", "valid"]
+SustainabilityScope = Literal["tenant", "global"]
+
+
+def _strip_optional_text(value):
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+    return value
+
+
+class ProductSustainabilityAttributeCreate(BaseModel):
+    """Neuer Nachweis (immer als Entwurf). ``scope='global'`` = Plattform-
+    Nachweis eines globalen Katalogfonds (Multi-Tenant: nur super_admin).
+    Es gibt bewusst keinen Quellentyp fuer Seed-/Default-Werte (T-E2)."""
+    scope: SustainabilityScope = "tenant"
+    category: SustainabilityCategory
+    kind: SustainabilityKind
+    revenue_threshold_bps: Optional[int] = Field(default=None, ge=0, le=10000)
+    measured_exposure_bps: Optional[int] = Field(default=None, ge=0, le=10000)
+    value: Optional[str] = Field(default=None, max_length=200)
+    source_type: SustainabilitySourceType
+    source_reference: str = Field(min_length=1, max_length=500)
+    source_provider: Optional[str] = Field(default=None, max_length=200)
+    source_retrieved_on: Optional[date] = None
+    source_document_title: Optional[str] = Field(default=None, max_length=300)
+    source_document_version: Optional[str] = Field(default=None, max_length=100)
+    source_document_date: Optional[date] = None
+    source_document_sha256: Optional[str] = Field(default=None, min_length=64, max_length=64)
+    client_source_label: Optional[SustainabilityClientSourceLabel] = Field(
+        default=None,
+        description="Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.",
+    )
+    as_of: date
+    valid_until: Optional[date] = Field(
+        default=None,
+        description="Leer = Stichtag + 12 Monate (T-E3); laenger ist nicht zulaessig.",
+    )
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+    @field_validator("value", "source_reference", "source_provider", "note", "source_document_title",
+                     "source_document_version", "client_source_label", mode="before")
+    @classmethod
+    def _strip_text(cls, value):
+        return _strip_optional_text(value)
+
+    @field_validator("source_document_sha256", mode="before")
+    @classmethod
+    def _normalize_sha256(cls, value):
+        value = _strip_optional_text(value)
+        return value.lower() if isinstance(value, str) else value
+
+
+class ProductSustainabilityAttributeUpdate(BaseModel):
+    """Bearbeiten nur im Entwurf. Kategorie, Art und Scope sind fest (sonst
+    neuer Nachweis). Explizites null leert optionale Felder."""
+    revenue_threshold_bps: Optional[int] = Field(default=None, ge=0, le=10000)
+    measured_exposure_bps: Optional[int] = Field(default=None, ge=0, le=10000)
+    value: Optional[str] = Field(default=None, max_length=200)
+    source_type: Optional[SustainabilitySourceType] = None
+    source_reference: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    source_provider: Optional[str] = Field(default=None, max_length=200)
+    source_retrieved_on: Optional[date] = None
+    source_document_title: Optional[str] = Field(default=None, max_length=300)
+    source_document_version: Optional[str] = Field(default=None, max_length=100)
+    source_document_date: Optional[date] = None
+    source_document_sha256: Optional[str] = Field(default=None, min_length=64, max_length=64)
+    client_source_label: Optional[SustainabilityClientSourceLabel] = Field(
+        default=None,
+        description="Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.",
+    )
+    as_of: Optional[date] = None
+    valid_until: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+    @field_validator("value", "source_reference", "source_provider", "note", "source_document_title",
+                     "source_document_version", "client_source_label", mode="before")
+    @classmethod
+    def _strip_text(cls, value):
+        return _strip_optional_text(value)
+
+    @field_validator("source_document_sha256", mode="before")
+    @classmethod
+    def _normalize_sha256(cls, value):
+        value = _strip_optional_text(value)
+        return value.lower() if isinstance(value, str) else value
+
+
+class ProductSustainabilityAttributeImportItem(ProductSustainabilityAttributeCreate):
+    """Import-Zeile: Produkt ueber product_id ODER isin."""
+    product_id: Optional[str] = Field(default=None, max_length=64)
+    isin: Optional[str] = Field(default=None, max_length=12)
+
+    @field_validator("product_id", "isin", mode="before")
+    @classmethod
+    def _strip_reference(cls, value):
+        return _strip_optional_text(value)
+
+    @model_validator(mode="after")
+    def _product_reference(self):
+        if not self.product_id and not self.isin:
+            raise ValueError("product_id oder isin angeben")
+        return self
+
+
+class ProductSustainabilityAttributeImportRequest(BaseModel):
+    attributes: list[ProductSustainabilityAttributeImportItem] = Field(min_length=1, max_length=1000)
+
+
+class ProductSustainabilityAttributeResponse(BaseResponse):
+    id: str
+    product_id: str
+    tenant_id: Optional[str] = None
+    scope: SustainabilityScope
+    category: str
+    kind: str
+    revenue_threshold_bps: Optional[int] = None
+    measured_exposure_bps: Optional[int] = None
+    value: Optional[str] = None
+    source_type: str
+    source_reference: str
+    source_provider: Optional[str] = None
+    source_retrieved_on: Optional[str] = None
+    source_document_title: Optional[str] = None
+    source_document_version: Optional[str] = None
+    source_document_date: Optional[str] = None
+    source_document_sha256: Optional[str] = None
+    client_source_label: Optional[str] = None
+    client_source_label_text: Optional[str] = None
+    as_of: str
+    valid_until: str
+    status: SustainabilityStatus
+    evidence_status: SustainabilityEvidenceStatus
+    note: Optional[str] = None
+    created_by: str
+    created_at: str
+    approved_by: Optional[str] = None
+    approved_at: Optional[str] = None
+    approval_mode: Optional[str] = None
+    retired_by: Optional[str] = None
+    retired_at: Optional[str] = None
+    supersedes_id: Optional[str] = None
+    updated_at: str
+
+
+class ProductSustainabilityImportResultItem(BaseModel):
+    row: int
+    status: Literal["created", "failed"]
+    attribute_id: Optional[str] = None
+    product_id: Optional[str] = None
+    error: Optional[str] = None
+
+
+class ProductSustainabilityImportResponse(BaseModel):
+    processed: int
+    created: int
+    failed: int
+    items: list[ProductSustainabilityImportResultItem] = Field(default_factory=list)
+
+
+class ProductSustainabilityApprovalRequest(BaseModel):
+    """Standard Vier-Augen (leerer Body). Einzelberater-Ausnahme wie bei den
+    Eignungsregeln: Attest + Begruendung; der Server prueft, dass der Tenant
+    genau eine freigabeberechtigte Person hat."""
+    single_approver_attestation: bool = False
+    attestation_reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+class ProductSustainabilityBatchApprovalRequest(ProductSustainabilityApprovalRequest):
+    attribute_ids: list[str] = Field(min_length=1, max_length=1000)
+
+
+class ProductSustainabilityApprovalResponse(BaseModel):
+    approved_ids: list[str]
+    retired_ids: list[str]
+    approval_mode: str
+
+
+class ProductSustainabilityRetireRequest(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+class SustainabilityCategoryInfo(BaseModel):
+    category: str
+    criterion_type: Literal["revenue_threshold", "conduct", "classification"]
+    kinds: list[str]
+    default_threshold_bps: Optional[int] = None
+    has_house_standard: bool
+
+
+class SustainabilityCatalogResponse(BaseModel):
+    categories: list[SustainabilityCategoryInfo]
+    source_types: list[str]
+    statuses: list[str]
+    sfdr_values: list[str]
+    evidence_validity_months: int
+    client_source_labels: dict[str, str] = Field(default_factory=dict)
+
+
+class SustainabilityStandardPending(BaseModel):
+    """Offene Lockerung (H-1), wirkt erst nach Vier-Augen-Freigabe."""
+    id: str
+    max_revenue_threshold_bps: Optional[int] = None
+    is_disabled: bool
+    created_by: Optional[str] = None
+    created_at: str
+    note: Optional[str] = None
+
+
+class SustainabilityStandardItem(BaseModel):
+    category: str
+    criterion_type: Literal["revenue_threshold", "conduct"]
+    default_threshold_bps: Optional[int] = None
+    tenant_threshold_bps: Optional[int] = None
+    effective_threshold_bps: Optional[int] = None
+    is_overridden: bool
+    is_disabled: bool = False
+    standard_id: Optional[str] = None
+    valid_from: Optional[str] = None
+    approved_by: Optional[str] = None
+    approved_at: Optional[str] = None
+    approval_mode: Optional[str] = None
+    note: Optional[str] = None
+    updated_by: Optional[str] = None
+    updated_at: Optional[str] = None
+    pending: Optional[SustainabilityStandardPending] = None
+
+
+class SustainabilityStandardsResponse(BaseModel):
+    tenant_id: Optional[str] = None
+    items: list[SustainabilityStandardItem]
+
+
+class SustainabilityStandardUpdate(BaseModel):
+    """Hausschwelle setzen. Bei UN Global Compact gibt es keine
+    Umsatzschwelle (null). Schwelle ueber dem T-E1-Default oder
+    is_disabled=true ist eine Lockerung und braucht eine Vier-Augen-Freigabe."""
+    max_revenue_threshold_bps: Optional[int] = Field(default=None, ge=0, le=10000)
+    is_disabled: bool = Field(
+        default=False,
+        description="Kategorie fuer diese Verwaltung deaktivieren (Lockerung, Vier-Augen-Freigabe).",
+    )
+    note: Optional[str] = Field(default=None, max_length=2000)
