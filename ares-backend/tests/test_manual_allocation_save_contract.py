@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -61,6 +62,7 @@ from services.foundation_example import (  # noqa: E402
     FOUNDATION_MANDATE_NUMBER,
     upsert_foundation_example_case,
 )
+from services.valuation_clock import bound_valuation_date  # noqa: E402
 from services.portfolio_engine import (  # noqa: E402
     _verified_persisted_allocation_context,
     build_recommendation_payload_from_run,
@@ -171,12 +173,42 @@ def _shifted_targets(engine_ta) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_identical_manual_resave_is_reloadable_via_same_verifier(SF):
-    with SF() as s:
+class _WallClockPastMidnight:
+    """N-855-8: Wanduhr von services.valuation_clock, die auf Kommando ueber
+    Mitternacht springt (simuliert einen Lauf, der vor 00:00 beginnt und
+    danach endet). Gebundene Stichtage sind davon unberuehrt."""
+
+    def __init__(self, monkeypatch):
+        import services.valuation_clock as valuation_clock
+
+        self.start = date.today()
+        self.days = 0
+        clock = self
+
+        class _Date(date):
+            @classmethod
+            def today(cls):
+                return clock.start + timedelta(days=clock.days)
+
+        monkeypatch.setattr(valuation_clock, "date", _Date)
+
+    def pass_midnight(self):
+        self.days += 1
+
+
+def test_identical_manual_resave_is_reloadable_via_same_verifier(SF, monkeypatch):
+    # N-855-8: der Test lief rot, wenn Seed (Engine-Allokation) und manuelles
+    # Wiederspeichern auf zwei Kalendertage fielen -- der input_snapshot_hash
+    # haengt korrekt am Bewertungsstichtag. Der ganze Fall laeuft deshalb
+    # unter EINEM gebundenen Stichtag; die Wanduhr springt mitten im Test
+    # ueber Mitternacht, um genau das abzusichern. Produktverhalten unveraendert.
+    clock = _WallClockPastMidnight(monkeypatch)
+    with bound_valuation_date(clock.start), SF() as s:
         mandate, adv = _seed(s)
         engine_ta = _current(s, mandate.id)
         aid = _assessment(s, mandate.id).id
         allocation_router.get_current_allocation_payload(mandate.id, db=s, current_user=adv)
+        clock.pass_midnight()
 
         manual = allocation_router.create_target_allocation(
             mandate.id, _body_from(engine_ta, aid), _request(), db=s, current_user=adv,
