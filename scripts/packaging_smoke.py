@@ -537,7 +537,9 @@ def _font_resource_usage(pages) -> tuple[list[FontUse], list[FontUse]]:
 
     ``deklariert`` = jede Font-Resource in diesen Resource-Dicts. Unaufloesbare
     Verweise, Zyklen, unbekannte XObject-/Pattern-Typen, Annotationen mit
-    Text ohne Erscheinungsbild und /NeedAppearances sind Fehler (fail-closed)."""
+    Text ohne Erscheinungsbild, Widgets ohne gueltiges /AP /N, ein /AP, das
+    kein Dict ist, Redact mit /OverlayText und /NeedAppearances sind Fehler
+    (fail-closed, N-853-9)."""
     from pypdf.generic import ContentStream
 
     used: list[FontUse] = []
@@ -690,9 +692,28 @@ def _font_resource_usage(pages) -> tuple[list[FontUse], list[FontUse]]:
             annot = annot.get_object()
             if not hasattr(annot, 'get'):
                 raise ValueError(f'Annotation[{index}] auf Seite {page_no} ist kein Dict')
-            appearances = get_dict(annot, '/AP')
+            subtype = annot.get('/Subtype')
+            if subtype == '/Redact' and annot.get('/OverlayText') is not None:
+                # N-853-9: den Overlay-Text setzt erst der Leser beim Anwenden,
+                # mit dem Font aus /DA bzw. dessen Standardfont.
+                raise ValueError(f'Annotation[{index}] auf Seite {page_no}: Redact mit '
+                                 f'/OverlayText (Text entsteht erst beim Anwenden)')
+            raw_ap = annot.get('/AP')
+            raw_ap = raw_ap.get_object() if raw_ap is not None else None
+            if raw_ap is not None and (hasattr(raw_ap, 'get_data') or not hasattr(raw_ap, 'items')):
+                # N-853-9: /AP muss ein Dict sein (PDF 1.7, 12.5.5); ein Stream
+                # an seiner Stelle ist ungueltig und wird vom Leser ersetzt.
+                raise ValueError(f'Annotation[{index}] auf Seite {page_no}: /AP ist kein Dict '
+                                 f'({type(raw_ap).__name__})')
+            appearances = raw_ap or {}
+            if subtype == '/Widget' and appearances.get('/N') is None:
+                # N-853-9: ein Widget ohne gueltiges /AP /N zeichnet der Leser
+                # selbst -- mit /DA aus Feld, Elternfeld oder /AcroForm und
+                # einem Font aus /DR, egal wo /DA steht.
+                raise ValueError(f'Annotation[{index}] auf Seite {page_no}: Widget ohne '
+                                 f'gueltiges Erscheinungsbild (/AP /N fehlt)')
             if not appearances:
-                if annot.get('/Subtype') in ('/Widget', '/FreeText') and annot.get('/DA') is not None:
+                if subtype == '/FreeText' and annot.get('/DA') is not None:
                     raise ValueError(f'Annotation[{index}] auf Seite {page_no}: Text ohne '
                                      f'Erscheinungsbild (/DA ohne /AP)')
                 continue
