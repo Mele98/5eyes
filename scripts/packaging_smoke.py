@@ -36,6 +36,21 @@ Quellbaum:
    in den (temporaeren) userData-Ordner. Der Erststart erzeugt genau eine
    DPAPI-Ablage (Benutzer-Scope, Format-Kennung), der Schluessel steht in
    keinem Log; ein zweiter Start laedt dieselbe Ablage byte-identisch.
+8. PDF-Render (B-9, Laufzeit): auf der frischen Smoke-DB werden ueber die
+   HTTP-API ein Admin (Ersteinrichtung), ein synthetischer Kunde und ein
+   Mandat angelegt; danach rendert die gepackte EXE Kunden-PDFs
+   (``PDF_SMOKE_DOCUMENTS``). Jedes muss ein vollstaendiges PDF sein
+   (``%PDF-`` ... ``%%EOF``, mit pypdf lesbar), die Fusszeile aus dem
+   Laenderpaket-Text ``legal.footer.disclaimer`` tragen und die
+   Editorial-Fonts (Inter, Cormorant Garamond) eingebettet verwenden.
+   Geprueft wird jede Font-Resource, mit der tatsaechlich Text gezeigt wird
+   (Seite, Form-XObjects rekursiv, Annotation-Erscheinungsbilder N/D/R,
+   Tiling-Patterns, SMask-Gruppen, Type3-CharProcs, Type0-Descendants;
+   nicht auswertbare Inhaltstraeger sind rot): sie selbst braucht
+   einen lesbaren, nichtleeren /FontFile*-Stream; auch ein nicht
+   eingebetteter Standard-14-Font ist rot (C-853-02). Faellt
+   der Renderer still auf Standard-Fonts zurueck (Fonts im Paket nicht
+   gefunden), ist der Smoke rot -- ebenso bei einer Font-Warnung im Log.
 
 Fail-closed: jede Abweichung, jede fehlende Pruefgrundlage (z.B. PyInstaller
 nicht importierbar) und jeder Timeout fuehrt zu Exit 1. Nur Windows.
@@ -52,9 +67,11 @@ import argparse
 import ctypes
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import re
+import secrets
 import shutil
 import signal
 import socket
@@ -81,6 +98,19 @@ ARCHIVE_FONT_PREFIX = 'assets/fonts/'
 ARCHIVE_REPORTING_INDEX = 'reporting_dist/index.html'
 JURISDICTIONS_ROOT = BACKEND_ROOT / 'jurisdictions'
 ARCHIVE_JURISDICTIONS_PREFIX = 'jurisdictions/'
+
+# B-9: PDF-Render in der gepackten EXE. Risikoprofil und Vertrag brauchen nur
+# ein Mandat (kein Risikoprofil, keine Empfehlung) und tragen die Fusszeile aus
+# dem Laenderpaket-Text (services/pdf/components/footer.py).
+PDF_SMOKE_DOCUMENTS = ('risikoprofil', 'vertrag')
+FOOTER_DISCLAIMER_KEY = 'legal.footer.disclaimer'
+# Die Fusszeile druckt den Disclaimer vollstaendig (umgebrochen, nie gekuerzt;
+# footer.py, N-858-1). Geprueft wird deshalb der volle Laenderpaket-Text plus
+# das Erstelldatum ("Erstellt am").
+FOOTER_CREATED_MARKER = 'Erstellt am'
+# services/pdf/fonts.py: eingebettete TrueType-Subsets heissen ``/ABCDEF+<Name>``.
+EDITORIAL_FONT_FAMILIES = ('Inter', 'CormorantGaramond')
+FONT_FALLBACK_LOG_MARKERS = ('Editorial PDF fonts missing', 'Editorial PDF font registration failed')
 
 # RB-1: Vertrag der KEK-Ablage (ares-backend/config.py, KEK_STORE_*).
 KEK_STORE_NAME = 'tenant-master-kek.dpapi'
@@ -314,13 +344,426 @@ def port_open(port: int) -> bool:
         return s.connect_ex(('127.0.0.1', port)) == 0
 
 
-def http_get(url: str, timeout: float = 5.0) -> tuple[int, dict, bytes]:
-    req = urllib.request.Request(url, headers={'Accept': '*/*'})
+def http_request(url: str, *, method: str = 'GET', json_body: object | None = None,
+                 headers: Mapping[str, str] | None = None,
+                 timeout: float = 5.0) -> tuple[int, dict, bytes]:
+    all_headers = {'Accept': '*/*', **(headers or {})}
+    data = None
+    if json_body is not None:
+        data = json.dumps(json_body).encode('utf-8')
+        all_headers['Content-Type'] = 'application/json'
+    req = urllib.request.Request(url, data=data, headers=all_headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, dict(resp.headers), resp.read()
     except urllib.error.HTTPError as exc:
         return exc.code, dict(exc.headers or {}), exc.read() or b''
+
+
+def http_get(url: str, timeout: float = 5.0) -> tuple[int, dict, bytes]:
+    return http_request(url, timeout=timeout)
+
+
+# ---------------------------------------------------------------------------
+# 8. PDF-Render (B-9)
+# ---------------------------------------------------------------------------
+def expected_footer_disclaimer() -> str:
+    """Voller Fusszeilen-Text aus dem Quellbaum (produktiver Loader).
+
+    Die Paket-Bytes derselben Datei sind in ``check_jurisdiction_documents``
+    als byte-identisch belegt; der Text im gerenderten PDF stammt also aus der
+    Datei im Paket."""
+    documents_mod = _load_jurisdiction_loader('jurisdictions.documents')
+    text = documents_mod.default_documents().text(FOOTER_DISCLAIMER_KEY)
+    if not isinstance(text, str) or not text.strip():
+        fail(f'{FOOTER_DISCLAIMER_KEY} im Quellbaum leer -- PDF-Pruefung hat keine Grundlage.')
+    return text
+
+
+def _squash(text: str) -> str:
+    return ' '.join(text.split())
+
+
+def check_pdf_bytes(pdf: bytes, label: str, required_texts: tuple[str, ...]) -> str:
+    """Gerendertes PDF pruefen; liefert eine Kurzbeschreibung fuer das Log."""
+    if not pdf.startswith(b'%PDF-'):
+        fail(f'{label}: Antwort ist kein PDF (Anfang {pdf[:40]!r}).')
+    if b'%%EOF' not in pdf[-1024:]:
+        fail(f'{label}: PDF unvollstaendig (kein %%EOF am Ende, {len(pdf)} bytes).')
+    try:
+        import pypdf
+    except ImportError as exc:  # fail-closed: ohne Leser keine Inhaltspruefung
+        fail(f'pypdf nicht importierbar, PDF-Inhalt nicht pruefbar: {exc}')
+    try:
+        reader = pypdf.PdfReader(io.BytesIO(pdf))
+        pages = list(reader.pages)
+        text = _squash(' '.join(page.extract_text() or '' for page in pages))
+        used, declared = _font_resource_usage(pages)
+    except Exception as exc:  # pypdf-Fehler jeder Art -- fail-closed mit Ursache
+        fail(f'{label}: PDF nicht lesbar: {type(exc).__name__}: {exc}')
+    if not pages:
+        fail(f'{label}: PDF ohne Seiten.')
+    for needle in required_texts:
+        if _squash(needle) not in text:
+            fail(f'{label}: Pflichttext fehlt im PDF: {needle[:80]!r}')
+    for family in EDITORIAL_FONT_FAMILIES:
+        if not any(_editorial_family(u.base_font) == family
+                   and u.state.startswith('eingebettet (/FontFile') for u in used):
+            # C-853-01/02: weder der Subset-Name noch eine nur deklarierte
+            # (unbenutzte) eingebettete Resource belegt die Einbettung; ein
+            # Type3 mit Editorial-Namen ist kein eingebetteter Editorial-Font.
+            fail(f'{label}: Editorial-Font {family} nicht eingebettet '
+                 f'(Fallback auf Standard-Fonts?); verwendete Fonts: '
+                 f'{sorted(u.describe() for u in used)}')
+    # C-853-02: jede vom Inhalt TATSAECHLICH verwendete Font-Resource (Seite,
+    # Form-XObjects beliebig tief, Annotation-Erscheinungsbilder N/D/R,
+    # Tiling-Patterns, SMask-Gruppen, Type3-CharProcs) muss selbst
+    # einen lesbaren, nichtleeren /FontFile*-Stream haben -- auch ein nicht
+    # eingebetteter Standard-14-Font ist ein Befund. Kein Abgleich ueber den
+    # /BaseFont-Namen: eine eingebettete Dublette belegt nichts.
+    unembedded = [u for u in used if not u.embedded]
+    if unembedded:
+        fail(f'{label}: verwendete Font-Resource nicht eingebettet: '
+             f'{[u.describe() for u in unembedded]}')
+    # Konservativ (Codex C-853-02): auch jede deklarierte, unbenutzte
+    # Editorial-Font-Resource muss eingebettet sein.
+    broken = [d for d in declared if _editorial_family(d.base_font) and not d.embedded]
+    if broken:
+        fail(f'{label}: Editorial-Font-Resource nicht eingebettet: '
+             f'{[d.describe() for d in broken]}')
+    return (f'{label} ({len(pdf)} bytes, {len(pages)} Seite(n), '
+            f'{len(used)} verwendete Font-Resource(n) eingebettet)')
+
+
+FONT_FILE_KEYS = ('/FontFile', '/FontFile2', '/FontFile3')
+# Textausgabe-Operatoren (PDF 1.7, 9.4.3): erst sie verwenden den aktuellen Font.
+TEXT_SHOW_OPERATORS = (b'Tj', b'TJ', b"'", b'"')
+# Grenze gegen pathologisch tiefe Verschachtelung (Forms, Patterns, CharProcs).
+MAX_FORM_DEPTH = 32
+
+
+def _editorial_family(base_font: str) -> str | None:
+    """Editorial-Familie eines Subset-Namens (``ABCDEF+Inter-Bold`` -> ``Inter``)."""
+    for family in EDITORIAL_FONT_FAMILIES:
+        if re.fullmatch(r'[A-Z]{6}\+' + family + r'(-\w+)?', base_font):
+            return family
+    return None
+
+
+class FontUse:
+    """Eine Font-Resource an genau einer Stelle: Seite, Ort (Seite, Form-XObject-
+    Pfad, Annotation), Resource-Key, /BaseFont und Einbettungszustand."""
+
+    __slots__ = ('page', 'where', 'key', 'base_font', 'state')
+
+    def __init__(self, page: int, where: str, key: str, base_font: str, state: str):
+        self.page, self.where, self.key = page, where, key
+        self.base_font, self.state = base_font, state
+
+    @property
+    def embedded(self) -> bool:
+        return self.state.startswith('eingebettet')
+
+    def describe(self) -> str:
+        return f'Seite {self.page} {self.where} {self.key} {self.base_font or "?"}: {self.state}'
+
+
+def _font_embedding_state(font) -> str:
+    """C-853-01: Fontobjekt bis zum /FontDescriptor aufloesen (Type0 ueber
+    /DescendantFonts, jeder Descendant) und den Font-Stream lesen. Liefert
+    ``eingebettet (...)`` oder den Grund, warum nicht."""
+    try:
+        target = font.get_object()
+        if not hasattr(target, 'get'):
+            return f'keine Font-Resource ({type(target).__name__})'
+        if target.get('/Subtype') == '/Type3':
+            # N-853-7: Type3 ist ueber /CharProcs eingebettet; ein /FontFile* im
+            # Descriptor zaehlt nicht. Die in den CharProcs verwendeten Fonts
+            # prueft _font_resource_usage separat.
+            procs = target.get('/CharProcs')
+            procs = procs.get_object() if procs is not None else None
+            if not procs or not hasattr(procs, 'values'):
+                return 'Type3 ohne /CharProcs'
+            for proc in procs.values():
+                proc.get_object().get_data()
+            return f'eingebettet (Type3, {len(procs)} CharProcs)'
+        if target.get('/Subtype') == '/Type0':
+            descendants = target.get('/DescendantFonts')
+            descendants = descendants.get_object() if descendants is not None else None
+            if not descendants or not isinstance(descendants, list):
+                return 'Type0 ohne /DescendantFonts'
+            states = [_descriptor_stream_state(d.get_object()) for d in descendants]
+            bad = [st for st in states if not st.startswith('eingebettet')]
+            return f'Type0-Descendant {bad[0]}' if bad else states[0]
+        return _descriptor_stream_state(target)
+    except Exception as exc:  # kaputter Stream/Verweis -- fail-closed mit Ursache
+        return f'Font-Stream nicht lesbar ({type(exc).__name__}: {exc})'
+
+
+def _descriptor_stream_state(target) -> str:
+    try:
+        if not hasattr(target, 'get'):
+            return f'keine Font-Resource ({type(target).__name__})'
+        descriptor = target.get('/FontDescriptor')
+        if descriptor is None:
+            return 'ohne /FontDescriptor'
+        descriptor = descriptor.get_object()
+        keys = [k for k in FONT_FILE_KEYS if k in descriptor]
+        if not keys:
+            return 'ohne Font-Stream'
+        data = descriptor[keys[0]].get_object().get_data()
+    except Exception as exc:  # kaputter Stream/Verweis -- fail-closed mit Ursache
+        return f'Font-Stream nicht lesbar ({type(exc).__name__}: {exc})'
+    if not data:
+        return f'leerer Font-Stream ({keys[0]})'
+    return f'eingebettet ({keys[0]}, {len(data)} bytes)'
+
+
+def _font_resource_usage(pages) -> tuple[list[FontUse], list[FontUse]]:
+    """C-853-02: (verwendet, deklariert) je Font-Resource -- ohne Faltung nach
+    /BaseFont. ``verwendet`` = jede Font-Resource, mit der ein Textoperator
+    (Tj, TJ, ', ") Text zeigt, aufgeloest gegen die beim ``Tf`` (bzw. ``gs``
+    mit /Font) geltenden Resources. Ausgewertet werden alle Inhaltstraeger,
+    die gezeichnet werden koennen (N-853-7):
+
+    * Seiteninhalt und aufgerufene Form-XObjects (rekursiv, eigene
+      /Resources, Font aus dem Grafikzustand des Aufrufers geerbt);
+    * Annotation-Erscheinungsbilder /AP /N, /D und /R, auch als Zustands-Dict;
+      jeder Ort heisst ``Annotation[i]/<N|D|R>[/<Zustand>]`` (N-853-6);
+    * Tiling-Patterns (PatternType 1) und SMask-Gruppen (ExtGState /SMask /G)
+      -- konservativ jede deklarierte, nicht nur die tatsaechlich gemalte;
+    * Type3-CharProcs eines verwendeten Type3-Fonts (Type3-eigene
+      /Resources, sonst die des Aufrufers).
+
+    ``deklariert`` = jede Font-Resource in diesen Resource-Dicts. Unaufloesbare
+    Verweise, Zyklen, unbekannte XObject-/Pattern-Typen, Annotationen mit
+    Text ohne Erscheinungsbild und /NeedAppearances sind Fehler (fail-closed)."""
+    from pypdf.generic import ContentStream
+
+    used: list[FontUse] = []
+    declared: list[FontUse] = []
+    seen_uses: set[tuple] = set()
+    walked: set[tuple] = set()
+
+    def get_dict(container, key):
+        value = container.get(key) if container is not None else None
+        return value.get_object() if value is not None else {}
+
+    def identity(ref, obj) -> object:
+        return getattr(ref, 'idnum', None) or id(obj)
+
+    def record(target: list, page_no: int, where: str, key: str, ref) -> None:
+        if ref is None:
+            target.append(FontUse(page_no, where, key, '', 'Resource fehlt'))
+            return
+        obj = ref.get_object()
+        base = obj.get('/BaseFont') if hasattr(obj, 'get') else None
+        target.append(FontUse(page_no, where, key, str(base or '').lstrip('/'),
+                              _font_embedding_state(ref)))
+
+    def walk_side_streams(resources, page_no: int, where: str, active: frozenset, pdf, depth: int):
+        """Tiling-Patterns und SMask-Gruppen der Resources (N-853-7)."""
+        for name, ref in get_dict(resources, '/Pattern').items():
+            pattern = ref.get_object()
+            kind = pattern.get('/PatternType') if hasattr(pattern, 'get') else None
+            if kind == 2:  # Shading-Pattern: kann keinen Text tragen
+                continue
+            if kind != 1 or not hasattr(pattern, 'get_data'):
+                raise ValueError(f'Pattern {name} nicht auswertbar (PatternType {kind}, {where})')
+            if '/Resources' not in pattern:
+                raise ValueError(f'Tiling-Pattern {name} ohne /Resources ({where})')
+            walk(pattern, pattern['/Resources'], page_no, f'{where}>Pattern{name}',
+                 active, pdf, depth + 1, ident=identity(ref, pattern))
+        for name, ref in get_dict(resources, '/ExtGState').items():
+            state = ref.get_object()
+            smask = state.get('/SMask') if hasattr(state, 'get') else None
+            smask = smask.get_object() if smask is not None else None
+            if smask is None or smask == '/None':
+                continue
+            if not hasattr(smask, 'get') or smask.get('/G') is None:
+                raise ValueError(f'ExtGState {name}: /SMask ohne Gruppe /G ({where})')
+            group_ref = smask.raw_get('/G') if hasattr(smask, 'raw_get') else smask['/G']
+            group = group_ref.get_object()
+            if not hasattr(group, 'get_data'):
+                raise ValueError(f'ExtGState {name}: /SMask /G ist kein Stream ({where})')
+            walk(group, group.get('/Resources', resources), page_no, f'{where}>SMask{name}',
+                 active, pdf, depth + 1, ident=identity(group_ref, group))
+
+    def use_font(font, page_no: int, where: str, active: frozenset, pdf, depth: int) -> None:
+        if font is None:
+            ident = (page_no, where, '?', None)
+            if ident not in seen_uses:
+                seen_uses.add(ident)
+                used.append(FontUse(page_no, where, '?', '', 'Textausgabe ohne Font (Tf)'))
+            return
+        tf_where, key, ref, tf_resources = font
+        obj = ref.get_object() if ref is not None else None
+        ident = (page_no, tf_where, key, identity(ref, obj) if obj is not None else None)
+        if ident in seen_uses:
+            return
+        seen_uses.add(ident)
+        record(used, page_no, tf_where, key, ref)
+        if hasattr(obj, 'get') and obj.get('/Subtype') == '/Type3':
+            # Type3 ist ueber seine CharProcs eingebettet; die darin verwendeten
+            # Fonts muessen ihrerseits eingebettet sein.
+            charprocs = get_dict(obj, '/CharProcs')
+            procs_resources = obj.get('/Resources', tf_resources)
+            for glyph, proc in charprocs.items():
+                walk(proc.get_object(), procs_resources, page_no, f'{tf_where}>{key}/CharProc{glyph}',
+                     active, pdf, depth + 1, ident=(identity(ref, obj), str(glyph)))
+
+    def walk(stream, resources, page_no: int, where: str, active: frozenset, pdf, depth: int,
+             font=None, ident=None):
+        """``font`` = (Ort, Key, Resource, Resources) des aktuellen Fonts im
+        Grafikzustand; ein Form-XObject erbt ihn vom Aufrufer, q/Q sichern und
+        stellen ihn her."""
+        if depth > MAX_FORM_DEPTH:
+            raise ValueError(f'Inhalte tiefer als {MAX_FORM_DEPTH} verschachtelt ({where})')
+        if ident is not None:
+            if ident in active:
+                raise ValueError(f'Zyklus bei {where}')
+            active = active | {ident}
+        resources = resources.get_object() if resources is not None else None
+        fonts = get_dict(resources, '/Font')
+        xobjects = get_dict(resources, '/XObject')
+        states = get_dict(resources, '/ExtGState')
+        for key, ref in fonts.items():
+            record(declared, page_no, where, str(key), ref)
+        side_key = (page_no, where, id(resources))
+        if side_key not in walked:
+            walked.add(side_key)
+            walk_side_streams(resources, page_no, where, active, pdf, depth)
+        stack: list = []
+        content = stream if isinstance(stream, ContentStream) else ContentStream(stream, pdf)
+        for operands, operator in content.operations:
+            if operator == b'q':
+                stack.append(font)
+            elif operator == b'Q':
+                if not stack:
+                    raise ValueError(f'Q ohne q ({where})')
+                font = stack.pop()
+            elif operator == b'Tf' and operands:
+                key = str(operands[0])
+                font = (where, key, fonts.get(key), resources)
+            elif operator == b'gs' and operands:
+                name = str(operands[0])
+                state = states.get(name)
+                if state is None:
+                    raise ValueError(f'ExtGState {name} fehlt in den Resources ({where})')
+                state = state.get_object()
+                if '/Font' in state:
+                    entry = state['/Font'].get_object()
+                    font = (where, f'{name}/Font', entry[0] if entry else None, resources)
+            elif operator in TEXT_SHOW_OPERATORS:
+                # Verwendet ist ein Font erst, wenn mit ihm Text gezeigt wird
+                # (ReportLab setzt z. B. je Seite ein ungenutztes /F1 Helvetica).
+                use_font(font, page_no, where, active, pdf, depth)
+            elif operator == b'Do' and operands:
+                name = str(operands[0])
+                ref = xobjects.get(name)
+                if ref is None:
+                    raise ValueError(f'XObject {name} fehlt in den Resources ({where})')
+                xobj = ref.get_object()
+                subtype = xobj.get('/Subtype')
+                if subtype == '/Image':
+                    continue
+                if subtype != '/Form':
+                    raise ValueError(f'XObject {name} nicht auswertbar (Subtype {subtype}, {where})')
+                # Form ohne eigene /Resources erbt die des Aufrufers (PDF 1.7, 8.10.1).
+                walk(xobj, xobj.get('/Resources', resources), page_no, f'{where}>{name}',
+                     active, pdf, depth + 1, font, ident=identity(ref, xobj))
+
+    root = pages[0].pdf.trailer['/Root'].get_object() if pages else {}
+    acroform = get_dict(root, '/AcroForm')
+    if acroform.get('/NeedAppearances'):
+        raise ValueError('/AcroForm /NeedAppearances: Erscheinungsbilder erzeugt erst der Leser')
+    for page_no, page in enumerate(pages, start=1):
+        resources = page.get('/Resources')
+        contents = page.get_contents()
+        if contents is not None:
+            walk(contents, resources, page_no, 'Seite', frozenset(), page.pdf, 0)
+        else:
+            res = resources.get_object() if resources is not None else None
+            for key, ref in get_dict(res, '/Font').items():
+                record(declared, page_no, 'Seite', str(key), ref)
+        for index, annot in enumerate(page.get('/Annots') or []):
+            annot = annot.get_object()
+            if not hasattr(annot, 'get'):
+                raise ValueError(f'Annotation[{index}] auf Seite {page_no} ist kein Dict')
+            appearances = get_dict(annot, '/AP')
+            if not appearances:
+                if annot.get('/Subtype') in ('/Widget', '/FreeText') and annot.get('/DA') is not None:
+                    raise ValueError(f'Annotation[{index}] auf Seite {page_no}: Text ohne '
+                                     f'Erscheinungsbild (/DA ohne /AP)')
+                continue
+            for ap_key in ('/N', '/D', '/R'):
+                ap = appearances.get(ap_key)
+                if ap is None:
+                    continue
+                ap_ref = appearances.raw_get(ap_key)
+                ap = ap.get_object()
+                base = f'Annotation[{index}]{ap_key}'
+                if hasattr(ap, 'get_data'):
+                    entries = [(base, ap_ref, ap)]
+                elif hasattr(ap, 'items'):
+                    entries = [(f'{base}/{str(name).lstrip("/")}', ap.raw_get(name), ap[name])
+                               for name in ap]
+                else:
+                    raise ValueError(f'{base} auf Seite {page_no} nicht auswertbar')
+                for where, ref, stream in entries:
+                    stream = stream.get_object()
+                    if not hasattr(stream, 'get_data'):
+                        raise ValueError(f'{where} auf Seite {page_no} ist kein Stream')
+                    walk(stream, stream.get('/Resources', resources), page_no, where,
+                         frozenset(), page.pdf, 1, ident=identity(ref, stream))
+    return used, declared
+
+
+def run_pdf_render_smoke(base: str, documents: tuple[str, ...] = PDF_SMOKE_DOCUMENTS) -> list[str]:
+    """Admin, Kunde und Mandat ueber die API anlegen und PDFs rendern lassen."""
+    footer = expected_footer_disclaimer()
+    password = 'Smoke-' + secrets.token_urlsafe(18) + '-9a'
+
+    def call(method: str, path: str, body: object | None = None,
+             token: str | None = None) -> tuple[int, dict, bytes]:
+        headers = {'Authorization': f'Bearer {token}'} if token else {}
+        return http_request(base + path, method=method, json_body=body, headers=headers,
+                            timeout=60.0)
+
+    def created(step: str, status: int, body: bytes) -> dict:
+        if status != 201:
+            fail(f'PDF-Smoke: {step} antwortet HTTP {status}: {body[:300]!r}')
+        return json.loads(body)
+
+    status, _, body = call('POST', '/auth/bootstrap-admin', {
+        'username': 'packaging-smoke', 'password': password, 'full_name': 'Packaging Smoke',
+    })
+    admin = created('Ersteinrichtung (/auth/bootstrap-admin)', status, body)
+    token = admin['access_token']
+    status, _, body = call('POST', '/clients', {
+        'client_number': 'SMOKE-1', 'first_name': 'Smoke', 'last_name': 'Paket',
+        'advisor_id': admin['user']['id'], 'data_classification': 'synthetic',
+    }, token)
+    client = created('Kunde anlegen (/clients)', status, body)
+    status, _, body = call('POST', f"/clients/{client['id']}/mandates", {
+        'mandate_number': 'SMOKE-M1', 'data_classification': 'synthetic',
+    }, token)
+    mandate = created('Mandat anlegen', status, body)
+    rendered = []
+    for name in documents:
+        status, headers, pdf = call('GET', f"/mandates/{mandate['id']}/reports/{name}.pdf",
+                                    token=token)
+        ctype = {k.lower(): v for k, v in headers.items()}.get('content-type', '')
+        if status != 200 or 'application/pdf' not in ctype:
+            fail(f'PDF-Smoke: {name}.pdf antwortet HTTP {status} ({ctype}): {pdf[:300]!r}')
+        rendered.append(check_pdf_bytes(pdf, f'{name}.pdf', (footer, FOOTER_CREATED_MARKER)))
+    return rendered
+
+
+def assert_no_font_fallback(logtext: str) -> None:
+    hits = [m for m in FONT_FALLBACK_LOG_MARKERS if m in logtext]
+    if hits:
+        fail(f'Backend-Log meldet Font-Fallback beim PDF-Render: {", ".join(hits)}')
 
 
 def _load_db_location():
@@ -612,6 +1055,10 @@ def run_start_smoke(exe: Path, timeout: float, grace: float, keep: bool) -> None
                 if status_spa != 200:
                     fail(f'Reporting-SPA-Fallback antwortet HTTP {status_spa}.')
                 log(f'OK Reporting-Mount: /reporting, {asset_refs[0]} ({len(asset_body)} bytes), SPA-Fallback')
+
+                rendered = run_pdf_render_smoke(base)
+                log('OK PDF-Render in der gepackten EXE: ' + '; '.join(rendered)
+                    + ' -- Fusszeile aus dem Laenderpaket-Text, Editorial-Fonts eingebettet')
             finally:
                 if proc.poll() is None:
                     graceful = stop_process(proc, port, grace)
@@ -630,6 +1077,7 @@ def run_start_smoke(exe: Path, timeout: float, grace: float, keep: bool) -> None
                  f'--- backend.log ---\n{tail(log_file)}')
         if 'Reporting-Dist nicht gefunden' in logtext:
             fail('Backend-Log meldet fehlende Reporting-Dist.')
+        assert_no_font_fallback(logtext)
         log('OK Lifespan-Shutdown sauber durchlaufen (Application shutdown complete)')
 
         if not db_path.is_file():

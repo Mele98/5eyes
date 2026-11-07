@@ -1,17 +1,19 @@
 import hashlib
+import logging
 import sqlite3
 import re
 import sys
 import uuid
 from pathlib import Path
 from typing import Any, Generator
-from urllib.parse import quote_plus
 
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.pool import QueuePool
 
-from config import settings
+from config import DB_KEY_FORMAT_MESSAGE, db_key_format_ok, settings
 from core.mandate_evidence_tenant_boundary import (
     MANDATE_BOUND_TENANT_TABLES,
     create_sqlite_guards_after_metadata_create,
@@ -53,6 +55,40 @@ def _sqlcipher_enabled(db_key: str | None = None) -> bool:
     return bool(getattr(settings, 'db_use_sqlcipher', False) and key)
 
 
+# SQLCIPHER-KEY-PRAGMA-001 (Pruefrunde #861): SQLite bindet in PRAGMA-Anweisungen
+# keine Parameter -- ``PRAGMA key = ?`` ist mit dem echten sqlcipher3 ein
+# Syntaxfehler (``near "?"``). Der Schluessel wird deshalb als SQL-Literal mit
+# verdoppelten Hochkommas gesetzt (gleiche Form wie der Migrator-Codec); danach
+# die Cipher-Parameter in fester Reihenfolge, vor dem ersten Lesezugriff.
+# SQLCIPHER-SINGLE-KEY-PATH-001 (Pruefrunde #864, S-1): das ist der EINZIGE Weg,
+# auf dem der Schluessel gesetzt wird -- Engine (connect-Event), Rohschema-
+# Bootstrap und Backup. Er steht nicht mehr in der URL (quote_plus/unquote machte
+# aus einem Leerzeichen still ein "+", das Dialekt-PRAGMA key="..." brach an ").
+SQLCIPHER_CIPHER_PRAGMAS = (
+    'PRAGMA cipher_page_size = 4096',
+    'PRAGMA kdf_iter = 256000',
+    'PRAGMA cipher_hmac_algorithm = HMAC_SHA512',
+    'PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512',
+)
+
+
+def sqlcipher_key_pragma(key: str) -> str:
+    return "PRAGMA key = '" + str(key).replace("'", "''") + "'"
+
+
+def apply_sqlcipher_key(conn: Any, key: str) -> None:
+    """Schluessel + Cipher-Parameter auf eine rohe sqlcipher3-Verbindung setzen.
+
+    Fail-closed: ein Schluessel ausserhalb des erlaubten Formats (config.py,
+    SQLCIPHER-DB-KEY-FORMAT-001) wird nie gesetzt; die Meldung nennt ihn nicht.
+    """
+    if not db_key_format_ok(key):
+        raise ValueError(DB_KEY_FORMAT_MESSAGE)
+    conn.execute(sqlcipher_key_pragma(key))
+    for pragma in SQLCIPHER_CIPHER_PRAGMAS:
+        conn.execute(pragma)
+
+
 def _configured_database_url(database_url: str | None = None) -> str | None:
     configured = database_url if database_url is not None else getattr(settings, "database_url", None)
     if configured and str(configured).strip():
@@ -83,8 +119,9 @@ def build_database_url(
                 'DB_USE_SQLCIPHER=true ist gesetzt, aber sqlcipher3 ist nicht installiert. '
                 'Installiere sqlcipher3-binary oder sqlcipher3.'
             )
-        key = quote_plus((db_key or settings.db_key or ''))
-        return f'sqlite+pysqlcipher://:{key}@/{db_file}'
+        # SQLCIPHER-SINGLE-KEY-PATH-001: kein Schluessel in der URL; die Engine
+        # nutzt den pysqlite-Dialekt mit module=sqlcipher3 und setzt den
+        # Schluessel per connect-Event (create_app_engine).
     return f'sqlite:///{db_file}'
 
 
@@ -100,14 +137,19 @@ def build_connect_args(
 
 
 def attach_sqlite_pragmas(target_engine: Engine, db_key: str | None = None) -> None:
+    if _sqlcipher_enabled(db_key=db_key):
+        key = db_key or settings.db_key or ''
+
+        # insert=True: vor jedem anderen connect-Handler, auch vor der
+        # Dialekt-Initialisierung beim ersten Connect -- der Schluessel muss
+        # vor dem ersten Lesezugriff stehen.
+        @event.listens_for(target_engine, 'connect', insert=True)
+        def _set_sqlcipher_key(dbapi_connection, connection_record):
+            apply_sqlcipher_key(dbapi_connection, key)
+
     @event.listens_for(target_engine, 'connect')
     def _set_sqlite_pragma(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
-        if _sqlcipher_enabled(db_key=db_key):
-            cursor.execute('PRAGMA cipher_page_size = 4096')
-            cursor.execute('PRAGMA kdf_iter = 256000')
-            cursor.execute('PRAGMA cipher_hmac_algorithm = HMAC_SHA512')
-            cursor.execute('PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512')
         cursor.execute('PRAGMA foreign_keys = ON')
         cursor.execute('PRAGMA journal_mode = WAL')
         cursor.execute('PRAGMA busy_timeout = 5000')
@@ -130,6 +172,14 @@ def create_app_engine(
         kwargs['connect_args'] = connect_args
     if is_sqlite_database_url(database_url) and _sqlcipher_enabled(db_key=db_key):
         kwargs['module'] = sqlcipher3
+        # SQLCIPHER-ENGINE-POOL-001 (N-861-6): Der pysqlcipher-Dialekt von
+        # SQLAlchemy 2.0 waehlte immer SingletonThreadPool (auch fuer eine
+        # Datei-DB). Der kennt kein ``pool_timeout`` -> create_engine brach mit
+        # TypeError ab und der SQLCipher-Pfad startete nie. Seit S-1 laeuft die
+        # verschluesselte DB ueber den pysqlite-Dialekt mit module=sqlcipher3;
+        # der Pool ist explizit derselbe wie bei der Klartext-Datei-DB
+        # (QueuePool, pool_timeout=30).
+        kwargs['poolclass'] = QueuePool
     app_engine = create_engine(database_url, **kwargs)
     if app_engine.dialect.name == "sqlite":
         attach_sqlite_pragmas(app_engine, db_key=db_key)
@@ -163,6 +213,54 @@ def _session_for(target_engine: Engine | None = None) -> Session:
     return sessionmaker(
         autocommit=False, autoflush=False, expire_on_commit=False, bind=target_engine,
     )()
+
+
+logger = logging.getLogger(__name__)
+
+# SEED-FK-HYGIENE (2026-11-05): Seeds/Backfills beim Start verschluckten jede
+# Ausnahme (``except Exception: pass``). So fiel der DE-Seed unter
+# PRAGMA foreign_keys=ON still aus. Jetzt gezielt: nur "Schema noch nicht da"
+# (Tabelle/Spalte fehlt in einer alten/partiellen DB) wird mit WARNING
+# uebersprungen; jeder andere Fehler (Integritaet, FK, Unique, Programmfehler)
+# wird mit ERROR geloggt und bricht den Start ab (fail-closed).
+_SCHEMA_NOT_READY_MARKERS = (
+    "no such table",
+    "no such column",
+    "has no column named",
+    "undefinedtable",
+    "undefinedcolumn",
+)
+
+
+def _db_error_summary(exc: BaseException) -> str:
+    """Kurzform fuer Logs: Fehlerklasse + erste Zeile der Treibermeldung.
+    Ohne SQL-Parameter (str(exc) von SQLAlchemy haengt sie an)."""
+    orig = getattr(exc, "orig", None)
+    detail = str(orig if orig is not None else "").strip().splitlines()
+    first = detail[0][:200] if detail else ""
+    return f"{type(exc).__name__}: {first}" if first else type(exc).__name__
+
+
+def _is_schema_not_ready(exc: BaseException) -> bool:
+    if not isinstance(exc, (OperationalError, ProgrammingError)):
+        return False
+    orig = getattr(exc, "orig", None)
+    text_ = f"{type(orig).__name__} {orig}".lower()
+    return any(marker in text_ for marker in _SCHEMA_NOT_READY_MARKERS) or (
+        "does not exist" in text_ and ("relation" in text_ or "column" in text_)
+    )
+
+
+def _handle_startup_step_error(step: str, exc: BaseException) -> None:
+    """Fehler eines Start-Seeds/-Backfills behandeln: Schema-nicht-bereit ->
+    WARNING und weiter; alles andere -> ERROR und erneut ausloesen."""
+    if _is_schema_not_ready(exc):
+        logger.warning("Startschritt %s uebersprungen (Schema unvollstaendig): %s",
+                       step, _db_error_summary(exc))
+        return
+    logger.error("Startschritt %s fehlgeschlagen, Start abgebrochen: %s",
+                 step, _db_error_summary(exc))
+    raise exc
 
 
 class Base(DeclarativeBase):
@@ -210,12 +308,11 @@ def bootstrap_sqlite_schema(
                 'DB_USE_SQLCIPHER=true ist gesetzt, aber sqlcipher3 ist nicht installiert. '
                 'Installiere sqlcipher3-binary oder sqlcipher3.'
             )
+        key = db_key or settings.db_key or ''
+        if not db_key_format_ok(key):
+            raise ValueError(DB_KEY_FORMAT_MESSAGE)
         with sqlcipher3.connect(str(db_file)) as conn:
-            conn.execute("PRAGMA key = ?", [db_key or settings.db_key or ''])
-            conn.execute('PRAGMA cipher_page_size = 4096')
-            conn.execute('PRAGMA kdf_iter = 256000')
-            conn.execute('PRAGMA cipher_hmac_algorithm = HMAC_SHA512')
-            conn.execute('PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512')
+            apply_sqlcipher_key(conn, key)
             conn.execute('PRAGMA foreign_keys = OFF')
             conn.executescript(sql)
             conn.execute('PRAGMA foreign_keys = ON')
@@ -293,6 +390,13 @@ def ensure_column(conn, table_name: str, column_name: str, sql_type: str) -> Non
 # (database.py importiert keine services/), synchron mit
 # services/portfolio_engine_payload.py::THEME_SUB_ASSET_CLASSES -- per Test
 # gepinnt (tests/test_esg_premium_criteria.py).
+PRODUCT_INTERNAL_ID_INDEX = "ux_products_tenant_internal_id"
+PRODUCT_INTERNAL_ID_INDEX_DDL = (
+    f"CREATE UNIQUE INDEX IF NOT EXISTS {PRODUCT_INTERNAL_ID_INDEX} "
+    "ON products(tenant_id, internal_product_id) "
+    "WHERE internal_product_id IS NOT NULL AND deleted_at IS NULL"
+)
+
 THEME_TAG_BACKFILL: tuple[tuple[str, str], ...] = (
     ("Thema Fossile Energie", '["fossil"]'),
     ("Thema Verteidigung", '["defense"]'),
@@ -693,6 +797,17 @@ RISK_CAPACITY_EVALUATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
 )
 
 
+# N-869-4: einmaliger Nachtrag von audit_log_sequence_counter.last_hash aus der
+# Zeile mit sequence = value (nur solange last_hash noch NULL ist). Gleiche
+# Anweisung in Alembic c8a2f4e6b0d9 (dort unter Operator-Bypass, RLS).
+_COUNTER_LAST_HASH_BACKFILL_SQL = (
+    "UPDATE audit_log_sequence_counter SET last_hash = ("
+    "SELECT a.integrity_hash FROM audit_log a "
+    "WHERE a.sequence = audit_log_sequence_counter.value ORDER BY a.id LIMIT 1) "
+    "WHERE id = 'singleton' AND last_hash IS NULL AND value > 0"
+)
+
+
 def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
     target_engine = _resolve_engine(target_engine)
     additive_columns: dict[str, list[tuple]] = {  # (name, TYPE) oder (name, TYPE, int_default)
@@ -772,6 +887,8 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         'conflict_of_interest_disclosures': [
             ('reimbursed_to_client', 'INTEGER', 0),
             ('waiver_document_id', 'TEXT'),
+            # N-861-1: optionale Produktbindung, siehe models/review.py.
+            ('product_id', 'TEXT'),
         ],
         # 2026-06-18 (#84): Miete-Teuerungsindexierung pro Immobilien-Position.
         # NOT NULL DEFAULT 0 -> Bestandszeilen werden auf 0 gesetzt (Response-Schema
@@ -1122,6 +1239,30 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # theme_tags fuer "Thema X"-Produkte weiter unten.
             ('climate_benchmark', 'TEXT'),
             ('theme_tags', 'TEXT'),
+            # AUDIT-2026-11 P1 (PO-6, L1): Produkt-Stammdaten, siehe
+            # models/review.py::Product und Alembic a8d3c5e7f9b1. Ohne
+            # Default/Backfill: NULL = nicht erfasst (nichts erfinden).
+            ('domicile', 'TEXT'),
+            ('is_hedged', 'INTEGER'),
+            ('hedge_currency', 'TEXT'),
+            ('ter_source', 'TEXT'),
+            ('ter_as_of', 'TEXT'),
+            ('retrocession_bps', 'INTEGER'),
+            ('retrocession_source', 'TEXT'),
+            ('is_house_product', 'INTEGER'),
+            ('distribution_policy', 'TEXT'),
+            ('valor', 'TEXT'),
+            ('minimum_investment_minor_units', 'INTEGER'),
+            # Owner-Anforderung P1 (eigene Fonds), Alembic c2e6f8a1b3d5.
+            ('listing_status', 'TEXT'),
+            ('internal_product_id', 'TEXT'),
+            ('price_source', 'TEXT'),
+            ('nav_frequency', 'TEXT'),
+            ('nav_as_of', 'TEXT'),
+            ('redemption_period_days', 'INTEGER'),
+            ('notice_period_days', 'INTEGER'),
+            ('has_gating', 'INTEGER'),
+            ('gating_terms', 'TEXT'),
             # 2026-08-01 (Laender-Skalierung, Cross-Jurisdiktions-Leck-Fix):
             # siehe models/review.py::Product.jurisdiction. NULL = "CH".
             ('jurisdiction', 'TEXT'),
@@ -1229,6 +1370,21 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
                 )
             )
 
+        # Owner-Anforderung P1 (eigene Fonds): interne Produkt-ID eindeutig je
+        # Tenant (aktive Zeilen). Identisch zu Alembic c2e6f8a1b3d5.
+        # products.tenant_id kommt sonst erst spaeter (ensure_column im
+        # Fondsuniversum-Patch) -- hier idempotent vorziehen, damit der Index
+        # auf jeder Bootstrap-Reihenfolge angelegt werden kann.
+        if inspector.has_table('products'):
+            product_columns = {
+                row[1] for row in conn.execute(text("PRAGMA table_info(products)"))
+            } if target_engine.dialect.name == 'sqlite' else {
+                column['name'] for column in inspect(conn).get_columns('products')
+            }
+            if 'tenant_id' not in product_columns:
+                conn.execute(text('ALTER TABLE products ADD COLUMN tenant_id TEXT'))
+            conn.execute(text(PRODUCT_INTERNAL_ID_INDEX_DDL))
+
         # ESG-PREMIUM-CRITERIA-001 (2026-10-14): idempotenter Backfill --
         # Produkte mit Sub-Anlageklasse "Thema X" erhalten den Tag X, sofern
         # noch KEINE Tags gepflegt sind (gepflegte Tags nie ueberschreiben).
@@ -1264,6 +1420,18 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
                 "VALUES ('singleton', 0)"
             )
         )
+        # N-869-4 (Pruefrunde #869): Hash des letzten Eintrags auf der
+        # Zaehlerzeile, damit log() den Vorgaenger nie aus audit_log lesen
+        # muss (unter PostgreSQL-RLS ist der Vorgaenger eines anderen Tenants
+        # unsichtbar). Einmaliger Nachtrag aus der Zeile mit sequence = value
+        # (identisch zur Alembic-Revision c8a2f4e6b0d9).
+        ensure_column(conn, "audit_log_sequence_counter", "last_hash", "TEXT")
+        if inspector.has_table('audit_log'):
+            audit_columns = {
+                row[1] for row in conn.execute(text("PRAGMA table_info(audit_log)")).fetchall()
+            }
+            if {"sequence", "integrity_hash"} <= audit_columns:
+                conn.execute(text(_COUNTER_LAST_HASH_BACKFILL_SQL))
 
         # RiskAssessment - Kenntnisse & Erfahrungen (Referenzmodell Eignungspruefung, 2026-04-16)
         ensure_column(conn, "risk_assessments", "knowledge_services_json", "TEXT")
@@ -1624,113 +1792,198 @@ def _rebuild_risk_assessment_answers_from_old(cur) -> None:
     cur.execute('CREATE INDEX IF NOT EXISTS idx_risk_answers ON risk_assessment_answers(assessment_id)')
     cur.execute('DROP TABLE risk_assessment_answers__old')
 
+class AuditLogRebuildInterrupted(RuntimeError):
+    """N-869-1 (Pruefrunde #869): ein unterbrochener audit_log-Neuaufbau, der
+    sich nicht sicher automatisch abschliessen laesst. Start blockiert
+    (fail-closed), CRITICAL im Log -- nie still."""
+
+
+_audit_log_logger = logging.getLogger("database.audit_log")
+
+_AUDIT_LOG_REBUILT_DDL = """
+    CREATE TABLE audit_log (
+        id TEXT PRIMARY KEY,
+        user_id TEXT,
+        user_name TEXT NOT NULL,
+        table_name TEXT NOT NULL,
+        record_id TEXT NOT NULL,
+        action TEXT NOT NULL CHECK(action IN (
+            'CREATE','UPDATE','DELETE','LOGIN','EXPORT','PASSWORD_RESET',
+            '2FA_DISABLE','2FA_ENABLE','2FA_RECOVERY_REGEN','2FA_RECOVERY_USED',
+            'ACTIVATE','APPROVE','BACKFILL','BACKUP','CLIENT_ERASE','CLONE',
+            'DB_OPTIMIZE','FOUNDATION_EXAMPLE','FOUNDATION_PURGE','INVITE',
+            'INVITE_ACCEPT','INVITE_RESEND','INVITE_REVOKE','MARKET_DATA_PURGE',
+            'MARKET_DATA_REFRESH','OPTIMIZER_MODE_CHANGE','PASSWORD_CHANGE',
+            'PASSWORD_RESET_CONFIRM','PASSWORD_RESET_REQUEST','REPLACE',
+            'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT'
+        )),
+        field_name TEXT,
+        old_value TEXT,
+        new_value TEXT,
+        mandate_id TEXT,
+        client_id TEXT,
+        integrity_hash TEXT,
+        ip_address TEXT,
+        created_at TEXT NOT NULL,
+        tenant_id TEXT,
+        sequence INTEGER,
+        previous_hash TEXT
+    )
+"""
+
+
+def _audit_log_ddl_is_current(ddl_text: str) -> bool:
+    ddl_text = str(ddl_text or '').upper()
+    has_password_reset = 'PASSWORD_RESET' in ddl_text
+    has_integrity_hash = 'INTEGRITY_HASH' in ddl_text
+    has_ip_address = 'IP_ADDRESS' in ddl_text
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Marker fuer die erweiterte
+    # action-CHECK-Liste (siehe ares_schema.sql) -- ohne diesen 4. Marker
+    # wuerden bereits migrierte Installationen (die anderen 3 Marker bereits
+    # erfuellt) NIE die erweiterte Liste erhalten und weiterhin bei jedem
+    # Admin-Endpunkt mit einem der 26 fehlenden action-Werte crashen.
+    has_expanded_actions = 'UPSERT' in ddl_text
+    # DSG Art. 32 (2026-08-15): eigener Marker fuer die neue 'CLIENT_ERASE'-
+    # Action (identische Bugklasse wie has_expanded_actions oben).
+    has_erasure_action = 'CLIENT_ERASE' in ddl_text
+    return (
+        has_password_reset and has_integrity_hash and has_ip_address
+        and has_expanded_actions and has_erasure_action
+    )
+
+
 def ensure_audit_log_actions(target_engine: Engine | None = None) -> None:
+    """SQLite: audit_log auf den aktuellen action-CHECK bringen (RENAME +
+    Neuaufbau, SQLite kann CHECKs nicht aendern).
+
+    N-869-1 (Pruefrunde #869): Der Neuaufbau lief bisher in
+    ``engine.begin()``. pysqlite (Legacy-Transaktionsmodus) oeffnet die
+    Transaktion aber erst beim ersten DML -- RENAME und CREATE TABLE liefen im
+    Autocommit. Scheiterte das Kopieren (z.B. eine Altzeile verletzt den neuen
+    CHECK), blieben ``audit_log__old`` mit der GANZEN Historie und ein leeres
+    ``audit_log`` ohne Trigger committet zurueck; beim naechsten Start
+    erfuellte das neue DDL alle Marker, die Funktion kehrte sofort zurueck
+    und die Historie war fuer Export und Pruefung unsichtbar.
+
+    Jetzt (Muster run_risk_assessment_answer_migration): explizite
+    Transaktion ``BEGIN IMMEDIATE`` mit ``isolation_level=None`` -- RENAME,
+    CREATE, Kopie, Zeilenzahl-Abgleich, DROP und Trigger sind EINE atomare
+    Einheit, ein Fehler rollt alles zurueck. Ein vorgefundener unterbrochener
+    Zustand (``audit_log__old`` existiert) wird fortgesetzt, wenn die neue
+    Tabelle fehlt oder leer ist (WARNING); liegen in beiden Tabellen Zeilen,
+    ist der Zustand nicht sicher aufloesbar: CRITICAL und
+    AuditLogRebuildInterrupted (Start blockiert, DB unveraendert).
+    """
     target_engine = _resolve_engine(target_engine)
     inspector = inspect(target_engine)
-    if not inspector.has_table('audit_log'):
+    if not inspector.has_table('audit_log') and not inspector.has_table('audit_log__old'):
         return
 
-    with target_engine.begin() as conn:
-        ddl = conn.execute(
-            text("SELECT sql FROM sqlite_master WHERE type='table' AND name='audit_log'")
-        ).scalar()
-        ddl_text = str(ddl or '').upper()
-        has_password_reset = 'PASSWORD_RESET' in ddl_text
-        has_integrity_hash = 'INTEGRITY_HASH' in ddl_text
-        has_ip_address = 'IP_ADDRESS' in ddl_text
-        # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Marker fuer die erweiterte
-        # action-CHECK-Liste (siehe ares_schema.sql) -- ohne
-        # diesen 4. Marker wuerden bereits migrierte Installationen (die
-        # anderen 3 Marker bereits erfuellt) NIE die erweiterte Liste
-        # erhalten und weiterhin bei jedem Admin-Endpunkt mit einem der 26
-        # fehlenden action-Werte crashen.
-        has_expanded_actions = 'UPSERT' in ddl_text
-        # DSG Art. 32 (2026-08-15): eigener Marker fuer die neue
-        # 'CLIENT_ERASE'-Action -- bereits migrierte Installationen (alle 4
-        # anderen Marker bereits erfuellt) wuerden diese neue Action sonst
-        # NIE erhalten und der Erase-Endpoint crasht auf ihnen dauerhaft mit
-        # IntegrityError (identische Bugklasse wie has_expanded_actions oben).
-        has_erasure_action = 'CLIENT_ERASE' in ddl_text
-        if (
-            has_password_reset and has_integrity_hash and has_ip_address
-            and has_expanded_actions and has_erasure_action
-        ):
-            return
+    raw = target_engine.raw_connection()
+    try:
+        dbapi = raw.driver_connection if hasattr(raw, "driver_connection") else raw.connection
+        previous_isolation = dbapi.isolation_level
+        dbapi.isolation_level = None  # explizite Transaktionssteuerung, DDL inklusive
+        cur = dbapi.cursor()
+        cur.execute('BEGIN IMMEDIATE')
+        try:
+            names = {r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if 'audit_log__old' in names:
+                n_old = cur.execute('SELECT COUNT(*) FROM audit_log__old').fetchone()[0]
+                if 'audit_log' in names:
+                    n_new = cur.execute('SELECT COUNT(*) FROM audit_log').fetchone()[0]
+                    if n_new:
+                        message = (
+                            "audit_log__old (%s Zeilen) existiert neben einer NICHT leeren "
+                            "audit_log (%s Zeilen) -- unterbrochener Neuaufbau, nicht sicher "
+                            "aufloesbar. Start blockiert, Datenbank unveraendert; bitte manuell "
+                            "pruefen (Historie liegt in audit_log__old)." % (n_old, n_new)
+                        )
+                        _audit_log_logger.critical(message)
+                        raise AuditLogRebuildInterrupted(message)
+                    cur.execute('DROP TABLE audit_log')
+                _audit_log_logger.warning(
+                    "Unterbrochener audit_log-Neuaufbau gefunden (%s Zeilen in audit_log__old) "
+                    "-- wird atomar fortgesetzt",
+                    n_old,
+                )
+            else:
+                ddl = cur.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='audit_log'"
+                ).fetchone()[0]
+                if _audit_log_ddl_is_current(ddl):
+                    cur.execute('COMMIT')
+                    return
+                cur.execute('ALTER TABLE audit_log RENAME TO audit_log__old')
+            _rebuild_audit_log_from_old(cur)
+            cur.execute('COMMIT')
+        except Exception:
+            cur.execute('ROLLBACK')
+            raise
+        finally:
+            dbapi.isolation_level = previous_isolation
+    finally:
+        raw.close()
 
-        conn.execute(text('ALTER TABLE audit_log RENAME TO audit_log__old'))
-        conn.execute(text("""
-            CREATE TABLE audit_log (
-                id TEXT PRIMARY KEY,
-                user_id TEXT,
-                user_name TEXT NOT NULL,
-                table_name TEXT NOT NULL,
-                record_id TEXT NOT NULL,
-                action TEXT NOT NULL CHECK(action IN (
-                    'CREATE','UPDATE','DELETE','LOGIN','EXPORT','PASSWORD_RESET',
-                    '2FA_DISABLE','2FA_ENABLE','2FA_RECOVERY_REGEN','2FA_RECOVERY_USED',
-                    'ACTIVATE','APPROVE','BACKFILL','BACKUP','CLIENT_ERASE','CLONE',
-                    'DB_OPTIMIZE','FOUNDATION_EXAMPLE','FOUNDATION_PURGE','INVITE',
-                    'INVITE_ACCEPT','INVITE_RESEND','INVITE_REVOKE','MARKET_DATA_PURGE',
-                    'MARKET_DATA_REFRESH','OPTIMIZER_MODE_CHANGE','PASSWORD_CHANGE',
-                    'PASSWORD_RESET_CONFIRM','PASSWORD_RESET_REQUEST','REPLACE',
-                    'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT'
-                )),
-                field_name TEXT,
-                old_value TEXT,
-                new_value TEXT,
-                mandate_id TEXT,
-                client_id TEXT,
-                integrity_hash TEXT,
-                ip_address TEXT,
-                created_at TEXT NOT NULL,
-                tenant_id TEXT,
-                sequence INTEGER,
-                previous_hash TEXT
-            )
-        """))
-        # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): frueher wurden hier NUR die
-        # Spalten aus audit_log__old kopiert, die diese Migration bereits
-        # kannte -- ein bereits vorhandenes ip_address (aus einem frueheren
-        # Lauf dieser selben Migration, z.B. bei erneuter Ausfuehrung nach
-        # einem Teil-Upgrade) wuerde sonst stillschweigend verworfen. Daher
-        # dynamisch anhand der tatsaechlichen Spalten von audit_log__old.
-        # Roadmap #21 (2026-08-08): tenant_id nach demselben Muster -- sonst
-        # wuerde diese RENAME-Migration eine bereits per ensure_runtime_columns
-        # nachgezogene tenant_id-Spalte beim naechsten Lauf wieder verwerfen
-        # (identische Bugklasse wie der Trigger-Verlust oben).
-        # SEC-003 (Codex-Audit 2026-08-26): dito fuer sequence/previous_hash --
-        # ohne diese dynamische Uebernahme wuerde eine frische Installation
-        # (die diese RENAME-Migration beim ersten Start durchlaeuft) die per
-        # ensure_runtime_columns() bereits angelegten Sequenz-Spalten sofort
-        # wieder verlieren (real reproduziert waehrend der Implementierung
-        # dieses Fixes: Test schlug mit "no column named sequence" fehl, bis
-        # dieser Block ergaenzt wurde).
-        old_columns = {
-            row[1] for row in conn.execute(text("PRAGMA table_info(audit_log__old)"))
-        }
-        ip_address_select = "ip_address" if "ip_address" in old_columns else "NULL AS ip_address"
-        tenant_id_select = "tenant_id" if "tenant_id" in old_columns else "NULL AS tenant_id"
-        sequence_select = "sequence" if "sequence" in old_columns else "NULL AS sequence"
-        previous_hash_select = "previous_hash" if "previous_hash" in old_columns else "NULL AS previous_hash"
-        conn.execute(text(f"""
-            INSERT INTO audit_log (
-                id, user_id, user_name, table_name, record_id, action,
-                field_name, old_value, new_value, mandate_id, client_id,
-                integrity_hash, ip_address, created_at, tenant_id,
-                sequence, previous_hash
-            )
-            SELECT
-                id, user_id, user_name, table_name, record_id, action,
-                field_name, old_value, new_value, mandate_id, client_id,
-                NULL AS integrity_hash,
-                {ip_address_select},
-                created_at,
-                {tenant_id_select},
-                {sequence_select},
-                {previous_hash_select}
-            FROM audit_log__old
-        """))
-        conn.execute(text('DROP TABLE audit_log__old'))
+
+def _rebuild_audit_log_from_old(cur) -> None:
+    """Neue audit_log aus audit_log__old aufbauen -- innerhalb der expliziten
+    Transaktion des Aufrufers. Prueft, dass jede Zeile uebernommen wurde,
+    bevor __old geloescht wird, und legt die Trigger wieder an."""
+    n_old = cur.execute('SELECT COUNT(*) FROM audit_log__old').fetchone()[0]
+    cur.execute(_AUDIT_LOG_REBUILT_DDL)
+    # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): frueher wurden hier NUR die
+    # Spalten aus audit_log__old kopiert, die diese Migration bereits
+    # kannte -- ein bereits vorhandenes ip_address (aus einem frueheren
+    # Lauf dieser selben Migration, z.B. bei erneuter Ausfuehrung nach
+    # einem Teil-Upgrade) wuerde sonst stillschweigend verworfen. Daher
+    # dynamisch anhand der tatsaechlichen Spalten von audit_log__old.
+    # Roadmap #21 (2026-08-08): tenant_id nach demselben Muster.
+    # SEC-003 (Codex-Audit 2026-08-26): dito fuer sequence/previous_hash --
+    # ohne diese dynamische Uebernahme wuerde eine frische Installation
+    # die per ensure_runtime_columns() bereits angelegten Sequenz-Spalten
+    # sofort wieder verlieren.
+    old_columns = {row[1] for row in cur.execute("PRAGMA table_info(audit_log__old)").fetchall()}
+    ip_address_select = "ip_address" if "ip_address" in old_columns else "NULL AS ip_address"
+    tenant_id_select = "tenant_id" if "tenant_id" in old_columns else "NULL AS tenant_id"
+    sequence_select = "sequence" if "sequence" in old_columns else "NULL AS sequence"
+    previous_hash_select = "previous_hash" if "previous_hash" in old_columns else "NULL AS previous_hash"
+    # H-865-1 (Pruefrunde #865): integrity_hash wurde hier bisher hart mit
+    # "NULL AS integrity_hash" kopiert -- jeder spaetere Neuaufbau haette
+    # ALLEN bestehenden Zeilen den Hash genommen, auch den verketteten.
+    # integrity_hash, sequence und previous_hash werden 1:1 uebernommen.
+    integrity_hash_select = (
+        "integrity_hash" if "integrity_hash" in old_columns else "NULL AS integrity_hash"
+    )
+    cur.execute(f"""
+        INSERT INTO audit_log (
+            id, user_id, user_name, table_name, record_id, action,
+            field_name, old_value, new_value, mandate_id, client_id,
+            integrity_hash, ip_address, created_at, tenant_id,
+            sequence, previous_hash
+        )
+        SELECT
+            id, user_id, user_name, table_name, record_id, action,
+            field_name, old_value, new_value, mandate_id, client_id,
+            {integrity_hash_select},
+            {ip_address_select},
+            created_at,
+            {tenant_id_select},
+            {sequence_select},
+            {previous_hash_select}
+        FROM audit_log__old
+    """)
+    n_new = cur.execute('SELECT COUNT(*) FROM audit_log').fetchone()[0]
+    if n_new != n_old:
+        raise RuntimeError(f"audit_log-Neuaufbau unvollstaendig ({n_new} von {n_old} Zeilen).")
+    cur.execute('DROP TABLE audit_log__old')
+    # H-865-1: SQLite verwirft beim DROP TABLE audit_log__old die dorthin
+    # mitgewanderten Unveraenderlichkeits-Trigger (Befund CEO/CFO/CIO-Audit
+    # 2026-08-07). Sie werden hier, in derselben (jetzt echten, N-869-1)
+    # Transaktion, wieder angelegt: die neue Tabelle ist nie ohne Schutz
+    # committet.
+    for statement in _AUDIT_LOG_TRIGGER_DDL:
+        cur.execute(statement)
 
 
 def ensure_audit_log_triggers(target_engine: Engine | None = None) -> None:
@@ -1753,16 +2006,58 @@ def ensure_audit_log_triggers(target_engine: Engine | None = None) -> None:
     if not inspector.has_table('audit_log'):
         return
     with target_engine.begin() as conn:
-        conn.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_update
-            BEFORE UPDATE ON audit_log FOR EACH ROW
-            BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
-        """))
-        conn.execute(text("""
-            CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_delete
-            BEFORE DELETE ON audit_log FOR EACH ROW
-            BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
-        """))
+        _create_audit_log_immutability_triggers(conn)
+
+
+_AUDIT_LOG_TRIGGER_DDL = (
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_update
+    BEFORE UPDATE ON audit_log FOR EACH ROW
+    BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_delete
+    BEFORE DELETE ON audit_log FOR EACH ROW
+    BEGIN SELECT RAISE(ABORT, 'audit_log is immutable'); END
+    """,
+    # N-869-3 (Pruefrunde #869): der eigentliche Single-Writer-Schutz. Jede
+    # NEUE Zeile muss Teil der Hash-Kette sein (sequence, integrity_hash,
+    # previous_hash gesetzt -- previous_hash ist bei der Genesis '' und nie
+    # NULL, siehe services/audit.py::log()). Altzeilen ohne sequence bleiben
+    # unberuehrt: der Trigger wirkt nur auf INSERT, und der Kopierschritt
+    # des Neuaufbaus laeuft, BEVOR die Trigger auf der neuen Tabelle
+    # angelegt werden (_rebuild_audit_log_from_old).
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_audit_log_require_chain
+    BEFORE INSERT ON audit_log FOR EACH ROW
+    WHEN NEW.sequence IS NULL OR NEW.integrity_hash IS NULL OR NEW.previous_hash IS NULL
+    BEGIN SELECT RAISE(ABORT, 'audit_log insert outside hash chain'); END
+    """,
+    # N-869-7 (Delta-Pruefung #869): INSERT OR REPLACE / REPLACE INTO mit einer
+    # vorhandenen id loescht die alte Zeile als Teil der Konfliktaufloesung --
+    # bei recursive_triggers=OFF (SQLite-Default) OHNE trg_audit_log_no_delete
+    # auszuloesen: eine Zeile liess sich so am Unveraenderlichkeitsschutz
+    # vorbei ersetzen. BEFORE-INSERT-Trigger feuern vor der Konfliktaufloesung;
+    # dieser weist jede bereits vorhandene id und jede bereits vergebene
+    # sequence ab (log() vergibt beide nie doppelt). Der Kopierschritt des
+    # Neuaufbaus laeuft vor dem Anlegen der Trigger; sqlite3.backup kopiert
+    # Seiten und loest keine Trigger aus.
+    """
+    CREATE TRIGGER IF NOT EXISTS trg_audit_log_no_replace
+    BEFORE INSERT ON audit_log FOR EACH ROW
+    WHEN EXISTS (SELECT 1 FROM audit_log WHERE id = NEW.id)
+      OR (NEW.sequence IS NOT NULL AND EXISTS (SELECT 1 FROM audit_log WHERE sequence = NEW.sequence))
+    BEGIN SELECT RAISE(ABORT, 'audit_log row already exists (no replace)'); END
+    """,
+)
+
+
+def _create_audit_log_immutability_triggers(conn) -> None:
+    """audit_log-Trigger idempotent anlegen (SQLite). Gemeinsame Quelle
+    _AUDIT_LOG_TRIGGER_DDL fuer ensure_audit_log_triggers() und den
+    Neuaufbau in ensure_audit_log_actions() (H-865-1, N-869-1)."""
+    for statement in _AUDIT_LOG_TRIGGER_DDL:
+        conn.execute(text(statement))
 
 
 SEED_ASSET_CLASS_RETURNS = [
@@ -1901,6 +2196,16 @@ def ensure_snapshot_tables(target_engine: Engine | None = None) -> None:
         _seed_asset_class_returns(conn)
 
 
+# N-869-9: partieller Unique-Index -- hoechstens ein Bestandssiegel-Eintrag
+# (field_name='LEGACY_SEAL' auf table_name='audit_log', siehe services/audit.py).
+# Gleiche Anweisung in Alembic d3b7f1a5c9e2 (PostgreSQL).
+_LEGACY_SEAL_UNIQUE_INDEX_SQL = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_audit_log_legacy_seal "
+    "ON audit_log(field_name) "
+    "WHERE field_name = 'LEGACY_SEAL' AND table_name = 'audit_log'"
+)
+
+
 def ensure_audit_log_indexes(target_engine: Engine | None = None) -> None:
     """Sprint U-38 (Roadmap-Punkt 38, 2026-06-01): idempotente Audit-Log-
     Indexes — inkl. neuer Composite-Index (mandate_id, table_name).
@@ -1951,6 +2256,26 @@ def ensure_audit_log_indexes(target_engine: Engine | None = None) -> None:
             "CREATE INDEX IF NOT EXISTS idx_audit_tenant "
             "ON audit_log(tenant_id)"
         ))
+        # N-869-7: Index fuer die sequence-Pruefung in trg_audit_log_no_replace
+        # und den Verifier (sonst Tabellenscan je INSERT).
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_audit_sequence "
+            "ON audit_log(sequence)"
+        ))
+    # N-869-9 (Delta 2 #869): hoechstens EIN Bestandssiegel (zweite
+    # Verteidigungslinie neben der Sperre in services/audit.py::
+    # ensure_legacy_seal). Eigene Transaktion: liegen ausnahmsweise schon
+    # zwei Siegel vor, scheitert nur dieser Index -- laut (CRITICAL), ohne
+    # den Start zu blockieren; der Verifier prueft dann beide.
+    try:
+        with target_engine.begin() as conn:
+            conn.execute(text(_LEGACY_SEAL_UNIQUE_INDEX_SQL))
+    except Exception as exc:  # noqa: BLE001 -- Index darf den Boot nicht stoppen
+        _audit_log_logger.critical(
+            "Unique-Index ux_audit_log_legacy_seal nicht angelegt (%s) -- mehr als ein "
+            "Bestandssiegel vorhanden? Pruefung: GET /admin/system/audit-log/verify",
+            type(exc).__name__,
+        )
 
 
 PURGE_HISTORY_COLUMNS: tuple[str, ...] = (
@@ -2058,10 +2383,10 @@ def ensure_default_tenant(target_engine: Engine | None = None) -> None:
             )
             db.add(tenant)
             db.commit()
-    except Exception:
-        # Boot-Robustheit: Default-Tenant-Setup darf den Backend-Start
-        # nicht stoppen. Logging kann der Caller verarbeiten.
-        pass
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        # Fail-closed (SEED-FK-HYGIENE): ohne 'main' scheitern Tenant-Backfill
+        # und Lizenzpruefung; nur ein unvollstaendiges Schema wird uebersprungen.
+        _handle_startup_step_error("ensure_default_tenant", exc)
 
 
 def ensure_default_ch_jurisdiction(target_engine: Engine | None = None) -> None:
@@ -2110,10 +2435,8 @@ def ensure_default_ch_jurisdiction(target_engine: Engine | None = None) -> None:
             )
             db.add(profile)
             db.commit()
-    except Exception:
-        # Boot-Robustheit: Default-Jurisdiktion-Setup darf den Backend-Start
-        # nicht stoppen. Logging kann der Caller verarbeiten.
-        pass
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        _handle_startup_step_error("ensure_default_ch_jurisdiction", exc)
 
 
 def ensure_default_de_jurisdiction(target_engine: Engine | None = None) -> None:
@@ -2124,13 +2447,21 @@ def ensure_default_de_jurisdiction(target_engine: Engine | None = None) -> None:
     ensure_default_ch_jurisdiction() direkt darueber -- beruehrt NIE eine
     CH-Zeile und blockiert den Boot nie."""
     try:
-        from services.jurisdiction.de_seed import ensure_de_jurisdiction_seed
+        from services.jurisdiction.de_seed import (
+            ensure_de_jurisdiction_seed,
+            log_legacy_pseudo_created_by_repair,
+        )
 
         with _session_for(target_engine) as db:
-            ensure_de_jurisdiction_seed(db)
+            repaired = ensure_de_jurisdiction_seed(db)
             db.commit()
-    except Exception:
-        pass
+        # N-870-5: erst nach erfolgreichem Commit melden; bei Rollback keine
+        # Erfolgszeile.
+        log_legacy_pseudo_created_by_repair(repaired)
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        # Hier fiel der DE-Seed unter PRAGMA foreign_keys=ON still aus
+        # (Pseudo-Kennung in created_by, SEED-FK-HYGIENE).
+        _handle_startup_step_error("ensure_default_de_jurisdiction", exc)
 
 
 def ensure_client_login_user_tenant_backfill(engine_to_use=None) -> None:
@@ -2173,9 +2504,11 @@ def ensure_client_login_user_tenant_backfill(engine_to_use=None) -> None:
                     """
                 )
             )
-    except Exception:
-        # Tabelle/Spalte (noch) nicht vorhanden -> ueberspringen (Boot-Robustheit).
-        pass
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        # Tabelle/Spalte (noch) nicht vorhanden -> ueberspringen. Jeder andere
+        # Fehler bricht ab: sonst zoege ensure_tenant_backfill() danach die
+        # Client-User pauschal nach 'main' (Bruch der Mandantentrennung).
+        _handle_startup_step_error("ensure_client_login_user_tenant_backfill", exc)
 
 
 def ensure_tenant_backfill(engine_to_use=None) -> None:
@@ -2222,23 +2555,19 @@ def ensure_tenant_backfill(engine_to_use=None) -> None:
     if _effective_strict_tenant_isolation(settings):
         return
     eng = engine_to_use if engine_to_use is not None else engine
-    try:
-        from models.tenant import DEFAULT_TENANT_ID
-        from sqlalchemy import text as _sql_text
-        for table in ("users", "clients", "mandates", "protocol_bausteine"):
-            try:
-                with eng.begin() as conn:
-                    conn.execute(
-                        _sql_text(
-                            f"UPDATE {table} SET tenant_id = :tid WHERE tenant_id IS NULL"
-                        ),
-                        {"tid": DEFAULT_TENANT_ID},
-                    )
-            except Exception:
-                # Tabelle/Spalte (noch) nicht vorhanden -> ueberspringen.
-                pass
-    except Exception:
-        pass
+    from models.tenant import DEFAULT_TENANT_ID
+    for table in ("users", "clients", "mandates", "protocol_bausteine"):
+        try:
+            with eng.begin() as conn:
+                conn.execute(
+                    text(
+                        f"UPDATE {table} SET tenant_id = :tid WHERE tenant_id IS NULL"
+                    ),
+                    {"tid": DEFAULT_TENANT_ID},
+                )
+        except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+            # Tabelle/Spalte (noch) nicht vorhanden -> ueberspringen; sonst Abbruch.
+            _handle_startup_step_error(f"ensure_tenant_backfill[{table}]", exc)
 
 
 _LEGACY_HOUSE_MATRIX_REAL_ESTATE_MAX = {
@@ -2288,8 +2617,10 @@ def migrate_house_matrix_real_estate_cap_20(engine_to_use=None) -> int:
                 )
                 if result.rowcount and result.rowcount > 0:
                     updated += int(result.rowcount)
-    except Exception:
-        # Boot-Robustheit: eine alte/partielle DB darf den Start nicht stoppen.
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        # Eine alte/partielle DB (Tabelle/Spalte fehlt) darf den Start nicht
+        # stoppen; ein echter Fehler der Datenmigration schon.
+        _handle_startup_step_error("migrate_house_matrix_real_estate_cap_20", exc)
         return 0
     return updated
 

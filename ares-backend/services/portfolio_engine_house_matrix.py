@@ -82,11 +82,22 @@ annotations` + `TYPE_CHECKING`, wo kein echter Laufzeit-Gebrauch vorliegt.
 """
 from __future__ import annotations
 
+import re
+from collections.abc import Collection
 from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 
 from database import new_uuid
+from services.allocation_messages import (
+    CONFLICT_BAND_REASON_MISSING,
+    INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED,
+    WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED,
+    WARN_BAND_OUTSIDE_HOUSE_MATRIX,
+    WARN_TARGET_ADJUSTED,
+    WARN_TARGET_FALLBACK_RESET,
+    format_message,
+)
 from models.allocation import BuildingBlock, HouseMatrix, OptimizerPolicy
 from services.jurisdiction.de_seed import (
     DE_DEFAULT_BONDS_DURATION,
@@ -176,6 +187,7 @@ def _apply_band_preferences(
     warnings: list[dict] | None = None,
     house_profile: str | None = None,
     score_bucket: int | None = None,
+    policy_bound_keys: Collection[tuple[str, str]] = frozenset(),
 ) -> None:
     """Applies a bands override, keeping hard Bounds and Target Intent
     orthogonal (CERT-ALLOCATION-INTENT-001 / BAND-PARTIAL-OVERRIDE-001).
@@ -249,25 +261,54 @@ def _apply_band_preferences(
     # that actually needs the full bounds set to produce a concrete 10000-bps
     # allocation, and it already fails loudly (no silent fallback) if none
     # exists.
+    # H-859-4/-5 (Pruefrunde #859): jede Grenze nennt ihre Herkunft
+    # (Berater-Vorgabe, Mandats-Policy, Hausmatrix); alle Eingabefehler sind
+    # AllocationInputError (Generate-Router: 422).
+    policy_keys = frozenset(policy_bound_keys or ())
+
+    def _bound_source(key: str, side: str) -> str:
+        if key in (advisor_min_buckets if side == "min" else advisor_max_buckets):
+            return "advisor"
+        if (key, side) in policy_keys:
+            return "policy"
+        return "house"
+
+    profile_text = (
+        f" des Risikoprofils (Score {score_bucket if score_bucket is not None else '?'}, "
+        f"{house_profile or 'unbekannt'})"
+    )
+
+    def _bound_phrase(key: str, side: str) -> str:
+        source = _bound_source(key, side)
+        word = "Minimum" if side == "min" else "Maximum"
+        if source == "advisor":
+            return f"Berater-{word}"
+        if source == "policy":
+            return f"{word} der Mandats-Policy"
+        return f"Hausmatrix-{word}"
+
     for key in BUCKET_FIELDS:
         minimum, maximum = minimums[key], maximums[key]
         if minimum < 0 or maximum > 10000:
-            raise ValueError(
-                f"Bandbreiten fuer {BUCKET_LABELS[key]} sind inkonsistent: "
-                f"Min {minimum} / Max {maximum} (0..10000 bps, Min darf Max nicht ueberschreiten)."
+            raise AllocationInputError(
+                f"Bandbreiten fuer {BUCKET_LABELS[key]} sind ungueltig: "
+                f"Minimum {_band_pct(minimum)} % / Maximum {_band_pct(maximum)} % "
+                "(zulaessig 0 % bis 100 %)."
             )
         if minimum > maximum:
             # F-BAND-3: benennen, woher jede der beiden Grenzen stammt -- ein
             # "Min 500 / Max 0" fuer ein Minimum, das der Berater nie gesetzt
             # hat, ist nicht nachvollziehbar.
-            min_source = (
-                "das Berater-Minimum" if key in advisor_min_buckets
-                else "das Hausmatrix-Minimum des Risikoprofils"
-            )
-            max_source = (
-                "dem Berater-Maximum" if key in advisor_max_buckets
-                else "dem Hausmatrix-Maximum des Risikoprofils"
-            )
+            min_source = {
+                "advisor": "das Berater-Minimum",
+                "policy": "das Minimum der Mandats-Policy",
+                "house": "das Hausmatrix-Minimum des Risikoprofils",
+            }[_bound_source(key, "min")]
+            max_source = {
+                "advisor": "dem Berater-Maximum",
+                "policy": "dem Maximum der Mandats-Policy",
+                "house": "dem Hausmatrix-Maximum des Risikoprofils",
+            }[_bound_source(key, "max")]
             hint = ""
             if key not in advisor_min_buckets:
                 hint = (
@@ -275,7 +316,7 @@ def _apply_band_preferences(
                     "werden, ist auch das Minimum als Berater-Vorgabe zu setzen; "
                     "die Abweichung von der Hausmatrix wird dann offengelegt."
                 )
-            raise ValueError(
+            raise AllocationInputError(
                 f"Bandbreiten fuer {BUCKET_LABELS[key]} sind nicht vereinbar: "
                 f"{min_source} von {_band_pct(minimum)} % liegt ueber "
                 f"{max_source} von {_band_pct(maximum)} %.{hint}"
@@ -283,18 +324,44 @@ def _apply_band_preferences(
 
     # A bucket with an EXPLICIT Target Intent must itself respect that same
     # bucket's bounds -- a real advisor-stated conflict, reported as such.
-    for key in explicit_target_buckets:
-        if not (minimums[key] <= targets[key] <= maximums[key]):
-            raise ValueError(
-                f"Bandbreiten fuer {BUCKET_LABELS[key]} sind inkonsistent: "
-                f"Min {minimums[key]} / Ziel {targets[key]} / Max {maximums[key]}."
+    # H-859-4: vorher "Min 6000 / Ziel 8000 / Max 7500" (rohe bps, ohne
+    # Herkunft, 409).
+    for key in BUCKET_FIELDS:
+        if key not in explicit_target_buckets:
+            continue
+        target = int(targets[key])
+        if minimums[key] <= target <= maximums[key]:
+            continue
+        side = "max" if target > maximums[key] else "min"
+        bound = maximums[key] if side == "max" else minimums[key]
+        source = _bound_source(key, side)
+        direction = "ueber dem" if side == "max" else "unter dem"
+        word = "Maximum" if side == "max" else "Minimum"
+        if source == "advisor":
+            hint = f" Ziel und Berater-{word} widersprechen sich; bitte eines davon anpassen."
+        else:
+            hint = (
+                f" Fuer eine bewusste Abweichung das {word} als Berater-Vorgabe "
+                "mitsetzen; die Abweichung wird dann offengelegt."
             )
+        raise AllocationInputError(
+            f"Das Berater-Ziel fuer {BUCKET_LABELS[key]} von {_band_pct(target)} % "
+            f"liegt {direction} {_bound_phrase(key, side)} von {_band_pct(bound)} %"
+            f"{profile_text if source == 'house' else ''}.{hint}"
+        )
 
     # F-BAND-3: cross-bucket envelope, explained in German with provenance
     # (same ValueError type; see docstring for why this is no new rule).
     _raise_if_band_envelope_infeasible(
         minimums,
         advisor_min_buckets=advisor_min_buckets,
+        policy_min_buckets={key for key, side in policy_keys if side == "min"},
+    )
+    # H-859-2: fixierte Ziele + Minima der uebrigen Klassen ueber 100 %.
+    raise_if_locked_targets_infeasible(
+        targets, minimums, explicit_target_buckets,
+        bucket_labels=BUCKET_LABELS,
+        min_sources={key: _bound_phrase(key, "min") for key in BUCKET_FIELDS},
     )
 
     # Every OTHER bucket keeps no Target Intent at all: its carried-over
@@ -311,7 +378,7 @@ def _apply_band_preferences(
         # partial Soft Preference, which legitimately need not.
         total = sum(int(targets[key]) for key in BUCKET_FIELDS)
         if total != 10000:
-            raise ValueError(f"Mandatsspezifische Zielquoten muessen 100% ergeben (aktuell {total / 100:.2f}%).")
+            raise AllocationInputError(f"Mandatsspezifische Zielquoten muessen 100% ergeben (aktuell {total / 100:.2f}%).")
     reasoning.append("Mandatsspezifische Soll-Quoten und Bandbreiten werden als Simulations-Constraint beruecksichtigt.")
 
     # F-BAND-1: jede Mandatsbandbreite ausserhalb der Hausmatrix-Bandbreite
@@ -349,6 +416,7 @@ def _raise_if_band_envelope_infeasible(
     minimums: dict[str, int],
     *,
     advisor_min_buckets: set[str],
+    policy_min_buckets: Collection[str] = (),
 ) -> None:
     """BAND-OVERRIDE-DISCLOSURE-001 (F-BAND-3): deutsche, bucket-genaue
     Erklaerung fuer einen unerfuellbaren Bounds-Satz.
@@ -369,16 +437,172 @@ def _raise_if_band_envelope_infeasible(
     if total_min > 10000:
         parts = [
             f"{BUCKET_LABELS[key]} {_band_pct(minimums[key])} % "
-            f"({'Berater-Vorgabe' if key in advisor_min_buckets else 'Hausmatrix-Minimum'})"
+            f"({'Berater-Vorgabe' if key in advisor_min_buckets else 'Mandats-Policy' if key in policy_min_buckets else 'Hausmatrix-Minimum'})"
             for key in BUCKET_FIELDS
             if int(minimums[key]) > 0
         ]
-        raise ValueError(
+        raise BandEnvelopeInfeasibleError(
             f"Die Mindestquoten summieren sich auf {_band_pct(total_min)} % "
             f"({', '.join(parts)}) und uebersteigen 100 %. Bitte die "
             "Berater-Vorgaben so anpassen, dass die Mindestquoten zusammen "
             "hoechstens 100 % ergeben."
         )
+
+
+def apply_house_mode_liquidity_floor(
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    bands: dict | None,
+    *,
+    reserve_internal_rappen: int,
+    investable_rappen: int,
+    reserve_needed_rappen: int,
+    model_floor_bps: int,
+) -> tuple[int, str]:
+    """Delta-Pruefung #859 E-1 (Entscheid Owner-Vertretung, AA-7.2): auch im
+    Hausmatrix-Modus ist die Liquiditaets-Untergrenze
+    max(Hausmatrix-/Berater-Minimum, Zielreserve, globale Mindestliquiditaet).
+
+    Vorher hob die Reserve im Hausmatrix-Modus nur das Liquiditaets-ZIEL an;
+    eine Einzelziel-Kappung konnte die Liquiditaet bis aufs Haus-Minimum
+    (0 %) absenken. Die Reserve wird wie im stochastischen Pfad auf dem
+    investierbaren Vermoegen normiert. Setzt minimums/maximums in place und
+    liefert (Untergrenze, Herkunft). Ein Berater-Maximum unter der
+    Untergrenze ist ein Eingabefehler (422).
+    """
+    reserve_floor_bps = 0
+    if investable_rappen > 0 and reserve_needed_rappen > 0:
+        reserve_floor_bps = min(
+            10000, (int(reserve_internal_rappen) * 10000 + int(investable_rappen) - 1) // int(investable_rappen),
+        )
+    floor_bps, source = max(
+        (int(minimums["liquidity"]), "Mindestquote"),
+        (int(model_floor_bps), "globale Mindestliquiditaet des Modells"),
+        (int(reserve_floor_bps), "zwingend vorzuhaltende Zielreserve"),
+        key=lambda item: item[0],
+    )
+    if floor_bps <= int(minimums["liquidity"]):
+        return int(minimums["liquidity"]), "Mindestquote"
+    probe_min = {key: 0 for key in minimums}
+    probe_max = {key: -1 for key in maximums}
+    _apply_band_min_max_overrides(bands, probe_min, probe_max)
+    advisor_max = probe_max["liquidity"]
+    if advisor_max >= 0 and floor_bps > advisor_max:
+        raise AllocationInputError(
+            f"Die Berater-Obergrenze fuer Liquiditaet von {_band_pct(advisor_max)} % "
+            f"liegt unter der Liquiditaets-Untergrenze von {_band_pct(floor_bps)} % ({source})."
+        )
+    minimums["liquidity"] = floor_bps
+    maximums["liquidity"] = max(int(maximums["liquidity"]), floor_bps)
+    return floor_bps, source
+
+
+_SYSTEM_LIQUIDITY_FLOOR_SOURCES = {
+    "zwingend vorzuhaltende Zielreserve": "Zielreserve",
+    "globale Mindestliquiditaet des Modells": "Mindestliquidität des Modells",
+    "globale Liquiditaets-Untergrenze des Modells": "Mindestliquidität des Modells",
+}
+
+
+def _raise_if_system_liquidity_floor_infeasible(
+    minimums: dict[str, int],
+    *,
+    bucket_labels: dict[str, str],
+    floor_source: str | None,
+) -> None:
+    """F-2 (Pruefrunde #859): ist die Liquiditaets-Untergrenze systembedingt
+    (Zielreserve bzw. Mindestliquiditaet des Modells) und uebersteigen die
+    Minima damit 100 %, nannte die 422 die Herkunft nicht und riet, "ein
+    Berater-Minimum [zu] senken" -- obwohl die Reserve die Ursache ist.
+    Jetzt: Herkunft und passender Hinweis; bei einer Reserve in der Hoehe des
+    investierbaren Vermoegens bleibt keine Strategiebasis (gesonderter Fall).
+    """
+    label = _SYSTEM_LIQUIDITY_FLOOR_SOURCES.get(floor_source or "")
+    total = sum(int(minimums[key]) for key in bucket_labels)
+    if label is None or total <= 10000:
+        return
+    others = ", ".join(
+        f"{bucket_labels[key]} min. {_band_pct(minimums[key])} %"
+        for key in bucket_labels
+        if key != "liquidity" and int(minimums[key]) > 0
+    )
+    if label == "Zielreserve":
+        hint = (
+            "Ursache ist die zwingend vorzuhaltende Zielreserve, nicht eine "
+            "Berater-Vorgabe: bitte Reservebedarf (kurzfristige Ziele, Cashflows, "
+            "Mindestreserve) und Vermoegensbasis pruefen. Deckt der Reservebedarf "
+            "das investierbare Vermoegen ganz, bleibt keine Strategiebasis -- "
+            "dieser Fall wird gesondert behandelt."
+        )
+    else:
+        hint = (
+            "Die Mindestliquiditaet des Modells ist fest; bitte die Mindestquoten "
+            "der uebrigen Anlageklassen senken."
+        )
+    raise BandEnvelopeInfeasibleError(
+        f"Die Liquiditaets-Untergrenze von {_band_pct(minimums['liquidity'])} % "
+        f"({label}) und die Mindestquoten der uebrigen Anlageklassen "
+        f"({others or 'keine'}) ergeben zusammen {_band_pct(total)} % und "
+        f"uebersteigen 100 %. {hint}"
+    )
+
+
+def raise_if_locked_targets_infeasible(
+    targets: dict[str, int],
+    minimums: dict[str, int],
+    locked: Collection[str],
+    *,
+    bucket_labels: dict[str, str],
+    min_sources: dict[str, str] | None = None,
+    maximums: dict[str, int] | None = None,
+) -> None:
+    """H-859-2 (Pruefrunde #859): MEHRERE fixierte Berater-Ziele plus die
+    Mindestquoten der uebrigen Klassen ueber 100 % sind eine unerfuellbare
+    Eingabe. Vorher kappte ``_rebalance_to_total`` dann die fixierte Klasse
+    in fester Reihenfolge (Aktien zuerst) -- jetzt eine deutsche 422, die
+    die kollidierenden Ziele und Mindestquoten nennt.
+
+    ``min_sources`` beschreibt die Herkunft je Mindestquote (z. B.
+    "Hausmatrix-Minimum", "globale Liquiditaets-Untergrenze").
+
+    Ein EINZELNES fixiertes Ziel, das mit den Minima nicht aufgeht, liegt
+    faktisch ueber seinem erreichbaren Bandrand und wird wie bisher sichtbar
+    gekappt (WARN_TARGET_ADJUSTED). Mit ``maximums`` wird jedes Ziel zuerst
+    auf seine wirksame Obergrenze geklemmt (z. B. globale Modell-Obergrenze
+    Alternative 10 %) -- eine Kappung an einer Modellgrenze ist kein
+    Eingabefehler, sondern wird offengelegt.
+    """
+    _raise_if_system_liquidity_floor_infeasible(
+        minimums, bucket_labels=bucket_labels,
+        floor_source=(min_sources or {}).get("liquidity"),
+    )
+    locked_set = [key for key in bucket_labels if key in set(locked)]
+    if len(locked_set) < 2 or len(locked_set) == len(bucket_labels):
+        return
+    if maximums is not None:
+        targets = {
+            **targets,
+            **{key: min(int(targets[key]), int(maximums[key])) for key in locked_set},
+        }
+    others = [key for key in bucket_labels if key not in locked_set]
+    total = sum(int(targets[key]) for key in locked_set) + sum(int(minimums[key]) for key in others)
+    if total <= 10000:
+        return
+    sources = min_sources or {}
+    target_parts = ", ".join(
+        f"{bucket_labels[key]} {_band_pct(targets[key])} %" for key in locked_set
+    )
+    min_parts = ", ".join(
+        f"{bucket_labels[key]} {_band_pct(minimums[key])} % ({sources.get(key, 'Mindestquote')})"
+        for key in others
+        if int(minimums[key]) > 0
+    )
+    raise BandEnvelopeInfeasibleError(
+        f"Die fixierten Berater-Ziele ({target_parts}) und die Mindestquoten der "
+        f"uebrigen Anlageklassen ({min_parts or 'keine'}) ergeben zusammen "
+        f"{_band_pct(total)} % und uebersteigen 100 %. Bitte ein Ziel senken oder "
+        "eine Mindestquote anpassen."
+    )
 
 
 def _disclose_global_cap_clamp(
@@ -414,6 +638,119 @@ def _disclose_global_cap_clamp(
         requested_max=f"{requested_max_bps / 100:.2f}",
         cap=f"{cap_bps / 100:.2f}",
     ))
+
+
+def disclose_manual_target_deviations(
+    preferred_bps: dict[str, int],
+    anchor_bps: dict[str, int],
+    final_bps: dict[str, int],
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    reasoning: list[str],
+    warnings: list,
+    *,
+    bucket_labels: dict[str, str],
+    optimizer_applied: bool = False,
+    fallback_risk_budget_bps: int | None = None,
+    liquidity_before_projection_bps: int | None = None,
+    liquidity_floor_bps: int | None = None,
+    liquidity_floor_source: str | None = None,
+) -> None:
+    """AUDIT-2026-11 A1: jedes explizite Berater-Ziel, das nicht exakt
+    umgesetzt wird, im Reasoning und als ``WARN_TARGET_ADJUSTED`` ausweisen.
+
+    ``anchor_bps`` ist die zulaessige Projektion VOR einem allfaelligen
+    Optimierer-Lauf, ``minimums``/``maximums`` ihre wirksamen Grenzen. Weicht
+    der Anker vom Ziel ab (Kappung an einer wirksamen Grenze), wird gewarnt.
+
+    H-859-1 (Pruefrunde #859, Art. 8 FIDLEG): Warnung und Reasoning nennen
+    die GESPEICHERTE Quote ``final_bps`` -- vorher den Anker, der im
+    stochastischen Modus vom Optimierer noch verschoben wird (gemessen:
+    Warnung 64.99 %, gespeichert 66.24 %). Weicht nur der Optimierer vom
+    (am Anker exakt gehaltenen) Ziel ab (``optimizer_applied``), ist das
+    keine Kappung; das Reasoning nennt dann die Abweichung der
+    Soft-Preference. Jede andere Abweichung (nachgelagerte Regel) warnt.
+
+    H-859-3: hat der Risikobudget-Fallback die Allokation auf die
+    Bandbreiten-Mitte zurueckgesetzt (``fallback_risk_budget_bps`` gesetzt),
+    wird jedes dadurch ersetzte Ziel eigens ausgewiesen (Ziel, alter und
+    neuer Wert, Grund) -- ``WARN_TARGET_FALLBACK_RESET`` statt der
+    Kappungs-Meldung, die eine falsche Ursache nennen wuerde.
+
+    H-859-2: sinkt die (nicht fixierte) Liquiditaet wegen der fixierten
+    Ziele unter ihren Wert vor der Projection (``liquidity_before_projection_bps``),
+    wird das im Reasoning ausgewiesen statt still bis aufs Haus-Minimum
+    abgesenkt.
+    """
+    if (
+        preferred_bps
+        and "liquidity" not in preferred_bps
+        and liquidity_before_projection_bps is not None
+        and fallback_risk_budget_bps is None
+        and int(final_bps["liquidity"]) < int(liquidity_before_projection_bps)
+    ):
+        reasoning.append(
+            f"{bucket_labels.get('liquidity', 'Liquiditaet')}: sinkt wegen der "
+            f"fixierten Berater-Ziele von {_band_pct(liquidity_before_projection_bps)} % "
+            f"auf {_band_pct(final_bps['liquidity'])} % (Ausgleich ueber die nicht "
+            "fixierten Anlageklassen"
+            + (
+                ""
+                if liquidity_floor_bps is None
+                else (
+                    f"; Untergrenze {_band_pct(liquidity_floor_bps)} % "
+                    f"({liquidity_floor_source or 'Mindestquote'}) "
+                    + ("eingehalten" if int(final_bps["liquidity"]) >= int(liquidity_floor_bps) else "NICHT eingehalten")
+                )
+            )
+            + ")."
+        )
+    for bucket in final_bps:
+        if bucket not in preferred_bps:
+            continue
+        requested = int(preferred_bps[bucket])
+        anchor = int(anchor_bps[bucket])
+        final = int(final_bps[bucket])
+        if requested == final and requested == anchor:
+            continue
+        bucket_label = bucket_labels.get(bucket, bucket)
+        if fallback_risk_budget_bps is not None and final != requested:
+            reasoning.append(
+                f"{bucket_label}: Risikobudget-Fallback -- das Berater-Ziel von "
+                f"{_band_pct(requested)} % wird durch {_band_pct(final)} % "
+                "(Bandbreiten-Mitte des Risikoprofils) ersetzt, weil die "
+                "Allokation das Risikobudget von "
+                f"{_band_pct(fallback_risk_budget_bps)} % ueberschritt."
+            )
+            warnings.append(format_message(
+                WARN_TARGET_FALLBACK_RESET,
+                bucket_label=bucket_label,
+                requested=_band_pct(requested),
+                effective=_band_pct(final),
+                risk_budget=_band_pct(fallback_risk_budget_bps),
+            ))
+            continue
+        if anchor == requested and optimizer_applied:
+            reasoning.append(
+                f"{bucket_label}: Der Optimierer setzt {_band_pct(final)} % statt "
+                f"des Berater-Ziels von {_band_pct(requested)} % um "
+                f"(Soft-Preference, Abweichung {final - requested:+d} bps)."
+            )
+            continue
+        reasoning.append(
+            f"{bucket_label}: Das Berater-Ziel von {_band_pct(requested)} % "
+            f"wird mit {_band_pct(final)} % umgesetzt (wirksame Grenzen "
+            f"{_band_pct(minimums[bucket])} % bis {_band_pct(maximums[bucket])} % "
+            "und uebrige Vorgaben)."
+        )
+        warnings.append(format_message(
+            WARN_TARGET_ADJUSTED,
+            bucket_label=bucket_label,
+            requested=_band_pct(requested),
+            effective=_band_pct(final),
+            effective_min=_band_pct(minimums[bucket]),
+            effective_max=_band_pct(maximums[bucket]),
+        ))
 
 
 def advisor_band_house_deviations(
@@ -465,6 +802,143 @@ def advisor_band_house_deviations(
             "mandate_max_bps": mandate_max,
         })
     return deviations
+
+
+_SAA_LIQUIDITY_SENTENCE = re.compile(r"Die SAA-Liquiditaet bleibt auf (\d+\.\d)%\.")
+
+
+def restate_saa_liquidity_sentence(reasoning: list[str], final_liquidity_bps: int) -> None:
+    """Delta-Pruefung #859 D-1: der Satz "Die SAA-Liquiditaet bleibt auf x %"
+    der Reserve-Berechnung entsteht VOR der Projektion. Weicht die
+    gespeicherte Liquiditaet (auf eine Stelle gerundet) davon ab -- z. B.
+    0 % nach einer Einzelziel-Kappung im Hausmatrix-Modus --, nennt der Satz
+    die tatsaechliche Liquiditaet statt einer widerspruechlichen Aussage."""
+    actual = f"{int(final_liquidity_bps) / 100:.1f}"
+    for index, line in enumerate(reasoning):
+        match = _SAA_LIQUIDITY_SENTENCE.search(line)
+        if match and match.group(1) != actual:
+            reasoning[index] = _SAA_LIQUIDITY_SENTENCE.sub(
+                f"Die SAA-Liquiditaet betraegt {_band_pct(final_liquidity_bps)} % "
+                "(nach Abgleich mit den Berater-Zielen).",
+                line,
+            )
+
+
+# F-1 (Pruefrunde #859): Wesentlichkeitsschwelle fuer die Banner-Warnung.
+# Eine Erweiterung des Liquiditaetsbands um weniger als 25 bps ueber das
+# Hausmatrix-Maximum (typisch: 2.01 % statt 2.00 % durch die Normierung der
+# Reserve) ist nur eine Info; ab 25 bps eine Warnung (ohne Aktion).
+LIQUIDITY_BAND_EXTENSION_WARNING_THRESHOLD_BPS = 25
+
+
+def disclose_system_liquidity_band_extension(
+    system_liquidity_floor_bps: int,
+    house_liquidity_max_bps: int,
+    reasoning: list[str],
+    messages: list,
+    *,
+    reserve_driven: bool,
+    external_reserve: bool = False,
+) -> None:
+    """Delta-Pruefung #859 D-2 (zu M2/AA-7.2): erweitert Ares das
+    Liquiditaetsband systembedingt ueber das Hausmatrix-Maximum, wird das
+    als Reasoning-Satz und Meldung ausgewiesen.
+
+    F-1: warning erst ab ``LIQUIDITY_BAND_EXTENSION_WARNING_THRESHOLD_BPS``
+    (sonst Info, kein Banner); der Aufrufer reiht die Meldung HINTER die
+    begruendungspflichtigen Meldungen ein. Quelle und Kundentext folgen der
+    tatsaechlichen Ursache: Reserve-Normierung nach einer extern empfohlenen
+    Reserve, intern vorzuhaltende Reserve oder Mindestliquiditaet des
+    Modells."""
+    if int(system_liquidity_floor_bps) <= int(house_liquidity_max_bps):
+        return
+    # ``reasoning_source`` ohne "Reserve"/"Liquiditaet" (ASCII): die Karte
+    # "Leitplanken & Engine" filtert solche Saetze heraus (E-2).
+    if reserve_driven and external_reserve:
+        source = "Reserve, bezogen auf das Vermögen nach der extern empfohlenen Reserve"
+        reasoning_source = "Liquiditätsbedarf im Mandat, bezogen auf das Vermögen ohne den extern empfohlenen Teil"
+        client_reason = (
+            "weil ein Teil der Reserve ausserhalb des Mandats empfohlen wird und die "
+            "im Mandat gehaltene Reserve auf das verbleibende Vermögen bezogen ist"
+        )
+    elif reserve_driven:
+        source = "im Mandat vorzuhaltende Reserve"
+        reasoning_source = "im Mandat vorzuhaltender Liquiditätsbedarf"
+        client_reason = "damit die im Mandat vorgesehene Reserve gedeckt ist"
+    else:
+        source = "Mindestliquidität des Modells"
+        reasoning_source = source
+        client_reason = "weil das Modell eine Mindestliquidität vorsieht"
+    extension_bps = int(system_liquidity_floor_bps) - int(house_liquidity_max_bps)
+    code = (
+        WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED
+        if extension_bps >= LIQUIDITY_BAND_EXTENSION_WARNING_THRESHOLD_BPS
+        else INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED
+    )
+    # E-2: mit Umlaut (die Karte "Leitplanken & Engine" filtert ASCII-
+    # "Liquiditaet") und weit oben eingeordnet (die Karte zeigt nur die
+    # ersten zwei verbleibenden Saetze).
+    sentence = (
+        f"Liquiditätsband systembedingt auf {_band_pct(system_liquidity_floor_bps)} % "
+        f"erweitert ({reasoning_source}; Hausmatrix-Maximum {_band_pct(house_liquidity_max_bps)} %)."
+    )
+    reasoning.insert(min(2, len(reasoning)), sentence)
+    messages.append(format_message(
+        code,
+        extended=_band_pct(system_liquidity_floor_bps),
+        source=source,
+        house_max=_band_pct(house_liquidity_max_bps),
+        client_reason=client_reason,
+    ))
+
+
+def band_deviation_messages(
+    bands: dict | None,
+    house_minimums: dict[str, int],
+    house_maximums: dict[str, int],
+    *,
+    reason_is_valid: bool,
+    house_profile: str | None,
+    score_bucket: int | None,
+) -> list[dict]:
+    """Live-Test 04 / M3: Meldungen fuer ``messages`` (Banner der AA- und
+    Review-Maske), dieselbe Regel wie das Freigabe-Gate.
+
+    Vorher stand die Abweichung nur in ``warnings``; die Banner lesen aber
+    ``messages`` -- Torte und Tabelle zeigten Baender ausserhalb der
+    Hausmatrix ohne Hinweis. Je Abweichung WARN_BAND_OUTSIDE_HOUSE_MATRIX;
+    ohne tragfaehige Begruendung zusaetzlich CONFLICT_BAND_REASON_MISSING
+    (Konflikt -> Banner-Vorrang), das die Freigabesperre ankuendigt.
+    ``reason_is_valid`` ist das Ergebnis von
+    ``validate_override_reason_quality`` (wie im Freigabe-Gate) und wird vom
+    Aufrufer bestimmt.
+    """
+    deviations = advisor_band_house_deviations(bands, house_minimums, house_maximums)
+    if not deviations:
+        return []
+    profile = house_profile or "unbekannt"
+    score = score_bucket if score_bucket is not None else "?"
+    messages = [
+        format_message(
+            WARN_BAND_OUTSIDE_HOUSE_MATRIX,
+            bucket_label=deviation["bucket_label"],
+            mandate_min=_band_pct(deviation["mandate_min_bps"]),
+            mandate_max=_band_pct(deviation["mandate_max_bps"]),
+            house_min=_band_pct(deviation["house_min_bps"]),
+            house_max=_band_pct(deviation["house_max_bps"]),
+            profile_label=profile,
+            score_bucket=score,
+        )
+        for deviation in deviations
+    ]
+    if not reason_is_valid:
+        messages.append(format_message(
+            CONFLICT_BAND_REASON_MISSING,
+            bucket_labels=", ".join(d["bucket_label"] for d in deviations),
+            profile_label=profile,
+            score_bucket=score,
+        ))
+    return messages
 
 
 def house_band_deviation_note(
@@ -544,18 +1018,243 @@ def house_band_deviation_disclosure_for_allocation(
     }
 
 
-def house_matrix_bands_payload(house_matrix: HouseMatrix, policy: OptimizerPolicy) -> dict:
+def house_matrix_bands_payload(
+    house_matrix: HouseMatrix,
+    policy: OptimizerPolicy,
+    *,
+    system_liquidity_floor_bps: int = 0,
+) -> dict:
     """BAND-DEVIATION-REASON-REQUIRED-001: die (policy-bereinigte)
     Hausmatrix-Bandbreite je Bucket fuer den Bandbreiten-Editor. Die
     Bucket-Bandbreite im Payload ist nach einem Override bereits die
-    Mandatsbandbreite und taugt daher nicht als Vergleichsbasis."""
+    Mandatsbandbreite und taugt daher nicht als Vergleichsbasis.
+
+    Live-Test 04 / M2 (Entscheid AA-7.2): das Liquiditaets-Eignungsband ist
+    [Hausmin; max(Hausmax; Floor + Reserve)]. ``system_liquidity_floor_bps``
+    ist die vom Modell selbst gesetzte Untergrenze (globaler Floor und
+    interne Zielreserve, ohne Berater-Vorgaben). Eine solche systembedingte
+    Anhebung ist kein Austritt aus der Hausmatrix und loest keine
+    Begruendungspflicht aus; vorher verlangte der Editor fuer das
+    Engine-eigene Band (z. B. 201/201 bps bei Hausmax 200) eine Begruendung."""
     from services.portfolio_engine import BUCKET_FIELDS
 
     _targets, minimums, maximums = _baseline_target_bands(house_matrix, policy)
+    maximums = {
+        **maximums,
+        "liquidity": max(int(maximums["liquidity"]), int(system_liquidity_floor_bps or 0)),
+    }
     return {
         key: {"min_bps": int(minimums[key]), "max_bps": int(maximums[key])}
         for key in BUCKET_FIELDS
     }
+
+
+def system_liquidity_floor_from_allocation(allocation, bands: dict | None) -> int:
+    """M2: systembedingte Liquiditaets-Untergrenze einer gespeicherten
+    Allokation. Das persistierte Band-Minimum ist systembedingt, wenn es
+    ueber einem allfaelligen Berater-Minimum liegt (globaler Floor/Reserve);
+    ein vom Berater gesetztes Minimum bleibt eine Berater-Vorgabe."""
+    persisted_min = int(getattr(allocation, "band_liquidity_min_bps", 0) or 0)
+    advisor_min = None
+    for raw_key, override in (bands or {}).items():
+        if str(raw_key).strip().lower() in ("liquidity", "liquiditaet", "liquidität") and isinstance(override, dict):
+            value = override.get("min_bps")
+            if value is not None:
+                try:
+                    advisor_min = int(value)
+                except (TypeError, ValueError):
+                    advisor_min = None
+    if advisor_min is not None and persisted_min <= advisor_min:
+        return 0
+    return persisted_min
+
+
+# --- #859-Verdrahtung fuer generate_target_allocation / Payload -------------
+# I-01 (Integrationsprobe 2026-11-07): reine Verschiebung der von #859 in
+# services/portfolio_engine.py eingefuegten Aufrufbloecke (Engine-Zeilenbudget).
+# Reihenfolge der Aufrufe und Argumente sind unveraendert; die Engine reicht
+# nur ihre lokalen Werte durch. Keine neuen Modulkanten (BUCKET_LABELS und der
+# Begruendungs-Validator kommen als Argument).
+
+
+def raise_if_locked_floor_infeasible(
+    targets: dict[str, int],
+    preferred_bps: dict[str, int],
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    locked: Collection[str],
+    *,
+    bucket_labels: dict[str, str],
+    liquidity_source: str | None,
+) -> None:
+    """H-859-2: eine (globale bzw. reservebedingte) Liquiditaets-Untergrenze
+    kann fixierte Berater-Ziele unerfuellbar machen -- dann 422 statt
+    stiller Kappung. ``liquidity_source`` None = Untergrenze nicht angehoben."""
+    raise_if_locked_targets_infeasible(
+        {**targets, **preferred_bps}, minimums, locked, bucket_labels=bucket_labels,
+        min_sources={"liquidity": liquidity_source} if liquidity_source is not None else None,
+        maximums=maximums,
+    )
+
+
+def raise_liquidity_floor(
+    targets: dict[str, int],
+    preferred_bps: dict[str, int],
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    locked: Collection[str],
+    *,
+    floor_bps: int,
+    source: str,
+    name_source_always: bool,
+    apply_stochastic: bool,
+    system_floor_bps: int,
+    bucket_labels: dict[str, str],
+) -> int:
+    """Stochastischer Pfad: hebt die Liquiditaets-Untergrenze auf
+    ``floor_bps`` (globale Mindestliquiditaet bzw. Zielreserve). M2 / AA-7.2:
+    nur im wirksamen stochastischen Pfad zaehlt sie als systembedingte
+    Untergrenze (Rueckgabe). H-859-2: die Untergrenze kann fixierte Ziele
+    unerfuellbar machen -- dann 422 statt stiller Kappung; die globale
+    Untergrenze wird nur als Herkunft genannt, wenn sie das Minimum anhob."""
+    raised = int(minimums["liquidity"]) < floor_bps
+    if apply_stochastic:
+        system_floor_bps = max(system_floor_bps, floor_bps)
+    minimums["liquidity"] = max(int(minimums["liquidity"]), floor_bps)
+    raise_if_locked_floor_infeasible(
+        targets, preferred_bps, minimums, maximums, locked, bucket_labels=bucket_labels,
+        liquidity_source=source if (name_source_always or raised) else None,
+    )
+    return system_floor_bps
+
+
+def resolve_liquidity_floor(
+    apply_stochastic: bool,
+    targets: dict[str, int],
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    bands: dict | None,
+    preferred_bps: dict[str, int],
+    locked: Collection[str],
+    *,
+    reserve_split,
+    investable_rappen: int,
+    reserve_needed_rappen: int,
+    model_floor_bps: int,
+    reserve_floor_bps: int,
+    system_floor_bps: int,
+    bucket_labels: dict[str, str],
+) -> tuple[str, int]:
+    """Delta-Pruefung #859 E-1 (Entscheid Owner-Vertretung, AA-7.2): auch im
+    Hausmatrix-Modus ist die Liquiditaets-Untergrenze
+    max(Hausmatrix-/Berater-Minimum, Zielreserve, globale Mindestliquiditaet).
+    Vorher hob die Reserve nur das Ziel an; eine Einzelziel-Kappung konnte die
+    Liquiditaet bis aufs Haus-Minimum (0 %) absenken. Liefert (Herkunft der
+    Untergrenze, systembedingte Untergrenze M2); H-859-2 auch mit dieser
+    Untergrenze."""
+    if apply_stochastic:
+        liquidity_floor_source = (
+            "zwingend vorzuhaltende Zielreserve"
+            if int(reserve_floor_bps) > int(model_floor_bps)
+            else "globale Mindestliquiditaet des Modells"
+        )
+        return liquidity_floor_source, system_floor_bps
+    house_floor_bps, liquidity_floor_source = apply_house_mode_liquidity_floor(
+        minimums, maximums, bands,
+        reserve_internal_rappen=int(reserve_split.internal_rappen),
+        investable_rappen=int(investable_rappen),
+        reserve_needed_rappen=int(reserve_needed_rappen),
+        model_floor_bps=model_floor_bps,
+    )
+    if liquidity_floor_source != "Mindestquote":
+        system_floor_bps = max(system_floor_bps, house_floor_bps)
+    raise_if_locked_targets_infeasible(
+        {**targets, **preferred_bps}, minimums, locked,
+        bucket_labels=bucket_labels, min_sources={"liquidity": liquidity_floor_source},
+        maximums=maximums,
+    )
+    return liquidity_floor_source, system_floor_bps
+
+
+def disclose_final_allocation_deviations(
+    preferred_bps: dict[str, int],
+    anchor: tuple[dict, dict, dict],
+    final_bps: dict[str, int],
+    reasoning: list[str],
+    warnings: list,
+    *,
+    bucket_labels: dict[str, str],
+    optimizer_applied: bool,
+    fallback_risk_budget_bps: int | None,
+    liquidity_before_projection_bps: int,
+    liquidity_floor_source: str,
+    system_floor_bps: int,
+    house_matrix: HouseMatrix,
+    policy: OptimizerPolicy,
+    external_reserve: bool,
+) -> list[dict]:
+    """AUDIT-2026-11 A1 / H-859-1: Offenlegung gegen die GESPEICHERTE Quote
+    (``anchor`` = Ziele, Minima, Maxima vor der Projektion). D-1: der
+    Reserve-Satz "Die SAA-Liquiditaet bleibt auf x %" entsteht VOR der
+    Projektion und nennt die gespeicherte Liquiditaet, wenn sie abweicht.
+    D-2: systembedingte Erweiterung des Liquiditaetsbands (M2) ausweisen;
+    F-1: Quelle wie im Reasoning. Liefert die Zusatz-Meldungen (Banner)."""
+    disclose_manual_target_deviations(
+        preferred_bps, anchor[0], final_bps, anchor[1], anchor[2], reasoning, warnings,
+        bucket_labels=bucket_labels,
+        optimizer_applied=optimizer_applied,
+        fallback_risk_budget_bps=fallback_risk_budget_bps,
+        liquidity_before_projection_bps=liquidity_before_projection_bps,
+        liquidity_floor_bps=int(anchor[1]["liquidity"]),
+        liquidity_floor_source=liquidity_floor_source,
+    )
+    restate_saa_liquidity_sentence(reasoning, int(final_bps["liquidity"]))
+    messages_extra: list[dict] = []
+    disclose_system_liquidity_band_extension(
+        system_floor_bps,
+        int(_baseline_target_bands(house_matrix, policy)[2]["liquidity"]),
+        reasoning, messages_extra,
+        reserve_driven=liquidity_floor_source == "zwingend vorzuhaltende Zielreserve",
+        external_reserve=external_reserve,
+    )
+    return messages_extra
+
+
+def with_band_deviation_messages(
+    messages: list,
+    bands: dict | None,
+    house_matrix: HouseMatrix,
+    policy: OptimizerPolicy,
+    *,
+    reason,
+    reason_validator,
+    score_bucket: int | None,
+    only_if_missing: bool = False,
+    extra: list | tuple = (),
+) -> list:
+    """Live-Test 04 / M3: Abweichung vom Eignungsrahmen auch in ``messages``
+    (Banner), ohne tragfaehige Begruendung als Konflikt. ``reason_validator``
+    ist dieselbe Qualitaetsregel wie das Freigabe-Gate (routers/review.py)
+    fuer ``bandDeviationReason``. ``only_if_missing``: Payload aus dem
+    Snapshot, falls nicht schon persistiert (Hausmatrix-Modus, Altbestand).
+    F-1: ``extra`` (D-2-Meldungen) dahinter."""
+    if only_if_missing and any(
+        isinstance(msg, dict) and msg.get("code") == "WARN_BAND_OUTSIDE_HOUSE_MATRIX"
+        for msg in messages
+    ):
+        return messages
+    _house_targets, house_minimums, house_maximums = _baseline_target_bands(house_matrix, policy)
+    try:
+        reason_validator(reason)
+    except ValueError:
+        reason_is_valid = False
+    else:
+        reason_is_valid = True
+    return list(messages) + band_deviation_messages(
+        bands, house_minimums, house_maximums,
+        reason_is_valid=reason_is_valid,
+        house_profile=house_matrix.profile_name, score_bucket=score_bucket,
+    ) + list(extra)
 
 
 def _apply_band_min_max_overrides(
@@ -613,20 +1312,138 @@ def _apply_band_min_max_overrides(
     return restored
 
 
-def _has_manual_target_overrides(bands: dict | None) -> bool:
-    from services.portfolio_engine import _coerce_band_bps
+def _explicit_target_bucket_keys(bands: dict | None) -> list[str | None]:
+    """Bucket-Keys (``None`` bei unbekanntem Key) aller Overrides mit
+    explizitem, gueltigem ``target_bps``."""
+    from services.portfolio_engine import _bucket_key, _coerce_band_bps
 
     if not isinstance(bands, dict):
-        return False
-    return any(
-        isinstance(override, dict) and _coerce_band_bps(override.get("target_bps")) is not None
-        for override in bands.values()
+        return []
+    return [
+        _bucket_key(raw_key)
+        for raw_key, override in bands.items()
+        if isinstance(override, dict) and _coerce_band_bps(override.get("target_bps")) is not None
+    ]
+
+
+def _has_manual_target_overrides(bands: dict | None) -> bool:
+    return bool(_explicit_target_bucket_keys(bands))
+
+
+def _manual_target_buckets(bands: dict | None) -> frozenset[str]:
+    """AUDIT-2026-11 A1: Buckets mit explizitem ``target_bps`` (gleiche
+    Semantik wie ``allocation_intent.extract_soft_preference_bps``)."""
+    return frozenset(key for key in _explicit_target_bucket_keys(bands) if key)
+
+
+class AllocationInputError(ValueError):
+    """H-859-5 (Pruefrunde #859): Bandbreiten-/Zielvorgaben, die als Eingabe
+    nicht erfuellbar oder widerspruechlich sind (Ziel ausserhalb der
+    Bandbreite, Min > Max, Minima ueber 100 %, unerfuellbare Maxima).
+    Unterklasse von ValueError (alle bisherigen Aufrufer bleiben gueltig);
+    der Generate-Router antwortet einheitlich 422."""
+
+
+class BandEnvelopeInfeasibleError(AllocationInputError):
+    """AUDIT-2026-11 A5: die wirksamen Bandbreiten lassen keine Allokation
+    mit genau 100 % zu."""
+
+
+def _envelope_infeasible_message(
+    adjusted: dict[str, int],
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    bucket_fields,
+    bucket_labels: dict[str, str],
+) -> str:
+    BUCKET_FIELDS, BUCKET_LABELS = bucket_fields, bucket_labels
+    total = sum(int(adjusted[key]) for key in BUCKET_FIELDS)
+    if total < 10000:
+        parts = ", ".join(
+            f"{BUCKET_LABELS[key]} max. {_band_pct(maximums[key])} %" for key in BUCKET_FIELDS
+        )
+        return (
+            f"Die Hoechstquoten lassen zusammen nur {_band_pct(total)} % zu und "
+            f"ergeben keine vollstaendige Allokation von 100 % ({parts}). Bitte "
+            "mindestens eine dieser Obergrenzen anheben, z. B. ein im "
+            "Bandbreiten-Editor gesetztes Berater-Maximum."
+        )
+    parts = ", ".join(
+        f"{BUCKET_LABELS[key]} min. {_band_pct(minimums[key])} %"
+        for key in BUCKET_FIELDS
+        if int(minimums[key]) > 0
+    )
+    return (
+        f"Die Mindestquoten verlangen zusammen {_band_pct(total)} % und "
+        f"uebersteigen 100 % ({parts}). Bitte mindestens eine dieser "
+        "Untergrenzen senken, z. B. ein im Bandbreiten-Editor gesetztes "
+        "Berater-Minimum."
     )
 
 
-def _rebalance_to_total(targets: dict[str, int], minimums: dict[str, int], maximums: dict[str, int]) -> dict[str, int]:
-    from services.portfolio_engine import BUCKET_FIELDS
+def _distribute_proportionally(
+    adjusted: dict[str, int],
+    keys: tuple[str, ...],
+    delta: int,
+    room: dict[str, int],
+) -> int:
+    """Verteilt ``delta`` (vorzeichenbehaftet) anteilig zum aktuellen Gewicht
+    auf ``keys``, jeweils begrenzt durch ``room`` (Raum in Richtung von
+    ``delta``). Ganzzahlig per groesstem Rest, deterministisch (Tie-Break in
+    der Reihenfolge von ``keys``). Liefert das nicht verteilbare Rest-Delta.
+    """
+    sign = 1 if delta > 0 else -1
+    remaining = abs(int(delta))
+    active = [key for key in keys if room[key] > 0]
+    while remaining > 0 and active:
+        weights = {key: max(1, int(adjusted[key])) for key in active}
+        weight_total = sum(weights.values())
+        shares = {key: remaining * weights[key] // weight_total for key in active}
+        leftover = remaining - sum(shares.values())
+        remainders = sorted(
+            active,
+            key=lambda key: (-(remaining * weights[key] % weight_total), keys.index(key)),
+        )
+        for key in remainders[:leftover]:
+            shares[key] += 1
+        moved = 0
+        for key in active:
+            step = min(shares[key], room[key])
+            if step > 0:
+                adjusted[key] += sign * step
+                room[key] -= step
+                moved += step
+        remaining -= moved
+        active = [key for key in active if room[key] > 0]
+        if moved == 0:
+            break
+    return sign * remaining
 
+
+def _rebalance_to_total(
+    targets: dict[str, int],
+    minimums: dict[str, int],
+    maximums: dict[str, int],
+    *,
+    locked: Collection[str] = (),
+) -> dict[str, int]:
+    """Deterministische zulaessige Projektion auf genau 10000 bps.
+
+    AUDIT-2026-11 A1: ``locked`` sind Buckets mit einem EXPLIZITEN
+    Berater-Ziel (``bands.<bucket>.target_bps``). Ein Ueber- oder
+    Unterschuss wird dann zuerst anteilig aus den NICHT fixierten Buckets
+    genommen (Liquiditaet zuletzt), nie still aus der fixierten Klasse.
+    Vorher nahm die feste Reihenfolge einen Ueberschuss immer zuerst aus
+    Aktien -- ein Aktien-Teilziel ueber der Hausquote wurde so lautlos auf
+    die Hausquote zurueckgeschnitten. Nur wenn die nicht fixierten Buckets
+    an ihren Grenzen anstehen, wird eine fixierte Klasse bewegt. Das
+    Offenlegen jeder Abweichung vom Berater-Ziel (auch ein Kappen auf den
+    Bandrand) ist Sache des Aufrufers (``manual_target_deviation_notes``).
+    Ohne ``locked`` ist das Verhalten unveraendert.
+    """
+    from services.portfolio_engine import BUCKET_FIELDS, BUCKET_LABELS
+
+    locked_set = {key for key in locked if key in BUCKET_FIELDS}
     adjusted = {key: int(targets[key]) for key in BUCKET_FIELDS}
     for key in BUCKET_FIELDS:
         adjusted[key] = max(minimums[key], min(maximums[key], adjusted[key]))
@@ -639,6 +1456,16 @@ def _rebalance_to_total(targets: dict[str, int], minimums: dict[str, int], maxim
 
     current_total = sum(adjusted.values())
     delta = 10000 - current_total
+    if locked_set and delta != 0:
+        free_keys = tuple(
+            key for key in ("bonds", "equities", "real_estate", "alternatives")
+            if key not in locked_set
+        )
+        room_fn = _room_up if delta > 0 else _room_down
+        room = {key: room_fn(key) for key in BUCKET_FIELDS}
+        delta = _distribute_proportionally(adjusted, free_keys, delta, room)
+        if delta != 0 and "liquidity" not in locked_set:
+            delta = _distribute_proportionally(adjusted, ("liquidity",), delta, room)
     if delta > 0:
         for key in ("bonds", "liquidity", "equities", "real_estate", "alternatives"):
             if delta <= 0:
@@ -658,9 +1485,11 @@ def _rebalance_to_total(targets: dict[str, int], minimums: dict[str, int], maxim
                 delta -= step
     final_total = sum(adjusted.values())
     if final_total != 10000:
-        raise ValueError(
-            f"Target allocation cannot be normalized to 10000 bps within min/max bounds "
-            f"(total={final_total}, targets={adjusted})."
+        # AUDIT-2026-11 A5: vorher interner englischer Text ("cannot be
+        # normalized ... targets={...}"); jetzt deutsch, mit den
+        # kollidierenden Grenzen je Anlageklasse.
+        raise BandEnvelopeInfeasibleError(
+            _envelope_infeasible_message(adjusted, minimums, maximums, BUCKET_FIELDS, BUCKET_LABELS)
         )
     return adjusted
 
@@ -1179,6 +2008,21 @@ def _build_sub_allocations(
     liquidity_label = asset_prefs.get("liquidityInstrument") or "Geldmarktfonds"
     _append_split("Liquiditaet", targets["liquidity"], [(liquidity_label, 10000, "Liquiditaetsreserve gemaess Mandatsvorgabe")])
     return sub_allocations
+
+
+def illiquid_limit_scope_note(max_illiquid_bps: int) -> str:
+    """AUDIT-2026-11 C4: ``limits.maxIlliquid`` deckelt methodisch nur den
+    Private-Equity-Baustein (Referenzmethodik: maxIlliquid = nur PE), nicht
+    die ganze Alternative-Quote. Das Verhalten ist gewollt und bleibt; der
+    Hinweis macht es fuer den Berater sichtbar ("illiquid 0 %" heisst nicht
+    "keine Alternativen")."""
+    return (
+        f"Die Obergrenze fuer illiquide Anlagen ({_band_pct(max_illiquid_bps)} %) "
+        "begrenzt nur Private Equity. Liquide Alternative (z. B. Gold, Liquid "
+        "Alternatives) und Immobilien zaehlen nicht dazu; ein frei werdender "
+        "PE-Anteil wird in liquide Alternative bzw. Liquiditaet umgeschichtet. "
+        "Die Alternative-Quote insgesamt wird ueber die Bandbreiten gesteuert."
+    )
 
 
 def _apply_illiquid_cap(
@@ -1813,6 +2657,32 @@ def _policy_value_or_unset(value, *, unset_default: int) -> int:
     return int(unset_default if value is None else value)
 
 
+def policy_band_bound_keys(
+    house_matrix: HouseMatrix, policy: OptimizerPolicy
+) -> frozenset[tuple[str, str]]:
+    """H-859-4: welche Bandgrenzen von ``_baseline_target_bands()`` stammen
+    aus der Mandats-Policy statt aus der Hausmatrix-Zeile -- als
+    (bucket, "min"|"max"), fuer die Herkunftsangabe in Fehlermeldungen."""
+    _targets, minimums, maximums = _baseline_target_bands(house_matrix, policy)
+    raw = {
+        ("equities", "min"): max(int(house_matrix.equity_min_bps), int(house_matrix.equity_minimum_bps or 0)),
+        ("equities", "max"): int(house_matrix.equity_max_bps),
+        ("bonds", "min"): int(house_matrix.bonds_min_bps),
+        ("bonds", "max"): int(house_matrix.bonds_max_bps),
+        ("real_estate", "min"): int(house_matrix.real_estate_min_bps),
+        ("real_estate", "max"): int(house_matrix.real_estate_max_bps),
+        ("alternatives", "min"): int(house_matrix.alt_min_bps),
+        ("alternatives", "max"): int(house_matrix.alt_max_bps),
+        ("liquidity", "min"): int(house_matrix.liq_min_bps),
+        ("liquidity", "max"): int(house_matrix.liq_max_bps),
+    }
+    effective = {
+        **{(key, "min"): int(value) for key, value in minimums.items()},
+        **{(key, "max"): int(value) for key, value in maximums.items()},
+    }
+    return frozenset(key for key, value in raw.items() if effective[key] != value)
+
+
 def policy_band_clamp_notes(
     house_matrix: HouseMatrix, policy: OptimizerPolicy
 ) -> list[str]:
@@ -2183,7 +3053,15 @@ def _apply_goal_and_reserve_tilts(
     unlocked_other_assets_rappen: int = 0,
     inflow_projection_series_rappen: list[int] | None = None,
     goal_inflation_series_bps: list[int] | None = None,
+    locked_buckets: Collection[str] = (),
 ) -> tuple[int, int]:
+    """Ziel-Tilts (Kurzfrist-Vermoegensziel, Renditeziel) und Reserve.
+
+    AUDIT-2026-11 A1: ``locked_buckets`` sind Buckets mit explizitem
+    Berater-Ziel. Die automatischen Ziel-Tilts veraendern sie nicht
+    (analog zu den Exposure-Tilts, die bei manuellem Ziel ganz entfallen);
+    die Reserve finanziert sich zuerst aus den nicht fixierten Klassen.
+    """
     from services.portfolio_engine import (
         _bps,
         _compute_reserve_for_inputs,
@@ -2208,10 +3086,19 @@ def _apply_goal_and_reserve_tilts(
         inflow_projection_series_rappen=inflow_projection_series_rappen,
         goal_inflation_series_bps=goal_inflation_series_bps,
     )
+    locked = frozenset(locked_buckets)
     # Goal-spezifische Bandbreiten-Tilts (Reduktion Aktien fuer kurze Vermoegensziele)
     for goal in goals:
         years = _goal_projection_years(goal)
         goal_type = _norm_text(goal.goal_type)
+        if goal_type in ("Kapitalerhalt", "Vermoegensziel") and years <= 5 and "equities" in locked:
+            # H-859-6: der Wegfall des Tilts wird ausgewiesen.
+            reasoning.append(
+                f"Das Vermoegensziel '{goal.label}' mit kurzem Horizont wuerde den "
+                "Aktienanteil leicht reduzieren; die Aktienquote ist als Berater-Ziel "
+                "fixiert, der Tilt entfaellt."
+            )
+            continue
         if goal_type in ("Kapitalerhalt", "Vermoegensziel") and years <= 5:
             eq_reduction = min(200, max(0, targets["equities"] - minimums["equities"]))
             if eq_reduction > 0:
@@ -2228,13 +3115,33 @@ def _apply_goal_and_reserve_tilts(
                 # tigte, im Reasoning-Text nicht sichtbare Umverteilung in
                 # ANDERE Buckets. Hier bereits an der Quelle korrekt clippen,
                 # symmetrisch zum Spender (equities via minimums).
-                liquidity_room = max(0, int(maximums.get("liquidity", 10000)) - int(targets["liquidity"]))
-                bonds_room = max(0, int(maximums.get("bonds", 10000)) - int(targets["bonds"]))
-                eq_reduction = min(eq_reduction, 2 * liquidity_room, 2 * bonds_room)
+                liquidity_room = 0 if "liquidity" in locked else max(0, int(maximums.get("liquidity", 10000)) - int(targets["liquidity"]))
+                bonds_room = 0 if "bonds" in locked else max(0, int(maximums.get("bonds", 10000)) - int(targets["bonds"]))
+                # AUDIT-2026-11 A3: vorher min(eq_reduction, 2*liquidity_room,
+                # 2*bonds_room) -- in den Zeilen ab Score 7 ist das
+                # Liquiditaets-Ziel gleich dem Liquiditaets-Max, der Tilt
+                # wurde dort still auf 0 begrenzt. Den Anteil, den ein
+                # Empfaenger nicht aufnehmen kann, nimmt jetzt der andere
+                # (innerhalb seiner Grenze); die Grenzen bleiben unverletzt.
+                eq_reduction = min(eq_reduction, liquidity_room + bonds_room)
+                if eq_reduction <= 0:
+                    # H-859-6: je Empfaenger der tatsaechliche Grund.
+                    reasons = [
+                        f"{label} {'als Berater-Ziel fixiert' if bucket in locked else 'an der Obergrenze'}"
+                        for bucket, label in (("bonds", "Obligationen"), ("liquidity", "Liquiditaet"))
+                    ]
+                    reasoning.append(
+                        f"Das Vermoegensziel '{goal.label}' mit kurzem Horizont wuerde den "
+                        "Aktienanteil leicht reduzieren; aufnehmen koennte den Anteil "
+                        f"keine Klasse ({', '.join(reasons)}), der Tilt entfaellt."
+                    )
             if eq_reduction > 0:
+                to_liquidity = min(eq_reduction // 2, liquidity_room)
+                to_bonds = min(eq_reduction - to_liquidity, bonds_room)
+                to_liquidity = eq_reduction - to_bonds
                 targets["equities"] -= eq_reduction
-                targets["liquidity"] += eq_reduction // 2
-                targets["bonds"] += eq_reduction - eq_reduction // 2
+                targets["liquidity"] += to_liquidity
+                targets["bonds"] += to_bonds
                 reasoning.append(f"Das Vermoegensziel '{goal.label}' mit kurzem Horizont reduziert den Aktienanteil leicht.")
 
     # Sprint 2026-06-08 Option C: Goal-Tilt fuer Renditeziele.
@@ -2256,6 +3163,23 @@ def _apply_goal_and_reserve_tilts(
             continue
         target_bps = int(getattr(goal, "target_return_bps", None) or 0)
         if target_bps <= 0:
+            continue
+        fixed = [label for bucket, label in (("equities", "Aktien"), ("bonds", "Obligationen")) if bucket in locked]
+        if fixed:
+            # H-859-6: Wegfall des Renditeziel-Tilts ausweisen (nur wenn er
+            # ohne Fixierung ueberhaupt gewirkt haette).
+            if _renditeziel_equity_tilt_bps(
+                target_return_bps=target_bps,
+                current_equity_bps=int(targets.get("equities", 0)),
+                min_equity_bps=int(minimums.get("equities", 0)),
+                max_equity_bps=int(maximums.get("equities", 10000)),
+            ) != 0:
+                reasoning.append(
+                    f"Renditeziel '{goal.label}' ({target_bps/100:.2f}% p.a.) wuerde den "
+                    "Aktienanteil verschieben; "
+                    f"{' und '.join(fixed)} {'ist' if len(fixed) == 1 else 'sind'} als "
+                    "Berater-Ziel fixiert, der Tilt entfaellt."
+                )
             continue
         eq_shift = _renditeziel_equity_tilt_bps(
             target_return_bps=target_bps,
@@ -2305,7 +3229,9 @@ def _apply_goal_and_reserve_tilts(
 
     shift = saa_required_bps - targets["liquidity"]
     remaining = max(0, shift)
-    for donor in ("bonds", "equities", "alternatives", "real_estate"):
+    donor_order = ("bonds", "equities", "alternatives", "real_estate")
+    donor_order = tuple(d for d in donor_order if d not in locked) + tuple(d for d in donor_order if d in locked)
+    for donor in donor_order:
         if remaining <= 0:
             break
         donor_floor = minimums[donor]
