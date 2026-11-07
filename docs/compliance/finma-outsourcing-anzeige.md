@@ -11,14 +11,14 @@
 
 ---
 
-## 1. Wann ist 5eyes überhaupt ein meldepflichtiges Outsourcing?
+## 1. Wann ist Ares überhaupt ein meldepflichtiges Outsourcing?
 
 Entscheidend ist, ob eine **wesentliche Funktion** der beaufsichtigten Firma ausgelagert
 wird und ob dabei **Kundendaten** beim Betreiber verarbeitet werden.
 
 | Konstellation | Outsourcing-relevant? |
 |---|---|
-| **T1 Self-Hosted** (Firma betreibt 5eyes selbst, Daten bleiben bei der Firma) | **In der Regel nein** — reiner Software-Bezug, keine Datenauslagerung |
+| **T1 Self-Hosted** (Firma betreibt Ares selbst, Daten bleiben bei der Firma) | **In der Regel nein** — reiner Software-Bezug, keine Datenauslagerung |
 | **T2 Shared-Cloud (CH)** — Betreiber hostet, Kundendaten beim Betreiber | **Ja, prüfen** — Auslagerung von Datenverarbeitung/IT-Betrieb |
 | **T3 Dedicated** — Betreiber hostet dedizierte Instanz | **Ja, prüfen** — wie T2 |
 
@@ -46,7 +46,7 @@ Substituierbarkeit). Die Beurteilung obliegt der **beaufsichtigten Firma**, nich
 | Feld | Inhalt |
 |---|---|
 | Beaufsichtigte Firma / Bewilligungstyp | _…_ |
-| Ausgelagerte Funktion | Digitale Vermögensberatung / Datenverarbeitung (5eyes) |
+| Ausgelagerte Funktion | Digitale Vermögensberatung / Datenverarbeitung (Ares) |
 | Dienstleister (Betreiber) | _…_ |
 | Hosting-Tier | T2 / T3 |
 | Datenstandort | Schweiz |

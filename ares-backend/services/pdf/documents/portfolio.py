@@ -259,9 +259,11 @@ def _display_sub_asset_class(value) -> str:
 
 
 def _position_amount_rappen(position: dict) -> int:
-    target = int(position.get("target_amount_rappen", 0) or 0)
-    if target > 0:
-        return target
+    target = position.get("target_amount_rappen")
+    if target is not None:
+        # N-858-11: Zielbetrag 0 (Strategiebasis 0) ist ein Betrag, keine
+        # fehlende Angabe -- nicht den Ist-/Marktwert als Zielwert zeigen.
+        return int(target)
     return (
         int(position.get("current_amount_rappen", 0) or 0)
         or int(position.get("market_value_rappen", 0) or 0)
