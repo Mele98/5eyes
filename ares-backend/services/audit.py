@@ -1,13 +1,15 @@
 import hashlib
+import hmac
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 from contextlib import AbstractContextManager, nullcontext
-from typing import Callable
+from typing import Any, Callable
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.orm import Session
-from models.review import AuditLog, AuditLogSequenceCounter
+from models.review import AuditChainVerificationStatus, AuditLog, AuditLogSequenceCounter
 from models.users import User
 import database
 from database import new_uuid
@@ -331,9 +333,9 @@ def log(
 # die Liste der Sequenznummern/IDs wird gekappt, damit ein massiv
 # beschaedigter Bestand keinen riesigen Response erzeugt.
 AUDIT_REPORT_MAX_LISTED = 100
-# Leichte Startpruefung: oberhalb dieser Zeilenzahl wird sie uebersprungen
-# (Hinweis im Log, Pruefung dann ueber den Admin-Endpoint). Die Pruefung ist
-# O(n) und laedt alle Zeilen; bei ~1000 Zeilen dauert sie Millisekunden.
+# Grenze der SYNCHRONEN Startpruefung (Default von settings.
+# audit_startup_check_max_rows). F6: darueber wird nicht mehr uebersprungen,
+# sondern chunked im Hintergrund geprueft; das Siegel entsteht immer vorher.
 AUDIT_STARTUP_CHECK_MAX_ROWS = 200_000
 # Altzeilen (vor SEC-003, ohne sequence) speichern ihren previous_hash nicht.
 # log() las den Vorgaenger damals per ORDER BY created_at DESC, id DESC ohne
@@ -533,86 +535,150 @@ def _verify_audit_chain_detail(db: Session) -> dict:
     Inhalte (Admin-Endpoint, H-865-2); 'errors' bleibt als lesbare Liste
     fuer Logs und Tests.
     """
-    rows = (
-        db.query(AuditLog)
-        .filter(AuditLog.sequence.isnot(None))
-        .order_by(AuditLog.sequence.asc())
-        .all()
-    )
-    errors: list[str] = []
-    breaks: list[int] = []
-    gaps: list[dict] = []
-    duplicates: list[int] = []
-    hash_mismatches: list[int] = []
-    ambiguous: list[int] = []
-    expected_sequence = 1
-    previous_row: AuditLog | None = None
-    for row in rows:
-        if row.sequence != expected_sequence:
-            errors.append(
-                f"Sequenzluecke/-duplikat: erwartet {expected_sequence}, gefunden {row.sequence} (id={row.id})"
-            )
-            if row.sequence > expected_sequence:
-                gaps.append({"from_sequence": expected_sequence, "to_sequence": int(row.sequence) - 1})
-            else:
-                duplicates.append(int(row.sequence))
-            expected_sequence = row.sequence
-        expected_previous_hash = (
-            str(previous_row.integrity_hash or "") if previous_row is not None else ""
-        )
-        if (row.previous_hash or "") != expected_previous_hash:
-            errors.append(
-                f"Kette gebrochen bei sequence={row.sequence} (id={row.id}): "
-                f"previous_hash stimmt nicht mit dem Vorgaenger-Hash ueberein"
-            )
-            breaks.append(int(row.sequence))
-        row_status = _chain_row_status(row, row.previous_hash or "")
-        if row_status == _AMBIGUOUS:
-            # N-869-6: '|' im Feldwert einer '|'-Zeile, Gegenprobe ohne
-            # Hinweis auf Verschiebung -> Hinweis, kein Fehler.
-            ambiguous.append(int(row.sequence))
-        elif row_status != _MATCH:
-            errors.append(
-                f"integrity_hash stimmt nicht mit Neuberechnung ueberein bei sequence={row.sequence} (id={row.id})"
-            )
-            hash_mismatches.append(int(row.sequence))
-        expected_sequence += 1
-        previous_row = row
-
-    last_sequence = int(rows[-1].sequence) if rows else 0
+    scan = _ChainScan()
+    for row in _iter_chain_rows(db):
+        scan.feed(row)
     counter = db.execute(
         select(AuditLogSequenceCounter.value, AuditLogSequenceCounter.last_hash)
         .where(AuditLogSequenceCounter.id == "singleton")
     ).first()
     counter_value = int(counter[0]) if counter is not None and counter[0] is not None else None
     counter_last_hash = counter[1] if counter is not None else None
-    if counter_value is not None and counter_value > last_sequence:
-        errors.append(
-            f"Kettenende fehlt: Sequenzzaehler steht bei {counter_value}, letzte Zeile hat sequence={last_sequence}"
+    return scan.finish(counter_value, counter_last_hash)
+
+
+# F6: Teilschrittgroesse beim Streamen der Kette (Keyset ueber sequence, id).
+# Haelt den Speicher auch bei grossen Bestaenden klein; das Ergebnis ist
+# identisch zum frueheren .all().
+_CHAIN_SCAN_BATCH = 2_000
+
+
+def _chain_rows_after(db: Session, after: tuple[int, str] | None, limit: int) -> list[AuditLog]:
+    """Naechster Teilschritt der Kette nach (sequence, id), sortiert nach
+    sequence, id. Keyset statt OFFSET: stabil, auch wenn waehrend der Pruefung
+    neue Eintraege angehaengt werden; doppelte sequence-Werte (Befund) gehen
+    nicht verloren."""
+    query = db.query(AuditLog).filter(AuditLog.sequence.isnot(None))
+    if after is not None:
+        after_sequence, after_id = after
+        query = query.filter(
+            or_(
+                AuditLog.sequence > after_sequence,
+                and_(AuditLog.sequence == after_sequence, AuditLog.id > after_id),
+            )
         )
-        gaps.append({"from_sequence": last_sequence + 1, "to_sequence": counter_value})
-    elif (
-        rows and counter_last_hash is not None and counter_value == last_sequence
-        and counter_last_hash != rows[-1].integrity_hash
-    ):
-        # N-869-4: der auf der Zaehlerzeile gefuehrte Hash muss zum letzten
-        # Eintrag passen -- sonst wurde das Kettenende ersetzt.
-        errors.append(
-            f"Kettenende passt nicht zum Sequenzzaehler: last_hash weicht vom Hash bei sequence={last_sequence} ab"
-        )
-        breaks.append(last_sequence)
-    return {
-        "ok": len(errors) == 0,
-        "checked": len(rows),
-        "errors": errors,
-        "breaks": breaks,
-        "gaps": gaps,
-        "duplicates": duplicates,
-        "hash_mismatches": hash_mismatches,
-        "ambiguous": ambiguous,
-        "counter_value": counter_value,
-        "last_sequence": last_sequence,
-    }
+    return query.order_by(AuditLog.sequence.asc(), AuditLog.id.asc()).limit(int(limit)).all()
+
+
+def _iter_chain_rows(db: Session, batch: int = _CHAIN_SCAN_BATCH):
+    after: tuple[int, str] | None = None
+    while True:
+        rows = _chain_rows_after(db, after, batch)
+        if not rows:
+            return
+        yield from rows
+        after = (int(rows[-1].sequence), str(rows[-1].id))
+
+
+class _ChainScan:
+    """Pruefung der Sequenz-Kette Zeile fuer Zeile (H-865-2, Regeln siehe
+    _verify_audit_chain_detail). Zustand ueber Teilschritte hinweg, damit die
+    synchrone Startpruefung und die chunked Hintergrundpruefung (F6) dieselbe
+    Logik nutzen.
+
+    ``watch_sequence``: Hash der Zeile mit dieser sequence festhalten (die
+    Hintergrundpruefung liest den Zaehler VOR dem Durchlauf; haengen
+    waehrenddessen neue Eintraege an, wird das Kettenende am Zaehlerstand
+    geprueft, nicht an der letzten gelesenen Zeile).
+    """
+
+    def __init__(self, watch_sequence: int | None = None) -> None:
+        self.errors: list[str] = []
+        self.breaks: list[int] = []
+        self.gaps: list[dict] = []
+        self.duplicates: list[int] = []
+        self.hash_mismatches: list[int] = []
+        self.ambiguous: list[int] = []
+        self.expected_sequence = 1
+        self.previous_hash: str | None = None
+        self.checked = 0
+        self.last_sequence = 0
+        self.last_hash: str | None = None
+        self.watch_sequence = watch_sequence
+        self.watched_hash: str | None = None
+
+    def feed(self, row: AuditLog) -> None:
+        if row.sequence != self.expected_sequence:
+            self.errors.append(
+                f"Sequenzluecke/-duplikat: erwartet {self.expected_sequence}, gefunden {row.sequence} (id={row.id})"
+            )
+            if row.sequence > self.expected_sequence:
+                self.gaps.append({"from_sequence": self.expected_sequence, "to_sequence": int(row.sequence) - 1})
+            else:
+                self.duplicates.append(int(row.sequence))
+            self.expected_sequence = row.sequence
+        expected_previous_hash = self.previous_hash if self.previous_hash is not None else ""
+        if (row.previous_hash or "") != expected_previous_hash:
+            self.errors.append(
+                f"Kette gebrochen bei sequence={row.sequence} (id={row.id}): "
+                f"previous_hash stimmt nicht mit dem Vorgaenger-Hash ueberein"
+            )
+            self.breaks.append(int(row.sequence))
+        row_status = _chain_row_status(row, row.previous_hash or "")
+        if row_status == _AMBIGUOUS:
+            # N-869-6: '|' im Feldwert einer '|'-Zeile, Gegenprobe ohne
+            # Hinweis auf Verschiebung -> Hinweis, kein Fehler.
+            self.ambiguous.append(int(row.sequence))
+        elif row_status != _MATCH:
+            self.errors.append(
+                f"integrity_hash stimmt nicht mit Neuberechnung ueberein bei sequence={row.sequence} (id={row.id})"
+            )
+            self.hash_mismatches.append(int(row.sequence))
+        self.expected_sequence += 1
+        self.previous_hash = str(row.integrity_hash or "")
+        self.checked += 1
+        self.last_sequence = int(row.sequence)
+        self.last_hash = row.integrity_hash
+        if self.watch_sequence is not None and int(row.sequence) == int(self.watch_sequence):
+            self.watched_hash = row.integrity_hash
+
+    def finish(self, counter_value: int | None, counter_last_hash: str | None) -> dict:
+        errors = list(self.errors)
+        breaks = list(self.breaks)
+        gaps = list(self.gaps)
+        last_sequence = self.last_sequence
+        if counter_value is not None and counter_value > last_sequence:
+            errors.append(
+                f"Kettenende fehlt: Sequenzzaehler steht bei {counter_value}, letzte Zeile hat sequence={last_sequence}"
+            )
+            gaps.append({"from_sequence": last_sequence + 1, "to_sequence": counter_value})
+        elif self.checked and counter_last_hash is not None and counter_value is not None:
+            if counter_value == last_sequence:
+                head_hash = self.last_hash
+            elif self.watch_sequence is not None and counter_value == int(self.watch_sequence):
+                head_hash = self.watched_hash
+            else:
+                head_hash = counter_last_hash
+            if counter_last_hash != head_hash:
+                # N-869-4: der auf der Zaehlerzeile gefuehrte Hash muss zum
+                # Eintrag mit sequence = Zaehlerstand passen -- sonst wurde
+                # das Kettenende ersetzt.
+                errors.append(
+                    f"Kettenende passt nicht zum Sequenzzaehler: last_hash weicht vom Hash bei sequence={counter_value} ab"
+                )
+                breaks.append(int(counter_value))
+        return {
+            "ok": len(errors) == 0,
+            "checked": self.checked,
+            "errors": errors,
+            "breaks": breaks,
+            "gaps": gaps,
+            "duplicates": list(self.duplicates),
+            "hash_mismatches": list(self.hash_mismatches),
+            "ambiguous": list(self.ambiguous),
+            "counter_value": counter_value,
+            "last_sequence": last_sequence,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -874,9 +940,17 @@ def audit_log_integrity_report(db: Session) -> dict:
     """
     chain = _verify_audit_chain_detail(db)
     legacy = verify_audit_legacy_rows(db)
+    return _report_from_parts(chain, legacy)
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _report_from_parts(chain: dict, legacy: dict) -> dict:
     return {
         "ok": bool(chain["ok"] and legacy["ok"]),
-        "checked_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "checked_at": _utc_now(),
         "chain": {
             "ok": chain["ok"],
             "checked": chain["checked"],
@@ -897,65 +971,127 @@ def audit_log_integrity_report(db: Session) -> dict:
     }
 
 
-def run_startup_audit_chain_check(
-    session_factory: Callable[[], Session] | None = None,
-    *,
-    max_rows: int = AUDIT_STARTUP_CHECK_MAX_ROWS,
-    read_scope: Callable[[Session], AbstractContextManager] | None = None,
-) -> dict | None:
-    """H-865-2: leichte Startpruefung. Blockiert den Start NIE.
+# ---------------------------------------------------------------------------
+# F6 (Codex-Entscheid Runde 3, 2026-11-07): Startgrenze nur fuer die SYNCHRONE
+# Vollpruefung. Siegel immer vor dem Return; darueber Vollpruefung chunked im
+# Hintergrund mit persistiertem, sichtbarem Status.
+# ---------------------------------------------------------------------------
+AUDIT_VERIFICATION_STATES = ("pending", "running", "ok", "broken", "error")
+_STATUS_ID = "singleton"
 
-    Begruendung (Verfuegbarkeit): Ein Bruch der Kette ist ein Befund ueber
-    die Vergangenheit. Ein Startabbruch repariert ihn nicht (die Zeilen sind
-    unveraenderlich), wuerde aber die laufende Beratung und auch den Zugriff
-    fuer die Aufarbeitung blockieren. Deshalb: CRITICAL ins Log bei
-    verletzter Integritaet, WARNING bei nicht bestaetigter Verkettung von
-    Altzeilen oder wenn die Pruefung selbst scheitert. Der Start laeuft
-    weiter, die Details liefert GET /admin/system/audit-log/verify.
 
-    N-869-4: ``read_scope`` ist der Lese-Kontext fuer ALLE audit_log-Zeilen
-    (unter PostgreSQL der explizite Operator-Bypass, siehe routers/system.py::
-    run_startup_audit_chain_check). Ohne ihn saehe eine Session ohne Tenant-
-    Kontext unter RLS 0 Zeilen und meldete wegen des Zaehlers einen falschen
-    CRITICAL "Kettenende fehlt".
-    """
-    factory = session_factory or database.SessionLocal
+def _finding_counts(report: dict) -> dict:
+    chain = report["chain"]
+    legacy = report["legacy"]
+    return {
+        "break_count": int(chain["break_count"]),
+        "gap_count": int(chain["gap_count"]),
+        "duplicate_count": int(chain["duplicate_count"]),
+        "hash_mismatch_count": int(chain["hash_mismatch_count"]),
+        "legacy_mismatches": int(legacy["mismatches"]),
+        "legacy_field_shift": int(legacy["field_shift"]),
+        "legacy_unexpected_unhashed": int(legacy["unexpected_unhashed"]),
+        "legacy_seal_ok": legacy["seal_ok"],
+    }
 
-    def _scope(db):
-        return read_scope(db) if read_scope is not None else nullcontext()
 
+def _finding_total(counts: dict) -> int:
+    total = sum(
+        int(counts[key]) for key in (
+            "break_count", "gap_count", "duplicate_count", "hash_mismatch_count",
+            "legacy_mismatches", "legacy_field_shift", "legacy_unexpected_unhashed",
+        )
+    )
+    return total + (1 if counts.get("legacy_seal_ok") is False else 0)
+
+
+def _write_verification_status(factory: Callable[[], Session], **fields) -> bool:
+    """Persistiert den Pruefstatus (Singleton). Best effort: ein Fehler hier
+    darf weder Start noch Pruefung stoppen; er wird geloggt, der Befund bleibt
+    ueber das Log (CRITICAL) sichtbar."""
     try:
-        with factory() as db, _scope(db):
-            total = int(db.query(func.count(AuditLog.id)).scalar() or 0)
-        if total > max_rows:
-            logger.warning(
-                "Audit-Kettenpruefung beim Start uebersprungen: %s Eintraege > Grenze %s "
-                "(Pruefung ueber GET /admin/system/audit-log/verify)",
-                total, max_rows,
-            )
-            return None
-        # Bestandssiegel: genau einmal, verkettet, vor der Pruefung (die es
-        # dann gleich mitprueft). Eigene Session: ein Rollback hier wuerde
-        # unter PostgreSQL auch den Operator-Bypass (set_config in derselben
-        # Transaktion) zuruecknehmen. Ein Fehler stoppt weder Start noch
-        # Pruefung.
-        try:
-            with factory() as db, _scope(db):
-                sealed = ensure_legacy_seal(db)
-                if sealed is not None:
-                    db.commit()
-            if sealed is not None:
-                logger.info(
-                    "Bestandssiegel fuer %s Altzeilen geschrieben (davon %s ohne Hash)",
-                    sealed["count"], sealed["unhashed"],
-                )
-        except Exception as exc:  # noqa: BLE001 -- Siegel darf den Boot nie stoppen
-            logger.warning("Bestandssiegel nicht geschrieben: %s", type(exc).__name__)
-        with factory() as db, _scope(db):
-            report = audit_log_integrity_report(db)
-    except Exception as exc:  # noqa: BLE001 -- die Startpruefung darf den Boot nie stoppen
-        logger.warning("Audit-Kettenpruefung beim Start nicht durchfuehrbar: %s", type(exc).__name__)
-        return None
+        with factory() as db:
+            status = db.get(AuditChainVerificationStatus, _STATUS_ID)
+            if status is None:
+                status = AuditChainVerificationStatus(id=_STATUS_ID, state="pending", mode="sync")
+                db.add(status)
+            for key, value in fields.items():
+                if key == "detail":
+                    status.detail_json = json.dumps(value, sort_keys=True, separators=(",", ":"))
+                else:
+                    setattr(status, key, value)
+            status.updated_at = _utc_now()
+            db.commit()
+        return True
+    except Exception as exc:  # noqa: BLE001 -- Status ist Anzeige, kein Startkriterium
+        logger.warning("Audit-Pruefstatus nicht gespeichert: %s", type(exc).__name__)
+        return False
+
+
+def get_audit_verification_status(db: Session) -> dict:
+    """Sichtbarer Integritaetsstatus (F6). ``integrity_confirmed`` ist nur bei
+    state='ok' wahr -- solange die Hintergrundpruefung aussteht, laeuft oder
+    gescheitert ist, gilt die Integritaet als NICHT bestaetigt (fail-closed in
+    der Anzeige). Ohne gespeicherten Status: state='unknown'. Nur Zaehler,
+    Sequenznummern, Ketten-Hash und Zeitpunkte, keine Inhalte."""
+    status = db.get(AuditChainVerificationStatus, _STATUS_ID)
+    if status is None:
+        return {
+            "state": "unknown", "mode": None, "integrity_confirmed": False,
+            "total_rows": None, "threshold": None, "target_sequence": None,
+            "verified_through_sequence": None, "checked": None, "finding_count": None,
+            "findings": None, "last_ok_sequence": None, "last_ok_hash": None, "last_ok_at": None,
+            "started_at": None, "updated_at": None, "finished_at": None, "error": None,
+        }
+    try:
+        detail = json.loads(status.detail_json) if status.detail_json else {}
+    except ValueError:
+        detail = {}
+    return {
+        "state": status.state,
+        "mode": status.mode,
+        "integrity_confirmed": status.state == "ok",
+        "total_rows": status.total_rows,
+        "threshold": status.threshold,
+        "target_sequence": status.target_sequence,
+        "verified_through_sequence": status.verified_through_sequence,
+        "checked": status.checked,
+        "finding_count": status.finding_count,
+        "findings": detail.get("findings"),
+        "last_ok_sequence": status.last_ok_sequence,
+        "last_ok_hash": status.last_ok_hash,
+        "last_ok_at": status.last_ok_at,
+        "started_at": status.started_at,
+        "updated_at": status.updated_at,
+        "finished_at": status.finished_at,
+        "error": detail.get("error"),
+    }
+
+
+def _record_final_status(
+    factory: Callable[[], Session], report: dict, *, mode: str, head_hash: str | None
+) -> None:
+    counts = _finding_counts(report)
+    finished = _utc_now()
+    fields = {
+        "state": "ok" if report["ok"] else "broken",
+        "mode": mode,
+        "checked": int(report["chain"]["checked"]),
+        "verified_through_sequence": int(report["chain"]["last_sequence"]),
+        "finding_count": _finding_total(counts),
+        "finished_at": finished,
+        "detail": {"findings": counts},
+    }
+    if report["ok"]:
+        fields.update(
+            last_ok_sequence=int(report["chain"]["last_sequence"]),
+            last_ok_hash=head_hash,
+            last_ok_at=finished,
+        )
+    _write_verification_status(factory, **fields)
+
+
+def _log_report(report: dict) -> None:
     chain = report["chain"]
     legacy = report["legacy"]
     if not report["ok"]:
@@ -989,4 +1125,529 @@ def run_startup_audit_chain_check(
             "Audit-Log-Kette ok: %s verkettete Eintraege, %s von %s gehashten Altzeilen bestaetigt",
             chain["checked"], legacy["verified"], legacy["hashed"],
         )
+
+
+def _write_seal_if_needed(factory: Callable[[], Session], scope) -> None:
+    """Bestandssiegel: genau einmal, verkettet. Eigene Session: ein Rollback
+    hier wuerde unter PostgreSQL auch den Operator-Bypass (set_config in
+    derselben Transaktion) zuruecknehmen. Ein Fehler stoppt weder Start noch
+    Pruefung.
+
+    F6: Das Siegel setzt KEINE vorherige Vollpruefung voraus. Es haelt den
+    heutigen Stand des abgeschlossenen Altbestands (sequence IS NULL) fest
+    und wird ueber log() an den Zaehler-Kopf (last_hash) gehaengt -- beides
+    ohne Lesen der Kette. Ob Altzeilen VOR dem Siegel veraendert wurden,
+    beantwortet unabhaengig davon die Pruefung pro Altzeile; ob die Kette
+    intakt ist, die Kettenpruefung (synchron oder im Hintergrund). Schon der
+    synchrone Pfad siegelt vor der Pruefung. Ein Aufschub bis nach der
+    Vollpruefung oeffnete dagegen genau das Fenster, in dem Aenderungen am
+    Altbestand unerkannt blieben.
+    """
+    try:
+        with factory() as db, scope(db):
+            sealed = ensure_legacy_seal(db)
+            if sealed is not None:
+                db.commit()
+        if sealed is not None:
+            logger.info(
+                "Bestandssiegel fuer %s Altzeilen geschrieben (davon %s ohne Hash)",
+                sealed["count"], sealed["unhashed"],
+            )
+    except Exception as exc:  # noqa: BLE001 -- Siegel darf den Boot nie stoppen
+        logger.warning("Bestandssiegel nicht geschrieben: %s", type(exc).__name__)
+
+
+def _start_daemon_thread(job: Callable[[], object]) -> None:
+    threading.Thread(target=job, name="ares-audit-chain-verify", daemon=True).start()
+
+
+def _read_counter(db: Session) -> tuple[int | None, str | None]:
+    counter = db.execute(
+        select(AuditLogSequenceCounter.value, AuditLogSequenceCounter.last_hash)
+        .where(AuditLogSequenceCounter.id == "singleton")
+    ).first()
+    value = int(counter[0]) if counter is not None and counter[0] is not None else None
+    return value, (counter[1] if counter is not None else None)
+
+
+def run_chunked_audit_verification(
+    session_factory: Callable[[], Session] | None = None,
+    *,
+    read_scope: Callable[[Session], AbstractContextManager] | None = None,
+    chunk_size: int | None = None,
+) -> dict | None:
+    """F6: Vollpruefung der Audit-Kette in Teilschritten (Hintergrund).
+
+    Jeder Teilschritt laeuft in einer eigenen kurzen Session (keine lange
+    Lesetransaktion, Speicher begrenzt). Nach jedem Teilschritt werden
+    Fortschritt (verified_through_sequence, checked) und die Zahl bisheriger
+    Befunde persistiert. Der Zaehlerstand wird VOR dem Durchlauf gelesen
+    (Ziel-Kopf); waehrenddessen angehaengte Eintraege werden mitgeprueft.
+
+    Ergebnis wie der synchrone Pfad: CRITICAL bei Befund und Status 'broken'
+    mit Befundzahl; sonst Status 'ok' mit dem letzten erfolgreich geprueften
+    Kopf. Wirft nie; ein Fehler ergibt Status 'error' (Integritaet bleibt
+    unbestaetigt) und eine WARNING.
+    """
+    factory = session_factory or database.SessionLocal
+    size = int(chunk_size or database.settings.audit_verify_chunk_size)
+
+    def _scope(db):
+        return read_scope(db) if read_scope is not None else nullcontext()
+
+    try:
+        with factory() as db, _scope(db):
+            counter_value, counter_last_hash = _read_counter(db)
+        _write_verification_status(
+            factory, state="running", mode="background", target_sequence=counter_value,
+            verified_through_sequence=0, checked=0, finding_count=0, started_at=_utc_now(),
+            finished_at=None, detail={"findings": None},
+        )
+        scan = _ChainScan(watch_sequence=counter_value)
+        after: tuple[int, str] | None = None
+        while True:
+            with factory() as db, _scope(db):
+                rows = _chain_rows_after(db, after, size)
+                for row in rows:
+                    scan.feed(row)
+            if not rows:
+                break
+            after = (int(rows[-1].sequence), str(rows[-1].id))
+            _write_verification_status(
+                factory, verified_through_sequence=scan.last_sequence, checked=scan.checked,
+                finding_count=len(scan.errors),
+            )
+        chain = scan.finish(counter_value, counter_last_hash)
+        with factory() as db, _scope(db):
+            legacy = verify_audit_legacy_rows(db)
+        report = _report_from_parts(chain, legacy)
+    except Exception as exc:  # noqa: BLE001 -- Hintergrundpruefung darf nie crashen
+        logger.warning("Audit-Kettenpruefung im Hintergrund nicht durchfuehrbar: %s", type(exc).__name__)
+        _write_verification_status(
+            factory, state="error", mode="background", finished_at=_utc_now(),
+            detail={"findings": None, "error": type(exc).__name__},
+        )
+        return None
+    _record_final_status(factory, report, mode="background", head_hash=scan.last_hash)
+    _log_report(report)
     return report
+
+
+def run_startup_audit_chain_check(
+    session_factory: Callable[[], Session] | None = None,
+    *,
+    max_rows: int | None = None,
+    read_scope: Callable[[Session], AbstractContextManager] | None = None,
+    background_runner: Callable[[Callable[[], object]], None] | None = None,
+) -> dict | None:
+    """H-865-2: Startpruefung. Blockiert den Start NIE.
+
+    Begruendung (Verfuegbarkeit): Ein Bruch der Kette ist ein Befund ueber
+    die Vergangenheit. Ein Startabbruch repariert ihn nicht (die Zeilen sind
+    unveraenderlich), wuerde aber die laufende Beratung und auch den Zugriff
+    fuer die Aufarbeitung blockieren. Deshalb: CRITICAL ins Log bei
+    verletzter Integritaet, WARNING bei nicht bestaetigter Verkettung von
+    Altzeilen oder wenn die Pruefung selbst scheitert. Der Start laeuft
+    weiter, die Details liefert GET /admin/system/audit-log/verify, den
+    Status GET /admin/system/audit-log/verification-status.
+
+    F6 (Codex-Entscheid Runde 3): ``max_rows`` (Default
+    settings.audit_startup_check_max_rows) begrenzt nur die SYNCHRONE
+    Vollpruefung. Das Bestandssiegel wird unabhaengig von der Zeilenzahl vor
+    dem Return gebildet. Ueber der Grenze: Status 'pending', danach
+    Vollpruefung chunked ueber ``background_runner`` (Default: Daemon-
+    Thread); Rueckgabe dann None, der Bericht entsteht im Hintergrund.
+
+    N-869-4: ``read_scope`` ist der Lese-Kontext fuer ALLE audit_log-Zeilen
+    (unter PostgreSQL der explizite Operator-Bypass, siehe routers/system.py::
+    run_startup_audit_chain_check). Ohne ihn saehe eine Session ohne Tenant-
+    Kontext unter RLS 0 Zeilen und meldete wegen des Zaehlers einen falschen
+    CRITICAL "Kettenende fehlt".
+    """
+    factory = session_factory or database.SessionLocal
+    limit = int(max_rows if max_rows is not None else database.settings.audit_startup_check_max_rows)
+    runner = background_runner or _start_daemon_thread
+
+    def _scope(db):
+        return read_scope(db) if read_scope is not None else nullcontext()
+
+    try:
+        with factory() as db, _scope(db):
+            total = int(db.query(func.count(AuditLog.id)).scalar() or 0)
+        # F6: Siegel immer zuerst, unabhaengig von der Zeilenzahl.
+        _write_seal_if_needed(factory, _scope)
+        if total > limit:
+            logger.warning(
+                "Audit-Kettenpruefung beim Start nicht synchron (uebersprungen): %s Eintraege > "
+                "Grenze %s; Bestandssiegel gebildet, Vollpruefung laeuft im Hintergrund "
+                "(Status: GET /admin/system/audit-log/verification-status)",
+                total, limit,
+            )
+            _write_verification_status(
+                factory, state="pending", mode="background", total_rows=total, threshold=limit,
+                target_sequence=None, verified_through_sequence=0, checked=0, finding_count=None,
+                started_at=None, finished_at=None, detail={"findings": None},
+            )
+            runner(lambda: run_chunked_audit_verification(factory, read_scope=read_scope))
+            return None
+        _write_verification_status(
+            factory, state="running", mode="sync", total_rows=total, threshold=limit,
+            target_sequence=None, verified_through_sequence=0, checked=0, finding_count=None,
+            started_at=_utc_now(), finished_at=None, detail={"findings": None},
+        )
+        with factory() as db, _scope(db):
+            chain = _verify_audit_chain_detail(db)
+            legacy = verify_audit_legacy_rows(db)
+            head_hash = _hash_at_sequence(db, int(chain["last_sequence"] or 0))
+        report = _report_from_parts(chain, legacy)
+    except Exception as exc:  # noqa: BLE001 -- die Startpruefung darf den Boot nie stoppen
+        logger.warning("Audit-Kettenpruefung beim Start nicht durchfuehrbar: %s", type(exc).__name__)
+        _write_verification_status(
+            factory, state="error", mode="sync", finished_at=_utc_now(),
+            detail={"findings": None, "error": type(exc).__name__},
+        )
+        return None
+    _record_final_status(factory, report, mode="sync", head_hash=head_hash)
+    _log_report(report)
+    return report
+
+
+def _hash_at_sequence(db: Session, sequence: int) -> str | None:
+    if sequence <= 0:
+        return None
+    row = (
+        db.query(AuditLog.integrity_hash)
+        .filter(AuditLog.sequence == sequence)
+        .order_by(AuditLog.id.desc())
+        .first()
+    )
+    return row[0] if row is not None else None
+
+# ---------------------------------------------------------------------------
+# F4 (Codex-Entscheid Runde 3, 2026-11-07): externer Anker fuer die Audit-Kette
+# ---------------------------------------------------------------------------
+# Die Audit-Kette ist ein ungeschluesselter SHA-256-Verbund. Wer Schreibzugriff
+# auf die Datenbankdatei hat, kann das Kettenende abschneiden (Zeilen loeschen
+# und den Zaehler zuruecksetzen) oder die Kette vollstaendig neu berechnen; die
+# Kette allein erkennt das nicht (Pruefrunde #869, Abschnitt 4). Erkennbar wird
+# es erst gegen einen Stand, der AUSSERHALB des veraenderbaren Speichers liegt.
+#
+# Ein Anker haelt fest:
+#
+# - den Kettenkopf (``chain_sequence`` + ``chain_head_hash``),
+# - das Bestandssiegel (Sequenz und Hash des Siegel-Eintrags, Digest und Anzahl
+#   des versiegelten Altbestands).
+#
+# Er enthaelt keine Kundendaten, keine Namen, Pfade oder Benutzerkennungen --
+# nur Sequenznummern, Hashes, eine Anzahl und Zeitpunkte. Das Textformat ist zum
+# Ausdrucken bzw. Ablegen in einer getrennten append-only/WORM- oder
+# Treuhand-Ablage gedacht (Owner-Schritt, Runbook). Ein Fingerabdruck (sha256
+# der kanonischen Felder) erkennt Abschreibfehler; ist ``backup_hmac_key``
+# konfiguriert, traegt der Anker zusaetzlich eine HMAC-SHA256-Signatur (gleiche
+# Schluesselverwaltung wie die Backup-Signatur, SEC-007).
+#
+# Zwei Quellen:
+#
+# - ``export_audit_anchor``: aus der laufenden Datenbank, NUR nach erfolgreicher
+#   Vollpruefung (Kette + Altbestand + Siegel); sonst fail-closed
+#   ``AuditAnchorNotVerified``. Feld ``verified: yes``.
+# - ``backup_snapshot_anchor`` auf einer Backup-Kopie (``services/backup.py``):
+#   der Stand des Snapshots im signierten Backup-Manifest. Feld ``verified: no``
+#   (nicht vollgeprueft; ein Restore-Abgleich prueft ihn mit
+#   ``verify_audit_anchor`` gegen die wiederhergestellte Datenbank).
+#
+# ``verify_audit_anchor`` prueft, ob die heutige Kette den Anker-Stand
+# unveraendert enthaelt: Kette 1..N lueckenlos und hash-gleich, Kopf N mit dem
+# Anker-Hash, Siegel-Eintrag und versiegelter Altbestand unveraendert.
+#
+# Ort: hier in services.audit (Kette, Siegel, Pruefung); die Backup-Engine
+# bekommt den Snapshot-Anker als Funktion uebergeben (backup_snapshot_anchor),
+# damit sie frei von App-Importen bleibt (Architektur-Ratsche).
+
+ANCHOR_SCHEME = "ares-audit-anchor-v1"
+ANCHOR_PRODUCT = "Ares"
+
+# Feste Reihenfolge der signierten Felder (Textformat und Kanonisierung).
+ANCHOR_FIELDS: tuple[str, ...] = (
+    "scheme",
+    "product",
+    "created_at",
+    "source",
+    "verified",
+    "chain_sequence",
+    "chain_head_hash",
+    "legacy_seal_sequence",
+    "legacy_seal_entry_hash",
+    "legacy_seal_digest",
+    "legacy_seal_count",
+)
+_INT_FIELDS = frozenset({"chain_sequence", "legacy_seal_sequence", "legacy_seal_count"})
+_NONE = "none"
+_SIG_PREFIX = "hmac-sha256:"
+_HEX64 = frozenset("0123456789abcdef")
+
+Fetch = Callable[[str], list]
+
+
+class AuditAnchorError(ValueError):
+    """Anker nicht bildbar oder nicht lesbar (fail-closed)."""
+
+
+def _anchor_utc_now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _is_hex64(value: Any) -> bool:
+    return isinstance(value, str) and len(value) == 64 and set(value) <= _HEX64
+
+
+# ---------------------------------------------------------------------------
+# Zustand lesen (Live-Session oder Backup-Kopie ueber dasselbe Roh-SQL)
+# ---------------------------------------------------------------------------
+
+def read_anchor_state(fetch: Fetch) -> dict:
+    """Kettenkopf und Bestandssiegel aus der Datenbank (Roh-SQL, damit
+    dieselbe Funktion auf der Live-Session und auf einer Backup-Kopie per
+    sqlite3/sqlcipher3 laeuft). Fail-closed: ein inkonsistenter Kopf
+    (Zaehler-Hash passt nicht zur Zeile) oder ein unlesbares Siegel ergibt
+    ``AuditAnchorError``."""
+    counter = fetch("SELECT value, last_hash FROM audit_log_sequence_counter WHERE id = 'singleton'")
+    sequence = int(counter[0][0]) if counter and counter[0][0] is not None else 0
+    counter_last_hash = counter[0][1] if counter else None
+    if sequence > 0:
+        rows = fetch(
+            "SELECT integrity_hash FROM audit_log WHERE sequence = "
+            f"{int(sequence)} ORDER BY id"
+        )
+        if len(rows) != 1 or not _is_hex64(rows[0][0]):
+            raise AuditAnchorError("Kettenkopf fehlt oder ist nicht eindeutig")
+        head_hash = str(rows[0][0])
+        if counter_last_hash is not None and counter_last_hash != head_hash:
+            raise AuditAnchorError("Kettenkopf passt nicht zum Sequenzzaehler")
+    else:
+        head_hash = _NONE
+    seals = fetch(
+        "SELECT sequence, integrity_hash, new_value FROM audit_log "
+        "WHERE table_name = 'audit_log' AND field_name = 'LEGACY_SEAL' "
+        "AND sequence IS NOT NULL ORDER BY sequence"
+    )
+    if len(seals) > 1:
+        raise AuditAnchorError("Mehr als ein Bestandssiegel")
+    seal_fields: dict[str, Any] = {
+        "legacy_seal_sequence": _NONE,
+        "legacy_seal_entry_hash": _NONE,
+        "legacy_seal_digest": _NONE,
+        "legacy_seal_count": _NONE,
+    }
+    if seals:
+        seal_sequence, seal_hash, seal_value = seals[0]
+        try:
+            sealed = json.loads(seal_value or "")
+        except ValueError as exc:
+            raise AuditAnchorError("Bestandssiegel nicht lesbar") from exc
+        if (
+            sealed.get("scheme") != LEGACY_SEAL_SCHEME
+            or not _is_hex64(sealed.get("sha256"))
+            or not isinstance(sealed.get("count"), int)
+            or not _is_hex64(seal_hash)
+        ):
+            raise AuditAnchorError("Bestandssiegel nicht lesbar")
+        seal_fields = {
+            "legacy_seal_sequence": int(seal_sequence),
+            "legacy_seal_entry_hash": str(seal_hash),
+            "legacy_seal_digest": str(sealed["sha256"]),
+            "legacy_seal_count": int(sealed["count"]),
+        }
+    return {"chain_sequence": sequence, "chain_head_hash": head_hash, **seal_fields}
+
+
+def _canonical(fields: dict) -> bytes:
+    return json.dumps(
+        {key: fields[key] for key in ANCHOR_FIELDS}, sort_keys=True, separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+
+
+def anchor_fingerprint(fields: dict) -> str:
+    return hashlib.sha256(_canonical(fields)).hexdigest()
+
+
+def _signature(fields: dict, key: str) -> str:
+    return _SIG_PREFIX + hmac.new(key.encode("utf-8"), _canonical(fields), hashlib.sha256).hexdigest()
+
+
+def build_anchor(state: dict, *, source: str, verified: bool, key: str | None, created_at: str | None = None) -> dict:
+    fields = {
+        "scheme": ANCHOR_SCHEME,
+        "product": ANCHOR_PRODUCT,
+        "created_at": created_at or _anchor_utc_now(),
+        "source": source,
+        "verified": "yes" if verified else "no",
+        **{k: state[k] for k in (
+            "chain_sequence", "chain_head_hash", "legacy_seal_sequence",
+            "legacy_seal_entry_hash", "legacy_seal_digest", "legacy_seal_count",
+        )},
+    }
+    anchor = dict(fields)
+    anchor["fingerprint"] = anchor_fingerprint(fields)
+    signing_key = (key or "").strip()
+    anchor["signature"] = _signature(fields, signing_key) if signing_key else _NONE
+    return anchor
+
+
+class AuditAnchorNotVerified(AuditAnchorError):
+    """Export verweigert: die Vollpruefung der Kette ist nicht ok."""
+
+    def __init__(self, message: str, report: dict | None = None) -> None:
+        super().__init__(message)
+        self.report = report
+
+
+def session_fetch(db: Session) -> Fetch:
+    """Roh-SQL-Zugriff fuer read_anchor_state auf der Live-Session."""
+    return lambda sql: db.execute(text(sql)).fetchall()
+
+
+def format_anchor_text(anchor: dict) -> str:
+    """Quittung zum Ausdrucken/Ablegen. LF-Zeilenenden, nur ASCII."""
+    lines = [
+        "# Ares Audit-Anker",
+        "# Ablage: getrennt vom Rechner und von den Backups, unveraenderlich",
+        "# (append-only/WORM-Ablage oder Treuhand). Enthaelt keine Kundendaten.",
+        "# Pruefen: scripts/audit_anchor.py verify <Datei> bzw.",
+        "# POST /admin/system/audit-log/anchor/verify",
+    ]
+    for key in (*ANCHOR_FIELDS, "fingerprint", "signature"):
+        lines.append(f"{key}: {anchor[key]}")
+    return "\n".join(lines) + "\n"
+
+
+def parse_anchor_text(payload: str) -> dict:
+    """Liest eine Quittung. Fail-closed: fehlende, doppelte oder unbekannte
+    Felder und ungueltige Werte ergeben ``AuditAnchorError``."""
+    known = (*ANCHOR_FIELDS, "fingerprint", "signature")
+    values: dict[str, Any] = {}
+    for raw in (payload or "").replace("\r\n", "\n").split("\n"):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, sep, value = line.partition(":")
+        key = key.strip()
+        if not sep or key not in known:
+            raise AuditAnchorError("Anker enthaelt eine unbekannte Zeile")
+        if key in values:
+            raise AuditAnchorError(f"Anker-Feld doppelt: {key}")
+        values[key] = value.strip()
+    missing = [key for key in known if key not in values]
+    if missing:
+        raise AuditAnchorError(f"Anker unvollstaendig: {', '.join(missing)}")
+    for key in _INT_FIELDS:
+        if values[key] != _NONE:
+            if not values[key].isdigit():
+                raise AuditAnchorError(f"Anker-Feld ungueltig: {key}")
+            values[key] = int(values[key])
+    if values["scheme"] != ANCHOR_SCHEME:
+        raise AuditAnchorError("Anker-Format unbekannt")
+    return values
+
+
+# ---------------------------------------------------------------------------
+# Export und Pruefung
+# ---------------------------------------------------------------------------
+
+def export_audit_anchor(db: Session, *, key: str | None) -> dict:
+    """Anker aus der laufenden Datenbank -- nur nach erfolgreicher
+    Vollpruefung (fail-closed). Der Aufrufer stellt unter PostgreSQL den
+    Operator-Bypass bereit (alle Tenants, eine Kette)."""
+    state = read_anchor_state(session_fetch(db))
+    report = audit_log_integrity_report(db)
+    if not report["ok"]:
+        raise AuditAnchorNotVerified("Audit-Kette nicht intakt; kein Anker ausgestellt", report)
+    if report["legacy"]["seal_missing"]:
+        raise AuditAnchorNotVerified("Altbestand ohne Bestandssiegel; kein Anker ausgestellt", report)
+    # Der Kopf muss in der eben geprueften Kette liegen (Zeilen sind
+    # unveraenderlich; neue Eintraege haengen nur an).
+    if int(report["chain"]["last_sequence"]) < int(state["chain_sequence"]):
+        raise AuditAnchorNotVerified("Kettenkopf nicht in der geprueften Kette", report)
+    return build_anchor(state, source="live", verified=True, key=key)
+
+
+def _check_signature(anchor: dict, key: str | None) -> str:
+    signature = str(anchor.get("signature") or _NONE)
+    signing_key = (key or "").strip()
+    if signature == _NONE:
+        return "none"
+    if not signature.startswith(_SIG_PREFIX):
+        return "invalid"
+    if not signing_key:
+        return "key_missing"
+    return "valid" if hmac.compare_digest(signature, _signature(anchor, signing_key)) else "invalid"
+
+
+def verify_audit_anchor(db: Session, payload: str | dict, *, key: str | None) -> dict:
+    """Prueft, ob die heutige Kette den Anker-Stand unveraendert enthaelt.
+
+    ``ok`` nur wenn: Fingerabdruck stimmt, Signatur gueltig (oder der Anker
+    unsigniert ist), Kette 1..N ohne Befund und Kopf N hash-gleich, Siegel-
+    Eintrag und versiegelter Altbestand unveraendert. Gibt nur Zaehler,
+    Sequenznummern und Gruende zurueck."""
+    reasons: list[str] = []
+    anchor = parse_anchor_text(payload) if isinstance(payload, str) else dict(payload)
+    fingerprint_ok = hmac.compare_digest(str(anchor.get("fingerprint") or ""), anchor_fingerprint(anchor))
+    if not fingerprint_ok:
+        reasons.append("fingerprint_mismatch")
+    signature = _check_signature(anchor, key)
+    if signature in ("invalid", "key_missing"):
+        reasons.append(f"signature_{signature}")
+
+    anchor_sequence = int(anchor["chain_sequence"]) if anchor["chain_sequence"] != _NONE else 0
+    scan = _ChainScan(watch_sequence=anchor_sequence or None)
+    for row in _iter_chain_rows(db):
+        if int(row.sequence) > anchor_sequence:
+            break
+        scan.feed(row)
+    prefix_ok = not scan.errors and scan.last_sequence == anchor_sequence
+    if not prefix_ok:
+        reasons.append("chain_prefix_changed")
+    head_match = (
+        anchor_sequence == 0 and anchor["chain_head_hash"] == _NONE
+    ) or (anchor_sequence > 0 and scan.watched_hash == anchor["chain_head_hash"])
+    if not head_match:
+        reasons.append("chain_head_mismatch")
+
+    current = read_anchor_state(session_fetch(db))
+    seal_match = all(
+        current[k] == anchor[k]
+        for k in ("legacy_seal_sequence", "legacy_seal_entry_hash", "legacy_seal_digest", "legacy_seal_count")
+    )
+    if not seal_match:
+        reasons.append("legacy_seal_mismatch")
+    legacy_seal_ok = _verify_legacy_seal(db)["seal_ok"]
+    if anchor["legacy_seal_sequence"] != _NONE and legacy_seal_ok is not True:
+        reasons.append("legacy_rows_changed")
+
+    report = audit_log_integrity_report(db)
+    return {
+        "ok": not reasons,
+        "reasons": reasons,
+        "anchor_sequence": anchor_sequence,
+        "anchor_created_at": str(anchor.get("created_at")),
+        "anchor_fingerprint": str(anchor.get("fingerprint")),
+        "anchor_verified_at_export": anchor.get("verified") == "yes",
+        "signature": signature,
+        "fingerprint_ok": fingerprint_ok,
+        "chain_prefix_ok": prefix_ok,
+        "head_match": head_match,
+        "legacy_seal_match": seal_match,
+        "legacy_seal_ok": legacy_seal_ok,
+        "current_sequence": int(current["chain_sequence"]),
+        "full_chain_ok": bool(report["ok"]),
+    }
+
+
+def backup_snapshot_anchor(fetch: Fetch, key: str | None) -> dict:
+    """Anker-Stand einer Backup-Kopie fuer das Backup-Manifest
+    (services.backup.backup_database(snapshot_anchor=...)). Nicht
+    vollgeprueft: ``verified: no``; der Restore-Abgleich prueft ihn mit
+    verify_audit_anchor gegen die wiederhergestellte Datenbank."""
+    return build_anchor(read_anchor_state(fetch), source="backup-snapshot", verified=False, key=key)

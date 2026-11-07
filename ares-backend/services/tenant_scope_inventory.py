@@ -105,6 +105,7 @@ GLOBAL_REFERENCE_PLAIN_TABLES: frozenset[str] = frozenset({
 })
 
 SYSTEM_ONLY_TABLES: frozenset[str] = frozenset({
+    "audit_chain_verification_status",
     "audit_log_sequence_counter",
     "bootstrap_lock",
     "login_attempts",

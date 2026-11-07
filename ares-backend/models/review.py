@@ -635,6 +635,37 @@ class AuditLogSequenceCounter(Base):
     last_hash = Column(String(64))
 
 
+# F6 (Codex-Entscheid Runde 3, 2026-11-07): persistierter Status der
+# Audit-Kettenpruefung (Singleton id='singleton'). Ueber der synchronen
+# Startgrenze laeuft die Vollpruefung chunked im Hintergrund; bis zum Erfolg
+# muss ein sichtbarer Integritaetsstatus vorliegen. Nur Zaehler, Sequenz-
+# nummern, Hashes der Kette und Zeitpunkte -- keine Inhalte. system_only
+# (keine tenant_id, keine RLS-Policy), wie audit_log_sequence_counter.
+class AuditChainVerificationStatus(Base):
+    __tablename__ = "audit_chain_verification_status"
+
+    id = Column(String, primary_key=True)
+    # pending | running | ok | broken | error
+    state = Column(String, nullable=False)
+    # sync | background
+    mode = Column(String, nullable=False)
+    total_rows = Column(Integer)
+    threshold = Column(Integer)
+    target_sequence = Column(Integer)
+    verified_through_sequence = Column(Integer)
+    checked = Column(Integer)
+    finding_count = Column(Integer)
+    # Letzter erfolgreich vollstaendig gepruefter Kettenkopf.
+    last_ok_sequence = Column(Integer)
+    last_ok_hash = Column(String(64))
+    last_ok_at = Column(String)
+    started_at = Column(String)
+    updated_at = Column(String)
+    finished_at = Column(String)
+    # Zaehler je Befundart (JSON, ohne Inhalte) bzw. Fehlerklasse bei 'error'.
+    detail_json = Column(String)
+
+
 class MandateReportNotes(Base):
     """Berater-individuelle Texte für den Advisory-Report (Sprint U-P28).
 
