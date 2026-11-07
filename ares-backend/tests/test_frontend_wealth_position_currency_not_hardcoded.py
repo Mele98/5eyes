@@ -14,6 +14,7 @@ Positionen defaulten auf die Mandats-Basiswaehrung statt hart CHF."""
 from __future__ import annotations
 
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 HTML_PATH = (
@@ -25,7 +26,7 @@ HTML_PATH = (
 
 
 def _wealth_position_payload_builder() -> str:
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     return html.split(
         "function buildWealthPositionPayload(cat,typ,note){", 1
     )[1].split("async function saveWealthPosition()", 1)[0]

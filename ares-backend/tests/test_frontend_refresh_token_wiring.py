@@ -13,14 +13,18 @@ test_frontend_*-Tests, kein Node/DOM-Runtime im Testbaum):
    (Login, Invite-Accept, Bootstrap-Admin), speichert auch den mitgelieferten
    refresh_token. Logout und der harte 401-Fallback loeschen beide.
 """
+import re
 from pathlib import Path
+
+import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def test_refresh_token_storage_functions_exist_and_are_distinct_from_access_token():
@@ -34,6 +38,34 @@ def test_refresh_token_storage_functions_exist_and_are_distinct_from_access_toke
     # Kein Token-Slot in localStorage (kein Legacy-Fallback).
     assert "localStorage.getItem('ares.token')" not in html
     assert "localStorage.getItem('ares.refresh_token')" not in html
+
+
+# N-875-08: quote-agnostisch (' " `), get/set/removeItem, jeder token-artige Key;
+# N-875-07: ueber alle Frontendquellen (Bundle + eigenstaendige Module).
+_LOCAL_TOKEN_ACCESS = re.compile(
+    r"localStorage\s*\.\s*(?:get|set|remove)Item\s*\(\s*(['\"`])([^'\"`]*token[^'\"`]*)\1",
+    re.IGNORECASE,
+)
+
+
+def local_storage_token_keys(text: str) -> list[str]:
+    return [m.group(2) for m in _LOCAL_TOKEN_ACCESS.finditer(text)]
+
+
+def test_no_token_slot_in_local_storage_any_quote_any_source():
+    from tests.monolith_source import read_frontend_sources
+
+    assert local_storage_token_keys(read_frontend_sources()) == []
+
+
+@pytest.mark.parametrize("snippet", [
+    "localStorage.getItem('ares.token')",
+    'localStorage.getItem("ares.token")',
+    "localStorage.setItem(`ares.refresh_token`, t)",
+    'localStorage.removeItem("legacy_token")',
+])
+def test_local_storage_token_detector_flags_variants(snippet):
+    assert local_storage_token_keys(snippet)
 
 
 def test_try_refresh_token_calls_auth_refresh_endpoint_directly():

@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -124,7 +125,7 @@ def test_frontend_open_reporting_app_nutzt_backend_url():
         BACKEND_ROOT.parent
         / "ares-desktop" / "frontend" / "ares.html"
     )
-    text = html_path.read_text(encoding="utf-8")
+    text = read_monolith_bundle()
 
     bug6_start = text.find("Bug-#6 (2026-06-07)")
     assert bug6_start > 0, "Bug-#6-Marker fehlt in ares.html"

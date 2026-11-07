@@ -18,6 +18,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HTML_PATH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
@@ -53,7 +54,7 @@ def _run(edits: dict, stored: dict | None = None) -> dict:
     """edits: {bucket: {field: raw_text}} -- Eingaben im Editor."""
     if shutil.which("node") is None:
         pytest.skip("node binary not available to execute extracted JS")
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     fns = [
         _function(src, n)
         for n in (
@@ -208,7 +209,7 @@ def test_stored_override_is_validated_like_a_fresh_edit():
 
 
 def test_editor_wiring_blocks_apply_and_persist_until_valid():
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     apply_fn = _function(src, "function applyAllocationBandOverrides(")
     assert apply_fn.index("validateBandEditorModal()") < apply_fn.index("persistAllocationPreferences()")
     assert "return false;" in apply_fn
@@ -234,7 +235,7 @@ TA = {"id": "ta-1", "policy_id": "pol-1", "based_on_assessment_id": "ra-1", "ris
 def _run_manual(edits: dict, reason: str, api_error: dict | None = None) -> dict:
     if shutil.which("node") is None:
         pytest.skip("node binary not available to execute extracted JS")
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     fns = [
         _function(src, n)
         for n in (
@@ -378,7 +379,7 @@ def test_manual_save_shows_basis_409_understandably():
 
 
 def test_manual_save_is_a_separate_secondary_action_in_the_one_editor():
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     box = _function(src, "function buildManualTargetSaveBoxHtml(")
     assert "Als manuelle Soll-Allokation speichern (ohne Optimierung)" in box
     assert 'class="btn" id="btn-aa-manual-save"' in box  # sekundaer, nicht btn-p
@@ -394,7 +395,7 @@ def test_band_percent_parser_accepts_format_helper_output_and_both_apostrophes()
     eingebbar; Tausender-Apostroph gerade (U+0027) und typografisch (U+2019)."""
     if shutil.which("node") is None:
         pytest.skip("node binary not available to execute extracted JS")
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     fns = [
         _function(src, n)
         for n in (

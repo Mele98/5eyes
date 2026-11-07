@@ -10,6 +10,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -23,7 +24,7 @@ PACKAGE_JSON = BACKEND_ROOT.parent / "ares-desktop" / "package.json"
 
 
 def test_monolith_loads_module_and_has_hooks():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     assert '<script src="./product-master-data.js"></script>' in html
     for element_id in ("pf-master-data", "cd-retro"):
         assert f'id="{element_id}"' in html, element_id

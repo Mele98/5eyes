@@ -167,6 +167,46 @@ def check_digests(exe: Path, unpacked_dir: Path | None) -> None:
         fail(f'Erwartet genau eine Electron-Shell-EXE in {unpacked_dir}, gefunden: {len(shells)}.')
     # Dateiname stammt aus build.productName; geloggt wird nur der Digest.
     log(f'DIGEST sha256 {sha256_file(shells[0])}  <win-unpacked>/<productName>.exe')
+    check_asar_frontend_resources(asar)
+
+
+def _asar_file_paths(asar: Path) -> set[str]:
+    """Pfade aller Dateien im asar-Header (Pickle: 4|hdr|payload|len|json)."""
+    with asar.open('rb') as fh:
+        head = fh.read(16)
+        json_len = int.from_bytes(head[12:16], 'little')
+        header = json.loads(fh.read(json_len).decode('utf-8'))
+    paths: set[str] = set()
+
+    def walk(node: dict, prefix: str) -> None:
+        for name, child in (node.get('files') or {}).items():
+            path = f'{prefix}{name}'
+            if 'files' in child:
+                walk(child, path + '/')
+            else:
+                paths.add(path)
+
+    walk(header, '')
+    return paths
+
+
+def check_asar_frontend_resources(asar: Path) -> None:
+    """H3/I-04: jede lokale Ressource von frontend/ares.html (ausgelagerte
+    Skripte/Stylesheets, Vendor) muss im gepackten app.asar liegen -- Electron
+    laedt ares.html per loadFile, eine fehlende Datei waere still kaputt."""
+    html = (REPO_ROOT / 'ares-desktop' / 'frontend' / 'ares.html').read_text(encoding='utf-8')
+    refs = re.findall(r'<(?:script|link)\b[^>]*\b(?:src|href)="([^"\'+]+)"', html)
+    local = sorted({r[2:] if r.startswith('./') else r for r in refs
+                    if not re.match(r'^[a-z]+:|^//|^#', r)})
+    if not local:
+        fail('ares.html: keine lokalen Skript-/Stylesheet-Referenzen gefunden (Regex pruefen).')
+    packed = _asar_file_paths(asar)
+    if 'frontend/ares.html' not in packed:
+        fail('frontend/ares.html fehlt im app.asar.')
+    missing = [ref for ref in local if f'frontend/{ref}' not in packed]
+    if missing:
+        fail(f'Frontend-Ressourcen fehlen im app.asar: {missing}')
+    log(f'OK Frontend-Ressourcen im app.asar: ares.html + {len(local)} lokale Referenzen')
 
 
 # ---------------------------------------------------------------------------
