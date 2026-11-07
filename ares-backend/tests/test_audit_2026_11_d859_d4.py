@@ -80,4 +80,3 @@ def test_d4_capped_single_target_warning_names_persisted_quote(session_factory, 
     persisted = f"{int(ta.target_equities_bps) / 100:.2f} %"
     assert persisted in adjusted[0]["body_client"], (persisted, adjusted[0]["body_client"])
     assert persisted in adjusted[0]["body_advisor"]
-
