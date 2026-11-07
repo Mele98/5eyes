@@ -5,9 +5,26 @@ from __future__ import annotations
 from datetime import date, timedelta
 from types import SimpleNamespace
 
+import pytest
+
 from services.calendar_horizon import add_calendar_years, calendar_years_until
 from services.optimizer.goal_liabilities import goal_to_liability
 from services.portfolio_engine import _simulation_horizon_years
+from services.valuation_clock import bound_valuation_date
+
+
+# Fester Bewertungsstichtag ("heute"). Die Engine bezieht "heute" nur ueber
+# ``services.valuation_clock`` (ausserhalb eines Laufs die Wanduhr); mit
+# ``date.today()`` war dieser Test am 31.12. rot: Jahrestag (31.12.) und
+# Folgetag (1.1.) liegen dann in verschiedenen Kalenderjahren, der Test
+# setzt aber denselben Bucket voraus.
+AS_OF = date(2026, 6, 15)
+
+
+@pytest.fixture(autouse=True)
+def _fixed_valuation_date():
+    with bound_valuation_date(AS_OF):
+        yield
 
 
 def _dated_goal(target_date: date) -> SimpleNamespace:
@@ -33,7 +50,7 @@ def _dated_goal(target_date: date) -> SimpleNamespace:
 
 
 def test_calendar_year_horizon_exact_anniversary_then_one_day_over() -> None:
-    as_of = date.today()
+    as_of = AS_OF
     exact = add_calendar_years(as_of, 12)
 
     assert calendar_years_until(exact, as_of=as_of) == 12
@@ -72,7 +89,7 @@ def test_goal_liability_and_monte_carlo_share_calendar_horizon_contract() -> Non
     ``calendar_years_until``, in den Tests darueber geprueft) und keine
     Bucket-Frage.
     """
-    today = date.today()
+    today = AS_OF
     exact = add_calendar_years(today, 12)
 
     exact_goal = _dated_goal(exact)

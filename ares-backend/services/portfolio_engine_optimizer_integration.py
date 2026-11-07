@@ -401,7 +401,10 @@ def _run_stochastic_optimizer_pass(
     external_wealth_rappen: int = 0,
     external_wealth_series_rappen: list[int] | None = None,
     mandate=None,  # Sprint 4 Phase 3: fuer BFS-Mortalitaets-Sampling
-    run_context=None,  # X2b: RunContext des Laufs (duck-typed), optional
+    # X2b: RunContext des Laufs, optional. Kein beliebiges duck-typed Objekt
+    # (N-843-1): Leser rufen ``ensure_bound_to(mandate)`` auf (Mortalitaet,
+    # Payload-Fallback); ein Objekt ohne diese Methode wirft AttributeError.
+    run_context=None,
     # CERT-ALLOCATION-INTENT-001 (MANUAL-TARGET-SEMANTICS-001): explicit,
     # partial Soft-Preference Target Intent -- extracted by the caller via
     # services.optimizer.allocation_intent.extract_soft_preference_bps from
@@ -1233,6 +1236,10 @@ def _build_shadow_comparison_with_evaluations(
                 cashflow_series_rappen=cashflow_projection_series_rappen,
                 horizon_years=horizon,
                 n_paths=_OPTIMIZER_N_PATHS_DEFAULT,
+                # N-858-13 (bewusst): seed 0 ist der Fallback-Marker "kein
+                # Seed" (Optimizer-Fallbacks, SAA-RESAMPLED-STABILITY-001);
+                # dann gilt der Inhalts-Seed. Ein echter Inhalts-Seed 0 hat
+                # die Wahrscheinlichkeit 2^-63 (deterministic_seed, 63 bit).
                 seed=int(optimizer_result.seed or 0) or None,
                 inflation_series_bps=inflation_series_bps,
                 risky_fraction_per_bucket=rf_per_bucket,
@@ -1446,6 +1453,10 @@ def _build_optimizer_explainability(
                 cashflow_series_rappen=cashflow_projection_series_rappen,
                 horizon_years=horizon,
                 n_paths=_OPTIMIZER_N_PATHS_DEFAULT,
+                # N-858-13 (bewusst): seed 0 ist der Fallback-Marker "kein
+                # Seed" (Optimizer-Fallbacks, SAA-RESAMPLED-STABILITY-001);
+                # dann gilt der Inhalts-Seed. Ein echter Inhalts-Seed 0 hat
+                # die Wahrscheinlichkeit 2^-63 (deterministic_seed, 63 bit).
                 seed=int(optimizer_result.seed or 0) or None,
                 inflation_series_bps=inflation_series_bps,
                 risky_fraction_per_bucket=rf_per_bucket,

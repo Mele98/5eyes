@@ -293,6 +293,154 @@ def _advisory_wealth_positions(mandate: Mandate, db: Session) -> tuple[list[dict
     return positions, current_bps, total
 
 
+def _largest_remainder_split(total: int, weights: list[int], labels: list[str]) -> list[int]:
+    """Ganzzahlige Aufteilung nach Largest Remainder (Hamilton), Tie-Break
+    groesseres Gewicht, dann Label -- dieselbe Regel wie
+    services.sub_allocation_apportionment.apportion_bps, hier nur fuer die
+    Franken-Rundung der PDF-Darstellung (bewusst lokal: keine zusaetzliche
+    Modulabhaengigkeit des Routers, Architektur-Ratsche)."""
+    clean = [max(0, int(w)) for w in weights]
+    weight_sum = sum(clean)
+    total = int(total)
+    if weight_sum <= 0 or total <= 0:
+        return [0] * len(clean)
+    floors = [total * w // weight_sum for w in clean]
+    remainders = [total * w % weight_sum for w in clean]
+    order = sorted(range(len(clean)), key=lambda i: (-remainders[i], -clean[i], str(labels[i]), i))
+    for i in order[: total - sum(floors)]:
+        floors[i] += 1
+    return floors
+
+
+def _generation_date_label(created_at) -> str:
+    """N-858-8: Generierungsdatum in Europe/Zurich (created_at ist UTC)."""
+    from zoneinfo import ZoneInfo
+
+    raw = str(created_at or "").strip()
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return raw[:10] or "Generierung"
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(ZoneInfo("Europe/Zurich")).strftime("%d.%m.%Y")
+
+
+def _strategy_basis_from_allocation(
+    ta_obj, engine_payload: dict | None, current_advisory_wealth_rappen: int | None, currency: str = "CHF",
+) -> dict:
+    """Pruefrunde #858 N-858-2: Strategiebasis und Reserve aus EINEM Zeitpunkt.
+
+    ``build_target_payload_from_allocation`` rechnet ``strategy_base_rappen``
+    mit dem AKTUELLEN Beratungsvermoegen, das PDF zeigt aber das Vermoegen bei
+    Generierung. Die Differenz beider Werte als Reserve war nach einer
+    Vermoegensaenderung falsch (bei Anstieg still 0). Quelle ist deshalb der
+    gespeicherte Generierungs-Snapshot der TargetAllocation
+    (``external_reserve_at_generation_rappen``); nur Altbestaende ohne
+    Snapshot fallen auf die Payload-Reserve zurueck. Weicht das aktuelle
+    Beratungsvermoegen ab, wird darauf ausdruecklich hingewiesen.
+    """
+    payload = engine_payload if isinstance(engine_payload, dict) else {}
+    current = int(current_advisory_wealth_rappen or 0)
+    # I-02 (Integrationsprobe 2026-11-07): ein Snapshot von 0 ist ein Betrag,
+    # kein fehlender Wert -- nur None (Altbestand) faellt aufs aktuelle
+    # Beratungsvermoegen zurueck (wie N-858-11).
+    snapshot = getattr(ta_obj, "advisory_wealth_at_generation_rappen", None)
+    advisory = int(snapshot) if snapshot is not None else current
+    has_basis = snapshot is not None or bool(advisory)
+    stored = getattr(ta_obj, "external_reserve_at_generation_rappen", None)
+    reserve = int(stored) if stored is not None else int(payload.get("external_reserve_rappen") or 0)
+    reserve = min(max(0, reserve), max(0, advisory))
+    ccy = str(currency or "CHF").upper()  # N-858-6: Mandatswaehrung, nicht fest CHF
+    amount = lambda r: f"{ccy} " + f"{int(round(r / 100)):,}".replace(",", "'")  # noqa: E731
+    notes = []
+    if advisory and reserve >= advisory:
+        # N-858-7: alles in der Reserve -- Basis 0 sichtbar machen statt die
+        # Reserve still auf 0 zu setzen.
+        notes.append(
+            f"Die Liquiditätsreserve ({amount(reserve)}) umfasst das ganze Beratungsvermögen: "
+            "keine investierbare Strategiebasis."
+        )
+    if has_basis and current and abs(current - advisory) >= 100:
+        date_label = _generation_date_label(getattr(ta_obj, "created_at", None))
+        notes.append(
+            f"Strategie berechnet auf Beratungsvermögen {amount(advisory)} per {date_label}; "
+            f"aktuelles Beratungsvermögen {amount(current)}. Für aktuelle Beträge die "
+            "Anlagestrategie neu berechnen."
+        )
+    note = " ".join(notes) or None
+    return {
+        "advisory_wealth_rappen": advisory if has_basis else None,
+        "strategy_base_rappen": advisory - reserve if has_basis else None,
+        "external_reserve_rappen": reserve,
+        "note": note,
+    }
+
+
+def _strategy_presentation_amounts(
+    advisory_wealth_rappen: int | None,
+    strategy_base_rappen: int | None,
+    target_alloc_bps: dict[str, int],
+    raw_sub_allocations: list | None,
+) -> dict:
+    """Live-Test 2026-11 H2/H3: EINE Rechenbasis fuer alle Betraege im PDF.
+
+    Die SAA-Gewichte beziehen sich auf die Strategiebasis (Beratungsvermoegen
+    minus externe Liquiditaetsreserve, ``portfolio_engine.
+    _investable_advisory_wealth_rappen``) -- so rechnen App-Buckets und
+    Produktempfehlung. Das PDF rechnete Hauptklassen dagegen auf dem vollen
+    Beratungsvermoegen und Subklassen aus der Produktempfehlung (andere
+    Basis, EM im CH-Produkt). Reine Darstellung: Gewichte bleiben unveraendert.
+
+    Rundung in ganzen Franken nach Largest Remainder, damit Subklassen exakt
+    auf die Klasse, Klassen exakt auf die Strategiebasis und Strategiebasis +
+    Reserve exakt auf das Beratungsvermoegen summieren.
+    """
+    advisory = max(0, int(advisory_wealth_rappen or 0))
+    # N-858-7: None = keine Angabe (Rueckfall auf das Beratungsvermoegen),
+    # 0 = alles in der Reserve (Basis 0, Reserve = Beratungsvermoegen).
+    base = advisory if strategy_base_rappen is None else max(0, int(strategy_base_rappen))
+    if base > advisory:
+        base = advisory
+    advisory_chf = int(round(advisory / 100))
+    base_chf = int(round(base / 100))
+    reserve_chf = max(0, advisory_chf - base_chf)
+
+    buckets = [b for b, bps in (target_alloc_bps or {}).items() if int(bps or 0) > 0]
+    bucket_chf = _largest_remainder_split(
+        base_chf, [int(target_alloc_bps[b]) for b in buckets], buckets,
+    ) if base_chf > 0 else [0] * len(buckets)
+    bucket_amounts = {b: chf * 100 for b, chf in zip(buckets, bucket_chf)}
+
+    by_bucket: dict[str, list[dict]] = {}
+    for item in raw_sub_allocations or []:
+        if not isinstance(item, dict):
+            continue
+        bucket = _bucket_key(item.get("asset_class"))
+        bps = int(item.get("target_weight_bps") or 0)
+        sub = str(item.get("sub_asset_class") or "").strip()
+        if not bucket or not sub or bps <= 0:
+            continue
+        by_bucket.setdefault(bucket, []).append({
+            "asset_class": bucket, "sub_asset_class": sub, "target_weight_bps": bps,
+        })
+    sub_allocations: list[dict] = []
+    for bucket, rows in by_bucket.items():
+        total_chf = bucket_amounts.get(bucket, 0) // 100
+        split = _largest_remainder_split(
+            total_chf, [r["target_weight_bps"] for r in rows], [r["sub_asset_class"] for r in rows],
+        )
+        for row, chf in zip(rows, split):
+            sub_allocations.append({**row, "target_amount_rappen": chf * 100})
+
+    return {
+        "bucket_amounts_rappen": bucket_amounts,
+        "strategy_base_rappen": base_chf * 100 if advisory else None,
+        "external_reserve_rappen": reserve_chf * 100,
+        "sub_allocations": sub_allocations,
+    }
+
+
 def _other_wealth_positions(mandate: Mandate, db: Session) -> list[dict]:
     """Nicht-Beratungsvermoegen-Positionen fuer die Anlagestrategie-PDF's
     "Anderes Vermoegen"-Tabelle. Analoges FX-DRIFT-001/P2-3-Fix wie
@@ -302,7 +450,7 @@ def _other_wealth_positions(mandate: Mandate, db: Session) -> list[dict]:
     Pipeline (TargetAllocation/CMA/RiskAssessment) mitzuseeden."""
     from models.wealth import WealthPosition
     from services.currency.converter import convert_rappen
-    from services.wealth_position_semantics import canonical_assignment
+    from services.wealth_position_semantics import canonical_assignment, is_liability_assignment
 
     other_wealth_positions: list[dict] = []
     client_id = getattr(mandate, "client_id", None)
@@ -333,6 +481,12 @@ def _other_wealth_positions(mandate: Mandate, db: Session) -> list[dict]:
             "label": str(getattr(wp, "label", "—") or "—"),
             "amount_rappen": amt,
             "kind": str(getattr(wp, "position_type", "") or ""),
+            # Live-Test 2026-11 H1: Betraege sind immer >= 0, die Richtung
+            # laeuft ueber das Assignment (LIABILITY-PUBLICATION-001). Ohne
+            # dieses Flag summierte die PDF-Tabelle eine Hypothek als Aktivum
+            # (ETW 500k + Hypothek 300k = "Total Anderes Vermoegen 800k"
+            # statt netto 200k wie in der App).
+            "is_liability": bool(is_liability_assignment(getattr(wp, "assignment", None))),
         })
     return other_wealth_positions
 
@@ -466,6 +620,35 @@ def _require_strategy_decision_anchors(mandate: Mandate, db: Session):
     return allocation, policy, assessment, snapshot_cma
 
 
+def _mc_has_distribution(mc: dict) -> bool:
+    """N-873-04: Der MC-Erzeuger liefert fuer leere bzw. einelementige
+    Stichproben den Platzhalter 0 (``_percentile([])``, ``_stddev_bps`` bei
+    < 2 Werten). Bei weniger als zwei Pfaden oder Horizont < 1 Jahr ist eine
+    0 also kein gerechneter Wert. Altpayloads ohne diese Angaben gelten als
+    vollstaendig (keine Aussage moeglich)."""
+    for key, minimum in (("simulations", 2), ("horizon_years", 1)):
+        raw = mc.get(key)
+        if raw is None:
+            continue
+        try:
+            if int(raw) < minimum:
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
+def _optional_mc_bps(mc: dict, key: str) -> int | None:
+    """MC-Kennzahl in bps; None nur bei fehlendem Wert, 0 bleibt 0 (N-858-12).
+    Ohne auswertbare Verteilung (N-873-04) ist jede Kennzahl None."""
+    if not _mc_has_distribution(mc):
+        return None
+    raw = mc.get(key)
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    return int(raw)
+
+
 def _knowledge_map_from_json(raw) -> dict[str, bool]:
     if not raw:
         return {}
@@ -518,14 +701,14 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     )
     target_alloc_bps = _target_allocation_weights(ta_obj)
     bucket_bands = _target_allocation_bands(ta_obj)
-    advisory_wealth = (
+    # N-858-11: ein Generierungs-Snapshot von 0 ist ein Betrag (Strategie auf 0
+    # gerechnet); nur ein fehlender Snapshot (None, Altbestand) faellt zurueck.
+    _snapshot = getattr(ta_obj, "advisory_wealth_at_generation_rappen", None)
+    advisory_wealth = int(_snapshot) if _snapshot is not None else (
         int(getattr(ta_obj, "advisory_wealth_at_generation_rappen", 0) or 0)
         or current_advisory_wealth
         or None
     )
-    if advisory_wealth:
-        for bucket, bps in target_alloc_bps.items():
-            bucket_amounts[bucket] = int(advisory_wealth * bps / 10000)
     prefs_raw = getattr(ta_obj, "preferences_json", None)
     if prefs_raw:
         parsed_prefs = json.loads(prefs_raw)
@@ -569,6 +752,23 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         )
     cma_return = int(engine_payload.get("expected_return_bps", 0) or 0)
     cma_vol = int(engine_payload.get("expected_volatility_bps", 0) or 0)
+
+    # Live-Test 2026-11 H2/H3: Betraege auf der Strategiebasis der Engine
+    # (Gewichte beziehen sich auf Beratungsvermoegen minus externe Reserve),
+    # Reserve separat, Subklassen aus der SAA-Sub-Allokation.
+    # N-858-2: Basis und Reserve aus dem Generierungs-Snapshot, nicht aus dem
+    # live gerechneten Payload (anderer Zeitpunkt).
+    strategy_basis = _strategy_basis_from_allocation(
+        ta_obj, engine_payload, current_advisory_wealth,
+        currency=str(getattr(mandate, "base_currency", "CHF") or "CHF"),
+    )
+    presentation_amounts = _strategy_presentation_amounts(
+        strategy_basis["advisory_wealth_rappen"],
+        strategy_basis["strategy_base_rappen"],
+        target_alloc_bps,
+        engine_payload.get("sub_allocations"),
+    )
+    bucket_amounts = presentation_amounts["bucket_amounts_rappen"]
 
     # ---- Risk-Assessment ----
     risk_score_x10 = None
@@ -841,12 +1041,15 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     if engine_payload is not None:
         mc = engine_payload.get("monte_carlo") or {}
         try:
-            max_dd_bps = int(mc.get("target_max_drawdown_p50_bps", 0) or 0) or None
-            var_95_bps = int(mc.get("target_var_95_1y_bps", 0) or 0) or None
-            median_cagr_bps = int(mc.get("target_annualized_return_p50_bps", 0) or 0) or None
-            current_cagr_bps = int(mc.get("current_annualized_return_p50_bps", 0) or 0) or None
-            target_vol_1y_bps = int(mc.get("target_volatility_1y_bps", 0) or 0) or None
-            current_vol_1y_bps = int(mc.get("current_volatility_1y_bps", 0) or 0) or None
+            # N-858-12: 0 bps ist ein gueltiger gerechneter Wert (z. B. reine
+            # Liquiditaet: Drawdown 0, VaR 0) und darf nicht als "keine
+            # Angabe" erscheinen. Nur ein fehlender Wert ist None.
+            max_dd_bps = _optional_mc_bps(mc, "target_max_drawdown_p50_bps")
+            var_95_bps = _optional_mc_bps(mc, "target_var_95_1y_bps")
+            median_cagr_bps = _optional_mc_bps(mc, "target_annualized_return_p50_bps")
+            current_cagr_bps = _optional_mc_bps(mc, "current_annualized_return_p50_bps")
+            target_vol_1y_bps = _optional_mc_bps(mc, "target_volatility_1y_bps")
+            current_vol_1y_bps = _optional_mc_bps(mc, "current_volatility_1y_bps")
 
             # Die SOLL-Endwerte netten die externe Reserve aus dem investierten
             # Kapital heraus (Optimizer-Konvention) -- fuer eine mit dem
@@ -930,6 +1133,10 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         knowledge_instruments=knowledge_instruments,
         bucket_bands_bps=bucket_bands,
         bucket_amounts_rappen=bucket_amounts,
+        strategy_base_rappen=presentation_amounts["strategy_base_rappen"],
+        external_reserve_rappen=presentation_amounts["external_reserve_rappen"],
+        sub_allocations=presentation_amounts["sub_allocations"],
+        strategy_basis_note=strategy_basis["note"],
         products=products,
         recommendation_status=recommendation_status,
         goal_analysis=goal_analysis,
@@ -1368,7 +1575,10 @@ def _build_portfolio_data(mandate: Mandate, db: Session) -> PortfolioData:
                     "target_weight_bps": target_bps,
                     "current_weight_bps": current_bps,
                     "drift_bps": drift_bps,
-                    "target_amount_rappen": int(getattr(pos, "target_amount_rappen", 0) or 0),
+                    "target_amount_rappen": (  # N-858-11: None bleibt None, 0 bleibt 0
+                        None if getattr(pos, "target_amount_rappen", None) is None
+                        else int(pos.target_amount_rappen)
+                    ),
                     "current_amount_rappen": current_amount,
                     "currency": str(getattr(prod, "currency", "CHF") or "CHF"),
                     "ter_bps": int(getattr(prod, "ter_bps", 0) or 0),

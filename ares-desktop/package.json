@@ -41,6 +41,7 @@
       "frontend/trade-list-preview.js",
       "frontend/goal-analysis-integrity.js",
       "frontend/advisory-log-finma.js",
+      "frontend/product-master-data.js",
       "frontend/vendor/**/*",
       "frontend/reporting/dist/**/*",
       "!frontend/reporting/node_modules/**/*",

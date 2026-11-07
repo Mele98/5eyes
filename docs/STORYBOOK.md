@@ -1,4 +1,4 @@
-# Storybook fuer 5eyes Reporting Sub-App
+# Storybook fuer Ares Reporting Sub-App
 
 Wegweiser fuer das Storybook-Setup als visuelles Test- + Doku-Tool
 fuer die Editorial-Design-Tokens und Sub-App-Komponenten.
@@ -14,7 +14,7 @@ fuer die Editorial-Design-Tokens und Sub-App-Komponenten.
 
 Storybook ist ein interaktiver Component-Catalog. Pro Komponente
 schreibst du *Stories* (Beispiele in verschiedenen Zustaenden), die
-isoliert vom App-Routing rendern. Vorteile fuer 5eyes:
+isoliert vom App-Routing rendern. Vorteile fuer Ares:
 
 - **Editorial-Design-Disziplin:** Cormorant+Inter-Tokens lassen sich
   in einer Story-Galerie pruefen (Spacing, Hierarchie, Farben).
