@@ -48,9 +48,9 @@ TOLERANCE_BYTES = 0
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
 EXTRACTED_PART_BUDGETS = {
     "ares.css": (1143, 90070),
-    "aa-chart.css": (66, 5952),
+    "aa-chart.css": (66, 5978),
     "intro-sequence.js": (761, 36861),
-    "aa-chart.js": (306, 19472),
+    "aa-chart.js": (320, 20369),
     "goal-review-runtime.js": (1589, 84633),
 }
 

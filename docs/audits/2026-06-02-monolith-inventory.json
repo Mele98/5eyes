@@ -9528,8 +9528,8 @@
     {
       "kind": "css",
       "path": "ares-desktop/frontend/aa-chart.css",
-      "sha256": "90f9350df8b04d42efc9ad5dcc5d35193848d4f6604ec30012f6b7273c642d18",
-      "size_bytes": 5952
+      "sha256": "f7a6b988ed7d2b3dca6e699e47ffabe6b8368321336135117bd2c79018525b6f",
+      "size_bytes": 5978
     },
     {
       "kind": "js",
@@ -9540,8 +9540,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/aa-chart.js",
-      "sha256": "1d9343fb92178df5bc95f6a0760ab49224ae6f7945e5170f414cb34ca37dd17a",
-      "size_bytes": 19472
+      "sha256": "2046445d44a1d9115b0ab2ddf109b4a418f2094973c85fd8c9e3517bbd2996b5",
+      "size_bytes": 20369
     },
     {
       "kind": "js",
@@ -21889,175 +21889,175 @@
     },
     {
       "declaration": "function",
-      "line": 191,
+      "line": 205,
       "name": "aaChartAllocItems",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 182,
+      "line": 187,
       "name": "aaChartApplyDonut",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 276,
+      "line": 290,
       "name": "aaChartBandHtml",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 158,
+      "line": 163,
       "name": "aaChartBindHover",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 33,
+      "line": 34,
       "name": "aaChartChf",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 17,
+      "line": 18,
       "name": "aaChartClassRank",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 259,
+      "line": 273,
       "name": "aaChartContextHtml",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 82,
+      "line": 87,
       "name": "aaChartCssMix",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 114,
+      "line": 119,
       "name": "aaChartDonutConfig",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 96,
+      "line": 101,
       "name": "aaChartDonutDatasets",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 217,
+      "line": 231,
       "name": "aaChartEsc",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 213,
+      "line": 227,
       "name": "aaChartHasSubs",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 21,
+      "line": 22,
       "name": "aaChartKey",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 223,
+      "line": 237,
       "name": "aaChartLegendHtml",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 146,
+      "line": 151,
       "name": "aaChartMarkLegend",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 76,
+      "line": 81,
       "name": "aaChartMix",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 29,
+      "line": 30,
       "name": "aaChartPctText",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 246,
+      "line": 260,
       "name": "aaChartPendingHtml",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 41,
+      "line": 46,
       "name": "aaChartPrepare",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 287,
+      "line": 301,
       "name": "aaChartQuotaHtml",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 90,
+      "line": 95,
       "name": "aaChartReducedMotion",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 70,
+      "line": 75,
       "name": "aaChartRoundingNote",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 73,
+      "line": 78,
       "name": "aaChartShadeStep",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 86,
+      "line": 91,
       "name": "aaChartSurface",
       "source": "aa-chart.js"
     },
     {
       "declaration": "function",
-      "line": 25,
+      "line": 26,
       "name": "aaChartTenths",
       "source": "aa-chart.js"
     },
     {
       "declaration": "var",
-      "line": 162,
+      "line": 167,
       "name": "on",
       "source": "aa-chart.js"
     },
     {
       "declaration": "var",
-      "line": 77,
+      "line": 82,
       "name": "p",
       "source": "aa-chart.js"
     },
     {
       "declaration": "var",
-      "line": 102,
+      "line": 107,
       "name": "push",
       "source": "aa-chart.js"
     },
     {
       "declaration": "var",
-      "line": 260,
+      "line": 274,
       "name": "row",
       "source": "aa-chart.js"
     },

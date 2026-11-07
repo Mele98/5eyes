@@ -284,3 +284,48 @@ def test_aa_chart_files_stay_self_contained_and_neutral():
         assert "box-shadow:0 10px" not in text  # keine Schatten-Spielereien
     assert not re.search(r"#[0-9a-fA-F]{3,6}\b", css)  # nur Ares-Tokens im CSS
     assert "prefers-reduced-motion" in css and "aaChartReducedMotion" in js
+
+
+ZERO_ITEMS = """[
+ {name:'Aktien',bps:6000,color:AC.eq,band:{min:5000,max:7000},subs:[{name:'Aktien Schweiz',bps:6000}]},
+ {name:'Alternative',bps:0,color:AC.alt,band:{min:0,max:1000}},
+ {name:'Obligationen',bps:4000,color:AC.bd,band:{min:3000,max:5000}},
+ {name:'Immobilien',bps:0,color:AC.re}
+]"""
+
+
+def test_zero_percent_class_with_band_stays_in_quotas_but_not_in_donut_or_legend():
+    """N-882-01: einheitlich -- Torte/Legende ohne 0-%-Klassen, SOLL-Quoten mit Band behalten."""
+    out = _run(
+        "var q=aaChartQuotaHtml(" + ZERO_ITEMS + ");var l=aaChartLegendHtml(" + ZERO_ITEMS + ",null);"
+        "var ds=aaChartDonutDatasets(aaChartPrepare(" + ZERO_ITEMS + "),'#FFFFFF');"
+        "var qr=aaChartPrepare(" + ZERO_ITEMS + ",true);"
+        "return {q:q,l:l,labels:ds.map(function(d){return d._aaLabels}),"
+        "rows:qr.map(function(r){return [r.name,r.pct,r.soloSeg,r.subs.map(function(s){return s.seg})]})};"
+    )
+    q = out["q"]
+    assert ">Alternative<" in q and 'aria-label="Alternative: Bandbreite 0.0–10.0 %, Ziel 0.0 %"' in q
+    assert ">Immobilien<" not in q  # ohne Band keine Zeile
+    assert q.index(">Obligationen<") < q.index(">Alternative<")  # 0 % am Ende
+    assert ">Alternative<" not in out["l"]
+    assert all("Alternative" not in "".join(lbls) for lbls in out["labels"])
+    # 0-%-Zeile belegt keinen Segment-Index (Quoten-Hover bleibt deckungsgleich mit der Torte).
+    assert out["rows"] == [["Aktien", "60.0 %", None, [0]], ["Obligationen", "40.0 %", 1, []],
+                           ["Alternative", "0.0 %", None, []]]
+
+
+def test_canvas_mouseleave_resets_highlight_and_note_has_no_pdf_claim():
+    js = MODULE_PATH.read_text(encoding="utf-8")
+    apply_fn = js.split("function aaChartApplyDonut(", 1)[1].split("\nfunction ", 1)[0]
+    assert "addEventListener('mouseleave'" in apply_fn and "aaChartMarkLegend(-1,-1)" in apply_fn
+    note = _run("return aaChartRoundingNote();")
+    assert note.startswith("Rundungsdifferenzen möglich") and "PDF" not in note
+
+
+def test_small_text_contrast_tokens_and_compact_band_below_760px():
+    css = CSS_PATH.read_text(encoding="utf-8")
+    for sel in (".alloc-donut-card .section-kicker{", ".dcl{", ".aa-leg-head{"):
+        rule = css.split(sel, 1)[1].split("}", 1)[0]
+        assert "color:var(--n5)" in rule, sel  # Dark: 6.4:1 auf --surface
+    mobile = css.split("@media(max-width:760px)", 1)[1].split("\n", 1)[0]
+    assert ".aa-q-row .aa-band{display:none" not in mobile and ".aa-q-row .aa-band{grid-column:2/4" in mobile

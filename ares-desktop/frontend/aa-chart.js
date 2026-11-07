@@ -8,7 +8,8 @@
 // gerundet -- wie die PDFs (f"{bps/100:.1f}") und exakt wie fmtPct (Portfolio,
 // Report, Zahlenformat-Vertrag AA-UX-FORMAT-001). Ergeben die gerundeten Anteile
 // nicht genau 100.0 % bzw. ihre Klasse, steht "Rundungsdifferenzen moeglich"
-// dabei. Bekannte Altabweichung App <-> PDF: nur echte Gleichstaende |bps| % 100
+// dabei (N-882-03: ohne Verweis auf PDF, bis ein gemeinsamer Decimal-
+// ROUND_HALF_UP-Formatter nach H1 auch services/pdf angleicht). Bekannte Altabweichung App <-> PDF: nur echte Gleichstaende |bps| % 100
 // == 25 (App rundet auf, Python auf gerade Ziffer, z. B. 0.25 % -> 0.3 / 0.2);
 // Angleichung in services/pdf nach H1 (Folgepunkt), ebenso eine gemeinsame
 // Rest-Rundung.
@@ -38,7 +39,11 @@ function aaChartChf(chf){
 // -> neue, nach Gewicht absteigend sortierte Zeilen (pct einzeln gerundet) mit
 // Segment-Indizes des Aussenrings (s.seg, r.restSeg bzw. r.soloSeg) und
 // roundingGap (gerundete Klassen != 100.0 % bzw. Unterklassen != Klasse).
-function aaChartPrepare(items){
+// 0-%-Klassen (N-882-01): Torte und Legende blenden sie aus (kein Segment, kein
+// Betrag); die SOLL-Quoten behalten sie, wenn eine Bandbreite existiert
+// (keepZeroWithBand), z. B. "Alternative 0.0 %, Bandbreite 0.0-10.0 %". Sie
+// stehen dort am Ende und belegen keinen Segment-Index.
+function aaChartPrepare(items,keepZeroWithBand){
   var rows=(items||[]).map(function(it,idx){
     var key=it.key||aaChartKey(it.name);
     return {name:String(it.name||''),key:key,bps:Math.max(0,Math.round(Number(it.bps)||0)),color:it.color,
@@ -46,7 +51,7 @@ function aaChartPrepare(items){
       expanded:!!it.expanded,_i:idx,subs:(it.subs||[]).map(function(s,j){
         return {name:String(s.name||''),bps:Math.max(0,Math.round(Number(s.bps)||0)),note:s.note||'',_j:j};
       })};
-  }).filter(function(r){return r.bps>0;});
+  }).filter(function(r){return r.bps>0||(keepZeroWithBand&&r.band&&r.band.max>0);});
   rows.sort(function(a,b){return (b.bps-a.bps)||(aaChartClassRank(a.key)-aaChartClassRank(b.key))||(a._i-b._i);});
   var seg=0,sumBps=0,sumTenths=0;
   rows.forEach(function(r){
@@ -60,14 +65,14 @@ function aaChartPrepare(items){
       subBps+=s.bps;subTenths+=s.tenths;
     });
     r.restSeg=(r.subs.length&&subBps<r.bps)?seg++:null;
-    r.soloSeg=r.subs.length?null:seg++;
+    r.soloSeg=(r.subs.length||!r.bps)?null:seg++;
     r.subRoundingGap=r.subs.length>0&&subBps===r.bps&&subTenths!==r.tenths;
   });
   rows.roundingGap=rows.length>0&&sumTenths!==aaChartTenths(sumBps);
   rows.subRoundingGap=rows.some(function(r){return r.subRoundingGap;});
   return rows;
 }
-function aaChartRoundingNote(){return 'Rundungsdifferenzen möglich: Anteile sind einzeln auf 0.1 % gerundet (wie in PDF und Portfolio).';}
+function aaChartRoundingNote(){return 'Rundungsdifferenzen möglich: Anteile sind einzeln auf 0.1 % gerundet.';}
 // Unterklassen: groesste in der Klassenfarbe, weitere schrittweise heller
 // (Anteil der Flaechenfarbe 0..0.5) -- gleiche Stufe in Canvas und HTML.
 function aaChartShadeStep(idx,count){
@@ -186,6 +191,15 @@ function aaChartApplyDonut(chart,hasStrategy){
   chart.data.labels=rows.length?rows.map(function(r){return r.name;}):['Strategie ausstehend'];
   chart.data.datasets=aaChartDonutDatasets(rows,surface);
   aaChartBindHover('dnleg',chart);aaChartBindHover('at',chart);
+  // N-882-05: Maus verlaesst die Torte -> Hervorhebung in Legende/Quoten zuruecksetzen.
+  var cv=chart.canvas;
+  if(cv&&cv.addEventListener&&cv.dataset&&cv.dataset.aaLeave!=='1'){
+    cv.dataset.aaLeave='1';
+    cv.addEventListener('mouseleave',function(){
+      try{chart.setActiveElements([]);if(chart.tooltip)chart.tooltip.setActiveElements([],{x:0,y:0});chart.update('none');}catch(e){}
+      aaChartMarkLegend(-1,-1);
+    });
+  }
 }
 // Gemeinsame Eingabe fuer Torte und SOLL-Quoten aus den Monolith-Globals.
 function aaChartAllocItems(){
@@ -285,7 +299,7 @@ function aaChartBandHtml(band,bps,label){
 // aufklappbar (Zustand allocationSuballocExpanded, Klick wie bisher). Farbfeld
 // der Unterklasse = ihr Segment im Aussenring (Hover markiert es).
 function aaChartQuotaHtml(items){
-  var rows=aaChartPrepare(items);
+  var rows=aaChartPrepare(items,true);
   var html=rows.map(function(r,i){
     var n=r.subs.length,gk=String(r.groupKey||r.name);
     var head='<button type="button" class="aa-q-row" data-aa-row="'+i+'"'+(n?(' data-allocation-group="'+aaChartEsc(encodeURIComponent(gk))+'" aria-expanded="'+(r.expanded?'true':'false')
