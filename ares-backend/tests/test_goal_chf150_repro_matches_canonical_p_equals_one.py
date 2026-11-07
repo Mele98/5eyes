@@ -54,6 +54,21 @@ from services.optimizer.scenario_engine import (
     build_scenario_paths,
     simulate_wealth_paths,
 )
+from services.valuation_clock import bound_valuation_date
+
+
+# Fester Bewertungsstichtag ("heute"). Die Engine bezieht "heute" nur ueber
+# ``services.valuation_clock`` (ausserhalb eines Laufs die Wanduhr); mit
+# ``date.today()`` war dieser Test am 31.12. rot: "naechster 31.12."
+# wurde dann der 31.12. des Folgejahres, der Pfad also [0, 100, 0] statt
+# [100, 0, 0].
+AS_OF = date(2026, 6, 15)
+
+
+@pytest.fixture(autouse=True)
+def _fixed_valuation_date():
+    with bound_valuation_date(AS_OF):
+        yield
 
 
 def _make_recurring_goal(*, start_date: str, target_date: str) -> SimpleNamespace:
@@ -105,8 +120,7 @@ def test_chf150_repro_matches_canonical_p_equals_one():
 
     # start_date = next upcoming Dec 31, target_date = the following Jan 1 —
     # one real elapsed day, deliberately straddling a calendar-year boundary.
-    today = date.today()
-    year_end_year = today.year if date(today.year, 12, 31) > today else today.year + 1
+    year_end_year = AS_OF.year
     start_date = date(year_end_year, 12, 31).isoformat()
     target_date = date(year_end_year + 1, 1, 1).isoformat()
 

@@ -151,7 +151,7 @@
     "services.sqlite_check_constraint_upgrade": 5,
     "services.suitability_audit": 5,
     "services.suitability_cap_check": 4,
-    "services.tenant_crypto": 2,
+    "services.tenant_crypto": 1,
     "services.wealth_cashflows": 2,
     "services.wealth_inflow_certainty": 3,
     "setup": 11
@@ -481,7 +481,7 @@
     "services.tax.regimes.generic": ["services.tax.base", "services.tax.registry"],
     "services.tax.sdk": ["services.tax.base", "services.tax.conformance", "services.tax.discovery", "services.tax.registry"],
     "services.telemetry": ["config"],
-    "services.tenant_crypto": ["config", "models.tenant", "services.auth", "services.tenant_context"],
+    "services.tenant_crypto": ["config", "models.tenant", "services.tenant_context"],
     "services.tenant_licensing": ["models.tenant"],
     "services.totp_secret_storage": ["models.users", "services.tenant_crypto"],
     "services.twelvedata_client": ["config", "services.market_data.exceptions"],
@@ -501,7 +501,6 @@
     "services/optimizer/objective.py": {"count": 1, "keys": ["OPTIMIZER_GOAL_WEIGHTING"]},
     "services/optimizer/objective_variants.py": {"count": 1, "keys": ["OPTIMIZER_OBJECTIVE"]},
     "services/portfolio_engine_reserve.py": {"count": 2, "keys": ["RESERVE_BUCKET_MODE", "RESERVE_DECAY_MODE"]},
-    "services/tenant_crypto.py": {"count": 1, "keys": ["TENANT_MASTER_KEK"]},
     "smoke_test.py": {"count": 2, "keys": ["APP_HOST", "APP_PORT"]}
   },
   "leaf_content_sha256": {
