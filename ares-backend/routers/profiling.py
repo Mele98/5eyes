@@ -41,7 +41,13 @@ from services.portfolio_engine import (
 )
 from services.risk_scoring import canonicalize_horizon_label, compute_scores, profile_for_score_x10
 from services.risk_questionnaire_integrity import (
+    QUESTIONNAIRE_V2_HASH,
+    REASON_V2_DISABLED,
     RiskQuestionnaireIntegrityError,
+    evaluate_v2_submission,
+    questionnaire_v2_enabled,
+    questionnaire_v2_policy,
+    submission_version,
     validate_standard_submission,
 )
 from services.risk_capacity_plausibility import audit_if_inconsistent, evaluate_mandate_safely
@@ -72,7 +78,7 @@ def _canonical_risk_answer_section(question_number: int | None, question_section
     if section in {"Risikofähigkeit", "Risikobereitschaft"}:
         return section
     qn = int(question_number or 0)
-    if qn in (9, 10, 11, 12):
+    if qn in (9, 10, 11, 12, 13, 14):
         return "Risikobereitschaft"
     return "Risikofähigkeit"
 
@@ -255,6 +261,14 @@ def list_risk_capacity_plausibility_evaluations(
     }
 
 
+@router.get("/risk-questionnaire/policy")
+def get_risk_questionnaire_policy(current_user: User = Depends(get_current_user)):
+    """H5b: aktive Fragebogen-Version und Definition v2 (Texte, Optionen,
+    Kappungen, Konsistenz-Flags). v2 ist hinter einem Feature-Flag (Default
+    aus) bis zur Freigabe der Grenzwerte durch IC/Compliance."""
+    return questionnaire_v2_policy()
+
+
 @router.post("/mandates/{mandate_id}/risk-assessments", response_model=RiskAssessmentResponse, status_code=201)
 def create_risk_assessment(
     mandate_id: str,
@@ -268,6 +282,18 @@ def create_risk_assessment(
     now = _now()
     today = date.today().isoformat()
     horizon_label = canonicalize_horizon_label(body.investment_horizon_label)
+    try:
+        questionnaire_version = submission_version(body)
+    except RiskQuestionnaireIntegrityError as exc:
+        raise HTTPException(status_code=422, detail=exc.as_detail()) from exc
+    if questionnaire_version == "v2" and not questionnaire_v2_enabled():
+        raise HTTPException(status_code=422, detail={
+            "reason_code": REASON_V2_DISABLED,
+            "message": (
+                "Der Fragebogen v2 ist noch nicht freigegeben (Grenzwerte bei "
+                "IC/Compliance in Pruefung). Bitte den Standard-Fragebogen verwenden."
+            ),
+        })
 
     # Compute scores from Fachlogik
     scores = compute_scores(
@@ -282,6 +308,23 @@ def create_risk_assessment(
     )
     final_score_x10 = int(scores.final_score_x10)
     final_profile = str(scores.final_profile)
+    willingness_score_x10 = int(scores.risk_willingness_score_x10)
+    willingness_profile = str(scores.risk_willingness_profile)
+    v2 = None
+    if questionnaire_version == "v2":
+        # H5b: Zusatzfragen kappen nur die Bereitschaft (nie anheben); Fragen
+        # 1-11 und die Kernformel bleiben unveraendert. Konsistenz-Flags
+        # verlangen eine Beraternotiz, aendern das Profil aber nicht.
+        try:
+            v2 = evaluate_v2_submission(
+                body, core_willingness_score_x10=scores.risk_willingness_score_x10,
+            )
+        except RiskQuestionnaireIntegrityError as exc:
+            raise HTTPException(status_code=422, detail=exc.as_detail()) from exc
+        willingness_score_x10 = v2["result"].effective_score_x10
+        willingness_profile = v2["result"].effective_profile
+        final_score_x10 = min(int(scores.risk_capacity_score_x10), willingness_score_x10)
+        final_profile = profile_for_score_x10(final_score_x10)
     if str(mandate.mandate_type or "").strip().upper() == "FZK" and final_score_x10 > 75:
         final_score_x10 = 75
         final_profile = profile_for_score_x10(final_score_x10)
@@ -357,8 +400,13 @@ def create_risk_assessment(
         q_risk_preference_points=body.q_risk_preference_points,
         q_risk_behavior_points=body.q_risk_behavior_points,
         risk_willingness_total=scores.risk_willingness_total,
-        risk_willingness_profile=scores.risk_willingness_profile,
-        risk_willingness_score_x10=scores.risk_willingness_score_x10,
+        risk_willingness_profile=willingness_profile,
+        risk_willingness_score_x10=willingness_score_x10,
+        # Fragebogen-Version: Altprofile/v1 bleiben NULL (byte-gleich wie bisher).
+        questionnaire_version="v2" if v2 else None,
+        questionnaire_hash=QUESTIONNAIRE_V2_HASH if v2 else None,
+        willingness_v2_json=v2["evidence_json"] if v2 else None,
+        consistency_note=v2["note"] if v2 else None,
         # Final
         final_score_x10=final_score_x10,
         final_profile=final_profile,
@@ -415,7 +463,13 @@ def create_risk_assessment(
         log(db, user_id=current_user.id, user_name=current_user.full_name,
             table_name="risk_assessments", record_id=ra.id, action="CREATE",
             mandate_id=mandate_id, client_id=mandate.client_id,
-            ip_address=_extract_client_ip(request))
+            ip_address=_extract_client_ip(request),
+            # H5b: Version, Definitions-Hash und Flag-Codes im Audit (ohne Notiztext).
+            **({"field_name": "questionnaire_version", "new_value": json.dumps({
+                "questionnaire_version": "v2",
+                "questionnaire_hash": QUESTIONNAIRE_V2_HASH,
+                "consistency_flags": v2["flags"],
+            }, sort_keys=True)} if v2 else {}))
         # RISK-CAPACITY-PLAUSIBILITY-001: Widerspruch Fragebogen <-> erfasste
         # Finanzdaten wird protokolliert (aendert das Profil nicht).
         # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: dieselbe Bewertung wird als

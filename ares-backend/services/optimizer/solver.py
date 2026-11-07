@@ -58,6 +58,7 @@ from .constraints import (
     validate_risky_fraction_per_bucket,
 )
 from .goal_liabilities import (
+    _HARDNESS_LABELS_TO_KEY,
     GoalLiability,
     aggregate_liability_path,
     goals_to_liabilities,
@@ -86,6 +87,7 @@ from .house_prior import (
     REASON_NOT_WORSE,
     REASON_TEST_DISABLED,
     goal_probability_rows,
+    house_deviation_bps,
     house_prior_penalty,
     house_prior_sentence,
     paired_bootstrap_disclosure,
@@ -1642,6 +1644,18 @@ OPTIMIZER_SEED_SCHEME = "content_seed_v2"
 # Steuerbasis, Pensionierungsjahr oder Mortalitaets-Simulation.
 OPTIMIZER_ENGINE_VERSION = "saa_resampled_v18"
 
+# AUDIT-2026-11 D3 + Pruefrunde #859 H-859-8: Schema des Ziel-Fingerabdrucks.
+# v2 kanonisiert den Haertegrad ("Primaer", "primary", None und unbekannte
+# Werte -> "Primär", wie goal_liabilities._hardness_key ihn fachlich liest).
+# Rechnung unveraendert; eine Neuberechnung von Altdaten mit abweichender
+# Schreibweise zieht damit einen anderen Wuerfel. Die Marke steht in der
+# Resampling-Evidenz und in der Modellbasis (allocation_context_hash) und
+# trennt solche Laeufe von frueheren. Bewusst NICHT im Seed: die
+# gespeicherten Schreibweisen ("Hart"/"Primär"/"Opportunistisch") behalten so
+# ihren Wuerfel -- ein Versionssprung haette jeden Lauf neu gewuerfelt
+# (gemessen: Golden Score 7/9 und ein Risikomass-Variantentest verschoben).
+GOAL_FINGERPRINT_SCHEME = "goal_economic_fingerprint_v2_hardness_canonical"
+
 # Wirtschaftliche Goal-Felder. Bewusst NICHT enthalten: id, mandate_id,
 # client_id, label, notes, linked_position_id (eine ID), Zeitstempel und
 # Scoring-Cache-Felder. Ein identisch neu erfasstes Ziel hat damit denselben
@@ -1692,6 +1706,25 @@ def _seed_goal_date(value, valuation_year: int):
     return f"Y{parsed.year - int(valuation_year):+d}-{parsed.month:02d}-{parsed.day:02d}"
 
 
+# AUDIT-2026-11 D3: fachlich gleiche Schreibweisen des Haertegrads ("Primär",
+# "Primaer", "primary", ...) zogen verschiedene Wuerfel. Kanonisiert wird auf
+# die gespeicherte Form (Modell-/Schema-Default und Frontend schreiben
+# "Hart"/"Primär"/"Opportunistisch").
+# H-859-8: None und unbekannte Werte liest goal_liabilities._hardness_key
+# fachlich als "primaer"; sie werden daher ebenfalls auf "Primär"
+# kanonisiert (Marke GOAL_FINGERPRINT_SCHEME, siehe dort).
+_CANONICAL_HARDNESS_LABEL = {
+    "hart": "Hart",
+    "primaer": "Primär",
+    "opportunistisch": "Opportunistisch",
+}
+
+
+def _seed_hardness(value):
+    raw = str(value).strip().lower() if isinstance(value, str) else ""
+    return _CANONICAL_HARDNESS_LABEL[_HARDNESS_LABELS_TO_KEY.get(raw, "primaer")]
+
+
 def _seed_scalar(value):
     if value is None or isinstance(value, (bool, int, str)):
         return value
@@ -1723,6 +1756,8 @@ def goal_economic_fingerprint(
             name: (
                 _seed_goal_date(value, year)
                 if name in _GOAL_DATE_FIELDS
+                else _seed_hardness(value)
+                if name == "hardness"
                 else _seed_scalar(value)
             )
             for name, value in raw.items()
@@ -4292,6 +4327,7 @@ def _run_resampled_solver(
         "scheme": RESAMPLING_SCHEME_VERSION,
         "seed_scheme": OPTIMIZER_SEED_SCHEME,
         "engine_version": OPTIMIZER_ENGINE_VERSION,
+        "goal_fingerprint_scheme": GOAL_FINGERPRINT_SCHEME,
         # ObjectiveContractV2 (Engine v7): alle Koeffizienten, Scopes und
         # Policy-Versionen dieses Laufs samt Hash (Audit und Modellbasis).
         "objective_contract": _contract_evidence(context),
@@ -4656,6 +4692,15 @@ def _house_prior_disclosure(
             "decision": decision,
             "reason": reason,
             "final_bps": dict(final_bps),
+            # HOUSE-PRIOR-APPROVAL-001 (AA-4): Abweichung je Klasse, nur
+            # Offenlegung -- gegen die projizierte Hausquote (Anker des
+            # Priors) und gegen die rohe Hausmatrix-Zielquote.
+            "deviation_vs_house_bps": house_deviation_bps(
+                final_bps, anchor_projected_bps,
+            ),
+            "deviation_vs_house_raw_bps": house_deviation_bps(
+                final_bps, house_anchor_bps,
+            ),
             "tracking_error_vs_house_bps": round(
                 tracking_error_bps(final_w, house_w, cov), 4
             ),

@@ -245,3 +245,83 @@ def get_house_matrix_profile(score_x10: int) -> str:
 def profile_for_score_x10(score_x10: int) -> str:
     """Public wrapper for the profile name of a score_x10 value (10-100)."""
     return _profile_from_score(score_x10)
+
+
+# ── Fragebogen v2: Kappung der Risikobereitschaft (H5b, Dok. 105) ──────────────
+#
+# Die Kernformel oben bleibt unveraendert (Vorlage, v1). v2 ergaenzt nur
+# Obergrenzen: will_v2 = MIN(will_core, Kappungen) -> final = MIN(Faehigkeit,
+# will_v2). Eine Kappung kann nie anheben; bei voller Zustimmung ist v2
+# identisch mit v1. Grenzwerte 40/60/80 = konservative Startwerte (E3); die
+# Freigabe durch IC/Compliance steht aus, deshalb ist v2 per Feature-Flag aus
+# (services/risk_questionnaire_integrity.RISK_QUESTIONNAIRE_V2_ENABLED).
+
+QUESTIONNAIRE_V1 = "v1"
+QUESTIONNAIRE_V2 = "v2"
+NO_WILLINGNESS_CAP_X10 = 100
+# Q11 = 1 ("alles sofort verkaufen") -> Bereitschaft hoechstens Defensiv (E2).
+Q11_KNOCKOUT_POINTS = 1
+Q11_KNOCKOUT_MAX_SCORE_X10 = 40
+# Frage -> Obergrenze je Antwortoption (Index = Anzeige-Reihenfolge).
+V2_WILLINGNESS_CAPS_X10: dict[int, tuple[int, ...]] = {
+    # Q12 Verlusttoleranz in CHF: bis 5 % / 5-10 % / 10-20 % / ueber 20 %
+    12: (40, 60, 80, 100),
+    # Q13 tatsaechliches Verhalten: (fast) alles verkauft / teilweise verkauft /
+    # gehalten / zugekauft / damals nicht investiert (n/a, keine Kappung)
+    13: (40, 60, 100, 100, 100),
+    # Q14 Dauer der Verlustphase: unter 1 Jahr / 1-2 / 2-4 / ueber 4 Jahre
+    14: (40, 60, 100, 100),
+}
+Q13_NOT_INVESTED_INDEX = 4
+
+
+@dataclass(frozen=True)
+class WillingnessCap:
+    source: str            # "Q11" (Knock-out) | "Q12" | "Q13" | "Q14"
+    option_index: int
+    max_score_x10: int
+
+
+@dataclass(frozen=True)
+class WillingnessV2Result:
+    core_score_x10: int
+    cap_score_x10: int
+    effective_score_x10: int
+    effective_profile: str
+    caps: tuple[WillingnessCap, ...]   # nur wirksame Kappungen (< 100)
+
+
+def compute_willingness_v2(
+    *,
+    core_willingness_score_x10: int,
+    q_risk_behavior_points: int,
+    q12_option: int,
+    q13_option: int,
+    q14_option: int,
+) -> WillingnessV2Result:
+    """Bereitschaft v2 = MIN(Kern-Bereitschaft, Kappungen); nur absenkend."""
+    core = int(core_willingness_score_x10)
+    if not 10 <= core <= 100:
+        raise ValueError(f"core_willingness_score_x10={core} ausserhalb [10,100]")
+    behavior = int(q_risk_behavior_points)
+    if not 1 <= behavior <= 4:
+        raise ValueError(f"q_risk_behavior_points={behavior} ausserhalb [1,4]")
+    caps: list[WillingnessCap] = []
+    if behavior == Q11_KNOCKOUT_POINTS:
+        caps.append(WillingnessCap("Q11", behavior - 1, Q11_KNOCKOUT_MAX_SCORE_X10))
+    for question, option in ((12, q12_option), (13, q13_option), (14, q14_option)):
+        table = V2_WILLINGNESS_CAPS_X10[question]
+        idx = int(option)
+        if isinstance(option, bool) or not 0 <= idx < len(table):
+            raise ValueError(f"Frage {question}: Option {option!r} ausserhalb [0,{len(table) - 1}]")
+        if table[idx] < NO_WILLINGNESS_CAP_X10:
+            caps.append(WillingnessCap(f"Q{question}", idx, table[idx]))
+    cap = min([NO_WILLINGNESS_CAP_X10] + [c.max_score_x10 for c in caps])
+    effective = min(core, cap)
+    return WillingnessV2Result(
+        core_score_x10=core,
+        cap_score_x10=cap,
+        effective_score_x10=effective,
+        effective_profile=_willingness_profile(effective),
+        caps=tuple(caps),
+    )

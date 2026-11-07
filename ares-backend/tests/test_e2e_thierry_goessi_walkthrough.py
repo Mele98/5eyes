@@ -365,42 +365,42 @@ def _seed_products(api, advisor_user) -> list[dict]:
     """
     rows = [
         {
-            "isin": "CH0000000011", "product_name": "Mock Aktien Welt ETF",
+            "isin": "CH0000000114", "product_name": "Mock Aktien Welt ETF",
             "product_type": "ETF", "asset_class": "Aktien",
             "sub_asset_class": "Aktien Global", "currency": "CHF",
             "ter_bps": 20, "suitability_profile_from": 1,
             "suitability_profile_to": 6,
         },
         {
-            "isin": "CH0000000012", "product_name": "Mock Aktien Schweiz ETF",
+            "isin": "CH0000000122", "product_name": "Mock Aktien Schweiz ETF",
             "product_type": "ETF", "asset_class": "Aktien",
             "sub_asset_class": "Aktien Schweiz", "currency": "CHF",
             "ter_bps": 18, "suitability_profile_from": 1,
             "suitability_profile_to": 6,
         },
         {
-            "isin": "CH0000000013", "product_name": "Mock Obligationen CHF",
+            "isin": "CH0000000130", "product_name": "Mock Obligationen CHF",
             "product_type": "ETF", "asset_class": "Obligationen",
             "sub_asset_class": "Obligationen CHF", "currency": "CHF",
             "ter_bps": 15, "suitability_profile_from": 1,
             "suitability_profile_to": 6,
         },
         {
-            "isin": "CH0000000014", "product_name": "Mock Immobilienfonds CH",
+            "isin": "CH0000000148", "product_name": "Mock Immobilienfonds CH",
             "product_type": "Fonds", "asset_class": "Immobilien",
             "sub_asset_class": "Immobilien Schweiz", "currency": "CHF",
             "ter_bps": 60, "suitability_profile_from": 1,
             "suitability_profile_to": 6,
         },
         {
-            "isin": "CH0000000015", "product_name": "Mock Geldmarkt CHF",
+            "isin": "CH0000000155", "product_name": "Mock Geldmarkt CHF",
             "product_type": "Fonds", "asset_class": "Liquidität",
             "sub_asset_class": "Geldmarkt CHF", "currency": "CHF",
             "ter_bps": 10, "suitability_profile_from": 1,
             "suitability_profile_to": 6,
         },
         {
-            "isin": "CH0000000016", "product_name": "Mock Gold ETC",
+            "isin": "CH0000000163", "product_name": "Mock Gold ETC",
             "product_type": "ETC", "asset_class": "Alternative",
             "sub_asset_class": "Gold", "currency": "CHF",
             "ter_bps": 40, "suitability_profile_from": 1,

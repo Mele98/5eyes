@@ -32,7 +32,7 @@ LIVE_DB_EXIT_CODE = 3
 
 def default_db_path() -> Path:
     """Default-Datenpfad der produktiven Instanz (Quelle fuer ``config``)."""
-    return Path.home() / '5eyes' / '5eyes.db'
+    return Path.home() / 'ares' / 'ares.db'
 
 
 def _normalize(path: str | os.PathLike[str]) -> Path:
