@@ -620,8 +620,29 @@ def _require_strategy_decision_anchors(mandate: Mandate, db: Session):
     return allocation, policy, assessment, snapshot_cma
 
 
+def _mc_has_distribution(mc: dict) -> bool:
+    """N-873-04: Der MC-Erzeuger liefert fuer leere bzw. einelementige
+    Stichproben den Platzhalter 0 (``_percentile([])``, ``_stddev_bps`` bei
+    < 2 Werten). Bei weniger als zwei Pfaden oder Horizont < 1 Jahr ist eine
+    0 also kein gerechneter Wert. Altpayloads ohne diese Angaben gelten als
+    vollstaendig (keine Aussage moeglich)."""
+    for key, minimum in (("simulations", 2), ("horizon_years", 1)):
+        raw = mc.get(key)
+        if raw is None:
+            continue
+        try:
+            if int(raw) < minimum:
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
 def _optional_mc_bps(mc: dict, key: str) -> int | None:
-    """MC-Kennzahl in bps; None nur bei fehlendem Wert, 0 bleibt 0 (N-858-12)."""
+    """MC-Kennzahl in bps; None nur bei fehlendem Wert, 0 bleibt 0 (N-858-12).
+    Ohne auswertbare Verteilung (N-873-04) ist jede Kennzahl None."""
+    if not _mc_has_distribution(mc):
+        return None
     raw = mc.get(key)
     if raw is None or (isinstance(raw, str) and not raw.strip()):
         return None
