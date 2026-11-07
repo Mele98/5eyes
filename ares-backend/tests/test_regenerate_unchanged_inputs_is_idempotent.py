@@ -20,6 +20,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import configure_mappers, sessionmaker
 
 from database import Base
+from retro_free_fixture import declare_all_products_retro_free  # noqa: E402
 from models import (  # noqa: F401
     allocation, clients, mandates, profiling, review, snapshots, users, wealth,
 )
@@ -87,6 +88,7 @@ def test_regenerate_with_unchanged_inputs_keeps_allocation_and_final_run(session
             target_allocation_id=ta.id, run_type="Optimizer", depot_bank=None,
         )["run"]
         s.commit()
+        declare_all_products_retro_free(s)
         finalize_recommendation(mandate.id, run.id, _request(), db=s, current_user=adv)
         assert s.get(RecommendationRun, run.id).result_status == "Final"
 

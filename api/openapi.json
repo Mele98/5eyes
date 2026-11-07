@@ -2370,6 +2370,16 @@
         "title": "AuditLogPage",
         "type": "object"
       },
+      "BaselineProposal": {
+        "properties": {
+          "matrix": {
+            "title": "Matrix",
+            "type": "object"
+          }
+        },
+        "title": "BaselineProposal",
+        "type": "object"
+      },
       "BausteinCreate": {
         "properties": {
           "category": {
@@ -30224,7 +30234,7 @@
         ]
       },
       "put": {
-        "description": "1:1-Erfassung (GwG Art. 3-6 / FINMA-RS 2016/7 Sorgfaltspflichten) --\nanders als Nationalitaeten/Opt-History keine Liste, sondern genau eine\nZeile pro Kunde. Upsert: legt die Zeile beim ersten Aufruf an, aktualisiert\nsie bei jedem weiteren -- ein PUT-nur-Create haette erzwungen, dass der\nClient vorher weiss, ob schon eine Erfassung existiert.",
+        "description": "1:1-Erfassung (GwG Art. 3-6 / GwV-FINMA Sorgfaltspflichten) --\nanders als Nationalitaeten/Opt-History keine Liste, sondern genau eine\nZeile pro Kunde. Upsert: legt die Zeile beim ersten Aufruf an, aktualisiert\nsie bei jedem weiteren -- ein PUT-nur-Create haette erzwungen, dass der\nClient vorher weiss, ob schon eine Erfassung existiert.",
         "operationId": "upsert_due_diligence_clients__client_id__due_diligence_put",
         "parameters": [
           {
@@ -30282,7 +30292,7 @@
     },
     "/clients/{client_id}/erase": {
       "post": {
-        "description": "DSG Art. 32 -- Loeschungsanspruch. Anonymisiert irreversibel alle\ndirekt identifizierenden Personendaten dieses Kunden (siehe\nservices/client_erasure.py fuer die vollstaendige rechtliche und\ntechnische Begruendung des Umfangs). Admin-only, Pflichtbegruendung\n(schemas.clients.ClientErasureRequest), idempotent-sicher (409 bei\nDoppelaufruf). Die Aktion selbst wird -- wie jede sensible Aktion --\nunveraenderlich im Audit-Log protokolliert (wer hat wann wen aus\nwelchem Grund geloescht).",
+        "description": "Stillgelegt (H7 C-1): Loeschgesuche laufen nur ueber den\nDatenschutz-Workflow ``/privacy/erasure-cases``.\n\nDieser Endpoint hat frueher sofort redigiert -- ohne Pruefung von\nAufbewahrungsfrist, Legal Hold oder aktivem Mandat. Dabei wurden auch\nKYC-Belege (GwG Art. 7 Abs. 3: mindestens 10 Jahre nach Ende der\nGeschaeftsbeziehung) und die Schluessel fuer versiegelte Nachweise\nvernichtet. Ein zweiter Weg zur Vernichtung vor Fristablauf darf nicht\nbestehen. Der Endpoint antwortet deshalb immer mit 409 und verweist auf\nden Workflow (Loeschvorgang eroeffnen -> Entscheid je Nachweisart nach\ngenehmigter Aufbewahrungsmatrix und Legal Hold -> Ausfuehrung). Die\nAblehnung wird im Audit-Log festgehalten; Daten werden nicht veraendert.",
         "operationId": "erase_client_clients__client_id__erase_post",
         "parameters": [
           {
@@ -39408,6 +39418,51 @@
           }
         ],
         "summary": "Propose Policy",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/policies/baseline": {
+      "post": {
+        "description": "H7 C-6: Aufbewahrungsmatrix aus der gesetzlichen Vorlage vorschlagen\n(10 Jahre ab Beziehungsende nach GwG Art. 7 Abs. 3 / OR 127, Vertrag und\nBelege OR 958f). Legt nur PROPOSED-Zeilen an (fehlende Nachweisarten);\nBetreiberangaben im Body, Genehmigung weiterhin im Vier-Augen-Prinzip.",
+        "operationId": "propose_retention_baseline_privacy_policies_baseline_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BaselineProposal"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Propose Retention Baseline",
         "tags": [
           "Datenschutz"
         ]
