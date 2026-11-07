@@ -402,7 +402,7 @@ jobs:
           mkdir -p ci-out
           {
             echo "runner_os=$RUNNER_OS runner_arch=$RUNNER_ARCH image=${ImageOS:-n/a}/${ImageVersion:-n/a}"
-            echo "nproc=$(nproc)"
+            echo "nproc_all=$(nproc --all) (nproc ohne --all folgt OMP_NUM_THREADS=1)"
             grep -m1 'model name' /proc/cpuinfo || true
             grep -m1 MemTotal /proc/meminfo || true
           } | tee ci-out/runner-class.txt
