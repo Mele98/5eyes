@@ -383,12 +383,29 @@ from services.portfolio_engine import (
     generate_target_allocation,
 )
 from services.risk_scoring import profile_for_score_x10
+from services.valuation_clock import bound_valuation_date
 
 FIXTURES_DIR = TESTS_ROOT / "fixtures" / "golden_ch_recommendations"
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+# Fester Bewertungsstichtag ("heute") der Golden-Szenarien. Die Engine bezieht
+# "heute" nur ueber ``services.valuation_clock`` (ausserhalb eines Laufs die
+# Wanduhr), die Zieldaten unten sind relativ zu seinem Kalenderjahr. Mit der
+# Wanduhr waren die Fixtures nur im Kalenderjahr 2026 reproduzierbar: unter
+# simulierter Wanduhr 2027-01-15 ergab bucket3 ``reserve_needed_rappen``
+# 1'237'662 statt 1'235'204. Die eingefrorenen Werte stammen aus 2026, der
+# Stichtag liegt deshalb in 2026 (letztes Neueinfrieren 2026-10-18).
+AS_OF = date(2026, 10, 18)
+
+
+@pytest.fixture(autouse=True)
+def _fixed_valuation_date():
+    with bound_valuation_date(AS_OF):
+        yield
 
 
 @pytest.fixture()
@@ -454,7 +471,7 @@ def _seed_ch_mandate(session_factory, *, suffix: str, score_x10: int) -> tuple[s
     # blosses Umstellen von date.today() im Seeding). So bleiben Seed UND die
     # Kalenderjahr-Achse der Engine (date.today().year) ueber das ganze Jahr
     # und ueber Jahreswechsel hinweg gleich.
-    base_year = date.today().year
+    base_year = AS_OF.year
     pension_start = date(base_year + 5, 6, 30).isoformat()
     pension_end = date(base_year + 30, 6, 30).isoformat()
     wealth_target_date = date(base_year + 10, 6, 30).isoformat()
@@ -571,7 +588,16 @@ def _build_ch_snapshot(session_factory, combo: dict) -> dict:
 
     Siehe Modul-Docstring fuer die vollstaendige Begruendung, welche Felder
     bewusst NICHT enthalten sind (IDs, Zeitstempel, Monte-Carlo-Kennzahlen).
+
+    Bindet selbst den festen Stichtag ``AS_OF``: andere Module (RunContext-
+    Paritaet) rufen diese Funktion direkt auf und vergleichen gegen dieselben
+    Fixtures, ohne die autouse-Fixture dieses Moduls zu erben.
     """
+    with bound_valuation_date(AS_OF):
+        return _build_ch_snapshot_as_of(session_factory, combo)
+
+
+def _build_ch_snapshot_as_of(session_factory, combo: dict) -> dict:
     suffix = combo["name"]
     score_x10 = combo["score_x10"]
     preferences = combo["preferences"]

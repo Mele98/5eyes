@@ -125,6 +125,11 @@ def test_cashflow_projection_empty_client_returns_zeros(session_factory, auth_cl
 
 
 def test_cashflow_projection_segments_one_off_flows(session_factory, auth_client, advisor_user):
+    # Der Endpoint beginnt die Projektion beim laufenden Kalenderjahr
+    # (``date.today().year`` in ``routers/clients.py``). Die Daten sind deshalb
+    # relativ zu diesem Jahr: fest "2026/2028/2029" stimmte nur im Jahr 2026
+    # (unter simulierter Wanduhr 2027-01-15 lag der 3a-Bezug in rows[1]).
+    year0 = datetime.date.today().year
     cid = _make_client(session_factory, advisor_user.id)
     now = _utc_now_iso()
     with session_factory() as s:
@@ -136,8 +141,8 @@ def test_cashflow_projection_segments_one_off_flows(session_factory, auth_client
             amount_rappen=5_000_000,
             frequency="einmalig",
             nature="einmalig",
-            valid_from="2028-01-01",
-            valid_until="2028-01-01",
+            valid_from=f"{year0 + 2}-01-01",
+            valid_until=f"{year0 + 2}-01-01",
             is_active=1,
             created_at=now,
             updated_at=now,
@@ -150,8 +155,8 @@ def test_cashflow_projection_segments_one_off_flows(session_factory, auth_client
             amount_rappen=2_000_000,
             frequency="jährlich",
             nature="wiederkehrend",
-            valid_from="2026-01-01",
-            valid_until="2029-12-31",
+            valid_from=f"{year0}-01-01",
+            valid_until=f"{year0 + 3}-12-31",
             is_active=1,
             created_at=now,
             updated_at=now,
@@ -162,6 +167,7 @@ def test_cashflow_projection_segments_one_off_flows(session_factory, auth_client
 
     assert resp.status_code == 200
     rows = resp.json()["years"]
+    assert [row["year"] for row in rows] == [year0, year0 + 1, year0 + 2, year0 + 3]
     assert rows[0]["recurring_income_rappen"] == 0
     assert rows[0]["capital_inflow_rappen"] == 0
     assert rows[0]["recurring_expense_rappen"] == 2_000_000
