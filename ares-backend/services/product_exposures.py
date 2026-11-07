@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Mapping
 
 logger = logging.getLogger(__name__)
@@ -240,6 +241,163 @@ def currency_exposure_for_product(
     if not result and fallback_currency:
         result = {str(fallback_currency).upper(): 10000}
     return result
+
+
+#: PO-06 (Audit 2026-11) / N-856-1 / N-856-8: Absicherung aus dem Produktnamen.
+#: Wortbasiert: der Name wird in Buchstabenwoerter zerlegt ("CHF-abgesichert"
+#: -> "chf", "abgesichert"; "un-hedged" -> "un", "hedged").
+#: Bewusst nicht "hedge": ein "Hedge Fund" ist keine Absicherung.
+#: N-856-10: "gesichert" allein ist KEIN Marker (meist Kapitalschutz), nur
+#: die eindeutigen Formen zaehlen.
+_HEDGE_MARKER_WORDS = frozenset({
+    "hedged", "abgesichert", "waehrungsgesichert", "währungsgesichert",
+    "waehrungsabgesichert", "währungsabgesichert",
+    "absicherung", "waehrungsabsicherung", "währungsabsicherung",
+})
+#: N-856-10/-12: nur EINDEUTIGE Kapitalschutz-Formen fuehren zum Proxy.
+#: Wortanfaenge allein ("capital", "kapital", "garant" ...) waren zu breit
+#: ("Capitalisation CHF Hedged Acc", "Kapitalmarkt", "Garant Fonds").
+_CAPITAL_PROTECTION_WORD_PREFIXES = (
+    "kapitalschutz", "kapitalgeschützt", "kapitalgeschuetzt", "garantiezertifikat",
+)
+_CAPITAL_WORDS = frozenset({"capital", "kapital"})
+_CAPITAL_PROTECTION_PAIRS = frozenset({
+    ("kapital", "gesichert"), ("capital", "protected"), ("capital", "guaranteed"),
+    ("capital", "protection"),
+})
+_GUARANTEE_WORDS = frozenset({"garantiert", "guaranteed"})
+
+
+def _is_capital_protection(words: list[str]) -> bool:
+    if any(word.startswith(_CAPITAL_PROTECTION_WORD_PREFIXES) for word in words):
+        return True
+    for left, right in zip(words, words[1:]):
+        if (left, right) in _CAPITAL_PROTECTION_PAIRS:
+            return True
+        if (left in _GUARANTEE_WORDS and right in _CAPITAL_WORDS) or (
+            left in _CAPITAL_WORDS and right in _GUARANTEE_WORDS
+        ):
+            return True
+    return False
+#: Zusammengesetzte Negations-/Teilwoerter: immer KEINE volle Absicherung.
+_HEDGE_NEGATED_COMPOUNDS = frozenset({
+    "unhedged", "nonhedged", "ungesichert", "unabgesichert",
+    "teilgesichert", "teilabgesichert", "teilhedged",
+})
+#: N-856-8: Negations-/Teilwoerter im Fenster vor dem Marker. Steht eine
+#: Waehrung dazwischen ("not CHF hedged", "nicht in CHF abgesichert"), gilt
+#: die Negation trotzdem. Teilabsicherung = konservativ wie ungesichert.
+_HEDGE_NEGATION_WORDS = frozenset({
+    "not", "non", "un", "no", "nicht", "ohne", "kein", "keine",
+    "partially", "partial", "teilweise", "teil",
+})
+_HEDGE_NEGATION_WINDOW = 3  # Woerter vor dem Marker
+_HEDGE_TARGET_PREPOSITIONS = frozenset({"to", "in", "into", "nach", "auf"})
+#: ISO-4217-Codes, die als Absicherungswaehrung in Produktnamen vorkommen.
+#: Ein beliebiges Dreibuchstabenwort ("ETF", "IMI") ist keine Waehrung.
+_HEDGE_CURRENCIES = frozenset({
+    "CHF", "EUR", "USD", "GBP", "JPY", "SEK", "NOK", "DKK", "AUD", "CAD",
+    "NZD", "SGD", "HKD", "CNY", "CNH", "PLN", "CZK", "HUF",
+})
+_NAME_WORD_RE = re.compile(r"[a-zäöüß]+")
+_NO_COMPOUND_RE = re.compile(r"\bno-(?=[a-zäöüß])")
+_NO_LOAD_SPACED_RE = re.compile(r"\bno\s+load\b")
+
+#: Herkunft des Waehrungs-Exposures (wird im Depot-Check ausgewiesen).
+CURRENCY_SOURCE_PRODUCT_DATA = "produktdaten"
+CURRENCY_SOURCE_HEDGE_FLAG = "produktdaten_absicherung"
+CURRENCY_SOURCE_HEDGE_NAME = "produktname_absicherung"
+CURRENCY_SOURCE_SUB_CLASS_PROXY = "sub_klassen_proxy"
+CURRENCY_SOURCE_PRODUCT_CURRENCY = "produktwaehrung"
+CURRENCY_SOURCE_UNKNOWN = "unbekannt"
+
+
+def hedge_from_product_name(product_name: str | None, product_type: str | None = None) -> tuple[bool | None, str | None]:
+    """N-856-1/-8: (abgesichert?, Absicherungswaehrung) aus dem Produktnamen.
+
+    ``(False, None)`` bei Negation oder Teilabsicherung (zusammengesetzt wie
+    "unhedged" oder als Wort bis zu drei Woerter vor dem Marker, auch mit
+    Waehrung dazwischen); ``(True, CCY)`` bei Marker mit Waehrung -- eine
+    Zielwaehrung nach dem Marker ("hedged to CHF") hat Vorrang vor einer
+    Waehrung davor ("USD hedged"); ``(True, None)`` bei Marker ohne Waehrung;
+    ``(None, None)`` ohne Hinweis. Die Handelswaehrung zaehlt nie als
+    Absicherungswaehrung.
+    """
+    text = f"{product_name or ''} {product_type or ''}".lower()
+    # N-856-11: "No-Load" (und andere "no-<Wort>"-Komposita) ist keine
+    # Negation -- zusammenziehen, bevor in Woerter zerlegt wird.
+    text = _NO_COMPOUND_RE.sub("no", text)
+    text = _NO_LOAD_SPACED_RE.sub("noload", text)  # N-856-12: "No Load" wie "No-Load"
+    words = _NAME_WORD_RE.findall(text)
+    if any(word in _HEDGE_NEGATED_COMPOUNDS for word in words):
+        return False, None
+    markers = [i for i, word in enumerate(words) if word in _HEDGE_MARKER_WORDS]
+    if not markers:
+        return None, None
+    if _is_capital_protection(words):
+        return None, None  # N-856-10/-12: Kapitalschutz, keine Waehrungsabsicherung
+    for i in markers:
+        if any(word in _HEDGE_NEGATION_WORDS for word in words[max(0, i - _HEDGE_NEGATION_WINDOW):i]):
+            return False, None
+    for i in markers:
+        if i + 2 < len(words) and words[i + 1] in _HEDGE_TARGET_PREPOSITIONS:
+            target = words[i + 2].upper()
+            # N-856-11: "hedged in USD terms" nennt keine Zielwaehrung.
+            if target in _HEDGE_CURRENCIES and (i + 3 >= len(words) or words[i + 3] != "terms"):
+                return True, target
+    for i in markers:
+        for word in reversed(words[max(0, i - 2):i]):
+            if word.upper() in _HEDGE_CURRENCIES:
+                return True, word.upper()
+    return True, None
+
+
+def product_is_currency_hedged(product_name: str | None, product_type: str | None = None) -> bool:
+    """True, wenn der Produktname eine (nicht negierte) Absicherung ausweist."""
+    return hedge_from_product_name(product_name, product_type)[0] is True
+
+
+def currency_exposure_with_source(
+    currency_exposure_json: str | None,
+    sub_asset_class: str | None,
+    *,
+    product_currency: str | None = None,
+    product_name: str | None = None,
+    product_type: str | None = None,
+    is_hedged: bool | None = None,
+    hedge_currency: str | None = None,
+) -> tuple[dict[str, int], str]:
+    """PO-06 / N-856-1: Waehrungs-Exposure eines Produkts samt Herkunft.
+
+    Rangfolge (Dok. 86, Pruefrunde #856):
+      1. gepflegtes ``currency_exposure_json``
+      2. ``is_hedged is True`` (Stammdatenfeld, P1) mit Absicherungswaehrung
+         aus den Stammdaten bzw. dem Namen
+      3. ``is_hedged is False`` -> Proxy, ausdruecklich VOR dem Namensmarker
+      4. nur bei ``is_hedged is None``: Namens-Heuristik (Negation -> Proxy,
+         Marker mit Waehrung -> 100 % dieser Waehrung)
+      5. Sub-Klassen-Proxy (auch fuer "abgesichert, Waehrung unbekannt":
+         im Zweifel konservativ Fremdwaehrung)
+      6. 100 % Produktwaehrung
+    """
+    if currency_exposure_json:
+        explicit = _parse_or_proxy(currency_exposure_json, {}, None)
+        if explicit:
+            return explicit, CURRENCY_SOURCE_PRODUCT_DATA
+    name_hedged, name_ccy = hedge_from_product_name(product_name, product_type)
+    if is_hedged is True:
+        ccy = str(hedge_currency or "").strip().upper() or name_ccy
+        if ccy:
+            return {ccy: 10000}, CURRENCY_SOURCE_HEDGE_FLAG
+    elif is_hedged is None and name_hedged is True and name_ccy:
+        return {name_ccy: 10000}, CURRENCY_SOURCE_HEDGE_NAME
+    proxy = _parse_or_proxy(None, _CURRENCY_PROXIES_BY_SUB_CLASS, sub_asset_class)
+    if proxy:
+        return proxy, CURRENCY_SOURCE_SUB_CLASS_PROXY
+    currency = str(product_currency or "").strip().upper()
+    if currency:
+        return {currency: 10000}, CURRENCY_SOURCE_PRODUCT_CURRENCY
+    return {}, CURRENCY_SOURCE_UNKNOWN
 
 
 def aggregate_exposures(
