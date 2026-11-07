@@ -17,6 +17,7 @@ from services.pdf.components.static_texts import (
     ANLAGEUNIVERSUM_TITLE,
     DISCLAIMER_TEXT,
     DISCLAIMER_TITLE,
+    disclaimer_paragraphs,
     INVESTITIONSANSATZ_TEXT,
     INVESTITIONSANSATZ_TITLE,
     KENNZAHLEN_DEFINITIONS,
@@ -85,8 +86,16 @@ def make_kennzahlen_erlaeuterungen_section() -> list:
     return flowables
 
 
-def make_disclaimer_section() -> list:
-    return _make_text_section(DISCLAIMER_TITLE, DISCLAIMER_TEXT, icon="ℹ️", small=True)
+def make_disclaimer_section(
+    mandate_type: str | None = None, jurisdiction: str | None = None,
+) -> list:
+    """H7 C-3: Disclaimer je Mandatstyp und Jurisdiktion (ohne Angaben:
+    neutraler CH-Standard ``DISCLAIMER_TEXT``)."""
+    if mandate_type is None and jurisdiction is None:
+        paragraphs = DISCLAIMER_TEXT
+    else:
+        paragraphs = disclaimer_paragraphs(mandate_type, jurisdiction)
+    return _make_text_section(DISCLAIMER_TITLE, paragraphs, icon="ℹ️", small=True)
 
 
 # ---- Helpers ----
