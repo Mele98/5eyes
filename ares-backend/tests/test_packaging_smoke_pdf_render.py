@@ -585,3 +585,288 @@ def test_c_853_02_real_ares_pdfs_pass():
     for label, pdf in pdfs.items():
         summary = smoke.check_pdf_bytes(pdf, label, ())
         assert summary.startswith(label) and "verwendete Font-Resource(n) eingebettet" in summary
+
+
+# --- N-853-6/7 (Pruefrunde 2026-11-07): eindeutige Orte, alle Inhaltstraeger ---
+def _n(name: str):
+    from pypdf.generic import NameObject
+
+    return NameObject(name)
+
+
+def _helvetica(writer):
+    from pypdf.generic import DictionaryObject
+
+    return writer._add_object(DictionaryObject({
+        _n("/Type"): _n("/Font"), _n("/Subtype"): _n("/Type1"), _n("/BaseFont"): _n("/Helvetica"),
+    }))
+
+
+def _stream(writer, content: bytes, entries: dict | None = None):
+    from pypdf.generic import DecodedStreamObject
+
+    stream = DecodedStreamObject()
+    stream.set_data(content)
+    for key, value in (entries or {}).items():
+        stream[_n(key)] = value
+    return writer._add_object(stream)
+
+
+def _font_resources(key: str, ref):
+    from pypdf.generic import DictionaryObject
+
+    return DictionaryObject({_n("/Font"): DictionaryObject({_n(key): ref})})
+
+
+def _text(key: str) -> bytes:
+    return f"BT {key} 6 Tf 10 10 Td (Text) Tj ET".encode()
+
+
+def _base_writer():
+    """Echtes ReportLab-PDF (Inter + Cormorant eingebettet) mit eigener Seiten-
+    /Resources; liefert (writer, Seite, Font-Dict, eingebettete Inter-Resource)."""
+    writer = _writer(_pdf())
+    page = writer.pages[0]
+    fonts = _own_font_dict(page)
+    inter = fonts.raw_get(_key_for(fonts, "Inter"))
+    return writer, page, fonts, inter
+
+
+def _form(writer, content: bytes, resources):
+    from pypdf.generic import ArrayObject, FloatObject
+
+    return _stream(writer, content, {
+        "/Type": _n("/XObject"), "/Subtype": _n("/Form"),
+        "/BBox": ArrayObject([FloatObject(0), FloatObject(0), FloatObject(100), FloatObject(100)]),
+        "/Resources": resources,
+    })
+
+
+def _add_annotation(writer, page, appearance: dict, **extra):
+    from pypdf.generic import ArrayObject, DictionaryObject, FloatObject
+
+    annot = DictionaryObject({
+        _n("/Type"): _n("/Annot"), _n("/Subtype"): _n(extra.pop("subtype", "/Square")),
+        _n("/Rect"): ArrayObject([FloatObject(0), FloatObject(0), FloatObject(10), FloatObject(10)]),
+    })
+    if appearance:
+        annot[_n("/AP")] = DictionaryObject({_n(k): v for k, v in appearance.items()})
+    for key, value in extra.items():
+        annot[_n("/" + key)] = value
+    annots = page.get("/Annots")
+    annots = ArrayObject(list(annots)) if annots is not None else ArrayObject()
+    annots.append(writer._add_object(annot))
+    page[_n("/Annots")] = annots
+
+
+def _check(writer, required=(FOOTER,)):
+    return smoke.check_pdf_bytes(_write(writer), "x.pdf", required)
+
+
+def test_n_853_6_second_annotation_with_same_key_is_checked():
+    writer, page, _, inter = _base_writer()
+    _add_annotation(writer, page, {"/N": _form(writer, _text("/FA"), _font_resources("/FA", inter))})
+    assert "1 Seite(n)" in _check(writer)  # Positivkontrolle: Inter eingebettet
+    helv = _helvetica(writer)
+    _add_annotation(writer, page, {"/N": _form(writer, _text("/FA"), _font_resources("/FA", helv))})
+    with pytest.raises(smoke.SmokeError, match=r"Seite 1 Annotation\[1\]/N /FA Helvetica: ohne /FontDescriptor"):
+        _check(writer)
+
+
+def test_n_853_6_appearance_state_dict_checks_every_state():
+    from pypdf.generic import DictionaryObject
+
+    writer, page, _, inter = _base_writer()
+    states = DictionaryObject({
+        _n("/On"): _form(writer, _text("/FA"), _font_resources("/FA", inter)),
+        _n("/Off"): _form(writer, _text("/FA"), _font_resources("/FA", _helvetica(writer))),
+    })
+    _add_annotation(writer, page, {"/N": states})
+    with pytest.raises(smoke.SmokeError, match=r"Annotation\[0\]/N/Off /FA Helvetica"):
+        _check(writer)
+
+
+@pytest.mark.parametrize("ap_key", ["/D", "/R"])
+def test_n_853_7_down_and_rollover_appearances_are_checked(ap_key):
+    writer, page, _, inter = _base_writer()
+    _add_annotation(writer, page, {
+        "/N": _form(writer, _text("/FA"), _font_resources("/FA", inter)),
+        ap_key: _form(writer, _text("/FA"), _font_resources("/FA", _helvetica(writer))),
+    })
+    with pytest.raises(smoke.SmokeError, match=rf"Annotation\[0\]{ap_key} /FA Helvetica"):
+        _check(writer)
+
+
+def _tiling_pattern(writer, font_ref):
+    from pypdf.generic import ArrayObject, FloatObject, NumberObject
+
+    return _stream(writer, _text("/FP"), {
+        "/Type": _n("/Pattern"), "/PatternType": NumberObject(1), "/PaintType": NumberObject(1),
+        "/TilingType": NumberObject(1),
+        "/BBox": ArrayObject([FloatObject(0), FloatObject(0), FloatObject(50), FloatObject(50)]),
+        "/XStep": NumberObject(50), "/YStep": NumberObject(50),
+        "/Resources": _font_resources("/FP", font_ref),
+    })
+
+
+@pytest.mark.parametrize("embedded", [True, False], ids=["inter", "helvetica"])
+def test_n_853_7_text_in_tiling_pattern_is_checked(embedded):
+    from pypdf.generic import DictionaryObject
+
+    writer, page, _, inter = _base_writer()
+    pattern = _tiling_pattern(writer, inter if embedded else _helvetica(writer))
+    page["/Resources"][_n("/Pattern")] = DictionaryObject({_n("/P0"): pattern})
+    _set_contents(writer, page, page.get_contents().get_data() + b"\n/Pattern cs /P0 scn 0 0 100 100 re f\n")
+    if embedded:
+        assert "1 Seite(n)" in _check(writer)
+    else:
+        with pytest.raises(smoke.SmokeError, match=r"Seite>Pattern/P0 /FP Helvetica"):
+            _check(writer)
+
+
+def test_n_853_7_text_in_smask_group_is_checked():
+    from pypdf.generic import DictionaryObject
+
+    writer, page, _, _ = _base_writer()
+    group = _form(writer, _text("/FS"), _font_resources("/FS", _helvetica(writer)))
+    smask = DictionaryObject({_n("/Type"): _n("/Mask"), _n("/S"): _n("/Luminosity"), _n("/G"): group})
+    page["/Resources"][_n("/ExtGState")] = DictionaryObject({
+        _n("/GS0"): DictionaryObject({_n("/Type"): _n("/ExtGState"), _n("/SMask"): smask})})
+    _set_contents(writer, page, page.get_contents().get_data() + b"\nq /GS0 gs 0 0 10 10 re f Q\n")
+    with pytest.raises(smoke.SmokeError, match=r"Seite>SMask/GS0 /FS Helvetica"):
+        _check(writer)
+
+
+def _type3(writer, inter, charproc: bytes, *, copied_font_file: bool):
+    """Type3-Font /T3 (Glyph 'a'); optional mit aus Inter kopiertem /FontFile2
+    im Descriptor -- der darf nicht als Einbettung zaehlen."""
+    from pypdf.generic import ArrayObject, DictionaryObject, FloatObject, NumberObject
+
+    t3 = DictionaryObject({
+        _n("/Type"): _n("/Font"), _n("/Subtype"): _n("/Type3"),
+        _n("/FontBBox"): ArrayObject([FloatObject(0), FloatObject(0), FloatObject(1), FloatObject(1)]),
+        _n("/FontMatrix"): ArrayObject([FloatObject(0.001), FloatObject(0), FloatObject(0),
+                                        FloatObject(0.001), FloatObject(0), FloatObject(0)]),
+        _n("/CharProcs"): DictionaryObject({_n("/a"): _stream(writer, charproc)}),
+        _n("/Encoding"): DictionaryObject({_n("/Type"): _n("/Encoding"),
+                                           _n("/Differences"): ArrayObject([NumberObject(97), _n("/a")])}),
+        _n("/FirstChar"): NumberObject(97), _n("/LastChar"): NumberObject(97),
+        _n("/Widths"): ArrayObject([NumberObject(500)]),
+        _n("/Resources"): _font_resources("/FH", _helvetica(writer)),
+    })
+    if copied_font_file:
+        t3[_n("/FontDescriptor")] = inter.get_object().raw_get("/FontDescriptor")
+    return writer._add_object(t3)
+
+
+def test_n_853_7_type3_charproc_text_must_use_embedded_font():
+    writer, page, fonts, inter = _base_writer()
+    fonts[_n("/T3")] = _type3(writer, inter, b"500 0 d0 BT /FH 6 Tf (x) Tj ET", copied_font_file=True)
+    _set_contents(writer, page, page.get_contents().get_data() + b"\nBT /T3 12 Tf 10 10 Td (a) Tj ET\n")
+    with pytest.raises(smoke.SmokeError, match=r"Seite>/T3/CharProc/a /FH Helvetica: ohne /FontDescriptor"):
+        _check(writer)
+
+
+def test_n_853_7_type3_with_path_only_charprocs_is_embedded_but_no_editorial_proof():
+    import pypdf
+
+    writer, page, fonts, inter = _base_writer()
+    fonts[_n("/T3")] = _type3(writer, inter, b"500 0 0 0 500 500 d1 0 0 500 500 re f",
+                              copied_font_file=True)
+    _set_contents(writer, page, page.get_contents().get_data() + b"\nBT /T3 12 Tf 10 10 Td (a) Tj ET\n")
+    pdf = _write(writer)
+    assert "1 Seite(n)" in smoke.check_pdf_bytes(pdf, "x.pdf", (FOOTER,))
+    used, _ = smoke._font_resource_usage(pypdf.PdfReader(io.BytesIO(pdf)).pages)
+    assert [u.state for u in used if u.key == "/T3"] == ["eingebettet (Type3, 1 CharProcs)"]
+
+
+def test_n_853_7_type3_does_not_prove_editorial_embedding():
+    """Ein Type3 mit Editorial-Namen und kopiertem /FontFile2 ersetzt nicht
+    den eingebetteten Inter-Font."""
+    writer = _writer(_pdf(fonts=("CormorantGaramond",)))
+    page = writer.pages[0]
+    fonts = _own_font_dict(page)
+    inter_fonts = _writer(_pdf(fonts=("Inter",))).pages[0]["/Resources"]["/Font"]
+    inter = writer._add_object(inter_fonts[_key_for(inter_fonts, "Inter")].get_object().clone(writer))
+    t3 = _type3(writer, inter, b"500 0 0 0 500 500 d1 0 0 500 500 re f", copied_font_file=True)
+    t3.get_object()[_n("/BaseFont")] = inter.get_object()["/BaseFont"]
+    fonts[_n("/T3")] = t3
+    _set_contents(writer, page, page.get_contents().get_data() + b"\nBT /T3 12 Tf 10 10 Td (a) Tj ET\n")
+    with pytest.raises(smoke.SmokeError, match="Editorial-Font Inter nicht eingebettet"):
+        smoke.check_pdf_bytes(_write(writer), "x.pdf", ())
+
+
+def test_n_853_7_font_set_via_extgstate_is_checked():
+    from pypdf.generic import ArrayObject, DictionaryObject, NumberObject
+
+    writer, page, _, _ = _base_writer()
+    page["/Resources"][_n("/ExtGState")] = DictionaryObject({_n("/GF"): DictionaryObject({
+        _n("/Type"): _n("/ExtGState"), _n("/Font"): ArrayObject([_helvetica(writer), NumberObject(6)])})})
+    _set_contents(writer, page, page.get_contents().get_data() + b"\nBT /GF gs 10 10 Td (x) Tj ET\n")
+    with pytest.raises(smoke.SmokeError, match=r"Seite /GF/Font Helvetica"):
+        _check(writer)
+
+
+def _postscript_xobject(writer, page):
+    from pypdf.generic import DictionaryObject
+
+    page["/Resources"][_n("/XObject")] = DictionaryObject({
+        _n("/PS0"): _stream(writer, b"%!", {"/Type": _n("/XObject"), "/Subtype": _n("/PS")})})
+    _set_contents(writer, page, page.get_contents().get_data() + b"\n/PS0 Do\n")
+
+
+def _shading_only_pattern_type(kind):
+    def mutate(writer, page):
+        from pypdf.generic import DictionaryObject, NumberObject
+
+        page["/Resources"][_n("/Pattern")] = DictionaryObject({_n("/P9"): DictionaryObject({
+            _n("/Type"): _n("/Pattern"), _n("/PatternType"): NumberObject(kind)})})
+    return mutate
+
+
+def _smask_without_group(writer, page):
+    from pypdf.generic import DictionaryObject
+
+    page["/Resources"][_n("/ExtGState")] = DictionaryObject({_n("/GS0"): DictionaryObject({
+        _n("/SMask"): DictionaryObject({_n("/S"): _n("/Luminosity")})})})
+
+
+def _widget_without_appearance(writer, page):
+    from pypdf.generic import TextStringObject
+
+    _add_annotation(writer, page, {}, subtype="/Widget", DA=TextStringObject("/Helv 0 Tf 0 g"))
+
+
+def _need_appearances(writer, page):
+    from pypdf.generic import BooleanObject, DictionaryObject
+
+    writer._root_object[_n("/AcroForm")] = DictionaryObject({_n("/NeedAppearances"): BooleanObject(True)})
+
+
+def _q_underflow(writer, page):
+    _set_contents(writer, page, page.get_contents().get_data() + b"\nQ\n")
+
+
+@pytest.mark.parametrize(
+    "mutate,needle",
+    [
+        (_postscript_xobject, r"XObject /PS0 nicht auswertbar \(Subtype /PS"),
+        (_shading_only_pattern_type(3), r"Pattern /P9 nicht auswertbar \(PatternType 3"),
+        (_smask_without_group, r"/SMask ohne Gruppe /G"),
+        (_widget_without_appearance, r"Annotation\[0\] auf Seite 1: Text ohne Erscheinungsbild"),
+        (_need_appearances, r"/NeedAppearances"),
+        (_q_underflow, r"Q ohne q"),
+    ],
+    ids=["ps_xobject", "pattern_typ_3", "smask_ohne_g", "widget_ohne_ap", "need_appearances", "q_unterlauf"],
+)
+def test_n_853_7_unevaluable_content_carriers_fail_closed(mutate, needle):
+    writer, page, _, _ = _base_writer()
+    mutate(writer, page)
+    with pytest.raises(smoke.SmokeError, match=needle):
+        _check(writer)
+
+
+def test_n_853_7_shading_pattern_is_not_a_text_carrier():
+    writer, page, _, _ = _base_writer()
+    _shading_only_pattern_type(2)(writer, page)
+    assert "1 Seite(n)" in _check(writer)
