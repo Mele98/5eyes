@@ -192,7 +192,7 @@ def test_compute_candidate_source_detail_has_no_per_point_dates_or_pe_proxy_asof
     monkeypatch.setattr(dp, "_fetch_pe_ticker_info", lambda ticker: {"trailingPE": 22.0})
 
     with session_factory() as db:
-        cma = dp.compute_cma_candidate_for_jurisdiction(db, "DE", "2026-07-30")
+        cma = dp.compute_cma_candidate_for_jurisdiction(db, "DE", "2026-07-30", created_by_user_id="test-user")
         db.commit()
 
         detail = json.loads(cma.source_detail)

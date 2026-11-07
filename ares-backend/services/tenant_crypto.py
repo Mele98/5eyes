@@ -12,17 +12,31 @@ callers use the plaintext DEK through these helpers.
 from __future__ import annotations
 
 import base64
-import hashlib
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from config import MISSING_TENANT_MASTER_KEK_MESSAGE, settings, tenant_master_kek_problem
+from config import (
+    MISSING_TENANT_MASTER_KEK_MESSAGE,
+    TENANT_KEK_KDF_ITERATIONS,
+    TENANT_KEK_KDF_SALT,
+    effective_tenant_master_kek,
+    kek_is_weak_passphrase,
+    settings,
+    tenant_master_kek_problem,
+)
 from models.tenant import Tenant
+from services.tenant_context import is_postgres_bind, operator_bypass
 
 
 class TenantCryptoError(RuntimeError):
     pass
+
+
+class KekRewrapNotNeeded(TenantCryptoError):
+    """N-870-13: Die Quell-KEK ist ein Fernet-Key oder eine starke Passphrase;
+    der Offline-Rewrap ist nur fuer schwache Bestands-Passphrasen gedacht."""
 
 
 def _fernet_class():
@@ -44,8 +58,9 @@ def _now_iso() -> str:
 # abgeleiteter KEK reproduzierbar ist. Den Salt des vorherigen Vertrags kennt
 # nur der externe Einmal-Migrator, der Bestands-DEKs unter einen v2-KEK
 # umverpackt (Rewrap) und dabei tenants.kek_version auf 2 setzt.
-_KEK_KDF_SALT = b"ares.tenant.kek.pbkdf2.v2"
-_KEK_KDF_ITERATIONS = 200_000
+# Quelle: config.TENANT_KEK_KDF_* (dieselbe Ableitung prueft die Startpruefung).
+_KEK_KDF_SALT = TENANT_KEK_KDF_SALT
+_KEK_KDF_ITERATIONS = TENANT_KEK_KDF_ITERATIONS
 
 # Generation der Master-KEK (Spalte tenants.kek_version), unter der neue DEKs
 # verpackt werden. Ein DEK mit anderer Generation wird nie entpackt: er ist
@@ -75,19 +90,14 @@ def _resolve_master_kek(master_kek: str | bytes | None = None) -> bytes:
         raw_bytes = raw.encode("utf-8")
     else:
         raw_bytes = raw
-    Fernet, _ = _fernet_class()
-    try:
-        Fernet(raw_bytes)
-        return raw_bytes
-    except Exception:
-        # Passphrase-KEK (kein gueltiger Fernet-Key): PBKDF2-HMAC-SHA256 mit
-        # hohem Work-Factor (Brute-Force-Haertung) und dem stabilen v2-Salt --
-        # deterministische Re-Ableitung ist noetig, damit verpackte DEKs
-        # entpackbar bleiben.
-        derived = hashlib.pbkdf2_hmac(
-            "sha256", raw_bytes, _KEK_KDF_SALT, _KEK_KDF_ITERATIONS
-        )
-        return base64.urlsafe_b64encode(derived)
+    _fernet_class()  # klare TenantCryptoError, falls cryptography fehlt
+    # Gueltiger Fernet-Key unveraendert; Passphrase-KEK per PBKDF2-HMAC-SHA256
+    # mit hohem Work-Factor und dem stabilen v2-Salt -- deterministische
+    # Re-Ableitung ist noetig, damit verpackte DEKs entpackbar bleiben. Die
+    # Funktion liegt in config, damit die Startpruefung dieselbe Ableitung nutzt.
+    return effective_tenant_master_kek(
+        raw_bytes, salt=_KEK_KDF_SALT, iterations=_KEK_KDF_ITERATIONS,
+    )
 
 
 def _master_fernet(master_kek: str | bytes | None = None):
@@ -140,7 +150,6 @@ def _provision_tenant_dek_committed(
     frische Session laeuft auf DERSELBEN Engine wie der Aufrufer (db.get_bind()).
     """
     from sqlalchemy.orm import Session as _SASession
-    from services.tenant_context import is_postgres_bind
 
     session = _SASession(bind=db.get_bind())
     try:
@@ -238,3 +247,100 @@ def decrypt_for_tenant(
         )
     except InvalidToken as exc:
         raise TenantCryptoError("Tenant-Ciphertext konnte nicht entschluesselt werden") from exc
+
+
+@dataclass(frozen=True)
+class KekRewrapResult:
+    """Ergebnis des Rewraps, ohne Schluesselmaterial."""
+
+    count: int
+    tenant_ids: tuple[str, ...]
+
+
+def rewrap_tenant_deks_to_master_kek(
+    db: Session,
+    *,
+    source_kek: str | bytes,
+    target_kek: str | bytes,
+) -> KekRewrapResult:
+    """N-870-6 (2026-11-05): Offline-Rewrap aller Tenant-DEKs von der bisherigen
+    Master-KEK (``source_kek``) auf einen neuen Fernet-Key (``target_kek``).
+
+    Fuer Bestandsinstallationen, deren Passphrase-KEK allein an der
+    Staerkeregel scheitert (zu kurz, zu wenig Vielfalt): Ares startet damit
+    nicht mehr, die DEKs sind aber unveraendert. Die Quelle darf hier deshalb
+    die Staerkeregel verletzen; Platzhalter, Vorlagenwerte und oeffentliche
+    Ableitungen bleiben auch als Quelle abgelehnt (fail-closed). Das Ziel muss
+    ein gueltiger Fernet-Key sein und die volle Pruefung bestehen.
+
+    Die DEKs selbst bleiben gleich (kein Re-Encrypt der Nutzdaten noetig); nur
+    ``tenants.encrypted_dek`` wird neu verpackt und vor dem Schreiben gegen das
+    Ziel rueckgeprueft. Alles in der Transaktion des Aufrufers: der Aufrufer
+    committet; jeder Fehler laesst den Bestand unveraendert. ``updated_at``
+    der umverpackten Tenants wird gesetzt; ``dek_rotated_at`` bleibt, denn
+    der DEK selbst ist unveraendert. Den Audit-Eintrag schreibt der Aufrufer
+    in derselben Transaktion (scripts/rewrap_tenant_master_kek.py, N-870-10).
+    Rueckgabe: Anzahl und IDs der umverpackten Tenants. Keine Meldung nennt
+    einen Schluessel."""
+    Fernet, InvalidToken = _fernet_class()
+    secret = str(getattr(settings, "secret_key", "") or "")
+    problem = tenant_master_kek_problem(
+        source_kek, secret_key=secret, enforce_passphrase_strength=False,
+    )
+    if problem:
+        raise TenantCryptoError(f"Quell-KEK abgelehnt: {problem}")
+    if not kek_is_weak_passphrase(source_kek):
+        # N-870-13: Eine gueltige (Fernet- oder starke) Quelle startet ohnehin.
+        # Ein Rewrap waere hier nur ein KEK-Wechsel -- und bei einer Desktop-
+        # Installation liefen DB und DPAPI-Ablage danach auseinander.
+        raise KekRewrapNotNeeded(
+            "Quell-KEK ist ein Fernet-Key oder eine starke Passphrase: kein Rewrap "
+            "noetig. Das Werkzeug ist nur fuer Bestands-Passphrasen gedacht, die an "
+            "der Staerkeregel scheitern."
+        )
+    problem = tenant_master_kek_problem(target_kek, secret_key=secret)
+    if problem:
+        raise TenantCryptoError(f"Ziel-KEK abgelehnt: {problem}")
+    source_bytes = source_kek.encode("utf-8") if isinstance(source_kek, str) else bytes(source_kek)
+    target_bytes = target_kek.encode("utf-8") if isinstance(target_kek, str) else bytes(target_kek)
+    if effective_tenant_master_kek(target_bytes.strip()) != target_bytes.strip():
+        raise TenantCryptoError(
+            "Ziel-KEK abgelehnt: fuer den Rewrap ist ein Fernet-Key verlangt "
+            "(Fernet.generate_key()), keine Passphrase."
+        )
+    source_key = effective_tenant_master_kek(
+        source_bytes.strip(), salt=_KEK_KDF_SALT, iterations=_KEK_KDF_ITERATIONS,
+    )
+    target_key = target_bytes.strip()
+    if base64.urlsafe_b64decode(source_key) == base64.urlsafe_b64decode(target_key):
+        raise TenantCryptoError("Ziel-KEK abgelehnt: identisch mit der Quell-KEK.")
+    source_fernet = Fernet(source_key)
+    target_fernet = Fernet(target_key)
+
+    with operator_bypass(db):
+        tenants = db.query(Tenant).filter(Tenant.encrypted_dek.isnot(None)).all()
+        # Erst alles entpacken und neu verpacken, dann schreiben: ein Fehler bei
+        # irgendeinem Tenant aendert keinen einzigen.
+        planned: list[tuple[Tenant, str]] = []
+        for tenant in tenants:
+            _require_current_kek_version(tenant)
+            try:
+                dek = source_fernet.decrypt(str(tenant.encrypted_dek).encode("utf-8"))
+            except InvalidToken as exc:
+                raise TenantCryptoError(
+                    "Tenant-DEK kann mit der Quell-KEK nicht entschluesselt werden; "
+                    "kein DEK wurde geaendert."
+                ) from exc
+            rewrapped = target_fernet.encrypt(dek)
+            if target_fernet.decrypt(rewrapped) != dek:  # pragma: no cover - Fernet-Vertrag
+                raise TenantCryptoError("Rewrap-Rueckpruefung fehlgeschlagen; kein DEK wurde geaendert.")
+            planned.append((tenant, rewrapped.decode("utf-8")))
+        now = _now_iso()
+        for tenant, encrypted in planned:
+            tenant.encrypted_dek = encrypted
+            tenant.updated_at = now
+        db.flush()
+    return KekRewrapResult(
+        count=len(planned),
+        tenant_ids=tuple(str(tenant.id) for tenant, _ in planned),
+    )

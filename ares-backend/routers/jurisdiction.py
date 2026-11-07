@@ -272,7 +272,9 @@ def compute_cma_candidate(
             detail="CH nutzt die Kapitalmarktdaten-Pipeline nicht (CMA wird manuell/IC gepflegt).",
         )
     try:
-        cma = compute_cma_candidate_for_jurisdiction(db, code, date.today().isoformat())
+        cma = compute_cma_candidate_for_jurisdiction(
+            db, code, date.today().isoformat(), created_by_user_id=current_user.id,
+        )
     except (NoYieldCurveSourceConfiguredError, InsufficientYieldCurveDataError) as exc:
         # Harte Vorgabe: NIEMALS eine erfundene Zahl als Fallback -- der
         # Client bekommt die genaue Fehlerursache, kein generisches 500.
