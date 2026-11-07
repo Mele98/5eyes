@@ -387,6 +387,27 @@ jobs:
             > ci-out/selection/wallclock.txt
           tail -n 3 ci-out/selection/wallclock.txt
 
+      # F17 (Codex-Entscheid Runde 3, 2026-11-07): definierte Runnerklasse der
+      # Laufzeit-Sentinels = GitHub-gehosteter Standard-Runner ubuntu-latest
+      # (x64; oeffentliches Repo: 4 vCPU / 16 GB laut GitHub-Dokumentation).
+      # Die tatsaechliche Hardware jedes Laufs wird hier festgehalten, damit
+      # Messwerte (JUnit-Property elapsed_ms) vergleichbar bleiben. Kein
+      # Rerun: ein roter Erstlauf bleibt rot (Guard:
+      # tests/test_f17_foundation_runtime_split.py). Ob ein Laufzeitvertrag
+      # (z.B. 15 s Foundation) hart bleibt, entscheidet die Messung auf der
+      # freigegebenen Zielhardware.
+      - name: Record runner class
+        working-directory: ares-backend
+        run: |
+          mkdir -p ci-out
+          {
+            echo "runner_os=$RUNNER_OS runner_arch=$RUNNER_ARCH image=${ImageOS:-n/a}/${ImageVersion:-n/a}"
+            echo "nproc_all=$(nproc --all) (nproc ohne --all folgt OMP_NUM_THREADS=1)"
+            grep -m1 'model name' /proc/cpuinfo || true
+            grep -m1 MemTotal /proc/meminfo || true
+          } | tee ci-out/runner-class.txt
+          { echo '### Wallclock-Runnerklasse'; echo '```'; cat ci-out/runner-class.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Run wallclock-budget tests serially
         working-directory: ares-backend
         run: |

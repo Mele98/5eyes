@@ -45,7 +45,8 @@ def test_separate_backup_dir_does_not_warn(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "login_rate_limit_enabled", True)
     monkeypatch.setattr(settings, "secret_key", "not-the-default")
 
-    payload = build_compliance_status()
+    # F6: 'ok' setzt zusaetzlich eine bestaetigte Audit-Kette voraus.
+    payload = build_compliance_status(audit_verification={"state": "ok", "integrity_confirmed": True})
 
     assert payload["controls"]["backups_colocated_with_db"] is False
     assert not any("selben Verzeichnis" in w for w in payload["warnings"])

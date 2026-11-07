@@ -364,10 +364,14 @@ def test_startup_check_never_blocks_on_error(caplog):
 
 
 def test_startup_check_skips_above_row_limit(session_local, caplog):
+    # F6: ueber der Grenze keine SYNCHRONE Pruefung mehr -- die Vollpruefung
+    # geht an den Hintergrund (hier abgefangen, nicht ausgefuehrt).
     _log_n(session_local, 3)
+    jobs: list = []
     with caplog.at_level(logging.WARNING, logger="services.audit"):
-        assert run_startup_audit_chain_check(session_local, max_rows=2) is None
+        assert run_startup_audit_chain_check(session_local, max_rows=2, background_runner=jobs.append) is None
     assert any("uebersprungen" in r.getMessage() for r in caplog.records)
+    assert len(jobs) == 1
 
 
 def test_lifespan_runs_startup_check_after_init_db():

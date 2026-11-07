@@ -105,11 +105,15 @@ def main() -> int:
         if args.retain_days is not None
         else settings.backup_retain_days
     )
+    # F4: Manifest mit Kettenkopf + Bestandssiegel des Snapshots.
+    from services.audit import backup_snapshot_anchor
+
     result = backup_database(
         target_dir=target,
         source_db_path=source,
         retain_days=retain,
         keep_minimum=settings.backup_keep_minimum,
+        snapshot_anchor=backup_snapshot_anchor,
     )
     print(
         f"BACKUP ok -> {result.path} "
