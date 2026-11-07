@@ -100,21 +100,39 @@ INTRO_TEXT = (
 INFORMATION_TEXT = (
     "Information: Die Angabe beschreibt Ihren Wunsch. Sie ist keine Aussage "
     "über Eigenschaften der empfohlenen Produkte oder des Portfolios. Ein "
-    "Abgleich Ihrer Präferenz mit den empfohlenen Produkten findet heute noch "
-    "nicht statt; welche Angaben im Portfolio nicht berücksichtigt werden "
-    "können, steht im Beratungsprotokoll."
+    "Abgleich der Merkmale (SDGs bzw. ESG-Faktoren) mit den empfohlenen "
+    "Produkten findet heute noch nicht statt. Ausschlusswünsche werden bei der "
+    "Produktauswahl berücksichtigt, soweit im Beratungsprotokoll beschrieben."
 )
 HARD_EXCLUSION_LOCKED_NOTE = (
     "Harte, am Produkt belegte Ausschlüsse (inklusive Durchleuchtung breit "
     "diversifizierter Fonds) sind noch nicht verfügbar und können nicht "
-    "vereinbart werden. Erfasste Ausschlusswünsche wirken als Vorgabe für die "
-    "Strategiebausteine."
+    "vereinbart werden. Erfasste Ausschlusswünsche gelten als Vorgabe für die "
+    "Produktauswahl."
 )
+# N-888-05 (Formulierungsvorschlag Dok. 86): Quelle der Themenzuordnung =
+# Produktkatalog der Firma, keine internen Begriffe. NUR ausgeben, wenn die
+# aktuelle Anlagestrategie die Ausschluesse nachweislich umsetzt (N-888-01);
+# sonst EXCLUSION_DEVIATION_TEXT bzw. EXCLUSION_NO_STRATEGY_TEXT.
 EXCLUSION_LIMIT_TEXT = (
-    "Ausschlusswünsche: Produkte, die als Themenprodukt klassifiziert sind, "
-    "werden nicht empfohlen. Breit diversifizierte Fonds und ETFs werden noch "
-    "nicht durchleuchtet und können Titel dieser Themen enthalten. Ein am "
-    "Produkt belegter harter Ausschluss ist noch nicht verfügbar."
+    "Ausschlusswünsche: Produkte, die im Produktkatalog der Firma einem dieser "
+    "Themen zugeordnet sind (z. B. Themenfonds), werden bei der Produktauswahl "
+    "nicht verwendet. Die Zuordnung beruht auf Katalogangaben der Firma, nicht "
+    "auf Daten eines ESG-Datenanbieters. Breit diversifizierte Fonds und ETFs "
+    "werden nicht durchleuchtet und können Titel dieser Themen enthalten."
+)
+EXCLUSION_DEVIATION_TEXT = (
+    "Ausschlusswünsche: Die aktuelle Anlagestrategie berücksichtigt die "
+    "Ausschlusswünsche ({labels}) noch nicht. Sie darf so weder empfohlen "
+    "noch umgesetzt werden und ist mit den Ausschlüssen neu zu berechnen."
+)
+EXCLUSION_NO_STRATEGY_TEXT = (
+    "Ausschlusswünsche: Es ist noch keine Anlagestrategie berechnet. Die "
+    "Ausschlusswünsche sind bei der Berechnung und Produktauswahl einzuhalten."
+)
+WAIVER_VOID_TEXT = (
+    "Ein dokumentierter Kundenverzicht ist unwirksam, weil das Mandat keine "
+    "Anlageberatung ist; die Ausschlusswünsche gelten vollständig."
 )
 NO_RISK_EFFECT_TEXT = "Die Nachhaltigkeitspräferenz verändert das Risikoprofil nicht."
 
@@ -384,13 +402,23 @@ def customer_text_claim_hits(text: str, claim_labels) -> list:
     return [label for label in claim_labels if str(label).lower() in lowered]
 
 
-def limit_texts(profile_code, exclusions) -> list:
-    """Protokoll/Ergebnis: was im Portfolio heute nicht beruecksichtigt wird."""
+def limit_texts(profile_code, exclusions, floor_status=None) -> list:
+    """Protokoll/Ergebnis: was im Portfolio heute nicht beruecksichtigt wird.
+
+    ``floor_status`` (evaluate_floor der aktuellen Anlagestrategie): der Satz
+    zur Produktauswahl steht nur bei ``ok``; ``violated`` nennt die
+    Abweichung, ``no_strategy``/``unreadable`` den offenen Stand. ``None``
+    (Maske ohne Strategiebezug) beschreibt die Regel als Vorgabe."""
     texts = []
     if profile_code in PROFILE_LIMIT_TEXTS:
         texts.append(PROFILE_LIMIT_TEXTS[profile_code])
     if exclusions:
-        texts.append(EXCLUSION_LIMIT_TEXT)
+        if floor_status == FLOOR_VIOLATED:
+            texts.append(EXCLUSION_DEVIATION_TEXT.format(labels=", ".join(exclusion_labels(exclusions))))
+        elif floor_status in (FLOOR_NO_STRATEGY, FLOOR_UNREADABLE):
+            texts.append(EXCLUSION_NO_STRATEGY_TEXT)
+        else:
+            texts.append(EXCLUSION_LIMIT_TEXT)
     return texts
 
 
@@ -431,3 +459,140 @@ def decision_snapshot(fields) -> dict:
         "captured_by": get("captured_by"),
         "captured_at": get("captured_at"),
     }
+
+
+# ── N-888-01: Untergrenze an allen Wegen (eine Logik) ───────────────────────
+# Aufrufer: routers/allocation.py (Generate, manuelles POST, Sensitivity) und
+# services/recommendation_release_gate.py (Produktlauf, Finalize, Signatur,
+# Advisory-PDF, Handoff). Beide holen die aktuelle Erfassung mit
+# CURRENT_DECISION_SQL und entscheiden ausschliesslich mit evaluate_floor().
+FLOOR_NONE = "none"                # keine Erfassung oder keine wirksamen Ausschluesse
+FLOOR_OK = "ok"                    # Ausschluesse in den Praeferenzen wirksam gescreent
+FLOOR_VIOLATED = "violated"        # mindestens ein Ausschluss gelockert
+FLOOR_UNREADABLE = "unreadable"    # Erfassung oder Praeferenz-Snapshot nicht lesbar
+FLOOR_NO_STRATEGY = "no_strategy"  # Ausschluesse, aber keine Anlagestrategie
+
+CURRENT_DECISION_SQL = (
+    "SELECT id, exclusions_json, waived_exclusions_json, review_due_on "
+    "FROM investment_preference_decisions WHERE mandate_id = :mandate_id "
+    "ORDER BY sequence_no DESC LIMIT 1"
+)
+
+FLOOR_CHANNEL_LABELS = {
+    "generate": "Die Anlagestrategie kann nicht berechnet werden",
+    "manual_allocation": "Die manuelle Soll-Allokation kann nicht gespeichert werden",
+    "sensitivity": "Die Sensitivitätsanalyse kann nicht berechnet werden",
+    "recommendation": "Die Empfehlung kann nicht erstellt werden",
+    "finalize": "Die Empfehlung kann nicht finalisiert werden",
+    "advisory_pdf": "Der Advisory-Report kann nicht exportiert werden",
+    "signature": "Das Dokument kann nicht unterzeichnet werden",
+    "handoff": "Die Handelsliste kann nicht weitergeleitet werden",
+}
+
+
+def effective_exclusions(decision, mandate_type):
+    """(wirksame Ausschluesse, Verzicht unwirksam?) einer Erfassung.
+
+    Ein Kundenverzicht wirkt nur, solange das Mandat Anlageberatung ist
+    (N-888-03); ``ValueError`` bei unlesbaren Listen (fail-closed)."""
+    if not decision:
+        return [], False
+    exclusions = json.loads(decision.get("exclusions_json") or "[]")
+    waived = json.loads(decision.get("waived_exclusions_json") or "[]")
+    if not isinstance(exclusions, list) or not isinstance(waived, list):
+        raise ValueError("Ausschlusslisten sind keine Listen.")
+    normalize_exclusions(exclusions)
+    waiver_void = bool(waived) and mandate_type != WAIVER_MANDATE_TYPE
+    if waiver_void:
+        waived = []
+    return [key for key in EXCLUSION_KEYS if key in exclusions and key not in waived], waiver_void
+
+
+def evaluate_floor(decision, mandate_type, preferences_json, *, has_strategy=True) -> dict:
+    """Untergrenze fuer genau einen Praeferenz-Stand.
+
+    ``preferences_json``: dict oder JSON-Text (Snapshot der Soll-Allokation);
+    ``None`` mit ``has_strategy=True`` = Altbestand ohne Snapshot -> keine
+    Tilts -> nicht gescreent (fail-closed)."""
+    result = {"status": FLOOR_NONE, "themes": [], "waiver_void": False,
+              "decision_id": (decision or {}).get("id")}
+    try:
+        effective, waiver_void = effective_exclusions(decision, mandate_type)
+    except (TypeError, ValueError):
+        result["status"] = FLOOR_UNREADABLE
+        return result
+    result["waiver_void"] = waiver_void
+    if not effective:
+        return result
+    if not has_strategy:
+        result.update(status=FLOOR_NO_STRATEGY, themes=effective)
+        return result
+    prefs = preferences_json
+    if isinstance(prefs, str):
+        try:
+            prefs = json.loads(prefs)
+        except (TypeError, ValueError):
+            result.update(status=FLOOR_UNREADABLE, themes=effective)
+            return result
+    if prefs is not None and not isinstance(prefs, dict):
+        result.update(status=FLOOR_UNREADABLE, themes=effective)
+        return result
+    violations = floor_violations(prefs or {}, effective, [])
+    result.update(status=FLOOR_VIOLATED if violations else FLOOR_OK, themes=violations or effective)
+    return result
+
+
+def floor_blocks(result) -> bool:
+    return result.get("status") in (FLOOR_VIOLATED, FLOOR_UNREADABLE)
+
+
+def floor_message(result, channel) -> str:
+    label = FLOOR_CHANNEL_LABELS.get(channel, "Freigabe nicht möglich")
+    if result.get("status") == FLOOR_UNREADABLE:
+        return (
+            f"{label}: Die Nachhaltigkeitspräferenz oder die Präferenzen der "
+            "Anlagestrategie sind nicht lesbar."
+        )
+    labels = ", ".join(exclusion_labels(result.get("themes") or ()))
+    return (
+        f"{label}: Ausschlusswunsch der Kundin bzw. des Kunden ({labels}) ist in der "
+        "Anlagestrategie gelockert. Bitte «Ausschliessen» oder «Untergewichten» "
+        "wählen und neu berechnen; Lockern nur mit dokumentiertem Kundenverzicht "
+        "(nur Anlageberatung)."
+    )
+
+
+def floor_stale_notice(result):
+    """Hinweis in Maske/State: die aktuelle Strategie ist veraltet (N-888-01)."""
+    if result.get("status") == FLOOR_UNREADABLE:
+        return "Die Nachhaltigkeitspräferenz oder die Anlagestrategie ist nicht lesbar – bitte prüfen."
+    if result.get("status") != FLOOR_VIOLATED:
+        return None
+    labels = ", ".join(exclusion_labels(result.get("themes") or ()))
+    return (
+        f"Anlagestrategie veraltet: Sie hält die Ausschlusswünsche ({labels}) nicht ein. "
+        "Empfehlung, Finalisierung und Freigabe sind gesperrt, bis sie mit «Ausschliessen» "
+        "bzw. «Untergewichten» neu berechnet ist."
+    )
+
+
+def floor_audit_payload(result, channel) -> str:
+    return json.dumps({
+        "event": "sustainability_floor_blocked",
+        "channel": channel,
+        "status": result.get("status"),
+        "themes": list(result.get("themes") or ()),
+        "decision_id": result.get("decision_id"),
+    }, sort_keys=True)
+
+
+def preference_notice(decision, today_iso) -> dict:
+    """N-888-04: Status fuer Eignungspruefung, Produktlauf und Review."""
+    if not decision:
+        return {
+            "status": REVIEW_MISSING,
+            "notice": "Nachhaltigkeitspräferenz nicht erfasst (Erhebung nach dem Risikoprofil).",
+        }
+    due_on = decision.get("review_due_on")
+    status = review_status(due_on, today_iso)
+    return {"status": status, "notice": review_due_text(due_on) if status == REVIEW_DUE else None}

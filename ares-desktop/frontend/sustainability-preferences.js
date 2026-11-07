@@ -160,8 +160,11 @@ function sustShowState(){
   var policy=document.getElementById('sust-policy');
   if(policy&&st)policy.textContent=st.review_policy_label||'';
   if(review){
-    review.style.display=st&&st.review_status==='due'&&st.review_notice?'':'none';
-    review.textContent=st&&st.review_notice?st.review_notice:'';
+    // Hinweise: Review faellig, Allokation verletzt Ausschluesse (veraltet),
+    // Verzicht unwirksam (Mandat keine Anlageberatung). Nie stilles Sperren.
+    var notes=st?[st.review_status==='due'?st.review_notice:null,st.allocation_stale_notice,st.waiver_void_notice].filter(Boolean):[];
+    review.style.display=notes.length?'':'none';
+    review.textContent=notes.join(' ');
   }
   if(!result)return;
   var cur=st&&st.current;
@@ -212,6 +215,7 @@ function sustCollect(){
     });
   }
   if(!body.information_acknowledged)errors.push('Information zur Kenntnisnahme bestätigen.');
+  if(!body.client_confirmed)errors.push('Bestätigung der Angaben durch die Kundin bzw. den Kunden dokumentieren.');
   return {body:body,errors:errors};
 }
 
@@ -229,6 +233,11 @@ function sustSave(){
   }).then(function(state){
     SUST.state=state;SUST.mandateId=mid;
     sustErrors([]);sustRender();
+    // N-888-01: verletzt die aktuelle Allokation die neuen Ausschluesse, ist
+    // die Strategie veraltet (Server sperrt Empfehlung/Finalize/Freigabe).
+    if(state&&state.allocation_stale_notice&&typeof markStrategyDirty==='function'){
+      try{markStrategyDirty(state.allocation_stale_notice,true);}catch(e){}
+    }
     if(btn)btn.disabled=false;
     return state;
   }).catch(function(e){

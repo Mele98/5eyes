@@ -342,3 +342,12 @@ class SustainabilityPreferenceState(BaseModel):
     waiver_allowed: bool
     hard_exclusions_available: bool = False
     hard_exclusion_locked_note: str
+    # N-888-03: Verzicht unwirksam, weil das Mandat keine Anlageberatung ist.
+    waiver_void: bool = False
+    waiver_void_notice: Optional[str] = None
+    # N-888-01: Untergrenze gegen die aktuelle Soll-Allokation
+    # (none | ok | violated | unreadable | no_strategy); violated/unreadable =
+    # Allokation veraltet, Empfehlung/Finalize/Freigabe gesperrt.
+    allocation_floor_status: str = "none"
+    allocation_floor_themes: list[str] = []
+    allocation_stale_notice: Optional[str] = None

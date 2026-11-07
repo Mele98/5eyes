@@ -29,11 +29,13 @@ Verletzung).
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from core.reason_codes import DomainError
+from core import sustainability_preference as sustainability
+from core.reason_codes import DomainError, ReasonCode
 
 RISK_BUDGET_EVIDENCE_MISSING = "RISK_BUDGET_EVIDENCE_MISSING"
 RISK_BUDGET_VIOLATED = "RISK_BUDGET_VIOLATED"
@@ -138,6 +140,7 @@ def assert_recommendation_release_eligible(
     *,
     channel: str,
     run: Optional[Any] = None,
+    audit: Optional[Callable[[str, dict], None]] = None,
 ) -> None:
     """Zentrales Freigabe-Gate fuer PDF, Signatur und Handoff.
 
@@ -170,6 +173,11 @@ def assert_recommendation_release_eligible(
         allocation = _current_allocation(db, mandate)
         if allocation is None:
             return
+    # E3/N-888-01: Kundenausschluesse (Nachhaltigkeitspraeferenz) als
+    # Untergrenze -- dieselbe Pruefung wie Produktlauf und Finalize.
+    assert_sustainability_preference_floor(
+        db, mandate, allocation=allocation, channel=channel, audit=audit,
+    )
     # CMA-001 / ADR-12a-Release-Hold: keine Freigabe, solange die CMA der
     # Allokation eine ungeklaerte KGV-Bewertungsanpassung traegt
     # (services/cma_valuation_hold.py).
@@ -315,3 +323,72 @@ def assert_current_allocation_without_adr12a_hold(
         channel=channel,
         channel_label=_CHANNEL_LABELS.get(channel, "Freigabe nicht möglich"),
     )
+
+
+# ---------------------------------------------------------------------------
+# E3 / N-888-01: Untergrenze der Nachhaltigkeitspraeferenz (zentral)
+# ---------------------------------------------------------------------------
+#
+# Eine Logik (core/sustainability_preference.py::evaluate_floor), angewandt
+# auf den Praeferenz-Snapshot der Soll-Allokation, aus der der Kanal
+# publiziert: Produktlauf, Finalize, Signatur, Advisory-PDF, Handoff. Ohne
+# Erfassung keine Wirkung und keine Abfrage ausser der einen Zeile. Fail-
+# closed: unlesbare Erfassung/Snapshot blockiert (409), ein gelockerter
+# Ausschluss 422. ``audit`` (Router-Callback, services/audit.py::
+# gate_block_audit) schreibt den Block VOR dem Fehler.
+_UNSET: Any = object()
+
+
+def current_preference_decision(db: Session, mandate: Any) -> Optional[dict]:
+    row = db.execute(
+        text(sustainability.CURRENT_DECISION_SQL), {"mandate_id": mandate.id},
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+def sustainability_floor_result(
+    db: Session,
+    mandate: Any,
+    *,
+    allocation: Any = None,
+    preferences: Any = _UNSET,
+) -> dict:
+    """Ergebnis von evaluate_floor fuer die Allokation bzw. explizite Praeferenzen."""
+    decision = current_preference_decision(db, mandate)
+    if preferences is _UNSET:
+        preferences = getattr(allocation, "preferences_json", None)
+        has_strategy = allocation is not None
+    else:
+        has_strategy = True
+    return sustainability.evaluate_floor(
+        decision, getattr(mandate, "mandate_type", None), preferences, has_strategy=has_strategy,
+    )
+
+
+def raise_sustainability_floor(result: dict, channel: str, audit=None) -> None:
+    if not sustainability.floor_blocks(result):
+        return
+    if audit is not None:
+        audit(sustainability.floor_audit_payload(result, channel), result)
+    unreadable = result.get("status") == sustainability.FLOOR_UNREADABLE
+    raise DomainError(
+        ReasonCode.SUSTAINABILITY_PREFERENCE_UNREADABLE if unreadable
+        else ReasonCode.SUSTAINABILITY_PREFERENCE_FLOOR_VIOLATED,
+        sustainability.floor_message(result, channel),
+        http_status=409 if unreadable else 422,
+        extra={"channel": channel, "themes": list(result.get("themes") or ())},
+    )
+
+
+def assert_sustainability_preference_floor(
+    db: Session,
+    mandate: Any,
+    *,
+    channel: str,
+    allocation: Any = None,
+    preferences: Any = _UNSET,
+    audit=None,
+) -> dict:
+    result = sustainability_floor_result(db, mandate, allocation=allocation, preferences=preferences)
+    raise_sustainability_floor(result, channel, audit)
+    return result

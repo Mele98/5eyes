@@ -990,3 +990,36 @@ def run_startup_audit_chain_check(
             chain["checked"], legacy["verified"], legacy["hashed"],
         )
     return report
+
+
+def gate_block_audit(
+    db: Session,
+    *,
+    user,
+    mandate,
+    ip_address: str | None,
+    table_name: str,
+    field_name: str,
+) -> Callable[[str, dict], None]:
+    """Router-Callback fuer fail-closed Gates (z. B. Untergrenze der
+    Nachhaltigkeitspraeferenz, N-888-01): schreibt den Block in den
+    Audit-Trail und committet VOR dem Fehler, damit die Spur die Ablehnung
+    (Rollback des Requests) ueberlebt. ``payload`` ist kanonisches JSON."""
+
+    def _audit(payload: str, result: dict) -> None:
+        log(
+            db,
+            user_id=user.id,
+            user_name=getattr(user, "full_name", None) or getattr(user, "username", ""),
+            table_name=table_name,
+            record_id=str((result or {}).get("decision_id") or getattr(mandate, "id", "")),
+            action="CREATE",
+            field_name=field_name,
+            new_value=payload,
+            mandate_id=getattr(mandate, "id", None),
+            client_id=getattr(mandate, "client_id", None),
+            ip_address=ip_address,
+        )
+        db.commit()
+
+    return _audit

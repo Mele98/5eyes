@@ -9266,8 +9266,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/sustainability-preferences.js",
-      "sha256": "1438f9c19ffa419cc68376b723fc974f40d8023bf85b6c916fc3a1b51789a4c6",
-      "size_bytes": 16514
+      "sha256": "cac299c1bdc716d06c08f55087a8574347d7e44c9fc5347695914622aae4ecac",
+      "size_bytes": 17184
     }
   ],
   "ids": [
@@ -22173,13 +22173,13 @@
     },
     {
       "declaration": "function",
-      "line": 267,
+      "line": 276,
       "name": "sustActiveExclusions",
       "source": "sustainability-preferences.js"
     },
     {
       "declaration": "function",
-      "line": 274,
+      "line": 283,
       "name": "sustApplyFloorToStrategyBlocks",
       "source": "sustainability-preferences.js"
     },
@@ -22191,13 +22191,13 @@
     },
     {
       "declaration": "function",
-      "line": 191,
+      "line": 194,
       "name": "sustCollect",
       "source": "sustainability-preferences.js"
     },
     {
       "declaration": "function",
-      "line": 181,
+      "line": 184,
       "name": "sustErrors",
       "source": "sustainability-preferences.js"
     },
@@ -22221,7 +22221,7 @@
     },
     {
       "declaration": "function",
-      "line": 300,
+      "line": 309,
       "name": "sustInstallWrappers",
       "source": "sustainability-preferences.js"
     },
@@ -22233,13 +22233,13 @@
     },
     {
       "declaration": "function",
-      "line": 248,
+      "line": 257,
       "name": "sustLoad",
       "source": "sustainability-preferences.js"
     },
     {
       "declaration": "function",
-      "line": 240,
+      "line": 249,
       "name": "sustLoadDefinition",
       "source": "sustainability-preferences.js"
     },
@@ -22269,7 +22269,7 @@
     },
     {
       "declaration": "function",
-      "line": 218,
+      "line": 222,
       "name": "sustSave",
       "source": "sustainability-preferences.js"
     },

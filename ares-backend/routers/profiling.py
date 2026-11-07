@@ -42,6 +42,7 @@ from routers.review import _get_document_or_404, _get_recommendation_run_or_404
 from services.data_classification import enforce_data_classification
 from services.portfolio_engine import (
     _current_risk_assessment_or_none,
+    _current_target_allocation_or_none,
     risk_assessment_ready_for_strategy,
 )
 from services.risk_scoring import canonicalize_horizon_label, compute_scores, profile_for_score_x10
@@ -1057,10 +1058,35 @@ def _sustainability_review_months(db: Session, tenant_id) -> int:
     return sp.resolve_review_months(value)
 
 
-def _sustainability_response(row: InvestmentPreferenceDecision) -> SustainabilityPreferenceResponse:
+def _decision_fields(row: InvestmentPreferenceDecision) -> dict:
+    return {
+        "id": row.id,
+        "exclusions_json": row.exclusions_json,
+        "waived_exclusions_json": row.waived_exclusions_json,
+        "review_due_on": row.review_due_on,
+    }
+
+
+def _sustainability_floor(db: Session, mandate: Mandate, row) -> dict:
+    """N-888-01: haelt die aktuelle Soll-Allokation die Ausschluesse ein?"""
+    try:
+        ta = _current_target_allocation_or_none(db, mandate.id)
+    except ValueError:
+        ta = None
+    return sp.evaluate_floor(
+        _decision_fields(row) if row is not None else None,
+        mandate.mandate_type,
+        getattr(ta, "preferences_json", None),
+        has_strategy=ta is not None,
+    )
+
+
+def _sustainability_response(
+    row: InvestmentPreferenceDecision, mandate: Mandate, floor: dict | None = None,
+) -> SustainabilityPreferenceResponse:
     try:
         exclusions = list(json.loads(row.exclusions_json or "[]"))
-        waived = list(json.loads(row.waived_exclusions_json or "[]"))
+        effective, _void = sp.effective_exclusions(_decision_fields(row), mandate.mandate_type)
     except (TypeError, ValueError) as exc:
         raise DomainError(
             ReasonCode.SUSTAINABILITY_PREFERENCE_UNREADABLE,
@@ -1080,10 +1106,10 @@ def _sustainability_response(row: InvestmentPreferenceDecision) -> Sustainabilit
         esg_relevance=row.esg_relevance,
         esg_characteristic=row.esg_characteristic,
         exclusions=exclusions,
-        waived_exclusions=waived,
+        waived_exclusions=list(json.loads(row.waived_exclusions_json or "[]")),
         profile_code=row.profile_code,
         profile_text=sp.PROFILE_TEXTS.get(row.profile_code, ""),
-        limit_texts=sp.limit_texts(row.profile_code, [k for k in exclusions if k not in waived]),
+        limit_texts=sp.limit_texts(row.profile_code, effective, (floor or {}).get("status")),
         information_acknowledged=bool(row.information_acknowledged),
         client_confirmed=bool(row.client_confirmed),
         mandate_type_at_capture=row.mandate_type_at_capture,
@@ -1102,7 +1128,11 @@ def _sustainability_state(db: Session, mandate: Mandate) -> SustainabilityPrefer
         .order_by(InvestmentPreferenceDecision.sequence_no.desc())
         .all()
     )
-    history = [_sustainability_response(row) for row in rows]
+    floor = _sustainability_floor(db, mandate, rows[0] if rows else None)
+    history = [
+        _sustainability_response(row, mandate, floor if index == 0 else None)
+        for index, row in enumerate(rows)
+    ]
     current = history[0] if history else None
     status = sp.review_status(current.review_due_on if current else None, date.today().isoformat())
     months = _sustainability_review_months(db, getattr(mandate, "tenant_id", None))
@@ -1116,6 +1146,11 @@ def _sustainability_state(db: Session, mandate: Mandate) -> SustainabilityPrefer
         waiver_allowed=str(mandate.mandate_type or "") == sp.WAIVER_MANDATE_TYPE,
         hard_exclusions_available=False,
         hard_exclusion_locked_note=sp.HARD_EXCLUSION_LOCKED_NOTE,
+        waiver_void=bool(floor.get("waiver_void")),
+        waiver_void_notice=sp.WAIVER_VOID_TEXT if floor.get("waiver_void") else None,
+        allocation_floor_status=floor["status"],
+        allocation_floor_themes=list(floor.get("themes") or ()),
+        allocation_stale_notice=sp.floor_stale_notice(floor),
     )
 
 
@@ -1208,6 +1243,12 @@ def create_sustainability_preference(
         raise _sustainability_error(
             "Bitte bestätigen, dass die Information zu Nachhaltigkeitspräferenzen abgegeben wurde.",
             ReasonCode.SUSTAINABILITY_INFORMATION_REQUIRED,
+        )
+    # N-888-03: ohne Bestaetigung der Kundin bzw. des Kunden keine Erfassung.
+    if not body.client_confirmed:
+        raise _sustainability_error(
+            "Bitte die Bestätigung der Angaben durch die Kundin bzw. den Kunden dokumentieren.",
+            ReasonCode.SUSTAINABILITY_CONFIRMATION_REQUIRED,
         )
     waivers = _validated_waivers(body, mandate, exclusions)
     previous = current_investment_preference(db, mandate.id)

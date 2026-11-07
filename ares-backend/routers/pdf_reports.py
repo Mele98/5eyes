@@ -18,11 +18,14 @@ from models.clients import Client
 
 logger = logging.getLogger(__name__)
 from core import sustainability_preference as sustainability
+from core.reason_codes import DomainError, ReasonCode
+from services.portfolio_engine_payload import ESG_CUSTOMER_CLAIM_LABELS
 from core.http_filenames import content_disposition
 from models.mandates import Mandate
 from models.profiling import current_investment_preference
 from models.users import User
 from routers.auth import _extract_client_ip
+from services.audit import gate_block_audit
 from services.auth import get_current_user, get_mandate_for_user_or_404
 from services.document_archive import archive_generated_pdf, content_hash_for
 from services.pdf import ReportLabRenderer
@@ -1940,7 +1943,19 @@ def _sustainability_protocol_view(db: Session, mandate: Mandate) -> dict:
         }
     exclusions = list(json.loads(row.exclusions_json or "[]"))
     waived = list(json.loads(row.waived_exclusions_json or "[]"))
-    effective = [key for key in exclusions if key not in waived]
+    decision = {
+        "id": row.id, "exclusions_json": row.exclusions_json,
+        "waived_exclusions_json": row.waived_exclusions_json, "review_due_on": row.review_due_on,
+    }
+    # N-888-03: ein Verzicht wirkt nur in der Anlageberatung.
+    effective, waiver_void = sustainability.effective_exclusions(decision, mandate.mandate_type)
+    # N-888-01: Produktwirkung nur behaupten, wenn die aktuelle Soll-Allokation
+    # die wirksamen Ausschluesse nachweislich screent.
+    ta = _latest_target_allocation(mandate, db)
+    floor = sustainability.evaluate_floor(
+        decision, mandate.mandate_type, getattr(ta, "preferences_json", None),
+        has_strategy=ta is not None,
+    )
     question1 = _RELEVANCE_LABELS.get(row.esg_relevance) or "Keine Angabe"
     question2 = "entfällt"
     if row.esg_characteristic:
@@ -1959,8 +1974,15 @@ def _sustainability_protocol_view(db: Session, mandate: Mandate) -> dict:
     if waived:
         lines.append(("Kundenverzicht", (
             ", ".join(sustainability.exclusion_labels(waived))
-            + " (dokumentierter Verzicht in der Anlageberatung, Begründung im Nachweis)"
+            + (" (unwirksam: Mandat ist keine Anlageberatung)" if waiver_void
+               else " (dokumentierter Verzicht in der Anlageberatung, Begründung im Nachweis)")
         )))
+    if effective:
+        lines.append(("Umsetzung in der Anlagestrategie", {
+            sustainability.FLOOR_OK: "Ausschlusswünsche in der aktuellen Anlagestrategie eingehalten",
+            sustainability.FLOOR_VIOLATED: "Nicht eingehalten – Anlagestrategie neu berechnen",
+            sustainability.FLOOR_NO_STRATEGY: "Noch keine Anlagestrategie berechnet",
+        }.get(floor["status"], "Nicht prüfbar – bitte prüfen")))
     lines += [
         ("Ergebnis", sustainability.PROFILE_TEXTS.get(row.profile_code, row.profile_code)),
         ("Information", "Information zu Nachhaltigkeitspräferenzen abgegeben und zur Kenntnis genommen"
@@ -1972,13 +1994,32 @@ def _sustainability_protocol_view(db: Session, mandate: Mandate) -> dict:
         )),
         ("Nachweis", f"Definition {row.definition_hash[:16]}… · Erfassung {row.decision_hash[:16]}…"),
     ]
-    notes = list(sustainability.limit_texts(row.profile_code, effective))
+    notes = list(sustainability.limit_texts(row.profile_code, effective, floor["status"]))
     if effective:
         notes.append(sustainability.HARD_EXCLUSION_LOCKED_NOTE)
+    if waiver_void:
+        notes.append(sustainability.WAIVER_VOID_TEXT)
     notes.append(sustainability.NO_RISK_EFFECT_TEXT)
     if review_state == sustainability.REVIEW_DUE:
         notes.insert(0, sustainability.review_due_text(row.review_due_on))
     return {"state": review_state, "lines": tuple(lines), "notes": tuple(notes)}
+
+
+def _assert_sustainability_texts_claim_free(view: dict) -> None:
+    """N-888-06: Werbe-Waechter zur Laufzeit (fail-closed). Kein Kunden-
+    dokument mit einer Produkt-/Portfolio-Bezeichnung wie "nachhaltig" oder
+    "verantwortungsbewusst" (FINMA-AM 05/2021); erlaubt sind nur die
+    Praeferenz-Begriffe (NEUTRAL_PREFERENCE_PHRASES)."""
+    texts = [str(part) for pair in view.get("lines", ()) for part in pair]
+    texts += [str(note) for note in view.get("notes", ())]
+    hits = sustainability.customer_text_claim_hits(" ".join(texts), ESG_CUSTOMER_CLAIM_LABELS)
+    if hits:
+        raise DomainError(
+            ReasonCode.SUSTAINABILITY_CLAIM_TEXT_BLOCKED,
+            "Beratungsprotokoll gesperrt: der Abschnitt Nachhaltigkeitspräferenzen "
+            f"enthält eine unzulässige Bezeichnung ({', '.join(hits)}).",
+            http_status=409,
+        )
 
 
 def _risk_questionnaire_version_line(ra) -> tuple:
@@ -2132,6 +2173,7 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     except Exception as exc:  # noqa: BLE001 — PDF darf nicht crashen
         logger.warning("Protokoll data: sustainability preference load failed: %s", exc)
         sustainability_view = _SUSTAINABILITY_LOAD_FAILED
+    _assert_sustainability_texts_claim_free(sustainability_view)
 
     # KNOWLEDGE-GAP-ASSET-CLASS-001: SAA-Klassen ohne dokumentierte Kenntnis.
     knowledge_gap_hints: list[str] = []
@@ -2841,6 +2883,10 @@ def get_advisory_report_pdf(
     # zentrales Gate, VOR dem Rendern.
     assert_recommendation_release_eligible(
         db, mandate, channel=CHANNEL_ADVISORY_PDF,
+        audit=gate_block_audit(
+            db, user=current_user, mandate=mandate, ip_address=None,
+            table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+        ),
     )
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
     from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible

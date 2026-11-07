@@ -54,7 +54,7 @@ from schemas.review import (
 )
 from price_updater import summarize_price_quality
 from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation
-from services.audit import log
+from services.audit import gate_block_audit, log
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
 from routers.auth import _extract_client_ip
@@ -89,8 +89,11 @@ from services.recommendation_release_gate import (
     SIGNOFF_BOUND_DOCUMENT_TYPES,
     assert_recommendation_release_eligible,
     assert_risk_signoff_release_eligible,
+    assert_sustainability_preference_floor,
+    current_preference_decision,
     risk_budget_release_errors,
 )
+from core import sustainability_preference
 from services.review_engine import (
     ReviewAnchorDataError,
     _add_months,
@@ -1810,6 +1813,7 @@ def sign_document(
     if str(doc.document_type or "") in RECOMMENDATION_DOCUMENT_TYPES:
         assert_recommendation_release_eligible(
             db, mandate, channel=CHANNEL_SIGNATURE,
+            audit=_floor_audit(db, current_user, mandate, request),
         )
         # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
         assert_portfolio_data_release_eligible(db, mandate, action="signature")
@@ -3844,6 +3848,36 @@ def create_recommendation_run(
     return run
 
 
+def _floor_audit(db: Session, current_user, mandate, request):
+    """Audit-Callback der Untergrenze (N-888-01); IP erst beim Block lesen."""
+    def _audit(payload: str, result: dict) -> None:
+        ip = _extract_client_ip(request) if request is not None else None
+        gate_block_audit(
+            db, user=current_user, mandate=mandate, ip_address=ip,
+            table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+        )(payload, result)
+
+    return _audit
+
+
+def _floor_target_allocation(db: Session, mandate, target_allocation_id=None):
+    """Allokation, deren Praeferenz-Snapshot der Produktlauf/Finalize nutzt:
+    die explizit genannte (Mandat, nicht geloescht) bzw. die aktuelle."""
+    query = db.query(TargetAllocation).filter(
+        TargetAllocation.mandate_id == mandate.id, TargetAllocation.deleted_at.is_(None),
+    )
+    if target_allocation_id:
+        return query.filter(TargetAllocation.id == target_allocation_id).first()
+    return query.filter(TargetAllocation.is_current == 1).first()
+
+
+def sustainability_preference_notice(db: Session, mandate) -> dict:
+    """N-888-04: Status der Nachhaltigkeitspraeferenz (Hinweis, kein Block)."""
+    return sustainability_preference.preference_notice(
+        current_preference_decision(db, mandate), date.today().isoformat(),
+    )
+
+
 @recommendations_router.post("/mandates/{mandate_id}/recommendations/generate",
                              response_model=RecommendationGenerateResponse)
 def generate_recommendation_run_endpoint(
@@ -3870,6 +3904,15 @@ def generate_recommendation_run_endpoint(
                     "(require_suitability_before_recommendation=True)."
                 ),
             )
+    # E3 / N-888-01: der Produktlauf waehlt Produkte aus dem Praeferenz-
+    # Snapshot der (aktuellen bzw. explizit angeforderten) Soll-Allokation;
+    # dieser muss die Kundenausschluesse einhalten -- auch wenn die
+    # Praeferenz erst NACH der Allokation erfasst wurde. Vor jeder Berechnung.
+    _floor_ta = _floor_target_allocation(db, mandate, body.target_allocation_id)
+    assert_sustainability_preference_floor(
+        db, mandate, allocation=_floor_ta, channel="recommendation",
+        audit=_floor_audit(db, current_user, mandate, request),
+    )
     try:
         result = generate_recommendation_run(
             db=db,
@@ -3907,6 +3950,10 @@ def generate_recommendation_run_endpoint(
         ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(result["run"])
+    # N-888-04: Praeferenz-Status als Hinweis (nicht erfasst / Ueberpruefung faellig).
+    _notice = sustainability_preference_notice(db, mandate)
+    if _notice.get("notice"):
+        result["warnings"] = list(result.get("warnings") or []) + [_notice["notice"]]
     return result
 
 
@@ -4002,6 +4049,14 @@ def finalize_recommendation(
     # fuer dasselbe Mandat, unabhaengig vom Vorzustand.
     db.query(Mandate).filter(Mandate.id == mandate_id).with_for_update().first()
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
+    # E3 / N-888-01: Finalize nur, wenn die Allokation des Laufs die
+    # Kundenausschluesse einhaelt (auch fuer Laeufe von VOR der Erfassung).
+    _floor_ta = _floor_target_allocation(db, mandate, getattr(run, "target_allocation_id", None))
+    assert_sustainability_preference_floor(
+        db, mandate, allocation=_floor_ta, preferences=getattr(_floor_ta, "preferences_json", None),
+        channel="finalize",
+        audit=_floor_audit(db, current_user, mandate, request),
+    )
     cma_currency_warning = _enforce_run_cma_currency(db, mandate, run)
     # CMA-001: sobald das CMA_POLICY-Modell aktiv geschaltet ist (erste
     # Policy-Aktivierung), verlangt jede neue Finalisierung eine aktive,

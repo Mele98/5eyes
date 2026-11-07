@@ -76,7 +76,11 @@ def test_claim_guard_blocks_both_template_labels():
 
 def test_all_customer_texts_of_the_definition_pass_the_claim_guard():
     texts = [sp.INTRO_TEXT, sp.INFORMATION_TEXT, sp.HARD_EXCLUSION_LOCKED_NOTE,
-             sp.EXCLUSION_LIMIT_TEXT, sp.NO_RISK_EFFECT_TEXT, sp.review_policy_label(36),
+             sp.EXCLUSION_LIMIT_TEXT, sp.EXCLUSION_DEVIATION_TEXT.format(labels="Tabak"),
+             sp.EXCLUSION_NO_STRATEGY_TEXT, sp.WAIVER_VOID_TEXT,
+             sp.floor_stale_notice({"status": "violated", "themes": ["tobacco"]}),
+             sp.floor_message({"status": "violated", "themes": ["tobacco"]}, "finalize"),
+             sp.NO_RISK_EFFECT_TEXT, sp.review_policy_label(36),
              sp.review_due_text("2026-01-01")]
     texts += list(sp.PROFILE_TEXTS.values()) + list(sp.PROFILE_LIMIT_TEXTS.values())
     for question in sp.QUESTIONS:

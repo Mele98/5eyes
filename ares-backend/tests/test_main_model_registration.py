@@ -60,7 +60,10 @@ GOLDEN_SORTED_TABLES_SHA256 = "ca0230439ccd77dc47c1a6e7e72c77ddb64f469d896d4d136
 # definition, GET/POST /mandates/{id}/sustainability-preferences und die
 # Schemas SustainabilityPreference*; Tenant*-Schemas + optionales
 # sustainability_review_months (nur additiv).
-GOLDEN_OPENAPI_SHA256 = "e9c4acfdcc7396eaf9a854eb4356a820acf88649288b614ea5085d3b5cdd4e0e"
+# N-888-01/-03 (Pruefrunde ESG): SustainabilityPreferenceState + waiver_void,
+# waiver_void_notice, allocation_floor_status/-themes, allocation_stale_notice
+# (nur additiv, alle mit Default).
+GOLDEN_OPENAPI_SHA256 = "d6fe499e408b2b48403199ddabe87fc266552fd9a19977b54a343aa5c5d526b7"
 
 _PROBE = """
 import hashlib, json

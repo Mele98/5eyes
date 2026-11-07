@@ -22192,6 +22192,30 @@
       },
       "SustainabilityPreferenceState": {
         "properties": {
+          "allocation_floor_status": {
+            "default": "none",
+            "title": "Allocation Floor Status",
+            "type": "string"
+          },
+          "allocation_floor_themes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Allocation Floor Themes",
+            "type": "array"
+          },
+          "allocation_stale_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allocation Stale Notice"
+          },
           "current": {
             "anyOf": [
               {
@@ -22250,6 +22274,22 @@
           "waiver_allowed": {
             "title": "Waiver Allowed",
             "type": "boolean"
+          },
+          "waiver_void": {
+            "default": false,
+            "title": "Waiver Void",
+            "type": "boolean"
+          },
+          "waiver_void_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiver Void Notice"
           }
         },
         "required": [

@@ -81,6 +81,13 @@ def test_generate_router_maps_envelope_error_to_422(monkeypatch):
 
     monkeypatch.setattr(allocation_router, "_admit_solver_slot", contextlib.nullcontext)
     monkeypatch.setattr(allocation_router, "_get_mandate_or_404", lambda *a, **k: SimpleNamespace(id="m"))
+    # E3/N-888-02: die Untergrenze der Nachhaltigkeitspraeferenz liest die DB;
+    # hier ein Fake (keine Erfassung = keine Wirkung), aufgerufen VOR der Engine.
+    floor_calls = []
+    monkeypatch.setattr(
+        allocation_router, "assert_sustainability_preference_floor",
+        lambda db, mandate, preferences=None, **kw: floor_calls.append(kw.get("channel")) or {"status": "none"},
+    )
     monkeypatch.setattr(allocation_router, "generate_target_allocation", _raise)
     monkeypatch.setattr(allocation_router.settings, "require_suitability_before_recommendation", False)
     with pytest.raises(HTTPException) as exc_info:
@@ -101,6 +108,13 @@ def test_other_value_errors_stay_409(monkeypatch):
 
     monkeypatch.setattr(allocation_router, "_admit_solver_slot", contextlib.nullcontext)
     monkeypatch.setattr(allocation_router, "_get_mandate_or_404", lambda *a, **k: SimpleNamespace(id="m"))
+    # E3/N-888-02: die Untergrenze der Nachhaltigkeitspraeferenz liest die DB;
+    # hier ein Fake (keine Erfassung = keine Wirkung), aufgerufen VOR der Engine.
+    floor_calls = []
+    monkeypatch.setattr(
+        allocation_router, "assert_sustainability_preference_floor",
+        lambda db, mandate, preferences=None, **kw: floor_calls.append(kw.get("channel")) or {"status": "none"},
+    )
     monkeypatch.setattr(allocation_router, "generate_target_allocation", _raise)
     monkeypatch.setattr(allocation_router.settings, "require_suitability_before_recommendation", False)
     with pytest.raises(HTTPException) as exc_info:

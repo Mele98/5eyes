@@ -153,7 +153,9 @@ def test_create_persists_version_hash_and_audit(client, mandate_id, session_fact
     assert current["captured_by"] == advisor_user.id
     assert current["client_confirmed"] is True
     assert "Nachhaltigkeitspräferenz" in current["profile_text"]
-    assert sp.EXCLUSION_LIMIT_TEXT in current["limit_texts"]
+    # N-888-01: ohne Anlagestrategie keine Produktzusicherung, nur der offene Stand.
+    assert sp.EXCLUSION_NO_STRATEGY_TEXT in current["limit_texts"]
+    assert sp.EXCLUSION_LIMIT_TEXT not in current["limit_texts"]
     with session_factory() as s:
         row = s.query(InvestmentPreferenceDecision).one()
         columns = {c.name: getattr(row, c.name) for c in row.__table__.columns}
@@ -208,7 +210,9 @@ def test_declined_is_separate_from_not_relevant(client, mandate_id):
     ({"hard_exclusion_requested": True}, "SUSTAINABILITY_HARD_EXCLUSION_LOCKED"),
     ({"waivers": {"tobacco": "zu kurz"}}, "SUSTAINABILITY_WAIVER_INVALID"),
     ({"waivers": {"alcohol": WAIVER_REASON}}, "SUSTAINABILITY_WAIVER_INVALID"),
-    ({"waivers": {"tobacco": WAIVER_REASON}, "client_confirmed": False}, "SUSTAINABILITY_WAIVER_INVALID"),
+    ({"waivers": {"tobacco": WAIVER_REASON}, "client_confirmed": False}, "SUSTAINABILITY_CONFIRMATION_REQUIRED"),
+    # N-888-03: Kundenbestaetigung ist Pflicht.
+    ({"client_confirmed": False}, "SUSTAINABILITY_CONFIRMATION_REQUIRED"),
 ])
 def test_invalid_captures_are_rejected_and_persist_nothing(client, mandate_id, session_factory, overrides, code):
     resp = _post(client, mandate_id, **overrides)
@@ -237,7 +241,9 @@ def test_waiver_reason_is_sealed(client, mandate_id, session_factory):
     current = resp.json()["current"]
     assert current["waived_exclusions"] == ["tobacco"]
     # Nur der nicht verzichtete Ausschluss wirkt; Hinweis bleibt.
-    assert sp.EXCLUSION_LIMIT_TEXT in current["limit_texts"]
+    # N-888-01: ohne Anlagestrategie keine Produktzusicherung, nur der offene Stand.
+    assert sp.EXCLUSION_NO_STRATEGY_TEXT in current["limit_texts"]
+    assert sp.EXCLUSION_LIMIT_TEXT not in current["limit_texts"]
     with session_factory() as s:
         row = s.query(InvestmentPreferenceDecision).one()
         assert is_sealed(row.waiver_reasons_sealed)

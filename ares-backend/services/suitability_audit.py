@@ -57,7 +57,10 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+from core import sustainability_preference as _sustainability
 
 # Suitability-Check-Freshness in Tagen (12 Monate per Industry-Praxis).
 SUITABILITY_FRESHNESS_MAX_DAYS = 365
@@ -233,6 +236,10 @@ def audit_mandate_suitability(
         "audit_degraded": False,
         "is_compliant": True,
         "fidleg_basis": "Art. 10 / Art. 12 FIDLEG",
+        # N-888-04 (Dok. 106): Status der Nachhaltigkeitspraeferenz als Hinweis
+        # (nicht erfasst / Ueberpruefung faellig = Eignungspruefung faellig).
+        # Aendert is_compliant NICHT (kein stilles Sperren, Entscheid E0).
+        "sustainability_preference": sustainability_preference_status(db, mandate),
     }
 
     # Anzahl Beratungsprotokoll-Eintraege (nur informativ fuer die Anzeige).
@@ -409,3 +416,19 @@ def suitability_gate_blocks(audit: dict[str, Any], *, creates_target_allocation:
         for issue in allocation_issues
     )
     return bool(other_issues) or not only_stale_allocation
+
+
+def sustainability_preference_status(db: Session, mandate: Any) -> dict[str, Any]:
+    """N-888-04: {status: missing|current|due|unreadable, notice}. Nur Hinweis."""
+    mandate_id = getattr(mandate, "id", None)
+    if not mandate_id or not hasattr(db, "execute"):
+        return {"status": _sustainability.REVIEW_MISSING, "notice": None}
+    try:
+        row = db.execute(
+            text(_sustainability.CURRENT_DECISION_SQL), {"mandate_id": mandate_id},
+        ).mappings().first()
+    except Exception:  # noqa: BLE001 -- Hinweis darf das Audit nicht kippen
+        return {"status": "unreadable", "notice": "Nachhaltigkeitspräferenz nicht lesbar -- bitte prüfen."}
+    return _sustainability.preference_notice(
+        dict(row) if row else None, datetime.now(timezone.utc).date().isoformat(),
+    )

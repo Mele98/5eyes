@@ -12162,6 +12162,18 @@ export interface components {
         };
         /** SustainabilityPreferenceState */
         SustainabilityPreferenceState: {
+            /**
+             * Allocation Floor Status
+             * @default none
+             */
+            allocation_floor_status?: string;
+            /**
+             * Allocation Floor Themes
+             * @default []
+             */
+            allocation_floor_themes?: string[];
+            /** Allocation Stale Notice */
+            allocation_stale_notice?: string | null;
             current?: components["schemas"]["SustainabilityPreferenceResponse"] | null;
             /** Hard Exclusion Locked Note */
             hard_exclusion_locked_note: string;
@@ -12188,6 +12200,13 @@ export interface components {
             review_status: "current" | "due" | "missing";
             /** Waiver Allowed */
             waiver_allowed: boolean;
+            /**
+             * Waiver Void
+             * @default false
+             */
+            waiver_void?: boolean;
+            /** Waiver Void Notice */
+            waiver_void_notice?: string | null;
         };
         /** SustainabilityStandardItem */
         SustainabilityStandardItem: {

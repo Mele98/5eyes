@@ -33,7 +33,7 @@ from services.auth import (
     require_portfolio_management, require_reference_data_reader,
     enforce_cma_cross_tenant_read_scope,
 )
-from services.audit import log
+from services.audit import gate_block_audit, log
 from services.optimizer_policy_lifecycle import (
     REASON_CODE_HOUSE_MATRIX_INCOMPLETE,
     copy_policy_children,
@@ -400,6 +400,12 @@ def create_target_allocation(
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     ta = candidate.allocation
+    # N-888-01: der manuelle Datensatz uebernimmt die Praeferenzen der
+    # bisherigen Allokation -- dieselbe Untergrenze wie Generate.
+    assert_sustainability_preference_floor(
+        db, mandate, json.loads(ta.preferences_json or "{}"), channel="manual_allocation",
+        audit=_floor_audit(db, current_user, mandate, request),
+    )
     if prev:
         prev.is_current = 0
         # Release the existing partial-unique anchor before inserting the new
@@ -689,44 +695,63 @@ def update_cma(
     return cma
 
 
-def assert_sustainability_preference_floor(db: Session, mandate, preferences: dict | None) -> None:
-    """E3 (Dok. 106): Ausschlusswuensche der aktuellen Nachhaltigkeitspraeferenz
-    sind die Untergrenze der Strategiebausteine. Ein nicht verzichtetes Thema
-    muss wirksam gescreent sein (Ausschliessen/Untergewichten bzw. Neutral bei
-    Negativ-Screening); sonst 422. Lockern nur ueber einen dokumentierten
-    Kundenverzicht (nur Anlageberatung) in einer neuen Praeferenz-Version.
-    ``preferences`` None = Praeferenzen der aktuellen Soll-Allokation (wie
-    generate_target_allocation). Keine Engine-Wirkung, nur Validierung."""
-    decision = current_investment_preference(db, mandate.id)
-    if decision is None:
-        return
-    try:
-        exclusions = json.loads(decision.exclusions_json or "[]")
-        waived = json.loads(decision.waived_exclusions_json or "[]")
-    except (TypeError, ValueError) as exc:
-        raise DomainError(
-            ReasonCode.SUSTAINABILITY_PREFERENCE_UNREADABLE,
-            "Die Nachhaltigkeitspräferenz ist nicht lesbar -- Empfehlung blockiert.",
-            http_status=409,
-        ) from exc
-    if not exclusions:
-        return
-    if preferences is None:
+_FLOOR_UNSET = object()
+
+
+def assert_sustainability_preference_floor(
+    db: Session,
+    mandate,
+    preferences=_FLOOR_UNSET,
+    *,
+    channel: str = "generate",
+    audit=None,
+) -> dict:
+    """E3 / N-888-01 (Dok. 106): Ausschlusswuensche der aktuellen
+    Nachhaltigkeitspraeferenz sind die Untergrenze der Strategiebausteine.
+
+    Gleiche Entscheidung wie services/recommendation_release_gate.py::
+    assert_sustainability_preference_floor (Produktlauf, Finalize, Signatur,
+    PDF, Handoff): ausschliesslich core/sustainability_preference.py::
+    evaluate_floor. ``preferences``: wirksame Praeferenzen (dict/JSON);
+    ``None`` = die der aktuellen Soll-Allokation (wie Generate). Gelockert ->
+    422 SUSTAINABILITY_PREFERENCE_FLOOR_VIOLATED, unlesbar -> 409, beides mit
+    Audit-Eintrag (``audit``). Keine Engine-Wirkung, nur Validierung."""
+    row = current_investment_preference(db, mandate.id)
+    decision = None if row is None else {
+        "id": row.id,
+        "exclusions_json": row.exclusions_json,
+        "waived_exclusions_json": row.waived_exclusions_json,
+        "review_due_on": row.review_due_on,
+    }
+    if preferences is None or preferences is _FLOOR_UNSET:
         preferences = _allocation_snapshot_preferences(
             _current_target_allocation_or_none(db, mandate.id)
         ) or {}
-    violations = sustainability.floor_violations(preferences, exclusions, waived)
-    if violations:
-        labels = ", ".join(sustainability.exclusion_labels(violations))
-        raise DomainError(
-            ReasonCode.SUSTAINABILITY_PREFERENCE_FLOOR_VIOLATED,
-            f"Kundenpräferenz (Nachhaltigkeit): Ausschluss {labels} darf in den "
-            "Strategiebausteinen nicht gelockert werden. Bitte «Ausschliessen» oder "
-            "«Untergewichten» wählen; Lockern nur mit dokumentiertem Kundenverzicht "
-            "(nur Anlageberatung) in den Nachhaltigkeitspräferenzen.",
-            http_status=422,
-            extra={"themes": violations},
-        )
+    result = sustainability.evaluate_floor(decision, getattr(mandate, "mandate_type", None), preferences)
+    if not sustainability.floor_blocks(result):
+        return result
+    if audit is not None:
+        audit(sustainability.floor_audit_payload(result, channel), result)
+    unreadable = result["status"] == sustainability.FLOOR_UNREADABLE
+    raise DomainError(
+        ReasonCode.SUSTAINABILITY_PREFERENCE_UNREADABLE if unreadable
+        else ReasonCode.SUSTAINABILITY_PREFERENCE_FLOOR_VIOLATED,
+        sustainability.floor_message(result, channel),
+        http_status=409 if unreadable else 422,
+        extra={"channel": channel, "themes": list(result.get("themes") or ())},
+    )
+
+
+def _floor_audit(db: Session, current_user, mandate, request):
+    """Audit-Callback; Request/IP werden erst beim Block gelesen."""
+    def _audit(payload: str, result: dict) -> None:
+        gate_block_audit(
+            db, user=current_user, mandate=mandate,
+            ip_address=_extract_client_ip(request) if request is not None else None,
+            table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+        )(payload, result)
+
+    return _audit
 
 
 @router.post("/mandates/{mandate_id}/target-allocation/generate",
@@ -764,7 +789,10 @@ def generate_target_allocation_endpoint(
         preferences = body.preferences.model_dump() if body.preferences else None
         try:
             # E3: Kunden-Ausschluesse als Untergrenze (vor jeder Berechnung).
-            assert_sustainability_preference_floor(db, mandate, preferences)
+            assert_sustainability_preference_floor(
+                db, mandate, preferences, channel="generate",
+                audit=_floor_audit(db, current_user, mandate, request),
+            )
             result = generate_target_allocation(
                 db=db,
                 mandate=mandate,
@@ -856,6 +884,12 @@ def goal_target_sensitivity(
     # Solver sogar zweimal (Baseline + Counterfactual) auf.
     with _admit_solver_slot():
         mandate = _get_mandate_or_404(mandate_id, db, current_user)
+        # N-888-01: Sensitivity rechnet auf der aktuellen Allokation; deren
+        # Praeferenzen muessen die Kundenausschluesse einhalten.
+        assert_sustainability_preference_floor(
+            db, mandate, None, channel="sensitivity",
+            audit=_floor_audit(db, current_user, mandate, request),
+        )
         try:
             result = evaluate_goal_sensitivity(
                 db=db,
