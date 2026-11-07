@@ -13,7 +13,6 @@
     "backup_scheduler": 2,
     "database": 24,
     "main": 3,
-    "migrate_to_sqlcipher": 1,
     "models.profiling": 1,
     "price_updater": 4,
     "routers.allocation": 16,
@@ -151,7 +150,7 @@
     "services.sqlite_check_constraint_upgrade": 5,
     "services.suitability_audit": 5,
     "services.suitability_cap_check": 4,
-    "services.tenant_crypto": 2,
+    "services.tenant_crypto": 1,
     "services.wealth_cashflows": 2,
     "services.wealth_inflow_certainty": 3,
     "setup": 11
@@ -169,7 +168,6 @@
     "jurisdictions.resolve": ["jurisdictions.api", "jurisdictions.registry"],
     "main": ["backup_scheduler", "config", "core.logging_setup", "core.middleware", "database", "models.allocation", "models.client_login", "models.clients", "models.fx_rate", "models.jurisdiction", "models.mandates", "models.profiling", "models.protocol_bausteine", "models.review", "models.snapshots", "models.tax", "models.tenant", "models.users", "models.wealth", "price_updater", "routers.allocation", "routers.auth", "routers.client_portal", "routers.clients", "routers.cma_policy", "routers.cost_disclosure", "routers.eligibility_overrides", "routers.fx_rates", "routers.health", "routers.jurisdiction", "routers.mandates", "routers.market_data", "routers.onsite_signature", "routers.pdf_reports", "routers.portfolio_handoff", "routers.prices", "routers.privacy", "routers.profiling", "routers.protocol_bausteine", "routers.review", "routers.snapshots", "routers.system", "routers.tax", "routers.tenants", "routers.wealth", "services.tax.discovery", "services.tax.parameters"],
     "make_demo_accounts_easy": ["config", "core.db_location", "database", "models.allocation", "models.clients", "models.mandates", "models.profiling", "models.review", "models.snapshots", "models.tenant", "models.users", "models.wealth", "services.auth"],
-    "migrate_to_sqlcipher": ["config"],
     "models": ["models.bootstrap_lock", "models.cma_policy", "models.fx_rate", "models.login_attempt", "models.onsite_signature", "models.portfolio_handoff", "models.product_eligibility", "models.refresh_token"],
     "models.allocation": ["database"],
     "models.bootstrap_lock": ["database"],
@@ -481,7 +479,7 @@
     "services.tax.regimes.generic": ["services.tax.base", "services.tax.registry"],
     "services.tax.sdk": ["services.tax.base", "services.tax.conformance", "services.tax.discovery", "services.tax.registry"],
     "services.telemetry": ["config"],
-    "services.tenant_crypto": ["config", "models.tenant", "services.auth", "services.tenant_context"],
+    "services.tenant_crypto": ["config", "models.tenant", "services.tenant_context"],
     "services.tenant_licensing": ["models.tenant"],
     "services.totp_secret_storage": ["models.users", "services.tenant_crypto"],
     "services.twelvedata_client": ["config", "services.market_data.exceptions"],
@@ -501,12 +499,11 @@
     "services/optimizer/objective.py": {"count": 1, "keys": ["OPTIMIZER_GOAL_WEIGHTING"]},
     "services/optimizer/objective_variants.py": {"count": 1, "keys": ["OPTIMIZER_OBJECTIVE"]},
     "services/portfolio_engine_reserve.py": {"count": 2, "keys": ["RESERVE_BUCKET_MODE", "RESERVE_DECAY_MODE"]},
-    "services/tenant_crypto.py": {"count": 1, "keys": ["TENANT_MASTER_KEK"]},
     "smoke_test.py": {"count": 2, "keys": ["APP_HOST", "APP_PORT"]}
   },
   "leaf_content_sha256": {
     "core": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "core.evidence": "1ef7d766d44a9f5740fd7e461a00d740cda9489777bcc01fa72cd2a54fbb4e9c",
-    "core.reason_codes": "7a68dcb8ddfe71bc6b2502e6325963bbe9d716171f9ea0de0e3aaafe1f138900"
+    "core.reason_codes": "e66c784a108955c1b6c716e49450c21c93670b5ef5bf1cee23ff6499b189f042"
   }
 }

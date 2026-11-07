@@ -323,6 +323,22 @@ def test_disclosure_fields_are_complete_and_in_the_model_basis():
     assert basis["house_prior"]["version"] == HOUSE_PRIOR_VERSION
     assert basis["house_prior"]["decision"] == block["decision"]
     assert "significance" not in basis
+    # HOUSE-PRIOR-APPROVAL-001 (AA-4, ADR-015): Abweichung je Klasse =
+    # final - Hausquote, in Audit-Block und Modellbasis; Status vorlaeufig (provisional).
+    deviation = block["deviation_vs_house_bps"]
+    assert deviation == {
+        b: int(block["final_bps"][b]) - int(block["house_anchor_projected_bps"][b])
+        for b in BUCKET_ORDER
+    }
+    assert sum(deviation.values()) == 0
+    assert block["deviation_vs_house_raw_bps"] == {
+        b: int(block["final_bps"][b]) - int(block["house_anchor_bps"][b])
+        for b in BUCKET_ORDER
+    }
+    assert basis["house_prior"]["deviation_vs_house_bps"] == deviation
+    assert block["prior_metric"]["kappa_calibration_status"] == "provisional_v1"
+    assert block["prior_metric"]["kappa_release"] == "v1"
+    assert any("Abweichung zur Hausquote" in line for line in result.reasoning)
 
 
 # ---------------------------------------------------------------------------

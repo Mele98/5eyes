@@ -344,6 +344,12 @@ def snapshot_handoff(
     )
     live = payload.get("live_rebalancing") or {}
     if not (live.get("position_drifts") or []) or int(live.get("live_total_value_rappen") or 0) <= 0:
+        if payload.get("investable_advisory_wealth_rappen") == 0:
+            # N-858-11: Basis 0 ist eine Aussage (Reserve beansprucht alles), nicht "Daten fehlen".
+            raise NoTradeListAvailableError(
+                "Keine investierbare Strategiebasis: Die Liquiditaetsreserve beansprucht "
+                "das gesamte Beratungsvermoegen; es gibt nichts zu handeln."
+            )
         raise NoTradeListAvailableError("Keine Live-Rebalancing-Daten fuer diesen Lauf verfuegbar.")
     # HANDOFF-CASH-BASIS-001: nur bei erfasstem Depot (sonst Neugeld-Pfad).
     advisory_cash = []

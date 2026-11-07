@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -546,7 +547,24 @@ def test_partial_outcome_is_audited_on_risk_profile_save(session_factory):
         assert payload["coverage_attestation"]["status"] == STATUS_MISSING
 
 
-def test_attested_consistent_profile_writes_no_plausibility_audit(session_factory):
+class _PinnedToday(date):
+    """``date`` mit ``today() == TODAY`` fuer die Plausibilitaetspruefung."""
+
+    @classmethod
+    def today(cls):
+        return TODAY
+
+
+def test_attested_consistent_profile_writes_no_plausibility_audit(session_factory, monkeypatch):
+    import services.financial_coverage_attestation as attestation
+    import services.risk_capacity_plausibility as plausibility
+
+    # Die Risikoprofil-Erfassung bewertet ohne ``today`` gegen ``date.today()``
+    # (Plausibilitaet und Gueltigkeit der Bestaetigung); die Bestaetigung
+    # (Stichtag TODAY) gilt 365 Tage. Ohne Festhalten der Uhr war sie ab
+    # TODAY + 366 Tagen abgelaufen und es entstand ein Audit-Eintrag.
+    monkeypatch.setattr(plausibility, "date", _PinnedToday)
+    monkeypatch.setattr(attestation, "date", _PinnedToday)
     with session_factory() as session:
         advisor = _seed_budget(session)
         _attest(session, advisor)
@@ -710,7 +728,7 @@ def test_attestation_table_has_only_actor_fk(tmp_path):
 # Monolith: Banner zeigt partial + Bestaetigungsformular
 # ---------------------------------------------------------------------------
 
-HTML = (BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "ares.html").read_text(encoding="utf-8")
+HTML = read_monolith_bundle()
 
 
 def _js_function(name: str) -> str:

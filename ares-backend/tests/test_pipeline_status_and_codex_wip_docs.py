@@ -1,6 +1,10 @@
-"""Sprint U-84+U-85 (2026-06-05): Drift-Schutz fuer Pipeline-Status und Codex-WIP-Doku.
+"""Sprint U-85 (2026-06-05): Drift-Schutz fuer die Pipeline-Status-Doku.
 
-Beide Docs sind Status-Tracker — sie veralten schnell. Tests stellen
+Die Drift-Tests auf die Agenten-Koordinationsdoku (U-84) liegen in
+``test_archived_docs_contract.py``; sie gehoeren zum Archiv und nicht zum
+Clean-Room-Export (siehe docs/DOCS_MANIFEST.md).
+
+Die Doku ist ein Status-Tracker — sie veraltet schnell. Tests stellen
 sicher, dass die Kern-Sektionen erhalten bleiben.
 """
 from __future__ import annotations
@@ -9,7 +13,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PIPELINE_STATUS = REPO_ROOT / "docs" / "DATA_PIPELINE_STATUS.md"
-CODEX_WIP = REPO_ROOT / "docs" / "CODEX_WIP.md"
 
 
 def _read(path: Path) -> str:
@@ -71,53 +74,3 @@ def test_pipeline_status_has_update_instruction():
     """Doku muss erklaeren wie sie selbst aktualisiert wird."""
     text = _read(PIPELINE_STATUS)
     assert "Wie diesen Doc aktualisieren" in text or "aktualisieren" in text.lower()
-
-
-# ---------------------------------------------------------------------------
-# CODEX_WIP.md (U-84)
-# ---------------------------------------------------------------------------
-
-def test_codex_wip_exists():
-    assert CODEX_WIP.exists()
-
-
-def test_codex_wip_documents_file_separation():
-    text = _read(CODEX_WIP)
-    assert "Datei-Trennung" in text
-    # Claude-Bereiche
-    assert "advisory_report.py" in text
-    assert "frontend/reporting/" in text
-    # Codex-Bereiche
-    assert "services/pdf/" in text
-    assert "pdf_reports.py" in text
-
-
-def test_codex_wip_documents_branch_check():
-    text = _read(CODEX_WIP)
-    assert "git branch --show-current" in text
-    assert "ABORT" in text
-
-
-def test_codex_wip_documents_race_recovery():
-    text = _read(CODEX_WIP)
-    assert "Race-Recovery" in text or "race-recovery" in text.lower()
-    assert "Backup" in text or "backup" in text.lower()
-
-
-def test_codex_wip_documents_codex_prompt_format():
-    text = _read(CODEX_WIP)
-    assert "Codex-Prompt" in text
-    assert "Datei-Overlap" in text
-
-
-def test_codex_wip_documents_known_conflict_classes():
-    text = _read(CODEX_WIP)
-    assert "Konflikt-Klassen" in text
-    assert "AUDIT_LOG_VALID_ACTIONS" in text
-    assert "Sidebar-Section-Count" in text
-
-
-def test_codex_wip_lists_historic_race_recoveries():
-    text = _read(CODEX_WIP)
-    assert "2026-06-04" in text  # Repo-Hygiene
-    assert "2026-06-05" in text  # heutige Race-Resolutions

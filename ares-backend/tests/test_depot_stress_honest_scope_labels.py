@@ -23,6 +23,7 @@ import sys
 from datetime import date
 from io import BytesIO
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -69,7 +70,7 @@ def test_service_label_constant_is_the_contract_label():
 
 
 def test_monolith_depot_check_stress_section_is_honest():
-    html = MONOLITH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
 
     start = html.index("function dcRenderStressReplays(")
     end = html.index("\nfunction ", start + 1)
