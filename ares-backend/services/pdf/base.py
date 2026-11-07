@@ -10,6 +10,15 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Mapping, Protocol, Sequence, runtime_checkable
 
+from jurisdictions.resolve import resolve_pack
+
+
+def resolve_pdf_jurisdiction(mandate) -> str:
+    """H7 N-884-02: Laendercode des Mandats fuer PDF-Texte ueber den zentralen
+    Resolver (jurisdictions.resolve, NULL = Altsemantik CH) -- kein eigener
+    Inline-Rueckgriff in den Textbausteinen."""
+    return str(resolve_pack(mandate).code)
+
 
 @dataclass(frozen=True)
 class PDFContext:
@@ -35,6 +44,10 @@ class PDFContext:
     # Backtest) gesetzt/gerendert -- fuer CH IMMER None (kein DB-Zugriff,
     # siehe resolve_pdf_provisional_notice).
     provisional_notice: Mapping[str, object] | None = None
+    # H7 C-3: Mandatstyp und Jurisdiktion fuer den Disclaimer je Mandat
+    # (services/pdf/components/static_texts.py::disclaimer_paragraphs).
+    mandate_type: str | None = None
+    jurisdiction: str | None = None
 
 
 @dataclass(frozen=True)
@@ -99,7 +112,27 @@ class AnlagestrategieData:
     """{'equities': (min_bps, max_bps), ...} fuer Toleranzbaender-Spalte."""
 
     bucket_amounts_rappen: Mapping[str, int] = field(default_factory=dict)
-    """{'equities': target_amount_rappen, ...} fuer Betrag-Spalte."""
+    """{'equities': target_amount_rappen, ...} fuer Betrag-Spalte.
+
+    Live-Test 2026-11 H2/H3: Betraege auf der Strategiebasis
+    (``strategy_base_rappen``), auf die sich die SAA-Gewichte beziehen."""
+
+    strategy_base_rappen: int | None = None
+    """Strategiebasis = Beratungsvermoegen minus externe Liquiditaetsreserve
+    (Engine: ``strategy_base_rappen``). None = keine Reserve-Angabe."""
+
+    external_reserve_rappen: int = 0
+    """Ausserhalb der Anlagestrategie gehaltene Liquiditaetsreserve; wird als
+    eigene Zeile ausgewiesen, damit die Betraege auf das Beratungsvermoegen
+    summieren."""
+
+    strategy_basis_note: str | None = None
+    """N-858-2: Hinweis, wenn das aktuelle Beratungsvermoegen vom Vermoegen bei
+    Generierung der Strategie abweicht (Betraege beziehen sich auf letzteres)."""
+
+    sub_allocations: list = field(default_factory=list)
+    """SAA-Subanlageklassen (nicht Produktmix): dicts mit asset_class
+    (Bucket-Key), sub_asset_class, target_weight_bps, target_amount_rappen."""
 
     products: list = field(default_factory=list)
     """ISIN-Produkt-Liste. Jedes Element ist dict mit:

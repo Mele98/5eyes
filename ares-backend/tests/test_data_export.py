@@ -222,7 +222,9 @@ def test_legal_basis_block_documents_dsg(session_factory):
     assert "Art. 25" in lb["primary"]
     assert "JSON" in lb["format"].upper()
     assert any("FIDLEG" in s for s in lb["supplementary"])
-    assert any("OR Art. 962" in s for s in lb["supplementary"])
+    # H7 C-6: OR 958f statt OR 962 (Rechnungslegungsstandards).
+    assert any("OR Art. 958f" in s for s in lb["supplementary"])
+    assert not any("962" in s for s in lb["supplementary"])
 
 
 def test_retention_notes_cover_all_section_tables(session_factory):

@@ -165,18 +165,18 @@ KENNZAHLEN_DEFINITIONS = [
         "Rendite über einen gegebenen Anlagehorizont mit einer gegebenen "
         "Wahrscheinlichkeit nicht unterschritten wird. Die angegebenen Werte "
         "wurden für einen Anlagehorizont von einem Jahr und eine "
-        "Wahrscheinlichkeit von 99% simuliert.",
+        "Wahrscheinlichkeit von 95% simuliert (5-%-Quantil der simulierten"
+        " 1-Jahres-Renditen).",
     ),
     (
         "Standardabweichung",
         "Die Standardabweichung ist eine Risikokennzahl, die angibt, wie "
         "stark die möglichen jährlichen Renditen um die erwartete Rendite "
         "schwanken. Je höher diese Kennzahl, desto stärker schwanken die "
-        "möglichen Renditen um den erwarteten Wert. Bei normalverteilten "
-        "Portfoliorenditen liegen die Renditen mit einer Wahrscheinlichkeit "
-        "von ca. 68% im Bereich von erwarteter Rendite minus einer "
-        "Standardabweichung bis zur erwarteten Rendite plus einer "
-        "Standardabweichung.",
+        "möglichen Renditen um den erwarteten Wert. Sie misst nur die "
+        "Schwankungsbreite: Die Simulation rechnet mit schiefen "
+        "Renditeverteilungen und häufigeren Extremverlusten als eine "
+        "Normalverteilung.",
     ),
     (
         "Zielerreichung",
@@ -201,34 +201,83 @@ KENNZAHLEN_DEFINITIONS = [
 
 
 DISCLAIMER_TITLE = "Disclaimer"
-DISCLAIMER_TEXT = [
-    (
-        "Der Baustein «Ihre persönliche Anlagestrategie» ist Bestandteil "
-        "des Vermögensverwaltungsauftrags. Der Baustein «Ihre persönliche "
-        "Ausgangslage» ist nicht Vertragsbestandteil und dokumentiert "
-        "lediglich Ihre Angaben sowie unsere Einschätzung und Empfehlung. "
-        "Es wird keine Garantie für die Richtigkeit unserer Angaben und die "
-        "Erreichbarkeit der Ziele übernommen. Dieses Dokument wurde mit "
-        "grösstmöglicher Sorgfalt und nach bestem Wissen und Gewissen "
-        "erstellt. Es bietet jedoch keine Gewähr für Inhalt und "
-        "Vollständigkeit und keine Haftung für Verluste, die aus der Nutzung "
-        "dieser Informationen entstehen. Die hierin enthaltenen "
-        "Informationen sind nicht als Anlageberatung im rechtlichen Sinne zu "
-        "verstehen, soweit nicht gesondert vereinbart."
+
+# H7 C-3 (Compliance-Audit 2026-11-07, Luecke 3): Disclaimer je Mandatstyp und
+# Jurisdiktion. Der fruehere Einheitstext nannte unabhaengig vom Mandat den
+# "Vermoegensverwaltungsauftrag", verneinte eine "Anlageberatung im
+# rechtlichen Sinne" (auch bei Beratungsmandaten), schloss die Haftung fuer
+# Verluste pauschal aus (OR 100 Abs. 1: Freizeichnung fuer grobe Fahrlaessig-
+# keit/Vorsatz nichtig) und richtete sich "ausschliesslich an Personen mit
+# Wohnsitz in der Schweiz", obwohl DE-Mandate moeglich sind.
+# WORTLAUT VORLAEUFIG: vor dem ersten echten Mandat durch Compliance/Recht
+# gegenlesen lassen (Dok. 104, Entscheid). Keine Normzitate im Kundentext.
+
+_DISCLAIMER_SERVICE = {
+    "Vermögensverwaltung": (
+        "Der Baustein «Ihre persönliche Anlagestrategie» beschreibt die mit "
+        "Ihnen vereinbarte Anlagestrategie und ist Bestandteil des "
+        "Vermögensverwaltungsauftrags. Der Baustein «Ihre persönliche "
+        "Ausgangslage» ist nicht Vertragsbestandteil; er dokumentiert Ihre "
+        "Angaben sowie unsere Einschätzung."
     ),
-    (
-        "Dieses Dokument enthält zukunftsgerichtete Aussagen, welche unsere "
-        "Einschätzung und Erwartungen zu einem bestimmten Zeitpunkt "
-        "ausdrücken. Verschiedene Risiken, Unsicherheiten und andere "
-        "Einflussfaktoren können dazu führen, dass die tatsächlichen "
-        "Entwicklungen und Resultate sich von unseren Erwartungen deutlich "
-        "unterscheiden. Erträge und Wert von Fondsanteilen können sinken "
-        "oder steigen; ein Totalverlust des angelegten Kapitals ist nicht "
-        "auszuschliessen. Historische Wertentwicklungen sind keine "
-        "ausreichende Basis für die Prognose zukünftiger Wert- und "
-        "Preisentwicklungen."
+    "Anlageberatung": (
+        "Dieses Dokument enthält unsere persönliche Empfehlung im Rahmen des "
+        "mit Ihnen vereinbarten Anlageberatungsauftrags. Die Anlageentscheide "
+        "treffen Sie selbst; ohne Ihren Auftrag werden keine Transaktionen "
+        "ausgeführt. Der Baustein «Ihre persönliche Ausgangslage» dokumentiert "
+        "Ihre Angaben sowie unsere Einschätzung."
     ),
-    (
+    "Finanzplanung": (
+        "Dieses Dokument wurde im Rahmen des mit Ihnen vereinbarten "
+        "Finanzplanungsauftrags erstellt und dokumentiert Ihre Angaben, unsere "
+        "Einschätzung und unsere Empfehlung. Ein Auftrag zur "
+        "Vermögensverwaltung ist damit nicht verbunden. Soweit das Dokument "
+        "persönliche Empfehlungen zu Finanzinstrumenten enthält, gelten dafür "
+        "die Pflichten der Anlageberatung."
+    ),
+    "Reporting only": (
+        "Dieses Dokument wurde im Rahmen des mit Ihnen vereinbarten "
+        "Reporting-Auftrags erstellt und dient Ihrer Information. Ein Auftrag "
+        "zur Anlageberatung oder Vermögensverwaltung besteht nur, soweit er "
+        "gesondert vereinbart ist."
+    ),
+}
+_DISCLAIMER_SERVICE_UNKNOWN = (
+    "Art und Umfang unserer Dienstleistung ergeben sich aus dem mit Ihnen "
+    "abgeschlossenen Vertrag. Der Baustein «Ihre persönliche Ausgangslage» "
+    "dokumentiert Ihre Angaben sowie unsere Einschätzung."
+)
+_DISCLAIMER_MANDATE_TYPE_ALIASES = {
+    "vermögensverwaltung": "Vermögensverwaltung",
+    "vermoegensverwaltung": "Vermögensverwaltung",
+    "anlageberatung": "Anlageberatung",
+    "finanzplanung": "Finanzplanung",
+    "reporting only": "Reporting only",
+}
+
+# Keine pauschale Haftungsfreizeichnung (OR 100): Sorgfalt, Grundlagen und
+# "keine Garantie" sachlich; die Haftung folgt Vertrag und Gesetz.
+_DISCLAIMER_CARE = (
+    "Dieses Dokument wurde mit der gebotenen Sorgfalt erstellt. Es beruht auf "
+    "Ihren Angaben und auf Annahmen über künftige Marktentwicklungen. Für das "
+    "Erreichen der Ziele und für künftige Wertentwicklungen wird keine "
+    "Garantie übernommen. Unsere Haftung richtet sich nach dem mit Ihnen "
+    "abgeschlossenen Vertrag und den gesetzlichen Bestimmungen."
+)
+_DISCLAIMER_FORWARD_LOOKING = (
+    "Dieses Dokument enthält zukunftsgerichtete Aussagen, welche unsere "
+    "Einschätzung und Erwartungen zu einem bestimmten Zeitpunkt "
+    "ausdrücken. Verschiedene Risiken, Unsicherheiten und andere "
+    "Einflussfaktoren können dazu führen, dass die tatsächlichen "
+    "Entwicklungen und Resultate sich von unseren Erwartungen deutlich "
+    "unterscheiden. Erträge und Wert von Fondsanteilen können sinken "
+    "oder steigen; ein Totalverlust des angelegten Kapitals ist nicht "
+    "auszuschliessen. Historische Wertentwicklungen sind keine "
+    "ausreichende Basis für die Prognose zukünftiger Wert- und "
+    "Preisentwicklungen."
+)
+_DISCLAIMER_FUND_DOCUMENTS = {
+    "CH": (
         "Die regulatorischen Unterlagen der in den Portfolios enthaltenen "
         "kollektiven Kapitalanlagen (wie Prospekt, Fondsvertrag, "
         "Basisinformationsblatt und neuester Jahres- bzw. Halbjahresbericht) "
@@ -237,16 +286,79 @@ DISCLAIMER_TEXT = [
         "jeweiligen Schweizer Fondsleitungen und bei Fonds mit Sitz im "
         "Ausland bei den jeweiligen Vertretern in der Schweiz."
     ),
-    (
-        "Die in diesem Dokument enthaltenen Informationen richten sich "
-        "ausschliesslich an Personen mit Wohnsitz in der Schweiz. Die "
-        "aufgeführten Produkte und kollektiven Kapitalanlagen dürfen weder "
-        "von Personen, die gemäss US-Steuerrecht als US-Personen gelten, "
-        "noch von Personen, die aus einem anderen Grund dem US-Steuerrecht "
-        "unterstehen, direkt oder indirekt erworben oder auf diese "
-        "übertragen werden."
+    "DE": (
+        "Die Verkaufsunterlagen der in den Portfolios enthaltenen "
+        "Investmentfonds (wie Verkaufsprospekt, Basisinformationsblatt sowie "
+        "Jahres- und Halbjahresbericht) sind kostenlos in gedruckter oder "
+        "elektronischer Form über die im Cover-Bereich angegebene "
+        "Kontaktadresse sowie bei der jeweiligen Verwaltungsgesellschaft "
+        "erhältlich."
     ),
-]
+}
+_DISCLAIMER_FUND_DOCUMENTS_OTHER = (
+    "Die regulatorischen Unterlagen der in den Portfolios enthaltenen "
+    "Fonds (wie Prospekt, Basisinformationsblatt sowie Jahres- und "
+    "Halbjahresbericht) sind kostenlos in gedruckter oder elektronischer "
+    "Form über die im Cover-Bereich angegebene Kontaktadresse sowie bei der "
+    "jeweiligen Fondsgesellschaft erhältlich."
+)
+_DISCLAIMER_DOMICILE = {
+    "CH": (
+        "Die in diesem Dokument enthaltenen Informationen sind für die Kundin "
+        "bzw. den Kunden dieses Mandats mit Wohnsitz in der Schweiz bestimmt; "
+        "rechtliche und steuerliche Hinweise beziehen sich auf die Schweiz."
+    ),
+    "DE": (
+        "Die in diesem Dokument enthaltenen Informationen sind für die Kundin "
+        "bzw. den Kunden dieses Mandats mit Wohnsitz in Deutschland bestimmt. "
+        "Ob ein aufgeführtes Produkt in Deutschland vertrieben und erworben "
+        "werden darf, ist vor einem Erwerb je Produkt zu prüfen."
+    ),
+}
+_DISCLAIMER_DOMICILE_OTHER = (
+    "Die in diesem Dokument enthaltenen Informationen sind für die Kundin "
+    "bzw. den Kunden dieses Mandats bestimmt. Ob ein aufgeführtes Produkt im "
+    "Wohnsitzstaat vertrieben und erworben werden darf, ist vor einem Erwerb "
+    "je Produkt zu prüfen."
+)
+_DISCLAIMER_US_PERSONS = (
+    "Die aufgeführten Produkte und kollektiven Kapitalanlagen dürfen weder "
+    "von Personen, die gemäss US-Steuerrecht als US-Personen gelten, "
+    "noch von Personen, die aus einem anderen Grund dem US-Steuerrecht "
+    "unterstehen, direkt oder indirekt erworben oder auf diese "
+    "übertragen werden."
+)
+
+
+def normalize_disclaimer_mandate_type(mandate_type: str | None) -> str | None:
+    key = str(mandate_type or "").strip().casefold()
+    return _DISCLAIMER_MANDATE_TYPE_ALIASES.get(key)
+
+
+def normalize_disclaimer_jurisdiction(jurisdiction: str | None) -> str:
+    """Erwartet den bereits aufgeloesten Laendercode (N-884-02: Aufloesung
+    nur ueber den zentralen Resolver, services/pdf/base.py::
+    resolve_pdf_jurisdiction -> jurisdictions.resolve). Kein eigener
+    CH-Rueckgriff: fehlt der Code, bleibt der Text neutral."""
+    code = str(jurisdiction).strip().upper() if jurisdiction is not None else ""
+    return code if code in _DISCLAIMER_DOMICILE else "OTHER"
+
+
+def disclaimer_paragraphs(mandate_type: str | None, jurisdiction: str | None) -> list[str]:
+    """Disclaimer-Absaetze fuer Mandatstyp x Jurisdiktion (H7 C-3)."""
+    service_key = normalize_disclaimer_mandate_type(mandate_type)
+    service = _DISCLAIMER_SERVICE.get(service_key) if service_key else None
+    code = normalize_disclaimer_jurisdiction(jurisdiction)
+    return [
+        f"{service or _DISCLAIMER_SERVICE_UNKNOWN} {_DISCLAIMER_CARE}",
+        _DISCLAIMER_FORWARD_LOOKING,
+        _DISCLAIMER_FUND_DOCUMENTS.get(code, _DISCLAIMER_FUND_DOCUMENTS_OTHER),
+        f"{_DISCLAIMER_DOMICILE.get(code, _DISCLAIMER_DOMICILE_OTHER)} {_DISCLAIMER_US_PERSONS}",
+    ]
+
+
+# Neutraler CH-Standard (Mandatstyp unbekannt); Referenz im CH-Pack.
+DISCLAIMER_TEXT = disclaimer_paragraphs(None, "CH")
 
 
 COVER_TAGLINE = (

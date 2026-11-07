@@ -46,6 +46,7 @@ from services.recommendation_release_gate import (
     RECOMMENDATION_DOCUMENT_TYPES,
     SIGNOFF_BOUND_DOCUMENT_TYPES,
     assert_recommendation_release_eligible,
+    assert_retrocession_release_eligible,
     assert_risk_signoff_release_eligible,
 )
 
@@ -99,6 +100,8 @@ def _release_gates(db: Session, mandate, document: ContractDocument) -> None:
         assert_risk_signoff_release_eligible(db, mandate, channel=CHANNEL_SIGNATURE)
     if document_type in RECOMMENDATION_DOCUMENT_TYPES:
         assert_recommendation_release_eligible(db, mandate, channel=CHANNEL_SIGNATURE)
+        # H7 N-884-04: Retro-Gate auch fuer finale Laeufe (fail-closed).
+        assert_retrocession_release_eligible(db, mandate, channel=CHANNEL_SIGNATURE)
 
 
 def _view(db: Session, transaction_id: str) -> dict[str, Any]:

@@ -61,6 +61,6 @@ Bezug: [ADR-007 Multi-Tenancy](../adr/ADR-007-multi-tenancy-strategy.md),
 
 ## Referenzen (Ist-Stand-Tooling)
 - `docs/deploy/start-external.ps1` — externer Start (Browser-Hosting/Remote-Test).
-- `docs/deploy/Caddyfile`, `docs/deploy/5eyes.service` — TLS-Reverse-Proxy + systemd-Unit.
+- `docs/deploy/Caddyfile`, `docs/deploy/ares.service` — TLS-Reverse-Proxy + systemd-Unit.
 - `docs/deploy/promote_operator.py` — Operator-/Tenant-Provisionierung.
 - Offen (Roadmap): CH-VPS-Setup (#12), Secret-Management (#13), RLS (#9), Promotion-Pfad (#29).

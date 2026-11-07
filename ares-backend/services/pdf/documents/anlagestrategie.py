@@ -214,6 +214,8 @@ def build_anlagestrategie_flowables(
             base_currency=ctx.base_currency,
             advisory_wealth_rappen=data.advisory_wealth_rappen,
             show_bands=_has_band_overrides(data.allocation_preferences),
+            external_reserve_rappen=data.external_reserve_rappen,
+            basis_note=getattr(data, "strategy_basis_note", None),
         ))
         flowables.append(PageBreak())
         flowables.extend(make_banner_header(
@@ -235,13 +237,13 @@ def build_anlagestrategie_flowables(
                 data.current_allocation_bps,
                 data.target_allocation_bps,
                 current_products=data.advisory_positions,
-                target_products=data.products,
+                target_products=_saa_sub_products(data),
                 diameter_mm=42.0,
             )
             flowables.append(KeepTogether([title_para, *two_donuts]))
         else:
             donut_widget = make_saa_donut_with_legend(
-                data.target_allocation_bps, products=data.products,
+                data.target_allocation_bps, products=_saa_sub_products(data),
                 diameter_mm=48.0,
             )
             flowables.append(KeepTogether([title_para, donut_widget]))
@@ -330,7 +332,9 @@ def build_anlagestrategie_flowables(
     flowables.extend(make_kennzahlen_erlaeuterungen_section())
     flowables.append(PageBreak())
 
-    flowables.extend(make_disclaimer_section())
+    flowables.extend(make_disclaimer_section(
+        ctx.mandate_type or data.mandate_type, ctx.jurisdiction,
+    ))
 
     return flowables
 
@@ -408,6 +412,8 @@ def _build_anlagestrategie_flowables_template_order(
             base_currency=ctx.base_currency,
             advisory_wealth_rappen=data.advisory_wealth_rappen,
             show_bands=_has_band_overrides(data.allocation_preferences),
+            external_reserve_rappen=data.external_reserve_rappen,
+            basis_note=getattr(data, "strategy_basis_note", None),
         ))
     else:
         empty_section("Vermoegensstruktur", "Noch keine Soll-Allokation berechnet.")
@@ -437,7 +443,7 @@ def _build_anlagestrategie_flowables_template_order(
                 data.current_allocation_bps,
                 data.target_allocation_bps,
                 current_products=data.advisory_positions,
-                target_products=data.products,
+                target_products=_saa_sub_products(data),
                 diameter_mm=42.0,
             )
             flowables.append(KeepTogether([title_para, *donuts]))
@@ -446,7 +452,7 @@ def _build_anlagestrategie_flowables_template_order(
                 title_para,
                 make_saa_donut_with_legend(
                     data.target_allocation_bps,
-                    products=data.products,
+                    products=_saa_sub_products(data),
                     diameter_mm=48.0,
                 ),
             ]))
@@ -514,6 +520,8 @@ def _build_anlagestrategie_flowables_template_order(
             base_currency=ctx.base_currency,
             advisory_wealth_rappen=data.advisory_wealth_rappen,
             show_bands=_has_band_overrides(data.allocation_preferences),
+            external_reserve_rappen=data.external_reserve_rappen,
+            basis_note=getattr(data, "strategy_basis_note", None),
         ))
     else:
         empty_section("Vermoegensstruktur Gesamtvermoegen", "Noch keine Soll-Allokation berechnet.")
@@ -532,7 +540,7 @@ def _build_anlagestrategie_flowables_template_order(
                 data.current_allocation_bps,
                 data.target_allocation_bps,
                 current_products=data.advisory_positions + data.other_wealth_positions,
-                target_products=data.products,
+                target_products=_saa_sub_products(data),
                 diameter_mm=42.0,
             )
             flowables.append(KeepTogether([title_para, *total_donuts]))
@@ -541,7 +549,7 @@ def _build_anlagestrategie_flowables_template_order(
                 title_para,
                 make_saa_donut_with_legend(
                     data.target_allocation_bps,
-                    products=data.products,
+                    products=_saa_sub_products(data),
                     diameter_mm=48.0,
                 ),
             ]))
@@ -623,7 +631,9 @@ def _build_anlagestrategie_flowables_template_order(
     flowables.append(PageBreak())
 
     # 19 Disclaimer
-    flowables.extend(make_disclaimer_section())
+    flowables.extend(make_disclaimer_section(
+        ctx.mandate_type or data.mandate_type, ctx.jurisdiction,
+    ))
 
     return flowables
 
@@ -925,6 +935,13 @@ def _make_kennzahlen_hinweise_section(styles) -> list:
             styles["body"],
         ))
     return flowables
+
+
+def _saa_sub_products(data):
+    """Live-Test 2026-11 H3: Sub-Klassen-Legende der SOLL-Allokation aus der
+    SAA-Sub-Allokation (Strategie), nicht aus dem Produktmix der Empfehlung.
+    Rueckfall auf die Produkte nur, wenn keine Sub-Allokation vorliegt."""
+    return list(getattr(data, "sub_allocations", None) or []) or list(data.products or [])
 
 
 def _has_band_overrides(preferences) -> bool:
