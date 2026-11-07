@@ -60,6 +60,7 @@ from routers.wealth import (
 )
 from services.auth import get_client_for_user_or_404, get_mandate_for_user_or_404
 from services.eodhd_client import preview_eodhd_reference
+from services.valuation_clock import bound_valuation_date
 from services.foundation_example import FOUNDATION_CLIENT_NUMBER, FOUNDATION_MANDATE_NUMBER, upsert_foundation_example_case
 from services.openfigi_client import preview_openfigi_mapping
 from services.portfolio_engine import (
@@ -1726,6 +1727,11 @@ def test_update_cashflow_touching_gross_still_enforces_reconciliation(session_fa
     assert "Bruttobetrag" in exc_info.value.detail
 
 
+# Fester Bewertungsstichtag fuer die auf 2026 datierten Cashflow-Fixtures
+# (entspricht ihrem created_at).
+_CASHFLOW_FIXTURE_AS_OF = date(2026, 3, 27)
+
+
 def test_cashflow_summary_counts_only_current_year_cashflows(session_factory, advisor_user):
     client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
     current_year = "2026-01-01"
@@ -1797,7 +1803,12 @@ def test_cashflow_summary_counts_only_current_year_cashflows(session_factory, ad
             ]
         )
         session.commit()
-        summary = cashflow_summary(client_id=client_id, db=session, current_user=advisor_user)
+        # Die Fixture-Daten sind fest auf 2026 datiert (Lohn ab 2026, Altlohn bis
+        # 2025, 3a 2028). Das Summary-Jahr bezieht der Produktcode ueber
+        # ``services.valuation_clock`` (ausserhalb eines Laufs die Wanduhr) --
+        # ohne festen Stichtag waere der Test nur im Kalenderjahr 2026 gruen.
+        with bound_valuation_date(_CASHFLOW_FIXTURE_AS_OF):
+            summary = cashflow_summary(client_id=client_id, db=session, current_user=advisor_user)
 
     assert summary.summary_year == 2026
     assert summary.total_income_rappen == 14400000
@@ -3083,12 +3094,16 @@ def test_generate_target_allocation_uses_dated_cashflow_series(session_factory, 
         )
         session.commit()
         mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
-        result = generate_target_allocation(
-            db=session,
-            mandate=mandate,
-            user_id=advisor_user.id,
-            preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
-        )
+        # Die Cashflow-Serie beginnt beim Kalenderjahr des Bewertungsstichtags;
+        # die Fixture-Daten sind fest auf 2026 datiert (3a-Bezug 2028 = Index 2).
+        # Der Lauf bindet sonst die Wanduhr -> nur im Kalenderjahr 2026 gruen.
+        with bound_valuation_date(_CASHFLOW_FIXTURE_AS_OF):
+            result = generate_target_allocation(
+                db=session,
+                mandate=mandate,
+                user_id=advisor_user.id,
+                preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
+            )
 
     assert result["annual_net_cashflow_rappen"] == 8400000
     assert result["cashflow_projection_series_rappen"][:4] == [8400000, 8400000, 43400000, 8400000]
@@ -3332,12 +3347,17 @@ def test_generate_target_allocation_goal_analysis_exposes_timing_and_return_targ
         )
         session.commit()
         mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
-        result = generate_target_allocation(
-            db=session,
-            mandate=mandate,
-            user_id=advisor_user.id,
-            preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
-        )
+        # Ziel "Eigenmittel" faellt fest am 2028-06-30 an; ab 2028-07-01 waere
+        # es gegen die Wanduhr ueberfaellig und die Ziel-Lifecycle-Pruefung
+        # blockierte den Lauf. Stichtag deshalb fest wie bei den anderen auf
+        # 2026 datierten Fixtures.
+        with bound_valuation_date(_CASHFLOW_FIXTURE_AS_OF):
+            result = generate_target_allocation(
+                db=session,
+                mandate=mandate,
+                user_id=advisor_user.id,
+                preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
+            )
 
     analysis = {item["label"]: item for item in result["goal_analysis"]}
     assert analysis["Eigenmittel"]["timing_label"] == "am 2028-06-30"
