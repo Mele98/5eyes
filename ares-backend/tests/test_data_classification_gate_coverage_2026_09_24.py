@@ -49,7 +49,7 @@ from services.data_classification import PHASE_ZERO_BLOCK_DETAIL
 
 from routers.clients import add_nationality, add_opt_history
 from routers.profiling import create_suitability_check
-from schemas.clients import NationalityCreate, OptHistoryCreate
+from schemas.clients import NationalityCreate, OptHistoryCreate, OptOutCriteria
 from schemas.profiling import SuitabilityCheckCreate
 
 
@@ -203,6 +203,12 @@ def test_opt_history_synthetic_allowed_when_gate_closed(session_factory, monkeyp
                 event_type="Opt-Out", from_classification="Privatkunde",
                 to_classification="Professioneller Kunde", notes="Test-Notiz",
                 data_classification="synthetic",
+                # H8 Luecke 7 (Art. 5 FIDLEG): Beleg + Kriterien-Checkliste.
+                document_id="beleg-opt-out",
+                opt_out_criteria=OptOutCriteria(
+                    basis="vermoegen_2mio", eligible_assets_verified=True,
+                    client_informed_of_protection_loss=True, declaration_in_text_form=True,
+                ),
             ),
             db=db, current_user=_advisor("advisor-dcgate2"),
         )

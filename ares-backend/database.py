@@ -1036,6 +1036,8 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             ('to_professional_opt_out', 'INTEGER'),
             ('from_qualified_investor', 'INTEGER'),
             ('to_qualified_investor', 'INTEGER'),
+            # H8 Luecke 7 (Art. 5 FIDLEG): Kriterien-Checkliste des Opting-out.
+            ('opt_out_criteria_json', 'TEXT'),
         ],
         # H8 C-5: "auf eigene Rechnung" nicht mehr vorbelegt. Bestandszeilen
         # erhalten 0 = unbeantwortet ("Bestaetigung fehlt"), bis neu erfasst.

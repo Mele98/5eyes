@@ -9,7 +9,8 @@ Compliance-Audit 2026-11-07 (Dok. 104), Paket H8:
 - ``kyc_confirmations`` / ``kyc_confirmation_approvals``: append-only
   GwG-Bestaetigung (Abklaerung im SRO-/Fremdprozess) samt Vier-Augen-Freigabe.
 - ``client_due_diligence.acting_for_own_account_answered`` (NOT NULL DEFAULT 0:
-  Bestandszeilen gelten als unbeantwortet).
+  Bestandszeilen gelten als unbeantwortet) und
+  ``client_opt_history.opt_out_criteria_json`` (Art. 5 FIDLEG).
 
 Append-only per Trigger (SQLite und PostgreSQL), wie
 financial_coverage_attestations. Kein FK auf mandates/clients (Purge-fest),
@@ -155,6 +156,7 @@ def upgrade() -> None:
             server_default=sa.text("0"), nullable=False,
         ),
     )
+    op.add_column("client_opt_history", sa.Column("opt_out_criteria_json", sa.String(), nullable=True))
 
     dialect = op.get_bind().dialect.name
     for table in APPEND_ONLY_TABLES:
@@ -175,6 +177,8 @@ def downgrade() -> None:
         elif dialect == "sqlite":
             op.execute(f"DROP TRIGGER IF EXISTS trg_{table}_no_update")
             op.execute(f"DROP TRIGGER IF EXISTS trg_{table}_no_delete")
+    with op.batch_alter_table("client_opt_history") as batch:
+        batch.drop_column("opt_out_criteria_json")
     with op.batch_alter_table("client_due_diligence") as batch:
         batch.drop_column("acting_for_own_account_answered")
     op.drop_table("kyc_confirmation_approvals")

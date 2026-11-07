@@ -106,6 +106,10 @@ class ClientOptHistory(Base):
     to_professional_opt_out = Column(Integer)
     from_qualified_investor = Column(Integer)
     to_qualified_investor = Column(Integer)
+    # H8 Luecke 7 (Art. 5 FIDLEG): Kriterien-Checkliste eines Opting-out
+    # (Privatkunde -> Professioneller Kunde), kanonisches JSON. NULL bei
+    # Uebergaengen ohne Opting-out und bei Altzeilen vor H8.
+    opt_out_criteria_json = Column(String)
 
     client = relationship("Client", back_populates="opt_history")
 

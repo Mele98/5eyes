@@ -226,6 +226,40 @@ class NationalityResponse(BaseResponse):
     created_at: str
 
 
+class OptOutCriteria(BaseModel):
+    """H8 Luecke 7: Kriterien-Checkliste fuer ein Opting-out nach Art. 5 FIDLEG
+    (vermoegende Privatkunden erklaeren, als professionelle Kunden gelten zu
+    wollen). Kriterien gemaess Art. 5 Abs. 2 FIDLEG [Compliance pruefen]:
+    lit. a Kenntnisse aus Ausbildung/Berufserfahrung UND anrechenbares
+    Vermoegen von mindestens CHF 500 000, oder lit. b anrechenbares Vermoegen
+    von mindestens CHF 2 Mio. Ares prueft nicht das Vermoegen selbst, sondern
+    verlangt die dokumentierte Bestaetigung je Kriterium."""
+
+    basis: Literal["kenntnisse_und_vermoegen_500k", "vermoegen_2mio"]
+    eligible_assets_verified: bool
+    knowledge_basis: Optional[str] = None
+    client_informed_of_protection_loss: bool
+    declaration_in_text_form: bool
+
+    @model_validator(mode="after")
+    def _validate_checklist(self):
+        missing: list[str] = []
+        if not self.eligible_assets_verified:
+            missing.append("anrechenbares Vermoegen geprueft")
+        if not self.client_informed_of_protection_loss:
+            missing.append("Aufklaerung ueber den Verlust des Anlegerschutzes")
+        if not self.declaration_in_text_form:
+            missing.append("Erklaerung des Kunden in Textform")
+        if self.basis == "kenntnisse_und_vermoegen_500k" and len((self.knowledge_basis or "").strip()) < 10:
+            missing.append("Nachweis der Kenntnisse (Ausbildung/Berufserfahrung, mind. 10 Zeichen)")
+        if missing:
+            raise ValueError(
+                "Opting-out nach Art. 5 FIDLEG unvollstaendig dokumentiert: "
+                + "; ".join(missing)
+            )
+        return self
+
+
 class OptHistoryCreate(BaseModel):
     # FIDLEG-STATE-001 (2026-08-27-Audit): from_classification/
     # to_classification waren zuvor freie Strings -- der Router setzte
@@ -259,6 +293,11 @@ class OptHistoryCreate(BaseModel):
     to_professional_opt_out: Optional[bool] = None
     from_qualified_investor: Optional[bool] = None
     to_qualified_investor: Optional[bool] = None
+    # H8 Luecke 7 (Art. 5 FIDLEG): Pflicht bei einem Opting-out (Privatkunde
+    # -> professionell bzw. Opting-out-Flag -> True), zusammen mit
+    # ``document_id`` (Beleg der Erklaerung). Pruefung im Router, weil sie den
+    # gespeicherten Ausgangszustand kennen muss.
+    opt_out_criteria: Optional[OptOutCriteria] = None
     # DATA-CLASSIFICATION-GATE-COVERAGE-002 (Kontrollrunde 2026-09-24):
     # Phase-0-Gate fehlte fuer Opt-History -- enthaelt Freitext (notes) und
     # dokumentiert eine echte Klassifikations-Aenderung des Kunden.
@@ -280,6 +319,8 @@ class OptHistoryResponse(BaseResponse):
     to_professional_opt_out: Optional[int] = None
     from_qualified_investor: Optional[int] = None
     to_qualified_investor: Optional[int] = None
+    document_id: Optional[str] = None
+    opt_out_criteria_json: Optional[str] = None
 
 
 class ClientDueDiligenceBase(BaseModel):

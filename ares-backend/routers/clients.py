@@ -278,6 +278,50 @@ def get_opt_history(
     ).order_by(ClientOptHistory.documented_at.desc()).all()
 
 
+_PRIVATE_CLIENT = "Privatkunde"
+
+
+def _enforce_opting_evidence(body: OptHistoryCreate) -> None:
+    """H8 Luecke 7 (Art. 5 FIDLEG): Opting-out nur mit Beleg und Kriterien.
+
+    Opting-out = Privatkunde -> professionell/institutionell oder das
+    Opting-out-Flag wird gesetzt. Pflicht: ``document_id`` (Beleg der
+    Erklaerung des Kunden) und die vollstaendige Kriterien-Checkliste
+    (``opt_out_criteria``, validiert im Schema). Opting-in (Rueckkehr zum
+    Privatkunden bzw. Flag -> False) braucht den Beleg, keine Kriterien.
+    """
+    has_document = bool((body.document_id or "").strip())
+    opting_out = (
+        (body.from_classification == _PRIVATE_CLIENT and body.to_classification != _PRIVATE_CLIENT)
+        or body.to_professional_opt_out is True
+    )
+    opting_in = (
+        (body.from_classification != _PRIVATE_CLIENT and body.to_classification == _PRIVATE_CLIENT)
+        or body.to_professional_opt_out is False
+    )
+    if opting_out and (not has_document or body.opt_out_criteria is None):
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "OPT_OUT_EVIDENCE_MISSING",
+            "message": (
+                "Opting-out nach Art. 5 FIDLEG nur mit Beleg der Erklaerung des "
+                "Kunden (document_id) und vollstaendiger Kriterien-Checkliste "
+                "(opt_out_criteria)."
+            ),
+        })
+    if opting_out and body.opt_out_criteria is not None:
+        return
+    if body.opt_out_criteria is not None:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "OPT_OUT_EVIDENCE_MISSING",
+            "message": "opt_out_criteria gilt nur fuer ein Opting-out (Art. 5 FIDLEG).",
+        })
+    if opting_in and not has_document:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "OPT_OUT_EVIDENCE_MISSING",
+            "message": "Opting-in (Rueckkehr zum Privatkunden) nur mit Beleg (document_id).",
+        })
+
+
 @router.post("/{client_id}/opt-history", response_model=OptHistoryResponse, status_code=201)
 def add_opt_history(
     client_id: str,
@@ -306,6 +350,7 @@ def add_opt_history(
     Flag-Aenderung (from_*/to_* fuer die Flags bleiben None)."""
     enforce_data_classification(body.data_classification)
     client = _get_client_or_404(client_id, db, current_user)
+    _enforce_opting_evidence(body)
     if body.from_classification != client.client_classification:
         raise HTTPException(
             status_code=409,
@@ -351,9 +396,13 @@ def add_opt_history(
         client_requested=1 if body.client_requested else 0,
         documented_by=current_user.id,
         documented_at=now,
-        document_id=body.document_id,
+        document_id=(body.document_id or "").strip() or None,
         notes=body.notes,
         created_at=now,
+        opt_out_criteria_json=(
+            json.dumps(body.opt_out_criteria.model_dump(), sort_keys=True, ensure_ascii=False)
+            if body.opt_out_criteria is not None else None
+        ),
         from_professional_opt_out=(
             None if body.from_professional_opt_out is None
             else int(body.from_professional_opt_out)

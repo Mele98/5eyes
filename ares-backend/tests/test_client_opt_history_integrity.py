@@ -52,9 +52,16 @@ from models import (  # noqa: F401 -- registers all mappers for Base.metadata.cr
 from models.clients import Client, ClientOptHistory
 from models.users import User
 from routers.clients import add_opt_history, update_client
-from schemas.clients import ClientUpdate, OptHistoryCreate
+from schemas.clients import ClientUpdate, OptHistoryCreate, OptOutCriteria
 
 NOW = "2026-08-27T09:00:00.000Z"
+
+
+# H8 Luecke 7 (Art. 5 FIDLEG): vollstaendige Kriterien-Checkliste fuer Opting-out-Tests.
+_OPT_OUT_CRITERIA = OptOutCriteria(
+    basis="vermoegen_2mio", eligible_assets_verified=True,
+    client_informed_of_protection_loss=True, declaration_in_text_form=True,
+)
 
 
 @pytest.fixture()
@@ -211,6 +218,8 @@ def test_opt_history_valid_transition_updates_client_and_writes_history(session_
             client_requested=True,
             document_id="doc-signed-1",
             notes="Kundenantrag vom 2026-08-27, Beleg doc-signed-1 abgelegt",
+            # H8 Luecke 7 (Art. 5 FIDLEG): Opting-out nur mit Kriterien-Checkliste.
+            opt_out_criteria=_OPT_OUT_CRITERIA,
         )
         entry = add_opt_history(client_id=client.id, body=body, db=session, current_user=advisor)
 
@@ -295,6 +304,8 @@ def test_opt_history_classification_and_flag_change_together_atomic(session_fact
             to_professional_opt_out=True,
             client_requested=True,
             document_id="doc-3",
+            # H8 Luecke 7 (Art. 5 FIDLEG): Opting-out nur mit Kriterien-Checkliste.
+            opt_out_criteria=_OPT_OUT_CRITERIA,
             notes="Kundenantrag Professioneller-Kunde-Opt-out, Beleg doc-3",
         )
         entry = add_opt_history(client_id=client.id, body=body, db=session, current_user=advisor)
@@ -325,6 +336,8 @@ def test_opt_history_without_flag_fields_leaves_flags_untouched(session_factory)
             to_classification="Institutioneller Kunde",
             client_requested=True,
             document_id="doc-4",
+            # H8 Luecke 7 (Art. 5 FIDLEG): Opting-out nur mit Kriterien-Checkliste.
+            opt_out_criteria=_OPT_OUT_CRITERIA,
         )
         add_opt_history(client_id=client.id, body=body, db=session, current_user=advisor)
 
