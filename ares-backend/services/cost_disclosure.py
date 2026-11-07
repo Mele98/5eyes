@@ -17,6 +17,14 @@ from sqlalchemy.orm import Session
 
 
 DEFAULT_TRANSACTION_COST_BPS = 15
+# N-858-11: Hinweis, wenn die Liquiditaetsreserve das ganze Beratungsvermoegen
+# beansprucht (Strategiebasis 0) -- kein Produktvolumen, nur Dienstleistungskosten.
+ZERO_STRATEGY_BASE_COST_NOTE = (
+    "Keine investierbare Strategiebasis: Die Liquiditätsreserve beansprucht das "
+    "gesamte Beratungsvermögen. Es wird nichts investiert; Produktkosten "
+    "(TER) fallen auf das Zielvolumen 0 nicht an. Die Dienstleistungskosten "
+    "beziehen sich auf das Beratungsvermögen."
+)
 
 
 class CostDisclosureDomainError(ValueError):
@@ -381,6 +389,16 @@ def build_cost_disclosure(
     return live
 
 
+def _position_amount_rappen(position: Any) -> int:
+    """N-858-11: Zielbetrag 0 ist ein Volumen (Strategiebasis 0), keine
+    fehlende Angabe. Nur ein fehlender Zielbetrag (``None``, Altbestand)
+    faellt auf den Ist-Betrag zurueck."""
+    target = getattr(position, "target_amount_rappen", None)
+    if target is not None:
+        return int(target)
+    return int(getattr(position, "current_amount_rappen", None) or 0)
+
+
 def build_cost_disclosure_for_run(
     db: Session,
     mandate: Any,
@@ -411,7 +429,7 @@ def build_cost_disclosure_for_run(
     from models.allocation import OptimizerPolicy, TargetAllocation
     from models.review import (
         ConflictOfInterestDisclosure, Product, ProductUniverseEntry,
-        RecommendationPosition,
+        RecommendationHolding, RecommendationPosition, RecommendationRun,
     )
 
     currency = str(
@@ -428,12 +446,44 @@ def build_cost_disclosure_for_run(
         )
         fee_model = _parse_fee_model(getattr(policy, "fee_model_json", None))
 
-    rows = (
-        db.query(RecommendationPosition, Product)
+    # PO-17 / N-856-3 / N-856-9: EINE Abfrage (Report-Query-Budget) liefert
+    # die Positionen dieses Laufs UND aller frueheren Laeufe des Mandats (bis
+    # zu diesem), jeweils mit ihren Holdings per Outer Join. Je Position dieses
+    # Laufs zaehlt die juengste Holding (Regel des Live-Rebalancings, geloescht
+    # = kein Bestand); aus den frueheren Laeufen je Produkt die juengste
+    # Holding (Regel von holdings_not_carried_over).
+    run_created_at = str(getattr(latest_run, "created_at", "") or "")
+    joined_rows = (
+        db.query(RecommendationPosition, Product, RecommendationHolding, RecommendationRun.created_at)
         .join(Product, Product.id == RecommendationPosition.product_id)
-        .filter(RecommendationPosition.run_id == latest_run.id)
+        .join(RecommendationRun, RecommendationRun.id == RecommendationPosition.run_id)
+        .outerjoin(
+            RecommendationHolding,
+            (RecommendationHolding.recommendation_position_id == RecommendationPosition.id)
+            & (RecommendationHolding.run_id == RecommendationPosition.run_id),
+        )
+        .filter(
+            RecommendationRun.mandate_id == mandate.id,
+            (RecommendationPosition.run_id == latest_run.id)
+            | (RecommendationRun.created_at <= run_created_at),
+        )
         .all()
     )
+    rows = []
+    latest_holding: dict[str, Any] = {}
+    earlier_holdings: list[tuple[str, Any]] = []
+    for position, product, holding, created_at in joined_rows:
+        if position.run_id != latest_run.id:
+            if holding is not None:
+                earlier_holdings.append((str(created_at or ""), holding))
+            continue
+        if position.id not in latest_holding:
+            rows.append((position, product))
+            latest_holding[position.id] = None
+        if holding is not None:
+            current = latest_holding[position.id]
+            if current is None or str(holding.updated_at or "") > str(current.updated_at or ""):
+                latest_holding[position.id] = holding
     # 2026-07-27 (Fonds-Kuratierung): eine Verwaltung kann fuer ein Produkt
     # eine eigene, ausgehandelte Gebuehr hinterlegt haben (ProductUniverseEntry.
     # override_ter_bps) -- live nachgeschlagen (kein Snapshot), damit eine
@@ -462,13 +512,38 @@ def build_cost_disclosure_for_run(
         ter_bps_overrides = {
             entry.product_id: int(entry.override_ter_bps) for entry in override_entries
         }
+    holding_values: dict[str, int | None] = {
+        position_id: (int(h.market_value_rappen) if h.market_value_rappen is not None else None)
+        for position_id, h in latest_holding.items()
+        if h is not None and h.deleted_at is None
+    }
+    # N-856-3 / N-856-9: Bestaende frueherer Laeufe, deren Produkt dieser
+    # Lauf nicht mehr enthaelt, werden verkauft und gehoeren in den Umschlag
+    # -- unabhaengig davon, ob der Lauf selbst Bestaende traegt (N-856-9).
+    uncarried_holdings: list[dict[str, Any]] = []
+    run_products = {product.id for _, product in rows}
+    latest_by_product: dict[str, Any] = {}
+    for _created, holding in sorted(
+        earlier_holdings, key=lambda item: (item[0], str(item[1].updated_at or "")), reverse=True,
+    ):
+        latest_by_product.setdefault(holding.product_id, holding)
+    for product_id, holding in sorted(latest_by_product.items()):
+        if product_id in run_products or holding.deleted_at is not None:
+            continue
+        if int(holding.units_milli or 0) <= 0 and int(holding.market_value_rappen or 0) <= 0:
+            continue
+        uncarried_holdings.append({
+            "value_rappen": (
+                int(holding.market_value_rappen)
+                if holding.market_value_rappen is not None and int(holding.market_value_rappen) > 0
+                else None
+            ),
+        })
     positions = [
         {
-            "amount_rappen": int(
-                getattr(position, "target_amount_rappen", 0)
-                or getattr(position, "current_amount_rappen", 0)
-                or 0
-            ),
+            "holding_present": position.id in holding_values,
+            "holding_value_rappen": holding_values.get(position.id),
+            "amount_rappen": _position_amount_rappen(position),
             "weight_bps": int(getattr(position, "target_weight_bps", 0) or 0),
             "ter_bps": (
                 ter_bps_overrides[product.id]
@@ -479,6 +554,24 @@ def build_cost_disclosure_for_run(
                     else None
                 )
             ),
+        }
+        for position, product in rows
+    ]
+    # AUDIT-2026-11 P1 (L1): Retrozession am Produkt -- eigene Komponente,
+    # siehe Abschnitt "AUDIT-2026-11 P1" am Dateiende.
+    product_retrocessions = [
+        {
+            "product_id": product.id,
+            "product_name": product.product_name,
+            "isin": getattr(product, "isin", None),
+            "provider": getattr(product, "provider", None),
+            "amount_rappen": int(
+                getattr(position, "target_amount_rappen", 0)
+                or getattr(position, "current_amount_rappen", 0)
+                or 0
+            ),
+            "retrocession_bps": getattr(product, "retrocession_bps", None),
+            "retrocession_source": getattr(product, "retrocession_source", None),
         }
         for position, product in rows
     ]
@@ -564,6 +657,8 @@ def build_cost_disclosure_for_run(
             "provider": row.inducement_provider,
             "disclosed_to_client": bool(row.disclosed_to_client),
             "waiver_document_id": row.waiver_document_id,
+            # N-861-1: optionale Produktbindung (sonst Anbietername).
+            "product_id": getattr(row, "product_id", None),
         }
         for row in disclosure_rows
     ]
@@ -593,6 +688,8 @@ def build_cost_disclosure_for_run(
                 default=DEFAULT_TRANSACTION_COST_BPS,
             ),
             inducements=inducements,
+            uncarried_holdings=uncarried_holdings,
+            product_retrocessions=product_retrocessions,
             source_run_id=str(latest_run.id),
         source_run_status=str(getattr(latest_run, "result_status", "") or ""),
             as_of=str(getattr(latest_run, "created_at", "") or ""),
@@ -615,6 +712,8 @@ def calculate_cost_disclosure(
     fee_model: Mapping[str, Any] | str | None,
     transaction_cost_bps: int = DEFAULT_TRANSACTION_COST_BPS,
     inducements: Iterable[Mapping[str, Any]] | None = None,
+    uncarried_holdings: Iterable[Mapping[str, Any]] | None = None,
+    product_retrocessions: Iterable[Mapping[str, Any]] | None = None,
     source_run_id: str | None = None,
     source_run_status: str | None = None,
     as_of: str | None = None,
@@ -636,10 +735,44 @@ def calculate_cost_disclosure(
             "amount_rappen": max(0, _safe_int(item.get("amount_rappen"))),
             "weight_bps": max(0, _safe_int(item.get("weight_bps"))),
             "ter_bps": _optional_non_negative_int(item.get("ter_bps")),
+            "holding_present": bool(item.get("holding_present")),
+            "holding_value_rappen": max(0, _safe_int(item.get("holding_value_rappen"))),
         }
         for item in positions
     ]
     invested_amount = sum(item["amount_rappen"] for item in clean_positions)
+    # PO-17 (Audit 2026-11): Transaktionskosten fallen auf das GEHANDELTE
+    # Volumen an. Ist fuer mindestens eine Position ein Bestand erfasst, ist
+    # die Basis der Umschlag sum(|Ziel - Bestand|); ein Bestand ohne Marktwert
+    # zaehlt konservativ als 0 (voller Kauf). Ohne jeden Bestand bleibt es die
+    # Erstumsetzung des ganzen Volumens.
+    holdings_recorded = any(item["holding_present"] for item in clean_positions)
+    traded_amount = (
+        sum(abs(item["amount_rappen"] - item["holding_value_rappen"]) for item in clean_positions)
+        if holdings_recorded
+        else invested_amount
+    )
+    # N-856-3: Verkaeufe nicht uebernommener Bestaende gehoeren zum Umschlag.
+    # Ist ein solcher Bestand ohne Marktwert, ist sein Verkaufsvolumen
+    # unbekannt -> konservativ mindestens das ganze Volumen.
+    uncarried = list(uncarried_holdings or [])
+    uncarried_unvalued = any(item.get("value_rappen") is None for item in uncarried)
+    uncarried_notes: list[str] = []
+    if uncarried:
+        # N-856-9: auch ohne Bestand im Lauf (dann Kauf des ganzen Volumens
+        # plus Verkauf der alten Bestaende).
+        traded_amount += sum(max(0, _safe_int(item.get("value_rappen"))) for item in uncarried)
+        uncarried_notes.append(
+            f"{len(uncarried)} Bestand/Bestaende aus frueheren Laeufen ist/sind nicht in die "
+            "Empfehlung uebernommen; deren Verkauf ist im gehandelten Volumen enthalten."
+        )
+        if uncarried_unvalued:
+            traded_amount = max(traded_amount, invested_amount)
+            uncarried_notes.append(
+                "Mindestens ein nicht uebernommener Bestand ist ohne Marktwert erfasst; "
+                "die Transaktionskosten werden konservativ mindestens auf das ganze "
+                "Produktvolumen gerechnet."
+            )
     advisory_wealth = max(0, _safe_int(advisory_wealth_rappen))
     # FIDLEG: ist das echte Beratungsvermögen nicht erfasst, wird als Näherung das
     # investierte Produktvolumen als Gebührenbasis genutzt. Dann darf die Basis NICHT
@@ -738,6 +871,10 @@ def calculate_cost_disclosure(
             "is_estimate": ter_coverage_bps < 10000,
             "included_in_total": True,
         })
+    elif clean_positions and invested_amount <= 0:
+        # N-858-11: Positionen ohne Volumen (Strategiebasis 0) -- es gibt
+        # keine Produkt- und Transaktionskosten; nicht "TER fehlt" melden.
+        warnings.append(ZERO_STRATEGY_BASE_COST_NOTE)
     else:
         warnings.append(
             "Produktkosten (TER) sind für die empfohlenen Produkte nicht "
@@ -756,7 +893,31 @@ def calculate_cost_disclosure(
     transaction_rate = _require_rate_bps(
         transaction_cost_bps, location="transaction_cost_bps"
     )
-    if invested_amount > 0 and transaction_rate > 0:
+    warnings.extend(uncarried_notes if transaction_rate > 0 else [])
+    turnover_mode = holdings_recorded or bool(uncarried)  # N-856-9
+    if turnover_mode and transaction_rate > 0 and traded_amount > 0:
+        items.append(_rate_item(
+            key="initial_transaction_costs",
+            label="Transaktionskosten Umsetzung (Umschlag)",
+            category="Erwerbs-/Transaktionskosten",
+            frequency="einmalig",
+            rate_bps=transaction_rate,
+            basis_rappen=traded_amount,
+            basis_label="Gehandeltes Volumen (Käufe und Verkäufe gegenüber erfasstem Bestand)",
+            source="Konservative Ex-ante-Annahme",
+            is_estimate=True,
+        ))
+        warnings.append(
+            "Transaktionskosten sind eine Ex-ante-Schätzung auf das gehandelte "
+            "Volumen (Umschlag gegenüber dem erfassten Bestand); tatsächliche "
+            "Spreads, Courtagen und Börsenabgaben können abweichen."
+        )
+    elif turnover_mode and transaction_rate > 0:
+        warnings.append(
+            "Keine Transaktionskosten ausgewiesen: der erfasste Bestand entspricht "
+            "bereits der Empfehlung (kein Umschlag)."
+        )
+    elif invested_amount > 0 and transaction_rate > 0:
         items.append(_rate_item(
             key="initial_transaction_costs",
             label="Transaktionskosten Erstumsetzung",
@@ -770,8 +931,8 @@ def calculate_cost_disclosure(
         ))
         warnings.append(
             "Transaktionskosten sind eine Ex-ante-Schätzung für die "
-            "Erstumsetzung; tatsächliche Spreads, Courtagen und "
-            "Börsenabgaben können abweichen."
+            "Erstumsetzung des ganzen Produktvolumens (kein Bestand erfasst); "
+            "tatsächliche Spreads, Courtagen und Börsenabgaben können abweichen."
         )
 
     # 2026-07-27 (Retrozessions-Feature): FIDLEG Art. 25/26 + BGE 132 III 460
@@ -914,6 +1075,19 @@ def calculate_cost_disclosure(
                 "zurückerstatten."
             )
 
+    # AUDIT-2026-11 P1 (L1): produktgebundene Retrozessions-Offenlegung
+    # (Art. 26 FIDLEG). Abgegrenzte Komponente (Abschnitt am Dateiende); fuehrt die manuelle
+    # Mandatserfassung oben mit den Produkt-Stammdaten zusammen, ohne eine
+    # Retrozession doppelt auszuweisen. Nie im Total (Teil der TER).
+    retro_items, retro_warnings, retro_summary = apply_product_retrocessions(
+        products=None if product_retrocessions is None else list(product_retrocessions),
+        inducements=inducements,
+        has_documented_waiver=_has_documented_waiver,
+        currency=currency,
+    )
+    items.extend(retro_items)
+    warnings.extend(retro_warnings)
+
     one_time_amount = sum(
         int(item.get("amount_rappen") or 0)
         for item in items
@@ -958,9 +1132,16 @@ def calculate_cost_disclosure(
             "first_year_rappen": first_year_amount,
             "first_year_bps": _equivalent_bps(first_year_amount, advisory_wealth),
         },
-        "is_complete": service_fee_known and ter_coverage_bps == 10000,
+        # N-861-2: mit Produktbezug ist der Ausweis nur vollstaendig, wenn
+        # jede Retrozession bekannt und geregelt ist (Art. 26 FIDLEG).
+        "is_complete": (
+            service_fee_known
+            and ter_coverage_bps == 10000
+            and (retro_summary is None or bool(retro_summary.get("complete")))
+        ),
         "has_estimates": any(bool(item.get("is_estimate")) for item in items),
         "warnings": warnings,
+        **({"product_retrocessions": retro_summary} if retro_summary is not None else {}),
     }
 
 
@@ -1301,3 +1482,375 @@ def load_frozen_cost_disclosure(run: Any) -> tuple[dict[str, Any] | None, str | 
     frozen["frozen_at"] = envelope.get("frozen_at")
     frozen["snapshot_schema_version"] = version
     return frozen, None
+
+
+# ===========================================================================
+# AUDIT-2026-11 P1 (L1): produktgebundene Retrozessions-Offenlegung.
+# Abgegrenzter Abschnitt; calculate_cost_disclosure() ruft nur
+# apply_product_retrocessions() auf. Im selben Modul statt eines eigenen,
+# weil die Architektur-Ratsche keinen neuen Fan-out fuer
+# services.cost_disclosure zulaesst.
+#
+# Produktgebundene Retrozessions-Offenlegung im Ex-ante-Kostenausweis.
+#
+# Audit 2026-11, Paket P1 (Luecke L1, Bericht 02/PO-12).
+# Rechtsgrundlage: Art. 26 FIDLEG (Entschaedigungen Dritter), Art. 400 OR,
+# BGE 132 III 460 (Herausgabepflicht), BGE 137 III 393 (Verzicht nur bei
+# Kenntnis von Umfang und Berechnungsparametern).
+#
+# Bisher kannte der Kostenausweis Retrozessionen nur, wenn der Berater sie
+# pro Mandat manuell als Interessenkonflikt erfasste (Retrozessions-Feature
+# 2026-07-27). Ein empfohlenes Produkt mit Retrozession konnte deshalb ohne
+# Offenlegungszeile im Kundendokument stehen. Diese Komponente bindet die
+# Offenlegung an das PRODUKT:
+#
+# * Satz > 0  -> Offenlegungszeile mit geschaetztem Jahresbetrag (Satz x
+#   investiertes Volumen des Produkts) und der Behandlung gemaess Mandat
+#   (Weitergabe an den Kunden / dokumentierter Verzicht / nicht geregelt).
+# * Satz NULL -> Pflichtwarnung an den Berater und Kennzeichnung im Dokument.
+#   Das Produkt gilt NIE still als retrozessionsfrei.
+# * Satz 0    -> ausdruecklich retrozessionsfrei (mit Quelle erfasst).
+#
+# Zusammenfuehrung mit der manuellen Erfassung pro Mandat (kein doppelter
+# Ausweis): Eine manuelle Retrozessions-Zeile des Mandats, deren Anbieter dem
+# Anbieter des Produkts entspricht (Vergleich ohne Gross-/Kleinschreibung und
+# Leerraum), IST die Offenlegungszeile dieses Produkts. Ihre Behandlung
+# (rueckerstattet / Verzicht belegt / nicht belegt) gilt fuer das Produkt;
+# eine zweite Kostenzeile entsteht nicht. Nur ein Produkt ohne passende
+# Mandatszeile bekommt eine eigene Kostenzeile -- stets AUSSERHALB des Totals
+# (die Retrozession ist Teil der TER, Addieren waere Doppelzaehlung) und mit
+# ``requires_resolution``, weil weder Verzicht noch Weitergabe erfasst ist.
+#
+# Bewusst eine eigene, abgegrenzte Komponente: ``services/cost_disclosure.py``
+# ruft nur ``apply_product_retrocessions()`` auf. Die Auswahl- und
+# Scoring-Logik der Engine bleibt unberuehrt.
+# ===========================================================================
+TREATMENT_REIMBURSED = "reimbursed"
+TREATMENT_WAIVER_DOCUMENTED = "waiver_documented"
+TREATMENT_UNRESOLVED = "unresolved"
+TREATMENT_NOT_APPLICABLE = "not_applicable"
+TREATMENT_UNKNOWN = "unknown"
+TREATMENT_PARTIALLY_COVERED = "partially_covered"
+
+TREATMENT_LABELS = {
+    TREATMENT_REIMBURSED: "Weitergabe an den Kunden gemäss Mandat",
+    TREATMENT_WAIVER_DOCUMENTED: "Verzicht des Kunden dokumentiert",
+    TREATMENT_UNRESOLVED: "Weder Verzicht noch Weitergabe belegt – Klärung erforderlich",
+    TREATMENT_NOT_APPLICABLE: "Keine Retrozession",
+    TREATMENT_UNKNOWN: "Satz nicht erfasst – gilt nicht als retrozessionsfrei",
+    TREATMENT_PARTIALLY_COVERED: "Verzicht/Weitergabe deckt nur einen Teil – Rest ungeregelt",
+}
+
+COST_ITEM_KEY = "retrocession_product"
+DISCLOSURE_SCHEMA_VERSION = 1
+
+
+def _norm_provider(value: Any) -> str:
+    return " ".join(str(value or "").split()).casefold()
+
+
+def _format_amount(rappen: int, currency: str) -> str:
+    whole, cents = divmod(abs(int(rappen)), 100)
+    grouped = f"{whole:,}".replace(",", "'")
+    sign = "-" if rappen < 0 else ""
+    return f"{currency} {sign}{grouped}.{cents:02d}"
+
+
+def _rate(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        rate = int(value)
+    except (TypeError, ValueError):
+        return None
+    return rate if rate >= 0 else None
+
+
+_ANNUAL_FREQUENCIES = ("jährlich", "jaehrlich", "annual", "annually", "yearly")
+# N-861-7 (Entscheid Owner-Vertretung, BGE 137 III 393): KEINE Toleranz.
+# Ein Verzicht wirkt nur im aufgeklaerten Umfang; eine geschaetzte
+# Produkt-Retrozession ist nur gedeckt, wenn der geregelte Betrag sie voll
+# erreicht. Wer eine Unschaerfe abbilden will, klaert im Mandat ausdruecklich
+# einen Hoechstbetrag auf (dieser ist dann der Mandatsbetrag).
+COVERAGE_TOLERANCE = 1.0
+
+
+def _int_or_zero(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _mandate_groups(inducements, has_documented_waiver) -> dict[tuple[str, str], dict[str, Any]]:
+    """N-861-1 (c): Mandatszeilen je Zuordnungsschluessel SUMMIEREN statt
+    still auf die erste zu reduzieren. Schluessel: ('product', product_id),
+    wenn die Zeile an ein Produkt gebunden ist, sonst ('provider', Anbieter).
+
+    * ``disclosed`` -- Summe der ausdruecklich JAEHRLICH offengelegten
+      Betraege (egal wie geregelt). N-861-8: ein einmalig oder ohne
+      Frequenz offengelegter Betrag klaert eine laufende Retrozession nicht
+      auf und landet separat in ``disclosed_other``.
+    * ``resolved``  -- davon geregelt: zurueckerstattet oder Verzicht belegt
+      (ebenfalls nur jaehrlich, weil die Produkt-Schaetzung ein Jahresbetrag
+      ist).
+    """
+    groups: dict[tuple[str, str], dict[str, Any]] = {}
+    for entry in inducements or []:
+        amount = _int_or_zero(entry.get("amount_rappen"))
+        if amount <= 0:
+            continue
+        product_id = str(entry.get("product_id") or "").strip()
+        provider = _norm_provider(entry.get("provider"))
+        if product_id:
+            key = ("product", product_id)
+        elif provider:
+            key = ("provider", provider)
+        else:
+            continue
+        group = groups.setdefault(key, {
+            "disclosed": 0, "disclosed_other": 0, "reimbursed": 0, "waived": 0, "entries": 0,
+        })
+        group["entries"] += 1
+        if str(entry.get("frequency") or "").strip().lower() not in _ANNUAL_FREQUENCIES:
+            group["disclosed_other"] += amount
+            continue
+        group["disclosed"] += amount
+        if bool(entry.get("reimbursed_to_client")):
+            group["reimbursed"] += amount
+        elif has_documented_waiver(entry):
+            group["waived"] += amount
+    for group in groups.values():
+        group["resolved"] = group["reimbursed"] + group["waived"]
+    return groups
+
+
+def _within(estimate: int, covered: int) -> bool:
+    return estimate <= covered * COVERAGE_TOLERANCE
+
+
+def _share(total: int, part: int, whole: int) -> int:
+    if whole <= 0:
+        return 0
+    return int(round(total * part / whole))
+
+
+def build_product_retrocession_lines(
+    products: Iterable[Mapping[str, Any]],
+    inducements: Iterable[Mapping[str, Any]] | None,
+    *,
+    has_documented_waiver,
+) -> list[dict[str, Any]]:
+    """Eine Zeile je empfohlenem Produkt (Positionen desselben Produkts
+    zusammengefasst), stabil nach Produktname sortiert.
+
+    N-861-1 (BGE 137 III 393: ein Verzicht wirkt nur im Umfang der
+    Aufklaerung): je Zuordnungsgruppe wird die SUMME der geschaetzten
+    Produkt-Retrozessionen mit dem im Mandat offengelegten bzw. geregelten
+    Betrag verglichen (Toleranz COVERAGE_TOLERANCE). Der nicht gedeckte Rest
+    gilt als ungeregelt; ein nicht offengelegter Teil bekommt eine eigene
+    Kostenzeile. Zuordnung: Produktbindung (product_id) vor Anbietername.
+    """
+    groups = _mandate_groups(inducements, has_documented_waiver)
+
+    merged: dict[str, dict[str, Any]] = {}
+    for item in products:
+        product_id = str(item.get("product_id") or "")
+        line = merged.get(product_id)
+        amount = max(0, int(item.get("amount_rappen") or 0))
+        if line is None:
+            merged[product_id] = {
+                "product_id": product_id or None,
+                "product_name": str(item.get("product_name") or "Produkt"),
+                "isin": item.get("isin") or None,
+                "provider": item.get("provider") or None,
+                "amount_rappen": amount,
+                "rate_bps": _rate(item.get("retrocession_bps")),
+                "source": item.get("retrocession_source") or None,
+            }
+        else:
+            line["amount_rappen"] += amount
+
+    def group_key(line):
+        if line["product_id"] and ("product", line["product_id"]) in groups:
+            return ("product", line["product_id"])
+        provider = _norm_provider(line["provider"])
+        if provider and ("provider", provider) in groups:
+            return ("provider", provider)
+        return None
+
+    keys: dict[str, Any] = {}
+    group_estimates: dict[tuple[str, str], int] = {}
+    for pid, line in merged.items():
+        rate = line["rate_bps"]
+        line["estimated_annual_rappen"] = (
+            None if rate is None else int(round(line["amount_rappen"] * rate / 10000))
+        )
+        key = group_key(line) if rate else None
+        keys[pid] = key
+        if key is not None:
+            group_estimates[key] = group_estimates.get(key, 0) + line["estimated_annual_rappen"]
+
+    lines: list[dict[str, Any]] = []
+    for pid, line in merged.items():
+        rate = line["rate_bps"]
+        key = keys[pid]
+        estimate = line["estimated_annual_rappen"]
+        disclosed_share = resolved_share = other_share = 0
+        if rate is None:
+            status, treatment = "unknown", TREATMENT_UNKNOWN
+        elif rate == 0:
+            status, treatment = "none", TREATMENT_NOT_APPLICABLE
+        else:
+            status = "present"
+            if key is None:
+                treatment = TREATMENT_UNRESOLVED
+            else:
+                group = groups[key]
+                group_estimate = group_estimates[key]
+                # N-861-7: immer der tatsaechliche (anteilige) Mandatsbetrag,
+                # nie auf die Schaetzung hochgesetzt.
+                disclosed_share = _share(group["disclosed"], estimate, group_estimate)
+                resolved_share = _share(group["resolved"], estimate, group_estimate)
+                other_share = _share(group["disclosed_other"], estimate, group_estimate)
+                if group["resolved"] > 0 and _within(group_estimate, group["resolved"]):
+                    treatment = (
+                        TREATMENT_REIMBURSED
+                        if group["reimbursed"] >= group["waived"]
+                        else TREATMENT_WAIVER_DOCUMENTED
+                    )
+                elif group["resolved"] > 0:
+                    treatment = TREATMENT_PARTIALLY_COVERED
+                else:
+                    treatment = TREATMENT_UNRESOLVED
+        present = status == "present"
+        group_covers = key is not None and _within(group_estimates[key], groups[key]["resolved"])
+        group_discloses = key is not None and _within(group_estimates[key], groups[key]["disclosed"])
+        # Rundung der anteiligen Verteilung darf keinen Scheinrest erzeugen,
+        # wenn die Gruppe als Ganzes gedeckt ist.
+        unresolved = (0 if group_covers else max(0, estimate - resolved_share)) if present else None
+        undisclosed = (0 if group_discloses else max(0, estimate - disclosed_share)) if present else None
+        lines.append({
+            **line,
+            "status": status,
+            "treatment": treatment,
+            "treatment_label": TREATMENT_LABELS[treatment],
+            # True = eine manuelle Retrozessions-Zeile des Mandats (Produkt-
+            # bindung oder gleicher Anbieter) ist die Offenlegungszeile.
+            "covered_by_mandate_entry": key is not None,
+            "mandate_disclosed_rappen": disclosed_share if key is not None else None,
+            "mandate_resolved_rappen": resolved_share if key is not None else None,
+            # N-861-8: einmalig/ohne Frequenz offengelegt -- deckt die
+            # jaehrliche Retrozession nicht (nie als "aufgeklaert" beschriftet).
+            "mandate_disclosed_other_rappen": other_share if key is not None and other_share else None,
+            "unresolved_rappen": unresolved,
+            "undisclosed_rappen": undisclosed,
+            "requires_resolution": present and unresolved > 0,
+            "_group_key": key,
+        })
+    lines.sort(key=lambda row: (row["product_name"].casefold(), str(row["product_id"] or "")))
+    return lines
+
+
+def apply_product_retrocessions(
+    *,
+    products: Iterable[Mapping[str, Any]] | None,
+    inducements: Iterable[Mapping[str, Any]] | None,
+    has_documented_waiver,
+    currency: str,
+) -> tuple[list[dict[str, Any]], list[str], dict[str, Any] | None]:
+    """Zusaetzliche Kostenzeilen, Warnungen und die Offenlegungs-Uebersicht.
+
+    ``products`` None = der Aufrufer kennt die Produkte nicht (z.B. eine
+    reine Rechnung ohne Lauf) -> keine Aussage, Uebersicht None.
+    """
+    if products is None:
+        return [], [], None
+    lines = build_product_retrocession_lines(
+        products, inducements, has_documented_waiver=has_documented_waiver,
+    )
+    items: list[dict[str, Any]] = []
+    warnings: list[str] = []
+
+    for line in lines:
+        if line["status"] != "present" or not line["undisclosed_rappen"]:
+            continue
+        source = line["source"] or "nicht angegeben"
+        partial = line["covered_by_mandate_entry"]
+        items.append({
+            "key": COST_ITEM_KEY,
+            "label": (
+                f"Vergütung von Dritten: {line['product_name']} "
+                + (
+                    "– über die Mandatsangabe hinausgehender Teil (Schätzung)"
+                    if partial else f"({line['rate_bps']} bps p.a., Schätzung)"
+                )
+            ),
+            "category": "Vergütungen von Dritten",
+            "frequency": "jährlich",
+            "rate_bps": None if partial else line["rate_bps"],
+            "amount_rappen": line["undisclosed_rappen"],
+            "basis_rappen": line["amount_rappen"],
+            "basis_label": "Investiertes Volumen des Produkts",
+            "source": f"Produkt-Stammdaten (Retrozessionssatz; Quelle: {source})",
+            "is_estimate": True,
+            # Teil der TER -- addieren waere Doppelzaehlung, abziehen wuerde
+            # eine Rueckerstattung behaupten, die nicht erfasst ist.
+            "included_in_total": False,
+            "requires_resolution": True,
+        })
+        if not partial:
+            warnings.append(
+                f"Das empfohlene Produkt {line['product_name']} zahlt eine Retrozession "
+                f"({line['rate_bps']} bps p.a., geschätzt "
+                f"{_format_amount(line['estimated_annual_rappen'], currency)} pro Jahr). Im Mandat "
+                "ist weder ein Verzicht des Kunden noch die Weitergabe erfasst. Interessenkonflikt "
+                "«Retrozession / Inducement» für diesen Anbieter erfassen und Verzicht oder "
+                "Rückerstattung dokumentieren (Art. 26 FIDLEG; BGE 132 III 460 / 137 III 393)."
+            )
+
+    # N-861-1 (a): Pflichtwarnung je Gruppe, wenn der geregelte Betrag die
+    # geschaetzte Summe nicht deckt.
+    by_group: dict[Any, list[dict[str, Any]]] = {}
+    for line in lines:
+        if line["status"] == "present" and line["_group_key"] is not None:
+            by_group.setdefault(line["_group_key"], []).append(line)
+    for members in by_group.values():
+        unresolved_total = sum(int(m["unresolved_rappen"] or 0) for m in members)
+        if unresolved_total <= 0:
+            continue
+        estimate_total = sum(int(m["estimated_annual_rappen"] or 0) for m in members)
+        resolved_total = sum(int(m["mandate_resolved_rappen"] or 0) for m in members)
+        names = ", ".join(m["product_name"] for m in members)
+        warnings.append(
+            f"Verzicht bzw. Weitergabe im Mandat deckt für {names} nur "
+            f"{_format_amount(resolved_total, currency)} von geschätzt "
+            f"{_format_amount(estimate_total, currency)} Retrozession pro Jahr. Der Rest "
+            f"({_format_amount(unresolved_total, currency)}) ist ungeregelt: Ein Verzicht wirkt "
+            "nur im Umfang der Aufklärung (BGE 137 III 393). Aufklärung und Verzicht auf den "
+            "vollen Betrag erweitern oder den Rest zurückerstatten."
+        )
+    for line in lines:
+        line.pop("_group_key", None)
+
+    unknown = [line["product_name"] for line in lines if line["status"] == "unknown"]
+    if unknown:
+        listed = ", ".join(unknown[:6]) + (f" und {len(unknown) - 6} weitere" if len(unknown) > 6 else "")
+        warnings.append(
+            f"Retrozession unbekannt für {len(unknown)} empfohlene"
+            f"{'s Produkt' if len(unknown) == 1 else ' Produkte'} ({listed}). Diese Produkte "
+            "gelten NICHT als retrozessionsfrei. Satz und Quelle im Fondsuniversum erfassen, "
+            "bevor das Dokument dem Kunden abgegeben wird (Art. 26 FIDLEG)."
+        )
+
+    summary = {
+        "schema_version": DISCLOSURE_SCHEMA_VERSION,
+        "lines": lines,
+        "unknown_count": len(unknown),
+        "present_count": sum(1 for line in lines if line["status"] == "present"),
+        "unresolved_count": sum(1 for line in lines if line["requires_resolution"]),
+        # Vollstaendig = jeder Satz bekannt UND jede Retrozession geregelt.
+        "complete": not unknown and not any(line["requires_resolution"] for line in lines),
+        "legal_reference": "Art. 26 FIDLEG; Art. 400 OR; BGE 132 III 460; BGE 137 III 393",
+    }
+    return items, warnings, summary

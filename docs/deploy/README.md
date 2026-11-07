@@ -2,7 +2,7 @@
 
 Ziel: die volle App im Browser von überall erreichbar, für Operator + Kollegen,
 **ohne echte Kundendaten** (technisch via `allow_real_client_data=false` erzwungen,
-Banner sichtbar). CH-Datenresidenz. Siehe `docs/planning/2026-06-12-external-access-rollout-plan.md`.
+Banner sichtbar). CH-Datenresidenz.
 
 ---
 
@@ -17,7 +17,7 @@ Du willst dich extern einloggen, während es auf deinem Windows-PC läuft? **Ein
 
 Das Skript:
 1. startet das Backend im **Staging-/Browser-Hosting-Modus** auf `127.0.0.1:8000`
-   (stabiles Login-Secret in `~/5eyes/.external-secret.txt`, `allow_real_client_data=false`),
+   (stabiles Login-Secret in `~/ares/.external-secret.txt`, `allow_real_client_data=false`),
 2. lädt einmalig **cloudflared** und öffnet einen **HTTPS-Quick-Tunnel** (kein Account).
 
 Es erscheint eine URL `https://<zufall>.trycloudflare.com`. **Extern (Handy/anderer PC) öffnen mit `/app/ares.html` dahinter:**
@@ -54,33 +54,34 @@ Browser ──HTTPS──> Cloudflare (optional, WAF/DDoS) ──> Caddy (TLS, R
                                                           └─> uvicorn (127.0.0.1:8000)
                                                                 └─> SQLite (SQLCipher) — Phase-0
 ```
-- **Ein Host, same-origin:** Caddy serviert `app.5eyes.ch`; FastAPI liefert Frontend (`/app/ares.html`) **und** API auf derselben Origin → kein CORS-Loch.
+- **Ein Host, same-origin:** Caddy serviert `app.<ARES_DOMAIN>`; FastAPI liefert Frontend (`/app/ares.html`) **und** API auf derselben Origin → kein CORS-Loch.
 - **Phase-0 DB:** SQLCipher-SQLite (reicht für wenige interne User). Postgres+RLS erst in E1 vor echten Daten.
 
 ## Voraussetzungen
 - CH-VPS (Empfehlung: **Infomaniak** Genf oder **Exoscale** Lausanne), Ubuntu 22.04+, Python 3.11+.
-- DNS: `app.5eyes.ch` → VPS-IP (A/AAAA). (Optional Cloudflare-Proxy „orange cloud".)
+- DNS: `app.<ARES_DOMAIN>` → VPS-IP (A/AAAA). (Optional Cloudflare-Proxy „orange cloud".)
 - Offene Ports: 80/443 (Caddy). Backend NUR auf 127.0.0.1 (nicht öffentlich).
 
 ## Schritte
 1. **Code + venv**
    ```bash
-   git clone <repo> /opt/5eyes && cd /opt/5eyes/ares-backend
+   git clone <repo> /opt/ares && cd /opt/ares/ares-backend
    python3 -m venv .venv && . .venv/bin/activate
    pip install -r requirements.txt
    pip install gunicorn uvicorn
    ```
-2. **Env-Datei** (siehe `.env.staging.example`): nach `/opt/5eyes/ares-backend/.env` kopieren und
+2. **Env-Datei** (siehe `.env.staging.example`): nach `/etc/ares/ares.env` kopieren und
    **`secret_key` + `db_key` mit echten Zufallswerten** füllen:
    ```bash
    python3 -c "import secrets;print('SECRET_KEY='+secrets.token_urlsafe(48))"
    python3 -c "import secrets;print('DB_KEY='+secrets.token_urlsafe(32))"
    ```
-3. **Backend als Service** (`5eyes.service` → `/etc/systemd/system/`):
+3. **Backend als Service** (`ares.service` → `/etc/systemd/system/`):
    ```bash
-   sudo cp docs/deploy/5eyes.service /etc/systemd/system/
-   sudo systemctl daemon-reload && sudo systemctl enable --now 5eyes
-   sudo systemctl status 5eyes
+   sudo useradd --system --home-dir /var/lib/ares --shell /usr/sbin/nologin ares
+   sudo cp docs/deploy/ares.service /etc/systemd/system/
+   sudo systemctl daemon-reload && sudo systemctl enable --now ares
+   sudo systemctl status ares
    ```
 4. **Caddy (Auto-TLS)** (`Caddyfile` → `/etc/caddy/Caddyfile`, Domain anpassen):
    ```bash
@@ -89,13 +90,13 @@ Browser ──HTTPS──> Cloudflare (optional, WAF/DDoS) ──> Caddy (TLS, R
    sudo systemctl reload caddy
    ```
 5. **Demo-Tenants + Operator** anlegen (Super-Admin) und je 1 synthetischen Kunden (wie Leart).
-6. **Smoke-Test:** `https://app.5eyes.ch/` → JSON mit `"allow_real_client_data": false`.
-   `https://app.5eyes.ch/app/ares.html` → App lädt, **gelbes Banner sichtbar**.
+6. **Smoke-Test:** `https://app.<ARES_DOMAIN>/` → JSON mit `"allow_real_client_data": false`.
+   `https://app.<ARES_DOMAIN>/app/ares.html` → App lädt, **gelbes Banner sichtbar**.
 
 ## Sicherheits-Checkliste Phase-0
 - [ ] `app_env=staging`, `secret_key` ≠ Default, `db_use_sqlcipher=true` + `db_key` gesetzt.
 - [ ] `allow_real_client_data=false` (Banner muss erscheinen).
-- [ ] `cors_origins` enthält NUR `https://app.5eyes.ch` (kein `*`, kein localhost).
+- [ ] `cors_origins` enthält NUR `https://app.<ARES_DOMAIN>` (kein `*`, kein localhost).
 - [ ] Backend lauscht NUR auf 127.0.0.1 (`app_host=127.0.0.1`); öffentlich nur Caddy.
 - [ ] 2FA (kommt in E1) — bis dahin: starke Passwörter + wenige Accounts.
 - [ ] Tägliches verschlüsseltes Backup der `.db` + Off-Site (CH).
