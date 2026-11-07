@@ -84,6 +84,8 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDF
         audit_hash=_audit_hash_for_mandate(mandate),
         locale="de-CH",
         base_currency=base_currency,
+        mandate_type=getattr(mandate, "mandate_type", None),
+        jurisdiction=getattr(mandate, "jurisdiction", None),
     )
 
 

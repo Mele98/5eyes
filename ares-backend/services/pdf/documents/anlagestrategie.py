@@ -332,7 +332,9 @@ def build_anlagestrategie_flowables(
     flowables.extend(make_kennzahlen_erlaeuterungen_section())
     flowables.append(PageBreak())
 
-    flowables.extend(make_disclaimer_section())
+    flowables.extend(make_disclaimer_section(
+        ctx.mandate_type or data.mandate_type, ctx.jurisdiction,
+    ))
 
     return flowables
 
@@ -629,7 +631,9 @@ def _build_anlagestrategie_flowables_template_order(
     flowables.append(PageBreak())
 
     # 19 Disclaimer
-    flowables.extend(make_disclaimer_section())
+    flowables.extend(make_disclaimer_section(
+        ctx.mandate_type or data.mandate_type, ctx.jurisdiction,
+    ))
 
     return flowables
 

@@ -35,6 +35,10 @@ class PDFContext:
     # Backtest) gesetzt/gerendert -- fuer CH IMMER None (kein DB-Zugriff,
     # siehe resolve_pdf_provisional_notice).
     provisional_notice: Mapping[str, object] | None = None
+    # H7 C-3: Mandatstyp und Jurisdiktion fuer den Disclaimer je Mandat
+    # (services/pdf/components/static_texts.py::disclaimer_paragraphs).
+    mandate_type: str | None = None
+    jurisdiction: str | None = None
 
 
 @dataclass(frozen=True)
