@@ -14,9 +14,10 @@ rechtliche Angabe vor.
 from __future__ import annotations
 
 import hashlib
+from datetime import date, timedelta
 
 from database import new_uuid
-from models.clients import Client
+from models.clients import Client, ClientDueDiligence, KycConfirmation
 from models.review import ClientInformationDelivery, ContractDocument
 from models.tenant import Tenant, TenantLegalProfile
 from services.recommendation_release_gate import (
@@ -105,9 +106,31 @@ def record_test_client_information(db, mandate, *, actor_id: str, delivered_at: 
     return doc
 
 
+def confirm_test_kyc(db, client_id: str, *, actor_id: str, tenant_id: str | None = None) -> KycConfirmation:
+    dd = db.query(ClientDueDiligence).filter(ClientDueDiligence.client_id == client_id).first()
+    if dd is None:
+        dd = ClientDueDiligence(id=new_uuid(), client_id=client_id, created_at=_PAST, updated_at=_PAST)
+        db.add(dd)
+    if not int(dd.acting_for_own_account_answered or 0):
+        dd.acting_for_own_account = 1
+        dd.acting_for_own_account_answered = 1
+    today = date.today()
+    record = KycConfirmation(
+        id=new_uuid(), tenant_id=tenant_id, client_id=client_id, mandate_id=None,
+        process_scope="sro_oder_fremdprozess", form_type="A",
+        form_completed_on=(today - timedelta(days=1)).isoformat(),
+        external_reference=f"{TEST_MARKER} KYC", risk_category="normal",
+        is_pep=int(dd.pep_status or 0), next_review_due=(today + timedelta(days=365)).isoformat(),
+        recorded_by=actor_id, recorded_at=_PAST, confirmation_hash=TEST_MARKER,
+    )
+    db.add(record)
+    db.flush()
+    return record
+
+
 def satisfy_client_onboarding(db, mandate, *, actor_id: str | None = None) -> None:
-    """Rechtliche Angaben (Testwerte) und Kundeninformation vor Vertragsabschluss
-    fuer ``mandate`` erfassen (idempotent genug fuer
+    """Rechtliche Angaben (Testwerte), Kundeninformation vor Vertragsabschluss
+    und GwG-Bestaetigung fuer ``mandate`` erfassen (idempotent genug fuer
     wiederholte Aufrufe innerhalb eines Tests)."""
     client = db.query(Client).filter(Client.id == mandate.client_id).first()
     actor = actor_id or (client.advisor_id if client is not None else None)
@@ -120,6 +143,9 @@ def satisfy_client_onboarding(db, mandate, *, actor_id: str | None = None) -> No
     ).first()
     if existing is None:
         record_test_client_information(db, mandate, actor_id=actor)
+    has_kyc = db.query(KycConfirmation).filter(KycConfirmation.client_id == mandate.client_id).first()
+    if has_kyc is None:
+        confirm_test_kyc(db, mandate.client_id, actor_id=actor, tenant_id=tenant_id)
 
 
 def satisfy_client_onboarding_for_all_mandates(db) -> None:

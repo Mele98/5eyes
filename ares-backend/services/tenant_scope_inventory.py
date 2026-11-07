@@ -37,14 +37,17 @@ CATEGORIES = (TENANT_DIRECT, GLOBAL_REFERENCE, TENANT_DERIVED, SYSTEM_ONLY)
 
 TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     "audit_log",
-    # H8 C-2 (Compliance-Audit 2026-11-07): Abgabenachweis der Kundeninformation
-    # und rechtliche Angaben der Firma -- tenant_id direkt bei der Erfassung.
+    # H8 C-2/C-5/Luecke 10 (Compliance-Audit 2026-11-07): Kundeninformation,
+    # KYC-Bestaetigung samt Freigabe, Vertretung, rechtliche Angaben der Firma
+    # -- tenant_id direkt bei der Erfassung (aus Kunde bzw. Mandat).
     "client_information_deliveries",
     "clients",
     # PG-002 (Red-Team 2026-10-28, Befund 6): append-only Mandats-Evidenz,
     # Mandant aus dem Mandat (core/mandate_evidence_tenant_boundary.py).
     "depot_check_analysis_snapshots",
     "depot_snapshots",
+    "kyc_confirmation_approvals",
+    "kyc_confirmations",
     "mandates",
     "onsite_signature_challenges",
     "onsite_signature_events",

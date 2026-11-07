@@ -684,9 +684,10 @@ CLIENT_PII_KEYS_SQLITE_TABLE_DDL: tuple[str, ...] = (
 )""",
 )
 
-# H8 C-2 (Compliance-Audit 2026-11-07): append-only Abgabenachweis der
-# Kundeninformation (Art. 8/9 FIDLEG). Die Tabelle legt create_all an (Modell
-# in models/review.py, after_create); Alembic d8e4b2a6c1f9 fuer PostgreSQL.
+# H8 C-2/C-5 (Compliance-Audit 2026-11-07): append-only Nachweise der
+# Kundeninformation (Art. 8/9 FIDLEG) und der GwG-Bestaetigung samt Vier-Augen-
+# Freigabe. Die Tabellen legt create_all an (Modelle in models/review.py bzw.
+# models/clients.py, after_create); Alembic d8e4b2a6c1f9 fuer PostgreSQL.
 def _append_only_sqlite_triggers(table: str) -> tuple[str, ...]:
     return (
         f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_update "
@@ -699,6 +700,8 @@ def _append_only_sqlite_triggers(table: str) -> tuple[str, ...]:
 
 
 CLIENT_INFORMATION_DELIVERY_SQLITE_TRIGGERS = _append_only_sqlite_triggers("client_information_deliveries")
+KYC_CONFIRMATION_SQLITE_TRIGGERS = _append_only_sqlite_triggers("kyc_confirmations")
+KYC_CONFIRMATION_APPROVAL_SQLITE_TRIGGERS = _append_only_sqlite_triggers("kyc_confirmation_approvals")
 
 
 CLIENT_PII_KEYS_SQLITE_TRIGGERS: tuple[str, ...] = (
@@ -1033,6 +1036,11 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             ('to_professional_opt_out', 'INTEGER'),
             ('from_qualified_investor', 'INTEGER'),
             ('to_qualified_investor', 'INTEGER'),
+        ],
+        # H8 C-5: "auf eigene Rechnung" nicht mehr vorbelegt. Bestandszeilen
+        # erhalten 0 = unbeantwortet ("Bestaetigung fehlt"), bis neu erfasst.
+        'client_due_diligence': [
+            ('acting_for_own_account_answered', 'INTEGER', 0),
         ],
         # Sprint U-37 (2026-06-03): Notes-Versionierungs-Log.
         # Append-only JSON-Array von Edit-Snapshots fuer FINMA-Audit

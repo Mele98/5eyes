@@ -1,0 +1,187 @@
+"""H8 C-5 (Compliance-Audit 2026-11-07, Dok. 104, Luecke 5): GwG-Abklaerung im
+SRO-/Fremdprozess; Ares erfasst die Pflicht-Bestaetigung (Formular A/K/S/T,
+Datum, Referenz, Risikokategorie, PEP, Vier-Augen-Freigabe, naechste
+Aktualisierung) als Gate. "Handelt auf eigene Rechnung" ist nicht mehr
+vorbelegt; Bestandskunden gelten als "Bestaetigung fehlt". An der Basis rot:
+Default True, keine Bestaetigung, kein Gate.
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+TESTS_ROOT = Path(__file__).resolve().parent
+if str(TESTS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TESTS_ROOT))
+
+from h8_support import NOW, TENANT, Req, codes, mandate, sf, user  # noqa: E402,F401
+
+from datetime import date, timedelta  # noqa: E402
+
+import pytest  # noqa: E402
+from fastapi import HTTPException  # noqa: E402
+from pydantic import ValidationError  # noqa: E402
+from sqlalchemy import create_engine, text  # noqa: E402
+
+from models.clients import KycConfirmation  # noqa: E402
+from routers.clients import (  # noqa: E402
+    approve_kyc_confirmation, create_kyc_confirmation, list_kyc_confirmations, upsert_due_diligence,
+)
+from schemas.clients import (  # noqa: E402
+    ClientDueDiligenceResponse, ClientDueDiligenceUpdate, KycConfirmationApprovalCreate, KycConfirmationCreate,
+)
+from services import recommendation_release_gate as gate  # noqa: E402
+
+from client_onboarding_fixture import confirm_test_kyc, satisfy_client_onboarding  # noqa: E402
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+
+def test_gate_blocks_new_mandate_with_specific_codes_and_owner_hints(sf):
+    with sf() as db:
+        findings = gate.client_onboarding_findings(db, mandate(db))
+    codes = [f["reason_code"] for f in findings]
+    assert codes == [
+        "CLIENT_INFORMATION_TENANT_DATA_MISSING",
+        "CLIENT_INFORMATION_NOT_DELIVERED",
+        "KYC_BENEFICIAL_OWNER_UNANSWERED",
+        "KYC_CONFIRMATION_MISSING",
+    ]
+    tenant_finding = findings[0]
+    assert "Ombudsstelle: Name" in tenant_finding["owner_action"]
+    assert "Administration > Rechtliche Angaben" in tenant_finding["owner_action"]
+    assert all(f["owner_action"] for f in findings)
+
+
+def test_gate_is_green_only_with_profile_delivery_and_kyc(sf):
+    with sf() as db:
+        satisfy_client_onboarding(db, mandate(db), actor_id="adv-1")
+        db.commit()
+        assert codes(db) == []
+        gate.assert_client_onboarding_release_eligible(db, mandate(db), channel=gate.CHANNEL_FINALIZATION)
+
+
+def _kyc_body(**overrides):
+    today = date.today()
+    data = dict(form_type="A", form_completed_on=(today - timedelta(days=2)).isoformat(),
+                external_reference="SRO-Dossier 4711", risk_category="normal", is_pep=False,
+                next_review_due=(today + timedelta(days=365)).isoformat())
+    data.update(overrides)
+    return KycConfirmationCreate(**data)
+
+
+def test_kyc_confirmation_has_no_defaults_for_pep_and_risk():
+    with pytest.raises(ValidationError):
+        KycConfirmationCreate(form_type="A", form_completed_on="2026-01-01", external_reference="Ref 1",
+                              next_review_due="2027-01-01")
+
+
+def test_own_account_question_is_no_longer_prefilled(sf):
+    with sf() as db:
+        resp = ClientDueDiligenceResponse.model_validate(upsert_due_diligence(
+            client_id="c-1", body=ClientDueDiligenceUpdate(), db=db, current_user=user(db, "adv-1")))
+        assert resp.acting_for_own_account is None and resp.acting_for_own_account_answered == 0
+        assert "KYC_BENEFICIAL_OWNER_UNANSWERED" in codes(db)
+        resp = ClientDueDiligenceResponse.model_validate(upsert_due_diligence(
+            client_id="c-1", body=ClientDueDiligenceUpdate(acting_for_own_account=True),
+            db=db, current_user=user(db, "adv-1")))
+        assert resp.acting_for_own_account == 1 and resp.acting_for_own_account_answered == 1
+        assert "KYC_BENEFICIAL_OWNER_UNANSWERED" not in codes(db)
+
+
+def test_existing_customers_are_not_silently_compliant(sf):
+    """Bestandszeile vor H8 (acting_for_own_account=1 vorbelegt) -> unbeantwortet."""
+    with sf() as db:
+        db.execute(text(
+            "INSERT INTO client_due_diligence (id, client_id, pep_status, acting_for_own_account, "
+            "fatca_crs_self_certified, created_at, updated_at) VALUES ('dd-1','c-1',0,1,0,:n,:n)"
+        ), {"n": NOW})
+        db.commit()
+        assert {"KYC_BENEFICIAL_OWNER_UNANSWERED", "KYC_CONFIRMATION_MISSING"} <= set(codes(db))
+
+
+def test_pep_or_elevated_risk_needs_approval_by_a_second_admin(sf):
+    with sf() as db:
+        upsert_due_diligence(client_id="c-1", body=ClientDueDiligenceUpdate(acting_for_own_account=True,
+                                                                            pep_status=True),
+                             db=db, current_user=user(db, "adv-1"))
+        with pytest.raises(HTTPException) as exc:
+            create_kyc_confirmation(client_id="c-1", body=_kyc_body(is_pep=False), request=Req(), db=db,
+                                    current_user=user(db, "adm-1"))
+        assert exc.value.detail["reason_code"] == "KYC_PEP_INCONSISTENT"
+        conf = create_kyc_confirmation(client_id="c-1", body=_kyc_body(is_pep=True, risk_category="erhoeht"),
+                                       request=Req(), db=db, current_user=user(db, "adm-1"))
+        assert conf.requires_second_approval is True and conf.approval is None
+        assert "KYC_SECOND_APPROVAL_MISSING" in codes(db)
+        with pytest.raises(HTTPException) as exc:
+            approve_kyc_confirmation(client_id="c-1", confirmation_id=conf.id,
+                                     body=KycConfirmationApprovalCreate(), request=Req(), db=db,
+                                     current_user=user(db, "adm-1"))
+        assert exc.value.status_code == 403
+        approved = approve_kyc_confirmation(client_id="c-1", confirmation_id=conf.id,
+                                            body=KycConfirmationApprovalCreate(note="GL-Freigabe"),
+                                            request=Req(), db=db, current_user=user(db, "adm-2"))
+        assert approved.approval.approved_by == "adm-2"
+        assert "KYC_SECOND_APPROVAL_MISSING" not in codes(db)
+        assert [c.id for c in list_kyc_confirmations(client_id="c-1", db=db,
+                                                     current_user=user(db, "adv-1"))] == [conf.id]
+
+
+def test_overdue_kyc_confirmation_blocks(sf):
+    with sf() as db:
+        record = confirm_test_kyc(db, "c-1", actor_id="adv-1", tenant_id=TENANT)
+        db.commit()
+    with sf() as db:
+        db.add(KycConfirmation(
+            id="kyc-old", tenant_id=TENANT, client_id="c-1", process_scope="sro_oder_fremdprozess",
+            form_type="A", form_completed_on="2020-01-01", external_reference="alt", risk_category="normal",
+            is_pep=0, next_review_due="2021-01-01", recorded_by="adv-1",
+            recorded_at="2999-01-01T00:00:00.000Z", confirmation_hash="h",
+        ))
+        db.commit()
+        assert record.id
+        assert "KYC_CONFIRMATION_REVIEW_OVERDUE" in codes(db)
+
+
+def test_runtime_patch_marks_existing_due_diligence_rows_unanswered(tmp_path, monkeypatch):
+    import database as db_module
+
+    db_path = tmp_path / "runtime.db"
+    db_module.bootstrap_sqlite_schema(db_path=db_path, schema_path=BACKEND_ROOT / "ares_schema.sql")
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE IF NOT EXISTS client_due_diligence (id TEXT PRIMARY KEY, client_id TEXT, "
+            "pep_status INTEGER, acting_for_own_account INTEGER, fatca_crs_self_certified INTEGER, "
+            "created_at TEXT, updated_at TEXT)"
+        ))
+        conn.execute(text("INSERT INTO client_due_diligence VALUES ('d','c',0,1,0,'n','n')"))
+    monkeypatch.setattr(db_module, "engine", engine)
+    db_module.ensure_runtime_columns()
+    db_module.ensure_runtime_columns()
+    with engine.connect() as conn:
+        value = conn.execute(text("SELECT acting_for_own_account_answered FROM client_due_diligence")).scalar()
+    engine.dispose()
+    assert value == 0
+
+
+def test_kyc_confirmations_and_approvals_are_append_only(sf):
+    with sf() as db:
+        confirm_test_kyc(db, "c-1", actor_id="adv-1", tenant_id=TENANT)
+        db.commit()
+    with sf() as db:
+        with pytest.raises(Exception, match="immutable"):
+            db.execute(text("UPDATE kyc_confirmations SET risk_category = 'normal'"))
+        db.rollback()
+        with pytest.raises(Exception, match="immutable"):
+            db.execute(text("DELETE FROM kyc_confirmations"))
+        db.rollback()
+
+
+def test_alembic_postgres_ddl_creates_kyc_tables_column_and_triggers():
+    from h8_support import h8_postgres_ddl
+
+    ddl = h8_postgres_ddl()
+    for table in ("kyc_confirmations", "kyc_confirmation_approvals"):
+        assert f"CREATE TABLE {table}" in ddl, table
+        assert f"CREATE TRIGGER trg_{table}_immutable" in ddl, table
+    assert "ALTER TABLE client_due_diligence ADD COLUMN acting_for_own_account_answered INTEGER DEFAULT 0 NOT NULL" in ddl

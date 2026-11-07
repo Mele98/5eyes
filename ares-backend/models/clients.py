@@ -1,6 +1,11 @@
-from sqlalchemy import DDL, CheckConstraint, Column, String, Integer, ForeignKey, event
+from sqlalchemy import DDL, CheckConstraint, Column, String, Integer, ForeignKey, event, text
 from sqlalchemy.orm import relationship
-from database import CLIENT_PII_KEYS_SQLITE_TRIGGERS, Base
+from database import (
+    CLIENT_PII_KEYS_SQLITE_TRIGGERS,
+    KYC_CONFIRMATION_APPROVAL_SQLITE_TRIGGERS,
+    KYC_CONFIRMATION_SQLITE_TRIGGERS,
+    Base,
+)
 
 
 class Client(Base):
@@ -120,7 +125,15 @@ class ClientDueDiligence(Base):
     # GwG Art. 3-6 / FINMA-RS 2016/7 Sorgfaltspflichten.
     pep_status = Column(Integer, nullable=False, default=0)  # 1 = Politically Exposed Person
     pep_details = Column(String)  # Freitext: Funktion/Zeitraum, nur wenn pep_status=1
-    acting_for_own_account = Column(Integer, nullable=False, default=1)  # 0 = handelt fuer Dritte (wirtschaftlich Berechtigter)
+    # H8 C-5: kein Default "handelt auf eigene Rechnung" mehr. Der Rohwert ist
+    # nur gueltig, wenn ``acting_for_own_account_answered`` = 1; unbeantwortet
+    # wird 0 gespeichert (nie die guenstigere Annahme) und das KYC-Gate ist rot.
+    acting_for_own_account = Column(Integer, nullable=False, default=0)  # 0 = handelt fuer Dritte (wirtschaftlich Berechtigter)
+    # 1 = vom Berater ausdruecklich beantwortet. Bestandszeilen (vor H8 mit
+    # vorbelegtem "ja") erhalten 0 = "Bestaetigung fehlt", bis neu erfasst.
+    acting_for_own_account_answered = Column(
+        Integer, nullable=False, default=0, server_default=text("0"),
+    )
     beneficial_owner_name = Column(String)  # Pflicht wenn acting_for_own_account=0
     source_of_wealth = Column(String)  # Freitext: Herkunft des Vermoegens (Erbschaft, Erwerbseinkommen, Unternehmensverkauf, ...)
     id_document_type = Column(String)  # z.B. "Pass", "ID-Karte", "Fuehrerausweis"
@@ -183,3 +196,77 @@ for _trigger_ddl in CLIENT_PII_KEYS_SQLITE_TRIGGERS:
         "after_create",
         DDL(_trigger_ddl).execute_if(dialect="sqlite"),
     )
+
+
+# ---------------------------------------------------------------------------
+# H8 C-5 (Compliance-Audit 2026-11-07, Luecke 5): GwG-Sorgfaltspflichten.
+#
+# Abgrenzung: Die GwG-Abklaerung (Identifizierung, Feststellung des
+# wirtschaftlich Berechtigten mit Formular A/K/S/T, Risikokategorisierung,
+# besondere Abklaerungen) erfolgt im Prozess der Selbstregulierungs- bzw.
+# Aufsichtsorganisation oder in einem Fremdsystem. Ares fuehrt diese
+# Abklaerung NICHT, sondern erfasst je Kunde eine Pflicht-Bestaetigung, dass
+# sie erfolgt ist (welches Formular, Datum, Referenz, Risikokategorie, PEP,
+# naechste Aktualisierung). Diese Bestaetigung ist ein Gate vor Finalisierung
+# und Vertragsunterzeichnung. Bestandskunden ohne Bestaetigung sind nicht
+# still erfuellt, sondern "Bestaetigung fehlt".
+#
+# Append-only (Trigger SQLite/PostgreSQL): eine Korrektur ist eine neue
+# Bestaetigung; es gilt die juengste. Kein FK auf clients/mandates
+# (Purge-fest wie audit_log), nur die Akteure verweisen auf users.
+# ---------------------------------------------------------------------------
+
+KYC_PROCESS_EXTERNAL = "sro_oder_fremdprozess"
+KYC_FORM_TYPES = ("A", "K", "S", "T")
+KYC_RISK_NORMAL = "normal"
+KYC_RISK_ELEVATED = "erhoeht"
+KYC_RISK_CATEGORIES = (KYC_RISK_NORMAL, KYC_RISK_ELEVATED)
+
+
+class KycConfirmation(Base):
+    __tablename__ = "kyc_confirmations"
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    client_id = Column(String, nullable=False)
+    mandate_id = Column(String)
+    process_scope = Column(String, nullable=False)
+    form_type = Column(String, nullable=False)
+    form_completed_on = Column(String, nullable=False)
+    external_reference = Column(String, nullable=False)
+    risk_category = Column(String, nullable=False)
+    is_pep = Column(Integer, nullable=False)
+    next_review_due = Column(String, nullable=False)
+    note = Column(String)
+    recorded_by = Column(String, ForeignKey("users.id"), nullable=False)
+    recorded_at = Column(String, nullable=False)
+    confirmation_hash = Column(String, nullable=False)
+
+
+class KycConfirmationApproval(Base):
+    """Freigabe einer KYC-Bestaetigung durch eine zweite Person (Vier-Augen),
+    Pflicht bei PEP oder erhoehtem Risiko. Append-only; hoechstens eine je
+    Bestaetigung (UNIQUE)."""
+
+    __tablename__ = "kyc_confirmation_approvals"
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    confirmation_id = Column(String, nullable=False, unique=True)
+    client_id = Column(String, nullable=False)
+    approved_by = Column(String, ForeignKey("users.id"), nullable=False)
+    approved_at = Column(String, nullable=False)
+    note = Column(String)
+    approval_hash = Column(String, nullable=False)
+
+
+for _model, _ddls in (
+    (KycConfirmation, KYC_CONFIRMATION_SQLITE_TRIGGERS),
+    (KycConfirmationApproval, KYC_CONFIRMATION_APPROVAL_SQLITE_TRIGGERS),
+):
+    for _trigger_ddl in _ddls:
+        event.listen(
+            _model.__table__,
+            "after_create",
+            DDL(_trigger_ddl).execute_if(dialect="sqlite"),
+        )

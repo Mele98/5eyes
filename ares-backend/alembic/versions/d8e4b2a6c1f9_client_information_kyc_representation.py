@@ -1,4 +1,4 @@
-"""H8: Kundeninformation (Art. 8/9 FIDLEG).
+"""H8: Kundeninformation (Art. 8/9 FIDLEG), KYC-Bestaetigung (GwG).
 
 Compliance-Audit 2026-11-07 (Dok. 104), Paket H8:
 
@@ -6,6 +6,10 @@ Compliance-Audit 2026-11-07 (Dok. 104), Paket H8:
   Vorbelegung; Aenderungen feldweise im Audit-Log.
 - ``client_information_deliveries``: append-only Abgabenachweis der
   Kundeninformation (Fassung, Byte-Hash, Version, Zeitpunkt, Kanal).
+- ``kyc_confirmations`` / ``kyc_confirmation_approvals``: append-only
+  GwG-Bestaetigung (Abklaerung im SRO-/Fremdprozess) samt Vier-Augen-Freigabe.
+- ``client_due_diligence.acting_for_own_account_answered`` (NOT NULL DEFAULT 0:
+  Bestandszeilen gelten als unbeantwortet).
 
 Append-only per Trigger (SQLite und PostgreSQL), wie
 financial_coverage_attestations. Kein FK auf mandates/clients (Purge-fest),
@@ -32,6 +36,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 APPEND_ONLY_TABLES = (
     "client_information_deliveries",
+    "kyc_confirmations",
+    "kyc_confirmation_approvals",
 )
 
 
@@ -108,6 +114,47 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["recorded_by"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
+    op.create_table(
+        "kyc_confirmations",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("tenant_id", sa.String(), nullable=True),
+        sa.Column("client_id", sa.String(), nullable=False),
+        sa.Column("mandate_id", sa.String(), nullable=True),
+        sa.Column("process_scope", sa.String(), nullable=False),
+        sa.Column("form_type", sa.String(), nullable=False),
+        sa.Column("form_completed_on", sa.String(), nullable=False),
+        sa.Column("external_reference", sa.String(), nullable=False),
+        sa.Column("risk_category", sa.String(), nullable=False),
+        sa.Column("is_pep", sa.Integer(), nullable=False),
+        sa.Column("next_review_due", sa.String(), nullable=False),
+        sa.Column("note", sa.String(), nullable=True),
+        sa.Column("recorded_by", sa.String(), nullable=False),
+        sa.Column("recorded_at", sa.String(), nullable=False),
+        sa.Column("confirmation_hash", sa.String(), nullable=False),
+        sa.ForeignKeyConstraint(["recorded_by"], ["users.id"]),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_table(
+        "kyc_confirmation_approvals",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("tenant_id", sa.String(), nullable=True),
+        sa.Column("confirmation_id", sa.String(), nullable=False),
+        sa.Column("client_id", sa.String(), nullable=False),
+        sa.Column("approved_by", sa.String(), nullable=False),
+        sa.Column("approved_at", sa.String(), nullable=False),
+        sa.Column("note", sa.String(), nullable=True),
+        sa.Column("approval_hash", sa.String(), nullable=False),
+        sa.ForeignKeyConstraint(["approved_by"], ["users.id"]),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("confirmation_id"),
+    )
+    op.add_column(
+        "client_due_diligence",
+        sa.Column(
+            "acting_for_own_account_answered", sa.Integer(),
+            server_default=sa.text("0"), nullable=False,
+        ),
+    )
 
     dialect = op.get_bind().dialect.name
     for table in APPEND_ONLY_TABLES:
@@ -128,5 +175,9 @@ def downgrade() -> None:
         elif dialect == "sqlite":
             op.execute(f"DROP TRIGGER IF EXISTS trg_{table}_no_update")
             op.execute(f"DROP TRIGGER IF EXISTS trg_{table}_no_delete")
+    with op.batch_alter_table("client_due_diligence") as batch:
+        batch.drop_column("acting_for_own_account_answered")
+    op.drop_table("kyc_confirmation_approvals")
+    op.drop_table("kyc_confirmations")
     op.drop_table("client_information_deliveries")
     op.drop_table("tenant_legal_profiles")

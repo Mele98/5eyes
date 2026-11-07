@@ -2792,6 +2792,7 @@ class ClientOnboardingFinding(BaseModel):
     scope: str
     missing_fields: Optional[list[str]] = None
     missing_labels: Optional[list[str]] = None
+    confirmation_id: Optional[str] = None
     contract_concluded_at: Optional[str] = None
 
 
@@ -2803,5 +2804,8 @@ class ClientOnboardingStatusResponse(BaseModel):
     legal_profile: dict[str, Any]
     contract_concluded_at: Optional[str] = None
     deliveries: list[dict[str, Any]]
+    kyc_confirmation: Optional[dict[str, Any]] = None
+    kyc_requires_second_approval: Optional[bool] = None
     template_version: str
     latest_document: Optional[dict[str, Any]] = None
+    due_diligence: Optional[dict[str, Any]] = None

@@ -285,7 +285,8 @@ class OptHistoryResponse(BaseResponse):
 class ClientDueDiligenceBase(BaseModel):
     pep_status: bool = False
     pep_details: Optional[str] = None
-    acting_for_own_account: bool = True
+    # H8 C-5: kein Default "ja" mehr. None = unbeantwortet (KYC-Gate rot).
+    acting_for_own_account: Optional[bool] = None
     beneficial_owner_name: Optional[str] = None
     source_of_wealth: Optional[str] = None
     id_document_type: Optional[str] = None
@@ -300,7 +301,7 @@ class ClientDueDiligenceBase(BaseModel):
         # Berechtigten), MUSS dessen Identitaet festgehalten werden. Anders
         # als pep_details (optional, kann spaeter ergaenzt werden) ist das
         # hier eine gesetzliche Pflichtangabe -- siehe Design-Vorgabe.
-        if not self.acting_for_own_account and not (self.beneficial_owner_name or "").strip():
+        if self.acting_for_own_account is False and not (self.beneficial_owner_name or "").strip():
             raise ValueError(
                 "beneficial_owner_name ist Pflicht, wenn acting_for_own_account=False "
                 "(GwG Art. 4: wirtschaftlich Berechtigter muss festgehalten werden)"
@@ -324,7 +325,9 @@ class ClientDueDiligenceResponse(BaseResponse):
     client_id: str
     pep_status: int
     pep_details: Optional[str]
-    acting_for_own_account: int
+    # H8 C-5: None = unbeantwortet (auch Bestandszeilen vor H8).
+    acting_for_own_account: Optional[int] = None
+    acting_for_own_account_answered: int = 0
     beneficial_owner_name: Optional[str]
     source_of_wealth: Optional[str]
     id_document_type: Optional[str]
@@ -334,6 +337,86 @@ class ClientDueDiligenceResponse(BaseResponse):
     fatca_crs_self_certified: int
     created_at: str
     updated_at: str
+
+    @model_validator(mode="after")
+    def _hide_unanswered_own_account(self):
+        if not self.acting_for_own_account_answered:
+            self.acting_for_own_account = None
+        return self
+
+
+# ---------------------------------------------------------------------------
+# H8 C-5: GwG-Bestaetigung (Abklaerung im SRO-/Fremdprozess) als Gate.
+# ---------------------------------------------------------------------------
+
+def _iso_date(value: str, field: str) -> str:
+    try:
+        return _date.fromisoformat(str(value).strip()[:10]).isoformat()
+    except ValueError as exc:
+        raise ValueError(f"{field} muss ein ISO-Datum (JJJJ-MM-TT) sein") from exc
+
+
+class KycConfirmationCreate(BaseModel):
+    """Bestaetigung, dass die GwG-Abklaerung im Prozess der SRO/AO bzw. im
+    Fremdsystem erfolgt ist. Alle fachlichen Felder ohne Vorbelegung --
+    insbesondere ``is_pep`` und ``risk_category`` muessen ausdruecklich
+    beantwortet werden."""
+
+    mandate_id: Optional[str] = None
+    form_type: Literal["A", "K", "S", "T"]
+    form_completed_on: str
+    external_reference: str
+    risk_category: Literal["normal", "erhoeht"]
+    is_pep: bool
+    next_review_due: str
+    note: Optional[str] = None
+    data_classification: Literal["synthetic", "real"] = "synthetic"
+
+    @model_validator(mode="after")
+    def _validate(self):
+        self.form_completed_on = _iso_date(self.form_completed_on, "form_completed_on")
+        self.next_review_due = _iso_date(self.next_review_due, "next_review_due")
+        if _date.fromisoformat(self.form_completed_on) > _date.today():
+            raise ValueError("form_completed_on darf nicht in der Zukunft liegen")
+        if self.next_review_due <= self.form_completed_on:
+            raise ValueError("next_review_due muss nach form_completed_on liegen")
+        if len(self.external_reference.strip()) < 3:
+            raise ValueError("external_reference (Referenz im SRO-/Fremdprozess) ist Pflicht")
+        self.external_reference = self.external_reference.strip()
+        return self
+
+
+class KycConfirmationApprovalCreate(BaseModel):
+    note: Optional[str] = None
+
+
+class KycConfirmationApprovalResponse(BaseResponse):
+    id: str
+    confirmation_id: str
+    client_id: str
+    approved_by: str
+    approved_at: str
+    note: Optional[str] = None
+    approval_hash: str
+
+
+class KycConfirmationResponse(BaseResponse):
+    id: str
+    client_id: str
+    mandate_id: Optional[str] = None
+    process_scope: str
+    form_type: str
+    form_completed_on: str
+    external_reference: str
+    risk_category: str
+    is_pep: int
+    next_review_due: str
+    note: Optional[str] = None
+    recorded_by: str
+    recorded_at: str
+    confirmation_hash: str
+    requires_second_approval: bool = False
+    approval: Optional[KycConfirmationApprovalResponse] = None
 
 
 class ClientTaxResidencyCreate(BaseModel):

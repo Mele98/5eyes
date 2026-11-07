@@ -325,9 +325,9 @@ def assert_current_allocation_without_adr12a_hold(
 
 
 # ---------------------------------------------------------------------------
-# H8 C-2 (Compliance-Audit 2026-11-07, Luecke 2):
-# Kundeninformation nach Art. 8/9 FIDLEG als Gate vor Finalisierung und
-# Vertragsunterzeichnung.
+# H8 C-2 / C-5 (Compliance-Audit 2026-11-07, Luecken 2 und 5):
+# Kundeninformation nach Art. 8/9 FIDLEG und GwG-Bestaetigung als Gate vor
+# Finalisierung und Vertragsunterzeichnung.
 # ---------------------------------------------------------------------------
 #
 # Fail-closed, ohne Override:
@@ -338,6 +338,9 @@ def assert_current_allocation_without_adr12a_hold(
 #   Sperre statt stiller Freigabe.
 # - Kein gueltiger Abgabenachweis der Kundeninformation (archiviertes PDF,
 #   Byte-Hash stimmt) oder Abgabe erst NACH dem Vertragsabschluss -> Sperre.
+# - GwG: Frage "handelt auf eigene Rechnung" unbeantwortet, keine KYC-
+#   Bestaetigung, fehlende Vier-Augen-Freigabe bei PEP/erhoehtem Risiko,
+#   ueberfaellige Aktualisierung, PEP-Widerspruch -> Sperre.
 #
 # Gelesen wird per SQL (Muster H7 N-884-04 oben): dieses Modul ist das eine
 # Freigabe-Gate der Kanaele und bekommt dafuer keine neuen Modulkanten.
@@ -347,6 +350,11 @@ CLIENT_INFORMATION_TENANT_DATA_MISSING = "CLIENT_INFORMATION_TENANT_DATA_MISSING
 CLIENT_INFORMATION_REGIME_UNSUPPORTED = "CLIENT_INFORMATION_REGIME_UNSUPPORTED"
 CLIENT_INFORMATION_NOT_DELIVERED = "CLIENT_INFORMATION_NOT_DELIVERED"
 CLIENT_INFORMATION_DELIVERED_AFTER_CONTRACT = "CLIENT_INFORMATION_DELIVERED_AFTER_CONTRACT"
+KYC_BENEFICIAL_OWNER_UNANSWERED = "KYC_BENEFICIAL_OWNER_UNANSWERED"
+KYC_CONFIRMATION_MISSING = "KYC_CONFIRMATION_MISSING"
+KYC_SECOND_APPROVAL_MISSING = "KYC_SECOND_APPROVAL_MISSING"
+KYC_CONFIRMATION_REVIEW_OVERDUE = "KYC_CONFIRMATION_REVIEW_OVERDUE"
+KYC_PEP_INCONSISTENT = "KYC_PEP_INCONSISTENT"
 
 
 CLIENT_INFORMATION_DOCUMENT_TYPE = "Kundeninformation"
@@ -522,6 +530,91 @@ def client_information_deliveries(db: Session, mandate_id: str) -> list[dict]:
     return out
 
 
+def latest_kyc_confirmation(db: Session, client_id: str, mandate_id: Optional[str]) -> Optional[dict]:
+    row = db.execute(
+        _sql_text(
+            "SELECT k.*, a.id AS approval_id, a.approved_by AS approval_by, "
+            "a.approved_at AS approval_at FROM kyc_confirmations k "
+            "LEFT JOIN kyc_confirmation_approvals a ON a.confirmation_id = k.id "
+            "WHERE k.client_id = :cid AND (k.mandate_id IS NULL OR k.mandate_id = :mid) "
+            "ORDER BY k.recorded_at DESC, k.id DESC LIMIT 1"
+        ),
+        {"cid": str(client_id), "mid": str(mandate_id or "")},
+    ).mappings().first()
+    return dict(row) if row is not None else None
+
+
+def kyc_requires_second_approval(confirmation: dict) -> bool:
+    return bool(int(confirmation.get("is_pep") or 0)) or (
+        str(confirmation.get("risk_category") or "") != "normal"
+    )
+
+
+def _kyc_findings(db: Session, mandate: Any, today: str) -> list[dict]:
+    client_id = str(getattr(mandate, "client_id", "") or "")
+    findings: list[dict] = []
+    dd = db.execute(
+        _sql_text(
+            "SELECT pep_status, acting_for_own_account, acting_for_own_account_answered "
+            "FROM client_due_diligence WHERE client_id = :cid"
+        ),
+        {"cid": client_id},
+    ).mappings().first()
+    if dd is None or not int(dd.get("acting_for_own_account_answered") or 0):
+        findings.append(_finding(
+            KYC_BENEFICIAL_OWNER_UNANSWERED,
+            "Die Frage, ob der Kunde auf eigene Rechnung handelt (wirtschaftlich "
+            "Berechtigter, GwG Art. 4), ist nicht ausdruecklich beantwortet.",
+            "Berater: Sorgfaltspflicht-Erfassung des Kunden oeffnen und die Frage "
+            "'handelt auf eigene Rechnung' ausdruecklich beantworten.",
+            "client",
+        ))
+    confirmation = latest_kyc_confirmation(db, client_id, getattr(mandate, "id", None))
+    if confirmation is None:
+        findings.append(_finding(
+            KYC_CONFIRMATION_MISSING,
+            "Bestaetigung fehlt: Fuer diesen Kunden ist nicht erfasst, dass die "
+            "GwG-Abklaerung (Formular A/K/S/T, Risikokategorie, PEP) im SRO- bzw. "
+            "Fremdprozess erfolgt ist.",
+            "Berater: KYC-Bestaetigung erfassen (Formular, Datum, Referenz, "
+            "Risikokategorie, PEP, naechste Aktualisierung).",
+            "client",
+        ))
+        return findings
+    if kyc_requires_second_approval(confirmation):
+        approver = str(confirmation.get("approval_by") or "")
+        if not approver or approver == str(confirmation.get("recorded_by") or ""):
+            findings.append(_finding(
+                KYC_SECOND_APPROVAL_MISSING,
+                "PEP bzw. erhoehtes Risiko: die KYC-Bestaetigung ist noch nicht "
+                "durch eine zweite Person freigegeben.",
+                "Eine zweite Person mit Admin-Rolle (Geschaeftsleitung/Compliance) "
+                "gibt die KYC-Bestaetigung frei.",
+                "client",
+                confirmation_id=confirmation.get("id"),
+            ))
+    if str(confirmation.get("next_review_due") or "") < today:
+        findings.append(_finding(
+            KYC_CONFIRMATION_REVIEW_OVERDUE,
+            "Die KYC-Bestaetigung ist ueberfaellig (naechste Aktualisierung am "
+            f"{confirmation.get('next_review_due')}).",
+            "Berater: Aktualisierung im SRO-/Fremdprozess durchfuehren und eine neue "
+            "KYC-Bestaetigung erfassen.",
+            "client",
+            confirmation_id=confirmation.get("id"),
+        ))
+    if dd is not None and int(dd.get("pep_status") or 0) and not int(confirmation.get("is_pep") or 0):
+        findings.append(_finding(
+            KYC_PEP_INCONSISTENT,
+            "Widerspruch: Die Sorgfaltspflicht-Erfassung fuehrt den Kunden als PEP, "
+            "die KYC-Bestaetigung nicht.",
+            "Berater: PEP-Status klaeren und eine neue KYC-Bestaetigung erfassen.",
+            "client",
+            confirmation_id=confirmation.get("id"),
+        ))
+    return findings
+
+
 def client_onboarding_findings(
     db: Session,
     mandate: Any,
@@ -582,6 +675,7 @@ def client_onboarding_findings(
             "mandate",
             contract_concluded_at=concluded,
         ))
+    findings.extend(_kyc_findings(db, mandate, now[:10]))
     return findings
 
 
@@ -596,6 +690,7 @@ def client_onboarding_status(db: Session, mandate: Any) -> dict:
         delivery["legal_profile_current"] = bool(
             current_hash and delivery.get("legal_profile_hash") == current_hash
         )
+    confirmation = latest_kyc_confirmation(db, str(mandate.client_id), str(mandate.id))
     latest = db.execute(
         _sql_text(
             "SELECT id, version, checksum_sha256, content_json, created_at FROM contract_documents "
@@ -604,6 +699,22 @@ def client_onboarding_status(db: Session, mandate: Any) -> dict:
         ),
         {"mid": str(mandate.id), "dtype": CLIENT_INFORMATION_DOCUMENT_TYPE},
     ).mappings().first()
+    dd = db.execute(
+        _sql_text(
+            "SELECT pep_status, acting_for_own_account, acting_for_own_account_answered, "
+            "beneficial_owner_name FROM client_due_diligence WHERE client_id = :cid"
+        ),
+        {"cid": str(mandate.client_id)},
+    ).mappings().first()
+    due_diligence = None
+    if dd is not None:
+        answered = bool(int(dd["acting_for_own_account_answered"] or 0))
+        due_diligence = {
+            "acting_for_own_account_answered": answered,
+            "acting_for_own_account": (bool(int(dd["acting_for_own_account"] or 0)) if answered else None),
+            "beneficial_owner_name": dd["beneficial_owner_name"],
+            "pep_status": bool(int(dd["pep_status"] or 0)),
+        }
     latest_document = None
     if latest is not None:
         try:
@@ -637,8 +748,13 @@ def client_onboarding_status(db: Session, mandate: Any) -> dict:
         },
         "contract_concluded_at": contract_concluded_at(db, str(mandate.id)),
         "deliveries": deliveries,
+        "kyc_confirmation": confirmation,
+        "kyc_requires_second_approval": (
+            kyc_requires_second_approval(confirmation) if confirmation else None
+        ),
         "template_version": CLIENT_INFORMATION_TEMPLATE_VERSION,
         "latest_document": latest_document,
+        "due_diligence": due_diligence,
     }
 
 
@@ -650,7 +766,7 @@ def assert_client_onboarding_release_eligible(
     http_status: int = 409,
 ) -> None:
     """Sperrt Finalisierung bzw. Vertragsunterzeichnung, solange Kunden-
-    information (Art. 8/9 FIDLEG) fehlt. Wirft
+    information (Art. 8/9 FIDLEG) oder GwG-Bestaetigung fehlen. Wirft
     ``DomainError`` mit ``reason_code`` CLIENT_ONBOARDING_INCOMPLETE und der
     Liste ``findings`` (je eigener Reason-Code + Owner-Hinweis), BEVOR der
     Kanal irgendeine Wirkung hat."""

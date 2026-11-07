@@ -148,6 +148,17 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
            method=TIER_A_REDACTION),
         _c(RECORD, "kyc_due_diligence"),
     ),
+    # H8 C-5: GwG-Bestaetigung (append-only) und Vier-Augen-Freigabe.
+    "kyc_confirmations": _t(
+        _CLIENT,
+        _c(FREE_TEXT, "kyc_due_diligence", "external_reference", "note"),
+        _c(RECORD, "kyc_due_diligence"),
+    ),
+    "kyc_confirmation_approvals": _t(
+        _CLIENT,
+        _c(FREE_TEXT, "kyc_due_diligence", "note"),
+        _c(RECORD, "kyc_due_diligence"),
+    ),
     "client_tax_residencies": _t(
         _CLIENT,
         _c(IDENTITY, "kyc_due_diligence", "tax_id_number", method=TIER_A_REDACTION),

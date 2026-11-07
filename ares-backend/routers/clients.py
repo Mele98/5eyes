@@ -3,12 +3,17 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timezone
+import hashlib
+import json
 from database import get_db, new_uuid
 from models.users import User
 from models.clients import (
     Client, ClientNationality, ClientOptHistory,
     ClientDueDiligence, ClientTaxResidency,
+    KycConfirmation, KycConfirmationApproval,
+    KYC_PROCESS_EXTERNAL, KYC_RISK_NORMAL,
 )
+from models.mandates import Mandate
 from models.wealth import Cashflow, WealthPosition, WealthInflow
 from schemas.clients import (
     ClientCreate, ClientUpdate, ClientResponse,
@@ -16,10 +21,13 @@ from schemas.clients import (
     NationalityCreate, NationalityResponse,
     OptHistoryCreate, OptHistoryResponse,
     ClientDueDiligenceCreate, ClientDueDiligenceUpdate, ClientDueDiligenceResponse,
+    KycConfirmationApprovalCreate, KycConfirmationApprovalResponse,
+    KycConfirmationCreate, KycConfirmationResponse,
     ClientTaxResidencyCreate, ClientTaxResidencyResponse,
     WealthSummaryResponse, CashflowSummaryResponse,
     CashflowYearRow, CashflowProjectionResponse,
 )
+from routers.auth import _extract_client_ip
 from services.auth import (
     _apply_tenant_filter_to_client_query,
     get_client_for_erasure_or_404 as _get_client_for_erasure_or_404,
@@ -27,6 +35,7 @@ from services.auth import (
     get_current_user,
     has_global_client_access,
     hash_password,
+    _resolve_tenant_id_for_user,
     require_admin,
     require_advisor,
 )
@@ -419,7 +428,10 @@ def upsert_due_diligence(
         db.add(record)
     record.pep_status = 1 if body.pep_status else 0
     record.pep_details = body.pep_details
-    record.acting_for_own_account = 1 if body.acting_for_own_account else 0
+    # H8 C-5: unbeantwortet bleibt unbeantwortet (KYC-Gate rot); der Rohwert
+    # wird dann konservativ 0 ("nicht auf eigene Rechnung") gespeichert.
+    record.acting_for_own_account = 1 if body.acting_for_own_account is True else 0
+    record.acting_for_own_account_answered = 0 if body.acting_for_own_account is None else 1
     record.beneficial_owner_name = body.beneficial_owner_name
     record.source_of_wealth = body.source_of_wealth
     record.id_document_type = body.id_document_type
@@ -434,6 +446,173 @@ def upsert_due_diligence(
     db.commit()
     db.refresh(record)
     return record
+
+
+# ── H8 C-5: KYC-Bestaetigung (GwG-Abklaerung im SRO-/Fremdprozess) ─────────────
+
+def _canonical_hash(payload: dict) -> str:
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+
+
+def _kyc_requires_second_approval(record: KycConfirmation) -> bool:
+    return bool(int(record.is_pep or 0)) or record.risk_category != KYC_RISK_NORMAL
+
+
+def _kyc_response(db: Session, record: KycConfirmation) -> KycConfirmationResponse:
+    approval = db.query(KycConfirmationApproval).filter(
+        KycConfirmationApproval.confirmation_id == record.id
+    ).first()
+    return KycConfirmationResponse.model_validate(record).model_copy(update={
+        "requires_second_approval": _kyc_requires_second_approval(record),
+        "approval": (
+            KycConfirmationApprovalResponse.model_validate(approval)
+            if approval is not None else None
+        ),
+    })
+
+
+def _mandate_of_client_or_404(db: Session, client_id: str, mandate_id: str | None) -> str | None:
+    if not mandate_id:
+        return None
+    mandate = db.query(Mandate).filter(
+        Mandate.id == mandate_id, Mandate.client_id == client_id,
+    ).first()
+    if mandate is None:
+        raise HTTPException(status_code=404, detail="Mandat gehoert nicht zu diesem Kunden")
+    return mandate.id
+
+
+@router.get("/{client_id}/kyc-confirmations", response_model=list[KycConfirmationResponse])
+def list_kyc_confirmations(
+    client_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Verlauf der KYC-Bestaetigungen (juengste zuerst; es gilt die juengste)."""
+    _get_client_or_404(client_id, db, current_user)
+    rows = db.query(KycConfirmation).filter(
+        KycConfirmation.client_id == client_id
+    ).order_by(KycConfirmation.recorded_at.desc(), KycConfirmation.id.desc()).all()
+    return [_kyc_response(db, row) for row in rows]
+
+
+@router.post("/{client_id}/kyc-confirmations", response_model=KycConfirmationResponse, status_code=201)
+def create_kyc_confirmation(
+    client_id: str,
+    body: KycConfirmationCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """H8 C-5: Ares fuehrt die GwG-Abklaerung nicht selbst; sie erfolgt im
+    Prozess der SRO/AO bzw. im Fremdsystem. Erfasst wird die Pflicht-
+    Bestaetigung (Formular A/K/S/T, Datum, Referenz, Risikokategorie, PEP,
+    naechste Aktualisierung). Append-only: eine Korrektur ist eine neue
+    Bestaetigung. Bei PEP oder erhoehtem Risiko erst nach Freigabe durch eine
+    zweite Person wirksam (Gate vor Finalisierung/Vertragsunterzeichnung)."""
+    enforce_data_classification(body.data_classification)
+    client = _get_client_or_404(client_id, db, current_user)
+    mandate_id = _mandate_of_client_or_404(db, client_id, body.mandate_id)
+    dd = db.query(ClientDueDiligence).filter(ClientDueDiligence.client_id == client_id).first()
+    if dd is not None and int(dd.pep_status or 0) and not body.is_pep:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_PEP_INCONSISTENT",
+            "message": (
+                "Die Sorgfaltspflicht-Erfassung fuehrt den Kunden als PEP; die "
+                "KYC-Bestaetigung muss PEP = ja ausweisen oder die Erfassung "
+                "ist zuerst zu korrigieren."
+            ),
+        })
+    now = _now()
+    record = KycConfirmation(
+        id=new_uuid(), tenant_id=client.tenant_id or _resolve_tenant_id_for_user(current_user),
+        client_id=client_id, mandate_id=mandate_id, process_scope=KYC_PROCESS_EXTERNAL,
+        form_type=body.form_type, form_completed_on=body.form_completed_on,
+        external_reference=body.external_reference, risk_category=body.risk_category,
+        is_pep=1 if body.is_pep else 0, next_review_due=body.next_review_due,
+        note=(body.note or "").strip() or None,
+        recorded_by=current_user.id, recorded_at=now,
+    )
+    record.confirmation_hash = _canonical_hash({
+        "id": record.id, "client_id": client_id, "mandate_id": mandate_id,
+        "process_scope": record.process_scope, "form_type": record.form_type,
+        "form_completed_on": record.form_completed_on,
+        "external_reference": record.external_reference,
+        "risk_category": record.risk_category, "is_pep": record.is_pep,
+        "next_review_due": record.next_review_due, "recorded_by": current_user.id,
+        "recorded_at": now,
+    })
+    db.add(record)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="kyc_confirmations", record_id=record.id, action="CREATE",
+        field_name="kyc_confirmation",
+        new_value=f"Formular {record.form_type}; Risiko {record.risk_category}; "
+                  f"PEP {'ja' if record.is_pep else 'nein'}; naechste Aktualisierung "
+                  f"{record.next_review_due}",
+        client_id=client_id, mandate_id=mandate_id,
+        ip_address=_extract_client_ip(request))
+    db.commit()
+    db.refresh(record)
+    return _kyc_response(db, record)
+
+
+@router.post(
+    "/{client_id}/kyc-confirmations/{confirmation_id}/approve",
+    response_model=KycConfirmationResponse,
+)
+def approve_kyc_confirmation(
+    client_id: str,
+    confirmation_id: str,
+    body: KycConfirmationApprovalCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Vier-Augen-Freigabe (PEP/erhoehtes Risiko): nur eine zweite Person mit
+    Admin-Rolle (Geschaeftsleitung/Compliance), nie die erfassende Person."""
+    _get_client_or_404(client_id, db, current_user)
+    record = db.query(KycConfirmation).filter(
+        KycConfirmation.id == confirmation_id,
+        KycConfirmation.client_id == client_id,
+    ).first()
+    if record is None:
+        raise HTTPException(status_code=404, detail="KYC-Bestaetigung nicht gefunden")
+    if not _kyc_requires_second_approval(record):
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_SECOND_APPROVAL_NOT_REQUIRED",
+            "message": "Diese Bestaetigung (kein PEP, normales Risiko) braucht keine Freigabe.",
+        })
+    if str(record.recorded_by) == str(current_user.id):
+        raise HTTPException(status_code=403, detail={
+            "reason_code": "KYC_SECOND_APPROVAL_SAME_PERSON",
+            "message": "Die Freigabe muss durch eine zweite Person erfolgen.",
+        })
+    existing = db.query(KycConfirmationApproval).filter(
+        KycConfirmationApproval.confirmation_id == record.id
+    ).first()
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="KYC-Bestaetigung ist bereits freigegeben")
+    now = _now()
+    approval = KycConfirmationApproval(
+        id=new_uuid(), tenant_id=record.tenant_id, confirmation_id=record.id,
+        client_id=client_id, approved_by=current_user.id, approved_at=now,
+        note=(body.note or "").strip() or None,
+    )
+    approval.approval_hash = _canonical_hash({
+        "id": approval.id, "confirmation_id": record.id,
+        "confirmation_hash": record.confirmation_hash,
+        "approved_by": current_user.id, "approved_at": now,
+    })
+    db.add(approval)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="kyc_confirmation_approvals", record_id=approval.id, action="CREATE",
+        field_name="kyc_second_approval", new_value=record.id,
+        client_id=client_id, mandate_id=record.mandate_id,
+        ip_address=_extract_client_ip(request))
+    db.commit()
+    return _kyc_response(db, record)
 
 
 # ── Tax Residencies (FATCA/CRS) ────────────────────────────────────────────────
