@@ -77,10 +77,10 @@ def make_sollist_kennzahlen_table(
     Leere Liste (kein Render) wenn weder SOLL- noch IST-Monte-Carlo-Werte
     vorliegen -- z.B. bevor 'Anlagestrategie berechnen' je gelaufen ist.
     """
-    has_any = any([
-        target_median_end_rappen, current_median_end_rappen,
-        target_cagr_bps, current_cagr_bps,
-    ])
+    # N-858-12: Eine gerechnete Rendite von 0 bps ist ein Wert, keine Luecke.
+    has_any = any([target_median_end_rappen, current_median_end_rappen]) or any(
+        value is not None for value in (target_cagr_bps, current_cagr_bps)
+    )
     if not has_any:
         return []
 
