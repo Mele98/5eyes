@@ -168,7 +168,9 @@ def database_paths() -> dict[str, str]:
     }
 
 
-def create_backup() -> dict[str, Any]:
+def create_backup(snapshot_anchor=None) -> dict[str, Any]:
+    """Manuelles Backup. ``snapshot_anchor`` (F4): Anker-Funktion fuer das
+    Manifest (services.audit.backup_snapshot_anchor, vom Endpoint uebergeben)."""
     db_file = resolve_db_file(settings.db_path)
     if not db_file.exists():
         raise FileNotFoundError(f'Datenbankdatei nicht gefunden: {db_file}')
@@ -176,32 +178,23 @@ def create_backup() -> dict[str, Any]:
     # AB-2: Delegation an die EINE, atomare, WAL-aware Backup-Engine
     # (services.backup.backup_database). Kein shutil.copy2 + manuelles WAL/SHM
     # mehr — die Online-Backup-API liefert einen konsistenten Snapshot.
-    # Verzeichnis + Dateinamensmuster (5eyes-backup-%Y%m%d-%H%M%S.db) sind damit
+    # Verzeichnis + Dateinamensmuster (ares-backup-%Y%m%d-%H%M%S.db) sind damit
     # identisch zum Scheduler-Pfad; das alte T…Z-Muster entfaellt.
     backup_dir = ensure_backup_dir()
     result = backup_engine.backup_database(
         target_dir=backup_dir,
         source_db_path=db_file,
+        snapshot_anchor=snapshot_anchor,
     )
 
     backup_path = result.path
     created_at = result.timestamp.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
 
-    # Manifest aus dem BackupResult ableiten (Metadaten fuer Support-Bundle /
-    # UI). Der SHA256-Sidecar wird bereits von der Engine geschrieben.
-    manifest = {
-        'created_at': created_at,
-        'db_file': str(backup_path),
-        'db_sha256': result.sha256,
-        'db_size_bytes': result.bytes_written,
-        # SEC-007 (Codex-Audit 2026-08-26): True nur wenn backup_hmac_key
-        # konfiguriert war -- reiner db_sha256 oben beweist keine
-        # Authentizitaet, siehe services/backup.py.
-        'db_hmac_signed': result.hmac_signed,
-        'sidecars': [],
-    }
-    manifest_path = backup_dir / f'{backup_path.name}.json'
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding='utf-8')
+    # F4: das Manifest (<backup>.json) schreibt jetzt die Engine fuer JEDES
+    # Backup (auch Scheduler), mit Kettenkopf/Bestandssiegel des Snapshots und
+    # HMAC-Signatur bei konfiguriertem backup_hmac_key. Felder wie bisher
+    # (created_at, db_file, db_sha256, db_size_bytes, db_hmac_signed, sidecars).
+    manifest_path = result.manifest_path or (backup_dir / f'{backup_path.name}.json')
 
     return {
         'status': 'ok',
@@ -320,7 +313,7 @@ def tail_app_log(lines: int | None = None) -> dict[str, Any]:
 def create_support_bundle() -> dict[str, Any]:
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     bundle_dir = ensure_support_bundle_dir()
-    bundle_path = bundle_dir / f'5eyes-support-{stamp}.zip'
+    bundle_path = bundle_dir / f'ares-support-{stamp}.zip'
 
     log_payload = tail_app_log(lines=min(settings.recent_log_lines_max, 300))
     backup_payload = list_backups()
@@ -351,7 +344,7 @@ def create_support_bundle() -> dict[str, Any]:
             zf.writestr('logs/recent.log', '\n'.join(redacted_log_lines) + '\n')
 
         backup_dir = ensure_backup_dir()
-        for manifest_path in sorted(backup_dir.glob('5eyes-backup-*.db.json'), reverse=True)[:10]:
+        for manifest_path in sorted(backup_dir.glob('ares-backup-*.db.json'), reverse=True)[:10]:
             zf.write(manifest_path, arcname=f'backup-manifests/{manifest_path.name}')
 
     return {
@@ -409,9 +402,43 @@ def _backups_colocated_with_db() -> bool:
         return False
 
 
-def build_compliance_status() -> dict[str, Any]:
+def _audit_verification_warning(status: dict[str, Any]) -> str | None:
+    state = status.get('state')
+    if state == 'ok':
+        return None
+    if state == 'broken':
+        return (
+            f"Audit-Log-Integritaet verletzt ({status.get('finding_count') or 0} Befunde). "
+            'Details: GET /admin/system/audit-log/verify.'
+        )
+    if state in ('pending', 'running'):
+        done = status.get('checked') or 0
+        total = status.get('total_rows') or status.get('target_sequence') or 0
+        return (
+            f'Audit-Kettenpruefung laeuft im Hintergrund ({done} von ca. {total} Eintraegen geprueft). '
+            'Integritaet bis zum Abschluss nicht bestaetigt.'
+        )
+    if state == 'error':
+        return 'Audit-Kettenpruefung konnte nicht durchgefuehrt werden. Integritaet nicht bestaetigt.'
+    return 'Audit-Kettenpruefung ohne Ergebnis. Integritaet nicht bestaetigt.'
+
+
+def build_compliance_status(audit_verification: dict[str, Any] | None = None) -> dict[str, Any]:
     db_encryption_enabled = bool(settings.db_use_sqlcipher and settings.db_key)
     warnings: list[str] = []
+    # F6 (Codex-Entscheid Runde 3): sichtbarer Integritaetsstatus der Audit-
+    # Kette. Ein Bruch steht als erste Warnung (die Admin-Uebersicht zeigt
+    # die erste Warnung), ausstehende/laufende/gescheiterte Pruefung als
+    # Hinweis -- 'ok' gibt es erst nach bestaetigter Kette.
+    # Ohne uebergebenen Status (Aufrufer ausserhalb des Endpoints) gilt die
+    # Kette als nicht bestaetigt; GET /admin/system/compliance liest ihn aus
+    # services.audit.get_audit_verification_status.
+    audit_status = audit_verification if audit_verification is not None else {
+        'state': 'unknown', 'integrity_confirmed': False,
+    }
+    audit_warning = _audit_verification_warning(audit_status)
+    if audit_warning and audit_status.get('state') == 'broken':
+        warnings.append(audit_warning)
     if settings.secret_key == DEFAULT_SECRET_KEY:
         warnings.append('secret_key ist noch auf dem Defaultwert und muss ausserhalb von Development/Test ersetzt werden.')
     if not db_encryption_enabled:
@@ -421,6 +448,8 @@ def build_compliance_status() -> dict[str, Any]:
     backups_colocated = _backups_colocated_with_db()
     if backups_colocated:
         warnings.append('Backups liegen im selben Verzeichnis wie die Live-Datenbank. Bei Datenverlust des Datentraegers (Disk-Ausfall, Ordner-Loeschung) sind DB und Backup gleichzeitig betroffen — separates Verzeichnis/Medium empfohlen.')
+    if audit_warning and audit_status.get('state') != 'broken':
+        warnings.append(audit_warning)
     return {
         'status': 'ok' if not warnings else 'warning',
         'environment': settings.app_env,
@@ -436,6 +465,8 @@ def build_compliance_status() -> dict[str, Any]:
             'browser_token_fallback_storage': 'sessionStorage',
             'electron_token_storage': 'safeStorage',
             'backups_colocated_with_db': backups_colocated,
+            'audit_chain_verification_state': audit_status.get('state'),
+            'audit_chain_integrity_confirmed': bool(audit_status.get('integrity_confirmed')),
         },
         'warnings': warnings,
     }

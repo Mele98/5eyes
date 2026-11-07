@@ -148,7 +148,8 @@
     }
   ],
   "recommendation_warnings": [
-    "Aktien Schwellenlaender: exakte Produktumsetzung nicht moeglich. Passendes Produkt im Katalog vorhanden, aber ausserhalb des zugelassenen Risikoprofil-Bands (aktuell Bucket 5, benoetigt mind. Bucket 6). Nur mit dokumentiertem Risikoprofil-Override (Score >= 55) umsetzbar."
+    "Aktien Schwellenlaender: exakte Produktumsetzung nicht moeglich. Passendes Produkt im Katalog vorhanden, aber ausserhalb des zugelassenen Risikoprofil-Bands (aktuell Bucket 5, benoetigt mind. Bucket 6). Nur mit dokumentiertem Risikoprofil-Override (Score >= 55) umsetzbar.",
+    "Kennzahlen der Umsetzung weichen von der SAA ab (Produktersatz, abweichende Sub-Klassen: Aktien Schweiz, Aktien Schwellenlaender). Erwartete Rendite und Volatilitaet beschreiben das umgesetzte Portfolio; die SAA-Kennzahlen sind separat ausgewiesen."
   ],
   "sub_allocations": [
     {
@@ -261,8 +262,8 @@
     "advisory_wealth_rappen": 50000000,
     "average_ter_bps": 25,
     "average_ter_coverage_bps": 10000,
-    "expected_return_bps": 459,
-    "expected_volatility_bps": 821,
+    "expected_return_bps": 442,
+    "expected_volatility_bps": 768,
     "investable_advisory_wealth_rappen": 50000000,
     "missing_ter_positions_count": 0,
     "sum_target_amount_rappen": 50000000,

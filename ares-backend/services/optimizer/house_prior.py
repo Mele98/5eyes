@@ -65,9 +65,20 @@ Rohresultate des Tunings und ein separater Holdout-Test mit vorab
 festgelegter Regel liegen commitgebunden unter
 ``tools/house_prior_calibration/`` und
 ``docs/planning/2026-10-18-house-prior-kappa-calibration.md``. Die Auswahl im
-Tuning war post hoc (kein vorab registriertes Kriterium); kappa_H ist deshalb
-als ``HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS`` gekennzeichnet, bis ein
-Modellowner-Entscheid vorliegt.
+Tuning war post hoc (kein vorab registriertes Kriterium). Der Holdout mit
+vorab festgelegter Regel hat sie auf Engine v7 bestaetigt -- NUR auf v7: der
+Bestaetigungs-Holdout auf der Produktions-Engine v18 ist ``not_confirmed``
+(siehe unten und ADR-015).
+HOUSE-PRIOR-APPROVAL-001 (Entscheid AA-4, Luecke L21): kappa_H = 300 ist als
+"Haus-Prior v1" VORLAEUFIG in Gebrauch (``docs/adr/ADR-015-haus-prior-kappa-v1.md``),
+Status ``HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "provisional_v1"``: der
+Bestaetigungs-Holdout auf der Produktions-Engine v18 ist nach der vorab
+festgelegten Regel ``not_confirmed`` (R1 knapp verfehlt, -0.010 pp; R2 erfuellt).
+Auflage vor Produktivfreigabe: Re-Kalibrierung auf v18 mit erweitertem Holdout
+oder begruendete Anpassung von R1 durch den Owner. Der WERT ist
+unveraendert; jede Aenderung braucht den Out-of-sample-Nachweis aus dem ADR
+(Release-Gate). Ausgewiesen wird zusaetzlich die Abweichung des Ergebnisses
+von der Hausquote je Anlageklasse (``deviation_vs_house_bps``).
 
 Der gepaarte Bootstrap bleibt NUR zur Offenlegung (Delta Zielebene mit
 Konfidenzgrenzen, Zielwahrscheinlichkeiten Haus vs. Final) und als
@@ -111,7 +122,16 @@ HOUSE_PRIOR_VERSION = "house_prior_ridge_tracking_error_v2"
 # Modellbasis ausgewiesen. Einheit: Zielebene je Tracking-Error-Varianz
 # (Dezimal^2, einjaehrig).
 HOUSE_PRIOR_KAPPA = 300.0
-HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "experimental_tuned_holdout_checked"
+# HOUSE-PRIOR-APPROVAL-001: Status des PARAMETERS kappa_H (nicht des
+# Algorithmus -- der ist in ``HOUSE_PRIOR_VERSION`` versioniert). Vorher
+# "experimental_tuned_holdout_checked"; Herleitung, Wirkung, Grenzen und
+# Review-Turnus in ``HOUSE_PRIOR_PARAMETER_ADR``. "provisional": der
+# Bestaetigungs-Holdout auf v18 ist not_confirmed (ADR-015, Owner-Entscheid
+# 2026-11-03) -- kein "approved" ohne erfuellte Regel (Art. 9 FINIG).
+HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "provisional_v1"
+HOUSE_PRIOR_PARAMETER_RELEASE = "v1"
+HOUSE_PRIOR_PARAMETER_STATUS = "provisional"
+HOUSE_PRIOR_PARAMETER_ADR = "docs/adr/ADR-015-haus-prior-kappa-v1.md"
 # Ridge der Prior-Metrik in bps^2 (Herleitung im Modul-Docstring).
 HOUSE_PRIOR_RIDGE_BPS2 = 2500.0
 HOUSE_PRIOR_DISCLOSURE_TEST_VERSION = "paired_unit_bootstrap_disclosure_goal_level_v6"
@@ -159,7 +179,57 @@ def prior_metric_audit(covariance_bps2: np.ndarray) -> dict:
             round(largest / smallest, 4) if smallest > 0.0 else None
         ),
         "kappa_calibration_status": HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS,
+        "kappa_release": HOUSE_PRIOR_PARAMETER_RELEASE,
+        "kappa_release_adr": HOUSE_PRIOR_PARAMETER_ADR,
     }
+
+
+# Anzeige-Reihenfolge und Bezeichnung der Anlageklassen im Reasoning.
+_DEVIATION_LABELS = (
+    ("equities", "Aktien"),
+    ("bonds", "Obligationen"),
+    ("real_estate", "Immobilien"),
+    ("alternatives", "Alternative"),
+    ("liquidity", "Liquiditaet"),
+)
+
+
+def house_deviation_bps(
+    final_bps: Mapping[str, int],
+    house_bps: Mapping[str, int] | None,
+) -> dict[str, int] | None:
+    """Abweichung Ergebnis minus Hausquote je Anlageklasse (bps, ganzzahlig).
+
+    HOUSE-PRIOR-APPROVAL-001 (AA-4): reine Offenlegung, beeinflusst keine
+    Gewichte. ``None``, wenn keine Hausquote vorliegt. Klassen, die nur in
+    einer der beiden Quoten vorkommen, zaehlen dort mit 0 bps.
+    """
+    if not house_bps:
+        return None
+    buckets = list(final_bps) + [b for b in house_bps if b not in final_bps]
+    return {
+        str(bucket): int(final_bps.get(bucket, 0)) - int(house_bps.get(bucket, 0))
+        for bucket in buckets
+    }
+
+
+def house_deviation_sentence(deviation_bps: Mapping[str, int] | None) -> str | None:
+    """Reasoning-Satz zur Abweichung von der Hausquote in pp (None ohne Daten)."""
+    if not deviation_bps:
+        return None
+    known = {key for key, _ in _DEVIATION_LABELS}
+    rows = [(key, label) for key, label in _DEVIATION_LABELS if key in deviation_bps]
+    rows += [(key, key) for key in deviation_bps if key not in known]
+    if all(int(deviation_bps[key]) == 0 for key, _ in rows):
+        return "Abweichung zur Hausquote: in allen Anlageklassen 0.00 pp."
+    return (
+        "Abweichung zur Hausquote je Anlageklasse: "
+        + ", ".join(
+            f"{label} {int(deviation_bps[key]) / 100.0:+.2f} pp"
+            for key, label in rows
+        )
+        + "."
+    )
 
 
 def _metric_quadratic(delta: np.ndarray, covariance_bps2: np.ndarray) -> float:
@@ -349,6 +419,9 @@ def house_prior_sentence(block: Mapping) -> str:
             f"verbessert (Tracking Error zur Hausmatrix {te_bps / 100.0:.2f} %)."
         )
     parts = [head]
+    deviation = house_deviation_sentence(block.get("deviation_vs_house_bps"))
+    if deviation:
+        parts.append(deviation)
     disclosure = block.get("disclosure")
     if isinstance(disclosure, Mapping) and disclosure.get("improvement") is not None:
         alpha = float(disclosure.get("alpha") or 0.05)

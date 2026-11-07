@@ -584,6 +584,10 @@ SITES: dict[tuple[str, str], tuple[tuple[str, str | None], ...]] = {
     ("services/optimizer/solver.py", "build_optimizer_context"): ((J, None),),
     # unsortiert, kompakt, ASCII (Seed-Material)
     ("services/optimizer/solver.py", "optimizer_content_seed"): ((J, None),),
+    # Bestandssiegel (#869): je Altzeile ein JSON-Array der Spalten in fester
+    # Reihenfolge (keine Schluessel), kompakt, UTF-8, zeilenweise mit
+    # Zeilenumbruch in einen sha256 eingespeist; Zeilen nach id sortiert
+    ("services/audit.py", "_legacy_seal_digest"): ((J, None),),
 }
 
 _DELEGATABLE = {SCHEME_V1, SCHEME_V1_ASCII, SCHEME_V1_STR_DEFAULT, SCHEME_V1_ASCII_STR_DEFAULT}

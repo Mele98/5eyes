@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 import os
 import shutil
@@ -42,17 +43,18 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from config import settings
-from database import SQLCIPHER_AVAILABLE, _sqlcipher_enabled, sqlcipher3
+from database import SQLCIPHER_AVAILABLE, _sqlcipher_enabled, apply_sqlcipher_key, sqlcipher3
 
 logger = logging.getLogger(__name__)
 
 
-# Dateinamens-Muster: 5eyes-backup-YYYYMMDD-HHMMSS.db
+# Dateinamens-Muster: ares-backup-YYYYMMDD-HHMMSS.db
 # Strict Format -> Retention / Listing kann zuverlaessig parsen.
-_BACKUP_FILENAME_PATTERN = "5eyes-backup-{ts}.db"
-_BACKUP_FILENAME_GLOB = "5eyes-backup-*.db"
+_BACKUP_FILENAME_PATTERN = "ares-backup-{ts}.db"
+_BACKUP_FILENAME_GLOB = "ares-backup-*.db"
 _TIMESTAMP_FORMAT = "%Y%m%d-%H%M%S"
 
 # AB-1: Temp-Dateien beim atomaren Schreiben. Werden bei Absturz sichtbar
@@ -64,6 +66,13 @@ _PARTIAL_GLOB = "*" + _PARTIAL_SUFFIX
 # damit ein Angreifer, der nur den unkeyed Hash faelscht, nicht versehentlich
 # auch als "authentisch" durchgeht -- die beiden Dateien sind unabhaengig).
 _HMAC_SIDECAR_SUFFIX = ".hmac256"
+
+# F4: Backup-Manifest ("<backup>.json", gleicher Name wie bisher in
+# services/maintenance.py). Signiert per HMAC-SHA256 ueber die kanonischen
+# Felder, wenn backup_hmac_key konfiguriert ist.
+_MANIFEST_SUFFIX = ".json"
+BACKUP_MANIFEST_SCHEME = "ares-backup-manifest-v1"
+_MANIFEST_SIG_PREFIX = "hmac-sha256:"
 
 
 @dataclass(frozen=True)
@@ -80,6 +89,11 @@ class BackupResult:
     # HMAC-Sidecar geschrieben wurde (Authentizitaets-, nicht nur Integritaets-
     # Beweis).
     hmac_signed: bool = False
+    # F4 (Codex-Entscheid Runde 3): Manifest neben jedem Backup mit Kettenkopf
+    # und Bestandssiegel des Snapshots, HMAC-signiert wenn backup_hmac_key
+    # gesetzt ist.
+    manifest_path: Path | None = None
+    audit_anchor: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -115,6 +129,7 @@ def backup_database(
     keep_minimum: int = 3,
     timestamp: datetime | None = None,
     db_key: str | None = None,
+    snapshot_anchor: SnapshotAnchor | None = None,
 ) -> BackupResult:
     """Erzeugt ein atomares Backup der SQLite-DB.
 
@@ -137,6 +152,11 @@ def backup_database(
         Optional -- SQLCipher-Key fuer Source (und damit auch Ziel-Kopie).
         Default: `settings.db_key` (identisch zum laufenden Server).
         Nur relevant wenn `settings.db_use_sqlcipher=True`.
+    snapshot_anchor
+        F4: Funktion, die aus der Backup-Kopie den Audit-Anker (Kettenkopf +
+        Bestandssiegel) bildet; produktiv services.audit.backup_snapshot_anchor.
+        Das Manifest (<backup>.json) entsteht immer; ohne Funktion traegt es
+        ``audit_anchor_error: not_requested``.
 
     Returns
     -------
@@ -180,6 +200,13 @@ def backup_database(
         _write_sidecar_atomically(hmac_sidecar, f"{hmac_hex}  {target.name}\n")
         hmac_signed = True
 
+    # F4: Kettenkopf + Bestandssiegel aus dem SNAPSHOT (nicht aus der Live-DB:
+    # die laeuft weiter) ins signierte Manifest.
+    manifest_path, audit_anchor = _write_backup_manifest(
+        target, sha256=sha, size_bytes=target.stat().st_size, hmac_signed=hmac_signed,
+        timestamp=ts, db_key=db_key, hmac_key=hmac_key, snapshot_anchor=snapshot_anchor,
+    )
+
     pruned = _prune_old_backups(
         target_dir_path,
         retain_days=retain_days,
@@ -208,7 +235,111 @@ def backup_database(
         retained_files=retained,
         pruned_files=pruned,
         hmac_signed=hmac_signed,
+        manifest_path=manifest_path,
+        audit_anchor=audit_anchor,
     )
+
+
+def _manifest_canonical(manifest: dict) -> bytes:
+    body = {k: v for k, v in manifest.items() if k != "manifest_signature"}
+    return json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+
+
+def _manifest_signature(manifest: dict, key: str) -> str:
+    return _MANIFEST_SIG_PREFIX + hmac.new(
+        key.encode("utf-8"), _manifest_canonical(manifest), hashlib.sha256
+    ).hexdigest()
+
+
+# F4: Signatur der Anker-Funktion -- (fetch(sql) -> Zeilen, Signaturschluessel
+# oder None) -> Anker-Dict. Produktiv: services.audit.backup_snapshot_anchor,
+# uebergeben von Endpoint, Scheduler und CLI (die Engine importiert keine
+# App-Module, Architektur-Ratsche).
+SnapshotAnchor = Callable[[Callable[[str], list], "str | None"], dict]
+ANCHOR_NOT_REQUESTED = "not_requested"
+
+
+def _snapshot_audit_anchor(
+    backup_path: Path, *, db_key: str | None, hmac_key: str, snapshot_anchor: SnapshotAnchor | None
+) -> tuple[dict | None, str | None]:
+    """Anker-Stand (Kettenkopf, Bestandssiegel) der Backup-Kopie. Ein Fehler
+    (z.B. Alt-Datenbank ohne Kette) laesst das Backup gelten; das Manifest
+    nennt dann nur die Fehlerklasse. Ohne Anker-Funktion: Vermerk
+    ``not_requested`` (sichtbar, nie still)."""
+    if snapshot_anchor is None:
+        return None, ANCHOR_NOT_REQUESTED
+    try:
+        conn = _open_connection(f"file:{backup_path.as_posix()}?mode=ro", uri=True, db_key=db_key)
+        try:
+            anchor = snapshot_anchor(lambda sql: conn.execute(sql).fetchall(), hmac_key or None)
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 -- Anker ist Zusatz, Backup bleibt gueltig
+        logger.warning("Audit-Anker fuer Backup nicht ermittelt: %s", type(exc).__name__)
+        return None, type(exc).__name__
+    return anchor, None
+
+
+def _write_backup_manifest(
+    target: Path,
+    *,
+    sha256: str,
+    size_bytes: int,
+    hmac_signed: bool,
+    timestamp: datetime,
+    db_key: str | None,
+    hmac_key: str,
+    snapshot_anchor: SnapshotAnchor | None,
+) -> tuple[Path, dict | None]:
+    audit_anchor, anchor_error = _snapshot_audit_anchor(
+        target, db_key=db_key, hmac_key=hmac_key, snapshot_anchor=snapshot_anchor
+    )
+    manifest = {
+        "scheme": BACKUP_MANIFEST_SCHEME,
+        "created_at": timestamp.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+        "db_file": str(target),
+        "db_sha256": sha256,
+        "db_size_bytes": int(size_bytes),
+        # SEC-007: True nur wenn backup_hmac_key konfiguriert war.
+        "db_hmac_signed": bool(hmac_signed),
+        "sidecars": [],
+        "audit_anchor": audit_anchor,
+        "audit_anchor_error": anchor_error,
+        "manifest_signature": None,
+    }
+    if hmac_key:
+        manifest["manifest_signature"] = _manifest_signature(manifest, hmac_key)
+    manifest_path = target.with_suffix(target.suffix + _MANIFEST_SUFFIX)
+    _write_sidecar_atomically(manifest_path, json.dumps(manifest, ensure_ascii=False, indent=2))
+    return manifest_path, audit_anchor
+
+
+def verify_backup_manifest(manifest_path: str | Path, *, hmac_key: str | None = None) -> dict:
+    """F4: Manifest pruefen -- Signatur und db_sha256 gegen die Backup-Datei.
+    Gibt den Audit-Anker des Snapshots zurueck. Fail-closed: mit
+    konfiguriertem Schluessel ist ein unsigniertes Manifest nicht ok; ein
+    signiertes Manifest ohne Schluessel ist nicht pruefbar und damit nicht ok."""
+    path = Path(manifest_path).expanduser().resolve()
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    key = (settings.backup_hmac_key if hmac_key is None else hmac_key or "").strip()
+    signature = manifest.get("manifest_signature")
+    if not signature:
+        signature_state = "missing" if key else "none"
+    elif not key:
+        signature_state = "key_missing"
+    else:
+        signature_state = (
+            "valid" if hmac.compare_digest(str(signature), _manifest_signature(manifest, key)) else "invalid"
+        )
+    db_file = path.with_suffix("")
+    db_sha_ok = db_file.exists() and _sha256_file(db_file) == manifest.get("db_sha256")
+    return {
+        "ok": signature_state in ("valid", "none") and bool(db_sha_ok),
+        "signature": signature_state,
+        "db_sha256_ok": bool(db_sha_ok),
+        "audit_anchor": manifest.get("audit_anchor"),
+        "audit_anchor_error": manifest.get("audit_anchor_error"),
+    }
 
 
 def restore_database(
@@ -397,11 +528,11 @@ def _open_connection(path_or_uri: str, *, uri: bool, db_key: str | None) -> sqli
                 "ist nicht moeglich. Installiere sqlcipher3-binary oder sqlcipher3."
             )
         conn = sqlcipher3.connect(path_or_uri, uri=uri)
-        conn.execute("PRAGMA key = ?", [key or ""])
-        conn.execute("PRAGMA cipher_page_size = 4096")
-        conn.execute("PRAGMA kdf_iter = 256000")
-        conn.execute("PRAGMA cipher_hmac_algorithm = HMAC_SHA512")
-        conn.execute("PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512")
+        try:
+            apply_sqlcipher_key(conn, key or "")
+        except Exception:
+            conn.close()
+            raise
         return conn
     return sqlite3.connect(path_or_uri, uri=uri)
 
@@ -594,6 +725,9 @@ def _prune_old_backups(
                 hmac_sidecar = f.with_suffix(f.suffix + _HMAC_SIDECAR_SUFFIX)
                 if hmac_sidecar.exists():
                     hmac_sidecar.unlink()
+                manifest = f.with_suffix(f.suffix + _MANIFEST_SUFFIX)
+                if manifest.exists():
+                    manifest.unlink()
                 pruned += 1
             except OSError as exc:
                 logger.warning("Konnte altes Backup nicht loeschen: %s (%s)", f, exc)
@@ -626,7 +760,7 @@ def replicate_offsite(
         (bei konfiguriertem backup_hmac_key) Authentizitaet unabhaengig
         pruefen kann.
     target
-        rsync-Ziel, z.B. "5eyes-offsite@backup-host.ch:/srv/5eyes-offsite/".
+        rsync-Ziel, z.B. "ares-offsite@backup-host.example:/srv/ares-offsite/".
         Muss auf ein Verzeichnis zeigen (trailing slash empfohlen).
     ssh_key_path
         Optionaler Pfad zu einem privaten SSH-Key. Leer/None -> rsync nutzt
