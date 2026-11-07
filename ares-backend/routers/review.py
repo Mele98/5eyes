@@ -4038,6 +4038,34 @@ def finalize_recommendation(
                 "errors": errors,
             })
         raise HTTPException(status_code=422, detail="; ".join(errors))
+    # H7 C-4 (Compliance-Audit 2026-11-07): Retro-Gate. Der Kostenausweis
+    # kennt seit L1 unbekannte/ungeregelte Retrozessionen (is_complete=False),
+    # die Finalisierung fror ihn trotzdem ein. Jetzt fail-closed, ohne
+    # Override (Dok. 10 L1); die Sperre wird im Audit-Log festgehalten.
+    from services.cost_disclosure import (
+        freeze_cost_disclosure_for_run,
+        retrocession_finalization_block,
+    )
+
+    retro_block = retrocession_finalization_block(db, mandate, run)
+    if retro_block is not None:
+        db.rollback()
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="recommendation_runs", record_id=run_id, action="UPDATE",
+            field_name="finalization_blocked",
+            new_value=json.dumps({
+                "reason_code": retro_block["reason_code"],
+                "unknown": retro_block["unknown"],
+                "unresolved": retro_block["unresolved"],
+                "unresolved_items": retro_block["unresolved_items"],
+            }, ensure_ascii=False, sort_keys=True),
+            mandate_id=mandate_id, ip_address=_extract_client_ip(request))
+        db.commit()
+        raise HTTPException(status_code=422, detail={
+            "reason_code": retro_block["reason_code"],
+            "message": retro_block["message"],
+            "errors": [retro_block["message"]],
+        })
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
     assert_portfolio_data_release_eligible(db, mandate, action="finalize")
     if cma_currency_warning:
@@ -4068,7 +4096,6 @@ def finalize_recommendation(
     # bleibt die Spalte NULL und der Leser legt das offen
     # (`evidence_frozen=False`) -- die Finalisierung daran scheitern zu
     # lassen waere eine Blockade, die dieser Befund nicht verlangt.
-    from services.cost_disclosure import freeze_cost_disclosure_for_run
     run.cost_disclosure_snapshot_json = freeze_cost_disclosure_for_run(
         db, mandate, run
     )

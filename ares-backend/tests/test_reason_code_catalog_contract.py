@@ -51,6 +51,8 @@ KNOWN_UNRESOLVED: dict[tuple[str, str, str], int] = {
      'self.reason_code'): 1,
     ('routers/client_portal.py', '_assert_portal_report_releasable',
      "str(detail.get('reason_code') or 'RELEASE_BLOCKED')"): 1,
+    ('routers/review.py', 'finalize_recommendation',
+     "retro_block['reason_code']"): 2,
     ('routers/eligibility_overrides.py', '_conflict',
      'exc.code'): 1,
     ('routers/eligibility_overrides.py', 'approve_eligibility_override',
