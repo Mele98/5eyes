@@ -38,7 +38,8 @@ class Client(Base):
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
     # DSG Art. 32 (Loeschungsanspruch, Sprint 2026-08-15): gesetzt durch
-    # POST /clients/{id}/erase (services/client_erasure.py). Unterscheidet
+    # Tier-A-Redaktion (services/client_erasure.py; seit H7 C-1 nur ueber den
+    # Datenschutz-Workflow /privacy/erasure-cases). Unterscheidet
     # eine echte, irreversible PII-Anonymisierung von einem gewoehnlichen
     # Soft-Delete (deleted_at allein) -- verhindert insbesondere, dass eine
     # spaetere "Undelete"-Funktion (deleted_at=NULL) faelschlich Daten

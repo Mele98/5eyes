@@ -30282,7 +30282,7 @@
     },
     "/clients/{client_id}/erase": {
       "post": {
-        "description": "DSG Art. 32 -- Loeschungsanspruch. Anonymisiert irreversibel alle\ndirekt identifizierenden Personendaten dieses Kunden (siehe\nservices/client_erasure.py fuer die vollstaendige rechtliche und\ntechnische Begruendung des Umfangs). Admin-only, Pflichtbegruendung\n(schemas.clients.ClientErasureRequest), idempotent-sicher (409 bei\nDoppelaufruf). Die Aktion selbst wird -- wie jede sensible Aktion --\nunveraenderlich im Audit-Log protokolliert (wer hat wann wen aus\nwelchem Grund geloescht).",
+        "description": "Stillgelegt (H7 C-1): Loeschgesuche laufen nur ueber den\nDatenschutz-Workflow ``/privacy/erasure-cases``.\n\nDieser Endpoint hat frueher sofort redigiert -- ohne Pruefung von\nAufbewahrungsfrist, Legal Hold oder aktivem Mandat. Dabei wurden auch\nKYC-Belege (GwG Art. 7 Abs. 3: mindestens 10 Jahre nach Ende der\nGeschaeftsbeziehung) und die Schluessel fuer versiegelte Nachweise\nvernichtet. Ein zweiter Weg zur Vernichtung vor Fristablauf darf nicht\nbestehen. Der Endpoint antwortet deshalb immer mit 409 und verweist auf\nden Workflow (Loeschvorgang eroeffnen -> Entscheid je Nachweisart nach\ngenehmigter Aufbewahrungsmatrix und Legal Hold -> Ausfuehrung). Die\nAblehnung wird im Audit-Log festgehalten; Daten werden nicht veraendert.",
         "operationId": "erase_client_clients__client_id__erase_post",
         "parameters": [
           {

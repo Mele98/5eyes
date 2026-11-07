@@ -50,7 +50,8 @@ GOLDEN_SORTED_TABLES_SHA256 = "751a13f478745fdb7729d3191e5d5bf93e52f53b5f2a4d41d
 # Integrationsprobe 2026-11-07: Pins aus #856, #862, #868 und #869 zusammen-
 # gefuehrt; api/openapi.json (Git-Merge ohne Konflikt) besteht
 # scripts/export_openapi.py --check.
-GOLDEN_OPENAPI_SHA256 = "8ca5cb99beed3951ac6deb940efd0333bc42273a4da7b746443d7fb7ba50df65"
+# H7 C-1: nur description von POST /clients/{client_id}/erase (Direktpfad stillgelegt, 409), Feld-Diff geprueft.
+GOLDEN_OPENAPI_SHA256 = "62f9184acfcced20b41ee49867f4aa7ff96f91775c8df485794b87d08134ba64"
 
 _PROBE = """
 import hashlib, json
