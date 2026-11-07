@@ -45,6 +45,14 @@ def build_risikoprofil_flowables(
     if binding_text:
         flowables.append(Spacer(1, 2 * mm))
         flowables.append(Paragraph(_esc(binding_text), styles["body"]))
+    if data.questionnaire_version:
+        # H5b: Version + Erhebungsdatum; wirksame Kappung mit Grund.
+        flowables.append(Paragraph(_esc(
+            f"Fragebogen-Version {data.questionnaire_version}"
+            + (f" · Erhebungsdatum {data.assessed_on}" if data.assessed_on else "")
+        ), styles["body"]))
+        for line in data.willingness_cap_reasons:
+            flowables.append(Paragraph(_esc(line), styles["body"]))
 
     if data.is_overridden:
         flowables.append(Spacer(1, 4 * mm))
@@ -57,13 +65,25 @@ def build_risikoprofil_flowables(
         instruments_knowledge=data.knowledge_instruments,
     ))
 
-    if data.suitability_note or data.capacity_plausibility_note:
+    if (
+        data.suitability_note or data.capacity_plausibility_note
+        or data.consistency_messages or data.consistency_note
+    ):
         flowables.append(Spacer(1, 5 * mm))
         flowables.append(_section_title("Beraterdokumentation"))
         if data.suitability_note:
             flowables.append(Paragraph(_esc(data.suitability_note), styles["body"]))
         if data.capacity_plausibility_note:
             flowables.append(Paragraph(_esc(data.capacity_plausibility_note), styles["body"]))
+        # H5b: Konsistenz-Flags der Risikobereitschaft + Pflichtnotiz (aendern
+        # das Profil nicht).
+        for line in data.consistency_messages:
+            flowables.append(Paragraph(_esc(f"Konsistenzhinweis {line}"), styles["body"]))
+        if data.consistency_note:
+            flowables.append(Paragraph(
+                _esc(f"Beraternotiz zu den Konsistenzhinweisen: {data.consistency_note}"),
+                styles["body"],
+            ))
 
     flowables.append(Spacer(1, 6 * mm))
     flowables.append(_section_title("Rechtlicher Hinweis"))

@@ -3,7 +3,7 @@
     "css_selectors": 1120,
     "event_handlers": 461,
     "ids": 1018,
-    "js_functions": 1301,
+    "js_functions": 1323,
     "modal_structures": 110,
     "script_blocks": 26,
     "style_blocks": 2,
@@ -9260,8 +9260,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/risk-questionnaire-v2.js",
-      "sha256": "82af04b8c68fdf79f1b5b8a77bb55b9c292bb70c0f39649264b3ef847ac33f8b",
-      "size_bytes": 1581
+      "sha256": "1688456e28272ef909415c2ef113b1f378f76bcf4212643cb1bb6a596f41075c",
+      "size_bytes": 13699
     }
   ],
   "ids": [
@@ -21963,14 +21963,146 @@
     },
     {
       "declaration": "function",
+      "line": 46,
+      "name": "riskV2Active",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
       "line": 22,
       "name": "riskV2AddQ10Footnote",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
+      "line": 106,
+      "name": "riskV2AdvisoryChf",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 118,
+      "name": "riskV2AmountSuffix",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 195,
+      "name": "riskV2ApplyToResult",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 267,
+      "name": "riskV2BaseResult",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 143,
+      "name": "riskV2Caps",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 114,
+      "name": "riskV2Currency",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 61,
+      "name": "riskV2Esc",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 181,
+      "name": "riskV2Evaluate",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 160,
+      "name": "riskV2Flags",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 100,
+      "name": "riskV2FormatAmount",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 235,
+      "name": "riskV2Hydrate",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 277,
+      "name": "riskV2InstallWrappers",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 155,
+      "name": "riskV2InstrumentDocumented",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 251,
+      "name": "riskV2Issues",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 50,
+      "name": "riskV2LoadPolicy",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 176,
+      "name": "riskV2NoteOk",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 171,
+      "name": "riskV2NoteText",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 65,
+      "name": "riskV2Render",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 215,
+      "name": "riskV2RenderStatus",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
       "line": 18,
       "name": "riskV2Sections",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 135,
+      "name": "riskV2SelectedIndex",
+      "source": "risk-questionnaire-v2.js"
+    },
+    {
+      "declaration": "function",
+      "line": 126,
+      "name": "riskV2UpdateAmounts",
       "source": "risk-questionnaire-v2.js"
     }
   ],

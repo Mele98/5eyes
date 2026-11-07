@@ -50,7 +50,10 @@ GOLDEN_SORTED_TABLES_SHA256 = "751a13f478745fdb7729d3191e5d5bf93e52f53b5f2a4d41d
 # Integrationsprobe 2026-11-07: Pins aus #856, #862, #868 und #869 zusammen-
 # gefuehrt; api/openapi.json (Git-Merge ohne Konflikt) besteht
 # scripts/export_openapi.py --check.
-GOLDEN_OPENAPI_SHA256 = "8ca5cb99beed3951ac6deb940efd0333bc42273a4da7b746443d7fb7ba50df65"
+# H5b (2026-11-07): RiskAssessmentCreate/-Response um Fragebogen-Version,
+# v2-Antworten, Hash, Evidenz und Beraternotiz ergaenzt (nur additiv, alle
+# optional) + GET /risk-questionnaire/policy.
+GOLDEN_OPENAPI_SHA256 = "4d3678bc8a92e260f2389a735c4df2e14f423ba08da57dcde3dce83ead73cf6d"
 
 _PROBE = """
 import hashlib, json

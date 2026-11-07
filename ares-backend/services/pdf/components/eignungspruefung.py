@@ -90,6 +90,25 @@ Q10_BAND_FOOTNOTE = (
     "Verlust kann also auch grösser sein als die untere Grenze der Bandbreite."
 )
 
+# H5b: Zusatzfragen des Fragebogens v2 (nur absenkend, Kappung der
+# Risikobereitschaft). Erscheinen nur, wenn das Profil sie beantwortet hat --
+# v1-Profile bleiben unveraendert. Wortgleich zu
+# services/risk_questionnaire_integrity.V2_QUESTIONS (Paritaetstest).
+V2_QUESTION_CATALOG: dict[int, tuple[str, str]] = {
+    12: (
+        "Risikobereitschaft",
+        "Verlusttoleranz in Franken – Welcher vorübergehende Wertrückgang Ihres Anlagebetrags innerhalb eines Jahres wäre für Sie gerade noch tragbar, ohne die Anlagestrategie zu ändern?",
+    ),
+    13: (
+        "Risikobereitschaft",
+        "Tatsächliches Verhalten – Wie haben Sie in einem früheren starken Kursrückgang (z. B. 2008, März 2020 oder 2022) tatsächlich gehandelt?",
+    ),
+    14: (
+        "Risikobereitschaft",
+        "Dauer einer Verlustphase – Wie lange könnten Sie einen Wertrückgang aussitzen, bis sich die Anlage erholt hat?",
+    ),
+}
+
 
 def make_eignungspruefung_section(
     *,
@@ -110,7 +129,7 @@ def make_eignungspruefung_section(
             continue
         if qn <= 0:
             continue
-        if qn in QUESTION_CATALOG:
+        if qn in QUESTION_CATALOG or qn in V2_QUESTION_CATALOG:
             answers_by_question[qn] = answer
             continue
         extra_entries.append((
@@ -129,6 +148,11 @@ def make_eignungspruefung_section(
             question_text,
             _answer_text(qn, answer, services_knowledge or {}, instruments_knowledge or {}),
         ))
+
+    for qn in sorted(V2_QUESTION_CATALOG):
+        if qn in answers_by_question:
+            section, question_text = V2_QUESTION_CATALOG[qn]
+            grouped[section].append((qn, question_text, _answer_text(qn, answers_by_question[qn], {}, {})))
 
     for qn, section, question_text, answer_text in extra_entries:
         grouped.setdefault(section, []).append((qn, question_text, answer_text))

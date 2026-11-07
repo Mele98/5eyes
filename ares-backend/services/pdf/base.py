@@ -447,6 +447,14 @@ class RisikoprofilData:
     # RISK-CAPACITY-PLAUSIBILITY-001: neutraler Berater-Satz, wenn die
     # Fragebogen-Angaben den erfassten Finanzdaten widersprechen.
     capacity_plausibility_note: str = ""
+    # H5b (Dok. 105, 4.4): nur bei versionierten Profilen (Fragebogen v2):
+    # Version, Erhebungsdatum, wirksame Kappungen mit Grund, Konsistenz-Flags
+    # und die Pflicht-Beraternotiz. Altprofile (v1) lassen alles leer.
+    questionnaire_version: str | None = None
+    assessed_on: str = ""
+    willingness_cap_reasons: tuple = ()
+    consistency_messages: tuple = ()
+    consistency_note: str = ""
 
 
 @dataclass(frozen=True)
