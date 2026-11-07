@@ -1773,6 +1773,11 @@ class ProductIdMappingCandidate(BaseModel):
     ticker: Optional[str] = None
     name: Optional[str] = None
     exch_code: Optional[str] = None
+    # OF-1 / Audit O5: interner Boersencode aus der expliziten Tabelle
+    # (Basis der Provider-Symbolik) und Zuordnungsstatus
+    # mapped | unknown | missing. "unknown" wird nie uebernommen.
+    exchange_code: Optional[str] = None
+    exchange_code_status: Optional[str] = None
     composite_figi: Optional[str] = None
     share_class_figi: Optional[str] = None
     security_type: Optional[str] = None
@@ -1836,6 +1841,9 @@ class ProductIdMappingBatchItem(BaseModel):
     status: str
     detail: Optional[str] = None
     applied_candidate: Optional[ProductIdMappingCandidate] = None
+    # OF-1 / Audit OF-a: bei status="ambiguous" die Listings zur Auswahl
+    # (Uebernahme dann ueber /products/openfigi/apply mit preferred_figi).
+    candidates: list[ProductIdMappingCandidate] = Field(default_factory=list)
 
 
 class ProductIdMappingBatchApplyResponse(BaseModel):

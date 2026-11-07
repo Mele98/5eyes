@@ -12,7 +12,8 @@ Registrierung still verliert, prueft dieser Test in einem frischen Interpreter:
    ``app.openapi()`` (kanonisches JSON) haben exakt den Stand vor K-2
    (Golden-Hashes, berechnet auf ``origin/develop`` 1730911e und auf dem
    K-2-Head identisch; ``sorted_tables`` unveraendert seit 9e6b7dd9, der
-   OpenAPI-Hash wurde beim Rebase auf 1730911e nachgefuehrt). Aendert eine legitime Schema-/API-Aenderung einen
+   OpenAPI-Hash wurde beim Rebase auf 1730911e und mit OF-1 (Audit 2026-11/06,
+   neue Felder exchange_code/exchange_code_status/candidates) nachgefuehrt). Aendert eine legitime Schema-/API-Aenderung einen
    Hash, wird der Golden-Wert bewusst im selben Commit nachgefuehrt.
 
 Negativkontrolle: ``database`` allein registriert ``users`` nicht -- die
