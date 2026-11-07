@@ -285,11 +285,11 @@ def test_reactivating_goal_with_free_rank_keeps_it(auth_client, advisor_user, se
     assert _rank_audit(session_factory, g2) == []
 
 
-def _rank_audit(session_factory, goal_id) -> list[tuple]:
+def _rank_audit(session_factory, goal_id, field_name: str = "rank") -> list[tuple]:
     with session_factory() as db:
         rows = db.query(AuditLog).filter(
             AuditLog.table_name == "goals", AuditLog.record_id == goal_id,
-            AuditLog.field_name == "rank",
+            AuditLog.field_name == field_name,
         ).all()
         return [(r.field_name, r.old_value, r.new_value) for r in rows]
 
@@ -312,7 +312,10 @@ def test_reactivation_with_occupied_explicit_rank_is_not_silently_dropped(
     assert body["rank_adjusted_from"] == 1
     assert body["rank_adjusted_to"] == 3
     assert "Gewünschte Priorität nicht übernommen" in body["rank_adjustment_notice"]
-    assert _rank_audit(session_factory, g3) == [("rank", "1", "3")]
+    # N-873-02: Der Rang blieb 3 -> kein "rank"-Wechsel im Audit; der
+    # verworfene Wunsch steht separat als "rank_requested".
+    assert _rank_audit(session_factory, g3) == []
+    assert _rank_audit(session_factory, g3, "rank_requested") == [("rank_requested", None, "1")]
 
 
 def test_reactivation_with_occupied_explicit_and_old_rank_names_the_wish(
@@ -335,7 +338,9 @@ def test_reactivation_with_occupied_explicit_and_old_rank_names_the_wish(
     assert body["rank"] == 4
     assert (body["rank_adjusted_from"], body["rank_adjusted_to"]) == (1, 4)
     assert "Priorität angepasst" in body["rank_adjustment_notice"]
-    assert _rank_audit(session_factory, g3) == [("rank", "1", "4")]
+    # N-873-02: Altwert = tatsaechlicher bisheriger Rang 3, Wunsch separat.
+    assert _rank_audit(session_factory, g3) == [("rank", "3", "4")]
+    assert _rank_audit(session_factory, g3, "rank_requested") == [("rank_requested", None, "1")]
 
 
 def test_plain_edit_with_occupied_rank_on_active_goal_stays_quiet(
@@ -350,3 +355,4 @@ def test_plain_edit_with_occupied_rank_on_active_goal_stays_quiet(
     assert res.json()["rank"] == 3
     assert res.json()["rank_adjusted_from"] is None
     assert _rank_audit(session_factory, g3) == []
+    assert _rank_audit(session_factory, g3, "rank_requested") == []

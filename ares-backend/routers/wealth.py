@@ -1456,6 +1456,7 @@ def update_goal(
         )
     rank_adjustment: tuple[int, int] | None = None
     rank_notice = GOAL_RANK_ADJUSTED_NOTICE
+    previous_rank = int(goal.rank or 0)
     if updates.get("is_active") and not int(goal.is_active or 0):
         # N-865-1 (Geschwister-Pfad): Ein reaktiviertes Ziel tritt wieder
         # unter ux_goals_rank_active. Belegt inzwischen ein aktives Ziel
@@ -1483,14 +1484,23 @@ def update_goal(
     # Sprint 2026-06-08 Fix B: Achievability invalidieren — Goal-Target-Aenderung
     # macht alle gespeicherten Scores potenziell stale.
     _invalidate_achievement_scores_for_mandate(mandate_id, db)
+    # N-873-02: Das unveraenderliche Audit haelt nur tatsaechliche Werte fest:
+    # "rank" = bisheriger -> neuer Rang (nur bei echtem Wechsel). Ein
+    # verworfener Wunschrang (H-868-D2) ist ein eigener Eintrag
+    # "rank_requested", nie ein angeblicher Altwert.
+    final_rank = int(updates.get("rank", previous_rank) or 0)
     rank_audit = (
-        {"field_name": "rank", "old_value": str(rank_adjustment[0]),
-         "new_value": str(rank_adjustment[1])}
-        if rank_adjustment else {}
+        {"field_name": "rank", "old_value": str(previous_rank), "new_value": str(final_rank)}
+        if rank_adjustment and final_rank != previous_rank else {}
     )
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="goals", record_id=goal_id, action="UPDATE",
         mandate_id=mandate_id, client_id=mandate.client_id, **rank_audit)
+    if rank_adjustment and requested_rank is not None and requested_rank != final_rank:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="goals", record_id=goal_id, action="UPDATE",
+            mandate_id=mandate_id, client_id=mandate.client_id,
+            field_name="rank_requested", old_value=None, new_value=str(requested_rank))
     db.commit()
     db.refresh(goal)
     invalidate_advisory_cache(mandate_id)
