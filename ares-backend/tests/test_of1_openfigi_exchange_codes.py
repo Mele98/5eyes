@@ -124,4 +124,3 @@ def test_unknown_code_candidate_is_marked_and_apply_refuses(monkeypatch):
     with pytest.raises(OpenFigiExchangeCodeUnmapped):
         _apply_openfigi_candidate(product=product, candidate=candidate, now="2026-11-03T00:00:00.000Z", overwrite_symbol=True)
     assert product.symbol is None and product.exchange_code is None and product.figi is None
-
