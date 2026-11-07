@@ -990,3 +990,27 @@ def run_startup_audit_chain_check(
             chain["checked"], legacy["verified"], legacy["hashed"],
         )
     return report
+
+
+def release_block_audit(
+    db: Session,
+    *,
+    user,
+    ip_address: str | None,
+    mandate_id: str,
+    field_name: str,
+) -> Callable[[str, str | None], None]:
+    """H7 N-884-04/07: Audit-Eintrag fuer eine Freigabe-Sperre (Handoff,
+    Signatur, Vor-Ort-Signatur). Rueckgabe ist der ``on_block``-Callback
+    ``(reason_code, run_id)``: verwirft offene Aenderungen, schreibt den
+    Eintrag (``field_name`` z.B. ``signature_blocked``, ``new_value`` =
+    Reason-Code) und committet ihn, BEVOR der Aufrufer den Fehler wirft."""
+    def _on_block(reason_code: str, run_id: str | None = None) -> None:
+        db.rollback()
+        log(db, user_id=user.id, user_name=user.full_name,
+            table_name="recommendation_runs" if run_id else "mandates",
+            record_id=run_id or mandate_id, action="UPDATE",
+            field_name=field_name, new_value=reason_code,
+            mandate_id=mandate_id, ip_address=ip_address)
+        db.commit()
+    return _on_block

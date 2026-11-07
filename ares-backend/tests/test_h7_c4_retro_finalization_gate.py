@@ -238,15 +238,4 @@ def test_final_run_without_snapshot_and_unknown_retro_blocks(session_factory):
     assert excinfo.value.as_detail()["reason_code"] == RETRO_UNAVAILABLE
 
 
-def test_signature_and_handoff_routers_call_the_retro_release_gate():
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1] / "routers"
-    for rel, needle in (
-        ("review.py", '"signature_blocked"'),
-        ("portfolio_handoff.py", '"handoff_blocked"'),
-        ("onsite_signature.py", "assert_retrocession_release_eligible(db, mandate, channel=CHANNEL_SIGNATURE)"),
-    ):
-        source = (root / rel).read_text(encoding="utf-8")
-        assert "assert_retrocession_release_eligible(" in source, rel
-        assert needle in source, rel
+# Router-Verdrahtung samt Audit-Eintrag: tests/test_h7_n884_07_release_block_audit.py

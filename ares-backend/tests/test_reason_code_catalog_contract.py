@@ -55,6 +55,8 @@ KNOWN_UNRESOLVED: dict[tuple[str, str, str], int] = {
      "retro_block['reason_code']"): 2,
     ('services/recommendation_release_gate.py', 'assert_retrocession_release_eligible',
      'reason_code'): 1,
+    ('routers/onsite_signature.py', '_release_gates',
+     "str(detail.get('reason_code') or 'RELEASE_BLOCKED')"): 1,
     ('routers/eligibility_overrides.py', '_conflict',
      'exc.code'): 1,
     ('routers/eligibility_overrides.py', 'approve_eligibility_override',

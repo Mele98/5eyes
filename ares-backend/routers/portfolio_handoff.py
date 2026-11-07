@@ -37,7 +37,7 @@ from schemas.portfolio_handoff import (
     PortfolioHandoffPreviewResponse,
     PortfolioHandoffResponse,
 )
-from services.audit import log
+from services.audit import log, release_block_audit
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.portfolio_handoff import (
     HoldingsValuationIncompleteError,
@@ -61,18 +61,6 @@ logger = logging.getLogger(__name__)
 # stornierter Handoff ist danach nochmals aenderbar (Audit-Integritaet: der
 # Endzustand ist final). HANDOFF-DELIVERY-001: ein lokaler Insert behauptet
 # keinen Versand (kein Transportadapter, keine Empfangsquittung).
-
-
-def _retro_block_audit(db: Session, current_user: User, request: Request, mandate, field_name: str):
-    """H7 N-884-04: Audit-Eintrag fuer eine Retro-Sperre (vor dem 409)."""
-    def _on_block(reason_code: str, run_id):
-        db.rollback()
-        log(db, user_id=current_user.id, user_name=current_user.full_name,
-            table_name="recommendation_runs", record_id=run_id or mandate.id, action="UPDATE",
-            field_name=field_name, new_value=reason_code,
-            mandate_id=mandate.id, ip_address=_extract_client_ip(request))
-        db.commit()
-    return _on_block
 
 
 def _now() -> str:
@@ -260,7 +248,10 @@ def create_portfolio_handoff(
     # wird nicht weitergeleitet (fail-closed, Sperre im Audit-Log).
     assert_retrocession_release_eligible(
         db, mandate, channel=CHANNEL_HANDOFF, run=run,
-        on_block=_retro_block_audit(db, current_user, request, mandate, "handoff_blocked"),
+        on_block=release_block_audit(
+                db, user=current_user, ip_address=_extract_client_ip(request),
+                mandate_id=mandate.id, field_name="handoff_blocked",
+            ),
     )
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
     from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible

@@ -54,7 +54,7 @@ from schemas.review import (
 )
 from price_updater import summarize_price_quality
 from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation
-from services.audit import log
+from services.audit import log, release_block_audit
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
 from routers.auth import _extract_client_ip
@@ -308,18 +308,6 @@ def _enforce_run_cma_currency(db: Session, mandate: Mandate, run: Recommendation
     if guard["status"] == STATUS_ACKNOWLEDGED:
         return f"{guard['message']} Beraterbestaetigung: {guard['acknowledgement_reason']}"
     return None
-
-
-def _retro_block_audit(db: Session, current_user: User, request: Request, mandate, field_name: str):
-    """H7 N-884-04: Audit-Eintrag fuer eine Retro-Sperre (vor dem 409)."""
-    def _on_block(reason_code: str, run_id):
-        db.rollback()
-        log(db, user_id=current_user.id, user_name=current_user.full_name,
-            table_name="recommendation_runs", record_id=run_id or mandate.id, action="UPDATE",
-            field_name=field_name, new_value=reason_code,
-            mandate_id=mandate.id, ip_address=_extract_client_ip(request))
-        db.commit()
-    return _on_block
 
 
 def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run: RecommendationRun) -> tuple[list[str], list[str]]:
@@ -1828,7 +1816,10 @@ def sign_document(
         # geklaerten Retrozessions-Ausweis traegt (fail-closed, Audit).
         assert_retrocession_release_eligible(
             db, mandate, channel=CHANNEL_SIGNATURE,
-            on_block=_retro_block_audit(db, current_user, request, mandate, "signature_blocked"),
+            on_block=release_block_audit(
+                db, user=current_user, ip_address=_extract_client_ip(request),
+                mandate_id=mandate.id, field_name="signature_blocked",
+            ),
         )
         # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
         assert_portfolio_data_release_eligible(db, mandate, action="signature")
