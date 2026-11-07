@@ -37,7 +37,7 @@ smoke = _load_smoke()
 FOOTER = smoke.expected_footer_disclaimer()
 
 
-def _pdf(text: str = FOOTER, fonts: tuple[str, ...] = ("Inter", "CormorantGaramond")) -> bytes:
+def _pdf(text: str = FOOTER + " Erstellt am 02.11.2026.", fonts: tuple[str, ...] = ("Inter", "CormorantGaramond")) -> bytes:
     from services.pdf.fonts import register_editorial_fonts
 
     assert register_editorial_fonts(), "Editorial-Fonts im Quellbaum nicht registrierbar"
@@ -53,11 +53,23 @@ def _pdf(text: str = FOOTER, fonts: tuple[str, ...] = ("Inter", "CormorantGaramo
     return buf.getvalue()
 
 
-def test_footer_prefix_is_from_the_country_pack_and_below_the_footer_cut():
-    assert FOOTER.startswith("Dieses Dokument wurde in Übereinstimmung mit dem Bundesgesetz")
-    assert len(FOOTER) == smoke.FOOTER_REQUIRED_PREFIX_CHARS
-    max_chars = int(re.search(r"max_chars = (\d+)", FOOTER_SOURCE.read_text(encoding="utf-8")).group(1))
-    assert smoke.FOOTER_REQUIRED_PREFIX_CHARS <= max_chars - 3
+def test_footer_check_uses_full_country_pack_text_and_creation_date():
+    """N-858-1: die Fusszeile kuerzt nicht mehr (footer.py), der Smoke prueft
+    deshalb den vollen Laenderpaket-Text samt "Erstellt am"."""
+    from jurisdictions.documents import default_documents
+
+    assert FOOTER == default_documents().text(smoke.FOOTER_DISCLAIMER_KEY)
+    assert FOOTER.endswith("Ergebnisse.")
+    assert smoke.FOOTER_CREATED_MARKER == "Erstellt am"
+    assert "(footer, FOOTER_CREATED_MARKER)" in inspect.getsource(smoke.run_pdf_render_smoke)
+    assert not re.search(r"max_chars|\[:\s*\w*max", FOOTER_SOURCE.read_text(encoding="utf-8")), (
+        "Fusszeile darf den Pflichttext nicht kuerzen"
+    )
+
+
+def test_truncated_footer_in_pdf_fails():
+    with pytest.raises(smoke.SmokeError, match="Pflichttext fehlt"):
+        smoke.check_pdf_bytes(_pdf(FOOTER[:217] + "..."), "x.pdf", (FOOTER,))
 
 
 def test_rendered_pdf_with_footer_and_editorial_fonts_passes():
