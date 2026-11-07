@@ -395,7 +395,10 @@ def test_alembic_single_head_adds_and_removes_the_columns(tmp_path):
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
-    assert script.get_heads() == ["e7c4a9b2d6f1"]
+    # E1 Nachhaltigkeitspraeferenzen (Dok. 106) setzt f3a8c1e5b7d2 als
+    # einzigen Head auf e7c4a9b2d6f1; die H5b-Revision bleibt in der Kette.
+    assert script.get_heads() == ["f3a8c1e5b7d2"]
+    assert script.get_revision("f3a8c1e5b7d2").down_revision == "e7c4a9b2d6f1"
     assert script.get_revision("e7c4a9b2d6f1").down_revision == "d3b7f1a5c9e2"
     db_url = f"sqlite:///{tmp_path / 'alembic.db'}"
     cfg = _alembic_cfg(db_url)

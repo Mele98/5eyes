@@ -261,3 +261,71 @@ def test_tenant_review_policy_and_due_notice(client, mandate_id, session_factory
     assert sp.review_status(created["review_due_on"], created["review_due_on"]) == "current"
     assert sp.review_status(created["review_due_on"], "2999-01-01") == "due"
     assert "Eignungsprüfung fällig" in sp.review_due_text(created["review_due_on"])
+
+
+# ── Migration: Alembic (einziger Head) + SQLite-Laufzeitpatch ────────────────
+
+def _alembic_cfg(db_url):
+    from pathlib import Path
+
+    from alembic.config import Config as AlembicConfig
+
+    root = Path(__file__).resolve().parents[1]
+    cfg = AlembicConfig(str(root / "alembic.ini"))
+    cfg.set_main_option("sqlalchemy.url", db_url)
+    cfg.set_main_option("script_location", str(root / "alembic"))
+    return cfg
+
+
+def test_alembic_single_head_creates_and_drops_table_and_tenant_column(tmp_path):
+    from alembic import command
+    from alembic.script import ScriptDirectory
+    from sqlalchemy import create_engine, inspect
+
+    script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
+    assert script.get_heads() == ["f3a8c1e5b7d2"]
+    assert script.get_revision("f3a8c1e5b7d2").down_revision == "e7c4a9b2d6f1"
+    db_url = f"sqlite:///{tmp_path / 'alembic.db'}"
+    cfg = _alembic_cfg(db_url)
+    command.upgrade(cfg, "head")
+    engine = create_engine(db_url)
+    insp = inspect(engine)
+    assert "investment_preference_decisions" in insp.get_table_names()
+    assert "sustainability_review_months" in {c["name"] for c in insp.get_columns("tenants")}
+    with engine.connect() as conn:
+        triggers = {r[0] for r in conn.execute(text(
+            "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='investment_preference_decisions'"
+        ))}
+    assert {"trg_investment_preference_decisions_no_update",
+            "trg_investment_preference_decisions_no_delete",
+            "trg_investment_preference_decisions_tenant_guard"} <= triggers
+    engine.dispose()
+    command.downgrade(cfg, "e7c4a9b2d6f1")
+    engine = create_engine(db_url)
+    insp = inspect(engine)
+    assert "investment_preference_decisions" not in insp.get_table_names()
+    assert "sustainability_review_months" not in {c["name"] for c in insp.get_columns("tenants")}
+    engine.dispose()
+
+
+def test_runtime_patch_creates_table_on_existing_desktop_db(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from sqlalchemy import create_engine
+
+    import database as db_module
+
+    root = Path(__file__).resolve().parents[1]
+    db_path = tmp_path / "fresh.db"
+    db_module.bootstrap_sqlite_schema(db_path=db_path, schema_path=root / "ares_schema.sql")
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.execute("DROP TABLE investment_preference_decisions")
+        conn.commit()
+    engine = create_engine(f"sqlite:///{db_path}")
+    monkeypatch.setattr(db_module, "engine", engine)
+    db_module.ensure_runtime_columns()
+    engine.dispose()
+    with sqlite3.connect(str(db_path)) as conn:
+        names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
+    assert "investment_preference_decisions" in names
+    assert "trg_investment_preference_decisions_no_update" in names
