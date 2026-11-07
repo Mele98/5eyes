@@ -19,6 +19,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -298,7 +299,7 @@ def test_ch_chf_mandate_notice_stays_db_free():
 
 def _monolith() -> str:
     path = BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "ares.html"
-    return path.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _function_body(html: str, name: str, length: int = 2500) -> str:

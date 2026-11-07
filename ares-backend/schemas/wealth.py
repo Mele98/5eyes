@@ -965,6 +965,13 @@ class GoalResponse(BaseResponse):
     last_scored_at: Optional[str]
     created_at: str
     updated_at: str
+    # N-868-3: nur gesetzt, wenn eine Reaktivierung den frueheren Rang nicht
+    # zurueckgeben konnte (belegt) und das Ziel ans Ende gesetzt wurde. Der
+    # Rang ist die Prioritaet (Gewicht, Hauptziel) -- der Client muss das
+    # sichtbar machen, statt es still hinzunehmen.
+    rank_adjusted_from: Optional[int] = None
+    rank_adjusted_to: Optional[int] = None
+    rank_adjustment_notice: Optional[str] = None
 
 
 class GoalRevisionDecisionCreate(BaseModel):

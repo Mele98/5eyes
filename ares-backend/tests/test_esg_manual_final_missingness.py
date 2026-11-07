@@ -27,6 +27,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import configure_mappers, sessionmaker
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -528,7 +529,7 @@ def test_contract_signoff_orientation_contains_no_claim_label(policy):
 
 
 def test_advisor_fund_table_shows_esg_data_status():
-    html = MONOLITH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     start = html.index("function adminRenderFundSearchTable(")
     body = html[start:html.index("async function adminSearchFunds(", start)]
     assert "esg_data_status" in body
