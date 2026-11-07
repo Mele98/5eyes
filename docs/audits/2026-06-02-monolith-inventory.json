@@ -9260,8 +9260,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/risk-questionnaire-v2.js",
-      "sha256": "e35261e936c13cfaf4a42346962b0fe5b8681bb5a79252fc029781a55bb2f58c",
-      "size_bytes": 20377
+      "sha256": "2efbdadecd1bf4b1a00524badebffb7459bc2d6650342e1203c02503f37d1450",
+      "size_bytes": 20529
     }
   ],
   "ids": [
@@ -22005,7 +22005,7 @@
     },
     {
       "declaration": "function",
-      "line": 48,
+      "line": 47,
       "name": "riskV2Active",
       "source": "risk-questionnaire-v2.js"
     },
@@ -22017,13 +22017,13 @@
     },
     {
       "declaration": "function",
-      "line": 131,
+      "line": 130,
       "name": "riskV2AdvisoryChf",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 143,
+      "line": 142,
       "name": "riskV2AmountSuffix",
       "source": "risk-questionnaire-v2.js"
     },
@@ -22041,19 +22041,19 @@
     },
     {
       "declaration": "function",
-      "line": 168,
+      "line": 167,
       "name": "riskV2Caps",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 139,
+      "line": 138,
       "name": "riskV2Currency",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 86,
+      "line": 85,
       "name": "riskV2Esc",
       "source": "risk-questionnaire-v2.js"
     },
@@ -22071,7 +22071,7 @@
     },
     {
       "declaration": "function",
-      "line": 125,
+      "line": 124,
       "name": "riskV2FormatAmount",
       "source": "risk-questionnaire-v2.js"
     },
@@ -22089,7 +22089,7 @@
     },
     {
       "declaration": "function",
-      "line": 181,
+      "line": 180,
       "name": "riskV2InstrumentDocumented",
       "source": "risk-questionnaire-v2.js"
     },
@@ -22101,19 +22101,19 @@
     },
     {
       "declaration": "function",
-      "line": 188,
+      "line": 187,
       "name": "riskV2LittleExperience",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 55,
+      "line": 54,
       "name": "riskV2LoadPolicy",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 81,
+      "line": 80,
       "name": "riskV2NeedsPolicy",
       "source": "risk-questionnaire-v2.js"
     },
@@ -22131,7 +22131,7 @@
     },
     {
       "declaration": "function",
-      "line": 90,
+      "line": 89,
       "name": "riskV2Render",
       "source": "risk-questionnaire-v2.js"
     },
@@ -22149,13 +22149,13 @@
     },
     {
       "declaration": "function",
-      "line": 160,
+      "line": 159,
       "name": "riskV2SelectedIndex",
       "source": "risk-questionnaire-v2.js"
     },
     {
       "declaration": "function",
-      "line": 151,
+      "line": 150,
       "name": "riskV2UpdateAmounts",
       "source": "risk-questionnaire-v2.js"
     }

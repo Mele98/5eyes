@@ -451,6 +451,19 @@ _V2_OPTION_INDEX = {
 }
 
 
+def _default_flag_params() -> dict:
+    return {
+        "k1": {"q9_equals": 1, "q10_min": 3},
+        "k2": {"q10_min": 3, "q11_max": 2},
+        "k3": {"spread_min": 2},
+        "growth_profiles": sorted(GROWTH_PROFILES),
+        "q13_not_invested_option": Q13_NOT_INVESTED_INDEX,
+        "k4_experience_rows": list(K4_EQUITY_EXPERIENCE_ROWS),
+        "k5_row": "Aktien",
+        "knowledge_evidence_keys": ["known", "informed"],
+    }
+
+
 def _canonical_json(payload) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -476,11 +489,10 @@ def _v2_definition_2026_11_07() -> dict:
         ],
         "q12_amount_pct": list(Q12_PCT),
         "q11_knockout": {"q_risk_behavior_points": 1, "max_score_x10": Q11_KNOCKOUT_MAX_SCORE_X10},
-        "q13_not_invested_option": Q13_NOT_INVESTED_INDEX,
-        "k4_experience_rows": list(K4_EQUITY_EXPERIENCE_ROWS),
         "consistency_flags": [{"code": c, "message": m} for c, m in CONSISTENCY_FLAGS.items()],
-        "flag_rules": "K1-K6/2026-11-07b: K4 = Q13 n.a. oder keine Erfahrung in "
-                      + "/".join(K4_EQUITY_EXPERIENCE_ROWS) + "; K5 = Aktien ohne Kenntnis/Aufklaerung",
+        # N-886-10: alle Regelparameter der Flags sind Teil der Definition; die
+        # Nachrechnung liest sie aus der Definition des Profils, nie aus Code.
+        "flag_params": _default_flag_params(),
         "consistency_note_min_chars": CONSISTENCY_NOTE_MIN_CHARS,
         "consistency_note_min_words": CONSISTENCY_NOTE_MIN_WORDS,
         "formula": "will_v2 = MIN(will_core, caps); final = MIN(capacity, will_v2); FZK <= 75",
@@ -617,12 +629,13 @@ def _amount(raw: str) -> int:
     return int(re.sub(r"['’]", "", raw))
 
 
-def check_q12_amount(label: str, option_index: int, *, currency: str, ceiling_chf: int | None) -> None:
-    """N-886-05: vorgerechneter Frankenbetrag in Frage 12 (falls vorhanden) pruefen.
+def check_q12_amount(label: str, option_index: int, *, currency: str, ceiling: int | None) -> None:
+    """N-886-05/-12: vorgerechneten Betrag in Frage 12 (falls vorhanden) pruefen.
 
     Betrag > 0, Anlagebetrag > 0, Betrag <= Anlagebetrag, Betrag = Prozentsatz
     der Option (Rundung +-1), Waehrung = Referenzwaehrung des Mandats und
-    Anlagebetrag <= erfasstes Bruttovermoegen (nur CHF, ``ceiling_chf``).
+    Anlagebetrag <= erfasstes Bruttovermoegen in Mandatswaehrung (``ceiling``;
+    None = keine Daten oder kein FX-Kurs -> abgelehnt, fail-closed).
     """
     _base, sep, suffix = str(label).partition(" · ")
     if not sep:
@@ -650,11 +663,10 @@ def check_q12_amount(label: str, option_index: int, *, currency: str, ceiling_ch
         fail("Betrag passt nicht zur gewaehlten Prozentstufe")
     if (option_index < 3) != (match["prefix"] == "bis"):
         fail("bis/ueber passt nicht zur Option")
-    if cur == "CHF":
-        if not ceiling_chf or ceiling_chf <= 0:
-            fail("kein Vermoegen erfasst")
-        if base > ceiling_chf + 1:
-            fail("Anlagebetrag uebersteigt das erfasste Vermoegen")
+    if not ceiling or ceiling <= 0:
+        fail("kein Vermoegen erfasst oder kein Wechselkurs")
+    if base > ceiling + 1:
+        fail("Anlagebetrag uebersteigt das erfasste Vermoegen")
 
 
 def _instrument_value(knowledge_instruments_json, row: str) -> dict | None:
@@ -666,13 +678,13 @@ def _instrument_value(knowledge_instruments_json, row: str) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
-def _instrument_documented(knowledge_instruments_json, row: str) -> bool:
+def _instrument_documented(knowledge_instruments_json, row: str, keys=("known", "informed")) -> bool:
     """N-886-06: Kenntnis ODER Aufklaerung (wie ELIG-KNOWLEDGE-001); Erfahrung allein genuegt nicht."""
     value = _instrument_value(knowledge_instruments_json, row) or {}
-    return any(value.get(k) == 1 for k in ("known", "informed"))
+    return any(value.get(k) == 1 for k in keys)
 
 
-def _little_experience(knowledge_instruments_json) -> bool:
+def _little_experience(knowledge_instruments_json, exp_rows=K4_EQUITY_EXPERIENCE_ROWS) -> bool:
     """K4-Teil "wenig Erfahrung": neue Erhebung (Spalte vorhanden) ohne Erfahrung."""
     try:
         parsed = json.loads(knowledge_instruments_json or "{}")
@@ -685,7 +697,7 @@ def _little_experience(knowledge_instruments_json) -> bool:
         return False  # Altprofil: Erfahrung nicht getrennt erfasst -> nicht bewertbar
     return not any(
         (_instrument_value(knowledge_instruments_json, r) or {}).get("experienced") == 1
-        for r in K4_EQUITY_EXPERIENCE_ROWS
+        for r in exp_rows
     )
 
 
@@ -698,19 +710,30 @@ def consistency_flags(
     effective_willingness_profile: str,
     knowledge_instruments_json,
     loss_tolerance_breach: bool | None = None,
+    params: dict | None = None,
 ) -> list[str]:
-    """Reason-Codes K1-K6 (Reihenfolge stabil). Aendern nie das Profil."""
+    """Reason-Codes K1-K6 (Reihenfolge stabil). Aendern nie das Profil.
+
+    ``params``: Regelparameter der Definition des Profils (N-886-10);
+    Default = aktuelle Definition.
+    """
+    p = params or _CURRENT_DEFINITION["flag_params"]
     flags: list[str] = []
-    if q9 == 1 and q10 >= 3:
+    if q9 == p["k1"]["q9_equals"] and q10 >= p["k1"]["q10_min"]:
         flags.append("K1")
-    if q10 >= 3 and q11 <= 2:
+    if q10 >= p["k2"]["q10_min"] and q11 <= p["k2"]["q11_max"]:
         flags.append("K2")
-    if max(q9, q10, q11) - min(q9, q10, q11) >= 2:
+    if max(q9, q10, q11) - min(q9, q10, q11) >= p["k3"]["spread_min"]:
         flags.append("K3")
-    growth = effective_willingness_profile in GROWTH_PROFILES
-    if growth and (q13_option == Q13_NOT_INVESTED_INDEX or _little_experience(knowledge_instruments_json)):
+    growth = effective_willingness_profile in set(p["growth_profiles"])
+    if growth and (
+        q13_option == p["q13_not_invested_option"]
+        or _little_experience(knowledge_instruments_json, tuple(p["k4_experience_rows"]))
+    ):
         flags.append("K4")
-    if growth and not _instrument_documented(knowledge_instruments_json, "Aktien"):
+    if growth and not _instrument_documented(
+        knowledge_instruments_json, p["k5_row"], tuple(p["knowledge_evidence_keys"]),
+    ):
         flags.append("K5")
     if loss_tolerance_breach:
         flags.append("K6")
@@ -753,7 +776,7 @@ def evaluate_v2_submission(
     *,
     core_willingness_score_x10: int,
     currency: str = "CHF",
-    ceiling_chf: int | None = None,
+    ceiling: int | None = None,
 ) -> dict:
     """v2-Teil beim Speichern: Optionen, Kappung, Flags, Notizpflicht, Evidenz.
 
@@ -761,7 +784,7 @@ def evaluate_v2_submission(
     """
     definition = _CURRENT_DEFINITION
     options, rows = derive_v2_options(getattr(body, "questionnaire_v2_answers", None))
-    check_q12_amount(rows[0]["answer_label"], options[12], currency=currency, ceiling_chf=ceiling_chf)
+    check_q12_amount(rows[0]["answer_label"], options[12], currency=currency, ceiling=ceiling)
     result = _compute_for(
         definition, core=core_willingness_score_x10, q11=int(body.q_risk_behavior_points), options=options,
     )
@@ -842,6 +865,7 @@ def validate_v2_persisted(assessment, *, core_willingness_score_x10: int) -> int
         q13_option=options[13],
         effective_willingness_profile=result.effective_profile,
         knowledge_instruments_json=getattr(assessment, "knowledge_instruments_json", None),
+        params=definition["flag_params"],
     )
     expected = _evidence(definition, rows, result, flags)
     for key, value in expected.items():
