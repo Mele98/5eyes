@@ -25,6 +25,13 @@ den neuen Stand 27675 / 1695446 (der Ratchet bleibt: nur sinkend). Die
 ausgelagerten Dateien bekommen je ein eigenes Budget nach derselben Regel
 (Stand beim Einfuehren, Toleranz 0) -- sonst waere die Auslagerung ein
 Schlupfloch, ueber das der Monolith unbemerkt weiterwaechst.
+
+H6 (2026-11-07, Asset-Allocation-Grafik): Torte/Legende/SOLL-Quoten-Logik
+und die zugehoerigen Stile nach ``aa-chart.js``/``aa-chart.css`` verlegt
+(neue Teile mit eigenem Budget, Stand beim Einfuehren). Monolith dadurch
+27639 / 1689802, ``ares.css`` 1143 / 90070 -- beide Budgets entsprechend gesenkt
+(Stand H6-Feinschliff; die neuen Teile sind noch nicht gemergt, ihr Budget ist
+der Stand bei der Einfuehrung durch diesen PR).
 """
 from __future__ import annotations
 
@@ -33,15 +40,17 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 27675
+MONOLITH_MAX_LINES = 27639
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1695446
+MONOLITH_MAX_BYTES = 1689802
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
 EXTRACTED_PART_BUDGETS = {
-    "ares.css": (1162, 91800),
+    "ares.css": (1143, 90070),
+    "aa-chart.css": (66, 5978),
     "intro-sequence.js": (761, 36861),
+    "aa-chart.js": (320, 20369),
     "goal-review-runtime.js": (1589, 84633),
 }
 

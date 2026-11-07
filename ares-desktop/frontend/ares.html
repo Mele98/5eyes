@@ -25,7 +25,7 @@ body{font-family:var(--f-s);}</style>
 <script src="./trade-list-preview.js"></script>
 <script src="./goal-analysis-integrity.js"></script>
 <script src="./advisory-log-finma.js"></script><script src="./product-master-data.js"></script>
-<link rel="stylesheet" href="./ares.css">
+<link rel="stylesheet" href="./ares.css"><link rel="stylesheet" href="./aa-chart.css">
 </head>
 <body>
 <script>
@@ -166,7 +166,7 @@ body{font-family:var(--f-s);}</style>
   </div>
 </div>
 <script src="vendor/intro-country-outlines.js"></script>
-<script src="./intro-sequence.js"></script>
+<script src="./intro-sequence.js"></script><script src="./aa-chart.js"></script>
 <!-- E0 (2026-06-12): Phase-0 "SYNTHETIC / TEST DATA ONLY"-Banner. Erscheint nur,
      wenn das Backend allow_real_client_data=false meldet (gehostetes Staging). -->
 <div id="phase0-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99998;
@@ -1797,15 +1797,15 @@ function _wireSollIstHover(){
         <div class="alloc-top-grid">
           <div class="card alloc-donut-card">
             <div class="section-kicker">SOLL-Allokation</div>
-            <div class="donut-wrap"><canvas id="ch-dn" role="img" aria-label="SOLL-Allokation: Aufteilung des Beratungsvermögens nach Anlageklassen, Ring-/Doughnut-Diagramm"></canvas><div class="dc"><div class="dcv">—</div><div class="dcl">Beratung</div></div></div>
+            <div class="donut-wrap"><canvas id="ch-dn" role="img" aria-label="SOLL-Allokation: Aufteilung des Beratungsvermögens nach Anlageklassen, Ring-/Doughnut-Diagramm"></canvas><div class="dc"><div class="dcv">—</div><div class="dcl">Beratungsvermögen</div></div></div>
             <div id="dnleg" class="alloc-legend"></div>
             <table id="ch-dn-table" class="sr-only sr-only-table">
               <caption>SOLL-Allokation nach Anlageklassen (Beratungsvermögen)</caption>
               <thead><tr><th scope="col">Anlageklasse</th><th scope="col">Anteil (%)</th><th scope="col">Betrag (CHF)</th></tr></thead>
               <tbody></tbody>
             </table>
-            <div class="alloc-donut-subline">Die Torte zeigt das <strong>Vermögen, das in eine optimale Anlagestrategie umgeschichtet werden kann</strong> (Beratungsvermögen). Eigenheim und weiteres Vermögen bilden das <strong>Fundament</strong> und fliessen als <strong>Reinvermögen</strong> holistisch in Strategie, Ziele und Kennzahlen ein — siehe Reinvermögens-Kurve und die Reinvermögen/Beratungsvermögen-Renditen.</div>
-            <div id="alloc-rein-context" class="alloc-donut-subline" style="display:none;margin-top:6px;color:var(--n7)"></div>
+            <div class="aa-ctx-card"><div id="alloc-rein-context" class="aa-ctx" style="display:none"></div>
+            <div class="alloc-donut-subline">Die Torte zeigt das <strong>Beratungsvermögen</strong>: das Vermögen, das in eine optimale Anlagestrategie umgeschichtet werden kann. Eigenheim und weiteres Vermögen bilden das <strong>Fundament</strong> und fliessen als <strong>Reinvermögen</strong> holistisch in Strategie, Ziele und Kennzahlen ein (Reinvermögens-Kurve, Renditen Reinvermögen/Beratungsvermögen).</div></div>
           </div>
           <div class="card">
             <div class="chd"><span class="cht">SOLL-Quoten nach Anlageklassen</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Aktien, Obligationen, Immobilien, Alternative — klick für Sub-Klassen</span></div>
@@ -7234,27 +7234,7 @@ function buildAT(){
     t.innerHTML=buildAllocationPendingSummaryHtml('table');
     return;
   }
-  t.innerHTML='<div style="font-size:10px;color:var(--n5);line-height:1.6;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px;margin-bottom:8px">Asset Allokation zeigt vorne nur das strategische Zielbild des Beratungsvermoegens. Ist, Wert und Delta gehoeren in Portfolio und Review.</div>'+
-    alloc.map(function(r){
-      var groupKey=allocationTableGroupKey(r.n);
-      var subRows=allocationSubAllocationsForBucket(r.n);
-      var isExpanded=Object.prototype.hasOwnProperty.call(allocationSuballocExpanded,groupKey)?Boolean(allocationSuballocExpanded[groupKey]):false;
-      var safeKey=groupKey.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
-      var rowAttrs=subRows.length?(' data-allocation-group="'+encodeURIComponent(groupKey)+'" aria-expanded="'+(isExpanded?'true':'false')+'" onclick="event.stopPropagation();toggleAllocationTableGroup(\''+safeKey+'\');"'):(' aria-disabled="true"');
-      var rowHtml='<button type="button" class="ar"'+rowAttrs+' style="width:100%;border:none;background:#fff;padding:0;cursor:'+(subRows.length?'pointer':'default')+';text-align:inherit;border-radius:var(--r);box-shadow:0 10px 24px rgba(15,23,42,0.04);grid-template-columns:8px 1.6fr 88px">'+
-        '<div class="ad" style="background:'+r.c+'"></div>'+
-        '<div class="an"><div style="display:flex;align-items:center;gap:8px"><span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:999px;background:var(--bg);border:1px solid var(--b1);font-size:11px;color:var(--n6)">'+(subRows.length?(isExpanded?'v':'>'):'')+'</span><span>'+escapeHtml(String(r.n||''))+'</span></div>'+(subRows.length?('<div style="display:flex;align-items:center;gap:8px;margin-top:3px;padding-left:26px"><span style="font-size:9px;color:var(--n4)">'+String(subRows.length)+' Subanlageklassen</span><span style="font-size:9px;color:var(--g4);font-weight:600">'+(isExpanded?'Subanlagen ausblenden':'Subanlagen anzeigen')+'</span></div>'):'')+'</div>'+
-        '<div style="text-align:right"><div style="font-size:9px;color:var(--n4);text-transform:uppercase;letter-spacing:0.06em">Soll</div><div class="as" style="margin-top:2px">'+escapeHtml(fmtPct(Number(r.soll||0)*100,1))+'</div></div>'+
-        '</button>';
-      var subHtml=isExpanded&&subRows.length?subRows.map(function(item){
-        return '<div class="ar" style="display:grid;grid-template-columns:6px 1.6fr 72px;gap:10px;align-items:center;background:linear-gradient(180deg,rgba(250,252,255,0.95),rgba(245,248,252,0.95));border-radius:var(--r);border:1px solid var(--b1);margin-left:18px;padding:8px 10px">'+
-          '<div class="ad" style="background:'+r.c+';opacity:0.35"></div>'+
-          '<div class="an"><div style="font-size:10px;font-weight:600;color:var(--n8)">'+escapeHtml(item.sub_asset_class||'Baustein')+'</div><div style="font-size:9px;color:var(--n4);margin-top:2px">'+escapeHtml(item.rationale||'Subanlageklasse innerhalb der Zielallokation')+'</div></div>'+
-          '<div style="text-align:right"><div style="font-size:9px;color:var(--n4);text-transform:uppercase;letter-spacing:0.06em">Soll</div><div style="font-size:10px;color:var(--n7);font-weight:600;margin-top:2px">'+escapeHtml(formatBpsPercent(item.target_weight_bps||0))+'</div></div>'+
-          '</div>';
-      }).join(''):'';
-      return '<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:4px">'+rowHtml+subHtml+'</div>';
-    }).join('');
+  t.innerHTML=aaChartQuotaHtml(aaChartAllocItems());
 }
 function allocationReserveBreakdown(result){var advisory=Math.max(0,Number(result&&result.advisory_wealth_rappen||0));var baseRaw=result&&result.strategy_base_rappen!=null?Number(result.strategy_base_rappen):(result&&result.investable_advisory_wealth_rappen!=null?Number(result.investable_advisory_wealth_rappen):advisory);var base=(isFinite(baseRaw)&&baseRaw>0&&baseRaw<=advisory)?baseRaw:advisory;return {advisoryRappen:advisory,strategyBaseRappen:base,reserveRappen:Math.max(0,advisory-base)};} // Live-Test 2026-11 H2: SOLL-Quoten gelten fuer die Strategiebasis (Beratungsvermoegen - externe Reserve, Engine strategy_base_rappen); Reserve separat ausweisen
 function buildDLegend(){
@@ -7263,16 +7243,14 @@ function buildDLegend(){
   var hasStrategy=!!(strategyState&&strategyState.allocation&&Array.isArray(strategyState.allocation.buckets)&&strategyState.allocation.buckets.length);
   if(!hasStrategy){
     var snapshot=currentAllocationInputSnapshot();
-    el.innerHTML='<div style="font-size:10px;color:var(--n5);line-height:1.6;padding:8px 10px;border:1px dashed var(--b1);border-radius:var(--r);background:var(--bg)">'
-      +'Die Soll-Allokation erscheint nach der nächsten Berechnung. Strategiebasis aktuell: '
-      +escapeHtml(snapshot.advisoryRappen?formatRappen(snapshot.advisoryRappen):'Beratungsvermögen noch offen')
-      +'.</div>';
+    el.innerHTML=aaChartPendingHtml({notice:strategyState&&strategyState.dirty&&strategyState.staleNotice?String(strategyState.staleNotice):'',riskReady:!!snapshot.riskReady,
+      baseText:snapshot.advisoryRappen?formatRappen(snapshot.advisoryRappen):'Beratungsvermögen noch offen'});
   }else{
-    var _rb=allocationReserveBreakdown(strategyState.allocation);el.innerHTML=alloc.map(function(r){
+    var _rb=allocationReserveBreakdown(strategyState.allocation);el.innerHTML=aaChartLegendHtml(alloc.map(function(r){
       var targetChf=Number(r.chfTarget||0);
       if(!(targetChf>0))targetChf=Math.round((_rb.strategyBaseRappen/100)*Number(r.soll||0)/100);
-      return '<div class="alloc-legend-row"><div class="alloc-legend-left"><div class="alloc-legend-dot" style="background:'+r.c+';"></div><span class="alloc-legend-name">'+escapeHtml(String(r.n||''))+'</span></div><div class="alloc-legend-values"><span class="alloc-legend-pct">'+escapeHtml(fmtPct(Number(r.soll||0)*100,1))+'</span><span class="alloc-legend-amt">'+escapeHtml(formatCompactCHF(targetChf))+'</span></div></div>';
-    }).join('')+(_rb.reserveRappen>0?'<div class="alloc-legend-row" id="alloc-legend-reserve" style="border-style:dashed"><div class="alloc-legend-left"><div class="alloc-legend-dot" style="background:transparent;border:1px dashed var(--n4)"></div><span class="alloc-legend-name">Liquiditätsreserve (ausserhalb der Anlagestrategie)</span></div><div class="alloc-legend-values"><span class="alloc-legend-pct">–</span><span class="alloc-legend-amt">'+escapeHtml(formatCompactCHF(_rb.reserveRappen/100))+'</span></div></div><div style="font-size:9.5px;color:var(--n5);line-height:1.5;padding:4px 2px 0">Quoten in % der Strategiebasis '+escapeHtml(formatRappen(_rb.strategyBaseRappen))+'; zusammen mit der Reserve ergibt sich das Beratungsvermögen '+escapeHtml(formatRappen(_rb.advisoryRappen))+'.</div>':'');
+      return {name:r.n,bps:Math.round(Number(r.soll||0)*100),color:r.c,amountChf:targetChf};
+    }),_rb);
   }
   var dcv=document.querySelector('.dcv');
   if(dcv)dcv.innerHTML=donutCenterValueHtml(TOTAL);
@@ -7284,15 +7262,7 @@ function syncAllocationDonutFromStrategyState(){
     return;
   }
   var hasStrategy=!!(strategyState&&strategyState.allocation&&Array.isArray(strategyState.allocation.buckets)&&strategyState.allocation.buckets.length);
-  if(hasStrategy){
-    charts.dn.data.labels=alloc.map(function(r){return r.n;});
-    charts.dn.data.datasets[0].data=alloc.map(function(r){return Number(r.soll||0);});
-    charts.dn.data.datasets[0].backgroundColor=alloc.map(function(r){return r.c;});
-  }else{
-    charts.dn.data.labels=['Strategie ausstehend'];
-    charts.dn.data.datasets[0].data=[100];
-    charts.dn.data.datasets[0].backgroundColor=['rgba(122,130,153,0.28)'];
-  }
+  if(typeof aaChartApplyDonut==='function')aaChartApplyDonut(charts.dn,hasStrategy);
   // Referenzmethodik-treu: Torte = umschichtbares Beratungsvermögen; Reinvermögen (inkl.
   // Eigenheim-Fundament) als Kontext daneben ausweisen (Etappe 2, total_allocation).
   var _rc=document.getElementById('alloc-rein-context');
@@ -7309,14 +7279,7 @@ function syncAllocationDonutFromStrategyState(){
       var _uncovered=Math.max(0,Number(_ta.uncovered_liabilities_rappen||0));
       var _ber=Number(_a.advisory_wealth_rappen||0), _rbx=allocationReserveBreakdown(_a);
       var _f=function(r){return 'CHF '+fmtLocaleCH(Math.round(Number(r||0)/100));};
-      _rc.innerHTML='Reinvermögen (gesamt, netto aller Verbindlichkeiten): <strong>'+_f(_rein)+'</strong>'
-        +(_found>0?' · davon Eigenheim-Fundament '+_f(_found):'')
-        +((_nonPos||_uncovered>0)
-          ?'<br><span style="color:var(--neg);font-weight:600">Verbindlichkeiten übersteigen die Aktiven'
-            +(_uncovered>0?' – ungedeckte Schulden '+_f(_uncovered):'')
-            +'. Kein positives Reinvermögen.</span>'
-          :'')
-        +(_rbx.reserveRappen>0?'<br>Beratungsvermögen: <strong>'+_f(_ber)+'</strong> · davon in der Anlagestrategie (diese Torte): <strong>'+_f(_rbx.strategyBaseRappen)+'</strong> · Liquiditätsreserve ausserhalb der Anlagestrategie: <strong>'+_f(_rbx.reserveRappen)+'</strong>':'<br>Optimierbares Beratungsvermögen (diese Torte): <strong>'+_f(_ber)+'</strong>');
+      _rc.innerHTML=aaChartContextHtml({rein:_rein,found:_found,nonPos:_nonPos,uncovered:_uncovered,ber:_ber,base:_rbx.strategyBaseRappen,reserve:_rbx.reserveRappen},_f);
       _rc.style.display='';
     }else{
       _rc.style.display='none';
@@ -7501,7 +7464,7 @@ function initCharts(){
   // ch-fp removed (page-fp removed)
   if(!charts.dn){
     const el=document.getElementById('ch-dn');
-    if(el){charts.dn=new Chart(el.getContext('2d'),{type:'doughnut',data:{labels:['Strategie ausstehend'],datasets:[{data:[100],backgroundColor:['rgba(122,130,153,0.28)'],borderWidth:3,borderColor:'#fff'}]},options:{responsive:true,maintainAspectRatio:false,cutout:'72%',plugins:{legend:{display:false}}}});syncAllocationDonutFromStrategyState();}
+    if(el){charts.dn=new Chart(el.getContext('2d'),aaChartDonutConfig());syncAllocationDonutFromStrategyState();}
   }
   ensureAllocationRuntimePanels();
   normalizeAllocationLayout();
@@ -20779,6 +20742,7 @@ function syncStrategyStaleView(){
     }
   }catch(e){}
   if(typeof renderAaFanRangeSentence==='function')renderAaFanRangeSentence();
+  if(typeof hasVisibleStrategyOutputs==='function'&&!hasVisibleStrategyOutputs()&&typeof buildDLegend==='function')buildDLegend(); // H6: Leerzustand nennt den Grund
   var page=document.getElementById('page-al');
   if(!page)return;
   var stale=!!notice&&hasVisibleStrategyOutputs();
