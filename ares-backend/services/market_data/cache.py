@@ -42,6 +42,12 @@ DEFAULT_TTL_SECONDS: dict[str, int] = {
 # --------------------------------------------------------------------------- #
 # JSON-Serialisierung fuer Bar / ProductInfo
 # --------------------------------------------------------------------------- #
+def _fallback_entry(reason: str | None) -> dict:
+    """BBG-1: ein sichtbarer Fallback-Grund ueberlebt den Cache-Roundtrip.
+    Nur gesetzt, wenn vorhanden, damit bestehende Payloads unveraendert bleiben."""
+    return {"fallback_reason": reason} if reason else {}
+
+
 def _bar_to_dict(bar: Bar) -> dict:
     return {
         "symbol": bar.symbol,
@@ -54,6 +60,7 @@ def _bar_to_dict(bar: Bar) -> dict:
         "volume": bar.volume,
         "adjusted_close": str(bar.adjusted_close) if bar.adjusted_close is not None else None,
         "source": bar.source,
+        **_fallback_entry(bar.fallback_reason),
     }
 
 
@@ -69,6 +76,7 @@ def _dict_to_bar(d: dict) -> Bar:
         volume=int(d["volume"]) if d.get("volume") is not None else None,
         adjusted_close=Decimal(d["adjusted_close"]) if d.get("adjusted_close") is not None else None,
         source=str(d.get("source") or "unknown"),
+        fallback_reason=d.get("fallback_reason"),
     )
 
 
@@ -83,6 +91,7 @@ def _product_to_dict(p: ProductInfo) -> dict:
         "country": p.country,
         "figi": p.figi,
         "source": p.source,
+        **_fallback_entry(p.fallback_reason),
     }
 
 
@@ -97,6 +106,7 @@ def _dict_to_product(d: dict) -> ProductInfo:
         country=d.get("country"),
         figi=d.get("figi"),
         source=str(d.get("source") or "unknown"),
+        fallback_reason=d.get("fallback_reason"),
     )
 
 

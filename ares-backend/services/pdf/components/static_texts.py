@@ -165,18 +165,18 @@ KENNZAHLEN_DEFINITIONS = [
         "Rendite über einen gegebenen Anlagehorizont mit einer gegebenen "
         "Wahrscheinlichkeit nicht unterschritten wird. Die angegebenen Werte "
         "wurden für einen Anlagehorizont von einem Jahr und eine "
-        "Wahrscheinlichkeit von 99% simuliert.",
+        "Wahrscheinlichkeit von 95% simuliert (5-%-Quantil der simulierten"
+        " 1-Jahres-Renditen).",
     ),
     (
         "Standardabweichung",
         "Die Standardabweichung ist eine Risikokennzahl, die angibt, wie "
         "stark die möglichen jährlichen Renditen um die erwartete Rendite "
         "schwanken. Je höher diese Kennzahl, desto stärker schwanken die "
-        "möglichen Renditen um den erwarteten Wert. Bei normalverteilten "
-        "Portfoliorenditen liegen die Renditen mit einer Wahrscheinlichkeit "
-        "von ca. 68% im Bereich von erwarteter Rendite minus einer "
-        "Standardabweichung bis zur erwarteten Rendite plus einer "
-        "Standardabweichung.",
+        "möglichen Renditen um den erwarteten Wert. Sie misst nur die "
+        "Schwankungsbreite: Die Simulation rechnet mit schiefen "
+        "Renditeverteilungen und häufigeren Extremverlusten als eine "
+        "Normalverteilung.",
     ),
     (
         "Zielerreichung",
