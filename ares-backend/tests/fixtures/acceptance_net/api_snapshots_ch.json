@@ -44,7 +44,7 @@
   "status": 200
  },
  "clients.data_export": {
-  "sha256": "1267b678d3b85be6b11191e2e812de58a15c46b7c5113b1603d2d1c3768bef6a",
+  "sha256": "abcc95d1da21ee5cb778cefe64ce30403bd566fa0aff2ace5c544fa5ae606c46",
   "shape": {
    "client_id": "str",
    "client_number": "str",
@@ -352,6 +352,7 @@
        "client_signed_at": "null",
        "client_signed_method": "null",
        "client_signed_ref": "null",
+       "consistency_note": "null",
        "created_at": "str",
        "deleted_at": "null",
        "final_profile": "str",
@@ -382,6 +383,8 @@
        "q_risk_preference_points": "int",
        "q_savings_points": "int",
        "q_wealth_points": "int",
+       "questionnaire_hash": "null",
+       "questionnaire_version": "null",
        "risk_capacity_profile": "str",
        "risk_capacity_score_x10": "int",
        "risk_capacity_total": "int",
@@ -395,7 +398,8 @@
        "updated_at": "str",
        "valid_from": "str",
        "valid_to": "null",
-       "version": "int"
+       "version": "int",
+       "willingness_v2_json": "null"
       }
      ]
     },
@@ -857,7 +861,7 @@
    "risk_capacity_score_x10": 100,
    "risk_willingness_score_x10": 70
   },
-  "sha256": "f55e05b0123f2a07c62f281fb9314b55111d29c5f913a0fbbb385a43f4d1f49f",
+  "sha256": "d65f29495a4be06ac406e464424f81ed0d002e8f952e71867dbed7f17d606900",
   "shape": {
    "answers": {
     "list_of": [
@@ -875,6 +879,7 @@
    "assessed_by": "str",
    "client_signed_at": "null",
    "client_signed_method": "null",
+   "consistency_note": "null",
    "created_at": "str",
    "final_profile": "str",
    "final_score_x10": "int",
@@ -902,6 +907,8 @@
    "q_risk_preference_points": "int",
    "q_savings_points": "int",
    "q_wealth_points": "int",
+   "questionnaire_hash": "null",
+   "questionnaire_version": "null",
    "risk_capacity_profile": "str",
    "risk_capacity_score_x10": "int",
    "risk_capacity_total": "int",
@@ -913,7 +920,8 @@
    "signoff_state": "str",
    "signoff_status": "null",
    "valid_from": "str",
-   "version": "int"
+   "version": "int",
+   "willingness_v2_json": "null"
   },
   "status": 201
  },
@@ -944,7 +952,7 @@
    "risk_capacity_score_x10": 100,
    "risk_willingness_score_x10": 90
   },
-  "sha256": "1c084cf5f380af177449857d76b38748e1dcd12917c0996b28b3eeee82beba00",
+  "sha256": "42a683c867de2aa0eafc27f509288a3fcd27aa24b6cfb924261e7ff5bffbfcea",
   "shape": {
    "answers": {
     "list_of": [
@@ -962,6 +970,7 @@
    "assessed_by": "str",
    "client_signed_at": "null",
    "client_signed_method": "null",
+   "consistency_note": "null",
    "created_at": "str",
    "final_profile": "str",
    "final_score_x10": "int",
@@ -989,6 +998,8 @@
    "q_risk_preference_points": "int",
    "q_savings_points": "int",
    "q_wealth_points": "int",
+   "questionnaire_hash": "null",
+   "questionnaire_version": "null",
    "risk_capacity_profile": "str",
    "risk_capacity_score_x10": "int",
    "risk_capacity_total": "int",
@@ -1000,7 +1011,8 @@
    "signoff_state": "str",
    "signoff_status": "null",
    "valid_from": "str",
-   "version": "int"
+   "version": "int",
+   "willingness_v2_json": "null"
   },
   "status": 201
  },
@@ -1011,7 +1023,7 @@
    "risk_capacity_score_x10": 100,
    "risk_willingness_score_x10": 70
   },
-  "sha256": "f55e05b0123f2a07c62f281fb9314b55111d29c5f913a0fbbb385a43f4d1f49f",
+  "sha256": "d65f29495a4be06ac406e464424f81ed0d002e8f952e71867dbed7f17d606900",
   "shape": {
    "answers": {
     "list_of": [
@@ -1029,6 +1041,7 @@
    "assessed_by": "str",
    "client_signed_at": "null",
    "client_signed_method": "null",
+   "consistency_note": "null",
    "created_at": "str",
    "final_profile": "str",
    "final_score_x10": "int",
@@ -1056,6 +1069,8 @@
    "q_risk_preference_points": "int",
    "q_savings_points": "int",
    "q_wealth_points": "int",
+   "questionnaire_hash": "null",
+   "questionnaire_version": "null",
    "risk_capacity_profile": "str",
    "risk_capacity_score_x10": "int",
    "risk_capacity_total": "int",
@@ -1067,7 +1082,8 @@
    "signoff_state": "str",
    "signoff_status": "null",
    "valid_from": "str",
-   "version": "int"
+   "version": "int",
+   "willingness_v2_json": "null"
   },
   "status": 200
  },

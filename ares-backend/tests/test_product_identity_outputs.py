@@ -75,7 +75,7 @@ def test_generic_pdf_renderer_sets_creator_and_producer():
         risk_tolerance_score=58,
         knowledge_services={"Anlageberatung": True},
         knowledge_instruments={"Aktien": True},
-        experience_years=8,
+        investment_horizon_label="8 bis 11 Jahre",
         suitability_note="kompatibel",
     )
     meta = _pdf_reader(ReportLabRenderer().render_risikoprofil(ctx, data)).metadata

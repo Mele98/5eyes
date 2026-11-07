@@ -20372,6 +20372,17 @@
             ],
             "title": "Answers"
           },
+          "consistency_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consistency Note"
+          },
           "data_classification": {
             "default": "synthetic",
             "enum": [
@@ -20464,6 +20475,35 @@
           "q_wealth_points": {
             "title": "Q Wealth Points",
             "type": "integer"
+          },
+          "questionnaire_v2_answers": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Questionnaire V2 Answers"
+          },
+          "questionnaire_version": {
+            "anyOf": [
+              {
+                "enum": [
+                  "v1",
+                  "v2"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Questionnaire Version"
           }
         },
         "required": [
@@ -20608,6 +20648,17 @@
               }
             ],
             "title": "Client Signed Method"
+          },
+          "consistency_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consistency Note"
           },
           "created_at": {
             "title": "Created At",
@@ -20794,6 +20845,28 @@
             "title": "Q Wealth Points",
             "type": "integer"
           },
+          "questionnaire_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Questionnaire Hash"
+          },
+          "questionnaire_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Questionnaire Version"
+          },
           "risk_capacity_profile": {
             "title": "Risk Capacity Profile",
             "type": "string"
@@ -20869,6 +20942,17 @@
           "version": {
             "title": "Version",
             "type": "integer"
+          },
+          "willingness_v2_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Willingness V2 Json"
           }
         },
         "required": [
@@ -41722,6 +41806,31 @@
         "summary": "Update Baustein",
         "tags": [
           "Protocol-Bausteine"
+        ]
+      }
+    },
+    "/risk-questionnaire/policy": {
+      "get": {
+        "description": "H5b: aktive Fragebogen-Version und Definition v2 (Texte, Optionen,\nKappungen, Konsistenz-Flags). v2 ist hinter einem Feature-Flag (Default\naus) bis zur Freigabe der Grenzwerte durch IC/Compliance.",
+        "operationId": "get_risk_questionnaire_policy_risk_questionnaire_policy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Risk Questionnaire Policy",
+        "tags": [
+          "Risikoprofilierung"
         ]
       }
     },

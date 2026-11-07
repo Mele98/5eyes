@@ -585,7 +585,7 @@ def test_c_853_02_real_ares_pdfs_pass():
         "risikoprofil.pdf": renderer.render_risikoprofil(ctx, RisikoprofilData(
             risk_profile_label="Ausgewogen", risk_capacity_score=65, risk_tolerance_score=58,
             knowledge_services={"Anlageberatung": True}, knowledge_instruments={"Aktien": True},
-            experience_years=8, suitability_note="kompatibel")),
+            investment_horizon_label="8 bis 11 Jahre", suitability_note="kompatibel")),
         "vertrag.pdf": renderer.render_vertrag(ctx, VertragData(praeambel="P", haftungsklausel="H")),
         "anlagestrategie.pdf": renderer.render_anlagestrategie(ctx, AnlagestrategieData(
             target_allocation_bps={"equities": 4000, "bonds": 3000, "real_estate": 1500,

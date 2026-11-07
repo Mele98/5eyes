@@ -5173,6 +5173,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/risk-questionnaire/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Risk Questionnaire Policy
+         * @description H5b: aktive Fragebogen-Version und Definition v2 (Texte, Optionen,
+         *     Kappungen, Konsistenz-Flags). v2 ist hinter einem Feature-Flag (Default
+         *     aus) bis zur Freigabe der Grenzwerte durch IC/Compliance.
+         */
+        get: operations["get_risk_questionnaire_policy_risk_questionnaire_policy_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tax/estimate": {
         parameters: {
             query?: never;
@@ -11518,6 +11540,8 @@ export interface components {
         RiskAssessmentCreate: {
             /** Answers */
             answers?: Record<string, unknown>[] | null;
+            /** Consistency Note */
+            consistency_note?: string | null;
             /**
              * Data Classification
              * @default synthetic
@@ -11551,6 +11575,10 @@ export interface components {
             q_savings_points: number;
             /** Q Wealth Points */
             q_wealth_points: number;
+            /** Questionnaire V2 Answers */
+            questionnaire_v2_answers?: Record<string, unknown>[] | null;
+            /** Questionnaire Version */
+            questionnaire_version?: ("v1" | "v2") | null;
         };
         /** RiskAssessmentOverride */
         RiskAssessmentOverride: {
@@ -11597,6 +11625,8 @@ export interface components {
             client_signed_at?: string | null;
             /** Client Signed Method */
             client_signed_method?: string | null;
+            /** Consistency Note */
+            consistency_note?: string | null;
             /** Created At */
             created_at: string;
             /** Final Profile */
@@ -11651,6 +11681,10 @@ export interface components {
             q_savings_points: number;
             /** Q Wealth Points */
             q_wealth_points: number;
+            /** Questionnaire Hash */
+            questionnaire_hash?: string | null;
+            /** Questionnaire Version */
+            questionnaire_version?: string | null;
             /** Risk Capacity Profile */
             risk_capacity_profile: string;
             /** Risk Capacity Score X10 */
@@ -11675,6 +11709,8 @@ export interface components {
             valid_from: string;
             /** Version */
             version: number;
+            /** Willingness V2 Json */
+            willingness_v2_json?: string | null;
         };
         /** RiskProfileSignRequest */
         RiskProfileSignRequest: {
@@ -22580,6 +22616,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_risk_questionnaire_policy_risk_questionnaire_policy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

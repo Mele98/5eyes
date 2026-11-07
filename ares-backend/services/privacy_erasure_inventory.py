@@ -231,7 +231,7 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
     "risk_assessments": _t(
         _MANDATE,
         _c(FREE_TEXT, "risk_profile_evidence", "override_reason", "client_signed_ref",
-           method=TIER_A_REDACTION),
+           "consistency_note", method=TIER_A_REDACTION),
         _c(RECORD, "risk_profile_evidence"),
     ),
     "risk_assessment_answers": _t(

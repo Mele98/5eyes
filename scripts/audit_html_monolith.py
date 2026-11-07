@@ -29,6 +29,8 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     ("ares.css", "css"),
     ("intro-sequence.js", "js"),
     ("goal-review-runtime.js", "js"),
+    # H5 Risikoprofil (Dok. 105): Q10-Fussnote, Fragebogen v2, Kenntnis/Erfahrung.
+    ("risk-questionnaire-v2.js", "js"),
 )
 
 # N-875-05: Bewusste, dokumentierte Liste der VOR H3 bereits eigen-

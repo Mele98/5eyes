@@ -80,6 +80,35 @@ QUESTION_CATALOG: dict[int, tuple[str, str]] = {
     ),
 }
 
+# H5a (E5, Dok. 105 G3): Aufklaerung zur Bandbreite in Frage 10. Rein textlich,
+# ohne Score-Wirkung; gilt fuer jede Fragebogen-Version. Wortgleich in der
+# Maske (risk-questionnaire-v2.js, RISK_Q10_BAND_FOOTNOTE; Paritaetstest).
+Q10_BAND_FOOTNOTE = (
+    "Hinweis zu Frage 10: Die genannte Bandbreite umfasst rund 80 % der zu "
+    "erwartenden Wertentwicklungen innerhalb eines Jahres. Mit je rund 10 % "
+    "Wahrscheinlichkeit fällt das Ergebnis besser bzw. schlechter aus – ein "
+    "Verlust kann also auch grösser sein als die untere Grenze der Bandbreite."
+)
+
+# H5b: Zusatzfragen des Fragebogens v2 (nur absenkend, Kappung der
+# Risikobereitschaft). Erscheinen nur, wenn das Profil sie beantwortet hat --
+# v1-Profile bleiben unveraendert. Wortgleich zu
+# services/risk_questionnaire_integrity.V2_QUESTIONS (Paritaetstest).
+V2_QUESTION_CATALOG: dict[int, tuple[str, str]] = {
+    12: (
+        "Risikobereitschaft",
+        "Verlusttoleranz in Franken – Welcher vorübergehende Wertrückgang Ihres Anlagebetrags innerhalb eines Jahres wäre für Sie gerade noch tragbar, ohne die Anlagestrategie zu ändern?",
+    ),
+    13: (
+        "Risikobereitschaft",
+        "Tatsächliches Verhalten – Wie haben Sie in einem früheren starken Kursrückgang (z. B. 2008, März 2020 oder 2022) tatsächlich gehandelt?",
+    ),
+    14: (
+        "Risikobereitschaft",
+        "Dauer einer Verlustphase – Wie lange könnten Sie einen Wertrückgang aussitzen, bis sich die Anlage erholt hat?",
+    ),
+}
+
 
 def make_eignungspruefung_section(
     *,
@@ -100,7 +129,7 @@ def make_eignungspruefung_section(
             continue
         if qn <= 0:
             continue
-        if qn in QUESTION_CATALOG:
+        if qn in QUESTION_CATALOG or qn in V2_QUESTION_CATALOG:
             answers_by_question[qn] = answer
             continue
         extra_entries.append((
@@ -119,6 +148,11 @@ def make_eignungspruefung_section(
             question_text,
             _answer_text(qn, answer, services_knowledge or {}, instruments_knowledge or {}),
         ))
+
+    for qn in sorted(V2_QUESTION_CATALOG):
+        if qn in answers_by_question:
+            section, question_text = V2_QUESTION_CATALOG[qn]
+            grouped[section].append((qn, question_text, _answer_text(qn, answers_by_question[qn], {}, {})))
 
     for qn, section, question_text, answer_text in extra_entries:
         grouped.setdefault(section, []).append((qn, question_text, answer_text))
@@ -141,9 +175,13 @@ def make_eignungspruefung_section(
             "",
         ])
         for qn, question_text, answer_text in sorted(entries, key=lambda x: x[0]):
+            footnote = (
+                f'<br/><font size="5.8" color="#64748b"><i>{_esc(Q10_BAND_FOOTNOTE)}</i></font>'
+                if qn == 10 else ""
+            )
             rows.append([
                 Paragraph(
-                    f'<font name="{FONT_BOLD}">Frage {qn}</font><br/>{_esc(question_text)}',
+                    f'<font name="{FONT_BOLD}">Frage {qn}</font><br/>{_esc(question_text)}{footnote}',
                     _para_q(),
                 ),
                 Paragraph(
@@ -206,6 +244,9 @@ def _answer_text(
 
 
 def _clean_answer_label(question_number: int, label: str) -> str:
+    if question_number == 8:
+        # H5a: Kundenantwort ohne internen Zusatz "· Matrix-Faktor".
+        return label.split("·", 1)[0].strip() or label
     if question_number not in (1, 2):
         return label
     if ":" not in label:
@@ -229,10 +270,16 @@ def _knowledge_summary(items: Mapping) -> str:
         label = str(key)
         if isinstance(value, Mapping):
             known = bool(value.get("known") or value.get("kenntnis") or value.get("kenntnisse"))
+            # H5c: Erfahrung getrennt erfasst. Altprofile ohne den Schluessel
+            # behalten ihren bisherigen Text (kein Informationsverlust, keine
+            # Umdeutung gebundener Evidenz).
+            experienced = bool(value.get("experienced"))
             informed = bool(value.get("informed") or value.get("aufklaerung") or value.get("aufklärung"))
             states = []
             if known:
                 states.append("Kenntnisse vorhanden")
+            if experienced:
+                states.append("Erfahrung vorhanden")
             if informed:
                 states.append("Aufklärung erhalten")
             parts.append(f"{label}: {', '.join(states) if states else 'keine Angabe'}")

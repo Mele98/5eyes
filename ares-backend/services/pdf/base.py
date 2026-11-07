@@ -420,7 +420,10 @@ class RisikoprofilData:
     knowledge_services: Mapping[str, bool] = field(default_factory=dict)
     knowledge_instruments: Mapping[str, bool] = field(default_factory=dict)
     risk_answers: list = field(default_factory=list)
-    experience_years: int = 0
+    # H5a (Dok. 105, Kleinbefund 3.3): Anlagehorizont als Kundenantwort
+    # (Antwortlabel Frage 8), nicht als interner Matrix-Stuetzwert. Ersetzt
+    # das irrefuehrend benannte Feld ``experience_years``.
+    investment_horizon_label: str = ""
     suitability_note: str = ""
     is_overridden: bool = False
     override_reason: str | None = None
@@ -444,6 +447,14 @@ class RisikoprofilData:
     # RISK-CAPACITY-PLAUSIBILITY-001: neutraler Berater-Satz, wenn die
     # Fragebogen-Angaben den erfassten Finanzdaten widersprechen.
     capacity_plausibility_note: str = ""
+    # H5b (Dok. 105, 4.4): nur bei versionierten Profilen (Fragebogen v2):
+    # Version, Erhebungsdatum, wirksame Kappungen mit Grund, Konsistenz-Flags
+    # und die Pflicht-Beraternotiz. Altprofile (v1) lassen alles leer.
+    questionnaire_version: str | None = None
+    assessed_on: str = ""
+    willingness_cap_reasons: tuple = ()
+    consistency_messages: tuple = ()
+    consistency_note: str = ""
 
 
 @dataclass(frozen=True)

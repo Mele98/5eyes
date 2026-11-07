@@ -307,6 +307,12 @@ CREATE TABLE IF NOT EXISTS risk_assessments (
     signoff_id                  TEXT,
     signoff_hash                TEXT,
     signoff_status              TEXT,
+    -- H5b (2026-11-07): Fragebogen-Version (NULL = Altprofil v1), Hash der
+    -- v2-Definition, kanonische v2-Evidenz und Pflichtnotiz bei Konsistenz-Flags.
+    questionnaire_version       TEXT,
+    questionnaire_hash          TEXT,
+    willingness_v2_json         TEXT,
+    consistency_note            TEXT,
     assessed_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     assessed_by                 TEXT NOT NULL REFERENCES users(id) ON UPDATE CASCADE,
     created_at                  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),

@@ -159,6 +159,12 @@ _INPUT_FIELDS: tuple[str, ...] = (
     "income_sources_json",
     "assessed_at",
 )
+# H5b: nur fuer versionierte Profile (questionnaire_version gesetzt).
+_V2_INPUT_FIELDS: tuple[str, ...] = (
+    "questionnaire_version",
+    "questionnaire_hash",
+    "willingness_v2_json",
+)
 
 
 def _now() -> str:
@@ -237,6 +243,12 @@ def signoff_reference(signoff_id: str | None, signoff_hash: str | None) -> str:
 def assessment_input_hash(db, assessment: Any) -> str:
     """SHA-256 ueber Fragebogen-Inputs, Ergebnis und Antworten des Assessments."""
     payload: dict[str, Any] = {name: _value(assessment, name) for name in _INPUT_FIELDS}
+    # H5b: Fragebogen v2 bindet Version, Definitions-Hash und v2-Evidenz mit
+    # (ohne Notiz-Freitext, der bei einer Loeschung redigiert wird). Altprofile
+    # (Version NULL) behalten ihren bisherigen Payload byte-gleich.
+    if _value(assessment, "questionnaire_version") is not None:
+        for name in _V2_INPUT_FIELDS:
+            payload[name] = _value(assessment, name)
     answers: list[list[Any]] = []
     if db is not None and _value(assessment, "id"):
         from models.profiling import RiskAssessmentAnswer
