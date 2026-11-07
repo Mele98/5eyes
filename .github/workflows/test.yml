@@ -387,6 +387,27 @@ jobs:
             > ci-out/selection/wallclock.txt
           tail -n 3 ci-out/selection/wallclock.txt
 
+      # F17 (Codex-Entscheid Runde 3, 2026-11-07): definierte Runnerklasse der
+      # Laufzeit-Sentinels = GitHub-gehosteter Standard-Runner ubuntu-latest
+      # (x64; oeffentliches Repo: 4 vCPU / 16 GB laut GitHub-Dokumentation).
+      # Die tatsaechliche Hardware jedes Laufs wird hier festgehalten, damit
+      # Messwerte (JUnit-Property elapsed_ms) vergleichbar bleiben. Kein
+      # Rerun: ein roter Erstlauf bleibt rot (Guard:
+      # tests/test_f17_foundation_runtime_split.py). Ob ein Laufzeitvertrag
+      # (z.B. 15 s Foundation) hart bleibt, entscheidet die Messung auf der
+      # freigegebenen Zielhardware.
+      - name: Record runner class
+        working-directory: ares-backend
+        run: |
+          mkdir -p ci-out
+          {
+            echo "runner_os=$RUNNER_OS runner_arch=$RUNNER_ARCH image=${ImageOS:-n/a}/${ImageVersion:-n/a}"
+            echo "nproc_all=$(nproc --all) (nproc ohne --all folgt OMP_NUM_THREADS=1)"
+            grep -m1 'model name' /proc/cpuinfo || true
+            grep -m1 MemTotal /proc/meminfo || true
+          } | tee ci-out/runner-class.txt
+          { echo '### Wallclock-Runnerklasse'; echo '```'; cat ci-out/runner-class.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Run wallclock-budget tests serially
         working-directory: ares-backend
         run: |
@@ -395,6 +416,31 @@ jobs:
             --exit-timeout 90 --grace 15 -- \
             python -m pytest tests/ -p no:xdist -m wallclock_budget --tb=short --maxfail=50 \
             -o junit_family=xunit1 --junit-xml=ci-out/junit/wallclock.xml
+
+      # F17 (Pruefrunde H4): Messwerte der Sentinels als Trend in der Job-
+      # Zusammenfassung (und im Artefakt ci-out/junit/wallclock.xml);
+      # Fruehwarnung ab 13000 ms als ::warning:: -- nicht rot, hart bleibt
+      # die Assertion im Test (15000 ms).
+      - name: Report wallclock measurements
+        if: always()
+        working-directory: ares-backend
+        run: |
+          python - <<'PY'
+          import os, xml.etree.ElementTree as ET
+          path = "ci-out/junit/wallclock.xml"
+          if not os.path.exists(path):
+              raise SystemExit(0)
+          lines = ["### Wallclock-Messwerte", "", "| Test | elapsed_ms | verdict |", "|---|---|---|"]
+          for case in ET.parse(path).iter("testcase"):
+              props = {p.get("name"): p.get("value") for p in case.iter("property")}
+              if "elapsed_ms" not in props:
+                  continue
+              lines.append(f"| {case.get('name')} | {props['elapsed_ms']} | {props.get('verdict', '')} |")
+              if int(props["elapsed_ms"]) > 13000:
+                  print(f"::warning::{case.get('name')}: elapsed_ms {props['elapsed_ms']} > 13000 (Fruehwarnung, hart 15000)")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+              fh.write("\n".join(lines) + "\n")
+          PY
 
       # CI-ARTIFACT-UPLOAD-001: siehe Job backend-test-plan.
       - name: Upload results

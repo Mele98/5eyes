@@ -33,7 +33,9 @@ from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
-GOLDEN_SORTED_TABLES_SHA256 = "751a13f478745fdb7729d3191e5d5bf93e52f53b5f2a4d41da1d495efa0ea2b1"
+# H-144 (F6): + audit_chain_verification_status (einzige Abweichung der
+# Tabellenliste gegenueber 2e5dfcc3, per Diff der sorted_tables geprueft).
+GOLDEN_SORTED_TABLES_SHA256 = "119de678ec42d2944c9871dc23e8054a527ced25cb6ee447d6d089e9e892a40b"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -50,7 +52,13 @@ GOLDEN_SORTED_TABLES_SHA256 = "751a13f478745fdb7729d3191e5d5bf93e52f53b5f2a4d41d
 # Integrationsprobe 2026-11-07: Pins aus #856, #862, #868 und #869 zusammen-
 # gefuehrt; api/openapi.json (Git-Merge ohne Konflikt) besteht
 # scripts/export_openapi.py --check.
-GOLDEN_OPENAPI_SHA256 = "8ca5cb99beed3951ac6deb940efd0333bc42273a4da7b746443d7fb7ba50df65"
+# H-144 (F4/F6): neue Pfade GET /admin/system/audit-log/verification-status,
+# POST .../anchor/export und .../anchor/verify, neue Schemas AuditAnchor*,
+# AuditChainVerificationStatusOut, AuditVerificationFindings. Kein bestehender
+# Pfad, kein bestehendes Schema geaendert (Diff gegen 2e5dfcc3 geprueft).
+# Pruefrunde H4: AuditAnchorVerifyRequest + allow_unsigned, AuditAnchorVerification
+# + unsigned_accepted/signature "missing" (nur die neuen Schemas).
+GOLDEN_OPENAPI_SHA256 = "0e973cc87685937ef40e46d9400ff055cb3a2136bebd4ca8d66fec90b77f83dc"
 
 _PROBE = """
 import hashlib, json

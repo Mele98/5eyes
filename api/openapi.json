@@ -1940,6 +1940,230 @@
         "title": "AssetClassAssumptionResponse",
         "type": "object"
       },
+      "AuditAnchor": {
+        "description": "F4: Anker der Audit-Kette (Kettenkopf + Bestandssiegel), ohne\nKundendaten. Feldbedeutung siehe services/audit_anchor.py.",
+        "properties": {
+          "chain_head_hash": {
+            "title": "Chain Head Hash",
+            "type": "string"
+          },
+          "chain_sequence": {
+            "title": "Chain Sequence",
+            "type": "integer"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "fingerprint": {
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "legacy_seal_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Legacy Seal Count"
+          },
+          "legacy_seal_digest": {
+            "title": "Legacy Seal Digest",
+            "type": "string"
+          },
+          "legacy_seal_entry_hash": {
+            "title": "Legacy Seal Entry Hash",
+            "type": "string"
+          },
+          "legacy_seal_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Legacy Seal Sequence"
+          },
+          "product": {
+            "title": "Product",
+            "type": "string"
+          },
+          "scheme": {
+            "title": "Scheme",
+            "type": "string"
+          },
+          "signature": {
+            "title": "Signature",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scheme",
+          "product",
+          "created_at",
+          "source",
+          "verified",
+          "chain_sequence",
+          "chain_head_hash",
+          "legacy_seal_sequence",
+          "legacy_seal_entry_hash",
+          "legacy_seal_digest",
+          "legacy_seal_count",
+          "fingerprint",
+          "signature"
+        ],
+        "title": "AuditAnchor",
+        "type": "object"
+      },
+      "AuditAnchorExport": {
+        "properties": {
+          "anchor": {
+            "$ref": "#/components/schemas/AuditAnchor"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "anchor",
+          "text"
+        ],
+        "title": "AuditAnchorExport",
+        "type": "object"
+      },
+      "AuditAnchorVerification": {
+        "properties": {
+          "anchor_created_at": {
+            "title": "Anchor Created At",
+            "type": "string"
+          },
+          "anchor_fingerprint": {
+            "title": "Anchor Fingerprint",
+            "type": "string"
+          },
+          "anchor_sequence": {
+            "title": "Anchor Sequence",
+            "type": "integer"
+          },
+          "anchor_verified_at_export": {
+            "title": "Anchor Verified At Export",
+            "type": "boolean"
+          },
+          "chain_prefix_ok": {
+            "title": "Chain Prefix Ok",
+            "type": "boolean"
+          },
+          "current_sequence": {
+            "title": "Current Sequence",
+            "type": "integer"
+          },
+          "fingerprint_ok": {
+            "title": "Fingerprint Ok",
+            "type": "boolean"
+          },
+          "full_chain_ok": {
+            "title": "Full Chain Ok",
+            "type": "boolean"
+          },
+          "head_match": {
+            "title": "Head Match",
+            "type": "boolean"
+          },
+          "legacy_seal_match": {
+            "title": "Legacy Seal Match",
+            "type": "boolean"
+          },
+          "legacy_seal_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legacy Seal Ok"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "signature": {
+            "enum": [
+              "valid",
+              "none",
+              "missing",
+              "invalid",
+              "key_missing"
+            ],
+            "title": "Signature",
+            "type": "string"
+          },
+          "unsigned_accepted": {
+            "default": false,
+            "title": "Unsigned Accepted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "reasons",
+          "anchor_sequence",
+          "anchor_created_at",
+          "anchor_fingerprint",
+          "anchor_verified_at_export",
+          "signature",
+          "fingerprint_ok",
+          "chain_prefix_ok",
+          "head_match",
+          "legacy_seal_match",
+          "current_sequence",
+          "full_chain_ok"
+        ],
+        "title": "AuditAnchorVerification",
+        "type": "object"
+      },
+      "AuditAnchorVerifyRequest": {
+        "properties": {
+          "allow_unsigned": {
+            "default": false,
+            "title": "Allow Unsigned",
+            "type": "boolean"
+          },
+          "anchor_text": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Anchor Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "anchor_text"
+        ],
+        "title": "AuditAnchorVerifyRequest",
+        "type": "object"
+      },
       "AuditChainGap": {
         "properties": {
           "from_sequence": {
@@ -2081,6 +2305,201 @@
           "legacy"
         ],
         "title": "AuditChainVerification",
+        "type": "object"
+      },
+      "AuditChainVerificationStatusOut": {
+        "description": "F6: persistierter Status der Audit-Kettenpruefung. integrity_confirmed\nnur bei state='ok'; pending/running/error/unknown = nicht bestaetigt.\nKeine Inhalte, nur Zaehler/Sequenznummern/Ketten-Hash/Zeitpunkte.",
+        "properties": {
+          "checked": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finding_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finding Count"
+          },
+          "findings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AuditVerificationFindings"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "integrity_confirmed": {
+            "title": "Integrity Confirmed",
+            "type": "boolean"
+          },
+          "last_ok_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Ok At"
+          },
+          "last_ok_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Ok Hash"
+          },
+          "last_ok_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Ok Sequence"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "sync",
+                  "background"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "running",
+              "ok",
+              "broken",
+              "error",
+              "unknown"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "target_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Sequence"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          },
+          "total_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Rows"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "verified_through_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified Through Sequence"
+          }
+        },
+        "required": [
+          "state",
+          "integrity_confirmed"
+        ],
+        "title": "AuditChainVerificationStatusOut",
         "type": "object"
       },
       "AuditLegacySection": {
@@ -2368,6 +2787,60 @@
           "entries"
         ],
         "title": "AuditLogPage",
+        "type": "object"
+      },
+      "AuditVerificationFindings": {
+        "properties": {
+          "break_count": {
+            "title": "Break Count",
+            "type": "integer"
+          },
+          "duplicate_count": {
+            "title": "Duplicate Count",
+            "type": "integer"
+          },
+          "gap_count": {
+            "title": "Gap Count",
+            "type": "integer"
+          },
+          "hash_mismatch_count": {
+            "title": "Hash Mismatch Count",
+            "type": "integer"
+          },
+          "legacy_field_shift": {
+            "title": "Legacy Field Shift",
+            "type": "integer"
+          },
+          "legacy_mismatches": {
+            "title": "Legacy Mismatches",
+            "type": "integer"
+          },
+          "legacy_seal_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legacy Seal Ok"
+          },
+          "legacy_unexpected_unhashed": {
+            "title": "Legacy Unexpected Unhashed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "break_count",
+          "gap_count",
+          "duplicate_count",
+          "hash_mismatch_count",
+          "legacy_mismatches",
+          "legacy_field_shift",
+          "legacy_unexpected_unhashed"
+        ],
+        "title": "AuditVerificationFindings",
         "type": "object"
       },
       "BausteinCreate": {
@@ -27564,6 +28037,107 @@
           }
         ],
         "summary": "Get Audit Log",
+        "tags": [
+          "System"
+        ]
+      }
+    },
+    "/admin/system/audit-log/anchor/export": {
+      "post": {
+        "description": "F4 (Codex-Entscheid Runde 3): Anker exportieren -- Kettenkopf und\nBestandssiegel als kurze Quittung ohne Kundendaten, zum Ausdrucken bzw.\nAblegen in einer getrennten append-only/WORM- oder Treuhand-Ablage.\n\nFail-closed: nur nach erfolgreicher Vollpruefung (409 sonst). Signiert\nmit backup_hmac_key, falls konfiguriert. Der Export wird auditiert\n(EXPORT auf audit_anchor). Operator-Bypass wie GET /audit-log/verify:\ndie Kette ist global (alle Tenants).",
+        "operationId": "export_audit_log_anchor_admin_system_audit_log_anchor_export_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditAnchorExport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Audit Log Anchor",
+        "tags": [
+          "System"
+        ]
+      }
+    },
+    "/admin/system/audit-log/anchor/verify": {
+      "post": {
+        "description": "F4: Anker verifizieren -- enthaelt die heutige Kette den Anker-Stand\nunveraendert (Kette 1..N, Kopf, Bestandssiegel)? Antwort ohne Inhalte.\nEin unlesbarer Anker ergibt 422. N-880-08: das Ergebnis wird auditiert\n(CREATE/ANCHOR_VERIFY mit ok, Fingerabdruck, Sequenzen, Gruenden).",
+        "operationId": "verify_audit_log_anchor_admin_system_audit_log_anchor_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuditAnchorVerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditAnchorVerification"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Verify Audit Log Anchor",
+        "tags": [
+          "System"
+        ]
+      }
+    },
+    "/admin/system/audit-log/verification-status": {
+      "get": {
+        "description": "F6 (Codex-Entscheid Runde 3): sichtbarer Integritaetsstatus der Audit-\nKette (pending/running/ok/broken/error, Fortschritt, letzter erfolgreich\ngepruefter Kopf). integrity_confirmed nur bei 'ok'. Keine Inhalte. Die\nAdmin-Uebersicht zeigt den Status zusaetzlich als Compliance-Warnung\n(GET /admin/system/compliance). N-880-08: jede Abfrage wird auditiert\n(CREATE/VERIFICATION_STATUS_READ, Wert = Zustand).",
+        "operationId": "get_audit_log_verification_status_admin_system_audit_log_verification_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditChainVerificationStatusOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Audit Log Verification Status",
         "tags": [
           "System"
         ]
