@@ -81,5 +81,5 @@ def h8_postgres_ddl() -> str:
     from alembic import command
 
     up = io.StringIO()
-    command.upgrade(alembic_cfg("postgresql://u:p@localhost/db", up), "d3b7f1a5c9e2:d8e4b2a6c1f9", sql=True)
+    command.upgrade(alembic_cfg("postgresql://u:p@localhost/db", up), "e1c6a7d4b2f9:d8e4b2a6c1f9", sql=True)
     return up.getvalue()

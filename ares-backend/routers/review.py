@@ -58,8 +58,8 @@ from schemas.review import (
     ClientOnboardingStatusResponse,
 )
 from price_updater import summarize_price_quality
-from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation
-from services.audit import log
+from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
+from services.audit import log, release_block_audit, restore_tenant_after_rollback
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
 from routers.auth import _extract_client_ip
@@ -101,6 +101,7 @@ from services.recommendation_release_gate import (
     SUPERVISION_LABELS,
     assert_client_onboarding_release_eligible,
     assert_recommendation_release_eligible,
+    assert_retrocession_release_eligible,
     assert_risk_signoff_release_eligible,
     client_onboarding_status,
     legal_profile_hash,
@@ -1829,6 +1830,16 @@ def sign_document(
         assert_recommendation_release_eligible(
             db, mandate, channel=CHANNEL_SIGNATURE,
         )
+        # H7 N-884-04: keine Signatur, solange die finale Empfehlung keinen
+        # geklaerten Retrozessions-Ausweis traegt (fail-closed, Audit).
+        assert_retrocession_release_eligible(
+            db, mandate, channel=CHANNEL_SIGNATURE,
+            on_block=release_block_audit(
+                db, user=current_user, ip_address=_extract_client_ip(request),
+                mandate_id=mandate.id, field_name="signature_blocked",
+                set_tenant_context=set_tenant_context,
+            ),
+        )
         # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
         assert_portfolio_data_release_eligible(db, mandate, action="signature")
     # H8 C-2/C-5 (Compliance-Audit 2026-11-07): kein Vertragsabschluss ohne
@@ -1837,6 +1848,11 @@ def sign_document(
     if str(doc.document_type or "") in CONTRACT_CONCLUSION_DOCUMENT_TYPES:
         assert_client_onboarding_release_eligible(
             db, mandate, channel=CHANNEL_SIGNATURE,
+            on_block=release_block_audit(
+                db, user=current_user, ip_address=_extract_client_ip(request),
+                mandate_id=mandate.id, field_name="signature_blocked",
+                set_tenant_context=set_tenant_context,
+            ),
         )
     # CERT-SIGNED-PUBLICATION-001: signiert wird nur ein archiviertes,
     # pruefsummengesichertes PDF -- nie ein leerer Entwurf (VOR jeder
@@ -4245,12 +4261,47 @@ def finalize_recommendation(
                 "errors": errors,
             })
         raise HTTPException(status_code=422, detail="; ".join(errors))
+    # H7 C-4 (Compliance-Audit 2026-11-07): Retro-Gate. Der Kostenausweis
+    # kennt seit L1 unbekannte/ungeregelte Retrozessionen (is_complete=False),
+    # die Finalisierung fror ihn trotzdem ein. Jetzt fail-closed, ohne
+    # Override (Dok. 10 L1); die Sperre wird im Audit-Log festgehalten.
+    from services.cost_disclosure import (
+        freeze_cost_disclosure_for_run,
+        retrocession_finalization_block,
+    )
+
+    retro_block = retrocession_finalization_block(db, mandate, run)
+    if retro_block is not None:
+        # N-884-09: Tenant-Kontext nach dem Rollback wieder setzen (PG/RLS).
+        restore_tenant_after_rollback(db, set_tenant_context)
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="recommendation_runs", record_id=run_id, action="UPDATE",
+            field_name="finalization_blocked",
+            new_value=json.dumps({
+                "reason_code": retro_block["reason_code"],
+                "unknown": retro_block["unknown"],
+                "unresolved": retro_block["unresolved"],
+                "unresolved_items": retro_block["unresolved_items"],
+            }, ensure_ascii=False, sort_keys=True),
+            mandate_id=mandate_id, ip_address=_extract_client_ip(request))
+        db.commit()
+        raise HTTPException(status_code=422, detail={
+            "reason_code": retro_block["reason_code"],
+            "message": retro_block["message"],
+            "errors": [retro_block["message"]],
+        })
     # H8 C-2/C-5 (Compliance-Audit 2026-11-07): Finalisierung nur mit vor
     # Vertragsabschluss abgegebener Kundeninformation (Art. 8/9 FIDLEG),
     # vollstaendigen rechtlichen Angaben der Firma und GwG-Bestaetigung
     # (fail-closed, kein Override; Reason-Code je offenem Punkt in findings).
+    # N-890-07: die Sperre wird wie H7 im Audit-Log festgehalten.
     assert_client_onboarding_release_eligible(
         db, mandate, channel=CHANNEL_FINALIZATION, http_status=422,
+        on_block=release_block_audit(
+            db, user=current_user, ip_address=_extract_client_ip(request),
+            mandate_id=mandate.id, field_name="finalization_blocked",
+            set_tenant_context=set_tenant_context,
+        ),
     )
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
     assert_portfolio_data_release_eligible(db, mandate, action="finalize")
@@ -4282,7 +4333,6 @@ def finalize_recommendation(
     # bleibt die Spalte NULL und der Leser legt das offen
     # (`evidence_frozen=False`) -- die Finalisierung daran scheitern zu
     # lassen waere eine Blockade, die dieser Befund nicht verlangt.
-    from services.cost_disclosure import freeze_cost_disclosure_for_run
     run.cost_disclosure_snapshot_json = freeze_cost_disclosure_for_run(
         db, mandate, run
     )

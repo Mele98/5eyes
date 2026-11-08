@@ -43,7 +43,8 @@ class Client(Base):
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
     # DSG Art. 32 (Loeschungsanspruch, Sprint 2026-08-15): gesetzt durch
-    # POST /clients/{id}/erase (services/client_erasure.py). Unterscheidet
+    # Tier-A-Redaktion (services/client_erasure.py; seit H7 C-1 nur ueber den
+    # Datenschutz-Workflow /privacy/erasure-cases). Unterscheidet
     # eine echte, irreversible PII-Anonymisierung von einem gewoehnlichen
     # Soft-Delete (deleted_at allein) -- verhindert insbesondere, dass eine
     # spaetere "Undelete"-Funktion (deleted_at=NULL) faelschlich Daten
@@ -59,7 +60,7 @@ class Client(Base):
     mandates = relationship("Mandate", back_populates="client")
     wealth_positions = relationship("WealthPosition", back_populates="client")
     cashflows = relationship("Cashflow", back_populates="client")
-    # KYC-01 (2026-10-07): GwG Art. 3-6 / FINMA-RS 2016/7 Sorgfaltspflichten
+    # KYC-01 (2026-10-07): GwG Art. 3-6 / GwV-FINMA Sorgfaltspflichten
     # -- siehe ClientDueDiligence/ClientTaxResidency unten.
     due_diligence = relationship(
         "ClientDueDiligence", back_populates="client", uselist=False
@@ -115,7 +116,7 @@ class ClientOptHistory(Base):
 
 
 class ClientDueDiligence(Base):
-    """KYC-01 (Audit-Finding, 2026-10-07): GwG Art. 3-6 / FINMA-RS 2016/7
+    """KYC-01 (Audit-Finding, 2026-10-07): GwG Art. 3-6 / GwV-FINMA
     Sorgfaltspflichten -- bislang hatte das Datenmodell KEINE Felder fuer
     PEP-Status, wirtschaftliche Berechtigung, Herkunft des Vermoegens,
     ID-Dokument-Verifikation oder FATCA/CRS-Selbstauskunft. 1:1 mit
@@ -126,7 +127,7 @@ class ClientDueDiligence(Base):
 
     id = Column(String, primary_key=True)
     client_id = Column(String, ForeignKey("clients.id"), nullable=False, unique=True)
-    # GwG Art. 3-6 / FINMA-RS 2016/7 Sorgfaltspflichten.
+    # GwG Art. 3-6 / GwV-FINMA Sorgfaltspflichten.
     pep_status = Column(Integer, nullable=False, default=0)  # 1 = Politically Exposed Person
     pep_details = Column(String)  # Freitext: Funktion/Zeitraum, nur wenn pep_status=1
     # H8 C-5: kein Default "handelt auf eigene Rechnung" mehr. Der Rohwert ist

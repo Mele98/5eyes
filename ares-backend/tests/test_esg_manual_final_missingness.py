@@ -36,6 +36,7 @@ for _path in (BACKEND_ROOT, TESTS_ROOT):
         sys.path.insert(0, str(_path))
 
 from database import Base, new_uuid  # noqa: E402
+from retro_free_fixture import declare_all_products_retro_free  # noqa: E402
 from models import (  # noqa: E402,F401
     allocation, clients, mandates, profiling, review, snapshots, users, wealth,
 )
@@ -177,6 +178,7 @@ def _finalize(SF, mandate_id, run_id, advisor_id):
 
     with SF() as s:
         user = s.get(User, advisor_id)
+        declare_all_products_retro_free(s)
         # H8 C-2/C-5: Kundeninformations-/KYC-Gate mit Testwerten erfuellen.
         satisfy_client_onboarding(s, s.get(Mandate, mandate_id))
         try:

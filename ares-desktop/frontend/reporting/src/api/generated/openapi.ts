@@ -1543,7 +1543,7 @@ export interface paths {
         get: operations["get_due_diligence_clients__client_id__due_diligence_get"];
         /**
          * Upsert Due Diligence
-         * @description 1:1-Erfassung (GwG Art. 3-6 / FINMA-RS 2016/7 Sorgfaltspflichten) --
+         * @description 1:1-Erfassung (GwG Art. 3-6 / GwV-FINMA Sorgfaltspflichten) --
          *     anders als Nationalitaeten/Opt-History keine Liste, sondern genau eine
          *     Zeile pro Kunde. Upsert: legt die Zeile beim ersten Aufruf an, aktualisiert
          *     sie bei jedem weiteren -- ein PUT-nur-Create haette erzwungen, dass der
@@ -1568,14 +1568,18 @@ export interface paths {
         put?: never;
         /**
          * Erase Client
-         * @description DSG Art. 32 -- Loeschungsanspruch. Anonymisiert irreversibel alle
-         *     direkt identifizierenden Personendaten dieses Kunden (siehe
-         *     services/client_erasure.py fuer die vollstaendige rechtliche und
-         *     technische Begruendung des Umfangs). Admin-only, Pflichtbegruendung
-         *     (schemas.clients.ClientErasureRequest), idempotent-sicher (409 bei
-         *     Doppelaufruf). Die Aktion selbst wird -- wie jede sensible Aktion --
-         *     unveraenderlich im Audit-Log protokolliert (wer hat wann wen aus
-         *     welchem Grund geloescht).
+         * @description Stillgelegt (H7 C-1): Loeschgesuche laufen nur ueber den
+         *     Datenschutz-Workflow ``/privacy/erasure-cases``.
+         *
+         *     Dieser Endpoint hat frueher sofort redigiert -- ohne Pruefung von
+         *     Aufbewahrungsfrist, Legal Hold oder aktivem Mandat. Dabei wurden auch
+         *     KYC-Belege (GwG Art. 7 Abs. 3: mindestens 10 Jahre nach Ende der
+         *     Geschaeftsbeziehung) und die Schluessel fuer versiegelte Nachweise
+         *     vernichtet. Ein zweiter Weg zur Vernichtung vor Fristablauf darf nicht
+         *     bestehen. Der Endpoint antwortet deshalb immer mit 409 und verweist auf
+         *     den Workflow (Loeschvorgang eroeffnen -> Entscheid je Nachweisart nach
+         *     genehmigter Aufbewahrungsmatrix und Legal Hold -> Ausfuehrung). Die
+         *     Ablehnung wird im Audit-Log festgehalten; Daten werden nicht veraendert.
          */
         post: operations["erase_client_clients__client_id__erase_post"];
         delete?: never;
@@ -4521,6 +4525,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/privacy/policies/baseline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Propose Retention Baseline
+         * @description H7 C-6: Aufbewahrungsmatrix aus der gesetzlichen Vorlage vorschlagen
+         *     (10 Jahre ab Beziehungsende nach GwG Art. 7 Abs. 3 / OR 127, Vertrag und
+         *     Belege OR 958f). Legt nur PROPOSED-Zeilen an (fehlende Nachweisarten);
+         *     Betreiberangaben im Body, Genehmigung weiterhin im Vier-Augen-Prinzip.
+         */
+        post: operations["propose_retention_baseline_privacy_policies_baseline_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/privacy/policies/{policy_id}/approve": {
         parameters: {
             query?: never;
@@ -6363,6 +6390,11 @@ export interface components {
             offset: number;
             /** Total */
             total: number;
+        };
+        /** BaselineProposal */
+        BaselineProposal: {
+            /** Matrix */
+            matrix?: Record<string, unknown>;
         };
         /** BausteinCreate */
         BausteinCreate: {
@@ -22030,6 +22062,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PolicyProposal"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    propose_retention_baseline_privacy_policies_baseline_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BaselineProposal"];
             };
         };
         responses: {

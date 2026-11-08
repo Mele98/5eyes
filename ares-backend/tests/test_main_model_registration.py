@@ -53,6 +53,8 @@ GOLDEN_SORTED_TABLES_SHA256 = "30711a7c792bbe325060308ae7c1c7236ae0bc41ccbadb7f0
 # Integrationsprobe 2026-11-07: Pins aus #856, #862, #868 und #869 zusammen-
 # gefuehrt; api/openapi.json (Git-Merge ohne Konflikt) besteht
 # scripts/export_openapi.py --check.
+# H7 C-1: nur description von POST /clients/{client_id}/erase (Direktpfad stillgelegt, 409), Feld-Diff geprueft.
+# H7 C-6: neu POST /privacy/policies/baseline (+BaselineProposal); description GET/POST /clients/{client_id}/due-diligence (GwV-FINMA statt RS 2016/7), Feld-Diff geprueft.
 # H8 (2026-11-07): neu GET/PUT /compliance/legal-profile, GET
 # /mandates/{mandate_id}/client-onboarding/status, POST
 # /mandates/{mandate_id}/client-information/deliveries, GET
@@ -62,7 +64,8 @@ GOLDEN_SORTED_TABLES_SHA256 = "30711a7c792bbe325060308ae7c1c7236ae0bc41ccbadb7f0
 # ClientDueDiligenceUpdate/-Response (acting_for_own_account ohne Default, neu
 # acting_for_own_account_answered) und OptHistoryCreate/-Response
 # (opt_out_criteria, document_id, opt_out_criteria_json). Feld-Diff geprueft.
-GOLDEN_OPENAPI_SHA256 = "8774f6157979df6d08940c18263a37ed174f6fa7f9e57ad31db8f17b5235b00d"
+# H8 nach Merge H7 (N-890-07): Pins gemeinsam neu.
+GOLDEN_OPENAPI_SHA256 = "ccdd42bef848c5c329bb760e60a3dad924f2780ffc4b8c2b0d84186c369b462d"
 
 _PROBE = """
 import hashlib, json

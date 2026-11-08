@@ -13,6 +13,7 @@ import math
 from numbers import Real
 from typing import Any, Iterable, Mapping
 
+from sqlalchemy import text as _sql_text
 from sqlalchemy.orm import Session
 
 
@@ -1854,3 +1855,123 @@ def apply_product_retrocessions(
         "legal_reference": "Art. 26 FIDLEG; Art. 400 OR; BGE 132 III 460; BGE 137 III 393",
     }
     return items, warnings, summary
+
+
+# --------------------------------------------------------------------------
+# H7 C-4: Retro-Gate der Finalisierung
+# --------------------------------------------------------------------------
+# H7 C-4 (Compliance-Audit 2026-11-07, Luecke 4): Retro-Gate bei der
+# Finalisierung.
+#
+# Der Kostenausweis setzt seit AUDIT-2026-11 P1 (L1) ``is_complete=False``,
+# wenn eine Retrozession unbekannt (Satz NULL) oder ungeregelt ist bzw. der
+# geregelte Betrag die Schaetzung nicht deckt (BGE 137 III 393: ein Verzicht
+# wirkt nur im Umfang der Aufklaerung; BGE 143 III 348; Art. 26 FIDLEG;
+# Art. 400 Abs. 1 OR). Durchgesetzt wurde das nirgends: die Finalisierung fror
+# auch einen solchen Ausweis ein.
+#
+# Dieser Abschnitt liest nur das bestehende Urteil dieser Datei (keine
+# zweite Retro-Logik) und liefert der Finalisierung einen Blockgrund:
+#
+# * ``RETROCESSION_DISCLOSURE_INCOMPLETE`` -- die Retro-Uebersicht des Laufs ist
+#   unvollstaendig (unbekannter Satz, ungeregelt, Deckung zu klein) oder eine
+#   manuell erfasste Verguetung von Dritten ist ohne Verzicht/Weitergabe.
+# * ``RETROCESSION_EVIDENCE_UNAVAILABLE`` -- der Ausweis ist nicht berechenbar,
+#   und der Lauf enthaelt Produkte mit unbekannter oder vorhandener
+#   Retrozession. "Nicht pruefbar" gilt nicht als "geregelt".
+#
+# Kein Override (Dok. 10 L1: "Block ohne Override"). Heilung: Satz und Quelle
+# im Fondsuniversum erfassen bzw. Offenlegung mit Verzicht (Beleg) oder
+# Rueckerstattung im Mandat dokumentieren.
+
+# Reason-Codes (Katalog core/reason_codes.py, Literale wie im Rest der Datei).
+RETRO_INCOMPLETE = "RETROCESSION_DISCLOSURE_INCOMPLETE"
+RETRO_UNAVAILABLE = "RETROCESSION_EVIDENCE_UNAVAILABLE"
+
+_HEAL_HINT = (
+    "Retrozessionssatz und Quelle im Fondsuniversum erfassen bzw. im Mandat "
+    "die Offenlegung mit Verzicht (Beleg, Umfang mindestens der geschätzte "
+    "Betrag) oder die Rückerstattung dokumentieren (Art. 26 FIDLEG; "
+    "Art. 400 OR; BGE 137 III 393)."
+)
+
+
+def _retro_names(lines: list[dict[str, Any]], limit: int = 6) -> str:
+    names = [str(line.get("product_name") or "Produkt") for line in lines]
+    text = ", ".join(names[:limit])
+    if len(names) > limit:
+        text += f" und {len(names) - limit} weitere"
+    return text
+
+
+def _run_has_retro_relevant_products(db: Session, run: Any) -> bool:
+    """True, wenn ein Produkt des Laufs eine unbekannte (NULL) oder positive
+    Retrozession traegt."""
+    rates = db.execute(
+        _sql_text(
+            "SELECT p.retrocession_bps FROM recommendation_positions rp "
+            "JOIN products p ON p.id = rp.product_id WHERE rp.run_id = :run_id"
+        ),
+        {"run_id": str(run.id)},
+    ).all()
+    return any(rate is None or int(rate) > 0 for (rate,) in rates)
+
+
+def retrocession_finalization_block(db: Session, mandate: Any, run: Any) -> dict[str, Any] | None:
+    """Blockgrund fuer die Finalisierung oder None.
+
+    Rueckgabe: ``{"reason_code", "message", "unknown", "unresolved",
+    "unresolved_items"}``.
+    """
+    try:
+        payload = build_cost_disclosure_for_run(db, mandate, run)
+    except Exception:  # noqa: BLE001 -- nicht berechenbar = nicht nachgewiesen
+        payload = None
+    if payload is None or payload.get("data_pending"):
+        if not _run_has_retro_relevant_products(db, run):
+            return None
+        return {
+            "reason_code": RETRO_UNAVAILABLE,
+            "message": (
+                "Freigabe gesperrt: Der Kostenausweis dieser Empfehlung ist nicht "
+                "berechenbar, und sie enthält Produkte mit unbekannter oder "
+                "vorhandener Retrozession. Ob die Vergütungen von Dritten "
+                "offengelegt und geregelt sind, ist damit nicht nachweisbar. "
+                + _HEAL_HINT
+            ),
+            "unknown": [],
+            "unresolved": [],
+            "unresolved_items": [],
+        }
+
+    summary = payload.get("product_retrocessions") or None
+    lines = list((summary or {}).get("lines") or [])
+    unknown = [line for line in lines if line.get("status") == "unknown"]
+    unresolved = [line for line in lines if line.get("requires_resolution")]
+    retro_lines_ok = summary is None or bool(summary.get("complete"))
+    unresolved_items = [
+        str(item.get("label") or "Vergütung von Dritten")
+        for item in (payload.get("cost_items") or [])
+        if item.get("requires_resolution")
+    ]
+    if retro_lines_ok and not unresolved_items:
+        return None
+    parts: list[str] = []
+    if unknown:
+        parts.append(f"Retrozession unbekannt für {_retro_names(unknown)}")
+    if unresolved:
+        parts.append(f"Retrozession nicht oder nicht vollständig geregelt für {_retro_names(unresolved)}")
+    if unresolved_items and not unresolved:
+        parts.append(f"ungeregelte Vergütung von Dritten: {'; '.join(unresolved_items[:3])}")
+    if not parts:
+        parts.append("Retrozessions-Ausweis unvollständig")
+    return {
+        "reason_code": RETRO_INCOMPLETE,
+        "message": (
+            "Freigabe gesperrt: Der Retrozessions-Ausweis ist unvollständig ("
+            + "; ".join(parts) + "). " + _HEAL_HINT
+        ),
+        "unknown": [line.get("product_id") for line in unknown],
+        "unresolved": [line.get("product_id") for line in unresolved],
+        "unresolved_items": unresolved_items,
+    }

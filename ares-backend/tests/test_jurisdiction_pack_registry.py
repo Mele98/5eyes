@@ -60,7 +60,12 @@ CH_PACK_VERSION = "1.0.0"
 CH_PACK_HASH = "sha256:e0d83f27c5b0d943bfa671bcd168826ea9025a804b3219a54753776e15ca2c96"
 # Fingerprint ueber die Werte der referenzierten Kernkonstanten. Aendert sich
 # eine CH-Konstante, ist das eine Aenderung des Pack-Inhalts.
-CH_REFERENCES_FINGERPRINT = "sha256:caf79a8f04c7a9fd964800a7944bc93869561a41f1ae0bd155b53acce3e06515"
+# H7 C-3 (2026-11-07): DISCLAIMER_TEXT bewusst neu (Disclaimer je Mandatstyp,
+# keine pauschale Freizeichnung, kein "nicht Anlageberatung"); pack.yaml unveraendert.
+# H7 C-6 (2026-11-07): RETENTION_NOTES bewusst neu (OR 958f statt OR 962,
+# Fristbeginn Beziehungs-/Mandatsende, keine FIDLEG-Fristzitate).
+# H7 N-884-03: FIDLEG_DISCLAIMER (Fusszeile) neutral.
+CH_REFERENCES_FINGERPRINT = "sha256:f0ce98eeb53e1a4418864597b4b8041a28ada331f214d6f0847ab4aa349b7605"
 
 
 def _legacy(mandate) -> object:

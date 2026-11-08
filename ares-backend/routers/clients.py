@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from core.reason_codes import ReasonCode
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -42,7 +43,6 @@ from services.auth import (
 )
 from services.audit import log
 from services.cashflow_timeline import totals_for_year
-from services.client_erasure import erase_client_personal_data
 from services.data_classification import enforce_data_classification
 from services.planning_horizon import life_expectancy_year_for
 from services.quota import assert_within_quota
@@ -195,29 +195,40 @@ def erase_client(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """DSG Art. 32 -- Loeschungsanspruch. Anonymisiert irreversibel alle
-    direkt identifizierenden Personendaten dieses Kunden (siehe
-    services/client_erasure.py fuer die vollstaendige rechtliche und
-    technische Begruendung des Umfangs). Admin-only, Pflichtbegruendung
-    (schemas.clients.ClientErasureRequest), idempotent-sicher (409 bei
-    Doppelaufruf). Die Aktion selbst wird -- wie jede sensible Aktion --
-    unveraenderlich im Audit-Log protokolliert (wer hat wann wen aus
-    welchem Grund geloescht)."""
+    """Stillgelegt (H7 C-1): Loeschgesuche laufen nur ueber den
+    Datenschutz-Workflow ``/privacy/erasure-cases``.
+
+    Dieser Endpoint hat frueher sofort redigiert -- ohne Pruefung von
+    Aufbewahrungsfrist, Legal Hold oder aktivem Mandat. Dabei wurden auch
+    KYC-Belege (GwG Art. 7 Abs. 3: mindestens 10 Jahre nach Ende der
+    Geschaeftsbeziehung) und die Schluessel fuer versiegelte Nachweise
+    vernichtet. Ein zweiter Weg zur Vernichtung vor Fristablauf darf nicht
+    bestehen. Der Endpoint antwortet deshalb immer mit 409 und verweist auf
+    den Workflow (Loeschvorgang eroeffnen -> Entscheid je Nachweisart nach
+    genehmigter Aufbewahrungsmatrix und Legal Hold -> Ausfuehrung). Die
+    Ablehnung wird im Audit-Log festgehalten; Daten werden nicht veraendert.
+    """
     from routers.auth import _extract_client_ip
     _get_client_for_erasure_or_404(client_id, db, current_user)
-    result = erase_client_personal_data(db, client_id, reason=body.reason)
+    reason_code = ReasonCode.LEGACY_ERASURE_DISABLED.value
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="clients", record_id=client_id, action="CLIENT_ERASE",
-        client_id=client_id,
-        new_value=str({
-            "reason": body.reason,
-            "redacted": result["redacted"],
-            "pii_keys_shredded": result.get("pii_keys_shredded", 0),
-            "unsealed_append_only_rows": result.get("unsealed_append_only_rows", {}),
-        }),
+        field_name="erase_refused", client_id=client_id,
+        new_value=str({"refused": True, "reason_code": reason_code, "request_reason": body.reason}),
         ip_address=_extract_client_ip(request))
     db.commit()
-    return result
+    raise HTTPException(status_code=409, detail={
+        "reason_code": reason_code,
+        "message": (
+            "Die direkte Löschung ist stillgelegt. Löschgesuche laufen über den "
+            "Datenschutz-Workflow: Löschvorgang eröffnen (POST /privacy/erasure-cases), "
+            "Entscheid je Nachweisart nach freigegebener Aufbewahrungsmatrix und "
+            "Legal Hold, danach Ausführung (POST /privacy/erasure-cases/{id}/execute). "
+            "Aufbewahrungspflichtige Belege (u. a. GwG Art. 7 Abs. 3) bleiben bis "
+            "Fristablauf gesperrt erhalten."
+        ),
+        "workflow": "/privacy/erasure-cases",
+    })
 
 
 # ── Nationalities ──────────────────────────────────────────────────────────────
@@ -437,7 +448,7 @@ def add_opt_history(
     return entry
 
 
-# ── Due Diligence (KYC-01: GwG Art. 3-6 / FINMA-RS 2016/7) ────────────────────
+# ── Due Diligence (KYC-01: GwG Art. 3-6 / GwV-FINMA) ────────────────────
 
 @router.get("/{client_id}/due-diligence", response_model=ClientDueDiligenceResponse)
 def get_due_diligence(
@@ -461,7 +472,7 @@ def upsert_due_diligence(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
-    """1:1-Erfassung (GwG Art. 3-6 / FINMA-RS 2016/7 Sorgfaltspflichten) --
+    """1:1-Erfassung (GwG Art. 3-6 / GwV-FINMA Sorgfaltspflichten) --
     anders als Nationalitaeten/Opt-History keine Liste, sondern genau eine
     Zeile pro Kunde. Upsert: legt die Zeile beim ersten Aufruf an, aktualisiert
     sie bei jedem weiteren -- ein PUT-nur-Create haette erzwungen, dass der

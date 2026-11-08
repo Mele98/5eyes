@@ -1680,6 +1680,53 @@ def migrate_advisory_log_hash_scheme_cost_disclosure_snapshot(target_engine: Eng
             )
 
 
+# H7 C-6: retain_until der Beratungsprotokolle ab Mandatsende statt ab Eintrag.
+# Offenes Mandat -> NULL, aber nur fuer die Altberechnung "Eintrag + 10 J."
+# (Python-Regel inkl. 29.02. -> 28.02.); jede andere Frist (z.B. nach
+# Wiedereroeffnung, N-884-06) bleibt als Mindestfrist stehen. Beendetes Mandat
+# -> Maximum aus bisheriger Frist, Eintrag + 10 J. und Mandatsende + 10 J. (nie
+# verkuerzend). Gleiche Regel wie services/advisory_log_integrity.py::
+# extended_retain_until und Alembic e1c6a7d4b2f9 (PG). Idempotent.
+_ADVISORY_LEGACY_RETAIN_SQL = (
+    "CASE WHEN strftime('%m-%d', substr(advisory_log.entry_datetime, 1, 10)) = '02-29' "
+    "THEN date(substr(advisory_log.entry_datetime, 1, 10), '+10 years', '-1 day') "
+    "ELSE date(substr(advisory_log.entry_datetime, 1, 10), '+10 years') END"
+)
+_ADVISORY_RETAIN_FROM_MANDATE_END_SQL = (
+    "(SELECT CASE WHEN date(substr(m.closed_at, 1, 10)) IS NULL THEN "
+    "(CASE WHEN substr(advisory_log.retain_until, 1, 10) = "
+    f"{_ADVISORY_LEGACY_RETAIN_SQL} THEN NULL ELSE advisory_log.retain_until END) "
+    "ELSE MAX(COALESCE(substr(advisory_log.retain_until, 1, 10), ''), "
+    "date(substr(m.closed_at, 1, 10), '+10 years'), "
+    "COALESCE(date(substr(advisory_log.entry_datetime, 1, 10), '+10 years'), '')) END "
+    "FROM mandates m WHERE m.id = advisory_log.mandate_id)"
+)
+
+
+def migrate_advisory_log_retention_from_mandate_end(target_engine: Engine | None = None) -> int:
+    """Bestandsmigration fuer retain_until (H7 C-6); Rueckgabe: geaenderte Zeilen."""
+    target_engine = _resolve_engine(target_engine)
+    inspector = inspect(target_engine)
+    if not (inspector.has_table('advisory_log') and inspector.has_table('mandates')):
+        return 0
+    scope = (
+        "EXISTS (SELECT 1 FROM mandates m WHERE m.id = advisory_log.mandate_id) "
+        f"AND advisory_log.retain_until IS NOT {_ADVISORY_RETAIN_FROM_MANDATE_END_SQL}"
+    )
+    with target_engine.begin() as conn:
+        pending = conn.execute(text(f"SELECT COUNT(*) FROM advisory_log WHERE {scope}")).scalar() or 0
+        if pending:
+            conn.execute(text(
+                f"UPDATE advisory_log SET retain_until = {_ADVISORY_RETAIN_FROM_MANDATE_END_SQL} "
+                f"WHERE {scope}"
+            ))
+            logger.info(
+                "H7 C-6: retain_until von %s Beratungsprotokoll-Zeilen auf Mandatsende "
+                "umgestellt (nie verkuerzend; offenes Mandat = NULL)", pending,
+            )
+    return int(pending)
+
+
 def run_advisory_log_migration(target_engine: Engine | None = None) -> None:
     target_engine = _resolve_engine(target_engine)
     inspector = inspect(target_engine)
@@ -2833,6 +2880,7 @@ def _run_sqlite_legacy_schema_maintenance(target_engine: Engine | None = None) -
     run_risk_assessment_answer_migration(eng)
     run_advisory_log_migration(eng)
     migrate_advisory_log_hash_scheme_cost_disclosure_snapshot(eng)
+    migrate_advisory_log_retention_from_mandate_end(eng)
     ensure_audit_log_actions(eng)
     # U-38: Indexes nach ensure_audit_log_actions, weil das die Tabelle
     # ggf. komplett neu baut (Index-Drift-Risk).

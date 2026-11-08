@@ -21,7 +21,7 @@ ueber create_all an (Modelle in models/tenant.py, models/clients.py,
 models/review.py; Trigger database.py::*_SQLITE_TRIGGERS).
 
 Revision ID: d8e4b2a6c1f9
-Revises: d3b7f1a5c9e2
+Revises: e1c6a7d4b2f9 (H7; nach Merge linearisiert, N-890-06/07)
 Create Date: 2026-11-07
 """
 from __future__ import annotations
@@ -33,7 +33,7 @@ from alembic import op
 
 
 revision: str = "d8e4b2a6c1f9"
-down_revision: Union[str, Sequence[str], None] = "d3b7f1a5c9e2"
+down_revision: Union[str, Sequence[str], None] = "e1c6a7d4b2f9"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

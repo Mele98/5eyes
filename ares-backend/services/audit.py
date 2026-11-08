@@ -990,3 +990,47 @@ def run_startup_audit_chain_check(
             chain["checked"], legacy["verified"], legacy["hashed"],
         )
     return report
+
+
+def restore_tenant_after_rollback(
+    db: Session, set_tenant_context: Callable[[Session, str | None], None] | None,
+) -> None:
+    """Rollback, danach den Tenant-Kontext der Session wieder setzen
+    (N-884-09; ohne ``set_tenant_context`` nur Rollback wie bisher)."""
+    tenant_id = db.info.get("tenant_id")
+    db.rollback()
+    if set_tenant_context is not None and tenant_id:
+        set_tenant_context(db, tenant_id)
+
+
+def release_block_audit(
+    db: Session,
+    *,
+    user,
+    ip_address: str | None,
+    mandate_id: str,
+    field_name: str,
+    set_tenant_context: Callable[[Session, str | None], None] | None = None,
+) -> Callable[[str, str | None], None]:
+    """H7 N-884-04/07: Audit-Eintrag fuer eine Freigabe-Sperre (Handoff,
+    Signatur, Vor-Ort-Signatur). Rueckgabe ist der ``on_block``-Callback
+    ``(reason_code, run_id)``: verwirft offene Aenderungen, schreibt den
+    Eintrag (``field_name`` z.B. ``signature_blocked``, ``new_value`` =
+    Reason-Code) und committet ihn, BEVOR der Aufrufer den Fehler wirft.
+
+    N-884-09: unter PostgreSQL macht ``db.rollback()`` den in derselben
+    Transaktion gesetzten Tenant-Kontext (``set_config(..., false)``)
+    rueckgaengig; der Audit-Insert liefe dann ohne ``app.tenant_id`` und
+    scheiterte an RLS WITH CHECK. Deshalb wird der Kontext der Session
+    (``session.info["tenant_id"]``) nach dem Rollback mit
+    ``set_tenant_context`` (services.tenant_context, von den Routern ueber
+    services.auth uebergeben) wieder gesetzt."""
+    def _on_block(reason_code: str, run_id: str | None = None) -> None:
+        restore_tenant_after_rollback(db, set_tenant_context)
+        log(db, user_id=user.id, user_name=user.full_name,
+            table_name="recommendation_runs" if run_id else "mandates",
+            record_id=run_id or mandate_id, action="UPDATE",
+            field_name=field_name, new_value=reason_code,
+            mandate_id=mandate_id, ip_address=ip_address)
+        db.commit()
+    return _on_block
