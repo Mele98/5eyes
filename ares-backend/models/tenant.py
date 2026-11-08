@@ -142,6 +142,10 @@ class Tenant(Base):
     risk_questionnaire_v2_approval_ref = Column(String)
     risk_questionnaire_v2_changed_at = Column(String)
     risk_questionnaire_v2_changed_by = Column(String)
+    # E1 Nachhaltigkeitspraeferenzen (Dok. 106, 2026-11-07): Review-Frist der
+    # Nachhaltigkeitspraeferenz in Monaten als HAUSPOLITIK des Tenants (keine
+    # gesetzliche Frist). NULL = Default 36 (core/sustainability_preference.py).
+    sustainability_review_months = Column(Integer)
 
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)

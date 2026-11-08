@@ -1,6 +1,7 @@
 from sqlalchemy import DDL, CheckConstraint, Column, String, Integer, ForeignKey, Index, event, text
 from sqlalchemy.orm import relationship
 from database import (
+    INVESTMENT_PREFERENCE_DECISION_SQLITE_TRIGGERS,
     RISK_CAPACITY_EVALUATION_SQLITE_TRIGGERS,
     RISK_OVERRIDE_DECISION_SQLITE_TRIGGERS,
     RISK_PROFILE_SIGNOFF_SQLITE_TRIGGERS,
@@ -372,6 +373,102 @@ for _trigger_ddl in RISK_CAPACITY_EVALUATION_SQLITE_TRIGGERS:
         RiskCapacityPlausibilityEvaluation.__table__,
         "after_create",
         DDL(_trigger_ddl).execute_if(dialect="sqlite"),
+    )
+
+class InvestmentPreferenceDecision(Base):
+    """InvestmentPreferenceDecisionV1 -- versionierte Nachhaltigkeitspraeferenz
+    je Mandat (E1, Dok. 106, Entscheid E0 2026-11-07).
+
+    Antworten des Kundenfragebogens (Frage 1 Relevanz, Frage 2 Merkmal,
+    optionale Ausschlusswuensche), abgeleiteter neutraler Profilcode,
+    Fragebogen-/Ableitungsversion und Definitions-Hash
+    (core/sustainability_preference.py), Kenntnisnahme der Information,
+    Kundenbestaetigung, Review-Frist (Hauspolitik je Tenant) und ein
+    SHA-256 ueber den kanonischen Inhalt. Kundenverzichte auf einen
+    Ausschluss (nur Anlageberatung) mit versiegelter Begruendung
+    (services/pii_vault.py).
+
+    Append-only: jede Erfassung ist eine neue Zeile (sequence_no,
+    supersedes_id); aktuell ist die hoechste sequence_no. UPDATE/DELETE per
+    Trigger verboten (SQLite unten, PostgreSQL Alembic f3a8c1e5b7d2). KEIN
+    FK auf mandates/clients (Purge-fest), nur captured_by -> users.
+    ``tenant_id`` direkt (RLS), aus dem Mandat, INSERT-Guard
+    (core/mandate_evidence_tenant_boundary.py); nicht Teil des Hashes.
+    Keine Engine-Wirkung: Ausschluesse wirken nur als Untergrenze der
+    Strategiebausteine beim Generieren (routers/allocation.py).
+    """
+
+    __tablename__ = "investment_preference_decisions"
+    __table_args__ = (
+        Index("ux_investment_preference_decisions_sequence", "mandate_id", "sequence_no", unique=True),
+        Index("ix_investment_preference_decisions_tenant_id", "tenant_id"),
+        CheckConstraint("sequence_no >= 1", name="ck_investment_preference_sequence"),
+        CheckConstraint(
+            "response_status IN ('answered','declined')",
+            name="ck_investment_preference_response_status",
+        ),
+        CheckConstraint(
+            "esg_relevance IS NULL OR esg_relevance IN ('yes','not_relevant')",
+            name="ck_investment_preference_relevance",
+        ),
+        CheckConstraint(
+            "esg_characteristic IS NULL OR esg_characteristic IN "
+            "('sdg_alignment','esg_factors','no_specific')",
+            name="ck_investment_preference_characteristic",
+        ),
+        CheckConstraint(
+            "profile_code IN ('no_preference','sdg_goals','esg_factors','unspecified','declined')",
+            name="ck_investment_preference_profile_code",
+        ),
+        CheckConstraint(
+            "information_acknowledged IN (0,1)", name="ck_investment_preference_information",
+        ),
+        CheckConstraint("client_confirmed IN (0,1)", name="ck_investment_preference_confirmed"),
+    )
+
+    id = Column(String, primary_key=True)
+    schema_version = Column(String, nullable=False, default="InvestmentPreferenceDecisionV1")
+    tenant_id = Column(String)
+    mandate_id = Column(String, nullable=False)
+    client_id = Column(String)
+    sequence_no = Column(Integer, nullable=False)
+    supersedes_id = Column(String)
+    questionnaire_version = Column(String, nullable=False)
+    definition_hash = Column(String, nullable=False)
+    derivation_version = Column(String, nullable=False)
+    response_status = Column(String, nullable=False)
+    esg_relevance = Column(String)
+    esg_characteristic = Column(String)
+    exclusions_json = Column(String, nullable=False)
+    waived_exclusions_json = Column(String, nullable=False)
+    waiver_reasons_sealed = Column(String)
+    profile_code = Column(String, nullable=False)
+    information_acknowledged = Column(Integer, nullable=False)
+    client_confirmed = Column(Integer, nullable=False)
+    mandate_type_at_capture = Column(String)
+    review_policy_months = Column(Integer, nullable=False)
+    review_due_on = Column(String, nullable=False)
+    captured_by = Column(String, ForeignKey("users.id"), nullable=False)
+    captured_at = Column(String, nullable=False)
+    decision_hash = Column(String, nullable=False)
+    created_at = Column(String, nullable=False)
+
+
+for _trigger_ddl in INVESTMENT_PREFERENCE_DECISION_SQLITE_TRIGGERS:
+    event.listen(
+        InvestmentPreferenceDecision.__table__,
+        "after_create",
+        DDL(_trigger_ddl).execute_if(dialect="sqlite"),
+    )
+
+
+def current_investment_preference(db, mandate_id):
+    """Aktuelle Nachhaltigkeitspraeferenz = hoechste sequence_no (oder None)."""
+    return (
+        db.query(InvestmentPreferenceDecision)
+        .filter(InvestmentPreferenceDecision.mandate_id == mandate_id)
+        .order_by(InvestmentPreferenceDecision.sequence_no.desc())
+        .first()
     )
 
 # PG-002: Mandanten-/Kombinationsschutz beim INSERT (nach create_all, wenn

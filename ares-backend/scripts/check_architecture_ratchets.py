@@ -170,7 +170,12 @@ ENV_ATTRS = frozenset({"environ", "getenv", "putenv", "unsetenv"})
 #   core.evidence -- K-1 (A2 M4): kanonische Serialisierung/Evidence-Hash.
 #   core.reason_codes -- K-2/K-2b (A2 M5/M17): Reason-Code-Katalog + DomainError;
 #     Ziel jedes Service-Imports der DomainError-Migration (nur enum/typing).
-FAN_OUT_EXEMPT_LEAVES = frozenset({"core.evidence", "core.reason_codes"})
+#   core.sustainability_preference -- E1-E3 (Dok. 106): Definition, Ableitung,
+#     Kundentexte und Untergrenze der Nachhaltigkeitspraeferenz (nur hashlib/json);
+#     Router, PDF und Tests lesen dieselbe Quelle ohne neue Kopplung.
+FAN_OUT_EXEMPT_LEAVES = frozenset(
+    {"core.evidence", "core.reason_codes", "core.sustainability_preference"}
+)
 _STDLIB = frozenset(sys.stdlib_module_names) | {"__future__"}
 _DYNAMIC_IMPORT_CALLS = frozenset({"__import__", "import_module"})
 # Regel 6, Blattvertrag (Positivliste der Modulebene, siehe Docstring).

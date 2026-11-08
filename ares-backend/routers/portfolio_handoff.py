@@ -37,7 +37,7 @@ from schemas.portfolio_handoff import (
     PortfolioHandoffPreviewResponse,
     PortfolioHandoffResponse,
 )
-from services.audit import log
+from services.audit import gate_block_audit, log
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.portfolio_handoff import (
     HoldingsValuationIncompleteError,
@@ -242,6 +242,10 @@ def create_portfolio_handoff(
     # Persistierung.
     assert_recommendation_release_eligible(
         db, mandate, channel=CHANNEL_HANDOFF, run=run,
+        audit=gate_block_audit(
+            db, user=current_user, mandate=mandate, ip_address=_extract_client_ip(request),
+            table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+        ),
     )
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
     from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible

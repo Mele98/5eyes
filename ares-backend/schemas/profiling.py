@@ -279,3 +279,75 @@ class SuitabilityCheckResponse(BaseResponse):
     checked_by: str
     checked_at: str
     created_at: str
+
+
+# ── E1 Nachhaltigkeitspraeferenzen (Dok. 106) ─────────────────────────────────
+# Werte und Texte: core/sustainability_preference.py (eine Quelle). Fachliche
+# Pruefungen (Kombinationen, Verzicht nur Anlageberatung, gesperrte harte
+# Ausschluesse) im Router mit Reason-Codes.
+
+class SustainabilityPreferenceCreate(BaseModel):
+    questionnaire_version: str
+    definition_hash: str
+    response_status: Literal["answered", "declined"]
+    esg_relevance: Optional[Literal["yes", "not_relevant"]] = None
+    esg_characteristic: Optional[Literal["sdg_alignment", "esg_factors", "no_specific"]] = None
+    exclusions: list[str] = []
+    # Gesperrt bis E4/E5 (Codex F10): True -> 422 SUSTAINABILITY_HARD_EXCLUSION_LOCKED.
+    hard_exclusion_requested: bool = False
+    # Kundenverzicht je Ausschluss-Thema {theme: Begruendung}; nur Anlageberatung.
+    waivers: dict[str, str] = {}
+    information_acknowledged: bool = False
+    client_confirmed: bool = False
+    # Optimistische Sperre: ID der Version, auf der die Erfassung beruht
+    # (None = erste Erfassung).
+    expected_current_id: Optional[str] = None
+    data_classification: Optional[str] = None
+
+
+class SustainabilityPreferenceResponse(BaseModel):
+    id: str
+    schema_version: str
+    mandate_id: str
+    sequence_no: int
+    supersedes_id: Optional[str] = None
+    questionnaire_version: str
+    definition_hash: str
+    derivation_version: str
+    response_status: str
+    esg_relevance: Optional[str] = None
+    esg_characteristic: Optional[str] = None
+    exclusions: list[str] = []
+    waived_exclusions: list[str] = []
+    profile_code: str
+    profile_text: str
+    limit_texts: list[str] = []
+    information_acknowledged: bool
+    client_confirmed: bool
+    mandate_type_at_capture: Optional[str] = None
+    review_policy_months: int
+    review_due_on: str
+    captured_by: str
+    captured_at: str
+    decision_hash: str
+
+
+class SustainabilityPreferenceState(BaseModel):
+    current: Optional[SustainabilityPreferenceResponse] = None
+    history: list[SustainabilityPreferenceResponse] = []
+    review_status: Literal["current", "due", "missing"]
+    review_notice: Optional[str] = None
+    review_policy_months: int
+    review_policy_label: str
+    waiver_allowed: bool
+    hard_exclusions_available: bool = False
+    hard_exclusion_locked_note: str
+    # N-888-03: Verzicht unwirksam, weil das Mandat keine Anlageberatung ist.
+    waiver_void: bool = False
+    waiver_void_notice: Optional[str] = None
+    # N-888-01: Untergrenze gegen die aktuelle Soll-Allokation
+    # (none | ok | violated | unreadable | no_strategy); violated/unreadable =
+    # Allokation veraltet, Empfehlung/Finalize/Freigabe gesperrt.
+    allocation_floor_status: str = "none"
+    allocation_floor_themes: list[str] = []
+    allocation_stale_notice: Optional[str] = None

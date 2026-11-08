@@ -1,5 +1,5 @@
 {
- "dump_sha256": "0d5f5e4ec8b8e61cec6e578f708a2e61938ec8d8a48403a8d68720d72a4c5c40",
+ "dump_sha256": "a325c61d767bdbc0a6ebcd9beac33613222ae16ea6371b9679327400f2b1059d",
  "tables": {
   "asset_class_annual_returns": {
    "columns": [
@@ -657,11 +657,12 @@
     "risk_questionnaire_v2_enabled",
     "slug",
     "storage_quota_mb",
+    "sustainability_review_months",
     "updated_at"
    ],
    "row_count": 1,
    "row_sha256": [
-    "14b684915aaa1c179099bf7a6e032dc5"
+    "173aad4f8f38e27223e9d180476e05ef"
    ]
   },
   "users": {

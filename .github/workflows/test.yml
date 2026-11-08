@@ -696,7 +696,7 @@ jobs:
         # N-869-4: test_postgres_audit_chain_rls_live.py prueft die Kette mit
         # aktiver RLS-Policy, unprivilegierter Rolle und zwei Tenants sowie
         # Endpoint/Startpruefung im Operator-Bypass und Alembic c8a2f4e6b0d9.
-        run: python -m pytest tests/test_postgres_rls_adversarial.py tests/test_authten07_login_guard_postgres_ddl.py tests/test_rls_dynamic_table_coverage_guard.py tests/test_postgres_alembic_views_live.py tests/test_postgres_rls_global_reference_rows.py tests/test_postgres_wealth_tenant_boundary_live.py tests/test_postgres_risk_evidence_tenant_boundary_live.py tests/test_portfolio_handoff_db_invariants.py tests/test_postgres_money_bigint_live.py tests/test_postgres_mandate_evidence_tenant_boundary_live.py tests/test_postgres_tenant_direct_followup_live.py tests/test_postgres_audit_immutable_function_live.py tests/test_postgres_audit_chain_multi_entry_live.py tests/test_postgres_audit_chain_rls_live.py -q
+        run: python -m pytest tests/test_postgres_rls_adversarial.py tests/test_authten07_login_guard_postgres_ddl.py tests/test_rls_dynamic_table_coverage_guard.py tests/test_postgres_alembic_views_live.py tests/test_postgres_rls_global_reference_rows.py tests/test_postgres_wealth_tenant_boundary_live.py tests/test_postgres_risk_evidence_tenant_boundary_live.py tests/test_portfolio_handoff_db_invariants.py tests/test_postgres_money_bigint_live.py tests/test_postgres_mandate_evidence_tenant_boundary_live.py tests/test_postgres_tenant_direct_followup_live.py tests/test_postgres_audit_immutable_function_live.py tests/test_postgres_audit_chain_multi_entry_live.py tests/test_postgres_audit_chain_rls_live.py tests/test_postgres_investment_preference_decisions_live.py -q
 
   vitest:
     # Sprint U-53 (2026-06-04): Frontend Reporting Sub-App vitest in CI.
@@ -766,6 +766,13 @@ jobs:
           ARES_REQUIRE_PLAYWRIGHT: "1"
         run: |
           python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/chartjs-h5             --startup-timeout 300 --test-timeout 300 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_h5_soll_fan_chart_points_match_axis.py -p no:xdist -rs --tb=short
+
+      - name: Veraltet-Banner und Umsetzen-Button je Mandat (N-888-14/16, Playwright Pflicht)
+        working-directory: ares-backend
+        env:
+          ARES_REQUIRE_PLAYWRIGHT: "1"
+        run: |
+          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/n888-14             --startup-timeout 300 --test-timeout 300 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_n888_14_stale_banner_first_open.py tests/test_livetest_n888_16_real_mandate_switch.py -p no:xdist -rs --tb=short
 
       - name: Upload vitest log on failure
         if: failure()

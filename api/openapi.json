@@ -21918,6 +21918,390 @@
         "title": "SustainabilityCategoryInfo",
         "type": "object"
       },
+      "SustainabilityPreferenceCreate": {
+        "properties": {
+          "client_confirmed": {
+            "default": false,
+            "title": "Client Confirmed",
+            "type": "boolean"
+          },
+          "data_classification": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Classification"
+          },
+          "definition_hash": {
+            "title": "Definition Hash",
+            "type": "string"
+          },
+          "esg_characteristic": {
+            "anyOf": [
+              {
+                "enum": [
+                  "sdg_alignment",
+                  "esg_factors",
+                  "no_specific"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esg Characteristic"
+          },
+          "esg_relevance": {
+            "anyOf": [
+              {
+                "enum": [
+                  "yes",
+                  "not_relevant"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esg Relevance"
+          },
+          "exclusions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Exclusions",
+            "type": "array"
+          },
+          "expected_current_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Current Id"
+          },
+          "hard_exclusion_requested": {
+            "default": false,
+            "title": "Hard Exclusion Requested",
+            "type": "boolean"
+          },
+          "information_acknowledged": {
+            "default": false,
+            "title": "Information Acknowledged",
+            "type": "boolean"
+          },
+          "questionnaire_version": {
+            "title": "Questionnaire Version",
+            "type": "string"
+          },
+          "response_status": {
+            "enum": [
+              "answered",
+              "declined"
+            ],
+            "title": "Response Status",
+            "type": "string"
+          },
+          "waivers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "title": "Waivers",
+            "type": "object"
+          }
+        },
+        "required": [
+          "questionnaire_version",
+          "definition_hash",
+          "response_status"
+        ],
+        "title": "SustainabilityPreferenceCreate",
+        "type": "object"
+      },
+      "SustainabilityPreferenceResponse": {
+        "properties": {
+          "captured_at": {
+            "title": "Captured At",
+            "type": "string"
+          },
+          "captured_by": {
+            "title": "Captured By",
+            "type": "string"
+          },
+          "client_confirmed": {
+            "title": "Client Confirmed",
+            "type": "boolean"
+          },
+          "decision_hash": {
+            "title": "Decision Hash",
+            "type": "string"
+          },
+          "definition_hash": {
+            "title": "Definition Hash",
+            "type": "string"
+          },
+          "derivation_version": {
+            "title": "Derivation Version",
+            "type": "string"
+          },
+          "esg_characteristic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esg Characteristic"
+          },
+          "esg_relevance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esg Relevance"
+          },
+          "exclusions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Exclusions",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "information_acknowledged": {
+            "title": "Information Acknowledged",
+            "type": "boolean"
+          },
+          "limit_texts": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Limit Texts",
+            "type": "array"
+          },
+          "mandate_id": {
+            "title": "Mandate Id",
+            "type": "string"
+          },
+          "mandate_type_at_capture": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mandate Type At Capture"
+          },
+          "profile_code": {
+            "title": "Profile Code",
+            "type": "string"
+          },
+          "profile_text": {
+            "title": "Profile Text",
+            "type": "string"
+          },
+          "questionnaire_version": {
+            "title": "Questionnaire Version",
+            "type": "string"
+          },
+          "response_status": {
+            "title": "Response Status",
+            "type": "string"
+          },
+          "review_due_on": {
+            "title": "Review Due On",
+            "type": "string"
+          },
+          "review_policy_months": {
+            "title": "Review Policy Months",
+            "type": "integer"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "sequence_no": {
+            "title": "Sequence No",
+            "type": "integer"
+          },
+          "supersedes_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Id"
+          },
+          "waived_exclusions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Waived Exclusions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "schema_version",
+          "mandate_id",
+          "sequence_no",
+          "questionnaire_version",
+          "definition_hash",
+          "derivation_version",
+          "response_status",
+          "profile_code",
+          "profile_text",
+          "information_acknowledged",
+          "client_confirmed",
+          "review_policy_months",
+          "review_due_on",
+          "captured_by",
+          "captured_at",
+          "decision_hash"
+        ],
+        "title": "SustainabilityPreferenceResponse",
+        "type": "object"
+      },
+      "SustainabilityPreferenceState": {
+        "properties": {
+          "allocation_floor_status": {
+            "default": "none",
+            "title": "Allocation Floor Status",
+            "type": "string"
+          },
+          "allocation_floor_themes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Allocation Floor Themes",
+            "type": "array"
+          },
+          "allocation_stale_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allocation Stale Notice"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SustainabilityPreferenceResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hard_exclusion_locked_note": {
+            "title": "Hard Exclusion Locked Note",
+            "type": "string"
+          },
+          "hard_exclusions_available": {
+            "default": false,
+            "title": "Hard Exclusions Available",
+            "type": "boolean"
+          },
+          "history": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SustainabilityPreferenceResponse"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "review_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Notice"
+          },
+          "review_policy_label": {
+            "title": "Review Policy Label",
+            "type": "string"
+          },
+          "review_policy_months": {
+            "title": "Review Policy Months",
+            "type": "integer"
+          },
+          "review_status": {
+            "enum": [
+              "current",
+              "due",
+              "missing"
+            ],
+            "title": "Review Status",
+            "type": "string"
+          },
+          "waiver_allowed": {
+            "title": "Waiver Allowed",
+            "type": "boolean"
+          },
+          "waiver_void": {
+            "default": false,
+            "title": "Waiver Void",
+            "type": "boolean"
+          },
+          "waiver_void_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiver Void Notice"
+          }
+        },
+        "required": [
+          "review_status",
+          "review_policy_months",
+          "review_policy_label",
+          "waiver_allowed",
+          "hard_exclusion_locked_note"
+        ],
+        "title": "SustainabilityPreferenceState",
+        "type": "object"
+      },
       "SustainabilityStandardItem": {
         "properties": {
           "approval_mode": {
@@ -23848,6 +24232,17 @@
             ],
             "title": "Storage Quota Mb"
           },
+          "sustainability_review_months": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sustainability Review Months"
+          },
           "updated_at": {
             "title": "Updated At",
             "type": "string"
@@ -24043,6 +24438,17 @@
             ],
             "title": "Storage Quota Mb"
           },
+          "sustainability_review_months": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sustainability Review Months"
+          },
           "updated_at": {
             "title": "Updated At",
             "type": "string"
@@ -24098,6 +24504,19 @@
               }
             ],
             "title": "Home Jurisdiction"
+          },
+          "sustainability_review_months": {
+            "anyOf": [
+              {
+                "maximum": 120.0,
+                "minimum": 6.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sustainability Review Months"
           }
         },
         "title": "TenantSelfServiceUpdate",
@@ -24266,6 +24685,19 @@
               }
             ],
             "title": "Storage Quota Mb"
+          },
+          "sustainability_review_months": {
+            "anyOf": [
+              {
+                "maximum": 120.0,
+                "minimum": 6.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sustainability Review Months"
           }
         },
         "title": "TenantUpdate",
@@ -38367,6 +38799,110 @@
         ]
       }
     },
+    "/mandates/{mandate_id}/sustainability-preferences": {
+      "get": {
+        "description": "E1/E2: aktuelle Nachhaltigkeitspraeferenz, Historie (neueste zuerst) und\nReview-Status (Hauspolitik; 'due' = Eignungspruefung faellig, Hinweis).",
+        "operationId": "get_sustainability_preferences_mandates__mandate_id__sustainability_preferences_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityPreferenceState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Sustainability Preferences",
+        "tags": [
+          "Risikoprofilierung"
+        ]
+      },
+      "post": {
+        "description": "E1: neue Version der Nachhaltigkeitspraeferenz (append-only).",
+        "operationId": "create_sustainability_preference_mandates__mandate_id__sustainability_preferences_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SustainabilityPreferenceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityPreferenceState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Sustainability Preference",
+        "tags": [
+          "Risikoprofilierung"
+        ]
+      }
+    },
     "/mandates/{mandate_id}/target-allocation": {
       "post": {
         "operationId": "create_target_allocation_mandates__mandate_id__target_allocation_post",
@@ -41931,6 +42467,31 @@
           }
         ],
         "summary": "Get Risk Questionnaire Policy",
+        "tags": [
+          "Risikoprofilierung"
+        ]
+      }
+    },
+    "/sustainability-preferences/definition": {
+      "get": {
+        "description": "E1: versionierte Fragebogen-Definition (Texte, Optionen, Ableitung) mit\nDefinitions-Hash. Die Anzeigetexte sind Entwurf (Compliance-Freigabe offen).",
+        "operationId": "get_sustainability_preference_definition_sustainability_preferences_definition_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Sustainability Preference Definition",
         "tags": [
           "Risikoprofilierung"
         ]
