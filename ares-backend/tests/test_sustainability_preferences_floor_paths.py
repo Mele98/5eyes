@@ -297,3 +297,185 @@ def test_protocol_claim_guard_blocks_at_runtime(world, monkeypatch):
     with pytest.raises(DomainError) as exc:
         _protocol_notes(world)
     assert exc.value.reason_code == "SUSTAINABILITY_CLAIM_TEXT_BLOCKED"
+
+
+# ── Delta-Pruefrunde 4287cca8 (Dok. 86 ab Z. 9278): N-888-09..13 ────────────
+
+SIGN_BODY = {"signed_by_advisor": True, "signature_image": "data:image/png;base64,AAAA",
+             "signer_name": "Adv Int"}
+
+
+def _documents(world) -> dict:
+    with world["SF"]() as s:
+        rows = s.execute(text(
+            "SELECT document_type, id, bound_target_allocation_id FROM contract_documents "
+            "WHERE mandate_id = :m AND deleted_at IS NULL ORDER BY version DESC"
+        ), {"m": world["mandate_id"]}).all()
+    out: dict = {}
+    for doc_type, doc_id, bound in rows:
+        out.setdefault(doc_type, (doc_id, bound))
+    return out
+
+
+def test_old_documents_cannot_be_signed_after_healing_and_protocol_checks_final_run(world):
+    """N-888-09, exakt nach dem Pruefer-Ablauf: TA overweight -> Lauf ->
+    Finalize -> Anlagestrategie/Anlagerezept archiviert -> Ausschluss Tabak ->
+    Heilung (TA exclude) -> Signatur der alten Dokumente blockiert; das
+    Protokoll meldet die finalisierte Empfehlung als nicht eingehalten."""
+    client, mid = world["client"], world["mandate_id"]
+    _generate_ta(world, {"tobacco": "overweight"})
+    run_id, subs = _run_with_positions(world)
+    assert TOBACCO_SUB in subs
+    assert client.put(f"/mandates/{mid}/recommendations/{run_id}/finalize").status_code == 200
+    for path in ("anlagestrategie.pdf", "portfolio.pdf"):
+        resp = client.get(f"/mandates/{mid}/reports/{path}")
+        assert resp.status_code == 200, (path, resp.text[:300])
+    old = _documents(world)
+    assert old["Anlagestrategie"][1] and old["Anlagerezept"][1]  # gebunden
+    assert client.post(f"/mandates/{mid}/sustainability-preferences",
+                       json=_payload(exclusions=["tobacco"])).status_code == 201
+    # Heilung der Strategie.
+    _generate_ta(world, {"tobacco": "exclude"})
+    for doc_type in ("Anlagestrategie", "Anlagerezept"):
+        resp = client.post(f"/mandates/{mid}/documents/{old[doc_type][0]}/sign", json=SIGN_BODY)
+        assert resp.status_code == 409, (doc_type, resp.text)
+        assert resp.json()["detail"]["reason_code"] == "SUSTAINABILITY_DOCUMENT_OUTDATED"
+    channels = [a["channel"] for a in _floor_audits(world)]
+    assert channels.count("signature") == 2
+    # Protokoll: die finalisierte Empfehlung (Lauf 1) verletzt den Ausschluss.
+    notes, lines = _protocol_notes(world)
+    assert lines["Umsetzung in der Anlagestrategie"].startswith(
+        "Nicht eingehalten – die finalisierte Empfehlung"
+    )
+    assert sp.EXCLUSION_LIMIT_TEXT not in " ".join(notes)
+
+
+def test_bound_document_of_violating_allocation_is_blocked_and_unbound_fails_closed(world):
+    from core.reason_codes import DomainError
+    from models.review import ContractDocument
+    from services.recommendation_release_gate import assert_document_sustainability_floor
+
+    client, mid = world["client"], world["mandate_id"]
+    assert client.post(f"/mandates/{mid}/sustainability-preferences",
+                       json=_payload(exclusions=["tobacco"])).status_code == 201
+    loose_ta = _generate_ta(world, {"tobacco": "exclude"})
+    with world["SF"]() as s:
+        mandate = s.get(Mandate, mid)
+        ta = s.get(TargetAllocation, loose_ta)
+
+        def doc(**kw):
+            base = dict(document_type="Anlagestrategie", title="Anlagestrategie",
+                        pdf_generated_at="2999-01-01T00:00:00.000Z", created_at="2999-01-01T00:00:00.000Z")
+            base.update(kw)
+            return ContractDocument(**base)
+
+        ok = doc(bound_target_allocation_id=ta.id,
+                 bound_preferences_sha256=sp.preferences_sha256(ta.preferences_json))
+        assert_document_sustainability_floor(s, mandate, ok, channel="signature")
+        for bad, code in (
+            (doc(), "SUSTAINABILITY_DOCUMENT_UNBOUND"),
+            (doc(bound_target_allocation_id=ta.id, bound_preferences_sha256="0" * 64),
+             "SUSTAINABILITY_DOCUMENT_UNBOUND"),
+            (doc(bound_target_allocation_id=ta.id,
+                 bound_preferences_sha256=sp.preferences_sha256(ta.preferences_json),
+                 pdf_generated_at="2000-01-01T00:00:00.000Z"), "SUSTAINABILITY_DOCUMENT_OUTDATED"),
+        ):
+            with pytest.raises(DomainError) as exc:
+                assert_document_sustainability_floor(s, mandate, bad, channel="signature")
+            assert exc.value.reason_code == code
+        # Ein Beratungsvertrag haengt nicht an der Allokation.
+        assert_document_sustainability_floor(s, mandate, doc(document_type="Beratungsvertrag"), channel="signature")
+    # Gebunden an eine gelockerte Allokation -> 422 Untergrenze.
+    loose = _generate_ta_unchecked(world, {"tobacco": "overweight"})
+    with world["SF"]() as s:
+        mandate = s.get(Mandate, mid)
+        ta = s.get(TargetAllocation, loose)
+        bound = ContractDocument(document_type="Anlagerezept", title="x",
+                                 pdf_generated_at="2999-01-01T00:00:00.000Z",
+                                 bound_target_allocation_id=ta.id,
+                                 bound_preferences_sha256=sp.preferences_sha256(ta.preferences_json))
+        with pytest.raises(DomainError) as exc:
+            assert_document_sustainability_floor(s, mandate, bound, channel="signature")
+        assert exc.value.reason_code == FLOOR
+
+
+def _generate_ta_unchecked(world, tilts) -> str:
+    """Service-Aufruf ohne Router (die Untergrenze sitzt im Router) -- nur um
+    eine verletzende Allokation als Testzustand zu erzeugen."""
+    return _generate_ta(world, tilts)
+
+
+@pytest.mark.parametrize("path", ["anlagestrategie.pdf", "portfolio.pdf", "cost-disclosure.pdf"])
+def test_client_pdfs_are_blocked_while_strategy_violates_exclusions(world, path):
+    client, mid = world["client"], world["mandate_id"]
+    _generate_ta(world, {"tobacco": "overweight"})
+    run_id, _ = _run_with_positions(world)
+    assert client.put(f"/mandates/{mid}/recommendations/{run_id}/finalize").status_code == 200
+    assert client.post(f"/mandates/{mid}/sustainability-preferences",
+                       json=_payload(exclusions=["tobacco"])).status_code == 201
+    resp = client.get(f"/mandates/{mid}/reports/{path}")
+    assert resp.status_code == 422, resp.text[:300]
+    assert resp.json()["detail"]["reason_code"] == FLOOR
+    assert resp.json()["detail"]["channel"] == "client_pdf"
+    assert [a["channel"] for a in _floor_audits(world)] == ["client_pdf"]
+    with world["SF"]() as s:
+        archived = s.execute(text(
+            "SELECT count(*) FROM contract_documents WHERE mandate_id = :m"
+        ), {"m": mid}).scalar()
+    assert archived == 0
+
+
+def test_sensitivity_is_blocked_before_the_solver(world, monkeypatch):
+    import routers.allocation as allocation_router
+
+    client, mid = world["client"], world["mandate_id"]
+    _generate_ta(world, {"tobacco": "overweight"})
+    assert client.post(f"/mandates/{mid}/sustainability-preferences",
+                       json=_payload(exclusions=["tobacco"])).status_code == 201
+
+    def _solver(**_kw):
+        raise AssertionError("Solver darf nicht laufen")
+
+    monkeypatch.setattr(allocation_router, "evaluate_goal_sensitivity", _solver)
+    resp = client.post(f"/mandates/{mid}/target-allocation/sensitivity",
+                       json={"goal_id": "goal-int-pension-floor", "target_delta_pct": 10})
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["reason_code"] == FLOOR
+    assert resp.json()["detail"]["channel"] == "sensitivity"
+    assert [a["channel"] for a in _floor_audits(world)] == ["sensitivity"]
+
+
+def test_gate_block_audit_never_commits_business_state(world):
+    from services.audit import gate_block_audit
+
+    with world["SF"]() as s:
+        mandate = s.get(Mandate, world["mandate_id"])
+        user = s.get(User, world["advisor_id"])
+        mandate.mandate_number = "GEAENDERT-OHNE-COMMIT"       # dirty
+        s.add(models.tenant.Tenant(id="t-neu", display_name="x", slug="x-neu",
+                                   created_at="x", updated_at="x"))  # new
+        s.flush()                                                 # geflusht, nicht committet
+        gate_block_audit(s, user=user, mandate=mandate, ip_address="203.0.113.7",
+                         table_name="investment_preference_decisions",
+                         field_name="sustainability_floor_blocked")('{"event":"x"}', {"decision_id": "d1"})
+    with world["SF"]() as s:
+        assert s.get(Mandate, world["mandate_id"]).mandate_number != "GEAENDERT-OHNE-COMMIT"
+        assert s.execute(text("SELECT count(*) FROM tenants WHERE id = 't-neu'")).scalar() == 0
+        row = s.execute(text(
+            "SELECT record_id, ip_address FROM audit_log WHERE field_name = 'sustainability_floor_blocked'"
+        )).one()
+    assert row == ("d1", "203.0.113.7")
+
+
+def test_advisory_pdf_block_audits_the_client_ip(world):
+    client, mid = world["client"], world["mandate_id"]
+    _generate_ta(world, {"tobacco": "overweight"})
+    assert client.post(f"/mandates/{mid}/sustainability-preferences",
+                       json=_payload(exclusions=["tobacco"])).status_code == 201
+    resp = client.get(f"/mandates/{mid}/reports/advisory-report.pdf")
+    assert resp.status_code == 422, resp.text[:300]
+    with world["SF"]() as s:
+        ip = s.execute(text(
+            "SELECT ip_address FROM audit_log WHERE field_name = 'sustainability_floor_blocked'"
+        )).scalar()
+    assert ip  # TestClient-Adresse, nicht mehr NULL

@@ -1631,6 +1631,10 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         # Start, ohne vorhandene Vertragsdokumente zu beruehren.
         ensure_column(conn, "contract_documents", "pdf_base64", "TEXT")
         ensure_column(conn, "contract_documents", "content_hash", "TEXT")
+        # N-888-09 (2026-11-08): Bindung Dokument -> Soll-Allokation (Alembic
+        # c4e8a2f6b9d1); nullable, kein Backfill (Altbestand = ungebunden).
+        ensure_column(conn, "contract_documents", "bound_target_allocation_id", "TEXT")
+        ensure_column(conn, "contract_documents", "bound_preferences_sha256", "TEXT")
 
 
 _ADVISORY_LOG_HASH_FIELDS_PRE_REC007: tuple[str, ...] = (

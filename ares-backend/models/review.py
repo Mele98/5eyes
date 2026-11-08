@@ -94,6 +94,13 @@ class ContractDocument(Base):
     signature_client_signer_name = Column(String)
     signature_client_signed_at = Column(String)
     signature_client_ip = Column(String)
+    # N-888-09 (Dok. 106/86): Bindung eines archivierten Empfehlungsdokuments
+    # an die Soll-Allokation, deren Inhalt es traegt (ID + SHA-256 des
+    # Praeferenz-Snapshots). Signatur/Vor-Ort-Signatur pruefen GENAU diesen
+    # Inhalt gegen die aktuelle Nachhaltigkeitspraeferenz; ohne Bindung
+    # fail-closed. NULL = Altbestand bzw. kein Strategiebezug.
+    bound_target_allocation_id = Column(String)
+    bound_preferences_sha256 = Column(String)
     version = Column(Integer, nullable=False, default=1)
     supersedes_id = Column(String)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)

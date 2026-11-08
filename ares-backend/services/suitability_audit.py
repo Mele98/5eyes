@@ -169,7 +169,7 @@ def evaluate_suitability_freshness(
 
 
 def audit_mandate_suitability(
-    db: Session, mandate: Any,
+    db: Session, mandate: Any, *, include_sustainability_preference: bool = True,
 ) -> dict[str, Any]:
     """FIDLEG-Eignungspruefungs-Audit auf MANDATSEBENE
     (Art. 10 Pruefpflicht + Art. 12 Eignungspruefung).
@@ -239,7 +239,12 @@ def audit_mandate_suitability(
         # N-888-04 (Dok. 106): Status der Nachhaltigkeitspraeferenz als Hinweis
         # (nicht erfasst / Ueberpruefung faellig = Eignungspruefung faellig).
         # Aendert is_compliant NICHT (kein stilles Sperren, Entscheid E0).
-        "sustainability_preference": sustainability_preference_status(db, mandate),
+        # Der Advisory-Report (Query-Budget, N-888-12) laedt den Status nicht;
+        # er wird dort nicht angezeigt. Gates und Eignungs-Endpunkt laden ihn.
+        "sustainability_preference": (
+            sustainability_preference_status(db, mandate)
+            if include_sustainability_preference else None
+        ),
     }
 
     # Anzahl Beratungsprotokoll-Eintraege (nur informativ fuer die Anzeige).

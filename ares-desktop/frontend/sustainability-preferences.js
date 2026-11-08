@@ -304,9 +304,39 @@ function sustApplyFloorToStrategyBlocks(){
   });
 }
 
+// N-888-11: der Status "veraltet" kommt vom Server (abgeleitet aus aktueller
+// Erfassung und aktueller Soll-Allokation) und wird bei JEDEM Wechsel auf die
+// Asset Allokation neu gelesen -- also auch nach neuem Login: Banner
+// "Strategie veraltet", "Portfolio umsetzen" ausgeblendet.
+function sustRefreshAllocationStale(){
+  var mid=sustMandateId();
+  if(!sustIsRealMandate(mid)||typeof API==='undefined'||!API)return Promise.resolve(null);
+  return Promise.resolve().then(function(){
+    return API.get('/mandates/'+encodeURIComponent(mid)+'/sustainability-preferences');
+  }).then(function(state){
+    if(String(sustMandateId()||'')!==String(mid))return null;
+    SUST.state=state;SUST.mandateId=mid;
+    if(state&&state.allocation_stale_notice){
+      if(typeof markStrategyDirty==='function'){try{markStrategyDirty(state.allocation_stale_notice,true);}catch(e){}}
+      var btn=document.getElementById('btn-portfolio-umsetzen');
+      if(btn){btn.style.display='none';btn.disabled=true;}
+    }
+    return state;
+  }).catch(function(e){console.warn('Nachhaltigkeitspräferenzen:',e);return null;});
+}
+
+var _sustBaseGo=null;
 var _sustBaseLoadRisk=null;
 var _sustBaseOpenPrefs=null;
 function sustInstallWrappers(){
+  if(typeof go==='function'&&!_sustBaseGo){
+    _sustBaseGo=go;
+    go=function(p){
+      var r=_sustBaseGo.apply(this,arguments);
+      if(p==='al')Promise.resolve(r).then(function(){return sustRefreshAllocationStale();});
+      return r;
+    };
+  }
   if(typeof loadCurrentRiskAssessment==='function'&&!_sustBaseLoadRisk){
     _sustBaseLoadRisk=loadCurrentRiskAssessment;
     loadCurrentRiskAssessment=function(mid,renderUi){

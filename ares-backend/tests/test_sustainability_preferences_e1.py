@@ -289,7 +289,9 @@ def test_alembic_single_head_creates_and_drops_table_and_tenant_column(tmp_path)
     from sqlalchemy import create_engine, inspect
 
     script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
-    assert script.get_heads() == ["f3a8c1e5b7d2"]
+    # N-888-09: c4e8a2f6b9d1 (Dokumentbindung) setzt auf f3a8c1e5b7d2 auf.
+    assert script.get_heads() == ["c4e8a2f6b9d1"]
+    assert script.get_revision("c4e8a2f6b9d1").down_revision == "f3a8c1e5b7d2"
     assert script.get_revision("f3a8c1e5b7d2").down_revision == "f3a8c1d5e9b2"
     db_url = f"sqlite:///{tmp_path / 'alembic.db'}"
     cfg = _alembic_cfg(db_url)
@@ -298,6 +300,9 @@ def test_alembic_single_head_creates_and_drops_table_and_tenant_column(tmp_path)
     insp = inspect(engine)
     assert "investment_preference_decisions" in insp.get_table_names()
     assert "sustainability_review_months" in {c["name"] for c in insp.get_columns("tenants")}
+    assert {"bound_target_allocation_id", "bound_preferences_sha256"} <= {
+        c["name"] for c in insp.get_columns("contract_documents")
+    }
     with engine.connect() as conn:
         triggers = {r[0] for r in conn.execute(text(
             "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='investment_preference_decisions'"
@@ -310,6 +315,7 @@ def test_alembic_single_head_creates_and_drops_table_and_tenant_column(tmp_path)
     engine = create_engine(db_url)
     insp = inspect(engine)
     assert "investment_preference_decisions" not in insp.get_table_names()
+    assert "bound_target_allocation_id" not in {c["name"] for c in insp.get_columns("contract_documents")}
     assert "sustainability_review_months" not in {c["name"] for c in insp.get_columns("tenants")}
     engine.dispose()
 

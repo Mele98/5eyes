@@ -29,6 +29,7 @@ Verletzung).
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
 from sqlalchemy import text
@@ -392,3 +393,61 @@ def assert_sustainability_preference_floor(
     result = sustainability_floor_result(db, mandate, allocation=allocation, preferences=preferences)
     raise_sustainability_floor(result, channel, audit)
     return result
+
+
+def _block(reason_code, message, channel, audit, result) -> None:
+    if audit is not None:
+        audit(sustainability.floor_audit_payload(result, channel), result)
+    raise DomainError(reason_code, message, http_status=409, extra={"channel": channel})
+
+
+def assert_document_sustainability_floor(
+    db: Session,
+    mandate: Any,
+    document: Any,
+    *,
+    channel: str,
+    audit=None,
+) -> None:
+    """N-888-09: Signatur/Vor-Ort-Signatur pruefen GENAU den Inhalt des
+    Dokuments (gebundene Soll-Allokation + Praeferenz-Snapshot-Hash) gegen die
+    aktuelle Nachhaltigkeitspraeferenz -- nicht die aktuelle Allokation.
+
+    Nur fuer Empfehlungsdokumente und nur, solange wirksame Kundenausschluesse
+    bestehen. Fail-closed: ohne Bindung bzw. bei geaendertem Snapshot 409
+    SUSTAINABILITY_DOCUMENT_UNBOUND, vor der aktuellen Praeferenz-Version
+    erzeugt 409 SUSTAINABILITY_DOCUMENT_OUTDATED, gebundene Allokation
+    gelockert 422 SUSTAINABILITY_PREFERENCE_FLOOR_VIOLATED."""
+    if str(getattr(document, "document_type", "") or "") not in RECOMMENDATION_DOCUMENT_TYPES:
+        return
+    decision = current_preference_decision(db, mandate)
+    if decision is None:
+        return
+    mandate_type = getattr(mandate, "mandate_type", None)
+    base = sustainability.evaluate_floor(decision, mandate_type, {}, has_strategy=False)
+    if base["status"] == sustainability.FLOOR_UNREADABLE:
+        raise_sustainability_floor(base, channel, audit)
+    if base["status"] == sustainability.FLOOR_NONE:
+        return
+    label = sustainability.FLOOR_CHANNEL_LABELS.get(channel, "Freigabe nicht möglich")
+    doc_label = f"{label}: Das Dokument «{getattr(document, 'title', '') or document.document_type}» "
+    generated = str(getattr(document, "pdf_generated_at", None) or getattr(document, "created_at", "") or "")
+    if generated < str(decision.get("captured_at") or ""):
+        _block(ReasonCode.SUSTAINABILITY_DOCUMENT_OUTDATED,
+               doc_label + sustainability.DOCUMENT_OUTDATED_TEXT, channel, audit,
+               {**base, "status": "document_outdated"})
+    # Gebundene Allokation (auch nicht mehr aktuelle), Mandat geprueft.
+    allocation = _run_allocation(
+        db, mandate, SimpleNamespace(target_allocation_id=getattr(document, "bound_target_allocation_id", None)),
+    )
+    if (
+        allocation is None
+        or sustainability.preferences_sha256(allocation.preferences_json)
+        != getattr(document, "bound_preferences_sha256", None)
+    ):
+        _block(ReasonCode.SUSTAINABILITY_DOCUMENT_UNBOUND,
+               doc_label + sustainability.DOCUMENT_UNBOUND_TEXT, channel, audit,
+               {**base, "status": "document_unbound"})
+    assert_sustainability_preference_floor(
+        db, mandate, allocation=allocation, channel=channel, audit=audit,
+    )

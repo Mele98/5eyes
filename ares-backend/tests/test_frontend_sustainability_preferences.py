@@ -70,3 +70,14 @@ def test_floor_badge_and_journey_hooks():
     assert "loadCurrentRiskAssessment=function" in src
     assert "openAllocationPreferencesModal=function" in src
     assert "review_notice" in src  # Eignungspruefung faellig = Hinweis
+
+
+def test_allocation_stale_state_is_reloaded_from_the_server_on_every_visit():
+    """N-888-11: nach neuem Login zeigt die Asset Allokation den Status
+    "veraltet" wieder (Server-Ableitung), blendet "Portfolio umsetzen" aus."""
+    src = _module()
+    assert "go=function(p)" in src and "if(p==='al')" in src
+    body = src[src.index("function sustRefreshAllocationStale()"):src.index("var _sustBaseGo=null;")]
+    assert "/sustainability-preferences" in body
+    assert "markStrategyDirty(state.allocation_stale_notice,true)" in body
+    assert "btn-portfolio-umsetzen" in body and "btn.disabled=true" in body

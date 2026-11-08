@@ -3,7 +3,7 @@
     "css_selectors": 1120,
     "event_handlers": 461,
     "ids": 1018,
-    "js_functions": 1354,
+    "js_functions": 1355,
     "modal_structures": 110,
     "script_blocks": 27,
     "style_blocks": 2,
@@ -9266,8 +9266,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/sustainability-preferences.js",
-      "sha256": "cac299c1bdc716d06c08f55087a8574347d7e44c9fc5347695914622aae4ecac",
-      "size_bytes": 17184
+      "sha256": "7101c581a2194d3e4a213606f7e8b8e4207c941dcdd1dfd44f07386c810132e9",
+      "size_bytes": 18565
     }
   ],
   "ids": [
@@ -22221,7 +22221,7 @@
     },
     {
       "declaration": "function",
-      "line": 309,
+      "line": 331,
       "name": "sustInstallWrappers",
       "source": "sustainability-preferences.js"
     },
@@ -22259,6 +22259,12 @@
       "declaration": "function",
       "line": 51,
       "name": "sustRadio",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 311,
+      "name": "sustRefreshAllocationStale",
       "source": "sustainability-preferences.js"
     },
     {

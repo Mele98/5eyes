@@ -504,7 +504,7 @@
   "leaf_content_sha256": {
     "core": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "core.evidence": "1ef7d766d44a9f5740fd7e461a00d740cda9489777bcc01fa72cd2a54fbb4e9c",
-    "core.reason_codes": "d96e69a68885643d0847c76e37f32868b6bd7e469df6e804624c5bcd2e2c57ab",
-    "core.sustainability_preference": "a654852f5c8b4c4671ea0c12b5b1d26937659130db3b5aa00b886f36472cd6ad"
+    "core.reason_codes": "0661fd6bfa8e15673dc5867508518d17897676e4f7cf8f4d59045122d53374bf",
+    "core.sustainability_preference": "540cf4ff97cedc23f999e66df7215916debdbc5ca3c3975b0e0d693eaffc57a7"
   }
 }

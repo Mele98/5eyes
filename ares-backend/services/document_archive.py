@@ -66,6 +66,7 @@ def archive_generated_pdf(
     content_hash: str,
     current_user: User,
     ip_address: str | None = None,
+    binding: dict | None = None,
 ) -> ContractDocument:
     latest = (
         db.query(ContractDocument)
@@ -77,7 +78,16 @@ def archive_generated_pdf(
         .order_by(ContractDocument.version.desc())
         .first()
     )
-    if latest is not None and latest.content_hash == content_hash:
+    binding = binding or {}
+    bound_ta = binding.get("target_allocation_id")
+    bound_prefs = binding.get("preferences_sha256")
+    # N-888-09: ein inhaltsgleiches Dokument wird nur wiederverwendet, wenn es
+    # an dieselbe Allokation/denselben Praeferenz-Snapshot gebunden ist.
+    if (
+        latest is not None and latest.content_hash == content_hash
+        and getattr(latest, "bound_target_allocation_id", None) == bound_ta
+        and getattr(latest, "bound_preferences_sha256", None) == bound_prefs
+    ):
         return latest
 
     now = _now()
@@ -94,6 +104,8 @@ def archive_generated_pdf(
         # (CHECK-Constraint in ares_schema.sql) -- passt exakt:
         # ein automatisch abgelegtes Dokument ist weder Entwurf noch signiert.
         status="Archiviert",
+        bound_target_allocation_id=bound_ta,
+        bound_preferences_sha256=bound_prefs,
         signed_by_advisor=0,
         signed_by_client=0,
         version=(latest.version + 1) if latest is not None else 1,

@@ -409,7 +409,9 @@ def test_alembic_single_head_adds_and_removes_the_columns(tmp_path):
     script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
     # E1 Nachhaltigkeitspraeferenzen (Dok. 106) setzt f3a8c1e5b7d2 als
     # einzigen Head auf f3a8c1d5e9b2 (N-886-08); H5b bleibt in der Kette.
-    assert script.get_heads() == ["f3a8c1e5b7d2"]
+    # N-888-09: c4e8a2f6b9d1 (Dokumentbindung) setzt auf f3a8c1e5b7d2 auf.
+    assert script.get_heads() == ["c4e8a2f6b9d1"]
+    assert script.get_revision("c4e8a2f6b9d1").down_revision == "f3a8c1e5b7d2"
     assert script.get_revision("f3a8c1e5b7d2").down_revision == "f3a8c1d5e9b2"
     assert script.get_revision("f3a8c1d5e9b2").down_revision == "e7c4a9b2d6f1"
     assert script.get_revision("e7c4a9b2d6f1").down_revision == "d3b7f1a5c9e2"

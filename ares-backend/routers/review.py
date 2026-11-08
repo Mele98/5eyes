@@ -89,6 +89,7 @@ from services.recommendation_release_gate import (
     SIGNOFF_BOUND_DOCUMENT_TYPES,
     assert_recommendation_release_eligible,
     assert_risk_signoff_release_eligible,
+    assert_document_sustainability_floor,
     assert_sustainability_preference_floor,
     current_preference_decision,
     risk_budget_release_errors,
@@ -1813,6 +1814,11 @@ def sign_document(
     if str(doc.document_type or "") in RECOMMENDATION_DOCUMENT_TYPES:
         assert_recommendation_release_eligible(
             db, mandate, channel=CHANNEL_SIGNATURE,
+            audit=_floor_audit(db, current_user, mandate, request),
+        )
+        # N-888-09: genau den gebundenen Inhalt des Dokuments pruefen.
+        assert_document_sustainability_floor(
+            db, mandate, doc, channel=CHANNEL_SIGNATURE,
             audit=_floor_audit(db, current_user, mandate, request),
         )
         # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.

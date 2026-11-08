@@ -11,6 +11,7 @@ import logging
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -20,6 +21,9 @@ logger = logging.getLogger(__name__)
 from core import sustainability_preference as sustainability
 from core.reason_codes import DomainError, ReasonCode
 from services.portfolio_engine_payload import ESG_CUSTOMER_CLAIM_LABELS
+from services.recommendation_release_gate import (
+    assert_sustainability_preference_floor as _assert_floor,
+)
 from core.http_filenames import content_disposition
 from models.mandates import Mandate
 from models.profiling import current_investment_preference
@@ -1206,6 +1210,36 @@ def _assert_client_pdf_signoff(db: Session, mandate: Mandate) -> None:
     assert_risk_signoff_release_eligible(db, mandate, channel=CHANNEL_CLIENT_PDF)
 
 
+def _assert_client_pdf_sustainability_floor(db: Session, mandate: Mandate, current_user, request) -> None:
+    """N-888-10: Kunden-PDFs mit Strategie/Produkten (Anlagestrategie,
+    Anlagerezept, Kostenausweis) nur, wenn die aktuelle Soll-Allokation die
+    Kundenausschluesse einhaelt -- gleiche Sperre wie das Advisory-PDF, mit
+    Audit-Eintrag, VOR Render und Archiv."""
+    def _audit(payload: str, result: dict) -> None:
+        gate_block_audit(
+            db, user=current_user, mandate=mandate,
+            ip_address=_extract_client_ip(request) if request is not None else None,
+            table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+        )(payload, result)
+
+    _assert_floor(
+        db, mandate, allocation=_latest_target_allocation(mandate, db),
+        channel="client_pdf", audit=_audit,
+    )
+
+
+def _document_binding(mandate: Mandate, db: Session) -> dict | None:
+    """N-888-09: Bindung eines archivierten Empfehlungsdokuments an die
+    aktuelle Soll-Allokation (ID + SHA-256 des Praeferenz-Snapshots)."""
+    ta = _latest_target_allocation(mandate, db)
+    if ta is None:
+        return None
+    return {
+        "target_allocation_id": ta.id,
+        "preferences_sha256": sustainability.preferences_sha256(getattr(ta, "preferences_json", None)),
+    }
+
+
 def _assert_client_pdf_cma_hold(db: Session, mandate: Mandate) -> None:
     """CMA-001 / ADR-12a-Release-Hold: Kunden-PDFs, die Strategie oder
     Positionen der aktuellen Soll-Allokation tragen, sind gesperrt, solange
@@ -1238,6 +1272,7 @@ def get_anlagestrategie_pdf(
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
+    _assert_client_pdf_sustainability_floor(db, mandate, current_user, request)
     _assert_report_allocation_context(mandate, db, expected_allocation_id)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
@@ -1251,6 +1286,7 @@ def get_anlagestrategie_pdf(
         title="Anlagestrategie / Vertrag", pdf_bytes=pdf_bytes,
         content_hash=content_hash_for(data),
         current_user=current_user, ip_address=_extract_client_ip(request),
+        binding=_document_binding(mandate, db),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
     # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
@@ -1641,6 +1677,7 @@ def get_portfolio_pdf(
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
+    _assert_client_pdf_sustainability_floor(db, mandate, current_user, request)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
     data = _build_portfolio_data(mandate, db)
@@ -1650,6 +1687,7 @@ def get_portfolio_pdf(
         title="Portfolio-/Umsetzungsplan", pdf_bytes=pdf_bytes,
         content_hash=content_hash_for(data),
         current_user=current_user, ip_address=_extract_client_ip(request),
+        binding=_document_binding(mandate, db),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
     # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
@@ -1956,6 +1994,20 @@ def _sustainability_protocol_view(db: Session, mandate: Mandate) -> dict:
         decision, mandate.mandate_type, getattr(ta, "preferences_json", None),
         has_strategy=ta is not None,
     )
+    # N-888-09: die letzte FINALISIERTE Empfehlung zaehlt mit -- eine geheilte
+    # Strategie macht eine alte, finalisierte Empfehlung nicht zulaessig.
+    final_prefs = db.execute(sql_text(
+        "SELECT ta.preferences_json, rr.updated_at FROM recommendation_runs rr "
+        "JOIN target_allocations ta ON ta.id = rr.target_allocation_id "
+        "WHERE rr.mandate_id = :mid AND rr.result_status = 'Final' "
+        "ORDER BY rr.updated_at DESC LIMIT 1"
+    ), {"mid": mandate.id}).first()
+    final_violated = False
+    if final_prefs is not None and floor["status"] != sustainability.FLOOR_NONE:
+        final_floor = sustainability.evaluate_floor(decision, mandate.mandate_type, final_prefs[0])
+        final_violated = sustainability.floor_blocks(final_floor)
+        if final_violated and floor["status"] in (sustainability.FLOOR_OK, sustainability.FLOOR_NO_STRATEGY):
+            floor = {**final_floor, "status": sustainability.FLOOR_VIOLATED}
     question1 = _RELEVANCE_LABELS.get(row.esg_relevance) or "Keine Angabe"
     question2 = "entfällt"
     if row.esg_characteristic:
@@ -1980,7 +2032,11 @@ def _sustainability_protocol_view(db: Session, mandate: Mandate) -> dict:
     if effective:
         lines.append(("Umsetzung in der Anlagestrategie", {
             sustainability.FLOOR_OK: "Ausschlusswünsche in der aktuellen Anlagestrategie eingehalten",
-            sustainability.FLOOR_VIOLATED: "Nicht eingehalten – Anlagestrategie neu berechnen",
+            sustainability.FLOOR_VIOLATED: (
+                "Nicht eingehalten – die finalisierte Empfehlung enthält gelockerte "
+                "Ausschlüsse; Empfehlung neu erstellen und finalisieren"
+                if final_violated else "Nicht eingehalten – Anlagestrategie neu berechnen"
+            ),
             sustainability.FLOOR_NO_STRATEGY: "Noch keine Anlagestrategie berechnet",
         }.get(floor["status"], "Nicht prüfbar – bitte prüfen")))
     lines += [
@@ -2226,6 +2282,7 @@ def get_protokoll_pdf(
         title="Beratungsprotokoll", pdf_bytes=pdf_bytes,
         content_hash=content_hash_for(data),
         current_user=current_user, ip_address=_extract_client_ip(request),
+        binding=_document_binding(mandate, db),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
     # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
@@ -2860,6 +2917,7 @@ def get_backtest_pdf(
 )
 def get_advisory_report_pdf(
     mandate_id: str,
+    request: Request = None,  # FastAPI injiziert ihn; Direktaufruf ohne Request = keine IP
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -2884,7 +2942,8 @@ def get_advisory_report_pdf(
     assert_recommendation_release_eligible(
         db, mandate, channel=CHANNEL_ADVISORY_PDF,
         audit=gate_block_audit(
-            db, user=current_user, mandate=mandate, ip_address=None,
+            db, user=current_user, mandate=mandate,
+            ip_address=_extract_client_ip(request) if request is not None else None,
             table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
         ),
     )
@@ -2959,6 +3018,7 @@ def get_cost_disclosure_pdf(
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
+    _assert_client_pdf_sustainability_floor(db, mandate, current_user, request)
     payload = build_cost_disclosure(db, mandate)
     if payload.get("evidence_status") == "blocked":
         # COST-SNAPSHOT-BINDING-001: ein vorhandener, aber ungueltiger
@@ -3010,7 +3070,12 @@ def get_cost_disclosure_pdf(
         .order_by(ContractDocument.version.desc())
         .first()
     )
-    if existing is not None and existing.content_hash == content_hash:
+    binding = _document_binding(mandate, db) or {}
+    if (
+        existing is not None and existing.content_hash == content_hash
+        and getattr(existing, "bound_target_allocation_id", None) == binding.get("target_allocation_id")
+        and getattr(existing, "bound_preferences_sha256", None) == binding.get("preferences_sha256")
+    ):
         # Render-once: identischer Fachinhalt -> dieselben archivierten
         # Bytes ausliefern statt erneut zu rendern (ReportLab bettet pro
         # Rendering einen wechselnden Font-Subset-Tag ein, siehe
@@ -3025,6 +3090,7 @@ def get_cost_disclosure_pdf(
             title="Kostenausweis ex-ante", pdf_bytes=pdf_bytes,
             content_hash=content_hash, current_user=current_user,
             ip_address=_extract_client_ip(request),
+            binding=binding or None,
         )
     safe_mandate = str(mandate.mandate_number or "mandate")[:40]
     filename = f"kostenausweis-{safe_mandate}.pdf"

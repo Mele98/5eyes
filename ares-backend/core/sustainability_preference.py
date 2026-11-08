@@ -473,7 +473,7 @@ FLOOR_UNREADABLE = "unreadable"    # Erfassung oder Praeferenz-Snapshot nicht le
 FLOOR_NO_STRATEGY = "no_strategy"  # Ausschluesse, aber keine Anlagestrategie
 
 CURRENT_DECISION_SQL = (
-    "SELECT id, exclusions_json, waived_exclusions_json, review_due_on "
+    "SELECT id, exclusions_json, waived_exclusions_json, review_due_on, captured_at "
     "FROM investment_preference_decisions WHERE mandate_id = :mandate_id "
     "ORDER BY sequence_no DESC LIMIT 1"
 )
@@ -487,7 +487,25 @@ FLOOR_CHANNEL_LABELS = {
     "advisory_pdf": "Der Advisory-Report kann nicht exportiert werden",
     "signature": "Das Dokument kann nicht unterzeichnet werden",
     "handoff": "Die Handelsliste kann nicht weitergeleitet werden",
+    "client_pdf": "Das Kundendokument kann nicht erstellt werden",
 }
+
+
+def preferences_sha256(preferences_json) -> str | None:
+    """SHA-256 des gespeicherten Praeferenz-Snapshots (Text, wie in der DB)."""
+    if preferences_json is None:
+        return None
+    return hashlib.sha256(str(preferences_json).encode("utf-8")).hexdigest()
+
+
+DOCUMENT_UNBOUND_TEXT = (
+    "ist keiner Anlagestrategie eindeutig zugeordnet (vor der Bindung erzeugt "
+    "oder Inhalt geändert). Bitte das Dokument neu erzeugen."
+)
+DOCUMENT_OUTDATED_TEXT = (
+    "wurde vor der aktuellen Nachhaltigkeitspräferenz erzeugt. Bitte das "
+    "Dokument neu erzeugen."
+)
 
 
 def effective_exclusions(decision, mandate_type):
