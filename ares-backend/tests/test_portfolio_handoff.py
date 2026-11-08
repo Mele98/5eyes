@@ -139,6 +139,11 @@ def _seed_mandate_and_run(session_factory, advisor_user, mandate_id="mandate-1",
             run_type="Initial", result_status="Final", created_by=advisor_user.id,
             created_at="2026-08-08T00:00:00.000Z", updated_at="2026-08-08T00:00:00.000Z",
         ))
+        session.flush()
+        # H8 N-890-12: der Handoff verlangt Kundeninformation und KYC (Testwerte).
+        from client_onboarding_fixture import satisfy_client_onboarding
+
+        satisfy_client_onboarding(session, session.get(Mandate, mandate_id), actor_id=advisor_user.id)
         session.commit()
 
 
