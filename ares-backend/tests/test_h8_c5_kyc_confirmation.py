@@ -278,3 +278,42 @@ def test_kyc_free_texts_can_only_be_redacted_to_the_erasure_marker(sf):
                    {"m": REDACTION_MARKER})
         db.commit()
         assert db.execute(text("SELECT external_reference FROM kyc_confirmations")).scalar() == REDACTION_MARKER
+
+
+# ---------------------------------------------------------------------------
+# N-890-15 (Entscheid konservativ): PEP-Ruecknahme vor der ersten Bestaetigung
+# ---------------------------------------------------------------------------
+
+
+def test_pep_withdrawal_before_first_confirmation_requires_second_approval(sf):
+    with sf() as db:
+        adv = user(db, "adv-1")
+        upsert_due_diligence(client_id="c-1", body=ClientDueDiligenceUpdate(
+            acting_for_own_account=True, pep_status=True), db=db, current_user=adv)
+        upsert_due_diligence(client_id="c-1", body=ClientDueDiligenceUpdate(
+            acting_for_own_account=True, pep_status=False), db=db, current_user=adv)
+        first = create_kyc_confirmation(client_id="c-1", body=_kyc_body(is_pep=False), request=Req(),
+                                        db=db, current_user=adv)
+        assert first.requires_second_approval is True
+        assert "KYC_SECOND_APPROVAL_MISSING" in codes(db)
+        approve_kyc_confirmation(client_id="c-1", confirmation_id=first.id,
+                                 body=KycConfirmationApprovalCreate(note="PEP-Ruecknahme geprueft"),
+                                 request=Req(), db=db, current_user=user(db, "adm-2"))
+        assert "KYC_SECOND_APPROVAL_MISSING" not in codes(db)
+        # Nach der freigegebenen Bestaetigung zaehlt die alte Ruecknahme nicht mehr.
+        again = create_kyc_confirmation(client_id="c-1", body=_kyc_body(is_pep=False), request=Req(),
+                                        db=db, current_user=adv)
+        assert again.requires_second_approval is False
+
+
+def test_without_pep_withdrawal_first_normal_confirmation_needs_no_second_approval(sf):
+    """Gegenprobe: ohne PEP-Vorgeschichte bleibt die erste Bestaetigung
+    "kein PEP, normal" ohne Zweitfreigabe."""
+    with sf() as db:
+        adv = user(db, "adv-1")
+        upsert_due_diligence(client_id="c-1", body=ClientDueDiligenceUpdate(
+            acting_for_own_account=True, pep_status=False), db=db, current_user=adv)
+        first = create_kyc_confirmation(client_id="c-1", body=_kyc_body(is_pep=False), request=Req(),
+                                        db=db, current_user=adv)
+        assert first.requires_second_approval is False
+        assert "KYC_SECOND_APPROVAL_MISSING" not in codes(db)

@@ -583,26 +583,47 @@ _RISK_RANK = {KYC_RISK_NORMAL: 0, "erhoeht": 1}
 
 
 def _reference_kyc_level(db: Session, client_id: str) -> tuple[int, int] | None:
-    """Massgebender Stand fuer die Herabstufungspruefung (N-890-03): das
+    """Massgebender Stand fuer die Herabstufungspruefung (N-890-03/-15): das
     hoechste Risiko bzw. PEP aller Bestaetigungen seit (und inklusive) der
     zuletzt WIRKSAMEN -- wirksam ist eine Bestaetigung, die keine Freigabe
     brauchte oder von einer zweiten Person freigegeben wurde. Noch nicht
     freigegebene Hoeherstufungen bleiben so massgebend, bis eine zweite
-    Person eine Herabstufung freigibt."""
+    Person eine Herabstufung freigibt.
+
+    N-890-15 (Entscheid konservativ, GwG/FINMA best practice): eine
+    auditierte PEP-Ruecknahme in der Sorgfaltspflicht-Erfassung (pep_status
+    1 -> 0) nach der zuletzt wirksamen Bestaetigung -- oder ueberhaupt, wenn
+    es noch keine gibt -- zaehlt ebenfalls als Referenz "PEP". Die erste
+    Bestaetigung "kein PEP" danach braucht die Zweitfreigabe."""
     rows = db.query(KycConfirmation).filter(
         KycConfirmation.client_id == client_id
     ).order_by(KycConfirmation.recorded_at.desc(), KycConfirmation.id.desc()).all()
     risk = pep = None
+    effective_at = None
     for row in rows:
         risk = max(risk or 0, _RISK_RANK.get(row.risk_category, 1))
         pep = max(pep or 0, int(row.is_pep or 0))
         if not int(row.requires_second_approval or 0):
+            effective_at = row.recorded_at
             break
         approval = db.query(KycConfirmationApproval).filter(
             KycConfirmationApproval.confirmation_id == row.id
         ).first()
         if approval is not None and str(approval.approved_by) != str(row.recorded_by):
+            effective_at = approval.approved_at
             break
+    sql = (
+        "SELECT 1 FROM audit_log WHERE client_id = :cid AND table_name = 'client_due_diligence' "
+        "AND field_name = 'pep_status' AND old_value = '1' AND new_value = '0'"
+    )
+    params: dict = {"cid": client_id}
+    if effective_at is not None:
+        sql += " AND created_at > :since"
+        params["since"] = str(effective_at)
+    withdrawal = db.execute(text(sql + " LIMIT 1"), params).first()
+    if withdrawal is not None:
+        risk = risk if risk is not None else 0
+        pep = 1
     return None if risk is None else (risk, pep)
 
 
