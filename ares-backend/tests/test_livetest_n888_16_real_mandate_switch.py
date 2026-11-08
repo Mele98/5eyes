@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -107,6 +108,15 @@ def server():
             proc.wait(timeout=30)
         except subprocess.TimeoutExpired:
             proc.kill()
+            proc.wait(timeout=30)
+        # N-888-17: Temp-Verzeichnis inkl. Test-DB wieder entfernen. Unter
+        # Windows gibt das OS die SQLite-Dateien (-wal/-shm) des beendeten
+        # Prozesses teils verzoegert frei -> kurz wiederholen.
+        for _ in range(40):
+            shutil.rmtree(tmp, ignore_errors=True)
+            if not tmp.exists():
+                break
+            time.sleep(0.5)
 
 
 def _seed_mandate(api: _Api, advisor_id: str, label: str, tilts: dict) -> tuple[str, str]:
