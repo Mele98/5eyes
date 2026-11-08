@@ -1,6 +1,6 @@
-# 5eyes — Onboarding fuer neue Berater
+# Ares — Onboarding fuer neue Berater
 
-Erst-Setup-Anleitung fuer Berater die zum ersten Mal mit 5eyes
+Erst-Setup-Anleitung fuer Berater die zum ersten Mal mit Ares
 arbeiten. Komplementaer zu
 [BERATER_README.md](BERATER_README.md) (Tag-zu-Tag-Workflows) und
 [GLOSSAR.md](GLOSSAR.md) (Begriffe). Hier:
@@ -36,7 +36,7 @@ in <= 2 Wochen.
 
 **Was du NICHT brauchst:**
 - Programmier-Kenntnisse (Backend laeuft im Hintergrund)
-- Marktdaten-Abo (5eyes nutzt gratis Quellen, siehe
+- Marktdaten-Abo (Ares nutzt gratis Quellen, siehe
   [ADR-005](adr/ADR-005-free-data-pipeline.md))
 
 **Hardware:**
@@ -49,8 +49,8 @@ in <= 2 Wochen.
 **Schritt 1: Installation**
 
 Berater-Installation kommt als Electron-Paket. Bei Erst-Start:
-- 5eyes-Backend startet automatisch auf `http://127.0.0.1:8000`
-- DB wird angelegt unter `%APPDATA%/5eyes/5eyes.db` (SQLCipher-
+- Ares-Backend startet automatisch auf `http://127.0.0.1:8000`
+- DB wird angelegt unter `%USERPROFILE%/ares/ares.db` (SQLCipher-
   verschluesselt)
 - Initialer Admin-User wird beim ersten Login erstellt
 
@@ -147,7 +147,7 @@ und "Bericht neu laden" Buttons.
 
 ## 6. Compliance-Grundlagen (Woche 2)
 
-**FIDLEG-Pflichten** die 5eyes durchsetzt:
+**FIDLEG-Pflichten** die Ares durchsetzt:
 
 | Pflicht | Aggregator-Sektion | Sprint |
 |---------|---------------------|--------|
@@ -224,8 +224,6 @@ Wenn alle Punkte abgehakt: Du bist startklar.
 - **Begriffe unklar:** [GLOSSAR.md](GLOSSAR.md)
 - **"Warum ist das so gebaut?"**: [adr/](adr/) Architektur-Entscheidungen
 - **Technische Details:** [README.md](../README.md) + Swagger-UI
-- **Codex-Kollaboration:** [CODEX_WIP.md](CODEX_WIP.md) (fuer
-  Engineer/CTO-Sicht)
 
 ## Naechste Schritte nach Onboarding
 

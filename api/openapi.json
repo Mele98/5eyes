@@ -1940,6 +1940,290 @@
         "title": "AssetClassAssumptionResponse",
         "type": "object"
       },
+      "AuditChainGap": {
+        "properties": {
+          "from_sequence": {
+            "title": "From Sequence",
+            "type": "integer"
+          },
+          "to_sequence": {
+            "title": "To Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from_sequence",
+          "to_sequence"
+        ],
+        "title": "AuditChainGap",
+        "type": "object"
+      },
+      "AuditChainSection": {
+        "properties": {
+          "ambiguous": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Ambiguous",
+            "type": "array"
+          },
+          "ambiguous_count": {
+            "title": "Ambiguous Count",
+            "type": "integer"
+          },
+          "break_count": {
+            "title": "Break Count",
+            "type": "integer"
+          },
+          "breaks": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Breaks",
+            "type": "array"
+          },
+          "checked": {
+            "title": "Checked",
+            "type": "integer"
+          },
+          "counter_value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counter Value"
+          },
+          "duplicate_count": {
+            "title": "Duplicate Count",
+            "type": "integer"
+          },
+          "duplicates": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Duplicates",
+            "type": "array"
+          },
+          "gap_count": {
+            "title": "Gap Count",
+            "type": "integer"
+          },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/AuditChainGap"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "hash_mismatch_count": {
+            "title": "Hash Mismatch Count",
+            "type": "integer"
+          },
+          "hash_mismatches": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Hash Mismatches",
+            "type": "array"
+          },
+          "last_sequence": {
+            "title": "Last Sequence",
+            "type": "integer"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "checked",
+          "last_sequence",
+          "break_count",
+          "breaks",
+          "gap_count",
+          "gaps",
+          "duplicate_count",
+          "duplicates",
+          "hash_mismatch_count",
+          "hash_mismatches",
+          "ambiguous_count",
+          "ambiguous"
+        ],
+        "title": "AuditChainSection",
+        "type": "object"
+      },
+      "AuditChainVerification": {
+        "properties": {
+          "chain": {
+            "$ref": "#/components/schemas/AuditChainSection"
+          },
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "legacy": {
+            "$ref": "#/components/schemas/AuditLegacySection"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "checked_at",
+          "chain",
+          "legacy"
+        ],
+        "title": "AuditChainVerification",
+        "type": "object"
+      },
+      "AuditLegacySection": {
+        "properties": {
+          "ambiguous": {
+            "title": "Ambiguous",
+            "type": "integer"
+          },
+          "ambiguous_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ambiguous Ids",
+            "type": "array"
+          },
+          "field_shift": {
+            "title": "Field Shift",
+            "type": "integer"
+          },
+          "field_shift_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Field Shift Ids",
+            "type": "array"
+          },
+          "hashed": {
+            "title": "Hashed",
+            "type": "integer"
+          },
+          "link_unconfirmed": {
+            "title": "Link Unconfirmed",
+            "type": "integer"
+          },
+          "link_unconfirmed_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Link Unconfirmed Ids",
+            "type": "array"
+          },
+          "mismatch_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Mismatch Ids",
+            "type": "array"
+          },
+          "mismatches": {
+            "title": "Mismatches",
+            "type": "integer"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "seal_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seal Count"
+          },
+          "seal_missing": {
+            "default": false,
+            "title": "Seal Missing",
+            "type": "boolean"
+          },
+          "seal_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seal Ok"
+          },
+          "seal_present": {
+            "title": "Seal Present",
+            "type": "boolean"
+          },
+          "seal_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seal Sequence"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "unexpected_unhashed": {
+            "title": "Unexpected Unhashed",
+            "type": "integer"
+          },
+          "unexpected_unhashed_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unexpected Unhashed Ids",
+            "type": "array"
+          },
+          "unhashed": {
+            "title": "Unhashed",
+            "type": "integer"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ok",
+          "total",
+          "hashed",
+          "unhashed",
+          "verified",
+          "link_unconfirmed",
+          "link_unconfirmed_ids",
+          "mismatches",
+          "mismatch_ids",
+          "ambiguous",
+          "ambiguous_ids",
+          "field_shift",
+          "field_shift_ids",
+          "unexpected_unhashed",
+          "unexpected_unhashed_ids",
+          "seal_present"
+        ],
+        "title": "AuditLegacySection",
+        "type": "object"
+      },
       "AuditLogEntry": {
         "properties": {
           "action": {
@@ -2084,6 +2368,16 @@
           "entries"
         ],
         "title": "AuditLogPage",
+        "type": "object"
+      },
+      "BaselineProposal": {
+        "properties": {
+          "matrix": {
+            "title": "Matrix",
+            "type": "object"
+          }
+        },
+        "title": "BaselineProposal",
         "type": "object"
       },
       "BausteinCreate": {
@@ -2278,6 +2572,20 @@
           "file"
         ],
         "title": "Body_import_products_csv_products_import_csv_post",
+        "type": "object"
+      },
+      "Body_import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post",
         "type": "object"
       },
       "BootstrapAdminRequest": {
@@ -4745,7 +5053,19 @@
       "ClientDueDiligenceResponse": {
         "properties": {
           "acting_for_own_account": {
-            "title": "Acting For Own Account",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acting For Own Account"
+          },
+          "acting_for_own_account_answered": {
+            "default": 0,
+            "title": "Acting For Own Account Answered",
             "type": "integer"
           },
           "beneficial_owner_name": {
@@ -4855,7 +5175,6 @@
           "client_id",
           "pep_status",
           "pep_details",
-          "acting_for_own_account",
           "beneficial_owner_name",
           "source_of_wealth",
           "id_document_type",
@@ -4872,9 +5191,15 @@
       "ClientDueDiligenceUpdate": {
         "properties": {
           "acting_for_own_account": {
-            "default": true,
-            "title": "Acting For Own Account",
-            "type": "boolean"
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acting For Own Account"
           },
           "beneficial_owner_name": {
             "anyOf": [
@@ -5040,6 +5365,581 @@
           "erased_at"
         ],
         "title": "ClientErasureResponse",
+        "type": "object"
+      },
+      "ClientInformationDeliveryCreate": {
+        "description": "Abgabe der Kundeninformation: welche archivierte Fassung, wann, wie.",
+        "properties": {
+          "backdating_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backdating Reason"
+          },
+          "contract_document_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Contract Document Id",
+            "type": "string"
+          },
+          "data_classification": {
+            "default": "synthetic",
+            "enum": [
+              "synthetic",
+              "real"
+            ],
+            "title": "Data Classification",
+            "type": "string"
+          },
+          "delivered_at": {
+            "title": "Delivered At",
+            "type": "string"
+          },
+          "delivery_channel": {
+            "enum": [
+              "persoenlich_papier",
+              "post",
+              "email",
+              "kundenportal"
+            ],
+            "title": "Delivery Channel",
+            "type": "string"
+          }
+        },
+        "required": [
+          "contract_document_id",
+          "delivered_at",
+          "delivery_channel"
+        ],
+        "title": "ClientInformationDeliveryCreate",
+        "type": "object"
+      },
+      "ClientInformationDeliveryResponse": {
+        "properties": {
+          "backdating_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backdating Reason"
+          },
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "contract_document_id": {
+            "title": "Contract Document Id",
+            "type": "string"
+          },
+          "delivered_at": {
+            "title": "Delivered At",
+            "type": "string"
+          },
+          "delivery_channel": {
+            "title": "Delivery Channel",
+            "type": "string"
+          },
+          "delivery_hash": {
+            "title": "Delivery Hash",
+            "type": "string"
+          },
+          "delivery_timing": {
+            "title": "Delivery Timing",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "legal_profile_hash": {
+            "title": "Legal Profile Hash",
+            "type": "string"
+          },
+          "legal_profile_revision": {
+            "title": "Legal Profile Revision",
+            "type": "integer"
+          },
+          "mandate_id": {
+            "title": "Mandate Id",
+            "type": "string"
+          },
+          "pdf_sha256": {
+            "title": "Pdf Sha256",
+            "type": "string"
+          },
+          "recorded_at": {
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "recorded_by": {
+            "title": "Recorded By",
+            "type": "string"
+          },
+          "template_version": {
+            "title": "Template Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "mandate_id",
+          "client_id",
+          "contract_document_id",
+          "template_version",
+          "legal_profile_revision",
+          "legal_profile_hash",
+          "pdf_sha256",
+          "delivered_at",
+          "delivery_channel",
+          "delivery_timing",
+          "recorded_by",
+          "recorded_at",
+          "delivery_hash"
+        ],
+        "title": "ClientInformationDeliveryResponse",
+        "type": "object"
+      },
+      "ClientOnboardingFinding": {
+        "properties": {
+          "confirmation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmation Id"
+          },
+          "contract_concluded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Concluded At"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "missing_fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing Fields"
+          },
+          "missing_labels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing Labels"
+          },
+          "owner_action": {
+            "title": "Owner Action",
+            "type": "string"
+          },
+          "reason_code": {
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason_code",
+          "message",
+          "owner_action",
+          "scope"
+        ],
+        "title": "ClientOnboardingFinding",
+        "type": "object"
+      },
+      "ClientOnboardingStatusResponse": {
+        "properties": {
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "contract_concluded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Concluded At"
+          },
+          "deliveries": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Deliveries",
+            "type": "array"
+          },
+          "due_diligence": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Diligence"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/ClientOnboardingFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "kyc_confirmation": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kyc Confirmation"
+          },
+          "kyc_requires_second_approval": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kyc Requires Second Approval"
+          },
+          "latest_document": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Document"
+          },
+          "legal_profile": {
+            "title": "Legal Profile",
+            "type": "object"
+          },
+          "mandate_id": {
+            "title": "Mandate Id",
+            "type": "string"
+          },
+          "release_ready": {
+            "title": "Release Ready",
+            "type": "boolean"
+          },
+          "template_version": {
+            "title": "Template Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mandate_id",
+          "client_id",
+          "release_ready",
+          "findings",
+          "legal_profile",
+          "deliveries",
+          "template_version"
+        ],
+        "title": "ClientOnboardingStatusResponse",
+        "type": "object"
+      },
+      "ClientRepresentationCreate": {
+        "properties": {
+          "data_classification": {
+            "default": "synthetic",
+            "enum": [
+              "synthetic",
+              "real"
+            ],
+            "title": "Data Classification",
+            "type": "string"
+          },
+          "disposal_rule": {
+            "anyOf": [
+              {
+                "enum": [
+                  "einzeln",
+                  "gemeinsam"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disposal Rule"
+          },
+          "effective_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "effective_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Until"
+          },
+          "evidence_reference": {
+            "title": "Evidence Reference",
+            "type": "string"
+          },
+          "mandate_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mandate Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "representation_type": {
+            "enum": [
+              "vollmacht",
+              "vorsorgeauftrag",
+              "beistandschaft",
+              "gemeinschaftsdepot"
+            ],
+            "title": "Representation Type",
+            "type": "string"
+          },
+          "representative_name": {
+            "title": "Representative Name",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "representation_type",
+          "representative_name",
+          "scope",
+          "evidence_reference"
+        ],
+        "title": "ClientRepresentationCreate",
+        "type": "object"
+      },
+      "ClientRepresentationResponse": {
+        "properties": {
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "disposal_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disposal Rule"
+          },
+          "effective_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "effective_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Until"
+          },
+          "evidence_reference": {
+            "title": "Evidence Reference",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "mandate_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mandate Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "recorded_at": {
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "recorded_by": {
+            "title": "Recorded By",
+            "type": "string"
+          },
+          "representation_type": {
+            "title": "Representation Type",
+            "type": "string"
+          },
+          "representative_name": {
+            "title": "Representative Name",
+            "type": "string"
+          },
+          "revocation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revocation Reason"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "revoked_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked By"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "client_id",
+          "representation_type",
+          "representative_name",
+          "scope",
+          "evidence_reference",
+          "recorded_by",
+          "recorded_at"
+        ],
+        "title": "ClientRepresentationResponse",
+        "type": "object"
+      },
+      "ClientRepresentationRevoke": {
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "ClientRepresentationRevoke",
         "type": "object"
       },
       "ClientResponse": {
@@ -6528,6 +7428,17 @@
             ],
             "title": "Mitigation Action"
           },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
           "reimbursed_to_client": {
             "anyOf": [
               {
@@ -6675,6 +7586,17 @@
               }
             ],
             "title": "Mitigation Action"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
           },
           "reimbursed_to_client": {
             "default": 0,
@@ -7141,6 +8063,17 @@
             "default": 0,
             "title": "Product Cost Coverage Bps",
             "type": "integer"
+          },
+          "product_retrocessions": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProductRetrocessionDisclosure"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retrozession je empfohlenem Produkt (AUDIT-2026-11 P1). None, wenn der Ausweis ohne Produktbezug entstand oder vor P1 eingefroren wurde."
           },
           "snapshot_schema_version": {
             "anyOf": [
@@ -8348,6 +9281,39 @@
           "rank": {
             "title": "Rank",
             "type": "integer"
+          },
+          "rank_adjusted_from": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank Adjusted From"
+          },
+          "rank_adjusted_to": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank Adjusted To"
+          },
+          "rank_adjustment_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank Adjustment Notice"
           },
           "start_date": {
             "anyOf": [
@@ -9788,6 +10754,277 @@
           "created_at"
         ],
         "title": "KnowledgeResponse",
+        "type": "object"
+      },
+      "KycConfirmationApprovalCreate": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "title": "KycConfirmationApprovalCreate",
+        "type": "object"
+      },
+      "KycConfirmationApprovalResponse": {
+        "properties": {
+          "approval_hash": {
+            "title": "Approval Hash",
+            "type": "string"
+          },
+          "approved_at": {
+            "title": "Approved At",
+            "type": "string"
+          },
+          "approved_by": {
+            "title": "Approved By",
+            "type": "string"
+          },
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "confirmation_id": {
+            "title": "Confirmation Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "id",
+          "confirmation_id",
+          "client_id",
+          "approved_by",
+          "approved_at",
+          "approval_hash"
+        ],
+        "title": "KycConfirmationApprovalResponse",
+        "type": "object"
+      },
+      "KycConfirmationCreate": {
+        "description": "Bestaetigung, dass die GwG-Abklaerung im Prozess der SRO/AO bzw. im\nFremdsystem erfolgt ist. Alle fachlichen Felder ohne Vorbelegung --\ninsbesondere ``is_pep`` und ``risk_category`` muessen ausdruecklich\nbeantwortet werden.",
+        "properties": {
+          "data_classification": {
+            "default": "synthetic",
+            "enum": [
+              "synthetic",
+              "real"
+            ],
+            "title": "Data Classification",
+            "type": "string"
+          },
+          "external_reference": {
+            "title": "External Reference",
+            "type": "string"
+          },
+          "form_completed_on": {
+            "title": "Form Completed On",
+            "type": "string"
+          },
+          "form_type": {
+            "enum": [
+              "A",
+              "K",
+              "S",
+              "T"
+            ],
+            "title": "Form Type",
+            "type": "string"
+          },
+          "identification_confirmed": {
+            "title": "Identification Confirmed",
+            "type": "boolean"
+          },
+          "identification_date": {
+            "title": "Identification Date",
+            "type": "string"
+          },
+          "is_pep": {
+            "title": "Is Pep",
+            "type": "boolean"
+          },
+          "mandate_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mandate Id"
+          },
+          "next_review_due": {
+            "title": "Next Review Due",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "risk_category": {
+            "enum": [
+              "normal",
+              "erhoeht"
+            ],
+            "title": "Risk Category",
+            "type": "string"
+          }
+        },
+        "required": [
+          "form_type",
+          "form_completed_on",
+          "external_reference",
+          "risk_category",
+          "is_pep",
+          "identification_confirmed",
+          "identification_date",
+          "next_review_due"
+        ],
+        "title": "KycConfirmationCreate",
+        "type": "object"
+      },
+      "KycConfirmationResponse": {
+        "properties": {
+          "approval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KycConfirmationApprovalResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "confirmation_hash": {
+            "title": "Confirmation Hash",
+            "type": "string"
+          },
+          "external_reference": {
+            "title": "External Reference",
+            "type": "string"
+          },
+          "form_completed_on": {
+            "title": "Form Completed On",
+            "type": "string"
+          },
+          "form_type": {
+            "title": "Form Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "identification_confirmed": {
+            "title": "Identification Confirmed",
+            "type": "integer"
+          },
+          "identification_date": {
+            "title": "Identification Date",
+            "type": "string"
+          },
+          "is_pep": {
+            "title": "Is Pep",
+            "type": "integer"
+          },
+          "mandate_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mandate Id"
+          },
+          "next_review_due": {
+            "title": "Next Review Due",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "process_scope": {
+            "title": "Process Scope",
+            "type": "string"
+          },
+          "recorded_at": {
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "recorded_by": {
+            "title": "Recorded By",
+            "type": "string"
+          },
+          "requires_second_approval": {
+            "default": false,
+            "title": "Requires Second Approval",
+            "type": "boolean"
+          },
+          "risk_category": {
+            "title": "Risk Category",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "client_id",
+          "process_scope",
+          "form_type",
+          "form_completed_on",
+          "external_reference",
+          "risk_category",
+          "is_pep",
+          "identification_confirmed",
+          "identification_date",
+          "next_review_due",
+          "recorded_by",
+          "recorded_at",
+          "confirmation_hash"
+        ],
+        "title": "KycConfirmationResponse",
         "type": "object"
       },
       "LegalHoldExtension": {
@@ -11736,8 +12973,23 @@
             "title": "Document Id"
           },
           "event_type": {
-            "title": "Event Type",
-            "type": "string"
+            "anyOf": [
+              {
+                "enum": [
+                  "Opting-out zu Professionell",
+                  "Opting-out zu Institutionell",
+                  "Opting-in zu Privatkunde",
+                  "Opting-in zu Professionell",
+                  "Qualifizierter Anleger bestätigt",
+                  "Klassifizierung überprüft"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Type"
           },
           "from_classification": {
             "enum": [
@@ -11781,6 +13033,16 @@
             ],
             "title": "Notes"
           },
+          "opt_out_criteria": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OptOutCriteria"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "to_classification": {
             "enum": [
               "Privatkunde",
@@ -11814,7 +13076,6 @@
           }
         },
         "required": [
-          "event_type",
           "from_classification",
           "to_classification"
         ],
@@ -11834,6 +13095,17 @@
           "created_at": {
             "title": "Created At",
             "type": "string"
+          },
+          "document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
           },
           "documented_at": {
             "title": "Documented At",
@@ -11888,6 +13160,17 @@
             ],
             "title": "Notes"
           },
+          "opt_out_criteria_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opt Out Criteria Json"
+          },
           "to_classification": {
             "title": "To Classification",
             "type": "string"
@@ -11928,6 +13211,50 @@
           "created_at"
         ],
         "title": "OptHistoryResponse",
+        "type": "object"
+      },
+      "OptOutCriteria": {
+        "description": "H8 Luecke 7: Kriterien-Checkliste fuer ein Opting-out nach Art. 5 FIDLEG\n(vermoegende Privatkunden erklaeren, als professionelle Kunden gelten zu\nwollen). Kriterien gemaess Art. 5 Abs. 2 FIDLEG [Compliance pruefen]:\nlit. a Kenntnisse aus Ausbildung/Berufserfahrung UND anrechenbares\nVermoegen von mindestens CHF 500 000, oder lit. b anrechenbares Vermoegen\nvon mindestens CHF 2 Mio. Ares prueft nicht das Vermoegen selbst, sondern\nverlangt die dokumentierte Bestaetigung je Kriterium.",
+        "properties": {
+          "basis": {
+            "enum": [
+              "kenntnisse_und_vermoegen_500k",
+              "vermoegen_2mio"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "client_informed_of_protection_loss": {
+            "title": "Client Informed Of Protection Loss",
+            "type": "boolean"
+          },
+          "declaration_in_text_form": {
+            "title": "Declaration In Text Form",
+            "type": "boolean"
+          },
+          "eligible_assets_verified": {
+            "title": "Eligible Assets Verified",
+            "type": "boolean"
+          },
+          "knowledge_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Basis"
+          }
+        },
+        "required": [
+          "basis",
+          "eligible_assets_verified",
+          "client_informed_of_protection_loss",
+          "declaration_in_text_form"
+        ],
+        "title": "OptOutCriteria",
         "type": "object"
       },
       "OptimizerConstraintResponse": {
@@ -13374,6 +14701,34 @@
             ],
             "title": "Currency Exposure Json"
           },
+          "distribution_policy": {
+            "anyOf": [
+              {
+                "enum": [
+                  "accumulating",
+                  "distributing"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ausschuettungsart: thesaurierend (accumulating) oder ausschuettend.",
+            "title": "Distribution Policy"
+          },
+          "domicile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fondsdomizil, ISO 3166-1 alpha-2 (z.B. 'IE', 'LU').",
+            "title": "Domicile"
+          },
           "duration_years_x10": {
             "anyOf": [
               {
@@ -13411,6 +14766,78 @@
             ],
             "title": "Esg Score X10"
           },
+          "gating_terms": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Gating-Bedingungen (Freitext, optional).",
+            "title": "Gating Terms"
+          },
+          "has_gating": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Gating/Ruecknahmebeschraenkung moeglich.",
+            "title": "Has Gating"
+          },
+          "hedge_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Waehrung der Absicherung (ISO 4217), nur bei is_hedged=true.",
+            "title": "Hedge Currency"
+          },
+          "internal_product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Interne, tenant-eindeutige Produkt-ID (Pflicht bei unlisted ohne ISIN).",
+            "title": "Internal Product Id"
+          },
+          "is_hedged": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Anteilsklasse waehrungsgesichert; None = nicht erfasst.",
+            "title": "Is Hedged"
+          },
+          "is_house_product": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Haus-/Eigenprodukt der Verwaltung; None = nicht erfasst.",
+            "title": "Is House Product"
+          },
           "isin": {
             "anyOf": [
               {
@@ -13433,6 +14860,97 @@
             ],
             "title": "Liquidity Tier"
           },
+          "listing_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "listed",
+                  "unlisted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kotiert (listed, ISIN Pflicht) oder nicht kotiert (unlisted, ohne ISIN interne ID Pflicht).",
+            "title": "Listing Status"
+          },
+          "minimum_investment_minor_units": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).",
+            "title": "Minimum Investment Minor Units"
+          },
+          "nav_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stichtag des zuletzt gepflegten NAV (YYYY-MM-DD).",
+            "title": "Nav As Of"
+          },
+          "nav_frequency": {
+            "anyOf": [
+              {
+                "enum": [
+                  "daily",
+                  "weekly",
+                  "monthly",
+                  "quarterly"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "NAV-Rhythmus (taeglich/woechentlich/monatlich/quartalsweise).",
+            "title": "Nav Frequency"
+          },
+          "notice_period_days": {
+            "anyOf": [
+              {
+                "maximum": 3650.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kuendigungsfrist in Kalendertagen.",
+            "title": "Notice Period Days"
+          },
+          "price_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "market",
+                  "manual_nav",
+                  "provider"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Bewertungsquelle: Boersenkurs, manuell gepflegter NAV oder Anbieter-NAV.",
+            "title": "Price Source"
+          },
           "product_name": {
             "title": "Product Name",
             "type": "string"
@@ -13451,6 +14969,46 @@
               }
             ],
             "title": "Provider"
+          },
+          "redemption_period_days": {
+            "anyOf": [
+              {
+                "maximum": 3650.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ruecknahmefrist in Kalendertagen (Auszahlung nach Ruecknahme).",
+            "title": "Redemption Period Days"
+          },
+          "retrocession_bps": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retrozessionssatz in bps p.a. auf dem investierten Volumen. None = UNBEKANNT (gilt nie als retrozessionsfrei), 0 = ausdruecklich retrozessionsfrei.",
+            "title": "Retrocession Bps"
+          },
+          "retrocession_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Quelle des Retrozessionssatzes (Pflicht, sobald ein Satz erfasst ist).",
+            "title": "Retrocession Source"
           },
           "sector_exposure_json": {
             "anyOf": [
@@ -13554,6 +15112,18 @@
             ],
             "title": "Symbol"
           },
+          "ter_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stichtag der TER (YYYY-MM-DD).",
+            "title": "Ter As Of"
+          },
           "ter_bps": {
             "anyOf": [
               {
@@ -13567,6 +15137,18 @@
             ],
             "title": "Ter Bps"
           },
+          "ter_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Quelle der TER (z.B. Basisinformationsblatt, Factsheet).",
+            "title": "Ter Source"
+          },
           "theme_tags": {
             "anyOf": [
               {
@@ -13577,6 +15159,18 @@
               }
             ],
             "title": "Theme Tags"
+          },
+          "valor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Valorennummer (optional, nur Ziffern).",
+            "title": "Valor"
           }
         },
         "required": [
@@ -13880,6 +15474,13 @@
               }
             ]
           },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ProductIdMappingCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
           "detail": {
             "anyOf": [
               {
@@ -13946,6 +15547,28 @@
               }
             ],
             "title": "Exch Code"
+          },
+          "exchange_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange Code"
+          },
+          "exchange_code_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange Code Status"
           },
           "figi": {
             "anyOf": [
@@ -14205,6 +15828,17 @@
       },
       "ProductImportResultItem": {
         "properties": {
+          "eligibility_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eligibility Note"
+          },
           "error": {
             "anyOf": [
               {
@@ -14864,6 +16498,28 @@
             ],
             "title": "Currency Exposure Json"
           },
+          "distribution_policy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distribution Policy"
+          },
+          "domicile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domicile"
+          },
           "duration_years_x10": {
             "anyOf": [
               {
@@ -14932,13 +16588,79 @@
             ],
             "title": "Figi"
           },
+          "gating_terms": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gating Terms"
+          },
+          "has_gating": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Has Gating"
+          },
+          "hedge_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hedge Currency"
+          },
           "id": {
             "title": "Id",
             "type": "string"
           },
+          "internal_product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Internal Product Id"
+          },
           "is_active": {
             "title": "Is Active",
             "type": "integer"
+          },
+          "is_hedged": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Hedged"
+          },
+          "is_house_product": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is House Product"
           },
           "isin": {
             "anyOf": [
@@ -14951,6 +16673,17 @@
             ],
             "title": "Isin"
           },
+          "isin_status": {
+            "description": "'missing' (keine ISIN), 'invalid' (Altbestand mit formal\nungueltiger ISIN/Pruefziffer) oder 'valid'.",
+            "enum": [
+              "valid",
+              "invalid",
+              "missing"
+            ],
+            "readOnly": true,
+            "title": "Isin Status",
+            "type": "string"
+          },
           "liquidity_tier": {
             "anyOf": [
               {
@@ -14961,6 +16694,17 @@
               }
             ],
             "title": "Liquidity Tier"
+          },
+          "listing_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listing Status"
           },
           "lookup_mode_override": {
             "anyOf": [
@@ -15017,6 +16761,70 @@
             ],
             "title": "Market Sector"
           },
+          "master_data_gaps": {
+            "description": "Fehlende/ungueltige Pflicht-Stammdaten nach PO-6 (nur Anzeige,\nin P1 keine Sperre).",
+            "items": {
+              "type": "string"
+            },
+            "readOnly": true,
+            "title": "Master Data Gaps",
+            "type": "array"
+          },
+          "minimum_investment_minor_units": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum Investment Minor Units"
+          },
+          "nav_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nav As Of"
+          },
+          "nav_frequency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nav Frequency"
+          },
+          "notice_period_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice Period Days"
+          },
+          "price_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Source"
+          },
           "product_name": {
             "title": "Product Name",
             "type": "string"
@@ -15035,6 +16843,17 @@
               }
             ],
             "title": "Provider"
+          },
+          "redemption_period_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Redemption Period Days"
           },
           "reference_data_provider": {
             "anyOf": [
@@ -15057,6 +16876,39 @@
               }
             ],
             "title": "Reference Data Refreshed At"
+          },
+          "retrocession_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrocession Bps"
+          },
+          "retrocession_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrocession Source"
+          },
+          "retrocession_status": {
+            "description": "'unknown' = kein Satz erfasst (gilt NIE als retrozessionsfrei),\n'none' = ausdruecklich 0 bps, 'present' = Satz > 0.",
+            "enum": [
+              "unknown",
+              "none",
+              "present"
+            ],
+            "readOnly": true,
+            "title": "Retrocession Status",
+            "type": "string"
           },
           "sector_exposure_json": {
             "anyOf": [
@@ -15146,6 +16998,17 @@
             ],
             "title": "Tenant Id"
           },
+          "ter_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ter As Of"
+          },
           "ter_bps": {
             "anyOf": [
               {
@@ -15156,6 +17019,17 @@
               }
             ],
             "title": "Ter Bps"
+          },
+          "ter_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ter Source"
           },
           "theme_tags": {
             "anyOf": [
@@ -15174,6 +17048,17 @@
           "updated_at": {
             "title": "Updated At",
             "type": "string"
+          },
+          "valor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valor"
           }
         },
         "required": [
@@ -15193,9 +17078,1461 @@
           "created_at",
           "updated_at",
           "esg_data_status",
-          "esg_data_seed_fields"
+          "esg_data_seed_fields",
+          "isin_status",
+          "retrocession_status",
+          "master_data_gaps"
         ],
         "title": "ProductResponse",
+        "type": "object"
+      },
+      "ProductRetrocessionDisclosure": {
+        "description": "AUDIT-2026-11 P1 (L1): produktgebundene Retrozessions-Offenlegung\n(Art. 26 FIDLEG). Fehlt bei Nachweisen, die vor P1 eingefroren wurden.",
+        "properties": {
+          "complete": {
+            "default": false,
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "legal_reference": {
+            "default": "",
+            "title": "Legal Reference",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/ProductRetrocessionLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "present_count": {
+            "default": 0,
+            "title": "Present Count",
+            "type": "integer"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "unknown_count": {
+            "default": 0,
+            "title": "Unknown Count",
+            "type": "integer"
+          },
+          "unresolved_count": {
+            "default": 0,
+            "title": "Unresolved Count",
+            "type": "integer"
+          }
+        },
+        "title": "ProductRetrocessionDisclosure",
+        "type": "object"
+      },
+      "ProductRetrocessionLine": {
+        "description": "AUDIT-2026-11 P1 (L1): Retrozession je empfohlenem Produkt.",
+        "properties": {
+          "amount_rappen": {
+            "default": 0,
+            "description": "Investiertes Volumen des Produkts im Vorschlag",
+            "title": "Amount Rappen",
+            "type": "integer"
+          },
+          "covered_by_mandate_entry": {
+            "default": false,
+            "description": "True, wenn die manuelle Retrozessions-Zeile des Mandats (gleicher Anbieter) die Offenlegungszeile ist -- dann entsteht keine zweite Kostenzeile.",
+            "title": "Covered By Mandate Entry",
+            "type": "boolean"
+          },
+          "estimated_annual_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Geschaetzter Jahresbetrag (Satz x Volumen); None bei unbekanntem Satz",
+            "title": "Estimated Annual Rappen"
+          },
+          "isin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isin"
+          },
+          "mandate_disclosed_other_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Einmalig oder ohne Frequenz offengelegter Mandatsbetrag (anteilig); deckt die jaehrliche Retrozession nicht und gilt nicht als aufgeklaert (N-861-8)",
+            "title": "Mandate Disclosed Other Rappen"
+          },
+          "mandate_disclosed_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Anteil des im Mandat aufgeklaerten (offengelegten) Betrags",
+            "title": "Mandate Disclosed Rappen"
+          },
+          "mandate_resolved_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Davon geregelt (zurueckerstattet oder Verzicht belegt, jaehrlich)",
+            "title": "Mandate Resolved Rappen"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
+          "product_name": {
+            "title": "Product Name",
+            "type": "string"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "rate_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retrozessionssatz p.a.; None = unbekannt (gilt nie als retrozessionsfrei)",
+            "title": "Rate Bps"
+          },
+          "requires_resolution": {
+            "default": false,
+            "title": "Requires Resolution",
+            "type": "boolean"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "status": {
+            "enum": [
+              "unknown",
+              "none",
+              "present"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "treatment": {
+            "enum": [
+              "reimbursed",
+              "waiver_documented",
+              "partially_covered",
+              "unresolved",
+              "not_applicable",
+              "unknown"
+            ],
+            "title": "Treatment",
+            "type": "string"
+          },
+          "treatment_label": {
+            "title": "Treatment Label",
+            "type": "string"
+          },
+          "undisclosed_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Geschaetzter, durch keine Mandatszeile offengelegter Teil (eigene Kostenzeile)",
+            "title": "Undisclosed Rappen"
+          },
+          "unresolved_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Geschaetzter, nicht geregelter Rest (requires_resolution, wenn > 0)",
+            "title": "Unresolved Rappen"
+          }
+        },
+        "required": [
+          "product_name",
+          "status",
+          "treatment",
+          "treatment_label"
+        ],
+        "title": "ProductRetrocessionLine",
+        "type": "object"
+      },
+      "ProductSustainabilityApprovalRequest": {
+        "description": "Standard Vier-Augen (leerer Body). Einzelberater-Ausnahme wie bei den\nEignungsregeln: Attest + Begruendung; der Server prueft, dass der Tenant\ngenau eine freigabeberechtigte Person hat.",
+        "properties": {
+          "attestation_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attestation Reason"
+          },
+          "single_approver_attestation": {
+            "default": false,
+            "title": "Single Approver Attestation",
+            "type": "boolean"
+          }
+        },
+        "title": "ProductSustainabilityApprovalRequest",
+        "type": "object"
+      },
+      "ProductSustainabilityApprovalResponse": {
+        "properties": {
+          "approval_mode": {
+            "title": "Approval Mode",
+            "type": "string"
+          },
+          "approved_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Approved Ids",
+            "type": "array"
+          },
+          "retired_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Retired Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "approved_ids",
+          "retired_ids",
+          "approval_mode"
+        ],
+        "title": "ProductSustainabilityApprovalResponse",
+        "type": "object"
+      },
+      "ProductSustainabilityAttributeCreate": {
+        "description": "Neuer Nachweis (immer als Entwurf). ``scope='global'`` = Plattform-\nNachweis eines globalen Katalogfonds (Multi-Tenant: nur super_admin).\nEs gibt bewusst keinen Quellentyp fuer Seed-/Default-Werte (T-E2).",
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "category": {
+            "enum": [
+              "controversial_weapons",
+              "conventional_weapons",
+              "weapons",
+              "tobacco",
+              "thermal_coal",
+              "fossil_fuels",
+              "gambling",
+              "adult_entertainment",
+              "alcohol",
+              "nuclear_power",
+              "animal_testing",
+              "ungc_violation",
+              "sfdr_classification",
+              "impact_theme"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "client_source_label": {
+            "anyOf": [
+              {
+                "enum": [
+                  "prospectus",
+                  "fund_contract",
+                  "kid",
+                  "factsheet",
+                  "provider_exclusion_policy",
+                  "provider_confirmation",
+                  "data_vendor",
+                  "house_analysis"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.",
+            "title": "Client Source Label"
+          },
+          "kind": {
+            "enum": [
+              "exclusion_policy",
+              "measured_exposure",
+              "certification",
+              "classification"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "measured_exposure_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Exposure Bps"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "revenue_threshold_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Threshold Bps"
+          },
+          "scope": {
+            "default": "tenant",
+            "enum": [
+              "tenant",
+              "global"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "source_document_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Date"
+          },
+          "source_document_sha256": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Sha256"
+          },
+          "source_document_title": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Title"
+          },
+          "source_document_version": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Version"
+          },
+          "source_provider": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Provider"
+          },
+          "source_reference": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Source Reference",
+            "type": "string"
+          },
+          "source_retrieved_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Retrieved On"
+          },
+          "source_type": {
+            "enum": [
+              "prospectus",
+              "fund_contract",
+              "kid",
+              "factsheet",
+              "provider_exclusion_policy",
+              "provider_confirmation",
+              "data_vendor",
+              "house_analysis"
+            ],
+            "title": "Source Type",
+            "type": "string"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Leer = Stichtag + 12 Monate (T-E3); laenger ist nicht zulaessig.",
+            "title": "Valid Until"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "category",
+          "kind",
+          "source_type",
+          "source_reference",
+          "as_of"
+        ],
+        "title": "ProductSustainabilityAttributeCreate",
+        "type": "object"
+      },
+      "ProductSustainabilityAttributeImportItem": {
+        "description": "Import-Zeile: Produkt ueber product_id ODER isin.",
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "category": {
+            "enum": [
+              "controversial_weapons",
+              "conventional_weapons",
+              "weapons",
+              "tobacco",
+              "thermal_coal",
+              "fossil_fuels",
+              "gambling",
+              "adult_entertainment",
+              "alcohol",
+              "nuclear_power",
+              "animal_testing",
+              "ungc_violation",
+              "sfdr_classification",
+              "impact_theme"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "client_source_label": {
+            "anyOf": [
+              {
+                "enum": [
+                  "prospectus",
+                  "fund_contract",
+                  "kid",
+                  "factsheet",
+                  "provider_exclusion_policy",
+                  "provider_confirmation",
+                  "data_vendor",
+                  "house_analysis"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.",
+            "title": "Client Source Label"
+          },
+          "isin": {
+            "anyOf": [
+              {
+                "maxLength": 12,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isin"
+          },
+          "kind": {
+            "enum": [
+              "exclusion_policy",
+              "measured_exposure",
+              "certification",
+              "classification"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "measured_exposure_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Exposure Bps"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
+          "revenue_threshold_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Threshold Bps"
+          },
+          "scope": {
+            "default": "tenant",
+            "enum": [
+              "tenant",
+              "global"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "source_document_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Date"
+          },
+          "source_document_sha256": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Sha256"
+          },
+          "source_document_title": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Title"
+          },
+          "source_document_version": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Version"
+          },
+          "source_provider": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Provider"
+          },
+          "source_reference": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Source Reference",
+            "type": "string"
+          },
+          "source_retrieved_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Retrieved On"
+          },
+          "source_type": {
+            "enum": [
+              "prospectus",
+              "fund_contract",
+              "kid",
+              "factsheet",
+              "provider_exclusion_policy",
+              "provider_confirmation",
+              "data_vendor",
+              "house_analysis"
+            ],
+            "title": "Source Type",
+            "type": "string"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Leer = Stichtag + 12 Monate (T-E3); laenger ist nicht zulaessig.",
+            "title": "Valid Until"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "category",
+          "kind",
+          "source_type",
+          "source_reference",
+          "as_of"
+        ],
+        "title": "ProductSustainabilityAttributeImportItem",
+        "type": "object"
+      },
+      "ProductSustainabilityAttributeImportRequest": {
+        "properties": {
+          "attributes": {
+            "items": {
+              "$ref": "#/components/schemas/ProductSustainabilityAttributeImportItem"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Attributes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "attributes"
+        ],
+        "title": "ProductSustainabilityAttributeImportRequest",
+        "type": "object"
+      },
+      "ProductSustainabilityAttributeResponse": {
+        "properties": {
+          "approval_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Mode"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "as_of": {
+            "title": "As Of",
+            "type": "string"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "client_source_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Source Label"
+          },
+          "client_source_label_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Source Label Text"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "evidence_status": {
+            "enum": [
+              "draft",
+              "retired",
+              "not_yet_valid",
+              "expired",
+              "valid"
+            ],
+            "title": "Evidence Status",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "measured_exposure_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Exposure Bps"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "product_id": {
+            "title": "Product Id",
+            "type": "string"
+          },
+          "retired_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired At"
+          },
+          "retired_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired By"
+          },
+          "revenue_threshold_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Threshold Bps"
+          },
+          "scope": {
+            "enum": [
+              "tenant",
+              "global"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "source_document_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Date"
+          },
+          "source_document_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Sha256"
+          },
+          "source_document_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Title"
+          },
+          "source_document_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Version"
+          },
+          "source_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Provider"
+          },
+          "source_reference": {
+            "title": "Source Reference",
+            "type": "string"
+          },
+          "source_retrieved_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Retrieved On"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "approved",
+              "retired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "supersedes_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Id"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "valid_until": {
+            "title": "Valid Until",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "id",
+          "product_id",
+          "scope",
+          "category",
+          "kind",
+          "source_type",
+          "source_reference",
+          "as_of",
+          "valid_until",
+          "status",
+          "evidence_status",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ProductSustainabilityAttributeResponse",
+        "type": "object"
+      },
+      "ProductSustainabilityAttributeUpdate": {
+        "description": "Bearbeiten nur im Entwurf. Kategorie, Art und Scope sind fest (sonst\nneuer Nachweis). Explizites null leert optionale Felder.",
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "client_source_label": {
+            "anyOf": [
+              {
+                "enum": [
+                  "prospectus",
+                  "fund_contract",
+                  "kid",
+                  "factsheet",
+                  "provider_exclusion_policy",
+                  "provider_confirmation",
+                  "data_vendor",
+                  "house_analysis"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.",
+            "title": "Client Source Label"
+          },
+          "measured_exposure_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Exposure Bps"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "revenue_threshold_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Threshold Bps"
+          },
+          "source_document_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Date"
+          },
+          "source_document_sha256": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Sha256"
+          },
+          "source_document_title": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Title"
+          },
+          "source_document_version": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Version"
+          },
+          "source_provider": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Provider"
+          },
+          "source_reference": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Reference"
+          },
+          "source_retrieved_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Retrieved On"
+          },
+          "source_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "prospectus",
+                  "fund_contract",
+                  "kid",
+                  "factsheet",
+                  "provider_exclusion_policy",
+                  "provider_confirmation",
+                  "data_vendor",
+                  "house_analysis"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Type"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "title": "ProductSustainabilityAttributeUpdate",
+        "type": "object"
+      },
+      "ProductSustainabilityBatchApprovalRequest": {
+        "properties": {
+          "attestation_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attestation Reason"
+          },
+          "attribute_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Attribute Ids",
+            "type": "array"
+          },
+          "single_approver_attestation": {
+            "default": false,
+            "title": "Single Approver Attestation",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "attribute_ids"
+        ],
+        "title": "ProductSustainabilityBatchApprovalRequest",
+        "type": "object"
+      },
+      "ProductSustainabilityImportResponse": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProductSustainabilityImportResultItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "processed": {
+            "title": "Processed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "processed",
+          "created",
+          "failed"
+        ],
+        "title": "ProductSustainabilityImportResponse",
+        "type": "object"
+      },
+      "ProductSustainabilityImportResultItem": {
+        "properties": {
+          "attribute_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attribute Id"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
+          "row": {
+            "title": "Row",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "created",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "row",
+          "status"
+        ],
+        "title": "ProductSustainabilityImportResultItem",
+        "type": "object"
+      },
+      "ProductSustainabilityRetireRequest": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "ProductSustainabilityRetireRequest",
         "type": "object"
       },
       "ProductUniverseEntryCreate": {
@@ -15379,6 +18716,34 @@
             ],
             "title": "Currency Exposure Json"
           },
+          "distribution_policy": {
+            "anyOf": [
+              {
+                "enum": [
+                  "accumulating",
+                  "distributing"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ausschuettungsart: thesaurierend (accumulating) oder ausschuettend.",
+            "title": "Distribution Policy"
+          },
+          "domicile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fondsdomizil, ISO 3166-1 alpha-2 (z.B. 'IE', 'LU').",
+            "title": "Domicile"
+          },
           "duration_years_x10": {
             "anyOf": [
               {
@@ -15416,6 +18781,54 @@
             ],
             "title": "Esg Score X10"
           },
+          "gating_terms": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Gating-Bedingungen (Freitext, optional).",
+            "title": "Gating Terms"
+          },
+          "has_gating": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Gating/Ruecknahmebeschraenkung moeglich.",
+            "title": "Has Gating"
+          },
+          "hedge_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Waehrung der Absicherung (ISO 4217), nur bei is_hedged=true.",
+            "title": "Hedge Currency"
+          },
+          "internal_product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Interne, tenant-eindeutige Produkt-ID (Pflicht bei unlisted ohne ISIN).",
+            "title": "Internal Product Id"
+          },
           "is_active": {
             "anyOf": [
               {
@@ -15429,6 +18842,41 @@
             ],
             "title": "Is Active"
           },
+          "is_hedged": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Anteilsklasse waehrungsgesichert; None = nicht erfasst.",
+            "title": "Is Hedged"
+          },
+          "is_house_product": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Haus-/Eigenprodukt der Verwaltung; None = nicht erfasst.",
+            "title": "Is House Product"
+          },
+          "isin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isin"
+          },
           "liquidity_tier": {
             "anyOf": [
               {
@@ -15439,6 +18887,97 @@
               }
             ],
             "title": "Liquidity Tier"
+          },
+          "listing_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "listed",
+                  "unlisted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kotiert (listed, ISIN Pflicht) oder nicht kotiert (unlisted, ohne ISIN interne ID Pflicht).",
+            "title": "Listing Status"
+          },
+          "minimum_investment_minor_units": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).",
+            "title": "Minimum Investment Minor Units"
+          },
+          "nav_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stichtag des zuletzt gepflegten NAV (YYYY-MM-DD).",
+            "title": "Nav As Of"
+          },
+          "nav_frequency": {
+            "anyOf": [
+              {
+                "enum": [
+                  "daily",
+                  "weekly",
+                  "monthly",
+                  "quarterly"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "NAV-Rhythmus (taeglich/woechentlich/monatlich/quartalsweise).",
+            "title": "Nav Frequency"
+          },
+          "notice_period_days": {
+            "anyOf": [
+              {
+                "maximum": 3650.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kuendigungsfrist in Kalendertagen.",
+            "title": "Notice Period Days"
+          },
+          "price_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "market",
+                  "manual_nav",
+                  "provider"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Bewertungsquelle: Boersenkurs, manuell gepflegter NAV oder Anbieter-NAV.",
+            "title": "Price Source"
           },
           "product_name": {
             "anyOf": [
@@ -15451,6 +18990,17 @@
             ],
             "title": "Product Name"
           },
+          "product_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Type"
+          },
           "provider": {
             "anyOf": [
               {
@@ -15461,6 +19011,46 @@
               }
             ],
             "title": "Provider"
+          },
+          "redemption_period_days": {
+            "anyOf": [
+              {
+                "maximum": 3650.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ruecknahmefrist in Kalendertagen (Auszahlung nach Ruecknahme).",
+            "title": "Redemption Period Days"
+          },
+          "retrocession_bps": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retrozessionssatz in bps p.a. auf dem investierten Volumen. None = UNBEKANNT (gilt nie als retrozessionsfrei), 0 = ausdruecklich retrozessionsfrei.",
+            "title": "Retrocession Bps"
+          },
+          "retrocession_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Quelle des Retrozessionssatzes (Pflicht, sobald ein Satz erfasst ist).",
+            "title": "Retrocession Source"
           },
           "sector_exposure_json": {
             "anyOf": [
@@ -15500,6 +19090,29 @@
             ],
             "title": "Sub Asset Class"
           },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          },
+          "ter_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stichtag der TER (YYYY-MM-DD).",
+            "title": "Ter As Of"
+          },
           "ter_bps": {
             "anyOf": [
               {
@@ -15513,6 +19126,18 @@
             ],
             "title": "Ter Bps"
           },
+          "ter_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Quelle der TER (z.B. Basisinformationsblatt, Factsheet).",
+            "title": "Ter Source"
+          },
           "theme_tags": {
             "anyOf": [
               {
@@ -15523,9 +19148,142 @@
               }
             ],
             "title": "Theme Tags"
+          },
+          "valor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Valorennummer (optional, nur Ziffern).",
+            "title": "Valor"
           }
         },
         "title": "ProductUpdate",
+        "type": "object"
+      },
+      "RecommendationFinalizeResponse": {
+        "description": "N-856-7 (Pruefrunde #856): Finalize-Antwort = Lauf + Warnungen.\n\n``warnings`` ist identisch zum Audit-Log-Eintrag (\"Final; Warnungen:\n...\"), ``warning_codes`` die daraus gelesenen Codes (z. B.\nSAA_BUCKET_DEVIATION, POSITION_LIMIT_EXCEEDED).",
+        "properties": {
+          "assessment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessment Id"
+          },
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "mandate_id": {
+            "title": "Mandate Id",
+            "type": "string"
+          },
+          "objective_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective Summary"
+          },
+          "other_assets_included": {
+            "title": "Other Assets Included",
+            "type": "integer"
+          },
+          "policy_id": {
+            "title": "Policy Id",
+            "type": "string"
+          },
+          "result_status": {
+            "title": "Result Status",
+            "type": "string"
+          },
+          "run_type": {
+            "title": "Run Type",
+            "type": "string"
+          },
+          "target_allocation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Allocation Id"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "warning_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warning Codes",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "weighting_regime": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weighting Regime"
+          }
+        },
+        "required": [
+          "id",
+          "mandate_id",
+          "client_id",
+          "run_type",
+          "assessment_id",
+          "target_allocation_id",
+          "policy_id",
+          "result_status",
+          "weighting_regime",
+          "other_assets_included",
+          "objective_summary",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "RecommendationFinalizeResponse",
         "type": "object"
       },
       "RecommendationGenerateRequest": {
@@ -15605,6 +19363,10 @@
             "title": "Expected Volatility Bps",
             "type": "integer"
           },
+          "implementation_metrics": {
+            "title": "Implementation Metrics",
+            "type": "object"
+          },
           "implementation_steps": {
             "items": {
               "type": "string"
@@ -15651,6 +19413,28 @@
           },
           "run": {
             "$ref": "#/components/schemas/RecommendationRunResponse"
+          },
+          "saa_expected_return_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saa Expected Return Bps"
+          },
+          "saa_expected_volatility_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saa Expected Volatility Bps"
           },
           "target_allocation_id": {
             "title": "Target Allocation Id",
@@ -18888,6 +22672,390 @@
         "title": "SuitabilityCheckResponse",
         "type": "object"
       },
+      "SustainabilityCatalogResponse": {
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/SustainabilityCategoryInfo"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "client_source_labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Client Source Labels",
+            "type": "object"
+          },
+          "evidence_validity_months": {
+            "title": "Evidence Validity Months",
+            "type": "integer"
+          },
+          "sfdr_values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sfdr Values",
+            "type": "array"
+          },
+          "source_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Types",
+            "type": "array"
+          },
+          "statuses": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Statuses",
+            "type": "array"
+          }
+        },
+        "required": [
+          "categories",
+          "source_types",
+          "statuses",
+          "sfdr_values",
+          "evidence_validity_months"
+        ],
+        "title": "SustainabilityCatalogResponse",
+        "type": "object"
+      },
+      "SustainabilityCategoryInfo": {
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "criterion_type": {
+            "enum": [
+              "revenue_threshold",
+              "conduct",
+              "classification"
+            ],
+            "title": "Criterion Type",
+            "type": "string"
+          },
+          "default_threshold_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Threshold Bps"
+          },
+          "has_house_standard": {
+            "title": "Has House Standard",
+            "type": "boolean"
+          },
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Kinds",
+            "type": "array"
+          }
+        },
+        "required": [
+          "category",
+          "criterion_type",
+          "kinds",
+          "has_house_standard"
+        ],
+        "title": "SustainabilityCategoryInfo",
+        "type": "object"
+      },
+      "SustainabilityStandardItem": {
+        "properties": {
+          "approval_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Mode"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "criterion_type": {
+            "enum": [
+              "revenue_threshold",
+              "conduct"
+            ],
+            "title": "Criterion Type",
+            "type": "string"
+          },
+          "default_threshold_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Threshold Bps"
+          },
+          "effective_threshold_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Threshold Bps"
+          },
+          "is_disabled": {
+            "default": false,
+            "title": "Is Disabled",
+            "type": "boolean"
+          },
+          "is_overridden": {
+            "title": "Is Overridden",
+            "type": "boolean"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "pending": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SustainabilityStandardPending"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "standard_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Id"
+          },
+          "tenant_threshold_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Threshold Bps"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          },
+          "valid_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid From"
+          }
+        },
+        "required": [
+          "category",
+          "criterion_type",
+          "is_overridden"
+        ],
+        "title": "SustainabilityStandardItem",
+        "type": "object"
+      },
+      "SustainabilityStandardPending": {
+        "description": "Offene Lockerung (H-1), wirkt erst nach Vier-Augen-Freigabe.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_disabled": {
+            "title": "Is Disabled",
+            "type": "boolean"
+          },
+          "max_revenue_threshold_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Revenue Threshold Bps"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "id",
+          "is_disabled",
+          "created_at"
+        ],
+        "title": "SustainabilityStandardPending",
+        "type": "object"
+      },
+      "SustainabilityStandardUpdate": {
+        "description": "Hausschwelle setzen. Bei UN Global Compact gibt es keine\nUmsatzschwelle (null). Schwelle ueber dem T-E1-Default oder\nis_disabled=true ist eine Lockerung und braucht eine Vier-Augen-Freigabe.",
+        "properties": {
+          "is_disabled": {
+            "default": false,
+            "description": "Kategorie fuer diese Verwaltung deaktivieren (Lockerung, Vier-Augen-Freigabe).",
+            "title": "Is Disabled",
+            "type": "boolean"
+          },
+          "max_revenue_threshold_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Revenue Threshold Bps"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "title": "SustainabilityStandardUpdate",
+        "type": "object"
+      },
+      "SustainabilityStandardsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SustainabilityStandardItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "SustainabilityStandardsResponse",
+        "type": "object"
+      },
       "TargetAllocationCreate": {
         "properties": {
           "band_alternatives_max_bps": {
@@ -20364,6 +24532,456 @@
           "slug"
         ],
         "title": "TenantCreate",
+        "type": "object"
+      },
+      "TenantLegalProfileResponse": {
+        "properties": {
+          "address_city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address City"
+          },
+          "address_country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address Country"
+          },
+          "address_postal_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address Postal Code"
+          },
+          "address_street": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address Street"
+          },
+          "business_activity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Activity"
+          },
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Email"
+          },
+          "contact_phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Phone"
+          },
+          "contact_website": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Website"
+          },
+          "field_labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Field Labels",
+            "type": "object"
+          },
+          "legal_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legal Name"
+          },
+          "license_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Reference"
+          },
+          "missing_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Fields",
+            "type": "array"
+          },
+          "missing_labels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Labels",
+            "type": "array"
+          },
+          "ombudsman_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ombudsman Address"
+          },
+          "ombudsman_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ombudsman Name"
+          },
+          "present": {
+            "title": "Present",
+            "type": "boolean"
+          },
+          "profile_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Hash"
+          },
+          "revision": {
+            "default": 0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "supervision_labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Supervision Labels",
+            "type": "object"
+          },
+          "supervision_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supervision Type"
+          },
+          "supervisory_authority": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supervisory Authority"
+          },
+          "supervisory_organisation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supervisory Organisation"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "present",
+          "missing_fields",
+          "missing_labels",
+          "field_labels",
+          "supervision_labels",
+          "complete"
+        ],
+        "title": "TenantLegalProfileResponse",
+        "type": "object"
+      },
+      "TenantLegalProfileUpdate": {
+        "description": "Teil-Update der rechtlichen Angaben (nur gesetzte Felder). Leerer\nString loescht eine Angabe. Kein Feld hat einen Vorgabewert.",
+        "properties": {
+          "address_city": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address City"
+          },
+          "address_country": {
+            "anyOf": [
+              {
+                "maxLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address Country"
+          },
+          "address_postal_code": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address Postal Code"
+          },
+          "address_street": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address Street"
+          },
+          "business_activity": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Activity"
+          },
+          "contact_email": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Email"
+          },
+          "contact_phone": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Phone"
+          },
+          "contact_website": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Website"
+          },
+          "legal_name": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legal Name"
+          },
+          "license_reference": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Reference"
+          },
+          "ombudsman_address": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ombudsman Address"
+          },
+          "ombudsman_name": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ombudsman Name"
+          },
+          "supervision_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "vermoegensverwalter_finig",
+                  "andere_finma_bewilligung",
+                  "anlageberater_ohne_prudenzielle_aufsicht",
+                  ""
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supervision Type"
+          },
+          "supervisory_authority": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supervisory Authority"
+          },
+          "supervisory_organisation": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supervisory Organisation"
+          }
+        },
+        "title": "TenantLegalProfileUpdate",
         "type": "object"
       },
       "TenantResponse": {
@@ -24364,6 +28982,33 @@
         ]
       }
     },
+    "/admin/system/audit-log/verify": {
+      "get": {
+        "description": "H-865-2 (Pruefrunde #865): Kettenpruefung des Audit-Logs zur Laufzeit.\n\nverify_audit_chain() wurde bisher nur in Tests aufgerufen. Der Bericht\numfasst die Sequenz-Kette (Brueche, Luecken inkl. abgeschnittenem Ende,\nDuplikate, Hash-Abweichungen) und die Pruefung pro Zeile fuer Altzeilen\nohne sequence. Er enthaelt nur Zaehler, Sequenznummern und Zeilen-IDs,\nkeine Inhalte. Nur lesend; die Kette ist global (alle Tenants), daher\nrequire_audit_chain_verifier (siehe services/auth.py).\n\nN-869-4: unter PostgreSQL steht audit_log unter strikter RLS -- ohne\nBypass saehe super_admin (kein Tenant-Kontext) 0 Zeilen, ein Tenant-\nAdmin nur seine eigenen (Scheinluecken). Die Pruefung laeuft deshalb im\nexpliziten Operator-Bypass; zugelassen sind nur die Rollen aus\nrequire_audit_chain_verifier, und der Bericht enthaelt keine Inhalte.",
+        "operationId": "verify_audit_log_chain_admin_system_audit_log_verify_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditChainVerification"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Verify Audit Log Chain",
+        "tags": [
+          "System"
+        ]
+      }
+    },
     "/admin/system/backups": {
       "get": {
         "operationId": "get_backups_admin_system_backups_get",
@@ -26992,7 +31637,7 @@
         ]
       },
       "put": {
-        "description": "1:1-Erfassung (GwG Art. 3-6 / FINMA-RS 2016/7 Sorgfaltspflichten) --\nanders als Nationalitaeten/Opt-History keine Liste, sondern genau eine\nZeile pro Kunde. Upsert: legt die Zeile beim ersten Aufruf an, aktualisiert\nsie bei jedem weiteren -- ein PUT-nur-Create haette erzwungen, dass der\nClient vorher weiss, ob schon eine Erfassung existiert.",
+        "description": "1:1-Erfassung (GwG Art. 3-6 / GwV-FINMA Sorgfaltspflichten) --\nanders als Nationalitaeten/Opt-History keine Liste, sondern genau eine\nZeile pro Kunde. Upsert: legt die Zeile beim ersten Aufruf an, aktualisiert\nsie bei jedem weiteren -- ein PUT-nur-Create haette erzwungen, dass der\nClient vorher weiss, ob schon eine Erfassung existiert.",
         "operationId": "upsert_due_diligence_clients__client_id__due_diligence_put",
         "parameters": [
           {
@@ -27050,7 +31695,7 @@
     },
     "/clients/{client_id}/erase": {
       "post": {
-        "description": "DSG Art. 32 -- Loeschungsanspruch. Anonymisiert irreversibel alle\ndirekt identifizierenden Personendaten dieses Kunden (siehe\nservices/client_erasure.py fuer die vollstaendige rechtliche und\ntechnische Begruendung des Umfangs). Admin-only, Pflichtbegruendung\n(schemas.clients.ClientErasureRequest), idempotent-sicher (409 bei\nDoppelaufruf). Die Aktion selbst wird -- wie jede sensible Aktion --\nunveraenderlich im Audit-Log protokolliert (wer hat wann wen aus\nwelchem Grund geloescht).",
+        "description": "Stillgelegt (H7 C-1): Loeschgesuche laufen nur ueber den\nDatenschutz-Workflow ``/privacy/erasure-cases``.\n\nDieser Endpoint hat frueher sofort redigiert -- ohne Pruefung von\nAufbewahrungsfrist, Legal Hold oder aktivem Mandat. Dabei wurden auch\nKYC-Belege (GwG Art. 7 Abs. 3: mindestens 10 Jahre nach Ende der\nGeschaeftsbeziehung) und die Schluessel fuer versiegelte Nachweise\nvernichtet. Ein zweiter Weg zur Vernichtung vor Fristablauf darf nicht\nbestehen. Der Endpoint antwortet deshalb immer mit 409 und verweist auf\nden Workflow (Loeschvorgang eroeffnen -> Entscheid je Nachweisart nach\ngenehmigter Aufbewahrungsmatrix und Legal Hold -> Ausfuehrung). Die\nAblehnung wird im Audit-Log festgehalten; Daten werden nicht veraendert.",
         "operationId": "erase_client_clients__client_id__erase_post",
         "parameters": [
           {
@@ -27209,6 +31854,181 @@
         "summary": "Create Knowledge",
         "tags": [
           "Risikoprofilierung"
+        ]
+      }
+    },
+    "/clients/{client_id}/kyc-confirmations": {
+      "get": {
+        "description": "Verlauf der KYC-Bestaetigungen (juengste zuerst; es gilt die juengste).",
+        "operationId": "list_kyc_confirmations_clients__client_id__kyc_confirmations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/KycConfirmationResponse"
+                  },
+                  "title": "Response List Kyc Confirmations Clients  Client Id  Kyc Confirmations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Kyc Confirmations",
+        "tags": [
+          "Kunden"
+        ]
+      },
+      "post": {
+        "description": "H8 C-5: Ares fuehrt die GwG-Abklaerung nicht selbst; sie erfolgt im\nProzess der SRO/AO bzw. im Fremdsystem. Erfasst wird die Pflicht-\nBestaetigung (Formular A/K/S/T, Datum, Referenz, Risikokategorie, PEP,\nnaechste Aktualisierung). Append-only: eine Korrektur ist eine neue\nBestaetigung. Bei PEP oder erhoehtem Risiko erst nach Freigabe durch eine\nzweite Person wirksam (Gate vor Finalisierung/Vertragsunterzeichnung).",
+        "operationId": "create_kyc_confirmation_clients__client_id__kyc_confirmations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KycConfirmationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KycConfirmationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Kyc Confirmation",
+        "tags": [
+          "Kunden"
+        ]
+      }
+    },
+    "/clients/{client_id}/kyc-confirmations/{confirmation_id}/approve": {
+      "post": {
+        "description": "Vier-Augen-Freigabe (PEP/erhoehtes Risiko/Herabstufung): nur eine zweite Person mit\nAdmin-Rolle (Geschaeftsleitung/Compliance), nie die erfassende Person.",
+        "operationId": "approve_kyc_confirmation_clients__client_id__kyc_confirmations__confirmation_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "confirmation_id",
+            "required": true,
+            "schema": {
+              "title": "Confirmation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KycConfirmationApprovalCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KycConfirmationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Kyc Confirmation",
+        "tags": [
+          "Kunden"
         ]
       }
     },
@@ -27526,6 +32346,180 @@
           }
         ],
         "summary": "Add Opt History",
+        "tags": [
+          "Kunden"
+        ]
+      }
+    },
+    "/clients/{client_id}/representations": {
+      "get": {
+        "operationId": "list_representations_clients__client_id__representations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ClientRepresentationResponse"
+                  },
+                  "title": "Response List Representations Clients  Client Id  Representations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Representations",
+        "tags": [
+          "Kunden"
+        ]
+      },
+      "post": {
+        "description": "Vollmacht, Vorsorgeauftrag, Beistandschaft oder Gemeinschaftsdepot mit\nUmfang, Beleg und Wirksamkeit. Dokumentarisch (kein Gate); erscheint im\nBeratungsprotokoll-PDF.",
+        "operationId": "create_representation_clients__client_id__representations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientRepresentationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientRepresentationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Representation",
+        "tags": [
+          "Kunden"
+        ]
+      }
+    },
+    "/clients/{client_id}/representations/{representation_id}/revoke": {
+      "post": {
+        "description": "Widerruf statt Loeschen: der Eintrag bleibt als Nachweis erhalten.",
+        "operationId": "revoke_representation_clients__client_id__representations__representation_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "client_id",
+            "required": true,
+            "schema": {
+              "title": "Client Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "representation_id",
+            "required": true,
+            "schema": {
+              "title": "Representation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientRepresentationRevoke"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientRepresentationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Revoke Representation",
         "tags": [
           "Kunden"
         ]
@@ -28476,6 +33470,78 @@
         "summary": "Validate Policy",
         "tags": [
           "CMA-Policy"
+        ]
+      }
+    },
+    "/compliance/legal-profile": {
+      "get": {
+        "description": "Rechtliche Angaben der eigenen Firma fuer die Kundeninformation nach\nArt. 8 Abs. 1 FIDLEG, samt Liste der fehlenden Pflichtangaben.",
+        "operationId": "get_tenant_legal_profile_compliance_legal_profile_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantLegalProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Tenant Legal Profile",
+        "tags": [
+          "Review & Dokumente"
+        ]
+      },
+      "put": {
+        "description": "Pflege durch einen Firmen-Admin. Jede geaenderte Angabe wird feldweise\n(alt/neu) im Audit-Log festgehalten; Revision und Inhalts-Hash werden\nnachgefuehrt. Ares belegt keinen Wert vor.",
+        "operationId": "update_tenant_legal_profile_compliance_legal_profile_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantLegalProfileUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantLegalProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Tenant Legal Profile",
+        "tags": [
+          "Review & Dokumente"
         ]
       }
     },
@@ -29902,6 +34968,112 @@
         "summary": "Get Backtest Stress Replays",
         "tags": [
           "Allokation"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/client-information/deliveries": {
+      "post": {
+        "description": "Abgabenachweis der Kundeninformation: archivierte Fassung (Byte-Hash),\nVorlagenversion, Revision/Hash der rechtlichen Angaben, Zeitpunkt und Kanal.\nAppend-only. Nur die zu den aktuellen rechtlichen Angaben passende Fassung\nist abgebbar; der Zeitpunkt darf nicht in der Zukunft liegen.",
+        "operationId": "record_client_information_delivery_mandates__mandate_id__client_information_deliveries_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientInformationDeliveryCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientInformationDeliveryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Record Client Information Delivery",
+        "tags": [
+          "Review & Dokumente"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/client-onboarding/status": {
+      "get": {
+        "description": "Stand von Kundeninformation (Art. 8/9 FIDLEG) und GwG-Bestaetigung --\ndieselbe Quelle wie das Gate vor Finalisierung und Vertragsunterzeichnung.",
+        "operationId": "get_client_onboarding_status_mandates__mandate_id__client_onboarding_status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientOnboardingStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Client Onboarding Status",
+        "tags": [
+          "Review & Dokumente"
         ]
       }
     },
@@ -32953,7 +38125,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RecommendationRunResponse"
+                  "$ref": "#/components/schemas/RecommendationFinalizeResponse"
                 }
               }
             },
@@ -34119,6 +39291,50 @@
           }
         ],
         "summary": "Get Depotcheck Pdf",
+        "tags": [
+          "PDF Reports"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/reports/kundeninformation.pdf": {
+      "get": {
+        "description": "Kundeninformation nach Art. 8/9 FIDLEG als PDF (vor Vertragsabschluss\nzu uebergeben). Fail-closed: ohne vollstaendige rechtliche Angaben der\nFirma (Firma, Adresse, Aufsichtsstatus, Ombudsstelle, Kontakt) wird kein\nDokument erstellt (409 mit Liste der fehlenden Angaben). Render-once/\narchive-once; die archivierte Fassung traegt Vorlagenversion und Revision/\nHash der rechtlichen Angaben (Grundlage des Abgabenachweises).",
+        "operationId": "get_kundeninformation_pdf_mandates__mandate_id__reports_kundeninformation_pdf_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Kundeninformation Pdf",
         "tags": [
           "PDF Reports"
         ]
@@ -36181,6 +41397,51 @@
         ]
       }
     },
+    "/privacy/policies/baseline": {
+      "post": {
+        "description": "H7 C-6: Aufbewahrungsmatrix aus der gesetzlichen Vorlage vorschlagen\n(10 Jahre ab Beziehungsende nach GwG Art. 7 Abs. 3 / OR 127, Vertrag und\nBelege OR 958f). Legt nur PROPOSED-Zeilen an (fehlende Nachweisarten);\nBetreiberangaben im Body, Genehmigung weiterhin im Vier-Augen-Prinzip.",
+        "operationId": "propose_retention_baseline_privacy_policies_baseline_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BaselineProposal"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Propose Retention Baseline",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
     "/privacy/policies/{policy_id}/approve": {
       "post": {
         "operationId": "approve_policy_privacy_policies__policy_id__approve_post",
@@ -36898,6 +42159,31 @@
         ]
       }
     },
+    "/products/export/csv": {
+      "get": {
+        "description": "AUDIT-2026-11 P1 (PO-6): Export der fuer diesen Tenant sichtbaren,\naktiven Fonds im Spaltenformat des CSV-Imports (globaler Katalog plus\neigene Fonds, nie die eines anderen Tenants -- dieselbe Abfrage wie\nGET /products).\n\nZweck: Stammdaten (ISIN, Domizil, TER-Quelle, Retrozession ...) extern\nergaenzen und wieder einspielen. Die Eignungsspalten bleiben leer: die\nEignung wird ueber die Vier-Augen-Regeln gepflegt und ist kein\nStammdatum. Fuer einen Re-Import muessen sie ergaenzt werden (eine\ngeaenderte Eignung wird dabei als Regel-Entwurf angelegt). Leere Zellen\nbedeuten \"nicht erfasst\" -- es wird nichts vorbelegt.",
+        "operationId": "export_products_csv_products_export_csv_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Products Csv",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
     "/products/import": {
       "post": {
         "description": "Fondsuniversum Bulk-API-Import: fuer externe Asset-Manager-Systeme,\ndie ihren Fondskatalog programmatisch pushen wollen. Nutzt dieselbe\nBearer-Token-Authentifizierung wie jeder andere Endpoint (kein\nseparates API-Key-System noetig) -- ein Asset Manager erhaelt einen\nTenant-User-Account, meldet sich ueber POST /auth/login an und ruft\ndiesen Endpoint mit dem erhaltenen Token auf. Siehe _import_products\nfuer die Upsert-/Isolationslogik.",
@@ -37179,6 +42465,800 @@
         ]
       }
     },
+    "/products/sustainability/attributes": {
+      "get": {
+        "description": "Alle fuer die eigene Verwaltung sichtbaren Nachweise (Plattform +\neigener Tenant), z. B. ``status=draft`` als Freigabe-Warteschlange.",
+        "operationId": "list_sustainability_attributes_products_sustainability_attributes_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "in": "query",
+            "name": "product_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProductSustainabilityAttributeResponse"
+                  },
+                  "title": "Response List Sustainability Attributes Products Sustainability Attributes Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Sustainability Attributes",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/approve": {
+      "post": {
+        "description": "Sammelfreigabe (z. B. nach einem Import). Alles oder nichts: ein\nVier-Augen-Verstoss oder ein ungueltiger Entwurf -> 409, nichts wird\nfreigegeben.",
+        "operationId": "approve_sustainability_attributes_batch_products_sustainability_attributes_approve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductSustainabilityBatchApprovalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityApprovalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Sustainability Attributes Batch",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/export": {
+      "get": {
+        "description": "Export der sichtbaren Nachweise (Plattform + eigener Tenant). Die\nersten Spalten entsprechen dem Import; leerer Export = CSV-Vorlage.",
+        "operationId": "export_sustainability_attributes_products_sustainability_attributes_export_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "csv",
+              "pattern": "^(csv|json)$",
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Sustainability Attributes",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/import": {
+      "post": {
+        "description": "JSON-Import. Jede Zeile wird als ENTWURF angelegt (nie direkt\nfreigegeben); die Freigabe erfolgt danach durch eine andere Person\n(Vier-Augen, POST .../approve). Fehlerhafte Zeilen werden einzeln\ngemeldet, gueltige trotzdem angelegt.",
+        "operationId": "import_sustainability_attributes_products_sustainability_attributes_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductSustainabilityAttributeImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Import Sustainability Attributes",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/import/csv": {
+      "post": {
+        "description": "CSV-Import (Komma/Semikolon/Tab, UTF-8, Kopfzeile = Spaltennamen des\nExports). Wie der JSON-Import: nur Entwuerfe, Fehler je Zeile.",
+        "operationId": "import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Import Sustainability Attributes Csv",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/{attribute_id}": {
+      "delete": {
+        "description": "Nur Entwuerfe loeschen (sie waren nie Nachweis). Freigegebene\nNachweise werden zurueckgezogen, nicht geloescht (Audit-Spur).",
+        "operationId": "delete_sustainability_attribute_draft_products_sustainability_attributes__attribute_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attribute_id",
+            "required": true,
+            "schema": {
+              "title": "Attribute Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Sustainability Attribute Draft",
+        "tags": [
+          "Produkte"
+        ]
+      },
+      "patch": {
+        "description": "Entwurf bearbeiten -- nur durch die erfassende Person, damit die\nfreigebende Person nie Inhalte freigibt, die sie selbst geschrieben hat.\nFreigegebene Nachweise sind unveraenderlich (Korrektur = neuer Entwurf).",
+        "operationId": "update_sustainability_attribute_products_sustainability_attributes__attribute_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attribute_id",
+            "required": true,
+            "schema": {
+              "title": "Attribute Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductSustainabilityAttributeUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityAttributeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Sustainability Attribute",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/{attribute_id}/approve": {
+      "post": {
+        "description": "Vier-Augen-Freigabe eines Entwurfs: 409, wenn die erfassende Person\nselbst freigibt (Einzelberater-Ausnahme wie bei den Eignungsregeln);\n403 fuer Plattform-Nachweise ohne Plattform-Recht.",
+        "operationId": "approve_sustainability_attribute_endpoint_products_sustainability_attributes__attribute_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attribute_id",
+            "required": true,
+            "schema": {
+              "title": "Attribute Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ProductSustainabilityApprovalRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityApprovalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Sustainability Attribute Endpoint",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/{attribute_id}/retire": {
+      "post": {
+        "description": "Freigegebenen Nachweis zurueckziehen; er zaehlt danach nie mehr.",
+        "operationId": "retire_sustainability_attribute_endpoint_products_sustainability_attributes__attribute_id__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attribute_id",
+            "required": true,
+            "schema": {
+              "title": "Attribute Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ProductSustainabilityRetireRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityAttributeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retire Sustainability Attribute Endpoint",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/catalog": {
+      "get": {
+        "description": "Kategorien, zulaessige Arten, Quellentypen und Haus-Defaults (T-E1).",
+        "operationId": "get_sustainability_catalog_products_sustainability_catalog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Sustainability Catalog",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/standards": {
+      "get": {
+        "description": "Hausstandard der eigenen Verwaltung: Default (T-E1), Tenant-Wert, wirksam.",
+        "operationId": "get_sustainability_standards_products_sustainability_standards_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityStandardsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Sustainability Standards",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/standards/{category}": {
+      "delete": {
+        "description": "Zurueck auf den Haus-Default (T-E1), auditiert. N-863-5: ist die\ngeltende Version strenger als der Default, entsteht ein Entwurf\n(Vier-Augen-Freigabe); sonst wirkt der Reset sofort.",
+        "operationId": "reset_sustainability_standard_endpoint_products_sustainability_standards__category__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category",
+            "required": true,
+            "schema": {
+              "title": "Category",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityStandardsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reset Sustainability Standard Endpoint",
+        "tags": [
+          "Produkte"
+        ]
+      },
+      "put": {
+        "description": "Hausschwelle der eigenen Verwaltung setzen (neue Version, auditiert).\n\nH-1/N-863-5: Richtung relativ zur GELTENDEN Version. Verschaerfung wirkt\nsofort; Lockerung (hoehere Schwelle als die geltende oder Kategorie\ndeaktiviert) entsteht als Entwurf (``pending``) und wirkt erst nach der\nVier-Augen-Freigabe (POST .../approve). Unveraendert -> keine neue\nVersion. UN Global Compact kennt keine Umsatzschwelle (null).",
+        "operationId": "set_sustainability_standard_endpoint_products_sustainability_standards__category__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category",
+            "required": true,
+            "schema": {
+              "title": "Category",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SustainabilityStandardUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityStandardsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Sustainability Standard Endpoint",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/standards/{category}/approve": {
+      "post": {
+        "description": "Vier-Augen-Freigabe einer offenen Lockerung: 409, wenn die Person, die\nsie beantragt hat, selbst freigibt (Einzelberater-Ausnahme wie bei den\nEignungsregeln); 409 auch ohne offenen Entwurf.",
+        "operationId": "approve_sustainability_standard_endpoint_products_sustainability_standards__category__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category",
+            "required": true,
+            "schema": {
+              "title": "Category",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ProductSustainabilityApprovalRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityStandardsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Sustainability Standard Endpoint",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/standards/{category}/pending": {
+      "delete": {
+        "description": "Offene Lockerung verwerfen (auditiert).",
+        "operationId": "discard_sustainability_standard_endpoint_products_sustainability_standards__category__pending_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category",
+            "required": true,
+            "schema": {
+              "title": "Category",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityStandardsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Discard Sustainability Standard Endpoint",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
     "/products/{product_id}": {
       "put": {
         "description": "Sprint U-P10: Admin editiert Produkt-Metadaten + Diversifikations-Tiefe.\n\nAlle Felder optional; nur gesetzte werden ueberschrieben. JSON-Strings\n(country/sector/currency_exposure_json) werden bereits am Schema-Rand\nvalidiert (siehe schemas/review.py::ProductUpdate -- PROD-DOMAIN-001,\n2026-09-05): Form (dict[str,number]), Non-Negativitaet, Summe ~10000bps.\nservices/product_exposures.py::_parse_or_proxy bleibt zusaetzlich\nfault-tolerant fuer bereits vor dem Fix gespeicherte Legacy-Daten.",
@@ -37354,6 +43434,113 @@
           }
         ],
         "summary": "Set Product Market Override",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/{product_id}/sustainability-attributes": {
+      "get": {
+        "operationId": "list_product_sustainability_attributes_products__product_id__sustainability_attributes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "product_id",
+            "required": true,
+            "schema": {
+              "title": "Product Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProductSustainabilityAttributeResponse"
+                  },
+                  "title": "Response List Product Sustainability Attributes Products  Product Id  Sustainability Attributes Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Product Sustainability Attributes",
+        "tags": [
+          "Produkte"
+        ]
+      },
+      "post": {
+        "description": "Nachweis als Entwurf erfassen (Quelle und Stichtag Pflicht; gueltig\nbis leer = Stichtag + 12 Monate). Zaehlt erst nach Vier-Augen-Freigabe.",
+        "operationId": "create_product_sustainability_attribute_products__product_id__sustainability_attributes_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "product_id",
+            "required": true,
+            "schema": {
+              "title": "Product Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductSustainabilityAttributeCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityAttributeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Product Sustainability Attribute",
         "tags": [
           "Produkte"
         ]

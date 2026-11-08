@@ -23,29 +23,34 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models.onsite_signature import OnsiteSignatureEvent, OnsiteSignatureEvidence
 from models.review import ContractDocument
 from models.users import User
+from services.audit import release_block_audit
 from services.auth import (
+    extract_client_ip,
     get_current_user,
     get_linked_client_for_user_or_404,
     get_mandate_for_user_or_404,
     require_advisor,
     require_client,
+    set_tenant_context,
 )
 from services.onsite_signature import service as svc
 from services.onsite_signature import state_machine as sm
 from services.onsite_signature.runtime import OnsiteSignatureRuntime, get_onsite_signature_runtime
 from services.recommendation_release_gate import (
     CHANNEL_SIGNATURE,
+    CONTRACT_CONCLUSION_DOCUMENT_TYPES,
     RECOMMENDATION_DOCUMENT_TYPES,
     SIGNOFF_BOUND_DOCUMENT_TYPES,
+    assert_client_onboarding_release_eligible,
     assert_recommendation_release_eligible,
+    assert_retrocession_release_eligible,
     assert_risk_signoff_release_eligible,
 )
 
@@ -93,27 +98,51 @@ def _advisor(user: User) -> svc.AdvisorActor:
     return svc.AdvisorActor(user_id=user.id, role=str(user.role), totp_enabled=bool(user.totp_enabled))
 
 
-def _release_gates(db: Session, mandate, document: ContractDocument) -> None:
+def _release_gates(
+    db: Session, mandate, document: ContractDocument, *, current_user: User, request: Optional[Request],
+    on_blocked=None,
+) -> None:
+    """Freigabe-Gates der Vor-Ort-Signatur. H7 N-884-07: jede Sperre (Risiko-
+    profil-Signoff, Empfehlungsfreigabe, Retrozession, H8 Kundeninformation/
+    KYC) wird im Audit-Log
+    festgehalten (``onsite_signature_blocked``); ``on_blocked(reason_code)``
+    erlaubt dem Aufrufer, einen offenen Vorgang danach sauber zu schliessen."""
+    audit = release_block_audit(
+        db, user=current_user,
+        ip_address=extract_client_ip(request) if request is not None else None,
+        mandate_id=mandate.id, field_name="onsite_signature_blocked",
+        set_tenant_context=set_tenant_context,
+    )
     document_type = str(document.document_type or "")
-    if document_type in SIGNOFF_BOUND_DOCUMENT_TYPES:
-        assert_risk_signoff_release_eligible(db, mandate, channel=CHANNEL_SIGNATURE)
-    if document_type in RECOMMENDATION_DOCUMENT_TYPES:
-        assert_recommendation_release_eligible(db, mandate, channel=CHANNEL_SIGNATURE)
+    try:
+        if document_type in SIGNOFF_BOUND_DOCUMENT_TYPES:
+            assert_risk_signoff_release_eligible(db, mandate, channel=CHANNEL_SIGNATURE)
+        if document_type in RECOMMENDATION_DOCUMENT_TYPES:
+            assert_recommendation_release_eligible(db, mandate, channel=CHANNEL_SIGNATURE)
+            # H7 N-884-04: Retro-Gate auch fuer finale Laeufe (fail-closed).
+            assert_retrocession_release_eligible(db, mandate, channel=CHANNEL_SIGNATURE)
+        if document_type in CONTRACT_CONCLUSION_DOCUMENT_TYPES:
+            # H8 N-890-01: die Vor-Ort-Signatur ist der In-App-Weg fuer die
+            # Kundenunterschrift -- dasselbe Kundeninformations-/KYC-Gate wie
+            # Berater-Signatur und Finalisierung (Sperre auditiert, siehe unten).
+            assert_client_onboarding_release_eligible(db, mandate, channel=CHANNEL_SIGNATURE)
+    except Exception as exc:
+        # Gates werfen DomainError (reason_code im Detail); alles andere
+        # (Programmfehler) geht unveraendert weiter.
+        as_detail = getattr(exc, "as_detail", None)
+        if not callable(as_detail):
+            raise
+        detail = as_detail()
+        reason_code = str(detail.get("reason_code") or "RELEASE_BLOCKED")
+        audit(reason_code, detail.get("recommendation_run_id"))
+        if on_blocked is not None:
+            on_blocked(reason_code)
+        raise
 
 
 def _view(db: Session, transaction_id: str) -> dict[str, Any]:
     tx = svc.load_transaction(db, transaction_id)
-    events = (
-        db.query(OnsiteSignatureEvent)
-        .filter(OnsiteSignatureEvent.transaction_id == transaction_id)
-        .order_by(OnsiteSignatureEvent.sequence_no.asc())
-        .all()
-    )
-    evidence = (
-        db.query(OnsiteSignatureEvidence)
-        .filter(OnsiteSignatureEvidence.transaction_id == transaction_id)
-        .first()
-    )
+    events, evidence = svc.transaction_events_and_evidence(db, transaction_id)
     return {
         "transaction_id": tx.transaction_id,
         "state": tx.state,
@@ -162,7 +191,7 @@ def get_onsite_signature_policy(
 
 @router.post("/mandates/{mandate_id}/documents/{doc_id}/onsite-signature", status_code=201)
 def open_onsite_signature(
-    mandate_id: str, doc_id: str, body: OpenRequest,
+    mandate_id: str, doc_id: str, body: OpenRequest, request: Request = None,
     db: Session = Depends(get_db),
     runtime: OnsiteSignatureRuntime = Depends(get_onsite_signature_runtime),
     current_user: User = Depends(require_advisor),
@@ -176,7 +205,7 @@ def open_onsite_signature(
     if document is None:
         raise HTTPException(status_code=404, detail="Dokument nicht gefunden")
     svc.require_released(runtime.policy)
-    _release_gates(db, mandate, document)
+    _release_gates(db, mandate, document, current_user=current_user, request=request)
     tx = svc.open_transaction(
         db, policy=runtime.policy, time_source=runtime.time_source,
         qes_provider=runtime.qes_provider, advisor=_advisor(current_user), mandate=mandate,
@@ -247,7 +276,7 @@ def onsite_witness(
 
 @router.post("/mandates/{mandate_id}/onsite-signature/{transaction_id}/finalize")
 def onsite_finalize(
-    mandate_id: str, transaction_id: str, body: FinalizeRequest,
+    mandate_id: str, transaction_id: str, body: FinalizeRequest, request: Request = None,
     db: Session = Depends(get_db),
     runtime: OnsiteSignatureRuntime = Depends(get_onsite_signature_runtime),
     current_user: User = Depends(require_advisor),
@@ -256,7 +285,23 @@ def onsite_finalize(
     svc.require_released(runtime.policy)
     document = db.query(ContractDocument).filter(ContractDocument.id == tx.document_id).first()
     if document is not None:
-        _release_gates(db, get_mandate_for_user_or_404(mandate_id, db, current_user), document)
+        def _close_open_transaction(reason_code: str) -> None:
+            # H7 N-884-07: offener Vorgang wird mit dem Gate-Reason-Code
+            # geschlossen (Ereigniskette); scheitert das (z.B. Zeitquelle),
+            # bleibt die Sperre bestehen und der Audit-Eintrag steht.
+            try:
+                svc.abort_for_release_block(
+                    db, policy=runtime.policy, time_source=runtime.time_source,
+                    advisor=_advisor(current_user), transaction_id=transaction_id,
+                    reason_code=reason_code,
+                )
+            except Exception:  # noqa: BLE001 -- Sperre bleibt, Audit steht
+                db.rollback()
+
+        _release_gates(
+            db, get_mandate_for_user_or_404(mandate_id, db, current_user), document,
+            current_user=current_user, request=request, on_blocked=_close_open_transaction,
+        )
     svc.finalize_signature(
         db, policy=runtime.policy, time_source=runtime.time_source,
         qes_provider=runtime.qes_provider, advisor=_advisor(current_user),

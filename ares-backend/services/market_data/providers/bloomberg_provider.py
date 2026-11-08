@@ -17,6 +17,16 @@ Aktivierung (durch Berater oder Hosting-Betreiber):
   4. Provider in services/market_data/factory.py registrieren (oder via
      Entry-Point-Discovery in einem externen Paket)
 
+Fail-closed (BBG-1, Audit 2026-11/06): Ohne ``blpapi``, ohne Terminal bzw.
+Session oder ohne Refdata-Service wirft jede Datenmethode
+``ProviderUnavailableError`` mit eindeutigem ``code`` (nie ``SymbolNotFound``).
+``is_healthy()`` versucht einen echten Session-Start mit kurzem Connect-
+Timeout und cached das Ergebnis (TTL). Der Provider ist ``authoritative``:
+faellt er aus, faellt die Aggregator-Kaskade NICHT still auf Gratisquellen
+zurueck. Der echte Request-Aufbau (ReferenceData/HistoricalData) folgt in
+BBG-3; bis dahin meldet eine stehende Session
+``BLOOMBERG_REQUEST_NOT_IMPLEMENTED``.
+
 Architektur-Hinweis: Der Backfill-Service (sub_asset_backfill.py) ruft
 diesen Provider direkt mit dem aus symbol_catalog kommenden Bloomberg-
 Symbol auf (z.B. "SMI Index", "SPXT Index"). Symbole sind in der
@@ -25,12 +35,13 @@ Bloomberg-Konvention (Ticker + Yellow-Key) gehalten.
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from datetime import date as Date
-from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from ..base import Bar, MarketDataProvider, ProductInfo
-from ..exceptions import ProviderError, SymbolNotFound
+from ..exceptions import ProviderUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -42,126 +53,246 @@ BLPAPI_INSTALL_HINT = (
     "Siehe https://www.bloomberg.com/professional/support/api-library/"
 )
 
+# Maschinenlesbare Gruende (BBG-1). Der vollstaendige Fehlerkatalog mit
+# HTTP-Mapping folgt in BBG-9.
+BLOOMBERG_NOT_INSTALLED = "BLOOMBERG_NOT_INSTALLED"
+BLOOMBERG_SESSION_UNAVAILABLE = "BLOOMBERG_SESSION_UNAVAILABLE"
+BLOOMBERG_SERVICE_UNAVAILABLE = "BLOOMBERG_SERVICE_UNAVAILABLE"
+BLOOMBERG_REQUEST_NOT_IMPLEMENTED = "BLOOMBERG_REQUEST_NOT_IMPLEMENTED"
+
+DEFAULT_CONNECT_TIMEOUT_MS = 2000
+DEFAULT_HEALTH_TTL_SECONDS = 60.0
+# N-862-2: harte Wanduhr-Grenze fuer Session.start()/openService(). Der
+# Connect-Timeout von blpapi allein begrenzt einen haengenden Start nicht
+# zuverlaessig (Start-Versuche, Event-Verarbeitung) [pruefen am Terminal].
+DEFAULT_START_TIMEOUT_SECONDS = 5.0
+
+
+class _StepTimeout(Exception):
+    """Interner Marker: ein Session-Schritt hat die Wanduhr-Grenze gerissen."""
+
+
+def _run_with_deadline(step: Any, timeout_seconds: float, on_late_success: Any = None) -> Any:
+    """``step()`` in einem Daemon-Thread mit hartem Zeitlimit ausfuehren.
+
+    Haelt das Limit nicht, wird ``_StepTimeout`` geworfen; der Thread laeuft
+    im Hintergrund aus, und ``on_late_success`` raeumt ein spaeter doch noch
+    geliefertes Ergebnis auf (z. B. Session stoppen). Der aufrufende
+    Request-Thread blockiert nie laenger als ``timeout_seconds``.
+    """
+    outcome: dict[str, Any] = {}
+    done = threading.Event()
+    abandoned = threading.Event()
+
+    def _target() -> None:
+        try:
+            outcome["value"] = step()
+        except BaseException as exc:  # noqa: BLE001 - wird im Aufrufer gemeldet
+            outcome["error"] = exc
+        finally:
+            done.set()
+            if abandoned.is_set() and "value" in outcome and on_late_success is not None:
+                try:
+                    on_late_success(outcome["value"])
+                except Exception:  # noqa: BLE001
+                    pass
+
+    worker = threading.Thread(target=_target, name="bloomberg-session-step", daemon=True)
+    worker.start()
+    if not done.wait(timeout_seconds):
+        abandoned.set()
+        raise _StepTimeout()
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome.get("value")
+
 
 class BloombergProvider(MarketDataProvider):
-    """Bloomberg-Server-API-Provider (Skelett, blpapi-Lazy-Import).
-
-    Falls blpapi nicht installiert ist, wirft jeder Datenabruf einen
-    klaren ProviderError mit Installations-Hinweis. is_healthy() liefert
-    False, sodass der Aggregator den Provider in der Cascade automatisch
-    ueberspringt — keine Crashes wenn Bloomberg nicht verfuegbar ist.
-    """
+    """Bloomberg-API-Provider (Skelett, blpapi-Lazy-Import, fail-closed)."""
 
     name = "bloomberg"
+    authoritative = True
 
-    def __init__(self, host: str = "localhost", port: int = 8194) -> None:
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 8194,
+        *,
+        connect_timeout_ms: int = DEFAULT_CONNECT_TIMEOUT_MS,
+        health_ttl_seconds: float = DEFAULT_HEALTH_TTL_SECONDS,
+        start_timeout_seconds: float = DEFAULT_START_TIMEOUT_SECONDS,
+    ) -> None:
         self._host = host
         self._port = port
+        self._connect_timeout_ms = max(1, int(connect_timeout_ms))
+        self._health_ttl_seconds = max(0.0, float(health_ttl_seconds))
+        self._start_timeout_seconds = max(0.01, float(start_timeout_seconds))
         self._session: Any = None  # blpapi.Session-Instanz wenn aktiv
         self._blpapi: Any = None
+        # (Ergebnis, monotone Ablaufzeit) des letzten Health-Checks
+        self._health_cache: tuple[bool, float] | None = None
+        # Letzter Verfuegbarkeitsfehler; der Aggregator reicht ihn mit Code
+        # weiter, wenn er den Provider wegen is_healthy()=False nicht ruft.
+        self.last_unavailable_error: ProviderUnavailableError | None = None
+
+    def _bloomberg_unavailable(self, code: str, message: str) -> ProviderUnavailableError:
+        return ProviderUnavailableError(f"[{code}] {message}", code=code, provider=self.name)
 
     def _blpapi_module(self) -> Any:
-        """Lazy-Import von blpapi. ProviderError wenn nicht installiert."""
+        """Lazy-Import von blpapi. ProviderUnavailableError wenn nicht installiert."""
         if self._blpapi is None:
             try:
                 import blpapi  # type: ignore[import-not-found]
             except ImportError as exc:
-                raise ProviderError(
-                    f"blpapi nicht installiert: {exc}. {BLPAPI_INSTALL_HINT}"
+                raise self._bloomberg_unavailable(
+                    BLOOMBERG_NOT_INSTALLED,
+                    f"blpapi nicht installiert: {exc}. {BLPAPI_INSTALL_HINT}",
                 ) from exc
             self._blpapi = blpapi
         return self._blpapi
 
-    def _session_obj(self) -> Any:
-        """Lazy-Start einer blpapi-Session.
+    @staticmethod
+    def _stop_quietly(session: Any) -> None:
+        try:
+            session.stop()
+        except Exception:  # noqa: BLE001
+            pass
 
-        Sessions sind teuer aufzubauen — wir cachen einmalig pro Provider-
-        Instanz. Bei Session-Fehler wirft ProviderError.
+    def _session_obj(self) -> Any:
+        """Lazy-Start einer blpapi-Session mit kurzem Connect-Timeout.
+
+        Sessions sind teuer aufzubauen und werden pro Provider-Instanz
+        gecacht. Jeder Fehler -> ProviderUnavailableError mit Code.
         """
         if self._session is not None:
             return self._session
         blpapi = self._blpapi_module()
+        session: Any = None
         try:
             session_opts = blpapi.SessionOptions()
             session_opts.setServerHost(self._host)
             session_opts.setServerPort(self._port)
+            if hasattr(session_opts, "setConnectTimeout"):
+                session_opts.setConnectTimeout(self._connect_timeout_ms)
+            if hasattr(session_opts, "setNumStartAttempts"):
+                session_opts.setNumStartAttempts(1)
             session = blpapi.Session(session_opts)
-            if not session.start():
-                raise ProviderError(
-                    f"Bloomberg-Session-Start fehlgeschlagen "
-                    f"({self._host}:{self._port}). Terminal/B-PIPE laeuft?"
+            started_session = session
+            try:
+                started = _run_with_deadline(
+                    session.start,
+                    self._start_timeout_seconds,
+                    on_late_success=lambda ok: ok and self._stop_quietly(started_session),
                 )
-            if not session.openService("//blp/refdata"):
-                raise ProviderError("Bloomberg-Refdata-Service nicht erreichbar.")
+            except _StepTimeout:
+                raise self._bloomberg_unavailable(
+                    BLOOMBERG_SESSION_UNAVAILABLE,
+                    f"Bloomberg-Session-Start ueber {self._start_timeout_seconds:g} s "
+                    f"({self._host}:{self._port}) abgebrochen.",
+                ) from None
+            if not started:
+                raise self._bloomberg_unavailable(
+                    BLOOMBERG_SESSION_UNAVAILABLE,
+                    f"Bloomberg-Session-Start fehlgeschlagen ({self._host}:{self._port}). "
+                    "Terminal/B-PIPE laeuft?",
+                )
+            try:
+                service_ok = _run_with_deadline(
+                    lambda: session.openService("//blp/refdata"),
+                    self._start_timeout_seconds,
+                )
+            except _StepTimeout:
+                raise self._bloomberg_unavailable(
+                    BLOOMBERG_SERVICE_UNAVAILABLE,
+                    f"Bloomberg-Refdata-Service nicht innerhalb {self._start_timeout_seconds:g} s geoeffnet.",
+                ) from None
+            if not service_ok:
+                raise self._bloomberg_unavailable(
+                    BLOOMBERG_SERVICE_UNAVAILABLE,
+                    "Bloomberg-Refdata-Service nicht erreichbar.",
+                )
             self._session = session
             return session
-        except ProviderError:
+        except ProviderUnavailableError:
+            if session is not None:
+                self._stop_quietly(session)
             raise
         except Exception as exc:  # noqa: BLE001
-            raise ProviderError(
-                f"Bloomberg-Session konnte nicht gestartet werden: {exc}"
+            if session is not None:
+                self._stop_quietly(session)
+            raise self._bloomberg_unavailable(
+                BLOOMBERG_SESSION_UNAVAILABLE,
+                f"Bloomberg-Session konnte nicht gestartet werden: {exc}",
             ) from exc
+
+    def _mark_unhealthy(self, exc: ProviderUnavailableError) -> None:
+        """Nach einem Fehler: Session verwerfen, bis TTL-Ablauf ungesund."""
+        self.last_unavailable_error = exc
+        if self._session is not None:
+            self._stop_quietly(self._session)
+            self._session = None
+        self._health_cache = (False, time.monotonic() + self._health_ttl_seconds)
+
+    def _require_session(self) -> Any:
+        try:
+            return self._session_obj()
+        except ProviderUnavailableError as exc:
+            self._mark_unhealthy(exc)
+            raise
+
+    def _not_implemented(self, operation: str) -> ProviderUnavailableError:
+        exc = self._bloomberg_unavailable(
+            BLOOMBERG_REQUEST_NOT_IMPLEMENTED,
+            f"Bloomberg {operation}: Request-Aufbau ist noch nicht implementiert (BBG-3). "
+            "Keine Daten geliefert.",
+        )
+        self._mark_unhealthy(exc)
+        return exc
 
     # ------------------------------------------------------------------ #
     # MarketDataProvider-Interface
     # ------------------------------------------------------------------ #
 
     def is_healthy(self) -> bool:
-        """True nur wenn blpapi installiert UND Session start moeglich.
+        """True nur, wenn eine Session mit Refdata-Service tatsaechlich steht.
 
-        Defensiv: blpapi-ImportError oder Session-Fehler -> False, damit
-        Aggregator den Provider in der Cascade ueberspringt.
+        Versucht einen echten Session-Start (Connect-Timeout
+        ``connect_timeout_ms``). Das Ergebnis wird ``health_ttl_seconds``
+        gecacht, damit nicht jeder Aufruf eine Verbindung aufbaut.
         """
+        now = time.monotonic()
+        if self._health_cache is not None and now < self._health_cache[1]:
+            return self._health_cache[0]
         try:
-            self._blpapi_module()
-            # Session-Start NICHT in is_healthy ausloesen — zu teuer und
-            # Bloomberg-Limit sind teuer. Nur Import-Check reicht als
-            # 'verfuegbar'-Signal.
-            return True
-        except ProviderError:
-            return False
+            self._session_obj()
+            healthy = True
+            self.last_unavailable_error = None
+        except ProviderUnavailableError as exc:
+            logger.info("Bloomberg nicht verfuegbar: %s", exc)
+            healthy = False
+            self.last_unavailable_error = exc
+        self._health_cache = (healthy, now + self._health_ttl_seconds)
+        return healthy
 
     def get_eod(self, symbol: str, on_date: Date) -> Bar:
-        """End-of-Day Bar via Bloomberg ReferenceDataRequest.
+        """End-of-Day Bar via Bloomberg ReferenceDataRequest (BBG-3).
 
         Bloomberg-Format: 'SMI Index', 'AAPL US Equity', 'CHFUSD Curncy'.
-        Fields: PX_LAST, PX_OPEN, PX_HIGH, PX_LOW, CRNCY.
         """
-        # TODO Phase 5b: blpapi-Implementation. Heute Stub -> SymbolNotFound
-        # falls der Provider gar nicht erreichbar ist, ProviderError sonst.
-        raise SymbolNotFound(
-            f"BloombergProvider get_eod ist Stub. Symbol={symbol!r}, date={on_date}. "
-            f"Implementation folgt in Phase 5b nach blpapi-Aktivierung."
-        )
+        self._require_session()
+        raise self._not_implemented(f"get_eod({symbol!r}, {on_date})")
 
     def get_history(self, symbol: str, start: Date, end: Date) -> list[Bar]:
-        """Tagesserie via Bloomberg HistoricalDataRequest.
-
-        Bloomberg liefert business-day-Reihen mit Fields PX_LAST + PX_VOLUME.
-        Adjusted Close (TR) ueber CUST_TRR_RETURN_HOLDING_PER mit Override
-        DAILY-Periodicity.
-        """
-        # TODO Phase 5b: blpapi-Implementation. Heute Stub.
-        raise SymbolNotFound(
-            f"BloombergProvider get_history ist Stub. Symbol={symbol!r}, "
-            f"range={start}..{end}. Implementation folgt in Phase 5b."
-        )
+        """Tagesserie via Bloomberg HistoricalDataRequest (BBG-3)."""
+        self._require_session()
+        raise self._not_implemented(f"get_history({symbol!r}, {start}..{end})")
 
     def lookup_isin(self, isin: str) -> ProductInfo:
-        """Reverse-ISIN-Lookup via Bloomberg ID-Search.
-
-        Bloomberg unterstuetzt ID-Lookup via /isin/<ISIN>-Override.
-        """
-        # TODO Phase 5b: blpapi-Implementation. Heute Stub.
-        raise SymbolNotFound(
-            f"BloombergProvider lookup_isin ist Stub. ISIN={isin!r}. "
-            f"Implementation folgt in Phase 5b."
-        )
+        """Reverse-ISIN-Lookup via Bloomberg (BBG-3)."""
+        self._require_session()
+        raise self._not_implemented(f"lookup_isin({isin!r})")
 
     def __del__(self) -> None:
         """Bloomberg-Session sauber schliessen wenn Provider zerstoert wird."""
-        if self._session is not None:
-            try:
-                self._session.stop()
-            except Exception:  # noqa: BLE001 - destructor swallow
-                pass
+        if getattr(self, "_session", None) is not None:
+            self._stop_quietly(self._session)

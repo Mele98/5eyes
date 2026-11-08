@@ -21,6 +21,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -338,7 +339,7 @@ def _monolith_render_bucket_drift(data: dict) -> str:
     if shutil.which("node") is None:
         pytest.skip("node nicht verfuegbar")
     html_path = BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "ares.html"
-    html = html_path.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     sig = "function dcRenderBucketDrift("
     start = html.index(sig)
     i = html.index("{", start)

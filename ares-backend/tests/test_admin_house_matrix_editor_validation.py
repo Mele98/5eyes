@@ -31,6 +31,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HTML_PATH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
@@ -88,7 +89,7 @@ VALIDATOR_VARS = (
 def _node(script_body: str, extra_funcs: tuple[str, ...] = (), extra_vars: tuple[str, ...] = ()) -> object:
     if shutil.which("node") is None:
         pytest.skip("node binary not available to execute extracted JS")
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     parts = [_var(src, v) for v in VALIDATOR_VARS + extra_vars]
     parts += [_function(src, f) for f in VALIDATOR_FUNCS + extra_funcs]
     script = "\n".join(parts) + "\n" + script_body
@@ -595,7 +596,7 @@ def test_active_policy_keeps_save_locked():
 
 
 def test_monolith_no_longer_edits_policy_in_bps():
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     grid = _function(src, "function adminRenderPolicyGrid(")
     assert 'type="number"' not in grid and "pol-bps" not in grid
     assert "Werte in bps" not in src
@@ -639,7 +640,7 @@ async function adminPolicyOpen(id){OPENED.push(id);}
 def _clone(script: str) -> dict:
     if shutil.which("node") is None:
         pytest.skip("node binary not available to execute extracted JS")
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     fns = [_function(src, s) for s in (
         "function om(", "function cm(", "function adminPolicyEnsureCloneModal(",
         "function adminPolicyCloneActive(", "async function adminPolicyCloneConfirm(",
@@ -681,7 +682,7 @@ def test_clone_with_empty_name_stays_open_and_sends_nothing():
 
 
 def test_policy_editor_sources_contain_no_native_dialogs():
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     for sig in ("function adminPolicyCloneActive(", "async function adminPolicyCloneConfirm(",
                 "function adminPolicyEnsureCloneModal(", "async function adminPolicySaveRows(",
                 "function adminRenderPolicyGrid(", "function adminPolicyValidateAll("):

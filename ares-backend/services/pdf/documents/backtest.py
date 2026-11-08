@@ -214,7 +214,7 @@ def _build_appendix_flowables(ctx, data: BacktestData, styles, advisory_label) -
             ))
         flowables.append(Spacer(1, 4 * mm))
 
-    flowables.extend(make_disclaimer_section())
+    flowables.extend(make_disclaimer_section(ctx.mandate_type, ctx.jurisdiction))
     return flowables
 
 

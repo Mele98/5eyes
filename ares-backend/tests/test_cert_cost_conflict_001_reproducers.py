@@ -70,6 +70,7 @@ for _p in (BACKEND_ROOT, TESTS_ROOT):
         sys.path.insert(0, str(_p))
 
 from database import Base, new_uuid  # noqa: E402
+from retro_free_fixture import declare_all_products_retro_free  # noqa: E402
 from models import (  # noqa: E402,F401
     allocation, clients, client_login, fx_rate, mandates, profiling,
     protocol_bausteine, review, snapshots, tenant, users, wealth,
@@ -366,6 +367,7 @@ def test_certified_final_run_cost_totals_must_not_drift_with_later_live_ter_corr
     with session_factory() as db:
         mandate = db.query(Mandate).filter(Mandate.id == mid).first()
         advisor = db.query(User).filter(User.id == advisor_id).first()
+        declare_all_products_retro_free(db)
         finalize_recommendation(
             mandate_id=mid, run_id=run_id, request=_FakeRequest(),
             db=db, current_user=advisor,
