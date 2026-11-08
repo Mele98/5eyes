@@ -112,7 +112,7 @@ def _budget_compliant_allocation(mandate_id: str, set_by: str, allocation_id: st
     )
 
 
-def _seed_mandate_and_run(session_factory, advisor_user, mandate_id="mandate-1", run_id="run-1", mandate_type="Vermögensverwaltung") -> None:
+def _seed_mandate_and_run(session_factory, advisor_user, mandate_id="mandate-1", run_id="run-1", mandate_type="Vermögensverwaltung", client_onboarding: bool = True) -> None:
     with session_factory() as session:
         session.add(User(
             id=advisor_user.id, username=advisor_user.username, password_hash=advisor_user.password_hash,
@@ -141,9 +141,10 @@ def _seed_mandate_and_run(session_factory, advisor_user, mandate_id="mandate-1",
         ))
         session.flush()
         # H8 N-890-12: der Handoff verlangt Kundeninformation und KYC (Testwerte).
-        from client_onboarding_fixture import satisfy_client_onboarding
+        if client_onboarding:
+            from client_onboarding_fixture import satisfy_client_onboarding
 
-        satisfy_client_onboarding(session, session.get(Mandate, mandate_id), actor_id=advisor_user.id)
+            satisfy_client_onboarding(session, session.get(Mandate, mandate_id), actor_id=advisor_user.id)
         session.commit()
 
 
@@ -815,3 +816,35 @@ def test_created_and_closed_handoffs_validate_with_their_snapshot_hash(session_f
         PortfolioHandoffResponse.model_validate(executed)
         # Legacy-Zeilen ohne Hash bleiben lesbar.
         PortfolioHandoffResponse.model_validate(_response_dict(snapshot_sha256=None, status="Gesendet"))
+
+
+
+def test_legacy_final_run_handoff_blocked_until_client_onboarding_then_allowed(
+    session_factory, advisor_user, monkeypatch,
+):
+    """H8 N-890-12/-16: ein Lauf, der VOR dem Kundeninformations-/KYC-Gate final
+    wurde (Altlauf), wird erst nach erfuellter Pruefung weitergeleitet; die
+    Sperre steht im Audit-Log (handoff_blocked)."""
+    from core.reason_codes import DomainError
+    from models.portfolio_handoff import PortfolioHandoff
+    from models.review import AuditLog
+
+    _seed_mandate_and_run(session_factory, advisor_user, client_onboarding=False)
+    _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
+    with session_factory() as session:
+        with pytest.raises(DomainError) as exc:
+            _create_handoff(session, advisor_user)
+        assert exc.value.reason_code == "CLIENT_ONBOARDING_INCOMPLETE"
+        assert exc.value.http_status == 409
+        assert "KYC_CONFIRMATION_MISSING" in exc.value.extra["finding_codes"]
+    with session_factory() as session:
+        assert session.query(PortfolioHandoff).count() == 0
+        audit = session.query(AuditLog).filter(AuditLog.field_name == "handoff_blocked").all()
+        assert [a.new_value for a in audit] == ["CLIENT_ONBOARDING_INCOMPLETE"]
+        from client_onboarding_fixture import satisfy_client_onboarding
+
+        satisfy_client_onboarding(session, session.get(Mandate, "mandate-1"), actor_id=advisor_user.id)
+        session.commit()
+    with session_factory() as session:
+        created = _create_handoff(session, advisor_user)
+        assert created.id

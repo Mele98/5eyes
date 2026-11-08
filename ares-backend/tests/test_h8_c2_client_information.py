@@ -531,11 +531,61 @@ def test_strict_mode_admin_without_tenant_cannot_write_default_tenant_profile(sf
 # ---------------------------------------------------------------------------
 
 
-def test_handoff_route_calls_client_onboarding_gate():
+# N-890-16: der Verhaltenstest zum Handoff-Gate steht in
+# tests/test_portfolio_handoff.py::test_legacy_final_run_handoff_blocked_until_client_onboarding_then_allowed.
+
+
+# ---------------------------------------------------------------------------
+# N-890-14: Vorlagenversion an den Textinhalt gekoppelt
+# ---------------------------------------------------------------------------
+#
+# Entscheid (2026-11-08): die Kundeninformation wurde nie ausgeliefert (keine
+# produktive Abgabe). Die aktuelle Fassung wird deshalb als erste freigegebene
+# Vorlage ``ARES-KI-FIDLEG-1`` festgeschrieben (kein Sprung auf -2). Ab jetzt
+# braucht jede Textaenderung eine neue Version und einen neuen Pin hier --
+# sonst liefert render-once/archive-once bei unveraenderten Daten die alte
+# Fassung bzw. eine abgegebene Version waere nicht mehr eindeutig.
+
+TEMPLATE_TEXT_PINS = {
+    "ARES-KI-FIDLEG-1": "dedefafb64aa317b2ec01276bc3bf67b6f83bf63f3c8655ec1efdd2738c463b6",
+}
+
+
+def _template_text_digest() -> str:
+    import hashlib
     import inspect as _inspect
 
-    import routers.portfolio_handoff as handoff
+    import routers.pdf_reports as pdf_reports
+    from jurisdictions.documents import default_documents
+    from services.pdf.documents import vertrag
 
-    source = _inspect.getsource(handoff)
-    assert "assert_client_onboarding_release_eligible(" in source
-    assert 'field_name="handoff_blocked"' in source
+    vertrag_src = _inspect.getsource(vertrag)
+    parts = [vertrag_src[vertrag_src.index("KUNDENINFORMATION_KIND = "):]]
+    for name in ("_kundeninformation_provider_lines", "_kundeninformation_cost_parts",
+                 "_kundeninformation_ties_and_offer"):
+        parts.append(_inspect.getsource(getattr(pdf_reports, name)))
+    parts.append(repr(sorted(pdf_reports._KI_UNIVERSE_LABELS.items())))
+    parts.append(repr(sorted(pdf_reports._KI_COUNTRY_NAMES.items())))
+    parts.append(repr(sorted(gate.SUPERVISION_LABELS.items())))
+    parts.append(default_documents().text("legal.footer.disclaimer.kundeninformation"))
+    text_ = "\n".join(part.replace("\r\n", "\n") for part in parts)
+    return hashlib.sha256(text_.encode("utf-8")).hexdigest()
+
+
+def test_template_text_is_pinned_to_its_version():
+    version = gate.CLIENT_INFORMATION_TEMPLATE_VERSION
+    assert version in TEMPLATE_TEXT_PINS, (
+        f"Neue Vorlagenversion {version}: Pin in TEMPLATE_TEXT_PINS ergaenzen"
+    )
+    assert _template_text_digest() == TEMPLATE_TEXT_PINS[version], (
+        "Text der Kundeninformation geaendert ohne neue Vorlagenversion "
+        "(CLIENT_INFORMATION_TEMPLATE_VERSION erhoehen und Pin nachfuehren)"
+    )
+
+
+def test_template_pin_detects_a_text_change(monkeypatch):
+    import routers.pdf_reports as pdf_reports
+
+    before = _template_text_digest()
+    monkeypatch.setitem(pdf_reports._KI_UNIVERSE_LABELS, "Standard", "geaenderter Text")
+    assert _template_text_digest() != before
