@@ -436,6 +436,14 @@ def assert_document_sustainability_floor(
         _block(ReasonCode.SUSTAINABILITY_DOCUMENT_OUTDATED,
                doc_label + sustainability.DOCUMENT_OUTDATED_TEXT, channel, audit,
                {**base, "status": "document_outdated"})
+    # N-888-15: Protokoll ohne Strategie, an genau diese Erfassung gebunden.
+    if (
+        str(document.document_type or "") in sustainability.NO_STRATEGY_DOCUMENT_TYPES
+        and not getattr(document, "bound_target_allocation_id", None)
+        and getattr(document, "bound_preferences_sha256", None)
+        == sustainability.no_strategy_binding(decision)
+    ):
+        return
     # Gebundene Allokation (auch nicht mehr aktuelle), Mandat geprueft.
     allocation = _run_allocation(
         db, mandate, SimpleNamespace(target_allocation_id=getattr(document, "bound_target_allocation_id", None)),

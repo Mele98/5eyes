@@ -77,7 +77,11 @@ def test_allocation_stale_state_is_reloaded_from_the_server_on_every_visit():
     "veraltet" wieder (Server-Ableitung), blendet "Portfolio umsetzen" aus."""
     src = _module()
     assert "go=function(p)" in src and "if(p==='al')" in src
-    body = src[src.index("function sustRefreshAllocationStale()"):src.index("var _sustBaseGo=null;")]
+    body = src[src.index("function sustStaleNotice()"):src.index("var _sustBaseGo=null;")]
     assert "/sustainability-preferences" in body
-    assert "markStrategyDirty(state.allocation_stale_notice,true)" in body
+    assert "markStrategyDirty(notice,true)" in body
     assert "btn-portfolio-umsetzen" in body and "btn.disabled=true" in body
+    # N-888-14: nach jedem Laden der Strategie erneut anwenden, Button ueber
+    # dieselbe Bedingung (Verhalten: test_livetest_n888_14_*).
+    assert "loadCurrentAllocationResult=function" in src
+    assert "syncPortfolioUmsetzenButtonVisibility=function" in src

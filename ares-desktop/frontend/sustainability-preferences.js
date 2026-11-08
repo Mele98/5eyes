@@ -13,7 +13,7 @@
 // Strategiebausteine (Server: 422 beim Generieren); harte Ausschluesse sind
 // bis E4/E5 gesperrt. Abgelaufene Review-Frist (Hauspolitik) -> Hinweis
 // "Eignungspruefung faellig", kein Sperren.
-var SUST={definition:null,defRequested:false,state:null,mandateId:null,busy:false};
+var SUST={definition:null,defRequested:false,state:null,mandateId:null,busy:false,stale:null};
 
 function sustEsc(v){
   return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -235,9 +235,8 @@ function sustSave(){
     sustErrors([]);sustRender();
     // N-888-01: verletzt die aktuelle Allokation die neuen Ausschluesse, ist
     // die Strategie veraltet (Server sperrt Empfehlung/Finalize/Freigabe).
-    if(state&&state.allocation_stale_notice&&typeof markStrategyDirty==='function'){
-      try{markStrategyDirty(state.allocation_stale_notice,true);}catch(e){}
-    }
+    SUST.stale=state&&state.allocation_stale_notice?{mid:String(mid),notice:state.allocation_stale_notice}:null;
+    sustApplyStale();
     if(btn)btn.disabled=false;
     return state;
   }).catch(function(e){
@@ -264,6 +263,7 @@ function sustLoad(mid){
     return API.get('/mandates/'+encodeURIComponent(mid)+'/sustainability-preferences').then(function(state){
       if(String(sustMandateId()||'')!==String(mid))return null;
       SUST.state=state;SUST.mandateId=mid;
+      SUST.stale=state&&state.allocation_stale_notice?{mid:String(mid),notice:state.allocation_stale_notice}:null;
       sustRender();
       var card=document.getElementById('sust-card');if(card)card.style.display='';
       return state;
@@ -308,6 +308,26 @@ function sustApplyFloorToStrategyBlocks(){
 // Erfassung und aktueller Soll-Allokation) und wird bei JEDEM Wechsel auf die
 // Asset Allokation neu gelesen -- also auch nach neuem Login: Banner
 // "Strategie veraltet", "Portfolio umsetzen" ausgeblendet.
+function sustStaleNotice(){
+  var mid=String(sustMandateId()||'');
+  return SUST.stale&&SUST.stale.mid===mid?SUST.stale.notice:null;
+}
+
+// N-888-14: der Server-Status "veraltet" wird gemerkt und nach JEDEM Laden/
+// Rendern der Strategie erneut angewandt -- das Hydrieren der gespeicherten
+// Allokation (loadClientById setzt dirty=false) darf ihn nicht zuruecksetzen.
+// "Portfolio umsetzen" folgt derselben Bedingung (syncPortfolioUmsetzen...).
+function sustApplyStale(){
+  var notice=sustStaleNotice();
+  if(!notice||typeof strategyState==='undefined'||!strategyState)return false;
+  if(!(strategyState.dirty&&strategyState.staleNotice===notice)&&typeof markStrategyDirty==='function'){
+    try{markStrategyDirty(notice,true);}catch(e){}
+  }
+  var btn=document.getElementById('btn-portfolio-umsetzen');
+  if(btn){btn.style.display='none';btn.disabled=true;}
+  return true;
+}
+
 function sustRefreshAllocationStale(){
   var mid=sustMandateId();
   if(!sustIsRealMandate(mid)||typeof API==='undefined'||!API)return Promise.resolve(null);
@@ -316,24 +336,47 @@ function sustRefreshAllocationStale(){
   }).then(function(state){
     if(String(sustMandateId()||'')!==String(mid))return null;
     SUST.state=state;SUST.mandateId=mid;
-    if(state&&state.allocation_stale_notice){
-      if(typeof markStrategyDirty==='function'){try{markStrategyDirty(state.allocation_stale_notice,true);}catch(e){}}
-      var btn=document.getElementById('btn-portfolio-umsetzen');
-      if(btn){btn.style.display='none';btn.disabled=true;}
-    }
+    SUST.stale=state&&state.allocation_stale_notice?{mid:String(mid),notice:state.allocation_stale_notice}:null;
+    sustApplyStale();
     return state;
   }).catch(function(e){console.warn('Nachhaltigkeitspräferenzen:',e);return null;});
 }
 
 var _sustBaseGo=null;
+var _sustBaseLoadAlloc=null;
+var _sustBaseSyncUmsetzen=null;
 var _sustBaseLoadRisk=null;
 var _sustBaseOpenPrefs=null;
 function sustInstallWrappers(){
+  if(typeof loadCurrentAllocationResult==='function'&&!_sustBaseLoadAlloc){
+    _sustBaseLoadAlloc=loadCurrentAllocationResult;
+    loadCurrentAllocationResult=function(){
+      var r=_sustBaseLoadAlloc.apply(this,arguments);
+      // nach dem Aufrufer (der dirty zuruecksetzt) neu lesen und anwenden
+      Promise.resolve(r).then(function(){
+        setTimeout(function(){sustRefreshAllocationStale();},0);
+      },function(){});
+      return r;
+    };
+  }
+  if(typeof syncPortfolioUmsetzenButtonVisibility==='function'&&!_sustBaseSyncUmsetzen){
+    _sustBaseSyncUmsetzen=syncPortfolioUmsetzenButtonVisibility;
+    syncPortfolioUmsetzenButtonVisibility=function(){
+      var r=_sustBaseSyncUmsetzen.apply(this,arguments);
+      if(sustStaleNotice()){
+        var btn=document.getElementById('btn-portfolio-umsetzen');
+        if(btn){btn.style.display='none';btn.disabled=true;}
+      }
+      return r;
+    };
+  }
   if(typeof go==='function'&&!_sustBaseGo){
     _sustBaseGo=go;
     go=function(p){
       var r=_sustBaseGo.apply(this,arguments);
-      if(p==='al')Promise.resolve(r).then(function(){return sustRefreshAllocationStale();});
+      if(p==='al')Promise.resolve(r).then(function(){
+        return sustRefreshAllocationStale();
+      }).then(function(){setTimeout(sustApplyStale,0);});
       return r;
     };
   }

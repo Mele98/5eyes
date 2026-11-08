@@ -23,6 +23,7 @@ from core.reason_codes import DomainError, ReasonCode
 from services.portfolio_engine_payload import ESG_CUSTOMER_CLAIM_LABELS
 from services.recommendation_release_gate import (
     assert_sustainability_preference_floor as _assert_floor,
+    current_preference_decision as _current_preference_decision,
 )
 from core.http_filenames import content_disposition
 from models.mandates import Mandate
@@ -1228,11 +1229,17 @@ def _assert_client_pdf_sustainability_floor(db: Session, mandate: Mandate, curre
     )
 
 
-def _document_binding(mandate: Mandate, db: Session) -> dict | None:
+def _document_binding(mandate: Mandate, db: Session, document_type: str | None = None) -> dict | None:
     """N-888-09: Bindung eines archivierten Empfehlungsdokuments an die
-    aktuelle Soll-Allokation (ID + SHA-256 des Praeferenz-Snapshots)."""
+    aktuelle Soll-Allokation (ID + SHA-256 des Praeferenz-Snapshots).
+    N-888-15: ein Beratungsprotokoll ohne Strategie wird an die aktuelle
+    Praeferenz-Erfassung gebunden (keine Produkt-/Allokationsaussage)."""
     ta = _latest_target_allocation(mandate, db)
     if ta is None:
+        if document_type in sustainability.NO_STRATEGY_DOCUMENT_TYPES:
+            marker = sustainability.no_strategy_binding(_current_preference_decision(db, mandate))
+            if marker:
+                return {"target_allocation_id": None, "preferences_sha256": marker}
         return None
     return {
         "target_allocation_id": ta.id,
@@ -2282,7 +2289,7 @@ def get_protokoll_pdf(
         title="Beratungsprotokoll", pdf_bytes=pdf_bytes,
         content_hash=content_hash_for(data),
         current_user=current_user, ip_address=_extract_client_ip(request),
-        binding=_document_binding(mandate, db),
+        binding=_document_binding(mandate, db, "Beratungsprotokoll"),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
     # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,

@@ -3,7 +3,7 @@
     "css_selectors": 1120,
     "event_handlers": 461,
     "ids": 1018,
-    "js_functions": 1355,
+    "js_functions": 1357,
     "modal_structures": 110,
     "script_blocks": 27,
     "style_blocks": 2,
@@ -9266,8 +9266,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/sustainability-preferences.js",
-      "sha256": "7101c581a2194d3e4a213606f7e8b8e4207c941dcdd1dfd44f07386c810132e9",
-      "size_bytes": 18565
+      "sha256": "8c864145ba22ebe1dd6f7cb1d1783e7e0368ee5ed0b5c826c5ba07592f1bbe3b",
+      "size_bytes": 20418
     }
   ],
   "ids": [
@@ -22185,6 +22185,12 @@
     },
     {
       "declaration": "function",
+      "line": 320,
+      "name": "sustApplyStale",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
       "line": 36,
       "name": "sustCard",
       "source": "sustainability-preferences.js"
@@ -22221,7 +22227,7 @@
     },
     {
       "declaration": "function",
-      "line": 331,
+      "line": 350,
       "name": "sustInstallWrappers",
       "source": "sustainability-preferences.js"
     },
@@ -22233,13 +22239,13 @@
     },
     {
       "declaration": "function",
-      "line": 257,
+      "line": 256,
       "name": "sustLoad",
       "source": "sustainability-preferences.js"
     },
     {
       "declaration": "function",
-      "line": 249,
+      "line": 248,
       "name": "sustLoadDefinition",
       "source": "sustainability-preferences.js"
     },
@@ -22263,7 +22269,7 @@
     },
     {
       "declaration": "function",
-      "line": 311,
+      "line": 331,
       "name": "sustRefreshAllocationStale",
       "source": "sustainability-preferences.js"
     },
@@ -22289,6 +22295,12 @@
       "declaration": "function",
       "line": 156,
       "name": "sustShowState",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 311,
+      "name": "sustStaleNotice",
       "source": "sustainability-preferences.js"
     },
     {

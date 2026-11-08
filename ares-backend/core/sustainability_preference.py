@@ -473,7 +473,7 @@ FLOOR_UNREADABLE = "unreadable"    # Erfassung oder Praeferenz-Snapshot nicht le
 FLOOR_NO_STRATEGY = "no_strategy"  # Ausschluesse, aber keine Anlagestrategie
 
 CURRENT_DECISION_SQL = (
-    "SELECT id, exclusions_json, waived_exclusions_json, review_due_on, captured_at "
+    "SELECT id, exclusions_json, waived_exclusions_json, review_due_on, captured_at, decision_hash "
     "FROM investment_preference_decisions WHERE mandate_id = :mandate_id "
     "ORDER BY sequence_no DESC LIMIT 1"
 )
@@ -496,6 +496,20 @@ def preferences_sha256(preferences_json) -> str | None:
     if preferences_json is None:
         return None
     return hashlib.sha256(str(preferences_json).encode("utf-8")).hexdigest()
+
+
+# N-888-15: ein Beratungsprotokoll ohne Anlagestrategie (Erstgespraech) traegt
+# keine Produkt-/Allokationsaussage; es wird an die Praeferenz-Erfassung selbst
+# gebunden (Decision-Hash) und ist damit signierbar. Gilt NUR fuer das
+# Protokoll; Empfehlungsdokumente bleiben ohne Allokation fail-closed.
+NO_STRATEGY_DOCUMENT_TYPES = ("Beratungsprotokoll",)
+NO_STRATEGY_BINDING_PREFIX = "keine-strategie:"
+
+
+def no_strategy_binding(decision):
+    if not decision or not decision.get("decision_hash"):
+        return None
+    return NO_STRATEGY_BINDING_PREFIX + str(decision["decision_hash"])
 
 
 DOCUMENT_UNBOUND_TEXT = (

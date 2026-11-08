@@ -479,3 +479,37 @@ def test_advisory_pdf_block_audits_the_client_ip(world):
             "SELECT ip_address FROM audit_log WHERE field_name = 'sustainability_floor_blocked'"
         )).scalar()
     assert ip  # TestClient-Adresse, nicht mehr NULL
+
+
+def test_protocol_without_strategy_is_bound_to_the_preference_and_signable(world):
+    """N-888-15: Erstgespraech mit erfassten Ausschluessen, noch keine
+    Anlagestrategie -> das Beratungsprotokoll ("noch keine Anlagestrategie",
+    keine Produktaussage) ist an die Erfassung gebunden und signierbar;
+    Empfehlungsdokumente ohne Allokation bleiben fail-closed."""
+    from core.reason_codes import DomainError
+    from models.review import ContractDocument
+    from services.recommendation_release_gate import (
+        assert_document_sustainability_floor, current_preference_decision,
+    )
+
+    client, mid = world["client"], world["mandate_id"]
+    assert client.post(f"/mandates/{mid}/sustainability-preferences",
+                       json=_payload(exclusions=["tobacco"])).status_code == 201
+    resp = client.get(f"/mandates/{mid}/reports/protokoll.pdf")
+    assert resp.status_code == 200, resp.text[:300]
+    doc_id, bound = _documents(world)["Beratungsprotokoll"]
+    assert bound is None
+    with world["SF"]() as s:
+        doc = s.get(ContractDocument, doc_id)
+        mandate = s.get(Mandate, mid)
+        assert doc.bound_preferences_sha256 == sp.no_strategy_binding(current_preference_decision(s, mandate))
+        assert_document_sustainability_floor(s, mandate, doc, channel="signature")  # kein Block
+        # Gleiche "keine Strategie"-Bindung auf einem Empfehlungsdokument -> fail-closed.
+        fake = ContractDocument(document_type="Anlagestrategie", title="x",
+                                pdf_generated_at=doc.pdf_generated_at,
+                                bound_preferences_sha256=doc.bound_preferences_sha256)
+        with pytest.raises(DomainError) as exc:
+            assert_document_sustainability_floor(s, mandate, fake, channel="signature")
+        assert exc.value.reason_code == "SUSTAINABILITY_DOCUMENT_UNBOUND"
+    resp = client.post(f"/mandates/{mid}/documents/{doc_id}/sign", json=SIGN_BODY)
+    assert resp.status_code == 200, resp.text
