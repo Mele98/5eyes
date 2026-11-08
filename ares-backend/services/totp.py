@@ -77,7 +77,7 @@ def verify(secret_b32: str, code: str, timestamp: float | None = None,
     return match_counter(secret_b32, code, timestamp, period, window) is not None
 
 
-def provisioning_uri(secret_b32: str, account_name: str, issuer: str = "5eyes") -> str:
+def provisioning_uri(secret_b32: str, account_name: str, issuer: str = "Ares") -> str:
     """otpauth://-URI fuer den QR-Code im Authenticator."""
     label = quote(f"{issuer}:{account_name}")
     return (

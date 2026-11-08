@@ -134,6 +134,18 @@ class Tenant(Base):
     # bewusst mit False (explizites Opt-in fuer die hoehere Bewilligungsstufe,
     # kein Opt-out).
     discretionary_management_licensed = Column(Integer, nullable=False, default=1)
+    # H5 (N-886-08, 2026-11-07): Risikoprofil-Fragebogen v2 als Firmen-Policy.
+    # Default 0 (aus). Wirksam nur mit Vermerk der IC-/Compliance-Freigabe der
+    # Grenzwerte (approval_ref); gesetzt ausschliesslich ueber die auditierte
+    # Admin-Einstellung PUT /tenants/me/risk-questionnaire-policy.
+    risk_questionnaire_v2_enabled = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    risk_questionnaire_v2_approval_ref = Column(String)
+    risk_questionnaire_v2_changed_at = Column(String)
+    risk_questionnaire_v2_changed_by = Column(String)
+    # E1 Nachhaltigkeitspraeferenzen (Dok. 106, 2026-11-07): Review-Frist der
+    # Nachhaltigkeitspraeferenz in Monaten als HAUSPOLITIK des Tenants (keine
+    # gesetzliche Frist). NULL = Default 36 (core/sustainability_preference.py).
+    sustainability_review_months = Column(Integer)
 
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)

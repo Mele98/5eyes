@@ -3,7 +3,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from datetime import date, datetime, timezone
@@ -13,14 +13,19 @@ from models.users import User
 from models.mandates import Mandate
 from models.clients import Client
 from models.profiling import (
-    ClientKnowledge, RiskAssessment, RiskAssessmentAnswer, RiskOverrideDecision, SuitabilityCheck
+    ClientKnowledge, InvestmentPreferenceDecision, RiskAssessment, RiskAssessmentAnswer,
+    RiskOverrideDecision, SuitabilityCheck, current_investment_preference,
 )
 from models.review import AdvisoryLog
 from schemas.profiling import (
     KnowledgeCreate, KnowledgeResponse,
     RiskAssessmentCreate, RiskAssessmentOverride, RiskAssessmentResponse,
     SuitabilityCheckCreate, SuitabilityCheckResponse,
+    SustainabilityPreferenceCreate, SustainabilityPreferenceResponse, SustainabilityPreferenceState,
 )
+from core import sustainability_preference as sp
+from core.evidence import evidence_hash
+from core.reason_codes import DomainError, ReasonCode
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
 from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
@@ -37,14 +42,23 @@ from routers.review import _get_document_or_404, _get_recommendation_run_or_404
 from services.data_classification import enforce_data_classification
 from services.portfolio_engine import (
     _current_risk_assessment_or_none,
+    _current_target_allocation_or_none,
     risk_assessment_ready_for_strategy,
 )
 from services.risk_scoring import canonicalize_horizon_label, compute_scores, profile_for_score_x10
 from services.risk_questionnaire_integrity import (
+    REASON_V2_DISABLED,
+    REASON_V2_REQUIRED,
     RiskQuestionnaireIntegrityError,
+    evaluate_v2_submission,
+    questionnaire_v2_enabled,
+    questionnaire_v2_policy,
+    submission_version,
     validate_standard_submission,
 )
-from services.risk_capacity_plausibility import audit_if_inconsistent, evaluate_mandate_safely
+from services.risk_capacity_plausibility import (
+    audit_if_inconsistent, evaluate_mandate_safely, load_recorded_financials,
+)
 from services import risk_capacity_evaluation_snapshot as rces
 from services.risk_assessment_semantics import (
     OVERRIDE_DOCUMENTATION_RULES_VERSION,
@@ -72,7 +86,7 @@ def _canonical_risk_answer_section(question_number: int | None, question_section
     if section in {"Risikofähigkeit", "Risikobereitschaft"}:
         return section
     qn = int(question_number or 0)
-    if qn in (9, 10, 11, 12):
+    if qn in (9, 10, 11, 12, 13, 14):
         return "Risikobereitschaft"
     return "Risikofähigkeit"
 
@@ -255,6 +269,17 @@ def list_risk_capacity_plausibility_evaluations(
     }
 
 
+@router.get("/risk-questionnaire/policy")
+def get_risk_questionnaire_policy(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """H5b: aktive Fragebogen-Version der Firma und Definition v2 (Texte,
+    Optionen, Kappungen, Konsistenz-Flags). v2 ist per Tenant-Policy aus,
+    bis die Grenzwerte durch IC/Compliance freigegeben und vermerkt sind."""
+    return questionnaire_v2_policy(db, current_user)
+
+
 @router.post("/mandates/{mandate_id}/risk-assessments", response_model=RiskAssessmentResponse, status_code=201)
 def create_risk_assessment(
     mandate_id: str,
@@ -268,6 +293,29 @@ def create_risk_assessment(
     now = _now()
     today = date.today().isoformat()
     horizon_label = canonicalize_horizon_label(body.investment_horizon_label)
+    try:
+        questionnaire_version = submission_version(body)
+    except RiskQuestionnaireIntegrityError as exc:
+        raise HTTPException(status_code=422, detail=exc.as_detail()) from exc
+    v2_active = questionnaire_v2_enabled(db, current_user)
+    if questionnaire_version == "v2" and not v2_active:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": REASON_V2_DISABLED,
+            "message": (
+                "Der Fragebogen v2 ist noch nicht freigegeben (Grenzwerte bei "
+                "IC/Compliance in Pruefung). Bitte den Standard-Fragebogen verwenden."
+            ),
+        })
+    if questionnaire_version == "v1" and v2_active:
+        # N-886-01: Ist v2 fuer die Firma freigegeben, gilt es fuer jede neue
+        # Erhebung (sonst liessen sich Knock-out und Q12-14 umgehen).
+        raise HTTPException(status_code=422, detail={
+            "reason_code": REASON_V2_REQUIRED,
+            "message": (
+                "Fuer diese Firma gilt der Fragebogen v2. Bitte die Maske neu laden "
+                "und die Fragen 12-14 beantworten."
+            ),
+        })
 
     # Compute scores from Fachlogik
     scores = compute_scores(
@@ -282,6 +330,36 @@ def create_risk_assessment(
     )
     final_score_x10 = int(scores.final_score_x10)
     final_profile = str(scores.final_profile)
+    willingness_score_x10 = int(scores.risk_willingness_score_x10)
+    willingness_profile = str(scores.risk_willingness_profile)
+    v2 = None
+    if questionnaire_version == "v2":
+        # H5b: Zusatzfragen kappen nur die Bereitschaft (nie anheben); Fragen
+        # 1-11 und die Kernformel bleiben unveraendert. Konsistenz-Flags
+        # verlangen eine Beraternotiz, aendern das Profil aber nicht.
+        try:
+            # N-886-05/-12: Obergrenze fuer den Betrag in Frage 12 = erfasstes
+            # Bruttovermoegen, umgerechnet in die Mandatswaehrung (bestehende
+            # FX-Quelle). Kein Kurs bzw. keine Daten -> None -> fail-closed.
+            currency = str(getattr(mandate, "base_currency", None) or "CHF").upper()
+            try:
+                fx: dict = {}
+                gross_chf = load_recorded_financials(db, mandate, fx_out=fx).gross_assets_rappen / 100
+                rate = 1.0 if currency == "CHF" else float(fx["fx_source"].cross_rate(currency, "CHF"))
+                ceiling = int(gross_chf / rate) if rate > 0 else None
+            except (ValueError, KeyError, ZeroDivisionError):
+                ceiling = None
+            v2 = evaluate_v2_submission(
+                body, core_willingness_score_x10=scores.risk_willingness_score_x10,
+                currency=currency,
+                ceiling=ceiling,
+            )
+        except RiskQuestionnaireIntegrityError as exc:
+            raise HTTPException(status_code=422, detail=exc.as_detail()) from exc
+        willingness_score_x10 = v2["result"].effective_score_x10
+        willingness_profile = v2["result"].effective_profile
+        final_score_x10 = min(int(scores.risk_capacity_score_x10), willingness_score_x10)
+        final_profile = profile_for_score_x10(final_score_x10)
     if str(mandate.mandate_type or "").strip().upper() == "FZK" and final_score_x10 > 75:
         final_score_x10 = 75
         final_profile = profile_for_score_x10(final_score_x10)
@@ -357,8 +435,13 @@ def create_risk_assessment(
         q_risk_preference_points=body.q_risk_preference_points,
         q_risk_behavior_points=body.q_risk_behavior_points,
         risk_willingness_total=scores.risk_willingness_total,
-        risk_willingness_profile=scores.risk_willingness_profile,
-        risk_willingness_score_x10=scores.risk_willingness_score_x10,
+        risk_willingness_profile=willingness_profile,
+        risk_willingness_score_x10=willingness_score_x10,
+        # Fragebogen-Version: Altprofile/v1 bleiben NULL (byte-gleich wie bisher).
+        questionnaire_version="v2" if v2 else None,
+        questionnaire_hash=v2["definition_hash"] if v2 else None,
+        willingness_v2_json=v2["evidence_json"] if v2 else None,
+        consistency_note=v2["note"] if v2 else None,
         # Final
         final_score_x10=final_score_x10,
         final_profile=final_profile,
@@ -415,7 +498,13 @@ def create_risk_assessment(
         log(db, user_id=current_user.id, user_name=current_user.full_name,
             table_name="risk_assessments", record_id=ra.id, action="CREATE",
             mandate_id=mandate_id, client_id=mandate.client_id,
-            ip_address=_extract_client_ip(request))
+            ip_address=_extract_client_ip(request),
+            # H5b: Version, Definitions-Hash und Flag-Codes im Audit (ohne Notiztext).
+            **({"field_name": "questionnaire_version", "new_value": json.dumps({
+                "questionnaire_version": "v2",
+                "questionnaire_hash": v2["definition_hash"],
+                "consistency_flags": v2["flags"],
+            }, sort_keys=True)} if v2 else {}))
         # RISK-CAPACITY-PLAUSIBILITY-001: Widerspruch Fragebogen <-> erfasste
         # Finanzdaten wird protokolliert (aendert das Profil nicht).
         # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: dieselbe Bewertung wird als
@@ -953,3 +1042,284 @@ def create_suitability_check(
     db.refresh(check)
     invalidate_advisory_cache(mandate_id)
     return check
+
+
+# ── E1-E3 Nachhaltigkeitspraeferenzen (Dok. 106, Entscheid E0) ───────────────
+# Kundenfragebogen direkt nach dem Risikoprofil. Versioniert je Mandat
+# (append-only InvestmentPreferenceDecisionV1), Texte/Ableitung aus
+# core/sustainability_preference.py. Keine Engine-Wirkung und kein Einfluss
+# auf den Risikoscore; Ausschluesse wirken nur als Untergrenze der
+# Strategiebausteine (routers/allocation.py). Harte Ausschluesse gesperrt bis
+# E4/E5 (Codex F10). Review-Frist = Hauspolitik je Tenant (Default 36 Monate).
+_SUITABILITY_EVIDENCE = ("suitability_evidence",)
+
+
+def _sustainability_review_months(db: Session, tenant_id) -> int:
+    value = None
+    if tenant_id:
+        value = db.execute(
+            text("SELECT sustainability_review_months FROM tenants WHERE id = :tid"),
+            {"tid": tenant_id},
+        ).scalar()
+    return sp.resolve_review_months(value)
+
+
+def _decision_fields(row: InvestmentPreferenceDecision) -> dict:
+    return {
+        "id": row.id,
+        "exclusions_json": row.exclusions_json,
+        "waived_exclusions_json": row.waived_exclusions_json,
+        "review_due_on": row.review_due_on,
+    }
+
+
+def _sustainability_floor(db: Session, mandate: Mandate, row) -> dict:
+    """N-888-01: haelt die aktuelle Soll-Allokation die Ausschluesse ein?"""
+    try:
+        ta = _current_target_allocation_or_none(db, mandate.id)
+    except ValueError:
+        ta = None
+    return sp.evaluate_floor(
+        _decision_fields(row) if row is not None else None,
+        mandate.mandate_type,
+        getattr(ta, "preferences_json", None),
+        has_strategy=ta is not None,
+    )
+
+
+def _sustainability_response(
+    row: InvestmentPreferenceDecision, mandate: Mandate, floor: dict | None = None,
+) -> SustainabilityPreferenceResponse:
+    try:
+        exclusions = list(json.loads(row.exclusions_json or "[]"))
+        effective, _void = sp.effective_exclusions(_decision_fields(row), mandate.mandate_type)
+    except (TypeError, ValueError) as exc:
+        raise DomainError(
+            ReasonCode.SUSTAINABILITY_PREFERENCE_UNREADABLE,
+            "Gespeicherte Nachhaltigkeitspräferenz ist nicht lesbar.",
+            http_status=409,
+        ) from exc
+    return SustainabilityPreferenceResponse(
+        id=row.id,
+        schema_version=row.schema_version,
+        mandate_id=row.mandate_id,
+        sequence_no=int(row.sequence_no),
+        supersedes_id=row.supersedes_id,
+        questionnaire_version=row.questionnaire_version,
+        definition_hash=row.definition_hash,
+        derivation_version=row.derivation_version,
+        response_status=row.response_status,
+        esg_relevance=row.esg_relevance,
+        esg_characteristic=row.esg_characteristic,
+        exclusions=exclusions,
+        waived_exclusions=list(json.loads(row.waived_exclusions_json or "[]")),
+        profile_code=row.profile_code,
+        profile_text=sp.PROFILE_TEXTS.get(row.profile_code, ""),
+        limit_texts=sp.limit_texts(row.profile_code, effective, (floor or {}).get("status")),
+        information_acknowledged=bool(row.information_acknowledged),
+        client_confirmed=bool(row.client_confirmed),
+        mandate_type_at_capture=row.mandate_type_at_capture,
+        review_policy_months=int(row.review_policy_months),
+        review_due_on=row.review_due_on,
+        captured_by=row.captured_by,
+        captured_at=row.captured_at,
+        decision_hash=row.decision_hash,
+    )
+
+
+def _sustainability_state(db: Session, mandate: Mandate) -> SustainabilityPreferenceState:
+    rows = (
+        db.query(InvestmentPreferenceDecision)
+        .filter(InvestmentPreferenceDecision.mandate_id == mandate.id)
+        .order_by(InvestmentPreferenceDecision.sequence_no.desc())
+        .all()
+    )
+    floor = _sustainability_floor(db, mandate, rows[0] if rows else None)
+    history = [
+        _sustainability_response(row, mandate, floor if index == 0 else None)
+        for index, row in enumerate(rows)
+    ]
+    current = history[0] if history else None
+    status = sp.review_status(current.review_due_on if current else None, date.today().isoformat())
+    months = _sustainability_review_months(db, getattr(mandate, "tenant_id", None))
+    return SustainabilityPreferenceState(
+        current=current,
+        history=history,
+        review_status=status,
+        review_notice=sp.review_due_text(current.review_due_on) if status == sp.REVIEW_DUE else None,
+        review_policy_months=months,
+        review_policy_label=sp.review_policy_label(months),
+        waiver_allowed=str(mandate.mandate_type or "") == sp.WAIVER_MANDATE_TYPE,
+        hard_exclusions_available=False,
+        hard_exclusion_locked_note=sp.HARD_EXCLUSION_LOCKED_NOTE,
+        waiver_void=bool(floor.get("waiver_void")),
+        waiver_void_notice=sp.WAIVER_VOID_TEXT if floor.get("waiver_void") else None,
+        allocation_floor_status=floor["status"],
+        allocation_floor_themes=list(floor.get("themes") or ()),
+        allocation_stale_notice=sp.floor_stale_notice(floor),
+    )
+
+
+@router.get("/sustainability-preferences/definition")
+def get_sustainability_preference_definition(current_user: User = Depends(get_current_user)):
+    """E1: versionierte Fragebogen-Definition (Texte, Optionen, Ableitung) mit
+    Definitions-Hash. Die Anzeigetexte sind Entwurf (Compliance-Freigabe offen)."""
+    return {**sp.definition(), "definition_hash": sp.definition_hash()}
+
+
+@router.get(
+    "/mandates/{mandate_id}/sustainability-preferences",
+    response_model=SustainabilityPreferenceState,
+)
+def get_sustainability_preferences(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """E1/E2: aktuelle Nachhaltigkeitspraeferenz, Historie (neueste zuerst) und
+    Review-Status (Hauspolitik; 'due' = Eignungspruefung faellig, Hinweis)."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    _assert_privacy_readable(db, mandate_id, _SUITABILITY_EVIDENCE)
+    return _sustainability_state(db, mandate)
+
+
+def _sustainability_error(message: str, code=ReasonCode.SUSTAINABILITY_PREFERENCE_INVALID, status=422):
+    return DomainError(code, message, http_status=status)
+
+
+def _validated_waivers(body: SustainabilityPreferenceCreate, mandate: Mandate, exclusions: list) -> dict:
+    waivers = {str(k): str(v or "").strip() for k, v in (body.waivers or {}).items()}
+    if not waivers:
+        return {}
+    if str(mandate.mandate_type or "") != sp.WAIVER_MANDATE_TYPE:
+        raise _sustainability_error(
+            "Ein Kundenverzicht auf einen Ausschluss ist nur in der Anlageberatung möglich; "
+            "in der Vermögensverwaltung ist ein Ausschluss eine Weisung.",
+            ReasonCode.SUSTAINABILITY_WAIVER_NOT_ALLOWED, 409,
+        )
+    unknown = sorted(set(waivers) - set(exclusions))
+    if unknown:
+        raise _sustainability_error(
+            f"Verzicht nur auf erfasste Ausschlüsse möglich: {', '.join(unknown)}.",
+            ReasonCode.SUSTAINABILITY_WAIVER_INVALID,
+        )
+    if any(len(reason) < sp.WAIVER_REASON_MIN_LENGTH for reason in waivers.values()):
+        raise _sustainability_error(
+            f"Begründung des Kundenverzichts: mindestens {sp.WAIVER_REASON_MIN_LENGTH} Zeichen.",
+            ReasonCode.SUSTAINABILITY_WAIVER_INVALID,
+        )
+    if not body.client_confirmed:
+        raise _sustainability_error(
+            "Ein Kundenverzicht braucht die Bestätigung der Kundin bzw. des Kunden.",
+            ReasonCode.SUSTAINABILITY_WAIVER_INVALID,
+        )
+    return waivers
+
+
+@router.post(
+    "/mandates/{mandate_id}/sustainability-preferences",
+    response_model=SustainabilityPreferenceState,
+    status_code=201,
+)
+def create_sustainability_preference(
+    mandate_id: str,
+    body: SustainabilityPreferenceCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """E1: neue Version der Nachhaltigkeitspraeferenz (append-only)."""
+    enforce_data_classification(body.data_classification)
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    if body.hard_exclusion_requested:
+        raise _sustainability_error(sp.HARD_EXCLUSION_LOCKED_NOTE, ReasonCode.SUSTAINABILITY_HARD_EXCLUSION_LOCKED)
+    if body.questionnaire_version != sp.QUESTIONNAIRE_VERSION or body.definition_hash != sp.definition_hash():
+        raise _sustainability_error(
+            "Der Fragebogen wurde inzwischen geändert. Bitte die Maske neu laden und erneut erfassen.",
+            ReasonCode.SUSTAINABILITY_DEFINITION_OUTDATED, 409,
+        )
+    try:
+        profile_code = sp.derive_profile(body.response_status, body.esg_relevance, body.esg_characteristic)
+        exclusions = sp.normalize_exclusions(body.exclusions)
+    except ValueError as exc:
+        raise _sustainability_error(str(exc)) from exc
+    if exclusions and body.esg_relevance != sp.RELEVANCE_YES:
+        raise _sustainability_error("Ausschlusswünsche setzen Frage 1 = 'Ja' voraus.")
+    if not body.information_acknowledged:
+        raise _sustainability_error(
+            "Bitte bestätigen, dass die Information zu Nachhaltigkeitspräferenzen abgegeben wurde.",
+            ReasonCode.SUSTAINABILITY_INFORMATION_REQUIRED,
+        )
+    # N-888-03: ohne Bestaetigung der Kundin bzw. des Kunden keine Erfassung.
+    if not body.client_confirmed:
+        raise _sustainability_error(
+            "Bitte die Bestätigung der Angaben durch die Kundin bzw. den Kunden dokumentieren.",
+            ReasonCode.SUSTAINABILITY_CONFIRMATION_REQUIRED,
+        )
+    waivers = _validated_waivers(body, mandate, exclusions)
+    previous = current_investment_preference(db, mandate.id)
+    if (previous.id if previous else None) != body.expected_current_id:
+        raise _sustainability_error(
+            "Die Nachhaltigkeitspräferenz wurde inzwischen geändert. Bitte neu laden.",
+            ReasonCode.SUSTAINABILITY_PREFERENCE_CONFLICT, 409,
+        )
+    waived = [key for key in sp.EXCLUSION_KEYS if key in waivers]
+    sealed = None
+    if waived:
+        try:
+            sealed = seal_for_client(
+                db, mandate.client_id,
+                json.dumps({k: waivers[k] for k in waived}, ensure_ascii=False, sort_keys=True),
+            )
+        except PiiVaultError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    now = _now()
+    months = _sustainability_review_months(db, getattr(mandate, "tenant_id", None))
+    row = InvestmentPreferenceDecision(
+        id=new_uuid(),
+        schema_version=sp.SCHEMA_VERSION,
+        tenant_id=getattr(mandate, "tenant_id", None),
+        mandate_id=mandate.id,
+        client_id=mandate.client_id,
+        sequence_no=(int(previous.sequence_no) + 1) if previous else 1,
+        supersedes_id=previous.id if previous else None,
+        questionnaire_version=sp.QUESTIONNAIRE_VERSION,
+        definition_hash=sp.definition_hash(),
+        derivation_version=sp.DERIVATION_VERSION,
+        response_status=body.response_status,
+        esg_relevance=body.esg_relevance,
+        esg_characteristic=body.esg_characteristic,
+        exclusions_json=json.dumps(exclusions),
+        waived_exclusions_json=json.dumps(waived),
+        waiver_reasons_sealed=sealed,
+        profile_code=profile_code,
+        information_acknowledged=1,
+        client_confirmed=1 if body.client_confirmed else 0,
+        mandate_type_at_capture=mandate.mandate_type,
+        review_policy_months=months,
+        review_due_on=sp.add_months_iso(now[:10], months),
+        captured_by=current_user.id,
+        captured_at=now,
+        created_at=now,
+    )
+    row.decision_hash = evidence_hash(sp.decision_snapshot(
+        {column.name: getattr(row, column.name) for column in row.__table__.columns}
+    ))
+    db.add(row)
+    try:
+        db.flush()
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="investment_preference_decisions", record_id=row.id, action="CREATE",
+            new_value=json.dumps({"profile_code": profile_code, "sequence_no": row.sequence_no,
+                                  "decision_hash": row.decision_hash}),
+            mandate_id=mandate.id, client_id=mandate.client_id,
+            ip_address=_extract_client_ip(request))
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise _sustainability_error(
+            "Die Nachhaltigkeitspräferenz wurde gleichzeitig geändert. Bitte neu laden.",
+            ReasonCode.SUSTAINABILITY_PREFERENCE_CONFLICT, 409,
+        ) from exc
+    invalidate_advisory_cache(mandate.id)
+    return _sustainability_state(db, mandate)

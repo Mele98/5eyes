@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from models.tenant import (
     ALLOWED_LICENSE_STATUS,
@@ -98,6 +98,9 @@ class TenantUpdate(BaseModel):
     # nicht Teil von TenantSelfServiceUpdate -- eine Firma kann sich die
     # Bewilligung nicht selbst attestieren).
     discretionary_management_licensed: Optional[bool] = None
+    # E1 Nachhaltigkeitspraeferenzen: Review-Frist in Monaten (Hauspolitik,
+    # keine gesetzliche Frist); None = Default 36.
+    sustainability_review_months: Optional[int] = Field(default=None, ge=6, le=120)
 
     @field_validator("hosting_tier")
     @classmethod
@@ -147,6 +150,12 @@ class TenantResponse(BaseModel):
     home_jurisdiction: Optional[str] = None
     default_presentation_mode: Optional[str] = None
     discretionary_management_licensed: int = 1
+    # H5 (N-886-08): Fragebogen v2 (Firmen-Policy, Default aus).
+    risk_questionnaire_v2_enabled: int = 0
+    risk_questionnaire_v2_approval_ref: Optional[str] = None
+    risk_questionnaire_v2_changed_at: Optional[str] = None
+    risk_questionnaire_v2_changed_by: Optional[str] = None
+    sustainability_review_months: Optional[int] = None
     is_active: int
     created_at: str
     updated_at: str
@@ -163,6 +172,27 @@ class TenantSelfResponse(TenantResponse):
 
     current_users: int = 0
     current_mandates: int = 0
+
+
+class RiskQuestionnairePolicyUpdate(BaseModel):
+    """H5 (N-886-08): PUT /tenants/me/risk-questionnaire-policy.
+
+    Aktivieren nur mit Vermerk der IC-/Compliance-Freigabe der Grenzwerte
+    (Referenz, Datum, Gremium); Deaktivieren jederzeit.
+    """
+
+    enabled: bool
+    approval_reference: Optional[str] = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def _approval_required(self):
+        ref = " ".join(str(self.approval_reference or "").split())
+        if self.enabled and len(ref) < 10:
+            raise ValueError(
+                "Aktivierung des Fragebogens v2 nur mit Vermerk der IC-/Compliance-"
+                "Freigabe (mindestens 10 Zeichen, z. B. Beschluss-Nr. und Datum)."
+            )
+        return self
 
 
 class UserAssignTenantRequest(BaseModel):
@@ -184,6 +214,9 @@ class TenantSelfServiceUpdate(BaseModel):
     display_name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     home_jurisdiction: Optional[str] = None
     default_presentation_mode: Optional[str] = None
+    # E1 Nachhaltigkeitspraeferenzen: Review-Frist in Monaten (Hauspolitik,
+    # keine gesetzliche Frist); None = Default 36.
+    sustainability_review_months: Optional[int] = Field(default=None, ge=6, le=120)
 
     @field_validator("default_presentation_mode")
     @classmethod

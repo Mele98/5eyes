@@ -397,6 +397,8 @@ def erase_client_personal_data(
     for column, extra in (
         ("override_reason", ""),
         ("client_signed_ref", " AND COALESCE(client_signed_method, '') <> 'portal'"),
+        # H5b: Beraternotiz zu Konsistenz-Flags (Freitext, nicht im Signoff-Hash).
+        ("consistency_note", ""),
     ):
         if column not in ra_columns:
             continue

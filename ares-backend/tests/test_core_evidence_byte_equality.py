@@ -543,6 +543,19 @@ SITES: dict[tuple[str, str], tuple[tuple[str, str | None], ...]] = {
     ("services/portfolio_engine_allocation_integrity.py", "allocation_context_hash_for"):
         ((EH, SCHEME_V1_ASCII_STR_DEFAULT),),
     # --- gemischt (Quelltext-Reihenfolge) ---
+    # E1 Nachhaltigkeitspraeferenzen (Dok. 106, N-888-12): Verzichtsbegruendung
+    # (versiegelt, sortiert/UTF-8, kein Hash-Text), Ausschlusslisten, Decision-
+    # Hash (v1), Audit-Payload.
+    ("routers/profiling.py", "create_sustainability_preference"): (
+        (J, None),        # Verzichtsbegruendungen (vor dem Versiegeln)
+        (J, None),        # exclusions_json
+        (J, None),        # waived_exclusions_json
+        (EH, SCHEME_V1),  # decision_hash
+        (J, None),        # Audit-new_value
+    ),
+    # Definitions-Hash des Fragebogens: sortiert, kompakt, UTF-8 = v1 (eigene
+    # json.dumps-Zeile, weil das Blatt core.evidence nicht importieren darf).
+    ("core/sustainability_preference.py", "definition_hash"): ((J, SCHEME_V1),),
     ("services/manual_target_allocation.py", "build_manual_target_allocation"): (
         (CJ, SCHEME_V1),                         # sub_allocations_json
         (CJ, SCHEME_V1),                         # effective_constraints_json
@@ -584,6 +597,10 @@ SITES: dict[tuple[str, str], tuple[tuple[str, str | None], ...]] = {
     ("services/optimizer/solver.py", "build_optimizer_context"): ((J, None),),
     # unsortiert, kompakt, ASCII (Seed-Material)
     ("services/optimizer/solver.py", "optimizer_content_seed"): ((J, None),),
+    # Bestandssiegel (#869): je Altzeile ein JSON-Array der Spalten in fester
+    # Reihenfolge (keine Schluessel), kompakt, UTF-8, zeilenweise mit
+    # Zeilenumbruch in einen sha256 eingespeist; Zeilen nach id sortiert
+    ("services/audit.py", "_legacy_seal_digest"): ((J, None),),
 }
 
 _DELEGATABLE = {SCHEME_V1, SCHEME_V1_ASCII, SCHEME_V1_STR_DEFAULT, SCHEME_V1_ASCII_STR_DEFAULT}

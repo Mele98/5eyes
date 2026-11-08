@@ -45,6 +45,7 @@ from services.recommendation_release_gate import (
     CHANNEL_SIGNATURE,
     RECOMMENDATION_DOCUMENT_TYPES,
     SIGNOFF_BOUND_DOCUMENT_TYPES,
+    assert_document_sustainability_floor,
     assert_recommendation_release_eligible,
     assert_risk_signoff_release_eligible,
 )
@@ -99,6 +100,9 @@ def _release_gates(db: Session, mandate, document: ContractDocument) -> None:
         assert_risk_signoff_release_eligible(db, mandate, channel=CHANNEL_SIGNATURE)
     if document_type in RECOMMENDATION_DOCUMENT_TYPES:
         assert_recommendation_release_eligible(db, mandate, channel=CHANNEL_SIGNATURE)
+        # N-888-09: gebundener Dokumentinhalt gegen die aktuelle Praeferenz.
+        # Audit-Eintrag folgt mit H7 (release_block_audit, Auflage N-888-13).
+        assert_document_sustainability_floor(db, mandate, document, channel=CHANNEL_SIGNATURE)
 
 
 def _view(db: Session, transaction_id: str) -> dict[str, Any]:

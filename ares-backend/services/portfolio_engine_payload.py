@@ -118,6 +118,7 @@ from sqlalchemy.orm import Session
 from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
 from models.mandates import Mandate
 from models.review import Product, ProductUniverseEntry
+from models.tenant import DEFAULT_TENANT_ID as _DEFAULT_TENANT_ID
 from models.wealth import Goal
 from services.calendar_horizon import calendar_years_until
 from services.cashflow_timeline import future_value_with_cashflow_series, normalize_frequency
@@ -490,7 +491,10 @@ def _expected_death_year_offset_from_mandate(mandate, run_context=None) -> int |
         # Modulkante nach config (Architektur-Ratsche fan_out) ueber das
         # uebergebene Objekt: ist der Kontext nicht an dieses Mandat gebunden,
         # wirft ensure_bound_to die Mismatch-Exception erneut; sonst bleibt
-        # der bisherige Fallback unveraendert.
+        # der bisherige Fallback unveraendert. ``run_context`` ist ein
+        # ``config.RunContext`` (N-843-1); ein Objekt ohne ``ensure_bound_to``
+        # wirft hier bewusst AttributeError statt still ``None`` zu liefern --
+        # ``resolve_mortality_cutoff`` ruft dieselbe Methode ohnehin auf.
         if run_context is not None:
             run_context.ensure_bound_to(mandate)
         return None
@@ -950,6 +954,11 @@ ESG_CUSTOMER_CLAIM_LABELS: tuple[str, ...] = (
     "Best in Class",
     "ESG-Integration",
     "Nachhaltig",
+    # E2 (Dok. 106, FINMA-AM 05/2021): auch das zweite Profil-Label der
+    # Vorlage ist als Produkt-/Portfolio-Claim gesperrt. Praeferenz-Begriffe
+    # der Kundin bzw. des Kunden: core/sustainability_preference.py::
+    # NEUTRAL_PREFERENCE_PHRASES / customer_text_claim_hits().
+    "Verantwortungsbewusst",
 )
 
 
@@ -1560,6 +1569,23 @@ def _product_score(product: Product, sub_asset_class: str, prefs: dict, jurisdic
     return score
 
 
+def _product_selection_key(product: Product, sub_asset_class: str, prefs: dict, jurisdiction_ctx: dict | None = None) -> tuple:
+    """PO-13 (Audit 2026-11): Sortierschluessel der Produktwahl je Sleeve.
+
+    Hoechster Score zuerst; bei Gleichstand entscheidet nicht mehr die
+    Datenbank-Reihenfolge (SQLite: Einfuegereihenfolge, Postgres: undefiniert),
+    sondern ein stabiler Tie-Break: Produkte mit ISIN vor solchen ohne, dann
+    ISIN aufsteigend, dann Produkt-ID aufsteigend.
+    """
+    isin = str(getattr(product, "isin", None) or "").strip().upper()
+    return (
+        -_product_score(product, sub_asset_class, prefs, jurisdiction_ctx=jurisdiction_ctx),
+        0 if isin else 1,
+        isin,
+        str(getattr(product, "id", None) or ""),
+    )
+
+
 def _items_with_known_ter(items: list[dict]) -> list[dict]:
     return [item for item in items if item.get("ter_bps") is not None]
 
@@ -1583,6 +1609,26 @@ def _ter_coverage_bps(items: list[dict]) -> int:
 
 def _missing_ter_positions_count(items: list[dict]) -> int:
     return sum(1 for item in items if item.get("ter_bps") is None)
+
+
+ZERO_STRATEGY_BASE_WARNING = (
+    "Keine investierbare Strategiebasis: Die Liquiditätsreserve beansprucht das "
+    "gesamte Beratungsvermögen. Die Produktpositionen zeigen nur die Gewichtung; "
+    "es wird nichts investiert (Zielvolumen 0)."
+)
+
+
+def resolve_investable_wealth_rappen(target_payload: dict, advisory_wealth_rappen: int) -> int:
+    """N-858-11: investierbare Strategiebasis der Empfehlung.
+
+    Nur eine FEHLENDE Angabe (``None``/Schluessel fehlt, Altbestand) faellt
+    auf das Beratungsvermoegen zurueck. Eine Basis von 0 ist eine Aussage --
+    die Reserve beansprucht alles -- und bleibt 0; vorher machte
+    ``x or advisory_wealth_rappen`` daraus das volle Vermoegen, und
+    Fonds-Zielvolumen, Kostenausweis und Handelsliste investierten die Reserve.
+    """
+    value = target_payload.get("investable_advisory_wealth_rappen")
+    return int(advisory_wealth_rappen) if value is None else int(value)
 
 
 def _implementation_steps(buckets: list[dict], target_total_rappen: int) -> list[str]:
@@ -1721,3 +1767,28 @@ def _filter_products_by_universe(
         ]
     allowed_product_ids = {entry.product_id for entry in entries}
     return [product for product in products if product.id in allowed_product_ids]
+
+
+UNIVERSE_EMPTIED_WARNING = (
+    "Positivliste (Fonds-Universum) {jurisdiction} ist leer, weil alle Eintraege "
+    "entfernt wurden. Die Empfehlung nutzt deshalb den vollen Katalog statt einer "
+    "kuratierten Auswahl. Bitte die Positivliste pruefen."
+)
+
+
+def universe_emptied_warning(db: Session, mandate: Mandate, run_context) -> str | None:
+    """AUDIT-FIX Fondsuniversum R5/F5 (2026-11): _filter_products_by_universe
+    faellt bei 0 aktiven Eintraegen auf den vollen Katalog zurueck. Fuer einen
+    Tenant, der NIE eine Liste hatte, ist das gewollt (Bestandsverhalten,
+    keine Warnung). Wurde die Liste aber geleert (nur noch soft-geloeschte
+    Eintraege), geschah der Rueckfall bisher still -- jetzt sichtbar als
+    Warnung im Generierungs-Ergebnis. Die Produktwahl selbst bleibt unveraendert."""
+    tenant_id = getattr(mandate, "tenant_id", None) or _DEFAULT_TENANT_ID
+    jurisdiction = run_context.ensure_bound_to(mandate).jurisdiction  # X2b: Lauf-Kontext
+    rows = db.query(ProductUniverseEntry.deleted_at).filter(
+        ProductUniverseEntry.tenant_id == tenant_id,
+        ProductUniverseEntry.jurisdiction == jurisdiction,
+    ).all()
+    if rows and all(row[0] is not None for row in rows):
+        return UNIVERSE_EMPTIED_WARNING.format(jurisdiction=jurisdiction)
+    return None

@@ -1072,7 +1072,9 @@ def _preloaded_rows(db, mandate) -> dict | None:
     return entry
 
 
-def load_recorded_financials(db, mandate, *, today: date | None = None) -> RecordedFinancials:
+def load_recorded_financials(
+    db, mandate, *, today: date | None = None, fx_out: dict | None = None,
+) -> RecordedFinancials:
     """Liest die erfassten Daten des Mandats (read-only) und rechnet in CHF.
 
     Wirft ValueError, wenn die Daten nicht eindeutig umrechenbar sind (z.B.
@@ -1091,6 +1093,9 @@ def load_recorded_financials(db, mandate, *, today: date | None = None) -> Recor
 
     today = today or date.today()
     fx_source = FXRateSource.from_db_for_model(db)
+    if fx_out is not None:
+        # H5 N-886-12: dieselbe Kursquelle fuer Umrechnungen des Aufrufers.
+        fx_out["fx_source"] = fx_source
     base_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF")
 
     positions = [

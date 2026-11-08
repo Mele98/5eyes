@@ -1883,6 +1883,15 @@ def _check_waehrungsabsicherung(
         f"Fremdwaehrungs-Exposition {fx_pct:.1f}%. "
         + rationale
     )
+    # PO-06 (Audit 2026-11): Herkunft des Exposures offenlegen -- abgesicherte
+    # Produkte zaehlen aus den Produktdaten, der Sub-Klassen-Proxy nur noch
+    # als Rueckfall ohne Produktdaten.
+    proxy_bps = int((dc.get("currency_exposure_source_bps") or {}).get("sub_klassen_proxy", 0) or 0)
+    if proxy_bps > 0:
+        beurteilung += (
+            f" Herkunft: {proxy_bps / 100:.1f}% des Depots ohne Produktdaten zur "
+            "Waehrung (Schaetzung aus der Sub-Anlageklasse)."
+        )
     if hedge_bps == 0:
         handlung = (
             "Hedge aktuell nicht empfohlen. Mit Kunde besprechen — Entscheidung dokumentieren."
@@ -3998,7 +4007,9 @@ def _build_suitability_compliance(db: Session, mandate: Mandate) -> dict[str, An
     """
     try:
         from services.suitability_audit import audit_mandate_suitability
-        return audit_mandate_suitability(db, mandate)
+        # N-888-12: Praeferenz-Status nicht laden (Query-Budget, im Report
+        # nicht angezeigt); Eignungs-Endpunkt und Gates liefern ihn.
+        return audit_mandate_suitability(db, mandate, include_sustainability_preference=False)
     except Exception:  # noqa: BLE001
         return {
             "total_advisory_logs": 0,

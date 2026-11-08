@@ -23,6 +23,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -241,7 +242,7 @@ def test_frontend_renderwealthpositions_bindet_edit_button():
     html_path = (
         BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "ares.html"
     )
-    text = html_path.read_text(encoding="utf-8")
+    text = read_monolith_bundle()
     # Marker fuer den Sprint-Bug-#1-Fix
     assert "Sprint Bug-#1 (2026-06-08)" in text, (
         "Bug-#1-Fix-Marker fehlt in ares.html — Fix wurde entfernt?"
@@ -260,7 +261,7 @@ def test_frontend_renderwealthpositions_event_listener_pattern_korrekt():
     html_path = (
         BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "ares.html"
     )
-    text = html_path.read_text(encoding="utf-8")
+    text = read_monolith_bundle()
     # Im Bug-#1-Fix-Block: querySelectorAll mit dem richtigen Selektor
     bug1_section_start = text.find("Sprint Bug-#1 (2026-06-08)")
     assert bug1_section_start > 0

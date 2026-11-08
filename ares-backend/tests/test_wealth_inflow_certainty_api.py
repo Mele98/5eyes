@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from sqlalchemy import create_engine
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -167,7 +168,7 @@ def test_runtime_patch_adds_certainty_column(tmp_path, monkeypatch):
 
 
 def test_monolith_inflow_dialog_has_certainty_choice_and_hint():
-    html = MONOLITH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     assert 'id="awi-certainty"' in html
     assert '<option value="unsicher">' in html
     assert "nicht eingerechnet (unsicher)" in html

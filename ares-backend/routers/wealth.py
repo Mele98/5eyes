@@ -1312,41 +1312,96 @@ def reorder_goals(
     Muss VOR ``/goals/{goal_id}`` registriert sein, sonst faengt die
     Einzelziel-Route den Pfad ``order`` ab.
     """
+    from sqlalchemy.exc import OperationalError
+
     from services.goal_reorder import (
+        GOAL_ORDER_CHANGED_DETAIL,
         GoalOrderConflictError,
         GoalOrderError,
+        acquire_goal_order_write_lock,
+        is_goal_rank_unique_violation,
         resolve_goal_order,
     )
 
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    goals = db.query(Goal).filter(
-        Goal.mandate_id == mandate_id,
-        Goal.deleted_at.is_(None),
-        Goal.is_active == 1,
-    ).all()
+    # N-868-2: Sperre VOR dem Lesen, damit die expected_goal_ids-Pruefung
+    # (CAS) und das Schreiben denselben, nicht mehr aenderbaren Stand sehen.
+    try:
+        acquire_goal_order_write_lock(db)
+    except OperationalError as exc:
+        db.rollback()
+        if "locked" in str(getattr(exc, "orig", exc)).lower():
+            raise HTTPException(status_code=409, detail=GOAL_ORDER_CHANGED_DETAIL) from exc
+        raise
+    goals = (
+        db.query(Goal)
+        .filter(
+            Goal.mandate_id == mandate_id,
+            Goal.deleted_at.is_(None),
+            Goal.is_active == 1,
+        )
+        .with_for_update()
+        .populate_existing()
+        .all()
+    )
     try:
         new_ranks = resolve_goal_order(goals, body.goal_ids, body.expected_goal_ids)
     except GoalOrderConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except GoalOrderError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        changed = _write_goal_ranks(db, goals, new_ranks, mandate, current_user)
+    except IntegrityError as exc:
+        # N-868-2, Restfall ohne Sperre (z.B. bereits laufende Transaktion):
+        # ein paralleler Reorder hat dazwischen committet. Kein 500, kein
+        # Teilstand -- der Client laedt neu und sortiert erneut.
+        db.rollback()
+        if is_goal_rank_unique_violation(exc):
+            raise HTTPException(status_code=409, detail=GOAL_ORDER_CHANGED_DETAIL) from exc
+        raise
+    if changed:
+        invalidate_advisory_cache(mandate_id)
+    return sorted(goals, key=lambda g: int(g.rank))
+
+
+def _write_goal_ranks(db: Session, goals, new_ranks: dict, mandate, current_user) -> bool:
+    """Schreibt die neuen Raenge in zwei Phasen und committet."""
+    mandate_id = mandate.id
     now = _now()
-    changed = False
-    for goal in goals:
-        rank = new_ranks[str(goal.id)]
-        if int(goal.rank or 0) != rank:
-            goal.rank = rank
+    moved = [goal for goal in goals if int(goal.rank or 0) != new_ranks[str(goal.id)]]
+    changed = bool(moved)
+    if moved:
+        # N-865-1: Der partielle Unique-Index ux_goals_rank_active (Rohschema,
+        # Desktop/SQLite) wird nach JEDER Zeile geprueft. Ein direktes
+        # zeilenweises Umschreiben kollidierte beim ersten Tausch mit dem noch
+        # unveraenderten Nachbarn -> IntegrityError -> 500. Deshalb zwei
+        # Phasen in derselben Transaktion:
+        #   1) verschobene Ziele auf Zwischenraenge OBERHALB aller belegten
+        #      Raenge (CHECK rank >= 1 verbietet negative Werte), flush;
+        #   2) Zielraenge setzen. Unverschobene Ziele halten bereits ihren
+        #      Zielrang, die Zwischenraenge sind paarweise verschieden.
+        # Der Audit protokolliert nur den Endzustand (ein UPDATE je Ziel).
+        offset = max([int(goal.rank or 0) for goal in goals] + [len(goals)])
+        for goal in moved:
+            goal.rank = offset + new_ranks[str(goal.id)]
+        db.flush()
+        for goal in moved:
+            goal.rank = new_ranks[str(goal.id)]
             goal.updated_at = now
-            changed = True
             log(db, user_id=current_user.id, user_name=current_user.full_name,
                 table_name="goals", record_id=goal.id, action="UPDATE",
                 mandate_id=mandate_id, client_id=mandate.client_id)
     if changed:
         _invalidate_achievement_scores_for_mandate(mandate_id, db)
     db.commit()
-    if changed:
-        invalidate_advisory_cache(mandate_id)
-    return sorted(goals, key=lambda g: int(g.rank))
+    return changed
+
+
+GOAL_RANK_ADJUSTED_NOTICE = (
+    "Priorität angepasst – der frühere Rang ist inzwischen belegt, das Ziel "
+    "steht jetzt am Ende. Bitte Reihenfolge prüfen und Strategie neu berechnen."
+)
 
 
 @router.put("/mandates/{mandate_id}/goals/{goal_id}", response_model=GoalResponse)
@@ -1374,6 +1429,20 @@ def update_goal(
         updates["rank"] = _resolve_goal_rank_conflict(
             mandate_id, int(new_rank), db, existing_id=goal_id,
         )
+    rank_adjustment: tuple[int, int] | None = None
+    if updates.get("is_active") and not int(goal.is_active or 0):
+        # N-865-1 (Geschwister-Pfad): Ein reaktiviertes Ziel tritt wieder
+        # unter ux_goals_rank_active. Belegt inzwischen ein aktives Ziel
+        # seinen Rang, wuerde der Commit am Index scheitern (500).
+        # N-868-3 (Entscheid Owner-Vertretung): frueherer Rang frei -> das
+        # Ziel behaelt ihn; belegt -> ans Ende, aber NICHT still: Response
+        # und Audit nennen alten und neuen Rang, weil der Rang die
+        # Prioritaet (Gewicht, Hauptziel) bestimmt. Das Ziel selbst ist noch
+        # inaktiv und zaehlt in der Belegt-Pruefung nicht.
+        wanted = int(updates.get("rank") or goal.rank or 1)
+        updates["rank"] = _resolve_goal_rank_conflict(mandate_id, wanted, db)
+        if int(updates["rank"]) != wanted:
+            rank_adjustment = (wanted, int(updates["rank"]))
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0
@@ -1381,12 +1450,23 @@ def update_goal(
     # Sprint 2026-06-08 Fix B: Achievability invalidieren — Goal-Target-Aenderung
     # macht alle gespeicherten Scores potenziell stale.
     _invalidate_achievement_scores_for_mandate(mandate_id, db)
+    rank_audit = (
+        {"field_name": "rank", "old_value": str(rank_adjustment[0]),
+         "new_value": str(rank_adjustment[1])}
+        if rank_adjustment else {}
+    )
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="goals", record_id=goal_id, action="UPDATE",
-        mandate_id=mandate_id, client_id=mandate.client_id)
+        mandate_id=mandate_id, client_id=mandate.client_id, **rank_audit)
     db.commit()
     db.refresh(goal)
     invalidate_advisory_cache(mandate_id)
+    if rank_adjustment:
+        return GoalResponse.model_validate(goal).model_copy(update={
+            "rank_adjusted_from": rank_adjustment[0],
+            "rank_adjusted_to": rank_adjustment[1],
+            "rank_adjustment_notice": GOAL_RANK_ADJUSTED_NOTICE,
+        })
     return goal
 
 
