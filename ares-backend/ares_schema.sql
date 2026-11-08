@@ -156,7 +156,14 @@ CREATE TABLE IF NOT EXISTS client_opt_history (
                             'Opt-out zu Privatkunde',
                             'Opt-in zu Professionell',
                             'Qualifizierter Anleger bestätigt',
-                            'Klassifizierung überprüft')),
+                            'Klassifizierung überprüft',
+                            -- N-890-13 (H8): Bezeichnungen gemaess FIDLEG; die
+                            -- beiden vertauschten Altwerte oben bleiben nur fuer
+                            -- Bestandszeilen gueltig (API nimmt sie nicht mehr an).
+                            'Opting-out zu Professionell',
+                            'Opting-out zu Institutionell',
+                            'Opting-in zu Privatkunde',
+                            'Opting-in zu Professionell')),
     from_classification TEXT NOT NULL,
     to_classification   TEXT NOT NULL,
     client_requested    INTEGER NOT NULL DEFAULT 1 CHECK(client_requested IN (0,1)),
@@ -1469,7 +1476,10 @@ CREATE TABLE IF NOT EXISTS contract_documents (
                         -- 2026-10-09): Standalone-Kostenausweis wird jetzt
                         -- render-once/archive-once via archive_generated_pdf()
                         -- archiviert, siehe schemas/review.py::ContractDocumentCreate.
-                        'Kostenausweis')),
+                        'Kostenausweis',
+                        -- H8 C-2 (2026-11-07): Kundeninformation Art. 8/9 FIDLEG,
+                        -- archiviert via archive_generated_pdf() (Abgabenachweis).
+                        'Kundeninformation')),
     title           TEXT NOT NULL,
     content_json    TEXT CHECK(content_json IS NULL OR json_valid(content_json)),
     pdf_path        TEXT,

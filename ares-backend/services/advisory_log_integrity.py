@@ -3,7 +3,8 @@
 FINMA / FIDLEG verlangt:
 - Nachvollziehbares Audit-Log jedes Beratungsgesprächs.
 - Manipulations-Schutz über kryptographischen Hash.
-- Aufbewahrung 10 Jahre nach Termin.
+- Aufbewahrung bis 10 Jahre nach Ende des Mandats (H7 C-6; nie kuerzer
+  als 10 Jahre nach dem Eintrag).
 
 Zentrales Modul, damit die Hash-Berechnung deterministisch und an genau
 **einer Stelle** gepflegt wird (vermeidet Hash-Drift zwischen verschiedenen
@@ -14,7 +15,9 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime, timedelta
 
-# Aufbewahrungs-Pflicht in Jahren (FIDLEG Art. 17)
+# Aufbewahrungsfrist in Jahren. FIDLEG (Art. 15) verlangt die Dokumentation,
+# nennt aber keine Frist; die 10 Jahre folgen aus der Beweissicherung
+# (OR 127) bzw. GwG Art. 7 Abs. 3 und laufen ab Mandats-/Beziehungsende.
 RETENTION_YEARS: int = 10
 
 
@@ -134,6 +137,59 @@ def compute_retain_until(entry_datetime_iso: str) -> str:
                 f"Datumsbereichs (Jahr {target_year})"
             ) from None
     return retain.date().isoformat()
+
+
+def compute_relationship_retain_until(
+    entry_datetime_iso: str, relationship_end_iso: str | None,
+) -> str | None:
+    """H7 C-6: Aufbewahrungsfrist eines Protokolleintrags ab Mandatsende.
+
+    * Mandat offen (kein bzw. unlesbares Enddatum): ``None`` -- die Frist
+      laeuft noch nicht; der Eintrag ist bis Mandatsende + 10 Jahre
+      aufzubewahren (nie "abgelaufen").
+    * Mandat beendet: spaeteres Datum von Mandatsende + 10 Jahre und
+      Eintrag + 10 Jahre (ein Nachtrag nach Mandatsende verkuerzt nie).
+
+    ``entry_datetime`` wird wie bisher fail-closed validiert.
+    """
+    floor = compute_retain_until(entry_datetime_iso)
+    if not str(relationship_end_iso or "").strip():
+        return None
+    try:
+        end = compute_retain_until(str(relationship_end_iso))
+    except AdvisoryLogDatetimeError:
+        return None
+    return max(floor, end)
+
+
+def extended_retain_until(
+    current: str | None, entry_datetime_iso: str | None, relationship_end_iso: str | None,
+) -> str | None:
+    """Neue Frist bei Aenderung des Mandatsendes -- nie verkuerzend.
+
+    Beendetes Mandat -> Maximum aus bisheriger Frist, Eintrag + 10 Jahre und
+    Mandatsende + 10 Jahre. Ein unlesbarer Eintragszeitpunkt (Altdaten)
+    zaehlt nicht als Untergrenze, verhindert die Berechnung aber nicht.
+    Mandat (wieder) offen oder Ende unlesbar -> bisherige Frist bleibt
+    unveraendert stehen (N-884-06: bei Wiedereroeffnung Mindestfrist, nie
+    verworfen); ein nie beendetes Mandat behaelt ``None`` (Frist laeuft
+    noch nicht).
+    """
+    kept = str(current).strip()[:10] if str(current or "").strip() else None
+    if not str(relationship_end_iso or "").strip():
+        return kept
+    try:
+        end = compute_retain_until(str(relationship_end_iso))
+    except AdvisoryLogDatetimeError:
+        return kept
+    candidates = [end]
+    try:
+        candidates.append(compute_retain_until(str(entry_datetime_iso or "")))
+    except AdvisoryLogDatetimeError:
+        pass
+    if str(current or "").strip():
+        candidates.append(str(current).strip()[:10])
+    return max(candidates)
 
 
 def verify_integrity_hash(*, payload: dict, expected_hash: str) -> bool:

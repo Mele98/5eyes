@@ -30,6 +30,7 @@ for _p in (BACKEND_ROOT, TESTS_ROOT):
         sys.path.insert(0, str(_p))
 
 from database import new_uuid  # noqa: E402
+from retro_free_fixture import declare_all_products_retro_free  # noqa: E402
 from models.mandates import Mandate  # noqa: E402
 from models.review import ConflictOfInterestDisclosure, RecommendationRun  # noqa: E402
 from models.users import User  # noqa: E402
@@ -52,7 +53,7 @@ def _now() -> str:
     return datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
 
 
-def _ready_run(session_factory, *, suffix: str):
+def _ready_run(session_factory, *, suffix: str, client_onboarding: bool = True):
     advisor_id, _client_id, mandate_id, assessment_id, _goal_id = (
         _seed_realistic_mandate(session_factory, suffix=suffix)
     )
@@ -62,7 +63,7 @@ def _ready_run(session_factory, *, suffix: str):
         session_factory, mandate_id, allocation_id, assessment_id,
         advisor_id, policy, cma,
     )
-    _add_full_position(session_factory, run_id)
+    _add_full_position(session_factory, run_id, client_onboarding=client_onboarding)
     return advisor_id, mandate_id, run_id
 
 
@@ -100,6 +101,7 @@ def _errors(session_factory, mandate_id, run_id) -> list[str]:
 def _finalize(session_factory, mandate_id, run_id, advisor_id):
     with session_factory() as db:
         advisor = db.query(User).filter(User.id == advisor_id).first()
+        declare_all_products_retro_free(db)
         return finalize_recommendation(
             mandate_id=mandate_id, run_id=run_id, request=_FakeRequest(),
             db=db, current_user=advisor,
@@ -185,6 +187,9 @@ def test_fully_resolved_conflict_finalizes_normally(session_factory):
         session_factory, mandate_id, advisor_id,
         disclosed_to_client=1, disclosed_at=_now(), document_id="doc-signed",
         client_acknowledged=1, client_acknowledged_at=_now(),
+        # H7 C-4: eine einbehaltene Retrozession ist erst mit belegtem Verzicht
+        # (oder Rueckerstattung) geregelt -- sonst sperrt das Retro-Gate.
+        waiver_document_id="waiver-signed",
     )
 
     errors = _errors(session_factory, mandate_id, run_id)

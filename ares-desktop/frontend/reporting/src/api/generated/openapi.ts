@@ -1543,7 +1543,7 @@ export interface paths {
         get: operations["get_due_diligence_clients__client_id__due_diligence_get"];
         /**
          * Upsert Due Diligence
-         * @description 1:1-Erfassung (GwG Art. 3-6 / FINMA-RS 2016/7 Sorgfaltspflichten) --
+         * @description 1:1-Erfassung (GwG Art. 3-6 / GwV-FINMA Sorgfaltspflichten) --
          *     anders als Nationalitaeten/Opt-History keine Liste, sondern genau eine
          *     Zeile pro Kunde. Upsert: legt die Zeile beim ersten Aufruf an, aktualisiert
          *     sie bei jedem weiteren -- ein PUT-nur-Create haette erzwungen, dass der
@@ -1568,14 +1568,18 @@ export interface paths {
         put?: never;
         /**
          * Erase Client
-         * @description DSG Art. 32 -- Loeschungsanspruch. Anonymisiert irreversibel alle
-         *     direkt identifizierenden Personendaten dieses Kunden (siehe
-         *     services/client_erasure.py fuer die vollstaendige rechtliche und
-         *     technische Begruendung des Umfangs). Admin-only, Pflichtbegruendung
-         *     (schemas.clients.ClientErasureRequest), idempotent-sicher (409 bei
-         *     Doppelaufruf). Die Aktion selbst wird -- wie jede sensible Aktion --
-         *     unveraenderlich im Audit-Log protokolliert (wer hat wann wen aus
-         *     welchem Grund geloescht).
+         * @description Stillgelegt (H7 C-1): Loeschgesuche laufen nur ueber den
+         *     Datenschutz-Workflow ``/privacy/erasure-cases``.
+         *
+         *     Dieser Endpoint hat frueher sofort redigiert -- ohne Pruefung von
+         *     Aufbewahrungsfrist, Legal Hold oder aktivem Mandat. Dabei wurden auch
+         *     KYC-Belege (GwG Art. 7 Abs. 3: mindestens 10 Jahre nach Ende der
+         *     Geschaeftsbeziehung) und die Schluessel fuer versiegelte Nachweise
+         *     vernichtet. Ein zweiter Weg zur Vernichtung vor Fristablauf darf nicht
+         *     bestehen. Der Endpoint antwortet deshalb immer mit 409 und verweist auf
+         *     den Workflow (Loeschvorgang eroeffnen -> Entscheid je Nachweisart nach
+         *     genehmigter Aufbewahrungsmatrix und Legal Hold -> Ausfuehrung). Die
+         *     Ablehnung wird im Audit-Log festgehalten; Daten werden nicht veraendert.
          */
         post: operations["erase_client_clients__client_id__erase_post"];
         delete?: never;
@@ -1596,6 +1600,56 @@ export interface paths {
         put?: never;
         /** Create Knowledge */
         post: operations["create_knowledge_clients__client_id__knowledge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{client_id}/kyc-confirmations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Kyc Confirmations
+         * @description Verlauf der KYC-Bestaetigungen (juengste zuerst; es gilt die juengste).
+         */
+        get: operations["list_kyc_confirmations_clients__client_id__kyc_confirmations_get"];
+        put?: never;
+        /**
+         * Create Kyc Confirmation
+         * @description H8 C-5: Ares fuehrt die GwG-Abklaerung nicht selbst; sie erfolgt im
+         *     Prozess der SRO/AO bzw. im Fremdsystem. Erfasst wird die Pflicht-
+         *     Bestaetigung (Formular A/K/S/T, Datum, Referenz, Risikokategorie, PEP,
+         *     naechste Aktualisierung). Append-only: eine Korrektur ist eine neue
+         *     Bestaetigung. Bei PEP oder erhoehtem Risiko erst nach Freigabe durch eine
+         *     zweite Person wirksam (Gate vor Finalisierung/Vertragsunterzeichnung).
+         */
+        post: operations["create_kyc_confirmation_clients__client_id__kyc_confirmations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{client_id}/kyc-confirmations/{confirmation_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Kyc Confirmation
+         * @description Vier-Augen-Freigabe (PEP/erhoehtes Risiko/Herabstufung): nur eine zweite Person mit
+         *     Admin-Rolle (Geschaeftsleitung/Compliance), nie die erfassende Person.
+         */
+        post: operations["approve_kyc_confirmation_clients__client_id__kyc_confirmations__confirmation_id__approve_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1671,6 +1725,49 @@ export interface paths {
          *     Flag-Aenderung (from_*\/to_* fuer die Flags bleiben None).
          */
         post: operations["add_opt_history_clients__client_id__opt_history_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{client_id}/representations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Representations */
+        get: operations["list_representations_clients__client_id__representations_get"];
+        put?: never;
+        /**
+         * Create Representation
+         * @description Vollmacht, Vorsorgeauftrag, Beistandschaft oder Gemeinschaftsdepot mit
+         *     Umfang, Beleg und Wirksamkeit. Dokumentarisch (kein Gate); erscheint im
+         *     Beratungsprotokoll-PDF.
+         */
+        post: operations["create_representation_clients__client_id__representations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{client_id}/representations/{representation_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke Representation
+         * @description Widerruf statt Loeschen: der Eintrag bleibt als Nachweis erhalten.
+         */
+        post: operations["revoke_representation_clients__client_id__representations__representation_id__revoke_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1918,6 +2015,33 @@ export interface paths {
         put?: never;
         /** Validate Policy */
         post: operations["validate_policy_cma_policies__policy_row_id__validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/legal-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Tenant Legal Profile
+         * @description Rechtliche Angaben der eigenen Firma fuer die Kundeninformation nach
+         *     Art. 8 Abs. 1 FIDLEG, samt Liste der fehlenden Pflichtangaben.
+         */
+        get: operations["get_tenant_legal_profile_compliance_legal_profile_get"];
+        /**
+         * Update Tenant Legal Profile
+         * @description Pflege durch einen Firmen-Admin. Jede geaenderte Angabe wird feldweise
+         *     (alt/neu) im Audit-Log festgehalten; Revision und Inhalts-Hash werden
+         *     nachgefuehrt. Ares belegt keinen Wert vor.
+         */
+        put: operations["update_tenant_legal_profile_compliance_legal_profile_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2425,6 +2549,50 @@ export interface paths {
          *     historischer Time-Series kommt in Sprint U-P11.
          */
         get: operations["get_backtest_stress_replays_mandates__mandate_id__backtest_stress_replays_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mandates/{mandate_id}/client-information/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Client Information Delivery
+         * @description Abgabenachweis der Kundeninformation: archivierte Fassung (Byte-Hash),
+         *     Vorlagenversion, Revision/Hash der rechtlichen Angaben, Zeitpunkt und Kanal.
+         *     Append-only. Nur die zu den aktuellen rechtlichen Angaben passende Fassung
+         *     ist abgebbar; der Zeitpunkt darf nicht in der Zukunft liegen.
+         */
+        post: operations["record_client_information_delivery_mandates__mandate_id__client_information_deliveries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mandates/{mandate_id}/client-onboarding/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Client Onboarding Status
+         * @description Stand von Kundeninformation (Art. 8/9 FIDLEG) und GwG-Bestaetigung --
+         *     dieselbe Quelle wie das Gate vor Finalisierung und Vertragsunterzeichnung.
+         */
+        get: operations["get_client_onboarding_status_mandates__mandate_id__client_onboarding_status_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3626,6 +3794,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/mandates/{mandate_id}/reports/kundeninformation.pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Kundeninformation Pdf
+         * @description Kundeninformation nach Art. 8/9 FIDLEG als PDF (vor Vertragsabschluss
+         *     zu uebergeben). Fail-closed: ohne vollstaendige rechtliche Angaben der
+         *     Firma (Firma, Adresse, Aufsichtsstatus, Ombudsstelle, Kontakt) wird kein
+         *     Dokument erstellt (409 mit Liste der fehlenden Angaben). Render-once/
+         *     archive-once; die archivierte Fassung traegt Vorlagenversion und Revision/
+         *     Hash der rechtlichen Angaben (Grundlage des Abgabenachweises).
+         */
+        get: operations["get_kundeninformation_pdf_mandates__mandate_id__reports_kundeninformation_pdf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/mandates/{mandate_id}/reports/portfolio.pdf": {
         parameters: {
             query?: never;
@@ -4326,6 +4519,29 @@ export interface paths {
         put?: never;
         /** Propose Policy */
         post: operations["propose_policy_privacy_policies_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/privacy/policies/baseline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Propose Retention Baseline
+         * @description H7 C-6: Aufbewahrungsmatrix aus der gesetzlichen Vorlage vorschlagen
+         *     (10 Jahre ab Beziehungsende nach GwG Art. 7 Abs. 3 / OR 127, Vertrag und
+         *     Belege OR 958f). Legt nur PROPOSED-Zeilen an (fehlende Nachweisarten);
+         *     Betreiberangaben im Body, Genehmigung weiterhin im Vier-Augen-Prinzip.
+         */
+        post: operations["propose_retention_baseline_privacy_policies_baseline_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6175,6 +6391,11 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** BaselineProposal */
+        BaselineProposal: {
+            /** Matrix */
+            matrix?: Record<string, unknown>;
+        };
         /** BausteinCreate */
         BausteinCreate: {
             /** Category */
@@ -6896,7 +7117,12 @@ export interface components {
         /** ClientDueDiligenceResponse */
         ClientDueDiligenceResponse: {
             /** Acting For Own Account */
-            acting_for_own_account: number;
+            acting_for_own_account?: number | null;
+            /**
+             * Acting For Own Account Answered
+             * @default 0
+             */
+            acting_for_own_account_answered?: number;
             /** Beneficial Owner Name */
             beneficial_owner_name: string | null;
             /** Client Id */
@@ -6926,11 +7152,8 @@ export interface components {
         };
         /** ClientDueDiligenceUpdate */
         ClientDueDiligenceUpdate: {
-            /**
-             * Acting For Own Account
-             * @default true
-             */
-            acting_for_own_account?: boolean;
+            /** Acting For Own Account */
+            acting_for_own_account?: boolean | null;
             /** Beneficial Owner Name */
             beneficial_owner_name?: string | null;
             /**
@@ -7000,6 +7223,178 @@ export interface components {
             unsealed_append_only_rows?: {
                 [key: string]: number;
             };
+        };
+        /**
+         * ClientInformationDeliveryCreate
+         * @description Abgabe der Kundeninformation: welche archivierte Fassung, wann, wie.
+         */
+        ClientInformationDeliveryCreate: {
+            /** Backdating Reason */
+            backdating_reason?: string | null;
+            /** Contract Document Id */
+            contract_document_id: string;
+            /**
+             * Data Classification
+             * @default synthetic
+             * @enum {string}
+             */
+            data_classification?: "synthetic" | "real";
+            /** Delivered At */
+            delivered_at: string;
+            /**
+             * Delivery Channel
+             * @enum {string}
+             */
+            delivery_channel: "persoenlich_papier" | "post" | "email" | "kundenportal";
+        };
+        /** ClientInformationDeliveryResponse */
+        ClientInformationDeliveryResponse: {
+            /** Backdating Reason */
+            backdating_reason?: string | null;
+            /** Client Id */
+            client_id: string;
+            /** Contract Document Id */
+            contract_document_id: string;
+            /** Delivered At */
+            delivered_at: string;
+            /** Delivery Channel */
+            delivery_channel: string;
+            /** Delivery Hash */
+            delivery_hash: string;
+            /** Delivery Timing */
+            delivery_timing: string;
+            /** Id */
+            id: string;
+            /** Legal Profile Hash */
+            legal_profile_hash: string;
+            /** Legal Profile Revision */
+            legal_profile_revision: number;
+            /** Mandate Id */
+            mandate_id: string;
+            /** Pdf Sha256 */
+            pdf_sha256: string;
+            /** Recorded At */
+            recorded_at: string;
+            /** Recorded By */
+            recorded_by: string;
+            /** Template Version */
+            template_version: string;
+        };
+        /** ClientOnboardingFinding */
+        ClientOnboardingFinding: {
+            /** Confirmation Id */
+            confirmation_id?: string | null;
+            /** Contract Concluded At */
+            contract_concluded_at?: string | null;
+            /** Message */
+            message: string;
+            /** Missing Fields */
+            missing_fields?: string[] | null;
+            /** Missing Labels */
+            missing_labels?: string[] | null;
+            /** Owner Action */
+            owner_action: string;
+            /** Reason Code */
+            reason_code: string;
+            /** Scope */
+            scope: string;
+        };
+        /** ClientOnboardingStatusResponse */
+        ClientOnboardingStatusResponse: {
+            /** Client Id */
+            client_id: string;
+            /** Contract Concluded At */
+            contract_concluded_at?: string | null;
+            /** Deliveries */
+            deliveries: Record<string, unknown>[];
+            /** Due Diligence */
+            due_diligence?: Record<string, unknown> | null;
+            /** Findings */
+            findings: components["schemas"]["ClientOnboardingFinding"][];
+            /** Kyc Confirmation */
+            kyc_confirmation?: Record<string, unknown> | null;
+            /** Kyc Requires Second Approval */
+            kyc_requires_second_approval?: boolean | null;
+            /** Latest Document */
+            latest_document?: Record<string, unknown> | null;
+            /** Legal Profile */
+            legal_profile: Record<string, unknown>;
+            /** Mandate Id */
+            mandate_id: string;
+            /** Release Ready */
+            release_ready: boolean;
+            /** Template Version */
+            template_version: string;
+        };
+        /** ClientRepresentationCreate */
+        ClientRepresentationCreate: {
+            /**
+             * Data Classification
+             * @default synthetic
+             * @enum {string}
+             */
+            data_classification?: "synthetic" | "real";
+            /** Disposal Rule */
+            disposal_rule?: ("einzeln" | "gemeinsam") | null;
+            /** Effective From */
+            effective_from?: string | null;
+            /** Effective Until */
+            effective_until?: string | null;
+            /** Evidence Reference */
+            evidence_reference: string;
+            /** Mandate Id */
+            mandate_id?: string | null;
+            /** Note */
+            note?: string | null;
+            /**
+             * Representation Type
+             * @enum {string}
+             */
+            representation_type: "vollmacht" | "vorsorgeauftrag" | "beistandschaft" | "gemeinschaftsdepot";
+            /** Representative Name */
+            representative_name: string;
+            /** Scope */
+            scope: string;
+        };
+        /** ClientRepresentationResponse */
+        ClientRepresentationResponse: {
+            /** Client Id */
+            client_id: string;
+            /** Disposal Rule */
+            disposal_rule?: string | null;
+            /** Effective From */
+            effective_from?: string | null;
+            /** Effective Until */
+            effective_until?: string | null;
+            /** Evidence Reference */
+            evidence_reference: string;
+            /** Id */
+            id: string;
+            /** Mandate Id */
+            mandate_id?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Recorded At */
+            recorded_at: string;
+            /** Recorded By */
+            recorded_by: string;
+            /** Representation Type */
+            representation_type: string;
+            /** Representative Name */
+            representative_name: string;
+            /** Revocation Reason */
+            revocation_reason?: string | null;
+            /** Revoked At */
+            revoked_at?: string | null;
+            /** Revoked By */
+            revoked_by?: string | null;
+            /** Scope */
+            scope: string;
+        };
+        /** ClientRepresentationRevoke */
+        ClientRepresentationRevoke: {
+            /** Reason */
+            reason: string;
         };
         /** ClientResponse */
         ClientResponse: {
@@ -8492,6 +8887,110 @@ export interface components {
             /** Version */
             version: number;
         };
+        /** KycConfirmationApprovalCreate */
+        KycConfirmationApprovalCreate: {
+            /** Note */
+            note?: string | null;
+        };
+        /** KycConfirmationApprovalResponse */
+        KycConfirmationApprovalResponse: {
+            /** Approval Hash */
+            approval_hash: string;
+            /** Approved At */
+            approved_at: string;
+            /** Approved By */
+            approved_by: string;
+            /** Client Id */
+            client_id: string;
+            /** Confirmation Id */
+            confirmation_id: string;
+            /** Id */
+            id: string;
+            /** Note */
+            note?: string | null;
+        };
+        /**
+         * KycConfirmationCreate
+         * @description Bestaetigung, dass die GwG-Abklaerung im Prozess der SRO/AO bzw. im
+         *     Fremdsystem erfolgt ist. Alle fachlichen Felder ohne Vorbelegung --
+         *     insbesondere ``is_pep`` und ``risk_category`` muessen ausdruecklich
+         *     beantwortet werden.
+         */
+        KycConfirmationCreate: {
+            /**
+             * Data Classification
+             * @default synthetic
+             * @enum {string}
+             */
+            data_classification?: "synthetic" | "real";
+            /** External Reference */
+            external_reference: string;
+            /** Form Completed On */
+            form_completed_on: string;
+            /**
+             * Form Type
+             * @enum {string}
+             */
+            form_type: "A" | "K" | "S" | "T";
+            /** Identification Confirmed */
+            identification_confirmed: boolean;
+            /** Identification Date */
+            identification_date: string;
+            /** Is Pep */
+            is_pep: boolean;
+            /** Mandate Id */
+            mandate_id?: string | null;
+            /** Next Review Due */
+            next_review_due: string;
+            /** Note */
+            note?: string | null;
+            /**
+             * Risk Category
+             * @enum {string}
+             */
+            risk_category: "normal" | "erhoeht";
+        };
+        /** KycConfirmationResponse */
+        KycConfirmationResponse: {
+            approval?: components["schemas"]["KycConfirmationApprovalResponse"] | null;
+            /** Client Id */
+            client_id: string;
+            /** Confirmation Hash */
+            confirmation_hash: string;
+            /** External Reference */
+            external_reference: string;
+            /** Form Completed On */
+            form_completed_on: string;
+            /** Form Type */
+            form_type: string;
+            /** Id */
+            id: string;
+            /** Identification Confirmed */
+            identification_confirmed: number;
+            /** Identification Date */
+            identification_date: string;
+            /** Is Pep */
+            is_pep: number;
+            /** Mandate Id */
+            mandate_id?: string | null;
+            /** Next Review Due */
+            next_review_due: string;
+            /** Note */
+            note?: string | null;
+            /** Process Scope */
+            process_scope: string;
+            /** Recorded At */
+            recorded_at: string;
+            /** Recorded By */
+            recorded_by: string;
+            /**
+             * Requires Second Approval
+             * @default false
+             */
+            requires_second_approval?: boolean;
+            /** Risk Category */
+            risk_category: string;
+        };
         /** LegalHoldExtension */
         LegalHoldExtension: {
             /** Expires At */
@@ -9080,7 +9579,7 @@ export interface components {
             /** Document Id */
             document_id?: string | null;
             /** Event Type */
-            event_type: string;
+            event_type?: ("Opting-out zu Professionell" | "Opting-out zu Institutionell" | "Opting-in zu Privatkunde" | "Opting-in zu Professionell" | "Qualifizierter Anleger bestätigt" | "Klassifizierung überprüft") | null;
             /**
              * From Classification
              * @enum {string}
@@ -9092,6 +9591,7 @@ export interface components {
             from_qualified_investor?: boolean | null;
             /** Notes */
             notes?: string | null;
+            opt_out_criteria?: components["schemas"]["OptOutCriteria"] | null;
             /**
              * To Classification
              * @enum {string}
@@ -9110,6 +9610,8 @@ export interface components {
             client_requested: number;
             /** Created At */
             created_at: string;
+            /** Document Id */
+            document_id?: string | null;
             /** Documented At */
             documented_at: string;
             /** Documented By */
@@ -9126,12 +9628,39 @@ export interface components {
             id: string;
             /** Notes */
             notes: string | null;
+            /** Opt Out Criteria Json */
+            opt_out_criteria_json?: string | null;
             /** To Classification */
             to_classification: string;
             /** To Professional Opt Out */
             to_professional_opt_out?: number | null;
             /** To Qualified Investor */
             to_qualified_investor?: number | null;
+        };
+        /**
+         * OptOutCriteria
+         * @description H8 Luecke 7: Kriterien-Checkliste fuer ein Opting-out nach Art. 5 FIDLEG
+         *     (vermoegende Privatkunden erklaeren, als professionelle Kunden gelten zu
+         *     wollen). Kriterien gemaess Art. 5 Abs. 2 FIDLEG [Compliance pruefen]:
+         *     lit. a Kenntnisse aus Ausbildung/Berufserfahrung UND anrechenbares
+         *     Vermoegen von mindestens CHF 500 000, oder lit. b anrechenbares Vermoegen
+         *     von mindestens CHF 2 Mio. Ares prueft nicht das Vermoegen selbst, sondern
+         *     verlangt die dokumentierte Bestaetigung je Kriterium.
+         */
+        OptOutCriteria: {
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "kenntnisse_und_vermoegen_500k" | "vermoegen_2mio";
+            /** Client Informed Of Protection Loss */
+            client_informed_of_protection_loss: boolean;
+            /** Declaration In Text Form */
+            declaration_in_text_form: boolean;
+            /** Eligible Assets Verified */
+            eligible_assets_verified: boolean;
+            /** Knowledge Basis */
+            knowledge_basis?: string | null;
         };
         /**
          * OptimizerConstraintResponse
@@ -12512,6 +13041,105 @@ export interface components {
             /** Storage Quota Mb */
             storage_quota_mb?: number | null;
         };
+        /** TenantLegalProfileResponse */
+        TenantLegalProfileResponse: {
+            /** Address City */
+            address_city?: string | null;
+            /** Address Country */
+            address_country?: string | null;
+            /** Address Postal Code */
+            address_postal_code?: string | null;
+            /** Address Street */
+            address_street?: string | null;
+            /** Business Activity */
+            business_activity?: string | null;
+            /** Complete */
+            complete: boolean;
+            /** Contact Email */
+            contact_email?: string | null;
+            /** Contact Phone */
+            contact_phone?: string | null;
+            /** Contact Website */
+            contact_website?: string | null;
+            /** Field Labels */
+            field_labels: {
+                [key: string]: string;
+            };
+            /** Legal Name */
+            legal_name?: string | null;
+            /** License Reference */
+            license_reference?: string | null;
+            /** Missing Fields */
+            missing_fields: string[];
+            /** Missing Labels */
+            missing_labels: string[];
+            /** Ombudsman Address */
+            ombudsman_address?: string | null;
+            /** Ombudsman Name */
+            ombudsman_name?: string | null;
+            /** Present */
+            present: boolean;
+            /** Profile Hash */
+            profile_hash?: string | null;
+            /**
+             * Revision
+             * @default 0
+             */
+            revision?: number;
+            /** Supervision Labels */
+            supervision_labels: {
+                [key: string]: string;
+            };
+            /** Supervision Type */
+            supervision_type?: string | null;
+            /** Supervisory Authority */
+            supervisory_authority?: string | null;
+            /** Supervisory Organisation */
+            supervisory_organisation?: string | null;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Updated By */
+            updated_by?: string | null;
+        };
+        /**
+         * TenantLegalProfileUpdate
+         * @description Teil-Update der rechtlichen Angaben (nur gesetzte Felder). Leerer
+         *     String loescht eine Angabe. Kein Feld hat einen Vorgabewert.
+         */
+        TenantLegalProfileUpdate: {
+            /** Address City */
+            address_city?: string | null;
+            /** Address Country */
+            address_country?: string | null;
+            /** Address Postal Code */
+            address_postal_code?: string | null;
+            /** Address Street */
+            address_street?: string | null;
+            /** Business Activity */
+            business_activity?: string | null;
+            /** Contact Email */
+            contact_email?: string | null;
+            /** Contact Phone */
+            contact_phone?: string | null;
+            /** Contact Website */
+            contact_website?: string | null;
+            /** Legal Name */
+            legal_name?: string | null;
+            /** License Reference */
+            license_reference?: string | null;
+            /** Ombudsman Address */
+            ombudsman_address?: string | null;
+            /** Ombudsman Name */
+            ombudsman_name?: string | null;
+            /** Supervision Type */
+            supervision_type?: ("vermoegensverwalter_finig" | "andere_finma_bewilligung" | "anlageberater_ohne_prudenzielle_aufsicht" | "") | null;
+            /** Supervisory Authority */
+            supervisory_authority?: string | null;
+            /** Supervisory Organisation */
+            supervisory_organisation?: string | null;
+        };
         /**
          * TenantResponse
          * @description Public Tenant-Response fuer API-Endpoints.
@@ -15786,6 +16414,108 @@ export interface operations {
             };
         };
     };
+    list_kyc_confirmations_clients__client_id__kyc_confirmations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycConfirmationResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_kyc_confirmation_clients__client_id__kyc_confirmations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KycConfirmationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycConfirmationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_kyc_confirmation_clients__client_id__kyc_confirmations__confirmation_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+                confirmation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KycConfirmationApprovalCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycConfirmationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_mandates_clients__client_id__mandates_get: {
         parameters: {
             query?: never;
@@ -15971,6 +16701,108 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OptHistoryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_representations_clients__client_id__representations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientRepresentationResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_representation_clients__client_id__representations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientRepresentationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientRepresentationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_representation_clients__client_id__representations__representation_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+                representation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientRepresentationRevoke"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientRepresentationResponse"];
                 };
             };
             /** @description Validation Error */
@@ -16570,6 +17402,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CmaPolicyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_tenant_legal_profile_compliance_legal_profile_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantLegalProfileResponse"];
+                };
+            };
+        };
+    };
+    update_tenant_legal_profile_compliance_legal_profile_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantLegalProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantLegalProfileResponse"];
                 };
             };
             /** @description Validation Error */
@@ -17384,6 +18269,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_client_information_delivery_mandates__mandate_id__client_information_deliveries_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientInformationDeliveryCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientInformationDeliveryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_client_onboarding_status_mandates__mandate_id__client_onboarding_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientOnboardingStatusResponse"];
                 };
             };
             /** @description Validation Error */
@@ -19782,6 +20733,37 @@ export interface operations {
             };
         };
     };
+    get_kundeninformation_pdf_mandates__mandate_id__reports_kundeninformation_pdf_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_portfolio_pdf_mandates__mandate_id__reports_portfolio_pdf_get: {
         parameters: {
             query?: never;
@@ -21094,6 +22076,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PolicyProposal"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    propose_retention_baseline_privacy_policies_baseline_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BaselineProposal"];
             };
         };
         responses: {

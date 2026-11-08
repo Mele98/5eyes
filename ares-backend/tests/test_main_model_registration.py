@@ -33,7 +33,10 @@ from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
-GOLDEN_SORTED_TABLES_SHA256 = "751a13f478745fdb7729d3191e5d5bf93e52f53b5f2a4d41da1d495efa0ea2b1"
+# H8 (2026-11-07): fuenf neue Tabellen (tenant_legal_profiles,
+# client_information_deliveries, kyc_confirmations, kyc_confirmation_approvals,
+# client_representations), keine bestehende Tabelle umbenannt/entfernt.
+GOLDEN_SORTED_TABLES_SHA256 = "30711a7c792bbe325060308ae7c1c7236ae0bc41ccbadb7f05878c6822451fd2"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -50,7 +53,21 @@ GOLDEN_SORTED_TABLES_SHA256 = "751a13f478745fdb7729d3191e5d5bf93e52f53b5f2a4d41d
 # Integrationsprobe 2026-11-07: Pins aus #856, #862, #868 und #869 zusammen-
 # gefuehrt; api/openapi.json (Git-Merge ohne Konflikt) besteht
 # scripts/export_openapi.py --check.
-GOLDEN_OPENAPI_SHA256 = "8ca5cb99beed3951ac6deb940efd0333bc42273a4da7b746443d7fb7ba50df65"
+# H7 C-1: nur description von POST /clients/{client_id}/erase (Direktpfad stillgelegt, 409), Feld-Diff geprueft.
+# H7 C-6: neu POST /privacy/policies/baseline (+BaselineProposal); description GET/POST /clients/{client_id}/due-diligence (GwV-FINMA statt RS 2016/7), Feld-Diff geprueft.
+# H8 (2026-11-07): neu GET/PUT /compliance/legal-profile, GET
+# /mandates/{mandate_id}/client-onboarding/status, POST
+# /mandates/{mandate_id}/client-information/deliveries, GET
+# /mandates/{mandate_id}/reports/kundeninformation.pdf, GET/POST
+# /clients/{client_id}/kyc-confirmations (+ /approve), GET/POST
+# /clients/{client_id}/representations (+ /revoke) samt Schemas; geaendert nur
+# ClientDueDiligenceUpdate/-Response (acting_for_own_account ohne Default, neu
+# acting_for_own_account_answered) und OptHistoryCreate/-Response
+# (opt_out_criteria, document_id, opt_out_criteria_json). Feld-Diff geprueft.
+# H8 nach Merge H7 (N-890-07): Pins gemeinsam neu. N-890-02/03/12/13: Delivery
+# (delivery_timing, backdating_reason), KYC (identification_*, requires_second_approval),
+# OptHistoryCreate.event_type als FIDLEG-Werteliste. Feld-Diff geprueft.
+GOLDEN_OPENAPI_SHA256 = "9a3bfc78a8c12161b9698eaca86c25f64b4f1cb5b1b14107c2fffbdaca2146bc"
 
 _PROBE = """
 import hashlib, json

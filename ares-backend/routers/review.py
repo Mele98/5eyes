@@ -20,11 +20,12 @@ from models.review import (
     ReviewTrigger, AdvisoryLog, ContractDocument,
     ConflictOfInterestDisclosure, Product, ProductSuitability,
     ProductUniverseEntry,
-    RecommendationRun, RecommendationPosition, RecommendationHolding, AuditLog
+    RecommendationRun, RecommendationPosition, RecommendationHolding, AuditLog,
+    ClientInformationDelivery,
 )
 from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
 from models.profiling import RiskAssessment, SuitabilityCheck
-from models.tenant import Tenant
+from models.tenant import Tenant, TenantLegalProfile
 from schemas.review import (
     master_data_consistency_errors,
     ReviewTriggerCreate, ReviewTriggerResolve, ReviewTriggerResponse,
@@ -51,10 +52,13 @@ from schemas.review import (
     RecommendationPositionCreate, RecommendationPositionResponse,
     RecommendationHoldingUpsert, RecommendationHoldingResponse,
     RecommendationGenerateRequest, RecommendationGenerateResponse,
+    TenantLegalProfileUpdate, TenantLegalProfileResponse,
+    ClientInformationDeliveryCreate, ClientInformationDeliveryResponse,
+    ClientOnboardingStatusResponse,
 )
 from price_updater import summarize_price_quality
-from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation
-from services.audit import log
+from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
+from services.audit import log, release_block_audit, restore_tenant_after_rollback
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
 from routers.auth import _extract_client_ip
@@ -84,11 +88,27 @@ from services.product_market_data import (
     resolve_market_profile,
 )
 from services.recommendation_release_gate import (
+    CHANNEL_FINALIZATION,
     CHANNEL_SIGNATURE,
+    CLIENT_INFORMATION_DOCUMENT_TYPE,
+    CLIENT_INFORMATION_TEMPLATE_VERSION,
+    CLIENT_INFORMATION_TENANT_DATA_MISSING,
+    CONTRACT_CONCLUSION_DOCUMENT_TYPES,
+    LEGAL_PROFILE_FIELDS,
     RECOMMENDATION_DOCUMENT_TYPES,
     SIGNOFF_BOUND_DOCUMENT_TYPES,
+    SUPERVISION_LABELS,
+    assert_client_onboarding_release_eligible,
     assert_recommendation_release_eligible,
+    assert_retrocession_release_eligible,
     assert_risk_signoff_release_eligible,
+    client_onboarding_status,
+    legal_profile_hash,
+    legal_profile_missing_fields,
+    load_tenant_legal_profile,
+    mandate_tenant_id,
+    row_seal,
+    contract_concluded_at,
     risk_budget_release_errors,
 )
 from services.review_engine import (
@@ -1811,8 +1831,30 @@ def sign_document(
         assert_recommendation_release_eligible(
             db, mandate, channel=CHANNEL_SIGNATURE,
         )
+        # H7 N-884-04: keine Signatur, solange die finale Empfehlung keinen
+        # geklaerten Retrozessions-Ausweis traegt (fail-closed, Audit).
+        assert_retrocession_release_eligible(
+            db, mandate, channel=CHANNEL_SIGNATURE,
+            on_block=release_block_audit(
+                db, user=current_user, ip_address=_extract_client_ip(request),
+                mandate_id=mandate.id, field_name="signature_blocked",
+                set_tenant_context=set_tenant_context,
+            ),
+        )
         # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
         assert_portfolio_data_release_eligible(db, mandate, action="signature")
+    # H8 C-2/C-5 (Compliance-Audit 2026-11-07): kein Vertragsabschluss ohne
+    # vorher abgegebene Kundeninformation (Art. 8/9 FIDLEG), vollstaendige
+    # rechtliche Angaben der Firma und GwG-Bestaetigung -- VOR jeder Mutation.
+    if str(doc.document_type or "") in CONTRACT_CONCLUSION_DOCUMENT_TYPES:
+        assert_client_onboarding_release_eligible(
+            db, mandate, channel=CHANNEL_SIGNATURE,
+            on_block=release_block_audit(
+                db, user=current_user, ip_address=_extract_client_ip(request),
+                mandate_id=mandate.id, field_name="signature_blocked",
+                set_tenant_context=set_tenant_context,
+            ),
+        )
     # CERT-SIGNED-PUBLICATION-001: signiert wird nur ein archiviertes,
     # pruefsummengesichertes PDF -- nie ein leerer Entwurf (VOR jeder
     # Mutation, nach den fachlichen Freigabe-Gates).
@@ -1865,6 +1907,220 @@ def sign_document(
     db.commit()
     db.refresh(doc)
     return doc
+
+
+# ── H8 C-2: Rechtliche Angaben + Kundeninformation (Art. 8/9 FIDLEG) ──────────
+
+def _legal_profile_response(tenant_id: str, profile: dict | None) -> TenantLegalProfileResponse:
+    missing = legal_profile_missing_fields(profile)
+    labels = dict(LEGAL_PROFILE_FIELDS)
+    data = {name: (profile or {}).get(name) for name in labels}
+    return TenantLegalProfileResponse(
+        tenant_id=tenant_id,
+        present=profile is not None,
+        **data,
+        revision=int((profile or {}).get("revision") or 0),
+        profile_hash=(profile or {}).get("profile_hash"),
+        updated_by=(profile or {}).get("updated_by"),
+        updated_at=(profile or {}).get("updated_at"),
+        missing_fields=missing,
+        missing_labels=[labels.get(name, name) for name in missing],
+        field_labels=labels,
+        supervision_labels=dict(SUPERVISION_LABELS),
+        complete=not missing,
+    )
+
+
+@router.get("/compliance/legal-profile", response_model=TenantLegalProfileResponse)
+def get_tenant_legal_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Rechtliche Angaben der eigenen Firma fuer die Kundeninformation nach
+    Art. 8 Abs. 1 FIDLEG, samt Liste der fehlenden Pflichtangaben."""
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    return _legal_profile_response(tenant_id, load_tenant_legal_profile(db, tenant_id))
+
+
+@router.put("/compliance/legal-profile", response_model=TenantLegalProfileResponse)
+def update_tenant_legal_profile(
+    body: TenantLegalProfileUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Pflege durch einen Firmen-Admin. Jede geaenderte Angabe wird feldweise
+    (alt/neu) im Audit-Log festgehalten; Revision und Inhalts-Hash werden
+    nachgefuehrt. Ares belegt keinen Wert vor."""
+    # N-890-08: im Strict-Modus (Multi-Tenant) schreibt ein Admin ohne eigene
+    # Firma nie die Angaben des Standard-Mandanten (Kundendokument einer
+    # anderen Firma).
+    if not getattr(current_user, "tenant_id", None) and _effective_strict_tenant_isolation(settings):
+        raise HTTPException(status_code=403, detail={
+            "reason_code": "LEGAL_PROFILE_TENANT_REQUIRED",
+            "message": "Im Mehrmandanten-Betrieb braucht der Admin eine eigene Firma.",
+        })
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id, Tenant.deleted_at.is_(None)).first()
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Eigene Firma nicht gefunden")
+    now = _now()
+    profile = db.query(TenantLegalProfile).filter(TenantLegalProfile.tenant_id == tenant_id).first()
+    created = profile is None
+    if created:
+        profile = TenantLegalProfile(
+            id=new_uuid(), tenant_id=tenant_id, revision=0, created_at=now, updated_at=now,
+        )
+        db.add(profile)
+    changes: list[tuple[str, str | None, str | None]] = []
+    for name, value in body.model_dump(exclude_unset=True).items():
+        new_value = (str(value).strip() or None) if value is not None else None
+        old_value = getattr(profile, name)
+        if (old_value or None) != new_value:
+            setattr(profile, name, new_value)
+            changes.append((name, old_value, new_value))
+    if changes or created:
+        profile.revision = int(profile.revision or 0) + (1 if changes else 0)
+        profile.profile_hash = legal_profile_hash(
+            {name: getattr(profile, name) for name, _label in LEGAL_PROFILE_FIELDS}
+        )
+        profile.updated_by = current_user.id
+        profile.updated_at = now
+        ip_address = _extract_client_ip(request)
+        for name, old_value, new_value in changes:
+            log(db, user_id=current_user.id, user_name=current_user.full_name,
+                table_name="tenant_legal_profiles", record_id=tenant_id, action="UPDATE",
+                field_name=name, old_value=old_value, new_value=new_value,
+                ip_address=ip_address, tenant_id=tenant_id)
+        db.commit()
+    return _legal_profile_response(tenant_id, load_tenant_legal_profile(db, tenant_id))
+
+
+@router.get("/mandates/{mandate_id}/client-onboarding/status",
+            response_model=ClientOnboardingStatusResponse)
+def get_client_onboarding_status(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Stand von Kundeninformation (Art. 8/9 FIDLEG) und GwG-Bestaetigung --
+    dieselbe Quelle wie das Gate vor Finalisierung und Vertragsunterzeichnung."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    return client_onboarding_status(db, mandate)
+
+
+def _utc_storage_timestamp(value: datetime) -> str:
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+@router.post("/mandates/{mandate_id}/client-information/deliveries",
+             response_model=ClientInformationDeliveryResponse, status_code=201)
+def record_client_information_delivery(
+    mandate_id: str,
+    body: ClientInformationDeliveryCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Abgabenachweis der Kundeninformation: archivierte Fassung (Byte-Hash),
+    Vorlagenversion, Revision/Hash der rechtlichen Angaben, Zeitpunkt und Kanal.
+    Append-only. Nur die zu den aktuellen rechtlichen Angaben passende Fassung
+    ist abgebbar; der Zeitpunkt darf nicht in der Zukunft liegen."""
+    enforce_data_classification(body.data_classification)
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    doc = _get_document_or_404(mandate_id, body.contract_document_id, db)
+    if doc.document_type != CLIENT_INFORMATION_DOCUMENT_TYPE or not doc.checksum_sha256:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "CLIENT_INFORMATION_DOCUMENT_INVALID",
+            "message": "Das Dokument ist keine archivierte Kundeninformation (PDF mit Pruefsumme).",
+        })
+    tenant_id = mandate_tenant_id(db, mandate)
+    profile = load_tenant_legal_profile(db, tenant_id)
+    missing = legal_profile_missing_fields(profile)
+    if missing:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": CLIENT_INFORMATION_TENANT_DATA_MISSING,
+            "message": "Rechtliche Angaben der Firma unvollstaendig: " + ", ".join(missing),
+            "missing_fields": missing,
+        })
+    try:
+        meta = json.loads(doc.content_json or "{}")
+    except (TypeError, ValueError):
+        meta = {}
+    current_hash = legal_profile_hash(profile)
+    if (
+        not isinstance(meta, dict)
+        or meta.get("legal_profile_hash") != current_hash
+        or meta.get("template_version") != CLIENT_INFORMATION_TEMPLATE_VERSION
+    ):
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "CLIENT_INFORMATION_OUTDATED",
+            "message": (
+                "Diese Fassung der Kundeninformation entspricht nicht den aktuellen "
+                "rechtlichen Angaben bzw. der aktuellen Vorlage. Bitte das PDF neu "
+                "erstellen und die neue Fassung uebergeben."
+            ),
+        })
+    delivered = datetime.fromisoformat(body.delivered_at)
+    now_dt = datetime.now(timezone.utc)
+    if delivered > now_dt:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "CLIENT_INFORMATION_DELIVERY_IN_FUTURE",
+            "message": "Der Uebergabezeitpunkt darf nicht in der Zukunft liegen.",
+        })
+    delivered_at = _utc_storage_timestamp(delivered)
+    # N-890-02: eine Fassung kann nicht vor ihrer Erstellung uebergeben worden sein.
+    document_created = str(doc.pdf_generated_at or doc.created_at or "")
+    if not document_created or delivered_at < document_created:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "CLIENT_INFORMATION_DELIVERY_BEFORE_DOCUMENT",
+            "message": (
+                "Der Uebergabezeitpunkt liegt vor der Erstellung dieser Fassung "
+                f"({document_created or 'unbekannt'})."
+            ),
+        })
+    # N-890-02: Rueckdatierung ueber 24 h nur mit Begruendung (auditiert).
+    backdating_reason = (body.backdating_reason or "").strip() or None
+    if (now_dt - delivered).total_seconds() > 24 * 3600 and (
+        backdating_reason is None or len(backdating_reason) < 10
+    ):
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "CLIENT_INFORMATION_BACKDATING_REASON_REQUIRED",
+            "message": (
+                "Die Uebergabe liegt mehr als 24 Stunden zurueck; bitte begruenden "
+                "(mind. 10 Zeichen), warum sie erst jetzt erfasst wird."
+            ),
+        })
+    now = _now()
+    # N-890-02: ist bereits ein Vertrag unterzeichnet, gilt die Abgabe als
+    # "nachtraeglich" -- sie zaehlt nie als vorvertragliche Abgabe.
+    concluded = contract_concluded_at(db, mandate.id)
+    record = ClientInformationDelivery(
+        id=new_uuid(), tenant_id=tenant_id, mandate_id=mandate.id,
+        client_id=mandate.client_id, contract_document_id=doc.id,
+        template_version=CLIENT_INFORMATION_TEMPLATE_VERSION,
+        legal_profile_revision=int(profile.get("revision") or 0),
+        legal_profile_hash=current_hash, pdf_sha256=doc.checksum_sha256,
+        delivered_at=delivered_at, delivery_channel=body.delivery_channel,
+        delivery_timing="nachtraeglich" if concluded else "vor_vertragsabschluss",
+        backdating_reason=backdating_reason,
+        recorded_by=current_user.id, recorded_at=now,
+    )
+    record.delivery_hash = row_seal(
+        {column.name: getattr(record, column.name) for column in record.__table__.columns},
+        "delivery_hash",
+    )
+    db.add(record)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="client_information_deliveries", record_id=record.id, action="CREATE",
+        field_name="delivered_at",
+        new_value=f"{delivered_at} ({body.delivery_channel}; {record.delivery_timing})"
+        + (f"; Begruendung Nachtrag: {backdating_reason}" if backdating_reason else ""),
+        mandate_id=mandate.id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
+    db.commit()
+    db.refresh(record)
+    return record
 
 
 # ── Conflicts of Interest ──────────────────────────────────────────────────────
@@ -4038,6 +4294,48 @@ def finalize_recommendation(
                 "errors": errors,
             })
         raise HTTPException(status_code=422, detail="; ".join(errors))
+    # H7 C-4 (Compliance-Audit 2026-11-07): Retro-Gate. Der Kostenausweis
+    # kennt seit L1 unbekannte/ungeregelte Retrozessionen (is_complete=False),
+    # die Finalisierung fror ihn trotzdem ein. Jetzt fail-closed, ohne
+    # Override (Dok. 10 L1); die Sperre wird im Audit-Log festgehalten.
+    from services.cost_disclosure import (
+        freeze_cost_disclosure_for_run,
+        retrocession_finalization_block,
+    )
+
+    retro_block = retrocession_finalization_block(db, mandate, run)
+    if retro_block is not None:
+        # N-884-09: Tenant-Kontext nach dem Rollback wieder setzen (PG/RLS).
+        restore_tenant_after_rollback(db, set_tenant_context)
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="recommendation_runs", record_id=run_id, action="UPDATE",
+            field_name="finalization_blocked",
+            new_value=json.dumps({
+                "reason_code": retro_block["reason_code"],
+                "unknown": retro_block["unknown"],
+                "unresolved": retro_block["unresolved"],
+                "unresolved_items": retro_block["unresolved_items"],
+            }, ensure_ascii=False, sort_keys=True),
+            mandate_id=mandate_id, ip_address=_extract_client_ip(request))
+        db.commit()
+        raise HTTPException(status_code=422, detail={
+            "reason_code": retro_block["reason_code"],
+            "message": retro_block["message"],
+            "errors": [retro_block["message"]],
+        })
+    # H8 C-2/C-5 (Compliance-Audit 2026-11-07): Finalisierung nur mit vor
+    # Vertragsabschluss abgegebener Kundeninformation (Art. 8/9 FIDLEG),
+    # vollstaendigen rechtlichen Angaben der Firma und GwG-Bestaetigung
+    # (fail-closed, kein Override; Reason-Code je offenem Punkt in findings).
+    # N-890-07: die Sperre wird wie H7 im Audit-Log festgehalten.
+    assert_client_onboarding_release_eligible(
+        db, mandate, channel=CHANNEL_FINALIZATION, http_status=422,
+        on_block=release_block_audit(
+            db, user=current_user, ip_address=_extract_client_ip(request),
+            mandate_id=mandate.id, field_name="finalization_blocked",
+            set_tenant_context=set_tenant_context,
+        ),
+    )
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
     assert_portfolio_data_release_eligible(db, mandate, action="finalize")
     if cma_currency_warning:
@@ -4068,7 +4366,6 @@ def finalize_recommendation(
     # bleibt die Spalte NULL und der Leser legt das offen
     # (`evidence_frozen=False`) -- die Finalisierung daran scheitern zu
     # lassen waere eine Blockade, die dieser Befund nicht verlangt.
-    from services.cost_disclosure import freeze_cost_disclosure_for_run
     run.cost_disclosure_snapshot_json = freeze_cost_disclosure_for_run(
         db, mandate, run
     )

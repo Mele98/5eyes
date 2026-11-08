@@ -54,6 +54,13 @@ BEFORE_DIGESTS = {
     "cost_disclosure.cover.title": "sha256:7c8051b8bf43178ae61344b0d6159b30467b99933987499186af79caa344485b",
     "cost_disclosure.cover.subtitle": "sha256:8de8dd79369239fdc7dac30ac43fcaf4774dcd3350e108bb336801a3d4d0e701",
     "cost_disclosure.cover.focus_points": "sha256:6b5ef1b1e47d3812287bf909a079d7620646e9e78640ef74b91f5ac323e0930a",
+    # H7 N-884-03: neue Schluessel (Fusszeile je Mandatstyp); Erstfassung.
+    "legal.footer.disclaimer.vermoegensverwaltung": "sha256:3f5335adcd97ffb7a338793b24752a7ff7845792d0925bdc17a8a9c59a9b08cc",
+    "legal.footer.disclaimer.anlageberatung": "sha256:e400049f30a19b645ff37b286bccb56158548c6c48d7154228725f2c5e65b459",
+    "legal.footer.disclaimer.finanzplanung": "sha256:0e67a630601486a6377ee9f0fe4f12b9f83bc334d72f52aabe0adb2a6f2c3f34",
+    "legal.footer.disclaimer.reporting": "sha256:cc3a59375243c559e3e446797b3ebfede9e3e482af4bac5a948479bb39f225df",
+    # H8 N-890-07: neue Fusszeile der Kundeninformation (eigener Dokumenttyp).
+    "legal.footer.disclaimer.kundeninformation": "sha256:1e3d35d276e489a99ddfe6bca333770de94e389ca03278ed530214b07a09e71b",
 }
 
 # N-856-2 (Pruefrunde #856, Dok. 86): deklariertes Text-Aenderungsregister.
@@ -63,6 +70,16 @@ BEFORE_DIGESTS = {
 # (approvals: []), eingefrorene Dokumente referenzieren den Text-Hash nicht
 # -> Paketversion bleibt 1.0.0.
 DECLARED_TEXT_CHANGES = {
+    "legal.footer.disclaimer": {
+        "from": "sha256:08b31b18f1330ba1154981b0b71c6f0734adb8d77b3b1b59516107977916b876",
+        "to": "sha256:dfc43ec38d8370b57011f8e183f881ccedd2301544d3b7957cb3783174907425",
+        "reason": (
+            "H7 N-884-03: Fusszeile kennzeichnete jede Dienstleistung als "
+            "'Anlageberatung' nach FIDLEG; jetzt neutral ('vereinbarte "
+            "Dienstleistung'), Varianten je Mandatstyp unter footer.disclaimer.<typ>"
+        ),
+        "ref": "H-147 / N-884-03",
+    },
     "cost_disclosure.cover.focus_points": {
         "from": "sha256:6b5ef1b1e47d3812287bf909a079d7620646e9e78640ef74b91f5ac323e0930a",
         "to": "sha256:9f0b3310a4f5b46e8fd185f9d76da14f8b63953351a78f6f81e196300fc5c2dc",
@@ -81,7 +98,7 @@ def _expected_digest(key: str) -> str:
 
 
 # Gepinnter Inhalts-Hash aller CH-Texte (jede Textaenderung ist sichtbar).
-CH_DOCUMENTS_HASH = "sha256:cf63d8a0bf95c1a51a265a9e37d13ed13387ea9d00ec8224db62bf2e942e6fbe"  # N-856-2
+CH_DOCUMENTS_HASH = "sha256:4d79420f34f044da35f58ab5b664ab4997a21b64936c2d7f1b65fced59e3f558"  # H7 N-884-03, H8 N-890-07
 
 def _norm(value):
     if isinstance(value, (list, tuple)):
@@ -143,7 +160,7 @@ def test_static_texts_stay_core_constants_without_pack_import():
 def test_footer_constant_and_runtime_text_come_from_the_document_set(monkeypatch):
     footer = importlib.import_module("services.pdf.components.footer")
     assert footer.FIDLEG_DISCLAIMER == default_documents().text("legal.footer.disclaimer")
-    assert _digest(footer.FIDLEG_DISCLAIMER) == BEFORE_DIGESTS["legal.footer.disclaimer"]
+    assert _digest(footer.FIDLEG_DISCLAIMER) == _expected_digest("legal.footer.disclaimer")
 
     class _Canvas:
         def __init__(self):

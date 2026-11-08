@@ -66,6 +66,7 @@ def archive_generated_pdf(
     content_hash: str,
     current_user: User,
     ip_address: str | None = None,
+    content_json: str | None = None,
 ) -> ContractDocument:
     latest = (
         db.query(ContractDocument)
@@ -86,6 +87,9 @@ def archive_generated_pdf(
         mandate_id=mandate_id,
         document_type=document_type,
         title=title,
+        # H8 C-2: optionale Metadaten der Fassung (z.B. Kundeninformation:
+        # Vorlagenversion, Revision/Hash der rechtlichen Angaben).
+        content_json=content_json,
         pdf_base64=base64.b64encode(pdf_bytes).decode("ascii"),
         checksum_sha256=hashlib.sha256(pdf_bytes).hexdigest(),
         content_hash=content_hash,

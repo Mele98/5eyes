@@ -4435,6 +4435,14 @@ _ADVISOR_SIGNATURE_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB
 _CLIENT_SIGNATURE_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 
 
+def _satisfy_onboarding(session, mandate_id):
+    from client_onboarding_fixture import satisfy_client_onboarding
+    from models.mandates import Mandate as _Mandate
+
+    satisfy_client_onboarding(session, session.get(_Mandate, mandate_id))
+    session.commit()
+
+
 def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user, monkeypatch):
     _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 
@@ -4451,6 +4459,9 @@ def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user
         )
         # CERT-SIGNED-PUBLICATION-001: signiert wird nur das archivierte PDF.
         attach_archived_pdf(session, doc)
+        # H8 C-2/C-5: Vertragsunterzeichnung erst nach Kundeninformation und KYC
+        # (Testwerte, tests/client_onboarding_fixture.py).
+        _satisfy_onboarding(session, mandate_id)
         timestamps = iter(
             [
                 "2026-04-19T09:15:00.000Z",
@@ -4528,6 +4539,9 @@ def test_sign_document_rejects_overwriting_an_existing_advisor_signature(session
         )
         # CERT-SIGNED-PUBLICATION-001: signiert wird nur das archivierte PDF.
         attach_archived_pdf(session, doc)
+        # H8 C-2/C-5: Vertragsunterzeichnung erst nach Kundeninformation und KYC
+        # (Testwerte, tests/client_onboarding_fixture.py).
+        _satisfy_onboarding(session, mandate_id)
         monkeypatch.setattr(review_router, "_now", lambda: "2026-04-19T09:15:00.000Z")
 
         sign_document(

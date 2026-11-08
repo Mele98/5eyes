@@ -10,6 +10,15 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Mapping, Protocol, Sequence, runtime_checkable
 
+from jurisdictions.resolve import resolve_pack
+
+
+def resolve_pdf_jurisdiction(mandate) -> str:
+    """H7 N-884-02: Laendercode des Mandats fuer PDF-Texte ueber den zentralen
+    Resolver (jurisdictions.resolve, NULL = Altsemantik CH) -- kein eigener
+    Inline-Rueckgriff in den Textbausteinen."""
+    return str(resolve_pack(mandate).code)
+
 
 @dataclass(frozen=True)
 class PDFContext:
@@ -35,6 +44,10 @@ class PDFContext:
     # Backtest) gesetzt/gerendert -- fuer CH IMMER None (kein DB-Zugriff,
     # siehe resolve_pdf_provisional_notice).
     provisional_notice: Mapping[str, object] | None = None
+    # H7 C-3: Mandatstyp und Jurisdiktion fuer den Disclaimer je Mandat
+    # (services/pdf/components/static_texts.py::disclaimer_paragraphs).
+    mandate_type: str | None = None
+    jurisdiction: str | None = None
 
 
 @dataclass(frozen=True)
@@ -254,6 +267,37 @@ class VertragData:
 
 
 @dataclass(frozen=True)
+class KundeninformationData:
+    """H8 C-2 (Compliance-Audit 2026-11-07): Kundeninformation nach Art. 8/9
+    FIDLEG. Alle Angaben zum Finanzdienstleister stammen aus den rechtlichen
+    Angaben des Tenants (keine Vorbelegung); Kosten, Retrozessionen,
+    wirtschaftliche Bindungen und Marktangebot aus den bestehenden Daten.
+    ``template_version`` geht in den Inhalts-Hash ein -- eine Textaenderung der
+    Vorlage braucht eine neue Version (sonst liefert das Archiv die alte
+    Fassung)."""
+
+    template_version: str
+    legal_profile_revision: int
+    legal_profile_hash: str
+    provider_lines: tuple = ()
+    """(Bezeichnung, Wert)-Paare: Firma, Adresse, Kontakt, Taetigkeitsfeld,
+    Aufsichtsstatus, Aufsichtsbehoerde/-organisation, Register."""
+    ombudsman_name: str = ""
+    ombudsman_address: str = ""
+    mandate_number: str | None = None
+    mandate_type: str = ""
+    cost_lines: tuple = ()
+    """(Bezeichnung, Wert)-Paare aus dem Ex-ante-Kostenausweis; leer =
+    noch kein Kostenausweis (Hinweis wird gedruckt)."""
+    cost_note: str = ""
+    retrocession_lines: tuple = ()
+    economic_ties: tuple = ()
+    market_offer_lines: tuple = ()
+    depot_bank: str | None = None
+    document_kind: str = "kundeninformation"
+
+
+@dataclass(frozen=True)
 class ContractSignoffData:
     """Final customer sign-off for the documented advisory decision."""
 
@@ -329,6 +373,10 @@ class ProtokollData:
     # dokumentierte Kenntnis/Aufklaerung (Reason-Code KNOWLEDGE_GAP_ASSET_CLASS).
     # Reiner Hinweis -- die Allokation wurde dadurch nicht veraendert.
     knowledge_gap_hints: list = field(default_factory=list)
+
+    # H8 Luecke 10 (ZGB): erfasste Vertretungen/Verfuegungsberechtigungen als
+    # Hinweiszeilen (dokumentarisch). Leer = keine erfasst (kein Abschnitt).
+    representation_lines: tuple = ()
 
 
 @dataclass(frozen=True)

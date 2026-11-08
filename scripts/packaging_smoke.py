@@ -405,16 +405,30 @@ def http_get(url: str, timeout: float = 5.0) -> tuple[int, dict, bytes]:
 # ---------------------------------------------------------------------------
 # 8. PDF-Render (B-9)
 # ---------------------------------------------------------------------------
-def expected_footer_disclaimer() -> str:
-    """Voller Fusszeilen-Text aus dem Quellbaum (produktiver Loader).
+# H7 N-884-03: Fusszeile je Mandatstyp (gleiche Zuordnung wie
+# services/pdf/components/footer.py::footer_disclaimer_key).
+FOOTER_KEY_SUFFIX_BY_MANDATE_TYPE = {
+    'vermögensverwaltung': 'vermoegensverwaltung',
+    'vermoegensverwaltung': 'vermoegensverwaltung',
+    'anlageberatung': 'anlageberatung',
+    'finanzplanung': 'finanzplanung',
+    'reporting only': 'reporting',
+}
+
+
+def expected_footer_disclaimer(mandate_type: str | None = None) -> str:
+    """Voller Fusszeilen-Text aus dem Quellbaum (produktiver Loader), fuer den
+    Mandatstyp des gerenderten Mandats (ohne Typ: neutraler Text).
 
     Die Paket-Bytes derselben Datei sind in ``check_jurisdiction_documents``
     als byte-identisch belegt; der Text im gerenderten PDF stammt also aus der
     Datei im Paket."""
     documents_mod = _load_jurisdiction_loader('jurisdictions.documents')
-    text = documents_mod.default_documents().text(FOOTER_DISCLAIMER_KEY)
+    suffix = FOOTER_KEY_SUFFIX_BY_MANDATE_TYPE.get(str(mandate_type or '').strip().casefold())
+    key = f'{FOOTER_DISCLAIMER_KEY}.{suffix}' if suffix else FOOTER_DISCLAIMER_KEY
+    text = documents_mod.default_documents().text(key)
     if not isinstance(text, str) or not text.strip():
-        fail(f'{FOOTER_DISCLAIMER_KEY} im Quellbaum leer -- PDF-Pruefung hat keine Grundlage.')
+        fail(f'{key} im Quellbaum leer -- PDF-Pruefung hat keine Grundlage.')
     return text
 
 
@@ -641,7 +655,6 @@ def _font_resource_usage(pages) -> tuple[list[FontUse], list[FontUse]]:
 
 def run_pdf_render_smoke(base: str, documents: tuple[str, ...] = PDF_SMOKE_DOCUMENTS) -> list[str]:
     """Admin, Kunde und Mandat ueber die API anlegen und PDFs rendern lassen."""
-    footer = expected_footer_disclaimer()
     password = 'Smoke-' + secrets.token_urlsafe(18) + '-9a'
 
     def call(method: str, path: str, body: object | None = None,
@@ -669,6 +682,7 @@ def run_pdf_render_smoke(base: str, documents: tuple[str, ...] = PDF_SMOKE_DOCUM
         'mandate_number': 'SMOKE-M1', 'data_classification': 'synthetic',
     }, token)
     mandate = created('Mandat anlegen', status, body)
+    footer = expected_footer_disclaimer(mandate.get('mandate_type'))
     rendered = []
     for name in documents:
         status, headers, pdf = call('GET', f"/mandates/{mandate['id']}/reports/{name}.pdf",
