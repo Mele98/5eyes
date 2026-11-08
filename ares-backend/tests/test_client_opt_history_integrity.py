@@ -176,7 +176,6 @@ def test_opt_history_rejects_stale_from_classification(session_factory):
         # ('Institutioneller Kunde'), der nicht dem tatsaechlich gespeicherten
         # Zustand ('Privatkunde') entspricht.
         body = OptHistoryCreate(
-            event_type="opt_up",
             from_classification="Institutioneller Kunde",
             to_classification="Professioneller Kunde",
             client_requested=True,
@@ -200,7 +199,6 @@ def test_opt_history_rejects_out_of_enum_to_classification():
     # Schema-Parsing (== 422 auf HTTP-Ebene), der Router laeuft nie an.
     with pytest.raises(ValidationError):
         OptHistoryCreate(
-            event_type="opt_up",
             from_classification="Privatkunde",
             to_classification="BROKEN-CLASS",
             client_requested=True,
@@ -212,7 +210,6 @@ def test_opt_history_valid_transition_updates_client_and_writes_history(session_
         advisor, client = _seed_advisor_and_client(session, classification="Privatkunde")
 
         body = OptHistoryCreate(
-            event_type="opt_up",
             from_classification="Privatkunde",
             to_classification="Professioneller Kunde",
             client_requested=True,
@@ -244,7 +241,6 @@ def test_opt_history_can_change_qualified_investor_flag_without_reclassification
         advisor, client = _seed_advisor_and_client(session, classification="Privatkunde")
 
         body = OptHistoryCreate(
-            event_type="qualified_investor_designation",
             from_classification="Privatkunde",
             to_classification="Privatkunde",
             from_qualified_investor=False,
@@ -271,7 +267,6 @@ def test_opt_history_rejects_stale_from_professional_opt_out(session_factory):
         session.commit()
 
         body = OptHistoryCreate(
-            event_type="opt_out_withdrawal",
             from_classification="Privatkunde",
             to_classification="Privatkunde",
             from_professional_opt_out=False,  # stale -- tatsaechlich bereits 1
@@ -297,7 +292,6 @@ def test_opt_history_classification_and_flag_change_together_atomic(session_fact
         advisor, client = _seed_advisor_and_client(session, classification="Privatkunde")
 
         body = OptHistoryCreate(
-            event_type="reclassification",
             from_classification="Privatkunde",
             to_classification="Professioneller Kunde",
             from_professional_opt_out=False,
@@ -331,9 +325,9 @@ def test_opt_history_without_flag_fields_leaves_flags_untouched(session_factory)
         session.commit()
 
         body = OptHistoryCreate(
-            event_type="reclassification",
             from_classification="Privatkunde",
-            to_classification="Institutioneller Kunde",
+            # N-890-13: direkt Privat -> Institutionell ist kein FIDLEG-Weg mehr.
+            to_classification="Professioneller Kunde",
             client_requested=True,
             document_id="doc-4",
             # H8 Luecke 7 (Art. 5 FIDLEG): Opting-out nur mit Kriterien-Checkliste.
@@ -342,5 +336,5 @@ def test_opt_history_without_flag_fields_leaves_flags_untouched(session_factory)
         add_opt_history(client_id=client.id, body=body, db=session, current_user=advisor)
 
         session.refresh(client)
-        assert client.client_classification == "Institutioneller Kunde"
+        assert client.client_classification == "Professioneller Kunde"
         assert client.is_qualified_investor == 1  # unveraendert, nicht zurueckgesetzt

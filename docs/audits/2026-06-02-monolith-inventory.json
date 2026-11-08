@@ -9260,8 +9260,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/client-compliance.js",
-      "sha256": "094bff51583dec0569f9c89691dc1704217b0858e8e78d80c206eb46c055aacd",
-      "size_bytes": 27395
+      "sha256": "4a10b2a6c9a0fb9844b73680e453328173e746ac6081033161f35343d6e168ad",
+      "size_bytes": 28353
     }
   ],
   "ids": [
@@ -21958,7 +21958,7 @@
     },
     {
       "declaration": "function",
-      "line": 313,
+      "line": 320,
       "name": "approveKycConfirmation",
       "source": "client-compliance.js"
     },
@@ -21970,13 +21970,13 @@
     },
     {
       "declaration": "function",
-      "line": 301,
+      "line": 306,
       "name": "createKycConfirmation",
       "source": "client-compliance.js"
     },
     {
       "declaration": "function",
-      "line": 319,
+      "line": 326,
       "name": "createRepresentation",
       "source": "client-compliance.js"
     },
@@ -21988,7 +21988,7 @@
     },
     {
       "declaration": "function",
-      "line": 260,
+      "line": 264,
       "name": "downloadClientInformationPdf",
       "source": "client-compliance.js"
     },
@@ -22012,7 +22012,7 @@
     },
     {
       "declaration": "function",
-      "line": 185,
+      "line": 187,
       "name": "kycHtml",
       "source": "client-compliance.js"
     },
@@ -22024,19 +22024,19 @@
     },
     {
       "declaration": "function",
-      "line": 342,
+      "line": 349,
       "name": "mountAdminLegalProfile",
       "source": "client-compliance.js"
     },
     {
       "declaration": "function",
-      "line": 389,
+      "line": 396,
       "name": "mountClientCompliance",
       "source": "client-compliance.js"
     },
     {
       "declaration": "function",
-      "line": 373,
+      "line": 380,
       "name": "mountClientCompliancePanel",
       "source": "client-compliance.js"
     },
@@ -22048,19 +22048,19 @@
     },
     {
       "declaration": "function",
-      "line": 268,
+      "line": 272,
       "name": "recordClientInformationDelivery",
       "source": "client-compliance.js"
     },
     {
       "declaration": "function",
-      "line": 413,
+      "line": 420,
       "name": "renderAuditLogTable",
       "source": "client-compliance.js"
     },
     {
       "declaration": "function",
-      "line": 237,
+      "line": 241,
       "name": "renderClientCompliancePanel",
       "source": "client-compliance.js"
     },
@@ -22072,19 +22072,19 @@
     },
     {
       "declaration": "function",
-      "line": 216,
+      "line": 220,
       "name": "representationsHtml",
       "source": "client-compliance.js"
     },
     {
       "declaration": "function",
-      "line": 330,
+      "line": 337,
       "name": "revokeRepresentation",
       "source": "client-compliance.js"
     },
     {
       "declaration": "function",
-      "line": 254,
+      "line": 258,
       "name": "run",
       "source": "client-compliance.js"
     },
@@ -22096,13 +22096,13 @@
     },
     {
       "declaration": "function",
-      "line": 279,
+      "line": 284,
       "name": "saveOwnAccountAnswer",
       "source": "client-compliance.js"
     },
     {
       "declaration": "function",
-      "line": 368,
+      "line": 375,
       "name": "schedulePanelRefresh",
       "source": "client-compliance.js"
     },

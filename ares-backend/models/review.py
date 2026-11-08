@@ -712,6 +712,11 @@ class ClientInformationDelivery(Base):
     pdf_sha256 = Column(String, nullable=False)
     delivered_at = Column(String, nullable=False)
     delivery_channel = Column(String, nullable=False)
+    # N-890-02: "vor_vertragsabschluss" (erfasst, bevor ein Vertrag unterzeichnet
+    # war) oder "nachtraeglich" (Bestandsvertrag; zaehlt nie als vorvertraglich).
+    delivery_timing = Column(String, nullable=False)
+    # Pflicht, wenn delivered_at mehr als 24 h vor recorded_at liegt.
+    backdating_reason = Column(String)
     recorded_by = Column(String, ForeignKey("users.id"), nullable=False)
     recorded_at = Column(String, nullable=False)
     delivery_hash = Column(String, nullable=False)

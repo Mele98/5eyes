@@ -272,7 +272,17 @@ class OptHistoryCreate(BaseModel):
     # uebereinstimmt (stale/falscher Ausgangszustand -> 409), erfolgt im
     # Router (routers/clients.py::add_opt_history), da sie den DB-Zustand
     # kennen muss.
-    event_type: str
+    # N-890-13: feste Werteliste gemaess FIDLEG (vorher freier String -> 500 am
+    # DB-CHECK). Leer = vom Server aus dem Uebergang abgeleitet; ein
+    # widerspruechlicher Wert ergibt 422.
+    event_type: Optional[Literal[
+        "Opting-out zu Professionell",
+        "Opting-out zu Institutionell",
+        "Opting-in zu Privatkunde",
+        "Opting-in zu Professionell",
+        "Qualifizierter Anleger bestätigt",
+        "Klassifizierung überprüft",
+    ]] = None
     from_classification: ClientClassification
     to_classification: ClientClassification
     client_requested: bool = True
@@ -409,6 +419,10 @@ class KycConfirmationCreate(BaseModel):
     external_reference: str
     risk_category: Literal["normal", "erhoeht"]
     is_pep: bool
+    # N-890-12: Identifizierung der Vertragspartei (GwG Art. 3) ausdruecklich
+    # bestaetigen (Pflicht True) samt Datum.
+    identification_confirmed: bool
+    identification_date: str
     next_review_due: str
     note: Optional[str] = None
     data_classification: Literal["synthetic", "real"] = "synthetic"
@@ -417,6 +431,14 @@ class KycConfirmationCreate(BaseModel):
     def _validate(self):
         self.form_completed_on = _iso_date(self.form_completed_on, "form_completed_on")
         self.next_review_due = _iso_date(self.next_review_due, "next_review_due")
+        self.identification_date = _iso_date(self.identification_date, "identification_date")
+        if not self.identification_confirmed:
+            raise ValueError(
+                "identification_confirmed muss bestaetigt sein (Identifizierung der "
+                "Vertragspartei nach GwG Art. 3)"
+            )
+        if _date.fromisoformat(self.identification_date) > _date.today():
+            raise ValueError("identification_date darf nicht in der Zukunft liegen")
         if _date.fromisoformat(self.form_completed_on) > _date.today():
             raise ValueError("form_completed_on darf nicht in der Zukunft liegen")
         if self.next_review_due <= self.form_completed_on:
@@ -451,6 +473,8 @@ class KycConfirmationResponse(BaseResponse):
     external_reference: str
     risk_category: str
     is_pep: int
+    identification_confirmed: int
+    identification_date: str
     next_review_due: str
     note: Optional[str] = None
     recorded_by: str

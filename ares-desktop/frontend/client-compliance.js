@@ -169,14 +169,16 @@
     }
     html += '</div>';
     (status.deliveries || []).forEach(function(d){
-      html += '<div style="font-size:9px;color:var(--n5)">Übergeben ' + esc(d.delivered_at) + ' (' + esc(d.delivery_channel) + ') · Fassung ' + esc(String(d.pdf_sha256 || '').slice(0, 12)) + '…'
-        + (d.archive_verified ? '' : ' · <span style="color:var(--neg)">Archiv-Nachweis ungültig</span>') + '</div>';
+      html += '<div style="font-size:9px;color:var(--n5)">Übergeben ' + esc(d.delivered_at) + ' (' + esc(d.delivery_channel) + ') · erfasst ' + esc(d.recorded_at) + ' · Fassung ' + esc(String(d.pdf_sha256 || '').slice(0, 12)) + '…'
+        + (d.delivery_timing === 'nachtraeglich' ? ' · <span style="color:var(--neg)">nachträglich übergeben (nach Vertragsabschluss)</span>' : '')
+        + (d.archive_verified && d.seal_verified ? '' : ' · <span style="color:var(--neg)">Nachweis ungültig</span>') + '</div>';
     });
     if (doc && doc.current) {
       html += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end;margin-top:4px">'
         + '<div>' + L + 'Übergeben am (Zeitpunkt)</label><input class="fi" type="datetime-local" id="ci-delivered-at" style="font-size:11px"></div>'
         + '<div>' + L + 'Kanal</label><select class="fsel" id="ci-channel" style="font-size:11px"><option value="">bitte wählen</option>'
         + '<option value="persoenlich_papier">persönlich (Papier)</option><option value="post">Post</option><option value="email">E-Mail</option><option value="kundenportal">Kundenportal</option></select></div>'
+        + '<div style="flex:1;min-width:220px">' + L + 'Begründung (Pflicht, wenn die Übergabe mehr als 24 h zurückliegt)</label><input class="fi" id="ci-backdating" style="font-size:11px"></div>'
         + '<button class="btn btn-sm" onclick="recordClientInformationDelivery(\'' + esc(doc.id) + '\')">Übergabe erfassen</button></div>';
     }
     return html;
@@ -209,6 +211,8 @@
       + '<div>' + L + 'Risikokategorie</label><select class="fsel" id="kyc-risk" style="font-size:11px"><option value="">bitte wählen</option><option value="normal">normal</option><option value="erhoeht">erhöht</option></select></div>'
       + '<div>' + L + 'PEP</label><select class="fsel" id="kyc-pep" style="font-size:11px"><option value="">bitte wählen</option><option value="false">nein</option><option value="true">ja</option></select></div>'
       + '<div>' + L + 'Nächste Aktualisierung</label><input class="fi" type="date" id="kyc-review" style="font-size:11px"></div>'
+      + '<div>' + L + 'Identifizierung der Vertragspartei am (GwG Art. 3)</label><input class="fi" type="date" id="kyc-ident-date" style="font-size:11px"></div>'
+      + '<div style="grid-column:span 2;font-size:10px;padding-top:12px"><label><input type="checkbox" id="kyc-ident-ok"> Identifizierung der Vertragspartei ist erfolgt (GwG Art. 3)</label></div>'
       + '</div><button class="btn btn-sm" style="margin-top:4px" onclick="createKycConfirmation()">KYC-Bestätigung erfassen</button>';
     return html;
   }
@@ -271,7 +275,8 @@
     var at = new Date(local);
     return run(function(){
       return API.post('/mandates/' + encodeURIComponent(currentMandateId) + '/client-information/deliveries', {
-        contract_document_id: docId, delivered_at: at.toISOString(), delivery_channel: channel
+        contract_document_id: docId, delivered_at: at.toISOString(), delivery_channel: channel,
+        backdating_reason: val('ci-backdating') || null
       });
     }, 'Übergabe der Kundeninformation erfasst.');
   }
@@ -303,7 +308,9 @@
     var body = {
       mandate_id: currentMandateId, form_type: val('kyc-form'), form_completed_on: val('kyc-date'),
       external_reference: val('kyc-ref'), risk_category: risk, is_pep: pep === '' ? null : pep === 'true',
-      next_review_due: val('kyc-review')
+      next_review_due: val('kyc-review'),
+      identification_confirmed: !!(document.getElementById('kyc-ident-ok') || {}).checked,
+      identification_date: val('kyc-ident-date')
     };
     return run(function(){
       return API.post('/clients/' + encodeURIComponent(currentClientId) + '/kyc-confirmations', body);

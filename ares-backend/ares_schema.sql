@@ -156,7 +156,14 @@ CREATE TABLE IF NOT EXISTS client_opt_history (
                             'Opt-out zu Privatkunde',
                             'Opt-in zu Professionell',
                             'Qualifizierter Anleger bestätigt',
-                            'Klassifizierung überprüft')),
+                            'Klassifizierung überprüft',
+                            -- N-890-13 (H8): Bezeichnungen gemaess FIDLEG; die
+                            -- beiden vertauschten Altwerte oben bleiben nur fuer
+                            -- Bestandszeilen gueltig (API nimmt sie nicht mehr an).
+                            'Opting-out zu Professionell',
+                            'Opting-out zu Institutionell',
+                            'Opting-in zu Privatkunde',
+                            'Opting-in zu Professionell')),
     from_classification TEXT NOT NULL,
     to_classification   TEXT NOT NULL,
     client_requested    INTEGER NOT NULL DEFAULT 1 CHECK(client_requested IN (0,1)),

@@ -37,20 +37,7 @@ EXCLUDED_DIRS = frozenset(
 
 # (Datei, Funktions-Qualname) -> Begruendung. Heute leer: alle Fundstellen
 # sind inventarisiert.
-UNINVENTORIED_EXCEPTIONS: dict[tuple[str, str], str] = {
-    # H8 (2026-11-07): Integritaets-Hashes neuer append-only Nachweise; sie
-    # werden nur beim Schreiben gebildet und nie gegen einen Golden-Hash oder
-    # eine Replay-Berechnung verglichen (kein Evidence-Schema V1).
-    ("routers/clients.py", "_canonical_hash"): (
-        "H8 C-5: confirmation_hash/approval_hash der KYC-Bestaetigung (Schreib-Siegel)"
-    ),
-    ("routers/review.py", "record_client_information_delivery"): (
-        "H8 C-2: delivery_hash des Abgabenachweises (Schreib-Siegel)"
-    ),
-    ("services/recommendation_release_gate.py", "legal_profile_hash"): (
-        "H8 C-2: Inhalts-Hash der rechtlichen Angaben (Revisionsbindung der Fassung)"
-    ),
-}
+UNINVENTORIED_EXCEPTIONS: dict[tuple[str, str], str] = {}
 
 
 def _inventoried_sites() -> set[tuple[str, str]]:

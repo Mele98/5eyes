@@ -151,20 +151,21 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
     # H8 C-5: GwG-Bestaetigung (append-only) und Vier-Augen-Freigabe.
     "kyc_confirmations": _t(
         _CLIENT,
-        _c(FREE_TEXT, "kyc_due_diligence", "external_reference", "note"),
+        _c(FREE_TEXT, "kyc_due_diligence", "external_reference", "note", method=TIER_A_REDACTION),
         _c(RECORD, "kyc_due_diligence"),
     ),
     "kyc_confirmation_approvals": _t(
         _CLIENT,
-        _c(FREE_TEXT, "kyc_due_diligence", "note"),
+        _c(FREE_TEXT, "kyc_due_diligence", "note", method=TIER_A_REDACTION),
         _c(RECORD, "kyc_due_diligence"),
     ),
     # H8 Luecke 10: Vertretung/Verfuegungsberechtigung (Name der vertretenden
     # Person = Personendatum eines Dritten).
     "client_representations": _t(
         _CLIENT,
-        _c(IDENTITY, "mandate_contract", "representative_name"),
-        _c(FREE_TEXT, "mandate_contract", "scope", "evidence_reference", "note", "revocation_reason"),
+        _c(IDENTITY, "mandate_contract", "representative_name", method=TIER_A_REDACTION),
+        _c(FREE_TEXT, "mandate_contract", "scope", "evidence_reference", "note", "revocation_reason",
+           method=TIER_A_REDACTION),
         _c(RECORD, "mandate_contract"),
     ),
     "client_tax_residencies": _t(

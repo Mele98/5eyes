@@ -64,6 +64,7 @@ def _kyc_body(**overrides):
     today = date.today()
     data = dict(form_type="A", form_completed_on=(today - timedelta(days=2)).isoformat(),
                 external_reference="SRO-Dossier 4711", risk_category="normal", is_pep=False,
+                identification_confirmed=True, identification_date=(today - timedelta(days=3)).isoformat(),
                 next_review_due=(today + timedelta(days=365)).isoformat())
     data.update(overrides)
     return KycConfirmationCreate(**data)
@@ -131,12 +132,16 @@ def test_overdue_kyc_confirmation_blocks(sf):
         record = confirm_test_kyc(db, "c-1", actor_id="adv-1", tenant_id=TENANT)
         db.commit()
     with sf() as db:
-        db.add(KycConfirmation(
+        old = KycConfirmation(
             id="kyc-old", tenant_id=TENANT, client_id="c-1", process_scope="sro_oder_fremdprozess",
             form_type="A", form_completed_on="2020-01-01", external_reference="alt", risk_category="normal",
-            is_pep=0, next_review_due="2021-01-01", recorded_by="adv-1",
-            recorded_at="2999-01-01T00:00:00.000Z", confirmation_hash="h",
-        ))
+            is_pep=0, identification_confirmed=1, identification_date="2020-01-01",
+            next_review_due="2021-01-01", requires_second_approval=0, recorded_by="adv-1",
+            recorded_at="2999-01-01T00:00:00.000Z",
+        )
+        old.confirmation_hash = gate.row_seal(
+            {c.name: getattr(old, c.name) for c in old.__table__.columns}, "confirmation_hash")
+        db.add(old)
         db.commit()
         assert record.id
         assert "KYC_CONFIRMATION_REVIEW_OVERDUE" in codes(db)
@@ -170,7 +175,7 @@ def test_kyc_confirmations_and_approvals_are_append_only(sf):
         db.commit()
     with sf() as db:
         with pytest.raises(Exception, match="immutable"):
-            db.execute(text("UPDATE kyc_confirmations SET risk_category = 'normal'"))
+            db.execute(text("UPDATE kyc_confirmations SET risk_category = 'erhoeht'"))
         db.rollback()
         with pytest.raises(Exception, match="immutable"):
             db.execute(text("DELETE FROM kyc_confirmations"))
@@ -185,3 +190,91 @@ def test_alembic_postgres_ddl_creates_kyc_tables_column_and_triggers():
         assert f"CREATE TABLE {table}" in ddl, table
         assert f"CREATE TRIGGER trg_{table}_immutable" in ddl, table
     assert "ALTER TABLE client_due_diligence ADD COLUMN acting_for_own_account_answered INTEGER DEFAULT 0 NOT NULL" in ddl
+
+
+
+# ---------------------------------------------------------------------------
+# N-890-03: Vier-Augen nicht umgehbar (Herabstufung, PEP-Ruecknahme)
+# ---------------------------------------------------------------------------
+
+
+def test_downgrade_from_elevated_to_normal_needs_second_approval(sf):
+    with sf() as db:
+        upsert_due_diligence(client_id="c-1", body=ClientDueDiligenceUpdate(acting_for_own_account=True),
+                             db=db, current_user=user(db, "adv-1"))
+        create_kyc_confirmation(client_id="c-1", body=_kyc_body(risk_category="erhoeht"),
+                                request=Req(), db=db, current_user=user(db, "adv-1"))
+        assert "KYC_SECOND_APPROVAL_MISSING" in codes(db)
+        down = create_kyc_confirmation(client_id="c-1", body=_kyc_body(risk_category="normal"),
+                                       request=Req(), db=db, current_user=user(db, "adv-1"))
+        # Probe 1 der Pruefrunde: vorher release-ready ohne Freigabe.
+        assert down.requires_second_approval is True
+        assert "KYC_SECOND_APPROVAL_MISSING" in codes(db)
+        approve_kyc_confirmation(client_id="c-1", confirmation_id=down.id,
+                                 body=KycConfirmationApprovalCreate(note="Herabstufung geprueft"),
+                                 request=Req(), db=db, current_user=user(db, "adm-2"))
+        assert "KYC_SECOND_APPROVAL_MISSING" not in codes(db)
+        # Nach wirksamer, freigegebener Herabstufung braucht "normal" keine Freigabe mehr.
+        again = create_kyc_confirmation(client_id="c-1", body=_kyc_body(), request=Req(), db=db,
+                                        current_user=user(db, "adv-1"))
+        assert again.requires_second_approval is False
+
+
+def test_pep_withdrawal_in_due_diligence_does_not_bypass_second_approval(sf):
+    with sf() as db:
+        adv = user(db, "adv-1")
+        upsert_due_diligence(client_id="c-1", body=ClientDueDiligenceUpdate(
+            acting_for_own_account=True, pep_status=True), db=db, current_user=adv)
+        pep = create_kyc_confirmation(client_id="c-1", body=_kyc_body(is_pep=True), request=Req(), db=db,
+                                      current_user=adv)
+        approve_kyc_confirmation(client_id="c-1", confirmation_id=pep.id, body=KycConfirmationApprovalCreate(),
+                                 request=Req(), db=db, current_user=user(db, "adm-2"))
+        assert codes(db) == [] or "KYC_SECOND_APPROVAL_MISSING" not in codes(db)
+        # Probe 2 der Pruefrunde: PEP in der Erfassung zuruecknehmen ...
+        upsert_due_diligence(client_id="c-1", body=ClientDueDiligenceUpdate(
+            acting_for_own_account=True, pep_status=False), db=db, current_user=adv)
+        assert "KYC_PEP_INCONSISTENT" in codes(db)
+        audit = db.execute(text(
+            "SELECT old_value, new_value FROM audit_log WHERE field_name = 'pep_status'")).all()
+        assert [tuple(r) for r in audit] == [("1", "0")]
+        # ... und "kein PEP" bestaetigen: das ist eine Herabstufung -> Zweitfreigabe.
+        down = create_kyc_confirmation(client_id="c-1", body=_kyc_body(is_pep=False), request=Req(), db=db,
+                                       current_user=adv)
+        assert down.requires_second_approval is True
+        assert "KYC_SECOND_APPROVAL_MISSING" in codes(db)
+
+
+def test_identification_of_contracting_party_is_mandatory():
+    with pytest.raises(ValidationError):
+        _kyc_body(identification_confirmed=False)
+    with pytest.raises(ValidationError):
+        _kyc_body(identification_date=(date.today() + timedelta(days=2)).isoformat())
+
+
+def test_tampered_confirmation_seal_blocks(sf):
+    with sf() as db:
+        satisfy_client_onboarding(db, mandate(db), actor_id="adv-1")
+        db.commit()
+        assert not [c for c in codes(db) if c.startswith("KYC")]
+        db.execute(text("DROP TRIGGER trg_kyc_confirmations_no_update"))
+        db.execute(text("UPDATE kyc_confirmations SET risk_category = 'normal', form_type = 'K'"))
+        db.commit()
+        assert "KYC_CONFIRMATION_SEAL_INVALID" in codes(db)
+
+
+def test_kyc_free_texts_can_only_be_redacted_to_the_erasure_marker(sf):
+    from services.client_erasure import REDACTION_MARKER
+    import database as db_module
+
+    assert db_module.ERASURE_REDACTION_MARKER == REDACTION_MARKER
+    with sf() as db:
+        confirm_test_kyc(db, "c-1", actor_id="adv-1", tenant_id=TENANT)
+        db.commit()
+    with sf() as db:
+        with pytest.raises(Exception, match="immutable"):
+            db.execute(text("UPDATE kyc_confirmations SET external_reference = 'anderer Text'"))
+        db.rollback()
+        db.execute(text("UPDATE kyc_confirmations SET external_reference = :m, note = :m"),
+                   {"m": REDACTION_MARKER})
+        db.commit()
+        assert db.execute(text("SELECT external_reference FROM kyc_confirmations")).scalar() == REDACTION_MARKER

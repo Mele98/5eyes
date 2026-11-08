@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timezone
-import hashlib
 import json
+from core.evidence import SCHEME_V1, evidence_hash
 from database import get_db, new_uuid
 from models.users import User
 from models.clients import (
@@ -291,46 +291,94 @@ def get_opt_history(
 
 
 _PRIVATE_CLIENT = "Privatkunde"
+# Schutzniveau nach FIDLEG: Privat > Professionell > Institutionell.
+_PROTECTION_LEVEL = {"Privatkunde": 3, "Professioneller Kunde": 2, "Institutioneller Kunde": 1}
+
+# N-890-13: Ereignisbezeichnungen gemaess FIDLEG (Opting-out = Verzicht auf
+# Schutz, Opting-in = Rueckkehr zu mehr Schutz). Die frueheren, vertauschten
+# Bezeichnungen bleiben nur in Altzeilen (DB-CHECK) bestehen.
+EVENT_OPT_OUT_PROFESSIONAL = "Opting-out zu Professionell"
+EVENT_OPT_OUT_INSTITUTIONAL = "Opting-out zu Institutionell"
+EVENT_OPT_IN_PRIVATE = "Opting-in zu Privatkunde"
+EVENT_OPT_IN_PROFESSIONAL = "Opting-in zu Professionell"
+EVENT_QUALIFIED_INVESTOR = "Qualifizierter Anleger bestätigt"
+EVENT_REVIEWED = "Klassifizierung überprüft"
+
+
+def _opting_event(body: OptHistoryCreate) -> str:
+    """Ereignis aus dem Uebergang abgeleitet (N-890-13); widerspricht ein
+    mitgeschicktes ``event_type`` dem Uebergang -> 422."""
+    src = _PROTECTION_LEVEL[body.from_classification]
+    dst = _PROTECTION_LEVEL[body.to_classification]
+    if src == 3 and dst == 1:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "OPTING_TRANSITION_INVALID",
+            "message": (
+                "Ein Privatkunde wird nicht direkt institutionell (Art. 4/5 FIDLEG); "
+                "zuerst Opting-out zu Professionell, dann gesondert."
+            ),
+        })
+    if dst < src:
+        derived = EVENT_OPT_OUT_PROFESSIONAL if dst == 2 else EVENT_OPT_OUT_INSTITUTIONAL
+    elif dst > src:
+        derived = EVENT_OPT_IN_PRIVATE if dst == 3 else EVENT_OPT_IN_PROFESSIONAL
+    elif body.to_professional_opt_out is True:
+        derived = EVENT_OPT_OUT_PROFESSIONAL
+    elif body.to_professional_opt_out is False:
+        derived = EVENT_OPT_IN_PRIVATE
+    elif body.to_qualified_investor is not None:
+        derived = EVENT_QUALIFIED_INVESTOR
+    else:
+        derived = EVENT_REVIEWED
+    if body.event_type is not None and body.event_type != derived:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "OPTING_TRANSITION_INVALID",
+            "message": f"event_type '{body.event_type}' passt nicht zum Uebergang ({derived}).",
+        })
+    return derived
 
 
 def _enforce_opting_evidence(body: OptHistoryCreate) -> None:
-    """H8 Luecke 7 (Art. 5 FIDLEG): Opting-out nur mit Beleg und Kriterien.
+    """H8 Luecke 7 / N-890-05 (Art. 5 FIDLEG).
 
-    Opting-out = Privatkunde -> professionell/institutionell oder das
-    Opting-out-Flag wird gesetzt. Pflicht: ``document_id`` (Beleg der
-    Erklaerung des Kunden) und die vollstaendige Kriterien-Checkliste
-    (``opt_out_criteria``, validiert im Schema). Opting-in (Rueckkehr zum
-    Privatkunden bzw. Flag -> False) braucht den Beleg, keine Kriterien.
+    Jeder Wechsel auf ein TIEFERES Schutzniveau (Privat -> professionell,
+    professionell -> institutionell, Opting-out-Flag -> True) braucht den Beleg
+    der Erklaerung (``document_id``). Die Kriterien-Checkliste
+    (``opt_out_criteria``) gilt fuer das Opting-out vermoegender Privatkunden
+    (Art. 5 Abs. 2 FIDLEG). Jede Rueckkehr zu mehr Schutz (Opting-in) braucht
+    den Beleg, keine Kriterien.
     """
     has_document = bool((body.document_id or "").strip())
-    opting_out = (
-        (body.from_classification == _PRIVATE_CLIENT and body.to_classification != _PRIVATE_CLIENT)
-        or body.to_professional_opt_out is True
-    )
-    opting_in = (
-        (body.from_classification != _PRIVATE_CLIENT and body.to_classification == _PRIVATE_CLIENT)
-        or body.to_professional_opt_out is False
-    )
-    if opting_out and (not has_document or body.opt_out_criteria is None):
+    src = _PROTECTION_LEVEL[body.from_classification]
+    dst = _PROTECTION_LEVEL[body.to_classification]
+    lowers = dst < src or body.to_professional_opt_out is True
+    raises = dst > src or body.to_professional_opt_out is False
+    needs_criteria = body.from_classification == _PRIVATE_CLIENT and lowers
+    if lowers and not has_document:
         raise HTTPException(status_code=422, detail={
             "reason_code": "OPT_OUT_EVIDENCE_MISSING",
             "message": (
-                "Opting-out nach Art. 5 FIDLEG nur mit Beleg der Erklaerung des "
-                "Kunden (document_id) und vollstaendiger Kriterien-Checkliste "
-                "(opt_out_criteria)."
+                "Ein Wechsel auf ein tieferes Schutzniveau (Art. 5 FIDLEG) nur mit "
+                "Beleg der Erklaerung des Kunden (document_id)."
             ),
         })
-    if opting_out and body.opt_out_criteria is not None:
-        return
-    if body.opt_out_criteria is not None:
+    if needs_criteria and body.opt_out_criteria is None:
         raise HTTPException(status_code=422, detail={
             "reason_code": "OPT_OUT_EVIDENCE_MISSING",
-            "message": "opt_out_criteria gilt nur fuer ein Opting-out (Art. 5 FIDLEG).",
+            "message": (
+                "Opting-out eines Privatkunden nach Art. 5 Abs. 2 FIDLEG nur mit "
+                "vollstaendiger Kriterien-Checkliste (opt_out_criteria)."
+            ),
         })
-    if opting_in and not has_document:
+    if body.opt_out_criteria is not None and not needs_criteria:
         raise HTTPException(status_code=422, detail={
             "reason_code": "OPT_OUT_EVIDENCE_MISSING",
-            "message": "Opting-in (Rueckkehr zum Privatkunden) nur mit Beleg (document_id).",
+            "message": "opt_out_criteria gilt nur fuer das Opting-out eines Privatkunden.",
+        })
+    if raises and not has_document:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "OPT_OUT_EVIDENCE_MISSING",
+            "message": "Opting-in (Rueckkehr zu mehr Schutz) nur mit Beleg (document_id).",
         })
 
 
@@ -363,6 +411,7 @@ def add_opt_history(
     enforce_data_classification(body.data_classification)
     client = _get_client_or_404(client_id, db, current_user)
     _enforce_opting_evidence(body)
+    event_type = _opting_event(body)
     if body.from_classification != client.client_classification:
         raise HTTPException(
             status_code=409,
@@ -402,7 +451,7 @@ def add_opt_history(
     now = _now()
     entry = ClientOptHistory(
         id=new_uuid(), client_id=client_id,
-        event_type=body.event_type,
+        event_type=event_type,
         from_classification=body.from_classification,
         to_classification=body.to_classification,
         client_requested=1 if body.client_requested else 0,
@@ -487,7 +536,15 @@ def upsert_due_diligence(
     if record is None:
         record = ClientDueDiligence(id=new_uuid(), client_id=client_id, created_at=now)
         db.add(record)
+    previous_pep = None if action == "CREATE" else int(record.pep_status or 0)
     record.pep_status = 1 if body.pep_status else 0
+    if previous_pep is not None and previous_pep != record.pep_status:
+        # N-890-03: PEP-Aenderung eigens auditiert; eine Ruecknahme wirkt im
+        # KYC-Gate erst ueber eine neue, zweitfreigegebene Bestaetigung.
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="client_due_diligence", record_id=record.id, action="UPDATE",
+            field_name="pep_status", old_value=str(previous_pep),
+            new_value=str(record.pep_status), client_id=client_id)
     record.pep_details = body.pep_details
     # H8 C-5: unbeantwortet bleibt unbeantwortet (KYC-Gate rot); der Rohwert
     # wird dann konservativ 0 ("nicht auf eigene Rechnung") gespeichert.
@@ -511,14 +568,46 @@ def upsert_due_diligence(
 
 # ── H8 C-5: KYC-Bestaetigung (GwG-Abklaerung im SRO-/Fremdprozess) ─────────────
 
-def _canonical_hash(payload: dict) -> str:
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
-    ).hexdigest()
+def _row_seal(record, seal_column: str) -> str:
+    """N-890-10: Siegel = core.evidence-Hash (SCHEME_V1) ueber alle Spalten
+    ausser der Siegelspalte -- dieselbe Regel, mit der das Freigabe-Gate
+    (services/recommendation_release_gate.py::row_seal) nachrechnet."""
+    return evidence_hash(
+        {column.name: getattr(record, column.name)
+         for column in record.__table__.columns if column.name != seal_column},
+        scheme=SCHEME_V1,
+    )
+
+
+_RISK_RANK = {KYC_RISK_NORMAL: 0, "erhoeht": 1}
+
+
+def _reference_kyc_level(db: Session, client_id: str) -> tuple[int, int] | None:
+    """Massgebender Stand fuer die Herabstufungspruefung (N-890-03): das
+    hoechste Risiko bzw. PEP aller Bestaetigungen seit (und inklusive) der
+    zuletzt WIRKSAMEN -- wirksam ist eine Bestaetigung, die keine Freigabe
+    brauchte oder von einer zweiten Person freigegeben wurde. Noch nicht
+    freigegebene Hoeherstufungen bleiben so massgebend, bis eine zweite
+    Person eine Herabstufung freigibt."""
+    rows = db.query(KycConfirmation).filter(
+        KycConfirmation.client_id == client_id
+    ).order_by(KycConfirmation.recorded_at.desc(), KycConfirmation.id.desc()).all()
+    risk = pep = None
+    for row in rows:
+        risk = max(risk or 0, _RISK_RANK.get(row.risk_category, 1))
+        pep = max(pep or 0, int(row.is_pep or 0))
+        if not int(row.requires_second_approval or 0):
+            break
+        approval = db.query(KycConfirmationApproval).filter(
+            KycConfirmationApproval.confirmation_id == row.id
+        ).first()
+        if approval is not None and str(approval.approved_by) != str(row.recorded_by):
+            break
+    return None if risk is None else (risk, pep)
 
 
 def _kyc_requires_second_approval(record: KycConfirmation) -> bool:
-    return bool(int(record.is_pep or 0)) or record.risk_category != KYC_RISK_NORMAL
+    return bool(int(record.requires_second_approval or 0))
 
 
 def _kyc_response(db: Session, record: KycConfirmation) -> KycConfirmationResponse:
@@ -577,6 +666,14 @@ def create_kyc_confirmation(
     client = _get_client_or_404(client_id, db, current_user)
     mandate_id = _mandate_of_client_or_404(db, client_id, body.mandate_id)
     dd = db.query(ClientDueDiligence).filter(ClientDueDiligence.client_id == client_id).first()
+    # N-890-03: Vier-Augen auch bei Herabstufung. Massgebend bleibt der zuletzt
+    # wirksame Stand, bis eine zweite Person die Herabstufung freigibt.
+    reference = _reference_kyc_level(db, client_id)
+    downgrade = reference is not None and (
+        _RISK_RANK.get(body.risk_category, 1) < reference[0]
+        or (reference[1] and not body.is_pep)
+    )
+    requires_second_approval = bool(body.is_pep) or body.risk_category != KYC_RISK_NORMAL or downgrade
     if dd is not None and int(dd.pep_status or 0) and not body.is_pep:
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_PEP_INCONSISTENT",
@@ -592,26 +689,22 @@ def create_kyc_confirmation(
         client_id=client_id, mandate_id=mandate_id, process_scope=KYC_PROCESS_EXTERNAL,
         form_type=body.form_type, form_completed_on=body.form_completed_on,
         external_reference=body.external_reference, risk_category=body.risk_category,
-        is_pep=1 if body.is_pep else 0, next_review_due=body.next_review_due,
+        is_pep=1 if body.is_pep else 0,
+        identification_confirmed=1, identification_date=body.identification_date,
+        next_review_due=body.next_review_due,
+        requires_second_approval=1 if requires_second_approval else 0,
         note=(body.note or "").strip() or None,
         recorded_by=current_user.id, recorded_at=now,
     )
-    record.confirmation_hash = _canonical_hash({
-        "id": record.id, "client_id": client_id, "mandate_id": mandate_id,
-        "process_scope": record.process_scope, "form_type": record.form_type,
-        "form_completed_on": record.form_completed_on,
-        "external_reference": record.external_reference,
-        "risk_category": record.risk_category, "is_pep": record.is_pep,
-        "next_review_due": record.next_review_due, "recorded_by": current_user.id,
-        "recorded_at": now,
-    })
+    record.confirmation_hash = _row_seal(record, "confirmation_hash")
     db.add(record)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="kyc_confirmations", record_id=record.id, action="CREATE",
         field_name="kyc_confirmation",
-        new_value=f"Formular {record.form_type}; Risiko {record.risk_category}; "
-                  f"PEP {'ja' if record.is_pep else 'nein'}; naechste Aktualisierung "
-                  f"{record.next_review_due}",
+        new_value=f"Formular {record.form_type}; Identifizierung {record.identification_date}; "
+                  f"Risiko {record.risk_category}; PEP {'ja' if record.is_pep else 'nein'}; "
+                  f"naechste Aktualisierung {record.next_review_due}"
+                  + ("; Herabstufung, Zweitfreigabe noetig" if downgrade else ""),
         client_id=client_id, mandate_id=mandate_id,
         ip_address=_extract_client_ip(request))
     db.commit()
@@ -631,7 +724,7 @@ def approve_kyc_confirmation(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """Vier-Augen-Freigabe (PEP/erhoehtes Risiko): nur eine zweite Person mit
+    """Vier-Augen-Freigabe (PEP/erhoehtes Risiko/Herabstufung): nur eine zweite Person mit
     Admin-Rolle (Geschaeftsleitung/Compliance), nie die erfassende Person."""
     _get_client_or_404(client_id, db, current_user)
     record = db.query(KycConfirmation).filter(
@@ -643,7 +736,10 @@ def approve_kyc_confirmation(
     if not _kyc_requires_second_approval(record):
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_SECOND_APPROVAL_NOT_REQUIRED",
-            "message": "Diese Bestaetigung (kein PEP, normales Risiko) braucht keine Freigabe.",
+            "message": (
+                "Diese Bestaetigung (kein PEP, normales Risiko, keine Herabstufung) "
+                "braucht keine Freigabe."
+            ),
         })
     if str(record.recorded_by) == str(current_user.id):
         raise HTTPException(status_code=403, detail={
@@ -661,11 +757,7 @@ def approve_kyc_confirmation(
         client_id=client_id, approved_by=current_user.id, approved_at=now,
         note=(body.note or "").strip() or None,
     )
-    approval.approval_hash = _canonical_hash({
-        "id": approval.id, "confirmation_id": record.id,
-        "confirmation_hash": record.confirmation_hash,
-        "approved_by": current_user.id, "approved_at": now,
-    })
+    approval.approval_hash = _row_seal(approval, "approval_hash")
     db.add(approval)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="kyc_confirmation_approvals", record_id=approval.id, action="CREATE",

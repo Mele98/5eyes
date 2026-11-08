@@ -1,5 +1,4 @@
 import csv
-import hashlib
 import io
 import json
 import logging
@@ -108,6 +107,8 @@ from services.recommendation_release_gate import (
     legal_profile_missing_fields,
     load_tenant_legal_profile,
     mandate_tenant_id,
+    row_seal,
+    contract_concluded_at,
     risk_budget_release_errors,
 )
 from services.review_engine import (
@@ -1951,6 +1952,14 @@ def update_tenant_legal_profile(
     """Pflege durch einen Firmen-Admin. Jede geaenderte Angabe wird feldweise
     (alt/neu) im Audit-Log festgehalten; Revision und Inhalts-Hash werden
     nachgefuehrt. Ares belegt keinen Wert vor."""
+    # N-890-08: im Strict-Modus (Multi-Tenant) schreibt ein Admin ohne eigene
+    # Firma nie die Angaben des Standard-Mandanten (Kundendokument einer
+    # anderen Firma).
+    if not getattr(current_user, "tenant_id", None) and _effective_strict_tenant_isolation(settings):
+        raise HTTPException(status_code=403, detail={
+            "reason_code": "LEGAL_PROFILE_TENANT_REQUIRED",
+            "message": "Im Mehrmandanten-Betrieb braucht der Admin eine eigene Firma.",
+        })
     tenant_id = _resolve_tenant_id_for_user(current_user)
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id, Tenant.deleted_at.is_(None)).first()
     if tenant is None:
@@ -2053,13 +2062,39 @@ def record_client_information_delivery(
             ),
         })
     delivered = datetime.fromisoformat(body.delivered_at)
-    if delivered > datetime.now(timezone.utc):
+    now_dt = datetime.now(timezone.utc)
+    if delivered > now_dt:
         raise HTTPException(status_code=422, detail={
             "reason_code": "CLIENT_INFORMATION_DELIVERY_IN_FUTURE",
             "message": "Der Uebergabezeitpunkt darf nicht in der Zukunft liegen.",
         })
-    now = _now()
     delivered_at = _utc_storage_timestamp(delivered)
+    # N-890-02: eine Fassung kann nicht vor ihrer Erstellung uebergeben worden sein.
+    document_created = str(doc.pdf_generated_at or doc.created_at or "")
+    if not document_created or delivered_at < document_created:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "CLIENT_INFORMATION_DELIVERY_BEFORE_DOCUMENT",
+            "message": (
+                "Der Uebergabezeitpunkt liegt vor der Erstellung dieser Fassung "
+                f"({document_created or 'unbekannt'})."
+            ),
+        })
+    # N-890-02: Rueckdatierung ueber 24 h nur mit Begruendung (auditiert).
+    backdating_reason = (body.backdating_reason or "").strip() or None
+    if (now_dt - delivered).total_seconds() > 24 * 3600 and (
+        backdating_reason is None or len(backdating_reason) < 10
+    ):
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "CLIENT_INFORMATION_BACKDATING_REASON_REQUIRED",
+            "message": (
+                "Die Uebergabe liegt mehr als 24 Stunden zurueck; bitte begruenden "
+                "(mind. 10 Zeichen), warum sie erst jetzt erfasst wird."
+            ),
+        })
+    now = _now()
+    # N-890-02: ist bereits ein Vertrag unterzeichnet, gilt die Abgabe als
+    # "nachtraeglich" -- sie zaehlt nie als vorvertragliche Abgabe.
+    concluded = contract_concluded_at(db, mandate.id)
     record = ClientInformationDelivery(
         id=new_uuid(), tenant_id=tenant_id, mandate_id=mandate.id,
         client_id=mandate.client_id, contract_document_id=doc.id,
@@ -2067,22 +2102,20 @@ def record_client_information_delivery(
         legal_profile_revision=int(profile.get("revision") or 0),
         legal_profile_hash=current_hash, pdf_sha256=doc.checksum_sha256,
         delivered_at=delivered_at, delivery_channel=body.delivery_channel,
+        delivery_timing="nachtraeglich" if concluded else "vor_vertragsabschluss",
+        backdating_reason=backdating_reason,
         recorded_by=current_user.id, recorded_at=now,
     )
-    record.delivery_hash = hashlib.sha256(json.dumps({
-        "id": record.id, "mandate_id": record.mandate_id,
-        "contract_document_id": record.contract_document_id,
-        "template_version": record.template_version,
-        "legal_profile_revision": record.legal_profile_revision,
-        "legal_profile_hash": record.legal_profile_hash,
-        "pdf_sha256": record.pdf_sha256, "delivered_at": record.delivered_at,
-        "delivery_channel": record.delivery_channel,
-        "recorded_by": record.recorded_by, "recorded_at": record.recorded_at,
-    }, sort_keys=True).encode("utf-8")).hexdigest()
+    record.delivery_hash = row_seal(
+        {column.name: getattr(record, column.name) for column in record.__table__.columns},
+        "delivery_hash",
+    )
     db.add(record)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="client_information_deliveries", record_id=record.id, action="CREATE",
-        field_name="delivered_at", new_value=f"{delivered_at} ({body.delivery_channel})",
+        field_name="delivered_at",
+        new_value=f"{delivered_at} ({body.delivery_channel}; {record.delivery_timing})"
+        + (f"; Begruendung Nachtrag: {backdating_reason}" if backdating_reason else ""),
         mandate_id=mandate.id, client_id=mandate.client_id,
         ip_address=_extract_client_ip(request))
     db.commit()

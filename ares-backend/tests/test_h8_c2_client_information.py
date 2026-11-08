@@ -331,3 +331,211 @@ def test_alembic_postgres_ddl_creates_client_information_tables_and_triggers():
     for table in ("tenant_legal_profiles", "client_information_deliveries"):
         assert f"CREATE TABLE {table}" in ddl, table
     assert "CREATE TRIGGER trg_client_information_deliveries_immutable" in ddl
+
+
+
+# ---------------------------------------------------------------------------
+# N-890-01: Vor-Ort-Signatur gated + zaehlt als Vertragsabschluss
+# ---------------------------------------------------------------------------
+
+
+def _contract_doc(db, doc_id="vertrag-os", doc_type="Beratungsvertrag"):
+    doc = ContractDocument(
+        id=doc_id, mandate_id="m-1", document_type=doc_type, title="Vertrag", status="Bereit",
+        signed_by_advisor=0, signed_by_client=0, version=1, checksum_sha256="c" * 64,
+        pdf_base64="JVBERg==", created_by="adv-1", created_at=NOW, updated_at=NOW,
+    )
+    db.add(doc)
+    db.commit()
+    return doc
+
+
+def test_onsite_signature_release_gates_include_client_onboarding_and_audit(sf):
+    from routers.onsite_signature import _release_gates
+
+    with sf() as db:
+        doc = _contract_doc(db)
+        blocked: list[str] = []
+        with pytest.raises(DomainError) as exc:
+            _release_gates(db, mandate(db), doc, current_user=user(db, "adv-1"), request=None,
+                           on_blocked=blocked.append)
+        assert exc.value.reason_code == "CLIENT_ONBOARDING_INCOMPLETE"
+        assert blocked == ["CLIENT_ONBOARDING_INCOMPLETE"]
+        audit = db.query(AuditLog).filter(AuditLog.field_name == "onsite_signature_blocked").all()
+        assert [a.new_value for a in audit] == ["CLIENT_ONBOARDING_INCOMPLETE"]
+
+
+def _dummy_row(model, **values):
+    row = model()
+    for column in model.__table__.columns:
+        if column.name in values:
+            setattr(row, column.name, values[column.name])
+        elif not column.nullable and column.default is None and column.server_default is None:
+            setattr(row, column.name, 0 if str(column.type).upper().startswith(("INT", "BIGINT")) else "x")
+    return row
+
+
+def test_onsite_customer_signature_counts_as_contract_conclusion(sf):
+    from models.onsite_signature import OnsiteSignatureEvidence
+
+    with sf() as db:
+        satisfy_client_onboarding(db, mandate(db), actor_id="adv-1")
+        db.add(_dummy_row(OnsiteSignatureEvidence, id="ev-1", tenant_id=TENANT, mandate_id="m-1", client_id="c-1",
+                          document_type="Beratungsvertrag", signed_at="1999-06-01T10:00:00.000Z"))
+        db.commit()
+        assert gate.contract_concluded_at(db, "m-1") == "1999-06-01T10:00:00.000Z"
+        # Fixture-Abgabe stammt von 2000 -> nach dem Vor-Ort-Abschluss.
+        assert "CLIENT_INFORMATION_DELIVERED_AFTER_CONTRACT" in codes(db)
+
+
+# ---------------------------------------------------------------------------
+# N-890-02: keine Rueckdatierung vor die Fassung bzw. ueber den Abschluss
+# ---------------------------------------------------------------------------
+
+
+def test_delivery_cannot_predate_the_document_or_be_silently_backdated(sf):
+    with sf() as db:
+        profile = ensure_test_legal_profile(db, TENANT)
+        db.commit()
+        doc = _archive_kundeninformation(db, profile.profile_hash)
+        adv = user(db, "adv-1")
+        with pytest.raises(HTTPException) as exc:
+            record_client_information_delivery(
+                mandate_id="m-1", body=ClientInformationDeliveryCreate(
+                    contract_document_id=doc.id, delivered_at="2020-01-01T10:00:00+00:00",
+                    delivery_channel="post"),
+                request=Req(), db=db, current_user=adv)
+        assert exc.value.detail["reason_code"] == "CLIENT_INFORMATION_DELIVERY_BEFORE_DOCUMENT"
+        three_days_ago = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
+        # Fassung erstellt vor 4 Tagen, Uebergabe vor 3 Tagen -> Begruendung Pflicht.
+        db.query(ContractDocument).filter(ContractDocument.id == doc.id).update(
+            {"created_at": (datetime.now(timezone.utc) - timedelta(days=4)).strftime("%Y-%m-%dT%H:%M:%S.000Z")})
+        db.commit()
+        with pytest.raises(HTTPException) as exc:
+            record_client_information_delivery(
+                mandate_id="m-1", body=ClientInformationDeliveryCreate(
+                    contract_document_id=doc.id, delivered_at=three_days_ago, delivery_channel="post"),
+                request=Req(), db=db, current_user=adv)
+        assert exc.value.detail["reason_code"] == "CLIENT_INFORMATION_BACKDATING_REASON_REQUIRED"
+        rec = record_client_information_delivery(
+            mandate_id="m-1", body=ClientInformationDeliveryCreate(
+                contract_document_id=doc.id, delivered_at=three_days_ago, delivery_channel="post",
+                backdating_reason="Papierquittung im Dossier, Erfassung nachgeholt"),
+            request=Req(), db=db, current_user=adv)
+        assert rec.delivery_timing == "vor_vertragsabschluss"
+        assert rec.backdating_reason.startswith("Papierquittung")
+
+
+def test_delivery_recorded_after_contract_conclusion_is_marked_late_and_blocks(sf):
+    with sf() as db:
+        profile = ensure_test_legal_profile(db, TENANT)
+        from client_onboarding_fixture import confirm_test_kyc
+
+        confirm_test_kyc(db, "c-1", actor_id="adv-1", tenant_id=TENANT)
+        db.add(ContractDocument(
+            id="vertrag-alt", mandate_id="m-1", document_type="Beratungsvertrag", title="Vertrag",
+            status="Teilweise unterzeichnet", signed_by_advisor=1, signed_by_client=0,
+            signed_at="2026-06-01T10:00:00.000Z", version=1, created_by="adv-1",
+            created_at=NOW, updated_at=NOW,
+        ))
+        db.commit()
+        doc = _archive_kundeninformation(db, profile.profile_hash)
+        db.query(ContractDocument).filter(ContractDocument.id == doc.id).update(
+            {"created_at": "2026-05-01T00:00:00.000Z"})
+        db.commit()
+        # Probe 2 der Pruefrunde: Bestandsvertrag, Abgabe "2026-05-20" heute erfasst.
+        rec = record_client_information_delivery(
+            mandate_id="m-1", body=ClientInformationDeliveryCreate(
+                contract_document_id=doc.id, delivered_at="2026-05-20T10:00:00+00:00",
+                delivery_channel="persoenlich_papier",
+                backdating_reason="Bestandskunde, Uebergabe nachgetragen"),
+            request=Req(), db=db, current_user=user(db, "adv-1"))
+        assert rec.delivery_timing == "nachtraeglich"
+        findings = gate.client_onboarding_findings(db, mandate(db))
+        assert "CLIENT_INFORMATION_DELIVERED_AFTER_CONTRACT" in [f["reason_code"] for f in findings]
+        assert any("nachtraeglich" in f["message"] for f in findings)
+
+
+def test_tampered_delivery_seal_does_not_count(sf):
+    with sf() as db:
+        satisfy_client_onboarding(db, mandate(db), actor_id="adv-1")
+        db.commit()
+        assert "CLIENT_INFORMATION_NOT_DELIVERED" not in codes(db)
+        db.execute(text("DROP TRIGGER trg_client_information_deliveries_no_update"))
+        db.execute(text("UPDATE client_information_deliveries SET delivered_at = '1990-01-01T00:00:00.000Z'"))
+        db.commit()
+        assert "CLIENT_INFORMATION_NOT_DELIVERED" in codes(db)
+
+
+# ---------------------------------------------------------------------------
+# N-890-04 / -07 / -11: Inhalt und Fusszeile der Kundeninformation
+# ---------------------------------------------------------------------------
+
+
+def test_company_retrocession_policy_is_printed(sf):
+    from routers.pdf_reports import _build_kundeninformation_data
+
+    with sf() as db:
+        ensure_test_legal_profile(db, TENANT)
+        db.query(Tenant).filter(Tenant.id == TENANT).update({"default_retrocession_reimbursement": 1})
+        db.commit()
+        data = _build_kundeninformation_data(db, mandate(db), gate.load_tenant_legal_profile(db, TENANT))
+    assert any("Grundsatz der Firma ist die Weitergabe" in line for line in data.retrocession_lines)
+
+
+def test_market_offer_has_no_zero_count_and_no_raw_universe_value(sf):
+    from routers.pdf_reports import _build_kundeninformation_data
+
+    with sf() as db:
+        ensure_test_legal_profile(db, TENANT)
+        db.commit()
+        data = _build_kundeninformation_data(db, mandate(db), gate.load_tenant_legal_profile(db, TENANT))
+    text_lines = " ".join(data.market_offer_lines)
+    assert "0 aktive Produkte" not in text_lines and "0 Produkte" not in text_lines
+    assert "Anlageuniversum des Mandats: Standard" not in text_lines
+    assert "Standardauswahl des Finanzdienstleisters" in text_lines
+
+
+def test_client_information_has_its_own_footer():
+    from services.pdf.components.footer import footer_disclaimer_key
+    from jurisdictions.documents import default_documents
+
+    key = footer_disclaimer_key("Kundeninformation")
+    assert key == "legal.footer.disclaimer.kundeninformation"
+    text_ = default_documents().text(key)
+    assert "Anlageberatung" not in text_ and "vor Vertragsabschluss" in text_
+
+
+# ---------------------------------------------------------------------------
+# N-890-08: Strict-Modus, Admin ohne Firma
+# ---------------------------------------------------------------------------
+
+
+def test_strict_mode_admin_without_tenant_cannot_write_default_tenant_profile(sf, monkeypatch):
+    import routers.review as review_router
+
+    monkeypatch.setattr(review_router, "_effective_strict_tenant_isolation", lambda _s: True)
+    with sf() as db:
+        db.add(User(id="adm-null", username="adm-null", password_hash="x", full_name="N", role="admin",
+                    is_active=1, tenant_id=None, created_at=NOW, updated_at=NOW))
+        db.commit()
+        with pytest.raises(HTTPException) as exc:
+            update_tenant_legal_profile(body=TenantLegalProfileUpdate(legal_name="Fremd"), request=Req(),
+                                        db=db, current_user=user(db, "adm-null"))
+        assert exc.value.status_code == 403
+        assert exc.value.detail["reason_code"] == "LEGAL_PROFILE_TENANT_REQUIRED"
+
+
+# ---------------------------------------------------------------------------
+# N-890-12: Handoff an das Asset Management ebenfalls gegated (Altlaeufe)
+# ---------------------------------------------------------------------------
+
+
+def test_handoff_route_calls_client_onboarding_gate():
+    import inspect as _inspect
+
+    import routers.portfolio_handoff as handoff
+
+    source = _inspect.getsource(handoff)
+    assert "assert_client_onboarding_release_eligible(" in source
+    assert 'field_name="handoff_blocked"' in source

@@ -700,8 +700,50 @@ def _append_only_sqlite_triggers(table: str) -> tuple[str, ...]:
 
 
 CLIENT_INFORMATION_DELIVERY_SQLITE_TRIGGERS = _append_only_sqlite_triggers("client_information_deliveries")
-KYC_CONFIRMATION_SQLITE_TRIGGERS = _append_only_sqlite_triggers("kyc_confirmations")
-KYC_CONFIRMATION_APPROVAL_SQLITE_TRIGGERS = _append_only_sqlite_triggers("kyc_confirmation_approvals")
+# N-890-09 (DSG Art. 6 Abs. 4): die KYC-Nachweise bleiben append-only, ihre
+# Freitexte duerfen aber im Loeschvorgang (services/client_erasure.py) auf den
+# Redaktionsmarker gesetzt werden -- sonst nichts. Gleicher Wert wie
+# services/client_erasure.py::REDACTION_MARKER (Test prueft die Gleichheit).
+ERASURE_REDACTION_MARKER = "[ERASED-DSG-ART-32]"
+KYC_CONFIRMATION_FIXED_COLUMNS: tuple[str, ...] = (
+    "id", "tenant_id", "client_id", "mandate_id", "process_scope", "form_type",
+    "form_completed_on", "risk_category", "is_pep", "identification_confirmed",
+    "identification_date", "next_review_due", "requires_second_approval",
+    "recorded_by", "recorded_at", "confirmation_hash",
+)
+KYC_CONFIRMATION_REDACTABLE_COLUMNS: tuple[str, ...] = ("external_reference", "note")
+KYC_CONFIRMATION_APPROVAL_FIXED_COLUMNS: tuple[str, ...] = (
+    "id", "tenant_id", "confirmation_id", "client_id", "approved_by", "approved_at",
+    "approval_hash",
+)
+KYC_CONFIRMATION_APPROVAL_REDACTABLE_COLUMNS: tuple[str, ...] = ("note",)
+
+
+def _redaction_only_sqlite_triggers(
+    table: str, fixed: tuple[str, ...], redactable: tuple[str, ...],
+) -> tuple[str, ...]:
+    changed = " OR ".join(f"NEW.{c} IS NOT OLD.{c}" for c in fixed)
+    bad_text = " OR ".join(
+        f"(NEW.{c} IS NOT OLD.{c} AND NEW.{c} IS NOT NULL AND NEW.{c} != '{ERASURE_REDACTION_MARKER}')"
+        for c in redactable
+    )
+    return (
+        f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_update "
+        f"BEFORE UPDATE ON {table} FOR EACH ROW WHEN {changed} OR {bad_text} "
+        f"BEGIN SELECT RAISE(ABORT, '{table} is immutable'); END",
+        f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_delete "
+        f"BEFORE DELETE ON {table} FOR EACH ROW "
+        f"BEGIN SELECT RAISE(ABORT, '{table} is immutable'); END",
+    )
+
+
+KYC_CONFIRMATION_SQLITE_TRIGGERS = _redaction_only_sqlite_triggers(
+    "kyc_confirmations", KYC_CONFIRMATION_FIXED_COLUMNS, KYC_CONFIRMATION_REDACTABLE_COLUMNS,
+)
+KYC_CONFIRMATION_APPROVAL_SQLITE_TRIGGERS = _redaction_only_sqlite_triggers(
+    "kyc_confirmation_approvals", KYC_CONFIRMATION_APPROVAL_FIXED_COLUMNS,
+    KYC_CONFIRMATION_APPROVAL_REDACTABLE_COLUMNS,
+)
 
 
 CLIENT_PII_KEYS_SQLITE_TRIGGERS: tuple[str, ...] = (

@@ -2754,6 +2754,8 @@ class ClientInformationDeliveryCreate(BaseModel):
     contract_document_id: str = Field(min_length=1, max_length=100)
     delivered_at: str
     delivery_channel: Literal["persoenlich_papier", "post", "email", "kundenportal"]
+    # N-890-02: Pflicht, wenn die Uebergabe mehr als 24 h zurueckliegt.
+    backdating_reason: Optional[str] = Field(default=None, max_length=2000)
     data_classification: Literal["synthetic", "real"] = "synthetic"
 
     @field_validator("delivered_at")
@@ -2780,6 +2782,8 @@ class ClientInformationDeliveryResponse(BaseResponse):
     pdf_sha256: str
     delivered_at: str
     delivery_channel: str
+    delivery_timing: str
+    backdating_reason: Optional[str] = None
     recorded_by: str
     recorded_at: str
     delivery_hash: str

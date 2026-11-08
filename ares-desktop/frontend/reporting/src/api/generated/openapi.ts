@@ -1646,7 +1646,7 @@ export interface paths {
         put?: never;
         /**
          * Approve Kyc Confirmation
-         * @description Vier-Augen-Freigabe (PEP/erhoehtes Risiko): nur eine zweite Person mit
+         * @description Vier-Augen-Freigabe (PEP/erhoehtes Risiko/Herabstufung): nur eine zweite Person mit
          *     Admin-Rolle (Geschaeftsleitung/Compliance), nie die erfassende Person.
          */
         post: operations["approve_kyc_confirmation_clients__client_id__kyc_confirmations__confirmation_id__approve_post"];
@@ -7229,6 +7229,8 @@ export interface components {
          * @description Abgabe der Kundeninformation: welche archivierte Fassung, wann, wie.
          */
         ClientInformationDeliveryCreate: {
+            /** Backdating Reason */
+            backdating_reason?: string | null;
             /** Contract Document Id */
             contract_document_id: string;
             /**
@@ -7247,6 +7249,8 @@ export interface components {
         };
         /** ClientInformationDeliveryResponse */
         ClientInformationDeliveryResponse: {
+            /** Backdating Reason */
+            backdating_reason?: string | null;
             /** Client Id */
             client_id: string;
             /** Contract Document Id */
@@ -7257,6 +7261,8 @@ export interface components {
             delivery_channel: string;
             /** Delivery Hash */
             delivery_hash: string;
+            /** Delivery Timing */
+            delivery_timing: string;
             /** Id */
             id: string;
             /** Legal Profile Hash */
@@ -8926,6 +8932,10 @@ export interface components {
              * @enum {string}
              */
             form_type: "A" | "K" | "S" | "T";
+            /** Identification Confirmed */
+            identification_confirmed: boolean;
+            /** Identification Date */
+            identification_date: string;
             /** Is Pep */
             is_pep: boolean;
             /** Mandate Id */
@@ -8955,6 +8965,10 @@ export interface components {
             form_type: string;
             /** Id */
             id: string;
+            /** Identification Confirmed */
+            identification_confirmed: number;
+            /** Identification Date */
+            identification_date: string;
             /** Is Pep */
             is_pep: number;
             /** Mandate Id */
@@ -9565,7 +9579,7 @@ export interface components {
             /** Document Id */
             document_id?: string | null;
             /** Event Type */
-            event_type: string;
+            event_type?: ("Opting-out zu Professionell" | "Opting-out zu Institutionell" | "Opting-in zu Privatkunde" | "Opting-in zu Professionell" | "Qualifizierter Anleger bestätigt" | "Klassifizierung überprüft") | null;
             /**
              * From Classification
              * @enum {string}

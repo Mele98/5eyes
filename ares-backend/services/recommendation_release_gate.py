@@ -29,7 +29,6 @@ Verletzung).
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
@@ -37,6 +36,7 @@ from typing import Any, Callable, Optional
 from sqlalchemy import text as _sql_text
 from sqlalchemy.orm import Session
 
+from core.evidence import SCHEME_V1, evidence_hash
 from core.reason_codes import DomainError
 
 RISK_BUDGET_EVIDENCE_MISSING = "RISK_BUDGET_EVIDENCE_MISSING"
@@ -355,6 +355,7 @@ KYC_CONFIRMATION_MISSING = "KYC_CONFIRMATION_MISSING"
 KYC_SECOND_APPROVAL_MISSING = "KYC_SECOND_APPROVAL_MISSING"
 KYC_CONFIRMATION_REVIEW_OVERDUE = "KYC_CONFIRMATION_REVIEW_OVERDUE"
 KYC_PEP_INCONSISTENT = "KYC_PEP_INCONSISTENT"
+KYC_CONFIRMATION_SEAL_INVALID = "KYC_CONFIRMATION_SEAL_INVALID"
 
 
 CLIENT_INFORMATION_DOCUMENT_TYPE = "Kundeninformation"
@@ -440,11 +441,19 @@ def legal_profile_missing_fields(profile: Optional[dict]) -> list[str]:
 
 
 def legal_profile_hash(profile: Optional[dict]) -> str:
-    """SHA-256 ueber die kanonischen Inhaltsfelder (ohne Metadaten)."""
+    """SHA-256 (core.evidence, SCHEME_V1) ueber die Inhaltsfelder (ohne Metadaten)."""
     payload = {name: _clean((profile or {}).get(name)) for name, _label in LEGAL_PROFILE_FIELDS}
-    return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
-    ).hexdigest()
+    return evidence_hash(payload, scheme=SCHEME_V1)
+
+
+def row_seal(row: dict, seal_column: str) -> str:
+    """N-890-10: Siegel einer append-only Nachweiszeile = core.evidence-Hash
+    (SCHEME_V1) ueber ALLE Spalten der Tabelle ausser der Siegelspalte. Die
+    Router bilden es beim Schreiben aus dem ORM-Objekt, das Gate rechnet es
+    aus der gelesenen Zeile nach (Abweichung = Nachweis ungueltig)."""
+    return evidence_hash(
+        {key: value for key, value in row.items() if key != seal_column}, scheme=SCHEME_V1,
+    )
 
 
 def load_tenant_legal_profile(db: Session, tenant_id: Optional[str]) -> Optional[dict]:
@@ -454,7 +463,19 @@ def load_tenant_legal_profile(db: Session, tenant_id: Optional[str]) -> Optional
         _sql_text("SELECT * FROM tenant_legal_profiles WHERE tenant_id = :tid"),
         {"tid": str(tenant_id)},
     ).mappings().first()
-    return dict(row) if row is not None else None
+    if row is None:
+        return None
+    profile = dict(row)
+    # N-890-04: Retro-Grundsatz liegt auf der Firma (tenants), nicht in den
+    # rechtlichen Angaben -- fuer die Kundeninformation mitlesen.
+    tenant = db.execute(
+        _sql_text("SELECT default_retrocession_reimbursement FROM tenants WHERE id = :tid"),
+        {"tid": str(tenant_id)},
+    ).first()
+    profile["tenant_default_retrocession_reimbursement"] = (
+        int(tenant[0] or 0) if tenant is not None else None
+    )
+    return profile
 
 
 # Gleicher Wert wie models/tenant.py::DEFAULT_TENANT_ID (Test
@@ -487,19 +508,24 @@ def _finding(reason_code: str, message: str, owner_action: str, scope: str, **ex
 
 
 def contract_concluded_at(db: Session, mandate_id: str) -> Optional[str]:
-    """Fruehester Signaturzeitpunkt eines Vertragsdokuments (Vertragsabschluss)."""
+    """Fruehester Signaturzeitpunkt eines Vertragsdokuments (Vertragsabschluss):
+    Berater-/Papier-Signatur (contract_documents.signed_at) ODER Vor-Ort-
+    Signatur des Kunden (onsite_signature_evidence.signed_at, N-890-01)."""
     placeholders = ", ".join(f":t{i}" for i in range(len(CONTRACT_CONCLUSION_DOCUMENT_TYPES)))
     params = {f"t{i}": value for i, value in enumerate(sorted(CONTRACT_CONCLUSION_DOCUMENT_TYPES))}
     params["mid"] = str(mandate_id)
-    row = db.execute(
-        _sql_text(
-            "SELECT MIN(signed_at) FROM contract_documents WHERE mandate_id = :mid "
-            "AND deleted_at IS NULL AND signed_at IS NOT NULL "
-            f"AND document_type IN ({placeholders})"
-        ),
-        params,
-    ).first()
-    return str(row[0]) if row is not None and row[0] else None
+    candidates: list[str] = []
+    for sql in (
+        "SELECT MIN(signed_at) FROM contract_documents WHERE mandate_id = :mid "
+        "AND deleted_at IS NULL AND signed_at IS NOT NULL "
+        f"AND document_type IN ({placeholders})",
+        "SELECT MIN(signed_at) FROM onsite_signature_evidence WHERE mandate_id = :mid "
+        f"AND signed_at IS NOT NULL AND document_type IN ({placeholders})",
+    ):
+        row = db.execute(_sql_text(sql), params).first()
+        if row is not None and row[0]:
+            candidates.append(str(row[0]))
+    return min(candidates) if candidates else None
 
 
 def client_information_deliveries(db: Session, mandate_id: str) -> list[dict]:
@@ -517,6 +543,11 @@ def client_information_deliveries(db: Session, mandate_id: str) -> list[dict]:
     out: list[dict] = []
     for row in rows:
         item = dict(row)
+        archived_keys = ("archived_sha256", "archived_type", "archived_mandate_id", "archived_deleted_at")
+        own = {key: value for key, value in item.items() if key not in archived_keys}
+        item["seal_verified"] = bool(item.get("delivery_hash")) and (
+            row_seal(own, "delivery_hash") == item.get("delivery_hash")
+        )
         item["archive_verified"] = bool(
             item.get("archived_sha256")
             and item.get("archived_sha256") == item.get("pdf_sha256")
@@ -531,23 +562,37 @@ def client_information_deliveries(db: Session, mandate_id: str) -> list[dict]:
 
 
 def latest_kyc_confirmation(db: Session, client_id: str, mandate_id: Optional[str]) -> Optional[dict]:
+    """Juengste Bestaetigung samt Freigabe; ``seal_verified`` bzw.
+    ``approval_by`` nur, wenn das jeweilige Siegel nachgerechnet stimmt."""
     row = db.execute(
         _sql_text(
-            "SELECT k.*, a.id AS approval_id, a.approved_by AS approval_by, "
-            "a.approved_at AS approval_at FROM kyc_confirmations k "
-            "LEFT JOIN kyc_confirmation_approvals a ON a.confirmation_id = k.id "
-            "WHERE k.client_id = :cid AND (k.mandate_id IS NULL OR k.mandate_id = :mid) "
-            "ORDER BY k.recorded_at DESC, k.id DESC LIMIT 1"
+            "SELECT * FROM kyc_confirmations "
+            "WHERE client_id = :cid AND (mandate_id IS NULL OR mandate_id = :mid) "
+            "ORDER BY recorded_at DESC, id DESC LIMIT 1"
         ),
         {"cid": str(client_id), "mid": str(mandate_id or "")},
     ).mappings().first()
-    return dict(row) if row is not None else None
+    if row is None:
+        return None
+    confirmation = dict(row)
+    confirmation["seal_verified"] = row_seal(dict(row), "confirmation_hash") == row["confirmation_hash"]
+    approval = db.execute(
+        _sql_text("SELECT * FROM kyc_confirmation_approvals WHERE confirmation_id = :id"),
+        {"id": str(row["id"])},
+    ).mappings().first()
+    approval_ok = approval is not None and (
+        row_seal(dict(approval), "approval_hash") == approval["approval_hash"]
+    )
+    confirmation["approval_id"] = approval["id"] if approval_ok else None
+    confirmation["approval_by"] = approval["approved_by"] if approval_ok else None
+    confirmation["approval_at"] = approval["approved_at"] if approval_ok else None
+    return confirmation
 
 
 def kyc_requires_second_approval(confirmation: dict) -> bool:
-    return bool(int(confirmation.get("is_pep") or 0)) or (
-        str(confirmation.get("risk_category") or "") != "normal"
-    )
+    """Bei der Erfassung festgehalten (N-890-03): PEP, erhoehtes Risiko ODER
+    Herabstufung gegenueber dem zuletzt wirksamen Stand."""
+    return bool(int(confirmation.get("requires_second_approval") or 0))
 
 
 def _kyc_findings(db: Session, mandate: Any, today: str) -> list[dict]:
@@ -574,19 +619,31 @@ def _kyc_findings(db: Session, mandate: Any, today: str) -> list[dict]:
         findings.append(_finding(
             KYC_CONFIRMATION_MISSING,
             "Bestaetigung fehlt: Fuer diesen Kunden ist nicht erfasst, dass die "
-            "GwG-Abklaerung (Formular A/K/S/T, Risikokategorie, PEP) im SRO- bzw. "
+            "GwG-Abklaerung (Identifizierung der Vertragspartei nach GwG Art. 3, "
+            "wirtschaftlich Berechtigter mit Formular A/K/S/T nach GwG Art. 4, "
+            "Risikokategorie, PEP) im SRO- bzw. "
             "Fremdprozess erfolgt ist.",
             "Berater: KYC-Bestaetigung erfassen (Formular, Datum, Referenz, "
             "Risikokategorie, PEP, naechste Aktualisierung).",
             "client",
         ))
         return findings
+    if not confirmation.get("seal_verified"):
+        findings.append(_finding(
+            KYC_CONFIRMATION_SEAL_INVALID,
+            "Das Siegel der KYC-Bestaetigung stimmt nicht mit dem gespeicherten "
+            "Inhalt ueberein; die Bestaetigung gilt nicht.",
+            "Berater: neue KYC-Bestaetigung erfassen; Owner/Compliance: Vorgang pruefen.",
+            "client",
+            confirmation_id=confirmation.get("id"),
+        ))
     if kyc_requires_second_approval(confirmation):
         approver = str(confirmation.get("approval_by") or "")
         if not approver or approver == str(confirmation.get("recorded_by") or ""):
             findings.append(_finding(
                 KYC_SECOND_APPROVAL_MISSING,
-                "PEP bzw. erhoehtes Risiko: die KYC-Bestaetigung ist noch nicht "
+                "PEP, erhoehtes Risiko oder Herabstufung gegenueber der zuletzt "
+                "wirksamen Bestaetigung: die KYC-Bestaetigung ist noch nicht "
                 "durch eine zweite Person freigegeben.",
                 "Eine zweite Person mit Admin-Rolle (Geschaeftsleitung/Compliance) "
                 "gibt die KYC-Bestaetigung frei.",
@@ -603,12 +660,16 @@ def _kyc_findings(db: Session, mandate: Any, today: str) -> list[dict]:
             "client",
             confirmation_id=confirmation.get("id"),
         ))
-    if dd is not None and int(dd.get("pep_status") or 0) and not int(confirmation.get("is_pep") or 0):
+    dd_pep = int(dd.get("pep_status") or 0) if dd is not None else None
+    conf_pep = int(confirmation.get("is_pep") or 0)
+    if dd_pep is not None and dd_pep != conf_pep:
         findings.append(_finding(
             KYC_PEP_INCONSISTENT,
-            "Widerspruch: Die Sorgfaltspflicht-Erfassung fuehrt den Kunden als PEP, "
-            "die KYC-Bestaetigung nicht.",
-            "Berater: PEP-Status klaeren und eine neue KYC-Bestaetigung erfassen.",
+            "Widerspruch: Sorgfaltspflicht-Erfassung und KYC-Bestaetigung fuehren "
+            "den PEP-Status unterschiedlich"
+            + (" (PEP in der Erfassung zurueckgenommen)." if conf_pep else "."),
+            "Berater: PEP-Status klaeren und eine neue KYC-Bestaetigung erfassen; "
+            "eine Herabstufung braucht die Freigabe einer zweiten Person.",
             "client",
             confirmation_id=confirmation.get("id"),
         ))
@@ -653,7 +714,10 @@ def client_onboarding_findings(
             "tenant",
         ))
     mandate_id = str(getattr(mandate, "id", "") or "")
-    deliveries = [d for d in client_information_deliveries(db, mandate_id) if d["archive_verified"]]
+    deliveries = [
+        d for d in client_information_deliveries(db, mandate_id)
+        if d["archive_verified"] and d["seal_verified"]
+    ]
     concluded = contract_concluded_at(db, mandate_id)
     cutoff = min(concluded, now) if concluded else now
     if not deliveries:
@@ -665,11 +729,18 @@ def client_onboarding_findings(
             "Vertragsabschluss uebergeben und die Uebergabe erfassen.",
             "mandate",
         ))
-    elif not any(str(d.get("delivered_at") or "") <= cutoff for d in deliveries):
+    elif not any(
+        # N-890-02: massgebend sind Uebergabe UND Erfassung (Serverzeit) vor dem
+        # Vertragsabschluss -- ein nachtraeglich erfasster Beleg zaehlt nie als
+        # vorvertragliche Abgabe.
+        str(d.get("delivered_at") or "") <= cutoff and str(d.get("recorded_at") or "") <= cutoff
+        for d in deliveries
+    ):
         findings.append(_finding(
             CLIENT_INFORMATION_DELIVERED_AFTER_CONTRACT,
-            "Die Kundeninformation wurde erst nach dem Vertragsabschluss "
-            f"({cutoff}) uebergeben (Art. 9 FIDLEG: vor Vertragsabschluss).",
+            "Die Kundeninformation wurde nachtraeglich uebergeben bzw. erfasst "
+            f"(Vertragsabschluss {cutoff}); Art. 9 FIDLEG verlangt die Abgabe vor "
+            "Vertragsabschluss.",
             "Owner/Compliance: Vorgang pruefen; der Vertrag ist neu abzuschliessen, "
             "nachdem die Kundeninformation uebergeben wurde.",
             "mandate",

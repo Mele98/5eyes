@@ -25,6 +25,7 @@ from services.recommendation_release_gate import (
     CLIENT_INFORMATION_TEMPLATE_VERSION,
     LEGAL_PROFILE_FIELDS,
     legal_profile_hash,
+    row_seal,
 )
 
 TEST_MARKER = "Testfixture H8"
@@ -80,7 +81,13 @@ def _tenant_for(db, mandate) -> str:
     return str(tenant.id)
 
 
-def record_test_client_information(db, mandate, *, actor_id: str, delivered_at: str = _PAST):
+def _seal(record, column: str) -> str:
+    return row_seal({c.name: getattr(record, c.name) for c in record.__table__.columns}, column)
+
+
+def record_test_client_information(
+    db, mandate, *, actor_id: str, delivered_at: str = _PAST, recorded_at: str = _PAST,
+):
     tenant_id = _tenant_for(db, mandate)
     profile = db.query(TenantLegalProfile).filter(TenantLegalProfile.tenant_id == tenant_id).first()
     pdf_bytes = f"%PDF-1.4 {TEST_MARKER} Kundeninformation {mandate.id}".encode("utf-8")
@@ -94,14 +101,17 @@ def record_test_client_information(db, mandate, *, actor_id: str, delivered_at: 
     )
     db.add(doc)
     db.flush()
-    db.add(ClientInformationDelivery(
+    delivery = ClientInformationDelivery(
         id=new_uuid(), tenant_id=tenant_id, mandate_id=mandate.id, client_id=mandate.client_id,
         contract_document_id=doc.id, template_version=CLIENT_INFORMATION_TEMPLATE_VERSION,
         legal_profile_revision=int(profile.revision or 0) if profile else 0,
         legal_profile_hash=(profile.profile_hash if profile else "") or "",
         pdf_sha256=checksum, delivered_at=delivered_at, delivery_channel="persoenlich_papier",
-        recorded_by=actor_id, recorded_at=_PAST, delivery_hash=checksum,
-    ))
+        delivery_timing="vor_vertragsabschluss",
+        recorded_by=actor_id, recorded_at=recorded_at,
+    )
+    delivery.delivery_hash = _seal(delivery, "delivery_hash")
+    db.add(delivery)
     db.flush()
     return doc
 
@@ -120,9 +130,13 @@ def confirm_test_kyc(db, client_id: str, *, actor_id: str, tenant_id: str | None
         process_scope="sro_oder_fremdprozess", form_type="A",
         form_completed_on=(today - timedelta(days=1)).isoformat(),
         external_reference=f"{TEST_MARKER} KYC", risk_category="normal",
-        is_pep=int(dd.pep_status or 0), next_review_due=(today + timedelta(days=365)).isoformat(),
-        recorded_by=actor_id, recorded_at=_PAST, confirmation_hash=TEST_MARKER,
+        is_pep=int(dd.pep_status or 0), identification_confirmed=1,
+        identification_date=(today - timedelta(days=1)).isoformat(),
+        next_review_due=(today + timedelta(days=365)).isoformat(),
+        requires_second_approval=int(dd.pep_status or 0),
+        recorded_by=actor_id, recorded_at=_PAST,
     )
+    record.confirmation_hash = _seal(record, "confirmation_hash")
     db.add(record)
     db.flush()
     return record

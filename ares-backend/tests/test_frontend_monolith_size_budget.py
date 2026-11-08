@@ -49,7 +49,7 @@ EXTRACTED_PART_BUDGETS = {
     "ares.css": (1162, 91800),
     "intro-sequence.js": (761, 36861),
     "goal-review-runtime.js": (1589, 84633),
-    "client-compliance.js": (448, 27395),
+    "client-compliance.js": (455, 28353),
 }
 
 

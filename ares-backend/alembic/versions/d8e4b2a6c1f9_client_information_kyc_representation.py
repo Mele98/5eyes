@@ -44,10 +44,38 @@ APPEND_ONLY_TABLES = (
 )
 
 
+# N-890-09: KYC-Freitexte duerfen im Loeschvorgang nur auf den Redaktions-
+# marker gesetzt werden (gleiche Listen wie database.py::KYC_*_COLUMNS).
+REDACTION_MARKER = "[ERASED-DSG-ART-32]"
+REDACTION_ONLY = {
+    "kyc_confirmations": (
+        ("id", "tenant_id", "client_id", "mandate_id", "process_scope", "form_type",
+         "form_completed_on", "risk_category", "is_pep", "identification_confirmed",
+         "identification_date", "next_review_due", "requires_second_approval",
+         "recorded_by", "recorded_at", "confirmation_hash"),
+        ("external_reference", "note"),
+    ),
+    "kyc_confirmation_approvals": (
+        ("id", "tenant_id", "confirmation_id", "client_id", "approved_by", "approved_at",
+         "approval_hash"),
+        ("note",),
+    ),
+}
+
+
 def _sqlite_triggers(table: str) -> tuple[str, str]:
+    when = ""
+    if table in REDACTION_ONLY:
+        fixed, redactable = REDACTION_ONLY[table]
+        changed = " OR ".join(f"NEW.{c} IS NOT OLD.{c}" for c in fixed)
+        bad = " OR ".join(
+            f"(NEW.{c} IS NOT OLD.{c} AND NEW.{c} IS NOT NULL AND NEW.{c} != '{REDACTION_MARKER}')"
+            for c in redactable
+        )
+        when = f"WHEN {changed} OR {bad} "
     return (
         f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_update "
-        f"BEFORE UPDATE ON {table} FOR EACH ROW "
+        f"BEFORE UPDATE ON {table} FOR EACH ROW {when}"
         f"BEGIN SELECT RAISE(ABORT, '{table} is immutable'); END",
         f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_delete "
         f"BEFORE DELETE ON {table} FOR EACH ROW "
@@ -56,10 +84,30 @@ def _sqlite_triggers(table: str) -> tuple[str, str]:
 
 
 def _pg_function(table: str) -> str:
+    if table not in REDACTION_ONLY:
+        return (
+            f"CREATE OR REPLACE FUNCTION {table}_immutable() RETURNS trigger AS $$\n"
+            "BEGIN\n"
+            f"    RAISE EXCEPTION '{table} is immutable';\n"
+            "END;\n"
+            "$$ LANGUAGE plpgsql"
+        )
+    fixed, redactable = REDACTION_ONLY[table]
+    changed = " OR ".join(f"NEW.{c} IS DISTINCT FROM OLD.{c}" for c in fixed)
+    bad = " OR ".join(
+        f"(NEW.{c} IS DISTINCT FROM OLD.{c} AND NEW.{c} IS NOT NULL AND NEW.{c} <> '{REDACTION_MARKER}')"
+        for c in redactable
+    )
     return (
         f"CREATE OR REPLACE FUNCTION {table}_immutable() RETURNS trigger AS $$\n"
         "BEGIN\n"
-        f"    RAISE EXCEPTION '{table} is immutable';\n"
+        "    IF TG_OP = 'DELETE' THEN\n"
+        f"        RAISE EXCEPTION '{table} is immutable';\n"
+        "    END IF;\n"
+        "    IF " + changed + " OR " + bad + " THEN\n"
+        f"        RAISE EXCEPTION '{table} is immutable';\n"
+        "    END IF;\n"
+        "    RETURN NEW;\n"
         "END;\n"
         "$$ LANGUAGE plpgsql"
     )
@@ -113,6 +161,8 @@ def upgrade() -> None:
         sa.Column("pdf_sha256", sa.String(), nullable=False),
         sa.Column("delivered_at", sa.String(), nullable=False),
         sa.Column("delivery_channel", sa.String(), nullable=False),
+        sa.Column("delivery_timing", sa.String(), nullable=False),
+        sa.Column("backdating_reason", sa.String(), nullable=True),
         sa.Column("recorded_by", sa.String(), nullable=False),
         sa.Column("recorded_at", sa.String(), nullable=False),
         sa.Column("delivery_hash", sa.String(), nullable=False),
@@ -131,7 +181,10 @@ def upgrade() -> None:
         sa.Column("external_reference", sa.String(), nullable=False),
         sa.Column("risk_category", sa.String(), nullable=False),
         sa.Column("is_pep", sa.Integer(), nullable=False),
+        sa.Column("identification_confirmed", sa.Integer(), nullable=False),
+        sa.Column("identification_date", sa.String(), nullable=False),
         sa.Column("next_review_due", sa.String(), nullable=False),
+        sa.Column("requires_second_approval", sa.Integer(), nullable=False),
         sa.Column("note", sa.String(), nullable=True),
         sa.Column("recorded_by", sa.String(), nullable=False),
         sa.Column("recorded_at", sa.String(), nullable=False),

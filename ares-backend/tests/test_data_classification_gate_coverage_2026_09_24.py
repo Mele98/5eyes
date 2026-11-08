@@ -178,7 +178,7 @@ def test_opt_history_real_blocked_when_gate_closed(session_factory, monkeypatch)
             add_opt_history(
                 client_id,
                 OptHistoryCreate(
-                    event_type="Opt-Out", from_classification="Privatkunde",
+                    from_classification="Privatkunde",
                     to_classification="Professioneller Kunde", notes="echte Notiz",
                     data_classification="real",
                 ),
@@ -200,7 +200,7 @@ def test_opt_history_synthetic_allowed_when_gate_closed(session_factory, monkeyp
         result = add_opt_history(
             client_id,
             OptHistoryCreate(
-                event_type="Opt-Out", from_classification="Privatkunde",
+                from_classification="Privatkunde",
                 to_classification="Professioneller Kunde", notes="Test-Notiz",
                 data_classification="synthetic",
                 # H8 Luecke 7 (Art. 5 FIDLEG): Beleg + Kriterien-Checkliste.

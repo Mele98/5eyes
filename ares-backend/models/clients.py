@@ -241,7 +241,13 @@ class KycConfirmation(Base):
     external_reference = Column(String, nullable=False)
     risk_category = Column(String, nullable=False)
     is_pep = Column(Integer, nullable=False)
+    # N-890-12: Identifizierung der Vertragspartei (GwG Art. 3) ausdruecklich.
+    identification_confirmed = Column(Integer, nullable=False)
+    identification_date = Column(String, nullable=False)
     next_review_due = Column(String, nullable=False)
+    # N-890-03: bei der Erfassung festgehalten -- PEP, erhoehtes Risiko ODER
+    # Herabstufung gegenueber der zuletzt wirksamen Bestaetigung.
+    requires_second_approval = Column(Integer, nullable=False)
     note = Column(String)
     recorded_by = Column(String, ForeignKey("users.id"), nullable=False)
     recorded_at = Column(String, nullable=False)

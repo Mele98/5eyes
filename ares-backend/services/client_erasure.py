@@ -346,6 +346,16 @@ def erase_client_personal_data(
         ],
     )
     _apply("client_tax_residencies", "client_id", [client_id], null_columns=["tax_id_number"])
+    # H8 N-890-09: KYC-Bestaetigungen bleiben als Nachweis erhalten (append-only,
+    # Trigger erlauben nur diese Redaktion); Freitexte werden markiert.
+    _apply("kyc_confirmations", "client_id", [client_id],
+           marker_columns=["external_reference", "note"])
+    _apply("kyc_confirmation_approvals", "client_id", [client_id], marker_columns=["note"])
+    # H8 N-890-09: Vertretung -- Name der vertretenden Person (Dritter) und
+    # Freitexte redigiert; Art, Wirksamkeit und Widerruf bleiben als Nachweis.
+    _apply("client_representations", "client_id", [client_id],
+           marker_columns=["representative_name", "scope", "evidence_reference"],
+           null_columns=["note", "revocation_reason"])
 
     # --- Mandat: redundante PII-Kopien + Bankverbindung ---
     if mandate_ids:

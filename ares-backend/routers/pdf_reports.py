@@ -6,6 +6,7 @@ Sprint 11 Phase 5: Logging + Fallback-Sektionen + Portfolio-PDF
 from __future__ import annotations
 
 import base64
+import dataclasses
 import hashlib
 import json
 import logging
@@ -2979,7 +2980,8 @@ def _kundeninformation_cost_parts(db: Session, mandate: Mandate, profile: dict) 
             + "). Massgebend ist der Kostenausweis."
         )
     retro: list[str] = []
-    if int(profile.get("default_retrocession_reimbursement") or 0):
+    # N-890-04: Grundsatz der Firma (tenants.default_retrocession_reimbursement).
+    if int(profile.get("tenant_default_retrocession_reimbursement") or 0):
         retro.append(
             "Entschädigungen Dritter (z. B. Retrozessionen): Grundsatz der Firma ist "
             "die Weitergabe an Sie (Art. 26 FIDLEG)."
@@ -2999,6 +3001,13 @@ def _kundeninformation_cost_parts(db: Session, mandate: Mandate, profile: dict) 
             "Sätze und Beträge je Produkt stehen im Kostenausweis."
         )
     return tuple(cost_lines), note, tuple(retro)
+
+
+# N-890-11: Klartext fuer Mandate.investment_universe [Compliance gegenlesen].
+_KI_UNIVERSE_LABELS = {
+    "Standard": "Standardauswahl des Finanzdienstleisters",
+    "Alternativ": "breitere Auswahl aus dem Marktdurchschnitt",
+}
 
 
 def _kundeninformation_ties_and_offer(db: Session, mandate: Mandate, tenant_id: str | None) -> tuple[tuple, tuple]:
@@ -3023,14 +3032,22 @@ def _kundeninformation_ties_and_offer(db: Session, mandate: Mandate, tenant_id: 
         )
     if not ties:
         ties.append("Für dieses Mandat sind keine wirtschaftlichen Bindungen an Dritte erfasst.")
-    offer = [
-        f"Berücksichtigt werden Finanzinstrumente aus dem Produktuniversum des "
-        f"Finanzdienstleisters: {len(products)} aktive Produkte, davon {len(house)} "
-        "eigene Produkte"
-        + (f" ({house_unknown} ohne Angabe zur Herkunft)" if house_unknown else "")
-        + ".",
-        f"Anlageuniversum des Mandats: {getattr(mandate, 'investment_universe', None) or 'nicht festgelegt'}.",
-    ]
+    # N-890-11: keine "0 Produkte"-Aussage und kein interner Rohwert.
+    if products:
+        offer = [
+            "Berücksichtigt werden Finanzinstrumente aus dem Produktuniversum des "
+            f"Finanzdienstleisters ({len(products)} Produkte, davon {len(house)} eigene"
+            + (f", {house_unknown} ohne Angabe zur Herkunft" if house_unknown else "")
+            + ")."
+        ]
+    else:
+        offer = [
+            "Berücksichtigt werden Finanzinstrumente aus dem Produktuniversum, das der "
+            "Finanzdienstleister für seine Empfehlungen festlegt."
+        ]
+    universe_label = _KI_UNIVERSE_LABELS.get(str(getattr(mandate, "investment_universe", "") or ""))
+    if universe_label:
+        offer.append(f"Für dieses Mandat gilt die {universe_label}.")
     return tuple(ties), tuple(offer)
 
 
@@ -3092,7 +3109,11 @@ def get_kundeninformation_pdf(
             "reason_code": CLIENT_INFORMATION_REGIME_UNSUPPORTED,
             "message": "Fuer den Sitz der Firma bildet Ares keine Kundeninformation ab (nur Schweiz/FIDLEG).",
         })
-    ctx = _build_pdf_context(mandate, current_user, db)
+    # N-890-07: eigene Fusszeile der Kundeninformation (H7-Footer je
+    # Dokument-/Mandatstyp), nicht "Dokumentation der Anlageberatung".
+    ctx = dataclasses.replace(
+        _build_pdf_context(mandate, current_user, db), mandate_type=CLIENT_INFORMATION_DOCUMENT_TYPE,
+    )
     data = _build_kundeninformation_data(db, mandate, profile)
     content_hash = content_hash_for(data)
     existing = (
@@ -3120,6 +3141,7 @@ def get_kundeninformation_pdf(
                 "legal_profile_revision": data.legal_profile_revision,
                 "legal_profile_hash": data.legal_profile_hash,
                 "tenant_id": tenant_id,
+                "retrocession_policy": profile.get("tenant_default_retrocession_reimbursement"),
             }, sort_keys=True),
         )
     safe_mandate = str(mandate.mandate_number or "mandat")[:40]

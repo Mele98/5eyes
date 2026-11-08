@@ -5370,6 +5370,18 @@
       "ClientInformationDeliveryCreate": {
         "description": "Abgabe der Kundeninformation: welche archivierte Fassung, wann, wie.",
         "properties": {
+          "backdating_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backdating Reason"
+          },
           "contract_document_id": {
             "maxLength": 100,
             "minLength": 1,
@@ -5410,6 +5422,17 @@
       },
       "ClientInformationDeliveryResponse": {
         "properties": {
+          "backdating_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backdating Reason"
+          },
           "client_id": {
             "title": "Client Id",
             "type": "string"
@@ -5428,6 +5451,10 @@
           },
           "delivery_hash": {
             "title": "Delivery Hash",
+            "type": "string"
+          },
+          "delivery_timing": {
+            "title": "Delivery Timing",
             "type": "string"
           },
           "id": {
@@ -5474,6 +5501,7 @@
           "pdf_sha256",
           "delivered_at",
           "delivery_channel",
+          "delivery_timing",
           "recorded_by",
           "recorded_at",
           "delivery_hash"
@@ -10824,6 +10852,14 @@
             "title": "Form Type",
             "type": "string"
           },
+          "identification_confirmed": {
+            "title": "Identification Confirmed",
+            "type": "boolean"
+          },
+          "identification_date": {
+            "title": "Identification Date",
+            "type": "string"
+          },
           "is_pep": {
             "title": "Is Pep",
             "type": "boolean"
@@ -10869,6 +10905,8 @@
           "external_reference",
           "risk_category",
           "is_pep",
+          "identification_confirmed",
+          "identification_date",
           "next_review_due"
         ],
         "title": "KycConfirmationCreate",
@@ -10908,6 +10946,14 @@
           },
           "id": {
             "title": "Id",
+            "type": "string"
+          },
+          "identification_confirmed": {
+            "title": "Identification Confirmed",
+            "type": "integer"
+          },
+          "identification_date": {
+            "title": "Identification Date",
             "type": "string"
           },
           "is_pep": {
@@ -10971,6 +11017,8 @@
           "external_reference",
           "risk_category",
           "is_pep",
+          "identification_confirmed",
+          "identification_date",
           "next_review_due",
           "recorded_by",
           "recorded_at",
@@ -12925,8 +12973,23 @@
             "title": "Document Id"
           },
           "event_type": {
-            "title": "Event Type",
-            "type": "string"
+            "anyOf": [
+              {
+                "enum": [
+                  "Opting-out zu Professionell",
+                  "Opting-out zu Institutionell",
+                  "Opting-in zu Privatkunde",
+                  "Opting-in zu Professionell",
+                  "Qualifizierter Anleger bestätigt",
+                  "Klassifizierung überprüft"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Type"
           },
           "from_classification": {
             "enum": [
@@ -13013,7 +13076,6 @@
           }
         },
         "required": [
-          "event_type",
           "from_classification",
           "to_classification"
         ],
@@ -31905,7 +31967,7 @@
     },
     "/clients/{client_id}/kyc-confirmations/{confirmation_id}/approve": {
       "post": {
-        "description": "Vier-Augen-Freigabe (PEP/erhoehtes Risiko): nur eine zweite Person mit\nAdmin-Rolle (Geschaeftsleitung/Compliance), nie die erfassende Person.",
+        "description": "Vier-Augen-Freigabe (PEP/erhoehtes Risiko/Herabstufung): nur eine zweite Person mit\nAdmin-Rolle (Geschaeftsleitung/Compliance), nie die erfassende Person.",
         "operationId": "approve_kyc_confirmation_clients__client_id__kyc_confirmations__confirmation_id__approve_post",
         "parameters": [
           {

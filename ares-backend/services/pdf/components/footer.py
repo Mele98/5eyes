@@ -39,6 +39,9 @@ _FOOTER_KEYS_BY_MANDATE_TYPE = {
     "anlageberatung": "legal.footer.disclaimer.anlageberatung",
     "finanzplanung": "legal.footer.disclaimer.finanzplanung",
     "reporting only": "legal.footer.disclaimer.reporting",
+    # H8 N-890-07: die Kundeninformation (Art. 8/9 FIDLEG) ist ein eigenes,
+    # vorvertragliches Dokument (ctx.mandate_type = Dokumenttyp).
+    "kundeninformation": "legal.footer.disclaimer.kundeninformation",
 }
 
 

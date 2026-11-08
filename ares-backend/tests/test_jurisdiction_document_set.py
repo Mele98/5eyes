@@ -59,6 +59,8 @@ BEFORE_DIGESTS = {
     "legal.footer.disclaimer.anlageberatung": "sha256:e400049f30a19b645ff37b286bccb56158548c6c48d7154228725f2c5e65b459",
     "legal.footer.disclaimer.finanzplanung": "sha256:0e67a630601486a6377ee9f0fe4f12b9f83bc334d72f52aabe0adb2a6f2c3f34",
     "legal.footer.disclaimer.reporting": "sha256:cc3a59375243c559e3e446797b3ebfede9e3e482af4bac5a948479bb39f225df",
+    # H8 N-890-07: neue Fusszeile der Kundeninformation (eigener Dokumenttyp).
+    "legal.footer.disclaimer.kundeninformation": "sha256:1e3d35d276e489a99ddfe6bca333770de94e389ca03278ed530214b07a09e71b",
 }
 
 # N-856-2 (Pruefrunde #856, Dok. 86): deklariertes Text-Aenderungsregister.
@@ -96,7 +98,7 @@ def _expected_digest(key: str) -> str:
 
 
 # Gepinnter Inhalts-Hash aller CH-Texte (jede Textaenderung ist sichtbar).
-CH_DOCUMENTS_HASH = "sha256:cd8edab614d8639424e646d55f107c8071165346393f2eb422183364bfa00e9a"  # H7 N-884-03
+CH_DOCUMENTS_HASH = "sha256:4d79420f34f044da35f58ab5b664ab4997a21b64936c2d7f1b65fced59e3f558"  # H7 N-884-03, H8 N-890-07
 
 def _norm(value):
     if isinstance(value, (list, tuple)):

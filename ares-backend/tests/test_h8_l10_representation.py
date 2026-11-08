@@ -78,3 +78,25 @@ def test_alembic_postgres_ddl_creates_representation_table():
     from h8_support import h8_postgres_ddl
 
     assert "CREATE TABLE client_representations" in h8_postgres_ddl()
+
+
+def test_erasure_redacts_representative_name_and_free_texts(sf):
+    """N-890-09: Loeschpfad (DSG) redigiert Vertretungsdaten statt sie zu loeschen."""
+    from services import privacy_erasure_inventory as inv
+    from services.client_erasure import REDACTION_MARKER, erase_client_personal_data
+
+    categories = {c.name: c.method for c in inv.categories_for("client_representations")}
+    assert categories["IDENTITY"] == inv.TIER_A_REDACTION
+    assert categories["FREE_TEXT"] == inv.TIER_A_REDACTION
+    with sf() as db:
+        rep = create_representation(client_id="c-1", body=ClientRepresentationCreate(
+            representation_type="vollmacht", representative_name="Paula Probe",
+            scope="Verwaltungsvollmacht", evidence_reference="Vollmacht 2026-10-01", note="Notiz"),
+            request=Req(), db=db, current_user=user(db, "adv-1"))
+        erase_client_personal_data(db, "c-1", reason="Test N-890-09 Loeschvorgang")
+        db.commit()
+        db.expire_all()
+        row = db.query(ClientRepresentation).filter(ClientRepresentation.id == rep.id).one()
+        assert row.representative_name == REDACTION_MARKER
+        assert row.evidence_reference == REDACTION_MARKER and row.note is None
+        assert row.representation_type == "vollmacht"

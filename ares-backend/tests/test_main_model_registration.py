@@ -64,8 +64,10 @@ GOLDEN_SORTED_TABLES_SHA256 = "30711a7c792bbe325060308ae7c1c7236ae0bc41ccbadb7f0
 # ClientDueDiligenceUpdate/-Response (acting_for_own_account ohne Default, neu
 # acting_for_own_account_answered) und OptHistoryCreate/-Response
 # (opt_out_criteria, document_id, opt_out_criteria_json). Feld-Diff geprueft.
-# H8 nach Merge H7 (N-890-07): Pins gemeinsam neu.
-GOLDEN_OPENAPI_SHA256 = "ccdd42bef848c5c329bb760e60a3dad924f2780ffc4b8c2b0d84186c369b462d"
+# H8 nach Merge H7 (N-890-07): Pins gemeinsam neu. N-890-02/03/12/13: Delivery
+# (delivery_timing, backdating_reason), KYC (identification_*, requires_second_approval),
+# OptHistoryCreate.event_type als FIDLEG-Werteliste. Feld-Diff geprueft.
+GOLDEN_OPENAPI_SHA256 = "9a3bfc78a8c12161b9698eaca86c25f64b4f1cb5b1b14107c2fffbdaca2146bc"
 
 _PROBE = """
 import hashlib, json

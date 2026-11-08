@@ -143,8 +143,9 @@ class Tenant(Base):
 
 # ---------------------------------------------------------------------------
 # H8 C-2 (Compliance-Audit 2026-11-07, Luecke 2): Rechtliche Angaben der Firma
-# fuer die Kundeninformation nach Art. 8 Abs. 1 FIDLEG (Name und Adresse,
-# Taetigkeitsfeld und Aufsichtsstatus, Ombudsstelle) und Art. 9 FIDLEG
+# fuer die Kundeninformation nach Art. 8 Abs. 1 FIDLEG (lit. a Name und
+# Adresse, lit. b Taetigkeitsfeld und Aufsichtsstatus, lit. c Ombudsverfahren;
+# lit. d allgemeine Risiken liefert die Vorlage selbst) und Art. 9 FIDLEG
 # (Abgabe vor Vertragsabschluss).
 #
 # Eine Zeile je Tenant. Ares belegt KEINEN Wert vor: keine Firma, keine
