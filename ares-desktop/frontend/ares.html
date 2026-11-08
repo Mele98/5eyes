@@ -166,7 +166,7 @@ body{font-family:var(--f-s);}</style>
   </div>
 </div>
 <script src="vendor/intro-country-outlines.js"></script>
-<script src="./intro-sequence.js"></script><script src="./aa-chart.js"></script>
+<script src="./intro-sequence.js"></script><script src="./aa-chart.js"></script><script src="./ist-projection-gate.js"></script>
 <!-- E0 (2026-06-12): Phase-0 "SYNTHETIC / TEST DATA ONLY"-Banner. Erscheint nur,
      wenn das Backend allow_real_client_data=false meldet (gehostetes Staging). -->
 <div id="phase0-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99998;
@@ -1594,13 +1594,13 @@ function _wireSollIstHover(){
               </div>
               <div class="cbody">
                 <div id="ub-projection-note" style="font-size:10px;color:var(--warn);background:var(--warn-lt);border:1px solid rgba(146,64,14,0.12);border-radius:var(--r);padding:7px 9px;margin-bottom:10px">Ist-Situation ohne Optimierung. Sobald eine Strategie berechnet ist, wird hier direkt der verbesserte Zielpfad gegenübergestellt.</div>
-                <div class="chart-lg"><canvas id="ch-ist" role="img" aria-label="Vermögensverzehr Gesamtvermögen: IST-Situation und verbesserte (optimierte) Situation über die Zeit"></canvas></div>
+                <div class="chart-lg"><canvas id="ch-ist" role="img" aria-label="Vermögensentwicklung Gesamtvermögen: IST-Situation; verbesserte Situation erst mit gültiger Anlagestrategie"></canvas></div>
                 <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:9px;padding-top:10px;border-top:1px solid var(--b1);margin-top:10px">
-                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">Ist Terminal</div><div id="ub-ist-terminal" style="font-family:var(--f-d);font-size:15px;color:var(--warn)">CHF 5.4 Mio</div></div>
-                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">Verbessert</div><div id="ub-opt-terminal" style="font-family:var(--f-d);font-size:15px;color:var(--pos)">CHF 6.1 Mio</div></div>
-                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">Ø Rendite Mix</div><div id="ub-cagr-ist" style="font-family:var(--f-d);font-size:15px">4.1%</div></div>
-                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">CAGR Zielpfad</div><div id="ub-cagr-opt" style="font-family:var(--f-d);font-size:15px">4.5%</div></div>
-                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">Mehrwert</div><div id="ub-delta-terminal" style="font-family:var(--f-d);font-size:15px;color:var(--pos)">+700k</div></div>
+                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">Ist Terminal</div><div id="ub-ist-terminal" style="font-family:var(--f-d);font-size:15px;color:var(--warn)">—</div></div>
+                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">Verbessert</div><div id="ub-opt-terminal" style="font-family:var(--f-d);font-size:15px;color:var(--pos)">—</div></div>
+                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">Ø Rendite Mix</div><div id="ub-cagr-ist" style="font-family:var(--f-d);font-size:15px">—</div></div>
+                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">CAGR Zielpfad</div><div id="ub-cagr-opt" style="font-family:var(--f-d);font-size:15px">—</div></div>
+                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">Mehrwert</div><div id="ub-delta-terminal" style="font-family:var(--f-d);font-size:15px;color:var(--pos)">—</div></div>
                 </div>
                 <!-- Referenz-Paritaet: beide Kurven zeigen Gesamtvermoegen; die Optimierung
                      wirkt auf den Beratungsteil. Hier die zwei Renditesaetze explizit. -->
@@ -4212,6 +4212,7 @@ async function loadClientById(clientId) {
             }
             if(hydratedAllocation){
               strategyState.dirty = false;
+              if(typeof syncIstProjectionStrategyGate==='function')syncIstProjectionStrategyGate(); // H9
               var dirtyBanner = document.getElementById('al-dirty-banner');
               if(dirtyBanner) dirtyBanner.style.display = 'none';
             }
@@ -7316,11 +7317,10 @@ function initCharts(){
   if (typeof Chart === 'undefined') { console.warn('Chart.js not loaded; charts remain disabled until vendor_assets.py is executed.'); return; }
   var startYear=(new Date()).getFullYear();
   const yr=Array.from({length:11},function(_,idx){return startYear+idx;});
-  const startK=Math.max(1200,Math.round((Number(TOTAL||2848000))/1000));
   const startRappen=Math.max(120000000,Math.round(Number(TOTAL||2848000)*100));
   const demoCashflows=Array.from({length:10},function(){return 8500000;});
   const ist=buildBaselineProjectionFromInputs(startRappen,demoCashflows,360,yr.map(function(label){return String(label);})).seriesK;
-  const opt=Array.from({length:11},function(_,idx){return Math.round(startK*Math.pow(1.045,idx));});
+  const opt=yr.map(function(){return null;}); // H9: ohne Strategie keine erfundene SOLL-Kurve
   const wealthLineOptions=function(showLegend){
     return {
       responsive:true,
@@ -7647,7 +7647,6 @@ function fmtCHF(n){if(n===null||n===undefined)return '–';return 'CHF '+fmtLoca
     const base=(p.securities||0)+(p.liquidity||0);
     const ann=p.surplus||0;
     const baselineRate=p.riskProfile==='Wachstum'?0.041:p.riskProfile==='Konservativ'?0.018:0.032;
-    const improvedRate=Math.max(baselineRate+0.012,0.032);
     const labels=Array.from({length:11},function(_,idx){return String((new Date()).getFullYear()+idx);});
     const baselineProjection=buildBaselineProjectionFromInputs(
       Math.round(base*100),
@@ -7656,9 +7655,6 @@ function fmtCHF(n){if(n===null||n===undefined)return '–';return 'CHF '+fmtLoca
       labels
     );
     const currentSeries=baselineProjection.seriesK;
-    const improvedSeries=[0,1,2,3,4,5,6,7,8,9,10].map(function(i){
-      return Math.round((base*Math.pow(1+improvedRate,i)+ann*((Math.pow(1+improvedRate,i)-1)/improvedRate))/1000);
-    });
     if(charts.ist&&charts.ist.data&&charts.ist.data.datasets[0]){
       charts.ist.data.labels=labels;
       charts.ist.data.datasets[0].data=currentSeries;
@@ -7671,15 +7667,8 @@ function fmtCHF(n){if(n===null||n===undefined)return '–';return 'CHF '+fmtLoca
       charts.aaCurrent.data.datasets[0].data=currentSeries;
       charts.aaCurrent.update('none');
     }
-    renderOverviewProjectionSummary({
-      currentProjectedRappen:baselineProjection.projectedRappen,
-      targetProjectedRappen:Math.round(improvedSeries[improvedSeries.length-1]*100000),
-      currentAnnualNetCashflowRappen:Math.round(ann*100),
-      currentMixReturnBps:Math.round(baselineRate*10000),
-      currentCagrBps:baselineProjection.cagrBps,
-      targetCagrBps:Math.round(improvedRate*10000),
-      horizonLabel:String((new Date()).getFullYear()+10)
-    });
+    // H9: Demo-Persona hat keine Strategie -> keine erfundene verbesserte Situation.
+    renderCurrentWealthOnlyProjectionSummary({labels:labels,projectedRappen:baselineProjection.projectedRappen,expectedReturnBps:Math.round(baselineRate*10000)});
   }
   const rpM={'Konservativ':['Income – Kapitalerhalt','Kapitalerhalt, min. Risiko. Max. Aktienquote 25 %.'],'Moderat':['Balanced – Ausgewogen','Ausgewogen. Max. Aktienquote 40 %.'],'Wachstum':['Growth – Wachstum','Wachstumsorientiert. Max. Aktienquote 60 %.']};
   const rpR=rpM[p.riskProfile]||rpM['Moderat'];
@@ -19633,10 +19622,9 @@ function renderCurrentWealthOnlyProjectionSummary(projection){
     note.style.color='var(--n6)';
     note.style.background='var(--bg)';
     note.style.borderColor='rgba(90,104,120,0.12)';
-    note.textContent='Bis '+horizonLabel+' zeigt diese Seite die Ist-Situation des Gesamtvermögens aus heutigem Mix und künftigen Netto-Cashflows. Die verbesserte Situation erscheint, sobald die Soll-Allokation des Beratungsvermögens berechnet ist.';
+    note.textContent='Bis '+horizonLabel+' zeigt diese Seite die Ist-Situation des Gesamtvermögens aus heutigem Mix und künftigen Netto-Cashflows. Die verbesserte Situation erscheint erst mit gültigem Risikoprofil und berechneter Anlagestrategie.';
   }
-  if(note)note.textContent='Bis '+horizonLabel+' zeigt diese Seite die Ist-Situation des Gesamtvermoegens aus heutigem Mix, laufenden Cashflows und separat beruecksichtigten Kapitalereignissen. Die verbesserte Situation erscheint, sobald die Soll-Allokation des Beratungsvermoegens berechnet ist.';
-  if(note)note.textContent='Bis '+horizonLabel+' zeigt diese Seite die Ist-Situation des Gesamtvermoegens aus heutigem Mix, laufenden Cashflows und separat beruecksichtigten Kapitalereignissen. Die verbesserte Situation uebernimmt nur die optimierte Soll-Allokation auf dem Beratungsvermoegen; der holistische Rest bleibt unveraendert.';
+  setText('ub-return-rein','–');setText('ub-return-beratung','–'); // H9: ohne Strategie keine optimierten Renditen
   var overviewKpi=document.getElementById('kpi-card-projection');
   if(overviewKpi){
     var label=overviewKpi.querySelector('.kl');
@@ -19944,7 +19932,8 @@ function updateProjectionChartsFromSimulation(result){
     // Basis. Bei t=0 ist das Optimierungs-Delta 0 -> beide Linien starten identisch
     // (Apfel mit Apfel); danach liegt SOLL leicht ueber IST = der Optimierungs-Hebel
     // des Beratungsteils. Formel: Gesamt_IST(t) + (advisory_SOLL(t) - advisory_IST(t)).
-    if(targetSeries.length&&Array.isArray(advisoryCurrentSeries)&&advisoryCurrentSeries.length){
+    // H9: nur mit gueltiger, nicht veralteter Strategie (Gate im ausgelagerten Teil).
+    if(targetSeries.length&&Array.isArray(advisoryCurrentSeries)&&advisoryCurrentSeries.length&&istProjectionStrategyValid()){
       var __istN=Math.min(totalCurrentSeries.length,advisoryCurrentSeries.length,targetSeries.length);
       var __istImproved=[];
       for(var __istI=0;__istI<__istN;__istI++){
@@ -20742,6 +20731,7 @@ function syncStrategyStaleView(){
     }
   }catch(e){}
   if(typeof renderAaFanRangeSentence==='function')renderAaFanRangeSentence();
+  if(typeof syncIstProjectionStrategyGate==='function')syncIstProjectionStrategyGate(); // H9
   if(typeof hasVisibleStrategyOutputs==='function'&&!hasVisibleStrategyOutputs()&&typeof buildDLegend==='function')buildDLegend(); // H6: Leerzustand nennt den Grund
   var page=document.getElementById('page-al');
   if(!page)return;
@@ -21844,8 +21834,6 @@ function applyAllocationEngineResult(result){
   var sim=simulationPayload(result);
   var mc=monteCarloPayload(result);
   var advisoryBaselineProjection=buildCurrentBaselineProjection(result,sim&&sim.year_labels?sim.year_labels.length-1:null,sim&&sim.year_labels);
-  var totalBaselineProjection=buildCurrentWealthProjection('total',sim&&sim.year_labels?sim.year_labels.length-1:null,sim&&sim.year_labels);
-  var totalImprovedProjection=buildImprovedTotalProjectionFromStrategy(result,sim&&sim.year_labels?sim.year_labels.length-1:null,sim&&sim.year_labels);
   var advisoryCurrentProjectedRappen=advisoryBaselineProjection.projectedRappen;
   var advisoryCurrentAnnualNetRappen=advisoryBaselineProjection.annualNetCashflowRappen;
   var advisoryCurrentMixReturnBps=advisoryBaselineProjection.expectedReturnBps;
@@ -21866,21 +21854,7 @@ function applyAllocationEngineResult(result){
     targetCagrBps:advisoryCagrBps,
     horizonLabel:projectionHorizonYearLabel(sim)
   });
-  renderOverviewProjectionSummary({
-    currentProjectedRappen:totalBaselineProjection.projectedRappen,
-    targetProjectedRappen:totalImprovedProjection.projectedRappen,
-    currentRecurringNetCashflowRappen:totalBaselineProjection.recurringNetCashflowRappen,
-    currentCapitalNetCashflowRappen:totalBaselineProjection.capitalNetCashflowRappen,
-    currentAnnualNetCashflowRappen:totalBaselineProjection.annualNetCashflowRappen,
-    currentMixReturnBps:totalBaselineProjection.expectedReturnBps,
-    currentCagrBps:totalBaselineProjection.cagrBps,
-    targetCagrBps:totalImprovedProjection.cagrBps,
-    horizonLabel:projectionHorizonYearLabel(sim)
-  });
-  // Referenz-Paritaet: zwei Renditesaetze — Reinvermoegen (gesamt, optimiert) vs.
-  // Beratungsvermoegen (der Teil, auf den die Optimierung wirkt).
-  setText('ub-return-rein',(fmtPct(Number(totalImprovedProjection.cagrBps||0),1)));
-  setText('ub-return-beratung',(fmtPct(Number(advisoryCagrBps||0),1)));
+  renderIstStrategyOverview(result); // H9: verbesserte Situation nur mit gueltiger Strategie
   setText('aa-proj-p50-return',(fmtPct(Number(mc&&mc.target_annualized_return_p50_bps||0),1)));
   setText('aa-proj-current-p50-return',(fmtPct(Number(mc&&mc.current_annualized_return_p50_bps||0),1)));
   setText('aa-proj-runway-target',projectionRunwayLabel(mc&&mc.target_p50_series_rappen,mc&&mc.year_labels));

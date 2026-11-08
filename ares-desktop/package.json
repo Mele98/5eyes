@@ -39,6 +39,7 @@
       "frontend/aa-chart.css",
       "frontend/intro-sequence.js",
       "frontend/aa-chart.js",
+      "frontend/ist-projection-gate.js",
       "frontend/goal-review-runtime.js",
       "frontend/eligibility-overrides.js",
       "frontend/desktop-api.js",
