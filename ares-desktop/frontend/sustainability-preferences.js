@@ -317,15 +317,29 @@ function sustStaleNotice(){
 // Rendern der Strategie erneut angewandt -- das Hydrieren der gespeicherten
 // Allokation (loadClientById setzt dirty=false) darf ihn nicht zuruecksetzen.
 // "Portfolio umsetzen" folgt derselben Bedingung (syncPortfolioUmsetzen...).
+// N-888-16: Sichtbarkeit UND disabled des Buttons folgen genau einer
+// Bedingung je AKTUELLEM Mandat (sustStaleNotice) und werden fuer ein
+// sauberes Mandat zurueckgesetzt -- keine globale Restwirkung.
+function sustSyncUmsetzenButton(){
+  var btn=document.getElementById('btn-portfolio-umsetzen');
+  if(!btn)return;
+  var stale=!!sustStaleNotice();
+  btn.disabled=stale;
+  if(stale)btn.style.display='none';
+}
+
 function sustApplyStale(){
   var notice=sustStaleNotice();
-  if(!notice||typeof strategyState==='undefined'||!strategyState)return false;
-  if(!(strategyState.dirty&&strategyState.staleNotice===notice)&&typeof markStrategyDirty==='function'){
+  if(notice&&typeof strategyState!=='undefined'&&strategyState
+     &&!(strategyState.dirty&&strategyState.staleNotice===notice)&&typeof markStrategyDirty==='function'){
     try{markStrategyDirty(notice,true);}catch(e){}
   }
-  var btn=document.getElementById('btn-portfolio-umsetzen');
-  if(btn){btn.style.display='none';btn.disabled=true;}
-  return true;
+  if(typeof syncPortfolioUmsetzenButtonVisibility==='function'){
+    try{syncPortfolioUmsetzenButtonVisibility();}catch(e){sustSyncUmsetzenButton();}
+  }else{
+    sustSyncUmsetzenButton();
+  }
+  return !!notice;
 }
 
 function sustRefreshAllocationStale(){
@@ -363,10 +377,7 @@ function sustInstallWrappers(){
     _sustBaseSyncUmsetzen=syncPortfolioUmsetzenButtonVisibility;
     syncPortfolioUmsetzenButtonVisibility=function(){
       var r=_sustBaseSyncUmsetzen.apply(this,arguments);
-      if(sustStaleNotice()){
-        var btn=document.getElementById('btn-portfolio-umsetzen');
-        if(btn){btn.style.display='none';btn.disabled=true;}
-      }
+      sustSyncUmsetzenButton();
       return r;
     };
   }

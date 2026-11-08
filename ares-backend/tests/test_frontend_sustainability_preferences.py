@@ -80,7 +80,10 @@ def test_allocation_stale_state_is_reloaded_from_the_server_on_every_visit():
     body = src[src.index("function sustStaleNotice()"):src.index("var _sustBaseGo=null;")]
     assert "/sustainability-preferences" in body
     assert "markStrategyDirty(notice,true)" in body
-    assert "btn-portfolio-umsetzen" in body and "btn.disabled=true" in body
+    assert "btn-portfolio-umsetzen" in body
+    # N-888-16: disabled folgt derselben Bedingung je aktuellem Mandat (kein
+    # globales "disabled=true" ohne Ruecksetzen).
+    assert "btn.disabled=stale;" in body and "btn.disabled=true" not in body
     # N-888-14: nach jedem Laden der Strategie erneut anwenden, Button ueber
     # dieselbe Bedingung (Verhalten: test_livetest_n888_14_*).
     assert "loadCurrentAllocationResult=function" in src
