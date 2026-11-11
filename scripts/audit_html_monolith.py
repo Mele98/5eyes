@@ -35,6 +35,8 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     ("intro-sequence.js", "js"),
     ("aa-chart.js", "js"),
     ("goal-review-runtime.js", "js"),
+    # E2 Nachhaltigkeitspraeferenzen (Dok. 106): Kundenmaske nach dem Risikoprofil.
+    ("sustainability-preferences.js", "js"),
 )
 
 # N-875-05: Bewusste, dokumentierte Liste der VOR H3 bereits eigen-

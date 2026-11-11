@@ -3,9 +3,9 @@
     "css_selectors": 1176,
     "event_handlers": 461,
     "ids": 1018,
-    "js_functions": 1330,
+    "js_functions": 1350,
     "modal_structures": 110,
-    "script_blocks": 26,
+    "script_blocks": 27,
     "style_blocks": 2,
     "sub_sections": 42
   },
@@ -9548,6 +9548,12 @@
       "path": "ares-desktop/frontend/goal-review-runtime.js",
       "sha256": "4c26e37829aead9b3201dacc7cf6280f0156b8bebda737029f4edcf6828e5af8",
       "size_bytes": 84633
+    },
+    {
+      "kind": "js",
+      "path": "ares-desktop/frontend/sustainability-preferences.js",
+      "sha256": "bd58eb522461451c9869a217c9136119a44a222febc04ab89595c18e325e499a",
+      "size_bytes": 15941
     }
   ],
   "ids": [
@@ -22432,6 +22438,126 @@
       "line": 502,
       "name": "upsertSavedGoal",
       "source": "goal-review-runtime.js"
+    },
+    {
+      "declaration": "function",
+      "line": 34,
+      "name": "sustCard",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 120,
+      "name": "sustChecked",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 190,
+      "name": "sustCollect",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 168,
+      "name": "sustErrors",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 16,
+      "name": "sustEsc",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 57,
+      "name": "sustExclusionOptions",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 278,
+      "name": "sustInstallWrappers",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 24,
+      "name": "sustIsRealMandate",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 259,
+      "name": "sustLoad",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 248,
+      "name": "sustLoadDefinition",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 20,
+      "name": "sustMandateId",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 28,
+      "name": "sustQuestion",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 53,
+      "name": "sustRadio",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 61,
+      "name": "sustRender",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 226,
+      "name": "sustSave",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 124,
+      "name": "sustSelectedExclusions",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 219,
+      "name": "sustServerError",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 140,
+      "name": "sustShowState",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 130,
+      "name": "sustSyncVisibility",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 115,
+      "name": "sustValue",
+      "source": "sustainability-preferences.js"
     }
   ],
   "modal_structures": [
@@ -23207,8 +23333,8 @@
     }
   ],
   "source_path": "ares-desktop/frontend/ares.html",
-  "source_sha256": "d1144f2f8271fc3ce8575768f37846ed6042b4dc5abb5fa38a651ac6d44e5e7a",
-  "source_size_bytes": 1689802,
+  "source_sha256": "2059e0dde600985c3da8fc18a32cd288d8fa75fb23b6e10220b8dc7da07a5b02",
+  "source_size_bytes": 1689665,
   "sub_sections": [
     {
       "class": "sbb",
