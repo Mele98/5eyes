@@ -41,6 +41,7 @@ const errors = [];
   'Inter-Regular.ttf',
   'Inter-SemiBold.ttf',
   'Inter-Medium.ttf',
+  'DMMono-Regular.ttf',
 ].forEach((file) => {
   const fontPath = path.join(backendRoot, 'assets', 'fonts', file);
   if (!fs.existsSync(fontPath)) {

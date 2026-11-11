@@ -50,7 +50,7 @@ def make_vermoegensuebersicht_section(
     flowables: list = []
     styles = make_paragraph_styles()
 
-    flowables.append(_section_title("💰  Vermögensübersicht"))
+    flowables.append(_section_title("Vermögensübersicht"))
 
     pos_list = list(advisory_positions or [])
     other_list = list(other_wealth_positions or [])
