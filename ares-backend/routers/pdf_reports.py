@@ -23,6 +23,10 @@ from models.users import User
 from routers.auth import _extract_client_ip
 from services.auth import get_current_user, get_mandate_for_user_or_404
 from services.document_archive import archive_generated_pdf, content_hash_for
+from core import sustainability_preference as sustainability
+from core.reason_codes import DomainError, ReasonCode
+from services.portfolio_engine_payload import ESG_CUSTOMER_CLAIM_LABELS
+from services.recommendation_release_gate import preference_state as _preference_state
 from services.pdf import ReportLabRenderer
 from services.recommendation_run_resolver import (
     NO_CURRENT_RECOMMENDATION_MARKER,
@@ -1855,6 +1859,91 @@ def _risk_signoff_view(db: Session, ra) -> dict:
     return view
 
 
+# E2a (Dok. 106, Codex-Vertrag E2): Abschnitt "Nachhaltigkeitspraeferenzen"
+# im Beratungsprotokoll. Zustand aus services/recommendation_release_gate.py::preference_state
+# (dieselbe Quelle wie UI, API, Gates und Archiv, Negativfall 10); Texte
+# ausschliesslich aus core/sustainability_preference.py (Claim-Waechter zur
+# Laufzeit). Fehlt die Erfassung, steht das ausdruecklich im Protokoll; ein
+# Ladefehler wird sichtbar ausgewiesen (fail-closed, nie stilles Weglassen).
+_SUSTAINABILITY_LOAD_FAILED = {
+    "state": "unreadable",
+    "lines": (("Nachhaltigkeitspräferenz", "Konnte nicht geladen werden – bitte prüfen"),),
+    "notes": (),
+}
+_RELEVANCE_LABELS = {"yes": "Ja", "not_relevant": "Nicht relevant"}
+
+
+def _sustainability_protocol_view(db: Session, mandate: Mandate) -> dict:
+    info = _preference_state(db, mandate)
+    row = info["decision"]
+    if row is None:
+        return {
+            "state": info["state"],
+            "lines": (
+                ("Zustand", info["label"]),
+                ("Nachhaltigkeitspräferenz", sustainability.NOT_CAPTURED_TEXT),
+            ),
+            "notes": (sustainability.NO_RISK_EFFECT_TEXT,),
+        }
+    exclusions = list(json.loads(row.get("exclusions_json") or "[]"))
+    question1 = _RELEVANCE_LABELS.get(row.get("esg_relevance")) or "Keine Angabe"
+    question2 = "entfällt"
+    if row.get("esg_characteristic"):
+        options = {o["value"]: o["label"] for o in sustainability.QUESTIONS[1]["options"]}
+        question2 = options.get(row["esg_characteristic"], row["esg_characteristic"])
+    lines = [
+        ("Zustand", info["label"]),
+        ("Erhebung", (
+            f"Fragebogen {row.get('questionnaire_version')} · Version {int(row.get('sequence_no') or 0)} · "
+            f"erfasst am {sustainability.format_date_ch(row.get('captured_at'))} · "
+            f"{sustainability.CAPTURE_CHANNELS.get(row.get('capture_channel'), row.get('capture_channel'))}"
+        )),
+        ("Frage 1 · Relevanz", question1),
+    ]
+    if row.get("esg_relevance") == "yes":
+        lines += [
+            ("Frage 2 · Merkmal", question2),
+            ("Ausschlusswünsche", ", ".join(sustainability.exclusion_labels(exclusions)) or "keine"),
+            ("Verzicht", (
+                "dokumentierter Verzicht in der Anlageberatung (Begründung im Nachweis)"
+                if row.get("preference_waived") else "kein Verzicht"
+            )),
+            ("Information", "abgegeben und zur Kenntnis genommen"
+             if row.get("information_acknowledged") else "nicht dokumentiert"),
+        ]
+    lines += [
+        ("Ergebnis", sustainability.PROFILE_TEXTS.get(row.get("profile_code"), row.get("profile_code"))),
+        ("Kundenbestätigung", "bestätigt" if row.get("client_confirmed") else "ausstehend"),
+        ("Überprüfung", (
+            sustainability.review_policy_label(int(row.get("review_policy_months") or 0))
+            + f" Nächste Überprüfung bis {sustainability.format_date_ch(row.get('review_due_on'))}."
+        )),
+        ("Nachweis", f"Definition {row.get('definition_hash')} · Erfassung {row.get('decision_hash')}"),
+    ]
+    notes = list(sustainability.limit_texts(row.get("profile_code")))
+    if info.get("notice"):
+        notes.insert(0, info["notice"])
+    notes.append(sustainability.NO_RISK_EFFECT_TEXT)
+    return {"state": info["state"], "lines": tuple(lines), "notes": tuple(notes)}
+
+
+def _assert_sustainability_texts_claim_free(view: dict) -> None:
+    """N-888-06: Werbe-Waechter zur Laufzeit (fail-closed). Kein Kunden-
+    dokument mit einer Produkt-/Portfolio-Bezeichnung wie "nachhaltig" oder
+    "verantwortungsbewusst" (FINMA-AM 05/2021); erlaubt sind nur die
+    Praeferenz-Begriffe (NEUTRAL_PREFERENCE_PHRASES)."""
+    texts = [str(part) for pair in view.get("lines", ()) for part in pair]
+    texts += [str(note) for note in view.get("notes", ())]
+    hits = sustainability.customer_text_claim_hits(" ".join(texts), ESG_CUSTOMER_CLAIM_LABELS)
+    if hits:
+        raise DomainError(
+            ReasonCode.SUSTAINABILITY_CLAIM_TEXT_BLOCKED,
+            "Beratungsprotokoll gesperrt: der Abschnitt Nachhaltigkeitspräferenzen "
+            f"enthält eine unzulässige Bezeichnung ({', '.join(hits)}).",
+            http_status=409,
+        )
+
+
 def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     """Beratungsprotokoll-Daten aus AdvisoryLog + letzter Empfehlung."""
     advisory_wealth = None
@@ -1996,6 +2085,14 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     except Exception as exc:  # noqa: BLE001 — PDF darf nicht crashen
         logger.warning("Protokoll data: knowledge gap check failed: %s", exc)
 
+    # E2a (Dok. 106): Nachhaltigkeitspraeferenzen (Ladefehler sichtbar).
+    try:
+        sustainability_view = _sustainability_protocol_view(db, mandate)
+    except Exception as exc:  # noqa: BLE001 — PDF darf nicht crashen
+        logger.warning("Protokoll data: sustainability preference load failed: %s", exc)
+        sustainability_view = _SUSTAINABILITY_LOAD_FAILED
+    _assert_sustainability_texts_claim_free(sustainability_view)
+
     return ProtokollData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
         advisory_wealth_rappen=advisory_wealth,
@@ -2008,6 +2105,9 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
         risk_signoff_hash=risk_signoff_view.get("signoff_hash"),
         risk_signoff_lines=risk_signoff_view.get("lines", ()),
         knowledge_gap_hints=knowledge_gap_hints,
+        sustainability_state=sustainability_view["state"],
+        sustainability_lines=sustainability_view["lines"],
+        sustainability_notes=sustainability_view["notes"],
     )
 
 

@@ -954,6 +954,11 @@ ESG_CUSTOMER_CLAIM_LABELS: tuple[str, ...] = (
     "Best in Class",
     "ESG-Integration",
     "Nachhaltig",
+    # E2 (Dok. 106, FINMA-AM 05/2021): auch das zweite Profil-Label der
+    # Vorlage ist als Produkt-/Portfolio-Claim gesperrt. Praeferenz-Begriffe
+    # der Kundin bzw. des Kunden: core/sustainability_preference.py::
+    # NEUTRAL_PREFERENCE_PHRASES / customer_text_claim_hits().
+    "Verantwortungsbewusst",
 )
 
 

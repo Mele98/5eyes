@@ -590,6 +590,9 @@ class ContractDocumentResponse(BaseResponse):
     supersedes_id: Optional[str]
     pdf_path: Optional[str]
     checksum_sha256: Optional[str]
+    # E2a (Codex-Vertrag E2, Negativfall 10): Bindung an die bei der Erzeugung
+    # aktuelle Nachhaltigkeitspraeferenz (decision_hash bzw. 'keine-erfassung:').
+    bound_preference_decision_hash: Optional[str] = None
     # Dokumenten-Archiv (2026-08-20): NICHT pdf_base64 hier -- die Liste
     # bleibt bewusst leicht (kann pro Mandat viele Versionen enthalten),
     # die eigentlichen Bytes gibt es nur einzeln ueber

@@ -4007,7 +4007,9 @@ def _build_suitability_compliance(db: Session, mandate: Mandate) -> dict[str, An
     """
     try:
         from services.suitability_audit import audit_mandate_suitability
-        return audit_mandate_suitability(db, mandate)
+        # N-888-12: Praeferenz-Status nicht laden (Query-Budget, im Report
+        # nicht angezeigt); Eignungs-Endpunkt und Gates liefern ihn.
+        return audit_mandate_suitability(db, mandate, include_sustainability_preference=False)
     except Exception:  # noqa: BLE001
         return {
             "total_advisory_logs": 0,

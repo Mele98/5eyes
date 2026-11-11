@@ -54,7 +54,7 @@ from schemas.review import (
 )
 from price_updater import summarize_price_quality
 from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation
-from services.audit import log
+from services.audit import gate_block_audit, log
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
 from routers.auth import _extract_client_ip
@@ -87,7 +87,10 @@ from services.recommendation_release_gate import (
     CHANNEL_SIGNATURE,
     RECOMMENDATION_DOCUMENT_TYPES,
     SIGNOFF_BOUND_DOCUMENT_TYPES,
+    assert_preference_document_bound,
+    assert_preference_release_ready,
     assert_recommendation_release_eligible,
+    preference_state,
     assert_risk_signoff_release_eligible,
     risk_budget_release_errors,
 )
@@ -1762,6 +1765,18 @@ def create_document(
     return doc
 
 
+def _preference_audit(db: Session, current_user, mandate, request):
+    """E2a: Audit-Callback der Praeferenz-Gates; IP erst beim Block lesen."""
+    def _audit(payload: str, result: dict) -> None:
+        ip = _extract_client_ip(request) if request is not None else None
+        gate_block_audit(
+            db, user=current_user, mandate=mandate, ip_address=ip,
+            table_name="investment_preference_decisions", field_name="sustainability_preference_blocked",
+        )(payload, result)
+
+    return _audit
+
+
 @router.post("/mandates/{mandate_id}/documents/{doc_id}/sign",
              response_model=ContractDocumentResponse)
 def sign_document(
@@ -1816,6 +1831,13 @@ def sign_document(
     # CERT-SIGNED-PUBLICATION-001: signiert wird nur ein archiviertes,
     # pruefsummengesichertes PDF -- nie ein leerer Entwurf (VOR jeder
     # Mutation, nach den fachlichen Freigabe-Gates).
+    # E2a (Codex-Vertrag E2, Negativfaelle 4/6/7): nur ein an die AKTUELLE
+    # Nachhaltigkeitspraeferenz gebundenes Kundendokument ist signierbar;
+    # veraltete/nicht lesbare Erfassung sperrt (mit Audit-Eintrag).
+    assert_preference_document_bound(
+        db, mandate, doc, channel=CHANNEL_SIGNATURE,
+        audit=_preference_audit(db, current_user, mandate, request),
+    )
     from services.signature_artifact import assert_signable_artifact
 
     assert_signable_artifact(doc)
@@ -3907,6 +3929,10 @@ def generate_recommendation_run_endpoint(
         ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(result["run"])
+    # N-888-04: Praeferenz-Zustand als Hinweis (nicht erfasst / veraltet).
+    _notice = preference_state(db, mandate).get("notice")
+    if _notice:
+        result["warnings"] = list(result.get("warnings") or []) + [_notice]
     return result
 
 
@@ -4040,6 +4066,12 @@ def finalize_recommendation(
         raise HTTPException(status_code=422, detail="; ".join(errors))
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
     assert_portfolio_data_release_eligible(db, mandate, action="finalize")
+    # E2a (Negativfall 4): veraltete Text-/Policy-Version der
+    # Nachhaltigkeitspraeferenz blockiert die Finalisierung (mit Audit).
+    assert_preference_release_ready(
+        db, mandate, channel="finalize",
+        audit=_preference_audit(db, current_user, mandate, request),
+    )
     if cma_currency_warning:
         warnings.append(cma_currency_warning)
     # PREF-FINAL-001 (ESG-P0-3): jede Position wird mit demselben Matcher wie

@@ -584,6 +584,52 @@ BEFORE DELETE ON risk_capacity_plausibility_evaluations FOR EACH ROW
 BEGIN SELECT RAISE(ABORT, 'risk_capacity_plausibility_evaluations is immutable'); END;
 
 -- ===========================================================================
+-- E1 Nachhaltigkeitspraeferenzen (Dok. 106, 2026-11-07):
+-- InvestmentPreferenceDecisionV1 -- append-only Versionen je Mandat
+-- (database.py::INVESTMENT_PREFERENCE_DECISION_SQLITE_TABLE_DDL, textgleich).
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS investment_preference_decisions (
+    id                        TEXT PRIMARY KEY,
+    schema_version            TEXT NOT NULL DEFAULT 'InvestmentPreferenceDecisionV1',
+    tenant_id                 TEXT,
+    mandate_id                TEXT NOT NULL,
+    client_id                 TEXT,
+    sequence_no               INTEGER NOT NULL CHECK(sequence_no >= 1),
+    supersedes_id             TEXT,
+    questionnaire_version     TEXT NOT NULL,
+    definition_hash           TEXT NOT NULL,
+    derivation_version        TEXT NOT NULL,
+    response_status           TEXT NOT NULL CHECK(response_status IN ('answered','declined')),
+    esg_relevance             TEXT CHECK(esg_relevance IS NULL OR esg_relevance IN ('yes','not_relevant')),
+    esg_characteristic        TEXT CHECK(esg_characteristic IS NULL OR esg_characteristic IN ('sdg_alignment','esg_factors','no_specific')),
+    exclusions_json           TEXT NOT NULL,
+    preference_waived         INTEGER NOT NULL CHECK(preference_waived IN (0,1)),
+    waiver_reason_sealed      TEXT,
+    profile_code              TEXT NOT NULL CHECK(profile_code IN ('no_preference','sdg_goals','esg_factors','unspecified','declined')),
+    information_acknowledged  INTEGER NOT NULL CHECK(information_acknowledged IN (0,1)),
+    client_confirmed          INTEGER NOT NULL CHECK(client_confirmed IN (0,1)),
+    capture_channel           TEXT NOT NULL CHECK(capture_channel IN ('in_person','phone','video','written')),
+    mandate_type_at_capture   TEXT,
+    review_policy_version     TEXT NOT NULL,
+    review_policy_months      INTEGER NOT NULL,
+    review_due_on             TEXT NOT NULL,
+    captured_by               TEXT NOT NULL REFERENCES users(id),
+    captured_at               TEXT NOT NULL,
+    decision_hash             TEXT NOT NULL,
+    created_at                TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_investment_preference_decisions_sequence
+    ON investment_preference_decisions(mandate_id, sequence_no);
+CREATE INDEX IF NOT EXISTS ix_investment_preference_decisions_tenant_id
+    ON investment_preference_decisions(tenant_id);
+CREATE TRIGGER IF NOT EXISTS trg_investment_preference_decisions_no_update
+BEFORE UPDATE ON investment_preference_decisions FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'investment_preference_decisions is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_investment_preference_decisions_no_delete
+BEFORE DELETE ON investment_preference_decisions FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'investment_preference_decisions is immutable'); END;
+
+-- ===========================================================================
 -- RISK-PROFILE-SIGNOFF-001 (Codex-Closure-Review zu PR #657, 2026-10-20):
 -- RiskProfileSignoffV1 -- append-only, gehashter Nachweis JEDER Signatur des
 -- Risikoprofils, gebunden an Assessment-Version, wirksames Profil/Score und

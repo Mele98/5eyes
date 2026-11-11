@@ -67,6 +67,8 @@ SEALED_APPEND_ONLY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("goal_revision_decisions", "reason"),
     ("financial_coverage_attestations", "household_persons_json"),
     ("financial_coverage_attestations", "note"),
+    # E1 Nachhaltigkeitspraeferenzen: Begruendung eines Kundenverzichts.
+    ("investment_preference_decisions", "waiver_reason_sealed"),
 )
 
 

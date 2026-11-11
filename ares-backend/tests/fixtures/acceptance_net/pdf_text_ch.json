@@ -2,11 +2,15 @@
  "protokoll": {
   "page_text": [
    {
-    "chars": 919,
-    "sha256": "77aeb47f34f61f8ae9c0af1f67676c18c19ac86eae95ac162b40c52ad728f79d"
+    "chars": 914,
+    "sha256": "b871d808bcee5bde8ad88d7b3e217a7ab5f7a4475d626016343fe1d098425e8c"
+   },
+   {
+    "chars": 490,
+    "sha256": "5c609819baf69b111b2b2fe4946d46ffbd5fdd4e5d64efed43c2f47cfa3af7f5"
    }
   ],
-  "pages": 1
+  "pages": 2
  },
  "risikoprofil": {
   "page_text": [

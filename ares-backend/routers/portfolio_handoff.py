@@ -37,7 +37,7 @@ from schemas.portfolio_handoff import (
     PortfolioHandoffPreviewResponse,
     PortfolioHandoffResponse,
 )
-from services.audit import log
+from services.audit import gate_block_audit, log
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.portfolio_handoff import (
     HoldingsValuationIncompleteError,
@@ -48,6 +48,7 @@ from services.portfolio_handoff import (
 )
 from services.recommendation_release_gate import (
     CHANNEL_HANDOFF,
+    assert_preference_release_ready,
     assert_recommendation_release_eligible,
     assert_risk_signoff_release_eligible,
 )
@@ -242,6 +243,15 @@ def create_portfolio_handoff(
     # Persistierung.
     assert_recommendation_release_eligible(
         db, mandate, channel=CHANNEL_HANDOFF, run=run,
+    )
+    # E2a (Negativfall 4/6): veraltete/nicht lesbare Nachhaltigkeitspraeferenz
+    # sperrt die Weiterleitung (mit Audit-Eintrag).
+    assert_preference_release_ready(
+        db, mandate, channel=CHANNEL_HANDOFF,
+        audit=gate_block_audit(
+            db, user=current_user, mandate=mandate, ip_address=_extract_client_ip(request),
+            table_name="investment_preference_decisions", field_name="sustainability_preference_blocked",
+        ),
     )
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
     from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible

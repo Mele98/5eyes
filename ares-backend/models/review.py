@@ -94,6 +94,13 @@ class ContractDocument(Base):
     signature_client_signer_name = Column(String)
     signature_client_signed_at = Column(String)
     signature_client_ip = Column(String)
+    # E2a (Dok. 106, Codex-Vertrag E2): Bindung eines archivierten
+    # Kundendokuments an die Nachhaltigkeitspraeferenz, die bei der Erzeugung
+    # aktuell war (decision_hash bzw. 'keine-erfassung:<mandat>'). Signatur,
+    # Vor-Ort-Signatur und Handoff vergleichen sie mit der aktuellen
+    # Erfassung; eine neue Erfassung macht alte Dokumente unwirksam.
+    # NULL = Altbestand vor E2 (gebunden nur, solange keine Erfassung besteht).
+    bound_preference_decision_hash = Column(String)
     version = Column(Integer, nullable=False, default=1)
     supersedes_id = Column(String)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)

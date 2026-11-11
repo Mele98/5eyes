@@ -29,10 +29,14 @@ Verletzung).
 """
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Optional
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from core import sustainability_preference as sustainability
+from core.evidence import evidence_hash
 from core.reason_codes import DomainError
 
 RISK_BUDGET_EVIDENCE_MISSING = "RISK_BUDGET_EVIDENCE_MISSING"
@@ -315,3 +319,67 @@ def assert_current_allocation_without_adr12a_hold(
         channel=channel,
         channel_label=_CHANNEL_LABELS.get(channel, "Freigabe nicht möglich"),
     )
+
+
+# ---------------------------------------------------------------------------
+# E2a: Zustand und Gates der Nachhaltigkeitspraeferenz (Codex-Vertrag E2)
+# ---------------------------------------------------------------------------
+#
+# Eine Logik (core/sustainability_preference.py::load_state) fuer API, PDF,
+# Gates, Eignungspruefung und Archiv (Negativfall 10). Veraltete oder nicht
+# lesbare Erfassung blockiert Finalisierung, Signatur, Vor-Ort-Signatur und
+# Weiterleitung (Negativfaelle 4/6); ein Kundendokument, das nicht an die
+# aktuelle Erfassung gebunden ist, ist nicht signierbar (Negativfall 7).
+# ``audit`` (Router-Callback, services/audit.py::gate_block_audit) schreibt
+# den Block tenantgebunden VOR dem Fehler. Keine Engine-Wirkung.
+
+
+def _today() -> str:
+    return date.today().isoformat()
+
+
+def preference_state(db: Session, mandate: Any) -> dict:
+    return sustainability.load_state(
+        lambda sql, params: db.execute(text(sql), params).mappings().first(),
+        lambda sql, params: db.execute(text(sql), params).scalar(),
+        evidence_hash,
+        mandate_id=mandate.id,
+        tenant_id=getattr(mandate, "tenant_id", None),
+        mandate_type=getattr(mandate, "mandate_type", None),
+        today_iso=_today(),
+    )
+
+
+def _preference_block(info: dict, channel: str, audit, code: str, message: str, state: str) -> None:
+    decision_id = (info.get("decision") or {}).get("id")
+    if audit is not None:
+        audit(
+            sustainability.release_audit_payload({**info, "state": state}, channel, decision_id),
+            {"decision_id": decision_id},
+        )
+    raise DomainError(code, message, http_status=409, extra={"channel": channel, "state": state})
+
+
+def assert_preference_release_ready(
+    db: Session, mandate: Any, *, channel: str, audit: Optional[Any] = None,
+) -> dict:
+    info = preference_state(db, mandate)
+    violation = sustainability.release_violation(info, channel)
+    if violation is not None:
+        _preference_block(info, channel, audit, violation[0], violation[1], info["state"])
+    return info
+
+
+def assert_preference_document_bound(
+    db: Session, mandate: Any, document: Any, *, channel: str, audit: Optional[Any] = None,
+) -> None:
+    if str(getattr(document, "document_type", "") or "") not in sustainability.PREFERENCE_BOUND_DOCUMENT_TYPES:
+        return
+    info = assert_preference_release_ready(db, mandate, channel=channel, audit=audit)
+    violation = sustainability.document_violation(
+        info, getattr(document, "document_type", None),
+        getattr(document, "bound_preference_decision_hash", None),
+        getattr(document, "title", "") or getattr(document, "document_type", ""), channel,
+    )
+    if violation is not None:
+        _preference_block(info, channel, audit, violation[0], violation[1], violation[2])
