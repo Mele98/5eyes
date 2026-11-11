@@ -35,6 +35,7 @@
     "TOM-BACKUP": {"description": "Verschluesselte Sicherung mit Wiederherstellungsprobe", "evidence": ["ares-backend/services/backup.py"]},
     "TOM-RETENTION-ERASURE": {"description": "Aufbewahrungsmatrix, Legal Hold und Loeschvorgang mit Beleg", "evidence": ["ares-backend/services/privacy_erasure.py", "ares-backend/services/privacy_erasure_inventory.py"]},
     "TOM-PRIVACY-CASES": {"description": "Betroffenenanfragen als Fall mit Identitaetspruefung, Frist, Entscheid und Zustellnachweis; Export nur ueber den Fall", "evidence": ["ares-backend/services/privacy_subject_requests.py"]},
+    "TOM-EGRESS-ALLOWLIST": {"description": "Ausgehende Verbindungen nur gemaess Egress-Manifest (fail-closed), Feld-Allowlist und Payload-Pruefung gegen Personendaten", "evidence": ["ares-backend/config/outbound_processing_manifest.json", "ares-backend/services/egress_manifest.py"]},
     "TOM-DESKTOP-HARDENING": {"description": "Desktop-Shell: nur lokale Oberflaeche, Navigation und Fenster gesperrt, Renderer nur zum lokalen Backend", "evidence": ["ares-desktop/main.js", "ares-desktop/frontend/ares.html"]}
   },
   "activities": [
@@ -105,10 +106,10 @@
       "data_subjects": ["portal_users"],
       "data_categories": ["client_portal_account", "authentication_security"],
       "tables": ["client_logins", "users", "refresh_tokens"],
-      "recipients": ["Administration der Firma"],
-      "egress_channels": [],
+      "recipients": ["Administration der Firma", "E-Mail-Anbieter der Firma (nur wenn SMTP aktiviert)"],
+      "egress_channels": ["mail.smtp"],
       "retention": {"evidence_types": ["client_portal_account"], "source": "Aufbewahrungsmatrix (Datenschutz > Aufbewahrung), nur genehmigte Zeilen wirken", "basis": {"owner_field": "activity.PA-06.retention_basis", "label": "Begruendung der Aufbewahrungsdauer: Kundenportal", "kind": "text", "blocking": "customer_output"}},
-      "toms": ["TOM-ACCESS-RBAC", "TOM-TENANT-ISOLATION", "TOM-AUTH-HARDENING", "TOM-AUDIT-TRAIL"]
+      "toms": ["TOM-ACCESS-RBAC", "TOM-TENANT-ISOLATION", "TOM-AUTH-HARDENING", "TOM-AUDIT-TRAIL", "TOM-EGRESS-ALLOWLIST"]
     },
     {
       "id": "PA-07",
@@ -117,10 +118,10 @@
       "data_subjects": ["staff"],
       "data_categories": ["staff_account", "authentication_security"],
       "tables": ["users", "adviser_registrations", "refresh_tokens", "login_attempts", "login_lockouts", "privacy_role_designations"],
-      "recipients": ["Administration der Firma"],
-      "egress_channels": [],
+      "recipients": ["Administration der Firma", "E-Mail-Anbieter der Firma (nur wenn SMTP aktiviert)"],
+      "egress_channels": ["mail.smtp"],
       "retention": {"evidence_types": [], "source": "Betriebliche Aufbewahrung der Firma (Personaldaten, nicht Teil der Kunden-Aufbewahrungsmatrix)", "basis": {"owner_field": "activity.PA-07.retention_basis", "label": "Begruendung der Aufbewahrungsdauer: Benutzerkonten der Mitarbeitenden", "kind": "text", "blocking": "informational"}},
-      "toms": ["TOM-ACCESS-RBAC", "TOM-AUTH-HARDENING", "TOM-AUDIT-TRAIL"]
+      "toms": ["TOM-ACCESS-RBAC", "TOM-AUTH-HARDENING", "TOM-AUDIT-TRAIL", "TOM-EGRESS-ALLOWLIST"]
     },
     {
       "id": "PA-08",
@@ -129,10 +130,10 @@
       "data_subjects": ["clients", "staff"],
       "data_categories": ["audit_trail", "authentication_security"],
       "tables": ["audit_log"],
-      "recipients": ["Administration der Firma"],
-      "egress_channels": [],
+      "recipients": ["Administration der Firma", "Fehlerdienst (nur wenn Telemetrie aktiviert; Inhalte vor Versand entfernt)"],
+      "egress_channels": ["telemetry.error_reporting"],
       "retention": {"evidence_types": ["audit_trail"], "source": "Aufbewahrungsmatrix (Datenschutz > Aufbewahrung), nur genehmigte Zeilen wirken", "basis": {"owner_field": "activity.PA-08.retention_basis", "label": "Begruendung der Aufbewahrungsdauer: Protokoll", "kind": "text", "blocking": "customer_output"}},
-      "toms": ["TOM-AUDIT-TRAIL", "TOM-TENANT-ISOLATION", "TOM-ENCRYPTION-AT-REST"]
+      "toms": ["TOM-AUDIT-TRAIL", "TOM-TENANT-ISOLATION", "TOM-ENCRYPTION-AT-REST", "TOM-EGRESS-ALLOWLIST"]
     },
     {
       "id": "PA-09",

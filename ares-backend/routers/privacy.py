@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+import database as _database
 from database import get_db
 from models.privacy import (
     PrivacyErasureCase,
@@ -447,6 +448,7 @@ def set_owner_field(field_key: str, body: OwnerValueUpdate, request: Request, db
         record_id=row.id, action="UPDATE", field_name=field_key, old_value=old_value, new_value=row.value,
         ip_address=extract_client_ip(request))
     db.commit()
+    gov.refresh_egress_confirmations(db, _tenant(current_user))
     return {"field_key": row.field_key, "value": row.value, "revision": row.revision,
             "status": row.status, "confirmed_by": row.confirmed_by, "confirmed_at": row.confirmed_at}
 
@@ -626,3 +628,23 @@ def withdraw_subject_request(request_id: str, body: SubjectRequestWithdrawal, re
                              db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     case = gov.subject_requests.withdraw(db, _subject_request(db, request_id, current_user), reason=body.reason)
     return _subject_request_step(db, current_user, request, case, "withdraw")
+
+
+# ── H10 C-DSG-03: Egress-Manifest ──────────────────────────────────────────────
+
+def install_egress_guard() -> None:
+    """Beim App-Start (main.py lifespan): Laufzeitschutz fuer ausgehende
+    Verbindungen gemaess Egress-Manifest einschalten."""
+    gov.activate_egress_guard(_database.SessionLocal)
+
+
+def uninstall_egress_guard() -> None:
+    gov.deactivate_egress_guard()
+
+
+@router.get("/egress-manifest")
+def get_egress_manifest(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    """Alle ausgehenden Kanaele mit Staat/Garantie (Owner-Felder), Laufzeit-
+    status (aktiv, erlaubt, bestaetigt) und den zuletzt blockierten Versuchen
+    (nur Kanal, Host, Grund)."""
+    return gov.egress_view(db, _tenant(current_user))

@@ -15,9 +15,11 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from config import settings
 from core.reason_codes import DomainError, ReasonCode
 from database import Base, new_uuid
 from models.privacy import PrivacyOwnerValue
+from services import egress_manifest
 from services import processing_activity_register as register_module
 
 OWNER_VALUE_MAX_LENGTH = 2000
@@ -33,12 +35,16 @@ def now_iso(now: datetime | None = None) -> str:
 # ── Owner-Felder ───────────────────────────────────────────────────────────────
 
 def owner_field_definitions() -> list[dict[str, Any]]:
-    """Alle Owner-Felder (Register), je Schluessel einmal."""
+    """Alle Owner-Felder (Register und Egress-Manifest), je Schluessel einmal."""
+    fields: list[dict[str, Any]] = []
     try:
-        register = register_module.load_register()
+        fields.extend(register_module.iter_owner_fields(register_module.load_register(), source="register"))
     except register_module.RegisterUnavailable:
-        return []
-    fields = register_module.iter_owner_fields(register, source="register")
+        pass
+    try:
+        fields.extend(register_module.iter_owner_fields(egress_manifest.load_manifest(), source="egress_manifest"))
+    except egress_manifest.ManifestUnavailable:
+        pass
     seen: set[str] = set()
     unique: list[dict[str, Any]] = []
     for field in fields:
@@ -109,12 +115,46 @@ def set_owner_value(
     return row, old_value
 
 
-def open_blocking_fields(db: Session, tenant_id: str) -> list[dict[str, Any]]:
-    """Offene Owner-Felder, die die kundenwirksame Ausgabe sperren."""
+def configured_personal_channels(settings_obj: Any = None) -> set[str]:
+    """Kanaele mit Personendaten, die in dieser Installation konfiguriert sind."""
+    try:
+        manifest = egress_manifest.load_manifest()
+    except egress_manifest.ManifestUnavailable:
+        return set()
+    source = settings_obj if settings_obj is not None else settings
+    return {
+        channel["id"] for channel in egress_manifest.channels(manifest)
+        if egress_manifest.blocking_owner_keys(channel) and egress_manifest.channel_enabled(channel, source)
+    }
+
+
+def confirmed_egress_channels(db: Session, tenant_id: str) -> set[str]:
+    """Kanaele, deren sperrende Owner-Felder (Staat, Garantie) bestaetigt sind."""
+    try:
+        manifest = egress_manifest.load_manifest()
+    except egress_manifest.ManifestUnavailable:
+        return set()
+    values = owner_values(db, tenant_id)
+    confirmed = set()
+    for channel in egress_manifest.channels(manifest):
+        keys = egress_manifest.blocking_owner_keys(channel)
+        if keys and all(values.get(key) for key in keys):
+            confirmed.add(channel["id"])
+    return confirmed
+
+
+def open_blocking_fields(db: Session, tenant_id: str, *, settings_obj: Any = None) -> list[dict[str, Any]]:
+    """Offene Owner-Felder, die die kundenwirksame Ausgabe sperren: Pflicht-
+    angaben des Registers und Staat/Garantie konfigurierter Kanaele mit
+    Personendaten (sie gehoeren in die Auskunft)."""
+    active_channels = configured_personal_channels(settings_obj)
     return [
         {"key": f["key"], "label": f["label"]}
         for f in owner_field_status(db, tenant_id)
-        if f["status"] == "OPEN" and f["blocking"] == register_module.BLOCKING_CUSTOMER_OUTPUT
+        if f["status"] == "OPEN" and (
+            f["blocking"] == register_module.BLOCKING_CUSTOMER_OUTPUT
+            or (f["blocking"] == register_module.BLOCKING_CHANNEL and f.get("channel") in active_channels)
+        )
     ]
 
 
@@ -129,6 +169,10 @@ def register_view(db: Session, tenant_id: str) -> dict[str, Any]:
             "owner_fields": [], "open_blocking_fields": [], "register": None,
         }
     problems = register_module.register_problems(Base.metadata.tables, register, check_evidence_files=False)
+    try:
+        problems += egress_manifest.manifest_problems(egress_manifest.load_manifest(), check_files=False)
+    except egress_manifest.ManifestUnavailable as exc:
+        problems.append(str(exc))
     values = owner_values(db, tenant_id)
     blocking = open_blocking_fields(db, tenant_id)
     return {
@@ -140,6 +184,22 @@ def register_view(db: Session, tenant_id: str) -> dict[str, Any]:
         "open_blocking_fields": blocking,
         "customer_output_ready": not problems and not blocking,
         "register": register_module.resolve_owner_fields(register, values),
+    }
+
+
+def egress_view(db: Session, tenant_id: str) -> dict[str, Any]:
+    """Manifest mit aufgeloesten Owner-Feldern und Laufzeitstatus."""
+    try:
+        manifest = egress_manifest.load_manifest()
+    except egress_manifest.ManifestUnavailable as exc:
+        return {"available": False, "problems": [str(exc)], "runtime": egress_manifest.runtime_status()}
+    return {
+        "available": True,
+        "manifest_version": manifest.get("manifest_version"),
+        "manifest_sha256": register_module.document_sha256(manifest),
+        "problems": egress_manifest.manifest_problems(manifest, check_files=False),
+        "manifest": register_module.resolve_owner_fields(manifest, owner_values(db, tenant_id)),
+        "runtime": egress_manifest.runtime_status(),
     }
 
 

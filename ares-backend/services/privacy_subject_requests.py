@@ -34,6 +34,7 @@ from core.reason_codes import DomainError, ReasonCode
 from database import new_uuid
 from models.privacy import PrivacyErasureCase, PrivacySubjectRequest
 from services import data_export
+from services import egress_manifest
 from services import privacy_owner_values as owner_values_module
 from services import processing_activity_register as register_module
 
@@ -288,12 +289,22 @@ def _privacy_information(db: Session, tenant_id: str) -> dict[str, Any]:
         for activity in resolved["activities"]
         if {"clients", "client_partners", "representatives", "portal_users"} & set(activity["data_subjects"])
     ]
+    manifest = register_module.resolve_owner_fields(egress_manifest.load_manifest(), values)
+    configured = owner_values_module.configured_personal_channels()
+    disclosures = [
+        {
+            "channel": channel["id"], "purpose": channel["purpose"], "transmitted_data": channel["transmitted_data"],
+            "destination_country": channel["destination_country"], "guarantee": channel["guarantee"],
+        }
+        for channel in egress_manifest.channels(manifest) if channel["id"] in configured
+    ]
     return {
         "register_version": register["register_version"],
         "register_sha256": register_module.document_sha256(register),
         "controller": resolved["controller"],
         "additional_recipients": resolved["register_owner_fields"]["additional_recipients"],
         "activities": activities,
+        "foreign_disclosures": disclosures,
     }
 
 

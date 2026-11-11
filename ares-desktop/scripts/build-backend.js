@@ -180,6 +180,7 @@ const collectSubmodules = [
 // jeder externe Kanal gesperrt (fail-closed).
 const privacyConfigFiles = [
   'config/processing_activities.json',
+  'config/outbound_processing_manifest.json',
 ];
 
 const pyInstallerArgs = [

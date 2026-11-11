@@ -29,6 +29,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from services import egress_manifest
 from services import privacy_erasure_inventory as erasure_inventory
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -220,6 +221,24 @@ def register_problems(
                 problems.append(
                     f"{table}: Nachweisart {category.evidence_type} von keiner zugeordneten Bearbeitung abgedeckt"
                 )
+
+    try:
+        manifest = egress_manifest.load_manifest()
+    except egress_manifest.ManifestUnavailable as exc:
+        problems.append(str(exc))
+        manifest = {"channels": []}
+    channel_ids = {c.get("id") for c in egress_manifest.channels(manifest)}
+    referenced: set[str] = set()
+    for activity in activities:
+        for channel_id in activity.get("egress_channels") or []:
+            referenced.add(channel_id)
+            if channel_id not in channel_ids:
+                problems.append(f"{activity.get('id')}: unbekannter Egress-Kanal {channel_id}")
+    for channel in egress_manifest.channels(manifest):
+        guarantee = channel.get("guarantee") or {}
+        if channel.get("personal_data") is True and guarantee.get("status") != "OPERATOR_INFRASTRUCTURE":
+            if channel.get("id") not in referenced:
+                problems.append(f"Egress-Kanal {channel.get('id')} mit Personendaten keiner Bearbeitung zugeordnet")
 
     keys = [field["key"] for field in iter_owner_fields(reg, source="register")]
     for key in sorted({k for k in keys if keys.count(k) > 1}):

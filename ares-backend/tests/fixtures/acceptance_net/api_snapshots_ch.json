@@ -488,7 +488,7 @@
   "status": 200
  },
  "privacy.subject_request.export": {
-  "sha256": "bc6e854a895bfaf16a0e21f05971e864f50943dd6f6f367f9acf0d317f373811",
+  "sha256": "db1743ed094dafd30055a832e6e298e9140561bd4a940baf551a62735c328ecf",
   "shape": {
    "decision": "str",
    "export": {
@@ -894,6 +894,35 @@
         ]
        },
        "egress_channels": {
+        "list_of": [
+         "str"
+        ]
+       },
+       "id": "str",
+       "name": "str",
+       "purpose": "str",
+       "recipients": {
+        "list_of": [
+         "str"
+        ]
+       },
+       "retention": {
+        "basis": {
+         "label": "str",
+         "owner_field": "str",
+         "status": "str",
+         "value": "str"
+        },
+        "source": "str"
+       }
+      },
+      {
+       "data_categories": {
+        "list_of": [
+         "str"
+        ]
+       },
+       "egress_channels": {
         "list_of": []
        },
        "id": "str",
@@ -947,6 +976,9 @@
       "status": "str",
       "value": "str"
      }
+    },
+    "foreign_disclosures": {
+     "list_of": []
     },
     "register_sha256": "str",
     "register_version": "str"
