@@ -140,7 +140,7 @@ def test_pdf_plan_solvency_line_appears_once_with_label():
     ])
     text = paragraph.getPlainText()
     assert text.count("Plan-Solvenz (alle Ziele gemeinsam)") == 1
-    assert "31%" in text
+    assert "31 %" in text  # G7: gemeinsamer Formatter
     # Ohne Planzeile (Altbewertung) wird kein Wert erfunden.
     assert make_plan_solvency_line([_goal_row("a", "X", 0.9, "erreichbar")]).getPlainText() == ""
 

@@ -51,8 +51,9 @@ def test_var_explanation_matches_computed_confidence_level():
 
 def test_two_volatility_figures_are_labelled_by_definition():
     flat = _text().replace("\n", " ")
-    assert "7.54%" in flat and "7.68 %" in flat
-    assert "MODELL" in flat[max(0, flat.index("7.54%") - 120):flat.index("7.54%") + 80].upper()
+    # G7: beide Werte ueber den gemeinsamen Formatter ("7.54 %").
+    assert "7.54 %" in flat and "7.68 %" in flat
+    assert "MODELL" in flat[max(0, flat.index("7.54 %") - 120):flat.index("7.54 %") + 80].upper()
     row = flat[max(0, flat.index("7.68 %") - 120):flat.index("7.68 %")]
     assert "simuliert" in row, row
 

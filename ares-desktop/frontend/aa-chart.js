@@ -7,7 +7,7 @@
 // Rundung (G7, presentation-rounding.js, Policy ares-rounding/1): Anteile werden
 // gemeinsam apportioniert (Largest Remainder, Decimal ROUND_HALF_UP): Klassen = 100.0 %,
 // Unterklassen (+ Rest) = angezeigter Klassenwert; Gleichstand: Klassenreihenfolge
-// bzw. Name. Gleiche Regel im PDF (services/presentation_rounding.py) -> kein Hinweis.
+// bzw. Name. Gleiche Regel im PDF (core/presentation_rounding.py) -> kein Hinweis.
 
 // Feste Reihenfolge der Anlageklassen -- nur Gleichstands-Regel beim Sortieren.
 function aaChartClassRank(key){

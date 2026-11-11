@@ -14,7 +14,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 
 from services.pdf.components.header import _esc
-from services.pdf.components.swiss_numbers import format_amount_minor, format_bps_as_pct
+from core.presentation_rounding import format_amount_minor, format_bps_as_pct
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_METRIC_BG,

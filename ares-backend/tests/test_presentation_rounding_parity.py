@@ -1,10 +1,10 @@
 """G7 -- gemeinsamer Rundungsformatter: Python (PDF) == Classic-App == React.
 
-Vertrag: ``services/presentation_rounding.py`` (Policy ``ares-rounding/1``).
+Vertrag: ``core/presentation_rounding.py`` (Policy ``ares-rounding/1``).
 Die drei Implementierungen werden hier
 
 1. gegen den von Hand gesetzten Golden-Vektor
-   ``services/presentation_rounding_golden.json`` (beide Typografien) und
+   ``core/presentation_rounding_golden.json`` (beide Typografien) und
 2. gegeneinander ueber den vollen Wertebereich (alle ganzen bps -10000..10000
    mit 0/1/2 Nachkommastellen, Geldbetraege, kompakte Betraege und
    deterministisch gezogene Apportionierungsfaelle)
@@ -24,13 +24,13 @@ from pathlib import Path
 
 import pytest
 
-from services import presentation_rounding as R
+from core import presentation_rounding as R
 
 ROOT = Path(__file__).resolve().parents[2]
 CLASSIC = ROOT / "ares-desktop" / "frontend" / "presentation-rounding.js"
 REACT = ROOT / "ares-desktop" / "frontend" / "reporting" / "src" / "lib" / "presentationRounding.ts"
 HTML = ROOT / "ares-desktop" / "frontend" / "ares.html"
-GOLDEN = R.GOLDEN_PATH
+GOLDEN = Path(R.golden_path())
 
 NB, MI = " ", "−"
 
@@ -226,7 +226,7 @@ def test_apportionment_preserves_sum_and_is_never_more_than_one_unit_off():
         n = rng.randint(1, 8)
         cuts = sorted(rng.randint(0, 10000) for _ in range(n - 1))
         parts = [b - a for a, b in zip([0] + cuts, cuts + [10000])]
-        shown = R.apportion_percent_bps(parts, 1)
+        shown = [Decimal(v) for v in R.apportion_percent_bps(parts, 1)]
         assert sum(shown) == Decimal("100.0")
         for raw, disp in zip(parts, shown):
             exact = Decimal(raw) / 100
@@ -248,10 +248,8 @@ def test_sub_apportionment_sums_to_displayed_class_value():
             if total > bps:
                 continue
             sub_shown = R.apportion_sub_bps(shown[key], subs, bps)
-            if total == bps:
-                assert sum(sub_shown.values()) == shown[key]
-            else:
-                assert sum(sub_shown.values()) <= shown[key]
+            got = sum(Decimal(v) for v in sub_shown.values())
+            assert got == Decimal(shown[key]) if total == bps else got <= Decimal(shown[key])
 
 
 def test_negative_weights_are_not_apportioned():
@@ -264,10 +262,11 @@ def test_negative_weights_are_not_apportioned():
 # ---------------------------------------------------------------------------
 
 def test_monolith_loads_rounding_module_before_inline_script_and_chart():
-    html = HTML.read_text(encoding="utf-8")
+    from tests.monolith_source import read_monolith_bundle
+    html = read_monolith_bundle()
     tag = '<script src="./presentation-rounding.js"></script>'
     assert html.count(tag) == 1
-    assert html.index(tag) < html.index('<script src="./aa-chart.js"></script>')
+    assert html.index(tag) < html.index("function aaChartPrepare(")
     assert html.index(tag) < html.index("function fmtPct(")
 
 
@@ -276,6 +275,16 @@ def test_policy_version_is_identical_in_all_three_sources():
     react = REACT.read_text(encoding="utf-8")
     assert f"'{R.ROUNDING_POLICY_VERSION}'" in classic
     assert f"'{R.ROUNDING_POLICY_VERSION}'" in react
+
+
+def test_contract_module_name_reexports_core_and_returns_decimals():
+    """Codex-Vertragsname services.presentation_rounding (Reproducer 2026-11-11)."""
+    from services import presentation_rounding as contract
+    assert contract.ROUNDING_POLICY_VERSION == R.ROUNDING_POLICY_VERSION
+    assert contract.format_percent_bps(-1225, decimals=1) == "-12.3 %"
+    assert contract.apportion_percent_bps([3335, 3335, 3330], decimals=1) == [
+        Decimal("33.4"), Decimal("33.3"), Decimal("33.3")]
+    assert contract.format_money_minor(-1005, "USD", 2) == "USD -10.05"
 
 
 def test_artifact_rows_carry_raw_unit_policy_and_display():

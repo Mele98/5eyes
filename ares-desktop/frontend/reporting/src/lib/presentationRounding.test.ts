@@ -7,7 +7,7 @@ import { fmtPct, formatChfRappen } from './format';
 
 // G7: derselbe Golden-Vektor wie Python (PDF) und Classic-App.
 const here = dirname(fileURLToPath(import.meta.url));
-const goldenPath = resolve(here, '../../../../../ares-backend/services/presentation_rounding_golden.json');
+const goldenPath = resolve(here, '../../../../../ares-backend/core/presentation_rounding_golden.json');
 const golden = JSON.parse(readFileSync(goldenPath, 'utf8')) as {
   policy_version: string;
   cases: { id: string; fn: string; args: unknown[]; plain: string | string[]; screen: string | string[] }[];

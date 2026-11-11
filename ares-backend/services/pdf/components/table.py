@@ -1,7 +1,7 @@
 """SAA-Tabelle Komponente."""
 from __future__ import annotations
 
-from services.pdf.components.swiss_numbers import allocation_pct_texts, format_bps_as_pct
+from core.presentation_rounding import allocation_pct_texts, format_bps_as_pct
 
 from reportlab.lib import colors
 from reportlab.lib.units import mm

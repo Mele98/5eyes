@@ -24,7 +24,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
-from services.pdf.components.swiss_numbers import (
+from core.presentation_rounding import (
     allocation_pct_texts,
     format_bps_as_pct,
     sub_allocation_pct_texts,

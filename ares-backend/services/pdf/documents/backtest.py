@@ -19,7 +19,7 @@ from services.pdf.components.header import _esc, make_banner_header
 from services.pdf.components.text_sections import make_disclaimer_section
 from services.pdf.components.wealth_chart import make_wealth_chart
 from services.pdf.provisional_notice import make_provisional_notice_flowables
-from services.pdf.components.swiss_numbers import (
+from core.presentation_rounding import (
     format_amount_minor,
     format_bps_as_pct,
     format_minor_number,

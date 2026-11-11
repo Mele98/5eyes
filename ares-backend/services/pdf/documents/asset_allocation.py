@@ -14,7 +14,7 @@ from services.pdf.components.single_report_disclaimer import (
     make_single_report_disclaimer,
 )
 from services.pdf.provisional_notice import make_provisional_notice_flowables
-from services.pdf.components.swiss_numbers import (
+from core.presentation_rounding import (
     allocation_pct_texts,
     format_amount_minor,
     format_bps_as_pct,

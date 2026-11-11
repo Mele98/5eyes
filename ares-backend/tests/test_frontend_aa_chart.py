@@ -7,7 +7,7 @@ gleich: Gewichte/Betraege/Bandbreiten kommen unveraendert aus der Engine.
 
 Rundung (G7, Policy ares-rounding/1): dieselbe Zahl muss in Maske, PDF und
 Portfolio gleich erscheinen. Maske (aa-chart), ``fmtPct`` und der PDF-Formatter
-``services.presentation_rounding`` werden hier fuer alle ganzen bps OHNE
+``core.presentation_rounding`` werden hier fuer alle ganzen bps OHNE
 Ausnahme verglichen (vorher: dokumentierte Altabweichung bei |bps| % 100 == 25
 und toFixed-Artefakte). Anteile werden apportioniert (Largest Remainder): Klassen
 ergeben exakt 100.0 %, Unterklassen exakt ihre Klasse -- kein Rundungshinweis.
@@ -80,7 +80,7 @@ _RANGE = range(-10000, 10001)
 
 def _py_pct(bps: int, d: int = 1) -> str:
     """Referenz = PDF-Formatter (services.presentation_rounding, Typografie screen)."""
-    from services.presentation_rounding import format_percent_bps
+    from core.presentation_rounding import format_percent_bps
     return format_percent_bps(bps, d, typography="screen")
 
 

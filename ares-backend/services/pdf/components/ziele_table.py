@@ -16,7 +16,7 @@ from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.graphics.shapes import Drawing, Rect
 
 from services.pdf.components.header import _esc
-from services.pdf.components.swiss_numbers import format_amount_minor
+from core.presentation_rounding import format_amount_minor
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,

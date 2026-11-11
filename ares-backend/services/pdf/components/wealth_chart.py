@@ -5,7 +5,7 @@ zwei Linien (SOLL + optional Benchmark). Inline-SVG-freier Ansatz, der
 identisch funktioniert wie das Frontend-SVG aber als ReportLab-Drawing.
 """
 from __future__ import annotations
-from services.pdf.components.swiss_numbers import format_amount_minor
+from core.presentation_rounding import format_amount_minor
 
 from typing import Sequence
 

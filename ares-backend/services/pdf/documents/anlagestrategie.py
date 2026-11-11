@@ -30,7 +30,7 @@ from services.pdf.components.sollist_vergleich import (
     make_sollist_section_title,
 )
 from services.pdf.components.saa_bar_table import make_saa_bar_table
-from services.pdf.components.swiss_numbers import format_amount_minor, format_bps_as_pct
+from core.presentation_rounding import format_amount_minor, format_bps_as_pct
 from services.pdf.components.saa_donut import (
     make_saa_donut_with_legend,
     make_two_donuts_comparison,

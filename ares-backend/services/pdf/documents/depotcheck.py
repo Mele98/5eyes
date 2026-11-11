@@ -26,7 +26,7 @@ from services.pdf.components.single_report_disclaimer import (
 from services.pdf.components.stress_table import make_stress_table
 from services.pdf.components.wealth_chart import make_wealth_chart
 from services.pdf.styles import FONT_BOLD, FONT_DEFAULT, make_paragraph_styles
-from services.pdf.components.swiss_numbers import format_amount_minor, format_bps_as_pct
+from core.presentation_rounding import format_amount_minor, format_bps_as_pct
 
 
 def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:

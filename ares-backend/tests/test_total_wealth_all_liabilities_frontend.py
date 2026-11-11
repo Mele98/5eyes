@@ -93,10 +93,11 @@ process.stdout.write(JSON.stringify(mortgageLiabilityAndPledgedSeriesRappen(posi
 def _donut_script(html: str, total_allocation: dict, total_wealth: int) -> str:
     # Live-Test 2026-11 H2: der Kontexttext nutzt allocationReserveBreakdown().
     # H6: die Kennzahlen-Karte baut aaChartContextHtml() (aa-chart.js, Teil des Bundles).
+    # G7: Betraege ueber den echten formatRappen (gemeinsamer Formatter).
     sync = chr(10).join(
         _extract_js_function(html, name)
         for name in ("allocationReserveBreakdown", "aaChartEsc", "aaChartContextHtml",
-                     "syncAllocationDonutFromStrategyState")
+                     "formatRappen", "syncAllocationDonutFromStrategyState")
     )
     return (
         """
@@ -135,8 +136,8 @@ def test_classic_context_shows_net_foundation(tmp_path):
     }
     out = _run_node(tmp_path, _donut_script(html, payload, 40_000_000))["html"]
     # H6: Kennzahlen-Karte -- Label und Betrag als Zeile (Inhalt unveraendert).
-    assert "<span>davon Eigenheim-Fundament</span><strong>CHF 400000</strong>" in out, out
-    assert "CHF 500000" not in out, out
+    assert "<span>davon Eigenheim-Fundament</span><strong>CHF 400'000</strong>" in out, out
+    assert "CHF 500'000" not in out, out
     assert "ungedeckte" not in out, out
 
 
@@ -152,4 +153,4 @@ def test_classic_context_surfaces_uncovered_debt(tmp_path):
     out = _run_node(tmp_path, _donut_script(html, payload, 0))["html"]
     assert "<span>Reinvermögen (gesamt, netto aller Verbindlichkeiten)</span><strong>CHF 0</strong>" in out, out
     assert "Verbindlichkeiten übersteigen die Aktiven" in out, out
-    assert "ungedeckte Schulden CHF 30000" in out, out
+    assert "ungedeckte Schulden CHF 30'000" in out, out

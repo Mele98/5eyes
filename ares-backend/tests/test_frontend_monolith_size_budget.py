@@ -36,7 +36,7 @@ der Stand bei der Einfuehrung durch diesen PR).
 G7 (2026-11-11, gemeinsamer Rundungsformatter): Formatter-Logik nach
 ``presentation-rounding.js`` (eigenstaendiges Modul, STANDALONE_FRONTEND_MODULES)
 verlegt; fmtNumber/fmtPct/formatRappen u. a. delegieren nur noch. Monolith dadurch
-27619 / 1689693, ``aa-chart.js`` 329 / 20795 -- beide Budgets gesenkt.
+27619 / 1689693, ``aa-chart.js`` 329 / 20791 -- beide Budgets gesenkt.
 """
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ EXTRACTED_PART_BUDGETS = {
     "ares.css": (1143, 90070),
     "aa-chart.css": (66, 5978),
     "intro-sequence.js": (761, 36861),
-    "aa-chart.js": (329, 20795),
+    "aa-chart.js": (329, 20791),
     "goal-review-runtime.js": (1589, 84633),
 }
 

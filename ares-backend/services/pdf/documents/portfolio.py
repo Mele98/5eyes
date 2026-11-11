@@ -12,7 +12,7 @@ from services.pdf.components.single_report_disclaimer import (
     make_single_report_disclaimer,
 )
 from services.pdf.provisional_notice import make_provisional_notice_flowables
-from services.pdf.components.swiss_numbers import format_amount_minor, format_bps_as_pct
+from core.presentation_rounding import format_amount_minor, format_bps_as_pct
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,

@@ -1,6 +1,6 @@
 """SAA-Tortendiagramm via ReportLab-graphics."""
 from __future__ import annotations
-from services.pdf.components.swiss_numbers import format_bps_as_pct
+from core.presentation_rounding import format_bps_as_pct
 
 from reportlab.graphics.charts.legends import Legend
 from reportlab.graphics.charts.piecharts import Pie

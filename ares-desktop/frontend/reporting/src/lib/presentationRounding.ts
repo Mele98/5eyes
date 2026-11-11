@@ -1,10 +1,10 @@
 /**
  * G7 -- gemeinsamer Rundungsformatter (Policy "ares-rounding/1") fuer den
  * React-Report. Identischer Vertrag zu
- *   - ares-backend/services/presentation_rounding.py (PDF/Backend)
+ *   - ares-backend/core/presentation_rounding.py (PDF/Backend)
  *   - ares-desktop/frontend/presentation-rounding.js  (Classic-App)
  * gekoppelt ueber den Golden-Vektor
- * ares-backend/services/presentation_rounding_golden.json (presentationRounding.test.ts
+ * ares-backend/core/presentation_rounding_golden.json (presentationRounding.test.ts
  * und test_presentation_rounding_parity.py lesen ihn).
  *
  * Exakte Dezimalarithmetik (BigInt), ROUND_HALF_UP symmetrisch, kein

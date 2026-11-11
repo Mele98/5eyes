@@ -15,7 +15,7 @@ from services.pdf.components.depotcheck_soll import (
 from services.pdf.components.header import _esc, make_banner_header
 from services.pdf.components.single_report_disclaimer import make_single_report_cover
 from services.pdf.components.unterschrift import make_unterschrift_section
-from services.pdf.components.swiss_numbers import allocation_pct_texts, format_amount_minor, format_bps_as_pct
+from core.presentation_rounding import allocation_pct_texts, format_amount_minor, format_bps_as_pct
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TEXT,

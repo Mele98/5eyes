@@ -9540,8 +9540,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/aa-chart.js",
-      "sha256": "e6846b425fe261e132982a8ed7abefb111c37ec62e6f6d5bd07a9c3b0c49d0c2",
-      "size_bytes": 20795
+      "sha256": "21955974147bf64c13aa73ac1a48a082b8f0d62c73bf379d48e17adc5dd8dfbd",
+      "size_bytes": 20791
     },
     {
       "kind": "js",

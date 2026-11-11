@@ -12,7 +12,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
-from services.pdf.components.swiss_numbers import (
+from core.presentation_rounding import (
     format_amount_minor,
     format_bps_as_pct,
     format_bps_signed_pct,

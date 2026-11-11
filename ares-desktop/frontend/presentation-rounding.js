@@ -3,10 +3,10 @@
 // Skript ohne Abhaengigkeiten; global als window.AresRounding, in Node via
 // module.exports (Vertragstests).
 //
-// Derselbe Vertrag ist in ares-backend/services/presentation_rounding.py (PDF)
+// Derselbe Vertrag ist in ares-backend/core/presentation_rounding.py (PDF)
 // und reporting/src/lib/presentationRounding.ts (React) umgesetzt; alle drei
 // lesen in ihren Tests denselben Golden-Vektor
-// ares-backend/services/presentation_rounding_golden.json.
+// ares-backend/core/presentation_rounding_golden.json.
 //
 // Kurzfassung: exakte Dezimalarithmetik (BigInt), ROUND_HALF_UP symmetrisch
 // (+12.25 -> +12.3, -12.25 -> -12.3), kein toFixed/Math.round auf Anzeige-

@@ -14,7 +14,7 @@ from reportlab.platypus import KeepTogether, Paragraph, Spacer, Table, TableStyl
 from services.pdf.base import PDFContext
 from services.pdf.components.header import _esc, make_banner_header
 from services.pdf.components.unterschrift import make_unterschrift_section
-from services.pdf.components.swiss_numbers import format_amount_minor
+from core.presentation_rounding import format_amount_minor
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TEXT,

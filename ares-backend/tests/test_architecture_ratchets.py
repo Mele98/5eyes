@@ -293,7 +293,8 @@ def test_update_baseline_refuses_to_raise(gate, mini, tmp_path, monkeypatch):
 
 def test_exempt_leaves_allowlist_is_explicit_and_versioned(gate):
     """Explizite Liste, keine Mustererkennung; jede Aufnahme ist ein Review-Entscheid."""
-    assert gate.FAN_OUT_EXEMPT_LEAVES == frozenset({"core.evidence", "core.reason_codes"})
+    # G7 (2026-11-11): core.presentation_rounding als Review-Entscheid aufgenommen (Handoff H-153).
+    assert gate.FAN_OUT_EXEMPT_LEAVES == frozenset({"core.evidence", "core.reason_codes", "core.presentation_rounding"})
 
 
 def test_every_exempt_leaf_exists_and_is_a_pure_stdlib_leaf(gate):
