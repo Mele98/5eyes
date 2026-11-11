@@ -1,0 +1,949 @@
+{
+ "policy_version": "ares-rounding/1",
+ "description": "G7 gemeinsamer Rundungsformatter: EIN Golden-Vektor fuer Python (PDF/Backend), Classic-App und React. Erwartete Strings sind von Hand gesetzt, nicht aus einer Implementierung erzeugt.",
+ "rules": {
+  "rounding": "Decimal ROUND_HALF_UP symmetrisch (Gleichstand vom Nullpunkt weg); Floats ueber kuerzeste Round-trip-Darstellung",
+  "zero_sign": "auf 0 gerundete Werte ohne Vorzeichen",
+  "grouping": "Apostroph U+0027, Dezimalpunkt",
+  "no_value": "U+2014 fuer keine Angabe; 0 ist ein Wert",
+  "typography": {
+   "plain": {
+    "minus": "-",
+    "percent_separator": " "
+   },
+   "screen": {
+    "minus": "\u2212",
+    "percent_separator": "\u00a0"
+   }
+  },
+  "money": "<WAEHRUNG> <zahl>, Minor-Unit-Exponent explizit; signiert +<WAEHRUNG> <zahl>",
+  "apportionment": "Largest Remainder: floor auf Anzeigeeinheiten, Ziel = half-up(Gruppensumme) oder vorgegebener Anzeigewert, Rest an groesste Nachkommareste, Gleichstand in kanonischer Reihenfolge (equities, bonds, real_estate, alternatives, liquidity; Unterklassen nach Name)"
+ },
+ "cases": [
+  {
+   "id": "percent_1225_bps_1dp",
+   "fn": "percent_bps",
+   "args": [
+    1225,
+    1
+   ],
+   "plain": "12.3 %",
+   "screen": "12.3\u00a0%",
+   "why": "x.x25-Gleichstand: half-up (Python-format lieferte 12.2)"
+  },
+  {
+   "id": "percent_negative_1225_bps_1dp",
+   "fn": "percent_bps",
+   "args": [
+    -1225,
+    1
+   ],
+   "plain": "-12.3 %",
+   "screen": "\u221212.3\u00a0%",
+   "why": "symmetrisch vom Nullpunkt weg"
+  },
+  {
+   "id": "percent_1235_bps_1dp",
+   "fn": "percent_bps",
+   "args": [
+    1235,
+    1
+   ],
+   "plain": "12.4 %",
+   "screen": "12.4\u00a0%",
+   "why": "toFixed/format auf 12.35 (binaer 12.3499..) lieferten 12.3"
+  },
+  {
+   "id": "percent_negative_1235_bps_1dp",
+   "fn": "percent_bps",
+   "args": [
+    -1235,
+    1
+   ],
+   "plain": "-12.4 %",
+   "screen": "\u221212.4\u00a0%"
+  },
+  {
+   "id": "percent_1275_bps_1dp",
+   "fn": "percent_bps",
+   "args": [
+    1275,
+    1
+   ],
+   "plain": "12.8 %",
+   "screen": "12.8\u00a0%"
+  },
+  {
+   "id": "percent_1224_bps_1dp",
+   "fn": "percent_bps",
+   "args": [
+    1224,
+    1
+   ],
+   "plain": "12.2 %",
+   "screen": "12.2\u00a0%"
+  },
+  {
+   "id": "percent_25_bps_1dp",
+   "fn": "percent_bps",
+   "args": [
+    25,
+    1
+   ],
+   "plain": "0.3 %",
+   "screen": "0.3\u00a0%",
+   "why": "0.25 %: Python lieferte 0.2"
+  },
+  {
+   "id": "percent_5_bps_1dp",
+   "fn": "percent_bps",
+   "args": [
+    5,
+    1
+   ],
+   "plain": "0.1 %",
+   "screen": "0.1\u00a0%",
+   "why": "Grenzfall 0.05 %"
+  },
+  {
+   "id": "percent_4_bps_1dp",
+   "fn": "percent_bps",
+   "args": [
+    4,
+    1
+   ],
+   "plain": "0.0 %",
+   "screen": "0.0\u00a0%"
+  },
+  {
+   "id": "percent_negative_4_bps_1dp",
+   "fn": "percent_bps",
+   "args": [
+    -4,
+    1
+   ],
+   "plain": "0.0 %",
+   "screen": "0.0\u00a0%",
+   "why": "auf 0 gerundet: kein Vorzeichen"
+  },
+  {
+   "id": "percent_negative_5_bps_1dp",
+   "fn": "percent_bps",
+   "args": [
+    -5,
+    1
+   ],
+   "plain": "-0.1 %",
+   "screen": "\u22120.1\u00a0%"
+  },
+  {
+   "id": "percent_9995_bps_1dp",
+   "fn": "percent_bps",
+   "args": [
+    9995,
+    1
+   ],
+   "plain": "100.0 %",
+   "screen": "100.0\u00a0%",
+   "why": "Grenzfall 99.95 % (Python lieferte 99.9)"
+  },
+  {
+   "id": "percent_9994_bps_1dp",
+   "fn": "percent_bps",
+   "args": [
+    9994,
+    1
+   ],
+   "plain": "99.9 %",
+   "screen": "99.9\u00a0%"
+  },
+  {
+   "id": "percent_10000_bps_1dp",
+   "fn": "percent_bps",
+   "args": [
+    10000,
+    1
+   ],
+   "plain": "100.0 %",
+   "screen": "100.0\u00a0%"
+  },
+  {
+   "id": "percent_zero_bps_1dp",
+   "fn": "percent_bps",
+   "args": [
+    0,
+    1
+   ],
+   "plain": "0.0 %",
+   "screen": "0.0\u00a0%",
+   "why": "null ist ein Wert"
+  },
+  {
+   "id": "percent_none",
+   "fn": "percent_bps",
+   "args": [
+    null,
+    1
+   ],
+   "plain": "\u2014",
+   "screen": "\u2014",
+   "why": "keine Angabe"
+  },
+  {
+   "id": "percent_25_bps_2dp",
+   "fn": "percent_bps",
+   "args": [
+    25,
+    2
+   ],
+   "plain": "0.25 %",
+   "screen": "0.25\u00a0%"
+  },
+  {
+   "id": "percent_half_bps_2dp",
+   "fn": "percent_bps",
+   "args": [
+    "12.5",
+    2
+   ],
+   "plain": "0.13 %",
+   "screen": "0.13\u00a0%",
+   "why": "0.125 % half-up"
+  },
+  {
+   "id": "percent_250_bps_0dp",
+   "fn": "percent_bps",
+   "args": [
+    250,
+    0
+   ],
+   "plain": "3 %",
+   "screen": "3\u00a0%"
+  },
+  {
+   "id": "percent_negative_250_bps_0dp",
+   "fn": "percent_bps",
+   "args": [
+    -250,
+    0
+   ],
+   "plain": "-3 %",
+   "screen": "\u22123\u00a0%"
+  },
+  {
+   "id": "percent_150_bps_0dp",
+   "fn": "percent_bps",
+   "args": [
+    150,
+    0
+   ],
+   "plain": "2 %",
+   "screen": "2\u00a0%"
+  },
+  {
+   "id": "percent_float_bps_1dp",
+   "fn": "percent_bps",
+   "args": [
+    1234.5,
+    1
+   ],
+   "plain": "12.3 %",
+   "screen": "12.3\u00a0%"
+  },
+  {
+   "id": "percent_float_tie_bps_1dp",
+   "fn": "percent_bps",
+   "args": [
+    1235.0,
+    1
+   ],
+   "plain": "12.4 %",
+   "screen": "12.4\u00a0%"
+  },
+  {
+   "id": "percent_large_bps_1dp",
+   "fn": "percent_bps",
+   "args": [
+    12345678,
+    1
+   ],
+   "plain": "123'456.8 %",
+   "screen": "123'456.8\u00a0%"
+  },
+  {
+   "id": "signed_percent_450",
+   "fn": "signed_percent_bps",
+   "args": [
+    450,
+    1
+   ],
+   "plain": "+4.5 %",
+   "screen": "+4.5\u00a0%"
+  },
+  {
+   "id": "signed_percent_negative_450",
+   "fn": "signed_percent_bps",
+   "args": [
+    -450,
+    1
+   ],
+   "plain": "-4.5 %",
+   "screen": "\u22124.5\u00a0%"
+  },
+  {
+   "id": "signed_percent_zero",
+   "fn": "signed_percent_bps",
+   "args": [
+    0,
+    1
+   ],
+   "plain": "0.0 %",
+   "screen": "0.0\u00a0%"
+  },
+  {
+   "id": "signed_percent_4",
+   "fn": "signed_percent_bps",
+   "args": [
+    4,
+    1
+   ],
+   "plain": "0.0 %",
+   "screen": "0.0\u00a0%"
+  },
+  {
+   "id": "signed_percent_5",
+   "fn": "signed_percent_bps",
+   "args": [
+    5,
+    1
+   ],
+   "plain": "+0.1 %",
+   "screen": "+0.1\u00a0%"
+  },
+  {
+   "id": "signed_percent_1225",
+   "fn": "signed_percent_bps",
+   "args": [
+    1225,
+    1
+   ],
+   "plain": "+12.3 %",
+   "screen": "+12.3\u00a0%"
+  },
+  {
+   "id": "percent_value_1235",
+   "fn": "percent",
+   "args": [
+    12.35,
+    1
+   ],
+   "plain": "12.4 %",
+   "screen": "12.4\u00a0%"
+  },
+  {
+   "id": "percent_value_005",
+   "fn": "percent",
+   "args": [
+    0.05,
+    1
+   ],
+   "plain": "0.1 %",
+   "screen": "0.1\u00a0%"
+  },
+  {
+   "id": "percent_value_9995",
+   "fn": "percent",
+   "args": [
+    99.95,
+    1
+   ],
+   "plain": "100.0 %",
+   "screen": "100.0\u00a0%"
+  },
+  {
+   "id": "percent_value_negative_1225",
+   "fn": "percent",
+   "args": [
+    -12.25,
+    1
+   ],
+   "plain": "-12.3 %",
+   "screen": "\u221212.3\u00a0%"
+  },
+  {
+   "id": "percent_value_ter",
+   "fn": "percent",
+   "args": [
+    1.005,
+    2
+   ],
+   "plain": "1.01 %",
+   "screen": "1.01\u00a0%",
+   "why": "toFixed(2) lieferte 1.00"
+  },
+  {
+   "id": "probability_735",
+   "fn": "probability_pct",
+   "args": [
+    73.5
+   ],
+   "plain": "74 %",
+   "screen": "74\u00a0%"
+  },
+  {
+   "id": "probability_725",
+   "fn": "probability_pct",
+   "args": [
+    72.5
+   ],
+   "plain": "73 %",
+   "screen": "73\u00a0%",
+   "why": "Python round() lieferte 72"
+  },
+  {
+   "id": "probability_zero",
+   "fn": "probability_pct",
+   "args": [
+    0
+   ],
+   "plain": "0 %",
+   "screen": "0\u00a0%"
+  },
+  {
+   "id": "probability_none",
+   "fn": "probability_pct",
+   "args": [
+    null
+   ],
+   "plain": "\u2014",
+   "screen": "\u2014"
+  },
+  {
+   "id": "number_group_half_up",
+   "fn": "number",
+   "args": [
+    1234567.5,
+    0
+   ],
+   "plain": "1'234'568",
+   "screen": "1'234'568"
+  },
+  {
+   "id": "number_group_negative",
+   "fn": "number",
+   "args": [
+    -1234567.5,
+    0
+   ],
+   "plain": "-1'234'568",
+   "screen": "\u22121'234'568"
+  },
+  {
+   "id": "number_1005_2dp",
+   "fn": "number",
+   "args": [
+    1.005,
+    2
+   ],
+   "plain": "1.01",
+   "screen": "1.01"
+  },
+  {
+   "id": "number_zero",
+   "fn": "number",
+   "args": [
+    0,
+    0
+   ],
+   "plain": "0",
+   "screen": "0"
+  },
+  {
+   "id": "number_negative_rounds_to_zero",
+   "fn": "number",
+   "args": [
+    -0.4,
+    0
+   ],
+   "plain": "0",
+   "screen": "0"
+  },
+  {
+   "id": "number_999999_5",
+   "fn": "number",
+   "args": [
+    999999.5,
+    0
+   ],
+   "plain": "1'000'000",
+   "screen": "1'000'000"
+  },
+  {
+   "id": "signed_number_sharpe",
+   "fn": "signed_number",
+   "args": [
+    0.125,
+    2
+   ],
+   "plain": "+0.13",
+   "screen": "+0.13"
+  },
+  {
+   "id": "chf_minor",
+   "fn": "money_minor",
+   "args": [
+    1005,
+    "CHF",
+    2
+   ],
+   "plain": "CHF 10.05",
+   "screen": "CHF 10.05"
+  },
+  {
+   "id": "usd_minor",
+   "fn": "money_minor",
+   "args": [
+    -1005,
+    "USD",
+    2
+   ],
+   "plain": "USD -10.05",
+   "screen": "USD \u221210.05"
+  },
+  {
+   "id": "jpy_minor",
+   "fn": "money_minor",
+   "args": [
+    5,
+    "JPY",
+    0
+   ],
+   "plain": "JPY 5",
+   "screen": "JPY 5"
+  },
+  {
+   "id": "eur_minor_grouped",
+   "fn": "money_minor",
+   "args": [
+    -123456,
+    "EUR",
+    2
+   ],
+   "plain": "EUR -1'234.56",
+   "screen": "EUR \u22121'234.56"
+  },
+  {
+   "id": "chf_whole_250_rappen",
+   "fn": "money_minor",
+   "args": [
+    250,
+    "CHF",
+    2,
+    0
+   ],
+   "plain": "CHF 3",
+   "screen": "CHF 3",
+   "why": "Python-format auf 2.5 lieferte CHF 2"
+  },
+  {
+   "id": "chf_whole_150_rappen",
+   "fn": "money_minor",
+   "args": [
+    150,
+    "CHF",
+    2,
+    0
+   ],
+   "plain": "CHF 2",
+   "screen": "CHF 2"
+  },
+  {
+   "id": "chf_whole_negative_150_rappen",
+   "fn": "money_minor",
+   "args": [
+    -150,
+    "CHF",
+    2,
+    0
+   ],
+   "plain": "CHF -2",
+   "screen": "CHF \u22122",
+   "why": "JS Math.round(-1.5) lieferte -1"
+  },
+  {
+   "id": "chf_whole_grouped",
+   "fn": "money_minor",
+   "args": [
+    123456789,
+    "CHF",
+    2,
+    0
+   ],
+   "plain": "CHF 1'234'568",
+   "screen": "CHF 1'234'568"
+  },
+  {
+   "id": "chf_whole_zero",
+   "fn": "money_minor",
+   "args": [
+    0,
+    "CHF",
+    2,
+    0
+   ],
+   "plain": "CHF 0",
+   "screen": "CHF 0",
+   "why": "null ist ein Wert"
+  },
+  {
+   "id": "chf_none",
+   "fn": "money_minor",
+   "args": [
+    null,
+    "CHF",
+    2,
+    0
+   ],
+   "plain": "\u2014",
+   "screen": "\u2014",
+   "why": "keine Angabe"
+  },
+  {
+   "id": "usd_whole",
+   "fn": "money_minor",
+   "args": [
+    5000050,
+    "USD",
+    2,
+    0
+   ],
+   "plain": "USD 50'001",
+   "screen": "USD 50'001"
+  },
+  {
+   "id": "signed_chf_positive",
+   "fn": "signed_money_minor",
+   "args": [
+    123450,
+    "CHF",
+    2,
+    0
+   ],
+   "plain": "+CHF 1'235",
+   "screen": "+CHF 1'235"
+  },
+  {
+   "id": "signed_chf_negative",
+   "fn": "signed_money_minor",
+   "args": [
+    -123450,
+    "CHF",
+    2,
+    0
+   ],
+   "plain": "-CHF 1'235",
+   "screen": "\u2212CHF 1'235"
+  },
+  {
+   "id": "signed_chf_rounds_to_zero",
+   "fn": "signed_money_minor",
+   "args": [
+    40,
+    "CHF",
+    2,
+    0
+   ],
+   "plain": "CHF 0",
+   "screen": "CHF 0"
+  },
+  {
+   "id": "compact_chf_285",
+   "fn": "money_compact_minor",
+   "args": [
+    285000000,
+    "CHF",
+    2
+   ],
+   "plain": "CHF 2.85 Mio.",
+   "screen": "CHF 2.85 Mio."
+  },
+  {
+   "id": "compact_chf_270",
+   "fn": "money_compact_minor",
+   "args": [
+    270000000,
+    "CHF",
+    2
+   ],
+   "plain": "CHF 2.70 Mio.",
+   "screen": "CHF 2.70 Mio."
+  },
+  {
+   "id": "compact_chf_2855",
+   "fn": "money_compact_minor",
+   "args": [
+    285500000,
+    "CHF",
+    2
+   ],
+   "plain": "CHF 2.86 Mio.",
+   "screen": "CHF 2.86 Mio.",
+   "why": "2.855 half-up (toFixed lieferte 2.85)"
+  },
+  {
+   "id": "compact_chf_negative",
+   "fn": "money_compact_minor",
+   "args": [
+    -285500000,
+    "CHF",
+    2
+   ],
+   "plain": "CHF -2.86 Mio.",
+   "screen": "CHF \u22122.86 Mio."
+  },
+  {
+   "id": "compact_chf_below_million",
+   "fn": "money_compact_minor",
+   "args": [
+    99999950,
+    "CHF",
+    2
+   ],
+   "plain": "CHF 1'000'000",
+   "screen": "CHF 1'000'000",
+   "why": "Schwelle auf dem ungerundeten Betrag"
+  },
+  {
+   "id": "compact_chf_million",
+   "fn": "money_compact_minor",
+   "args": [
+    100000000,
+    "CHF",
+    2
+   ],
+   "plain": "CHF 1.00 Mio.",
+   "screen": "CHF 1.00 Mio."
+  },
+  {
+   "id": "weights_sum",
+   "fn": "apportioned_sum",
+   "args": [
+    [
+     3335,
+     3335,
+     3330
+    ],
+    1
+   ],
+   "plain": "100.0 %",
+   "screen": "100.0\u00a0%"
+  },
+  {
+   "id": "apportion_three_thirds",
+   "fn": "apportion_percent_bps",
+   "args": [
+    [
+     3335,
+     3335,
+     3330
+    ],
+    1
+   ],
+   "plain": [
+    "33.4 %",
+    "33.3 %",
+    "33.3 %"
+   ],
+   "screen": [
+    "33.4\u00a0%",
+    "33.3\u00a0%",
+    "33.3\u00a0%"
+   ],
+   "why": "Einzelrundung ergaebe 100.1 %"
+  },
+  {
+   "id": "apportion_largest_remainder",
+   "fn": "apportion_percent_bps",
+   "args": [
+    [
+     3334,
+     3333,
+     3333
+    ],
+    1
+   ],
+   "plain": [
+    "33.4 %",
+    "33.3 %",
+    "33.3 %"
+   ],
+   "screen": [
+    "33.4\u00a0%",
+    "33.3\u00a0%",
+    "33.3\u00a0%"
+   ]
+  },
+  {
+   "id": "apportion_tie_canonical_order",
+   "fn": "apportion_percent_bps",
+   "args": [
+    [
+     2505,
+     2505,
+     2495,
+     2495
+    ],
+    1
+   ],
+   "plain": [
+    "25.1 %",
+    "25.1 %",
+    "24.9 %",
+    "24.9 %"
+   ],
+   "screen": [
+    "25.1\u00a0%",
+    "25.1\u00a0%",
+    "24.9\u00a0%",
+    "24.9\u00a0%"
+   ],
+   "why": "Gleichstand: kanonische Reihenfolge"
+  },
+  {
+   "id": "apportion_9995_first",
+   "fn": "apportion_percent_bps",
+   "args": [
+    [
+     9995,
+     5
+    ],
+    1
+   ],
+   "plain": [
+    "100.0 %",
+    "0.0 %"
+   ],
+   "screen": [
+    "100.0\u00a0%",
+    "0.0\u00a0%"
+   ],
+   "why": "Grenzfall 99.95/0.05, Gleichstand an den ersten"
+  },
+  {
+   "id": "apportion_9995_second",
+   "fn": "apportion_percent_bps",
+   "args": [
+    [
+     5,
+     9995
+    ],
+    1
+   ],
+   "plain": [
+    "0.1 %",
+    "99.9 %"
+   ],
+   "screen": [
+    "0.1\u00a0%",
+    "99.9\u00a0%"
+   ]
+  },
+  {
+   "id": "apportion_with_zero",
+   "fn": "apportion_percent_bps",
+   "args": [
+    [
+     10000,
+     0
+    ],
+    1
+   ],
+   "plain": [
+    "100.0 %",
+    "0.0 %"
+   ],
+   "screen": [
+    "100.0\u00a0%",
+    "0.0\u00a0%"
+   ],
+   "why": "0-Gewichte erhalten nie eine Einheit"
+  },
+  {
+   "id": "apportion_2dp_exact",
+   "fn": "apportion_percent_bps",
+   "args": [
+    [
+     3333,
+     3333,
+     3334
+    ],
+    2
+   ],
+   "plain": [
+    "33.33 %",
+    "33.33 %",
+    "33.34 %"
+   ],
+   "screen": [
+    "33.33\u00a0%",
+    "33.33\u00a0%",
+    "33.34\u00a0%"
+   ]
+  },
+  {
+   "id": "apportion_subs_to_class_display",
+   "fn": "apportion_percent_bps",
+   "args": [
+    [
+     3364,
+     2994,
+     744,
+     378
+    ],
+    1,
+    "74.8"
+   ],
+   "plain": [
+    "33.7 %",
+    "29.9 %",
+    "7.4 %",
+    "3.8 %"
+   ],
+   "screen": [
+    "33.7\u00a0%",
+    "29.9\u00a0%",
+    "7.4\u00a0%",
+    "3.8\u00a0%"
+   ],
+   "why": "Unterklassen summieren auf den angezeigten Klassenwert (vorher 74.7 neben 74.8)"
+  },
+  {
+   "id": "apportion_five_classes",
+   "fn": "apportion_percent_bps",
+   "args": [
+    [
+     7476,
+     1091,
+     869,
+     300,
+     264
+    ],
+    1
+   ],
+   "plain": [
+    "74.8 %",
+    "10.9 %",
+    "8.7 %",
+    "3.0 %",
+    "2.6 %"
+   ],
+   "screen": [
+    "74.8\u00a0%",
+    "10.9\u00a0%",
+    "8.7\u00a0%",
+    "3.0\u00a0%",
+    "2.6\u00a0%"
+   ]
+  }
+ ]
+}
