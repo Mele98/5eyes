@@ -54,7 +54,6 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
 STANDALONE_FRONTEND_MODULES: dict[str, str] = {
     "eligibility-overrides.js": "eigenes Modul, test_frontend_eligibility_overrides.py",
     "desktop-api.js": "Desktop-Bridge, test_desktop_bridge_contract.py",
-    "risk-capacity-recheck.js": "eigenes Modul, test_frontend_risk_capacity_recheck.py",
     "trade-list-preview.js": "eigenes Modul, test_frontend_trade_list_preview.py",
     "goal-analysis-integrity.js": "eigenes Modul, test_frontend_goal_analysis_integrity.py",
     "advisory-log-finma.js": "eigenes Modul, test_monolith_advisory_log_finma_fields.py",

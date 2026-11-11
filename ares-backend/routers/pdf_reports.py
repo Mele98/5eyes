@@ -1372,14 +1372,10 @@ def get_risikoprofil_pdf(
             "PDF data-load section failed for mandate %s: %s",
             getattr(mandate, "id", "?"), exc,
         )
+    # H9 (Owner-Vorgabe 2026-11-08): kein Plausibilitaets-/Widerspruchshinweis
+    # zur Risikofaehigkeit im Risikoprofil-PDF -- Kundenangaben werden
+    # respektiert, die Pruefung bleibt intern (Evidenz + Audit).
     capacity_plausibility_note = ""
-    if ra is not None and int(getattr(ra, "is_current", 0) or 0) == 1:
-        from services.risk_capacity_plausibility import (
-            evaluate_mandate_safely, pdf_advisor_note,
-        )
-        capacity_plausibility_note = pdf_advisor_note(
-            evaluate_mandate_safely(db, mandate, ra)
-        )
 
     # RISK-PROFILE-SIGNOFF-001: Signoff-Zustand + Referenz (dieselbe Quelle
     # wie Beratungsprotokoll-PDF, API und Strategie-Meldung).

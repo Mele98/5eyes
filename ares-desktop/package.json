@@ -43,7 +43,6 @@
       "frontend/goal-review-runtime.js",
       "frontend/eligibility-overrides.js",
       "frontend/desktop-api.js",
-      "frontend/risk-capacity-recheck.js",
       "frontend/trade-list-preview.js",
       "frontend/goal-analysis-integrity.js",
       "frontend/advisory-log-finma.js",

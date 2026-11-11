@@ -36,7 +36,8 @@ der Stand bei der Einfuehrung durch diesen PR).
 H9 (2026-11-08, Owner-UX): Gate der verbesserten Kurve in der
 Vermoegensentwicklung nach ``ist-projection-gate.js`` (neuer Teil, Budget =
 Stand bei Einfuehrung); erfundene Demo-/Platzhalterpfade entfernt. Monolith
-27613 / 1687921 -- Budget entsprechend gesenkt.
+27613 / 1687921 -- Budget entsprechend gesenkt. Danach Warnbox/Badge der
+Risikofaehigkeits-Plausibilitaet aus der Maske entfernt: 27504 / 1681449.
 """
 from __future__ import annotations
 
@@ -45,9 +46,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 27613
+MONOLITH_MAX_LINES = 27504
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1687921
+MONOLITH_MAX_BYTES = 1681449
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).

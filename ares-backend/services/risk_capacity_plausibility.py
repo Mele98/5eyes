@@ -885,16 +885,15 @@ def strategy_reasoning_lines(result: dict | None) -> list[str]:
 
 
 def attach_to_strategy_payload(payload: dict, result: dict | None) -> dict:
-    """Haengt das Pruefergebnis an eine Strategie-Antwort (Reasoning + Feld)."""
+    """Haengt das Pruefergebnis als Datenfeld an eine Strategie-Antwort.
+
+    H9 (Owner-Vorgabe 2026-11-08): Die Angaben des Kunden zur Risikofaehigkeit
+    werden respektiert; die Plausibilitaet verantwortet der Berater. Die
+    Pruefung bleibt intern (Feld, Evidenz-Snapshot, Audit), erscheint aber
+    nicht mehr im Reasoning der Strategie (kundensichtbar in der Maske).
+    ``strategy_reasoning_lines`` bleibt fuer Audit/Analyse erhalten.
+    """
     payload["risk_capacity_plausibility"] = result
-    lines = strategy_reasoning_lines(result)
-    if lines:
-        reasoning = [
-            line for line in list(payload.get("reasoning") or []) if line not in lines
-        ]
-        # Zusammenfassung zuoberst (UI zeigt nur die ersten Reasoning-Punkte),
-        # Einzelbefunde am Ende.
-        payload["reasoning"] = [lines[0]] + reasoning + lines[1:]
     return payload
 
 

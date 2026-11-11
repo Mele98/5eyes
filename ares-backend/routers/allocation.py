@@ -744,8 +744,9 @@ def generate_target_allocation_endpoint(
                 table_name="target_allocations", record_id=result["target_allocation"].id, action="CREATE",
                 mandate_id=mandate_id, client_id=mandate.client_id,
                 ip_address=_extract_client_ip(request))
-            # RISK-CAPACITY-PLAUSIBILITY-001: Hinweis im Reasoning + Audit,
-            # keine Profilaenderung, kein Blockieren.
+            # RISK-CAPACITY-PLAUSIBILITY-001: Datenfeld + Evidenz + Audit,
+            # keine Profilaenderung, kein Blockieren. H9 (Owner 2026-11-08):
+            # kein Hinweis mehr im Reasoning (attach_to_strategy_payload).
             # KNOWLEDGE-GAP-ASSET-CLASS-001: Hinweis, keine Allokationsaenderung.
             attach_knowledge_gap_check(result, mandate, result.get("risk_assessment"))
             captured: dict = {}
@@ -761,7 +762,7 @@ def generate_target_allocation_endpoint(
             )
             attach_to_strategy_payload(result, plausibility)
             # CMA-CURRENCY-GUARD-001: berechenbar, aber "nicht freigegeben"
-            # (nach der Plausibilitaet = zuoberst im Reasoning).
+            # (zuoberst im Reasoning).
             attach_cma_currency_guard(db, mandate, result)
             audit_if_inconsistent(
                 db, plausibility, user=current_user, table_name="target_allocations",
