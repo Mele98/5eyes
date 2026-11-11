@@ -8396,6 +8396,39 @@
             "title": "Rank",
             "type": "integer"
           },
+          "rank_adjusted_from": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank Adjusted From"
+          },
+          "rank_adjusted_to": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank Adjusted To"
+          },
+          "rank_adjustment_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank Adjustment Notice"
+          },
           "start_date": {
             "anyOf": [
               {

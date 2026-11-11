@@ -70,3 +70,41 @@ def resolve_goal_order(
             "laden und erneut sortieren."
         )
     return {goal_id: index + 1 for index, goal_id in enumerate(requested)}
+
+
+GOAL_ORDER_CHANGED_DETAIL = (
+    "Die Ziel-Reihenfolge wurde zwischenzeitlich geaendert. Bitte neu laden "
+    "und erneut sortieren."
+)
+
+
+def acquire_goal_order_write_lock(db) -> None:
+    """N-868-2: Schreibsperre VOR dem Lesen der Ziele nehmen.
+
+    Ohne Sperre konnte ein paralleler Reorder zwischen Lesen (inkl.
+    ``expected_goal_ids``-Pruefung) und Schreiben committen: der eigene
+    Stand war dann veraltet, das Schreiben lief in ``ux_goals_rank_active``
+    (500) oder ueberschrieb die fremde Reihenfolge trotz CAS.
+
+    * SQLite (Desktop): ``BEGIN IMMEDIATE`` holt die datenbankweite
+      Schreibsperre sofort; ein zweiter Reorder wartet (``busy_timeout``)
+      und liest danach den committeten Stand. pysqlite beginnt die
+      Transaktion sonst erst beim ersten DML -- nach dem Lesen. Laeuft auf
+      der Verbindung bereits eine Transaktion, bleibt sie unangetastet (der
+      IntegrityError-Fallback im Router faengt den Restfall ab).
+    * PostgreSQL: Zeilensperre per ``SELECT ... FOR UPDATE`` auf die Ziele
+      des Mandats, gesetzt im Router-Query (``with_for_update``).
+    """
+    connection = db.connection()
+    if connection.dialect.name != "sqlite":
+        return
+    raw = connection.connection.dbapi_connection
+    if not raw.in_transaction:
+        raw.execute("BEGIN IMMEDIATE")
+
+
+def is_goal_rank_unique_violation(exc: BaseException) -> bool:
+    """True fuer die Verletzung von ``ux_goals_rank_active`` (SQLite nennt
+    die Spalten, PostgreSQL den Indexnamen)."""
+    text = str(getattr(exc, "orig", exc))
+    return "ux_goals_rank_active" in text or "goals.mandate_id, goals.rank" in text
