@@ -5,10 +5,12 @@ Der Router importiert nur dieses Modul (eine Kante statt je Fachmodul eine):
 
 * Bearbeitungsverzeichnis und Angaben des Verantwortlichen (C-DSG-01,
   services/privacy_owner_values.py, services/processing_activity_register.py).
+* Betroffenenanfragen (C-DSG-02, services/privacy_subject_requests.py).
 """
 from __future__ import annotations
 
 from services import privacy_erasure_inventory as erasure_inventory
+from services import privacy_subject_requests as subject_requests
 from services.privacy_owner_values import (
     OWNER_VALUE_MAX_LENGTH,
     open_blocking_fields,
@@ -34,4 +36,5 @@ __all__ = [
     "register_export",
     "register_view",
     "set_owner_value",
+    "subject_requests",
 ]

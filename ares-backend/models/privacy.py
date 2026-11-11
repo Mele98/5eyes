@@ -209,3 +209,92 @@ class PrivacyOwnerValue(Base):
     confirmed_by = Column(String, nullable=False)
     confirmed_at = Column(String, nullable=False)
     retired_at = Column(String)
+
+
+class PrivacySubjectRequest(Base):
+    """C-DSG-02: Betroffenenanfrage (Auskunft, Herausgabe, Berichtigung,
+    Loeschung) als Fall mit Eingang, Identitaetspruefung, Frist,
+    Einschraenkungsentscheid und Zustellnachweis.
+
+    ``due_at`` = Eingang + 30 Tage (Kalendertage, Datum). Eine Verlaengerung
+    braucht Begruendung und Mitteilung an die betroffene Person. Der Export
+    fuer Auskunft/Herausgabe entsteht nur ueber diesen Fall; sein Hash steht
+    in ``export_sha256``. Kein FK auf clients/users (der Nachweis muss eine
+    Loeschung des Kunden ueberdauern)."""
+
+    __tablename__ = "privacy_subject_requests"
+    __table_args__ = (
+        CheckConstraint(
+            "request_type IN ('ACCESS','PORTABILITY','RECTIFICATION','ERASURE')",
+            name="ck_privacy_subject_request_type",
+        ),
+        CheckConstraint(
+            "status IN ('RECEIVED','IDENTITY_VERIFIED','IDENTITY_FAILED','DECIDED','COMPLETED','WITHDRAWN')",
+            name="ck_privacy_subject_request_status",
+        ),
+        CheckConstraint(
+            "received_channel IN ('EMAIL','LETTER','IN_PERSON','PORTAL','OTHER')",
+            name="ck_privacy_subject_request_received_channel",
+        ),
+        CheckConstraint(
+            "requester_relation IN ('SELF','REPRESENTATIVE')",
+            name="ck_privacy_subject_request_relation",
+        ),
+        CheckConstraint(
+            "identity_method IS NULL OR identity_method IN ('ID_DOCUMENT_IN_PERSON','KNOWN_PERSON_IN_PERSON',"
+            "'CERTIFIED_COPY','VIDEO_IDENTIFICATION','OTHER')",
+            name="ck_privacy_subject_request_identity_method",
+        ),
+        CheckConstraint(
+            "decision IS NULL OR decision IN ('FULFILL','RESTRICT','REFUSE')",
+            name="ck_privacy_subject_request_decision",
+        ),
+        CheckConstraint(
+            "delivery_channel IS NULL OR delivery_channel IN ('EMAIL','LETTER','IN_PERSON','PORTAL','OTHER')",
+            name="ck_privacy_subject_request_delivery_channel",
+        ),
+        Index("ix_privacy_subject_requests_client", "tenant_id", "client_id"),
+        Index("ix_privacy_subject_requests_status", "tenant_id", "status", "due_at"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    client_id = Column(String, nullable=False)
+    request_type = Column(String, nullable=False)
+    status = Column(String, nullable=False)
+    received_at = Column(String, nullable=False)
+    received_channel = Column(String, nullable=False)
+    requester_relation = Column(String, nullable=False)
+    request_summary = Column(Text)
+    due_at = Column(String, nullable=False)
+    extended_due_at = Column(String)
+    extension_reason = Column(Text)
+    extension_notified_at = Column(String)
+    identity_verified_at = Column(String)
+    identity_verified_by = Column(String)
+    identity_method = Column(String)
+    identity_evidence_reference = Column(Text)
+    identity_failure_reason = Column(Text)
+    decision = Column(String)
+    decision_reason = Column(Text)
+    decision_scope_json = Column(Text)
+    decided_by = Column(String)
+    decided_at = Column(String)
+    completion_note = Column(Text)
+    linked_erasure_case_id = Column(String)
+    action_completed_by = Column(String)
+    action_completed_at = Column(String)
+    export_sha256 = Column(String(64))
+    export_schema_version = Column(Integer)
+    exported_by = Column(String)
+    exported_at = Column(String)
+    delivered_at = Column(String)
+    delivery_channel = Column(String)
+    delivery_reference = Column(Text)
+    delivered_by = Column(String)
+    delivery_recorded_at = Column(String)
+    withdrawn_reason = Column(Text)
+    withdrawn_at = Column(String)
+    opened_by = Column(String, nullable=False)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)

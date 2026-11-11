@@ -52,6 +52,7 @@ from models.privacy import (
     PrivacyOwnerValue,
     PrivacyRetentionPolicy,
     PrivacyRoleDesignation,
+    PrivacySubjectRequest,
 )
 from services import privacy_erasure_inventory as inv
 
@@ -93,6 +94,8 @@ PRIVACY_TABLES = (
     PrivacyErasureDisposition.__table__,
     # H10 C-DSG-01: Angaben des Verantwortlichen (Restore aelterer Sicherungen).
     PrivacyOwnerValue.__table__,
+    # H10 C-DSG-02: Betroffenenanfragen.
+    PrivacySubjectRequest.__table__,
 )
 
 

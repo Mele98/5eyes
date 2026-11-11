@@ -28,6 +28,7 @@ from models.privacy import (
     PrivacyLegalHold,
     PrivacyRetentionPolicy,
     PrivacyRoleDesignation,
+    PrivacySubjectRequest,
 )
 from models.users import User
 from services import dsg_governance as gov
@@ -176,6 +177,7 @@ def privacy_status(db: Session = Depends(get_db), current_user: User = Depends(r
     }
     missing = sorted(et for et in gov.EVIDENCE_TYPES if not any(key[0] == et for key in approved))
     return {
+        **gov.subject_requests.status_counts(db, tenant_id),
         "production_activation": PRODUCTION_ACTIVATION,
         "matrix_complete": not missing,
         "evidence_types_without_approved_policy": missing,
@@ -447,3 +449,180 @@ def set_owner_field(field_key: str, body: OwnerValueUpdate, request: Request, db
     db.commit()
     return {"field_key": row.field_key, "value": row.value, "revision": row.revision,
             "status": row.status, "confirmed_by": row.confirmed_by, "confirmed_at": row.confirmed_at}
+
+
+# ── H10 C-DSG-02: Betroffenenanfragen ──────────────────────────────────────────
+
+class SubjectRequestOpen(BaseModel):
+    client_id: str
+    request_type: str
+    received_at: str
+    received_channel: str
+    requester_relation: str = "SELF"
+    request_summary: Optional[str] = Field(default=None, max_length=4000)
+
+
+class SubjectRequestIdentity(BaseModel):
+    outcome: str
+    method: str
+    evidence_reference: Optional[str] = Field(default=None, max_length=2000)
+    failure_reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+class SubjectRequestExtension(BaseModel):
+    extended_due_at: str
+    reason: Optional[str] = Field(default=None, max_length=2000)
+    notified_at: str
+
+
+class SubjectRequestDecision(BaseModel):
+    decision: str
+    reason: Optional[str] = Field(default=None, max_length=4000)
+    scope: list[str] = Field(default_factory=list)
+
+
+class SubjectRequestAction(BaseModel):
+    completion_note: Optional[str] = Field(default=None, max_length=4000)
+    erasure_case_id: Optional[str] = None
+
+
+class SubjectRequestDelivery(BaseModel):
+    delivered_at: str
+    delivery_channel: str
+    delivery_reference: Optional[str] = Field(default=None, max_length=2000)
+
+
+class SubjectRequestWithdrawal(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+def _require_case_operator(db: Session, user: User) -> None:
+    """Administration oder benannte Legal-/Datenschutzperson des Mandanten."""
+    if user.role in ("admin", "super_admin"):
+        return
+    if pe.active_privacy_roles(db, tenant_id=_tenant(user), user_id=user.id):
+        return
+    raise HTTPException(status_code=403, detail={
+        "code": "PRIVACY_ROLE_REQUIRED",
+        "message": "Datenschutzfaelle bearbeiten nur Administration oder benannte Legal-/Datenschutzpersonen",
+    })
+
+
+def _subject_request(db: Session, request_id: str, user: User) -> PrivacySubjectRequest:
+    _require_case_operator(db, user)
+    return _own(db.get(PrivacySubjectRequest, request_id), user)
+
+
+def _subject_request_step(db: Session, user: User, request: Request, case: PrivacySubjectRequest,
+                          step: str, extra: Optional[dict[str, Any]] = None):
+    _audit(db, user, request, table="privacy_subject_requests", record_id=case.id, action="UPDATE",
+           client_id=case.client_id, new_value={"step": step, "status": case.status, **(extra or {})})
+    db.commit()
+    return gov.subject_requests.case_out(case)
+
+
+@router.get("/subject-requests")
+def list_subject_requests(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _require_case_operator(db, current_user)
+    return [gov.subject_requests.case_out(case)
+            for case in gov.subject_requests.list_requests(db, _tenant(current_user))]
+
+
+@router.post("/subject-requests", status_code=201)
+def open_subject_request(body: SubjectRequestOpen, request: Request, db: Session = Depends(get_db),
+                         current_user: User = Depends(get_current_user)):
+    _require_case_operator(db, current_user)
+    _client_in_scope(body.client_id, db, current_user)
+    case = gov.subject_requests.open_request(
+        db, tenant_id=_tenant(current_user), client_id=body.client_id, request_type=body.request_type,
+        received_at=body.received_at, received_channel=body.received_channel,
+        requester_relation=body.requester_relation, request_summary=body.request_summary,
+        opened_by=current_user.id,
+    )
+    _audit(db, current_user, request, table="privacy_subject_requests", record_id=case.id, action="CREATE",
+           client_id=case.client_id, new_value={"request_type": case.request_type, "due_at": case.due_at})
+    db.commit()
+    return gov.subject_requests.case_out(case)
+
+
+@router.get("/subject-requests/{request_id}")
+def get_subject_request(request_id: str, db: Session = Depends(get_db),
+                        current_user: User = Depends(get_current_user)):
+    return gov.subject_requests.case_out(_subject_request(db, request_id, current_user))
+
+
+@router.post("/subject-requests/{request_id}/identity")
+def verify_subject_request_identity(request_id: str, body: SubjectRequestIdentity, request: Request,
+                                    db: Session = Depends(get_db),
+                                    current_user: User = Depends(get_current_user)):
+    case = gov.subject_requests.verify_identity(
+        db, _subject_request(db, request_id, current_user), outcome=body.outcome, method=body.method,
+        evidence_reference=body.evidence_reference, failure_reason=body.failure_reason, actor_id=current_user.id,
+    )
+    return _subject_request_step(db, current_user, request, case, "identity",
+                                 {"identity_method": case.identity_method})
+
+
+@router.post("/subject-requests/{request_id}/extension")
+def extend_subject_request(request_id: str, body: SubjectRequestExtension, request: Request,
+                           db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    case = gov.subject_requests.extend_deadline(
+        db, _subject_request(db, request_id, current_user), extended_due_at=body.extended_due_at,
+        reason=body.reason, notified_at=body.notified_at,
+    )
+    return _subject_request_step(db, current_user, request, case, "extension",
+                                 {"extended_due_at": case.extended_due_at})
+
+
+@router.post("/subject-requests/{request_id}/decision")
+def decide_subject_request(request_id: str, body: SubjectRequestDecision, request: Request,
+                           db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    case = gov.subject_requests.decide(
+        db, _subject_request(db, request_id, current_user), decision=body.decision, reason=body.reason,
+        scope=body.scope, actor_id=current_user.id,
+    )
+    return _subject_request_step(db, current_user, request, case, "decision", {"decision": case.decision})
+
+
+@router.post("/subject-requests/{request_id}/export")
+def export_subject_request(request_id: str, request: Request, db: Session = Depends(get_db),
+                           current_user: User = Depends(get_current_user)):
+    """Auskunft/Herausgabe: der einzige Weg zum Kundendatenexport."""
+    case = _subject_request(db, request_id, current_user)
+    document = gov.subject_requests.build_export(db, case, actor_id=current_user.id)
+    _audit(db, current_user, request, table="privacy_subject_requests", record_id=case.id, action="EXPORT",
+           client_id=case.client_id, new_value={"export_sha256": document["export_sha256"],
+                                                "decision": case.decision})
+    db.commit()
+    return document
+
+
+@router.post("/subject-requests/{request_id}/action")
+def record_subject_request_action(request_id: str, body: SubjectRequestAction, request: Request,
+                                  db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    case = gov.subject_requests.record_action(
+        db, _subject_request(db, request_id, current_user), completion_note=body.completion_note,
+        erasure_case_id=body.erasure_case_id, actor_id=current_user.id,
+    )
+    return _subject_request_step(db, current_user, request, case, "action",
+                                 {"linked_erasure_case_id": case.linked_erasure_case_id})
+
+
+@router.post("/subject-requests/{request_id}/delivery")
+def record_subject_request_delivery(request_id: str, body: SubjectRequestDelivery, request: Request,
+                                    db: Session = Depends(get_db),
+                                    current_user: User = Depends(get_current_user)):
+    case = gov.subject_requests.record_delivery(
+        db, _subject_request(db, request_id, current_user), delivered_at=body.delivered_at,
+        delivery_channel=body.delivery_channel, delivery_reference=body.delivery_reference,
+        actor_id=current_user.id,
+    )
+    return _subject_request_step(db, current_user, request, case, "delivery",
+                                 {"delivered_at": case.delivered_at, "export_sha256": case.export_sha256})
+
+
+@router.post("/subject-requests/{request_id}/withdraw")
+def withdraw_subject_request(request_id: str, body: SubjectRequestWithdrawal, request: Request,
+                             db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    case = gov.subject_requests.withdraw(db, _subject_request(db, request_id, current_user), reason=body.reason)
+    return _subject_request_step(db, current_user, request, case, "withdraw")

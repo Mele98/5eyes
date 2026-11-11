@@ -122,7 +122,32 @@ def api_snapshots(tmp_path_factory) -> dict:
 
         # Datenexport (Reihenfolge der Mandate/Antworten folgt Zeitstempel- bzw.
         # UUID-Gleichstand und ist deshalb nicht Teil des Basiswerts)
+        # H10 C-DSG-02: der direkte Export ist stillgelegt (409); der Export
+        # entsteht ueber die Betroffenenanfrage (Owner-Werte: Testwerte).
         snap("clients.data_export", client.get(f"/clients/{ids['client']}/data-export"), unordered=True)
+        from main import app
+        from models.users import User
+        from services.auth import get_current_user
+
+        admin = User(id="acceptance-admin", username="acceptance-admin", password_hash="h",
+                     full_name="Acceptance Admin", role="admin", tenant_id="main", is_active=1,
+                     created_at="2026-11-01T00:00:00.000Z", updated_at="2026-11-01T00:00:00.000Z")
+        with _factory() as s:
+            s.add(admin)
+            s.commit()
+        advisor_override = app.dependency_overrides[get_current_user]
+        app.dependency_overrides[get_current_user] = lambda: admin
+        case = client.post("/privacy/subject-requests", json={
+            "client_id": ids["client"], "request_type": "ACCESS", "received_at": "2026-11-01",
+            "received_channel": "LETTER"}).json()
+        client.post(f"/privacy/subject-requests/{case['id']}/identity", json={
+            "outcome": "VERIFIED", "method": "ID_DOCUMENT_IN_PERSON", "evidence_reference": "TEST"})
+        client.post(f"/privacy/subject-requests/{case['id']}/decision", json={"decision": "FULFILL"})
+        for field in client.get("/privacy/owner-fields").json():
+            client.put(f"/privacy/owner-fields/{field['key']}", json={"value": f"TESTWERT {field['key']}"})
+        snap("privacy.subject_request.export",
+             client.post(f"/privacy/subject-requests/{case['id']}/export"), unordered=True)
+        app.dependency_overrides[get_current_user] = advisor_override
 
     dump_actual("api_snapshots.json", json.dumps(dumps, sort_keys=True, ensure_ascii=False, indent=1))
     return snapshots

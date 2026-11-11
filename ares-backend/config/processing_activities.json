@@ -34,6 +34,7 @@
     "TOM-AUTH-HARDENING": {"description": "Zwei-Faktor-Anmeldung, Sperre nach Fehlversuchen, widerrufbare Sitzungen", "evidence": ["ares-backend/services/totp.py", "ares-backend/services/login_guard.py", "ares-backend/services/session_revocation.py"]},
     "TOM-BACKUP": {"description": "Verschluesselte Sicherung mit Wiederherstellungsprobe", "evidence": ["ares-backend/services/backup.py"]},
     "TOM-RETENTION-ERASURE": {"description": "Aufbewahrungsmatrix, Legal Hold und Loeschvorgang mit Beleg", "evidence": ["ares-backend/services/privacy_erasure.py", "ares-backend/services/privacy_erasure_inventory.py"]},
+    "TOM-PRIVACY-CASES": {"description": "Betroffenenanfragen als Fall mit Identitaetspruefung, Frist, Entscheid und Zustellnachweis; Export nur ueber den Fall", "evidence": ["ares-backend/services/privacy_subject_requests.py"]},
     "TOM-DESKTOP-HARDENING": {"description": "Desktop-Shell: nur lokale Oberflaeche, Navigation und Fenster gesperrt, Renderer nur zum lokalen Backend", "evidence": ["ares-desktop/main.js", "ares-desktop/frontend/ares.html"]}
   },
   "activities": [
@@ -139,11 +140,11 @@
       "purpose": "Bearbeitung von Betroffenenanfragen, Loeschvorgaengen, Legal Holds und Sicherheitsvorfaellen sowie die Angaben des Verantwortlichen",
       "data_subjects": ["privacy_case_parties", "clients", "staff"],
       "data_categories": ["privacy_case_records"],
-      "tables": ["privacy_retention_policies", "privacy_legal_holds", "privacy_erasure_cases", "privacy_erasure_dispositions", "privacy_owner_values"],
-      "recipients": ["Administration der Firma", "Benannte Legal-/Datenschutzpersonen der Firma"],
+      "tables": ["privacy_retention_policies", "privacy_legal_holds", "privacy_erasure_cases", "privacy_erasure_dispositions", "privacy_owner_values", "privacy_subject_requests"],
+      "recipients": ["Administration der Firma", "Benannte Legal-/Datenschutzpersonen der Firma", "Betroffene Person (Auskunft, Herausgabe)"],
       "egress_channels": [],
       "retention": {"evidence_types": [], "source": "Nachweis der Datenschutzvorgaenge; Dauer legt die Firma fest", "basis": {"owner_field": "activity.PA-09.retention_basis", "label": "Begruendung der Aufbewahrungsdauer: Datenschutzvorgaenge", "kind": "text", "blocking": "customer_output"}},
-      "toms": ["TOM-ACCESS-RBAC", "TOM-TENANT-ISOLATION", "TOM-AUDIT-TRAIL"]
+      "toms": ["TOM-ACCESS-RBAC", "TOM-TENANT-ISOLATION", "TOM-AUDIT-TRAIL", "TOM-PRIVACY-CASES"]
     }
   ],
   "non_personal_tables": {

@@ -1426,39 +1426,25 @@ def create_client_login(
 @router.get("/{client_id}/data-export")
 def export_data(
     client_id: str,
-    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
 ):
-    """DSG Art. 25 — Auskunftsrecht. Liefert alle personenbezogenen Daten
-    des Kunden in maschinenlesbarem JSON-Format.
-
-    Authentifizierung
-        Advisor-only. Mandantentrennung wird ueber `_get_client_or_404`
-        erzwungen (Berater darf nur seine eigenen Kunden exportieren,
-        ausser bei globalem Zugriff).
-
-    Audit
-        Jeder Export landet als `EXPORT`-Eintrag im audit_log mit
-        integrity_hash, sodass spaeter nachvollziehbar bleibt, welcher
-        Berater wann welche Daten herausgegeben hat (FINMA-konform).
+    """DSG-Auskunft (Art. 25) -- H10 C-DSG-02 (DSG-Technikaudit 2026-11-11):
+    der direkte Export ist stillgelegt. Ein Admin-Download allein belegt
+    keinen Auskunftsprozess (Eingang, Identitaetspruefung, Frist, Entscheid,
+    Zustellnachweis). Der Export entsteht nur noch ueber den Betroffenen-
+    anfrage-Fall: POST /privacy/subject-requests, Identitaet, Entscheid, dann
+    POST /privacy/subject-requests/{id}/export. Es werden keine Daten
+    ausgegeben; fremde Kunden bleiben 404.
     """
-    from routers.auth import _extract_client_ip
-    from services.data_export import export_client_data
-
-    client = _get_client_or_404(client_id, db, current_user)
-    payload = export_client_data(db, client.id)
-    log(
-        db,
-        user_id=current_user.id,
-        user_name=current_user.full_name,
-        table_name="clients",
-        record_id=client.id,
-        action="EXPORT",
-        client_id=client.id,
-        new_value=f"DSG-Export schema_v{payload['schema_version']}, "
-                  f"{sum(payload['manifest'].values())} Datensaetze",
-        ip_address=_extract_client_ip(request),
-    )
-    db.commit()
-    return payload
+    _get_client_or_404(client_id, db, current_user)
+    raise HTTPException(status_code=409, detail={
+        "reason_code": ReasonCode.SUBJECT_REQUEST_REQUIRED.value,
+        "message": (
+            "Der direkte Datenexport ist stillgelegt. Auskunft und Herausgabe laufen ueber "
+            "eine Betroffenenanfrage (Datenschutz > Betroffenenanfragen): Eingang erfassen, "
+            "Identitaet pruefen, entscheiden, dann ueber den Fall exportieren und die "
+            "Zustellung nachweisen."
+        ),
+        "workflow": "/privacy/subject-requests",
+    })

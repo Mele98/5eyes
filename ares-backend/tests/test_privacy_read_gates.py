@@ -143,14 +143,31 @@ def test_restricted_risk_and_plausibility_evidence_is_not_readable_for_advice(tm
             assert response.json()["detail"]["code"] == "PRIVACY_EVIDENCE_RESTRICTED"
 
 
+def _export_via_subject_request(client: TestClient) -> dict:
+    """H10 C-DSG-02: der Export entsteht nur ueber die Betroffenenanfrage
+    (Owner-Werte sind Testwerte)."""
+    from tests.h10_support import confirm_all_owner_fields
+
+    case = client.post("/privacy/subject-requests", json={
+        "client_id": _CLIENT_ID, "request_type": "ACCESS", "received_at": "2026-11-01",
+        "received_channel": "LETTER"}).json()
+    client.post(f"/privacy/subject-requests/{case['id']}/identity", json={
+        "outcome": "VERIFIED", "method": "ID_DOCUMENT_IN_PERSON", "evidence_reference": "TEST"})
+    client.post(f"/privacy/subject-requests/{case['id']}/decision", json={"decision": "FULFILL"})
+    confirm_all_owner_fields(client, only_blocking=True)
+    response = client.post(f"/privacy/subject-requests/{case['id']}/export")
+    assert response.status_code == 200, response.text
+    return response.json()["export"]
+
+
 def test_export_withholds_restricted_sections_visibly(tmp_path):
     with _api(tmp_path) as (client, current, _factory):
-        before = client.get(f"/clients/{_CLIENT_ID}/data-export").json()
+        before = _export_via_subject_request(client)
         assert before["sections"]["risk_assessments"] and before["restricted_sections"] == {}
 
         _restrict_everything(client, current)
 
-        export = client.get(f"/clients/{_CLIENT_ID}/data-export").json()
+        export = _export_via_subject_request(client)
         assert export["sections"]["risk_assessments"] == []
         assert export["section_status"]["risk_assessments"] == "restricted"
         assert export["restricted_sections"]["risk_assessments"] == ["risk_profile_evidence"]
