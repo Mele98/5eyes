@@ -36,7 +36,10 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # H8 (2026-11-07): fuenf neue Tabellen (tenant_legal_profiles,
 # client_information_deliveries, kyc_confirmations, kyc_confirmation_approvals,
 # client_representations), keine bestehende Tabelle umbenannt/entfernt.
-GOLDEN_SORTED_TABLES_SHA256 = "30711a7c792bbe325060308ae7c1c7236ae0bc41ccbadb7f05878c6822451fd2"
+# H10 (2026-11-11): drei neue Tabellen (privacy_owner_values,
+# privacy_subject_requests, privacy_security_incidents), keine bestehende
+# Tabelle umbenannt/entfernt.
+GOLDEN_SORTED_TABLES_SHA256 = "08332af4bf1c2d3bba919c10c5d404025f95031a0b6755788fc6d93248fc6469"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -67,7 +70,15 @@ GOLDEN_SORTED_TABLES_SHA256 = "30711a7c792bbe325060308ae7c1c7236ae0bc41ccbadb7f0
 # H8 nach Merge H7 (N-890-07): Pins gemeinsam neu. N-890-02/03/12/13: Delivery
 # (delivery_timing, backdating_reason), KYC (identification_*, requires_second_approval),
 # OptHistoryCreate.event_type als FIDLEG-Werteliste. Feld-Diff geprueft.
-GOLDEN_OPENAPI_SHA256 = "9a3bfc78a8c12161b9698eaca86c25f64b4f1cb5b1b14107c2fffbdaca2146bc"
+# H10 (2026-11-11): neu /privacy/processing-register (+ /export),
+# /privacy/owner-fields (+ /{field_key}), /privacy/subject-requests (+ /{id},
+# /identity, /extension, /decision, /export, /action, /delivery, /withdraw),
+# /privacy/egress-manifest, /privacy/incidents (+ /gate, /{id}, /assessment,
+# /notification-decision, /edoeb-notification, /subject-notification-decision,
+# /subject-notification, /evidence, /close) samt 15 neuen Schemas; geaendert
+# nur die description von GET /clients/{client_id}/data-export (stillgelegt,
+# 409). Kein bestehendes Schema geaendert (Feld-Diff geprueft).
+GOLDEN_OPENAPI_SHA256 = "b7c453e1e0656f4a2ad84ea987055e05ded6effc1b23602df10085322ee2beb3"
 
 _PROBE = """
 import hashlib, json

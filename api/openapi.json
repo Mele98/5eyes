@@ -10072,6 +10072,209 @@
         "title": "IdentityCheckRequest",
         "type": "object"
       },
+      "IncidentAssessment": {
+        "properties": {
+          "rationale": {
+            "anyOf": [
+              {
+                "maxLength": 8000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          },
+          "risk_level": {
+            "title": "Risk Level",
+            "type": "string"
+          }
+        },
+        "required": [
+          "risk_level"
+        ],
+        "title": "IncidentAssessment",
+        "type": "object"
+      },
+      "IncidentClosure": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 8000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "title": "IncidentClosure",
+        "type": "object"
+      },
+      "IncidentDecision": {
+        "properties": {
+          "decision": {
+            "title": "Decision",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 8000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "IncidentDecision",
+        "type": "object"
+      },
+      "IncidentEvidence": {
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "IncidentEvidence",
+        "type": "object"
+      },
+      "IncidentNotification": {
+        "properties": {
+          "notified_at": {
+            "title": "Notified At",
+            "type": "string"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          }
+        },
+        "required": [
+          "notified_at"
+        ],
+        "title": "IncidentNotification",
+        "type": "object"
+      },
+      "IncidentRecord": {
+        "properties": {
+          "affected_data_categories": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Affected Data Categories",
+            "type": "array"
+          },
+          "affected_subjects_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Affected Subjects Count"
+          },
+          "containment_measures": {
+            "anyOf": [
+              {
+                "maxLength": 8000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Containment Measures"
+          },
+          "description": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Description",
+            "type": "string"
+          },
+          "discovered_at": {
+            "title": "Discovered At",
+            "type": "string"
+          },
+          "incident_type": {
+            "title": "Incident Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "discovered_at",
+          "incident_type",
+          "description"
+        ],
+        "title": "IncidentRecord",
+        "type": "object"
+      },
+      "IncidentSubjectNotification": {
+        "properties": {
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "notified_at": {
+            "title": "Notified At",
+            "type": "string"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          }
+        },
+        "required": [
+          "notified_at",
+          "channel"
+        ],
+        "title": "IncidentSubjectNotification",
+        "type": "object"
+      },
       "InviteAccept": {
         "properties": {
           "password": {
@@ -13940,6 +14143,21 @@
           "created_at"
         ],
         "title": "OptimizerRunResponse",
+        "type": "object"
+      },
+      "OwnerValueUpdate": {
+        "properties": {
+          "value": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "title": "OwnerValueUpdate",
         "type": "object"
       },
       "PlanningAssumptionCreate": {
@@ -22429,6 +22647,232 @@
           "source"
         ],
         "title": "SubAssetClassAssumptionResponse",
+        "type": "object"
+      },
+      "SubjectRequestAction": {
+        "properties": {
+          "completion_note": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Note"
+          },
+          "erasure_case_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Erasure Case Id"
+          }
+        },
+        "title": "SubjectRequestAction",
+        "type": "object"
+      },
+      "SubjectRequestDecision": {
+        "properties": {
+          "decision": {
+            "title": "Decision",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "scope": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scope",
+            "type": "array"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "SubjectRequestDecision",
+        "type": "object"
+      },
+      "SubjectRequestDelivery": {
+        "properties": {
+          "delivered_at": {
+            "title": "Delivered At",
+            "type": "string"
+          },
+          "delivery_channel": {
+            "title": "Delivery Channel",
+            "type": "string"
+          },
+          "delivery_reference": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Reference"
+          }
+        },
+        "required": [
+          "delivered_at",
+          "delivery_channel"
+        ],
+        "title": "SubjectRequestDelivery",
+        "type": "object"
+      },
+      "SubjectRequestExtension": {
+        "properties": {
+          "extended_due_at": {
+            "title": "Extended Due At",
+            "type": "string"
+          },
+          "notified_at": {
+            "title": "Notified At",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "extended_due_at",
+          "notified_at"
+        ],
+        "title": "SubjectRequestExtension",
+        "type": "object"
+      },
+      "SubjectRequestIdentity": {
+        "properties": {
+          "evidence_reference": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Reference"
+          },
+          "failure_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Reason"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "outcome",
+          "method"
+        ],
+        "title": "SubjectRequestIdentity",
+        "type": "object"
+      },
+      "SubjectRequestOpen": {
+        "properties": {
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "received_at": {
+            "title": "Received At",
+            "type": "string"
+          },
+          "received_channel": {
+            "title": "Received Channel",
+            "type": "string"
+          },
+          "request_summary": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Summary"
+          },
+          "request_type": {
+            "title": "Request Type",
+            "type": "string"
+          },
+          "requester_relation": {
+            "default": "SELF",
+            "title": "Requester Relation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_id",
+          "request_type",
+          "received_at",
+          "received_channel"
+        ],
+        "title": "SubjectRequestOpen",
+        "type": "object"
+      },
+      "SubjectRequestWithdrawal": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "SubjectRequestWithdrawal",
         "type": "object"
       },
       "SuitabilityCheckCreate": {
@@ -31546,7 +31990,7 @@
     },
     "/clients/{client_id}/data-export": {
       "get": {
-        "description": "DSG Art. 25 — Auskunftsrecht. Liefert alle personenbezogenen Daten\ndes Kunden in maschinenlesbarem JSON-Format.\n\nAuthentifizierung\n    Advisor-only. Mandantentrennung wird ueber `_get_client_or_404`\n    erzwungen (Berater darf nur seine eigenen Kunden exportieren,\n    ausser bei globalem Zugriff).\n\nAudit\n    Jeder Export landet als `EXPORT`-Eintrag im audit_log mit\n    integrity_hash, sodass spaeter nachvollziehbar bleibt, welcher\n    Berater wann welche Daten herausgegeben hat (FINMA-konform).",
+        "description": "DSG-Auskunft (Art. 25) -- H10 C-DSG-02 (DSG-Technikaudit 2026-11-11):\nder direkte Export ist stillgelegt. Ein Admin-Download allein belegt\nkeinen Auskunftsprozess (Eingang, Identitaetspruefung, Frist, Entscheid,\nZustellnachweis). Der Export entsteht nur noch ueber den Betroffenen-\nanfrage-Fall: POST /privacy/subject-requests, Identitaet, Entscheid, dann\nPOST /privacy/subject-requests/{id}/export. Es werden keine Daten\nausgegeben; fremde Kunden bleiben 404.",
         "operationId": "export_data_clients__client_id__data_export_get",
         "parameters": [
           {
@@ -40913,6 +41357,31 @@
         ]
       }
     },
+    "/privacy/egress-manifest": {
+      "get": {
+        "description": "Alle ausgehenden Kanaele mit Staat/Garantie (Owner-Felder), Laufzeit-\nstatus (aktiv, erlaubt, bestaetigt) und den zuletzt blockierten Versuchen\n(nur Kanal, Host, Grund).",
+        "operationId": "get_egress_manifest_privacy_egress_manifest_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Egress Manifest",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
     "/privacy/erasure-cases": {
       "post": {
         "operationId": "open_erasure_case_privacy_erasure_cases_post",
@@ -41087,6 +41556,528 @@
           }
         ],
         "summary": "Refresh Erasure Case",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/incidents": {
+      "get": {
+        "operationId": "list_security_incidents_privacy_incidents_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Security Incidents",
+        "tags": [
+          "Datenschutz"
+        ]
+      },
+      "post": {
+        "description": "Jede Mitarbeiterin und jeder Mitarbeiter kann einen Vorfall erfassen;\nBewertung und Entscheide nur Administration/benannte Datenschutzpersonen.",
+        "operationId": "record_security_incident_privacy_incidents_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentRecord"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Record Security Incident",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/incidents/gate": {
+      "get": {
+        "description": "Gate: hohes Risiko ohne Meldeentscheid bzw. ohne Meldenachweis ist rot.",
+        "operationId": "security_incident_gate_privacy_incidents_gate_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Security Incident Gate",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/incidents/{incident_id}": {
+      "get": {
+        "operationId": "get_security_incident_privacy_incidents__incident_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "incident_id",
+            "required": true,
+            "schema": {
+              "title": "Incident Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Security Incident",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/incidents/{incident_id}/assessment": {
+      "post": {
+        "operationId": "assess_security_incident_privacy_incidents__incident_id__assessment_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "incident_id",
+            "required": true,
+            "schema": {
+              "title": "Incident Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentAssessment"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Assess Security Incident",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/incidents/{incident_id}/close": {
+      "post": {
+        "operationId": "close_security_incident_privacy_incidents__incident_id__close_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "incident_id",
+            "required": true,
+            "schema": {
+              "title": "Incident Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentClosure"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Close Security Incident",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/incidents/{incident_id}/edoeb-notification": {
+      "post": {
+        "operationId": "record_security_incident_edoeb_notification_privacy_incidents__incident_id__edoeb_notification_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "incident_id",
+            "required": true,
+            "schema": {
+              "title": "Incident Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentNotification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Record Security Incident Edoeb Notification",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/incidents/{incident_id}/evidence": {
+      "post": {
+        "operationId": "add_security_incident_evidence_privacy_incidents__incident_id__evidence_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "incident_id",
+            "required": true,
+            "schema": {
+              "title": "Incident Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentEvidence"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add Security Incident Evidence",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/incidents/{incident_id}/notification-decision": {
+      "post": {
+        "operationId": "decide_security_incident_notification_privacy_incidents__incident_id__notification_decision_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "incident_id",
+            "required": true,
+            "schema": {
+              "title": "Incident Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Decide Security Incident Notification",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/incidents/{incident_id}/subject-notification": {
+      "post": {
+        "operationId": "record_security_incident_subject_notification_privacy_incidents__incident_id__subject_notification_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "incident_id",
+            "required": true,
+            "schema": {
+              "title": "Incident Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentSubjectNotification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Record Security Incident Subject Notification",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/incidents/{incident_id}/subject-notification-decision": {
+      "post": {
+        "operationId": "decide_security_incident_subject_notification_privacy_incidents__incident_id__subject_notification_decision_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "incident_id",
+            "required": true,
+            "schema": {
+              "title": "Incident Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Decide Security Incident Subject Notification",
         "tags": [
           "Datenschutz"
         ]
@@ -41331,6 +42322,85 @@
         ]
       }
     },
+    "/privacy/owner-fields": {
+      "get": {
+        "operationId": "list_owner_fields_privacy_owner_fields_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Owner Fields",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/owner-fields/{field_key}": {
+      "put": {
+        "operationId": "set_owner_field_privacy_owner_fields__field_key__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "field_key",
+            "required": true,
+            "schema": {
+              "title": "Field Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnerValueUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Owner Field",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
     "/privacy/policies": {
       "get": {
         "operationId": "list_policies_privacy_policies_get",
@@ -41482,6 +42552,56 @@
           }
         ],
         "summary": "Approve Policy",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/processing-register": {
+      "get": {
+        "description": "Verzeichnis der Bearbeitungstaetigkeiten mit Vollstaendigkeitspruefung\nund dem Stand der Owner-Felder dieses Mandanten.",
+        "operationId": "get_processing_register_privacy_processing_register_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Processing Register",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/processing-register/export": {
+      "get": {
+        "description": "Maschinenlesbarer Export (JSON) mit Inhalts-Hash; offene Owner-Felder\nbleiben als ``OPEN`` sichtbar (``customer_output_ready``).",
+        "operationId": "export_processing_register_privacy_processing_register_export_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Processing Register",
         "tags": [
           "Datenschutz"
         ]
@@ -41641,6 +42761,493 @@
           }
         ],
         "summary": "Privacy Status",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/subject-requests": {
+      "get": {
+        "operationId": "list_subject_requests_privacy_subject_requests_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Subject Requests",
+        "tags": [
+          "Datenschutz"
+        ]
+      },
+      "post": {
+        "operationId": "open_subject_request_privacy_subject_requests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubjectRequestOpen"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Open Subject Request",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/subject-requests/{request_id}": {
+      "get": {
+        "operationId": "get_subject_request_privacy_subject_requests__request_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Subject Request",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/subject-requests/{request_id}/action": {
+      "post": {
+        "operationId": "record_subject_request_action_privacy_subject_requests__request_id__action_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubjectRequestAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Record Subject Request Action",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/subject-requests/{request_id}/decision": {
+      "post": {
+        "operationId": "decide_subject_request_privacy_subject_requests__request_id__decision_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubjectRequestDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Decide Subject Request",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/subject-requests/{request_id}/delivery": {
+      "post": {
+        "operationId": "record_subject_request_delivery_privacy_subject_requests__request_id__delivery_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubjectRequestDelivery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Record Subject Request Delivery",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/subject-requests/{request_id}/export": {
+      "post": {
+        "description": "Auskunft/Herausgabe: der einzige Weg zum Kundendatenexport.",
+        "operationId": "export_subject_request_privacy_subject_requests__request_id__export_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Subject Request",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/subject-requests/{request_id}/extension": {
+      "post": {
+        "operationId": "extend_subject_request_privacy_subject_requests__request_id__extension_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubjectRequestExtension"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Extend Subject Request",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/subject-requests/{request_id}/identity": {
+      "post": {
+        "operationId": "verify_subject_request_identity_privacy_subject_requests__request_id__identity_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubjectRequestIdentity"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Verify Subject Request Identity",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/subject-requests/{request_id}/withdraw": {
+      "post": {
+        "operationId": "withdraw_subject_request_privacy_subject_requests__request_id__withdraw_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubjectRequestWithdrawal"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Withdraw Subject Request",
         "tags": [
           "Datenschutz"
         ]
