@@ -60,6 +60,11 @@ CHANNEL_CLASSES = (
 REQUIRED_CLASSES = ("market_data", "updates", "telemetry")
 ENFORCEMENTS = ("python_runtime_guard", "native_library", "desktop_update_gate")
 NON_BLOCKING_GUARANTEES = ("NOT_REQUIRED", "OPERATOR_INFRASTRUCTURE")
+# Feldnamen erzwingen (Standard) oder -- nur fuer anbietergesteuerte Ablaeufe
+# ohne Personendaten, mit Begruendung -- nur die Werte pruefen.
+FIELD_POLICY_ALLOWLIST = "allowlist"
+FIELD_POLICY_SCREEN_ONLY = "screen_values_only"
+FIELD_POLICIES = (FIELD_POLICY_ALLOWLIST, FIELD_POLICY_SCREEN_ONLY)
 VALUE_PATTERNS: dict[str, re.Pattern[str]] = {
     "uuid": re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"),
     "email": re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"),
@@ -169,6 +174,14 @@ def manifest_problems(manifest: dict[str, Any], *, check_files: bool = True) -> 
             problems.append(f"{cid}: Laufzeitkanal ohne Host")
         if is_guarded and channel.get("personal_data") is False and not channel.get("allowed_fields"):
             problems.append(f"{cid}: Kanal ohne Personendaten braucht allowed_fields (Datenminimierung)")
+        policy = channel.get("field_policy", FIELD_POLICY_ALLOWLIST)
+        if policy not in FIELD_POLICIES:
+            problems.append(f"{cid}: unbekannte field_policy {policy}")
+        if policy == FIELD_POLICY_SCREEN_ONLY:
+            if channel.get("personal_data") is not False:
+                problems.append(f"{cid}: screen_values_only nur fuer Kanaele ohne Personendaten")
+            if not str(channel.get("field_policy_reason") or "").strip():
+                problems.append(f"{cid}: screen_values_only ohne Begruendung")
         for field, pattern in (channel.get("field_patterns") or {}).items():
             if field not in (channel.get("allowed_fields") or []):
                 problems.append(f"{cid}: Muster fuer nicht erlaubtes Feld {field}")
@@ -397,7 +410,7 @@ def check_http_payload(raw_host: Any, data: Any) -> None:
 
 def _check_field_names(channel: dict[str, Any], names: list[str], host: str) -> None:
     allowed = channel.get("allowed_fields")
-    if not allowed:
+    if not allowed or channel.get("field_policy") == FIELD_POLICY_SCREEN_ONLY:
         return
     for name in names:
         if name not in allowed:

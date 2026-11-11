@@ -99,7 +99,9 @@ def _own(record, user: User):
 
 def _client_in_scope(client_id: str, db: Session, user: User) -> None:
     client = get_client_for_erasure_or_404(client_id, db, user)
-    if client.tenant_id != _tenant(user):
+    # H10 (Verhaltensprobe 9051): Tier 1 fuehrt Kunden mit tenant_id NULL; wie
+    # bei den Benutzern gilt NULL = Mandant "main" (user_tenant_id).
+    if (client.tenant_id or "main") != _tenant(user):
         raise HTTPException(status_code=404, detail="Kunde nicht gefunden")
 
 

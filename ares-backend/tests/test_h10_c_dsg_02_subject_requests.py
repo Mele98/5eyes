@@ -282,3 +282,26 @@ def test_alembic_postgres_ddl_creates_subject_requests():
     for name in ("ck_privacy_subject_request_type", "ck_privacy_subject_request_status",
                  "ix_privacy_subject_requests_status"):
         assert name in ddl
+
+
+def test_tier1_client_without_tenant_counts_as_main(tmp_path):
+    """Verhaltensprobe 9051: Bootstrap-Admin und Kunde ohne tenant_id (Tier 1)."""
+    with api(tmp_path) as (client, current, factory):
+        with factory() as s:
+            s.execute(text("UPDATE clients SET tenant_id = NULL WHERE id = :id"), {"id": CLIENT_ID})
+            s.commit()
+        current["user"] = user(ADMIN_ID, tenant=None)
+        opened = _open(client)
+        assert opened.status_code == 201, opened.text
+        assert client.get(f"/privacy/subject-requests/{opened.json()['id']}").status_code == 200
+        current["user"] = user("admin-b", tenant=OTHER_TENANT)
+        assert _open(client).status_code == 404
+
+
+def test_swiss_calendar_date_after_midnight_is_not_future(tmp_path):
+    """Verhaltensprobe 9051: um 00:30 Ortszeit ist das Schweizer Datum in UTC
+    noch gestern; ein reines Datum gilt mit einem Tag Toleranz."""
+    with api(tmp_path) as (client, _current, _factory):
+        tomorrow_utc = (_today() + timedelta(days=1)).isoformat()
+        assert _open(client, received=tomorrow_utc).status_code == 201
+        assert _open(client, received=(_today() + timedelta(days=2)).isoformat()).status_code == 422

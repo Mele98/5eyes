@@ -185,3 +185,15 @@ def test_alembic_postgres_ddl_creates_owner_values():
 def test_register_file_is_packaged_with_the_backend():
     script = (reg.REPO_ROOT / "ares-desktop" / "scripts" / "build-backend.js").read_text(encoding="utf-8")
     assert "'config/processing_activities.json'" in script
+
+
+def test_runtime_view_is_complete_even_if_the_app_has_not_loaded_every_model(tmp_path, monkeypatch):
+    """Verhaltensprobe 9051: die App laedt Marktdaten-Modelle erst bei Bedarf;
+    die Registeransicht registriert vor der Pruefung alle Modelle."""
+    from services import privacy_owner_values
+
+    calls = []
+    monkeypatch.setattr(privacy_owner_values, "import_tenant_models", lambda: calls.append(1))
+    with api(tmp_path) as (client, _current, _factory):
+        assert client.get("/privacy/processing-register").json()["complete"] is True
+    assert calls, "Registeransicht muss alle Modelle registrieren"

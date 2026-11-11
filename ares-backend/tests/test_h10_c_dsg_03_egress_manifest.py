@@ -488,3 +488,31 @@ def test_configured_personal_channel_blocks_customer_output_until_confirmed(tmp_
 def test_manifest_is_packaged_with_the_backend():
     script = (REPO / "ares-desktop" / "scripts" / "build-backend.js").read_text(encoding="utf-8")
     assert "'config/outbound_processing_manifest.json'" in script
+
+
+
+def test_yahoo_consent_flow_passes_but_values_are_screened(guard):
+    """Verhaltensprobe 9051: yfinance sendet im Einwilligungsablauf von Yahoo
+    vorgegebene Felder (u. a. consentUUID); sie duerfen passieren, Personen-
+    daten-Muster bleiben gesperrt, und die Kursabfrage selbst bleibt strikt."""
+    body = b"agree=agree&agree=agree&consentUUID=default&sessionId=3_cc-session_" + MANDATE_UUID.encode()         + b"&csrfToken=abc&originalDoneUrl=https%3A%2F%2Ffinance.yahoo.com%2F&namespace=yahoo"
+    assert _raw_request("consent.yahoo.com", "/v2/collectConsent?sessionId=3_cc-session_x&lang=de-CH", body, "POST")
+    with pytest.raises(em.EgressBlocked) as blocked:
+        _raw_request("consent.yahoo.com", "/v2/collectConsent", f"namespace={CLIENT_EMAIL}".encode(), "POST")
+    assert blocked.value.reason_code == "EGRESS_VALUE_REJECTED"
+    with pytest.raises(em.EgressBlocked) as blocked:
+        _raw_request("query2.finance.yahoo.com", "/v8/finance/chart/SPY?range=1d&consentUUID=default")
+    assert blocked.value.reason_code == "EGRESS_FIELD_NOT_ALLOWED"
+
+
+def test_screen_only_policy_needs_reason_and_no_personal_data():
+    manifest = em.load_manifest()
+    broken = json.loads(json.dumps(manifest))
+    consent = em.channel_by_id(broken, "market_data.yfinance_consent")
+    consent["field_policy_reason"] = ""
+    smtp = em.channel_by_id(broken, "mail.smtp")
+    smtp["field_policy"] = "screen_values_only"
+    smtp["field_policy_reason"] = "x"
+    problems = em.manifest_problems(broken)
+    assert "market_data.yfinance_consent: screen_values_only ohne Begruendung" in problems
+    assert "mail.smtp: screen_values_only nur fuer Kanaele ohne Personendaten" in problems

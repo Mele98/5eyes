@@ -64,7 +64,8 @@ def _moment(value: str | None, field: str) -> datetime:
 
 def _past(value: str | None, field: str, now: datetime, *, not_before: str | None = None) -> datetime:
     moment = _moment(value, field)
-    if moment > now + timedelta(minutes=5):
+    tolerance = timedelta(days=1) if len(str(value or "").strip()) == 10 else timedelta(minutes=5)
+    if moment > now + tolerance:
         raise DomainError(ReasonCode.INCIDENT_INPUT_INVALID, f"{field} liegt in der Zukunft", http_status=422)
     if not_before and moment < _moment(not_before, "Entdeckung"):
         raise DomainError(ReasonCode.INCIDENT_INPUT_INVALID, f"{field} liegt vor der Entdeckung", http_status=422)

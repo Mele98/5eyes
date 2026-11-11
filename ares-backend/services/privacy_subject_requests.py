@@ -88,8 +88,11 @@ def _parse_moment(value: str | None, field: str) -> datetime:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
-def _not_future(moment: datetime, field: str, now: datetime) -> None:
-    if moment > now + timedelta(minutes=5):
+def _not_future(moment: datetime, field: str, now: datetime, raw: str | None = None) -> None:
+    # Ein reines Datum ist ein Kalendertag der Schweiz (UTC+1/+2): nach
+    # Mitternacht Ortszeit ist es in UTC noch "gestern" -- ein Tag Toleranz.
+    tolerance = timedelta(days=1) if len(str(raw or "").strip()) == 10 else timedelta(minutes=5)
+    if moment > now + tolerance:
         raise DomainError(ReasonCode.SUBJECT_REQUEST_INPUT_INVALID, f"{field} liegt in der Zukunft", http_status=422)
 
 
@@ -156,7 +159,7 @@ def open_request(
 ) -> PrivacySubjectRequest:
     moment = _utc(now)
     received = _parse_moment(received_at, "Eingang")
-    _not_future(received, "Eingang", moment)
+    _not_future(received, "Eingang", moment, received_at)
     case = PrivacySubjectRequest(
         id=new_uuid(), tenant_id=tenant_id, client_id=client_id,
         request_type=_choice(request_type, REQUEST_TYPES, "Anfrageart"), status="RECEIVED",
@@ -214,7 +217,7 @@ def extend_deadline(
             ReasonCode.SUBJECT_REQUEST_INPUT_INVALID, "Neue Frist muss nach der bisherigen liegen", http_status=422,
         )
     notified = _parse_moment(notified_at, "Mitteilung an die betroffene Person")
-    _not_future(notified, "Mitteilung", moment)
+    _not_future(notified, "Mitteilung", moment, notified_at)
     if notified.date() > effective_due_date(case):
         raise DomainError(
             ReasonCode.SUBJECT_REQUEST_EXTENSION_TOO_LATE,
@@ -419,7 +422,7 @@ def record_delivery(
             )
     moment = _utc(now)
     delivered = _parse_moment(delivered_at, "Zustellung")
-    _not_future(delivered, "Zustellung", moment)
+    _not_future(delivered, "Zustellung", moment, delivered_at)
     if delivered < _parse_moment(case.received_at, "Eingang"):
         raise DomainError(
             ReasonCode.SUBJECT_REQUEST_INPUT_INVALID, "Zustellung liegt vor dem Eingang", http_status=422,

@@ -21,6 +21,7 @@ from database import Base, new_uuid
 from models.privacy import PrivacyOwnerValue
 from services import egress_manifest
 from services import processing_activity_register as register_module
+from services.postgres_rls import import_tenant_models
 
 OWNER_VALUE_MAX_LENGTH = 2000
 
@@ -177,6 +178,9 @@ def register_view(db: Session, tenant_id: str) -> dict[str, Any]:
             "available": False, "problems": [str(exc)], "customer_output_ready": False,
             "owner_fields": [], "open_blocking_fields": [], "register": None,
         }
+    # Alle Modelle registrieren: die App laedt einige Modelle (z. B. Marktdaten)
+    # erst bei Bedarf; das Register prueft gegen das vollstaendige Schema.
+    import_tenant_models()
     problems = register_module.register_problems(Base.metadata.tables, register, check_evidence_files=False)
     try:
         problems += egress_manifest.manifest_problems(egress_manifest.load_manifest(), check_files=False)
