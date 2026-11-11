@@ -1603,6 +1603,26 @@ def _missing_ter_positions_count(items: list[dict]) -> int:
     return sum(1 for item in items if item.get("ter_bps") is None)
 
 
+ZERO_STRATEGY_BASE_WARNING = (
+    "Keine investierbare Strategiebasis: Die Liquiditätsreserve beansprucht das "
+    "gesamte Beratungsvermögen. Die Produktpositionen zeigen nur die Gewichtung; "
+    "es wird nichts investiert (Zielvolumen 0)."
+)
+
+
+def resolve_investable_wealth_rappen(target_payload: dict, advisory_wealth_rappen: int) -> int:
+    """N-858-11: investierbare Strategiebasis der Empfehlung.
+
+    Nur eine FEHLENDE Angabe (``None``/Schluessel fehlt, Altbestand) faellt
+    auf das Beratungsvermoegen zurueck. Eine Basis von 0 ist eine Aussage --
+    die Reserve beansprucht alles -- und bleibt 0; vorher machte
+    ``x or advisory_wealth_rappen`` daraus das volle Vermoegen, und
+    Fonds-Zielvolumen, Kostenausweis und Handelsliste investierten die Reserve.
+    """
+    value = target_payload.get("investable_advisory_wealth_rappen")
+    return int(advisory_wealth_rappen) if value is None else int(value)
+
+
 def _implementation_steps(buckets: list[dict], target_total_rappen: int) -> list[str]:
     steps = []
     def amount_delta_rappen(item: dict) -> int:
