@@ -104,9 +104,10 @@ ARCHIVE_JURISDICTIONS_PREFIX = 'jurisdictions/'
 # dem Laenderpaket-Text (services/pdf/components/footer.py).
 PDF_SMOKE_DOCUMENTS = ('risikoprofil', 'vertrag')
 FOOTER_DISCLAIMER_KEY = 'legal.footer.disclaimer'
-# Die Fusszeile kuerzt Disclaimer + Datum auf 220 Zeichen (footer.py,
-# ``max_chars``); geprueft wird deshalb der stets gedruckte Anfang.
-FOOTER_REQUIRED_PREFIX_CHARS = 120
+# Die Fusszeile druckt den Disclaimer vollstaendig (umgebrochen, nie gekuerzt;
+# footer.py, N-858-1). Geprueft wird deshalb der volle Laenderpaket-Text plus
+# das Erstelldatum ("Erstellt am").
+FOOTER_CREATED_MARKER = 'Erstellt am'
 # services/pdf/fonts.py: eingebettete TrueType-Subsets heissen ``/ABCDEF+<Name>``.
 EDITORIAL_FONT_FAMILIES = ('Inter', 'CormorantGaramond')
 FONT_FALLBACK_LOG_MARKERS = ('Editorial PDF fonts missing', 'Editorial PDF font registration failed')
@@ -367,7 +368,7 @@ def http_get(url: str, timeout: float = 5.0) -> tuple[int, dict, bytes]:
 # 8. PDF-Render (B-9)
 # ---------------------------------------------------------------------------
 def expected_footer_disclaimer() -> str:
-    """Anfang des Fusszeilen-Texts aus dem Quellbaum (produktiver Loader).
+    """Voller Fusszeilen-Text aus dem Quellbaum (produktiver Loader).
 
     Die Paket-Bytes derselben Datei sind in ``check_jurisdiction_documents``
     als byte-identisch belegt; der Text im gerenderten PDF stammt also aus der
@@ -376,7 +377,7 @@ def expected_footer_disclaimer() -> str:
     text = documents_mod.default_documents().text(FOOTER_DISCLAIMER_KEY)
     if not isinstance(text, str) or not text.strip():
         fail(f'{FOOTER_DISCLAIMER_KEY} im Quellbaum leer -- PDF-Pruefung hat keine Grundlage.')
-    return text[:FOOTER_REQUIRED_PREFIX_CHARS]
+    return text
 
 
 def _squash(text: str) -> str:
@@ -755,7 +756,7 @@ def run_pdf_render_smoke(base: str, documents: tuple[str, ...] = PDF_SMOKE_DOCUM
         ctype = {k.lower(): v for k, v in headers.items()}.get('content-type', '')
         if status != 200 or 'application/pdf' not in ctype:
             fail(f'PDF-Smoke: {name}.pdf antwortet HTTP {status} ({ctype}): {pdf[:300]!r}')
-        rendered.append(check_pdf_bytes(pdf, f'{name}.pdf', (footer,)))
+        rendered.append(check_pdf_bytes(pdf, f'{name}.pdf', (footer, FOOTER_CREATED_MARKER)))
     return rendered
 
 
