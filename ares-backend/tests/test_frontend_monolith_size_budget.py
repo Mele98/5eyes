@@ -31,6 +31,11 @@ client-compliance.js (eigenes Budget, Stand bei Einfuehrung); sie haengen sich
 selbst in Administration und Stammdaten ein. Im Monolithen nur die Einbindung;
 renderAuditLogTable ist mit der Feldbezeichnung (N-873-09) in den Teil
 umgezogen. Der Monolith schrumpft dabei (Budget auf den neuen Stand).
+
+H10 Datenschutz-Governance (2026-11-11): neue Masken im neuen Teil
+privacy-governance.js (eigenes Budget, Stand bei Einfuehrung). Im Monolithen
+nur die Einbindung; renderAuditLogPagination ist unveraendert in den Teil
+umgezogen, der Monolith schrumpft (Budget auf den neuen Stand).
 """
 from __future__ import annotations
 
@@ -39,9 +44,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 27638
+MONOLITH_MAX_LINES = 27624
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1693221
+MONOLITH_MAX_BYTES = 1692285
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -50,6 +55,7 @@ EXTRACTED_PART_BUDGETS = {
     "intro-sequence.js": (761, 36861),
     "goal-review-runtime.js": (1589, 84633),
     "client-compliance.js": (455, 28353),
+    "privacy-governance.js": (408, 30328),
 }
 
 

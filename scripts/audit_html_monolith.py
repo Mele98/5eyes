@@ -32,6 +32,10 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     # H8 (Compliance-Audit 2026-11-07): Kundeninformation, KYC-Bestaetigung,
     # Vertretung + Audit-Tabelle (renderAuditLogTable umgezogen, N-873-09).
     ("client-compliance.js", "js"),
+    # H10 (DSG-Technikaudit 2026-11-11): Datenschutz-Governance (Verzeichnis,
+    # Owner-Angaben, Betroffenenanfragen, Vorfaelle, Egress) +
+    # renderAuditLogPagination (umgezogen, Monolith-Budget).
+    ("privacy-governance.js", "js"),
 )
 
 # N-875-05: Bewusste, dokumentierte Liste der VOR H3 bereits eigen-

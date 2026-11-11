@@ -414,7 +414,9 @@ def test_desktop_updates_are_disabled_or_listed_in_the_manifest():
 
 
 def test_renderer_csp_connects_only_to_the_local_backend():
-    html = (REPO / "ares-desktop" / "frontend" / "ares.html").read_text(encoding="utf-8")
+    from tests.monolith_source import read_monolith_bundle
+
+    html = read_monolith_bundle()
     csp = re.search(r'http-equiv="Content-Security-Policy" content="([^"]+)"', html).group(1)
     connect = next(part for part in csp.split(";") if part.strip().startswith("connect-src")).split()[1:]
     for source in connect:
