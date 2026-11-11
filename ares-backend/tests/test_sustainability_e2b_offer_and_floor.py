@@ -299,3 +299,24 @@ def test_protocol_without_strategy_is_bound_to_the_capture_and_signable(api, sce
     doc = _protocol_doc(api, session_factory, mid)
     assert doc["bound_target_allocation_id"] is None
     assert _sign(api, mid, doc["id"]).status_code == 200, state
+
+
+def test_coverage_endpoint_is_mandate_and_tenant_bound(api, scenario, session_factory, advisor_user):
+    from main import app
+    from models.users import User
+    from services.auth import get_current_user
+
+    mid = scenario["mandate_id"]
+    stranger = User(id="user-stranger-e2b", username="stranger-e2b", password_hash="h", full_name="Fremd",
+                    role="advisor", is_active=1, created_at="x", updated_at="x")
+    with session_factory() as s:
+        s.add(User(id="user-stranger-e2b", username="stranger-e2b", password_hash="h", full_name="Fremd",
+                   role="advisor", is_active=1, created_at="x", updated_at="x"))
+        s.commit()
+    app.dependency_overrides[get_current_user] = lambda: stranger
+    try:
+        resp = api.get(f"/mandates/{mid}/strategy-option-coverage")
+        assert resp.status_code in (403, 404), resp.text
+        assert "needed_sub_asset_classes" not in resp.text
+    finally:
+        app.dependency_overrides[get_current_user] = lambda: advisor_user

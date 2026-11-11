@@ -169,3 +169,45 @@ def test_append_only_for_app_and_owner(pg_ipd, statement):
         with pytest.raises(DBAPIError):
             conn.execute(text(statement))
         conn.rollback()
+
+
+def test_upgrade_downgrade_upgrade_on_postgres():
+    """Codex-Vertrag E2: PostgreSQL besteht upgrade -> downgrade (vor E2) ->
+    upgrade; danach sind Tabelle, Trigger und beide Dokumentbindungen da."""
+    pytest.importorskip("psycopg")
+    from alembic import command
+    from sqlalchemy import inspect
+
+    token = uuid.uuid4().hex[:12]
+    schema = f"ipdmig_{token}"
+    admin = create_engine(POSTGRES_URL, future=True)
+    with admin.begin() as conn:
+        conn.execute(text(f"CREATE SCHEMA {_qi(schema)}"))
+    scoped = _scoped_url(POSTGRES_URL, schema)
+    engine = create_engine(scoped, future=True)
+    try:
+        cfg = _alembic_cfg(scoped)
+        command.upgrade(cfg, "head")
+        command.downgrade(cfg, "d3b7f1a5c9e2")
+        with engine.connect() as conn:
+            insp = inspect(conn)
+            assert TABLE not in insp.get_table_names(schema=schema)
+            doc_cols = {c["name"] for c in insp.get_columns("contract_documents", schema=schema)}
+            assert not doc_cols & {"bound_preference_decision_hash", "bound_target_allocation_id"}
+        command.upgrade(cfg, "head")
+        with engine.connect() as conn:
+            insp = inspect(conn)
+            assert TABLE in insp.get_table_names(schema=schema)
+            doc_cols = {c["name"] for c in insp.get_columns("contract_documents", schema=schema)}
+            assert {"bound_preference_decision_hash", "bound_target_allocation_id",
+                    "bound_preferences_sha256"} <= doc_cols
+            triggers = {r[0] for r in conn.execute(text(
+                "SELECT tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = :s AND c.relname = :t"
+            ), {"s": schema, "t": TABLE})}
+            assert {f"trg_{TABLE}_immutable", f"trg_{TABLE}_tenant_guard"} <= triggers
+    finally:
+        engine.dispose()
+        with admin.begin() as conn:
+            conn.execute(text(f"DROP SCHEMA IF EXISTS {_qi(schema)} CASCADE"))
+        admin.dispose()
