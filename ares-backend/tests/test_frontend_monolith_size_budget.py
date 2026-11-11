@@ -42,6 +42,10 @@ H9 Nachtrag 1 (2026-11-11, Pruefrunde 61d8d69d): IST-Grafik-Aufbau in
 ``ist-projection-gate.js`` verschoben (IST-Horizont, Server-Pruefung),
 Sitzungsgrenze als neuer Teil ``session-boundary.js``, Demo-IST-Pfad in
 initCharts entfernt. Monolith 27460 / 1679579 -- gesenkt.
+H9 Nachtrag 2 (2026-11-12): IST-Projektion aus EINER Server-Basis
+(``ist-projection-basis.js``, neuer Teil), Kennzahlen-Renderer der
+Vermoegensentwicklung nach ``ist-projection-gate.js`` verschoben. Monolith
+27413 / 1676448 -- gesenkt.
 """
 from __future__ import annotations
 
@@ -50,9 +54,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 27460
+MONOLITH_MAX_LINES = 27413
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1679579
+MONOLITH_MAX_BYTES = 1676448
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -61,8 +65,9 @@ EXTRACTED_PART_BUDGETS = {
     "aa-chart.css": (66, 5978),
     "intro-sequence.js": (761, 36861),
     "aa-chart.js": (331, 21026),
-    "ist-projection-gate.js": (218, 11272),
+    "ist-projection-gate.js": (295, 16310),
     "session-boundary.js": (29, 1430),
+    "ist-projection-basis.js": (87, 4649),
     "goal-review-runtime.js": (1589, 84633),
 }
 

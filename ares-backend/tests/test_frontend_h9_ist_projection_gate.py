@@ -62,7 +62,7 @@ def _gate_module() -> str:
 
 def _run(scenario: str, extra_prelude: str = ""):
     # Der ausgelagerte Teil wird vollstaendig geladen (inkl. Modulzustand).
-    return run_js(NEEDED, scenario, prelude=PRELUDE + extra_prelude + chr(10) + _gate_module())
+    return run_js(NEEDED, scenario, prelude=_gate_module() + chr(10) + PRELUDE + extra_prelude)  # Stubs nach dem Teil (ueberschreiben)
 
 
 def _overlay_after(state_js: str):
@@ -121,7 +121,6 @@ def test_mandate_switch_a_b_a_does_not_leak_improved_curve():
         "updateProjectionChartsFromSimulation(ALLOC);var a1=charts.ist.data.datasets.length;"
         "strategyState={allocation:null,recommendation:null,risk:null,dirty:true,staleNotice:null};"
         "syncIstProjectionStrategyGate();var b=charts.ist.data.datasets.length;"
-        
         "updateProjectionChartsFromSimulation({simulation:ALLOC.simulation,buckets:ALLOC.buckets});"
         "var bAfterLateSim=charts.ist.data.datasets.length;"
         "strategyState={allocation:ALLOC,risk:RISK,dirty:false,staleNotice:null};"
@@ -168,3 +167,36 @@ def test_wealth_only_summary_text_does_not_claim_an_improved_situation():
 def test_gate_lives_in_extracted_part(name):
     module = (FRONTEND_DIR / "ist-projection-gate.js").read_text(encoding="utf-8")
     assert f"function {name}(" in module
+
+
+def test_c892_01_invalid_state_resets_kpis_even_without_overlay():
+    """Codex C-892-01 (61d8d69d): Bei bereits auf IST reduziertem bzw. neu
+    aufgebautem Chart blieben die alten Strategie-KPIs stehen (wealthOnly=0).
+    Ungueltig -> renderIstWithoutStrategy IMMER; nur das Kuerzen haengt vom
+    Overlay ab."""
+    out = _run(
+        "strategyState={allocation:ALLOC,risk:RISK,dirty:false,staleNotice:null};"
+        "updateProjectionChartsFromSimulation(ALLOC);renderIstStrategyOverview(ALLOC);"
+        "charts.ist=mkChart();"  # Chart neu aufgebaut: kein Overlay mehr
+        "strategyState.dirty=true;strategyState.staleNotice='Eingaben geändert';var w0=calls.wealthOnly;"
+        "syncIstProjectionStrategyGate();"
+        "return {shown:charts.ist.data.datasets.length,reset:calls.wealthOnly-w0};"
+    )
+    assert out == {"shown": 1, "reset": 1}
+
+
+def test_c892_01_mandate_switch_with_chart_rebuild_and_late_simulation():
+    """A (gueltig) -> B (neuer Chart, Navigation vor dem Gate, verspaetete
+    Simulation von A) -> A: in B nie Overlay, KPIs immer auf IST."""
+    out = _run(
+        "strategyState={allocation:ALLOC,risk:RISK,dirty:false,staleNotice:null};"
+        "updateProjectionChartsFromSimulation(ALLOC);renderIstStrategyOverview(ALLOC);var a1=charts.ist.data.datasets.length;"
+        "charts.ist=mkChart();strategyState={allocation:null,risk:null,dirty:true,staleNotice:null};"
+        "var w0=calls.wealthOnly;syncIstProjectionStrategyGate();var bReset=calls.wealthOnly-w0;"
+        "updateProjectionChartsFromSimulation({simulation:ALLOC.simulation,buckets:ALLOC.buckets});"
+        "renderIstStrategyOverview({simulation:ALLOC.simulation,buckets:ALLOC.buckets});"
+        "var bShown=charts.ist.data.datasets.length;var bReset2=calls.wealthOnly-w0;"
+        "strategyState={allocation:ALLOC,risk:RISK,dirty:false,staleNotice:null};syncIstProjectionStrategyGate();"
+        "return {a1:a1,bReset:bReset,bShown:bShown,bReset2:bReset2,a2:charts.ist.data.datasets.length};"
+    )
+    assert out == {"a1": 2, "bReset": 1, "bShown": 1, "bReset2": 2, "a2": 2}

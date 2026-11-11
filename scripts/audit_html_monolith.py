@@ -33,6 +33,8 @@ DEFAULT_OUTPUT = REPO_ROOT / "docs" / "audits" / "2026-06-02-monolith-inventory.
 # zeigt die verbesserte Kurve nur mit gueltiger, nicht veralteter Strategie.
 # H9 Nachtrag (2026-11-11): session-boundary.js -- frischer Start beim Logout
 # bzw. Benutzerwechsel (N-892-02, kein Mandatszustand ueber die Sitzungsgrenze).
+# H9 Nachtrag 2 (2026-11-12): ist-projection-basis.js -- eine CMA-Quelle fuer die
+# IST-Vermoegensprojektion (Server-Basis, fail-closed ohne wirksame CMA).
 EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     ("ares.css", "css"),
     ("aa-chart.css", "css"),
@@ -40,6 +42,7 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     ("aa-chart.js", "js"),
     ("ist-projection-gate.js", "js"),
     ("session-boundary.js", "js"),
+    ("ist-projection-basis.js", "js"),
     ("goal-review-runtime.js", "js"),
 )
 

@@ -165,7 +165,7 @@ body{font-family:var(--f-s);}</style>
   </div>
 </div>
 <script src="vendor/intro-country-outlines.js"></script>
-<script src="./intro-sequence.js"></script><script src="./aa-chart.js"></script><script src="./ist-projection-gate.js"></script><script src="./session-boundary.js"></script>
+<script src="./intro-sequence.js"></script><script src="./aa-chart.js"></script><script src="./ist-projection-gate.js"></script><script src="./session-boundary.js"></script><script src="./ist-projection-basis.js"></script>
 <!-- E0 (2026-06-12): Phase-0 "SYNTHETIC / TEST DATA ONLY"-Banner. Erscheint nur,
      wenn das Backend allow_real_client_data=false meldet (gehostetes Staging). -->
 <div id="phase0-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99998;
@@ -983,7 +983,7 @@ function _renderSollIstCompare(){
       var box=document.getElementById('m-sollist-delta');
       if(box&&sMain!=null&&iMain!=null){
         var deltaChf=Math.round((sMain-iMain)*1000);
-        var hLabel=labels.length?String(labels[labels.length-1]):'Horizont';
+        var hLabel=labels.length?projectionEndOfYearText(labels[labels.length-1]):'Horizont';
         box.style.display='';
         box.style.color='var(--n7)';
         box.style.background='var(--bg)';
@@ -5561,23 +5561,21 @@ function wealthProjectionInputs(scope,years){
   var recurringNetCashflowRappen=summaryRecurringNetCashflowRappen(summary);
   var capitalNetCashflowRappen=summaryCapitalNetCashflowRappen(summary);
   var annualNetCashflowRappen=summaryTotalNetCashflowRappen(summary);
-  var _acaList=strategyState&&strategyState.allocation&&strategyState.allocation.asset_class_assumptions;
-  var _acaMap={};
-  if(Array.isArray(_acaList)){
-    _acaList.forEach(function(ac){
-      if(ac&&ac.asset_class)_acaMap[ac.asset_class]=ac;
-    });
-  }
+  // H9 Nachtrag 2: EINE Quelle -- Renditeannahmen der wirksamen CMA vom Server
+  // (ist-projection-basis), unabhaengig vom Strategie-Zustand. Ohne Server-
+  // Basis keine Projektion (cmaReady=false), keine Client-Konstanten.
+  var _srvBasis=(typeof istProjectionServerBasisFor==='function')?istProjectionServerBasisFor():null;
+  var _srvRet=_srvBasis&&_srvBasis.expected_return_bps;
   var returnMap={
-    equities:Number(_acaMap['Aktien']&&_acaMap['Aktien'].expected_return_bps||ADMIN_CMA_DEFAULTS.equity_intl_return_bps||690),
-    bonds:Number(_acaMap['Obligationen']&&_acaMap['Obligationen'].expected_return_bps||ADMIN_CMA_DEFAULTS.bonds_fx_hedged_return_bps||220),
-    realEstate:Number(_acaMap['Immobilien']&&_acaMap['Immobilien'].expected_return_bps||ADMIN_CMA_DEFAULTS.real_estate_ch_return_bps||450),
+    equities:Number(_srvRet&&_srvRet.equities||0),
+    bonds:Number(_srvRet&&_srvRet.bonds||0),
+    realEstate:Number(_srvRet&&_srvRet.real_estate||0),
     // 2026-06-17 (User-Fachentscheid): Liquidität wertet NICHT auf (Cash = 0%, sofern
     // nicht anders beschrieben). Echte Konto-Zinsen laufen ueber den abgeleiteten
     // Zinsertrag-Cashflow (kein Doppelzählen, kein Phantom-Wachstum) — konsistent zum
     // Engine-Fix (portfolio_engine: returns['liquidity']=0 in der Projektion).
     liquidity:0,
-    alternatives:Number(_acaMap['Alternative']&&_acaMap['Alternative'].expected_return_bps||ADMIN_CMA_DEFAULTS.alternatives_gold_return_bps||300)
+    alternatives:Number(_srvRet&&_srvRet.alternatives||0)
   };
   var weightedReturnRappenBps=0;
   // Sockel-Modell (2026-06-12): Immobilien bleiben als nicht-verzehrbarer Sockel
@@ -5634,7 +5632,7 @@ function wealthProjectionInputs(scope,years){
   // Finanzvermoegen) -- keine Browser-Nachbildung. Serien (bevorzugt projection_basis) liefern nur
   // Tilgungs-Deltas; der Offset verankert Jahr 0 exakt auf foundation_in_net_wealth_rappen.
   var basisSource='local_preview';
-  var _ta=scope!=='advisory'&&strategyState&&strategyState.allocation&&strategyState.allocation.total_allocation;
+  var _ta=scope!=='advisory'&&_srvBasis?{total_base_rappen:_srvBasis.total_base_rappen,foundation_in_net_wealth_rappen:_srvBasis.foundation_in_net_wealth_rappen,projection_basis:_srvBasis.projection_basis}:null;
   if(_ta&&Number.isFinite(Number(_ta.total_base_rappen))&&Number.isFinite(Number(_ta.foundation_in_net_wealth_rappen))){
     var _pb=_ta.projection_basis||{},_has=function(a){return Array.isArray(a)&&a.length>0;};
     var _L=_has(_pb.liability_series_rappen)?_pb.liability_series_rappen:mortgageSeries.liability;
@@ -5648,6 +5646,7 @@ function wealthProjectionInputs(scope,years){
   }
   return {
     scope:scope,basisSource:basisSource,
+    cmaReady:!!_srvRet,cmaReference:_srvBasis&&_srvBasis.cma||null,
     startRappen:startRappen,
     grossRappen:totalRappen,
     sockelRappen:sockelRappen,
@@ -5984,6 +5983,13 @@ function buildCurrentWealthProjection(scope,preferredYears,preferredLabels){
   projection.cashflowComponentSeries=componentSeries.slice();
   projection.expectedReturnBps=Number(inputs.expectedReturnBps||0);
   projection.startRappen=Number(inputs.startRappen||0);
+  projection.cmaReference=inputs.cmaReference||null;
+  if(!inputs.cmaReady){
+    // H9 Nachtrag 2: fail-closed -- keine Projektion ohne wirksame Server-CMA.
+    projection.unavailable=true;
+    projection.seriesK=[];projection.seriesRappen=[];
+    projection.projectedRappen=0;projection.cagrBps=0;projection.expectedReturnBps=0;
+  }
   return projection;
 }
 
@@ -19510,32 +19516,6 @@ function buildImprovedTotalProjectionFromStrategy(result,preferredYears,preferre
     expectedReturnBps:Number(totalProjection.expectedReturnBps||0)
   };
 }
-function renderCurrentWealthOnlyProjectionSummary(projection){
-  var safeProjection=projection||buildCurrentWealthProjection('total');
-  var horizonLabel=(safeProjection.labels&&safeProjection.labels.length)?istProjectionEndYearLabel(safeProjection.labels[safeProjection.labels.length-1]):'';
-  setText('ub-ist-terminal',formatCompactCHF(Number(safeProjection.projectedRappen||0)/100));
-  setText('ub-opt-terminal','—');
-  setText('ub-cagr-ist',fmtPct((Number(safeProjection.expectedReturnBps||safeProjection.cagrBps||0)),1));
-  setText('ub-cagr-opt','—');
-  setText('ub-delta-terminal','—');
-  var note=document.getElementById('ub-projection-note');
-  if(note){
-    note.style.color='var(--n6)';
-    note.style.background='var(--bg)';
-    note.style.borderColor='rgba(90,104,120,0.12)';
-    note.textContent=(horizonLabel?'Bis Ende '+horizonLabel+' zeigt':'Sobald Vermögen oder Cashflows erfasst sind, zeigt')+' diese Seite die Ist-Situation des Gesamtvermögens aus heutigem Mix und künftigen Netto-Cashflows. Die verbesserte Situation erscheint erst mit gültigem Risikoprofil und berechneter Anlagestrategie.';
-  }
-  setText('ub-return-rein','–');setText('ub-return-beratung','–'); // H9: ohne Strategie keine optimierten Renditen
-  var overviewKpi=document.getElementById('kpi-card-projection');
-  if(overviewKpi){
-    var label=overviewKpi.querySelector('.kl');
-    var value=overviewKpi.querySelector('.kv');
-    var sub=overviewKpi.querySelector('.ks');
-    if(label)label.innerHTML='Strategie-Mehrwert '+horizonLabel+' <span style="font-size:8px;color:var(--n3)">↗</span>';
-    if(value)value.textContent='—';
-    if(sub)sub.innerHTML='<span class="a">Erscheint nach Strategie-Berechnung</span>';
-  }
-}
 function simulationPayload(result){
   return result&&result.simulation&&Array.isArray(result.simulation.target_mix_series_rappen)?result.simulation:null;
 }
@@ -19562,38 +19542,6 @@ function simulationTerminalRappen(result,key,fallbackYears){
   );
 }
 function strategyMedianProjectionRappen(result){var mc=monteCarloPayload(result);var series=mc&&Array.isArray(mc.target_p50_series_rappen)?mc.target_p50_series_rappen:null;if(series&&series.length){var last=Number(series[series.length-1]||0);return last?last+Math.round(aaReserveSockelRappen(result,mc)):0;}return simulationTerminalRappen(result,'target_mix_series_rappen',7);} // Live-Test 2026-11 M8: eine Quelle fuer "Prognose" = MC-Median inkl. Reserve-Sockel (wie Faecher und PDF)
-function renderOverviewProjectionSummary(config){
-  var currentProjectedRappen=Number(config&&config.currentProjectedRappen||0);
-  var targetProjectedRappen=Number(config&&config.targetProjectedRappen||0);
-  var currentCagrBps=Number(config&&config.currentCagrBps||0);
-  var targetCagrBps=Number(config&&config.targetCagrBps||0);
-  var currentAnnualNetCashflowRappen=Number(config&&config.currentAnnualNetCashflowRappen||0);
-  var currentMixReturnBps=Number(config&&config.currentMixReturnBps||0);
-  var horizonLabel=config&&config.horizonLabel?istProjectionEndYearLabel(config.horizonLabel):'Horizontende';
-  var deltaChf=Math.round((targetProjectedRappen-currentProjectedRappen)/100);
-  var tone=deltaChf>=0?'var(--pos)':'var(--warn)';
-  setText('ub-ist-terminal',formatCompactCHF(currentProjectedRappen/100));
-  setText('ub-opt-terminal',formatCompactCHF(targetProjectedRappen/100));
-  setText('ub-cagr-ist',fmtPct((currentMixReturnBps||currentCagrBps||0),1));
-  setText('ub-cagr-opt',fmtPct((targetCagrBps||0),1));
-  setText('ub-delta-terminal',(deltaChf>=0?'+':'\u2212')+'CHF '+fmtLocaleCH(Math.abs(deltaChf)));
-  var note=document.getElementById('ub-projection-note');
-  if(note){
-    note.style.color='var(--n6)';
-    note.style.background='var(--bg)';
-    note.style.borderColor='rgba(90,104,120,0.12)';
-    note.textContent='Bis Ende '+horizonLabel+' zeigt diese Seite die Ist-Situation des Gesamtvermögens aus heutigem Mix und künftigen Netto-Cashflows. Die verbesserte Situation übernimmt nur die optimierte Soll-Allokation auf dem Beratungsvermögen; der holistische Rest bleibt unverändert.';
-  }
-  var overviewKpi=document.getElementById('kpi-card-projection');
-  if(overviewKpi){
-    var label=overviewKpi.querySelector('.kl');
-    var value=overviewKpi.querySelector('.kv');
-    var sub=overviewKpi.querySelector('.ks');
-    if(label)label.innerHTML='Strategie-Mehrwert '+horizonLabel+' <span style="font-size:8px;color:var(--n3)">↗</span>';
-    if(value)value.textContent=(deltaChf>=0?'+':'\u2212')+'CHF '+fmtLocaleCH(Math.abs(deltaChf));
-    if(sub)sub.innerHTML='<span style="color:'+tone+'">'+(deltaChf>=0?'Verbesserte Situation ueber Ist':'Ist liegt ueber Zielpfad')+'</span>';
-  }
-}
 function updateAllocationProjectionComparison(config){
   var currentProjectedRappen=Number(config&&config.currentProjectedRappen||0);
   var targetProjectedRappen=Number(config&&config.targetProjectedRappen||0);
@@ -20047,7 +19995,7 @@ function renderAaFanRangeSentence(){
     if(byKey.p10&&byKey.p90&&byKey.p50){
       var last=Math.min(byKey.p10.data.length,byKey.p90.data.length)-1;
       var labels=(charts.opt.data&&charts.opt.data.labels)||[];
-      if(last>=0)txt=fanRangeSentence(labels[last],Number(byKey.p10.data[last])*1000,Number(byKey.p90.data[last])*1000);
+      if(last>=0)txt=fanRangeSentence(projectionEndOfYearText(labels[last]),Number(byKey.p10.data[last])*1000,Number(byKey.p90.data[last])*1000);
     }
   }
   el.textContent=txt;
@@ -20225,7 +20173,7 @@ function projectionHorizonYearLabel(source){
   var labels=(sim&&Array.isArray(sim.year_labels))?sim.year_labels:[];
   if(!labels.length)return '';
   var last=labels[labels.length-1];
-  return (last==null||last==='')?'':String(last);
+  return (last==null||last==='')?'':projectionEndOfYearText(last);
 }
 // Anzahl angezeigter Punkte (Jahr 0..N) -- identisch zur Kappung des Faechers
 // in upgradeFanChartWithMonteCarlo (Berater-Override aus dem Grafik-Ausschnitt).
@@ -20267,7 +20215,8 @@ function renderAaProjectionEndValues(result){
   var cP10=mc?aaSeriesValueAt(mc.current_p10_series_rappen,cut):0;
   var tCagr=tMedSeries.length>1?simulationCagrBps(upTo(tMedSeries)):null;
   var cCagr=cMedSeries.length>1?simulationCagrBps(upTo(cMedSeries)):null;
-  var pre='Endwert'+(year?(' '+year):'')+' – ';
+  var yearText=year?projectionEndOfYearText(year):'', lastYearText=lastYear?projectionEndOfYearText(lastYear):'';
+  var pre='Endwert'+(yearText?(' '+yearText):'')+' – ';
   setText('aa-proj-lbl-median',pre+'Mittleres Szenario (Median)');
   setText('aa-proj-lbl-p90',pre+'Günstiges Szenario (P90)');
   setText('aa-proj-lbl-p10',pre+'Ungünstiges Szenario (P10)');
@@ -20279,7 +20228,7 @@ function renderAaProjectionEndValues(result){
   setText('aa-proj-current-p10',cP10?formatCompactCHF(cP10/100):'—');
   setText('aa-proj-cagr',tCagr==null?'—':(fmtPct(tCagr,1)));
   setText('aa-proj-current-cagr',cCagr==null?'—':(fmtPct(cCagr,1)));
-  setText('aa-proj-delta-label','Differenz der Median-Endwerte SOLL − IST'+(year?(' '+year):''));
+  setText('aa-proj-delta-label','Differenz der Median-Endwerte SOLL − IST'+(yearText?(' '+yearText):''));
   var deltaEl=document.getElementById('aa-proj-delta-value');
   if(deltaEl){
     if(tMed&&cMed){
@@ -20291,7 +20240,7 @@ function renderAaProjectionEndValues(result){
     // Neutral: Differenz zweier Mediane ist kein gesicherter Gewinn.
     deltaEl.style.color='var(--n7)';
   }
-  setText('aa-horizon-sim-end',(year&&lastYear&&cut<fullLen)?('Ausschnitt bis '+year+' – Simulation läuft bis '+lastYear):'');
+  setText('aa-horizon-sim-end',(year&&lastYear&&cut<fullLen)?('Ausschnitt bis '+yearText+' – Simulation läuft bis '+lastYearText):'');
   var paint=function(id,sv,iv){
     var el=document.getElementById(id); if(!el)return;
     var a=Number(sv), b=Number(iv);
@@ -20323,7 +20272,7 @@ function projectionRunwayLabel(seriesRappen,yearLabels){
       return yearLabel+' / '+idx+' J.';
     }
   }
-  var lastLabel=labels.length?String(labels[labels.length-1]):'Horizont';
+  var lastLabel=labels.length?projectionEndOfYearText(labels[labels.length-1]):'Horizont';
   return '> '+lastLabel;
 }
 function assetDisplayName(name){
@@ -21406,7 +21355,7 @@ function renderStrategySummary(){
   setText('kpi-goal-score',goalSuccessTileText(goalSuccess));
   setText('kpi-goal-sub',goalSuccessSubText(goalSuccess));
   setText('sr-proj-wealth',formatCompactCHF(projectedRappen/100));
-  setText('sr-proj-sub',sim?('Simulation bis '+String((sim.year_labels&&sim.year_labels[sim.year_labels.length-1])||'')):'Nach Umsetzung Soll');
+  setText('sr-proj-sub',sim?('Simulation bis '+projectionHorizonYearLabel(sim)):'Nach Umsetzung Soll');
   var srProjValue=document.getElementById('sr-proj-wealth');
   if(srProjValue&&srProjValue.previousElementSibling){
     srProjValue.previousElementSibling.textContent=(projectionHorizonYearLabel(sim)?('Prognose '+projectionHorizonYearLabel(sim)):'Prognose');
@@ -21524,7 +21473,7 @@ if(cashflow&&cashflow.recurring_net_rappen!=null)goalSubParts.push('Laufend '+fo
   setGoalSuccessTile(goalSuccess);
   setText('sr-goal-sub',goalSubParts.join(' · '));
   setText('sr-proj-wealth',formatCompactCHF(projectedRappen/100));
-  setText('sr-proj-sub',sim?('Terminal Value bis '+String((sim.year_labels&&sim.year_labels[sim.year_labels.length-1])||'')):'Aktuelle Soll-Allokation');
+  setText('sr-proj-sub',sim?('Terminal Value bis '+projectionHorizonYearLabel(sim)):'Aktuelle Soll-Allokation');
   var srProjValue=document.getElementById('sr-proj-wealth');
   if(srProjValue&&srProjValue.previousElementSibling){
     srProjValue.previousElementSibling.textContent=(projectionHorizonYearLabel(sim)?('Prognose '+projectionHorizonYearLabel(sim)):'Prognose');
@@ -24230,7 +24179,9 @@ async function refreshCashflowsUI(cid){
 function refreshBaselineChartFromClientData(){
   if(strategyState&&strategyState.allocation&&simulationPayload(strategyState.allocation))return;
   if(!charts||(!charts.ist&&!charts.aaCurrent))return;
+  if(typeof ensureIstProjectionBasis==='function')ensureIstProjectionBasis(); // H9 Nachtrag 2
   var totalProjection=buildCurrentWealthProjection('total',null,null);
+  if(totalProjection.unavailable){renderIstProjectionUnavailable();return;}
   var advisoryProjection=buildCurrentWealthProjection('advisory',null,totalProjection.labels);
   var hasTimelineFlows=(Array.isArray(totalProjection.netCashflowSeriesRappen)?totalProjection.netCashflowSeriesRappen:[]).some(function(value){return Number(value||0)!==0;});
   if(!totalProjection.startRappen&&!advisoryProjection.startRappen&&!Number(totalProjection.annualNetCashflowRappen||0)&&!hasTimelineFlows)return;
@@ -24261,7 +24212,9 @@ function refreshBaselineChartFromClientData(){
 }
 function refreshBaselineChartFromClientDataForced(){
   if(!charts||(!charts.ist&&!charts.aaCurrent))return;
+  if(typeof ensureIstProjectionBasis==='function')ensureIstProjectionBasis(); // H9 Nachtrag 2
   var totalProjection=buildCurrentWealthProjection('total',null,null);
+  if(totalProjection.unavailable){renderIstProjectionUnavailable();return;}
   var advisoryProjection=buildCurrentWealthProjection('advisory',null,totalProjection.labels);
   var hasTimelineFlows=(Array.isArray(totalProjection.netCashflowSeriesRappen)?totalProjection.netCashflowSeriesRappen:[]).some(function(value){return Number(value||0)!==0;});
   if(!totalProjection.startRappen&&!advisoryProjection.startRappen&&!Number(totalProjection.annualNetCashflowRappen||0)&&!hasTimelineFlows){

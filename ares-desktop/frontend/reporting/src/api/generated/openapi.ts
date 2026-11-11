@@ -2897,6 +2897,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/mandates/{mandate_id}/ist-projection-basis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Ist Projection Basis */
+        get: operations["get_ist_projection_basis_mandates__mandate_id__ist_projection_basis_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/mandates/{mandate_id}/onsite-signature/{transaction_id}": {
         parameters: {
             query?: never;
@@ -8299,6 +8316,48 @@ export interface components {
             user_id: string;
             /** Username */
             username: string;
+        };
+        /**
+         * IstProjectionBasisResponse
+         * @description H9 Nachtrag 2: serverseitige Basis der IST-Vermoegensprojektion.
+         *
+         *     Unabhaengig vom Strategie-Zustand: Renditeannahmen je Anlageklasse aus der
+         *     wirksamen CMA (Anlageklassen-Ebene, keine Gewichtung mit einer Soll-
+         *     Sub-Allokation) und die FX-normalisierte Gesamtvermoegens-Basis
+         *     (Liability-Kaskade wie ``total_allocation``) aus den aktuellen Positionen.
+         */
+        IstProjectionBasisResponse: {
+            cma: components["schemas"]["IstProjectionCmaReference"];
+            /** Expected Return Bps */
+            expected_return_bps: {
+                [key: string]: number;
+            };
+            /** Foundation In Net Wealth Rappen */
+            foundation_in_net_wealth_rappen: number;
+            /** Mandate Id */
+            mandate_id: string;
+            /** Projection Basis */
+            projection_basis: Record<string, unknown>;
+            /** Total Base Rappen */
+            total_base_rappen: number;
+        };
+        /**
+         * IstProjectionCmaReference
+         * @description Wirksame CMA-Version (dieselbe Aufloesung wie der Allokationspfad).
+         */
+        IstProjectionCmaReference: {
+            /** Assumption Set Name */
+            assumption_set_name: string;
+            /** Id */
+            id: string;
+            /** Jurisdiction */
+            jurisdiction?: string | null;
+            /** Valid From */
+            valid_from?: string | null;
+            /** Valid Until */
+            valid_until?: string | null;
+            /** Version */
+            version: number;
         };
         /** JurisdictionHomeBiasDefaultCreate */
         JurisdictionHomeBiasDefaultCreate: {
@@ -18290,6 +18349,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ist_projection_basis_mandates__mandate_id__ist_projection_basis_get: {
+        parameters: {
+            query?: {
+                horizon_years?: number | null;
+            };
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IstProjectionBasisResponse"];
                 };
             };
             /** @description Validation Error */

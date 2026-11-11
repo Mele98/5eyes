@@ -120,7 +120,7 @@ function buildCurrentWealthProjection(scope,years,labels){
     expectedReturnBps:250,cagrBps:240,annualNetCashflowRappen:0};}
 function buildImprovedTotalProjectionFromStrategy(){return {projectedRappen:53000000000,cagrBps:300};}
 function simulationCagrBps(){return 410;}
-function projectionHorizonYearLabel(sim){var l=sim&&sim.year_labels;return l&&l.length?String(l[l.length-1]):'';}
+function projectionHorizonYearLabel(sim){var l=sim&&sim.year_labels;return l&&l.length?projectionEndOfYearText(l[l.length-1]):'';}
 function sollColor(){return '#1e4b8f';}
 function applyDepletionMarkerToDataset(){}
 function syncIstProjectionAxisScale(){}
@@ -151,7 +151,8 @@ NEEDED = ("updateProjectionChartsFromSimulation", "simulationPayload", "simulati
 
 
 def _gate(scenario: str):
-    return run_js(NEEDED, scenario, prelude=GATE_PRELUDE + "\n" + _module("ist-projection-gate.js"))
+    # Teil zuerst, Stubs danach (sie ersetzen die echten Renderer im Test).
+    return run_js(NEEDED, scenario, prelude=_module("ist-projection-gate.js") + "\n" + GATE_PRELUDE)
 
 
 def _n():
@@ -271,6 +272,6 @@ def test_note_names_last_cashflow_year_not_the_valuation_label():
     angezeigt wird "Ende 2060" wie die Horizont-Anzeige "= bis 2060"."""
     src = html()
     body = extract_function(src, "renderCurrentWealthOnlyProjectionSummary")
-    assert "istProjectionEndYearLabel(" in body and "'Bis Ende '" in body
-    out = _gate("return [istProjectionEndYearLabel('2061'),istProjectionEndYearLabel(2041)];")
-    assert out == ["2060", "2040"]
+    assert "projectionEndOfYearText(" in body and "'Bis '+horizonLabel" in body
+    out = _gate("return [projectionEndOfYearText('2061'),projectionEndOfYearText(2041),projectionHorizonYearLabel({year_labels:[2026,2041]})];")
+    assert out == ["Ende 2060", "Ende 2040", "Ende 2040"]

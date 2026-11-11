@@ -39,11 +39,13 @@ function istProjectionHasOverlay(){
   return !!(c&&c.data&&Array.isArray(c.data.datasets)&&c.data.datasets.length>1);
 }
 // Projektionslabels markieren den Stand zu Jahresbeginn; der letzte Punkt ist
-// der Stand nach dem letzten Cashflow-Jahr (valid_until inklusiv). Angezeigt
-// wird deshalb das letzte Cashflow-Jahr ("Ende 2060" wie "= bis 2060" oben).
-function istProjectionEndYearLabel(label){
+// der Stand nach dem letzten inklusiven Jahr (valid_until inklusiv). Angezeigt
+// wird deshalb "Ende JJJJ" mit dem letzten inklusiven Jahr ("Ende 2060" wie
+// "= bis 2060" der Horizont-Anzeige). H9 Nachtrag 2: EINE Hilfsfunktion fuer
+// Vermoegensentwicklung UND Asset-Allocation-Seite.
+function projectionEndOfYearText(label){
   var year=parseInt(String(label==null?'':label),10);
-  return isFinite(year)?String(year-1):String(label==null?'':label);
+  return isFinite(year)?'Ende '+String(year-1):String(label==null?'':label);
 }
 // H9 Nachtrag N-892-04: die IST-Linie folgt immer dem IST-Horizont
 // (Lebensende bzw. letzter Cashflow, Berater-Override vorrangig) -- mit und
@@ -51,11 +53,19 @@ function istProjectionEndYearLabel(label){
 // Strategie-Simulation reicht; danach endet sie (keine Extrapolation).
 function renderIstProjectionChart(targetSeries,advisoryCurrentSeries,simLabels){
   var c=(typeof charts!=='undefined'&&charts)?charts.ist:null;
-  if(!c||!c.data||!Array.isArray(c.data.datasets)||!c.data.datasets.length)return;
+  if(!c||!c.data)return;
+  if(typeof ensureIstProjectionBasis==='function')ensureIstProjectionBasis(); // H9 Nachtrag 2
   var total=buildCurrentWealthProjection('total',null,null);
+  if(total.unavailable){
+    if(typeof renderIstProjectionUnavailable==='function')renderIstProjectionUnavailable();
+    return;
+  }
   var labels=total.labels||[];
   var totalSeries=total.seriesK||[];
   c.data.labels=labels;
+  if(!Array.isArray(c.data.datasets)||!c.data.datasets.length){
+    c.data.datasets=[{borderColor:'rgba(146,64,14,0.75)',backgroundColor:'rgba(146,64,14,0.08)',borderWidth:2,pointRadius:0,fill:false}];
+  }
   c.data.datasets=c.data.datasets.slice(0,1);
   var ds=c.data.datasets[0];
   ds.label='Ist-Situation (Gesamtvermögen)';
@@ -103,8 +113,8 @@ function renderIstProjectionChart(targetSeries,advisoryCurrentSeries,simLabels){
 // Prognose"); ihr Jahr nennt der Hinweis ("Bis Ende ..."). Verbessert/Mehrwert
 // nennen das Vergleichsjahr, weil es vom IST-Horizontende abweichen kann.
 function setIstTileLabels(cmpEnd){
-  setText('ub-opt-terminal-label',cmpEnd?'Verbessert Ende '+cmpEnd:'Verbessert');
-  setText('ub-delta-terminal-label',cmpEnd?'Mehrwert Ende '+cmpEnd:'Mehrwert');
+  setText('ub-opt-terminal-label',cmpEnd?'Verbessert '+cmpEnd:'Verbessert');
+  setText('ub-delta-terminal-label',cmpEnd?'Mehrwert '+cmpEnd:'Mehrwert');
 }
 // Kennzahlen unter der Grafik (Reinvermoegen/Beratungsvermoegen optimiert) und
 // die Uebersichts-Kachel "Strategie-Mehrwert" -- nur mit gueltiger Strategie.
@@ -115,6 +125,8 @@ function renderIstStrategyOverview(result){
     renderIstWithoutStrategy();
     return;
   }
+  var full=buildCurrentWealthProjection('total',null,null);
+  if(full.unavailable){renderIstWithoutStrategy();return;}
   var sim=simulationPayload(result);
   var years=sim&&sim.year_labels?sim.year_labels.length-1:null;
   var labels=sim&&sim.year_labels;
@@ -132,14 +144,13 @@ function renderIstStrategyOverview(result){
     targetCagrBps:improved.cagrBps,
     horizonLabel:projectionHorizonYearLabel(sim)
   });
-  var full=buildCurrentWealthProjection('total',null,null);
   var fullLabels=full.labels||[];
-  var istEnd=fullLabels.length?istProjectionEndYearLabel(fullLabels[fullLabels.length-1]):'';
-  var cmpEnd=istProjectionEndYearLabel(projectionHorizonYearLabel(sim));
+  var istEnd=fullLabels.length?projectionEndOfYearText(fullLabels[fullLabels.length-1]):'';
+  var cmpEnd=projectionHorizonYearLabel(sim);
   setText('ub-ist-terminal',formatCompactCHF(Number(full.projectedRappen||0)/100));
   setIstTileLabels(cmpEnd);
   var note=document.getElementById('ub-projection-note');
-  if(note)note.textContent='Bis Ende '+istEnd+' zeigt diese Seite die Ist-Situation des Gesamtvermögens aus heutigem Mix und künftigen Netto-Cashflows. Die verbesserte Situation reicht bis Ende '+cmpEnd+' (Horizont der Strategie-Simulation) und übernimmt nur die optimierte Soll-Allokation auf dem Beratungsvermögen; der holistische Rest bleibt unverändert.';
+  if(note)note.textContent='Bis '+istEnd+' zeigt diese Seite die Ist-Situation des Gesamtvermögens aus heutigem Mix und künftigen Netto-Cashflows. Die verbesserte Situation reicht bis '+cmpEnd+' (Horizont der Strategie-Simulation) und übernimmt nur die optimierte Soll-Allokation auf dem Beratungsvermögen; der holistische Rest bleibt unverändert.';
   setText('ub-return-rein',fmtPct(Number(improved.cagrBps||0),1));
   setText('ub-return-beratung',fmtPct(Number(advisoryCagrBps||0),1));
 }
@@ -161,10 +172,15 @@ function syncIstProjectionStrategyGate(){
   if(valid&&!shown){
     updateProjectionChartsFromSimulation(strategyState.allocation);
     renderIstStrategyOverview(strategyState.allocation);
-  }else if(!valid&&shown){
-    c.data.datasets=c.data.datasets.slice(0,1);
-    if(c.options&&c.options.plugins&&c.options.plugins.legend)c.options.plugins.legend.display=false;
-    c.update();
+  }else if(!valid){
+    // C-892-01 (Codex 61d8d69d): ungueltig -> Kennzahlen/Hinweis IMMER auf
+    // IST zuruecksetzen, auch wenn die Grafik schon kein Overlay mehr hat
+    // (neu aufgebaut, Mandatswechsel); nur das Kuerzen haengt von `shown` ab.
+    if(shown){
+      c.data.datasets=c.data.datasets.slice(0,1);
+      if(c.options&&c.options.plugins&&c.options.plugins.legend)c.options.plugins.legend.display=false;
+      c.update();
+    }
     renderIstWithoutStrategy();
   }
 }
@@ -215,4 +231,65 @@ function istProjectionRecheckIfVisible(){
 }
 if(typeof window!=='undefined'&&window&&typeof window.addEventListener==='function'){
   window.addEventListener('focus',istProjectionRecheckIfVisible);
+}
+// H9 Nachtrag 2: Kennzahlen/Hinweis der Vermoegensentwicklung (aus dem Monolithen
+// verschoben, damit IST-Darstellung und Beschriftung an einer Stelle liegen).
+function renderCurrentWealthOnlyProjectionSummary(projection){
+  var safeProjection=projection||buildCurrentWealthProjection('total');
+  var horizonLabel=(safeProjection.labels&&safeProjection.labels.length)?projectionEndOfYearText(safeProjection.labels[safeProjection.labels.length-1]):'';
+  var unavailableReason=safeProjection.unavailableReason||(safeProjection.unavailable?istProjectionBasisUnavailableReason():'');
+  setText('ub-ist-terminal',unavailableReason?'—':formatCompactCHF(Number(safeProjection.projectedRappen||0)/100));
+  setText('ub-opt-terminal','—');
+  setText('ub-cagr-ist',unavailableReason?'—':fmtPct((Number(safeProjection.expectedReturnBps||safeProjection.cagrBps||0)),1));
+  setText('ub-cagr-opt','—');
+  setText('ub-delta-terminal','—');
+  var note=document.getElementById('ub-projection-note');
+  if(note){
+    note.style.color='var(--n6)';
+    note.style.background='var(--bg)';
+    note.style.borderColor='rgba(90,104,120,0.12)';
+    note.textContent=unavailableReason?unavailableReason:(horizonLabel?'Bis '+horizonLabel+' zeigt':'Sobald Vermögen oder Cashflows erfasst sind, zeigt')+' diese Seite die Ist-Situation des Gesamtvermögens aus heutigem Mix und künftigen Netto-Cashflows. Die verbesserte Situation erscheint erst mit gültigem Risikoprofil und berechneter Anlagestrategie.';
+  }
+  setText('ub-return-rein','–');setText('ub-return-beratung','–'); // H9: ohne Strategie keine optimierten Renditen
+  var overviewKpi=document.getElementById('kpi-card-projection');
+  if(overviewKpi){
+    var label=overviewKpi.querySelector('.kl');
+    var value=overviewKpi.querySelector('.kv');
+    var sub=overviewKpi.querySelector('.ks');
+    if(label)label.innerHTML='Strategie-Mehrwert '+horizonLabel+' <span style="font-size:8px;color:var(--n3)">↗</span>';
+    if(value)value.textContent='—';
+    if(sub)sub.innerHTML='<span class="a">Erscheint nach Strategie-Berechnung</span>';
+  }
+}
+function renderOverviewProjectionSummary(config){
+  var currentProjectedRappen=Number(config&&config.currentProjectedRappen||0);
+  var targetProjectedRappen=Number(config&&config.targetProjectedRappen||0);
+  var currentCagrBps=Number(config&&config.currentCagrBps||0);
+  var targetCagrBps=Number(config&&config.targetCagrBps||0);
+  var currentAnnualNetCashflowRappen=Number(config&&config.currentAnnualNetCashflowRappen||0);
+  var currentMixReturnBps=Number(config&&config.currentMixReturnBps||0);
+  var horizonLabel=String(config&&config.horizonLabel||'Horizontende');
+  var deltaChf=Math.round((targetProjectedRappen-currentProjectedRappen)/100);
+  var tone=deltaChf>=0?'var(--pos)':'var(--warn)';
+  setText('ub-ist-terminal',formatCompactCHF(currentProjectedRappen/100));
+  setText('ub-opt-terminal',formatCompactCHF(targetProjectedRappen/100));
+  setText('ub-cagr-ist',fmtPct((currentMixReturnBps||currentCagrBps||0),1));
+  setText('ub-cagr-opt',fmtPct((targetCagrBps||0),1));
+  setText('ub-delta-terminal',(deltaChf>=0?'+':'\u2212')+'CHF '+fmtLocaleCH(Math.abs(deltaChf)));
+  var note=document.getElementById('ub-projection-note');
+  if(note){
+    note.style.color='var(--n6)';
+    note.style.background='var(--bg)';
+    note.style.borderColor='rgba(90,104,120,0.12)';
+    note.textContent='Bis '+horizonLabel+' zeigt diese Seite die Ist-Situation des Gesamtvermögens aus heutigem Mix und künftigen Netto-Cashflows. Die verbesserte Situation übernimmt nur die optimierte Soll-Allokation auf dem Beratungsvermögen; der holistische Rest bleibt unverändert.';
+  }
+  var overviewKpi=document.getElementById('kpi-card-projection');
+  if(overviewKpi){
+    var label=overviewKpi.querySelector('.kl');
+    var value=overviewKpi.querySelector('.kv');
+    var sub=overviewKpi.querySelector('.ks');
+    if(label)label.innerHTML='Strategie-Mehrwert '+horizonLabel+' <span style="font-size:8px;color:var(--n3)">↗</span>';
+    if(value)value.textContent=(deltaChf>=0?'+':'\u2212')+'CHF '+fmtLocaleCH(Math.abs(deltaChf));
+    if(sub)sub.innerHTML='<span style="color:'+tone+'">'+(deltaChf>=0?'Verbesserte Situation ueber Ist':'Ist liegt ueber Zielpfad')+'</span>';
+  }
 }
