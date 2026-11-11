@@ -57,7 +57,7 @@ EXTRACTED_PART_BUDGETS = {
     "intro-sequence.js": (761, 36861),
     "aa-chart.js": (331, 21026),
     "goal-review-runtime.js": (1589, 84633),
-    "sustainability-preferences.js": (289, 15941),
+    "sustainability-preferences.js": (484, 24478),
 }
 
 

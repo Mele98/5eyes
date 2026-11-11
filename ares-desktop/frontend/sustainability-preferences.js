@@ -9,8 +9,10 @@
 // Server (eine Quelle, Claim-Waechter-geprueft); welche Ausschluesse waehlbar
 // sind, entscheidet der Server (nur Erfuellbares, sonst ausgegraut mit Grund).
 // Keine Vorauswahl, kein Entwurf ueber Mandatsgrenzen, keine Wirkung auf
-// Risikoprofil oder Strategie. Zustand (nicht erfasst / keine Praeferenz /
-// keine Angabe / Praeferenz / Verzicht / veraltet) kommt vom Server.
+// das Risikoprofil. Zustand (nicht erfasst / keine Praeferenz / keine Angabe
+// / Praeferenz / Verzicht / veraltet) kommt vom Server. E2b (unten):
+// Uebernahme der Ausschluesse in die Strategiebausteine (read-only),
+// Ausgrauen nicht erfuellbarer Optionen, Veraltet-Banner je Mandat.
 var SUST={definition:null,defRequested:false,state:null,mandateId:null,busy:false,loadSeq:0};
 
 function sustEsc(v){
@@ -274,7 +276,165 @@ function sustLoad(mid){
   }).catch(function(e){console.warn('Nachhaltigkeitspräferenzen:',e);return null;});
 }
 
+
+// ── E2b: Uebernahme in die Strategiebausteine + nur Erfuellbares anbieten ──
+// Kundenausschluesse erscheinen im Block Nachhaltigkeit als "Ausschliessen ·
+// aus Kundenpraeferenz" (read-only, Link zurueck zur Erhebung); die Beraterin
+// bzw. der Berater kann nur strenger werden. Optionen ohne belegte Abdeckung
+// im Produktuniversum sind ausgegraut mit kurzem Grund. Der Server prueft
+// verbindlich (Untergrenze an allen Kanaelen, 422/409).
+var SUST_THEMES=['fossil','defense','tobacco','alcohol','gaming','nuclear'];
+var SUST_COV={mid:null,data:null};
+
+function sustCoverageOption(key){
+  var opts=(SUST_COV.data&&SUST_COV.data.options)||[];
+  for(var i=0;i<opts.length;i++){if(opts[i].key===key)return opts[i];}
+  return null;
+}
+
+// Hinweis neben einem Steuerelement; ``inside`` = als Kind (z. B. im Label
+// eines Themen-Rasters, damit das Raster nicht verrutscht).
+function sustNote(anchor,id,text,inside){
+  var el=document.getElementById(id);
+  if(!text){if(el)el.remove();return null;}
+  if(!el&&anchor&&(inside||anchor.parentNode)){
+    el=document.createElement('span');el.id=id;
+    el.style.cssText='display:block;font-size:9.5px;color:var(--n6);margin:1px 0 3px';
+    if(inside)anchor.appendChild(el);else anchor.parentNode.insertBefore(el,anchor.nextSibling);
+  }
+  if(el){el.textContent=text;}
+  return el;
+}
+
+function sustActiveExclusions(){
+  var cur=SUST.state&&SUST.state.current;
+  if(!cur||String(SUST.mandateId||'')!==String(sustMandateId()||''))return [];
+  return cur.exclusions||[];
+}
+
+function sustApplyStrategyBlocks(){
+  var active=sustActiveExclusions();
+  SUST_THEMES.forEach(function(key){
+    var sel=document.getElementById('aa-tilt-'+key);
+    if(!sel)return;
+    var fromCustomer=active.indexOf(key)>=0;
+    var cov=sustCoverageOption('theme:'+key);
+    var blocked=!fromCustomer&&cov&&!cov.available;
+    Array.prototype.forEach.call(sel.options,function(o){
+      if(o.value==='exclude'||o.value==='underweight')o.disabled=!!blocked&&sel.value!==o.value;
+    });
+    if(fromCustomer){
+      if(sel.value!=='exclude'){sel.value='exclude';try{sel.dispatchEvent(new Event('change',{bubbles:true}));}catch(e){}}
+      sel.disabled=true;
+    }else{
+      sel.disabled=false;
+    }
+    var lbl=document.querySelector('label[for="aa-tilt-'+key+'"]');
+    var note=sustNote(lbl||sel,'sust-floor-'+key,fromCustomer?'Ausschliessen · aus Kundenpräferenz':(blocked?cov.reason:null),!!lbl);
+    if(note&&fromCustomer&&!note.querySelector('a')){
+      var a=document.createElement('a');a.href='#';a.textContent=' (zur Erhebung)';a.style.color='inherit';
+      a.addEventListener('click',function(ev){ev.preventDefault();if(typeof closeModal==='function')try{closeModal('m-aa-pref');}catch(e){}if(typeof go==='function')go('rp');});
+      note.appendChild(a);
+    }
+    if(note)sel.setAttribute('aria-describedby',note.id);else sel.removeAttribute('aria-describedby');
+  });
+  var hedge=document.getElementById('aa-policy-hedging');
+  if(hedge){
+    var reasons=[];
+    [['required','hedgingRequired'],['chf_only','chfOnly']].forEach(function(pair){
+      var o=hedge.querySelector('option[value="'+pair[0]+'"]');var cov=sustCoverageOption(pair[1]);
+      var off=!!(o&&cov&&!cov.available&&hedge.value!==pair[0]);
+      if(o)o.disabled=off;
+      if(off)reasons.push(o.textContent.split(' (')[0]+': '+cov.reason);
+    });
+    var hn=sustNote(hedge,'sust-cov-hedging',reasons.join(' · ')||null);
+    if(hn)hedge.setAttribute('aria-describedby',hn.id);else hedge.removeAttribute('aria-describedby');
+  }
+  [['aa-product-no-leverage','noLeverage'],['aa-product-no-structured','noStructured']].forEach(function(pair){
+    var cb=document.getElementById(pair[0]);if(!cb)return;
+    var cov=sustCoverageOption(pair[1]);var off=!!(cov&&!cov.available&&!cb.checked);
+    cb.disabled=off;
+    var n=sustNote(cb.closest('label')||cb,'sust-cov-'+pair[1],off?cov.reason:null);
+    if(n)cb.setAttribute('aria-describedby',n.id);else cb.removeAttribute('aria-describedby');
+  });
+}
+
+function sustLoadCoverage(mid){
+  if(!sustIsRealMandate(mid)||typeof API==='undefined'||!API)return Promise.resolve(null);
+  return Promise.resolve().then(function(){
+    return API.get('/mandates/'+encodeURIComponent(mid)+'/strategy-option-coverage');
+  }).then(function(data){
+    if(String(sustMandateId()||'')!==String(mid))return null;
+    SUST_COV={mid:String(mid),data:data};
+    return data;
+  }).catch(function(e){console.warn('Strategie-Optionen:',e);SUST_COV={mid:String(mid),data:null};return null;});
+}
+
+function sustRefreshStrategyBlocks(){
+  var mid=sustMandateId();
+  if(!sustIsRealMandate(mid))return Promise.resolve(null);
+  var needState=String(SUST.mandateId||'')!==String(mid);
+  return Promise.all([
+    needState?API.get('/mandates/'+encodeURIComponent(mid)+'/sustainability-preferences'):Promise.resolve(SUST.state),
+    sustLoadCoverage(mid)
+  ]).then(function(r){
+    if(String(sustMandateId()||'')!==String(mid))return null;
+    if(needState){SUST.state=r[0];SUST.mandateId=mid;}
+    sustApplyStrategyBlocks();
+    return r;
+  }).catch(function(e){console.warn('Strategiebausteine:',e);return null;});
+}
+
+// N-888-11/14/16 (uebernommen): "veraltet" kommt vom Server und wird bei
+// JEDEM Wechsel auf die Asset Allokation neu gelesen; Sichtbarkeit und
+// disabled von "Portfolio umsetzen" folgen genau dieser Bedingung je
+// AKTUELLEM Mandat.
+function sustStaleNotice(){
+  var mid=String(sustMandateId()||'');
+  var st=SUST.state;
+  return st&&String(SUST.mandateId||'')===mid?st.allocation_stale_notice||null:null;
+}
+
+function sustSyncUmsetzenButton(){
+  var btn=document.getElementById('btn-portfolio-umsetzen');
+  if(!btn)return;
+  var stale=!!sustStaleNotice();
+  btn.disabled=stale;
+  if(stale)btn.style.display='none';
+}
+
+function sustApplyStale(){
+  var notice=sustStaleNotice();
+  if(notice&&typeof strategyState!=='undefined'&&strategyState
+     &&!(strategyState.dirty&&strategyState.staleNotice===notice)&&typeof markStrategyDirty==='function'){
+    try{markStrategyDirty(notice,true);}catch(e){}
+  }
+  if(typeof syncPortfolioUmsetzenButtonVisibility==='function'){
+    try{syncPortfolioUmsetzenButtonVisibility();}catch(e){sustSyncUmsetzenButton();}
+  }else{
+    sustSyncUmsetzenButton();
+  }
+  return !!notice;
+}
+
+function sustRefreshAllocationStale(){
+  var mid=sustMandateId();
+  if(!sustIsRealMandate(mid)||typeof API==='undefined'||!API)return Promise.resolve(null);
+  return Promise.resolve().then(function(){
+    return API.get('/mandates/'+encodeURIComponent(mid)+'/sustainability-preferences');
+  }).then(function(state){
+    if(String(sustMandateId()||'')!==String(mid))return null;
+    SUST.state=state;SUST.mandateId=mid;
+    sustApplyStale();
+    return state;
+  }).catch(function(e){console.warn('Nachhaltigkeitspräferenzen:',e);return null;});
+}
+
 var _sustBaseLoadRisk=null;
+var _sustBaseGo=null;
+var _sustBaseLoadAlloc=null;
+var _sustBaseSyncUmsetzen=null;
+var _sustBaseOpenPrefs=null;
 function sustInstallWrappers(){
   if(typeof loadCurrentRiskAssessment==='function'&&!_sustBaseLoadRisk){
     _sustBaseLoadRisk=loadCurrentRiskAssessment;
@@ -282,6 +442,41 @@ function sustInstallWrappers(){
       var p=_sustBaseLoadRisk.apply(this,arguments);
       if(renderUi)sustLoad(mid);
       return p;
+    };
+  }
+  if(typeof loadCurrentAllocationResult==='function'&&!_sustBaseLoadAlloc){
+    _sustBaseLoadAlloc=loadCurrentAllocationResult;
+    loadCurrentAllocationResult=function(){
+      var r=_sustBaseLoadAlloc.apply(this,arguments);
+      // N-888-14: nach dem Aufrufer (der dirty zuruecksetzt) neu lesen.
+      Promise.resolve(r).then(function(){setTimeout(function(){sustRefreshAllocationStale().then(sustRefreshStrategyBlocks);},0);},function(){});
+      return r;
+    };
+  }
+  if(typeof syncPortfolioUmsetzenButtonVisibility==='function'&&!_sustBaseSyncUmsetzen){
+    _sustBaseSyncUmsetzen=syncPortfolioUmsetzenButtonVisibility;
+    syncPortfolioUmsetzenButtonVisibility=function(){
+      var r=_sustBaseSyncUmsetzen.apply(this,arguments);
+      sustSyncUmsetzenButton();
+      return r;
+    };
+  }
+  if(typeof go==='function'&&!_sustBaseGo){
+    _sustBaseGo=go;
+    go=function(p){
+      var r=_sustBaseGo.apply(this,arguments);
+      if(p==='al')Promise.resolve(r).then(function(){
+        return sustRefreshAllocationStale();
+      }).then(function(){setTimeout(function(){sustApplyStale();sustRefreshStrategyBlocks();},0);});
+      return r;
+    };
+  }
+  if(typeof openAllocationPreferencesModal==='function'&&!_sustBaseOpenPrefs){
+    _sustBaseOpenPrefs=openAllocationPreferencesModal;
+    openAllocationPreferencesModal=function(){
+      var r=_sustBaseOpenPrefs.apply(this,arguments);
+      Promise.resolve(r).then(sustRefreshStrategyBlocks);
+      return r;
     };
   }
 }

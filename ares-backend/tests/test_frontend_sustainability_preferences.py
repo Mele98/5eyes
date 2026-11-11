@@ -106,3 +106,32 @@ def test_mandate_switch_clears_state_before_loading():
     assert "old.innerHTML='';" in body
     assert "seq!==SUST.loadSeq" in body
     assert "loadCurrentRiskAssessment=function" in src
+
+
+def test_e2b_strategy_blocks_take_over_customer_exclusions_read_only():
+    """E2b: Kundenausschluss -> Tilt "Ausschliessen", deaktiviert, Hinweis
+    "aus Kundenpraeferenz" mit Link zurueck; nicht erfuellbare Optionen
+    ausgegraut mit Grund (Server-Abdeckung)."""
+    src = _module()
+    body = src[src.index("function sustApplyStrategyBlocks(){"):src.index("function sustLoadCoverage(mid){")]
+    assert "sel.value='exclude'" in body and "sel.disabled=true;" in body
+    assert "Ausschliessen · aus Kundenpräferenz" in body
+    assert "go('rp')" in body
+    assert "o.disabled=!!blocked" in body
+    assert "'aa-product-no-leverage','noLeverage'" in body and "'aa-product-no-structured','noStructured'" in body
+    assert "['required','hedgingRequired'],['chf_only','chfOnly']" in body
+    assert "setAttribute('aria-describedby'" in body
+    assert "/strategy-option-coverage" in src
+
+
+def test_allocation_stale_state_is_reloaded_from_the_server_on_every_visit():
+    """N-888-11/14/16 (uebernommen): Status "veraltet" vom Server je Mandat,
+    "Portfolio umsetzen" folgt genau dieser Bedingung."""
+    src = _module()
+    assert "go=function(p)" in src and "if(p==='al')" in src
+    body = src[src.index("function sustStaleNotice()"):src.index("var _sustBaseLoadRisk=null;")]
+    assert "/sustainability-preferences" in body
+    assert "markStrategyDirty(notice,true)" in body
+    assert "btn.disabled=stale;" in body and "btn.disabled=true" not in body
+    assert "loadCurrentAllocationResult=function" in src
+    assert "syncPortfolioUmsetzenButtonVisibility=function" in src
