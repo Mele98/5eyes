@@ -83,6 +83,7 @@ def archive_generated_pdf(
     content_hash: str,
     current_user: User,
     ip_address: str | None = None,
+    binding: dict | None = None,
 ) -> ContractDocument:
     latest = (
         db.query(ContractDocument)
@@ -94,12 +95,18 @@ def archive_generated_pdf(
         .order_by(ContractDocument.version.desc())
         .first()
     )
-    binding = current_preference_binding(db, mandate_id)
-    # E2a: inhaltsgleiche Dokumente werden nur wiederverwendet, wenn sie an
-    # dieselbe Nachhaltigkeitspraeferenz gebunden sind.
+    preference_binding = current_preference_binding(db, mandate_id)
+    # E2b / N-888-09: zusaetzlich an die Soll-Allokation gebunden (Aufrufer).
+    binding = binding or {}
+    bound_ta = binding.get("target_allocation_id")
+    bound_prefs = binding.get("preferences_sha256")
+    # Inhaltsgleiche Dokumente werden nur wiederverwendet, wenn sie an dieselbe
+    # Nachhaltigkeitspraeferenz (E2a) und Allokation (E2b) gebunden sind.
     if (
         latest is not None and latest.content_hash == content_hash
-        and getattr(latest, "bound_preference_decision_hash", None) == binding
+        and getattr(latest, "bound_preference_decision_hash", None) == preference_binding
+        and getattr(latest, "bound_target_allocation_id", None) == bound_ta
+        and getattr(latest, "bound_preferences_sha256", None) == bound_prefs
     ):
         return latest
 
@@ -112,7 +119,9 @@ def archive_generated_pdf(
         pdf_base64=base64.b64encode(pdf_bytes).decode("ascii"),
         checksum_sha256=hashlib.sha256(pdf_bytes).hexdigest(),
         content_hash=content_hash,
-        bound_preference_decision_hash=binding,
+        bound_preference_decision_hash=preference_binding,
+        bound_target_allocation_id=bound_ta,
+        bound_preferences_sha256=bound_prefs,
         pdf_generated_at=now,
         # "Archiviert" ist ein vorbestehender, bisher ungenutzter Status-Wert
         # (CHECK-Constraint in ares_schema.sql) -- passt exakt:

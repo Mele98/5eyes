@@ -30,6 +30,7 @@ Verletzung).
 from __future__ import annotations
 
 from datetime import date
+from types import SimpleNamespace
 from typing import Any, Optional
 
 from sqlalchemy import text
@@ -37,7 +38,7 @@ from sqlalchemy.orm import Session
 
 from core import sustainability_preference as sustainability
 from core.evidence import evidence_hash
-from core.reason_codes import DomainError
+from core.reason_codes import DomainError, ReasonCode
 
 RISK_BUDGET_EVIDENCE_MISSING = "RISK_BUDGET_EVIDENCE_MISSING"
 RISK_BUDGET_VIOLATED = "RISK_BUDGET_VIOLATED"
@@ -142,6 +143,7 @@ def assert_recommendation_release_eligible(
     *,
     channel: str,
     run: Optional[Any] = None,
+    audit: Optional[Any] = None,
 ) -> None:
     """Zentrales Freigabe-Gate fuer PDF, Signatur und Handoff.
 
@@ -174,6 +176,11 @@ def assert_recommendation_release_eligible(
         allocation = _current_allocation(db, mandate)
         if allocation is None:
             return
+    # E2b / N-888-01: Kundenausschluesse (Nachhaltigkeitspraeferenz) als
+    # Untergrenze -- dieselbe Pruefung wie Produktlauf und Finalize.
+    assert_sustainability_preference_floor(
+        db, mandate, allocation=allocation, channel=channel, audit=audit,
+    )
     # CMA-001 / ADR-12a-Release-Hold: keine Freigabe, solange die CMA der
     # Allokation eine ungeklaerte KGV-Bewertungsanpassung traegt
     # (services/cma_valuation_hold.py).
@@ -383,3 +390,119 @@ def assert_preference_document_bound(
     )
     if violation is not None:
         _preference_block(info, channel, audit, violation[0], violation[1], violation[2])
+
+
+# ---------------------------------------------------------------------------
+# E2b / N-888-01: Untergrenze der Kundenausschluesse (zentral)
+# ---------------------------------------------------------------------------
+#
+# Eine Logik (core/sustainability_preference.py::evaluate_floor), angewandt
+# auf den Praeferenz-Snapshot der Soll-Allokation, aus der der Kanal
+# publiziert: Produktlauf, Finalize, Signatur, Advisory-PDF, Kunden-PDF,
+# Handoff. Ohne Ausschlusswunsch keine Wirkung. Fail-closed: unlesbar 409,
+# gelockert 422 (kurze Meldung, Detail aufklappbar). ``audit`` schreibt den
+# Block VOR dem Fehler.
+_UNSET: Any = object()
+
+
+def current_preference_decision(db: Session, mandate: Any) -> Optional[dict]:
+    row = db.execute(
+        text(sustainability.CURRENT_DECISION_SQL), {"mandate_id": mandate.id},
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+def sustainability_floor_result(
+    db: Session, mandate: Any, *, allocation: Any = None, preferences: Any = _UNSET,
+) -> dict:
+    decision = current_preference_decision(db, mandate)
+    if preferences is _UNSET:
+        preferences = getattr(allocation, "preferences_json", None)
+        has_strategy = allocation is not None
+    else:
+        has_strategy = True
+    return sustainability.evaluate_floor(decision, preferences, has_strategy=has_strategy)
+
+
+def raise_sustainability_floor(result: dict, channel: str, audit=None) -> None:
+    if not sustainability.floor_blocks(result):
+        return
+    if audit is not None:
+        audit(sustainability.floor_audit_payload(result, channel), result)
+    unreadable = result.get("status") == sustainability.FLOOR_UNREADABLE
+    extra = {"channel": channel, "themes": list(result.get("themes") or ())}
+    if not unreadable:
+        extra["detail"] = sustainability.floor_detail(result)
+    raise DomainError(
+        ReasonCode.SUSTAINABILITY_PREFERENCE_UNREADABLE if unreadable
+        else ReasonCode.SUSTAINABILITY_PREFERENCE_FLOOR_VIOLATED,
+        sustainability.floor_message(result, channel),
+        http_status=409 if unreadable else 422,
+        extra=extra,
+    )
+
+
+def assert_sustainability_preference_floor(
+    db: Session, mandate: Any, *, channel: str, allocation: Any = None, preferences: Any = _UNSET, audit=None,
+) -> dict:
+    result = sustainability_floor_result(db, mandate, allocation=allocation, preferences=preferences)
+    raise_sustainability_floor(result, channel, audit)
+    return result
+
+
+def assert_document_sustainability_floor(
+    db: Session, mandate: Any, document: Any, *, channel: str, audit=None,
+) -> None:
+    """N-888-09 (uebernommen): Signatur/Vor-Ort-Signatur pruefen GENAU den
+    Strategie-Inhalt des Dokuments (gebundene Soll-Allokation + Praeferenz-
+    Snapshot-Hash) gegen die Kundenausschluesse -- nicht die aktuelle
+    Allokation. Nur bei wirksamen Ausschluessen; ohne Bindung fail-closed."""
+    if str(getattr(document, "document_type", "") or "") not in RECOMMENDATION_DOCUMENT_TYPES:
+        return
+    decision = current_preference_decision(db, mandate)
+    base = sustainability.evaluate_floor(decision, {}, has_strategy=False)
+    if base["status"] == sustainability.FLOOR_UNREADABLE:
+        raise_sustainability_floor(base, channel, audit)
+    if base["status"] == sustainability.FLOOR_NONE:
+        return
+    if (
+        str(document.document_type or "") in sustainability.NO_STRATEGY_DOCUMENT_TYPES
+        and not getattr(document, "bound_target_allocation_id", None)
+        and getattr(document, "bound_preferences_sha256", None) == sustainability.no_strategy_binding(decision)
+    ):
+        return
+    allocation = _run_allocation(
+        db, mandate, SimpleNamespace(target_allocation_id=getattr(document, "bound_target_allocation_id", None)),
+    )
+    if (
+        allocation is None
+        or sustainability.preferences_sha256(allocation.preferences_json)
+        != getattr(document, "bound_preferences_sha256", None)
+    ):
+        label = sustainability.FLOOR_CHANNEL_LABELS.get(channel, "Freigabe nicht möglich")
+        title = getattr(document, "title", "") or document.document_type
+        if audit is not None:
+            audit(sustainability.floor_audit_payload({**base, "status": "document_unbound"}, channel), base)
+        raise DomainError(
+            ReasonCode.SUSTAINABILITY_DOCUMENT_UNBOUND,
+            f"{label}: Das Dokument «{title}» {sustainability.DOCUMENT_STRATEGY_UNBOUND_TEXT}",
+            http_status=409, extra={"channel": channel},
+        )
+    assert_sustainability_preference_floor(db, mandate, allocation=allocation, channel=channel, audit=audit)
+
+
+def document_strategy_binding(db: Session, mandate: Any, document_type: str | None = None) -> Optional[dict]:
+    """N-888-09/-15: Bindung eines archivierten Empfehlungsdokuments an die
+    aktuelle Soll-Allokation (ID + SHA-256 des Praeferenz-Snapshots); ein
+    Beratungsprotokoll ohne Strategie an die Erfassung selbst."""
+    allocation = _current_allocation(db, mandate)
+    if allocation is None:
+        if document_type in sustainability.NO_STRATEGY_DOCUMENT_TYPES:
+            marker = sustainability.no_strategy_binding(current_preference_decision(db, mandate))
+            if marker:
+                return {"target_allocation_id": None, "preferences_sha256": marker}
+        return None
+    return {
+        "target_allocation_id": allocation.id,
+        "preferences_sha256": sustainability.preferences_sha256(getattr(allocation, "preferences_json", None)),
+    }

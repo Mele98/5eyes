@@ -3832,6 +3832,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/mandates/{mandate_id}/strategy-option-coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Strategy Option Coverage
+         * @description E2b: welche Strategie-Optionen (Restriktionen, Themen, Kunden-
+         *     ausschluesse) das aktive Produktuniversum des Mandats belegt erfuellen
+         *     kann. Nicht erfuellbare Optionen tragen einen kurzen Grund.
+         */
+        get: operations["get_strategy_option_coverage_mandates__mandate_id__strategy_option_coverage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/mandates/{mandate_id}/strategy-snapshots": {
         parameters: {
             query?: never;
@@ -7531,6 +7553,8 @@ export interface components {
         ContractDocumentResponse: {
             /** Bound Preference Decision Hash */
             bound_preference_decision_hash?: string | null;
+            /** Bound Target Allocation Id */
+            bound_target_allocation_id?: string | null;
             /** Checksum Sha256 */
             checksum_sha256: string | null;
             /** Created At */
@@ -11744,6 +11768,51 @@ export interface components {
             /** User Id */
             user_id: string;
         };
+        /** StrategyOptionCoverage */
+        StrategyOptionCoverage: {
+            /** Available */
+            available: boolean;
+            /**
+             * Evidence
+             * @default []
+             */
+            evidence?: components["schemas"]["StrategyOptionEvidence"][];
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /**
+             * Missing Sub Asset Classes
+             * @default []
+             */
+            missing_sub_asset_classes?: string[];
+            /** Reason */
+            reason?: string | null;
+        };
+        /** StrategyOptionCoverageResponse */
+        StrategyOptionCoverageResponse: {
+            /** As Of */
+            as_of: string;
+            /**
+             * Needed Sub Asset Classes
+             * @default []
+             */
+            needed_sub_asset_classes?: string[];
+            /**
+             * Options
+             * @default []
+             */
+            options?: components["schemas"]["StrategyOptionCoverage"][];
+        };
+        /** StrategyOptionEvidence */
+        StrategyOptionEvidence: {
+            /** Evidence Id */
+            evidence_id: string;
+            /** Product Id */
+            product_id: string;
+            /** Sub Asset Class */
+            sub_asset_class: string;
+        };
         /** StrategySnapshotCreate */
         StrategySnapshotCreate: {
             /** Advisor Note */
@@ -11985,10 +12054,20 @@ export interface components {
         SustainabilityExclusionOption: {
             /** Available */
             available: boolean;
+            /**
+             * Evidence
+             * @default []
+             */
+            evidence?: Record<string, unknown>[];
             /** Key */
             key: string;
             /** Label */
             label: string;
+            /**
+             * Missing Sub Asset Classes
+             * @default []
+             */
+            missing_sub_asset_classes?: string[];
             /** Reason */
             reason?: string | null;
         };
@@ -12105,6 +12184,18 @@ export interface components {
         };
         /** SustainabilityPreferenceState */
         SustainabilityPreferenceState: {
+            /**
+             * Allocation Floor Status
+             * @default none
+             */
+            allocation_floor_status?: string;
+            /**
+             * Allocation Floor Themes
+             * @default []
+             */
+            allocation_floor_themes?: string[];
+            /** Allocation Stale Notice */
+            allocation_stale_notice?: string | null;
             /** Answer State */
             answer_state: string;
             current?: components["schemas"]["SustainabilityPreferenceResponse"] | null;
@@ -20345,6 +20436,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_strategy_option_coverage_mandates__mandate_id__strategy_option_coverage_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StrategyOptionCoverageResponse"];
                 };
             };
             /** @description Validation Error */

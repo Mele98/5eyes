@@ -269,7 +269,7 @@ def test_not_offerable_exclusion_message_is_short_with_detail(client, mandate_id
     detail = resp.json()["detail"]
     assert detail["message"].startswith("Ausschluss nicht wählbar (Fossile Energie, Tabak).")
     assert "Frage 3" in detail["message"]
-    assert sp.EXCLUSION_LOCKED_REASON in detail["detail"]
+    assert "Nicht wählbar" in detail["detail"]  # Grund je Thema (E2b: Abdeckung)
 
 
 def test_outdated_definition_hash_is_rejected(client, mandate_id):

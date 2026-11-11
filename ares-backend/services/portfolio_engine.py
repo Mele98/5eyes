@@ -1460,6 +1460,7 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     default_catalog_theme_tags,
     _suitability_block_hint,
     _tenant_visible_products_query,
+    strategy_option_coverage,
     _ter_coverage_bps,
     _validate_recommendation_concentration_limits,
 )

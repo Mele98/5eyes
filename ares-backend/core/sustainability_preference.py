@@ -25,9 +25,13 @@ E2a = neutrale Erhebung. Leitplanken (FIDLEG / FINMA-Aufsichtsmitteilung
   (nur Anlageberatung), veraltet. "Keine Angabe" ist ein eigener Zustand,
   nie "keine Praeferenz".
 - Nur Erfuellbares anbieten: ein Ausschlusswunsch ist nur waehlbar, wenn das
-  aktive Produktuniversum ihn belegt erfuellen kann. In E2a gibt es diese
-  Pruefung noch nicht -- jeder Ausschluss ist gesperrt (``EXCLUSION_LOCKED_REASON``),
-  der Server lehnt ihn ab (fail-closed). Unbekannt ist nie erfuellt.
+  aktive Produktuniversum ihn belegt erfuellen kann (E2b, Abdeckungspruefung
+  services/portfolio_engine_payload.py::strategy_option_coverage); ohne
+  Pruefung ist jeder Ausschluss gesperrt (``EXCLUSION_LOCKED_REASON``), der
+  Server lehnt ihn ab (fail-closed). Unbekannt ist nie erfuellt.
+- E2b: uebernommene Ausschluesse wirken NUR ueber den bestehenden
+  Restriktionsmechanismus der Strategiebausteine (Tilt "Ausschliessen") als
+  Untergrenze an allen Kanaelen (Fachvertrag unten).
 - Review-Frist = Hauspolitik je Tenant (Default 36 Monate), keine
   gesetzliche Frist; Ereignis, Kundenwunsch oder erneute Eignungspruefung
   koennen frueher eine neue Erhebung ausloesen.
@@ -667,3 +671,228 @@ def release_audit_payload(state_info, channel, decision_id) -> str:
         "stale_reasons": list(state_info.get("stale_reasons") or ()),
         "decision_id": decision_id,
     }, sort_keys=True)
+
+
+# ══ E2b: Uebernahme in die Strategiebausteine + Erfuellbarkeit ══════════════
+# Fachvertrag (Handoff H-151, Abschnitt "Fachvertrag E2b"):
+# - Ein Ausschlusswunsch der Kundin bzw. des Kunden ist nur waehlbar, wenn
+#   das aktive Produktuniversum des Mandats je benoetigter Sub-Anlageklasse
+#   mindestens ein Produkt mit freigegebenem, gueltigem Ausschlussnachweis
+#   (Quelle, Stichtag; product_sustainability_attributes, Vier-Augen) hat.
+#   Unbekannt, Entwurf, abgelaufen oder Seed-Feld zaehlen nie als erfuellt.
+# - Wirkung NUR ueber den bestehenden Restriktionsmechanismus: der Ausschluss
+#   wird im Block Nachhaltigkeit als Tilt "Ausschliessen" uebernommen
+#   (read-only, "aus Kundenpraeferenz"); die Beraterin bzw. der Berater kann
+#   nur strenger werden, nie lockern (Untergrenze an allen Kanaelen).
+# - Kein positiver Nachhaltigkeits-Claim; die Offenlegung nennt die Quelle
+#   der Zuordnung und dass breite Fonds nicht durchleuchtet werden.
+EXCLUSION_EVIDENCE_CATEGORIES = {
+    "fossil": "fossil_fuels",
+    "defense": "weapons",
+    "tobacco": "tobacco",
+    "alcohol": "alcohol",
+    "gaming": "gambling",
+    "nuclear": "nuclear_power",
+}
+COVERAGE_EXEMPT_ASSET_CLASS = "Liquiditaet"
+COVERAGE_NO_UNIVERSE_REASON = "Nicht wählbar: kein Produkt im aktiven Produktuniversum."
+
+
+def coverage_reason(missing_sub_asset_classes) -> str:
+    subs = ", ".join(str(s) for s in missing_sub_asset_classes)
+    return f"Nicht wählbar: kein belegtes Produkt für {subs}."
+
+
+def coverage_option(key, label, missing, needed, evidence=None) -> dict:
+    """Ein Eintrag der Abdeckungspruefung (verfuegbar nur ohne Luecke)."""
+    available = bool(needed) and not missing
+    reason = None
+    if not needed:
+        reason = COVERAGE_NO_UNIVERSE_REASON
+    elif missing:
+        reason = coverage_reason(missing)
+    return {"key": key, "label": label, "available": available, "reason": reason,
+            "missing_sub_asset_classes": list(missing), "evidence": list(evidence or [])}
+
+
+# Untergrenze (N-888-01, uebernommen und neu geprueft): eine Logik fuer alle
+# Kanaele. Strenger als E1-E3: nur "Ausschliessen" haelt die Untergrenze ein
+# (die Uebernahme ist read-only; "Untergewichten" waere eine Lockerung der
+# Bezeichnung) und es gibt keinen Verzicht auf einen Ausschluss.
+FLOOR_NONE = "none"
+FLOOR_OK = "ok"
+FLOOR_VIOLATED = "violated"
+FLOOR_UNREADABLE = "unreadable"
+FLOOR_NO_STRATEGY = "no_strategy"
+
+FLOOR_CHANNEL_LABELS = {
+    "generate": "Die Anlagestrategie kann nicht berechnet werden",
+    "manual_allocation": "Die manuelle Soll-Allokation kann nicht gespeichert werden",
+    "sensitivity": "Die Sensitivitätsanalyse kann nicht berechnet werden",
+    "recommendation": "Die Empfehlung kann nicht erstellt werden",
+    "finalize": "Die Empfehlung kann nicht finalisiert werden",
+    "advisory_pdf": "Der Advisory-Report kann nicht exportiert werden",
+    "signature": "Das Dokument kann nicht unterzeichnet werden",
+    "handoff": "Die Handelsliste kann nicht weitergeleitet werden",
+    "client_pdf": "Das Kundendokument kann nicht erstellt werden",
+}
+
+EXCLUSION_LIMIT_TEXT = (
+    "Ausschlusswünsche: Produkte, die im Produktkatalog der Firma einem dieser "
+    "Themen zugeordnet sind (z. B. Themenfonds), werden bei der Produktauswahl "
+    "nicht verwendet. Die Zuordnung beruht auf Katalogangaben der Firma, nicht "
+    "auf Daten eines ESG-Datenanbieters. Breit diversifizierte Fonds und ETFs "
+    "werden nicht durchleuchtet und können Titel dieser Themen enthalten."
+)
+EXCLUSION_DEVIATION_TEXT = (
+    "Ausschlusswünsche: Die aktuelle Anlagestrategie berücksichtigt die "
+    "Ausschlusswünsche ({labels}) noch nicht. Sie darf so weder empfohlen "
+    "noch umgesetzt werden und ist mit den Ausschlüssen neu zu berechnen."
+)
+EXCLUSION_NO_STRATEGY_TEXT = (
+    "Ausschlusswünsche: Es ist noch keine Anlagestrategie berechnet. Die "
+    "Ausschlusswünsche sind bei der Berechnung und Produktauswahl einzuhalten."
+)
+
+
+def screened_themes(prefs) -> list:
+    """Themen, die die Strategiebausteine wirksam AUSSCHLIESSEN (Tilt
+    "exclude" oder neutral/fehlend bei ESG-Policy Negativ-Screening)."""
+    prefs = prefs if isinstance(prefs, dict) else {}
+    tilts = prefs.get("tilts") if isinstance(prefs.get("tilts"), dict) else {}
+    policy = prefs.get("policy") if isinstance(prefs.get("policy"), dict) else {}
+    negative_screening = policy.get("esg") == "negative_screening"
+    screened = []
+    for key in EXCLUSION_KEYS:
+        mode = tilts.get(key)
+        if mode in (None, "neutral") and negative_screening:
+            mode = "exclude"
+        if mode == "exclude":
+            screened.append(key)
+    return screened
+
+
+def floor_violations(prefs, exclusions) -> list:
+    required = set(exclusions or ())
+    screened = set(screened_themes(prefs))
+    return [key for key in EXCLUSION_KEYS if key in required and key not in screened]
+
+
+def effective_exclusions(decision) -> list:
+    """Ausschluesse der aktuellen Erfassung; ``ValueError`` wenn unlesbar."""
+    if not decision:
+        return []
+    raw = decision.get("exclusions_json")
+    exclusions = json.loads(raw or "[]") if isinstance(raw, str) else list(raw or [])
+    if not isinstance(exclusions, list):
+        raise ValueError("Ausschlussliste ist keine Liste.")
+    return normalize_exclusions(exclusions)
+
+
+def evaluate_floor(decision, preferences_json, *, has_strategy=True) -> dict:
+    result = {"status": FLOOR_NONE, "themes": [], "decision_id": (decision or {}).get("id")}
+    try:
+        effective = effective_exclusions(decision)
+    except (TypeError, ValueError):
+        result["status"] = FLOOR_UNREADABLE
+        return result
+    if not effective:
+        return result
+    if not has_strategy:
+        result.update(status=FLOOR_NO_STRATEGY, themes=effective)
+        return result
+    prefs = preferences_json
+    if isinstance(prefs, str):
+        try:
+            prefs = json.loads(prefs)
+        except (TypeError, ValueError):
+            result.update(status=FLOOR_UNREADABLE, themes=effective)
+            return result
+    if prefs is not None and not isinstance(prefs, dict):
+        result.update(status=FLOOR_UNREADABLE, themes=effective)
+        return result
+    violations = floor_violations(prefs or {}, effective)
+    result.update(status=FLOOR_VIOLATED if violations else FLOOR_OK, themes=violations or effective)
+    return result
+
+
+def floor_blocks(result) -> bool:
+    return result.get("status") in (FLOOR_VIOLATED, FLOOR_UNREADABLE)
+
+
+def floor_message(result, channel) -> str:
+    """Kurz: Kernaussage + Einstellung + was tun."""
+    label = FLOOR_CHANNEL_LABELS.get(channel, "Freigabe nicht möglich")
+    if result.get("status") == FLOOR_UNREADABLE:
+        return f"{label}: Nachhaltigkeitspräferenz oder Strategie nicht lesbar. Bitte prüfen."
+    labels = ", ".join(exclusion_labels(result.get("themes") or ()))
+    return (
+        f"{label}: Ausschlusswunsch ({labels}) gelockert. Einstellung: Strategiebausteine, "
+        "Nachhaltigkeit. Bitte «Ausschliessen» lassen und neu berechnen."
+    )
+
+
+def floor_detail(result) -> str:
+    labels = ", ".join(exclusion_labels(result.get("themes") or ()))
+    return (
+        f"Die Nachhaltigkeitspräferenz der Kundin bzw. des Kunden schliesst {labels} aus. "
+        "Die Strategiebausteine übernehmen das als Untergrenze; Lockern ist nur über eine "
+        "neue Erhebung der Präferenz möglich."
+    )
+
+
+def floor_stale_notice(result):
+    if result.get("status") == FLOOR_UNREADABLE:
+        return "Nachhaltigkeitspräferenz oder Anlagestrategie nicht lesbar – bitte prüfen."
+    if result.get("status") != FLOOR_VIOLATED:
+        return None
+    labels = ", ".join(exclusion_labels(result.get("themes") or ()))
+    return (
+        f"Anlagestrategie veraltet: Ausschlusswunsch ({labels}) nicht eingehalten. "
+        "Empfehlung, Finalisierung und Freigabe sind gesperrt, bis sie neu berechnet ist."
+    )
+
+
+def floor_audit_payload(result, channel) -> str:
+    return json.dumps({
+        "event": "sustainability_floor_blocked",
+        "channel": channel,
+        "status": result.get("status"),
+        "themes": list(result.get("themes") or ()),
+        "decision_id": result.get("decision_id"),
+    }, sort_keys=True)
+
+
+def preferences_sha256(preferences_json):
+    """SHA-256 des gespeicherten Praeferenz-Snapshots (Text, wie in der DB)."""
+    if preferences_json is None:
+        return None
+    return hashlib.sha256(str(preferences_json).encode("utf-8")).hexdigest()
+
+
+def exclusion_limit_texts(exclusions, floor_status) -> list:
+    if not exclusions:
+        return []
+    if floor_status == FLOOR_VIOLATED:
+        return [EXCLUSION_DEVIATION_TEXT.format(labels=", ".join(exclusion_labels(exclusions)))]
+    if floor_status in (FLOOR_NO_STRATEGY, FLOOR_UNREADABLE):
+        return [EXCLUSION_NO_STRATEGY_TEXT]
+    return [EXCLUSION_LIMIT_TEXT]
+
+
+# N-888-15 (uebernommen): ein Beratungsprotokoll ohne Anlagestrategie traegt
+# keine Produkt-/Allokationsaussage; es wird an die Erfassung selbst gebunden.
+NO_STRATEGY_DOCUMENT_TYPES = ("Beratungsprotokoll",)
+NO_STRATEGY_BINDING_PREFIX = "keine-strategie:"
+
+
+def no_strategy_binding(decision):
+    if not decision or not decision.get("decision_hash"):
+        return None
+    return NO_STRATEGY_BINDING_PREFIX + str(decision["decision_hash"])
+
+
+DOCUMENT_STRATEGY_UNBOUND_TEXT = (
+    "ist keiner Anlagestrategie eindeutig zugeordnet (vor der Bindung erzeugt "
+    "oder Inhalt geändert). Bitte das Dokument neu erzeugen."
+)

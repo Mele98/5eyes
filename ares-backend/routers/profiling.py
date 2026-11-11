@@ -38,10 +38,11 @@ from routers.auth import _extract_client_ip
 # create_advisory_log_entry() in routers/review.py (Teil 1) werden diese
 # beiden Helper hier wiederverwendet (sie sind bereits generisch: db+id+
 # mandate_id, kein Router-State).
-from routers.review import _get_document_or_404, _get_recommendation_run_or_404
+from routers.review import _get_document_or_404, _get_recommendation_run_or_404, customer_exclusion_options
 from services.data_classification import enforce_data_classification
 from services.portfolio_engine import (
     _current_risk_assessment_or_none,
+    _current_target_allocation_or_none,
     risk_assessment_ready_for_strategy,
 )
 from services.risk_scoring import canonicalize_horizon_label, compute_scores, profile_for_score_x10
@@ -966,16 +967,31 @@ def create_suitability_check(
 # core/sustainability_preference.py, Zustand aus
 # services/recommendation_release_gate.py::preference_state. Keine Engine-Wirkung und kein
 # Einfluss auf Risikoscore, Ziele, Monte-Carlo oder Allokation (Mutationstest).
-# Ausschlusswuensche nur, wenn sie anbietbar sind (E2a: keiner, fail-closed).
+# Ausschlusswuensche nur, wenn sie belegt erfuellbar sind (E2b: Abdeckung im
+# aktiven Produktuniversum, sonst 422 fail-closed); Wirkung nur als Untergrenze
+# der Strategiebausteine (Fachvertrag E2b).
 _SUITABILITY_EVIDENCE = ("suitability_evidence",)
 
 
 def _exclusion_options(db: Session, mandate: Mandate) -> list[dict]:
-    """E2a: keine Abdeckungspruefung -> jeder Ausschlusswunsch gesperrt."""
-    return sp.locked_exclusion_options()
+    """E2b: waehlbar nur mit belegter Abdeckung im aktiven Produktuniversum
+    (routers/review.py::customer_exclusion_options); sonst ausgegraut mit Grund."""
+    return customer_exclusion_options(db, mandate)
 
 
-def _sustainability_response(row: InvestmentPreferenceDecision) -> SustainabilityPreferenceResponse:
+def _allocation_floor(db: Session, mandate: Mandate, row) -> dict:
+    """E2b / N-888-01: haelt die aktuelle Soll-Allokation die Ausschluesse ein?"""
+    try:
+        ta = _current_target_allocation_or_none(db, mandate.id)
+    except ValueError:
+        ta = None
+    return sp.evaluate_floor(
+        {"id": row.id, "exclusions_json": row.exclusions_json} if row is not None else None,
+        getattr(ta, "preferences_json", None), has_strategy=ta is not None,
+    )
+
+
+def _sustainability_response(row: InvestmentPreferenceDecision, floor: dict | None = None) -> SustainabilityPreferenceResponse:
     try:
         exclusions = list(json.loads(row.exclusions_json or "[]"))
     except (TypeError, ValueError) as exc:
@@ -1000,7 +1016,9 @@ def _sustainability_response(row: InvestmentPreferenceDecision) -> Sustainabilit
         preference_waived=bool(row.preference_waived),
         profile_code=row.profile_code,
         profile_text=sp.PROFILE_TEXTS.get(row.profile_code, ""),
-        limit_texts=sp.limit_texts(row.profile_code),
+        limit_texts=sp.limit_texts(row.profile_code) + sp.exclusion_limit_texts(
+            exclusions, (floor or {}).get("status"),
+        ),
         information_acknowledged=bool(row.information_acknowledged),
         client_confirmed=bool(row.client_confirmed),
         capture_channel=row.capture_channel,
@@ -1041,7 +1059,8 @@ def _sustainability_state(db: Session, mandate: Mandate) -> SustainabilityPrefer
         .order_by(InvestmentPreferenceDecision.sequence_no.desc())
         .all()
     )
-    history = [_sustainability_response(row) for row in rows]
+    floor = _allocation_floor(db, mandate, rows[0] if rows else None)
+    history = [_sustainability_response(row, floor if index == 0 else None) for index, row in enumerate(rows)]
     current = history[0] if history else None
     info = _preference_state(db, mandate, decision=_row_fields(rows[0]) if rows else None)
     status = sp.review_status(current.review_due_on if current else None, date.today().isoformat())
@@ -1060,6 +1079,9 @@ def _sustainability_state(db: Session, mandate: Mandate) -> SustainabilityPrefer
         waiver_allowed=str(mandate.mandate_type or "") == sp.WAIVER_MANDATE_TYPE,
         exclusion_options=_exclusion_options(db, mandate),
         document_binding=info["binding"],
+        allocation_floor_status=floor["status"],
+        allocation_floor_themes=list(floor.get("themes") or ()),
+        allocation_stale_notice=sp.floor_stale_notice(floor),
     )
 
 

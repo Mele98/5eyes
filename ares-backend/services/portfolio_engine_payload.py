@@ -116,6 +116,7 @@ from datetime import date
 from sqlalchemy.orm import Session
 
 from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
+from core import sustainability_preference as _sustainability
 from models.mandates import Mandate
 from models.review import Product, ProductUniverseEntry
 from models.tenant import DEFAULT_TENANT_ID as _DEFAULT_TENANT_ID
@@ -1792,3 +1793,137 @@ def universe_emptied_warning(db: Session, mandate: Mandate, run_context) -> str 
     if rows and all(row[0] is not None for row in rows):
         return UNIVERSE_EMPTIED_WARNING.format(jurisdiction=jurisdiction)
     return None
+
+
+# ══ E2b: Erfuellbarkeit der Strategie-Optionen ("nur Erfuellbares anbieten") ═
+# Eine Option ist nur anbietbar, wenn das AKTIVE Produktuniversum des Mandats
+# (_tenant_visible_products_query + _filter_products_by_universe, dieselbe
+# Quelle wie der Produktlauf) je benoetigter Sub-Anlageklasse mindestens ein
+# qualifizierendes Produkt hat. Benoetigt = Sub-Anlageklassen der aktuellen
+# Soll-Allokation (Gewicht > 0); ohne Strategie alle Sub-Anlageklassen des
+# Universums (konservativ). Liquiditaet ist ausgenommen (gleiche Ausnahme wie
+# ESG_POLICY_EXEMPT_ASSET_CLASS), Themenbausteine ebenfalls (entstehen nur
+# bei "Uebergewichten").
+#
+# - Kundenausschluss (``exclusion:<thema>``): ``exclusion_evidence(product,
+#   theme) -> Nachweis-ID|None`` (Aufrufer: freigegebener, gueltiger Nachweis
+#   aus product_sustainability_attributes). Unbekannt zaehlt nie.
+# - Restriktionen (chfOnly, hedgingRequired, noStructured, noLeverage,
+#   Themen-Ausschluss ``theme:<thema>``): derselbe Matcher wie der Produktlauf
+#   (_product_matches_constraints); fuer noStructured/noLeverage zaehlt nur ein
+#   Produkt mit gepflegtem Produkttyp (unbekannt != erfuellt).
+# ``normalize_preferences``/``jurisdiction_ctx`` reicht der Aufrufer herein
+# (services/portfolio_engine.py), damit hier keine neue Kopplung entsteht.
+STRATEGY_RESTRICTION_OPTIONS = (
+    ("chfOnly", "Nur Heimwährungs-Instrumente", {"geo": {"chfOnly": True}}),
+    ("hedgingRequired", "Absicherung obligatorisch", {"geo": {"hedgingRequired": True}}),
+    ("noStructured", "Keine Strukturierten", {"product": {"noStructured": True}}),
+    ("noLeverage", "Keine Hebelprodukte", {"product": {"noLeverage": True}}),
+)
+_COVERAGE_EXEMPT_ASSET_CLASSES = frozenset({"Liquiditaet", "Liquidität"})
+
+
+def _coverage_needed_sub_asset_classes(db: Session, mandate: Mandate, products: list) -> list[tuple[str, str]]:
+    """[(Sub-Anlageklasse, Anlageklasse)] -- aus der aktuellen Soll-Allokation
+    (Gewicht > 0), ohne Strategie aus dem Universum (konservativ)."""
+    ta = db.query(TargetAllocation).filter(
+        TargetAllocation.mandate_id == mandate.id,
+        TargetAllocation.is_current == 1,
+        TargetAllocation.deleted_at.is_(None),
+    ).first()
+    try:
+        subs = json.loads(getattr(ta, "sub_allocations_json", None) or "[]") if ta is not None else []
+    except (TypeError, ValueError):
+        subs = []
+    needed: dict[str, str] = {}
+    if isinstance(subs, list) and subs:
+        for sub in subs:
+            if not isinstance(sub, dict) or int(sub.get("target_weight_bps") or 0) <= 0:
+                continue
+            name = str(sub.get("sub_asset_class") or "").strip()
+            asset = str(sub.get("asset_class") or "").strip()
+            # Themenbausteine entstehen nur bei "Uebergewichten" und entfallen
+            # mit dem Ausschluss -- sie sind nie ein benoetigter Slot.
+            if name and asset not in _COVERAGE_EXEMPT_ASSET_CLASSES and name not in _THEME_KEY_BY_SUB_ASSET_CLASS:
+                needed.setdefault(name, asset)
+        return list(needed.items())
+    for product in products:
+        name = str(getattr(product, "sub_asset_class", None) or "").strip()
+        asset = str(getattr(product, "asset_class", None) or "").strip()
+        if name and asset not in _COVERAGE_EXEMPT_ASSET_CLASSES and name not in _THEME_KEY_BY_SUB_ASSET_CLASS:
+            needed.setdefault(name, asset)
+    return sorted(needed.items())
+
+
+def _coverage_candidates(products: list, sub: str, asset: str, qualifies, *, filter_slot: bool) -> list:
+    """Kandidaten wie im Produktlauf.
+
+    ``filter_slot=True`` (Restriktion ist ein Produktfilter des Laufs): zuerst
+    exakt die Sub-Anlageklasse; besteht dort kein Produkt den Filter, die
+    Anlageklasse (Fallback-Slot). ``filter_slot=False`` (Ausschlussnachweis,
+    filtert den Lauf NICHT): gibt es Produkte der Sub-Anlageklasse, waehlt der
+    Lauf eines davon -- also muss dort ein belegtes Produkt sein; nur ohne
+    jedes Produkt der Sub-Anlageklasse zaehlt die Anlageklasse."""
+    exact = [p for p in products if str(getattr(p, "sub_asset_class", None) or "").strip() == sub]
+    qualified = [p for p in exact if qualifies(p)]
+    if qualified or (exact and not filter_slot):
+        return qualified
+    norm = lambda value: str(value or "").strip().replace("ä", "ae").lower()  # noqa: E731
+    return [p for p in products if norm(getattr(p, "asset_class", None)) == norm(asset) and qualifies(p)]
+
+
+def strategy_option_coverage(
+    db: Session,
+    mandate: Mandate,
+    *,
+    exclusion_evidence,
+    as_of: str,
+    normalize_preferences,
+    jurisdiction_ctx: dict | None,
+) -> dict:
+    products = _filter_products_by_universe(db, mandate, _tenant_visible_products_query(db, mandate).all())
+    needed = _coverage_needed_sub_asset_classes(db, mandate, products)
+    names = [sub for sub, _asset in needed]
+
+    def _restriction_missing(prefs_patch, known_type: bool) -> list[str]:
+        prefs = normalize_preferences(prefs_patch)
+
+        def qualifies(p):
+            return (
+                (not known_type or bool(str(getattr(p, "product_type", "") or "").strip()))
+                and _product_matches_constraints(p, prefs, 0, jurisdiction_ctx=jurisdiction_ctx)
+            )
+
+        return [sub for sub, asset in needed if not _coverage_candidates(products, sub, asset, qualifies, filter_slot=True)]
+
+    options = [
+        _sustainability.coverage_option(
+            key, label, _restriction_missing(patch, key in ("noStructured", "noLeverage")), names,
+        )
+        for key, label, patch in STRATEGY_RESTRICTION_OPTIONS
+    ]
+    for theme in _sustainability.EXCLUSION_KEYS:
+        options.append(_sustainability.coverage_option(
+            "theme:" + theme, _sustainability.EXCLUSION_LABELS[theme],
+            _restriction_missing({"tilts": {theme: "exclude"}}, False), names,
+        ))
+    for theme in _sustainability.EXCLUSION_KEYS:
+        found: dict[str, str] = {}
+
+        def has_evidence(p, theme=theme):
+            evidence_id = exclusion_evidence(p, theme)
+            if evidence_id:
+                found[p.id] = evidence_id
+            return bool(evidence_id)
+
+        missing, evidence = [], []
+        for sub, asset in needed:
+            hits = _coverage_candidates(products, sub, asset, has_evidence, filter_slot=False)
+            if not hits:
+                missing.append(sub)
+            else:
+                evidence.append({"sub_asset_class": sub, "product_id": hits[0].id, "evidence_id": found[hits[0].id]})
+        options.append(_sustainability.coverage_option(
+            "exclusion:" + theme, _sustainability.EXCLUSION_LABELS[theme], missing, names, evidence,
+        ))
+    return {"as_of": as_of, "needed_sub_asset_classes": names, "options": options}

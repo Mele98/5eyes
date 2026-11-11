@@ -45,6 +45,7 @@ from services.recommendation_release_gate import (
     CHANNEL_SIGNATURE,
     RECOMMENDATION_DOCUMENT_TYPES,
     SIGNOFF_BOUND_DOCUMENT_TYPES,
+    assert_document_sustainability_floor,
     assert_preference_document_bound,
     assert_recommendation_release_eligible,
     assert_risk_signoff_release_eligible,
@@ -104,6 +105,9 @@ def _release_gates(db: Session, mandate, document: ContractDocument) -> None:
     # Signatur. Der Audit-Eintrag folgt mit H7 (release_block_audit, wie
     # N-888-13); die Vor-Ort-Signatur ist bis zur Freigabe ohnehin gesperrt.
     assert_preference_document_bound(db, mandate, document, channel=CHANNEL_SIGNATURE)
+    # E2b / N-888-09: gebundener Strategie-Inhalt gegen die Kundenausschluesse
+    # (Audit wie oben mit H7, Auflage N-888-13).
+    assert_document_sustainability_floor(db, mandate, document, channel=CHANNEL_SIGNATURE)
 
 
 def _view(db: Session, transaction_id: str) -> dict[str, Any]:

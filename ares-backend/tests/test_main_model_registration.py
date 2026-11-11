@@ -59,7 +59,11 @@ GOLDEN_SORTED_TABLES_SHA256 = "ca0230439ccd77dc47c1a6e7e72c77ddb64f469d896d4d136
 # SustainabilityExclusionOption, ContractDocumentResponse.
 # bound_preference_decision_hash und Tenant*.sustainability_review_months
 # (nur additiv, alle optional bzw. neue Pfade).
-GOLDEN_OPENAPI_SHA256 = "d16a5f92193fa580378b6beaaa8e72741427fed9e57d0cd7c2570029703002b4"
+# E2b: GET /mandates/{id}/strategy-option-coverage (StrategyOption*),
+# SustainabilityPreferenceState.allocation_floor_* /allocation_stale_notice,
+# SustainabilityExclusionOption.missing_sub_asset_classes/evidence,
+# ContractDocumentResponse.bound_target_allocation_id (nur additiv).
+GOLDEN_OPENAPI_SHA256 = "c16094bf4ce56bff6e4b91d484b3fbdf13ba123084ea25aeb40b9affd40a3942"
 
 _PROBE = """
 import hashlib, json

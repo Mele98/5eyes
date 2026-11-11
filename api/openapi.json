@@ -7127,6 +7127,17 @@
             ],
             "title": "Bound Preference Decision Hash"
           },
+          "bound_target_allocation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bound Target Allocation Id"
+          },
           "checksum_sha256": {
             "anyOf": [
               {
@@ -20998,6 +21009,108 @@
         "title": "RoleGrant",
         "type": "object"
       },
+      "StrategyOptionCoverage": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "evidence": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/StrategyOptionEvidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "missing_sub_asset_classes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Sub Asset Classes",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "available"
+        ],
+        "title": "StrategyOptionCoverage",
+        "type": "object"
+      },
+      "StrategyOptionCoverageResponse": {
+        "properties": {
+          "as_of": {
+            "title": "As Of",
+            "type": "string"
+          },
+          "needed_sub_asset_classes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Needed Sub Asset Classes",
+            "type": "array"
+          },
+          "options": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/StrategyOptionCoverage"
+            },
+            "title": "Options",
+            "type": "array"
+          }
+        },
+        "required": [
+          "as_of"
+        ],
+        "title": "StrategyOptionCoverageResponse",
+        "type": "object"
+      },
+      "StrategyOptionEvidence": {
+        "properties": {
+          "evidence_id": {
+            "title": "Evidence Id",
+            "type": "string"
+          },
+          "product_id": {
+            "title": "Product Id",
+            "type": "string"
+          },
+          "sub_asset_class": {
+            "title": "Sub Asset Class",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sub_asset_class",
+          "product_id",
+          "evidence_id"
+        ],
+        "title": "StrategyOptionEvidence",
+        "type": "object"
+      },
       "StrategySnapshotCreate": {
         "properties": {
           "advisor_note": {
@@ -21825,6 +21938,14 @@
             "title": "Available",
             "type": "boolean"
           },
+          "evidence": {
+            "default": [],
+            "items": {
+              "type": "object"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
           "key": {
             "title": "Key",
             "type": "string"
@@ -21832,6 +21953,14 @@
           "label": {
             "title": "Label",
             "type": "string"
+          },
+          "missing_sub_asset_classes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Sub Asset Classes",
+            "type": "array"
           },
           "reason": {
             "anyOf": [
@@ -22148,6 +22277,30 @@
       },
       "SustainabilityPreferenceState": {
         "properties": {
+          "allocation_floor_status": {
+            "default": "none",
+            "title": "Allocation Floor Status",
+            "type": "string"
+          },
+          "allocation_floor_themes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Allocation Floor Themes",
+            "type": "array"
+          },
+          "allocation_stale_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allocation Stale Notice"
+          },
           "answer_state": {
             "title": "Answer State",
             "type": "string"
@@ -38414,6 +38567,54 @@
         "summary": "Sign Risk Profile",
         "tags": [
           "Risikoprofilierung"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/strategy-option-coverage": {
+      "get": {
+        "description": "E2b: welche Strategie-Optionen (Restriktionen, Themen, Kunden-\nausschluesse) das aktive Produktuniversum des Mandats belegt erfuellen\nkann. Nicht erfuellbare Optionen tragen einen kurzen Grund.",
+        "operationId": "get_strategy_option_coverage_mandates__mandate_id__strategy_option_coverage_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyOptionCoverageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Strategy Option Coverage",
+        "tags": [
+          "Empfehlungen"
         ]
       }
     },

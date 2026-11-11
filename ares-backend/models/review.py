@@ -101,6 +101,12 @@ class ContractDocument(Base):
     # Erfassung; eine neue Erfassung macht alte Dokumente unwirksam.
     # NULL = Altbestand vor E2 (gebunden nur, solange keine Erfassung besteht).
     bound_preference_decision_hash = Column(String)
+    # E2b / N-888-09: Bindung eines Empfehlungsdokuments an die Soll-Allokation,
+    # deren Inhalt es traegt (ID + SHA-256 des Praeferenz-Snapshots); Signatur
+    # und Vor-Ort-Signatur pruefen GENAU diesen Inhalt gegen die Kunden-
+    # ausschluesse (Alembic c4e8a2f6b9d1). NULL = Altbestand/ohne Strategie.
+    bound_target_allocation_id = Column(String)
+    bound_preferences_sha256 = Column(String)
     version = Column(Integer, nullable=False, default=1)
     supersedes_id = Column(String)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)

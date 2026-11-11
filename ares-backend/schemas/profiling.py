@@ -328,6 +328,9 @@ class SustainabilityExclusionOption(BaseModel):
     label: str
     available: bool
     reason: Optional[str] = None
+    # E2b: Sub-Anlageklassen ohne belegtes Produkt und die Belege (Nachweis-ID).
+    missing_sub_asset_classes: list[str] = []
+    evidence: list[dict] = []
 
 
 class SustainabilityPreferenceState(BaseModel):
@@ -347,3 +350,9 @@ class SustainabilityPreferenceState(BaseModel):
     waiver_allowed: bool
     exclusion_options: list[SustainabilityExclusionOption] = []
     document_binding: str
+    # E2b / N-888-01: Untergrenze gegen die aktuelle Soll-Allokation
+    # (none | ok | violated | unreadable | no_strategy); violated/unreadable =
+    # Strategie veraltet, Empfehlung/Finalize/Freigabe gesperrt.
+    allocation_floor_status: str = "none"
+    allocation_floor_themes: list[str] = []
+    allocation_stale_notice: Optional[str] = None

@@ -243,6 +243,10 @@ def create_portfolio_handoff(
     # Persistierung.
     assert_recommendation_release_eligible(
         db, mandate, channel=CHANNEL_HANDOFF, run=run,
+        audit=gate_block_audit(
+            db, user=current_user, mandate=mandate, ip_address=_extract_client_ip(request),
+            table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+        ),
     )
     # E2a (Negativfall 4/6): veraltete/nicht lesbare Nachhaltigkeitspraeferenz
     # sperrt die Weiterleitung (mit Audit-Eintrag).

@@ -1626,6 +1626,10 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         # E2a (2026-11-11): Bindung Dokument -> Nachhaltigkeitspraeferenz
         # (Alembic f3a8c1e5b7d2); nullable, kein Backfill (Altbestand).
         ensure_column(conn, "contract_documents", "bound_preference_decision_hash", "TEXT")
+        # E2b / N-888-09: Bindung Dokument -> Soll-Allokation (Alembic
+        # c4e8a2f6b9d1); nullable, kein Backfill (Altbestand = ungebunden).
+        ensure_column(conn, "contract_documents", "bound_target_allocation_id", "TEXT")
+        ensure_column(conn, "contract_documents", "bound_preferences_sha256", "TEXT")
 
 
 _ADVISORY_LOG_HASH_FIELDS_PRE_REC007: tuple[str, ...] = (
