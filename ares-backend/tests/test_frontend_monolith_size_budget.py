@@ -31,6 +31,9 @@ client-compliance.js (eigenes Budget, Stand bei Einfuehrung); sie haengen sich
 selbst in Administration und Stammdaten ein. Im Monolithen nur die Einbindung;
 renderAuditLogTable ist mit der Feldbezeichnung (N-873-09) in den Teil
 umgezogen. Der Monolith schrumpft dabei (Budget auf den neuen Stand).
+
+C-890-01 (2026-11-11): client-compliance.js +5 Zeilen/+727 Bytes fuer die
+Statuszeile der KYC-Wiedervorlage-Policy (Budget auf den neuen Stand).
 """
 from __future__ import annotations
 
@@ -49,7 +52,7 @@ EXTRACTED_PART_BUDGETS = {
     "ares.css": (1162, 91800),
     "intro-sequence.js": (761, 36861),
     "goal-review-runtime.js": (1589, 84633),
-    "client-compliance.js": (455, 28353),
+    "client-compliance.js": (460, 29080),
 }
 
 

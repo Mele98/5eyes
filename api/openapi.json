@@ -5511,6 +5511,28 @@
       },
       "ClientOnboardingFinding": {
         "properties": {
+          "binding_defect": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Binding Defect"
+          },
+          "bound_next_review_due": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bound Next Review Due"
+          },
           "confirmation_id": {
             "anyOf": [
               {
@@ -5532,6 +5554,28 @@
               }
             ],
             "title": "Contract Concluded At"
+          },
+          "current_max_due": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Max Due"
+          },
+          "kyc_review_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kyc Review Status"
           },
           "message": {
             "title": "Message",
@@ -5568,6 +5612,17 @@
           "owner_action": {
             "title": "Owner Action",
             "type": "string"
+          },
+          "policy_ref": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Ref"
           },
           "reason_code": {
             "title": "Reason Code",
@@ -5650,6 +5705,17 @@
               }
             ],
             "title": "Kyc Requires Second Approval"
+          },
+          "kyc_review_policy": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kyc Review Policy"
           },
           "latest_document": {
             "anyOf": [
@@ -10822,8 +10888,8 @@
         "title": "KycConfirmationApprovalResponse",
         "type": "object"
       },
-      "KycConfirmationCreate": {
-        "description": "Bestaetigung, dass die GwG-Abklaerung im Prozess der SRO/AO bzw. im\nFremdsystem erfolgt ist. Alle fachlichen Felder ohne Vorbelegung --\ninsbesondere ``is_pep`` und ``risk_category`` muessen ausdruecklich\nbeantwortet werden.",
+      "KycConfirmationRequest": {
+        "description": "Bestaetigung, dass die GwG-Abklaerung im Prozess der SRO/AO bzw. im\nFremdsystem erfolgt ist. Alle fachlichen Felder ohne Vorbelegung --\ninsbesondere ``is_pep`` und ``risk_category`` muessen ausdruecklich\nbeantwortet werden.\n\nEingangsform der API (nur formale Pruefung). Die fachlich gueltige\nBestaetigung ist ``KycConfirmationCreate``: erst mit der serverseitig\nermittelten Bindung an die freigegebene Wiedervorlage-Policy (C-890-01).",
         "properties": {
           "data_classification": {
             "default": "synthetic",
@@ -10909,7 +10975,7 @@
           "identification_date",
           "next_review_due"
         ],
-        "title": "KycConfirmationCreate",
+        "title": "KycConfirmationRequest",
         "type": "object"
       },
       "KycConfirmationResponse": {
@@ -11003,6 +11069,94 @@
             "title": "Requires Second Approval",
             "type": "boolean"
           },
+          "review_interval_months": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Interval Months"
+          },
+          "review_max_due": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Max Due"
+          },
+          "review_policy_activation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Policy Activation Id"
+          },
+          "review_policy_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Policy Hash"
+          },
+          "review_policy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Policy Id"
+          },
+          "review_policy_row_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Policy Row Id"
+          },
+          "review_policy_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Policy Version"
+          },
+          "review_risk_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Risk Class"
+          },
           "risk_category": {
             "title": "Risk Category",
             "type": "string"
@@ -11025,6 +11179,306 @@
           "confirmation_hash"
         ],
         "title": "KycConfirmationResponse",
+        "type": "object"
+      },
+      "KycReviewPolicyActivate": {
+        "description": "Vier-Augen-Freigabe: die zweite Person bestaetigt den gesehenen\nInhalts-Hash und nennt die unveraenderliche Freigabereferenz (z. B.\nBeschluss der Geschaeftsleitung bzw. Vorgabe der SRO/AO).",
+        "properties": {
+          "approval_reference": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Approval Reference",
+            "type": "string"
+          },
+          "policy_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Policy Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "policy_hash",
+          "approval_reference"
+        ],
+        "title": "KycReviewPolicyActivate",
+        "type": "object"
+      },
+      "KycReviewPolicyCreate": {
+        "description": "Neue Policy-Version (append-only). Alle Werte kommen vom Owner bzw.\nder Compliance; Ares belegt keine Frist vor. Die Abstaende sind ganze\nKalendermonate ab dem Abschluss der GwG-Abklaerung. Inhaltliche Regeln\n(Abstand > 0, PEP/erhoehtes Risiko nie lockerer) prueft der Server mit\neigenem Reason-Code.",
+        "properties": {
+          "elevated_max_months": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevated Max Months"
+          },
+          "jurisdiction": {
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Jurisdiction",
+            "type": "string"
+          },
+          "normal_max_months": {
+            "title": "Normal Max Months",
+            "type": "integer"
+          },
+          "policy_id": {
+            "maxLength": 64,
+            "minLength": 3,
+            "title": "Policy Id",
+            "type": "string"
+          },
+          "source_reference": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Source Reference",
+            "type": "string"
+          },
+          "valid_from": {
+            "title": "Valid From",
+            "type": "string"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          }
+        },
+        "required": [
+          "jurisdiction",
+          "policy_id",
+          "normal_max_months",
+          "valid_from",
+          "source_reference"
+        ],
+        "title": "KycReviewPolicyCreate",
+        "type": "object"
+      },
+      "KycReviewPolicyOverview": {
+        "properties": {
+          "effective_policy": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Policy"
+          },
+          "jurisdiction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jurisdiction"
+          },
+          "policies": {
+            "items": {
+              "$ref": "#/components/schemas/KycReviewPolicyResponse"
+            },
+            "title": "Policies",
+            "type": "array"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "status",
+          "policies"
+        ],
+        "title": "KycReviewPolicyOverview",
+        "type": "object"
+      },
+      "KycReviewPolicyResponse": {
+        "properties": {
+          "activation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activation Id"
+          },
+          "approval_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Reference"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "effective_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "elevated_max_months": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevated Max Months"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "jurisdiction": {
+            "title": "Jurisdiction",
+            "type": "string"
+          },
+          "normal_max_months": {
+            "title": "Normal Max Months",
+            "type": "integer"
+          },
+          "policy_hash": {
+            "title": "Policy Hash",
+            "type": "string"
+          },
+          "policy_id": {
+            "title": "Policy Id",
+            "type": "string"
+          },
+          "predecessor_activation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predecessor Activation Id"
+          },
+          "source_reference": {
+            "title": "Source Reference",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "valid_from": {
+            "title": "Valid From",
+            "type": "string"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "jurisdiction",
+          "policy_id",
+          "version",
+          "normal_max_months",
+          "valid_from",
+          "source_reference",
+          "created_by",
+          "created_at",
+          "policy_hash",
+          "status"
+        ],
+        "title": "KycReviewPolicyResponse",
         "type": "object"
       },
       "LegalHoldExtension": {
@@ -31909,7 +32363,7 @@
         ]
       },
       "post": {
-        "description": "H8 C-5: Ares fuehrt die GwG-Abklaerung nicht selbst; sie erfolgt im\nProzess der SRO/AO bzw. im Fremdsystem. Erfasst wird die Pflicht-\nBestaetigung (Formular A/K/S/T, Datum, Referenz, Risikokategorie, PEP,\nnaechste Aktualisierung). Append-only: eine Korrektur ist eine neue\nBestaetigung. Bei PEP oder erhoehtem Risiko erst nach Freigabe durch eine\nzweite Person wirksam (Gate vor Finalisierung/Vertragsunterzeichnung).",
+        "description": "H8 C-5: Ares fuehrt die GwG-Abklaerung nicht selbst; sie erfolgt im\nProzess der SRO/AO bzw. im Fremdsystem. Erfasst wird die Pflicht-\nBestaetigung (Formular A/K/S/T, Datum, Referenz, Risikokategorie, PEP,\nnaechste Aktualisierung). Append-only: eine Korrektur ist eine neue\nBestaetigung. Bei PEP oder erhoehtem Risiko erst nach Freigabe durch eine\nzweite Person wirksam (Gate vor Finalisierung/Vertragsunterzeichnung).\n\nC-890-01: ``next_review_due`` darf hoechstens bis zur serverseitig\nberechneten Obergrenze der wirksamen, freigegebenen Wiedervorlage-Policy\nder Firma reichen (Abschlussdatum plus freigegebener Abstand je\nRisikoklasse; PEP/erhoehtes Risiko = strengere Frist). Ohne wirksame Policy\nist keine Erfassung moeglich (409 mit Reason-Code der Policy). Die Bindung\n(Policy, Version, Hash, Risikoklasse, Abstand, Obergrenze) steht im Siegel.",
         "operationId": "create_kyc_confirmation_clients__client_id__kyc_confirmations_post",
         "parameters": [
           {
@@ -31926,7 +32380,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/KycConfirmationCreate"
+                "$ref": "#/components/schemas/KycConfirmationRequest"
               }
             }
           },
@@ -33470,6 +33924,166 @@
         "summary": "Validate Policy",
         "tags": [
           "CMA-Policy"
+        ]
+      }
+    },
+    "/compliance/kyc-review-policies": {
+      "get": {
+        "description": "Wiedervorlage-Policies der eigenen Firma (alle Versionen samt Status)\nund die heute wirksame Version. Ohne Angabe gilt das Sitzland der Firma\naus den rechtlichen Angaben.",
+        "operationId": "list_kyc_review_policies_compliance_kyc_review_policies_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "jurisdiction",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2,
+                  "minLength": 2,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Jurisdiction"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KycReviewPolicyOverview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Kyc Review Policies",
+        "tags": [
+          "Review & Dokumente"
+        ]
+      },
+      "post": {
+        "description": "Neue Version der Wiedervorlage-Policy erfassen (Firmen-Admin). Wirksam\nerst nach Freigabe durch eine zweite Person (``/activate``). Ares belegt\nkeinen Wert vor; die Version vergibt der Server fortlaufend.",
+        "operationId": "create_kyc_review_policy_compliance_kyc_review_policies_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KycReviewPolicyCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KycReviewPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Kyc Review Policy",
+        "tags": [
+          "Review & Dokumente"
+        ]
+      }
+    },
+    "/compliance/kyc-review-policies/{policy_row_id}/activate": {
+      "post": {
+        "description": "Vier-Augen-Freigabe und Aktivierung einer Policy-Version: nur eine\nZWEITE Person mit Admin-Rolle, mit dem gesehenen Inhalts-Hash und der\nFreigabereferenz. Die Aktivierungen bilden eine lineare Kette; zwei\ngleichzeitige Aktivierungen auf denselben Stand koennen nie beide gelingen\n(UNIQUE auf den Vorgaenger, 409).",
+        "operationId": "activate_kyc_review_policy_compliance_kyc_review_policies__policy_row_id__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "policy_row_id",
+            "required": true,
+            "schema": {
+              "title": "Policy Row Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KycReviewPolicyActivate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KycReviewPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Activate Kyc Review Policy",
+        "tags": [
+          "Review & Dokumente"
         ]
       }
     },

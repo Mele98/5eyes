@@ -36,7 +36,10 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # H8 (2026-11-07): fuenf neue Tabellen (tenant_legal_profiles,
 # client_information_deliveries, kyc_confirmations, kyc_confirmation_approvals,
 # client_representations), keine bestehende Tabelle umbenannt/entfernt.
-GOLDEN_SORTED_TABLES_SHA256 = "30711a7c792bbe325060308ae7c1c7236ae0bc41ccbadb7f05878c6822451fd2"
+# C-890-01 (2026-11-11): zwei neue Tabellen (kyc_review_policies,
+# kyc_review_policy_activations) und acht nullable Bindungsspalten an
+# kyc_confirmations; keine bestehende Tabelle umbenannt/entfernt.
+GOLDEN_SORTED_TABLES_SHA256 = "2efd3226338ac7d3a57a9bdaf29a96eda66f31283c80689438c839944a6f24b9"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -67,7 +70,15 @@ GOLDEN_SORTED_TABLES_SHA256 = "30711a7c792bbe325060308ae7c1c7236ae0bc41ccbadb7f0
 # H8 nach Merge H7 (N-890-07): Pins gemeinsam neu. N-890-02/03/12/13: Delivery
 # (delivery_timing, backdating_reason), KYC (identification_*, requires_second_approval),
 # OptHistoryCreate.event_type als FIDLEG-Werteliste. Feld-Diff geprueft.
-GOLDEN_OPENAPI_SHA256 = "9a3bfc78a8c12161b9698eaca86c25f64b4f1cb5b1b14107c2fffbdaca2146bc"
+# C-890-01: neu GET/POST /compliance/kyc-review-policies, POST
+# /compliance/kyc-review-policies/{policy_row_id}/activate (+ KycReviewPolicy*-
+# Schemas); Request-Body von POST /clients/{client_id}/kyc-confirmations heisst
+# KycConfirmationRequest (Felder unveraendert; KycConfirmationCreate ist das
+# policy-gebundene Fachobjekt); additiv: KycConfirmationResponse.review_*,
+# ClientOnboardingFinding (kyc_review_status, policy_ref, binding_defect,
+# bound_next_review_due, current_max_due), ClientOnboardingStatusResponse.
+# kyc_review_policy. Feld-Diff geprueft.
+GOLDEN_OPENAPI_SHA256 = "b1c308abda91486a2b5b8cd39432d1a582b8b6d78865b26ded56228ca447cb78"
 
 _PROBE = """
 import hashlib, json
