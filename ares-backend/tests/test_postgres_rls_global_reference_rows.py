@@ -119,6 +119,13 @@ _VALID_ROW_VALUES: dict[str, dict[str, object]] = {
         "is_overridden": 0,
         "sequence_no": 1,
     },
+    # N-869-3: ck_audit_log_chain_fields_required verlangt fuer neue Zeilen
+    # sequence/integrity_hash/previous_hash (Single-Writer-Schutz in der DB).
+    "audit_log": {
+        "sequence": 1,
+        "integrity_hash": "0" * 64,
+        "previous_hash": "",
+    },
     "risk_override_decisions": {
         "requested_score_x10": 40,
         "sequence_no": 1,
