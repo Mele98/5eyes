@@ -7,6 +7,8 @@ Der Router importiert nur dieses Modul (eine Kante statt je Fachmodul eine):
   services/privacy_owner_values.py, services/processing_activity_register.py).
 * Betroffenenanfragen (C-DSG-02, services/privacy_subject_requests.py).
 * Egress-Manifest und Laufzeitschutz (C-DSG-03, services/egress_manifest.py).
+* Register der Sicherheitsvorfaelle (C-DSG-04,
+  services/security_incident_register.py).
 """
 from __future__ import annotations
 
@@ -17,6 +19,8 @@ from config import settings
 from services import egress_manifest
 from services import privacy_erasure_inventory as erasure_inventory
 from services import privacy_subject_requests as subject_requests
+from services import processing_activity_register as register_module
+from services import security_incident_register as incidents
 from services.privacy_owner_values import (
     OWNER_VALUE_MAX_LENGTH,
     confirmed_egress_channels,
@@ -56,6 +60,25 @@ def deactivate_egress_guard() -> None:
     egress_manifest.deactivate()
 
 
+def incident_data_categories() -> set[str]:
+    """Datenkategorien, die ein Vorfall betreffen kann (Register)."""
+    register = register_module.load_register()
+    return set(EVIDENCE_TYPES) | set(register.get("additional_data_categories") or {})
+
+
+def incident_gate(db: Any, tenant_id: str) -> dict[str, Any]:
+    """Gate des Incident-Registers mit den Owner-Angaben (Eskalationskontakt,
+    interne Zielfrist); fehlen sie, steht das Feld als OPEN im Ergebnis."""
+    values = owner_values(db, tenant_id)
+    gate = incidents.gate_findings(db, tenant_id, target_hours=values.get(incidents.TARGET_HOURS_FIELD))
+    contact = values.get(incidents.ESCALATION_CONTACT_FIELD)
+    gate["escalation_contact"] = {
+        "owner_field": incidents.ESCALATION_CONTACT_FIELD,
+        "status": "CONFIRMED" if contact else "OPEN", "value": contact,
+    }
+    return gate
+
+
 def refresh_egress_confirmations(db: Any, tenant_id: str) -> None:
     if tenant_id == INSTALLATION_TENANT:
         egress_manifest.update_confirmed_channels(confirmed_egress_channels(db, INSTALLATION_TENANT))
@@ -69,6 +92,9 @@ __all__ = [
     "confirmed_egress_channels",
     "deactivate_egress_guard",
     "egress_view",
+    "incident_data_categories",
+    "incident_gate",
+    "incidents",
     "open_blocking_fields",
     "owner_field_definitions",
     "owner_field_status",

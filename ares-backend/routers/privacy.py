@@ -29,6 +29,7 @@ from models.privacy import (
     PrivacyLegalHold,
     PrivacyRetentionPolicy,
     PrivacyRoleDesignation,
+    PrivacySecurityIncident,
     PrivacySubjectRequest,
 )
 from models.users import User
@@ -179,6 +180,7 @@ def privacy_status(db: Session = Depends(get_db), current_user: User = Depends(r
     missing = sorted(et for et in gov.EVIDENCE_TYPES if not any(key[0] == et for key in approved))
     return {
         **gov.subject_requests.status_counts(db, tenant_id),
+        "incident_gate_blocked": gov.incident_gate(db, tenant_id)["blocked"],
         "production_activation": PRODUCTION_ACTIVATION,
         "matrix_complete": not missing,
         "evidence_types_without_approved_policy": missing,
@@ -648,3 +650,167 @@ def get_egress_manifest(db: Session = Depends(get_db), current_user: User = Depe
     status (aktiv, erlaubt, bestaetigt) und den zuletzt blockierten Versuchen
     (nur Kanal, Host, Grund)."""
     return gov.egress_view(db, _tenant(current_user))
+
+
+# ── H10 C-DSG-04: Register der Verletzungen der Datensicherheit ────────────────
+
+class IncidentRecord(BaseModel):
+    discovered_at: str
+    incident_type: str
+    description: str = Field(min_length=1, max_length=8000)
+    affected_data_categories: list[str] = Field(default_factory=list)
+    affected_subjects_count: Optional[int] = None
+    containment_measures: Optional[str] = Field(default=None, max_length=8000)
+
+
+class IncidentAssessment(BaseModel):
+    risk_level: str
+    rationale: Optional[str] = Field(default=None, max_length=8000)
+
+
+class IncidentDecision(BaseModel):
+    decision: str
+    reason: Optional[str] = Field(default=None, max_length=8000)
+
+
+class IncidentNotification(BaseModel):
+    notified_at: str
+    reference: Optional[str] = Field(default=None, max_length=2000)
+
+
+class IncidentSubjectNotification(BaseModel):
+    notified_at: str
+    channel: str
+    reference: Optional[str] = Field(default=None, max_length=2000)
+
+
+class IncidentEvidence(BaseModel):
+    kind: str
+    reference: Optional[str] = Field(default=None, max_length=2000)
+
+
+class IncidentClosure(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=8000)
+
+
+def _require_staff(user: User) -> None:
+    if user.role not in ("admin", "super_admin", "advisor"):
+        raise HTTPException(status_code=403, detail="Nur fuer Mitarbeitende")
+
+
+def _incident(db: Session, incident_id: str, user: User) -> PrivacySecurityIncident:
+    _require_case_operator(db, user)
+    return _own(db.get(PrivacySecurityIncident, incident_id), user)
+
+
+def _incident_step(db: Session, user: User, request: Request, incident: PrivacySecurityIncident, step: str,
+                   extra: Optional[dict[str, Any]] = None):
+    _audit(db, user, request, table="privacy_security_incidents", record_id=incident.id, action="UPDATE",
+           new_value={"step": step, "status": incident.status, **(extra or {})})
+    db.commit()
+    return gov.incidents.incident_out(incident)
+
+
+@router.post("/incidents", status_code=201)
+def record_security_incident(body: IncidentRecord, request: Request, db: Session = Depends(get_db),
+                             current_user: User = Depends(get_current_user)):
+    """Jede Mitarbeiterin und jeder Mitarbeiter kann einen Vorfall erfassen;
+    Bewertung und Entscheide nur Administration/benannte Datenschutzpersonen."""
+    _require_staff(current_user)
+    incident = gov.incidents.record_incident(
+        db, tenant_id=_tenant(current_user), discovered_at=body.discovered_at, incident_type=body.incident_type,
+        description=body.description, affected_data_categories=body.affected_data_categories,
+        allowed_categories=gov.incident_data_categories(), affected_subjects_count=body.affected_subjects_count,
+        containment_measures=body.containment_measures, recorded_by=current_user.id,
+    )
+    _audit(db, current_user, request, table="privacy_security_incidents", record_id=incident.id, action="CREATE",
+           new_value={"reference": incident.reference, "incident_type": incident.incident_type})
+    db.commit()
+    return gov.incidents.incident_out(incident)
+
+
+@router.get("/incidents")
+def list_security_incidents(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    _require_case_operator(db, current_user)
+    return [gov.incidents.incident_out(i) for i in gov.incidents.list_incidents(db, _tenant(current_user))]
+
+
+@router.get("/incidents/gate")
+def security_incident_gate(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Gate: hohes Risiko ohne Meldeentscheid bzw. ohne Meldenachweis ist rot."""
+    _require_case_operator(db, current_user)
+    return gov.incident_gate(db, _tenant(current_user))
+
+
+@router.get("/incidents/{incident_id}")
+def get_security_incident(incident_id: str, db: Session = Depends(get_db),
+                          current_user: User = Depends(get_current_user)):
+    return gov.incidents.incident_out(_incident(db, incident_id, current_user))
+
+
+@router.post("/incidents/{incident_id}/assessment")
+def assess_security_incident(incident_id: str, body: IncidentAssessment, request: Request,
+                             db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    incident = gov.incidents.assess_risk(db, _incident(db, incident_id, current_user), risk_level=body.risk_level,
+                                         rationale=body.rationale, actor_id=current_user.id)
+    return _incident_step(db, current_user, request, incident, "assessment", {"risk_level": incident.risk_level})
+
+
+@router.post("/incidents/{incident_id}/notification-decision")
+def decide_security_incident_notification(incident_id: str, body: IncidentDecision, request: Request,
+                                          db: Session = Depends(get_db),
+                                          current_user: User = Depends(get_current_user)):
+    incident = gov.incidents.decide_notification(db, _incident(db, incident_id, current_user),
+                                                 decision=body.decision, reason=body.reason,
+                                                 actor_id=current_user.id)
+    return _incident_step(db, current_user, request, incident, "notification_decision",
+                          {"notification_decision": incident.notification_decision})
+
+
+@router.post("/incidents/{incident_id}/edoeb-notification")
+def record_security_incident_edoeb_notification(incident_id: str, body: IncidentNotification, request: Request,
+                                                db: Session = Depends(get_db),
+                                                current_user: User = Depends(get_current_user)):
+    incident = gov.incidents.record_edoeb_notification(db, _incident(db, incident_id, current_user),
+                                                       notified_at=body.notified_at, reference=body.reference,
+                                                       actor_id=current_user.id)
+    return _incident_step(db, current_user, request, incident, "edoeb_notification",
+                          {"edoeb_notified_at": incident.edoeb_notified_at})
+
+
+@router.post("/incidents/{incident_id}/subject-notification-decision")
+def decide_security_incident_subject_notification(incident_id: str, body: IncidentDecision, request: Request,
+                                                  db: Session = Depends(get_db),
+                                                  current_user: User = Depends(get_current_user)):
+    incident = gov.incidents.decide_subject_notification(db, _incident(db, incident_id, current_user),
+                                                         decision=body.decision, reason=body.reason,
+                                                         actor_id=current_user.id)
+    return _incident_step(db, current_user, request, incident, "subject_notification_decision",
+                          {"subject_notification_decision": incident.subject_notification_decision})
+
+
+@router.post("/incidents/{incident_id}/subject-notification")
+def record_security_incident_subject_notification(incident_id: str, body: IncidentSubjectNotification,
+                                                  request: Request, db: Session = Depends(get_db),
+                                                  current_user: User = Depends(get_current_user)):
+    incident = gov.incidents.record_subject_notification(db, _incident(db, incident_id, current_user),
+                                                         notified_at=body.notified_at, channel=body.channel,
+                                                         reference=body.reference, actor_id=current_user.id)
+    return _incident_step(db, current_user, request, incident, "subject_notification",
+                          {"subjects_notified_at": incident.subjects_notified_at})
+
+
+@router.post("/incidents/{incident_id}/evidence")
+def add_security_incident_evidence(incident_id: str, body: IncidentEvidence, request: Request,
+                                   db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    incident = gov.incidents.add_evidence(db, _incident(db, incident_id, current_user), kind=body.kind,
+                                          reference=body.reference, actor_id=current_user.id)
+    return _incident_step(db, current_user, request, incident, "evidence", {"kind": body.kind})
+
+
+@router.post("/incidents/{incident_id}/close")
+def close_security_incident(incident_id: str, body: IncidentClosure, request: Request,
+                            db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    incident = gov.incidents.close(db, _incident(db, incident_id, current_user), note=body.note,
+                                   actor_id=current_user.id)
+    return _incident_step(db, current_user, request, incident, "close")

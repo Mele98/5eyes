@@ -11,7 +11,9 @@
   },
   "register_owner_fields": {
     "additional_recipients": {"owner_field": "register.additional_recipients", "label": "Weitere Empfaenger ausserhalb von Ares (z. B. Revisionsstelle, SRO, Depotbank, IT-Dienstleister) inkl. Staat", "kind": "text", "blocking": "customer_output"},
-    "organizational_toms": {"owner_field": "register.organizational_toms", "label": "Organisatorische Massnahmen der Firma (z. B. Zutritt, Schulung, Weisungen, Geraeteverwaltung)", "kind": "text", "blocking": "informational"}
+    "organizational_toms": {"owner_field": "register.organizational_toms", "label": "Organisatorische Massnahmen der Firma (z. B. Zutritt, Schulung, Weisungen, Geraeteverwaltung)", "kind": "text", "blocking": "informational"},
+    "incident_escalation_contact": {"owner_field": "incident.escalation_contact", "label": "Eskalationskontakt bei Sicherheitsvorfaellen (Person/Funktion, Erreichbarkeit)", "kind": "text", "blocking": "informational"},
+    "incident_notification_target_hours": {"owner_field": "incident.notification_target_hours", "label": "Interne Zielfrist bis zur Meldung an den EDOEB in Stunden (optional)", "kind": "hours", "blocking": "informational"}
   },
   "data_subject_categories": {
     "clients": "Kundinnen und Kunden",
@@ -35,6 +37,7 @@
     "TOM-BACKUP": {"description": "Verschluesselte Sicherung mit Wiederherstellungsprobe", "evidence": ["ares-backend/services/backup.py"]},
     "TOM-RETENTION-ERASURE": {"description": "Aufbewahrungsmatrix, Legal Hold und Loeschvorgang mit Beleg", "evidence": ["ares-backend/services/privacy_erasure.py", "ares-backend/services/privacy_erasure_inventory.py"]},
     "TOM-PRIVACY-CASES": {"description": "Betroffenenanfragen als Fall mit Identitaetspruefung, Frist, Entscheid und Zustellnachweis; Export nur ueber den Fall", "evidence": ["ares-backend/services/privacy_subject_requests.py"]},
+    "TOM-INCIDENT-REGISTER": {"description": "Register der Verletzungen der Datensicherheit mit Risikobewertung, Meldeentscheid, Nachweisen und Gate fuer hohes Risiko", "evidence": ["ares-backend/services/security_incident_register.py"]},
     "TOM-EGRESS-ALLOWLIST": {"description": "Ausgehende Verbindungen nur gemaess Egress-Manifest (fail-closed), Feld-Allowlist und Payload-Pruefung gegen Personendaten", "evidence": ["ares-backend/config/outbound_processing_manifest.json", "ares-backend/services/egress_manifest.py"]},
     "TOM-DESKTOP-HARDENING": {"description": "Desktop-Shell: nur lokale Oberflaeche, Navigation und Fenster gesperrt, Renderer nur zum lokalen Backend", "evidence": ["ares-desktop/main.js", "ares-desktop/frontend/ares.html"]}
   },
@@ -141,11 +144,11 @@
       "purpose": "Bearbeitung von Betroffenenanfragen, Loeschvorgaengen, Legal Holds und Sicherheitsvorfaellen sowie die Angaben des Verantwortlichen",
       "data_subjects": ["privacy_case_parties", "clients", "staff"],
       "data_categories": ["privacy_case_records"],
-      "tables": ["privacy_retention_policies", "privacy_legal_holds", "privacy_erasure_cases", "privacy_erasure_dispositions", "privacy_owner_values", "privacy_subject_requests"],
-      "recipients": ["Administration der Firma", "Benannte Legal-/Datenschutzpersonen der Firma", "Betroffene Person (Auskunft, Herausgabe)"],
+      "tables": ["privacy_retention_policies", "privacy_legal_holds", "privacy_erasure_cases", "privacy_erasure_dispositions", "privacy_owner_values", "privacy_subject_requests", "privacy_security_incidents"],
+      "recipients": ["Administration der Firma", "Benannte Legal-/Datenschutzpersonen der Firma", "Betroffene Person (Auskunft, Herausgabe)", "EDOEB (Meldung einer Verletzung der Datensicherheit, durch die Firma)"],
       "egress_channels": [],
       "retention": {"evidence_types": [], "source": "Nachweis der Datenschutzvorgaenge; Dauer legt die Firma fest", "basis": {"owner_field": "activity.PA-09.retention_basis", "label": "Begruendung der Aufbewahrungsdauer: Datenschutzvorgaenge", "kind": "text", "blocking": "customer_output"}},
-      "toms": ["TOM-ACCESS-RBAC", "TOM-TENANT-ISOLATION", "TOM-AUDIT-TRAIL", "TOM-PRIVACY-CASES"]
+      "toms": ["TOM-ACCESS-RBAC", "TOM-TENANT-ISOLATION", "TOM-AUDIT-TRAIL", "TOM-PRIVACY-CASES", "TOM-INCIDENT-REGISTER"]
     }
   ],
   "non_personal_tables": {

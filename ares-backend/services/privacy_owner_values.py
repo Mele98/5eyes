@@ -94,6 +94,15 @@ def set_owner_value(
     cleaned = str(value or "").strip()
     if not cleaned:
         raise DomainError(ReasonCode.PRIVACY_OWNER_VALUE_INVALID, "Wert darf nicht leer sein", http_status=422)
+    if definitions[field_key]["kind"] == "hours":
+        try:
+            hours = float(cleaned)
+        except ValueError:
+            hours = 0.0
+        if not 0 < hours <= 24 * 365:
+            raise DomainError(
+                ReasonCode.PRIVACY_OWNER_VALUE_INVALID, "Stunden als positive Zahl angeben", http_status=422,
+            )
     if len(cleaned) > OWNER_VALUE_MAX_LENGTH:
         raise DomainError(ReasonCode.PRIVACY_OWNER_VALUE_INVALID, f"Wert laenger als {OWNER_VALUE_MAX_LENGTH} Zeichen", http_status=422)
     stamp = now_iso(now)

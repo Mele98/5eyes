@@ -63,6 +63,8 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     "privacy_subject_requests",
     "privacy_retention_policies",
     "privacy_role_designations",
+    # H10 C-DSG-04: Register der Sicherheitsvorfaelle je Mandant.
+    "privacy_security_incidents",
     # PG-002-Folgeauftrag: Mandant ueber Lauf -> Mandat (Guard + Backfill).
     "product_eligibility_overrides",
     "product_eligibility_snapshots",

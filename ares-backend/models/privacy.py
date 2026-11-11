@@ -298,3 +298,69 @@ class PrivacySubjectRequest(Base):
     opened_by = Column(String, nullable=False)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
+
+
+class PrivacySecurityIncident(Base):
+    """C-DSG-04: Verletzung der Datensicherheit als Fall mit Entdeckung,
+    Risikobewertung, Meldeentscheid an den EDOEB, Information der Betroffenen,
+    Nachweisen und Abschluss (services/security_incident_register.py)."""
+
+    __tablename__ = "privacy_security_incidents"
+    __table_args__ = (
+        CheckConstraint("status IN ('OPEN','ASSESSED','DECIDED','CLOSED')", name="ck_privacy_incident_status"),
+        CheckConstraint(
+            "incident_type IN ('CONFIDENTIALITY','INTEGRITY','AVAILABILITY')", name="ck_privacy_incident_type",
+        ),
+        CheckConstraint("risk_level IS NULL OR risk_level IN ('LOW','HIGH')", name="ck_privacy_incident_risk"),
+        CheckConstraint(
+            "notification_decision IS NULL OR notification_decision IN ('NOTIFY','NOT_REQUIRED')",
+            name="ck_privacy_incident_notification_decision",
+        ),
+        CheckConstraint(
+            "subject_notification_decision IS NULL OR subject_notification_decision IN "
+            "('NOTIFY','NOT_REQUIRED','DEFERRED')",
+            name="ck_privacy_incident_subject_decision",
+        ),
+        CheckConstraint(
+            "NOT (risk_level = 'HIGH' AND notification_decision = 'NOT_REQUIRED')",
+            name="ck_privacy_incident_high_risk_notify",
+        ),
+        Index("ix_privacy_security_incidents_status", "tenant_id", "status", "discovered_at"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    reference = Column(String, nullable=False)
+    status = Column(String, nullable=False)
+    discovered_at = Column(String, nullable=False)
+    incident_type = Column(String, nullable=False)
+    description = Column(Text, nullable=False)
+    affected_data_categories_json = Column(Text, nullable=False)
+    affected_subjects_count = Column(Integer)
+    containment_measures = Column(Text)
+    risk_level = Column(String)
+    risk_rationale = Column(Text)
+    risk_assessed_by = Column(String)
+    risk_assessed_at = Column(String)
+    notification_decision = Column(String)
+    notification_decision_reason = Column(Text)
+    notification_decided_by = Column(String)
+    notification_decided_at = Column(String)
+    edoeb_notified_at = Column(String)
+    edoeb_reference = Column(Text)
+    edoeb_notified_by = Column(String)
+    subject_notification_decision = Column(String)
+    subject_notification_reason = Column(Text)
+    subject_notification_decided_by = Column(String)
+    subject_notification_decided_at = Column(String)
+    subjects_notified_at = Column(String)
+    subject_notification_channel = Column(String)
+    subject_notification_reference = Column(Text)
+    subjects_notified_by = Column(String)
+    evidence_json = Column(Text, nullable=False)
+    recorded_by = Column(String, nullable=False)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+    closed_at = Column(String)
+    closed_by = Column(String)
+    closure_note = Column(Text)

@@ -77,7 +77,8 @@ def confirm_all_owner_fields(client: TestClient, *, only_blocking: bool = False)
     for field in client.get("/privacy/owner-fields").json():
         if only_blocking and field["blocking"] == "informational":
             continue
-        response = client.put(f"/privacy/owner-fields/{field['key']}", json={"value": sample_value(field["key"])})
+        value = "24" if field["kind"] == "hours" else sample_value(field["key"])
+        response = client.put(f"/privacy/owner-fields/{field['key']}", json={"value": value})
         assert response.status_code == 200, response.text
 
 
