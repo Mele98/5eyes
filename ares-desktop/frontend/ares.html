@@ -165,7 +165,7 @@ body{font-family:var(--f-s);}</style>
   </div>
 </div>
 <script src="vendor/intro-country-outlines.js"></script>
-<script src="./intro-sequence.js"></script><script src="./aa-chart.js"></script><script src="./ist-projection-gate.js"></script>
+<script src="./intro-sequence.js"></script><script src="./aa-chart.js"></script><script src="./ist-projection-gate.js"></script><script src="./session-boundary.js"></script>
 <!-- E0 (2026-06-12): Phase-0 "SYNTHETIC / TEST DATA ONLY"-Banner. Erscheint nur,
      wenn das Backend allow_real_client_data=false meldet (gehostetes Staging). -->
 <div id="phase0-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:99998;
@@ -1586,11 +1586,11 @@ function _wireSollIstHover(){
                 <div id="ub-projection-note" style="font-size:10px;color:var(--warn);background:var(--warn-lt);border:1px solid rgba(146,64,14,0.12);border-radius:var(--r);padding:7px 9px;margin-bottom:10px">Ist-Situation ohne Optimierung. Sobald eine Strategie berechnet ist, wird hier direkt der verbesserte Zielpfad gegenübergestellt.</div>
                 <div class="chart-lg"><canvas id="ch-ist" role="img" aria-label="Vermögensentwicklung Gesamtvermögen: IST-Situation; verbesserte Situation erst mit gültiger Anlagestrategie"></canvas></div>
                 <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:9px;padding-top:10px;border-top:1px solid var(--b1);margin-top:10px">
-                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">Ist Terminal</div><div id="ub-ist-terminal" style="font-family:var(--f-d);font-size:15px;color:var(--warn)">—</div></div>
-                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">Verbessert</div><div id="ub-opt-terminal" style="font-family:var(--f-d);font-size:15px;color:var(--pos)">—</div></div>
+                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px" id="ub-ist-terminal-label">Ist Terminal</div><div id="ub-ist-terminal" style="font-family:var(--f-d);font-size:15px;color:var(--warn)">—</div></div>
+                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px" id="ub-opt-terminal-label">Verbessert</div><div id="ub-opt-terminal" style="font-family:var(--f-d);font-size:15px;color:var(--pos)">—</div></div>
                   <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">Ø Rendite Mix</div><div id="ub-cagr-ist" style="font-family:var(--f-d);font-size:15px">—</div></div>
                   <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">CAGR Zielpfad</div><div id="ub-cagr-opt" style="font-family:var(--f-d);font-size:15px">—</div></div>
-                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px">Mehrwert</div><div id="ub-delta-terminal" style="font-family:var(--f-d);font-size:15px;color:var(--pos)">—</div></div>
+                  <div><div style="font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px" id="ub-delta-terminal-label">Mehrwert</div><div id="ub-delta-terminal" style="font-family:var(--f-d);font-size:15px;color:var(--pos)">—</div></div>
                 </div>
                 <!-- Referenz-Paritaet: beide Kurven zeigen Gesamtvermoegen; die Optimierung
                      wirkt auf den Beratungsteil. Hier die zwei Renditesaetze explizit. -->
@@ -3774,6 +3774,8 @@ async function doLogout() {
   await API.setToken(null);
   await API.setRefreshToken(null);
   currentUser = null;
+  // H9 N-892-02: kein mandatsbezogener Zustand ueber die Sitzungsgrenze.
+  if (typeof aresHardResetSession === 'function' && aresHardResetSession()) return;
   const label = document.getElementById('current-user-label');
   if (label) label.textContent = '';
   const logoutBtn = document.getElementById('btn-logout');
@@ -3802,6 +3804,10 @@ async function doLogin() {
     const data = await API.post('/auth/login', loginPayload);
     await API.setToken(data.access_token);
     await API.setRefreshToken(data.refresh_token || null);
+    // H9 N-892-02: anderer Benutzer als in dieser Seite zuletzt angemeldet
+    // (z. B. nach Sitzungsablauf) -> frischer Start, erst dann seine Daten laden.
+    if (typeof aresSessionPrincipalChanged === 'function' && aresSessionPrincipalChanged(data.user) && aresHardResetSession()) return;
+    if (typeof markAresSessionPrincipal === 'function') markAresSessionPrincipal(data.user);
     currentUser = data.user;
     currentTenantDefaultPresentationMode = data.tenant_default_presentation_mode || null;
     hideLogin();
@@ -3896,6 +3902,7 @@ async function doBootstrapAdmin() {
     await API.setToken(data.access_token);
     await API.setRefreshToken(data.refresh_token || null);
     currentUser = data.user;
+    if (typeof markAresSessionPrincipal === 'function') markAresSessionPrincipal(data.user);
     currentTenantDefaultPresentationMode = data.tenant_default_presentation_mode || null;
     hideLogin();
     await initApp();
@@ -4527,6 +4534,7 @@ async function go(p,b){
     },60);
   }
   if(p==='cf')setTimeout(function(){updateCfRiskContextSummary();},60);
+  if(p==='cf'&&typeof recheckIstProjectionWithServer==='function')recheckIstProjectionWithServer(); // H9 N-892-01
   if(p==='cf')setTimeout(function(){
     if(strategyState&&strategyState.allocation&&!strategyState.dirty){
       applyAllocationEngineResult(strategyState.allocation);
@@ -7307,9 +7315,7 @@ function initCharts(){
   if (typeof Chart === 'undefined') { console.warn('Chart.js not loaded; charts remain disabled until vendor_assets.py is executed.'); return; }
   var startYear=(new Date()).getFullYear();
   const yr=Array.from({length:11},function(_,idx){return startYear+idx;});
-  const startRappen=Math.max(120000000,Math.round(Number(TOTAL||2848000)*100));
-  const demoCashflows=Array.from({length:10},function(){return 8500000;});
-  const ist=buildBaselineProjectionFromInputs(startRappen,demoCashflows,360,yr.map(function(label){return String(label);})).seriesK;
+  const ist=yr.map(function(){return null;}); // H9 Nachtrag: leer bis Mandatsdaten geladen sind, kein Demo-Pfad
   const opt=yr.map(function(){return null;}); // H9: ohne Strategie keine erfundene SOLL-Kurve
   const wealthLineOptions=function(showLegend){
     return {
@@ -8559,6 +8565,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     if(me){
       currentUser = me;
+      if (typeof markAresSessionPrincipal === 'function') markAresSessionPrincipal(me);
       bootstrapStatusCache = { setup_required: false, can_create_admin: false };
       hideLogin();
       try {
@@ -19505,7 +19512,7 @@ function buildImprovedTotalProjectionFromStrategy(result,preferredYears,preferre
 }
 function renderCurrentWealthOnlyProjectionSummary(projection){
   var safeProjection=projection||buildCurrentWealthProjection('total');
-  var horizonLabel=(safeProjection.labels&&safeProjection.labels.length)?String(safeProjection.labels[safeProjection.labels.length-1]):String((new Date()).getFullYear()+10);
+  var horizonLabel=(safeProjection.labels&&safeProjection.labels.length)?istProjectionEndYearLabel(safeProjection.labels[safeProjection.labels.length-1]):'';
   setText('ub-ist-terminal',formatCompactCHF(Number(safeProjection.projectedRappen||0)/100));
   setText('ub-opt-terminal','—');
   setText('ub-cagr-ist',fmtPct((Number(safeProjection.expectedReturnBps||safeProjection.cagrBps||0)),1));
@@ -19516,7 +19523,7 @@ function renderCurrentWealthOnlyProjectionSummary(projection){
     note.style.color='var(--n6)';
     note.style.background='var(--bg)';
     note.style.borderColor='rgba(90,104,120,0.12)';
-    note.textContent='Bis '+horizonLabel+' zeigt diese Seite die Ist-Situation des Gesamtvermögens aus heutigem Mix und künftigen Netto-Cashflows. Die verbesserte Situation erscheint erst mit gültigem Risikoprofil und berechneter Anlagestrategie.';
+    note.textContent=(horizonLabel?'Bis Ende '+horizonLabel+' zeigt':'Sobald Vermögen oder Cashflows erfasst sind, zeigt')+' diese Seite die Ist-Situation des Gesamtvermögens aus heutigem Mix und künftigen Netto-Cashflows. Die verbesserte Situation erscheint erst mit gültigem Risikoprofil und berechneter Anlagestrategie.';
   }
   setText('ub-return-rein','–');setText('ub-return-beratung','–'); // H9: ohne Strategie keine optimierten Renditen
   var overviewKpi=document.getElementById('kpi-card-projection');
@@ -19562,7 +19569,7 @@ function renderOverviewProjectionSummary(config){
   var targetCagrBps=Number(config&&config.targetCagrBps||0);
   var currentAnnualNetCashflowRappen=Number(config&&config.currentAnnualNetCashflowRappen||0);
   var currentMixReturnBps=Number(config&&config.currentMixReturnBps||0);
-  var horizonLabel=String(config&&config.horizonLabel||'Horizontende');
+  var horizonLabel=config&&config.horizonLabel?istProjectionEndYearLabel(config.horizonLabel):'Horizontende';
   var deltaChf=Math.round((targetProjectedRappen-currentProjectedRappen)/100);
   var tone=deltaChf>=0?'var(--pos)':'var(--warn)';
   setText('ub-ist-terminal',formatCompactCHF(currentProjectedRappen/100));
@@ -19575,7 +19582,7 @@ function renderOverviewProjectionSummary(config){
     note.style.color='var(--n6)';
     note.style.background='var(--bg)';
     note.style.borderColor='rgba(90,104,120,0.12)';
-    note.textContent='Bis '+horizonLabel+' zeigt diese Seite die Ist-Situation des Gesamtvermögens aus heutigem Mix und künftigen Netto-Cashflows. Die verbesserte Situation übernimmt nur die optimierte Soll-Allokation auf dem Beratungsvermögen; der holistische Rest bleibt unverändert.';
+    note.textContent='Bis Ende '+horizonLabel+' zeigt diese Seite die Ist-Situation des Gesamtvermögens aus heutigem Mix und künftigen Netto-Cashflows. Die verbesserte Situation übernimmt nur die optimierte Soll-Allokation auf dem Beratungsvermögen; der holistische Rest bleibt unverändert.';
   }
   var overviewKpi=document.getElementById('kpi-card-projection');
   if(overviewKpi){
@@ -19770,8 +19777,6 @@ function updateProjectionChartsFromSimulation(result){
   var targetSeries=_hCap(sim?simulationSeriesK(sim.target_mix_series_rappen):[]);
   var advisoryBaselineProjection=buildCurrentBaselineProjection(result,horizon,labels);
   var advisoryCurrentSeries=_hCap(advisoryBaselineProjection.seriesK);
-  var totalBaselineProjection=buildCurrentWealthProjection('total',horizon,labels);
-  var totalCurrentSeries=_hCap(totalBaselineProjection.seriesK);
   if(charts.opt&&charts.opt.data){
     charts.opt.data.labels=labels;
     charts.opt.data.datasets=charts.opt.data.datasets.slice(0,1);
@@ -19814,51 +19819,8 @@ function updateProjectionChartsFromSimulation(result){
     }
     charts.opt.update();
   }
-  if(charts.ist&&charts.ist.data&&charts.ist.data.datasets&&charts.ist.data.datasets.length>=1){
-    charts.ist.data.labels=labels;
-    charts.ist.data.datasets=charts.ist.data.datasets.slice(0,1);
-    if(charts.ist.data.datasets[0])charts.ist.data.datasets[0].label='Ist-Situation (Gesamtvermögen)';
-    charts.ist.data.datasets[0].data=totalCurrentSeries;
-    charts.ist.data.datasets[0].tension=0;
-    charts.ist.data.datasets[0].stepped=false;
-    // Referenz-Paritaet (2026-06-12): "verbesserte Situation" = Gesamtvermoegen mit
-    // optimiertem Beratungsteil, als ZWEITE Linie auf DERSELBEN Gesamtvermoegens-
-    // Basis. Bei t=0 ist das Optimierungs-Delta 0 -> beide Linien starten identisch
-    // (Apfel mit Apfel); danach liegt SOLL leicht ueber IST = der Optimierungs-Hebel
-    // des Beratungsteils. Formel: Gesamt_IST(t) + (advisory_SOLL(t) - advisory_IST(t)).
-    // H9: nur mit gueltiger, nicht veralteter Strategie (Gate im ausgelagerten Teil).
-    if(targetSeries.length&&Array.isArray(advisoryCurrentSeries)&&advisoryCurrentSeries.length&&istProjectionStrategyValid()){
-      var __istN=Math.min(totalCurrentSeries.length,advisoryCurrentSeries.length,targetSeries.length);
-      var __istImproved=[];
-      for(var __istI=0;__istI<__istN;__istI++){
-        __istImproved.push(Math.round(Number(totalCurrentSeries[__istI]||0)+(Number(targetSeries[__istI]||0)-Number(advisoryCurrentSeries[__istI]||0))));
-      }
-      charts.ist.data.datasets[1]={
-        label:'Verbesserte Situation (SOLL)',
-        data:__istImproved,
-        borderColor:sollColor(),
-        backgroundColor:sollColor(0.06),
-        _sollTone:{border:null,bg:0.06},
-        borderWidth:2,
-        borderDash:[5,4],
-        pointRadius:0,
-        pointHoverRadius:4,
-        fill:false,
-        tension:0,
-        stepped:false
-      };
-      if(charts.ist.options&&charts.ist.options.plugins&&charts.ist.options.plugins.legend){
-        charts.ist.options.plugins.legend.display=true;
-        if(!charts.ist.options.plugins.legend.labels)charts.ist.options.plugins.legend.labels={};
-        charts.ist.options.plugins.legend.labels.boxWidth=18;
-        charts.ist.options.plugins.legend.labels.font={size:9};
-      }
-    }
-    applyDepletionMarkerToDataset(charts.ist.data.datasets[0],totalBaselineProjection);
-    syncIstProjectionAxisScale();
-    refreshIstGoalMarkers();
-    charts.ist.update();
-  }
+  // H9: IST-Linie auf IST-Horizont, verbesserte Linie nur mit gueltiger Strategie (ausgelagerter Teil).
+  renderIstProjectionChart(targetSeries,advisoryCurrentSeries,labels);
   if(charts.aaCurrent&&charts.aaCurrent.data&&charts.aaCurrent.data.datasets&&charts.aaCurrent.data.datasets.length>=1){
     charts.aaCurrent.data.labels=labels;
     charts.aaCurrent.data.datasets=charts.aaCurrent.data.datasets.slice(0,1);
@@ -24303,15 +24265,9 @@ function refreshBaselineChartFromClientDataForced(){
   var advisoryProjection=buildCurrentWealthProjection('advisory',null,totalProjection.labels);
   var hasTimelineFlows=(Array.isArray(totalProjection.netCashflowSeriesRappen)?totalProjection.netCashflowSeriesRappen:[]).some(function(value){return Number(value||0)!==0;});
   if(!totalProjection.startRappen&&!advisoryProjection.startRappen&&!Number(totalProjection.annualNetCashflowRappen||0)&&!hasTimelineFlows){
-    // 2026-08-06 (User-Direktive, Cashflow-/Ziele-Audit): initCharts() setzt
-    // beim allerersten Aufbau der Canvas einen hartcodierten Demo-Pfad
-    // (TOTAL||2848000, siehe dort) als Platzhalter fuer "Aktueller
-    // Gesamtvermoegenspfad"/"Aktueller Beratungsvermoegenspfad". Ohne diesen
-    // Clear-Zweig blieb dieser erfundene Pfad fuer JEDEN echten Mandanten
-    // ohne Vermoegen/Cashflows unveraendert sichtbar -- live gefunden: ein
-    // frisch angelegter Mandant ohne jede Position zeigte eine freundlich
-    // aussehende, aber komplett erfundene Wachstumskurve CHF 2.8 -> 5.1 Mio,
-    // ohne jede Demo-Kennzeichnung.
+    // 2026-08-06 (Cashflow-/Ziele-Audit): Mandant ohne Vermoegen/Cashflows ->
+    // Grafik leeren, nie einen Pfad zeigen. (Der fruehere Demo-Platzhalter in
+    // initCharts ist seit H9 entfernt; der Clear-Zweig bleibt fuer Wechsel.)
     if(charts.ist&&charts.ist.data){
       charts.ist.data.labels=[];
       charts.ist.data.datasets=[];

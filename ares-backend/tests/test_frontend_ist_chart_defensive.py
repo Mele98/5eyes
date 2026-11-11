@@ -77,14 +77,25 @@ def test_current_charts_always_updated_with_deterministic_series():
     # advisoryBaselineProjection und totalBaselineProjection werden gebaut
     # OHNE Pruefung auf sim
     pos_advisory = body.find("var advisoryBaselineProjection=buildCurrentBaselineProjection(result,horizon,labels)")
-    pos_total = body.find("var totalBaselineProjection=buildCurrentWealthProjection('total',horizon,labels)")
     assert pos_advisory >= 0
-    assert pos_total >= 0
+    # H9 Nachtrag 1 (N-892-04): die Gesamtvermoegens-IST-Linie baut
+    # renderIstProjectionChart (ausgelagerter Teil) immer auf dem IST-Horizont,
+    # ebenfalls ohne Pruefung auf sim.
+    assert "renderIstProjectionChart(targetSeries,advisoryCurrentSeries,labels)" in body
+    ist = _ist_chart_block()
+    assert "var total=buildCurrentWealthProjection('total',null,null);" in ist
+    assert ist.index("ds.data=totalSeries;") < ist.index("istProjectionStrategyValid()")
+
+
+def _ist_chart_block() -> str:
+    html = read_monolith_bundle()
+    start = html.index("function renderIstProjectionChart(")
+    return html[start:html.index(chr(10) + "}" + chr(10), start)]
 
 
 def test_charts_ist_assignment_unchanged():
-    body = _function_block()
-    assert "charts.ist.data.datasets[0].data=totalCurrentSeries" in body
+    # H9 Nachtrag 1: Zuweisung im ausgelagerten Teil (IST-Horizont statt Sim-Horizont).
+    assert "ds.data=totalSeries;" in _ist_chart_block()
 
 
 def test_charts_aaCurrent_assignment_unchanged():

@@ -38,6 +38,10 @@ Vermoegensentwicklung nach ``ist-projection-gate.js`` (neuer Teil, Budget =
 Stand bei Einfuehrung); erfundene Demo-/Platzhalterpfade entfernt. Monolith
 27613 / 1687921 -- Budget entsprechend gesenkt. Danach Warnbox/Badge der
 Risikofaehigkeits-Plausibilitaet aus der Maske entfernt: 27504 / 1681449.
+H9 Nachtrag 1 (2026-11-11, Pruefrunde 61d8d69d): IST-Grafik-Aufbau in
+``ist-projection-gate.js`` verschoben (IST-Horizont, Server-Pruefung),
+Sitzungsgrenze als neuer Teil ``session-boundary.js``, Demo-IST-Pfad in
+initCharts entfernt. Monolith 27460 / 1679579 -- gesenkt.
 """
 from __future__ import annotations
 
@@ -46,9 +50,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 27504
+MONOLITH_MAX_LINES = 27460
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1681449
+MONOLITH_MAX_BYTES = 1679579
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -57,7 +61,8 @@ EXTRACTED_PART_BUDGETS = {
     "aa-chart.css": (66, 5978),
     "intro-sequence.js": (761, 36861),
     "aa-chart.js": (331, 21026),
-    "ist-projection-gate.js": (75, 3811),
+    "ist-projection-gate.js": (218, 11272),
+    "session-boundary.js": (29, 1430),
     "goal-review-runtime.js": (1589, 84633),
 }
 

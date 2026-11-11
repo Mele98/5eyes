@@ -56,8 +56,13 @@ var RISK={id:'ra-1',is_current:1};
 NEEDED = ("updateProjectionChartsFromSimulation", "simulationPayload", "simulationSeriesK")
 
 
-def _run(scenario: str):
-    return run_js(NEEDED, scenario, prelude=PRELUDE, optional=GATE_FUNCS)
+def _gate_module() -> str:
+    return (FRONTEND_DIR / "ist-projection-gate.js").read_text(encoding="utf-8")
+
+
+def _run(scenario: str, extra_prelude: str = ""):
+    # Der ausgelagerte Teil wird vollstaendig geladen (inkl. Modulzustand).
+    return run_js(NEEDED, scenario, prelude=PRELUDE + extra_prelude + chr(10) + _gate_module())
 
 
 def _overlay_after(state_js: str):

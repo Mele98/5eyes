@@ -31,12 +31,15 @@ DEFAULT_OUTPUT = REPO_ROOT / "docs" / "audits" / "2026-06-02-monolith-inventory.
 # Bundle, Budget und die Verbots-Guards sie automatisch abdecken.
 # H9 (2026-11-08): ist-projection-gate.js -- Vermoegensentwicklung (#ch-ist)
 # zeigt die verbesserte Kurve nur mit gueltiger, nicht veralteter Strategie.
+# H9 Nachtrag (2026-11-11): session-boundary.js -- frischer Start beim Logout
+# bzw. Benutzerwechsel (N-892-02, kein Mandatszustand ueber die Sitzungsgrenze).
 EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     ("ares.css", "css"),
     ("aa-chart.css", "css"),
     ("intro-sequence.js", "js"),
     ("aa-chart.js", "js"),
     ("ist-projection-gate.js", "js"),
+    ("session-boundary.js", "js"),
     ("goal-review-runtime.js", "js"),
 )
 

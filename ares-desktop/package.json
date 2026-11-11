@@ -40,6 +40,7 @@
       "frontend/intro-sequence.js",
       "frontend/aa-chart.js",
       "frontend/ist-projection-gate.js",
+      "frontend/session-boundary.js",
       "frontend/goal-review-runtime.js",
       "frontend/eligibility-overrides.js",
       "frontend/desktop-api.js",
