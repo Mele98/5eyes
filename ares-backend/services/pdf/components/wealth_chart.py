@@ -5,6 +5,7 @@ zwei Linien (SOLL + optional Benchmark). Inline-SVG-freier Ansatz, der
 identisch funktioniert wie das Frontend-SVG aber als ReportLab-Drawing.
 """
 from __future__ import annotations
+from services.pdf.components.swiss_numbers import format_amount_minor
 
 from typing import Sequence
 
@@ -26,8 +27,7 @@ BENCHMARK_COLOR = rl_colors.HexColor("#92400e")
 
 
 def _format_chf(rappen: int) -> str:
-    value = int(rappen) / 100
-    return f"CHF {value:,.0f}".replace(",", "'")
+    return format_amount_minor(int(rappen), "CHF")
 
 
 def make_wealth_chart(

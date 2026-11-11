@@ -83,6 +83,7 @@ from services.pdf.components.swiss_numbers import (
     format_bps_signed_pct,
     format_chf_rappen,
     format_integer,
+    format_number,
 )
 
 
@@ -2936,7 +2937,7 @@ def _ab_policy_label(policy: dict) -> str:
 
 def _format_x100(value: int | float | None) -> str:
     try:
-        return f"{float(value or 0) / 100:.2f}"
+        return format_number(float(value or 0) / 100, decimals=2)
     except (TypeError, ValueError):
         return "0.00"
 
@@ -2946,8 +2947,8 @@ def _format_signed_x100(value: int | float | None) -> str:
         numeric = float(value or 0) / 100
     except (TypeError, ValueError):
         numeric = 0.0
-    sign = "+" if numeric > 0 else ""
-    return f"{sign}{numeric:.2f}"
+    text = format_number(numeric, decimals=2)
+    return ("+" + text) if numeric > 0 and text != "0.00" else text
 
 
 # ---------------------------------------------------------------------------

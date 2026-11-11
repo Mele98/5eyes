@@ -19,6 +19,12 @@ from services.pdf.components.header import _esc, make_banner_header
 from services.pdf.components.text_sections import make_disclaimer_section
 from services.pdf.components.wealth_chart import make_wealth_chart
 from services.pdf.provisional_notice import make_provisional_notice_flowables
+from services.pdf.components.swiss_numbers import (
+    format_amount_minor,
+    format_bps_as_pct,
+    format_minor_number,
+    format_pct_value,
+)
 from services.pdf.styles import (
     BUCKET_LABELS_DE,
     FONT_BOLD,
@@ -229,7 +235,7 @@ def _weights_summary(weights_bps) -> str:
         bps = int((weights_bps or {}).get(bucket, 0) or 0)
         if bps <= 0:
             continue
-        parts.append(f"{BUCKET_LABELS_DE.get(bucket, bucket)} {bps/100:.0f}%")
+        parts.append(f"{BUCKET_LABELS_DE.get(bucket, bucket)} {format_bps_as_pct(bps, decimals=0)}")
     return " · ".join(parts) if parts else "—"
 
 
@@ -309,10 +315,10 @@ def _fee_row(*, label: str, fee_bps: int, gross_path, net_path) -> str:
     drag_pct = (drag_rappen / gross_end * 100.0) if gross_end > 0 else 0.0
     return (
         f"{_esc(label)} &nbsp;&middot;&nbsp; "
-        f"{fee_bps/100.0:.2f}% &nbsp;&middot;&nbsp; "
+        f"{format_bps_as_pct(fee_bps, decimals=2)} &nbsp;&middot;&nbsp; "
         f"CHF {_format_thousands(gross_end)} &nbsp;&middot;&nbsp; "
         f"CHF {_format_thousands(net_end)} &nbsp;&middot;&nbsp; "
-        f"CHF {_format_thousands(drag_rappen)} ({drag_pct:.1f}%)"
+        f"CHF {_format_thousands(drag_rappen)} ({format_pct_value(drag_pct, decimals=1)})"
     )
 
 
@@ -328,11 +334,7 @@ def _path_end_rappen(path) -> int:
 
 
 def _format_thousands(rappen: int) -> str:
-    try:
-        value = int(rappen or 0) / 100.0
-        return f"{value:,.0f}".replace(",", "'")
-    except Exception:
-        return "0"
+    return format_minor_number(rappen)
 
 
 def _format_chf(rappen: int, currency: str = "CHF") -> str:
@@ -341,8 +343,4 @@ def _format_chf(rappen: int, currency: str = "CHF") -> str:
     # advisory_wealth_at_generation_rappen, siehe
     # backtest_strategy._resolve_initial_value_rappen). Kein zweites
     # convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
-    try:
-        value = int(rappen or 0) / 100.0
-        return f"{currency} {value:,.0f}".replace(",", "'")
-    except Exception:
-        return f"CHF {int(rappen or 0) / 100.0:,.0f}".replace(",", "'")
+    return format_amount_minor(rappen, currency or "CHF")

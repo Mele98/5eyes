@@ -56,6 +56,7 @@ STANDALONE_FRONTEND_MODULES: dict[str, str] = {
     "goal-analysis-integrity.js": "eigenes Modul, test_frontend_goal_analysis_integrity.py",
     "advisory-log-finma.js": "eigenes Modul, test_monolith_advisory_log_finma_fields.py",
     "product-master-data.js": "eigenes Modul, test_audit_2026_11_p1_ui.py",
+    "presentation-rounding.js": "G7 Rundungsformatter (Policy ares-rounding/1), test_presentation_rounding_parity.py",
 }
 
 _JS_PATTERNS = (

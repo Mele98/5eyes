@@ -25,6 +25,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
+from services.pdf.components.swiss_numbers import format_pct_value
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -147,7 +148,7 @@ def _prob_cell(probability: float | None) -> str:
         pct = max(0.0, min(1.0, float(probability))) * 100.0
     except (TypeError, ValueError):
         return "—"
-    return f"{pct:.0f}%" if abs(pct - round(pct)) < 0.05 else f"{pct:.1f}%"
+    return format_pct_value(pct, decimals=0) if abs(pct - round(pct)) < 0.05 else format_pct_value(pct, decimals=1)
 
 
 # Sprint C1 (2026-06-07): Goal-Achievability-Ampel-Balken (visuell)
@@ -228,7 +229,7 @@ def _probability_bar_drawing(probability: float | None, status: str | None) -> D
 
     # Prozent-Text rechts vom Balken
     pct = prob * 100.0
-    pct_text = f"{pct:.0f}%" if abs(pct - round(pct)) < 0.05 else f"{pct:.1f}%"
+    pct_text = format_pct_value(pct, decimals=0) if abs(pct - round(pct)) < 0.05 else format_pct_value(pct, decimals=1)
     drawing.add(String(
         (w_mm + 2) * mm, 0.5 * mm,
         pct_text, fontSize=8,

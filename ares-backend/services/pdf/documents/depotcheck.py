@@ -26,6 +26,7 @@ from services.pdf.components.single_report_disclaimer import (
 from services.pdf.components.stress_table import make_stress_table
 from services.pdf.components.wealth_chart import make_wealth_chart
 from services.pdf.styles import FONT_BOLD, FONT_DEFAULT, make_paragraph_styles
+from services.pdf.components.swiss_numbers import format_amount_minor, format_bps_as_pct
 
 
 def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
@@ -340,11 +341,11 @@ def _allocation_story(allocation_bps, profile: str | None) -> str:
     return (
         f"Die Zielstruktur ist auf das Risikoprofil {profile or 'nicht dokumentiert'} "
         f"ausgerichtet. Den groessten Anteil bildet {asset_class_label(lead[0])} "
-        f"mit {lead[1] / 100:.1f}%. Insgesamt werden {len(active)} "
+        f"mit {format_bps_as_pct(lead[1], decimals=1)}. Insgesamt werden {len(active)} "
         "Hauptanlageklassen kombiniert. Die Bandbreiten definieren den "
         "strategischen Handlungsrahmen und sind keine kurzfristigen Handelssignale."
     )
 
 
 def _format_amount(rappen: int, currency: str) -> str:
-    return f"{currency} {int(rappen or 0) / 100:,.0f}".replace(",", "'")
+    return format_amount_minor(int(rappen or 0), currency or "CHF")

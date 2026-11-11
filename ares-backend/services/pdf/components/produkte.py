@@ -14,6 +14,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 
 from services.pdf.components.header import _esc
+from services.pdf.components.swiss_numbers import format_amount_minor, format_bps_as_pct
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_METRIC_BG,
@@ -96,7 +97,7 @@ def _make_metric_boxes(products: list, base_currency: str):
     boxes_data = [
         ("Produkte", str(count)),
         ("Zielvolumen", _format_amount(total_amount, base_currency)),
-        ("Gewichtete TER", f"{avg_ter_bps/100.0:.2f}%"),
+        ("Gewichtete TER", f"{format_bps_as_pct(avg_ter_bps, decimals=2)}"),
         ("Währungen", ", ".join(currencies) if currencies else "—"),
     ]
 
@@ -224,13 +225,13 @@ def _make_isin_table(products: list, base_currency: str):
             rows.append([
                 Paragraph("<br/>".join(product_cell_parts), _para_compact()),
                 _esc(sub) if sub else "—",
-                f"{weight_bps/100:.1f}%" if weight_bps > 0 else "—",
+                f"{format_bps_as_pct(weight_bps, decimals=1)}" if weight_bps > 0 else "—",
                 # target_amount_rappen ist CHF (base_currency) — NICHT in die Produkt-
                 # Waehrung umrechnen, sonst summieren die Zeilen nicht auf Subtotal/
                 # Total (die base_currency nutzen). Die Produkt-CCY steht separat.
                 _format_amount(amount, base_currency) if amount > 0 else "—",
                 ccy,
-                f"{ter/100:.2f}%" if ter > 0 else "—",
+                f"{format_bps_as_pct(ter, decimals=2)}" if ter > 0 else "—",
             ])
 
         # Subtotal-Zeile
@@ -241,7 +242,7 @@ def _make_isin_table(products: list, base_currency: str):
                 _para_compact(),
             ),
             "",
-            f"{bucket_weight_bps/100:.1f}%" if bucket_weight_bps > 0 else "—",
+            f"{format_bps_as_pct(bucket_weight_bps, decimals=1)}" if bucket_weight_bps > 0 else "—",
             _format_amount(bucket_amount, base_currency) if bucket_amount > 0 else "—",
             "", "",
         ])
@@ -258,7 +259,7 @@ def _make_isin_table(products: list, base_currency: str):
     rows.append([
         Paragraph(f'<font name="{FONT_BOLD}">Total Portfolio</font>', _para_compact()),
         "",
-        f"{grand_weight_bps/100:.1f}%" if grand_weight_bps > 0 else "—",
+        f"{format_bps_as_pct(grand_weight_bps, decimals=1)}" if grand_weight_bps > 0 else "—",
         _format_amount(grand_amount, base_currency) if grand_amount > 0 else "—",
         "", "",
     ])
@@ -287,11 +288,7 @@ def _format_amount(rappen: int, currency: str = "CHF") -> str:
     # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): rappen ist bereits in
     # mandate.base_currency (siehe portfolio_engine._load_allocation_inputs).
     # Kein zweites convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
-    try:
-        value = rappen / 100.0
-        return f"{currency} {value:,.0f}".replace(",", "'")
-    except Exception:
-        return f"CHF {rappen/100.0:,.0f}".replace(",", "'")
+    return format_amount_minor(rappen, currency or "CHF")
 
 
 def _section_title(text: str):

@@ -24,6 +24,7 @@ from routers.auth import _extract_client_ip
 from services.auth import get_current_user, get_mandate_for_user_or_404
 from services.document_archive import archive_generated_pdf, content_hash_for
 from services.pdf import ReportLabRenderer
+from services.pdf.components.swiss_numbers import format_amount_minor
 from services.recommendation_run_resolver import (
     NO_CURRENT_RECOMMENDATION_MARKER,
     resolve_current_recommendation_run,
@@ -352,7 +353,7 @@ def _strategy_basis_from_allocation(
     reserve = int(stored) if stored is not None else int(payload.get("external_reserve_rappen") or 0)
     reserve = min(max(0, reserve), max(0, advisory))
     ccy = str(currency or "CHF").upper()  # N-858-6: Mandatswaehrung, nicht fest CHF
-    amount = lambda r: f"{ccy} " + f"{int(round(r / 100)):,}".replace(",", "'")  # noqa: E731
+    amount = lambda r: format_amount_minor(r, ccy)  # noqa: E731  (G7: Half-up statt round())
     notes = []
     if advisory and reserve >= advisory:
         # N-858-7: alles in der Reserve -- Basis 0 sichtbar machen statt die

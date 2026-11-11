@@ -10,6 +10,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
+from services.pdf.components.swiss_numbers import format_bps_as_pct
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -46,7 +47,7 @@ def make_drift_table(buckets: Mapping[str, Mapping]) -> Table:
         else:
             status = '<font color="#94a3b8">—</font>'
 
-        band_text = f"{band_min/100:.1f}% – {band_max/100:.1f}%" if (band_min or band_max) else "—"
+        band_text = f"{format_bps_as_pct(band_min, decimals=1)} – {format_bps_as_pct(band_max, decimals=1)}" if (band_min or band_max) else "—"
         drift_color = "#7f1d1d" if abs(drift_bps) > 200 else "#475569"
         drift_text = f'{drift_bps/100:+.1f}%'
 
@@ -58,8 +59,8 @@ def make_drift_table(buckets: Mapping[str, Mapping]) -> Table:
                 f'<font name="{FONT_BOLD}">{_esc(label)}</font>',
                 _para_compact(),
             ),
-            Paragraph(f'<para align="right"><b>{ist_bps/100:.1f}%</b></para>', _para_compact()),
-            Paragraph(f'<para align="right">{soll_bps/100:.1f}%</para>', _para_compact()),
+            Paragraph(f'<para align="right"><b>{format_bps_as_pct(ist_bps, decimals=1)}</b></para>', _para_compact()),
+            Paragraph(f'<para align="right">{format_bps_as_pct(soll_bps, decimals=1)}</para>', _para_compact()),
             Paragraph(
                 f'<para align="right"><font color="{drift_color}">{drift_text}</font></para>',
                 _para_compact(),

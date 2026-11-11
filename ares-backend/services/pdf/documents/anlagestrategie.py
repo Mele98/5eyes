@@ -30,6 +30,7 @@ from services.pdf.components.sollist_vergleich import (
     make_sollist_section_title,
 )
 from services.pdf.components.saa_bar_table import make_saa_bar_table
+from services.pdf.components.swiss_numbers import format_amount_minor, format_bps_as_pct
 from services.pdf.components.saa_donut import (
     make_saa_donut_with_legend,
     make_two_donuts_comparison,
@@ -820,7 +821,7 @@ def _make_preferences_section(preferences, styles, products=None) -> list:
         for field, label in (("min_bps", "Min"), ("target_bps", "Praeferenz"), ("max_bps", "Max")):
             value = override.get(field)
             if value is not None:
-                parts.append(f"{label} {int(value) / 100:.1f}%")
+                parts.append(f"{label} {format_bps_as_pct(int(value))}")
         if parts:
             band_labels.append(f"{key}: " + " / ".join(parts))
     if band_labels:
@@ -1009,11 +1010,7 @@ def _format_amount(rappen: int, currency: str = "CHF") -> str:
     currency) konvertierte einen EUR-/USD-Betrag ein zweites Mal und zeigte
     im FIDLEG-Pflichtdokument einen falschen (verzerrten) Betrag.
     """
-    try:
-        value = rappen / 100.0
-        return f"{currency} {value:,.0f}".replace(",", "'")
-    except Exception:
-        return f"CHF {rappen/100.0:,.0f}".replace(",", "'")
+    return format_amount_minor(rappen, currency or "CHF")
 
 
 # Backwards-Compat: Helper-Funktion fuer Sprint 5 Risikoprofil-PDF

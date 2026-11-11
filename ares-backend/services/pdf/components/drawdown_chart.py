@@ -4,6 +4,7 @@ ReportLab Drawing mit Area-Fill (Polygon zwischen Linie und Zero-Achse).
 DD-Werte sind ≤ 0, Anzeige als negatives Prozent.
 """
 from __future__ import annotations
+from services.pdf.components.swiss_numbers import format_bps_as_pct
 
 from typing import Mapping, Sequence
 
@@ -27,7 +28,7 @@ BENCHMARK_COLOR = rl_colors.HexColor("#92400e")
 def _fmt_neg_pct(bps: int) -> str:
     if bps == 0:
         return "0%"
-    return f"-{abs(bps)/100:.0f}%"
+    return f"-{format_bps_as_pct(abs(bps), decimals=0)}"
 
 
 def make_drawdown_chart(

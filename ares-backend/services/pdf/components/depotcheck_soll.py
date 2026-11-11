@@ -9,6 +9,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
+from services.pdf.components.swiss_numbers import format_amount_minor, format_bps_as_pct
 from services.pdf.styles import (
     BUCKET_COLORS,
     COLOR_BORDER,
@@ -104,7 +105,7 @@ def make_target_allocation_bars(
         drawing.add(String(
             width,
             y + 2.5,
-            f"{bps / 100:.1f}%",
+            f"{format_bps_as_pct(bps, decimals=1)}",
             textAnchor="end",
             fontName=FONT_BOLD,
             fontSize=9,
@@ -131,7 +132,7 @@ def make_sub_allocation_table(rows: list[dict], base_currency: str = "CHF") -> T
             ),
             Paragraph(_esc(item.get("sub_asset_class") or "-"), _cell_style()),
             str(int(item.get("products", 0) or 0)),
-            f'{int(item.get("weight_bps", 0) or 0) / 100:.1f}%',
+            f'{format_bps_as_pct(int(item.get("weight_bps", 0) or 0), decimals=1)}',
             _format_amount(int(item.get("amount_rappen", 0) or 0), base_currency),
         ])
     if len(data) == 1:
@@ -205,7 +206,7 @@ def make_exposure_bars(
         drawing.add(String(
             width,
             y + 1.5,
-            f"{bps / 100:.1f}%",
+            f"{format_bps_as_pct(bps, decimals=1)}",
             textAnchor="end",
             fontName=FONT_BOLD,
             fontSize=7.5,
@@ -297,7 +298,7 @@ def make_concentration_table(positions: list[dict], base_currency: str = "CHF") 
                 _cell_style(),
             ),
             Paragraph(_esc(item.get("sub_asset_class") or "-"), _cell_style()),
-            f"{weight / 100:.1f}%",
+            f"{format_bps_as_pct(weight, decimals=1)}",
             _format_amount(int(item.get("amount_rappen", 0) or 0), base_currency),
             level,
         ])
@@ -327,7 +328,7 @@ def make_cost_table(costs: Mapping[str, object], base_currency: str = "CHF") -> 
             rows.append([
                 Paragraph(_esc(item.get("label") or "Kosten"), _cell_style()),
                 str(item.get("frequency") or "-"),
-                f'{int(item.get("rate_bps", 0) or 0) / 100:.2f}%',
+                f'{format_bps_as_pct(int(item.get("rate_bps", 0) or 0), decimals=2)}',
                 _format_amount(int(item.get("amount_rappen", 0) or 0), base_currency),
                 Paragraph(_esc(item.get("basis_label") or "-"), _cell_style()),
             ])
@@ -336,21 +337,21 @@ def make_cost_table(costs: Mapping[str, object], base_currency: str = "CHF") -> 
             [
                 "Total einmalig",
                 "einmalig",
-                f'{int(totals.get("one_time_bps", 0) or 0) / 100:.2f}%',
+                f'{format_bps_as_pct(int(totals.get("one_time_bps", 0) or 0), decimals=2)}',
                 _format_amount(int(totals.get("one_time_rappen", 0) or 0), base_currency),
                 "Beratungsvermoegen",
             ],
             [
                 "Total laufend p.a.",
                 "jaehrlich",
-                f'{int(totals.get("annual_bps", 0) or 0) / 100:.2f}%',
+                f'{format_bps_as_pct(int(totals.get("annual_bps", 0) or 0), decimals=2)}',
                 _format_amount(int(totals.get("annual_rappen", 0) or 0), base_currency),
                 "Beratungsvermoegen",
             ],
             [
                 "Gesamtkosten erstes Jahr",
                 "erstes Jahr",
-                f'{int(totals.get("first_year_bps", 0) or 0) / 100:.2f}%',
+                f'{format_bps_as_pct(int(totals.get("first_year_bps", 0) or 0), decimals=2)}',
                 _format_amount(int(totals.get("first_year_rappen", 0) or 0), base_currency),
                 "Beratungsvermoegen",
             ],
@@ -408,17 +409,17 @@ def _hhi_level(value: int):
 def _fmt_bps(value) -> str:
     if value is None:
         return "-"
-    return f"{int(value or 0) / 100:.2f}%"
+    return f"{format_bps_as_pct(int(value or 0), decimals=2)}"
 
 
 def _fmt_negative_bps(value) -> str:
     if value is None:
         return "-"
-    return f"-{abs(int(value or 0)) / 100:.1f}%"
+    return f"-{format_bps_as_pct(abs(int(value or 0)), decimals=1)}"
 
 
 def _format_amount(rappen: int, currency: str) -> str:
-    return f"{currency} {int(rappen or 0) / 100:,.0f}".replace(",", "'")
+    return format_amount_minor(int(rappen or 0), currency or "CHF")
 
 
 def _shorten(value: str, length: int) -> str:

@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 ROOT = Path(__file__).resolve().parents[2]
 HTML_PATH = ROOT / "ares-desktop" / "frontend" / "ares.html"
@@ -56,7 +57,7 @@ def _extract_js_function(source: str, name: str) -> str:
 
 def _run_node(tmp_path: Path, script: str) -> dict:
     path = tmp_path / "contract.js"
-    path.write_text(script, encoding="utf-8")
+    path.write_text(rounding_module_source() + script, encoding="utf-8")
     completed = subprocess.run(
         ["node", str(path)], check=True, capture_output=True, text=True, encoding="utf-8", timeout=30
     )

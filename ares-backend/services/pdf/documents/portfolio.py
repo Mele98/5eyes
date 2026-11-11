@@ -12,6 +12,7 @@ from services.pdf.components.single_report_disclaimer import (
     make_single_report_disclaimer,
 )
 from services.pdf.provisional_notice import make_provisional_notice_flowables
+from services.pdf.components.swiss_numbers import format_amount_minor, format_bps_as_pct
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -153,7 +154,7 @@ def _make_group_positions_table(positions: list, currency: str, total_amount: in
             _format_percent(target_bps) if target_bps > 0 else "-",
             _format_amount(amount, currency) if amount > 0 else "-",
             _esc(product_currency),
-            f"{ter/100:.2f}%" if ter > 0 else "-",
+            f"{format_bps_as_pct(ter, decimals=2)}" if ter > 0 else "-",
         ])
 
     page_width, _ = PAGE_SIZE
@@ -282,19 +283,15 @@ def _position_weight_bps(position: dict, total_amount: int) -> int:
 def _format_percent(bps: int) -> str:
     if bps <= 0:
         return "-"
-    pct = bps / 100.0
-    return f"{pct:.0f}%" if bps % 100 == 0 else f"{pct:.1f}%"
+    # G7: eine Darstellung fuer alle Kanaele (1 Nachkommastelle, Half-up).
+    return format_bps_as_pct(bps)
 
 
 def _format_amount(rappen: int, currency: str = "CHF") -> str:
     # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): rappen ist bereits in
     # mandate.base_currency (siehe portfolio_engine._load_allocation_inputs).
     # Kein zweites convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
-    try:
-        value = rappen / 100.0
-        return f"{currency} {value:,.0f}".replace(",", "'")
-    except Exception:
-        return f"CHF {rappen/100.0:,.0f}".replace(",", "'")
+    return format_amount_minor(rappen, currency or "CHF")
 
 
 def _section_title(text: str):

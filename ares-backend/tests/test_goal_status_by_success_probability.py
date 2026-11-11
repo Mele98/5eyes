@@ -30,6 +30,7 @@ from services.goal_success_status import (
 )
 from services.portfolio_engine_payload import _merge_goal_analysis_with_monte_carlo
 from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 
@@ -146,7 +147,8 @@ def _run_js(goals: list, extra: str = "") -> dict:
         "goalSuccessSummary", "goalSuccessTileText", "goalSuccessSubText",
     )
     script = (
-        "var GOAL_SUCCESS_ESTIMATE_HINT='Schaetzung aus Simulation';\n"
+        rounding_module_source()
+        + "var GOAL_SUCCESS_ESTIMATE_HINT='Schaetzung aus Simulation';\n"
         + "\n".join(_function_source(html, n) for n in names)
         + "\nvar r=goalSuccessSummary(" + json.dumps(goals) + ");"
         + "r.tile=goalSuccessTileText(r);r.sub=goalSuccessSubText(r);" + extra

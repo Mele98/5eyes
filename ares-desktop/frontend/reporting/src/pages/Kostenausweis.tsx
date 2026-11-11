@@ -20,6 +20,7 @@
 import type { CostDisclosureData, CostDisclosureItem } from '@/api/types';
 import { ReportPage } from '@/components/ReportPage';
 import { formatBpsAsPct } from '@/lib/format';
+import { CURRENCY_EXPONENTS, formatMoneyMinor } from '@/lib/presentationRounding';
 
 interface KostenausweisProps {
   data: CostDisclosureData;
@@ -31,12 +32,10 @@ interface KostenausweisProps {
  * einzige im Reporting-App, die eine vom Mandat abweichende Fremdwaehrung
  * (EUR/USD) korrekt ausweisen muss. */
 function formatMoneyRappen(rappen: number | null | undefined, currency: string): string {
-  if (rappen === null || rappen === undefined) return '—';
-  const value = Math.round(Number(rappen) / 100);
-  if (!Number.isFinite(value)) return '—';
-  const formatted = value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, "'");
-  const unit = (currency || 'CHF').toUpperCase().trim() || 'CHF';
-  return `${unit} ${formatted}`;
+  if (rappen === null || rappen === undefined || !Number.isFinite(Number(rappen))) return '—';
+  const unit = String(currency || 'CHF').toUpperCase().trim() || 'CHF';
+  const exponent = CURRENCY_EXPONENTS[unit] ?? 2;
+  return formatMoneyMinor(Number(rappen), unit, exponent, 0, { typography: 'screen' });
 }
 
 function formatRate(rateBps: number | null): string {

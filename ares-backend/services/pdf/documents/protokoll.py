@@ -11,6 +11,7 @@ from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 from services.pdf.base import PDFContext
 from services.pdf.components.header import _esc, make_banner_header
 from services.pdf.components.unterschrift import make_unterschrift_section
+from services.pdf.components.swiss_numbers import format_amount_minor
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -236,11 +237,7 @@ def _format_amount(rappen: int, currency: str = "CHF") -> str:
     # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): rappen ist bereits in
     # mandate.base_currency (siehe portfolio_engine._load_allocation_inputs).
     # Kein zweites convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
-    try:
-        value = rappen / 100.0
-        return f"{currency} {value:,.0f}".replace(",", "'")
-    except Exception:
-        return f"CHF {rappen/100.0:,.0f}".replace(",", "'")
+    return format_amount_minor(rappen, currency or "CHF")
 
 
 def _format_date(raw: str) -> str:

@@ -101,3 +101,16 @@ def read_frontend_sources() -> str:
     for name, text in read_standalone_modules().items():
         parts.append(f"\n/* ---- frontend module: {name} ---- */\n{text}")
     return "".join(parts)
+
+
+ROUNDING_MODULE = "presentation-rounding.js"
+
+
+def rounding_module_source() -> str:
+    """G7: Quelltext von presentation-rounding.js (definiert ``AresRounding``).
+
+    Node-Harnesses, die Monolith-Formatter (fmtPct/fmtNumber/formatRappen ...)
+    extrahieren, muessen ihn voranstellen -- wie ares.html ihn vor dem
+    Inline-Skript laedt.
+    """
+    return (FRONTEND_DIR / ROUNDING_MODULE).read_text(encoding="utf-8").replace("\r\n", "\n") + "\n"

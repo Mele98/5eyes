@@ -4,15 +4,10 @@
 // Fachlich neutral: Gewichte (bps), Betraege und Bandbreiten kommen unveraendert
 // aus der Engine; hier wird nur sortiert, gerundet und gezeichnet.
 //
-// Rundung (H6-Nachtrag, FIDLEG/Dokumentation): jede Zahl wird EINZELN auf 0.1 %
-// gerundet -- wie die PDFs (f"{bps/100:.1f}") und exakt wie fmtPct (Portfolio,
-// Report, Zahlenformat-Vertrag AA-UX-FORMAT-001). Ergeben die gerundeten Anteile
-// nicht genau 100.0 % bzw. ihre Klasse, steht "Rundungsdifferenzen moeglich"
-// dabei (N-882-03: ohne Verweis auf PDF, bis ein gemeinsamer Decimal-
-// ROUND_HALF_UP-Formatter nach H1 auch services/pdf angleicht). Bekannte Altabweichung App <-> PDF: nur echte Gleichstaende |bps| % 100
-// == 25 (App rundet auf, Python auf gerade Ziffer, z. B. 0.25 % -> 0.3 / 0.2);
-// Angleichung in services/pdf nach H1 (Folgepunkt), ebenso eine gemeinsame
-// Rest-Rundung.
+// Rundung (G7, presentation-rounding.js, Policy ares-rounding/1): Anteile werden
+// gemeinsam apportioniert (Largest Remainder, Decimal ROUND_HALF_UP): Klassen = 100.0 %,
+// Unterklassen (+ Rest) = angezeigter Klassenwert; Gleichstand: Klassenreihenfolge
+// bzw. Name. Gleiche Regel im PDF (services/presentation_rounding.py) -> kein Hinweis.
 
 // Feste Reihenfolge der Anlageklassen -- nur Gleichstands-Regel beim Sortieren.
 function aaChartClassRank(key){
@@ -22,23 +17,25 @@ function aaChartClassRank(key){
 function aaChartKey(label){
   return typeof assetClassKey==='function'?assetClassKey(label):'oth';
 }
-// bps -> Zehntelprozent, Einzelrundung identisch zu fmtPct(bps,1) (toFixed).
-function aaChartTenths(bps){
-  var n=Math.round(Number(bps)||0),q=Math.round(Number((Math.abs(n)/100).toFixed(1))*10);
-  return n<0?-q:q;
-}
+// Einzelwert (Bandbreiten, Ziel-Marker): bps -> "12.3 %" (Half-up, wie fmtPct).
 function aaChartPctText(bps){
-  var q=aaChartTenths(bps),a=Math.abs(q);
-  return (q<0?'−':'')+Math.floor(a/10)+'.'+(a%10)+' %';
+  return AresRounding.formatPercentBps(Math.round(Number(bps)||0),1,{typography:'screen'});
 }
 function aaChartChf(chf){
-  var n=Math.round(Number(chf)||0);
-  return 'CHF '+(typeof fmtLocaleCH==='function'?fmtLocaleCH(n):String(n));
+  return 'CHF '+AresRounding.formatDecimal(Number(chf)||0,0,{typography:'screen'});
 }
+// Gruppe gemeinsam apportionieren: list = Objekte mit .bps in kanonischer
+// Reihenfolge; setzt .pct (Anzeige) je Objekt. targetDisplay optional.
+function aaChartApportion(list,targetDisplay){
+  if(!list.length)return;
+  var shown=AresRounding.formatApportionedPercentBps(list.map(function(x){return x.bps;}),1,{typography:'screen',targetDisplay:targetDisplay});
+  list.forEach(function(x,k){x.pct=shown[k];});
+}
+function aaChartPctNumber(pct){return String(pct||'').replace(/[^0-9.]/g,'');}
 // items: [{name,bps,color,amountChf?,band?:{min,max},subs?:[{name,bps,note}]}]
-// -> neue, nach Gewicht absteigend sortierte Zeilen (pct einzeln gerundet) mit
-// Segment-Indizes des Aussenrings (s.seg, r.restSeg bzw. r.soloSeg) und
-// roundingGap (gerundete Klassen != 100.0 % bzw. Unterklassen != Klasse).
+// -> neue, nach Gewicht absteigend sortierte Zeilen (pct apportioniert, s. o.)
+// mit Segment-Indizes des Aussenrings (s.seg, r.restSeg bzw. r.soloSeg);
+// r.restPct = Anzeige des Rests ohne Unterklasse.
 // 0-%-Klassen (N-882-01): Torte und Legende blenden sie aus (kein Segment, kein
 // Betrag); die SOLL-Quoten behalten sie, wenn eine Bandbreite existiert
 // (keepZeroWithBand), z. B. "Alternative 0.0 %, Bandbreite 0.0-10.0 %". Sie
@@ -52,27 +49,29 @@ function aaChartPrepare(items,keepZeroWithBand){
         return {name:String(s.name||''),bps:Math.max(0,Math.round(Number(s.bps)||0)),note:s.note||'',_j:j};
       })};
   }).filter(function(r){return r.bps>0||(keepZeroWithBand&&r.band&&r.band.max>0);});
+  // Klassen: Apportionierung in kanonischer Reihenfolge (Gleichstandsregel).
+  aaChartApportion(rows.slice().sort(function(a,b){return (aaChartClassRank(a.key)-aaChartClassRank(b.key))||(a._i-b._i);}));
   rows.sort(function(a,b){return (b.bps-a.bps)||(aaChartClassRank(a.key)-aaChartClassRank(b.key))||(a._i-b._i);});
-  var seg=0,sumBps=0,sumTenths=0;
+  var seg=0;
   rows.forEach(function(r){
-    r.tenths=aaChartTenths(r.bps);r.pct=aaChartPctText(r.bps);
-    sumBps+=r.bps;sumTenths+=r.tenths;
     r.subs=r.subs.filter(function(s){return s.bps>0;});
+    var subBps=r.subs.reduce(function(a,s){return a+s.bps;},0);
+    // Unterklassen (+ Rest ohne Unterklasse) auf den angezeigten Klassenwert;
+    // Gleichstand nach Name (Codepoint), der Rest zuletzt.
+    var group=r.subs.slice().sort(function(a,b){return a.name<b.name?-1:(a.name>b.name?1:(a._j-b._j));});
+    var rest=(r.subs.length&&subBps<r.bps)?{bps:r.bps-subBps}:null;
+    if(rest)group.push(rest);
+    if(group.length)aaChartApportion(group,subBps<=r.bps?aaChartPctNumber(r.pct):null);
+    r.restPct=rest?rest.pct:'';
     r.subs.sort(function(a,b){return (b.bps-a.bps)||(a._j-b._j);});
-    var subBps=0,subTenths=0;
     r.subs.forEach(function(s,j){
-      s.tenths=aaChartTenths(s.bps);s.pct=aaChartPctText(s.bps);s.shade=aaChartShadeStep(j,r.subs.length);s.seg=seg++;
-      subBps+=s.bps;subTenths+=s.tenths;
+      s.shade=aaChartShadeStep(j,r.subs.length);s.seg=seg++;
     });
-    r.restSeg=(r.subs.length&&subBps<r.bps)?seg++:null;
+    r.restSeg=rest?seg++:null;
     r.soloSeg=(r.subs.length||!r.bps)?null:seg++;
-    r.subRoundingGap=r.subs.length>0&&subBps===r.bps&&subTenths!==r.tenths;
   });
-  rows.roundingGap=rows.length>0&&sumTenths!==aaChartTenths(sumBps);
-  rows.subRoundingGap=rows.some(function(r){return r.subRoundingGap;});
   return rows;
 }
-function aaChartRoundingNote(){return 'Rundungsdifferenzen möglich: Anteile sind einzeln auf 0.1 % gerundet.';}
 // Unterklassen: groesste in der Klassenfarbe, weitere schrittweise heller
 // (Anteil der Flaechenfarbe 0..0.5) -- gleiche Stufe in Canvas und HTML.
 function aaChartShadeStep(idx,count){
@@ -111,7 +110,7 @@ function aaChartDonutDatasets(rows,surface){
     cls._aaAmt.push(r.amountChf>0?aaChartChf(r.amountChf):'');
     r.subs.forEach(function(s){hasSubs=true;push(i,s.bps,aaChartMix(r.color,surface,s.shade),r.name+' › '+s.name,s.pct);});
     // Unterklassen decken die Klasse nicht ganz ab: Rest neutral, keine Zuordnung erfinden.
-    if(r.restSeg!=null){var rest=r.bps-r.subs.reduce(function(a,s){return a+s.bps;},0);push(i,rest,aaChartMix(r.color,surface,0.8),r.name+' › ohne Unterklasse',aaChartPctText(rest));}
+    if(r.restSeg!=null){var rest=r.bps-r.subs.reduce(function(a,s){return a+s.bps;},0);push(i,rest,aaChartMix(r.color,surface,0.8),r.name+' › ohne Unterklasse',r.restPct);}
     if(r.soloSeg!=null)push(i,r.bps,r.color,r.name+' (keine Unterklassen)',r.pct);
   });
   return hasSubs?[sub,cls]:[cls];
@@ -254,7 +253,6 @@ function aaChartLegendHtml(items,rb){
       +'<span class="aa-leg-pct">'+aaChartEsc(r.pct)+'</span>'
       +'<span class="aa-leg-amt">'+(r.amountChf>0?aaChartEsc(aaChartChf(r.amountChf)):'')+'</span></div>';
   }).join('');
-  if(rows.roundingGap)html+='<div class="aa-leg-ring">'+aaChartEsc(aaChartRoundingNote())+'</div>';
   if(aaChartHasSubs())html+='<div class="aa-leg-ring">Innenring: Anlageklassen · Aussenring: Subanlageklassen (Farbe wie in «SOLL-Quoten», Name im Tooltip)</div>';
   if(rb&&rb.reserveRappen>0){
     var fr=typeof formatRappen==='function'?formatRappen:function(x){return aaChartChf(Number(x||0)/100);};
@@ -324,8 +322,8 @@ function aaChartQuotaHtml(items){
       return '<div class="aa-q-sub" data-aa-seg="'+s.seg+'"><span class="aa-q-sw aa-q-sw-ring" aria-hidden="true" style="background:'+aaChartEsc(aaChartCssMix(r.cssColor||r.color,s.shade))+'"></span>'
         +'<span class="aa-q-main"><span class="aa-q-name">'+aaChartEsc(s.name)+'</span>'+(s.note?'<span class="aa-q-meta">'+aaChartEsc(s.note)+'</span>':'')+'</span>'
         +'<span class="aa-q-pct">'+aaChartEsc(s.pct)+'</span></div>';
-    }).join('')+(r.subRoundingGap?'<div class="aa-q-note">'+aaChartEsc(aaChartRoundingNote())+'</div>':'')+'</div>':'';
+    }).join('')+'</div>':'';
     return '<div class="aa-q'+(r.expanded?' is-open':'')+'">'+head+subs+'</div>';
   }).join('');
-  return html+(rows.roundingGap?'<div class="aa-q-note">'+aaChartEsc(aaChartRoundingNote())+'</div>':'');
+  return html;
 }

@@ -23,6 +23,7 @@ from pathlib import Path
 
 import pytest
 from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 ROOT = Path(__file__).resolve().parents[2]
 HTML_PATH = ROOT / "ares-desktop" / "frontend" / "ares.html"
@@ -79,7 +80,8 @@ def _run_monolith(extra_js: str = ""):
     html = _html()
     fns = "\n".join(_extract_function(html, n) for n in _MONO_FNS)
     body = (
-        fns
+        rounding_module_source()
+        + fns
         + "\nvar __fns={fmtPct:fmtPct,fmtSignedPct:fmtSignedPct,fmtProbPct:fmtProbPct,fmtSharpe:fmtSharpe,fmtNumber:fmtNumber};"
         + "\nvar __compact=formatCompactCHF;\n"
     )

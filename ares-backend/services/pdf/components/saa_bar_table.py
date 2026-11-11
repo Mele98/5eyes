@@ -14,6 +14,11 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
+from services.pdf.components.swiss_numbers import (
+    allocation_pct_texts,
+    format_amount_minor,
+    format_bps_as_pct,
+)
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -57,6 +62,8 @@ def make_saa_bar_table(
 
     total_bps = 0
     total_amount = 0
+    # G7: Soll-Anteile gemeinsam apportioniert (Summe exakt 100.0 %), wie die App.
+    shown = allocation_pct_texts({b: int(allocation_bps.get(b, 0) or 0) for b in _ordered_buckets(allocation_bps)})
 
     for bucket in _ordered_buckets(allocation_bps):
         bps = int(allocation_bps.get(bucket, 0) or 0)
@@ -86,10 +93,10 @@ def make_saa_bar_table(
         else:
             amount_text = "-"
 
-        row = [asset_cell, f"{bps/100:.1f}%", bar_drawing, amount_text]
+        row = [asset_cell, shown[bucket], bar_drawing, amount_text]
         if show_bands:
             if min_bps is not None and max_bps is not None:
-                band_text = f"{min_bps/100:.0f}% - {max_bps/100:.0f}%"
+                band_text = f"{format_bps_as_pct(min_bps, decimals=0)} - {format_bps_as_pct(max_bps, decimals=0)}"
             else:
                 band_text = "-"
             row.insert(3, band_text)
@@ -105,7 +112,7 @@ def make_saa_bar_table(
     total_label = "Total Anlagestrategie (Strategiebasis)" if reserve else "Total Beratungsvermoegen"
     total_row = [
         Paragraph(f"<b>{total_label}</b>", _para_style_table()),
-        f"{total_bps/100:.1f}%",
+        format_bps_as_pct(total_bps),
         "",
         _format_amount(total_amount, base_currency) if (total_amount > 0 or amounts) else "-",
     ]
@@ -234,11 +241,7 @@ def _format_amount(rappen: int, currency: str = "CHF") -> str:
     mandate.base_currency (siehe portfolio_engine._load_allocation_inputs).
     Kein zweites convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
     """
-    try:
-        value = rappen / 100.0
-        return f"{currency} {value:,.0f}".replace(",", "'")
-    except Exception:
-        return f"CHF {rappen/100.0:,.0f}".replace(",", "'")
+    return format_amount_minor(rappen, currency or "CHF")
 
 
 def _section_title(text: str):
