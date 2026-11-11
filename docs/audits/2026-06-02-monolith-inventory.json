@@ -1,11 +1,11 @@
 {
   "counts": {
     "css_selectors": 1120,
-    "event_handlers": 460,
-    "ids": 1016,
+    "event_handlers": 461,
+    "ids": 1018,
     "js_functions": 1299,
     "modal_structures": 110,
-    "script_blocks": 24,
+    "script_blocks": 25,
     "style_blocks": 3,
     "sub_sections": 42
   },
@@ -6824,6 +6824,14 @@
       "class": "btn",
       "handler": "onclick",
       "id": "",
+      "line": 29185,
+      "tag": "button",
+      "value": "adminExportFundsCsv()"
+    },
+    {
+      "class": "btn",
+      "handler": "onclick",
+      "id": "",
       "line": 29219,
       "tag": "button",
       "value": "loadAdminProductUniverseEntries()"
@@ -10810,6 +10818,12 @@
     },
     {
       "class": "",
+      "id": "cd-retro",
+      "line": 4383,
+      "tag": "div"
+    },
+    {
+      "class": "",
       "id": "cd-status",
       "line": 4378,
       "tag": "div"
@@ -13111,6 +13125,12 @@
       "id": "pf-isin",
       "line": 29153,
       "tag": "input"
+    },
+    {
+      "class": "",
+      "id": "pf-master-data",
+      "line": 29159,
+      "tag": "div"
     },
     {
       "class": "fi",
@@ -21542,8 +21562,8 @@
     }
   ],
   "source_path": "ares-desktop/frontend/ares.html",
-  "source_sha256": "813bbb9e06a0775a3ba1967f9b3023c819a1ae3528c14e3e5cf16ed172cc5577",
-  "source_size_bytes": 1907605,
+  "source_sha256": "731b36a6fad6931ba6cc455928f723a1b1c8ade5854666b9accace2540940fbb",
+  "source_size_bytes": 1908660,
   "sub_sections": [
     {
       "class": "sbb",
