@@ -22,7 +22,7 @@ from models.mandates import Mandate
 from models.users import User
 from routers.auth import _extract_client_ip
 from services.auth import get_current_user, get_mandate_for_user_or_404
-from services.document_archive import archive_generated_pdf, content_hash_for
+from services.document_archive import archive_generated_pdf, content_hash_for, current_preference_binding
 from core import sustainability_preference as sustainability
 from core.reason_codes import DomainError, ReasonCode
 from services.portfolio_engine_payload import ESG_CUSTOMER_CLAIM_LABELS
@@ -2914,7 +2914,14 @@ def get_cost_disclosure_pdf(
         .order_by(ContractDocument.version.desc())
         .first()
     )
-    if existing is not None and existing.content_hash == content_hash:
+    # E2a (Negativfall 7): nur wiederverwenden, wenn das archivierte Dokument
+    # an die AKTUELLE Nachhaltigkeitspraeferenz gebunden ist -- sonst bliebe
+    # nach einer neuen Erfassung nur ein nicht mehr signierbares Dokument.
+    if (
+        existing is not None and existing.content_hash == content_hash
+        and getattr(existing, "bound_preference_decision_hash", None)
+        == current_preference_binding(db, mandate.id)
+    ):
         # Render-once: identischer Fachinhalt -> dieselben archivierten
         # Bytes ausliefern statt erneut zu rendern (ReportLab bettet pro
         # Rendering einen wechselnden Font-Subset-Tag ein, siehe

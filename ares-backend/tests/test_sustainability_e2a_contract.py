@@ -393,3 +393,17 @@ def test_onsite_signature_uses_the_same_document_binding(api, scenario, session_
         with pytest.raises(DomainError) as exc:
             _release_gates(s, s.get(Mandate, mid), s.get(ContractDocument, doc["id"]))
     assert exc.value.reason_code == "SUSTAINABILITY_DOCUMENT_OUTDATED"
+
+
+def test_n07c_cost_disclosure_is_reissued_after_a_new_preference(api, scenario, session_factory):
+    """Render-once des Kostenausweises darf kein Dokument der alten Erfassung
+    wiederverwenden (sonst nur ein nicht signierbares Dokument)."""
+    mid = scenario["mandate_id"]
+    _finalize_flow(api, mid)
+    first = _ok_capture(api, mid)
+    assert api.get(f"/mandates/{mid}/reports/cost-disclosure.pdf").status_code == 200
+    second = _ok_capture(api, mid, **NOT_RELEVANT)
+    assert api.get(f"/mandates/{mid}/reports/cost-disclosure.pdf").status_code == 200
+    docs = [d for d in api.get(f"/mandates/{mid}/documents").json() if d["document_type"] == "Kostenausweis"]
+    bindings = [d["bound_preference_decision_hash"] for d in sorted(docs, key=lambda d: d["version"])]
+    assert bindings == [first["current"]["decision_hash"], second["current"]["decision_hash"]]
