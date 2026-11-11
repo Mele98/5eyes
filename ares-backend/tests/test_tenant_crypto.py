@@ -71,31 +71,31 @@ def test_get_tenant_dek_creates_encrypted_dek_and_roundtrip(session_factory):
     Session, _ = session_factory
     with Session() as db:
         tenant = _seed_tenant(db)
-        dek = get_tenant_dek(db, tenant.id, master_kek="master-one")
+        dek = get_tenant_dek(db, tenant.id, master_kek="master-one-test-passphrase-0123456789abcdef")
         assert isinstance(dek, bytes)
         assert tenant.encrypted_dek
         assert tenant.encrypted_dek.encode("utf-8") != dek
-        token = encrypt_for_tenant(db, tenant.id, b"PII payload", master_kek="master-one")
-        assert decrypt_for_tenant(db, tenant.id, token, master_kek="master-one") == b"PII payload"
+        token = encrypt_for_tenant(db, tenant.id, b"PII payload", master_kek="master-one-test-passphrase-0123456789abcdef")
+        assert decrypt_for_tenant(db, tenant.id, token, master_kek="master-one-test-passphrase-0123456789abcdef") == b"PII payload"
 
 
 def test_wrong_master_kek_fails_to_decrypt_dek(session_factory):
     Session, _ = session_factory
     with Session() as db:
         tenant = _seed_tenant(db)
-        get_tenant_dek(db, tenant.id, master_kek="right-master")
+        get_tenant_dek(db, tenant.id, master_kek="right-master-test-passphrase-0123456789abcdef")
         db.commit()
         with pytest.raises(TenantCryptoError):
-            get_tenant_dek(db, tenant.id, master_kek="wrong-master")
+            get_tenant_dek(db, tenant.id, master_kek="wrong-master-test-passphrase-0123456789abcdef")
 
 
 def test_rotate_tenant_dek_increments_version_and_replaces_key(session_factory):
     Session, _ = session_factory
     with Session() as db:
         tenant = _seed_tenant(db)
-        old_dek = get_tenant_dek(db, tenant.id, master_kek="master-one")
+        old_dek = get_tenant_dek(db, tenant.id, master_kek="master-one-test-passphrase-0123456789abcdef")
         old_encrypted = tenant.encrypted_dek
-        new_dek = rotate_tenant_dek(db, tenant.id, master_kek="master-one")
+        new_dek = rotate_tenant_dek(db, tenant.id, master_kek="master-one-test-passphrase-0123456789abcdef")
         assert new_dek != old_dek
         assert tenant.encrypted_dek != old_encrypted
         assert tenant.dek_version == 2
@@ -138,14 +138,14 @@ def test_dek_provisioning_survives_caller_rollback(session_factory):
         _seed_tenant(db, tenant_id="firm-R")
 
     with Session() as caller:
-        get_tenant_dek(caller, "firm-R", master_kek="m")
+        get_tenant_dek(caller, "firm-R", master_kek="m-test-passphrase-0123456789abcdef")
         caller.rollback()  # Aufrufer bricht seine Transaktion ab
 
     with Session() as check:
         tenant = check.query(Tenant).filter(Tenant.id == "firm-R").first()
         assert tenant.encrypted_dek, "DEK muss den Aufrufer-Rollback ueberleben"
-        token = encrypt_for_tenant(check, "firm-R", b"payload", master_kek="m")
-        assert decrypt_for_tenant(check, "firm-R", token, master_kek="m") == b"payload"
+        token = encrypt_for_tenant(check, "firm-R", b"payload", master_kek="m-test-passphrase-0123456789abcdef")
+        assert decrypt_for_tenant(check, "firm-R", token, master_kek="m-test-passphrase-0123456789abcdef") == b"payload"
 
 
 # ---------------------------------------------------------------------------
