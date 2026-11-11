@@ -1,6 +1,9 @@
 """PRIVACY-001: API fuer Aufbewahrungsmatrix, Legal/Privacy-Rollen, Legal
 Holds und Loeschvorgaenge (services/privacy_erasure.py).
 
+H10 (DSG-Technikaudit 2026-11-11): Bearbeitungsverzeichnis und Angaben des
+Verantwortlichen (C-DSG-01) ueber services/dsg_governance.py.
+
 Produktivaktivierung ist BLOCKED: ohne genehmigte Matrixzeilen bleibt jeder
 Loeschvorgang "Entscheid ausstehend". ``GET /privacy/status`` sagt das
 ausdruecklich, statt einen funktionierenden Ablauf vorzutaeuschen.
@@ -27,8 +30,8 @@ from models.privacy import (
     PrivacyRoleDesignation,
 )
 from models.users import User
+from services import dsg_governance as gov
 from services import privacy_erasure as pe
-from services import privacy_erasure_inventory as inv
 from services.audit import log
 from services.auth import (
     extract_client_ip,
@@ -171,12 +174,12 @@ def privacy_status(db: Session = Depends(get_db), current_user: User = Depends(r
             PrivacyRetentionPolicy.tenant_id == tenant_id, PrivacyRetentionPolicy.status == "APPROVED",
         )
     }
-    missing = sorted(et for et in inv.EVIDENCE_TYPES if not any(key[0] == et for key in approved))
+    missing = sorted(et for et in gov.EVIDENCE_TYPES if not any(key[0] == et for key in approved))
     return {
         "production_activation": PRODUCTION_ACTIVATION,
         "matrix_complete": not missing,
         "evidence_types_without_approved_policy": missing,
-        "inventory_version": inv.INVENTORY_VERSION,
+        "inventory_version": gov.ERASURE_INVENTORY_VERSION,
         "retention_baseline_version": pe.RETENTION_BASELINE_VERSION,
         "message": (
             "Aufbewahrungsmatrix ist nicht durch Legal/Datenschutz freigegeben. Loeschgesuche "
@@ -399,3 +402,48 @@ def run_retention_expiry(request: Request, db: Session = Depends(get_db),
                                        "keys_shredded": len(result["keys_shredded_clients"])})
     db.commit()
     return result
+
+
+# ── H10 C-DSG-01: Bearbeitungsverzeichnis und Angaben des Verantwortlichen ─────
+
+class OwnerValueUpdate(BaseModel):
+    value: str = Field(min_length=1, max_length=gov.OWNER_VALUE_MAX_LENGTH)
+
+
+@router.get("/processing-register")
+def get_processing_register(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    """Verzeichnis der Bearbeitungstaetigkeiten mit Vollstaendigkeitspruefung
+    und dem Stand der Owner-Felder dieses Mandanten."""
+    return gov.register_view(db, _tenant(current_user))
+
+
+@router.get("/processing-register/export")
+def export_processing_register(request: Request, db: Session = Depends(get_db),
+                               current_user: User = Depends(require_admin)):
+    """Maschinenlesbarer Export (JSON) mit Inhalts-Hash; offene Owner-Felder
+    bleiben als ``OPEN`` sichtbar (``customer_output_ready``)."""
+    document = gov.register_export(db, _tenant(current_user))
+    _audit(db, current_user, request, table="privacy_owner_values", record_id="processing-register",
+           action="EXPORT", new_value={"register_version": document["register_version"],
+                                       "export_sha256": document["export_sha256"]})
+    db.commit()
+    return document
+
+
+@router.get("/owner-fields")
+def list_owner_fields(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    return gov.owner_field_status(db, _tenant(current_user))
+
+
+@router.put("/owner-fields/{field_key}")
+def set_owner_field(field_key: str, body: OwnerValueUpdate, request: Request, db: Session = Depends(get_db),
+                    current_user: User = Depends(require_admin)):
+    row, old_value = gov.set_owner_value(
+        db, tenant_id=_tenant(current_user), field_key=field_key, value=body.value, actor_id=current_user.id,
+    )
+    log(db, user_id=current_user.id, user_name=current_user.full_name, table_name="privacy_owner_values",
+        record_id=row.id, action="UPDATE", field_name=field_key, old_value=old_value, new_value=row.value,
+        ip_address=extract_client_ip(request))
+    db.commit()
+    return {"field_key": row.field_key, "value": row.value, "revision": row.revision,
+            "status": row.status, "confirmed_by": row.confirmed_by, "confirmed_at": row.confirmed_at}

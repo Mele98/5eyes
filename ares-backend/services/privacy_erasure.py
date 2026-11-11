@@ -49,6 +49,7 @@ from models.privacy import (
     PrivacyErasureCase,
     PrivacyErasureDisposition,
     PrivacyLegalHold,
+    PrivacyOwnerValue,
     PrivacyRetentionPolicy,
     PrivacyRoleDesignation,
 )
@@ -90,6 +91,8 @@ PRIVACY_TABLES = (
     PrivacyLegalHold.__table__,
     PrivacyErasureCase.__table__,
     PrivacyErasureDisposition.__table__,
+    # H10 C-DSG-01: Angaben des Verantwortlichen (Restore aelterer Sicherungen).
+    PrivacyOwnerValue.__table__,
 )
 
 

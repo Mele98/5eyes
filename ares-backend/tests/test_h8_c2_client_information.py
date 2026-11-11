@@ -318,10 +318,14 @@ def test_kundeninformation_text_contains_owner_data_and_no_invented_values(sf):
 
 
 def test_single_alembic_head_is_h8_revision():
+    # H10 (2026-11-11): Folgerevisionen haengen an d8e4b2a6c1f9; geprueft wird
+    # die Kette mit genau einem Head, nicht mehr der Head selbst.
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(alembic_cfg("sqlite://"))
-    assert script.get_heads() == ["d8e4b2a6c1f9"]
+    heads = script.get_heads()
+    assert len(heads) == 1, heads
+    assert "d8e4b2a6c1f9" in {rev.revision for rev in script.walk_revisions("base", heads[0])}
 
 
 def test_alembic_postgres_ddl_creates_client_information_tables_and_triggers():

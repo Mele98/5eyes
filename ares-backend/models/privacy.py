@@ -182,3 +182,30 @@ class PrivacyErasureDisposition(Base):
     disposed_at = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
+
+
+class PrivacyOwnerValue(Base):
+    """C-DSG-01/05: Angabe des Verantwortlichen zu einem Owner-Feld des
+    Bearbeitungsverzeichnisses bzw. des Egress-Manifests (z. B. Kontakt,
+    Begruendung einer Aufbewahrungsdauer, Staat und Garantie eines Kanals).
+
+    Versioniert: eine Aenderung legt eine neue Zeile (``revision`` + 1) an und
+    setzt die bisherige auf ``RETIRED``. Ares belegt keine dieser Angaben vor;
+    ohne ``CONFIRMED``-Zeile gilt das Feld als offen."""
+
+    __tablename__ = "privacy_owner_values"
+    __table_args__ = (
+        CheckConstraint("status IN ('CONFIRMED','RETIRED')", name="ck_privacy_owner_value_status"),
+        Index("ix_privacy_owner_values_lookup", "tenant_id", "field_key", "status"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    field_key = Column(String, nullable=False)
+    value = Column(Text, nullable=False)
+    revision = Column(Integer, nullable=False)
+    status = Column(String, nullable=False, default="CONFIRMED")
+    value_sha256 = Column(String(64), nullable=False)
+    confirmed_by = Column(String, nullable=False)
+    confirmed_at = Column(String, nullable=False)
+    retired_at = Column(String)
