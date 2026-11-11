@@ -29,10 +29,21 @@ from routers.clients import (  # noqa: E402
 )
 from schemas.clients import (  # noqa: E402
     ClientDueDiligenceResponse, ClientDueDiligenceUpdate, KycConfirmationApprovalCreate, KycConfirmationCreate,
+    KycConfirmationRequest,
 )
 from services import recommendation_release_gate as gate  # noqa: E402
 
-from client_onboarding_fixture import confirm_test_kyc, satisfy_client_onboarding  # noqa: E402
+from client_onboarding_fixture import (  # noqa: E402
+    confirm_test_kyc, ensure_test_kyc_review_policy, ensure_test_legal_profile, satisfy_client_onboarding,
+)
+
+
+def _review_policy(db):
+    """C-890-01: Erfassung ueber die API braucht Sitzland (rechtliche Angaben)
+    und eine freigegebene Wiedervorlage-Policy -- hier TESTWERTE der Fixture."""
+    ensure_test_legal_profile(db, TENANT)
+    ensure_test_kyc_review_policy(db, TENANT, actor_id="adm-1")
+    db.commit()
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
@@ -44,6 +55,8 @@ def test_gate_blocks_new_mandate_with_specific_codes_and_owner_hints(sf):
         "CLIENT_INFORMATION_TENANT_DATA_MISSING",
         "CLIENT_INFORMATION_NOT_DELIVERED",
         "KYC_BENEFICIAL_OWNER_UNANSWERED",
+        # C-890-01: ohne Sitzland keine Jurisdiktion der Wiedervorlage-Policy.
+        "KYC_REVIEW_POLICY_JURISDICTION_UNKNOWN",
         "KYC_CONFIRMATION_MISSING",
     ]
     tenant_finding = findings[0]
@@ -65,14 +78,14 @@ def _kyc_body(**overrides):
     data = dict(form_type="A", form_completed_on=(today - timedelta(days=2)).isoformat(),
                 external_reference="SRO-Dossier 4711", risk_category="normal", is_pep=False,
                 identification_confirmed=True, identification_date=(today - timedelta(days=3)).isoformat(),
-                next_review_due=(today + timedelta(days=365)).isoformat())
+                next_review_due=(today + timedelta(days=180)).isoformat())  # C-890-01: innerhalb der Test-Policy
     data.update(overrides)
-    return KycConfirmationCreate(**data)
+    return KycConfirmationRequest(**data)
 
 
 def test_kyc_confirmation_has_no_defaults_for_pep_and_risk():
     with pytest.raises(ValidationError):
-        KycConfirmationCreate(form_type="A", form_completed_on="2026-01-01", external_reference="Ref 1",
+        KycConfirmationRequest(form_type="A", form_completed_on="2026-01-01", external_reference="Ref 1",
                               next_review_due="2027-01-01")
 
 
@@ -102,6 +115,7 @@ def test_existing_customers_are_not_silently_compliant(sf):
 
 def test_pep_or_elevated_risk_needs_approval_by_a_second_admin(sf):
     with sf() as db:
+        _review_policy(db)
         upsert_due_diligence(client_id="c-1", body=ClientDueDiligenceUpdate(acting_for_own_account=True,
                                                                             pep_status=True),
                              db=db, current_user=user(db, "adv-1"))
@@ -200,6 +214,7 @@ def test_alembic_postgres_ddl_creates_kyc_tables_column_and_triggers():
 
 def test_downgrade_from_elevated_to_normal_needs_second_approval(sf):
     with sf() as db:
+        _review_policy(db)
         upsert_due_diligence(client_id="c-1", body=ClientDueDiligenceUpdate(acting_for_own_account=True),
                              db=db, current_user=user(db, "adv-1"))
         create_kyc_confirmation(client_id="c-1", body=_kyc_body(risk_category="erhoeht"),
@@ -222,6 +237,7 @@ def test_downgrade_from_elevated_to_normal_needs_second_approval(sf):
 
 def test_pep_withdrawal_in_due_diligence_does_not_bypass_second_approval(sf):
     with sf() as db:
+        _review_policy(db)
         adv = user(db, "adv-1")
         upsert_due_diligence(client_id="c-1", body=ClientDueDiligenceUpdate(
             acting_for_own_account=True, pep_status=True), db=db, current_user=adv)
@@ -287,6 +303,7 @@ def test_kyc_free_texts_can_only_be_redacted_to_the_erasure_marker(sf):
 
 def test_pep_withdrawal_before_first_confirmation_requires_second_approval(sf):
     with sf() as db:
+        _review_policy(db)
         adv = user(db, "adv-1")
         upsert_due_diligence(client_id="c-1", body=ClientDueDiligenceUpdate(
             acting_for_own_account=True, pep_status=True), db=db, current_user=adv)
@@ -310,6 +327,7 @@ def test_without_pep_withdrawal_first_normal_confirmation_needs_no_second_approv
     """Gegenprobe: ohne PEP-Vorgeschichte bleibt die erste Bestaetigung
     "kein PEP, normal" ohne Zweitfreigabe."""
     with sf() as db:
+        _review_policy(db)
         adv = user(db, "adv-1")
         upsert_due_diligence(client_id="c-1", body=ClientDueDiligenceUpdate(
             acting_for_own_account=True, pep_status=False), db=db, current_user=adv)

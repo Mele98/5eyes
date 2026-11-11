@@ -196,6 +196,11 @@
       + '<option value="false"' + (answered && dd.acting_for_own_account === false ? ' selected' : '') + '>nein (Dritter wirtschaftlich berechtigt)</option></select></div>'
       + '<div>' + L + 'Wirtschaftlich berechtigte Person (bei nein)</label><input class="fi" id="kyc-bo-name" value="' + esc(dd && dd.beneficial_owner_name || '') + '" style="font-size:11px"></div>'
       + '<button class="btn btn-sm" onclick="saveOwnAccountAnswer()">Antwort speichern</button></div>';
+    // C-890-01: Wiedervorlage-Policy der Firma (Server berechnet die Obergrenze).
+    var rp = status.kyc_review_policy || {}, rpp = rp.policy;
+    html += '<div style="font-size:9px;color:var(--n5)" data-kyc-review-status="' + esc(rp.status || '') + '">Wiedervorlage: '
+      + (rpp && rp.policy_status === 'effective' ? 'Policy ' + esc(rpp.policy_id) + ' v' + esc(rpp.version) + ', nächste Aktualisierung höchstens ' + esc(rpp.normal_max_months) + ' Monate (PEP/erhöht ' + esc(rpp.elevated_max_months == null ? rpp.normal_max_months : rpp.elevated_max_months) + ') nach dem Formulardatum'
+        : '<span style="color:var(--neg)">keine wirksame, freigegebene Policy der Firma – Erfassung gesperrt</span>') + '</div>';
     if (c) {
       var needs = status.kyc_requires_second_approval;
       html += '<div style="font-size:9px;color:var(--n5)">Letzte Bestätigung: Formular ' + esc(c.form_type) + ' vom ' + esc(c.form_completed_on)

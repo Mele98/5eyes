@@ -23,9 +23,13 @@ Tenant-Name + hosting_tier + license_status leben hier. Auth-Layer
 """
 from __future__ import annotations
 
-from sqlalchemy import Column, Integer, String, text
+from sqlalchemy import DDL, CheckConstraint, Column, ForeignKey, Integer, String, UniqueConstraint, event, text
 
-from database import Base
+from database import (
+    KYC_REVIEW_POLICY_ACTIVATION_SQLITE_TRIGGERS,
+    KYC_REVIEW_POLICY_SQLITE_TRIGGERS,
+    Base,
+)
 
 
 # Tier-Konstanten (Single-Source-of-Truth, referenziert in config.py + Tests)
@@ -203,3 +207,92 @@ class TenantLegalProfile(Base):
     updated_by = Column(String)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
+
+
+# ---------------------------------------------------------------------------
+# C-890-01: Wiedervorlage-Policy der KYC-Bestaetigung (je Tenant/Jurisdiktion).
+#
+# Ares erfindet KEINE Frist. Der maximale Abstand zwischen Abschluss der
+# GwG-Abklaerung und naechster Aktualisierung kommt ausschliesslich aus einer
+# vom Owner erfassten und von einer zweiten Person (Admin) freigegebenen
+# Policy. Ohne wirksame Policy blockieren Erfassung und Kundenfreigabe
+# (services/recommendation_release_gate.py, fail-closed).
+#
+# Beide Tabellen sind append-only (Trigger SQLite/PostgreSQL): eine Aenderung
+# ist eine neue Version, die erneut freigegeben wird. Die Aktivierungen bilden
+# je Tenant/Jurisdiktion eine lineare Kette (UNIQUE auf den Vorgaenger, erste
+# Aktivierung mit dem Vorgaenger "GENESIS"): zwei parallele Aktivierungen auf
+# denselben Stand koennen nie beide gelingen.
+# ---------------------------------------------------------------------------
+
+KYC_REVIEW_RISK_NORMAL = "normal"
+KYC_REVIEW_RISK_ELEVATED = "erhoeht"
+KYC_REVIEW_GENESIS = "GENESIS"
+
+
+class KycReviewPolicy(Base):
+    __tablename__ = "kyc_review_policies"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "jurisdiction", "version", name="uq_kyc_review_policies_version"),
+        CheckConstraint("version > 0", name="ck_kyc_review_policies_version"),
+        CheckConstraint("normal_max_months > 0", name="ck_kyc_review_policies_normal"),
+        CheckConstraint(
+            "elevated_max_months IS NULL OR "
+            "(elevated_max_months > 0 AND elevated_max_months <= normal_max_months)",
+            name="ck_kyc_review_policies_elevated",
+        ),
+        CheckConstraint(
+            "valid_until IS NULL OR valid_until >= valid_from",
+            name="ck_kyc_review_policies_validity",
+        ),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, nullable=False)
+    jurisdiction = Column(String, nullable=False)
+    policy_id = Column(String, nullable=False)
+    version = Column(Integer, nullable=False)
+    normal_max_months = Column(Integer, nullable=False)
+    elevated_max_months = Column(Integer)
+    valid_from = Column(String, nullable=False)
+    valid_until = Column(String)
+    source_reference = Column(String, nullable=False)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(String, nullable=False)
+    policy_hash = Column(String, nullable=False)
+
+
+class KycReviewPolicyActivation(Base):
+    """Vier-Augen-Freigabe = Aktivierung einer Policy-Version. Bindet den
+    gesehenen ``policy_hash`` und die unveraenderliche Freigabereferenz."""
+
+    __tablename__ = "kyc_review_policy_activations"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "jurisdiction", "predecessor_activation_id",
+            name="uq_kyc_review_policy_activations_chain",
+        ),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, nullable=False)
+    jurisdiction = Column(String, nullable=False)
+    policy_row_id = Column(String, nullable=False, unique=True)
+    predecessor_activation_id = Column(String, nullable=False)
+    approved_by = Column(String, ForeignKey("users.id"), nullable=False)
+    approved_at = Column(String, nullable=False)
+    approval_reference = Column(String, nullable=False)
+    policy_hash = Column(String, nullable=False)
+    activation_hash = Column(String, nullable=False)
+
+
+for _model, _ddls in (
+    (KycReviewPolicy, KYC_REVIEW_POLICY_SQLITE_TRIGGERS),
+    (KycReviewPolicyActivation, KYC_REVIEW_POLICY_ACTIVATION_SQLITE_TRIGGERS),
+):
+    for _trigger_ddl in _ddls:
+        event.listen(
+            _model.__table__,
+            "after_create",
+            DDL(_trigger_ddl).execute_if(dialect="sqlite"),
+        )

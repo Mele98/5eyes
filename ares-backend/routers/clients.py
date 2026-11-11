@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import ValidationError
 from core.reason_codes import ReasonCode
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -23,8 +24,9 @@ from schemas.clients import (
     OptHistoryCreate, OptHistoryResponse,
     ClientDueDiligenceCreate, ClientDueDiligenceUpdate, ClientDueDiligenceResponse,
     ClientRepresentationCreate, ClientRepresentationResponse, ClientRepresentationRevoke,
+    KYC_REVIEW_BINDING_CONTEXT_KEY,
     KycConfirmationApprovalCreate, KycConfirmationApprovalResponse,
-    KycConfirmationCreate, KycConfirmationResponse,
+    KycConfirmationCreate, KycConfirmationRequest, KycConfirmationResponse,
     ClientTaxResidencyCreate, ClientTaxResidencyResponse,
     WealthSummaryResponse, CashflowSummaryResponse,
     CashflowYearRow, CashflowProjectionResponse,
@@ -41,11 +43,17 @@ from services.auth import (
     require_admin,
     require_advisor,
 )
-from services.audit import log
+from services.audit import KYC_REVIEW_BLOCK_AUDIT_FIELD, kyc_review_block_audit_value, log
 from services.cashflow_timeline import totals_for_year
 from services.data_classification import enforce_data_classification
 from services.planning_horizon import life_expectancy_year_for
 from services.quota import assert_within_quota
+from services.recommendation_release_gate import (
+    KYC_REVIEW_DUE_EXCEEDS_POLICY,
+    KYC_REVIEW_STATUS_BY_CODE,
+    kyc_review_entry_binding,
+    kyc_review_message,
+)
 from services.wealth_cashflows import (
     derive_wealth_cashflows,
     mortgage_amortization_adjustment_series,
@@ -655,6 +663,43 @@ def _mandate_of_client_or_404(db: Session, client_id: str, mandate_id: str | Non
     return mandate.id
 
 
+def _kyc_review_detail(code: str, review: dict, *, message: str | None = None) -> dict:
+    """Fehlerdetail einer Wiedervorlage-Sperre bei der Erfassung (C-890-01):
+    derselbe Reason-Code/Status wie Gate, Status-Maske und Kunden-PDF."""
+    default_message, owner_action = kyc_review_message(code)
+    if code == KYC_REVIEW_DUE_EXCEEDS_POLICY:
+        default_message += f" Obergrenze: {review.get('max_due')}."
+    policy = review.get("policy") or {}
+    return {
+        "reason_code": code,
+        "message": message or default_message,
+        "owner_action": owner_action,
+        "kyc_review_status": KYC_REVIEW_STATUS_BY_CODE.get(code),
+        "policy_ref": {
+            "policy_row_id": policy.get("id"), "policy_id": policy.get("policy_id"),
+            "version": policy.get("version"), "jurisdiction": review.get("jurisdiction"),
+            "tenant_id": review.get("tenant_id"),
+        },
+        "max_due": review.get("max_due"),
+        "risk_class": review.get("risk_class"),
+        "interval_months": review.get("interval_months"),
+    }
+
+
+def _audit_kyc_review_block(db: Session, current_user: User, request: Request, client_id: str,
+                            mandate_id: str | None, tenant_id: str, code: str, review: dict) -> None:
+    """Tenantgebundener Auditbeleg einer gesperrten Erfassung (ohne Freitext)."""
+    ref = _kyc_review_detail(code, review)["policy_ref"]
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="kyc_review_policies",
+        record_id=str(ref["policy_row_id"] or "-"), action="CREATE",
+        field_name=KYC_REVIEW_BLOCK_AUDIT_FIELD,
+        new_value=kyc_review_block_audit_value(code, "kyc_confirmation_create", ref),
+        client_id=client_id, mandate_id=mandate_id,
+        ip_address=_extract_client_ip(request), tenant_id=tenant_id)
+    db.commit()
+
+
 @router.get("/{client_id}/kyc-confirmations", response_model=list[KycConfirmationResponse])
 def list_kyc_confirmations(
     client_id: str,
@@ -672,7 +717,7 @@ def list_kyc_confirmations(
 @router.post("/{client_id}/kyc-confirmations", response_model=KycConfirmationResponse, status_code=201)
 def create_kyc_confirmation(
     client_id: str,
-    body: KycConfirmationCreate,
+    body: KycConfirmationRequest,
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
@@ -682,10 +727,41 @@ def create_kyc_confirmation(
     Bestaetigung (Formular A/K/S/T, Datum, Referenz, Risikokategorie, PEP,
     naechste Aktualisierung). Append-only: eine Korrektur ist eine neue
     Bestaetigung. Bei PEP oder erhoehtem Risiko erst nach Freigabe durch eine
-    zweite Person wirksam (Gate vor Finalisierung/Vertragsunterzeichnung)."""
+    zweite Person wirksam (Gate vor Finalisierung/Vertragsunterzeichnung).
+
+    C-890-01: ``next_review_due`` darf hoechstens bis zur serverseitig
+    berechneten Obergrenze der wirksamen, freigegebenen Wiedervorlage-Policy
+    der Firma reichen (Abschlussdatum plus freigegebener Abstand je
+    Risikoklasse; PEP/erhoehtes Risiko = strengere Frist). Ohne wirksame Policy
+    ist keine Erfassung moeglich (409 mit Reason-Code der Policy). Die Bindung
+    (Policy, Version, Hash, Risikoklasse, Abstand, Obergrenze) steht im Siegel."""
     enforce_data_classification(body.data_classification)
     client = _get_client_or_404(client_id, db, current_user)
     mandate_id = _mandate_of_client_or_404(db, client_id, body.mandate_id)
+    tenant_id = client.tenant_id or _resolve_tenant_id_for_user(current_user)
+    now = _now()
+    review = kyc_review_entry_binding(
+        db, tenant_id=tenant_id, form_completed_on=body.form_completed_on,
+        risk_category=body.risk_category, is_pep=body.is_pep, at=now,
+    )
+    if review.get("reason_code"):
+        _audit_kyc_review_block(db, current_user, request, client_id, mandate_id, tenant_id,
+                                review["reason_code"], review)
+        raise HTTPException(status_code=409, detail=_kyc_review_detail(review["reason_code"], review))
+    if body.next_review_due > review["max_due"]:
+        _audit_kyc_review_block(db, current_user, request, client_id, mandate_id, tenant_id,
+                                KYC_REVIEW_DUE_EXCEEDS_POLICY, review)
+        raise HTTPException(status_code=422, detail=_kyc_review_detail(KYC_REVIEW_DUE_EXCEEDS_POLICY, review))
+    try:
+        # Zweite Verteidigungslinie: die fachliche Bestaetigung existiert nur
+        # mit der serverseitigen Policy-Bindung (schemas/clients.py).
+        body = KycConfirmationCreate.model_validate(
+            body.model_dump(), context={KYC_REVIEW_BINDING_CONTEXT_KEY: review},
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=_kyc_review_detail(
+            KYC_REVIEW_DUE_EXCEEDS_POLICY, review, message=str(exc.errors()[0].get("msg")),
+        )) from exc
     dd = db.query(ClientDueDiligence).filter(ClientDueDiligence.client_id == client_id).first()
     # N-890-03: Vier-Augen auch bei Herabstufung. Massgebend bleibt der zuletzt
     # wirksame Stand, bis eine zweite Person die Herabstufung freigibt.
@@ -704,9 +780,8 @@ def create_kyc_confirmation(
                 "ist zuerst zu korrigieren."
             ),
         })
-    now = _now()
     record = KycConfirmation(
-        id=new_uuid(), tenant_id=client.tenant_id or _resolve_tenant_id_for_user(current_user),
+        id=new_uuid(), tenant_id=tenant_id,
         client_id=client_id, mandate_id=mandate_id, process_scope=KYC_PROCESS_EXTERNAL,
         form_type=body.form_type, form_completed_on=body.form_completed_on,
         external_reference=body.external_reference, risk_category=body.risk_category,
@@ -716,6 +791,7 @@ def create_kyc_confirmation(
         requires_second_approval=1 if requires_second_approval else 0,
         note=(body.note or "").strip() or None,
         recorded_by=current_user.id, recorded_at=now,
+        **review["binding"],
     )
     record.confirmation_hash = _row_seal(record, "confirmation_hash")
     db.add(record)
@@ -724,7 +800,10 @@ def create_kyc_confirmation(
         field_name="kyc_confirmation",
         new_value=f"Formular {record.form_type}; Identifizierung {record.identification_date}; "
                   f"Risiko {record.risk_category}; PEP {'ja' if record.is_pep else 'nein'}; "
-                  f"naechste Aktualisierung {record.next_review_due}"
+                  f"naechste Aktualisierung {record.next_review_due}; "
+                  f"Wiedervorlage-Policy {record.review_policy_id} v{record.review_policy_version} "
+                  f"({record.review_risk_class}, {record.review_interval_months} Monate, "
+                  f"Obergrenze {record.review_max_due})"
                   + ("; Herabstufung, Zweitfreigabe noetig" if downgrade else ""),
         client_id=client_id, mandate_id=mandate_id,
         ip_address=_extract_client_ip(request))

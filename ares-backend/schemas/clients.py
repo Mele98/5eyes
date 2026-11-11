@@ -1,5 +1,5 @@
 from datetime import date as _date
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, ValidationInfo, field_validator, model_validator
 from typing import Optional, Literal
 from schemas.common import BaseResponse
 
@@ -407,11 +407,15 @@ def _iso_date(value: str, field: str) -> str:
         raise ValueError(f"{field} muss ein ISO-Datum (JJJJ-MM-TT) sein") from exc
 
 
-class KycConfirmationCreate(BaseModel):
+class KycConfirmationRequest(BaseModel):
     """Bestaetigung, dass die GwG-Abklaerung im Prozess der SRO/AO bzw. im
     Fremdsystem erfolgt ist. Alle fachlichen Felder ohne Vorbelegung --
     insbesondere ``is_pep`` und ``risk_category`` muessen ausdruecklich
-    beantwortet werden."""
+    beantwortet werden.
+
+    Eingangsform der API (nur formale Pruefung). Die fachlich gueltige
+    Bestaetigung ist ``KycConfirmationCreate``: erst mit der serverseitig
+    ermittelten Bindung an die freigegebene Wiedervorlage-Policy (C-890-01)."""
 
     mandate_id: Optional[str] = None
     form_type: Literal["A", "K", "S", "T"]
@@ -427,8 +431,7 @@ class KycConfirmationCreate(BaseModel):
     note: Optional[str] = None
     data_classification: Literal["synthetic", "real"] = "synthetic"
 
-    @model_validator(mode="after")
-    def _validate(self):
+    def _validate_form(self):
         self.form_completed_on = _iso_date(self.form_completed_on, "form_completed_on")
         self.next_review_due = _iso_date(self.next_review_due, "next_review_due")
         self.identification_date = _iso_date(self.identification_date, "identification_date")
@@ -446,6 +449,47 @@ class KycConfirmationCreate(BaseModel):
         if len(self.external_reference.strip()) < 3:
             raise ValueError("external_reference (Referenz im SRO-/Fremdprozess) ist Pflicht")
         self.external_reference = self.external_reference.strip()
+        return self
+
+    @model_validator(mode="after")
+    def _validate(self):
+        return self._validate_form()
+
+
+KYC_REVIEW_BINDING_CONTEXT_KEY = "kyc_review_binding"
+
+
+class KycConfirmationCreate(KycConfirmationRequest):
+    """C-890-01: fachlich gueltige KYC-Bestaetigung -- nur mit der Bindung an
+    die zum Erfassungszeitpunkt wirksame, freigegebene Wiedervorlage-Policy
+    (Validierungskontext ``kyc_review_binding``, serverseitig aus
+    services/recommendation_release_gate.py::kyc_review_entry_binding).
+
+    Fail-closed: ohne Kontext (keine Policy), mit Sperrcode der Policy oder
+    mit einem Termin nach der berechneten Obergrenze ist die Bestaetigung
+    ungueltig. Ares setzt keine eigene Frist; gueltig ist nur
+    ``form_completed_on < next_review_due <= max_due``."""
+
+    @model_validator(mode="after")
+    def _validate(self, info: ValidationInfo):
+        self._validate_form()
+        context = info.context if isinstance(info.context, dict) else {}
+        binding = context.get(KYC_REVIEW_BINDING_CONTEXT_KEY)
+        if not isinstance(binding, dict):
+            raise ValueError(
+                "KYC_REVIEW_POLICY_MISSING: keine freigegebene Wiedervorlage-Policy "
+                "gebunden; Ares setzt keine eigene Frist"
+            )
+        if binding.get("reason_code"):
+            raise ValueError(f"{binding['reason_code']}: Wiedervorlage-Policy nicht wirksam")
+        risk_class = "erhoeht" if (self.is_pep or self.risk_category != "normal") else "normal"
+        if binding.get("form_completed_on") != self.form_completed_on or binding.get("risk_class") != risk_class:
+            raise ValueError("KYC_REVIEW_POLICY_BINDING_INVALID: Bindung passt nicht zur Bestaetigung")
+        max_due = str(binding.get("max_due") or "")
+        if not max_due or self.next_review_due > max_due:
+            raise ValueError(
+                f"KYC_REVIEW_DUE_EXCEEDS_POLICY: next_review_due liegt nach der Obergrenze {max_due or '-'}"
+            )
         return self
 
 
@@ -482,6 +526,15 @@ class KycConfirmationResponse(BaseResponse):
     confirmation_hash: str
     requires_second_approval: bool = False
     approval: Optional[KycConfirmationApprovalResponse] = None
+    # C-890-01: Bindung an die Wiedervorlage-Policy (Bestand: None).
+    review_policy_row_id: Optional[str] = None
+    review_policy_activation_id: Optional[str] = None
+    review_policy_id: Optional[str] = None
+    review_policy_version: Optional[int] = None
+    review_policy_hash: Optional[str] = None
+    review_risk_class: Optional[str] = None
+    review_interval_months: Optional[int] = None
+    review_max_due: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

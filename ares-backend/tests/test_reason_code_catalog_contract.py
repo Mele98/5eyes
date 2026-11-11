@@ -103,6 +103,18 @@ KNOWN_UNRESOLVED: dict[tuple[str, str, str], int] = {
      'reason_code'): 1,
     ('services/suitability_cap_check.py', 'evaluate_house_matrix_cap',
      'resolution.reason_code'): 1,
+    # C-890-01: Durchreichungen des Wiedervorlage-Codes aus der Policy-
+    # Aufloesung (resolve_kyc_review_policy). Der Wertebereich ist geschlossen:
+    # genau die Schluessel von recommendation_release_gate._REVIEW_MESSAGES,
+    # jeder davon im Katalog (tests/test_c890_01_kyc_review_policy.py::
+    # test_reason_codes_are_in_the_catalog).
+    ('routers/clients.py', '_kyc_review_detail', 'code'): 2,
+    ('routers/review.py', 'activate_kyc_review_policy', "head['reason_code']"): 2,
+    ('routers/review.py', 'list_kyc_review_policies', "current['reason_code']"): 1,
+    ('services/recommendation_release_gate.py', '_finding', 'reason_code'): 1,
+    ('services/recommendation_release_gate.py', '_review_finding', 'reason_code'): 1,
+    ('services/recommendation_release_gate.py', 'kyc_review_findings', "current['reason_code']"): 2,
+    ('services/recommendation_release_gate.py', 'kyc_review_status', 'first'): 1,
 }
 
 

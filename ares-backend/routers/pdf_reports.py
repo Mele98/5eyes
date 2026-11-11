@@ -25,7 +25,8 @@ from models.mandates import Mandate
 from models.review import ConflictOfInterestDisclosure, ContractDocument, Product
 from models.users import User
 from routers.auth import _extract_client_ip
-from services.auth import get_current_user, get_mandate_for_user_or_404
+from services.audit import release_block_audit
+from services.auth import get_current_user, get_mandate_for_user_or_404, set_tenant_context
 from services.document_archive import archive_generated_pdf, content_hash_for
 from services.cost_disclosure import build_cost_disclosure
 from services.pdf import ReportLabRenderer
@@ -35,7 +36,9 @@ from services.recommendation_release_gate import (
     CLIENT_INFORMATION_SEAT_REGIMES,
     CLIENT_INFORMATION_TEMPLATE_VERSION,
     CLIENT_INFORMATION_TENANT_DATA_MISSING,
+    CHANNEL_CLIENT_PDF,
     SUPERVISION_LABELS,
+    assert_kyc_review_release_eligible,
     legal_profile_hash,
     legal_profile_missing_fields,
     load_tenant_legal_profile,
@@ -1169,6 +1172,25 @@ def _assert_client_pdf_signoff(db: Session, mandate: Mandate) -> None:
     assert_risk_signoff_release_eligible(db, mandate, channel=CHANNEL_CLIENT_PDF)
 
 
+def _assert_client_pdf_kyc_review(db: Session, mandate: Mandate, current_user: User,
+                                  request: Request | None) -> None:
+    """C-890-01: kundenwirksame PDFs (Risikoprofil, Anlagestrategie, Portfolio,
+    Vertrag, Kunden-Sign-off, Beratungsprotokoll, Kostenausweis) nutzen
+    dieselbe Wiedervorlage-Pruefung wie Finalisierung, Signatur und Handoff:
+    liegt eine KYC-Bestaetigung vor, muss sie an die heute wirksame,
+    freigegebene Policy gebunden und nicht faellig sein (VOR jedem Render/
+    Archiv; Sperre tenantgebunden auditiert, ``client_pdf_blocked``)."""
+    assert_kyc_review_release_eligible(
+        db, mandate, channel=CHANNEL_CLIENT_PDF,
+        on_block=release_block_audit(
+            db, user=current_user,
+            ip_address=_extract_client_ip(request) if request is not None else None,
+            mandate_id=mandate.id, field_name="client_pdf_blocked",
+            set_tenant_context=set_tenant_context,
+        ),
+    )
+
+
 def _assert_client_pdf_cma_hold(db: Session, mandate: Mandate) -> None:
     """CMA-001 / ADR-12a-Release-Hold: Kunden-PDFs, die Strategie oder
     Positionen der aktuellen Soll-Allokation tragen, sind gesperrt, solange
@@ -1200,6 +1222,7 @@ def get_anlagestrategie_pdf(
     """Generiert Anlagestrategie-PDF fuer das Mandat."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_signoff(db, mandate)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, request)
     _assert_client_pdf_cma_hold(db, mandate)
     _assert_report_allocation_context(mandate, db, expected_allocation_id)
     ctx = _build_pdf_context(mandate, current_user, db)
@@ -1276,6 +1299,7 @@ def get_risikoprofil_pdf(
     """Generiert Risikoprofil-PDF fuer das Mandat (FINMA W305-konform)."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_signoff(db, mandate)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, request)
     ctx = _build_pdf_context(mandate, current_user, db)
 
     # Risikoprofil-Daten aus dem juengsten RiskAssessment laden (defensiv)
@@ -1599,6 +1623,7 @@ def get_portfolio_pdf(
     """Sprint 11 Phase 6: Portfolio-PDF mit Positionen + Soll-vs-IST + Drift."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_signoff(db, mandate)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, request)
     _assert_client_pdf_cma_hold(db, mandate)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
@@ -1712,6 +1737,7 @@ def get_vertrag_pdf(
 ):
     """Sprint 12: Vertrags-PDF (ContractDocument). Optional ?document_id=..."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     ctx = _build_pdf_context(mandate, current_user, db)
     data = _build_vertrag_data(mandate, document_id, db)
     pdf_bytes = ReportLabRenderer().render_vertrag(ctx, data)
@@ -1830,6 +1856,7 @@ def get_contract_signoff_pdf(
     """Final customer sign-off for the documented advisory decision."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_signoff(db, mandate)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     ctx = _build_pdf_context(mandate, current_user, db)
     try:
         data = _build_contract_signoff_data(mandate, db)
@@ -2079,6 +2106,7 @@ def get_protokoll_pdf(
     """Beratungsprotokoll-PDF mit AdvisoryLog und Unterschrift."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_signoff(db, mandate)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, request)
     _assert_client_pdf_cma_hold(db, mandate)
     ctx = _build_pdf_context(mandate, current_user, db)
     data = _build_protokoll_data(mandate, db)
@@ -2816,6 +2844,7 @@ def get_cost_disclosure_pdf(
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_signoff(db, mandate)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, request)
     _assert_client_pdf_cma_hold(db, mandate)
     payload = build_cost_disclosure(db, mandate)
     if payload.get("evidence_status") == "blocked":

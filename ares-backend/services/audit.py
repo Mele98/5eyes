@@ -1025,12 +1025,40 @@ def release_block_audit(
     (``session.info["tenant_id"]``) nach dem Rollback mit
     ``set_tenant_context`` (services.tenant_context, von den Routern ueber
     services.auth uebergeben) wieder gesetzt."""
-    def _on_block(reason_code: str, run_id: str | None = None) -> None:
+    def _on_block(reason_code: str, run_id: str | None = None, *, findings=None) -> None:
         restore_tenant_after_rollback(db, set_tenant_context)
         log(db, user_id=user.id, user_name=user.full_name,
             table_name="recommendation_runs" if run_id else "mandates",
             record_id=run_id or mandate_id, action="UPDATE",
             field_name=field_name, new_value=reason_code,
             mandate_id=mandate_id, ip_address=ip_address)
+        # C-890-01: jede Sperre durch die KYC-Wiedervorlage-Policy bekommt einen
+        # eigenen, tenantgebundenen Beleg mit Reason-Code, Kanal und
+        # Policybezug -- nur strukturierte Kennungen, keine Freitexte.
+        for finding in findings or ():
+            ref = finding.get("policy_ref") if isinstance(finding, dict) else None
+            if not isinstance(ref, dict):
+                continue
+            log(db, user_id=user.id, user_name=user.full_name,
+                table_name="kyc_review_policies",
+                record_id=str(ref.get("policy_row_id") or "-"), action="UPDATE",
+                field_name=KYC_REVIEW_BLOCK_AUDIT_FIELD,
+                new_value=kyc_review_block_audit_value(finding.get("reason_code"), field_name, ref),
+                mandate_id=mandate_id, ip_address=ip_address,
+                tenant_id=ref.get("tenant_id"))
         db.commit()
+    _on_block.accepts_findings = True
     return _on_block
+
+
+KYC_REVIEW_BLOCK_AUDIT_FIELD = "kyc_review_policy_blocked"
+
+
+def kyc_review_block_audit_value(code, channel_field: str | None, ref: dict) -> str:
+    """Strukturierter Auditwert einer Wiedervorlage-Sperre (C-890-01):
+    ``<Reason-Code>;kanal=<feld>;policy=<id>@v<version>;jurisdiktion=<land>``."""
+    policy = f"{ref.get('policy_id') or '-'}@v{ref.get('version') or '-'}"
+    return (
+        f"{code};kanal={channel_field or '-'};policy={policy};"
+        f"jurisdiktion={ref.get('jurisdiction') or '-'}"
+    )

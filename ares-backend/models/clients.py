@@ -252,6 +252,19 @@ class KycConfirmation(Base):
     recorded_by = Column(String, ForeignKey("users.id"), nullable=False)
     recorded_at = Column(String, nullable=False)
     confirmation_hash = Column(String, nullable=False)
+    # C-890-01: Bindung an die bei der Erfassung wirksame, freigegebene
+    # Wiedervorlage-Policy (Teil des Siegels): Policy-Zeile, Aktivierung,
+    # Policy-ID/-Version/-Hash, Risikoklasse (normal|erhoeht), angewandter
+    # Abstand in Monaten und die serverseitig berechnete Obergrenze fuer
+    # ``next_review_due``. Bestandszeilen: NULL = "policy_binding_missing".
+    review_policy_row_id = Column(String)
+    review_policy_activation_id = Column(String)
+    review_policy_id = Column(String)
+    review_policy_version = Column(Integer)
+    review_policy_hash = Column(String)
+    review_risk_class = Column(String)
+    review_interval_months = Column(Integer)
+    review_max_due = Column(String)
 
 
 class KycConfirmationApproval(Base):
