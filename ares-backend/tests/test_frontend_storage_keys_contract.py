@@ -14,17 +14,19 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 
+# N-875-08: einfache, doppelte Quotes und Template-Strings (Praefix bis ${...}).
 _LITERAL_ACCESS = re.compile(
-    r"(?:local|session)Storage\.(?:get|set|remove)Item\('([^']+)'"
+    r"(?:local|session)Storage\s*\.\s*(?:get|set|remove)Item\s*\(\s*(['\"`])([^'\"`]+)\1"
 )
 _NEUTRAL_KEYS = {"auto_recompute", "introShown"}
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _const(html: str, name: str) -> str:
@@ -56,8 +58,23 @@ def test_cashflow_order_and_allocation_preference_prefixes():
     assert "return 'ares.cashflow-order.'+" in body
 
 
+def _literal_keys(text: str) -> set[str]:
+    return {m.group(2) for m in _LITERAL_ACCESS.finditer(text)}
+
+
 def test_every_literal_storage_key_is_ares_prefixed_or_neutral():
-    keys = set(_LITERAL_ACCESS.findall(_html()))
+    # N-875-07: Bundle + alle eigenstaendigen Frontend-Module.
+    from tests.monolith_source import read_frontend_sources
+
+    keys = _literal_keys(read_frontend_sources())
     assert keys, "keine literalen Storage-Schluessel gefunden"
     unexpected = {k for k in keys if not k.startswith("ares.") and k not in _NEUTRAL_KEYS}
     assert not unexpected, sorted(unexpected)
+
+
+def test_literal_key_detector_handles_all_quote_styles():
+    text = (
+        "localStorage.getItem('a.one');localStorage.setItem(\"b.two\",1);"
+        "sessionStorage.removeItem(`c.three.${x}`)"
+    )
+    assert _literal_keys(text) == {"a.one", "b.two", "c.three.${x}"}

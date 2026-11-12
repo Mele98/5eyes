@@ -1,11 +1,12 @@
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def test_allocation_message_banner_dom_exists():
@@ -38,7 +39,10 @@ def test_optimizer_panel_has_limiting_factor_and_achievability_table():
 
 
 def test_no_forbidden_customer_copy_added_in_stage6_surface():
-    html = _html()
+    # N-875-07: Bundle + alle eigenstaendigen Frontend-Module.
+    from tests.monolith_source import read_frontend_sources
+
+    html = read_frontend_sources()
     for forbidden in [
         "Erhöhen Sie Ihr Risiko",
         "Erhoehen Sie Ihr Risiko",

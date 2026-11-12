@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import configure_mappers, sessionmaker
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -141,7 +142,7 @@ def test_ares_domain_has_no_default_and_is_validated():
 
 
 def test_frontend_ics_download_uses_ares_prodid_and_no_domain():
-    html = (BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "ares.html").read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     assert html.count("PRODID:-//Ares//Advisory Calendar//DE") == 2
     uids = re.findall(r"UID:'\+(\w+)\+'([^\\]*)\\r\\n", html)
     assert sorted(uids) == [("datVal", "-ares"), ("stamp", "-ares")]

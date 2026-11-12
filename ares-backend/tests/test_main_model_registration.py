@@ -47,7 +47,10 @@ GOLDEN_SORTED_TABLES_SHA256 = "751a13f478745fdb7729d3191e5d5bf93e52f53b5f2a4d41d
 # Bestandssiegel: AuditLegacySection + seal_present/seal_ok/seal_sequence/
 # seal_count (nur additiv, Feld-Diff geprueft).
 # N-869-8: AuditLegacySection + seal_missing (nur additiv, Feld-Diff geprueft).
-GOLDEN_OPENAPI_SHA256 = "999ae864a8ed0804dff2ded0e9b1fb40812bb3ed73f92d0c5b10349ca9a3071d"
+# Integrationsprobe 2026-11-07: Pins aus #856, #862, #868 und #869 zusammen-
+# gefuehrt; api/openapi.json (Git-Merge ohne Konflikt) besteht
+# scripts/export_openapi.py --check.
+GOLDEN_OPENAPI_SHA256 = "8ca5cb99beed3951ac6deb940efd0333bc42273a4da7b746443d7fb7ba50df65"
 
 _PROBE = """
 import hashlib, json

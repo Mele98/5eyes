@@ -18,6 +18,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 ROOT = Path(__file__).resolve().parents[2]
 HTML_PATH = ROOT / "ares-desktop" / "frontend" / "ares.html"
@@ -63,7 +64,7 @@ def _run_node(tmp_path: Path, script: str) -> dict:
 
 
 def test_liability_series_includes_all_debts_and_only_mortgages_amortize(tmp_path):
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     helper = _extract_js_function(html, "mortgageLiabilityAndPledgedSeriesRappen")
     script = helper + """
 const positions = [
@@ -118,7 +119,7 @@ process.stdout.write(JSON.stringify({html: rc.innerHTML}));
 
 
 def test_classic_context_shows_net_foundation(tmp_path):
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     # Immobilie 800k, Hypothek 300k (foundation_rappen 500k); Kredit 200k > Finanz 100k
     # -> 100k belasten das Fundament -> netto 400k.
     payload = {
@@ -135,7 +136,7 @@ def test_classic_context_shows_net_foundation(tmp_path):
 
 
 def test_classic_context_surfaces_uncovered_debt(tmp_path):
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     payload = {
         "foundation_rappen": 0,
         "foundation_in_net_wealth_rappen": 0,
