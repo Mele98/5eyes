@@ -166,10 +166,13 @@ def test_allocation_donut_legend_uses_bucket_target_amounts():
     legend_block = html.split("function buildDLegend(){", 1)[1].split("function syncAllocationDonutFromStrategyState", 1)[0]
 
     assert "chfTarget:Math.round((Number(bucket.target_amount_rappen||0))/100)" in apply_block
-    assert "var targetChf=Number(r.chfTarget||0);" in legend_block
-    # Live-Test 2026-11 H2: Rueckfall auf der Strategiebasis (nicht auf dem
-    # vollen Beratungsvermoegen inkl. ausserhalb gehaltener Reserve).
-    assert "if(!(targetChf>0))targetChf=Math.round((_rb.strategyBaseRappen/100)*Number(r.soll||0)/100)" in legend_block
+    # G7 (H-153 Nachtrag 1): die Legende nutzt aaChartAllocItems -- Betraege wie im
+    # PDF ueber presentationAmounts auf der Strategiebasis (Live-Test 2026-11 H2:
+    # Basis, nicht volles Beratungsvermoegen inkl. Reserve); Rueckfall ebenfalls Basis.
+    assert "aaChartLegendHtml(aaChartAllocItems(),allocationReserveBreakdown(strategyState.allocation))" in legend_block
+    items_fn = html.split("function aaChartAllocItems(){", 1)[1].split("\nfunction ", 1)[0]
+    assert "AresRounding.presentationAmounts(rb.advisoryRappen,rb.strategyBaseRappen," in items_fn
+    assert "Math.round((rb.strategyBaseRappen/100)*Number(r.soll||0)/100)" in items_fn
 
 
 def test_active_combined_step_logic_no_longer_uses_old_ub_runtime_hooks():
