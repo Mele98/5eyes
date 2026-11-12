@@ -69,7 +69,8 @@ def test_footer_check_uses_full_country_pack_text_and_creation_date():
 
 def test_truncated_footer_in_pdf_fails():
     with pytest.raises(smoke.SmokeError, match="Pflichttext fehlt"):
-        smoke.check_pdf_bytes(_pdf(FOOTER[:217] + "..."), "x.pdf", (FOOTER,))
+        # H7 N-884-03: neutraler Text ist kuerzer als 217 Zeichen -> relativ kuerzen.
+        smoke.check_pdf_bytes(_pdf(FOOTER[: len(FOOTER) // 2] + "..."), "x.pdf", (FOOTER,))
 
 
 def test_rendered_pdf_with_footer_and_editorial_fonts_passes():
@@ -972,3 +973,17 @@ def test_n_853_9_link_and_valid_widget_stay_green():
                     subtype="/Widget", DA=TextStringObject("/FA 9 Tf 0 g"))
     _add_annotation(writer, page, {}, subtype="/Redact")
     assert "1 Seite(n)" in _check(writer)
+
+
+def test_smoke_expects_footer_variant_of_the_rendered_mandate_type():
+    """H7 N-884-03: die Fusszeile richtet sich nach dem Mandatstyp; der Smoke
+    erwartet den Text des tatsaechlich angelegten Mandats (Default
+    Anlageberatung), nicht pauschal den neutralen Text."""
+    from jurisdictions.documents import default_documents
+    from services.pdf.components.footer import footer_disclaimer_key
+
+    docs = default_documents()
+    for mandate_type in ("Anlageberatung", "Vermögensverwaltung", "Finanzplanung", "Reporting only", None):
+        assert smoke.expected_footer_disclaimer(mandate_type) == docs.text(footer_disclaimer_key(mandate_type))
+    source = inspect.getsource(smoke.run_pdf_render_smoke)
+    assert "expected_footer_disclaimer(mandate.get('mandate_type'))" in source
