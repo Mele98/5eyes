@@ -543,10 +543,22 @@ def test_c_853_02_used_standard_14_font_without_embedding_fails():
 
 
 def test_c_853_02_declared_but_unused_standard_14_font_is_not_a_use():
-    """ReportLab setzt je Seite ``/F1 12 Tf`` (Helvetica) ohne Textausgabe."""
-    import pypdf
+    """ReportLab setzt je Seite ``/F1 12 Tf`` (Startfont) ohne Textausgabe.
 
-    used, declared = smoke._font_resource_usage(pypdf.PdfReader(io.BytesIO(_pdf())).pages)
+    Seit H1 (N-853-8) ist der Ares-Startfont das eingebettete Inter; der Fall
+    wird deshalb mit explizitem Standard-14-Startfont nachgestellt."""
+    import pypdf
+    from services.pdf.fonts import register_editorial_fonts
+
+    assert register_editorial_fonts()
+    buf = io.BytesIO()
+    canvas = Canvas(buf, initialFontName="Helvetica")
+    for y, font in ((800, "Inter"), (780, "CormorantGaramond")):
+        canvas.setFont(font, 6)
+        canvas.drawString(20, y, FOOTER)
+    canvas.showPage()
+    canvas.save()
+    used, declared = smoke._font_resource_usage(pypdf.PdfReader(io.BytesIO(buf.getvalue())).pages)
     assert any(d.base_font == "Helvetica" for d in declared)
     assert not any(u.base_font == "Helvetica" for u in used)
     assert {u.base_font.split("+")[1] for u in used} == {"Inter-Regular", "CormorantGaramond-Regular"}
@@ -865,7 +877,7 @@ def _q_underflow(writer, page):
         (_postscript_xobject, r"XObject /PS0 nicht auswertbar \(Subtype /PS"),
         (_shading_only_pattern_type(3), r"Pattern /P9 nicht auswertbar \(PatternType 3"),
         (_smask_without_group, r"/SMask ohne Gruppe /G"),
-        (_widget_without_appearance, r"Annotation\[0\] auf Seite 1: Text ohne Erscheinungsbild"),
+        (_widget_without_appearance, r"Annotation\[0\] auf Seite 1: Widget ohne gueltiges Erscheinungsbild"),
         (_need_appearances, r"/NeedAppearances"),
         (_q_underflow, r"Q ohne q"),
     ],
@@ -881,4 +893,82 @@ def test_n_853_7_unevaluable_content_carriers_fail_closed(mutate, needle):
 def test_n_853_7_shading_pattern_is_not_a_text_carrier():
     writer, page, _, _ = _base_writer()
     _shading_only_pattern_type(2)(writer, page)
+    assert "1 Seite(n)" in _check(writer)
+
+
+# --- N-853-9 (Pruefrunde #853 Delta 2e033c6c): Annotationen ohne gueltiges /AP ---
+def _widget_da_only_on_acroform(writer, page):
+    """Widget ohne /AP und ohne eigenes /DA; /DA und /DR stehen nur am /AcroForm."""
+    from pypdf.generic import DictionaryObject, TextStringObject
+
+    writer._root_object[_n("/AcroForm")] = DictionaryObject({
+        _n("/DA"): TextStringObject("/Helv 0 Tf 0 g"),
+        _n("/DR"): _font_resources("/Helv", _helvetica(writer)),
+    })
+    _add_annotation(writer, page, {}, subtype="/Widget")
+
+
+def _widget_da_on_parent_field(writer, page):
+    from pypdf.generic import DictionaryObject, TextStringObject
+
+    parent = writer._add_object(DictionaryObject({
+        _n("/FT"): _n("/Tx"), _n("/DA"): TextStringObject("/Helv 0 Tf 0 g")}))
+    _add_annotation(writer, page, {}, subtype="/Widget", Parent=parent)
+
+
+def _widget_ap_without_normal(writer, page):
+    inter = _own_font_dict(page).raw_get(_key_for(_own_font_dict(page), "Inter"))
+    _add_annotation(writer, page, {"/D": _form(writer, _text("/FA"), _font_resources("/FA", inter))},
+                    subtype="/Widget")
+
+
+def _ap_as_stream(subtype):
+    def mutate(writer, page):
+        from pypdf.generic import TextStringObject
+
+        inter = _own_font_dict(page).raw_get(_key_for(_own_font_dict(page), "Inter"))
+        _add_annotation(writer, page, {}, subtype=subtype, DA=TextStringObject("/Helv 9 Tf 0 g"),
+                        AP=_form(writer, _text("/FA"), _font_resources("/FA", inter)))
+    return mutate
+
+
+def _redact_overlay_text(writer, page):
+    from pypdf.generic import TextStringObject
+
+    _add_annotation(writer, page, {}, subtype="/Redact", DA=TextStringObject("/Helv 9 Tf 0 g"),
+                    OverlayText=TextStringObject("geschwaerzt"))
+
+
+@pytest.mark.parametrize(
+    "mutate,needle",
+    [
+        (_widget_da_only_on_acroform, r"Annotation\[0\] auf Seite 1: Widget ohne gueltiges Erscheinungsbild"),
+        (_widget_da_on_parent_field, r"Annotation\[0\] auf Seite 1: Widget ohne gueltiges Erscheinungsbild"),
+        (_widget_ap_without_normal, r"Annotation\[0\] auf Seite 1: Widget ohne gueltiges Erscheinungsbild"),
+        (_ap_as_stream("/FreeText"), r"Annotation\[0\] auf Seite 1: /AP ist kein Dict"),
+        (_ap_as_stream("/Widget"), r"Annotation\[0\] auf Seite 1: /AP ist kein Dict"),
+        (_redact_overlay_text, r"Annotation\[0\] auf Seite 1: Redact mit /OverlayText"),
+    ],
+    ids=["widget_da_am_acroform", "widget_da_am_elternfeld", "widget_ap_ohne_n",
+         "freetext_ap_stream", "widget_ap_stream", "redact_overlaytext"],
+)
+def test_n_853_9_annotations_without_valid_appearance_fail_closed(mutate, needle):
+    writer, page, _, _ = _base_writer()
+    assert "1 Seite(n)" in _check(writer)  # Positivkontrolle vor der Mutation
+    mutate(writer, page)
+    with pytest.raises(smoke.SmokeError, match=needle):
+        _check(writer)
+
+
+def test_n_853_9_link_and_valid_widget_stay_green():
+    """Gegenkontrolle: Link ohne /AP und /DA (wie ReportLab-linkRect) und ein
+    Widget mit gueltigem /AP /N aus eingebettetem Inter bleiben gruen; auch
+    Redact ohne /OverlayText ist kein Befund."""
+    from pypdf.generic import TextStringObject
+
+    writer, page, _, inter = _base_writer()
+    _add_annotation(writer, page, {}, subtype="/Link")
+    _add_annotation(writer, page, {"/N": _form(writer, _text("/FA"), _font_resources("/FA", inter))},
+                    subtype="/Widget", DA=TextStringObject("/FA 9 Tf 0 g"))
+    _add_annotation(writer, page, {}, subtype="/Redact")
     assert "1 Seite(n)" in _check(writer)
