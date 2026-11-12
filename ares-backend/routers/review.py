@@ -5234,7 +5234,7 @@ def strategy_option_coverage_for_mandate(db: Session, mandate) -> dict:
         .order_by(RiskAssessment.created_at.desc()).first()
     )
     service_mode, run_tenant = derive_service_mode(mandate), mandate_tenant_id(mandate)
-    jurisdiction = getattr(mandate, "jurisdiction", None) or "CH"
+    jurisdiction = build_run_context(mandate).jurisdiction  # X2b: eine Aufloesung
     bucket = _risk_score_bucket(assessment) if assessment else 0
 
     def _eligible(product):
@@ -5246,7 +5246,7 @@ def strategy_option_coverage_for_mandate(db: Session, mandate) -> dict:
     return strategy_option_coverage(
         db, mandate, exclusion_evidence=_evidence, as_of=as_of, eligible=_eligible,
         normalize_preferences=_normalize_preferences,
-        jurisdiction_ctx=_resolve_jurisdiction_context(db, mandate, getattr(mandate, "jurisdiction", None) or "CH"),
+        jurisdiction_ctx=_resolve_jurisdiction_context(db, mandate, jurisdiction),
     )
 
 
