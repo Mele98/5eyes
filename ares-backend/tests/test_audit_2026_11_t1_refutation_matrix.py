@@ -136,3 +136,97 @@ def test_oracle_is_not_trivial():
     assert oracle([policy, sibling], "controversial_weapons") is False
     assert oracle([policy, _row("conventional_weapons", "measured_exposure", 300, 100, "approved")],
                   "controversial_weapons") is True
+
+
+# --- H-7 (Dok. 86, Pruefrunde #863 Delta): weitere Matrix-Dimensionen --------
+# Das Orakel oben kennt eine einzige Hausschwelle (500), keine Grenze 0 und
+# weder Gueltigkeit noch Tenant-Scope. Hier dieselbe Regel, erweitert um:
+# * unterschiedliche Hausschwellen je Abfrage (z. B. kontroverse Waffen 0),
+# * Grenze 0,
+# * Gueltigkeit (abgelaufen / noch nicht gueltig zaehlt nicht, auch nicht als
+#   Widerlegung),
+# * Tenant-Scope (Plattform-Nachweis fuer alle, Tenant-Nachweis nur fuer den
+#   eigenen Tenant; ein fremder zaehlt nicht, auch nicht als Widerlegung).
+TENANT = "t-own"
+H7_HOUSES = {"weapons": 500, "controversial_weapons": 0, "conventional_weapons": 500}
+H7_LIMITS = (0, 400, 500, 600)
+H7_VALIDITY = {
+    "valid": ("2026-06-30", "2027-06-30"),
+    "expired": ("2025-06-30", "2026-06-30"),
+    "not_yet_valid": ("2026-12-01", "2027-12-01"),
+}
+H7_TENANTS = (None, TENANT, "t-foreign")
+
+
+def oracle_h7(rows, query, house, today, tenant) -> bool:
+    def counts(r) -> bool:
+        return (
+            r.status == "approved"
+            and date.fromisoformat(r.as_of) <= today <= date.fromisoformat(r.valid_until)
+            and r.tenant_id in (None, tenant)
+        )
+
+    usable = [r for r in rows if counts(r)]
+    for r in usable:
+        if r.category not in (query, ORACLE_PARENT.get(query)):
+            continue
+        if r.revenue_threshold_bps > house:
+            continue
+        if r.kind == "measured_exposure" and r.measured_exposure_bps != 0:
+            continue
+        family = {r.category} | ORACLE_CHILDREN.get(r.category, set())
+        refuted = any(
+            m.kind == "measured_exposure" and m.measured_exposure_bps > 0
+            and m.category in family and m.revenue_threshold_bps >= r.revenue_threshold_bps
+            for m in usable
+        )
+        if not refuted:
+            return True
+    return False
+
+
+def _row_h7(category, kind, limit, exposure, validity, tenant_id):
+    row = _row(category, kind, limit, exposure, "approved")
+    row.as_of, row.valid_until = H7_VALIDITY[validity]
+    row.tenant_id = tenant_id
+    return row
+
+
+@pytest.mark.parametrize("query", QUERIES)
+def test_h7_matrix_house_thresholds_validity_and_tenant(query):
+    house = H7_HOUSES[query]
+    combos = list(itertools.product(H7_LIMITS, H7_VALIDITY, H7_TENANTS))
+    mismatches, total, satisfied = [], 0, 0
+    for e_cat, e_kind in EVIDENCE:
+        for e_limit, e_valid, e_tenant in combos:
+            evidence = _row_h7(e_cat, e_kind, e_limit, 0, e_valid, e_tenant)
+            for m_cat, (m_limit, m_valid, m_tenant), m_exp in itertools.product(QUERIES, combos, EXPOSURES):
+                rows = [evidence, _row_h7(m_cat, "measured_exposure", m_limit, m_exp, m_valid, m_tenant)]
+                expected = oracle_h7(rows, query, house, TODAY, TENANT)
+                actual = evaluate_criterion(
+                    None, "p1", query, house, TODAY, tenant_id=TENANT, attributes=rows,
+                ).satisfied
+                total += 1
+                satisfied += expected
+                if expected != actual:
+                    mismatches.append((e_cat, e_kind, e_limit, e_valid, e_tenant,
+                                       m_cat, m_limit, m_exp, m_valid, m_tenant, expected, actual))
+    assert not mismatches, f"{len(mismatches)} Abweichungen, z. B. {mismatches[:3]}"
+    # Die Matrix unterscheidet in beide Richtungen.
+    assert 0 < satisfied < total
+
+
+def test_h7_oracle_dimensions_are_not_trivial():
+    policy = _row_h7("weapons", "exclusion_policy", 0, 0, "valid", None)
+    hit = _row_h7("conventional_weapons", "measured_exposure", 0, 100, "valid", None)
+    assert oracle_h7([policy], "controversial_weapons", 0, TODAY, TENANT) is True
+    assert oracle_h7([policy, hit], "controversial_weapons", 0, TODAY, TENANT) is False
+    for validity in ("expired", "not_yet_valid"):
+        assert oracle_h7([policy, _row_h7("conventional_weapons", "measured_exposure", 0, 100, validity, None)],
+                         "controversial_weapons", 0, TODAY, TENANT) is True
+    assert oracle_h7([policy, _row_h7("conventional_weapons", "measured_exposure", 0, 100, "valid", "t-foreign")],
+                     "controversial_weapons", 0, TODAY, TENANT) is True
+    assert oracle_h7([_row_h7("weapons", "exclusion_policy", 0, 0, "valid", "t-foreign")],
+                     "weapons", 500, TODAY, TENANT) is False
+    assert oracle_h7([_row_h7("controversial_weapons", "exclusion_policy", 400, 0, "valid", None)],
+                     "controversial_weapons", 0, TODAY, TENANT) is False

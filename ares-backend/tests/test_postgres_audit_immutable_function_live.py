@@ -21,6 +21,7 @@ wird uebersprungen; in CI setzt der ``postgres-rls``-Job sie.
 from __future__ import annotations
 
 import importlib.util
+import itertools
 import os
 import sys
 import uuid
@@ -103,6 +104,11 @@ def _bindings(engine, schema: str) -> dict[str, tuple[str, int]]:
     return {r[0]: (r[1], int(r[2])) for r in rows}
 
 
+# N-873-01: Seit Alembic e2f9a4c7b1d8 ist audit_log.sequence unter PG
+# eindeutig (ux_audit_log_sequence); jede Probe braucht eine eigene Sequenz.
+_PROBE_SEQUENCES = itertools.count(1)
+
+
 def _assert_immutable(engine) -> None:
     row_id = f"audit-{uuid.uuid4().hex[:8]}"
     with engine.begin() as conn:
@@ -114,9 +120,10 @@ def _assert_immutable(engine) -> None:
                 "INSERT INTO audit_log (id, user_name, table_name, record_id, action, created_at,"
                 " sequence, integrity_hash, previous_hash)"
                 " VALUES (:id, 'probe', 'probe_table', 'r1', 'CREATE', '2026-10-24T00:00:00Z',"
-                " 1, 'probe-hash', '')"
+                " :seq, 'probe-hash', '')"
             ),
-            {"id": row_id},
+            # N-873-01: eindeutige Sequenz je Probe (ux_audit_log_sequence).
+            {"id": row_id, "seq": next(_PROBE_SEQUENCES)},
         )
     for stmt in (
         "UPDATE audit_log SET user_name = 'changed' WHERE id = :id",
@@ -196,11 +203,11 @@ def _insert_probe(engine, *, with_chain_fields: bool) -> None:
     values = ":id, 'probe', 'probe_table', 'r1', 'CREATE', '2026-11-05T00:00:00Z'"
     if with_chain_fields:
         columns += ", sequence, integrity_hash, previous_hash"
-        values += ", 7, 'probe-hash', ''"
+        values += ", :seq, 'probe-hash', ''"
     with engine.begin() as conn:
         conn.execute(
             text(f"INSERT INTO audit_log ({columns}) VALUES ({values})"),
-            {"id": f"audit-{uuid.uuid4().hex[:8]}"},
+            {"id": f"audit-{uuid.uuid4().hex[:8]}", "seq": next(_PROBE_SEQUENCES)},
         )
 
 

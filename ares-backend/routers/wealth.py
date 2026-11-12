@@ -1319,6 +1319,7 @@ def reorder_goals(
         GoalOrderConflictError,
         GoalOrderError,
         acquire_goal_order_write_lock,
+        is_goal_order_lock_conflict,
         is_goal_rank_unique_violation,
         resolve_goal_order,
     )
@@ -1333,17 +1334,28 @@ def reorder_goals(
         if "locked" in str(getattr(exc, "orig", exc)).lower():
             raise HTTPException(status_code=409, detail=GOAL_ORDER_CHANGED_DETAIL) from exc
         raise
-    goals = (
-        db.query(Goal)
-        .filter(
-            Goal.mandate_id == mandate_id,
-            Goal.deleted_at.is_(None),
-            Goal.is_active == 1,
+    try:
+        goals = (
+            db.query(Goal)
+            .filter(
+                Goal.mandate_id == mandate_id,
+                Goal.deleted_at.is_(None),
+                Goal.is_active == 1,
+            )
+            # H-868-D1: feste Sperrreihenfolge (PG FOR UPDATE), sonst koennen
+            # zwei Reorders Zeilensperren gegenlaeufig nehmen -> Deadlock.
+            .order_by(Goal.id)
+            .with_for_update()
+            .populate_existing()
+            .all()
         )
-        .with_for_update()
-        .populate_existing()
-        .all()
-    )
+    except OperationalError as exc:
+        # H-868-D1: PG-Deadlock/Lock-Timeout entsteht beim SELECT, nicht in
+        # acquire_goal_order_write_lock -> ebenfalls 409 statt 500.
+        db.rollback()
+        if is_goal_order_lock_conflict(exc):
+            raise HTTPException(status_code=409, detail=GOAL_ORDER_CHANGED_DETAIL) from exc
+        raise
     try:
         new_ranks = resolve_goal_order(goals, body.goal_ids, body.expected_goal_ids)
     except GoalOrderConflictError as exc:
@@ -1358,6 +1370,11 @@ def reorder_goals(
         # Teilstand -- der Client laedt neu und sortiert erneut.
         db.rollback()
         if is_goal_rank_unique_violation(exc):
+            raise HTTPException(status_code=409, detail=GOAL_ORDER_CHANGED_DETAIL) from exc
+        raise
+    except OperationalError as exc:
+        db.rollback()
+        if is_goal_order_lock_conflict(exc):
             raise HTTPException(status_code=409, detail=GOAL_ORDER_CHANGED_DETAIL) from exc
         raise
     if changed:
@@ -1402,6 +1419,13 @@ GOAL_RANK_ADJUSTED_NOTICE = (
     "Priorität angepasst – der frühere Rang ist inzwischen belegt, das Ziel "
     "steht jetzt am Ende. Bitte Reihenfolge prüfen und Strategie neu berechnen."
 )
+# H-868-D2: Reaktivierung mit ausdruecklichem, aber belegtem Wunschrang; das
+# Ziel behaelt seinen frueheren (freien) Rang.
+GOAL_RANK_REQUEST_NOT_APPLIED_NOTICE = (
+    "Gewünschte Priorität nicht übernommen – der gewünschte Rang ist belegt, "
+    "das Ziel behält seinen früheren Rang. Reihenfolge bitte über „Reihenfolge "
+    "festlegen“ ändern und Strategie neu berechnen."
+)
 
 
 @router.put("/mandates/{mandate_id}/goals/{goal_id}", response_model=GoalResponse)
@@ -1424,12 +1448,15 @@ def update_goal(
     updates = _normalize_goal_payload(updates, goal)
     _validate_goal_link(mandate.client_id, updates, db)
     new_rank = updates.get("rank")
+    requested_rank = int(new_rank) if new_rank is not None else None
     if new_rank is not None and int(new_rank) != int(goal.rank or 0):
         # Sprint 2026-06-06 Fix: Rang-Konflikt beim Update auto-aufloesen statt 409.
         updates["rank"] = _resolve_goal_rank_conflict(
             mandate_id, int(new_rank), db, existing_id=goal_id,
         )
     rank_adjustment: tuple[int, int] | None = None
+    rank_notice = GOAL_RANK_ADJUSTED_NOTICE
+    previous_rank = int(goal.rank or 0)
     if updates.get("is_active") and not int(goal.is_active or 0):
         # N-865-1 (Geschwister-Pfad): Ein reaktiviertes Ziel tritt wieder
         # unter ux_goals_rank_active. Belegt inzwischen ein aktives Ziel
@@ -1442,7 +1469,14 @@ def update_goal(
         wanted = int(updates.get("rank") or goal.rank or 1)
         updates["rank"] = _resolve_goal_rank_conflict(mandate_id, wanted, db)
         if int(updates["rank"]) != wanted:
-            rank_adjustment = (wanted, int(updates["rank"]))
+            rank_adjustment = (requested_rank or wanted, int(updates["rank"]))
+        elif requested_rank is not None and requested_rank != int(updates["rank"]):
+            # H-868-D2: Der ausdrueckliche Wunschrang war belegt, der fruehere
+            # Rang ist frei. Kein Hochstufen per Edit (GOAL-RANK-HARDNESS-
+            # ROUNDTRIP-001), aber der verworfene Wunsch wird nicht still
+            # uebergangen: Response-Hinweis und Rang-Audit (Wunsch -> Ergebnis).
+            rank_adjustment = (requested_rank, int(updates["rank"]))
+            rank_notice = GOAL_RANK_REQUEST_NOT_APPLIED_NOTICE
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0
@@ -1450,14 +1484,23 @@ def update_goal(
     # Sprint 2026-06-08 Fix B: Achievability invalidieren — Goal-Target-Aenderung
     # macht alle gespeicherten Scores potenziell stale.
     _invalidate_achievement_scores_for_mandate(mandate_id, db)
+    # N-873-02: Das unveraenderliche Audit haelt nur tatsaechliche Werte fest:
+    # "rank" = bisheriger -> neuer Rang (nur bei echtem Wechsel). Ein
+    # verworfener Wunschrang (H-868-D2) ist ein eigener Eintrag
+    # "rank_requested", nie ein angeblicher Altwert.
+    final_rank = int(updates.get("rank", previous_rank) or 0)
     rank_audit = (
-        {"field_name": "rank", "old_value": str(rank_adjustment[0]),
-         "new_value": str(rank_adjustment[1])}
-        if rank_adjustment else {}
+        {"field_name": "rank", "old_value": str(previous_rank), "new_value": str(final_rank)}
+        if rank_adjustment and final_rank != previous_rank else {}
     )
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="goals", record_id=goal_id, action="UPDATE",
         mandate_id=mandate_id, client_id=mandate.client_id, **rank_audit)
+    if rank_adjustment and requested_rank is not None and requested_rank != final_rank:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="goals", record_id=goal_id, action="UPDATE",
+            mandate_id=mandate_id, client_id=mandate.client_id,
+            field_name="rank_requested", old_value=None, new_value=str(requested_rank))
     db.commit()
     db.refresh(goal)
     invalidate_advisory_cache(mandate_id)
@@ -1465,7 +1508,7 @@ def update_goal(
         return GoalResponse.model_validate(goal).model_copy(update={
             "rank_adjusted_from": rank_adjustment[0],
             "rank_adjusted_to": rank_adjustment[1],
-            "rank_adjustment_notice": GOAL_RANK_ADJUSTED_NOTICE,
+            "rank_adjustment_notice": rank_notice,
         })
     return goal
 

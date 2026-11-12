@@ -75,7 +75,8 @@ def test_both_modes_call_the_check_with_the_floor_source():
     import services.portfolio_engine_house_matrix as hm
 
     source = inspect.getsource(pe.generate_target_allocation)
-    assert 'source="zwingend vorzuhaltende Zielreserve", name_source_always=True' in source  # stochastisch
+    # stochastisch: Herkunftsangabe per Verhaltenstest gepinnt (#859 H-1,
+    # test_h859_h1_reserve_422_behavior.py); der Quelltext-Anker entfaellt.
     assert "resolve_liquidity_floor(" in source  # Hausmatrix (E-1)
     assert "liquidity_source=source if (name_source_always or raised) else None" in inspect.getsource(hm.raise_liquidity_floor)
     assert 'min_sources={"liquidity": liquidity_source} if liquidity_source is not None else None' in inspect.getsource(

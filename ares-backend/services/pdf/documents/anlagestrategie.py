@@ -50,6 +50,15 @@ from services.pdf.components.unterschrift import make_unterschrift_section
 from services.pdf.components.ziele_table import make_ziele_section
 
 
+def _has_risk_metrics(data) -> bool:
+    """N-873-04: gleiche Regel wie ``make_risiko_metriken_section`` -- die
+    CMA-Felder sind int (0 = nicht berechnet), die MC-Kennzahlen None, wenn
+    sie fehlen; eine gerechnete 0 ist ein Wert."""
+    return bool(data.cma_expected_return_bps or data.cma_expected_vol_bps) or any(
+        value is not None for value in (data.median_cagr_bps, data.max_drawdown_bps, data.var_95_bps)
+    )
+
+
 def build_anlagestrategie_flowables(
     ctx: PDFContext, data: AnlagestrategieData
 ) -> list:
@@ -270,11 +279,7 @@ def build_anlagestrategie_flowables(
         ctx, mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
     ))
-    has_metrics = (
-        data.cma_expected_return_bps or data.median_cagr_bps
-        or data.cma_expected_vol_bps or data.max_drawdown_bps
-        or data.var_95_bps
-    )
+    has_metrics = _has_risk_metrics(data)
     if has_metrics:
         flowables.extend(make_risiko_metriken_section(
             expected_return_bps=data.cma_expected_return_bps,
@@ -557,11 +562,7 @@ def _build_anlagestrategie_flowables_template_order(
 
     # 15 Empfehlung
     header("Unsere Empfehlung")
-    has_metrics = (
-        data.cma_expected_return_bps or data.median_cagr_bps
-        or data.cma_expected_vol_bps or data.max_drawdown_bps
-        or data.var_95_bps
-    )
+    has_metrics = _has_risk_metrics(data)
     if has_metrics:
         flowables.extend(make_risiko_metriken_section(
             expected_return_bps=data.cma_expected_return_bps,

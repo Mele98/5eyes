@@ -314,16 +314,54 @@ def bootstrap_sqlite_schema(
         with sqlcipher3.connect(str(db_file)) as conn:
             apply_sqlcipher_key(conn, key)
             conn.execute('PRAGMA foreign_keys = OFF')
-            conn.executescript(sql)
+            try:
+                conn.executescript(sql)
+            except sqlcipher3.IntegrityError as exc:
+                _raise_explained_bootstrap_integrity_error(conn, exc)
+                raise
             conn.execute('PRAGMA foreign_keys = ON')
             conn.commit()
         return
 
     with sqlite3.connect(str(db_file)) as conn:
         conn.execute('PRAGMA foreign_keys = OFF')
-        conn.executescript(sql)
+        try:
+            conn.executescript(sql)
+        except sqlite3.IntegrityError as exc:
+            _raise_explained_bootstrap_integrity_error(conn, exc)
+            raise
         conn.execute('PRAGMA foreign_keys = ON')
         conn.commit()
+
+
+def _raise_explained_bootstrap_integrity_error(conn, exc: Exception) -> None:
+    """N-873-06: Scheitert der Schema-Bootstrap am Unique-Index
+    ``ux_goals_rank_active`` (Bestand mit doppelten aktiven Zielraengen, nur
+    moeglich, wenn der Index einer Installation je fehlte), bricht der Start
+    weiterhin ab (fail-closed) -- aber mit klarer Betreibermeldung statt
+    eines rohen IntegrityError. Andere Integritaetsfehler bleiben unveraendert."""
+    text_ = str(exc)
+    if "goals.mandate_id, goals.rank" not in text_ and "ux_goals_rank_active" not in text_:
+        return
+    try:
+        rows = conn.execute(
+            "SELECT mandate_id, rank, count(*) FROM goals "
+            "WHERE is_active = 1 AND deleted_at IS NULL "
+            "GROUP BY mandate_id, rank HAVING count(*) > 1 ORDER BY mandate_id, rank LIMIT 50"
+        ).fetchall()
+    except Exception:  # noqa: BLE001 - Diagnose darf die Meldung nicht verhindern
+        rows = []
+    listed = ", ".join(f"{mid}/{rank}/{n}" for mid, rank, n in rows) or "nicht ermittelbar"
+    message = (
+        "Datenbankstart abgebrochen: doppelte aktive Zielraenge verhindern den "
+        "Unique-Index ux_goals_rank_active (Mandat/Rang/Anzahl: "
+        f"{listed}). Bitte vor dem naechsten Start je betroffenem Mandat die "
+        "Rangfolge bereinigen (Backup zuerst; Raenge eindeutig machen), dann "
+        "neu starten. Ohne Index waeren Hauptziel und Gewichte nicht "
+        "deterministisch."
+    )
+    logger.critical(message)
+    raise RuntimeError(message) from exc
 
 
 class SchemaNotReadyError(RuntimeError):

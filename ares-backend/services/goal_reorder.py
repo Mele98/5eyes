@@ -103,6 +103,22 @@ def acquire_goal_order_write_lock(db) -> None:
         raw.execute("BEGIN IMMEDIATE")
 
 
+# H-868-D1: PostgreSQL-SQLSTATEs eines Sperrkonflikts zwischen zwei
+# Reorders (deadlock_detected, lock_not_available/lock_timeout,
+# serialization_failure). Der Client laedt neu und sortiert erneut (409).
+_GOAL_ORDER_LOCK_CONFLICT_SQLSTATES = frozenset({"40P01", "55P03", "40001"})
+
+
+def is_goal_order_lock_conflict(exc: BaseException) -> bool:
+    """True fuer einen Sperrkonflikt (PG-Deadlock/Lock-Timeout, SQLite
+    "database is locked") beim Reorder."""
+    orig = getattr(exc, "orig", exc)
+    sqlstate = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+    if sqlstate in _GOAL_ORDER_LOCK_CONFLICT_SQLSTATES:
+        return True
+    return "database is locked" in str(orig).lower()
+
+
 def is_goal_rank_unique_violation(exc: BaseException) -> bool:
     """True fuer die Verletzung von ``ux_goals_rank_active`` (SQLite nennt
     die Spalten, PostgreSQL den Indexnamen)."""
