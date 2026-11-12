@@ -2068,7 +2068,8 @@ export interface paths {
         /**
          * Activate Kyc Review Policy
          * @description Vier-Augen-Freigabe und Aktivierung einer Policy-Version: nur eine
-         *     ZWEITE Person mit Admin-Rolle, mit dem gesehenen Inhalts-Hash und der
+         *     ZWEITE Person -- Firmen-Admin oder externe Compliance-Person (Rolle
+         *     ``compliance_reviewer``, nur Freigabe/Lesen) --, mit dem gesehenen Inhalts-Hash und der
          *     Freigabereferenz. Die Aktivierungen bilden eine lineare Kette; zwei
          *     gleichzeitige Aktivierungen auf denselben Stand koennen nie beide gelingen
          *     (UNIQUE auf den Vorgaenger, 409).
@@ -8737,7 +8738,7 @@ export interface components {
              * @default advisor
              * @enum {string}
              */
-            role?: "admin" | "advisor" | "readonly" | "portfolio_management";
+            role?: "admin" | "advisor" | "readonly" | "portfolio_management" | "compliance_reviewer";
             /** Tenant Id */
             tenant_id?: string | null;
             /** Username */
@@ -13518,7 +13519,7 @@ export interface components {
              * @default advisor
              * @enum {string}
              */
-            role?: "admin" | "advisor" | "readonly" | "portfolio_management";
+            role?: "admin" | "advisor" | "readonly" | "portfolio_management" | "compliance_reviewer";
             /** Tenant Id */
             tenant_id?: string | null;
             /** Username */
@@ -13572,7 +13573,7 @@ export interface components {
             /** Is Active */
             is_active?: boolean | null;
             /** Role */
-            role?: ("admin" | "advisor" | "readonly" | "portfolio_management") | null;
+            role?: ("admin" | "advisor" | "readonly" | "portfolio_management" | "compliance_reviewer") | null;
         };
         /** ValidationError */
         ValidationError: {

@@ -8,7 +8,7 @@ class UserCreate(BaseModel):
     password: str
     full_name: str
     email: Optional[EmailStr] = None
-    role: Literal["admin", "advisor", "readonly", "portfolio_management"] = "advisor"
+    role: Literal["admin", "advisor", "readonly", "portfolio_management", "compliance_reviewer"] = "advisor"
     # 2026-08-09 (Live-Playwright-Fund, FINIG-Gate-Test): nur von super_admin
     # ausgewertet (routers/auth.py::create_user) -- erlaubt dem Operator, einen
     # Mitarbeiter DIREKT in der Ziel-Firma anzulegen (Quota wird dann korrekt
@@ -41,7 +41,7 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
-    role: Optional[Literal["admin", "advisor", "readonly", "portfolio_management"]] = None
+    role: Optional[Literal["admin", "advisor", "readonly", "portfolio_management", "compliance_reviewer"]] = None
     is_active: Optional[bool] = None
 
 
@@ -185,7 +185,7 @@ class InviteCreate(BaseModel):
     username: str
     full_name: str
     email: Optional[EmailStr] = None
-    role: Literal["admin", "advisor", "readonly", "portfolio_management"] = "advisor"
+    role: Literal["admin", "advisor", "readonly", "portfolio_management", "compliance_reviewer"] = "advisor"
     # 2026-08-09: siehe UserCreate.tenant_id -- identischer Grund (Quota-Check
     # muss gegen die Ziel-Firma laufen, nicht die Operator-Firma).
     tenant_id: Optional[str] = None

@@ -10181,7 +10181,8 @@
               "admin",
               "advisor",
               "readonly",
-              "portfolio_management"
+              "portfolio_management",
+              "compliance_reviewer"
             ],
             "title": "Role",
             "type": "string"
@@ -26024,7 +26025,8 @@
               "admin",
               "advisor",
               "readonly",
-              "portfolio_management"
+              "portfolio_management",
+              "compliance_reviewer"
             ],
             "title": "Role",
             "type": "string"
@@ -26186,7 +26188,8 @@
                   "admin",
                   "advisor",
                   "readonly",
-                  "portfolio_management"
+                  "portfolio_management",
+                  "compliance_reviewer"
                 ],
                 "type": "string"
               },
@@ -34031,7 +34034,7 @@
     },
     "/compliance/kyc-review-policies/{policy_row_id}/activate": {
       "post": {
-        "description": "Vier-Augen-Freigabe und Aktivierung einer Policy-Version: nur eine\nZWEITE Person mit Admin-Rolle, mit dem gesehenen Inhalts-Hash und der\nFreigabereferenz. Die Aktivierungen bilden eine lineare Kette; zwei\ngleichzeitige Aktivierungen auf denselben Stand koennen nie beide gelingen\n(UNIQUE auf den Vorgaenger, 409).",
+        "description": "Vier-Augen-Freigabe und Aktivierung einer Policy-Version: nur eine\nZWEITE Person -- Firmen-Admin oder externe Compliance-Person (Rolle\n``compliance_reviewer``, nur Freigabe/Lesen) --, mit dem gesehenen Inhalts-Hash und der\nFreigabereferenz. Die Aktivierungen bilden eine lineare Kette; zwei\ngleichzeitige Aktivierungen auf denselben Stand koennen nie beide gelingen\n(UNIQUE auf den Vorgaenger, 409).",
         "operationId": "activate_kyc_review_policy_compliance_kyc_review_policies__policy_row_id__activate_post",
         "parameters": [
           {

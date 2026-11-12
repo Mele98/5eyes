@@ -39,6 +39,7 @@
       "frontend/intro-sequence.js",
       "frontend/goal-review-runtime.js",
       "frontend/client-compliance.js",
+      "frontend/kyc-review-policy.js",
       "frontend/eligibility-overrides.js",
       "frontend/desktop-api.js",
       "frontend/risk-capacity-recheck.js",

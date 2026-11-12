@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS users (
     full_name           TEXT NOT NULL,
     email               TEXT COLLATE NOCASE,
     role                TEXT NOT NULL DEFAULT 'advisor'
-                        CHECK(role IN ('admin', 'advisor', 'readonly', 'super_admin', 'portfolio_management', 'client')),
+                        CHECK(role IN ('admin', 'advisor', 'readonly', 'super_admin', 'portfolio_management', 'client', 'compliance_reviewer')),
     is_active           INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
     last_login_at       TEXT,
     created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),

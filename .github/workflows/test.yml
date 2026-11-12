@@ -771,6 +771,16 @@ jobs:
         run: |
           python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/chartjs-h5             --startup-timeout 300 --test-timeout 300 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_h5_soll_fan_chart_points_match_axis.py -p no:xdist -rs --tb=short
 
+      # C-890-01 Nachtrag 1: Maske KYC-Wiedervorlage im echten Browser gegen ein
+      # isoliertes Backend (Erfassen, Selbstfreigabe verweigert, Freigabe durch
+      # die externe Compliance-Rolle -> wirksam). Playwright Pflicht.
+      - name: KYC-Wiedervorlage-Maske (Playwright Pflicht)
+        working-directory: ares-backend
+        env:
+          ARES_REQUIRE_PLAYWRIGHT: "1"
+        run: |
+          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/c890-ui             --startup-timeout 300 --test-timeout 300 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_c890_kyc_review_policy_ui.py -p no:xdist -rs --tb=short
+
       - name: Upload vitest log on failure
         if: failure()
         uses: actions/upload-artifact@v6

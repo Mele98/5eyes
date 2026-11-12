@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import bcrypt as _bcrypt
+import re
 # Migration jose -> PyJWT (2026-07-18): python-jose 3.3.0 ist unmaintained und
 # CVE-behaftet (Algorithm-Confusion). PyJWT verlangt algorithms= beim decode
 # (bereits vorhanden) und schliesst damit alg-Confusion. Nur HS256 (symmetrisch),
@@ -8,6 +9,8 @@ import bcrypt as _bcrypt
 import jwt
 from jwt import PyJWTError
 from fastapi import Depends, HTTPException, status, Request
+
+from core.reason_codes import DomainError
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from database import get_db
@@ -282,6 +285,7 @@ def get_current_user(
                 detail=("2FA-Einrichtung ist Pflicht (require_2fa), aber noch nicht "
                         "aktiv -- bitte zuerst unter /auth/2fa/setup einrichten."),
             )
+    _enforce_compliance_reviewer_scope(user, request)
     if user.role == "super_admin":
         # Super-admins are unscoped by default: RLS sees no tenant and returns
         # no tenant-owned rows unless an operator path explicitly enables bypass.
@@ -289,6 +293,57 @@ def get_current_user(
     else:
         set_tenant_context(db, token_tid or _resolve_tenant_id_for_user(user))
     return user
+
+
+# C-890-01 Nachtrag 1: externe Compliance-Person einer Ein-Personen-Firma.
+# Die Rolle darf AUSSCHLIESSLICH Wiedervorlage-Policies lesen und freigeben
+# (Vier-Augen-Freigabe ohne volle Admin-Rechte). Jede andere Route wird hier
+# zentral gesperrt -- kein Zugriff auf Kunden, Mandate oder Systemdaten, kein
+# Erfassen einer Policy. Erlaubt sind nur die eigenen Konto-/Anmeldepfade.
+COMPLIANCE_REVIEWER_ROLE = "compliance_reviewer"
+COMPLIANCE_REVIEWER_SCOPE = "COMPLIANCE_REVIEWER_SCOPE"
+_COMPLIANCE_REVIEWER_ALLOWED: tuple[tuple[str, str], ...] = (
+    ("GET", r"/auth/me"),
+    ("POST", r"/auth/logout"),
+    ("POST", r"/auth/refresh"),
+    ("POST", r"/auth/change-password"),
+    ("GET", r"/auth/2fa/status"),
+    ("POST", r"/auth/2fa/(setup|enable)"),
+    ("GET", r"/compliance/kyc-review-policies"),
+    ("POST", r"/compliance/kyc-review-policies/[^/]+/activate"),
+)
+
+
+def compliance_reviewer_may_call(method: str, path: str) -> bool:
+    """True, wenn die Rolle ``compliance_reviewer`` diese Route nutzen darf
+    (exakter Pfadvergleich, ``/api``-Praefix toleriert)."""
+    clean = (path or "").rstrip("/") or "/"
+    if clean.startswith("/api/"):
+        clean = clean[4:]
+    return any(
+        method.upper() == allowed_method and re.fullmatch(pattern, clean)
+        for allowed_method, pattern in _COMPLIANCE_REVIEWER_ALLOWED
+    )
+
+
+def _enforce_compliance_reviewer_scope(user: User, request) -> None:
+    if getattr(user, "role", None) != COMPLIANCE_REVIEWER_ROLE or request is None:
+        return
+    path = getattr(getattr(request, "url", None), "path", "") or ""
+    if not compliance_reviewer_may_call(getattr(request, "method", "GET"), path):
+        raise DomainError(
+            COMPLIANCE_REVIEWER_SCOPE,
+            "Dieses Konto ist nur fuer die Freigabe der KYC-Wiedervorlage-Policy berechtigt.",
+            http_status=status.HTTP_403_FORBIDDEN,
+        )
+
+
+def require_compliance_approver(current_user: User = Depends(get_current_user)) -> User:
+    """Zweite Person fuer Compliance-Freigaben: Firmen-Admin oder die schmale
+    Rolle ``compliance_reviewer`` (externe Compliance-Person)."""
+    if current_user.role not in ("admin", "super_admin", COMPLIANCE_REVIEWER_ROLE):
+        raise HTTPException(status_code=403, detail="Nur fuer Administratoren oder Compliance-Freigabe")
+    return current_user
 
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:

@@ -12,7 +12,7 @@ keine Owner-Frist und kein Produktdefault -- das Produkt kennt keine Frist.
 from __future__ import annotations
 
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -48,7 +48,8 @@ from client_onboarding_fixture import (  # noqa: E402
     ensure_test_kyc_review_policy, ensure_test_legal_profile, satisfy_client_onboarding,
 )
 
-TODAY = date.today()
+# Server rechnet in UTC (Policy-Wirksamkeit); Testdaten deshalb ebenfalls UTC.
+TODAY = datetime.now(timezone.utc).date()
 TEST_SOURCE = "TEST-C890 Testwert (keine Owner-Frist)"
 
 

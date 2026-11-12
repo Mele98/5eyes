@@ -58,7 +58,7 @@ from schemas.review import (
     KycReviewPolicyActivate, KycReviewPolicyCreate, KycReviewPolicyOverview, KycReviewPolicyResponse,
 )
 from price_updater import summarize_price_quality
-from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
+from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
 from services.audit import log, release_block_audit, restore_tenant_after_rollback
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
@@ -2043,9 +2043,11 @@ def _kyc_review_policy_status(policy: dict, activation: dict | None, current: di
         return "entwurf"
     effective = current.get("policy") or {}
     if str(effective.get("id")) == str(policy["id"]):
-        return "abgelaufen" if current["reason_code"] == "KYC_REVIEW_POLICY_EXPIRED" else (
-            "wirksam" if not current["reason_code"] else "gesperrt"
-        )
+        if current["reason_code"] == "KYC_REVIEW_POLICY_EXPIRED":
+            return "abgelaufen"
+        if current["reason_code"] == "KYC_REVIEW_POLICY_NOT_YET_EFFECTIVE":
+            return "freigegeben_noch_nicht_wirksam"
+        return "wirksam" if not current["reason_code"] else "gesperrt"
     if kyc_review_effective_from(policy, activation) > today:
         return "freigegeben_noch_nicht_wirksam"
     return "abgeloest"
@@ -2156,10 +2158,11 @@ def activate_kyc_review_policy(
     body: KycReviewPolicyActivate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_compliance_approver),
 ):
     """Vier-Augen-Freigabe und Aktivierung einer Policy-Version: nur eine
-    ZWEITE Person mit Admin-Rolle, mit dem gesehenen Inhalts-Hash und der
+    ZWEITE Person -- Firmen-Admin oder externe Compliance-Person (Rolle
+    ``compliance_reviewer``, nur Freigabe/Lesen) --, mit dem gesehenen Inhalts-Hash und der
     Freigabereferenz. Die Aktivierungen bilden eine lineare Kette; zwei
     gleichzeitige Aktivierungen auf denselben Stand koennen nie beide gelingen
     (UNIQUE auf den Vorgaenger, 409)."""
