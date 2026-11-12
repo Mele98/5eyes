@@ -9,8 +9,8 @@ Jetzt: ``RecommendationFinalizeResponse`` = Lauf + ``warnings`` (Freitext,
 identisch zum Audit-Log) + ``warning_codes`` (strukturiert, aus den
 ``[CODE]``-Suffixen).
 """
-from tests.sustainability_test_support import answer_question_one_for_all_mandates  # noqa: E402
 from __future__ import annotations
+from tests.sustainability_test_support import answer_question_one_for_all_mandates  # noqa: E402
 
 from main import app
 from models.users import User
