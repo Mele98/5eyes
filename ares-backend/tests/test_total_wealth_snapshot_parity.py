@@ -121,9 +121,14 @@ const liabilities = [
     currency:'CHF'}},
   {json.dumps(other_debt, ensure_ascii=False)}
 ];
-const strategyState = {{allocation:{allocation}}};
-const ADMIN_CMA_DEFAULTS = {{equity_intl_return_bps:690,bonds_fx_hedged_return_bps:220,
-  real_estate_ch_return_bps:450,alternatives_gold_return_bps:300}};
+// H9 Nachtrag 2: die Snapshot-Basis kommt nicht mehr aus der Strategie,
+// sondern aus der strategieunabhaengigen Server-Basis (ist-projection-basis,
+// gleiche Felder wie total_allocation) samt Renditeannahmen der CMA.
+const __alloc = {allocation};
+function istProjectionServerBasisFor() {{
+  return Object.assign({{expected_return_bps:{{equities:690,bonds:220,real_estate:450,alternatives:300,liquidity:0}}}},
+    (__alloc && __alloc.total_allocation) || {{}});
+}}
 function isExternalPensionPosition(pos) {{ return false; }}
 function pensionProjectionRateBps(pos) {{ return null; }}
 function wealthScopePositions(scope) {{ return assets; }}

@@ -219,6 +219,9 @@ class AnlagestrategieData:
 
     target_volatility_1y_bps: int | None = None
     current_volatility_1y_bps: int | None = None
+    projection_end_year_label: str | None = None
+    """H9 Nachtrag 3: letztes Jahreslabel der Monte-Carlo-Pfade (Stand nach
+    dem letzten inklusiven Jahr); das PDF zeigt es als "Ende JJJJ" wie die App."""
     """1-Jahres-Volatilitaet aus der Monte-Carlo-Pfadsimulation (NICHT
     identisch zu cma_expected_vol_bps oben, das die theoretische CMA-Vola
     ist -- hier die tatsaechlich simulierte Pfad-Statistik, Basis fuer die

@@ -1009,8 +1009,12 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     current_cagr_bps = None
     target_vol_1y_bps = None
     current_vol_1y_bps = None
+    projection_end_year_label = None
     if engine_payload is not None:
         mc = engine_payload.get("monte_carlo") or {}
+        _mc_labels = mc.get("year_labels")
+        if isinstance(_mc_labels, list) and _mc_labels:
+            projection_end_year_label = str(_mc_labels[-1])
         try:
             max_dd_bps = int(mc.get("target_max_drawdown_p50_bps", 0) or 0) or None
             var_95_bps = int(mc.get("target_var_95_1y_bps", 0) or 0) or None
@@ -1130,6 +1134,7 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         current_annualized_return_p50_bps=current_cagr_bps,
         target_volatility_1y_bps=target_vol_1y_bps,
         current_volatility_1y_bps=current_vol_1y_bps,
+        projection_end_year_label=projection_end_year_label,
         band_house_deviations=list(band_disclosure["deviations"]),
         band_house_profile=band_disclosure["profile"],
         band_deviation_reason=band_disclosure["reason"],
@@ -1372,14 +1377,10 @@ def get_risikoprofil_pdf(
             "PDF data-load section failed for mandate %s: %s",
             getattr(mandate, "id", "?"), exc,
         )
+    # H9 (Owner-Vorgabe 2026-11-08): kein Plausibilitaets-/Widerspruchshinweis
+    # zur Risikofaehigkeit im Risikoprofil-PDF -- Kundenangaben werden
+    # respektiert, die Pruefung bleibt intern (Evidenz + Audit).
     capacity_plausibility_note = ""
-    if ra is not None and int(getattr(ra, "is_current", 0) or 0) == 1:
-        from services.risk_capacity_plausibility import (
-            evaluate_mandate_safely, pdf_advisor_note,
-        )
-        capacity_plausibility_note = pdf_advisor_note(
-            evaluate_mandate_safely(db, mandate, ra)
-        )
 
     # RISK-PROFILE-SIGNOFF-001: Signoff-Zustand + Referenz (dieselbe Quelle
     # wie Beratungsprotokoll-PDF, API und Strategie-Meldung).

@@ -154,7 +154,7 @@ def test_ch_literal_ratchet_only_sinks():
 # --------------------------------------------------------------------------
 
 EXPECTED_RESOLVE_PACK_SITES = {
-    "routers/allocation.py": 2,
+    "routers/allocation.py": 3,  # H9 Nachtrag 2: GET ist-projection-basis (resolve_pack(mandate).code wie Allokationspfad)
     "routers/wealth.py": 1,
     "services/cost_disclosure.py": 1,
     "services/manual_target_allocation.py": 1,

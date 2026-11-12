@@ -50,7 +50,10 @@ GOLDEN_SORTED_TABLES_SHA256 = "751a13f478745fdb7729d3191e5d5bf93e52f53b5f2a4d41d
 # Integrationsprobe 2026-11-07: Pins aus #856, #862, #868 und #869 zusammen-
 # gefuehrt; api/openapi.json (Git-Merge ohne Konflikt) besteht
 # scripts/export_openapi.py --check.
-GOLDEN_OPENAPI_SHA256 = "8ca5cb99beed3951ac6deb940efd0333bc42273a4da7b746443d7fb7ba50df65"
+# H9 Nachtrag 2 (H-150): nachgefuehrt fuer GET /mandates/{mandate_id}/ist-projection-basis
+# und die Schemas IstProjectionBasisResponse/IstProjectionCmaReference (nur additiv,
+# kein bestehender Pfad/kein bestehendes Schema geaendert; Feld-Diff api/openapi.json).
+GOLDEN_OPENAPI_SHA256 = "879fcb11ee33793ba285d15dc90cda1abaa9c8610435dd0a28c0b5084acbf580"
 
 _PROBE = """
 import hashlib, json

@@ -157,3 +157,14 @@ export function formatHorizon(years: number | null | undefined): string {
   if (!Number.isFinite(n) || n <= 0) return '—';
   return `${n} Jahre`;
 }
+
+/**
+ * H9 Nachtrag 2: Horizont-Beschriftung "Ende JJJJ" wie in der Hauptapp
+ * (projectionEndOfYearText). Projektionslabels markieren den Stand zu
+ * Jahresbeginn; der letzte Punkt ist der Stand nach dem letzten inklusiven
+ * Jahr -- Label 2041 = "Ende 2040".
+ */
+export function formatEndOfYear(label: string | number | null | undefined): string {
+  const year = Number.parseInt(String(label ?? ''), 10);
+  return Number.isFinite(year) ? `Ende ${year - 1}` : String(label ?? '');
+}

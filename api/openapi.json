@@ -9592,6 +9592,104 @@
         "title": "InviteResponse",
         "type": "object"
       },
+      "IstProjectionBasisResponse": {
+        "description": "H9 Nachtrag 2: serverseitige Basis der IST-Vermoegensprojektion.\n\nUnabhaengig vom Strategie-Zustand: Renditeannahmen je Anlageklasse aus der\nwirksamen CMA (Anlageklassen-Ebene, keine Gewichtung mit einer Soll-\nSub-Allokation) und die FX-normalisierte Gesamtvermoegens-Basis\n(Liability-Kaskade wie ``total_allocation``) aus den aktuellen Positionen.",
+        "properties": {
+          "cma": {
+            "$ref": "#/components/schemas/IstProjectionCmaReference"
+          },
+          "expected_return_bps": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Expected Return Bps",
+            "type": "object"
+          },
+          "foundation_in_net_wealth_rappen": {
+            "title": "Foundation In Net Wealth Rappen",
+            "type": "integer"
+          },
+          "mandate_id": {
+            "title": "Mandate Id",
+            "type": "string"
+          },
+          "projection_basis": {
+            "title": "Projection Basis",
+            "type": "object"
+          },
+          "total_base_rappen": {
+            "title": "Total Base Rappen",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mandate_id",
+          "cma",
+          "expected_return_bps",
+          "total_base_rappen",
+          "foundation_in_net_wealth_rappen",
+          "projection_basis"
+        ],
+        "title": "IstProjectionBasisResponse",
+        "type": "object"
+      },
+      "IstProjectionCmaReference": {
+        "description": "Wirksame CMA-Version (dieselbe Aufloesung wie der Allokationspfad).",
+        "properties": {
+          "assumption_set_name": {
+            "title": "Assumption Set Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "jurisdiction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jurisdiction"
+          },
+          "valid_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid From"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "assumption_set_name",
+          "version"
+        ],
+        "title": "IstProjectionCmaReference",
+        "type": "object"
+      },
       "JurisdictionHomeBiasDefaultCreate": {
         "properties": {
           "is_provisional": {
@@ -34671,6 +34769,69 @@
         "summary": "Create Goal Revision Decision",
         "tags": [
           "Vermögen & Ziele"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/ist-projection-basis": {
+      "get": {
+        "operationId": "get_ist_projection_basis_mandates__mandate_id__ist_projection_basis_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "horizon_years",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Horizon Years"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IstProjectionBasisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Ist Projection Basis",
+        "tags": [
+          "Allokation"
         ]
       }
     },

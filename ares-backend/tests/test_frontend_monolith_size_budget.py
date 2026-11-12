@@ -32,6 +32,23 @@ und die zugehoerigen Stile nach ``aa-chart.js``/``aa-chart.css`` verlegt
 27639 / 1689802, ``ares.css`` 1143 / 90070 -- beide Budgets entsprechend gesenkt
 (Stand H6-Feinschliff; die neuen Teile sind noch nicht gemergt, ihr Budget ist
 der Stand bei der Einfuehrung durch diesen PR).
+
+H9 (2026-11-08, Owner-UX): Gate der verbesserten Kurve in der
+Vermoegensentwicklung nach ``ist-projection-gate.js`` (neuer Teil, Budget =
+Stand bei Einfuehrung); erfundene Demo-/Platzhalterpfade entfernt. Monolith
+27613 / 1687921 -- Budget entsprechend gesenkt. Danach Warnbox/Badge der
+Risikofaehigkeits-Plausibilitaet aus der Maske entfernt: 27504 / 1681449.
+H9 Nachtrag 1 (2026-11-11, Pruefrunde 61d8d69d): IST-Grafik-Aufbau in
+``ist-projection-gate.js`` verschoben (IST-Horizont, Server-Pruefung),
+Sitzungsgrenze als neuer Teil ``session-boundary.js``, Demo-IST-Pfad in
+initCharts entfernt. Monolith 27460 / 1679579 -- gesenkt.
+H9 Nachtrag 2 (2026-11-12): IST-Projektion aus EINER Server-Basis
+(``ist-projection-basis.js``, neuer Teil), Kennzahlen-Renderer der
+Vermoegensentwicklung nach ``ist-projection-gate.js`` verschoben. Monolith
+27413 / 1676448 -- gesenkt.
+H9 Nachtrag 4 (N-892-05..08): ungesicherte Eingaben als neuer Teil
+``unsaved-changes.js``, ``doLogout`` nach ``session-boundary.js`` verschoben.
+Monolith 27401 / 1676042 -- gesenkt.
 """
 from __future__ import annotations
 
@@ -40,9 +57,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 27639
+MONOLITH_MAX_LINES = 27401
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1689802
+MONOLITH_MAX_BYTES = 1676042
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -51,6 +68,10 @@ EXTRACTED_PART_BUDGETS = {
     "aa-chart.css": (66, 5978),
     "intro-sequence.js": (761, 36861),
     "aa-chart.js": (331, 21026),
+    "ist-projection-gate.js": (300, 16505),
+    "session-boundary.js": (53, 2763),
+    "ist-projection-basis.js": (87, 4649),
+    "unsaved-changes.js": (89, 4658),
     "goal-review-runtime.js": (1589, 84633),
 }
 

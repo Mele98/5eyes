@@ -760,12 +760,14 @@ jobs:
           pip install -r requirements.txt playwright==1.62.0
           python -m playwright install --with-deps chromium
 
+      # H9 N-892-06: Verhaltenstest ungesicherte Eingaben (Logout-Dialog,
+      # beforeunload, Hinweis nach Benutzerwechsel) im selben Pflichtlauf.
       - name: Chart.js-Verhaltenstest SOLL-Faecher (Playwright Pflicht)
         working-directory: ares-backend
         env:
           ARES_REQUIRE_PLAYWRIGHT: "1"
         run: |
-          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/chartjs-h5             --startup-timeout 300 --test-timeout 300 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_h5_soll_fan_chart_points_match_axis.py -p no:xdist -rs --tb=short
+          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/chartjs-h5             --startup-timeout 300 --test-timeout 300 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_h5_soll_fan_chart_points_match_axis.py tests/test_h9_unsaved_changes_playwright.py -p no:xdist -rs --tb=short
 
       - name: Upload vitest log on failure
         if: failure()
