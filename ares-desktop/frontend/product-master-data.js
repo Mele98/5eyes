@@ -222,4 +222,3 @@ function renderCostRetrocessions(data){
         +'</div>';
     }).join('')+'</div>';
 }
-

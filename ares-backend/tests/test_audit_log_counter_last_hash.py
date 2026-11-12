@@ -196,4 +196,3 @@ def test_startup_check_runs_inside_read_scope(session_local):
     # Zaehlung, Bestandssiegel und Bericht laufen je in eigener Session, jede
     # im Lese-Kontext.
     assert calls == ["enter", "exit"] * 3
-
