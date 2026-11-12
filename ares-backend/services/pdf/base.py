@@ -99,7 +99,27 @@ class AnlagestrategieData:
     """{'equities': (min_bps, max_bps), ...} fuer Toleranzbaender-Spalte."""
 
     bucket_amounts_rappen: Mapping[str, int] = field(default_factory=dict)
-    """{'equities': target_amount_rappen, ...} fuer Betrag-Spalte."""
+    """{'equities': target_amount_rappen, ...} fuer Betrag-Spalte.
+
+    Live-Test 2026-11 H2/H3: Betraege auf der Strategiebasis
+    (``strategy_base_rappen``), auf die sich die SAA-Gewichte beziehen."""
+
+    strategy_base_rappen: int | None = None
+    """Strategiebasis = Beratungsvermoegen minus externe Liquiditaetsreserve
+    (Engine: ``strategy_base_rappen``). None = keine Reserve-Angabe."""
+
+    external_reserve_rappen: int = 0
+    """Ausserhalb der Anlagestrategie gehaltene Liquiditaetsreserve; wird als
+    eigene Zeile ausgewiesen, damit die Betraege auf das Beratungsvermoegen
+    summieren."""
+
+    strategy_basis_note: str | None = None
+    """N-858-2: Hinweis, wenn das aktuelle Beratungsvermoegen vom Vermoegen bei
+    Generierung der Strategie abweicht (Betraege beziehen sich auf letzteres)."""
+
+    sub_allocations: list = field(default_factory=list)
+    """SAA-Subanlageklassen (nicht Produktmix): dicts mit asset_class
+    (Bucket-Key), sub_asset_class, target_weight_bps, target_amount_rappen."""
 
     products: list = field(default_factory=list)
     """ISIN-Produkt-Liste. Jedes Element ist dict mit:
@@ -199,6 +219,9 @@ class AnlagestrategieData:
 
     target_volatility_1y_bps: int | None = None
     current_volatility_1y_bps: int | None = None
+    projection_end_year_label: str | None = None
+    """H9 Nachtrag 3: letztes Jahreslabel der Monte-Carlo-Pfade (Stand nach
+    dem letzten inklusiven Jahr); das PDF zeigt es als "Ende JJJJ" wie die App."""
     """1-Jahres-Volatilitaet aus der Monte-Carlo-Pfadsimulation (NICHT
     identisch zu cma_expected_vol_bps oben, das die theoretische CMA-Vola
     ist -- hier die tatsaechlich simulierte Pfad-Statistik, Basis fuer die

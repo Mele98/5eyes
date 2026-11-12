@@ -1,4 +1,4 @@
-# Release-Tag-Strategie für 5eyes Wealth Architects
+# Release-Tag-Strategie für Ares
 
 **Sprint U-78 (2026-06-04)** — Versionsdiskpline für reproduzierbare Berater-Builds.
 
@@ -6,7 +6,7 @@
 
 ## Pourquoi (Warum)
 
-5eyes hat zwei zusammengehörige Subsysteme:
+Ares hat zwei zusammengehörige Subsysteme:
 
 - **ares-backend** (Python/FastAPI) — `settings.app_version`
 - **ares-desktop** (Node/Electron) — `package.json.version`

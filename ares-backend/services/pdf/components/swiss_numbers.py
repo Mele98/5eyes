@@ -57,3 +57,24 @@ def format_integer(value: int | float | None) -> str:
         return f"{int(value):d}"
     except (TypeError, ValueError):
         return "—"
+
+
+def format_end_of_year(label: object) -> str:
+    """H9 Nachtrag 3: Horizont-Beschriftung "Ende JJJJ" -- dieselbe Konvention
+    wie die App (``projectionEndOfYearText`` in ``ist-projection-gate.js``) und
+    der React-Bericht (``formatEndOfYear``).
+
+    Projektionslabels markieren den Stand zu Jahresbeginn; der letzte Punkt ist
+    der Stand nach dem letzten inklusiven Jahr: Label 2041 -> ``"Ende 2040"``.
+    Nicht als Jahr lesbare Labels bleiben unveraendert, ``None`` -> ``""``.
+    """
+    text = "" if label is None else str(label).strip()
+    digits = ""
+    for ch in text:
+        if ch.isdigit():
+            digits += ch
+        else:
+            break
+    if not digits:
+        return text
+    return f"Ende {int(digits) - 1}"

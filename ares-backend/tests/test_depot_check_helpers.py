@@ -117,6 +117,7 @@ def test_init_result_dict_has_all_top_level_keys():
         "country_exposure_bps",
         "sector_exposure_bps",
         "currency_exposure_bps",
+        "currency_exposure_source_bps",  # PO-06
         "soll_country_exposure_bps",
         "soll_sector_exposure_bps",
         "soll_currency_exposure_bps",

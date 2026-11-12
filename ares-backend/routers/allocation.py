@@ -16,6 +16,7 @@ from models.profiling import RiskAssessment
 from models.review import MandateReportNotes
 from schemas.allocation import (
     TargetAllocationCreate, TargetAllocationResponse,
+    IstProjectionBasisResponse,
     HouseMatrixResponse,
     CapitalMarketAssumptionCreate, CapitalMarketAssumptionResponse,
     TargetAllocationGenerateRequest, TargetAllocationGenerateResponse,
@@ -61,6 +62,9 @@ from jurisdictions.resolve import resolve_pack
 from services.cma_currency_guard import attach_to_strategy_payload as attach_cma_currency_guard
 from services.portfolio_engine import (
     BUCKET_FIELDS,
+    _asset_class_expected_metrics,
+    _build_total_wealth_allocation,
+    _load_allocation_inputs,
     _current_risk_assessment_or_none,
     _current_target_allocation_or_none,
     build_target_payload_from_allocation,
@@ -70,6 +74,7 @@ from services.portfolio_engine import (
     require_strategy_ready_assessment,
 )
 from services.portfolio_engine_house_matrix import (
+    AllocationInputError,
     _building_block_rows_for_policy,
 )
 from services.manual_target_allocation import (
@@ -518,6 +523,88 @@ def get_current_building_blocks(
     return sorted(rows, key=lambda row: (row.asset_class, row.sub_asset_class))
 
 
+# H9 Nachtrag 2 (2026-11-12, Entscheid Owner-Vertretung): EINE CMA-Quelle fuer
+# die IST-Vermoegensprojektion. Der Browser rechnete ohne Strategie mit Client-
+# Konstanten, mit Strategie mit der Soll-gewichteten Server-CMA und dem Snapshot
+# der Strategie -- derselbe Kunde hatte je nach Zustand eine andere IST-Kurve.
+# Dieser Lesepfad liefert die Basis unabhaengig vom Strategie-Zustand mit der
+# wirksamen CMA des Allokationspfads; fehlt sie, gibt es keine Projektion
+# (fail-closed, Reason-Code IST_PROJECTION_BASIS_UNAVAILABLE).
+
+
+@router.get("/mandates/{mandate_id}/ist-projection-basis",
+            response_model=IstProjectionBasisResponse)
+def get_ist_projection_basis(
+    mandate_id: str,
+    horizon_years: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Tenant-/Besitz-Pruefung (IDOR): fremdes Mandat -> 404.
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    if horizon_years is not None and not 1 <= int(horizon_years) <= 80:
+        raise HTTPException(status_code=422, detail="horizon_years muss zwischen 1 und 80 liegen.")
+    try:
+        # Dieselbe Aufloesung wie der Allokationspfad (Jurisdiktion + Tenant).
+        _policy, cma = ensure_runtime_reference_data(
+            db,
+            current_user.id,
+            jurisdiction=resolve_pack(mandate).code,
+            tenant_id=getattr(mandate, "tenant_id", None) or None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "IST_PROJECTION_BASIS_UNAVAILABLE",
+            "message": "Keine wirksamen Kapitalmarktannahmen fuer dieses Mandat; "
+                       "die Ist-Projektion wird nicht berechnet.",
+        }) from exc
+    try:
+        inputs = _load_allocation_inputs(
+            db, mandate, simulation_prefs={}, cma=cma,
+            horizon_years_override=int(horizon_years) if horizon_years else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "IST_PROJECTION_BASIS_UNAVAILABLE",
+            "message": "Die erfassten Vermoegensdaten sind fuer die Ist-Projektion "
+                       "nicht lesbar: " + str(exc),
+        }) from exc
+    try:
+        returns, _vols = _asset_class_expected_metrics(cma)
+        total = _build_total_wealth_allocation(
+            inputs["total_summary"],
+            inputs["mortgage_liabilities_rappen"],
+            inputs["total_wealth_rappen"],
+            {key: 0 for key in BUCKET_FIELDS},
+            foundation_projection=inputs["external_foundation_projection"],
+            other_liabilities_rappen=max(
+                0, int(inputs["total_liabilities_rappen"]) - int(inputs["mortgage_liabilities_rappen"])
+            ),
+        )
+    except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+        # N-892-08: auch die Basis-Berechnung ist fail-closed (409 statt 500).
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "IST_PROJECTION_BASIS_UNAVAILABLE",
+            "message": "Die Gesamtvermoegens-Basis der Ist-Projektion ist nicht "
+                       "berechenbar: " + str(exc),
+        }) from exc
+    return {
+        "mandate_id": mandate.id,
+        "cma": {
+            "id": cma.id,
+            "assumption_set_name": cma.assumption_set_name,
+            "version": int(cma.version or 1),
+            "valid_from": cma.valid_from,
+            "valid_until": cma.valid_until,
+            "jurisdiction": getattr(cma, "jurisdiction", None),
+        },
+        "expected_return_bps": {key: int(returns.get(key, 0) or 0) for key in BUCKET_FIELDS},
+        "total_base_rappen": int(total.get("total_base_rappen") or 0),
+        "foundation_in_net_wealth_rappen": int(total.get("foundation_in_net_wealth_rappen") or 0),
+        "projection_basis": dict(total.get("projection_basis") or {}),
+    }
+
+
 @router.get("/capital-market-assumptions/current",
             response_model=CapitalMarketAssumptionResponse)
 def get_current_cma(
@@ -724,6 +811,12 @@ def generate_target_allocation_endpoint(
                 user_id=current_user.id,
                 preferences=body.preferences.model_dump() if body.preferences else None,
             )
+        except AllocationInputError as exc:
+            # AUDIT-2026-11 A5 / H-859-5: unerfuellbare oder widerspruechliche
+            # Bandbreiten/Ziele sind ein Eingabefehler (422) mit deutscher
+            # Meldung, kein Zustandskonflikt -- einheitlich fuer Ziel ausserhalb
+            # der Bandbreite, Min > Max, Minima ueber 100 % und Maxima unter 100 %.
+            raise HTTPException(status_code=422, detail=str(exc))
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
         # CON-001 (Codex-Audit 2026-08-25): siehe create_target_allocation oben --
@@ -737,8 +830,9 @@ def generate_target_allocation_endpoint(
                 table_name="target_allocations", record_id=result["target_allocation"].id, action="CREATE",
                 mandate_id=mandate_id, client_id=mandate.client_id,
                 ip_address=_extract_client_ip(request))
-            # RISK-CAPACITY-PLAUSIBILITY-001: Hinweis im Reasoning + Audit,
-            # keine Profilaenderung, kein Blockieren.
+            # RISK-CAPACITY-PLAUSIBILITY-001: Datenfeld + Evidenz + Audit,
+            # keine Profilaenderung, kein Blockieren. H9 (Owner 2026-11-08):
+            # kein Hinweis mehr im Reasoning (attach_to_strategy_payload).
             # KNOWLEDGE-GAP-ASSET-CLASS-001: Hinweis, keine Allokationsaenderung.
             attach_knowledge_gap_check(result, mandate, result.get("risk_assessment"))
             captured: dict = {}
@@ -754,7 +848,7 @@ def generate_target_allocation_endpoint(
             )
             attach_to_strategy_payload(result, plausibility)
             # CMA-CURRENCY-GUARD-001: berechenbar, aber "nicht freigegeben"
-            # (nach der Plausibilitaet = zuoberst im Reasoning).
+            # (zuoberst im Reasoning).
             attach_cma_currency_guard(db, mandate, result)
             audit_if_inconsistent(
                 db, plausibility, user=current_user, table_name="target_allocations",

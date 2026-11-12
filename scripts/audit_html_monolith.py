@@ -20,6 +20,55 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_HTML = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 DEFAULT_OUTPUT = REPO_ROOT / "docs" / "audits" / "2026-06-02-monolith-inventory.json"
 
+# H3/I-04: verhaltensneutral aus ares.html ausgelagerte Bloecke (Dateiname,
+# Art) in Dokumentreihenfolge. Sie gehoeren fachlich weiter zum Monolithen;
+# ihre CSS-Selektoren und JS-Deklarationen werden mit ``source`` = Dateiname
+# (Zeilen relativ zur Datei) mitinventarisiert, damit das Sicherheitsnetz
+# durch die Auslagerung nicht duenner wird.
+# H6 (2026-11-07): aa-chart.css/aa-chart.js -- Asset-Allocation-Grafik (SOLL-
+# Torte, Legende, SOLL-Quoten mit Bandbreite). Neue Darstellungslogik, die zum
+# Monolithen gehoert; als Teil (statt eigenstaendiges Modul) gefuehrt, damit
+# Bundle, Budget und die Verbots-Guards sie automatisch abdecken.
+# H9 (2026-11-08): ist-projection-gate.js -- Vermoegensentwicklung (#ch-ist)
+# zeigt die verbesserte Kurve nur mit gueltiger, nicht veralteter Strategie.
+# H9 Nachtrag (2026-11-11): session-boundary.js -- frischer Start beim Logout
+# bzw. Benutzerwechsel (N-892-02, kein Mandatszustand ueber die Sitzungsgrenze).
+# H9 Nachtrag 2 (2026-11-12): ist-projection-basis.js -- eine CMA-Quelle fuer die
+# IST-Vermoegensprojektion (Server-Basis, fail-closed ohne wirksame CMA).
+# H9 Nachtrag 4 (N-892-06): unsaved-changes.js -- ungesicherte Eingaben der
+# Kundenmasken (Logout-Rueckfrage, beforeunload, Hinweis nach Benutzerwechsel).
+EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
+    ("ares.css", "css"),
+    ("aa-chart.css", "css"),
+    ("intro-sequence.js", "js"),
+    ("aa-chart.js", "js"),
+    ("ist-projection-gate.js", "js"),
+    ("session-boundary.js", "js"),
+    ("ist-projection-basis.js", "js"),
+    ("unsaved-changes.js", "js"),
+    ("goal-review-runtime.js", "js"),
+)
+
+# N-875-05: Bewusste, dokumentierte Liste der VOR H3 bereits eigen-
+# staendigen Frontend-Module. Sie sind kein Teil des Monolithen (kein Bundle,
+# kein Monolith-Budget) und haben je eigene Modul-Vertragstests. N-875-07:
+# Die globalen Verbots-Guards (native Dialoge, Token-/Storage-Keys,
+# Kundentexte, Claims, Fenstertitel, Reachability) lesen sie trotzdem mit
+# (tests/monolith_source.read_frontend_sources) -- die Liste ist KEINE
+# Freistellung vom Verbotsnetz. Jede
+# weitere lokal von ares.html eingebundene Datei muss entweder hier (mit
+# Begruendung) oder in EXTRACTED_MONOLITH_PARTS stehen -- sonst ist
+# test_frontend_monolith_bundle_coverage rot. Vendor-Dateien (vendor/) sind
+# Drittcode und ausgenommen.
+STANDALONE_FRONTEND_MODULES: dict[str, str] = {
+    "eligibility-overrides.js": "eigenes Modul, test_frontend_eligibility_overrides.py",
+    "desktop-api.js": "Desktop-Bridge, test_desktop_bridge_contract.py",
+    "trade-list-preview.js": "eigenes Modul, test_frontend_trade_list_preview.py",
+    "goal-analysis-integrity.js": "eigenes Modul, test_frontend_goal_analysis_integrity.py",
+    "advisory-log-finma.js": "eigenes Modul, test_monolith_advisory_log_finma_fields.py",
+    "product-master-data.js": "eigenes Modul, test_audit_2026_11_p1_ui.py",
+}
+
 _JS_PATTERNS = (
     ("function", re.compile(r"\b(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(")),
     (
@@ -111,6 +160,24 @@ def build_inventory(html_path: Path = DEFAULT_HTML) -> dict[str, Any]:
     sub_sections = _collect_sub_sections(parser.elements)
     css_selectors = _collect_css_selectors(parser.style_blocks)
     js_functions = _collect_js_functions(parser.script_blocks)
+    extracted_parts = []
+    for name, kind in EXTRACTED_MONOLITH_PARTS:
+        part_path = html_path.parent / name
+        if not part_path.is_file():
+            # N-875-05: fehlender Teil ist ein Fehler, kein stilles Ueberspringen.
+            raise FileNotFoundError(f"ausgelagerter Monolith-Teil fehlt: {part_path}")
+        part_text = part_path.read_text(encoding="utf-8").replace("\r\n", "\n")
+        block = [{"line": 1, "col": 0, "text": part_text}]
+        rows = _collect_css_selectors(block) if kind == "css" else _collect_js_functions(block)
+        for row in rows:
+            row["source"] = name
+        (css_selectors if kind == "css" else js_functions).extend(rows)
+        extracted_parts.append({
+            "path": _repo_relative(part_path),
+            "kind": kind,
+            "sha256": hashlib.sha256(part_text.encode("utf-8")).hexdigest(),
+            "size_bytes": len(part_text.encode("utf-8")),
+        })
 
     inventory = {
         "inventory_version": 1,
@@ -133,6 +200,7 @@ def build_inventory(html_path: Path = DEFAULT_HTML) -> dict[str, Any]:
         "css_selectors": css_selectors,
         "modal_structures": modal_structures,
         "sub_sections": sub_sections,
+        "extracted_parts": extracted_parts,
     }
     return inventory
 

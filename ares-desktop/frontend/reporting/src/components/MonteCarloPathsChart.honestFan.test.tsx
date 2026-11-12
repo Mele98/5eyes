@@ -104,7 +104,8 @@ describe('Ehrlicher Faecher — Klartext-Satz', () => {
   it('Satz aus P10/P90 des Endjahres', () => {
     render(<MonteCarloPathsChart paths={makeMcFan()} goals={[]} />);
     expect(screen.getByTestId('mc-paths-range-sentence')).toHaveTextContent(
-      'In 8 von 10 Verläufen liegt Ihr Vermögen 2050 zwischen CHF 1.60 und 3.40 Mio.',
+      // H9 Nachtrag 2: gleiche Horizont-Beschriftung wie die Hauptapp (Label 2050 = Ende 2049).
+      'In 8 von 10 Verläufen liegt Ihr Vermögen Ende 2049 zwischen CHF 1.60 und 3.40 Mio.',
     );
     expect(screen.getByTestId('mc-paths-range-sentence').textContent).not.toMatch(/garant/i);
   });

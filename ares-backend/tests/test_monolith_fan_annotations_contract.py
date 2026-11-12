@@ -24,6 +24,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 ROOT = Path(__file__).resolve().parents[2]
 HTML_PATH = ROOT / "ares-desktop" / "frontend" / "ares.html"
@@ -42,11 +43,12 @@ _APP_FNS = _TEXT_FNS + (
     "hasVisibleStrategyOutputs", "aaFanAnnotationsHidden", "aaFanGoalMarkers",
     "_aaFanByKey", "renderAaFanRangeSentence", "_aaFanRoundRect",
     "aaDrawFanAnnotations", "syncAaProjectionAxisScales",
+    "projectionEndOfYearText",  # H9 Nachtrag 2: gemeinsame Horizont-Beschriftung
 )
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _extract_function(src: str, name: str) -> str:
@@ -279,7 +281,8 @@ def test_range_sentence_from_end_year_p10_p90():
         "process.stdout.write(JSON.stringify({s:sentenceEl.textContent,d:sentenceEl.style.display}));"
     )
     assert out == {
-        "s": "In 8 von 10 Verläufen liegt Ihr Vermögen 2050 zwischen CHF 1.60 und 3.40 Mio.",
+        # H9 Nachtrag 2: Label 2050 = "Ende 2049" (wie React-Bericht und Horizont-Anzeige).
+        "s": "In 8 von 10 Verläufen liegt Ihr Vermögen Ende 2049 zwischen CHF 1.60 und 3.40 Mio.",
         "d": "",
     }
 
