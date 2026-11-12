@@ -25,6 +25,12 @@ def _iso(value: datetime) -> str:
     return value.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _contact(client):
+    # Vertrag C-DSG-04 (Tier 1): dokumentierter Eskalationskontakt vor dem Meldeentscheid (Testwert).
+    assert client.put("/privacy/owner-fields/incident.escalation_contact",
+                      json={"value": "TESTWERT externe Beratung"}).status_code == 200
+
+
 def _record(client, *, hours_ago: float = 2, **extra):
     body = {
         "discovered_at": _iso(_now() - timedelta(hours=hours_ago)), "incident_type": "CONFIDENTIALITY",
@@ -46,10 +52,13 @@ def test_high_risk_incident_full_lifecycle_and_gate(tmp_path):
 
         gate = client.get("/privacy/incidents/gate").json()
         assert gate["blocked"] is False
-        assert [f["reason_code"] for f in gate["findings"]] == ["INCIDENT_RISK_ASSESSMENT_MISSING"]
+        assert [f["reason_code"] for f in gate["findings"]] == ["INCIDENT_RISK_UNASSESSED"]
 
+        no_contact = client.post(f"/privacy/incidents/{iid}/notification-decision", json={"decision": "NOTIFY"})
+        assert no_contact.status_code == 409 and reason(no_contact) == "INCIDENT_OWNER_CONTACT_MISSING"
+        _contact(client)
         early = client.post(f"/privacy/incidents/{iid}/notification-decision", json={"decision": "NOTIFY"})
-        assert early.status_code == 409 and reason(early) == "INCIDENT_RISK_ASSESSMENT_MISSING"
+        assert early.status_code == 409 and reason(early) == "INCIDENT_RISK_UNASSESSED"
         assert client.post(f"/privacy/incidents/{iid}/assessment", json={"risk_level": "HIGH"}).status_code == 422
         assessed = client.post(f"/privacy/incidents/{iid}/assessment", json={
             "risk_level": "HIGH", "rationale": "Unverschluesselte Vermoegensdaten (Testwert)"})
@@ -57,7 +66,7 @@ def test_high_risk_incident_full_lifecycle_and_gate(tmp_path):
 
         gate = client.get("/privacy/incidents/gate").json()
         assert gate["blocked"] is True
-        assert "INCIDENT_HIGH_RISK_DECISION_MISSING" in [f["reason_code"] for f in gate["findings"]]
+        assert "INCIDENT_NOTIFICATION_DECISION_MISSING" in [f["reason_code"] for f in gate["findings"]]
         assert client.get("/privacy/status").json()["incident_gate_blocked"] is True
 
         refused = client.post(f"/privacy/incidents/{iid}/notification-decision",
@@ -70,7 +79,7 @@ def test_high_risk_incident_full_lifecycle_and_gate(tmp_path):
         assert "INCIDENT_EDOEB_NOTIFICATION_PENDING" in [f["reason_code"] for f in gate["findings"]]
 
         blocked_close = client.post(f"/privacy/incidents/{iid}/close", json={"note": "fertig"})
-        assert blocked_close.status_code == 409 and reason(blocked_close) == "INCIDENT_CLOSE_BLOCKED"
+        assert blocked_close.status_code == 409 and reason(blocked_close) == "INCIDENT_REMEDIATION_OPEN"
         assert "Meldenachweis an den EDOEB fehlt" in blocked_close.json()["detail"]["problems"]
 
         before = client.post(f"/privacy/incidents/{iid}/edoeb-notification", json={
@@ -92,6 +101,9 @@ def test_high_risk_incident_full_lifecycle_and_gate(tmp_path):
         evidence = client.post(f"/privacy/incidents/{iid}/evidence",
                                json={"kind": "EDOEB_RECEIPT", "reference": "Ablage DS-2026-01 (Testwert)"})
         assert evidence.json()["evidence"][0]["kind"] == "EDOEB_RECEIPT"
+        assert client.post(f"/privacy/incidents/{iid}/remediation", json={}).status_code == 422
+        assert client.post(f"/privacy/incidents/{iid}/remediation",
+                           json={"note": "Geraet gesperrt, Passwoerter rotiert (Testwert)"}).status_code == 200
         assert client.post(f"/privacy/incidents/{iid}/close", json={}).status_code == 422
         closed = client.post(f"/privacy/incidents/{iid}/close", json={"note": "Abgeschlossen (Testwert)"})
         assert closed.status_code == 200 and closed.json()["status"] == "CLOSED"
@@ -103,11 +115,12 @@ def test_high_risk_incident_full_lifecycle_and_gate(tmp_path):
             steps = s.execute(text(
                 "SELECT action FROM audit_log WHERE table_name = 'privacy_security_incidents' AND record_id = :id "
                 "ORDER BY sequence"), {"id": iid}).scalars().all()
-        assert steps[0] == "CREATE" and len(steps) == 8
+        assert steps[0] == "CREATE" and len(steps) == 9
 
 
 def test_low_risk_can_be_reasoned_not_reportable(tmp_path):
     with api(tmp_path) as (client, _current, _factory):
+        _contact(client)
         iid = _record(client, incident_type="AVAILABILITY", affected_data_categories=[]).json()["id"]
         client.post(f"/privacy/incidents/{iid}/assessment",
                     json={"risk_level": "LOW", "rationale": "Kurzer Ausfall, Sicherung intakt (Testwert)"})
@@ -146,6 +159,7 @@ def test_input_validation(tmp_path):
 
 def test_owner_target_hours_drive_an_additional_finding(tmp_path):
     with api(tmp_path) as (client, _current, _factory):
+        _contact(client)
         iid = _record(client, hours_ago=30).json()["id"]
         client.post(f"/privacy/incidents/{iid}/assessment", json={"risk_level": "HIGH", "rationale": "r"})
         client.post(f"/privacy/incidents/{iid}/notification-decision", json={"decision": "NOTIFY"})
@@ -157,7 +171,7 @@ def test_owner_target_hours_drive_an_additional_finding(tmp_path):
         gate = client.get("/privacy/incidents/gate").json()
         assert gate["notification_target_hours"] == 24.0
         assert "INCIDENT_NOTIFICATION_TARGET_EXCEEDED" in [f["reason_code"] for f in gate["findings"]]
-        assert gate["escalation_contact"]["status"] == "OPEN"
+        assert gate["escalation_contact"]["status"] == "CONFIRMED"
 
 
 def test_rbac_and_tenant_isolation(tmp_path):
@@ -197,3 +211,17 @@ def test_alembic_postgres_ddl_creates_incidents_with_high_risk_check():
     ddl = postgres_offline_ddl("f4b8d2e6a3c7", "a7c3e9f1b5d2")
     assert "CREATE TABLE privacy_security_incidents" in ddl
     assert "ck_privacy_incident_high_risk_notify" in ddl
+
+
+def test_unknown_risk_escalates_like_high(tmp_path):
+    """Vertrag C-DSG-04: unbekannter Risikostatus bleibt offen und eskaliert."""
+    with api(tmp_path) as (client, _current, _factory):
+        _contact(client)
+        iid = _record(client).json()["id"]
+        client.post(f"/privacy/incidents/{iid}/assessment",
+                    json={"risk_level": "UNKNOWN", "rationale": "Umfang noch unklar (Testwert)"})
+        gate = client.get("/privacy/incidents/gate").json()
+        assert gate["blocked"] is True
+        refused = client.post(f"/privacy/incidents/{iid}/notification-decision",
+                              json={"decision": "NOT_REQUIRED", "reason": "x"})
+        assert reason(refused) == "INCIDENT_HIGH_RISK_REQUIRES_NOTIFICATION"

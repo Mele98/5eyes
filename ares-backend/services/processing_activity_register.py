@@ -41,7 +41,7 @@ BLOCKING_CUSTOMER_OUTPUT = "customer_output"
 BLOCKING_CHANNEL = "channel"
 BLOCKING_INFORMATIONAL = "informational"
 BLOCKING_LEVELS = (BLOCKING_CUSTOMER_OUTPUT, BLOCKING_CHANNEL, BLOCKING_INFORMATIONAL)
-OWNER_FIELD_KINDS = ("text", "country_list", "guarantee", "hours")
+OWNER_FIELD_KINDS = ("text", "country_list", "guarantee", "hours", "days")
 
 REQUIRED_ACTIVITY_KEYS = (
     "id", "name", "purpose", "data_subjects", "data_categories", "tables", "recipients",

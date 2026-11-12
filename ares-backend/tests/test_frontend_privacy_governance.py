@@ -78,7 +78,7 @@ EGRESS = {"runtime": {"active": True, "channels": [
     {"id": "mail.smtp", "class": "mail", "hosts": ["smtp.example"], "personal_data": True,
      "configured": True, "allowed_now": False, "owner_confirmation_required": True, "owner_confirmed": False},
 ], "recent_blocked": [{"at": "2026-11-11T09:00:00Z", "host": "tracker.invalid",
-                       "reason_code": "EGRESS_HOST_NOT_IN_MANIFEST"}]}}
+                       "reason_code": "EGRESS_DESTINATION_DENIED"}]}}
 
 
 def _run(script: str) -> dict:
@@ -126,7 +126,7 @@ def test_panel_shows_blocking_state_owner_fields_without_prefill_and_overdue_req
     assert "überfällig" in html and "Erika Beispiel" in html
     assert "Meldepflicht offen" in html and 'data-blocked="1"' in html
     assert "An EDÖB melden" in html and "Keine Meldung" not in html  # hohes Risiko: nur melden
-    assert "gesperrt: Staat/Garantie offen" in html and "EGRESS_HOST_NOT_IN_MANIFEST" in html
+    assert "gesperrt: Staat/Garantie offen" in html and "EGRESS_DESTINATION_DENIED" in html
     assert "Rechtsberatung" in html
 
 

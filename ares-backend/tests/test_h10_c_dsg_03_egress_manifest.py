@@ -197,7 +197,7 @@ def test_code_search_gate_detects_a_new_unlisted_call_site(tmp_path):
 def test_unlisted_host_is_blocked_at_name_resolution_and_loopback_is_allowed(guard):
     with pytest.raises(em.EgressBlocked) as blocked:
         socket.getaddrinfo("tracker.unlisted-host.invalid", 443)
-    assert blocked.value.reason_code == "EGRESS_HOST_NOT_IN_MANIFEST"
+    assert blocked.value.reason_code == "EGRESS_DESTINATION_DENIED"
     assert socket.getaddrinfo("localhost", 80)
     assert socket.getaddrinfo("127.0.0.1", 80)
     entry = em.recent_blocked()[-1]
@@ -217,7 +217,7 @@ def test_allowed_request_passes_and_minimised_fields_only(guard):
 
 
 @pytest.mark.parametrize(("host", "target", "code"), [
-    ("stooq.com", "/q/d/l/?s=spx&client_name=Erika+Beispiel", "EGRESS_FIELD_NOT_ALLOWED"),
+    ("stooq.com", "/q/d/l/?s=spx&client_name=Erika+Beispiel", "EGRESS_FIELD_DENIED"),
     ("stooq.com", f"/q/d/l/?s={MANDATE_UUID}", "EGRESS_VALUE_REJECTED"),
     ("query2.finance.yahoo.com", f"/v8/finance/chart/{CLIENT_EMAIL}?range=1d", "EGRESS_VALUE_REJECTED"),
     ("stooq.com", "/q/d/l/?s=CH9300762011623852957", "EGRESS_VALUE_REJECTED"),
@@ -237,7 +237,7 @@ def test_json_body_fields_and_values_are_checked(guard):
     assert _raw_request("api.openfigi.com", "/v3/mapping", ok, "POST")
     for body, code in (
         ([{"idType": "TICKER", "idValue": MANDATE_UUID}], "EGRESS_VALUE_REJECTED"),
-        ([{"idType": "ID_ISIN", "idValue": "CH0012345678", "client": "Erika"}], "EGRESS_FIELD_NOT_ALLOWED"),
+        ([{"idType": "ID_ISIN", "idValue": "CH0012345678", "client": "Erika"}], "EGRESS_FIELD_DENIED"),
     ):
         with pytest.raises(em.EgressBlocked) as blocked:
             _raw_request("api.openfigi.com", "/v3/mapping", json.dumps(body).encode(), "POST")
@@ -251,7 +251,7 @@ def test_opaque_provider_tokens_are_not_value_screened(guard):
 def test_personal_data_channel_needs_owner_confirmation(guard):
     with pytest.raises(em.EgressBlocked) as blocked:
         em.check_host("o1.errors.example-telemetry.test")
-    assert blocked.value.reason_code == "EGRESS_CHANNEL_OWNER_VALUES_OPEN"
+    assert blocked.value.reason_code == "EGRESS_GUARANTEE_MISSING"
     em.update_confirmed_channels({"telemetry.error_reporting"})
     assert em.check_host("o1.errors.example-telemetry.test")["id"] == "telemetry.error_reporting"
 
@@ -261,7 +261,7 @@ def test_missing_manifest_blocks_every_external_host(tmp_path):
     try:
         with pytest.raises(em.EgressBlocked) as blocked:
             em.check_host("stooq.com")
-        assert blocked.value.reason_code == "EGRESS_MANIFEST_UNAVAILABLE"
+        assert blocked.value.reason_code == "EGRESS_MANIFEST_MISSING"
         assert em.check_host("127.0.0.1") is None
         assert em.runtime_status()["manifest_loaded"] is False
     finally:
@@ -470,14 +470,14 @@ def test_egress_api_is_admin_only_and_shows_open_owner_fields(tmp_path):
 
 def test_configured_personal_channel_blocks_customer_output_until_confirmed(tmp_path, monkeypatch):
     from config import settings
-    from tests.h10_support import api, confirm_all_owner_fields
+    from tests.h10_support import api, confirm_all_owner_fields, owner_test_value
 
     monkeypatch.setattr(settings, "smtp_enabled", True)
     monkeypatch.setattr(settings, "smtp_host", "smtp.mail-provider.example")
     with api(tmp_path) as (client, _current, _factory):
         for field in client.get("/privacy/owner-fields").json():
             if field["blocking"] == "customer_output":
-                client.put(f"/privacy/owner-fields/{field['key']}", json={"value": f"TESTWERT {field['key']}"})
+                client.put(f"/privacy/owner-fields/{field['key']}", json={"value": owner_test_value(field)})
         view = client.get("/privacy/processing-register").json()
         assert {f["key"] for f in view["open_blocking_fields"]} == {
             "egress.mail.smtp.destination_country", "egress.mail.smtp.guarantee"}
@@ -502,7 +502,7 @@ def test_yahoo_consent_flow_passes_but_values_are_screened(guard):
     assert blocked.value.reason_code == "EGRESS_VALUE_REJECTED"
     with pytest.raises(em.EgressBlocked) as blocked:
         _raw_request("query2.finance.yahoo.com", "/v8/finance/chart/SPY?range=1d&consentUUID=default")
-    assert blocked.value.reason_code == "EGRESS_FIELD_NOT_ALLOWED"
+    assert blocked.value.reason_code == "EGRESS_FIELD_DENIED"
 
 
 def test_screen_only_policy_needs_reason_and_no_personal_data():

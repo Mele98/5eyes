@@ -4,10 +4,11 @@ Loeschung) als nachvollziehbarer Fall.
 Ablauf und Gates (fail-closed):
 
 1. Eingang (``RECEIVED``): Kunde des Mandanten, Art, Eingangszeitpunkt (nicht
-   in der Zukunft), Kanal. Faelligkeit = Eingangsdatum + 30 Kalendertage
-   (technische Umsetzung der 30-Tage-Frist der DSV fuer die Auskunft; fuer
-   die anderen Anfragearten wird dieselbe Frist als interne Ziellinie
-   gefuehrt). Verlaengerung nur mit Begruendung und Mitteilung.
+   in der Zukunft), Kanal. Faelligkeit = Eingangsdatum + Tage aus der
+   freigegebenen Fristen-Policy der Firma (Owner-Feld
+   ``subject_request.deadline_days``, nie hardcodiert; fehlt sie, bleibt die
+   Faelligkeit offen und die Auskunft gesperrt). Verlaengerung nur mit
+   Begruendung und Mitteilung.
 2. Identitaetspruefung: Methode + Nachweis-Referenz; ohne ``VERIFIED`` gibt es
    weder Entscheid (ausser Ablehnung) noch Export noch Zustellung.
 3. Entscheid: ``FULFILL``, ``RESTRICT`` (eingeschraenkte Auskunft: Sektionen +
@@ -32,7 +33,7 @@ from sqlalchemy.orm import Session
 
 from core.reason_codes import DomainError, ReasonCode
 from database import new_uuid
-from models.privacy import PrivacyErasureCase, PrivacySubjectRequest
+from models.privacy import PrivacyErasureCase, PrivacyLegalHold, PrivacySubjectRequest
 from services import data_export
 from services import egress_manifest
 from services import privacy_owner_values as owner_values_module
@@ -47,7 +48,7 @@ IDENTITY_METHODS = (
 )
 DECISIONS = ("FULFILL", "RESTRICT", "REFUSE")
 CLOSED_STATUSES = ("COMPLETED", "WITHDRAWN")
-DEADLINE_DAYS = 30
+DEADLINE_POLICY_FIELD = "subject_request.deadline_days"
 EXPORT_KIND = "PrivacySubjectRequestExportV1"
 
 # Sektionen des Kundendatenexports (services/data_export.py); ein Test haelt
@@ -111,8 +112,9 @@ def _text(value: str | None, field: str, *, required: bool) -> str | None:
     return cleaned or None
 
 
-def effective_due_date(case: PrivacySubjectRequest) -> date:
-    return date.fromisoformat(case.extended_due_at or case.due_at)
+def effective_due_date(case: PrivacySubjectRequest) -> date | None:
+    raw = case.extended_due_at or case.due_at
+    return date.fromisoformat(raw) if raw else None
 
 
 def case_out(case: PrivacySubjectRequest, *, now: datetime | None = None) -> dict[str, Any]:
@@ -120,15 +122,27 @@ def case_out(case: PrivacySubjectRequest, *, now: datetime | None = None) -> dic
     due = effective_due_date(case)
     closed = case.status in CLOSED_STATUSES
     delivered_on = date.fromisoformat(case.delivered_at[:10]) if case.delivered_at else None
+    overdue = (not closed) and due is not None and today > due
+    findings = []
+    if not closed and case.identity_verified_at is None and case.status != "IDENTITY_FAILED":
+        findings.append({"reason_code": ReasonCode.DSAR_IDENTITY_REQUIRED.value, "message": "Identitaet nicht geprueft"})
+    if not closed and case.status in ("IDENTITY_VERIFIED", "IDENTITY_FAILED"):
+        findings.append({"reason_code": ReasonCode.DSAR_DECISION_MISSING.value, "message": "Entscheid fehlt"})
+    if not closed and case.status == "DECIDED":
+        findings.append({"reason_code": ReasonCode.DSAR_DELIVERY_MISSING.value, "message": "Zustellnachweis fehlt"})
+    if overdue:
+        findings.append({"reason_code": ReasonCode.DSAR_OVERDUE.value, "message": "Frist ueberschritten"})
     return {
+        "findings": findings,
         "id": case.id, "client_id": case.client_id, "request_type": case.request_type, "status": case.status,
         "received_at": case.received_at, "received_channel": case.received_channel,
         "requester_relation": case.requester_relation, "request_summary": case.request_summary,
         "due_at": case.due_at, "extended_due_at": case.extended_due_at,
         "extension_reason": case.extension_reason, "extension_notified_at": case.extension_notified_at,
-        "effective_due_at": due.isoformat(),
-        "days_remaining": None if closed else (due - today).days,
-        "overdue": (not closed) and today > due,
+        "effective_due_at": due.isoformat() if due else None,
+        "deadline_policy_missing": due is None,
+        "days_remaining": None if closed or due is None else (due - today).days,
+        "overdue": overdue,
         "delivered_on_time": None if delivered_on is None else delivered_on <= due,
         "identity_verified_at": case.identity_verified_at, "identity_verified_by": case.identity_verified_by,
         "identity_method": case.identity_method, "identity_evidence_reference": case.identity_evidence_reference,
@@ -155,7 +169,8 @@ def _require_open(case: PrivacySubjectRequest) -> None:
 
 def open_request(
     db: Session, *, tenant_id: str, client_id: str, request_type: str, received_at: str, received_channel: str,
-    requester_relation: str, request_summary: str | None, opened_by: str, now: datetime | None = None,
+    requester_relation: str, request_summary: str | None, opened_by: str, deadline_days: str | None = None,
+    now: datetime | None = None,
 ) -> PrivacySubjectRequest:
     moment = _utc(now)
     received = _parse_moment(received_at, "Eingang")
@@ -166,7 +181,8 @@ def open_request(
         received_at=_iso(received), received_channel=_choice(received_channel, CHANNELS, "Eingangskanal"),
         requester_relation=_choice(requester_relation, RELATIONS, "Anfragende Person"),
         request_summary=_text(request_summary, "Zusammenfassung", required=False),
-        due_at=(received.date() + timedelta(days=DEADLINE_DAYS)).isoformat(),
+        due_at=(received.date() + timedelta(days=int(deadline_days))).isoformat()
+        if str(deadline_days or "").strip().isdigit() else None,
         opened_by=opened_by, created_at=_iso(moment), updated_at=_iso(moment),
     )
     db.add(case)
@@ -212,13 +228,19 @@ def extend_deadline(
         raise DomainError(
             ReasonCode.SUBJECT_REQUEST_INPUT_INVALID, "Neue Frist ist kein gueltiges Datum", http_status=422,
         ) from exc
-    if new_due <= effective_due_date(case):
+    current_due = effective_due_date(case)
+    if current_due is None:
+        raise DomainError(
+            ReasonCode.SUBJECT_REQUEST_STATE_INVALID, "Ohne Fristen-Policy gibt es keine Frist zu verlaengern",
+            http_status=409,
+        )
+    if new_due <= current_due:
         raise DomainError(
             ReasonCode.SUBJECT_REQUEST_INPUT_INVALID, "Neue Frist muss nach der bisherigen liegen", http_status=422,
         )
     notified = _parse_moment(notified_at, "Mitteilung an die betroffene Person")
     _not_future(notified, "Mitteilung", moment, notified_at)
-    if notified.date() > effective_due_date(case):
+    if notified.date() > current_due:
         raise DomainError(
             ReasonCode.SUBJECT_REQUEST_EXTENSION_TOO_LATE,
             "Die Verlaengerung muss innerhalb der laufenden Frist mitgeteilt werden", http_status=409,
@@ -238,12 +260,12 @@ def decide(
     decision = _choice(decision, DECISIONS, "Entscheid")
     if case.status == "IDENTITY_FAILED" and decision != "REFUSE":
         raise DomainError(
-            ReasonCode.SUBJECT_REQUEST_IDENTITY_NOT_VERIFIED,
+            ReasonCode.DSAR_IDENTITY_REQUIRED,
             "Identitaet nicht bestaetigt: nur eine begruendete Ablehnung ist moeglich", http_status=409,
         )
     if case.status not in ("IDENTITY_VERIFIED", "IDENTITY_FAILED", "DECIDED"):
         raise DomainError(
-            ReasonCode.SUBJECT_REQUEST_IDENTITY_NOT_VERIFIED,
+            ReasonCode.DSAR_IDENTITY_REQUIRED,
             "Vor dem Entscheid muss die Identitaet geprueft sein", http_status=409,
         )
     if case.exported_at:
@@ -267,6 +289,16 @@ def decide(
         raise DomainError(
             ReasonCode.SUBJECT_REQUEST_INPUT_INVALID, "Sektionen nur bei Einschraenkung", http_status=422,
         )
+    if case.request_type == "ERASURE" and decision == "FULFILL":
+        holds = db.query(PrivacyLegalHold).filter(
+            PrivacyLegalHold.tenant_id == case.tenant_id, PrivacyLegalHold.client_id == case.client_id,
+            PrivacyLegalHold.status == "ACTIVE",
+        ).count()
+        if holds:
+            raise DomainError(
+                ReasonCode.DSAR_LEGAL_HOLD,
+                "Aktiver Legal Hold: Loeschung nur eingeschraenkt oder begruendet abgelehnt moeglich", http_status=409,
+            )
     stamp = _iso(_utc(now))
     case.decision = decision
     case.decision_reason = _text(reason, "Begruendung", required=decision in ("RESTRICT", "REFUSE"))
@@ -321,11 +353,11 @@ def build_export(
         )
     if case.identity_verified_at is None:
         raise DomainError(
-            ReasonCode.SUBJECT_REQUEST_IDENTITY_NOT_VERIFIED, "Identitaet nicht bestaetigt", http_status=409,
+            ReasonCode.DSAR_IDENTITY_REQUIRED, "Identitaet nicht bestaetigt", http_status=409,
         )
     if case.status != "DECIDED" or case.decision not in ("FULFILL", "RESTRICT"):
         raise DomainError(
-            ReasonCode.SUBJECT_REQUEST_DECISION_MISSING,
+            ReasonCode.DSAR_DECISION_MISSING,
             "Export erst nach dem Entscheid 'erfuellen' oder 'einschraenken'", http_status=409,
         )
     blocking = owner_values_module.open_blocking_fields(db, case.tenant_id)
@@ -378,7 +410,7 @@ def record_action(
         )
     if case.status != "DECIDED" or case.decision != "FULFILL":
         raise DomainError(
-            ReasonCode.SUBJECT_REQUEST_DECISION_MISSING, "Umsetzung erst nach dem Entscheid 'erfuellen'",
+            ReasonCode.DSAR_DECISION_MISSING, "Umsetzung erst nach dem Entscheid 'erfuellen'",
             http_status=409,
         )
     if case.request_type == "ERASURE":
@@ -409,12 +441,12 @@ def record_delivery(
     _require_open(case)
     if case.status != "DECIDED":
         raise DomainError(
-            ReasonCode.SUBJECT_REQUEST_DECISION_MISSING, "Zustellung erst nach dem Entscheid", http_status=409,
+            ReasonCode.DSAR_DECISION_MISSING, "Zustellung erst nach dem Entscheid", http_status=409,
         )
     if case.decision in ("FULFILL", "RESTRICT"):
         if case.request_type in EXPORT_REQUEST_TYPES and not case.export_sha256:
             raise DomainError(
-                ReasonCode.SUBJECT_REQUEST_EXPORT_MISSING, "Kein Export ueber diesen Fall erstellt", http_status=409,
+                ReasonCode.DSAR_SCOPE_INCOMPLETE, "Kein Export ueber diesen Fall erstellt", http_status=409,
             )
         if case.request_type not in EXPORT_REQUEST_TYPES and not case.action_completed_at:
             raise DomainError(

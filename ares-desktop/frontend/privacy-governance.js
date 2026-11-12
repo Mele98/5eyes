@@ -232,7 +232,7 @@
     var html = '';
     if (i.status === 'CLOSED') return '';
     if (!i.risk_level || i.status === 'ASSESSED' || i.status === 'OPEN') {
-      html += '<select class="fsel" id="pg-inc-risk-' + id + '" style="font-size:10px">' + opts({LOW: 'kein hohes Risiko', HIGH: 'voraussichtlich hohes Risiko'}, 'Risiko') + '</select> '
+      html += '<select class="fsel" id="pg-inc-risk-' + id + '" style="font-size:10px">' + opts({LOW: 'kein hohes Risiko', HIGH: 'voraussichtlich hohes Risiko', UNKNOWN: 'noch unbekannt'}, 'Risiko') + '</select> '
         + '<input class="fi" id="pg-inc-rat-' + id + '" placeholder="Begründung" style="font-size:10px"> '
         + '<button class="btn-s" ' + BTN + ' onclick="assessSecurityIncident(\'' + id + '\')">Bewerten</button> ';
     }
@@ -256,6 +256,10 @@
         + '<input class="fi" id="pg-inc-sref-' + id + '" placeholder="Nachweis der Information" style="font-size:10px"> '
         + '<button class="btn-s" ' + BTN + ' onclick="recordSecurityIncidentSubjects(\'' + id + '\')">Information erfolgt</button></div>';
     }
+    if (i.remediation_status !== 'DONE') {
+      html += '<div style="margin-top:3px"><input class="fi" id="pg-inc-rem-' + id + '" placeholder="Behebung/Massnahmen" style="font-size:10px"> '
+        + '<button class="btn-s" ' + BTN + ' onclick="recordSecurityIncidentRemediation(\'' + id + '\')">Behebung erfasst</button></div>';
+    }
     html += '<div style="margin-top:3px"><input class="fi" id="pg-inc-close-' + id + '" placeholder="Abschlussnotiz" style="font-size:10px"> '
       + '<button class="btn-s" ' + BTN + ' onclick="closeSecurityIncident(\'' + id + '\')"' + (i.close_problems && i.close_problems.length ? ' title="' + esc(i.close_problems.join('; ')) + '"' : '') + '>Abschliessen</button></div>';
     return html;
@@ -271,7 +275,7 @@
       return '<tr data-incident="' + esc(i.id) + '"><td style="padding:3px 6px">' + esc(i.reference)
         + '<div style="font-size:8px;color:var(--n4)">' + esc(INCIDENT_TYPES[i.incident_type] || i.incident_type) + ' &middot; ' + esc(String(i.discovered_at || '').slice(0, 16)) + '</div></td>'
         + '<td style="padding:3px 6px">' + esc(i.description) + '</td>'
-        + '<td style="padding:3px 6px">' + esc(STATUS[i.status] || i.status) + (i.risk_level ? ' &middot; Risiko ' + esc(i.risk_level === 'HIGH' ? 'hoch' : 'nicht hoch') : '') + '</td>'
+        + '<td style="padding:3px 6px">' + esc(STATUS[i.status] || i.status) + (i.risk_level ? ' &middot; Risiko ' + esc({HIGH: 'hoch', UNKNOWN: 'unbekannt', LOW: 'nicht hoch'}[i.risk_level] || i.risk_level) : '') + '</td>'
         + '<td style="padding:3px 6px">' + incidentActions(i) + '</td></tr>';
     }).join('') || '<tr><td style="font-size:10px;color:var(--n4)">Keine Vorfälle erfasst.</td></tr>';
     var contact = gate.escalation_contact || {};
@@ -303,6 +307,7 @@
   function recordSecurityIncidentNotification(id){ return incidentPost(id, '/edoeb-notification', {notified_at: new Date().toISOString(), reference: val('pg-inc-ref-' + id)}, 'Meldung erfasst.'); }
   function decideSecurityIncidentSubjects(id, decision){ return incidentPost(id, '/subject-notification-decision', {decision: decision, reason: val('pg-inc-sub-' + id) || null}, 'Entscheid erfasst.'); }
   function recordSecurityIncidentSubjects(id){ return incidentPost(id, '/subject-notification', {notified_at: new Date().toISOString(), channel: val('pg-inc-sch-' + id), reference: val('pg-inc-sref-' + id)}, 'Information erfasst.'); }
+  function recordSecurityIncidentRemediation(id){ return incidentPost(id, '/remediation', {note: val('pg-inc-rem-' + id)}, 'Behebung erfasst.'); }
   function closeSecurityIncident(id){ return incidentPost(id, '/close', {note: val('pg-inc-close-' + id)}, 'Vorfall abgeschlossen.'); }
 
   // ── Ausgehende Verbindungen ──────────────────────────────────────────────
@@ -404,5 +409,6 @@
   window.recordSecurityIncidentNotification = recordSecurityIncidentNotification;
   window.decideSecurityIncidentSubjects = decideSecurityIncidentSubjects;
   window.recordSecurityIncidentSubjects = recordSecurityIncidentSubjects;
+  window.recordSecurityIncidentRemediation = recordSecurityIncidentRemediation;
   window.closeSecurityIncident = closeSecurityIncident;
 })();

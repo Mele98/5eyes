@@ -3,7 +3,7 @@
     "css_selectors": 1120,
     "event_handlers": 461,
     "ids": 1018,
-    "js_functions": 1358,
+    "js_functions": 1359,
     "modal_structures": 110,
     "script_blocks": 27,
     "style_blocks": 2,
@@ -9266,8 +9266,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/privacy-governance.js",
-      "sha256": "4b5f25d0b0a0d451a5cb6d0c33f976b0e7d48ef4918d368064e40a259c139b77",
-      "size_bytes": 30328
+      "sha256": "8acb96646d9b44ac467e352b58b152d1b07204d689020fe89c0e15aeb2b4b00f",
+      "size_bytes": 30956
     }
   ],
   "ids": [
@@ -22115,7 +22115,7 @@
     },
     {
       "declaration": "function",
-      "line": 301,
+      "line": 305,
       "name": "assessSecurityIncident",
       "source": "privacy-governance.js"
     },
@@ -22133,19 +22133,19 @@
     },
     {
       "declaration": "function",
-      "line": 306,
+      "line": 311,
       "name": "closeSecurityIncident",
       "source": "privacy-governance.js"
     },
     {
       "declaration": "function",
-      "line": 302,
+      "line": 306,
       "name": "decideSecurityIncident",
       "source": "privacy-governance.js"
     },
     {
       "declaration": "function",
-      "line": 304,
+      "line": 308,
       "name": "decideSecurityIncidentSubjects",
       "source": "privacy-governance.js"
     },
@@ -22193,19 +22193,19 @@
     },
     {
       "declaration": "function",
-      "line": 291,
+      "line": 295,
       "name": "incidentPost",
       "source": "privacy-governance.js"
     },
     {
       "declaration": "function",
-      "line": 344,
+      "line": 349,
       "name": "loadPrivacyGovernance",
       "source": "privacy-governance.js"
     },
     {
       "declaration": "function",
-      "line": 362,
+      "line": 367,
       "name": "mountPrivacyGovernance",
       "source": "privacy-governance.js"
     },
@@ -22235,19 +22235,25 @@
     },
     {
       "declaration": "function",
-      "line": 294,
+      "line": 298,
       "name": "recordSecurityIncident",
       "source": "privacy-governance.js"
     },
     {
       "declaration": "function",
-      "line": 303,
+      "line": 307,
       "name": "recordSecurityIncidentNotification",
       "source": "privacy-governance.js"
     },
     {
       "declaration": "function",
-      "line": 305,
+      "line": 310,
+      "name": "recordSecurityIncidentRemediation",
+      "source": "privacy-governance.js"
+    },
+    {
+      "declaration": "function",
+      "line": 309,
       "name": "recordSecurityIncidentSubjects",
       "source": "privacy-governance.js"
     },
@@ -22259,19 +22265,19 @@
     },
     {
       "declaration": "function",
-      "line": 329,
+      "line": 334,
       "name": "renderAuditLogPagination",
       "source": "privacy-governance.js"
     },
     {
       "declaration": "function",
-      "line": 309,
+      "line": 314,
       "name": "renderEgress",
       "source": "privacy-governance.js"
     },
     {
       "declaration": "function",
-      "line": 264,
+      "line": 268,
       "name": "renderIncidents",
       "source": "privacy-governance.js"
     },

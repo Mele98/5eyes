@@ -266,7 +266,7 @@ class PrivacySubjectRequest(Base):
     received_channel = Column(String, nullable=False)
     requester_relation = Column(String, nullable=False)
     request_summary = Column(Text)
-    due_at = Column(String, nullable=False)
+    due_at = Column(String)  # aus der Fristen-Policy (Owner-Feld); fehlt sie, bleibt NULL
     extended_due_at = Column(String)
     extension_reason = Column(Text)
     extension_notified_at = Column(String)
@@ -311,7 +311,7 @@ class PrivacySecurityIncident(Base):
         CheckConstraint(
             "incident_type IN ('CONFIDENTIALITY','INTEGRITY','AVAILABILITY')", name="ck_privacy_incident_type",
         ),
-        CheckConstraint("risk_level IS NULL OR risk_level IN ('LOW','HIGH')", name="ck_privacy_incident_risk"),
+        CheckConstraint("risk_level IS NULL OR risk_level IN ('LOW','HIGH','UNKNOWN')", name="ck_privacy_incident_risk"),
         CheckConstraint(
             "notification_decision IS NULL OR notification_decision IN ('NOTIFY','NOT_REQUIRED')",
             name="ck_privacy_incident_notification_decision",
@@ -322,9 +322,10 @@ class PrivacySecurityIncident(Base):
             name="ck_privacy_incident_subject_decision",
         ),
         CheckConstraint(
-            "NOT (risk_level = 'HIGH' AND notification_decision = 'NOT_REQUIRED')",
+            "NOT (risk_level IN ('HIGH','UNKNOWN') AND notification_decision = 'NOT_REQUIRED')",
             name="ck_privacy_incident_high_risk_notify",
         ),
+        CheckConstraint("remediation_status IN ('OPEN','DONE')", name="ck_privacy_incident_remediation"),
         Index("ix_privacy_security_incidents_status", "tenant_id", "status", "discovered_at"),
     )
 
@@ -364,3 +365,7 @@ class PrivacySecurityIncident(Base):
     closed_at = Column(String)
     closed_by = Column(String)
     closure_note = Column(Text)
+    remediation_status = Column(String, nullable=False, default="OPEN")
+    remediation_note = Column(Text)
+    remediation_completed_by = Column(String)
+    remediation_completed_at = Column(String)

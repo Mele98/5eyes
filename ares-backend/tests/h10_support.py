@@ -40,6 +40,11 @@ def sample_value(key: str) -> str:
     return f"TESTWERT {key}"
 
 
+def owner_test_value(field: dict) -> str:
+    """Testwert passend zur Feldart (Stunden/Tage numerisch)."""
+    return {"hours": "24", "days": "30"}.get(field["kind"], sample_value(field["key"]))
+
+
 @contextmanager
 def api(tmp_path: Path):
     engine = create_engine(f"sqlite:///{tmp_path / 'h10.db'}", connect_args={"check_same_thread": False})
@@ -77,7 +82,7 @@ def confirm_all_owner_fields(client: TestClient, *, only_blocking: bool = False)
     for field in client.get("/privacy/owner-fields").json():
         if only_blocking and field["blocking"] == "informational":
             continue
-        value = "24" if field["kind"] == "hours" else sample_value(field["key"])
+        value = owner_test_value(field)
         response = client.put(f"/privacy/owner-fields/{field['key']}", json={"value": value})
         assert response.status_code == 200, response.text
 

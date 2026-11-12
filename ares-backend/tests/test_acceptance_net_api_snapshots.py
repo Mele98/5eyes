@@ -144,7 +144,7 @@ def api_snapshots(tmp_path_factory) -> dict:
             "outcome": "VERIFIED", "method": "ID_DOCUMENT_IN_PERSON", "evidence_reference": "TEST"})
         client.post(f"/privacy/subject-requests/{case['id']}/decision", json={"decision": "FULFILL"})
         for field in client.get("/privacy/owner-fields").json():
-            value = "24" if field["kind"] == "hours" else f"TESTWERT {field['key']}"
+            value = {"hours": "24", "days": "30"}.get(field["kind"], f"TESTWERT {field['key']}")
             client.put(f"/privacy/owner-fields/{field['key']}", json={"value": value})
         snap("privacy.subject_request.export",
              client.post(f"/privacy/subject-requests/{case['id']}/export"), unordered=True)

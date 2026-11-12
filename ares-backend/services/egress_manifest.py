@@ -301,17 +301,17 @@ def check_host(raw_host: Any) -> dict[str, Any] | None:
     if is_loopback(host):
         return None
     if _STATE.manifest is None:
-        _block(ReasonCode.EGRESS_MANIFEST_UNAVAILABLE, _STATE.manifest_error or "Manifest fehlt",
+        _block(ReasonCode.EGRESS_MANIFEST_MISSING, _STATE.manifest_error or "Manifest fehlt",
                host=host, channel=None)
     channel = resolve_channel(host)
     if channel is None:
-        _block(ReasonCode.EGRESS_HOST_NOT_IN_MANIFEST, f"{host} ist kein Kanal des Egress-Manifests",
+        _block(ReasonCode.EGRESS_DESTINATION_DENIED, f"{host} ist kein Kanal des Egress-Manifests",
                host=host, channel=None)
     if not channel_enabled(channel):
         _block(ReasonCode.EGRESS_CHANNEL_DISABLED, f"Kanal {channel['id']} ist nicht konfiguriert",
                host=host, channel=channel["id"])
     if blocking_owner_keys(channel) and channel["id"] not in _STATE.confirmed_channels:
-        _block(ReasonCode.EGRESS_CHANNEL_OWNER_VALUES_OPEN,
+        _block(ReasonCode.EGRESS_GUARANTEE_MISSING,
                f"Kanal {channel['id']}: Staat/Garantie des Empfaengers nicht bestaetigt",
                host=host, channel=channel["id"])
     return channel
@@ -414,7 +414,7 @@ def _check_field_names(channel: dict[str, Any], names: list[str], host: str) -> 
         return
     for name in names:
         if name not in allowed:
-            _block(ReasonCode.EGRESS_FIELD_NOT_ALLOWED,
+            _block(ReasonCode.EGRESS_FIELD_DENIED,
                    f"Kanal {channel['id']}: Feld {name} ist nicht freigegeben", host=host, channel=channel["id"])
 
 

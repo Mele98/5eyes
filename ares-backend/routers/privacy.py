@@ -544,6 +544,7 @@ def open_subject_request(body: SubjectRequestOpen, request: Request, db: Session
         received_at=body.received_at, received_channel=body.received_channel,
         requester_relation=body.requester_relation, request_summary=body.request_summary,
         opened_by=current_user.id,
+        deadline_days=gov.owner_values(db, _tenant(current_user)).get(gov.subject_requests.DEADLINE_POLICY_FIELD),
     )
     _audit(db, current_user, request, table="privacy_subject_requests", record_id=case.id, action="CREATE",
            client_id=case.client_id, new_value={"request_type": case.request_type, "due_at": case.due_at})
@@ -762,9 +763,11 @@ def assess_security_incident(incident_id: str, body: IncidentAssessment, request
 def decide_security_incident_notification(incident_id: str, body: IncidentDecision, request: Request,
                                           db: Session = Depends(get_db),
                                           current_user: User = Depends(get_current_user)):
-    incident = gov.incidents.decide_notification(db, _incident(db, incident_id, current_user),
-                                                 decision=body.decision, reason=body.reason,
-                                                 actor_id=current_user.id)
+    incident = gov.incidents.decide_notification(
+        db, _incident(db, incident_id, current_user), decision=body.decision, reason=body.reason,
+        actor_id=current_user.id,
+        escalation_contact=gov.owner_values(db, _tenant(current_user)).get(gov.incidents.ESCALATION_CONTACT_FIELD),
+    )
     return _incident_step(db, current_user, request, incident, "notification_decision",
                           {"notification_decision": incident.notification_decision})
 
@@ -808,6 +811,15 @@ def add_security_incident_evidence(incident_id: str, body: IncidentEvidence, req
     incident = gov.incidents.add_evidence(db, _incident(db, incident_id, current_user), kind=body.kind,
                                           reference=body.reference, actor_id=current_user.id)
     return _incident_step(db, current_user, request, incident, "evidence", {"kind": body.kind})
+
+
+@router.post("/incidents/{incident_id}/remediation")
+def record_security_incident_remediation(incident_id: str, body: IncidentClosure, request: Request,
+                                         db: Session = Depends(get_db),
+                                         current_user: User = Depends(get_current_user)):
+    incident = gov.incidents.record_remediation(db, _incident(db, incident_id, current_user), note=body.note,
+                                                actor_id=current_user.id)
+    return _incident_step(db, current_user, request, incident, "remediation")
 
 
 @router.post("/incidents/{incident_id}/close")

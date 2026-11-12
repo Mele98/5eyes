@@ -78,7 +78,8 @@ GOLDEN_SORTED_TABLES_SHA256 = "08332af4bf1c2d3bba919c10c5d404025f95031a0b6755788
 # /subject-notification, /evidence, /close) samt 15 neuen Schemas; geaendert
 # nur die description von GET /clients/{client_id}/data-export (stillgelegt,
 # 409). Kein bestehendes Schema geaendert (Feld-Diff geprueft).
-GOLDEN_OPENAPI_SHA256 = "b7c453e1e0656f4a2ad84ea987055e05ded6effc1b23602df10085322ee2beb3"
+# H10 Codex-Vertrag 2026-11-12: neu POST /privacy/incidents/{incident_id}/remediation (Schema IncidentClosure wiederverwendet), sonst unveraendert.
+GOLDEN_OPENAPI_SHA256 = "44037761932134a7dd7dc3c5aca13b2a4109e3df3f53f3e33bb481f61436b1ea"
 
 _PROBE = """
 import hashlib, json

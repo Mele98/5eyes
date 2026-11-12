@@ -30,7 +30,14 @@ def _today() -> date:
     return datetime.now(timezone.utc).date()
 
 
-def _open(client, *, request_type="ACCESS", received=None, client_id=CLIENT_ID):
+def _policy(client, days="30"):
+    # Fristen-Policy der Firma (Owner-Feld, Testwert; Vertrag C-DSG-02: nie hardcodiert).
+    client.put("/privacy/owner-fields/subject_request.deadline_days", json={"value": days})
+
+
+def _open(client, *, request_type="ACCESS", received=None, client_id=CLIENT_ID, policy=True):
+    if policy:
+        _policy(client)
     received = received or _today().isoformat()
     return client.post("/privacy/subject-requests", json={
         "client_id": client_id, "request_type": request_type, "received_at": received,
@@ -67,9 +74,9 @@ def test_access_request_full_lifecycle_with_restriction_and_delivery(tmp_path):
         case_id = case["id"]
 
         early = client.post(f"/privacy/subject-requests/{case_id}/export")
-        assert early.status_code == 409 and reason(early) == "SUBJECT_REQUEST_IDENTITY_NOT_VERIFIED"
+        assert early.status_code == 409 and reason(early) == "DSAR_IDENTITY_REQUIRED"
         undecided = client.post(f"/privacy/subject-requests/{case_id}/decision", json={"decision": "FULFILL"})
-        assert reason(undecided) == "SUBJECT_REQUEST_IDENTITY_NOT_VERIFIED"
+        assert reason(undecided) == "DSAR_IDENTITY_REQUIRED"
 
         no_evidence = _verify(client, case_id, evidence_reference="  ")
         assert no_evidence.status_code == 422 and reason(no_evidence) == "SUBJECT_REQUEST_INPUT_INVALID"
@@ -77,7 +84,7 @@ def test_access_request_full_lifecycle_with_restriction_and_delivery(tmp_path):
         assert verified.status_code == 200 and verified.json()["status"] == "IDENTITY_VERIFIED"
 
         no_export_yet = client.post(f"/privacy/subject-requests/{case_id}/export")
-        assert reason(no_export_yet) == "SUBJECT_REQUEST_DECISION_MISSING"
+        assert reason(no_export_yet) == "DSAR_DECISION_MISSING"
         no_reason = client.post(f"/privacy/subject-requests/{case_id}/decision",
                                 json={"decision": "RESTRICT", "scope": ["mandate_report_notes"]})
         assert no_reason.status_code == 422
@@ -181,7 +188,7 @@ def test_failed_identity_only_allows_reasoned_refusal(tmp_path):
         failed = _verify(client, case_id, outcome="FAILED", failure_reason="Unterschrift weicht ab (Testwert)")
         assert failed.json()["status"] == "IDENTITY_FAILED"
         fulfil = client.post(f"/privacy/subject-requests/{case_id}/decision", json={"decision": "FULFILL"})
-        assert fulfil.status_code == 409 and reason(fulfil) == "SUBJECT_REQUEST_IDENTITY_NOT_VERIFIED"
+        assert fulfil.status_code == 409 and reason(fulfil) == "DSAR_IDENTITY_REQUIRED"
         refuse = client.post(f"/privacy/subject-requests/{case_id}/decision",
                              json={"decision": "REFUSE", "reason": "Identitaet nicht nachgewiesen (Testwert)"})
         assert refuse.status_code == 200
@@ -305,3 +312,37 @@ def test_swiss_calendar_date_after_midnight_is_not_future(tmp_path):
         tomorrow_utc = (_today() + timedelta(days=1)).isoformat()
         assert _open(client, received=tomorrow_utc).status_code == 201
         assert _open(client, received=(_today() + timedelta(days=2)).isoformat()).status_code == 422
+
+
+def test_deadline_comes_from_owner_policy_not_code(tmp_path):
+    """Vertrag C-DSG-02: Frist aus freigegebener Policy, nicht hardcodiert."""
+    with api(tmp_path) as (client, _current, _factory):
+        case = _open(client, policy=False).json()
+        assert case["due_at"] is None and case["deadline_policy_missing"] is True and case["overdue"] is False
+        assert "DSAR_IDENTITY_REQUIRED" in [f["reason_code"] for f in case["findings"]]
+        assert client.put("/privacy/owner-fields/subject_request.deadline_days",
+                          json={"value": "abc"}).status_code == 422
+        received = (_today() - timedelta(days=12)).isoformat()
+        _policy(client, "10")
+        later = _open(client, received=received, policy=False).json()
+        assert later["due_at"] == (date.fromisoformat(received) + timedelta(days=10)).isoformat()
+        assert later["overdue"] is True and "DSAR_OVERDUE" in [f["reason_code"] for f in later["findings"]]
+
+
+def test_erasure_request_is_blocked_by_active_legal_hold(tmp_path):
+    from models.privacy import PrivacyLegalHold
+
+    with api(tmp_path) as (client, _current, factory):
+        with factory() as s:
+            s.add(PrivacyLegalHold(id="hold-1", tenant_id="main", client_id=CLIENT_ID, case_reference="TEST",
+                                   legal_reason="Testwert", scope_json="[]", set_by="x", review_date="2027-01-01",
+                                   status="ACTIVE", created_at="2026-11-01", updated_at="2026-11-01"))
+            s.commit()
+        case_id = _open(client, request_type="ERASURE").json()["id"]
+        _verify(client, case_id)
+        refused = client.post(f"/privacy/subject-requests/{case_id}/decision", json={"decision": "FULFILL"})
+        assert refused.status_code == 409 and reason(refused) == "DSAR_LEGAL_HOLD"
+        decided = client.post(f"/privacy/subject-requests/{case_id}/decision",
+                              json={"decision": "REFUSE", "reason": "Legal Hold (Testwert)"})
+        assert decided.status_code == 200
+        assert "DSAR_DELIVERY_MISSING" in [f["reason_code"] for f in decided.json()["findings"]]

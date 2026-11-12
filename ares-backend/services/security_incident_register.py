@@ -33,7 +33,8 @@ from database import new_uuid
 from models.privacy import PrivacySecurityIncident
 
 INCIDENT_TYPES = ("CONFIDENTIALITY", "INTEGRITY", "AVAILABILITY")
-RISK_LEVELS = ("LOW", "HIGH")
+RISK_LEVELS = ("LOW", "HIGH", "UNKNOWN")
+ESCALATING_RISKS = ("HIGH", "UNKNOWN")
 NOTIFICATION_DECISIONS = ("NOTIFY", "NOT_REQUIRED")
 SUBJECT_DECISIONS = ("NOTIFY", "NOT_REQUIRED", "DEFERRED")
 CHANNELS = ("EMAIL", "LETTER", "IN_PERSON", "PORTAL", "PHONE", "OTHER")
@@ -121,7 +122,7 @@ def record_incident(
         affected_data_categories_json=json.dumps(categories),
         affected_subjects_count=affected_subjects_count,
         containment_measures=_text(containment_measures, "Sofortmassnahmen", required=False),
-        evidence_json="[]", recorded_by=recorded_by, created_at=_iso(moment), updated_at=_iso(moment),
+        evidence_json="[]", remediation_status="OPEN", recorded_by=recorded_by, created_at=_iso(moment), updated_at=_iso(moment),
     )
     db.add(incident)
     db.flush()
@@ -135,7 +136,7 @@ def assess_risk(
     _require_open(incident)
     moment = _utc(now)
     level = _choice(risk_level, RISK_LEVELS, "Risiko")
-    if incident.notification_decision == "NOT_REQUIRED" and level == "HIGH":
+    if incident.notification_decision == "NOT_REQUIRED" and level in ESCALATING_RISKS:
         incident.notification_decision = None
         incident.notification_decision_reason = None
         incident.notification_decided_by = None
@@ -152,16 +153,21 @@ def assess_risk(
 
 def decide_notification(
     db: Session, incident: PrivacySecurityIncident, *, decision: str, reason: str | None, actor_id: str,
-    now: datetime | None = None,
+    escalation_contact: str | None = None, now: datetime | None = None,
 ) -> PrivacySecurityIncident:
     _require_open(incident)
+    if not str(escalation_contact or "").strip():
+        raise DomainError(
+            ReasonCode.INCIDENT_OWNER_CONTACT_MISSING,
+            "Vor dem Meldeentscheid den Eskalationskontakt erfassen (Angaben des Verantwortlichen)", http_status=409,
+        )
     if not incident.risk_level:
         raise DomainError(
-            ReasonCode.INCIDENT_RISK_ASSESSMENT_MISSING, "Vor dem Meldeentscheid das Risiko bewerten",
+            ReasonCode.INCIDENT_RISK_UNASSESSED, "Vor dem Meldeentscheid das Risiko bewerten",
             http_status=409,
         )
     decision = _choice(decision, NOTIFICATION_DECISIONS, "Meldeentscheid")
-    if incident.risk_level == "HIGH" and decision != "NOTIFY":
+    if incident.risk_level in ESCALATING_RISKS and decision != "NOTIFY":
         raise DomainError(
             ReasonCode.INCIDENT_HIGH_RISK_REQUIRES_NOTIFICATION,
             "Bei voraussichtlich hohem Risiko ist dem EDOEB zu melden", http_status=409,
@@ -202,7 +208,7 @@ def decide_subject_notification(
     _require_open(incident)
     if not incident.risk_level:
         raise DomainError(
-            ReasonCode.INCIDENT_RISK_ASSESSMENT_MISSING, "Vor dem Entscheid das Risiko bewerten", http_status=409,
+            ReasonCode.INCIDENT_RISK_UNASSESSED, "Vor dem Entscheid das Risiko bewerten", http_status=409,
         )
     decision = _choice(decision, SUBJECT_DECISIONS, "Entscheid Information Betroffener")
     moment = _utc(now)
@@ -251,8 +257,23 @@ def add_evidence(
     return incident
 
 
+def record_remediation(
+    db: Session, incident: PrivacySecurityIncident, *, note: str | None, actor_id: str, now: datetime | None = None,
+) -> PrivacySecurityIncident:
+    _require_open(incident)
+    moment = _utc(now)
+    incident.remediation_note = _text(note, "Massnahmen", required=True)
+    incident.remediation_status = "DONE"
+    incident.remediation_completed_by = actor_id
+    incident.remediation_completed_at = _iso(moment)
+    _touch(incident, moment)
+    return incident
+
+
 def close_problems(incident: PrivacySecurityIncident) -> list[str]:
     problems = []
+    if incident.remediation_status != "DONE":
+        problems.append("Behebung/Massnahmen nicht abgeschlossen")
     if not incident.risk_level:
         problems.append("Risikobewertung fehlt")
     if not incident.notification_decision:
@@ -273,6 +294,11 @@ def close(
 ) -> PrivacySecurityIncident:
     _require_open(incident)
     problems = close_problems(incident)
+    if incident.remediation_status != "DONE":
+        raise DomainError(
+            ReasonCode.INCIDENT_REMEDIATION_OPEN, "Abschluss nicht moeglich: " + "; ".join(problems),
+            http_status=409, extra={"problems": problems},
+        )
     if problems:
         raise DomainError(
             ReasonCode.INCIDENT_CLOSE_BLOCKED, "Abschluss nicht moeglich: " + "; ".join(problems),
@@ -310,6 +336,8 @@ def incident_out(incident: PrivacySecurityIncident) -> dict[str, Any]:
         "evidence": json.loads(incident.evidence_json or "[]"),
         "recorded_by": incident.recorded_by, "created_at": incident.created_at, "updated_at": incident.updated_at,
         "closed_at": incident.closed_at, "closed_by": incident.closed_by, "closure_note": incident.closure_note,
+        "remediation_status": incident.remediation_status, "remediation_note": incident.remediation_note,
+        "remediation_completed_at": incident.remediation_completed_at,
         "close_problems": close_problems(incident) if incident.status != "CLOSED" else [],
     }
 
@@ -345,16 +373,17 @@ def gate_findings(
         hours = (moment - _moment(incident.discovered_at, "Entdeckung")).total_seconds() / 3600
         base = _base(incident, hours)
         if not incident.risk_level:
-            findings.append({**base, "reason_code": ReasonCode.INCIDENT_RISK_ASSESSMENT_MISSING.value,
+            findings.append({**base, "reason_code": ReasonCode.INCIDENT_RISK_UNASSESSED.value,
                              "message": "Risikobewertung fehlt", "blocking": False})
             continue
-        if incident.risk_level == "HIGH" and incident.notification_decision != "NOTIFY":
-            findings.append({**base, "reason_code": ReasonCode.INCIDENT_HIGH_RISK_DECISION_MISSING.value,
-                             "message": "Hohes Risiko ohne Meldeentscheid an den EDOEB", "blocking": True})
+        if incident.risk_level in ESCALATING_RISKS and incident.notification_decision != "NOTIFY":
+            findings.append({**base, "reason_code": ReasonCode.INCIDENT_NOTIFICATION_DECISION_MISSING.value,
+                             "message": "Hohes oder unbekanntes Risiko ohne Meldeentscheid an den EDOEB",
+                             "blocking": True})
         elif incident.notification_decision == "NOTIFY" and not incident.edoeb_notified_at:
             findings.append({**base, "reason_code": ReasonCode.INCIDENT_EDOEB_NOTIFICATION_PENDING.value,
                              "message": "Meldung an den EDOEB so rasch als moeglich nachweisen",
-                             "blocking": incident.risk_level == "HIGH"})
+                             "blocking": incident.risk_level in ESCALATING_RISKS})
             if target is not None and hours > target:
                 findings.append({**base, "reason_code": ReasonCode.INCIDENT_NOTIFICATION_TARGET_EXCEEDED.value,
                                  "message": f"Interne Zielfrist von {target:g} Stunden ueberschritten",

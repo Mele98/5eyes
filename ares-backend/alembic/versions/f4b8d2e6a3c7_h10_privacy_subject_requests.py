@@ -1,7 +1,7 @@
 """H10 C-DSG-02: Betroffenenanfragen als Fall.
 
 DSG-Technikaudit 2026-11-11, Befund C-DSG-02: ``privacy_subject_requests``
-haelt Eingang, Identitaetspruefung, 30-Tage-Faelligkeit (``due_at``) mit
+haelt Eingang, Identitaetspruefung, Faelligkeit (``due_at`` aus der Fristen-Policy) mit
 begruendeter Verlaengerung, Einschraenkungsentscheid (``decision_reason``),
 Export-Hash und Zustellnachweis. ``tenant_id`` direkt (RLS beim Boot ueber
 ``ensure_postgres_rls_policies``), bewusst ohne FK auf clients/users (der
@@ -38,7 +38,7 @@ def upgrade() -> None:
         sa.Column("received_channel", sa.String(), nullable=False),
         sa.Column("requester_relation", sa.String(), nullable=False),
         sa.Column("request_summary", sa.Text(), nullable=True),
-        sa.Column("due_at", sa.String(), nullable=False),
+        sa.Column("due_at", sa.String(), nullable=True),
         sa.Column("extended_due_at", sa.String(), nullable=True),
         sa.Column("extension_reason", sa.Text(), nullable=True),
         sa.Column("extension_notified_at", sa.String(), nullable=True),

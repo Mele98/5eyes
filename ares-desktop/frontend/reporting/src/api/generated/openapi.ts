@@ -4599,6 +4599,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/privacy/incidents/{incident_id}/remediation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record Security Incident Remediation */
+        post: operations["record_security_incident_remediation_privacy_incidents__incident_id__remediation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/privacy/incidents/{incident_id}/subject-notification": {
         parameters: {
             query?: never;
@@ -22719,6 +22736,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["IncidentDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_security_incident_remediation_privacy_incidents__incident_id__remediation_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                incident_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IncidentClosure"];
             };
         };
         responses: {

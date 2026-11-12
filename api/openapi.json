@@ -41973,6 +41973,61 @@
         ]
       }
     },
+    "/privacy/incidents/{incident_id}/remediation": {
+      "post": {
+        "operationId": "record_security_incident_remediation_privacy_incidents__incident_id__remediation_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "incident_id",
+            "required": true,
+            "schema": {
+              "title": "Incident Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentClosure"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Record Security Incident Remediation",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
     "/privacy/incidents/{incident_id}/subject-notification": {
       "post": {
         "operationId": "record_security_incident_subject_notification_privacy_incidents__incident_id__subject_notification_post",

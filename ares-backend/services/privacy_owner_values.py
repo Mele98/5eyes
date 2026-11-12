@@ -95,6 +95,10 @@ def set_owner_value(
     cleaned = str(value or "").strip()
     if not cleaned:
         raise DomainError(ReasonCode.PRIVACY_OWNER_VALUE_INVALID, "Wert darf nicht leer sein", http_status=422)
+    if definitions[field_key]["kind"] == "days" and not (cleaned.isdigit() and 0 < int(cleaned) <= 366):
+        raise DomainError(
+            ReasonCode.PRIVACY_OWNER_VALUE_INVALID, "Tage als ganze Zahl zwischen 1 und 366 angeben", http_status=422,
+        )
     if definitions[field_key]["kind"] == "hours":
         try:
             hours = float(cleaned)
