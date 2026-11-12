@@ -361,6 +361,7 @@ def test_alembic_single_head_upgrade_downgrade_upgrade(tmp_path):
         assert "investment_preference_decisions" in insp.get_table_names()
         assert "sustainability_review_months" in {c["name"] for c in insp.get_columns("tenants")}
         assert "bound_preference_decision_hash" in {c["name"] for c in insp.get_columns("contract_documents")}
+        assert "sustainability_evidence_json" in {c["name"] for c in insp.get_columns("recommendation_runs")}
         cols = {c["name"] for c in insp.get_columns("investment_preference_decisions")}
         assert {"preference_waived", "waiver_reason_sealed", "capture_channel", "review_policy_version"} <= cols
         with engine.connect() as conn:

@@ -16,7 +16,7 @@ from models.profiling import (
     ClientKnowledge, InvestmentPreferenceDecision, RiskAssessment, RiskAssessmentAnswer,
     RiskOverrideDecision, SuitabilityCheck, current_investment_preference,
 )
-from models.review import AdvisoryLog
+from models.review import AdvisoryLog, RecommendationRun
 from schemas.profiling import (
     KnowledgeCreate, KnowledgeResponse,
     RiskAssessmentCreate, RiskAssessmentOverride, RiskAssessmentResponse,
@@ -985,10 +985,19 @@ def _allocation_floor(db: Session, mandate: Mandate, row) -> dict:
         ta = _current_target_allocation_or_none(db, mandate.id)
     except ValueError:
         ta = None
-    return sp.evaluate_floor(
-        {"id": row.id, "exclusions_json": row.exclusions_json} if row is not None else None,
-        getattr(ta, "preferences_json", None), has_strategy=ta is not None,
+    decision = None if row is None else {
+        "id": row.id, "exclusions_json": row.exclusions_json, "decision_hash": row.decision_hash,
+    }
+    floor = sp.evaluate_floor(decision, getattr(ta, "preferences_json", None), has_strategy=ta is not None)
+    # Nachtrag 1: Umsetzung nur behaupten, wenn die Produktauswahl belegt ist.
+    run = None if ta is None else (
+        db.query(RecommendationRun).filter(RecommendationRun.target_allocation_id == ta.id)
+        .order_by(RecommendationRun.created_at.desc()).first()
     )
+    floor["evidence"] = sp.run_evidence_status(decision, getattr(run, "sustainability_evidence_json", None))
+    if run is None and floor["evidence"] == sp.RUN_EVIDENCE_MISSING:
+        floor["evidence"] = "no_run"
+    return floor
 
 
 def _sustainability_response(row: InvestmentPreferenceDecision, floor: dict | None = None) -> SustainabilityPreferenceResponse:
@@ -1017,7 +1026,7 @@ def _sustainability_response(row: InvestmentPreferenceDecision, floor: dict | No
         profile_code=row.profile_code,
         profile_text=sp.PROFILE_TEXTS.get(row.profile_code, ""),
         limit_texts=sp.limit_texts(row.profile_code) + sp.exclusion_limit_texts(
-            exclusions, (floor or {}).get("status"),
+            exclusions, (floor or {}).get("status"), (floor or {}).get("evidence"),
         ),
         information_acknowledged=bool(row.information_acknowledged),
         client_confirmed=bool(row.client_confirmed),
@@ -1060,6 +1069,7 @@ def _sustainability_state(db: Session, mandate: Mandate) -> SustainabilityPrefer
         .all()
     )
     floor = _allocation_floor(db, mandate, rows[0] if rows else None)
+    floor_decision = {"exclusions_json": rows[0].exclusions_json} if rows else None
     history = [_sustainability_response(row, floor if index == 0 else None) for index, row in enumerate(rows)]
     current = history[0] if history else None
     info = _preference_state(db, mandate, decision=_row_fields(rows[0]) if rows else None)
@@ -1081,7 +1091,10 @@ def _sustainability_state(db: Session, mandate: Mandate) -> SustainabilityPrefer
         document_binding=info["binding"],
         allocation_floor_status=floor["status"],
         allocation_floor_themes=list(floor.get("themes") or ()),
-        allocation_stale_notice=sp.floor_stale_notice(floor),
+        allocation_stale_notice=sp.floor_stale_notice(floor) or (
+            sp.run_evidence_message(floor_decision, "recommendation")
+            if floor.get("evidence") == sp.RUN_EVIDENCE_MISSING else None
+        ),
     )
 
 

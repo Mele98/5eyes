@@ -1880,8 +1880,13 @@ def strategy_option_coverage(
     as_of: str,
     normalize_preferences,
     jurisdiction_ctx: dict | None,
+    eligible=None,
 ) -> dict:
+    """``eligible``: Eignungskern des Produktlaufs (governed rules); nur
+    empfehlbare Produkte koennen eine Option erfuellen."""
     products = _filter_products_by_universe(db, mandate, _tenant_visible_products_query(db, mandate).all())
+    if eligible is not None:
+        products = [p for p in products if eligible(p)]
     needed = _coverage_needed_sub_asset_classes(db, mandate, products)
     names = [sub for sub, _asset in needed]
 

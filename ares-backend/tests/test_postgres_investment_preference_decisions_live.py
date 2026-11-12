@@ -201,6 +201,8 @@ def test_upgrade_downgrade_upgrade_on_postgres():
             doc_cols = {c["name"] for c in insp.get_columns("contract_documents", schema=schema)}
             assert {"bound_preference_decision_hash", "bound_target_allocation_id",
                     "bound_preferences_sha256"} <= doc_cols
+            run_cols = {c["name"] for c in insp.get_columns("recommendation_runs", schema=schema)}
+            assert "sustainability_evidence_json" in run_cols
             triggers = {r[0] for r in conn.execute(text(
                 "SELECT tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid "
                 "JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = :s AND c.relname = :t"

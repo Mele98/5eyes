@@ -44,6 +44,10 @@ def scenario(api, advisor_user):
     _seed_goals(api, mandate_id)
     _seed_risk_profile(api, mandate_id)
     _seed_products(api, advisor_user)
+    # Strategie + Produktlauf: legt den Standard-Produktkatalog (empfehlbare
+    # Produkte mit freigegebenen Eignungsregeln) an; ohne ihn ist nichts belegbar.
+    assert api.post(f"/mandates/{mandate_id}/target-allocation/generate", json={}).status_code in (200, 201)
+    assert api.post(f"/mandates/{mandate_id}/recommendations/generate", json={}).status_code == 200
     return {"client_id": client_id, "mandate_id": mandate_id, "advisor_id": advisor_user.id}
 
 
@@ -69,19 +73,17 @@ def _seed_evidence(session_factory, advisor_id, mandate_id, theme, *, status="ap
     today = date.today()
     now = today.isoformat() + "T00:00:00.000Z"
     ids = []
-    seeded = set()
     with session_factory() as s:
         mandate = s.get(Mandate, mandate_id)
         products = _filter_products_by_universe(s, mandate, _tenant_visible_products_query(s, mandate).all())
-        for sub, asset in _coverage_needed_sub_asset_classes(s, mandate, products):
-            if sub in skip_subs:
+        needed = dict(_coverage_needed_sub_asset_classes(s, mandate, products))
+        skip_assets = {needed[sub] for sub in skip_subs if sub in needed}
+        for product in products:  # alle Nicht-Liquiditaetsprodukte (Lauf waehlt nur empfehlbare)
+            sub = str(product.sub_asset_class or "").strip()
+            if str(product.asset_class or "") in ("Liquidität", "Liquiditaet") or sub in skip_subs:
                 continue
-            exact = [p for p in products if str(p.sub_asset_class or "").strip() == sub]
-            same_class = [p for p in products if str(p.asset_class or "").replace("ä", "ae") == asset.replace("ä", "ae")]
-            product = (exact or same_class)[0]
-            if product.id in seeded:
+            if skip_subs and str(product.asset_class or "") in skip_assets:
                 continue
-            seeded.add(product.id)
             row = ProductSustainabilityAttribute(
                 id=new_uuid(), product_id=product.id, tenant_id=None,
                 category=sp.EXCLUSION_EVIDENCE_CATEGORIES[theme], kind="exclusion_policy",
@@ -156,7 +158,7 @@ def test_one_missing_sub_asset_class_blocks_the_option(api, scenario, session_fa
     needed = _coverage(api, mid)["_needed"]
     _seed_evidence(session_factory, scenario["advisor_id"], mid, "tobacco", skip_subs=(needed[0],))
     option = _coverage(api, mid)["exclusion:tobacco"]
-    assert option["available"] is False and option["missing_sub_asset_classes"] == [needed[0]]
+    assert option["available"] is False and needed[0] in option["missing_sub_asset_classes"]
     assert needed[0] in option["reason"]
 
 
@@ -170,7 +172,7 @@ def test_customer_exclusion_is_a_floor_only_via_the_restriction_mechanism(api, s
     _seed_evidence(session_factory, scenario["advisor_id"], mid, "tobacco")
     state = _ok_capture(api, mid, exclusions=["tobacco"])
     assert state["current"]["exclusions"] == ["tobacco"]
-    assert state["allocation_floor_status"] == "no_strategy"
+    assert state["allocation_floor_status"] == "violated"
     for mode in ("neutral", "underweight", "overweight"):
         resp = _generate(api, mid, mode)
         assert resp.status_code == 422, (mode, resp.text)
@@ -293,9 +295,21 @@ def test_protocol_without_strategy_is_bound_to_the_capture_and_signable(api, sce
     """N-888-15 (uebernommen): Erstgespraech mit Ausschluss, noch ohne Strategie."""
     from tests.test_sustainability_e2a_contract import _protocol_doc, _sign
 
-    mid = scenario["mandate_id"]
+    # Zweites Mandat ohne Strategie (Katalog existiert aus dem Szenario).
+    client = api.post("/clients", json={
+        "client_number": "TG-2026-002", "first_name": "Erst", "last_name": "Gespraech",
+        "advisor_id": scenario["advisor_id"], "household_type": "Einzelperson",
+        "birth_date": "1980-01-01", "tax_domicile": "CH", "data_classification": "synthetic",
+    })
+    assert client.status_code == 201, client.text
+    mandate = api.post(f"/clients/{client.json()['id']}/mandates", json={
+        "mandate_number": "TG-M-002", "mandate_type": "Vermögensverwaltung", "base_currency": "CHF"})
+    assert mandate.status_code == 201, mandate.text
+    mid = mandate.json()["id"]
+    _seed_risk_profile(api, mid)  # Eignung der Produkte haengt am Risikoprofil
     _seed_evidence(session_factory, scenario["advisor_id"], mid, "tobacco")
     state = _ok_capture(api, mid, exclusions=["tobacco"])
+    assert state["allocation_floor_status"] == "no_strategy"
     doc = _protocol_doc(api, session_factory, mid)
     assert doc["bound_target_allocation_id"] is None
     assert _sign(api, mid, doc["id"]).status_code == 200, state

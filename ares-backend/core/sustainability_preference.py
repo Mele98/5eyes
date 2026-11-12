@@ -528,7 +528,8 @@ def preference_state(
     if reasons:
         notice = "Erneute Erhebung erforderlich: " + " ".join(STALE_REASON_TEXTS[r] for r in reasons)
     elif state == STATE_UNANSWERED:
-        notice = "Nachhaltigkeitspräferenz nicht erfasst (Erhebung nach dem Risikoprofil)."
+        notice = ("Nachhaltigkeitspräferenz nicht erfasst. " + REQUIRED_ANSWER_TEXT
+                  + " (vor der Finalisierung erforderlich)")
     return {"state": state, "answer_state": answer_state, "stale_reasons": reasons,
             "label": STATE_LABELS[state], "notice": notice}
 
@@ -577,7 +578,15 @@ def load_state(fetch_row, fetch_scalar, hash_fn, *, mandate_id, tenant_id, manda
 
 
 def release_violation(state_info, channel):
-    """(reason_code, message) wenn veraltet/nicht lesbar, sonst None."""
+    """(reason_code, message) wenn veraltet/nicht lesbar, sonst None.
+
+    Nachtrag 1 (Owner-Vertretung 2026-11-12, CH-Branchenstandard): vor der
+    Finalisierung muss Frage 1 beantwortet sein ("Keine Angabe" zaehlt als
+    beantwortet). "Noch nicht beantwortet" bleibt ein eigener Zustand und
+    sperrt nur die Finalisierung; kein stilles Backfill fuer Bestandsmandate."""
+    if channel == "finalize" and state_info.get("state") == STATE_UNANSWERED:
+        label = RELEASE_CHANNEL_LABELS.get(channel, "Freigabe nicht möglich")
+        return "SUSTAINABILITY_PREFERENCE_REQUIRED", f"{label}: {REQUIRED_ANSWER_TEXT}"
     if not state_blocks_release(state_info.get("state")):
         return None
     code = ("SUSTAINABILITY_PREFERENCE_UNREADABLE" if state_info.get("state") == STATE_UNREADABLE
@@ -738,11 +747,21 @@ FLOOR_CHANNEL_LABELS = {
 }
 
 EXCLUSION_LIMIT_TEXT = (
-    "Ausschlusswünsche: Produkte, die im Produktkatalog der Firma einem dieser "
-    "Themen zugeordnet sind (z. B. Themenfonds), werden bei der Produktauswahl "
-    "nicht verwendet. Die Zuordnung beruht auf Katalogangaben der Firma, nicht "
-    "auf Daten eines ESG-Datenanbieters. Breit diversifizierte Fonds und ETFs "
-    "werden nicht durchleuchtet und können Titel dieser Themen enthalten."
+    "Ausschlusswünsche: In der Empfehlung werden ausserhalb der Liquidität nur "
+    "Produkte verwendet, für die ein freigegebener Nachweis (Quelle, Stichtag) "
+    "belegt, dass sie Unternehmen dieser Themen gemäss der Ausschlussschwelle "
+    "der Firma ausschliessen. Massgeblich ist die Ausschlussrichtlinie des "
+    "Produkts gemäss Nachweis; die einzelnen Titel breit diversifizierter Fonds "
+    "werden nicht zusätzlich durchleuchtet."
+)
+EXCLUSION_NO_RUN_TEXT = (
+    "Ausschlusswünsche: Es ist noch keine Produktauswahl erstellt. Sie verwendet "
+    "ausserhalb der Liquidität nur Produkte mit belegtem Nachweis."
+)
+EXCLUSION_UNEVIDENCED_TEXT = (
+    "Ausschlusswünsche: Die aktuelle Produktauswahl ist für die Ausschlusswünsche "
+    "({labels}) nicht belegt. Sie darf so weder empfohlen noch umgesetzt werden; "
+    "die Empfehlung ist neu zu erstellen."
 )
 EXCLUSION_DEVIATION_TEXT = (
     "Ausschlusswünsche: Die aktuelle Anlagestrategie berücksichtigt die "
@@ -870,9 +889,17 @@ def preferences_sha256(preferences_json):
     return hashlib.sha256(str(preferences_json).encode("utf-8")).hexdigest()
 
 
-def exclusion_limit_texts(exclusions, floor_status) -> list:
+def exclusion_limit_texts(exclusions, floor_status, evidence_status=None) -> list:
+    """Kundentext zum Ausschluss: die Umsetzung wird NUR behauptet, wenn die
+    Strategie die Untergrenze haelt UND die Produktauswahl belegt ist
+    (``evidence_status`` == RUN_EVIDENCE_OK); ohne Produktauswahl steht die
+    Regel als Vorgabe (``None``)."""
     if not exclusions:
         return []
+    if floor_status == FLOOR_OK and evidence_status == RUN_EVIDENCE_MISSING:
+        return [EXCLUSION_UNEVIDENCED_TEXT.format(labels=", ".join(exclusion_labels(exclusions)))]
+    if floor_status == FLOOR_OK and evidence_status != RUN_EVIDENCE_OK:
+        return [EXCLUSION_NO_RUN_TEXT]
     if floor_status == FLOOR_VIOLATED:
         return [EXCLUSION_DEVIATION_TEXT.format(labels=", ".join(exclusion_labels(exclusions)))]
     if floor_status in (FLOOR_NO_STRATEGY, FLOOR_UNREADABLE):
@@ -896,3 +923,48 @@ DOCUMENT_STRATEGY_UNBOUND_TEXT = (
     "ist keiner Anlagestrategie eindeutig zugeordnet (vor der Bindung erzeugt "
     "oder Inhalt geändert). Bitte das Dokument neu erzeugen."
 )
+
+
+# ── E2b Nachtrag 1: Belege der Produktauswahl (an der Empfehlung) ────────────
+RUN_EVIDENCE_NONE = "none"        # kein Ausschluss aktiv
+RUN_EVIDENCE_OK = "ok"            # alle Positionen belegt, zur aktuellen Erfassung
+RUN_EVIDENCE_MISSING = "missing"  # Altlauf, andere Erfassung oder Luecke
+
+
+def run_evidence_status(decision, snapshot_json) -> str:
+    """Ist die Produktauswahl einer Empfehlung fuer die AKTUELLEN Ausschluesse
+    belegt? Fail-closed: unlesbar, andere Erfassung, fehlendes Thema oder
+    Luecke = missing."""
+    try:
+        exclusions = effective_exclusions(decision)
+    except (TypeError, ValueError):
+        return RUN_EVIDENCE_MISSING
+    if not exclusions:
+        return RUN_EVIDENCE_NONE
+    try:
+        snap = json.loads(snapshot_json) if snapshot_json else None
+    except (TypeError, ValueError):
+        snap = None
+    if not isinstance(snap, dict) or snap.get("decision_hash") != (decision or {}).get("decision_hash"):
+        return RUN_EVIDENCE_MISSING
+    if not set(exclusions) <= set(snap.get("themes") or ()) or snap.get("complete") is not True:
+        return RUN_EVIDENCE_MISSING
+    return RUN_EVIDENCE_OK
+
+
+RUN_EVIDENCE_MESSAGE = (
+    "{label}: Die Produktauswahl ist für den Ausschluss ({labels}) nicht belegt. "
+    "Bitte die Empfehlung neu erstellen."
+)
+
+
+def run_evidence_message(decision, channel) -> str:
+    label = FLOOR_CHANNEL_LABELS.get(channel, "Freigabe nicht möglich")
+    try:
+        labels = ", ".join(exclusion_labels(effective_exclusions(decision)))
+    except (TypeError, ValueError):
+        labels = ""
+    return RUN_EVIDENCE_MESSAGE.format(label=label, labels=labels)
+
+
+REQUIRED_ANSWER_TEXT = "Frage zur Nachhaltigkeit im Risikoprofil beantworten."

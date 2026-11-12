@@ -181,6 +181,13 @@ def assert_recommendation_release_eligible(
     assert_sustainability_preference_floor(
         db, mandate, allocation=allocation, channel=channel, audit=audit,
     )
+    # E2b Nachtrag 1: die Produktauswahl muss die Kundenausschluesse am
+    # Produkt belegt erfuellen (Handoff: der Lauf; sonst der juengste Lauf
+    # der Allokation).
+    assert_run_evidence(
+        db, mandate, run if run is not None else latest_run_for_allocation(db, allocation),
+        channel=channel, audit=audit,
+    )
     # CMA-001 / ADR-12a-Release-Hold: keine Freigabe, solange die CMA der
     # Allokation eine ungeklaerte KGV-Bewertungsanpassung traegt
     # (services/cma_valuation_hold.py).
@@ -506,3 +513,42 @@ def document_strategy_binding(db: Session, mandate: Any, document_type: str | No
         "target_allocation_id": allocation.id,
         "preferences_sha256": sustainability.preferences_sha256(getattr(allocation, "preferences_json", None)),
     }
+
+
+def latest_run_for_allocation(db: Session, allocation: Any) -> Any:
+    """Juengster Lauf einer Allokation (nur id + Belege, ohne neue Kopplung)."""
+    if allocation is None:
+        return None
+    row = db.execute(text(
+        "SELECT id, sustainability_evidence_json FROM recommendation_runs "
+        "WHERE target_allocation_id = :ta ORDER BY created_at DESC LIMIT 1"
+    ), {"ta": allocation.id}).mappings().first()
+    return SimpleNamespace(**dict(row)) if row else None
+
+
+def run_evidence_status(db: Session, mandate: Any, run: Any) -> str:
+    """E2b Nachtrag 1: Belege der Produktauswahl eines Laufs fuer die
+    aktuellen Ausschluesse ("no_run" = Ausschluss aktiv, noch kein Lauf)."""
+    decision = current_preference_decision(db, mandate)
+    status = sustainability.run_evidence_status(decision, getattr(run, "sustainability_evidence_json", None))
+    if run is None and status == sustainability.RUN_EVIDENCE_MISSING:
+        return "no_run"
+    return status
+
+
+def assert_run_evidence(db: Session, mandate: Any, run: Any, *, channel: str, audit=None) -> None:
+    if run is None:
+        return
+    decision = current_preference_decision(db, mandate)
+    status = sustainability.run_evidence_status(decision, getattr(run, "sustainability_evidence_json", None))
+    if status != sustainability.RUN_EVIDENCE_MISSING:
+        return
+    result = {"status": "run_evidence_missing", "themes": [], "decision_id": (decision or {}).get("id")}
+    if audit is not None:
+        audit(sustainability.floor_audit_payload(result, channel), result)
+    raise DomainError(
+        ReasonCode.SUSTAINABILITY_EVIDENCE_MISSING,
+        sustainability.run_evidence_message(decision, channel),
+        http_status=409,
+        extra={"channel": channel, "run_id": getattr(run, "id", None)},
+    )

@@ -5,6 +5,7 @@ Hintergrund). Dieser Test prueft den funktionalen Normalfall End-to-End:
 die neue Sperre darf den bestehenden Finalisierungs-Ablauf NICHT veraendern.
 """
 from __future__ import annotations
+from tests.sustainability_test_support import answer_question_one_for_all_mandates  # noqa: E402
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -171,6 +172,7 @@ def test_finalize_succeeds_and_supersedes_prior_final_run(session_factory):
 
     with session_factory() as db:
         advisor = db.query(User).filter(User.id == advisor_id).first()
+        answer_question_one_for_all_mandates(db)  # Nachtrag 1: Pflichtfrage
         result = finalize_recommendation(
             mandate_id=mid, run_id=second_run_id, request=_FakeRequest(), db=db, current_user=advisor,
         )
@@ -194,6 +196,7 @@ def test_finalize_first_run_for_mandate_with_no_prior_final(session_factory):
 
     with session_factory() as db:
         advisor = db.query(User).filter(User.id == advisor_id).first()
+        answer_question_one_for_all_mandates(db)  # Nachtrag 1: Pflichtfrage
         result = finalize_recommendation(
             mandate_id=mid, run_id=run_id, request=_FakeRequest(), db=db, current_user=advisor,
         )

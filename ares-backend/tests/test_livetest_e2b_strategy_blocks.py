@@ -113,8 +113,8 @@ def _seed_mandate(api, advisor_id: str, label: str, tilts: dict) -> tuple[str, s
 
 
 def _seed_tobacco_evidence(db_path: Path, needed: list[str], advisor_id: str) -> int:
-    """Je benoetigter Sub-Anlageklasse ein freigegebener Ausschlussnachweis
-    (synthetisch; gleiche Kandidatenregel wie die Abdeckungspruefung)."""
+    """Freigegebener Ausschlussnachweis (synthetisch) fuer alle Produkte
+    ausserhalb der Liquiditaet; ``needed`` nur zur Plausibilisierung."""
     today = date.today()
     now = today.isoformat() + "T00:00:00.000Z"
     conn = sqlite3.connect(str(db_path))
@@ -123,23 +123,19 @@ def _seed_tobacco_evidence(db_path: Path, needed: list[str], advisor_id: str) ->
             "SELECT id, sub_asset_class, asset_class FROM products WHERE is_active = 1 AND deleted_at IS NULL"
         ).fetchall()
         seeded = set()
-        for sub in needed:
-            exact = [r for r in rows if (r[1] or "").strip() == sub]
-            if not exact:
+        for product_id, _sub, asset in rows:  # alle Nicht-Liquiditaetsprodukte belegen
+            if (asset or "") in ("Liquidität", "Liquiditaet") or product_id in seeded:
                 continue
-            for product_id, _sub, _asset in exact[:1]:
-                if product_id in seeded:
-                    continue
-                seeded.add(product_id)
-                conn.execute(
-                    "INSERT INTO product_sustainability_attributes (id, product_id, tenant_id, category, kind, "
-                    "revenue_threshold_bps, source_type, source_reference, as_of, valid_until, status, "
-                    "created_by, created_at, approved_by, approved_at, approval_mode, updated_at) VALUES "
-                    "(?, ?, NULL, 'tobacco', 'exclusion_policy', 0, 'prospectus', 'Synthetischer Prospekt', "
-                    "?, ?, 'approved', ?, ?, ?, ?, 'single_approver_attested', ?)",
-                    (str(uuid.uuid4()), product_id, (today - timedelta(days=1)).isoformat(),
-                     (today + timedelta(days=300)).isoformat(), advisor_id, now, advisor_id, now, now),
-                )
+            seeded.add(product_id)
+            conn.execute(
+                "INSERT INTO product_sustainability_attributes (id, product_id, tenant_id, category, kind, "
+                "revenue_threshold_bps, source_type, source_reference, as_of, valid_until, status, "
+                "created_by, created_at, approved_by, approved_at, approval_mode, updated_at) VALUES "
+                "(?, ?, NULL, 'tobacco', 'exclusion_policy', 0, 'prospectus', 'Synthetischer Prospekt', "
+                "?, ?, 'approved', ?, ?, ?, ?, 'single_approver_attested', ?)",
+                (str(uuid.uuid4()), product_id, (today - timedelta(days=1)).isoformat(),
+                 (today + timedelta(days=300)).isoformat(), advisor_id, now, advisor_id, now, now),
+            )
         conn.commit()
         return len(seeded)
     finally:

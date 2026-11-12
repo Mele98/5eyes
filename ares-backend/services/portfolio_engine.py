@@ -6764,8 +6764,9 @@ def generate_recommendation_run(
     # der fruehere Suitability-Relaxation-Fallback-Pfad ist entfernt -- ein
     # Produkt ausserhalb seines Risikobands/Service-Modus wird nicht mehr
     # als letzter Ausweg wieder zum Kandidaten (Spec Section 9.2).
-    from services.product_eligibility import derive_service_mode, is_eligible_candidate, mandate_tenant_id
+    from services.product_eligibility import customer_exclusion_evidence, derive_service_mode, is_eligible_candidate, mandate_tenant_id
     service_mode, run_tenant_id = derive_service_mode(mandate), mandate_tenant_id(mandate)
+    exclusion_evidence = customer_exclusion_evidence(db, mandate)  # E2b N1: nur belegte Produkte
 
     # Beide Praedikate sind schleifeninvariant (haengen nicht von `sub` ab).
     # Vorher stand die Liste IN der Schleife: 351 statt 36 DB-Abfragen pro
@@ -6774,7 +6775,10 @@ def generate_recommendation_run(
         product for product in products
         if _product_matches_constraints(product, prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx)
         and is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction, tenant_id=run_tenant_id)
+        and (exclusion_evidence is None or exclusion_evidence(product))
     ]
+    if exclusion_evidence is not None:
+        exclusion_evidence.raise_if_uncovered(eligible_products, sub_allocations)
 
     theme_diag = ThemeGapDiagnosis(db, products, prefs, score_bucket, service_mode=service_mode, jurisdiction=jurisdiction, jurisdiction_ctx=jurisdiction_ctx, tenant_id=run_tenant_id)
     for sub in sub_allocations:
@@ -6864,6 +6868,7 @@ def generate_recommendation_run(
 
     _validate_recommendation_concentration_limits(aggregated_positions, prefs)
     warnings.extend(w for w in [seed_unverified_run_warning(prefs, [e["product"] for e in aggregated_positions.values()])] if w)
+    run.sustainability_evidence_json = exclusion_evidence.snapshot([e["product"] for e in aggregated_positions.values()]) if exclusion_evidence is not None else None
 
     latest_prices = latest_price_snapshot(db, list(aggregated_positions.keys()))
     market_data_quality = summarize_price_quality(db, list(aggregated_positions.keys()))

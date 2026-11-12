@@ -111,6 +111,12 @@ from services.signature_artifact import CLIENT_SIGNATURE_REQUIRES_CLIENT_PRINCIP
 from services.suitability_audit import audit_mandate_suitability, suitability_gate_blocks
 from services.product_eligibility_finalization import finalization_eligibility_findings, saa_bucket_reconciliation_warnings
 from services.product_eligibility_governance import parse_utc_timestamp
+from services.product_eligibility import (
+    assert_run_positions_evidenced,
+    derive_service_mode,
+    is_eligible_candidate,
+    mandate_tenant_id,
+)
 from services.review_calendar_feed import (
     build_ics_feed,
     issue_calendar_feed_token,
@@ -4126,6 +4132,9 @@ def finalize_recommendation(
         channel="finalize", audit=_floor_audit(db, current_user, mandate, request),
     )
     assert_customer_exclusions_offerable(db, mandate, channel="finalize")
+    # Nachtrag 1: jede Position muss den Ausschluss HEUTE belegt erfuellen
+    # (abgelaufener/zurueckgezogener Nachweis -> 409, kurze Meldung).
+    assert_run_positions_evidenced(db, mandate, run, label="Die Empfehlung kann nicht finalisiert werden")
     if cma_currency_warning:
         warnings.append(cma_currency_warning)
     # PREF-FINAL-001 (ESG-P0-3): jede Position wird mit demselben Matcher wie
@@ -5220,8 +5229,22 @@ def strategy_option_coverage_for_mandate(db: Session, mandate) -> dict:
         )
         return result.attribute_id if result.satisfied else None
 
+    assessment = (
+        db.query(RiskAssessment).filter(RiskAssessment.mandate_id == mandate.id)
+        .order_by(RiskAssessment.created_at.desc()).first()
+    )
+    service_mode, run_tenant = derive_service_mode(mandate), mandate_tenant_id(mandate)
+    jurisdiction = getattr(mandate, "jurisdiction", None) or "CH"
+    bucket = _risk_score_bucket(assessment) if assessment else 0
+
+    def _eligible(product):
+        return is_eligible_candidate(
+            db, product, service_mode=service_mode, score_bucket=bucket, jurisdiction=jurisdiction,
+            tenant_id=run_tenant,
+        )
+
     return strategy_option_coverage(
-        db, mandate, exclusion_evidence=_evidence, as_of=as_of,
+        db, mandate, exclusion_evidence=_evidence, as_of=as_of, eligible=_eligible,
         normalize_preferences=_normalize_preferences,
         jurisdiction_ctx=_resolve_jurisdiction_context(db, mandate, getattr(mandate, "jurisdiction", None) or "CH"),
     )

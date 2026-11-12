@@ -27,7 +27,10 @@ from core import sustainability_preference as sustainability
 from core.reason_codes import DomainError, ReasonCode
 from services.portfolio_engine_payload import ESG_CUSTOMER_CLAIM_LABELS
 from services.recommendation_release_gate import (
+    assert_run_evidence as _assert_run_evidence,
     assert_sustainability_preference_floor as _assert_floor,
+    latest_run_for_allocation as _latest_run_for_allocation,
+    run_evidence_status as _run_evidence_status,
     document_strategy_binding as _document_binding,
     preference_state as _preference_state,
 )
@@ -1162,14 +1165,15 @@ def _assert_client_pdf_sustainability_floor(db: Session, mandate: Mandate, curre
     """E2b / N-888-10: Kunden-PDFs mit Strategie/Produkten (Anlagestrategie,
     Anlagerezept, Kostenausweis) nur, wenn die aktuelle Soll-Allokation die
     Kundenausschluesse einhaelt -- mit Audit-Eintrag, VOR Render und Archiv."""
-    _assert_floor(
-        db, mandate, allocation=_latest_target_allocation(mandate, db), channel="client_pdf",
-        audit=gate_block_audit(
-            db, user=current_user, mandate=mandate,
-            ip_address=_extract_client_ip(request) if request is not None else None,
-            table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
-        ),
+    allocation = _latest_target_allocation(mandate, db)
+    audit = gate_block_audit(
+        db, user=current_user, mandate=mandate,
+        ip_address=_extract_client_ip(request) if request is not None else None,
+        table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
     )
+    _assert_floor(db, mandate, allocation=allocation, channel="client_pdf", audit=audit)
+    # Nachtrag 1: Produkte im Kundendokument nur mit belegtem Ausschluss.
+    _assert_run_evidence(db, mandate, _latest_run_for_allocation(db, allocation), channel="client_pdf", audit=audit)
 
 
 def _assert_client_pdf_cma_hold(db: Session, mandate: Mandate) -> None:
@@ -1906,6 +1910,8 @@ def _protocol_floor(db: Session, mandate: Mandate, row: dict) -> dict:
     floor = sustainability.evaluate_floor(
         decision, getattr(ta, "preferences_json", None), has_strategy=ta is not None,
     )
+    # Nachtrag 1: "eingehalten" nur mit belegter Produktauswahl des juengsten Laufs.
+    floor["evidence"] = _run_evidence_status(db, mandate, _latest_run_for_allocation(db, ta))
     final_prefs = db.execute(sql_text(
         "SELECT ta.preferences_json, rr.updated_at FROM recommendation_runs rr "
         "JOIN target_allocations ta ON ta.id = rr.target_allocation_id "
@@ -1961,8 +1967,17 @@ def _sustainability_protocol_view(db: Session, mandate: Mandate) -> dict:
              if row.get("information_acknowledged") else "nicht dokumentiert"),
         ]
     if floor is not None:
+        evidence = floor.get("evidence")
+        ok_text = {
+            sustainability.RUN_EVIDENCE_OK: (
+                "Ausschlusswünsche eingehalten; alle Produkte der Empfehlung mit belegtem Nachweis"
+            ),
+            sustainability.RUN_EVIDENCE_MISSING: (
+                "Nicht eingehalten – Produktauswahl nicht belegt; Empfehlung neu erstellen"
+            ),
+        }.get(evidence, "Strategie hält die Ausschlüsse ein; noch keine belegte Produktauswahl")
         lines.append(("Umsetzung in der Anlagestrategie", {
-            sustainability.FLOOR_OK: "Ausschlusswünsche in der aktuellen Anlagestrategie eingehalten",
+            sustainability.FLOOR_OK: ok_text,
             sustainability.FLOOR_VIOLATED: (
                 "Nicht eingehalten – die finalisierte Empfehlung enthält gelockerte Ausschlüsse; "
                 "Empfehlung neu erstellen und finalisieren"
@@ -1981,7 +1996,7 @@ def _sustainability_protocol_view(db: Session, mandate: Mandate) -> dict:
     ]
     notes = list(sustainability.limit_texts(row.get("profile_code")))
     if floor is not None:
-        notes += sustainability.exclusion_limit_texts(exclusions, floor["status"])
+        notes += sustainability.exclusion_limit_texts(exclusions, floor["status"], floor.get("evidence"))
     if info.get("notice"):
         notes.insert(0, info["notice"])
     notes.append(sustainability.NO_RISK_EFFECT_TEXT)

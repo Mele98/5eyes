@@ -27,14 +27,18 @@ import json
 from datetime import datetime, timezone
 from typing import Sequence
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import new_uuid
 from models.mandates import Mandate
-from models.product_eligibility import ProductEligibilityRule, ProductEligibilityRuleSet
-from models.review import Product
+from core import sustainability_preference as sustainability
+from core.reason_codes import DomainError, ReasonCode
+from models.product_eligibility import ProductEligibilityRule, ProductEligibilityRuleSet, ProductSustainabilityAttribute
+from models.review import Product, RecommendationPosition
 from services.product_eligibility_governance import TENANT_PRODUCT_RULE_SOURCE as _TENANT_PRODUCT_RULE_SOURCE
 from services.product_eligibility_governance import parse_utc_timestamp
+from services.product_eligibility_governance import effective_sustainability_threshold, evaluate_criterion
 from schemas.product_eligibility import (
     DimensionStatus,
     KnowledgeCategory,
@@ -970,3 +974,129 @@ def is_eligible_candidate(
         tenant_id=tenant_id,
     )
     return decision.decision == "eligible"
+
+
+# ===========================================================================
+# E2b Nachtrag 1 (Owner-Vertretung 2026-11-12): Durchsetzung der
+# Kundenausschluesse AM PRODUKT. Ist in der aktuellen Nachhaltigkeits-
+# praeferenz ein Ausschluss erfasst, waehlt die Produktselektion nur Produkte,
+# deren freigegebener, am Stichtag gueltiger, fuer den Tenant sichtbarer
+# Nachweis (product_sustainability_attributes, evaluate_criterion) jedes
+# Ausschluss-Kriterium erfuellt. Keine Katalog-Themenzuordnung ohne Nachweis,
+# unbekannt != erfuellt. Liquiditaet ist ausgenommen (gleiche Ausnahme wie
+# die Abdeckungspruefung). Fehlt zur Laufzeit ein Nachweis -> fail-closed
+# (SUSTAINABILITY_EVIDENCE_MISSING, kurze Meldung + Detail).
+# ===========================================================================
+_EVIDENCE_EXEMPT_ASSET_CLASSES = frozenset({"Liquiditaet", "Liquidität"})
+
+
+class CustomerExclusionEvidence:
+    """Praedikat + Belege fuer die Ausschluesse einer Erfassung."""
+
+    def __init__(self, db: Session, mandate: Mandate, decision: dict, themes: list, as_of: str):
+        self.db, self.mandate, self.themes, self.as_of = db, mandate, list(themes), as_of
+        self.decision_hash = decision.get("decision_hash")
+        self._tenant = getattr(mandate, "tenant_id", None)
+        self._categories = {t: sustainability.EXCLUSION_EVIDENCE_CATEGORIES[t] for t in self.themes}
+        self._thresholds = {
+            t: effective_sustainability_threshold(db, self._tenant, c, as_of) for t, c in self._categories.items()
+        }
+        self._evaluate = evaluate_criterion
+        self._labels = sustainability.EXCLUSION_LABELS
+        self._by_product: dict[str, list] = {}
+        for row in db.query(ProductSustainabilityAttribute).filter(
+            ProductSustainabilityAttribute.status == "approved",
+        ).all():
+            self._by_product.setdefault(row.product_id, []).append(row)
+        self._cache: dict[str, dict] = {}
+
+    @staticmethod
+    def exempt(product) -> bool:
+        return str(getattr(product, "asset_class", None) or "").strip() in _EVIDENCE_EXEMPT_ASSET_CLASSES
+
+    def evidence(self, product) -> dict:
+        """{thema: Nachweis-ID|None} je Ausschluss (Liquiditaet: leer)."""
+        if self.exempt(product):
+            return {}
+        if product.id not in self._cache:
+            rows = self._by_product.get(product.id) or []
+            found = {}
+            for theme, category in self._categories.items():
+                result = self._evaluate(
+                    self.db, product, category, self._thresholds[theme], self.as_of,
+                    tenant_id=self._tenant, attributes=rows,
+                ) if rows else None
+                found[theme] = result.attribute_id if result is not None and result.satisfied else None
+            self._cache[product.id] = found
+        return self._cache[product.id]
+
+    def __call__(self, product) -> bool:
+        return all(self.evidence(product).values())
+
+    def missing_themes(self, product) -> list:
+        return [t for t, ev in self.evidence(product).items() if not ev]
+
+    def raise_if_uncovered(self, eligible_products, sub_allocations) -> None:
+        """Vor der Selektion: je Slot ein belegtes Produkt (exakt oder im
+        Fallback der Anlageklasse), sonst kurze fail-closed-Meldung."""
+        missing = []
+        for sub in sub_allocations:
+            if str(sub.get("asset_class") or "").strip() in _EVIDENCE_EXEMPT_ASSET_CLASSES:
+                continue
+            name, asset = str(sub.get("sub_asset_class") or ""), str(sub.get("asset_class") or "")
+            if not any(str(p.sub_asset_class or "") == name or str(p.asset_class or "") == asset
+                       for p in eligible_products):
+                missing.append(name)
+        if missing:
+            self._raise("Produktauswahl gesperrt", missing)
+
+    def _raise(self, label: str, subs: list) -> None:
+        themes = ", ".join(self._labels[t] for t in self.themes)
+        raise DomainError(
+            ReasonCode.SUSTAINABILITY_EVIDENCE_MISSING,
+            f"{label}: Für den Ausschluss ({themes}) fehlt ein gültiger Produktnachweis. "
+            "Einstellung: Nachweise im Produktuniversum. Bitte Nachweis erneuern oder Präferenz neu erheben.",
+            http_status=409,
+            extra={"detail": "Betroffen: " + ", ".join(subs), "themes": list(self.themes)},
+        )
+
+    def snapshot(self, products) -> str:
+        """Belege der gewaehlten Produkte (an der Empfehlung gespeichert)."""
+        positions = {p.id: self.evidence(p) for p in products if not self.exempt(p)}
+        return json.dumps({
+            "decision_hash": self.decision_hash, "themes": list(self.themes), "as_of": self.as_of,
+            "positions": positions,
+            "complete": all(all(ev.values()) for ev in positions.values()),
+        }, sort_keys=True)
+
+
+def customer_exclusion_evidence(db: Session, mandate: Mandate, as_of: str | None = None):
+    """``CustomerExclusionEvidence`` der aktuellen Erfassung oder None (keine
+    Ausschluesse). Unlesbare Erfassung -> None; die Untergrenze sperrt dann
+    bereits fail-closed (SUSTAINABILITY_PREFERENCE_UNREADABLE)."""
+    row = db.execute(text(sustainability.CURRENT_DECISION_SQL), {"mandate_id": mandate.id}).mappings().first()
+    decision = dict(row) if row else None
+    try:
+        themes = sustainability.effective_exclusions(decision)
+    except (TypeError, ValueError):
+        return None
+    if not themes:
+        return None
+    return CustomerExclusionEvidence(
+        db, mandate, decision, themes, as_of or datetime.now(timezone.utc).date().isoformat(),
+    )
+
+
+def assert_run_positions_evidenced(db: Session, mandate: Mandate, run, *, label: str) -> None:
+    """Finalisierung: jede Position der Empfehlung muss den Ausschluss HEUTE
+    belegt erfuellen (abgelaufener/zurueckgezogener Nachweis -> 409)."""
+    check = customer_exclusion_evidence(db, mandate)
+    if check is None:
+        return
+    product_ids = [p.product_id for p in db.query(RecommendationPosition).filter(
+        RecommendationPosition.run_id == run.id,
+    ).all()]
+    products = db.query(Product).filter(Product.id.in_(product_ids)).all() if product_ids else []
+    bad = [p for p in products if not check(p)]
+    if bad:
+        check._raise(label, [str(p.name or p.id) for p in bad])

@@ -1254,6 +1254,8 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # CMA-001: CMA_POLICY, an die eine Finalisierung gebunden wurde
             # (models/cma_policy.py; NULL solange das Modell nicht aktiv ist).
             ('cma_policy_row_id', 'TEXT'),
+            # E2b Nachtrag 1: Belege der Produktauswahl (Alembic e7b3d9f1a2c4).
+            ('sustainability_evidence_json', 'TEXT'),
         ],
         'optimizer_runs': [
             # U-9 Stage-9 Telemetry: pro Solver-Start n_paths/n_starts/Seed/

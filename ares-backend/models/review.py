@@ -522,6 +522,10 @@ class RecommendationRun(Base):
     # Finalisierung gebunden ist. NULL fuer Entwuerfe und solange das
     # Policy-Modell nicht aktiv geschaltet ist (services/cma_policy.py).
     cma_policy_row_id = Column(String)
+    # E2b Nachtrag 1: Belege der Produktauswahl fuer die Kundenausschluesse
+    # (decision_hash, Themen, Stichtag, Nachweis-ID je Position). NULL = kein
+    # Ausschluss aktiv bzw. Altlauf (Alembic e7b3d9f1a2c4).
+    sustainability_evidence_json = Column(String)
     result_status = Column(String, nullable=False, default="Draft")
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
