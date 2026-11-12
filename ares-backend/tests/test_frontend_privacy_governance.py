@@ -31,12 +31,13 @@ function mkEl(tag,id){return {tagName:tag,id:id||'',innerHTML:'',textContent:'',
   setAttribute:function(k,v){this.attrs[k]=v;},getAttribute:function(k){return this.attrs[k];},
   addEventListener:function(t,f){this.listeners[t]=f;},
   insertBefore:function(n,ref){n.parentNode=this;this.children.push(n);if(n.id)DOM[n.id]=n;return n;},
+  removeChild:function(n){this.children=this.children.filter(function(c){return c!==n;});if(n.id)delete DOM[n.id];return n;},
   nextSibling:null};}
 var DOM={};
 var container=mkEl('div','root');
 DOM['asec-audit']=mkEl('button','asec-audit');DOM['asec-audit'].parentNode=container;
 DOM['sec-audit']=mkEl('div','sec-audit');DOM['sec-audit'].parentNode=container;
-var document={readyState:'complete',getElementById:function(id){return DOM[id]||null;},
+var document={readyState:'complete',body:mkEl('body','body'),getElementById:function(id){return DOM[id]||null;},
   createElement:function(tag){return mkEl(tag);},addEventListener:function(){}};
 function escapeHtml(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function parseApiError(e,f){return (e&&e.message)||f;}
@@ -164,7 +165,45 @@ def test_audit_pagination_moved_out_of_the_monolith():
 
 
 def test_approve_buttons_post_new_versions():
-    result = _run(_load_script() + "await approvePrivacyArtifact('processing-register');"
-                  + "await approvePrivacyArtifact('egress-manifest');")
+    result = _run(_load_script() + "await approvePrivacyArtifact('processing-register', true);"
+                  + "await approvePrivacyArtifact('egress-manifest', true);")
     assert result["calls"]["posts"] == [["/privacy/processing-register/approve", {"keys": []}],
                                         ["/privacy/egress-manifest/approve", {"keys": []}]]
+
+
+
+def test_approval_first_shows_hashes_then_needs_confirmation():
+    egress = dict(EGRESS, approval=[{"channel_id": "market_data.stooq", "current_sha256": "ab" * 32,
+                                     "effective": None, "reason_code": "EGRESS_MANIFEST_MISSING"}])
+    script = _load_script().replace(json.dumps(EGRESS), json.dumps(egress))
+    result = _run(script + "DOM['pg-approve-confirm']=mkEl('div','pg-approve-confirm');"
+                  + "await approvePrivacyArtifact('egress-manifest');")
+    assert result["calls"]["posts"] == []
+    box = result["DOM"]["pg-approve-confirm"]["innerHTML"]
+    assert "market_data.stooq" in box and "abababababab" in box and "Freigabe bestätigen" in box
+
+
+STATUS_BLOCKED = {"approved": False, "message": "Datenübermittlung gesperrt – Marktdaten, Updates und E-Mail "
+                  "funktionieren erst nach Freigabe", "market_data_message": "nicht aktualisiert – "
+                  "Datenübermittlung nicht freigegeben", "data_as_of": {"product_prices": "2026-11-10"}}
+
+
+@pytest.mark.parametrize(("is_admin", "expected", "absent"), [
+    (True, "Zur Freigabe", "Bitte Administrator informieren"),
+    (False, "Bitte Administrator informieren", "Zur Freigabe"),
+])
+def test_banner_on_every_page_for_admins_and_advisors(is_admin, expected, absent):
+    status = dict(STATUS_BLOCKED, is_admin=is_admin)
+    result = _run("RESP['/privacy/egress-status']=" + json.dumps(status) + ";await refreshEgressBanner();")
+    banner = result["DOM"]["pg-egress-banner"]
+    assert expected in banner["innerHTML"] and absent not in banner["innerHTML"]
+    assert "Datenstand Kurse: 2026-11-10" in banner["innerHTML"]
+    assert "nicht aktualisiert – Datenübermittlung nicht freigegeben" in banner["innerHTML"]
+    assert banner["attrs"]["role"] == "alert"
+
+
+def test_banner_disappears_after_approval():
+    result = _run("RESP['/privacy/egress-status']=" + json.dumps(dict(STATUS_BLOCKED, is_admin=True))
+                  + ";await refreshEgressBanner();RESP['/privacy/egress-status']={approved:true};"
+                  + "await refreshEgressBanner();")
+    assert "pg-egress-banner" not in result["DOM"]

@@ -125,6 +125,45 @@ def incident_gate(db: Any, tenant_id: str) -> dict[str, Any]:
     return gate
 
 
+EGRESS_BLOCKED_MESSAGE = (
+    "Datenübermittlung gesperrt – Marktdaten, Updates und E-Mail funktionieren erst nach Freigabe"
+)
+MARKET_DATA_NOT_UPDATED = "nicht aktualisiert – Datenübermittlung nicht freigegeben"
+
+
+def egress_status(db: Any) -> dict[str, Any]:
+    """H10 Nachtrag 2: kein stiller Ausfall. Welche konfigurierten Kanaele
+    mangels gueltiger Freigabe gesperrt sind, und der Datenstand der Kurse.
+    Bewertungen bleiben auf dem letzten Stand; es wird nie ein Ersatzkurs
+    geschrieben."""
+    manifest = egress_manifest.load_manifest()
+    states = channel_states(db)
+    blocked = []
+    for channel in egress_manifest.channels(manifest):
+        if channel.get("enforcement") != "python_runtime_guard" or not egress_manifest.channel_enabled(channel, settings):
+            continue
+        state = states.get(channel["id"]) or {}
+        if state.get("approval_exempt"):
+            continue
+        if not state.get("approved_sha256") or state.get("approved_sha256") != state.get("current_sha256"):
+            blocked.append({"channel_id": channel["id"], "class": channel["class"]})
+    market_blocked = any(b["class"] == "market_data" for b in blocked)
+    data_as_of = {
+        "product_prices": db.execute(text("SELECT MAX(price_date) FROM price_history")).scalar(),
+        "asset_class_prices": db.execute(text("SELECT MAX(price_date) FROM asset_class_price_history")).scalar(),
+    }
+    return {
+        "approved": not blocked,
+        "blocked_channels": blocked,
+        "blocked_classes": sorted({b["class"] for b in blocked}),
+        "message": EGRESS_BLOCKED_MESSAGE if blocked else None,
+        "market_data_status": "NOT_UPDATED_EGRESS_BLOCKED" if market_blocked else "EGRESS_APPROVED",
+        "market_data_message": MARKET_DATA_NOT_UPDATED if market_blocked else None,
+        "data_as_of": data_as_of,
+        "approval_path": "Administration > Compliance > Datenschutz > Manifest freigeben",
+    }
+
+
 def refresh_egress_confirmations(db: Any, tenant_id: str) -> None:
     if tenant_id == INSTALLATION_TENANT and egress_manifest.is_active():
         egress_manifest.update_channel_states(channel_states(db))
@@ -139,6 +178,7 @@ __all__ = [
     "channel_states",
     "confirmed_egress_channels",
     "deactivate_egress_guard",
+    "egress_status",
     "egress_view",
     "incident_data_categories",
     "incident_gate",

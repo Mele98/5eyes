@@ -114,8 +114,64 @@
     }, 'Angabe gespeichert.');
   }
 
-  async function approvePrivacyArtifact(kind){
-    return run(function(){ return API.post('/privacy/' + kind + '/approve', {keys: []}); }, 'Neue Fassung freigegeben.');
+  function approvalRows(kind){
+    var rows = kind === 'egress-manifest' ? ((state.egress || {}).approval || []) : ((state.register || {}).approval || []);
+    return rows.map(function(r){
+      var key = r.channel_id || r.activity_key;
+      var eff = r.effective ? String(r.effective.content_sha256 || '').slice(0, 12) : '–';
+      return '<tr><td style="padding:2px 6px">' + esc(key) + '</td><td style="padding:2px 6px;font-family:monospace">'
+        + esc(String(r.current_sha256 || '').slice(0, 12)) + '</td><td style="padding:2px 6px;font-family:monospace">' + esc(eff)
+        + '</td><td style="padding:2px 6px">' + esc(r.reason_code || 'wirksam') + '</td></tr>';
+    }).join('');
+  }
+
+  // Zweistufig: erst Hash-Uebersicht, dann Bestaetigung (keine nativen Dialoge).
+  async function approvePrivacyArtifact(kind, confirmed){
+    if (!confirmed) {
+      var box = document.getElementById('pg-approve-confirm');
+      if (box) {
+        box.innerHTML = '<div class="admin-risk-note" style="font-size:10px">Neue Fassung freigeben: '
+          + esc(kind === 'egress-manifest' ? 'Egress-Manifest' : 'Verzeichnis der Bearbeitungen')
+          + '. Neuer Hash je Eintrag (aktuell / bisher freigegeben):</div><table style="font-size:9px">' + approvalRows(kind) + '</table>'
+          + '<button class="btn-p" ' + BTN + ' onclick="approvePrivacyArtifact(\'' + kind + '\', true)">Freigabe bestätigen</button>';
+      }
+      return null;  // ohne Bestaetigung nie freigeben
+    }
+    var result = await run(function(){ return API.post('/privacy/' + kind + '/approve', {keys: []}); }, 'Neue Fassung freigegeben.');
+    refreshEgressBanner();
+    return result;
+  }
+
+  // ── Banner: Datenuebermittlung gesperrt (jede Seite) ──────────────────────
+  async function openPrivacyApproval(){
+    if (typeof openAdminModal === 'function') await openAdminModal();
+    if (typeof adminShowSection === 'function') adminShowSection('sec-privacy-gov');
+    await loadPrivacyGovernance();
+  }
+
+  async function refreshEgressBanner(){
+    var status;
+    try { status = await API.get('/privacy/egress-status'); } catch (e) { return null; }
+    var el = document.getElementById('pg-egress-banner');
+    if (!status || status.approved) {
+      if (el && el.parentNode && el.parentNode.removeChild) el.parentNode.removeChild(el);
+      if (el) el.innerHTML = '';
+      return status;
+    }
+    if (!el) {
+      if (!document.body) return status;
+      el = document.createElement('div');
+      el.id = 'pg-egress-banner';
+      el.setAttribute('role', 'alert');
+      el.style.cssText = 'position:sticky;top:0;z-index:9999;background:var(--neg-bg,#fdecec);color:var(--neg,#a00);padding:6px 12px;font-size:11px;border-bottom:1px solid var(--neg,#a00)';
+      document.body.insertBefore(el, document.body.firstChild);
+    }
+    var asOf = status.data_as_of || {};
+    var stand = 'Datenstand Kurse: ' + esc(asOf.product_prices || asOf.asset_class_prices || 'unbekannt') + ' (' + esc(status.market_data_message || 'nicht aktualisiert') + ').';
+    el.innerHTML = status.is_admin
+      ? '<b>' + esc(status.message) + '.</b> ' + stand + ' <button class="btn-p" ' + BTN + ' onclick="openPrivacyApproval()">Zur Freigabe</button>'
+      : '<b>Datenübermittlung gesperrt.</b> ' + stand + ' Bitte Administrator informieren.';
+    return status;
   }
 
   async function exportProcessingRegister(){
@@ -366,7 +422,7 @@
       state.register = results[0]; state.fields = results[1] || []; state.requests = results[2] || [];
       state.incidents = results[3] || []; state.gate = results[4]; state.egress = results[5];
       state.clients = Array.isArray(results[6]) ? results[6] : ((results[6] && results[6].items) || []);
-      host.innerHTML = renderSummary() + renderOwnerFields() + renderRequests() + renderIncidents() + renderEgress();
+      host.innerHTML = renderSummary() + '<div id="pg-approve-confirm"></div>' + renderOwnerFields() + renderRequests() + renderIncidents() + renderEgress();
     } catch (e) {
       host.innerHTML = '<div style="font-size:10px;color:var(--neg)">' + esc(errText(e, 'Datenschutz-Angaben konnten nicht geladen werden.')) + '</div>';
     }
@@ -396,16 +452,25 @@
       auditPanel.parentNode.insertBefore(panel, auditPanel);
     }
   }
+  function startEgressBanner(){
+    refreshEgressBanner();
+    var timer = (typeof setInterval === 'function') ? setInterval(refreshEgressBanner, 300000) : null;
+    if (timer && timer.unref) timer.unref();
+  }
   if (typeof document !== 'undefined' && document.addEventListener) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountPrivacyGovernance);
     else mountPrivacyGovernance();
   }
+  var startTimer = (typeof setTimeout === 'function') ? setTimeout(startEgressBanner, 1500) : null;
+  if (startTimer && startTimer.unref) startTimer.unref();
 
   window.renderAuditLogPagination = renderAuditLogPagination;
   window.loadPrivacyGovernance = loadPrivacyGovernance;
   window.savePrivacyOwnerField = savePrivacyOwnerField;
   window.exportProcessingRegister = exportProcessingRegister;
   window.approvePrivacyArtifact = approvePrivacyArtifact;
+  window.refreshEgressBanner = refreshEgressBanner;
+  window.openPrivacyApproval = openPrivacyApproval;
   window.openSubjectRequest = openSubjectRequest;
   window.verifySubjectRequestIdentity = verifySubjectRequestIdentity;
   window.decideSubjectRequest = decideSubjectRequest;

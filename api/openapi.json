@@ -41495,6 +41495,31 @@
         ]
       }
     },
+    "/privacy/egress-status": {
+      "get": {
+        "description": "Fuer das Banner auf jeder Seite (alle Mitarbeitenden): gesperrte Kanaele\nmangels Freigabe, Kurs-Datenstand; ``is_admin`` steuert den Direktlink.",
+        "operationId": "get_egress_status_privacy_egress_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Egress Status",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
     "/privacy/erasure-cases": {
       "post": {
         "operationId": "open_erasure_case_privacy_erasure_cases_post",

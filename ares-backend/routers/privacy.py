@@ -950,3 +950,15 @@ def list_egress_events(limit: int = 200, db: Session = Depends(get_db), current_
     return [{"occurred_at": r.occurred_at, "channel_id": r.channel_id, "channel_class": r.channel_class,
              "destination_host": r.destination_host, "reason_code": r.reason_code, "result": r.result,
              "manifest_version": r.manifest_version, "channel_sha256": r.channel_sha256} for r in rows]
+
+
+# ── H10 Nachtrag 2: kein stiller Ausfall bei gesperrter Datenuebermittlung ─────
+
+@router.get("/egress-status")
+def get_egress_status(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Fuer das Banner auf jeder Seite (alle Mitarbeitenden): gesperrte Kanaele
+    mangels Freigabe, Kurs-Datenstand; ``is_admin`` steuert den Direktlink."""
+    _require_staff(current_user)
+    status = gov.egress_status(db)
+    status["is_admin"] = current_user.role in ("admin", "super_admin")
+    return status

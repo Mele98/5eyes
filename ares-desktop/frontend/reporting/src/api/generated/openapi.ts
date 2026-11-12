@@ -4429,6 +4429,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/privacy/egress-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Egress Status
+         * @description Fuer das Banner auf jeder Seite (alle Mitarbeitenden): gesperrte Kanaele
+         *     mangels Freigabe, Kurs-Datenstand; ``is_admin`` steuert den Direktlink.
+         */
+        get: operations["get_egress_status_privacy_egress_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/privacy/erasure-cases": {
         parameters: {
             query?: never;
@@ -22490,6 +22511,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_egress_status_privacy_egress_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

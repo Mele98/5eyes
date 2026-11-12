@@ -85,7 +85,8 @@ GOLDEN_SORTED_TABLES_SHA256 = "925f0e3a7f4730ba845711a933bf56b95a3f5a3dbd49297cf
 # H10 Nachtrag 1: neu POST /privacy/processing-register/approve, POST
 # /privacy/egress-manifest/approve, GET /privacy/egress-events (Schema
 # VersionApproval); IncidentEvidence + sha256 (Pflicht). Feld-Diff geprueft.
-GOLDEN_OPENAPI_SHA256 = "b87d45731480e6d2d9ed0d6fca93da3d4dd3d6746ebd64e827c6aa21dbaf520a"
+# H10 Nachtrag 2: neu GET /privacy/egress-status (Banner), sonst unveraendert.
+GOLDEN_OPENAPI_SHA256 = "1f050ec49d87962b97ac0da87a0d508d1d246e6c6cbfb2136bf41012a9090936"
 
 _PROBE = """
 import hashlib, json

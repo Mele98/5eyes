@@ -768,7 +768,7 @@ jobs:
         env:
           ARES_REQUIRE_PLAYWRIGHT: "1"
         run: |
-          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/chartjs-h5             --startup-timeout 300 --test-timeout 300 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_h5_soll_fan_chart_points_match_axis.py -p no:xdist -rs --tb=short
+          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/chartjs-h5             --startup-timeout 300 --test-timeout 300 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_h5_soll_fan_chart_points_match_axis.py tests/test_e2e_h10_egress_banner_playwright.py -p no:xdist -rs --tb=short
 
       - name: Upload vitest log on failure
         if: failure()
