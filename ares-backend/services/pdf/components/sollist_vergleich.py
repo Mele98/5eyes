@@ -17,7 +17,11 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
-from services.pdf.components.swiss_numbers import format_bps_as_pct, format_chf_rappen
+from services.pdf.components.swiss_numbers import (
+    format_bps_as_pct,
+    format_chf_rappen,
+    format_end_of_year,
+)
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -71,6 +75,7 @@ def make_sollist_kennzahlen_table(
     current_volatility_1y_bps: int | None,
     risk_free_bps: int = 80,
     currency: str = "CHF",
+    end_year_label: object = None,
 ) -> list:
     """SOLL/IST-Kennzahlentabelle: Endwerte, Volatilitaet, Rendite, Sharpe.
 
@@ -93,16 +98,19 @@ def make_sollist_kennzahlen_table(
         Paragraph("<b>SOLL-Strategie</b>", header_style),
         Paragraph("<b>IST-Portfolio (heute)</b>", header_style),
     ]]
+    # H9 Nachtrag 3: Endjahr wie in der App ("Endwert Ende 2040 – ...").
+    end_text = format_end_of_year(end_year_label)
+    end_suffix = f" {end_text}" if end_text else ""
     rows.append(_fmt_chf_pair_row(
-        "Erwartetes Endvermögen (Median)",
+        f"Erwartetes Endvermögen{end_suffix} (Median)",
         target_median_end_rappen, current_median_end_rappen, currency,
     ))
     rows.append(_fmt_chf_pair_row(
-        "Endvermögen optimistisch (P90)",
+        f"Endvermögen{end_suffix} optimistisch (P90)",
         target_p90_end_rappen, current_p90_end_rappen, currency,
     ))
     rows.append(_fmt_chf_pair_row(
-        "Endvermögen pessimistisch (P10)",
+        f"Endvermögen{end_suffix} pessimistisch (P10)",
         target_p10_end_rappen, current_p10_end_rappen, currency,
     ))
     cell_style = make_paragraph_styles().get("small_muted") or make_paragraph_styles().get("body")
