@@ -23,7 +23,31 @@ function aresSessionPrincipalChanged(user){
   var key=aresPrincipalKey(user);
   return !!(aresSessionPrincipal&&key&&key!==aresSessionPrincipal);
 }
+var aresSessionHardResetInProgress=false;
 function aresHardResetSession(){
   aresSessionPrincipal=null;
+  aresSessionHardResetInProgress=true; // beforeunload-Warnung nicht beim gewollten Neustart
   try{window.location.reload();return true;}catch(e){return false;}
+}
+// H9 Nachtrag 4: Logout aus dem Monolithen hierher verschoben (Sitzungsgrenze an
+// einer Stelle: Rueckfrage bei ungesicherten Eingaben, Tokens raeumen, Neustart).
+async function doLogout() {
+  // H9 N-892-06: ungesicherte Eingaben nicht stillschweigend verwerfen.
+  if (typeof aresConfirmDiscardBeforeLogout === 'function' && !(await aresConfirmDiscardBeforeLogout())) return;
+  try { await API.post('/auth/logout', {}); } catch(e) { console.error('[ares] logout:', e); }
+  await API.setToken(null);
+  await API.setRefreshToken(null);
+  currentUser = null;
+  // H9 N-892-02: kein mandatsbezogener Zustand ueber die Sitzungsgrenze.
+  if (typeof aresHardResetSession === 'function' && aresHardResetSession()) return;
+  const label = document.getElementById('current-user-label');
+  if (label) label.textContent = '';
+  const logoutBtn = document.getElementById('btn-logout');
+  if (logoutBtn) logoutBtn.style.display = 'none';
+  const adminBtn = document.getElementById('btn-admin-open');
+  if (adminBtn) adminBtn.style.display = 'none';
+  ensureFoundationExampleButton();
+  const status = await checkBootstrapStatus();
+  if (status && status.setup_required) showBootstrap();
+  else showLogin();
 }

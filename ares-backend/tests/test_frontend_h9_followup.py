@@ -247,7 +247,9 @@ def test_ist_horizon_identical_without_and_with_strategy():
         "strategyState.risk=RISK;updateProjectionChartsFromSimulation(ALLOC);"
         "return {without:a,with:charts.ist.data.labels};"
     )
-    assert out["without"] == out["with"]
+    # N-892-07: nicht nur gleich, sondern beide auf dem IST-Horizont (6 Labels);
+    # an 61d8d69d folgte die IST-Linie dem Simulationshorizont (4 Labels).
+    assert out["without"] == out["with"] == ["2026", "2027", "2028", "2029", "2030", "2031"]
 
 
 def test_tiles_name_their_year_and_ist_tile_is_stable():

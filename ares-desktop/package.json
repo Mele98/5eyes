@@ -42,6 +42,7 @@
       "frontend/ist-projection-gate.js",
       "frontend/session-boundary.js",
       "frontend/ist-projection-basis.js",
+      "frontend/unsaved-changes.js",
       "frontend/goal-review-runtime.js",
       "frontend/eligibility-overrides.js",
       "frontend/desktop-api.js",

@@ -35,6 +35,8 @@ DEFAULT_OUTPUT = REPO_ROOT / "docs" / "audits" / "2026-06-02-monolith-inventory.
 # bzw. Benutzerwechsel (N-892-02, kein Mandatszustand ueber die Sitzungsgrenze).
 # H9 Nachtrag 2 (2026-11-12): ist-projection-basis.js -- eine CMA-Quelle fuer die
 # IST-Vermoegensprojektion (Server-Basis, fail-closed ohne wirksame CMA).
+# H9 Nachtrag 4 (N-892-06): unsaved-changes.js -- ungesicherte Eingaben der
+# Kundenmasken (Logout-Rueckfrage, beforeunload, Hinweis nach Benutzerwechsel).
 EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     ("ares.css", "css"),
     ("aa-chart.css", "css"),
@@ -43,6 +45,7 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     ("ist-projection-gate.js", "js"),
     ("session-boundary.js", "js"),
     ("ist-projection-basis.js", "js"),
+    ("unsaved-changes.js", "js"),
     ("goal-review-runtime.js", "js"),
 )
 

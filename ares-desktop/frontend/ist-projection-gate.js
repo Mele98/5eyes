@@ -166,8 +166,13 @@ function renderIstWithoutStrategy(){
 // wieder gueltig -> Overlay und Kennzahlen aus der bestehenden Strategie.
 function syncIstProjectionStrategyGate(){
   var c=(typeof charts!=='undefined'&&charts)?charts.ist:null;
-  if(!c||!c.data)return;
   var valid=istProjectionStrategyValid();
+  // N-892-05: auch ohne Grafik (noch nicht/neu aufgebaut) duerfen alte
+  // Strategie-Kennzahlen im ungueltigen Zustand nicht stehen bleiben.
+  if(!c||!c.data){
+    if(!valid)renderIstWithoutStrategy();
+    return;
+  }
   var shown=istProjectionHasOverlay();
   if(valid&&!shown){
     updateProjectionChartsFromSimulation(strategyState.allocation);

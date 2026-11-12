@@ -200,3 +200,19 @@ def test_c892_01_mandate_switch_with_chart_rebuild_and_late_simulation():
         "return {a1:a1,bReset:bReset,bShown:bShown,bReset2:bReset2,a2:charts.ist.data.datasets.length};"
     )
     assert out == {"a1": 2, "bReset": 1, "bShown": 1, "bReset2": 2, "a2": 2}
+
+
+def test_n892_05_invalid_state_resets_kpis_even_without_chart():
+    """Codex-Randfall N-892-05: fehlt die Grafik (charts.ist=null), kehrte das
+    Gate frueh zurueck und alte Strategie-KPIs blieben stehen."""
+    out = _run(
+        "strategyState={allocation:ALLOC,risk:RISK,dirty:false,staleNotice:null};"
+        "renderIstStrategyOverview(ALLOC);"
+        "charts.ist=null;strategyState.dirty=true;strategyState.staleNotice='Eingaben geändert';"
+        "var w0=calls.wealthOnly;syncIstProjectionStrategyGate();"
+        "var invalidReset=calls.wealthOnly-w0;"
+        "strategyState.dirty=false;strategyState.staleNotice=null;var w1=calls.wealthOnly;"
+        "syncIstProjectionStrategyGate();"
+        "return {invalidReset:invalidReset,validNoChart:calls.wealthOnly-w1};"
+    )
+    assert out == {"invalidReset": 1, "validNoChart": 0}

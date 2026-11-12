@@ -46,6 +46,9 @@ H9 Nachtrag 2 (2026-11-12): IST-Projektion aus EINER Server-Basis
 (``ist-projection-basis.js``, neuer Teil), Kennzahlen-Renderer der
 Vermoegensentwicklung nach ``ist-projection-gate.js`` verschoben. Monolith
 27413 / 1676448 -- gesenkt.
+H9 Nachtrag 4 (N-892-05..08): ungesicherte Eingaben als neuer Teil
+``unsaved-changes.js``, ``doLogout`` nach ``session-boundary.js`` verschoben.
+Monolith 27401 / 1676042 -- gesenkt.
 """
 from __future__ import annotations
 
@@ -54,9 +57,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 27413
+MONOLITH_MAX_LINES = 27401
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1676448
+MONOLITH_MAX_BYTES = 1676042
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -65,9 +68,10 @@ EXTRACTED_PART_BUDGETS = {
     "aa-chart.css": (66, 5978),
     "intro-sequence.js": (761, 36861),
     "aa-chart.js": (331, 21026),
-    "ist-projection-gate.js": (295, 16310),
-    "session-boundary.js": (29, 1430),
+    "ist-projection-gate.js": (300, 16505),
+    "session-boundary.js": (53, 2763),
     "ist-projection-basis.js": (87, 4649),
+    "unsaved-changes.js": (89, 4658),
     "goal-review-runtime.js": (1589, 84633),
 }
 

@@ -569,17 +569,25 @@ def get_ist_projection_basis(
             "message": "Die erfassten Vermoegensdaten sind fuer die Ist-Projektion "
                        "nicht lesbar: " + str(exc),
         }) from exc
-    returns, _vols = _asset_class_expected_metrics(cma)
-    total = _build_total_wealth_allocation(
-        inputs["total_summary"],
-        inputs["mortgage_liabilities_rappen"],
-        inputs["total_wealth_rappen"],
-        {key: 0 for key in BUCKET_FIELDS},
-        foundation_projection=inputs["external_foundation_projection"],
-        other_liabilities_rappen=max(
-            0, int(inputs["total_liabilities_rappen"]) - int(inputs["mortgage_liabilities_rappen"])
-        ),
-    )
+    try:
+        returns, _vols = _asset_class_expected_metrics(cma)
+        total = _build_total_wealth_allocation(
+            inputs["total_summary"],
+            inputs["mortgage_liabilities_rappen"],
+            inputs["total_wealth_rappen"],
+            {key: 0 for key in BUCKET_FIELDS},
+            foundation_projection=inputs["external_foundation_projection"],
+            other_liabilities_rappen=max(
+                0, int(inputs["total_liabilities_rappen"]) - int(inputs["mortgage_liabilities_rappen"])
+            ),
+        )
+    except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+        # N-892-08: auch die Basis-Berechnung ist fail-closed (409 statt 500).
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "IST_PROJECTION_BASIS_UNAVAILABLE",
+            "message": "Die Gesamtvermoegens-Basis der Ist-Projektion ist nicht "
+                       "berechenbar: " + str(exc),
+        }) from exc
     return {
         "mandate_id": mandate.id,
         "cma": {

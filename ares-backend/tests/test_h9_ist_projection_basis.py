@@ -158,6 +158,22 @@ def test_missing_effective_cma_is_fail_closed_with_reason_code(session_factory, 
     assert exc.value.detail["reason_code"] == ReasonCode.IST_PROJECTION_BASIS_UNAVAILABLE.value
 
 
+def test_failing_total_wealth_basis_is_409_not_500(session_factory, monkeypatch):
+    """N-892-08: auch die Gesamtvermoegens-Basis ist fail-closed."""
+    import routers.allocation as allocation_router
+
+    def _boom(*_a, **_k):
+        raise ValueError("Basis nicht berechenbar")
+
+    monkeypatch.setattr(allocation_router, "_build_total_wealth_allocation", _boom)
+    with session_factory() as session:
+        owner = _seed(session)
+        with pytest.raises(HTTPException) as exc:
+            _get(session, owner)
+    assert exc.value.status_code == 409
+    assert exc.value.detail["reason_code"] == ReasonCode.IST_PROJECTION_BASIS_UNAVAILABLE.value
+
+
 def test_horizon_is_validated(session_factory):
     with session_factory() as session:
         owner = _seed(session)
