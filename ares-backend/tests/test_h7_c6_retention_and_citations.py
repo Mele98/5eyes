@@ -166,7 +166,7 @@ def test_alembic_migration_rule_matches_runtime_rule():
     ]
     for current, entry, end in cases:
         assert module._target(current, entry, end) == extended_retain_until(current, entry, end), (current, entry, end)
-    assert module.down_revision == "d3b7f1a5c9e2"
+    assert module.down_revision == "f8c1d5a3e7b2"  # RC-CH-1 I-03: linear nach H2
 
 
 # ---------------------------------------------------------------- Aufbewahrungsmatrix-Vorlage

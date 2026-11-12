@@ -19,7 +19,7 @@ Integritaets-Hashes. Downgrade ist bewusst ein No-op (eine Rueckkehr zu
 kuerzeren Fristen waere verkuerzend).
 
 Revision ID: e1c6a7d4b2f9
-Revises: d3b7f1a5c9e2
+Revises: f8c1d5a3e7b2
 Create Date: 2026-11-07
 """
 from __future__ import annotations
@@ -32,7 +32,7 @@ from alembic import context, op
 
 
 revision: str = "e1c6a7d4b2f9"
-down_revision: Union[str, Sequence[str], None] = "d3b7f1a5c9e2"
+down_revision: Union[str, Sequence[str], None] = "f8c1d5a3e7b2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
