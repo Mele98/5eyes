@@ -24,7 +24,7 @@ from routers.auth import _extract_client_ip
 from services.auth import get_current_user, get_mandate_for_user_or_404
 from services.document_archive import archive_generated_pdf, content_hash_for
 from services.pdf import ReportLabRenderer
-from core.presentation_rounding import format_amount_minor
+from core.presentation_rounding import format_amount_minor, presentation_amounts
 from services.recommendation_run_resolver import (
     NO_CURRENT_RECOMMENDATION_MARKER,
     resolve_current_recommendation_run,
@@ -403,14 +403,13 @@ def _strategy_presentation_amounts(
     base = advisory if strategy_base_rappen is None else max(0, int(strategy_base_rappen))
     if base > advisory:
         base = advisory
-    advisory_chf = int(round(advisory / 100))
-    base_chf = int(round(base / 100))
-    reserve_chf = max(0, advisory_chf - base_chf)
-
+    # G7: dieselbe Regel wie die App (core.presentation_rounding.presentation_amounts):
+    # Half-up auf ganze Franken (vorher round() = Banker's Rounding), Klassen per
+    # Largest Remainder auf die Strategiebasis.
     buckets = [b for b, bps in (target_alloc_bps or {}).items() if int(bps or 0) > 0]
-    bucket_chf = _largest_remainder_split(
-        base_chf, [int(target_alloc_bps[b]) for b in buckets], buckets,
-    ) if base_chf > 0 else [0] * len(buckets)
+    units = presentation_amounts(advisory, base, [int(target_alloc_bps[b]) for b in buckets], buckets)
+    advisory_chf, base_chf, reserve_chf = units["advisory_units"], units["base_units"], units["reserve_units"]
+    bucket_chf = units["bucket_units"]
     bucket_amounts = {b: chf * 100 for b, chf in zip(buckets, bucket_chf)}
 
     by_bucket: dict[str, list[dict]] = {}

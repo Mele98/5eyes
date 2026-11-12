@@ -13,7 +13,7 @@
  * Eigener Lade-State (idle/loading/ready/error) statt useAdvisoryReport —
  * dies ist ein Editor-Workflow, kein Report-Read-Model.
  */
-import { formatChfFromRappen } from '@/lib/format';
+import { formatBpsAsPct, formatChfFromRappen } from '@/lib/format';
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError } from '@/api/client';
 import { deleteGoal, fetchGoals, reorderGoals } from '@/api/goals';
@@ -30,7 +30,7 @@ function formatChf(rappen: number | null): string {
 function goalTargetSummary(goal: GoalRecord): string {
   if (goal.target_amount_rappen != null) return formatChf(goal.target_amount_rappen);
   if (goal.target_wealth_rappen != null) return formatChf(goal.target_wealth_rappen);
-  if (goal.target_return_bps != null) return `${(goal.target_return_bps / 100).toFixed(2)} %`;
+  if (goal.target_return_bps != null) return formatBpsAsPct(goal.target_return_bps, { decimals: 2 });
   if (goal.frequency) return goal.frequency;
   return '—';
 }

@@ -97,7 +97,7 @@ def _donut_script(html: str, total_allocation: dict, total_wealth: int) -> str:
     sync = chr(10).join(
         _extract_js_function(html, name)
         for name in ("allocationReserveBreakdown", "aaChartEsc", "aaChartContextHtml",
-                     "formatRappen", "syncAllocationDonutFromStrategyState")
+                     "formatRappen", "aaChartCurrency", "aaChartMoney", "syncAllocationDonutFromStrategyState")
     )
     return (
         """

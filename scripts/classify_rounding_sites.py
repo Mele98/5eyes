@@ -4,9 +4,9 @@ Das Inventar selbst ist eine unveraenderte Kopie des Codex-Sweeps
 (``scripts/inventory_2026_11_11_rounding_sites.py``, SHA-256 dde6e323...). Dieses
 Skript ordnet jede gefundene Datei:Zeile genau einer Klasse zu:
 
-* ``MIGRATE``          -- Anzeigeformatierung. ``status=done``: laeuft ueber den
-                          gemeinsamen Formatter (Policy ares-rounding/1);
-                          ``status=open``: noch eigene Rundung (Restliste, Ratchet).
+* ``MIGRATE``          -- Anzeigeformatierung, laeuft ueber den gemeinsamen
+                          Formatter (Policy ares-rounding/1); ``status=done``.
+                          ``status=open`` (eigene Rundung) ist nicht zulaessig.
 * ``COMPUTATION_KEEP`` -- rechnende Rundung (bps/Rappen-Ableitung, Eingabe ->
                           Integer, Geometrie/Pixel, Achsen-Ticks); bleibt bewusst.
 * ``FALSE_POSITIVE``   -- Treffer ohne Rundung (Import, Definition/Implementierung
@@ -77,9 +77,6 @@ RULES: list[tuple[str, str, str, str, str]] = [
     ("COMPUTATION_KEEP", "", "Projektions-/Reihenberechnung (Rappen, keine Anzeige)", r".",
      r"[Ss]eries|push\(Math\.round|Sockel|startK|startRappen|partialSaleChf|bps:Math\.round|chf:Math\.round|"
      r"chfTarget:Math\.round|isFinite\(n\)\?Math\.max"),
-    ("MIGRATE", "open", "Ganze CHF via Math.round + fmtLocaleCH (fuer Werte >= 0 Half-up-gleich; Umstellung Restliste)", r".",
-     r"fmtLocaleCH\(Math\.round|fmtCHF\(Math\.round|Math\.round\(Number\([^)]*_rappen\|\|0\)/100\)|"
-     r"Math\.round\(\(?Number\([^)]*rappen[^)]*\)\)?/100\)"),
     # Anzeige ueber den gemeinsamen Formatter.
     ("MIGRATE", "done", "Anzeige ueber gemeinsamen Formatter", r".", _FORMATTER_CALLS),
     ("MIGRATE", "done", "Anzeige ueber gemeinsamen Formatter (AresRounding)", r".", r"AresRounding\."),
@@ -104,7 +101,7 @@ def _classify_one(site: dict) -> tuple[str, str, str]:
             return c, st, why
     if RAW.search(src):
         for c, st, why, file_re, src_re in RULES:
-            if (c == "COMPUTATION_KEEP" or (c, st) == ("MIGRATE", "open")) and re.search(file_re, site["file"]) and re.search(src_re, src):
+            if (c == "COMPUTATION_KEEP" ) and re.search(file_re, site["file"]) and re.search(src_re, src):
                 return c, st, why
         return "UNCLASSIFIED", "", ""
     for c, st, why, file_re, src_re in RULES:

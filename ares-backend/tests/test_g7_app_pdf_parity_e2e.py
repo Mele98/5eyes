@@ -143,3 +143,85 @@ def test_legacy_individual_rounding_would_have_diverged():
                           "alternatives": "12.2", "liquidity": "9.2"}  # half-even auf Binaerwert
     assert round(sum(float(v) for v in legacy_pdf.values()), 1) != 100.0 or legacy_pdf["bonds"] != "25.3"
     assert f"{667000.5:,.0f}" == "667,000"  # Banker's Rounding: CHF 667'000 statt 667'001
+
+
+ADVISORY_RAPPEN = 210_000_050
+BASE_RAPPEN = 200_000_050
+
+
+def _expected_units():
+    from core.presentation_rounding import presentation_amounts
+    keys = list(ALLOCATION_BPS)
+    return presentation_amounts(ADVISORY_RAPPEN, BASE_RAPPEN, [ALLOCATION_BPS[k] for k in keys], keys)
+
+
+def _pdf_text_currency(currency: str) -> str:
+    """PDF-Soll-Tabelle mit den Betraegen, wie pdf_reports sie bildet (presentation_amounts)."""
+    units = _expected_units()
+    keys = list(ALLOCATION_BPS)
+    amounts = {k: u * 100 for k, u in zip(keys, units["bucket_units"])}
+    buf = io.BytesIO()
+    SimpleDocTemplate(buf, pagesize=A4).build(list(make_saa_bar_table(
+        ALLOCATION_BPS, bucket_amounts_rappen=amounts, base_currency=currency,
+        external_reserve_rappen=units["reserve_units"] * 100)))
+    return "\n".join(p.extract_text() or "" for p in PdfReader(io.BytesIO(buf.getvalue())).pages)
+
+
+def _app_amounts_for_mandate_currency(currency: str) -> dict:
+    """App-Pfad wie im Monolithen: aaChartAllocItems liest alloc + strategyState
+    (Server-Artefakt) und die Mandatswaehrung; echte Monolith-Hilfsfunktionen."""
+    if shutil.which("node") is None:
+        pytest.skip("node not available")
+    from tests.livetest_monolith_js import extract_function
+    from tests.monolith_source import read_monolith_bundle
+    bundle = read_monolith_bundle()
+    helpers = "\n".join(extract_function(bundle, n) for n in (
+        "assetDisplayName", "allocationBucketKey", "allocationReserveBreakdown",
+        "allocationSubAllocationsForBucket", "allocationTableGroupKey"))
+    names = {k: asset_class_label(k) for k in ALLOCATION_BPS}
+    german = {"equities": "Aktien", "bonds": "Obligationen", "real_estate": "Immobilien",
+              "alternatives": "Alternative", "liquidity": "Liquiditaet"}
+    alloc = [{"n": names[k], "c": "#000", "soll": b / 100, "chfTarget": 0} for k, b in ALLOCATION_BPS.items()]
+    buckets = [{"asset_class": german[k], "target_weight_bps": b} for k, b in ALLOCATION_BPS.items()]
+    allocation = {"buckets": buckets, "advisory_wealth_rappen": ADVISORY_RAPPEN, "strategy_base_rappen": BASE_RAPPEN,
+                  "external_reserve_rappen": ADVISORY_RAPPEN - BASE_RAPPEN}
+    script = (
+        (FRONTEND / "presentation-rounding.js").read_text(encoding="utf-8")
+        + "\nvar window={};var document={documentElement:{},querySelectorAll:function(){return [];},getElementById:function(){return null;}};"
+        + "function getComputedStyle(){return {getPropertyValue:function(){return '#ffffff';}};}\n"
+        + helpers + "\n"
+        + "var alloc=" + json.dumps(alloc) + ";\n"
+        + "var strategyState={allocation:" + json.dumps(allocation) + "};\n"
+        + "var currentMandateData={base_currency:" + json.dumps(currency) + "};\n"
+        + (FRONTEND / "aa-chart.js").read_text(encoding="utf-8")
+        + "\nvar items=aaChartAllocItems();var rows=aaChartPrepare(items);var ds=aaChartDonutDatasets(rows,'#FFFFFF');"
+        + "process.stdout.write(JSON.stringify({names:rows.map(function(r){return r.name;}),amounts:ds[ds.length-1]._aaAmt,"
+        + "legend:aaChartLegendHtml(items,allocationReserveBreakdown(strategyState.allocation))}));"
+    )
+    proc = subprocess.run(["node", "-"], input=script, capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+@pytest.mark.parametrize("currency", ["EUR", "USD", "CHF"])
+def test_mandate_currency_labels_app_and_pdf_identically(currency):
+    """H-153 Nachtrag 1: H6 beschriftet Betraege in der Mandatswaehrung (vorher fest
+    "CHF"); App und PDF zeigen dieselben Betraege (presentation_amounts: Basis
+    Half-up, Klassen per Largest Remainder) mit derselben Waehrung."""
+    units = _expected_units()
+    app = _app_amounts_for_mandate_currency(currency)
+    text = _pdf_text_currency(currency)
+    by_label = {asset_class_label(k): i for i, k in enumerate(ALLOCATION_BPS)}
+    from core.presentation_rounding import format_decimal
+    for name, amount in zip(app["names"], app["amounts"]):
+        expected = f"{currency} {format_decimal(units['bucket_units'][by_label[name]])}"
+        assert _plain(amount) == expected, (name, amount, expected)
+        assert expected in text, (name, expected)
+    legend = _plain(html_lib.unescape(app["legend"]))
+    for value in (units["reserve_units"], units["base_units"], units["advisory_units"]):
+        assert f"{currency} {format_decimal(value)}" in legend, value
+    assert f"{currency} {format_decimal(units['reserve_units'])}" in text
+    assert units["base_units"] == sum(units["bucket_units"])
+    assert units["base_units"] + units["reserve_units"] == units["advisory_units"]
+    if currency != "CHF":
+        assert "CHF " not in legend and "CHF " not in text.split("Soll-Allokation", 1)[-1]

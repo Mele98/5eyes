@@ -45,7 +45,8 @@ def test_donut_legend_lists_reserve_and_sums_to_advisory_wealth():
         " center: document.getElementById('qs:.dcv').innerHTML};",
         prelude=ALLOCATION,
         # H6: Legenden-Markup kommt aus aa-chart.js (Teil des Bundles).
-        optional=("allocationReserveBreakdown", "aaChartLegendHtml", "aaChartPrepare", "aaChartApportion", "aaChartPctNumber",
+        optional=("allocationReserveBreakdown", "aaChartLegendHtml", "aaChartPrepare", "aaChartApportion", "aaChartPctNumber", "aaChartAllocItems", "aaChartCurrency", "aaChartMoney",
+                  "allocationSubAllocationsForBucket", "allocationTableGroupKey", "allocationBucketKey", "assetDisplayName",
                   "aaChartPctText", "aaChartChf", "aaChartEsc", "aaChartKey", "aaChartClassRank",
                   "aaChartShadeStep", "aaChartHasSubs"),
     )

@@ -7,7 +7,9 @@ unveraenderte Kopie des Codex-Sweeps (SHA-256 unten gepinnt). Die Klassifikation
 MIGRATE (done/open), COMPUTATION_KEEP oder FALSE_POSITIVE zu.
 
 * Keine unklassifizierte Stelle (neue rohe Rundung -> rot).
-* Die offene Restliste (MIGRATE/open) darf nur schrumpfen (Ratchet).
+* Keine offene Stelle (MIGRATE/open = 0, H-153 Nachtrag 1): jede Anzeige-Rundung
+  laeuft ueber den gemeinsamen Formatter; rechnende Rundung ist COMPUTATION_KEEP
+  mit Begruendung.
 * In den G7-Kernpfaden (H6-Grafik, Legende, Infokarte, Portfolio, Kostenausweis,
   Anlagestrategie-PDF) gibt es keine offene Stelle.
 """
@@ -25,7 +27,7 @@ if str(SCRIPTS) not in sys.path:
 import classify_rounding_sites as C  # noqa: E402
 
 INVENTORY_SHA256 = "dde6e3237730301b72b2d9f29ac6d43682f2ff88a60c64273d4795378a5978a4"
-MAX_OPEN = 38
+MAX_OPEN = 0
 
 CORE_FILES = (
     "ares-desktop/frontend/aa-chart.js",
@@ -53,10 +55,12 @@ def test_every_inventory_site_is_classified():
     assert {r["class"] for r in result["sites"]} <= {"MIGRATE", "COMPUTATION_KEEP", "FALSE_POSITIVE"}
 
 
-def test_open_migration_list_only_shrinks():
+def test_no_open_display_rounding_remains():
     result = C.classify(ROOT)
-    open_rows = [r for r in result["sites"] if r["class"] == "MIGRATE" and r["status"] == "open"]
-    assert len(open_rows) <= MAX_OPEN, "Neue offene Anzeige-Rundung: ueber den gemeinsamen Formatter fuehren"
+    open_rows = [(r["file"], r["line"]) for r in result["sites"] if r["class"] == "MIGRATE" and r["status"] != "done"]
+    assert len(open_rows) == MAX_OPEN == 0, open_rows
+    keep_without_reason = [(r["file"], r["line"]) for r in result["sites"] if r["class"] == "COMPUTATION_KEEP" and not r["reason"]]
+    assert keep_without_reason == []
 
 
 def test_core_customer_evidence_paths_have_no_open_site():

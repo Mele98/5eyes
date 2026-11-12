@@ -377,6 +377,65 @@ def apportion_sub_bps(class_display: Any, subs: Mapping[str, Any], class_bps: An
     return dict(zip(names, shown[:len(names)]))
 
 
+_ASSET_CLASS_KEYS = {
+    "aktien": "equities", "equities": "equities",
+    "obligationen": "bonds", "anleihen": "bonds", "bonds": "bonds",
+    "immobilien": "real_estate", "real_estate": "real_estate", "real estate": "real_estate",
+    "alternative": "alternatives", "alternativen": "alternatives", "alternatives": "alternatives",
+    "liquiditaet": "liquidity", "liquidität": "liquidity", "liquidity": "liquidity",
+}
+
+
+def asset_class_key(label: Any) -> str:
+    """Anlageklassen-Bezeichnung (deutsch oder Engine-Schluessel) -> Engine-Schluessel."""
+    raw = str(label or "").strip()
+    return _ASSET_CLASS_KEYS.get(raw.lower(), raw)
+
+
+def whole_units(minor: Any, exponent: int = 2) -> int:
+    """Minor-Units -> ganze Waehrungseinheiten, Half-up (symmetrisch)."""
+    d = to_decimal(minor)
+    if d is None:
+        return 0
+    neg, units = _round_units(_scale(d, -int(exponent)), 0)
+    return -units if neg else units
+
+
+def split_largest_remainder(total: int, weights: Sequence[Any], labels: Sequence[Any]) -> list[int]:
+    """Ganzzahlige Aufteilung nach Largest Remainder (Hamilton). Gleichstand:
+    groesseres Gewicht, dann Label (Codepoint-Ordnung), dann Position."""
+    clean = [max(0, int(w or 0)) for w in weights]
+    weight_sum = sum(clean)
+    total = int(total)
+    if weight_sum <= 0 or total <= 0:
+        return [0] * len(clean)
+    floors = [total * w // weight_sum for w in clean]
+    rems = [total * w % weight_sum for w in clean]
+    order = sorted(range(len(clean)), key=lambda i: (-rems[i], -clean[i], str(labels[i]), i))
+    for i in order[: total - sum(floors)]:
+        floors[i] += 1
+    return floors
+
+
+def presentation_amounts(advisory_minor: Any, base_minor: Any, weights: Sequence[Any],
+                         labels: Sequence[Any], exponent: int = 2) -> dict[str, Any]:
+    """Betraege der Soll-Darstellung in ganzen Waehrungseinheiten (App + PDF identisch).
+
+    Beratungsvermoegen und Strategiebasis Half-up auf ganze Einheiten, Reserve =
+    Differenz, Klassenbetraege = Largest-Remainder-Aufteilung der Strategiebasis
+    nach Gewicht -- so summieren Klassen exakt auf die Basis und Basis + Reserve
+    exakt auf das Beratungsvermoegen. ``labels`` = Engine-Schluessel.
+    """
+    adv = max(0, int(advisory_minor or 0))
+    base_raw = adv if base_minor is None else max(0, int(base_minor))
+    base = whole_units(min(base_raw, adv), exponent)
+    advisory = whole_units(adv, exponent)
+    keys = [asset_class_key(lb) for lb in labels]
+    buckets = split_largest_remainder(base, weights, keys) if base > 0 else [0] * len(keys)
+    return {"advisory_units": advisory, "base_units": base,
+            "reserve_units": max(0, advisory - base), "bucket_units": buckets}
+
+
 # ---------------------------------------------------------------------------
 # Antwortartefakte + Golden-Vektor
 # ---------------------------------------------------------------------------
@@ -438,6 +497,9 @@ def run_case(fn: str, args: Sequence[Any], typography: str) -> Any:
     if fn == "apportion_percent_bps":
         return format_apportioned_percent_bps(args[0], args[1], typography=t,
                                               target_display=args[2] if len(args) > 2 else None)
+    if fn == "presentation_amounts":
+        r = presentation_amounts(args[0], args[1], args[2], args[3], int(args[4]) if len(args) > 4 else 2)
+        return [str(r["advisory_units"]), str(r["base_units"]), str(r["reserve_units"])] + [str(u) for u in r["bucket_units"]]
     if fn == "apportioned_sum":
         n = opt(1, 1)
         return format_percent((False, sum(apportion_units(args[0], n)), -n), n, typography=t)
@@ -509,11 +571,12 @@ def sub_allocation_pct_texts(class_display_pct: str, subs: Mapping[str, Any], cl
 __all__ = [
     "CANONICAL_ASSET_CLASS_ORDER", "CURRENCY_EXPONENTS", "GOLDEN_FILENAME", "NO_VALUE",
     "ROUNDING_POLICY_VERSION", "allocation_pct_texts", "apportion_bucket_bps",
-    "apportion_percent_bps", "apportion_sub_bps", "apportion_units", "currency_exponent",
+    "apportion_percent_bps", "apportion_sub_bps", "apportion_units", "asset_class_key", "currency_exponent",
     "format_amount_minor", "format_apportioned_percent_bps", "format_bps_as_pct",
     "format_bps_signed_pct", "format_compact_amount", "format_decimal", "format_minor_number",
     "format_money_compact_minor", "format_money_minor", "format_number", "format_pct_value",
     "format_percent", "format_percent_bps", "format_probability_pct", "format_signed_money_minor",
     "golden_path", "golden_vectors", "load_golden", "ordered_for_apportionment",
-    "presentation_artifact", "run_case", "sub_allocation_pct_texts", "to_decimal",
+    "presentation_amounts", "presentation_artifact", "run_case", "split_largest_remainder",
+    "sub_allocation_pct_texts", "to_decimal", "whole_units",
 ]

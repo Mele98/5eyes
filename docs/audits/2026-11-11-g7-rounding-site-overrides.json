@@ -33,13 +33,6 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "source": "+ ' \u00b7 max RE ' + (detail.max_real_estate_bps/100).toFixed(0) + '% \u00b7 max Alt ' + (detail.max_alternatives_bps/100).toFixed(0) + '%';",
-   "class": "MIGRATE",
-   "status": "open",
-   "reason": "Anzeige ausserhalb der G7-Kundenevidenz (Editor-/Admin-/Warnhinweis); Restliste"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
    "source": "+ '<div class=\"pdetail-item\"><strong>Kosten</strong>TER p.a.: '+escapeHtml(fmtPct((Number(row.ter_bps||0)),2))+'<br>Kosten auf Zielvolumen: '+escapeHtml(formatRappen(Math.round(displayAmountRappen*Number(row.ter_bps||0)/10000)))+' p.a.</div",
    "class": "COMPUTATION_KEEP",
    "status": "",
@@ -47,73 +40,38 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "source": "+ '<td class=\"admin-num\" style=\"' + diffCls + '\">' + (diff / 100).toFixed(2) + '% / ' + (thr / 100).toFixed(2) + '%</td>'",
-   "class": "MIGRATE",
-   "status": "open",
-   "reason": "Anzeige ausserhalb der G7-Kundenevidenz (Editor-/Admin-/Warnhinweis); Restliste"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "source": ": (trigger.threshold_bps!=null?formatInputPercent(trigger.threshold_bps)+'%':'Aktiv');",
-   "class": "MIGRATE",
-   "status": "open",
-   "reason": "Anzeige ausserhalb der G7-Kundenevidenz (Editor-/Admin-/Warnhinweis); Restliste"
+   "source": "+'<div style=\"font-size:9px;color:#64748b\">'+escapeHtml(formatRappen(subtotal))+' / '+escapeHtml(formatBpsPercent(totalPortfolioRappen>0?Math.round(subtotal/totalPortfolioRappen*10000):0))+'</div>'",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Anteil -> Integer-bps (Rechenwert); Anzeige ueber formatBpsPercent"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "source": "? 'Teilverkauf ' + assetClass + ' ' + fmtChf(partialSaleChf) + '. Sofortige Normalisierung, Steuerfolgen separat pr\u00fcfen.'",
    "class": "MIGRATE",
-   "status": "open",
-   "reason": "Rebalancing-Vorschlagstext (gerundet auf 1000 CHF); Restliste"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "source": "? ((trigger.threshold_bps!=null?'Schwelle +/-'+formatInputPercent(trigger.threshold_bps)+'%':'Markt-Trigger')+(trigger.triggered_notes?' / '+trigger.triggered_notes:''))",
-   "class": "MIGRATE",
-   "status": "open",
-   "reason": "Anzeige ausserhalb der G7-Kundenevidenz (Editor-/Admin-/Warnhinweis); Restliste"
+   "status": "done",
+   "reason": "Lokaler Formatter delegiert an den gemeinsamen Formatter"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "source": "? fmtChf(rebalRoundedChf) + ' in defensivere Klassen umlenken. Organische Normalisierung 12\u201318 Monate.'",
    "class": "MIGRATE",
-   "status": "open",
-   "reason": "Rebalancing-Vorschlagstext (gerundet auf 1000 CHF); Restliste"
+   "status": "done",
+   "reason": "Lokaler Formatter delegiert an den gemeinsamen Formatter"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "source": "document.getElementById('dc-fc-duration').textContent = fc.weighted_duration_years_x10 ? (fc.weighted_duration_years_x10/10).toFixed(1) + ' J' : '\u2014';",
-   "class": "MIGRATE",
-   "status": "open",
-   "reason": "Depot-Check Duration (Jahre, x10-Skala); Restliste"
+   "source": "?Math.round(Number(risk.override_score_x10!=null?risk.override_score_x10:risk.final_score_x10||0)/10)",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Risikoscore x10 -> Ganzzahl 1..10 (Score-Logik)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "source": "document.getElementById('dc-fc-esg').textContent = fc.weighted_esg_score_x10 ? (fc.weighted_esg_score_x10/10).toFixed(1) + ' / 100' : '\u2014';",
-   "class": "MIGRATE",
-   "status": "open",
-   "reason": "Depot-Check ESG-Score (x10-Skala); Restliste"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "source": "el.textContent = 'Total ' + total.toFixed(1) + '% \u2014 wird auf 100% normalisiert';",
-   "class": "MIGRATE",
-   "status": "open",
-   "reason": "Anzeige ausserhalb der G7-Kundenevidenz (Editor-/Admin-/Warnhinweis); Restliste"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "source": "if(d){d.textContent='Total: '+Math.round(t)+'%';d.style.color=Math.abs(t-100)<0.5?'var(--pos)':t>100?'var(--neg)':'var(--n6)';}",
-   "class": "MIGRATE",
-   "status": "open",
-   "reason": "Anzeige ausserhalb der G7-Kundenevidenz (Editor-/Admin-/Warnhinweis); Restliste"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "source": "if(metaEl)metaEl.textContent=hardnessDisplay(main.hardness)+' \u00b7 '+(mainLegacy?'Altbewertung ohne Priorit\\u00e4tszuordnung \\u2013 Strategie neu berechnen':(PRIORITY_FUNDED_LABEL+(main.tau!=null?(' \u00b7 Zielniveau '+Math.round(Number(main.tau||0",
-   "class": "MIGRATE",
-   "status": "open",
-   "reason": "Zielniveau tau in Prozent (Ziele-Ansicht); Restliste"
+   "source": "callbacks:{label:function(ctx){var l=ctx&&ctx.dataset&&ctx.dataset.label?ctx.dataset.label+': ':'';return l+formatRappen(Math.round(Number(ctx&&ctx.raw||0)*100000));}}}",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Umrechnung Chart-Wert (CHF Mio., float) -> Integer-Rappen; Anzeige danach ueber formatRappen"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -131,31 +89,10 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "source": "return Number.isInteger(x) ? String(x) : x.toFixed(1);",
-   "class": "MIGRATE",
-   "status": "open",
-   "reason": "Anzeige ausserhalb der G7-Kundenevidenz (Editor-/Admin-/Warnhinweis); Restliste"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "source": "return escapeHtml(d.label)+': Mandatsband '+formatBandPercent(d.min)+'\u2013'+formatBandPercent(d.max)+' ausserhalb Hausmatrix '+formatBandPercent(d.houseMin)+'\u2013'+formatBandPercent(d.houseMax);",
-   "class": "MIGRATE",
-   "status": "open",
-   "reason": "Anzeige ausserhalb der G7-Kundenevidenz (Editor-/Admin-/Warnhinweis); Restliste"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "source": "return n.toLocaleString('de-CH',opts).replace(/[\\u2019\\u02BC]/g,\"'\").replace(/^-/,'\\u2212');",
-   "class": "MIGRATE",
-   "status": "open",
-   "reason": "fmtLocaleCH: Gruppierung bereits ganzzahliger Werte (toLocaleString); Restliste"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "source": "setText('admin-shadow-' + key + '-pct', (Number(percentages[key] || 0)).toFixed(1) + '%');",
-   "class": "MIGRATE",
-   "status": "open",
-   "reason": "Anzeige ausserhalb der G7-Kundenevidenz (Editor-/Admin-/Warnhinweis); Restliste"
+   "source": "return String(Math.round(Number(rappen)/100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "formatInputCHF: Wert fuer ein editierbares Zahlenfeld (type=number, ohne Gruppierung) -- Eingabe-Roundtrip, keine Anzeige"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -166,24 +103,17 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "source": "throw new Error('Allokation muss 100% ergeben (aktuell: '+Math.round(tot)+'%). Bitte auf 100% aufteilen oder alle Felder auf 0 lassen (dann wird automatisch 60% Aktien / 25% Obligationen angenommen).');",
-   "class": "MIGRATE",
-   "status": "open",
-   "reason": "Anzeige ausserhalb der G7-Kundenevidenz (Editor-/Admin-/Warnhinweis); Restliste"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "source": "throw new Error('Vorsorge-Aufteilung muss 100% ergeben (aktuell: '+Math.round(tot)+'%) oder ganz leer bleiben (dann z\u00e4hlt die Vorsorge nicht ins Anlage-Exposure).');",
-   "class": "MIGRATE",
-   "status": "open",
-   "reason": "Anzeige ausserhalb der G7-Kundenevidenz (Editor-/Admin-/Warnhinweis); Restliste"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
    "source": "var barPct=(Number(bucket.target_weight_bps||0)/totalTargetBps*100).toFixed(1);",
    "class": "COMPUTATION_KEEP",
    "status": "",
    "reason": "Geometrie (CSS-Breite/Position aus bps)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var cells=(dss||[]).map(function(d){var v=(d&&d.data&&d.data[i]!=null)?Number(d.data[i]):null;return '<td>'+(v!=null&&isFinite(v)?escapeHtml(formatRappen(Math.round(v*100000))):'\u2013')+'</td>';}).join('');",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Umrechnung Chart-Wert -> Integer-Rappen; Anzeige danach ueber formatRappen"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -196,15 +126,8 @@
    "file": "ares-desktop/frontend/ares.html",
    "source": "var fmtChf = function(v) {",
    "class": "MIGRATE",
-   "status": "open",
-   "reason": "Rebalancing-Vorschlagstext (gerundet auf 1000 CHF); Restliste"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "source": "var pct=(Number(bps)/100).toFixed(2).replace(/\\.00$/,'').replace(/(\\.\\d)0$/,'$1');",
-   "class": "MIGRATE",
-   "status": "open",
-   "reason": "Zins-/Renditesatz in Positionsnotizen (Vermoegen); Restliste"
+   "status": "done",
+   "reason": "Lokaler Formatter delegiert an den gemeinsamen Formatter"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -212,6 +135,20 @@
    "class": "COMPUTATION_KEEP",
    "status": "",
    "reason": "Geometrie (CSS-Breite/Position aus bps)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var riskScore=risk?Math.round(Number(risk.final_score_x10||0)/10):null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Risikoscore x10 -> Ganzzahl 1..10 (Score-Logik; Math.round = Half-up fuer positive Werte)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var score=risk?Math.round(Number(risk.override_score_x10!=null?risk.override_score_x10:risk.final_score_x10||0)/10):7;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Risikoscore x10 -> Ganzzahl 1..10 (Score-Logik)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -229,13 +166,6 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "source": "var values = row.map(function(v){ return '<td style=\"padding:4px 6px;text-align:right;font-size:10px;color:var(--n7)\">' + escapeHtml(Number(v).toFixed(2)) + '</td>'; }).join('');",
-   "class": "MIGRATE",
-   "status": "open",
-   "reason": "Anzeige ausserhalb der G7-Kundenevidenz (Editor-/Admin-/Warnhinweis); Restliste"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
    "source": "var zoneLeft=(min/100).toFixed(2);",
    "class": "COMPUTATION_KEEP",
    "status": "",
@@ -249,6 +179,20 @@
    "reason": "Geometrie (CSS-Breite/Position aus bps)"
   },
   {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "y:{grid:{color:chartGridColor()},ticks:{font:{size:10},color:chartAxisColor(),callback:function(v){var n=Number(v)||0;if(n===0)return '0';var a=Math.abs(n),sg=n<0?'\\u2212':'';if(a>=1000){var m=a/1000;return sg+(m===Math.round(m)?String(Math",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Achsenbeschriftung (Tick-Raster, keine Kennzahl)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "y:{grid:{color:chartGridColor()},ticks:{font:{size:9},color:chartAxisColor(),callback:function(v){var n=Number(v)||0;if(n===0)return '0';var a=Math.abs(n),sg=n<0?'\\u2212':'';if(a>=1000){var m=a/1000;return sg+(m===Math.round(m)?String(Math.",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Achsenbeschriftung (Tick-Raster, keine Kennzahl)"
+  },
+  {
    "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
    "source": "return `CHF ${(rappen / MIO_RAPPEN).toFixed(decimals)} Mio.`;",
    "class": "COMPUTATION_KEEP",
@@ -259,36 +203,29 @@
    "file": "ares-desktop/frontend/reporting/src/sections/goals/GoalsEditor.tsx",
    "source": "if (goal.target_amount_rappen != null) return formatChf(goal.target_amount_rappen);",
    "class": "MIGRATE",
-   "status": "open",
-   "reason": "Ziele-Editor (lokaler formatChf); Restliste"
-  },
-  {
-   "file": "ares-desktop/frontend/reporting/src/sections/goals/GoalsEditor.tsx",
-   "source": "if (goal.target_return_bps != null) return `${(goal.target_return_bps / 100).toFixed(2)} %`;",
-   "class": "MIGRATE",
-   "status": "open",
-   "reason": "Ziele-Editor (toFixed); Restliste"
+   "status": "done",
+   "reason": "Lokaler Formatter delegiert an den gemeinsamen Formatter"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/sections/goals/GoalsEditor.tsx",
    "source": "if (goal.target_wealth_rappen != null) return formatChf(goal.target_wealth_rappen);",
    "class": "MIGRATE",
-   "status": "open",
-   "reason": "Ziele-Editor (lokaler formatChf); Restliste"
+   "status": "done",
+   "reason": "Lokaler Formatter delegiert an den gemeinsamen Formatter"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/sections/goals/MaxPensionSpendingPanel.tsx",
    "source": "Max. monatlich: <strong>{formatChf(result.max_monthly_chf_rappen)}</strong>",
    "class": "MIGRATE",
-   "status": "open",
-   "reason": "Vorsorge-Panel (lokaler formatChf); Restliste"
+   "status": "done",
+   "reason": "Lokaler Formatter delegiert an den gemeinsamen Formatter"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/sections/goals/MaxPensionSpendingPanel.tsx",
    "source": "{' \u00b7 '}j\u00e4hrlich: <strong>{formatChf(result.max_annual_chf_rappen)}</strong>",
    "class": "MIGRATE",
-   "status": "open",
-   "reason": "Vorsorge-Panel (lokaler formatChf); Restliste"
+   "status": "done",
+   "reason": "Lokaler Formatter delegiert an den gemeinsamen Formatter"
   }
  ]
 }

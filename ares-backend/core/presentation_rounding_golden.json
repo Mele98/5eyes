@@ -944,6 +944,111 @@
     "3.0\u00a0%",
     "2.6\u00a0%"
    ]
+  },
+  {
+   "id": "amounts_full_api_case",
+   "fn": "presentation_amounts",
+   "args": [
+    53000000,
+    52494303,
+    [
+     6941,
+     1751,
+     525,
+     581,
+     202
+    ],
+    [
+     "equities",
+     "bonds",
+     "real_estate",
+     "alternatives",
+     "liquidity"
+    ]
+   ],
+   "plain": [
+    "530000",
+    "524943",
+    "5057",
+    "364363",
+    "91918",
+    "27559",
+    "30499",
+    "10604"
+   ],
+   "screen": [
+    "530000",
+    "524943",
+    "5057",
+    "364363",
+    "91918",
+    "27559",
+    "30499",
+    "10604"
+   ],
+   "why": "Engine-Betraege einzeln gerundet: Immobilien 27'559.51 -> 27'560 (App alt) vs. 27'559 (PDF); jetzt beide Largest Remainder"
+  },
+  {
+   "id": "amounts_half_franc_base",
+   "fn": "presentation_amounts",
+   "args": [
+    250,
+    150,
+    [
+     5000,
+     5000
+    ],
+    [
+     "Aktien",
+     "Obligationen"
+    ]
+   ],
+   "plain": [
+    "3",
+    "2",
+    "1",
+    "1",
+    "1"
+   ],
+   "screen": [
+    "3",
+    "2",
+    "1",
+    "1",
+    "1"
+   ],
+   "why": "Half-up auf ganze Franken (round() lieferte 2/2/0)"
+  },
+  {
+   "id": "amounts_tie_weight_then_key",
+   "fn": "presentation_amounts",
+   "args": [
+    300,
+    300,
+    [
+     5000,
+     5000
+    ],
+    [
+     "Obligationen",
+     "Aktien"
+    ]
+   ],
+   "plain": [
+    "3",
+    "3",
+    "0",
+    "2",
+    "1"
+   ],
+   "screen": [
+    "3",
+    "3",
+    "0",
+    "2",
+    "1"
+   ],
+   "why": "Gleichstand: gleiches Gewicht -> Engine-Schluessel (bonds < equities)"
   }
  ]
 }

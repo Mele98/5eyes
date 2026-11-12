@@ -118,6 +118,10 @@ export function currencyExponent(currency: string): number {
   if (!(c in CURRENCY_EXPONENTS)) throw new Error(`Minor-Unit-Exponent unbekannt: ${currency}`);
   return CURRENCY_EXPONENTS[c];
 }
+export function minorExponent(currency: string): number {
+  const c = String(currency ?? '').toUpperCase().trim();
+  return c in CURRENCY_EXPONENTS ? CURRENCY_EXPONENTS[c] : 2;
+}
 function unitOf(currency: string): string {
   const c = String(currency ?? '').toUpperCase().trim();
   if (!c) throw new Error('Waehrung ist Pflicht');
@@ -207,6 +211,55 @@ export function formatApportionedPercentBps(
   const units = apportionUnits(values, decimals, targetUnitsFromDisplay(opts.targetDisplay, decimals));
   return units.map((u) => formatPercent(unitsToDecimal(u, decimals), decimals, opts));
 }
+const ASSET_KEYS: Record<string, string> = {
+  aktien: 'equities', equities: 'equities', obligationen: 'bonds', anleihen: 'bonds', bonds: 'bonds',
+  immobilien: 'real_estate', real_estate: 'real_estate', 'real estate': 'real_estate', alternative: 'alternatives',
+  alternativen: 'alternatives', alternatives: 'alternatives', liquiditaet: 'liquidity', 'liquidität': 'liquidity',
+  liquidity: 'liquidity',
+};
+export function assetClassKey(label: unknown): string {
+  const raw = String(label ?? '').trim();
+  return ASSET_KEYS[raw.toLowerCase()] ?? raw;
+}
+function wholeUnits(minor: Numeric, exponent: number): bigint {
+  const d = toDecimal(minor);
+  if (!d) return ZERO;
+  const r = roundUnits(scale(d, -exponent), 0);
+  return r.neg ? -r.units : r.units;
+}
+/** Largest Remainder; Gleichstand: groesseres Gewicht, dann Label, dann Position. */
+export function splitLargestRemainder(total: bigint, weights: Numeric[], labels: string[]): bigint[] {
+  const clean = weights.map((w) => BigInt(Math.max(0, Math.round(Number(w) || 0))));
+  const sum = clean.reduce((a, b) => a + b, ZERO);
+  if (sum <= ZERO || total <= ZERO) return clean.map(() => ZERO);
+  const floors = clean.map((w) => (total * w) / sum);
+  const rems = clean.map((w) => (total * w) % sum);
+  const order = clean.map((_, i) => i).sort((a, b) => {
+    if (rems[a] !== rems[b]) return rems[a] > rems[b] ? -1 : 1;
+    if (clean[a] !== clean[b]) return clean[a] > clean[b] ? -1 : 1;
+    if (labels[a] !== labels[b]) return labels[a] < labels[b] ? -1 : 1;
+    return a - b;
+  });
+  const missing = total - floors.reduce((a, b) => a + b, ZERO);
+  for (let k = 0; BigInt(k) < missing; k += 1) floors[order[k]] += ONE;
+  return floors;
+}
+/** Soll-Betraege in ganzen Einheiten (identisch zu core/presentation_rounding.py). */
+export function presentationAmounts(
+  advisoryMinor: Numeric, baseMinor: Numeric, weights: Numeric[], labels: unknown[], exponent = 2,
+) {
+  const adv = Math.max(0, Math.round(Number(advisoryMinor) || 0));
+  const baseRaw = baseMinor === null || baseMinor === undefined ? adv : Math.max(0, Math.round(Number(baseMinor) || 0));
+  const base = wholeUnits(Math.min(baseRaw, adv), exponent);
+  const advisory = wholeUnits(adv, exponent);
+  const keys = labels.map(assetClassKey);
+  const buckets = base > ZERO ? splitLargestRemainder(base, weights, keys) : keys.map(() => ZERO);
+  const reserve = advisory - base;
+  return {
+    advisory: Number(advisory), base: Number(base), reserve: Number(reserve > ZERO ? reserve : ZERO),
+    buckets: buckets.map((u) => Number(u)),
+  };
+}
 export function canonicalRank(key: string): number {
   const i = (CANONICAL_ASSET_CLASS_ORDER as readonly string[]).indexOf(String(key ?? ''));
   return i < 0 ? CANONICAL_ASSET_CLASS_ORDER.length : i;
@@ -236,6 +289,10 @@ export function runCase(fn: string, args: unknown[], typography: Typography): st
       return formatApportionedPercentBps(args[0] as Numeric[], Number(args[1]), {
         typography, targetDisplay: args.length > 2 ? (args[2] as Numeric) : null,
       });
+    case 'presentation_amounts': {
+      const pa = presentationAmounts(a[0], a[1], args[2] as Numeric[], args[3] as unknown[], opt(4, 2));
+      return [String(pa.advisory), String(pa.base), String(pa.reserve), ...pa.buckets.map(String)];
+    }
     case 'apportioned_sum': {
       const n = opt(1, 1);
       const u = apportionUnits(args[0] as Numeric[], n, null).reduce((x, y) => x + y, ZERO);

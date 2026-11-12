@@ -221,8 +221,10 @@ def test_all_number_tolocalestring_goes_through_central_helper():
     assert rest == [], rest
     code_lines = [ln for ln in html.splitlines()
                   if "toLocaleString('de-CH'" in ln and not ln.lstrip().startswith("//")]
-    assert len(code_lines) == 2, code_lines  # fmtLocaleCH + Datum
-    assert "fmtLocaleCH(" in html
+    # G7 (H-153 Nachtrag 1): fmtLocaleCH rundet ueber AresRounding (Half-up),
+    # toLocaleString bleibt nur fuer die Datumsanzeige.
+    assert len(code_lines) == 1 and "new Date(" in code_lines[0], code_lines
+    assert "fmtLocaleCH(" in html and "AresRounding.formatDecimal(isFinite(n)?n:0,mx" in html
 
 
 def test_monolith_never_emits_typographic_apostrophe():

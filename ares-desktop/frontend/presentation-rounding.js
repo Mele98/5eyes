@@ -113,6 +113,10 @@
     if (!(c in CURRENCY_EXPONENTS)) throw new Error('Minor-Unit-Exponent unbekannt: ' + currency);
     return CURRENCY_EXPONENTS[c];
   }
+  function minorExponent(currency) {
+    var c = String(currency || '').toUpperCase().trim();
+    return c in CURRENCY_EXPONENTS ? CURRENCY_EXPONENTS[c] : 2;
+  }
   function unitOf(currency) {
     var c = String(currency || '').toUpperCase().trim();
     if (!c) throw new Error('Waehrung ist Pflicht');
@@ -199,6 +203,52 @@
     var units = apportionUnits(values, n, targetUnitsFromDisplay(opts.targetDisplay, n));
     return units.map(function (u) { return formatPercent(unitsToDecimal(u, n), n, opts); });
   }
+  // Betraege der Soll-Darstellung in ganzen Einheiten (identisch zu presentation_amounts
+  // in core/presentation_rounding.py): Beratungsvermoegen/Strategiebasis Half-up,
+  // Reserve = Differenz, Klassen = Largest Remainder der Basis nach Gewicht
+  // (Gleichstand: groesseres Gewicht, dann Engine-Schluessel, dann Position).
+  var ASSET_KEYS = { aktien: 'equities', equities: 'equities', obligationen: 'bonds', anleihen: 'bonds', bonds: 'bonds',
+    immobilien: 'real_estate', real_estate: 'real_estate', 'real estate': 'real_estate', alternative: 'alternatives',
+    alternativen: 'alternatives', alternatives: 'alternatives', liquiditaet: 'liquidity', 'liquidität': 'liquidity', liquidity: 'liquidity' };
+  function assetClassKey(label) {
+    var raw = String(label == null ? '' : label).trim();
+    return ASSET_KEYS[raw.toLowerCase()] || raw;
+  }
+  function wholeUnits(minor, exponent) {
+    var d = toDecimal(minor);
+    if (!d) return ZERO;
+    var r = roundUnits(scale(d, -Number(exponent == null ? 2 : exponent)), 0);
+    return r.neg ? -r.units : r.units;
+  }
+  function splitLargestRemainder(total, weights, labels) {
+    var clean = weights.map(function (w) { var n = BigInt(Math.max(0, Math.round(Number(w) || 0))); return n; });
+    var sum = clean.reduce(function (a, b) { return a + b; }, ZERO);
+    total = BigInt(total);
+    if (sum <= ZERO || total <= ZERO) return clean.map(function () { return ZERO; });
+    var floors = clean.map(function (w) { return total * w / sum; });
+    var rems = clean.map(function (w) { return total * w % sum; });
+    var order = clean.map(function (_, i) { return i; }).sort(function (a, b) {
+      if (rems[a] !== rems[b]) return rems[a] > rems[b] ? -1 : 1;
+      if (clean[a] !== clean[b]) return clean[a] > clean[b] ? -1 : 1;
+      var la = String(labels[a]), lb = String(labels[b]);
+      if (la !== lb) return la < lb ? -1 : 1;
+      return a - b;
+    });
+    var missing = total - floors.reduce(function (a, b) { return a + b; }, ZERO);
+    for (var k = 0; BigInt(k) < missing; k++) floors[order[k]] += ONE;
+    return floors;
+  }
+  function presentationAmounts(advisoryMinor, baseMinor, weights, labels, exponent) {
+    var e = exponent == null ? 2 : Number(exponent);
+    var adv = Math.max(0, Math.round(Number(advisoryMinor) || 0));
+    var baseRaw = baseMinor == null ? adv : Math.max(0, Math.round(Number(baseMinor) || 0));
+    var base = wholeUnits(Math.min(baseRaw, adv), e), advisory = wholeUnits(adv, e);
+    var keys = (labels || []).map(assetClassKey);
+    var buckets = base > ZERO ? splitLargestRemainder(base, weights || [], keys) : keys.map(function () { return ZERO; });
+    var reserve = advisory - base;
+    return { advisory: Number(advisory), base: Number(base), reserve: Number(reserve > ZERO ? reserve : ZERO),
+      buckets: buckets.map(function (u) { return Number(u); }) };
+  }
   function canonicalRank(key) {
     var i = CANONICAL_ASSET_CLASS_ORDER.indexOf(String(key || ''));
     return i < 0 ? CANONICAL_ASSET_CLASS_ORDER.length : i;
@@ -220,6 +270,10 @@
       case 'signed_money_minor': return formatSignedMoneyMinor(args[0], args[1], args[2], args.length > 3 ? args[3] : null, o);
       case 'money_compact_minor': return formatMoneyCompactMinor(args[0], args[1], args[2], o);
       case 'apportion_percent_bps': return formatApportionedPercentBps(args[0], args[1], { typography: typography, targetDisplay: args.length > 2 ? args[2] : null });
+      case 'presentation_amounts': {
+        var pa = presentationAmounts(args[0], args[1], args[2], args[3], args.length > 4 ? args[4] : 2);
+        return [String(pa.advisory), String(pa.base), String(pa.reserve)].concat(pa.buckets.map(String));
+      }
       case 'apportioned_sum': {
         var n = args.length > 1 ? args[1] : 1;
         var u = apportionUnits(args[0], n, null).reduce(function (a, b) { return a + b; }, ZERO);
@@ -239,6 +293,7 @@
     formatPercentBps: formatPercentBps,
     formatProbabilityPct: formatProbabilityPct,
     currencyExponent: currencyExponent,
+    minorExponent: minorExponent,
     formatMoneyMinor: formatMoneyMinor,
     formatSignedMoneyMinor: formatSignedMoneyMinor,
     formatCompactAmount: formatCompactAmount,
@@ -247,6 +302,8 @@
     apportionPercentBps: apportionPercentBps,
     formatApportionedPercentBps: formatApportionedPercentBps,
     canonicalRank: canonicalRank,
+    assetClassKey: assetClassKey,
+    presentationAmounts: presentationAmounts,
     presentationArtifact: presentationArtifact,
     runCase: runCase
   };
