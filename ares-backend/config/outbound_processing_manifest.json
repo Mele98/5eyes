@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "manifest_version": "2026-11-11.1",
+  "manifest_version": "2026-11-12.1",
   "title": "Egress-Manifest (ausgehende Verbindungen von Ares)",
   "policy": "fail_closed",
   "notice": "Jede ausgehende Verbindung des Backends muss hier einem Kanal zugeordnet sein; alles andere wird zur Laufzeit blockiert (services/egress_manifest.py). Lokale Verbindungen (localhost, 127.0.0.0/8, ::1) sind keine Uebermittlung und immer erlaubt. Kanaele mit personal_data=true laufen erst, wenn der Verantwortliche Staat und Garantie bestaetigt hat. Staaten und Garantien sind Angaben des Verantwortlichen (owner_field), Ares belegt sie nicht vor. Keine Rechtsberatung.",
@@ -282,7 +282,8 @@
       "code_references": [
         "ares-backend/services/openfigi_client.py",
         "ares-backend/services/market_data/providers/openfigi_provider.py"
-      ]
+      ],
+      "client_name_screen": true
     },
     {
       "id": "reference_data.eodhd",
@@ -303,7 +304,7 @@
         "exchange"
       ],
       "path_patterns": [
-        "^/api/search/[A-Za-z0-9 .,&()'^=+\\-]{1,64}$"
+        "^/api/search/[\\w .,&()'^=+\\-]{1,64}$"
       ],
       "transmitted_data": "Suchbegriff (Kennung oder Produktname), API-Schluessel",
       "destination_country": {
@@ -320,7 +321,8 @@
       "enforcement": "python_runtime_guard",
       "code_references": [
         "ares-backend/services/eodhd_client.py"
-      ]
+      ],
+      "client_name_screen": true
     },
     {
       "id": "macro_data.fred",
@@ -581,7 +583,14 @@
       "enforcement": "python_runtime_guard",
       "code_references": [
         "ares-backend/services/mailer.py"
-      ]
+      ],
+      "legal_basis": {
+        "owner_field": "egress.mail.smtp.legal_basis",
+        "label": "Grundlage der Bekanntgabe (E-Mail-Anbieter): z. B. Vertrag, Einwilligung, Auftragsbearbeitung",
+        "kind": "text",
+        "blocking": "channel",
+        "channel": "mail.smtp"
+      }
     },
     {
       "id": "telemetry.error_reporting",
@@ -611,7 +620,14 @@
       "enforcement": "python_runtime_guard",
       "code_references": [
         "ares-backend/services/telemetry.py"
-      ]
+      ],
+      "legal_basis": {
+        "owner_field": "egress.telemetry.error_reporting.legal_basis",
+        "label": "Grundlage der Bekanntgabe (Fehlerdienst): z. B. Vertrag, Einwilligung, Auftragsbearbeitung",
+        "kind": "text",
+        "blocking": "channel",
+        "channel": "telemetry.error_reporting"
+      }
     },
     {
       "id": "operator.database",

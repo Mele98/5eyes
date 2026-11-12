@@ -83,6 +83,8 @@
       + '<div>Auskunft ausgeben: ' + badge(reg.customer_output_ready, 'bereit', 'gesperrt (' + open.length + ' Angaben offen)') + '</div>'
       + '<div>Sicherheitsvorfälle: ' + badge(!gate.blocked, 'keine offene Meldepflicht', 'Meldeentscheid/Meldung offen') + '</div>'
       + '<div>Anfragen überfällig: ' + badge(overdue === 0, '0', String(overdue)) + '</div>'
+      + '<div>Freigabe: ' + badge(!(reg.approval_reason_codes || []).length, 'wirksam', (reg.approval_reason_codes || []).join(', ') || 'offen') + '</div>'
+      + '<button class="btn-p" ' + BTN + ' onclick="approvePrivacyArtifact(\'processing-register\')">Verzeichnis freigeben</button>'
       + '<button class="btn-s" ' + BTN + ' onclick="exportProcessingRegister()">Verzeichnis exportieren (JSON)</button>'
       + '</div>';
   }
@@ -110,6 +112,10 @@
     return run(function(){
       return API.put('/privacy/owner-fields/' + encodeURIComponent(field.key), {value: value});
     }, 'Angabe gespeichert.');
+  }
+
+  async function approvePrivacyArtifact(kind){
+    return run(function(){ return API.post('/privacy/' + kind + '/approve', {keys: []}); }, 'Neue Fassung freigegeben.');
   }
 
   async function exportProcessingRegister(){
@@ -315,7 +321,8 @@
     var egress = state.egress || {};
     var runtime = egress.runtime || {channels: [], recent_blocked: []};
     var rows = (runtime.channels || []).map(function(c){
-      var allowed = c.allowed_now ? badge(true, 'erlaubt', '') : (c.configured ? badge(false, '', c.owner_confirmation_required && !c.owner_confirmed ? 'gesperrt: Staat/Garantie offen' : 'gesperrt') : '<span style="font-size:9px;color:var(--n4)">nicht konfiguriert</span>');
+      var why = !c.approved ? 'gesperrt: Freigabe fehlt/veraltet' : (c.owner_block ? 'gesperrt: ' + c.owner_block : 'gesperrt');
+      var allowed = c.allowed_now ? badge(true, 'erlaubt', '') : (c.configured ? badge(false, '', why) : '<span style="font-size:9px;color:var(--n4)">nicht konfiguriert</span>');
       return '<tr data-egress-channel="' + esc(c.id) + '"><td style="padding:3px 6px">' + esc(c.id) + '</td><td style="padding:3px 6px">' + esc(c['class'])
         + '</td><td style="padding:3px 6px">' + esc((c.hosts || []).join(', ')) + '</td><td style="padding:3px 6px">' + (c.personal_data ? 'ja' : 'nein')
         + '</td><td style="padding:3px 6px">' + allowed + '</td></tr>';
@@ -325,7 +332,8 @@
     }).join('');
     return '<div class="admin-section-title" style="margin-top:12px">Ausgehende Verbindungen</div>'
       + '<div style="font-size:9px;color:var(--n4);margin-bottom:4px">Nur Kanäle aus dem Egress-Manifest sind erlaubt; alles andere wird blockiert. '
-      + 'Laufzeitschutz: ' + (runtime.active ? 'aktiv' : '<b style="color:var(--neg)">inaktiv</b>') + '.</div>'
+      + 'Laufzeitschutz: ' + (runtime.active ? 'aktiv' : '<b style="color:var(--neg)">inaktiv</b>') + '. Jeder Kanal braucht eine freigegebene Fassung. '
+      + '<button class="btn-p" ' + BTN + ' onclick="approvePrivacyArtifact(\'egress-manifest\')">Manifest freigeben</button></div>'
       + '<table id="pg-egress" style="width:100%;border-collapse:collapse;font-size:10px">' + rows + '</table>'
       + (blocked ? '<div style="font-size:9px;margin-top:4px">Zuletzt blockiert:<ul style="margin:2px 0 0 14px;padding:0">' + blocked + '</ul></div>' : '');
   }
@@ -397,6 +405,7 @@
   window.loadPrivacyGovernance = loadPrivacyGovernance;
   window.savePrivacyOwnerField = savePrivacyOwnerField;
   window.exportProcessingRegister = exportProcessingRegister;
+  window.approvePrivacyArtifact = approvePrivacyArtifact;
   window.openSubjectRequest = openSubjectRequest;
   window.verifySubjectRequestIdentity = verifySubjectRequestIdentity;
   window.decideSubjectRequest = decideSubjectRequest;

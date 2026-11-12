@@ -61,6 +61,12 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     "privacy_owner_values",
     # H10 C-DSG-02: Betroffenenanfragen je Mandant.
     "privacy_subject_requests",
+    # H10 Nachtrag 1: Freigabefassungen, Ereignisse, Egress-Protokoll.
+    "outbound_processing_manifest_versions",
+    "privacy_egress_events",
+    "privacy_security_incident_events",
+    "privacy_subject_request_events",
+    "processing_activity_versions",
     "privacy_retention_policies",
     "privacy_role_designations",
     # H10 C-DSG-04: Register der Sicherheitsvorfaelle je Mandant.

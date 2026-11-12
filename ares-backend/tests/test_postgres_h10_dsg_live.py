@@ -50,12 +50,17 @@ from tests.test_postgres_mandate_evidence_tenant_boundary_live import (  # noqa:
 )
 from tests.test_tenant_database_boundary import _raw_insert  # noqa: E402
 
-TABLES = ("privacy_owner_values", "privacy_subject_requests", "privacy_security_incidents")
+TABLES = ("privacy_owner_values", "privacy_subject_requests", "privacy_security_incidents",
+          "processing_activity_versions", "outbound_processing_manifest_versions", "privacy_egress_events",
+          "privacy_subject_request_events", "privacy_security_incident_events")
+APPEND_ONLY = TABLES[3:]
 FIRST_H10_DOWN = "d8e4b2a6c1f9"
 _NUMERIC = ("integer", "bigint", "smallint", "numeric", "double precision", "real")
 _VALUES = {
     "status": {"privacy_owner_values": "CONFIRMED", "privacy_subject_requests": "RECEIVED",
-               "privacy_security_incidents": "OPEN"},
+               "privacy_security_incidents": "OPEN", "processing_activity_versions": "APPROVED",
+               "outbound_processing_manifest_versions": "APPROVED"},
+    "result": "BLOCKED",
     "request_type": "ACCESS", "received_channel": "LETTER", "requester_relation": "SELF",
     "incident_type": "AVAILABILITY",
 }
@@ -165,4 +170,50 @@ def test_high_risk_without_notification_is_rejected_by_check(pg_ctx):
         with pytest.raises(DBAPIError):
             _row(db.connection(), "privacy_security_incidents", "inc-check", tenant_id="t-a",
                  risk_level="HIGH", notification_decision="NOT_REQUIRED")
+        db.rollback()
+
+
+
+@pytest.mark.parametrize("table", APPEND_ONLY)
+@pytest.mark.parametrize("statement", ["UPDATE {t} SET tenant_id = tenant_id WHERE id = :id",
+                                       "DELETE FROM {t} WHERE id = :id"])
+def test_nachtrag1_tables_are_append_only(pg_ctx, table, statement):
+    with _session(pg_ctx, "t-a") as db:
+        with pytest.raises(DBAPIError):
+            db.execute(text(statement.format(t=table)), {"id": f"{table}-t-a"})
+        db.rollback()
+
+
+@pytest.mark.parametrize("table", ["privacy_subject_requests", "privacy_security_incidents"])
+def test_two_concurrent_status_changes_one_wins_on_postgres(pg_ctx, table):
+    """Nachtrag 1: optimistische Sperre (row_version) unter echter RLS."""
+    from sqlalchemy.orm.exc import StaleDataError
+
+    from models.privacy import PrivacySecurityIncident, PrivacySubjectRequest
+
+    model = PrivacySubjectRequest if table == "privacy_subject_requests" else PrivacySecurityIncident
+    field, values = ("status", ("IDENTITY_VERIFIED", "WITHDRAWN")) if model is PrivacySubjectRequest         else ("risk_level", ("LOW", "HIGH"))
+    first, second = _session(pg_ctx, "t-a"), _session(pg_ctx, "t-a")
+    try:
+        a, b = first.get(model, f"{table}-t-a"), second.get(model, f"{table}-t-a")
+        assert a is not None and b is not None
+        setattr(a, field, values[0])
+        setattr(b, field, values[1])
+        first.commit()
+        with pytest.raises(StaleDataError):
+            second.commit()
+    finally:
+        first.close()
+        second.close()
+    with pg_ctx["owner"].connect() as conn:
+        assert conn.execute(text(f"SELECT {field}, row_version FROM {table} WHERE id = :id"),
+                            {"id": f"{table}-t-a"}).one() == (values[0], 2)
+
+
+def test_event_sequence_unique_on_postgres(pg_ctx):
+    with _session(pg_ctx, "t-a") as db:
+        _row(db.connection(), "privacy_subject_request_events", "ev-1", tenant_id="t-a", case_id="c", sequence=7)
+        with pytest.raises(DBAPIError):
+            _row(db.connection(), "privacy_subject_request_events", "ev-2", tenant_id="t-a", case_id="c",
+                 sequence=7)
         db.rollback()

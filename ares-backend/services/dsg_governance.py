@@ -15,8 +15,14 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from sqlalchemy import text
+
 from config import settings
+from database import new_uuid
+from models.privacy import PrivacyEgressEvent
 from services import egress_manifest
+from services import privacy_case_events as case_events
+from services import privacy_versions as versions
 from services import privacy_erasure_inventory as erasure_inventory
 from services import privacy_subject_requests as subject_requests
 from services import processing_activity_register as register_module
@@ -43,17 +49,57 @@ INSTALLATION_TENANT = "main"
 logger = logging.getLogger(__name__)
 
 
+def channel_states(db: Any) -> dict[str, dict[str, Any]]:
+    return versions.runtime_channel_states(db, INSTALLATION_TENANT, owner_values(db, INSTALLATION_TENANT))
+
+
+def _event_sink(session_factory: Callable[[], Any]) -> Callable[[list[dict[str, Any]]], None]:
+    def sink(batch: list[dict[str, Any]]) -> None:
+        with session_factory() as db:
+            for item in batch:
+                db.add(PrivacyEgressEvent(
+                    id=new_uuid(), tenant_id=INSTALLATION_TENANT, occurred_at=item["at"],
+                    channel_id=item.get("channel"), channel_class=item.get("channel_class"),
+                    destination_host=item["host"] or "", reason_code=str(item["reason_code"]), result="BLOCKED",
+                    manifest_version=item.get("manifest_version"), channel_sha256=item.get("channel_sha256"),
+                ))
+            db.commit()
+    return sink
+
+
+def _client_names(session_factory: Callable[[], Any]) -> Callable[[], list[str]]:
+    def provider() -> list[str]:
+        with session_factory() as db:
+            rows = db.execute(text(
+                "SELECT first_name, last_name, partner_first_name, partner_last_name FROM clients "
+                "WHERE erased_at IS NULL"
+            )).all()
+        names = []
+        for first, last, partner_first, partner_last in rows:
+            names.append(f"{first or ''} {last or ''}")
+            if partner_first or partner_last:
+                names.append(f"{partner_first or ''} {partner_last or ''}")
+        return names
+    return provider
+
+
 def activate_egress_guard(session_factory: Callable[[], Any]) -> None:
-    """Laufzeitschutz beim Start einschalten. Bestaetigungen fuer Kanaele mit
-    Personendaten aus der Datenbank; ist sie nicht lesbar, bleiben diese
-    Kanaele gesperrt (die App startet trotzdem)."""
-    confirmed: set[str] = set()
+    """Laufzeitschutz beim Start einschalten. Bestand als
+    INVENTORY_REQUIRED erfassen (nie automatisch freigegeben), Freigaben und
+    Owner-Angaben lesen, persistentes Protokoll und Kundennamen-Pruefung
+    anschliessen. Ist die Datenbank nicht lesbar, bleibt jeder externe Kanal
+    gesperrt (die App startet trotzdem)."""
+    states = None
     try:
         with session_factory() as db:
-            confirmed = confirmed_egress_channels(db, INSTALLATION_TENANT)
-    except Exception:  # noqa: BLE001 - Start nie wegen Bestaetigungen abbrechen
-        logger.exception("Egress-Bestaetigungen nicht lesbar; Kanaele mit Personendaten bleiben gesperrt")
-    egress_manifest.activate(settings, confirmed_channels=confirmed)
+            versions.ensure_inventory_rows(db, INSTALLATION_TENANT, owner_values(db, INSTALLATION_TENANT),
+                                           actor_id="system")
+            db.commit()
+            states = channel_states(db)
+    except Exception:  # noqa: BLE001 - Start nie wegen der Freigaben abbrechen
+        logger.exception("Egress-Freigaben nicht lesbar; alle externen Kanaele bleiben gesperrt")
+    egress_manifest.activate(settings, channel_states=states, event_sink=_event_sink(session_factory),
+                             client_name_provider=_client_names(session_factory))
 
 
 def deactivate_egress_guard() -> None:
@@ -80,8 +126,8 @@ def incident_gate(db: Any, tenant_id: str) -> dict[str, Any]:
 
 
 def refresh_egress_confirmations(db: Any, tenant_id: str) -> None:
-    if tenant_id == INSTALLATION_TENANT:
-        egress_manifest.update_confirmed_channels(confirmed_egress_channels(db, INSTALLATION_TENANT))
+    if tenant_id == INSTALLATION_TENANT and egress_manifest.is_active():
+        egress_manifest.update_channel_states(channel_states(db))
 
 __all__ = [
     "ERASURE_INVENTORY_VERSION",
@@ -89,6 +135,8 @@ __all__ = [
     "INSTALLATION_TENANT",
     "OWNER_VALUE_MAX_LENGTH",
     "activate_egress_guard",
+    "case_events",
+    "channel_states",
     "confirmed_egress_channels",
     "deactivate_egress_guard",
     "egress_view",
@@ -104,4 +152,5 @@ __all__ = [
     "register_view",
     "set_owner_value",
     "subject_requests",
+    "versions",
 ]

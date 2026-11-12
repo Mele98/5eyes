@@ -10157,10 +10157,17 @@
               }
             ],
             "title": "Reference"
+          },
+          "sha256": {
+            "description": "SHA-256 des Nachweis-Artefakts (Kleinbuchstaben)",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
           }
         },
         "required": [
-          "kind"
+          "kind",
+          "sha256"
         ],
         "title": "IncidentEvidence",
         "type": "object"
@@ -26230,6 +26237,20 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "VersionApproval": {
+        "properties": {
+          "keys": {
+            "description": "leer = alle Bearbeitungen bzw. Kanaele",
+            "items": {
+              "type": "string"
+            },
+            "title": "Keys",
+            "type": "array"
+          }
+        },
+        "title": "VersionApproval",
+        "type": "object"
+      },
       "WealthInflowCreate": {
         "properties": {
           "amount_rappen": {
@@ -41357,6 +41378,53 @@
         ]
       }
     },
+    "/privacy/egress-events": {
+      "get": {
+        "description": "Persistentes Protokoll blockierter Verbindungen (ohne Payload).",
+        "operationId": "list_egress_events_privacy_egress_events_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Egress Events",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
     "/privacy/egress-manifest": {
       "get": {
         "description": "Alle ausgehenden Kanaele mit Staat/Garantie (Owner-Felder), Laufzeit-\nstatus (aktiv, erlaubt, bestaetigt) und den zuletzt blockierten Versuchen\n(nur Kanal, Host, Grund).",
@@ -41377,6 +41445,51 @@
           }
         ],
         "summary": "Get Egress Manifest",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/egress-manifest/approve": {
+      "post": {
+        "description": "Neue, freigegebene Fassung je Kanal (append-only, Content-Hash). Der\nLaufzeitschutz laesst einen Kanal nur mit wirksamer Fassung zu, deren Hash\ndem aktuellen Manifest samt Owner-Angaben entspricht.",
+        "operationId": "approve_egress_manifest_privacy_egress_manifest_approve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionApproval"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Egress Manifest",
         "tags": [
           "Datenschutz"
         ]
@@ -42632,6 +42745,51 @@
           }
         ],
         "summary": "Get Processing Register",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/processing-register/approve": {
+      "post": {
+        "description": "Neue, freigegebene Fassung je Bearbeitung (append-only, Content-Hash).\nNur ohne offene Pflichtangaben und mit vollstaendigem Register.",
+        "operationId": "approve_processing_register_privacy_processing_register_approve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VersionApproval"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Processing Register",
         "tags": [
           "Datenschutz"
         ]

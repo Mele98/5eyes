@@ -99,7 +99,7 @@ def test_high_risk_incident_full_lifecycle_and_gate(tmp_path):
             "notified_at": _iso(_now()), "channel": "LETTER", "reference": "Serienbrief 12 Empfaenger (Testwert)"})
         assert informed.status_code == 200
         evidence = client.post(f"/privacy/incidents/{iid}/evidence",
-                               json={"kind": "EDOEB_RECEIPT", "reference": "Ablage DS-2026-01 (Testwert)"})
+                               json={"kind": "EDOEB_RECEIPT", "reference": "Ablage DS-2026-01 (Testwert)", "sha256": "a" * 64})
         assert evidence.json()["evidence"][0]["kind"] == "EDOEB_RECEIPT"
         assert client.post(f"/privacy/incidents/{iid}/remediation", json={}).status_code == 422
         assert client.post(f"/privacy/incidents/{iid}/remediation",
@@ -108,7 +108,7 @@ def test_high_risk_incident_full_lifecycle_and_gate(tmp_path):
         closed = client.post(f"/privacy/incidents/{iid}/close", json={"note": "Abgeschlossen (Testwert)"})
         assert closed.status_code == 200 and closed.json()["status"] == "CLOSED"
         assert client.post(f"/privacy/incidents/{iid}/evidence",
-                           json={"kind": "OTHER", "reference": "y"}).status_code == 409
+                           json={"kind": "OTHER", "reference": "y", "sha256": "b" * 64}).status_code == 409
         assert client.get("/privacy/incidents/gate").json()["findings"] == []
 
         with factory() as s:
@@ -202,6 +202,7 @@ def test_alembic_revision_single_head_and_sqlite_roundtrip(tmp_path):
     assert_single_head_contains("a7c3e9f1b5d2", "f4b8d2e6a3c7")
     assert_sqlite_upgrade_downgrade_upgrade(
         tmp_path, "a7c3e9f1b5d2", {"privacy_security_incidents": PrivacySecurityIncident},
+        later_columns=frozenset({"row_version"}),  # Nachtrag 1, Revision c4e8a2f6d0b7
     )
 
 

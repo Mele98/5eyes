@@ -43,14 +43,19 @@ def _settings(**overrides):
     return SimpleNamespace(**base)
 
 
+PERSONAL_OPEN = {"mail.smtp": "EGRESS_GUARANTEE_MISSING", "telemetry.error_reporting": "EGRESS_GUARANTEE_MISSING"}
+
+
 @pytest.fixture
 def guard():
-    em.activate(_settings())
+    from tests.h10_support import all_channel_states
+
+    em.activate(_settings(), channel_states=all_channel_states(em.load_manifest(), owner_block=PERSONAL_OPEN))
     try:
         yield
     finally:
         em.deactivate()
-        em.update_confirmed_channels(())
+        em.update_channel_states(None)
 
 
 class _FakeSocket:
@@ -252,7 +257,14 @@ def test_personal_data_channel_needs_owner_confirmation(guard):
     with pytest.raises(em.EgressBlocked) as blocked:
         em.check_host("o1.errors.example-telemetry.test")
     assert blocked.value.reason_code == "EGRESS_GUARANTEE_MISSING"
-    em.update_confirmed_channels({"telemetry.error_reporting"})
+    from tests.h10_support import all_channel_states
+
+    em.update_channel_states(all_channel_states(em.load_manifest(), owner_block={
+        "telemetry.error_reporting": "EGRESS_CONSENT_OR_BASIS_MISSING"}))
+    with pytest.raises(em.EgressBlocked) as blocked:
+        em.check_host("o1.errors.example-telemetry.test")
+    assert blocked.value.reason_code == "EGRESS_CONSENT_OR_BASIS_MISSING"
+    em.update_channel_states(all_channel_states(em.load_manifest()))
     assert em.check_host("o1.errors.example-telemetry.test")["id"] == "telemetry.error_reporting"
 
 
@@ -265,8 +277,6 @@ def test_missing_manifest_blocks_every_external_host(tmp_path):
         assert em.check_host("127.0.0.1") is None
         assert em.runtime_status()["manifest_loaded"] is False
     finally:
-        em.deactivate()
-        em.activate(_settings())
         em.deactivate()
 
 
@@ -441,7 +451,7 @@ def test_install_reads_confirmations_from_the_database(tmp_path, monkeypatch):
 
     with api(tmp_path) as (client, _current, factory):
         for key in ("egress.telemetry.error_reporting.destination_country",
-                    "egress.telemetry.error_reporting.guarantee"):
+                    "egress.telemetry.error_reporting.guarantee", "egress.telemetry.error_reporting.legal_basis"):
             assert client.put(f"/privacy/owner-fields/{key}", json={"value": f"TESTWERT {key}"}).status_code == 200
         monkeypatch.setattr(database, "SessionLocal", factory)
         install_egress_guard()
@@ -452,7 +462,7 @@ def test_install_reads_confirmations_from_the_database(tmp_path, monkeypatch):
             assert status["mail.smtp"]["owner_confirmed"] is False
         finally:
             uninstall_egress_guard()
-            em.update_confirmed_channels(())
+            em.update_channel_states(None)
         assert em.is_active() is False
 
 
@@ -480,8 +490,9 @@ def test_configured_personal_channel_blocks_customer_output_until_confirmed(tmp_
                 client.put(f"/privacy/owner-fields/{field['key']}", json={"value": owner_test_value(field)})
         view = client.get("/privacy/processing-register").json()
         assert {f["key"] for f in view["open_blocking_fields"]} == {
-            "egress.mail.smtp.destination_country", "egress.mail.smtp.guarantee"}
+            "egress.mail.smtp.destination_country", "egress.mail.smtp.guarantee", "egress.mail.smtp.legal_basis"}
         confirm_all_owner_fields(client)
+        client.post("/privacy/processing-register/approve", json={})
         assert client.get("/privacy/processing-register").json()["customer_output_ready"] is True
 
 

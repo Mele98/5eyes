@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import unicodedata
 import logging
 import re
 import sys
@@ -114,7 +115,7 @@ def channel_by_id(manifest: dict[str, Any], channel_id: str) -> dict[str, Any] |
 def blocking_owner_keys(channel: dict[str, Any]) -> list[str]:
     """Owner-Felder, ohne die ein Kanal mit Personendaten nicht laeuft."""
     keys = []
-    for name in ("destination_country", "guarantee"):
+    for name in ("destination_country", "guarantee", "legal_basis"):
         node = channel.get(name) or {}
         if isinstance(node, dict) and node.get("owner_field") and node.get("blocking") == "channel":
             keys.append(node["owner_field"])
@@ -159,6 +160,9 @@ def manifest_problems(manifest: dict[str, Any], *, check_files: bool = True) -> 
                 problems.append(f"{cid}: Kanal mit Personendaten ohne sperrendes Garantie-Owner-Feld")
             if not (isinstance(country, dict) and country.get("blocking") == "channel"):
                 problems.append(f"{cid}: Kanal mit Personendaten ohne sperrendes Staats-Owner-Feld")
+            basis = channel.get("legal_basis") or {}
+            if not basis.get("owner_field") or basis.get("blocking") != "channel":
+                problems.append(f"{cid}: Kanal mit Personendaten ohne sperrendes Grundlage-Owner-Feld")
         elif not guarantee.get("owner_field"):
             if guarantee.get("status") not in NON_BLOCKING_GUARANTEES or not str(guarantee.get("reason") or "").strip():
                 problems.append(f"{cid}: Garantie ohne Status/Begruendung")
@@ -246,8 +250,14 @@ class _GuardState:
         self.manifest: dict[str, Any] | None = None
         self.manifest_error: str | None = None
         self.settings: Any = None
-        self.confirmed_channels: frozenset[str] = frozenset()
+        # None = keine Freigabe-Information -> jeder Kanal gesperrt (fail-closed)
+        self.channel_states: dict[str, dict[str, Any]] | None = None
         self.recent_blocked: deque[dict[str, Any]] = deque(maxlen=_RECENT_LIMIT)
+        self.pending_events: list[dict[str, Any]] = []
+        self.event_sink: Any = None
+        self.client_name_provider: Any = None
+        self.flusher: threading.Thread | None = None
+        self.stop_flusher = threading.Event()
         self.lock = threading.Lock()
         self.local = threading.local()
 
@@ -289,8 +299,15 @@ def _block(reason_code: str, message: str, *, host: str, channel: str | None) ->
         "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "reason_code": reason_code, "channel": channel, "host": host,
     }
+    record = None
+    if _STATE.manifest is not None and channel:
+        found = channel_by_id(_STATE.manifest, channel) or {}
+        state = (_STATE.channel_states or {}).get(channel) or {}
+        record = {"channel_class": found.get("class"), "manifest_version": _STATE.manifest.get("manifest_version"),
+                  "channel_sha256": state.get("current_sha256")}
     with _STATE.lock:
         _STATE.recent_blocked.append(entry)
+        _STATE.pending_events.append({**entry, **(record or {})})
     logger.warning("Egress blockiert | reason=%s channel=%s host=%s", reason_code, channel, host)
     raise EgressBlocked(reason_code, message, channel=channel, host=host)
 
@@ -310,11 +327,51 @@ def check_host(raw_host: Any) -> dict[str, Any] | None:
     if not channel_enabled(channel):
         _block(ReasonCode.EGRESS_CHANNEL_DISABLED, f"Kanal {channel['id']} ist nicht konfiguriert",
                host=host, channel=channel["id"])
-    if blocking_owner_keys(channel) and channel["id"] not in _STATE.confirmed_channels:
+    state = (_STATE.channel_states or {}).get(channel["id"])
+    if state is None:
+        _block(ReasonCode.EGRESS_MANIFEST_MISSING, f"Kanal {channel['id']}: keine freigegebene Fassung",
+               host=host, channel=channel["id"])
+    if not state.get("approval_exempt"):
+        if not state.get("approved_sha256"):
+            _block(ReasonCode.EGRESS_MANIFEST_MISSING, f"Kanal {channel['id']}: keine freigegebene Fassung",
+                   host=host, channel=channel["id"])
+        if state.get("approved_sha256") != state.get("current_sha256"):
+            _block(ReasonCode.EGRESS_HASH_MISMATCH,
+                   f"Kanal {channel['id']}: freigegebene Fassung weicht vom aktuellen Manifest ab",
+                   host=host, channel=channel["id"])
+    if state.get("owner_block") == ReasonCode.EGRESS_CONSENT_OR_BASIS_MISSING:
+        _block(ReasonCode.EGRESS_CONSENT_OR_BASIS_MISSING,
+               f"Kanal {channel['id']}: Grundlage der Bekanntgabe nicht erfasst", host=host, channel=channel["id"])
+    if state.get("owner_block"):
         _block(ReasonCode.EGRESS_GUARANTEE_MISSING,
                f"Kanal {channel['id']}: Staat/Garantie des Empfaengers nicht bestaetigt",
                host=host, channel=channel["id"])
     return channel
+
+
+def normalize_name(text: Any) -> list[str]:
+    """Kleinbuchstaben ohne Akzente, nur Buchstaben/Ziffern als Tokens."""
+    folded = unicodedata.normalize("NFKD", str(text or "")).encode("ascii", "ignore").decode("ascii").casefold()
+    return [token for token in re.split(r"[^a-z0-9]+", folded) if token]
+
+
+def _client_name_hit(text: str) -> bool:
+    provider = _STATE.client_name_provider
+    if provider is None:
+        return False
+    tokens = normalize_name(text)
+    if not tokens:
+        return False
+    joined = " ".join(tokens)
+    for name in provider():
+        parts = normalize_name(name)
+        if not parts or all(len(p) < 3 for p in parts):
+            continue
+        if f" {' '.join(parts)} " in f" {joined} ":
+            return True
+        if len(parts) >= 2 and all(p in tokens for p in parts):
+            return True
+    return False
 
 
 def _iter_json(node: Any, prefix: str = "") -> Iterable[tuple[str, Any]]:
@@ -357,6 +414,15 @@ def _screen_values(channel: dict[str, Any], pairs: list[tuple[str, Any]], host: 
             if VALUE_PATTERNS[name].search(text):
                 _block(ReasonCode.EGRESS_VALUE_REJECTED,
                        f"Kanal {channel['id']}: Feld {field or '(Body)'} enthaelt ein {name}-Muster",
+                       host=host, channel=channel["id"])
+        if channel.get("client_name_screen"):
+            try:
+                hit = _client_name_hit(text)
+            except Exception:  # noqa: BLE001 - Pruefung nicht moeglich -> fail-closed
+                hit = True
+            if hit:
+                _block(ReasonCode.EGRESS_CLIENT_NAME_DENIED,
+                       f"Kanal {channel['id']}: Suchbegriff enthaelt einen erfassten Kundennamen",
                        host=host, channel=channel["id"])
         pattern = field_patterns.get(field)
         if pattern and not re.fullmatch(pattern, text):
@@ -452,12 +518,19 @@ def _audit_hook(event: str, args: tuple) -> None:
         _STATE.local.busy = False
 
 
-def activate(settings_obj: Any, *, confirmed_channels: Iterable[str] = (), manifest_path: Path | None = None) -> None:
-    """Laufzeitschutz einschalten (idempotent). Fehlt das Manifest, bleibt
-    jeder nicht-lokale Kanal gesperrt; die App startet trotzdem."""
+def activate(settings_obj: Any, *, channel_states: dict[str, dict[str, Any]] | None = None,
+             manifest_path: Path | None = None, event_sink: Any = None, client_name_provider: Any = None,
+             flush_interval_seconds: float = 5.0) -> None:
+    """Laufzeitschutz einschalten (idempotent). Fehlt das Manifest oder die
+    Freigabe-Information, bleibt jeder nicht-lokale Kanal gesperrt; die App
+    startet trotzdem. ``event_sink`` erhaelt blockierte Versuche gesammelt
+    (persistentes Protokoll), ``client_name_provider`` liefert die erfassten
+    Kundennamen fuer Kanaele mit ``client_name_screen``."""
     with _STATE.lock:
         _STATE.settings = settings_obj
-        _STATE.confirmed_channels = frozenset(confirmed_channels)
+        _STATE.channel_states = channel_states
+        _STATE.event_sink = event_sink
+        _STATE.client_name_provider = client_name_provider
         try:
             manifest = load_manifest(manifest_path)
             problems = manifest_problems(manifest, check_files=False)
@@ -471,16 +544,54 @@ def activate(settings_obj: Any, *, confirmed_channels: Iterable[str] = (), manif
             sys.addaudithook(_audit_hook)
             _STATE.installed = True
         _STATE.active = True
+        if event_sink is not None and _STATE.flusher is None:
+            _STATE.stop_flusher.clear()
+            _STATE.flusher = threading.Thread(
+                target=_flush_loop, args=(flush_interval_seconds,), name="egress-event-flush", daemon=True,
+            )
+            _STATE.flusher.start()
 
 
-def update_confirmed_channels(confirmed_channels: Iterable[str]) -> None:
+def update_channel_states(channel_states: dict[str, dict[str, Any]] | None) -> None:
     with _STATE.lock:
-        _STATE.confirmed_channels = frozenset(confirmed_channels)
+        _STATE.channel_states = channel_states
+
+
+def flush_events() -> int:
+    """Gesammelte Sperren an den Sink geben (persistentes Protokoll)."""
+    with _STATE.lock:
+        batch, _STATE.pending_events = _STATE.pending_events, []
+        sink = _STATE.event_sink
+    if not batch or sink is None:
+        return 0
+    _STATE.local.busy = True
+    try:
+        sink(batch)
+    except Exception:  # noqa: BLE001 - Protokoll darf den Schutz nicht stoppen
+        logger.exception("Egress-Ereignisse konnten nicht gespeichert werden")
+        with _STATE.lock:
+            _STATE.pending_events = batch + _STATE.pending_events
+        return 0
+    finally:
+        _STATE.local.busy = False
+    return len(batch)
+
+
+def _flush_loop(interval: float) -> None:
+    while not _STATE.stop_flusher.wait(interval):
+        flush_events()
 
 
 def deactivate() -> None:
+    flush_events()
     with _STATE.lock:
         _STATE.active = False
+        flusher, _STATE.flusher = _STATE.flusher, None
+        _STATE.stop_flusher.set()
+        _STATE.event_sink = None
+        _STATE.client_name_provider = None
+    if flusher is not None and flusher is not threading.current_thread():
+        flusher.join(timeout=2)
 
 
 def is_active() -> bool:
@@ -499,13 +610,18 @@ def runtime_status() -> dict[str, Any]:
         guarded = channel.get("enforcement") == "python_runtime_guard"
         enabled = guarded and channel_enabled(channel)
         needs_owner = bool(blocking_owner_keys(channel))
+        state = (_STATE.channel_states or {}).get(channel["id"]) or {}
+        approved = bool(state.get("approval_exempt")) or (
+            bool(state.get("approved_sha256")) and state.get("approved_sha256") == state.get("current_sha256"))
         channel_rows.append({
             "id": channel["id"], "class": channel["class"], "enforcement": channel["enforcement"],
             "personal_data": channel["personal_data"], "hosts": channel_hosts(channel) if guarded else [],
             "configured": enabled,
-            "allowed_now": bool(_STATE.active and enabled and (not needs_owner or channel["id"] in _STATE.confirmed_channels)),
+            "approved": approved,
+            "allowed_now": bool(_STATE.active and enabled and approved and not state.get("owner_block")),
             "owner_confirmation_required": needs_owner,
-            "owner_confirmed": channel["id"] in _STATE.confirmed_channels,
+            "owner_confirmed": needs_owner and not state.get("owner_block"),
+            "owner_block": state.get("owner_block"),
         })
     return {
         "active": _STATE.active,

@@ -146,7 +146,7 @@ def test_restricted_risk_and_plausibility_evidence_is_not_readable_for_advice(tm
 def _export_via_subject_request(client: TestClient) -> dict:
     """H10 C-DSG-02: der Export entsteht nur ueber die Betroffenenanfrage
     (Owner-Werte sind Testwerte)."""
-    from tests.h10_support import confirm_all_owner_fields
+    from tests.h10_support import make_customer_output_ready
 
     case = client.post("/privacy/subject-requests", json={
         "client_id": _CLIENT_ID, "request_type": "ACCESS", "received_at": "2026-11-01",
@@ -154,7 +154,7 @@ def _export_via_subject_request(client: TestClient) -> dict:
     client.post(f"/privacy/subject-requests/{case['id']}/identity", json={
         "outcome": "VERIFIED", "method": "ID_DOCUMENT_IN_PERSON", "evidence_reference": "TEST"})
     client.post(f"/privacy/subject-requests/{case['id']}/decision", json={"decision": "FULFILL"})
-    confirm_all_owner_fields(client, only_blocking=True)
+    make_customer_output_ready(client)
     response = client.post(f"/privacy/subject-requests/{case['id']}/export")
     assert response.status_code == 200, response.text
     return response.json()["export"]

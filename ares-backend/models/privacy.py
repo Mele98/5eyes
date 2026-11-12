@@ -11,9 +11,9 @@ Fristen, Rechtsgrundlagen und Methodenbeschreibungen sind Policy-Daten
 """
 from __future__ import annotations
 
-from sqlalchemy import CheckConstraint, Column, Index, Integer, String, Text
+from sqlalchemy import DDL, CheckConstraint, Column, Index, Integer, String, Text, UniqueConstraint, event
 
-from database import Base
+from database import Base, _append_only_sqlite_triggers
 
 
 class PrivacyRetentionPolicy(Base):
@@ -298,6 +298,11 @@ class PrivacySubjectRequest(Base):
     opened_by = Column(String, nullable=False)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
+    # Optimistische Sperre (Vertrag C-DSG-02, Nachtrag 1): zwei gleichzeitige
+    # Statuswechsel -> genau einer wirksam, der andere 409.
+    row_version = Column(Integer, nullable=False, default=1, server_default="1")
+
+    __mapper_args__ = {"version_id_col": row_version}
 
 
 class PrivacySecurityIncident(Base):
@@ -369,3 +374,135 @@ class PrivacySecurityIncident(Base):
     remediation_note = Column(Text)
     remediation_completed_by = Column(String)
     remediation_completed_at = Column(String)
+    row_version = Column(Integer, nullable=False, default=1, server_default="1")
+
+    __mapper_args__ = {"version_id_col": row_version}
+
+
+
+# ── H10 Nachtrag 1 (Codex-Vertrag 2026-11-12): versionierte Freigaben und
+# append-only Ereignisse. Alle Tabellen tenant_direct, ohne FK, append-only
+# per Trigger (SQLite hier, PostgreSQL in Alembic c4e8a2f6d0b7).
+
+class ProcessingActivityVersion(Base):
+    """C-DSG-01: freigegebene Fassung einer Bearbeitung je Mandant. Inhalt =
+    Bearbeitung aus dem Register samt aufgeloesten Owner-Angaben; Hash ueber
+    die kanonische Form. Gueltig ab ``valid_from`` bis zur naechsten Fassung."""
+
+    __tablename__ = "processing_activity_versions"
+    __table_args__ = (
+        CheckConstraint("status IN ('INVENTORY_REQUIRED','APPROVED')", name="ck_processing_activity_version_status"),
+        UniqueConstraint("tenant_id", "activity_key", "valid_from", name="uq_processing_activity_version_valid_from"),
+        Index("ix_processing_activity_versions_key", "tenant_id", "activity_key", "valid_from"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    activity_key = Column(String, nullable=False)
+    version = Column(Integer, nullable=False)
+    status = Column(String, nullable=False)
+    register_version = Column(String, nullable=False)
+    content_json = Column(Text, nullable=False)
+    content_sha256 = Column(String(64), nullable=False)
+    valid_from = Column(String, nullable=False)
+    approved_by = Column(String)
+    approved_at = Column(String)
+    created_by = Column(String, nullable=False)
+    created_at = Column(String, nullable=False)
+
+
+class OutboundManifestVersion(Base):
+    """C-DSG-03: freigegebene Fassung eines Egress-Kanals je Mandant (Kanal
+    samt aufgeloesten Staat-/Garantie-/Grundlage-Angaben, Hash)."""
+
+    __tablename__ = "outbound_processing_manifest_versions"
+    __table_args__ = (
+        CheckConstraint("status IN ('INVENTORY_REQUIRED','APPROVED')", name="ck_outbound_manifest_version_status"),
+        UniqueConstraint("tenant_id", "channel_id", "valid_from", name="uq_outbound_manifest_version_valid_from"),
+        Index("ix_outbound_manifest_versions_key", "tenant_id", "channel_id", "valid_from"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    channel_id = Column(String, nullable=False)
+    version = Column(Integer, nullable=False)
+    status = Column(String, nullable=False)
+    manifest_version = Column(String, nullable=False)
+    content_json = Column(Text, nullable=False)
+    content_sha256 = Column(String(64), nullable=False)
+    valid_from = Column(String, nullable=False)
+    approved_by = Column(String)
+    approved_at = Column(String)
+    created_by = Column(String, nullable=False)
+    created_at = Column(String, nullable=False)
+
+
+class PrivacyEgressEvent(Base):
+    """C-DSG-03: blockierte ausgehende Verbindung (persistent, Mandant der
+    Installation). Nur Kanal, Klasse, Zielhost, Reason-Code, Zeit und die
+    Hash-Referenz des Kanals -- nie Payload, Secrets oder Personendaten."""
+
+    __tablename__ = "privacy_egress_events"
+    __table_args__ = (
+        CheckConstraint("result IN ('BLOCKED')", name="ck_privacy_egress_event_result"),
+        Index("ix_privacy_egress_events_time", "tenant_id", "occurred_at"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    occurred_at = Column(String, nullable=False)
+    channel_id = Column(String)
+    channel_class = Column(String)
+    destination_host = Column(String, nullable=False)
+    reason_code = Column(String, nullable=False)
+    result = Column(String, nullable=False)
+    manifest_version = Column(String)
+    channel_sha256 = Column(String(64))
+
+
+class _CaseEventColumns:
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    case_id = Column(String, nullable=False)
+    sequence = Column(Integer, nullable=False)
+    event_type = Column(String, nullable=False)
+    actor_id = Column(String, nullable=False)
+    occurred_at = Column(String, nullable=False)
+    payload_json = Column(Text, nullable=False)
+    artifact_sha256 = Column(String(64))
+    previous_sha256 = Column(String(64))
+    event_sha256 = Column(String(64), nullable=False)
+
+
+class PrivacySubjectRequestEvent(_CaseEventColumns, Base):
+    """C-DSG-02: append-only, verkettete Ereignisse eines Anfragefalls
+    (Eingang, Identitaet, Verlaengerung, Entscheid, Export, Umsetzung,
+    Zustellung, Rueckzug). ``(case_id, sequence)`` eindeutig."""
+
+    __tablename__ = "privacy_subject_request_events"
+    __table_args__ = (
+        UniqueConstraint("case_id", "sequence", name="uq_privacy_subject_request_event_sequence"),
+        Index("ix_privacy_subject_request_events_case", "tenant_id", "case_id"),
+    )
+
+
+class PrivacySecurityIncidentEvent(_CaseEventColumns, Base):
+    """C-DSG-04: append-only, verkettete Ereignisse eines Vorfalls inkl.
+    Nachweisen mit Artefakt-Hash (``artifact_sha256``)."""
+
+    __tablename__ = "privacy_security_incident_events"
+    __table_args__ = (
+        UniqueConstraint("case_id", "sequence", name="uq_privacy_security_incident_event_sequence"),
+        Index("ix_privacy_security_incident_events_case", "tenant_id", "case_id"),
+    )
+
+
+H10_APPEND_ONLY_TABLES = (
+    "processing_activity_versions", "outbound_processing_manifest_versions", "privacy_egress_events",
+    "privacy_subject_request_events", "privacy_security_incident_events",
+)
+
+for _model in (ProcessingActivityVersion, OutboundManifestVersion, PrivacyEgressEvent,
+               PrivacySubjectRequestEvent, PrivacySecurityIncidentEvent):
+    for _trigger_ddl in _append_only_sqlite_triggers(_model.__tablename__):
+        event.listen(_model.__table__, "after_create", DDL(_trigger_ddl).execute_if(dialect="sqlite"))

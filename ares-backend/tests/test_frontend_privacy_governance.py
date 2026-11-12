@@ -76,7 +76,8 @@ EGRESS = {"runtime": {"active": True, "channels": [
     {"id": "market_data.stooq", "class": "market_data", "hosts": ["stooq.com"], "personal_data": False,
      "configured": True, "allowed_now": True, "owner_confirmation_required": False, "owner_confirmed": False},
     {"id": "mail.smtp", "class": "mail", "hosts": ["smtp.example"], "personal_data": True,
-     "configured": True, "allowed_now": False, "owner_confirmation_required": True, "owner_confirmed": False},
+     "configured": True, "allowed_now": False, "owner_confirmation_required": True, "owner_confirmed": False,
+     "approved": True, "owner_block": "EGRESS_GUARANTEE_MISSING"},
 ], "recent_blocked": [{"at": "2026-11-11T09:00:00Z", "host": "tracker.invalid",
                        "reason_code": "EGRESS_DESTINATION_DENIED"}]}}
 
@@ -126,7 +127,8 @@ def test_panel_shows_blocking_state_owner_fields_without_prefill_and_overdue_req
     assert "überfällig" in html and "Erika Beispiel" in html
     assert "Meldepflicht offen" in html and 'data-blocked="1"' in html
     assert "An EDÖB melden" in html and "Keine Meldung" not in html  # hohes Risiko: nur melden
-    assert "gesperrt: Staat/Garantie offen" in html and "EGRESS_DESTINATION_DENIED" in html
+    assert "gesperrt: EGRESS_GUARANTEE_MISSING" in html and "EGRESS_DESTINATION_DENIED" in html
+    assert "Verzeichnis freigeben" in html and "Manifest freigeben" in html
     assert "Rechtsberatung" in html
 
 
@@ -158,3 +160,11 @@ def test_audit_pagination_moved_out_of_the_monolith():
     assert "function renderAuditLogPagination(" not in MONOLITH_PATH.read_text(encoding="utf-8")
     result = _run("_auditLogTotal=120;_auditLogOffset=50;var c=mkEl('div','pg');DOM['pg']=c;renderAuditLogPagination(c);")
     assert "Einträge 51–100 von 120" in result["DOM"]["pg"]["innerHTML"]
+
+
+
+def test_approve_buttons_post_new_versions():
+    result = _run(_load_script() + "await approvePrivacyArtifact('processing-register');"
+                  + "await approvePrivacyArtifact('egress-manifest');")
+    assert result["calls"]["posts"] == [["/privacy/processing-register/approve", {"keys": []}],
+                                        ["/privacy/egress-manifest/approve", {"keys": []}]]

@@ -46,6 +46,8 @@ from sqlalchemy.orm import Session
 from core.evidence import SCHEME_V1_ASCII, canonical_json
 from database import Base, new_uuid
 from models.privacy import (
+    OutboundManifestVersion,
+    PrivacyEgressEvent,
     PrivacyErasureCase,
     PrivacyErasureDisposition,
     PrivacyLegalHold,
@@ -53,7 +55,10 @@ from models.privacy import (
     PrivacyRetentionPolicy,
     PrivacyRoleDesignation,
     PrivacySecurityIncident,
+    PrivacySecurityIncidentEvent,
     PrivacySubjectRequest,
+    PrivacySubjectRequestEvent,
+    ProcessingActivityVersion,
 )
 from services import privacy_erasure_inventory as inv
 
@@ -99,7 +104,15 @@ PRIVACY_TABLES = (
     PrivacySubjectRequest.__table__,
     # H10 C-DSG-04: Sicherheitsvorfaelle.
     PrivacySecurityIncident.__table__,
+    # H10 Nachtrag 1: Freigabefassungen, Ereignisse, Egress-Protokoll
+    # (append-only-Trigger haengen am after_create der Tabellen).
+    ProcessingActivityVersion.__table__,
+    OutboundManifestVersion.__table__,
+    PrivacyEgressEvent.__table__,
+    PrivacySubjectRequestEvent.__table__,
+    PrivacySecurityIncidentEvent.__table__,
 )
+
 
 
 # --------------------------------------------------------------------------

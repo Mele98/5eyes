@@ -242,7 +242,7 @@ def record_subject_notification(
 
 def add_evidence(
     db: Session, incident: PrivacySecurityIncident, *, kind: str, reference: str | None, actor_id: str,
-    now: datetime | None = None,
+    sha256: str | None = None, now: datetime | None = None,
 ) -> PrivacySecurityIncident:
     _require_open(incident)
     moment = _utc(now)
@@ -250,7 +250,7 @@ def add_evidence(
     evidence.append({
         "kind": _choice(kind, EVIDENCE_KINDS, "Nachweisart"),
         "reference": _text(reference, "Referenz", required=True),
-        "recorded_by": actor_id, "recorded_at": _iso(moment),
+        "sha256": sha256, "recorded_by": actor_id, "recorded_at": _iso(moment),
     })
     incident.evidence_json = json.dumps(evidence)
     _touch(incident, moment)

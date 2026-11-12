@@ -106,7 +106,12 @@ def test_api_register_is_blocked_until_owner_values_are_confirmed(tmp_path):
         confirm_all_owner_fields(client, only_blocking=True)
         body = client.get("/privacy/processing-register").json()
         assert body["open_blocking_fields"] == []
-        assert body["customer_output_ready"] is True
+        assert body["customer_output_ready"] is False
+        assert body["approval_reason_codes"] == ["PROCESSING_ACTIVITY_MISSING"]
+        approve = client.post("/privacy/processing-register/approve", json={})
+        assert approve.status_code == 200, approve.text
+        body = approve.json()
+        assert body["customer_output_ready"] is True and body["approval_reason_codes"] == []
         assert body["register"]["controller"]["name"] == {
             "owner_field": "controller.name", "label": "Verantwortliche Firma (Name)",
             "status": "CONFIRMED", "value": sample_value("controller.name"),

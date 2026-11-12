@@ -39,7 +39,10 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # H10 (2026-11-11): drei neue Tabellen (privacy_owner_values,
 # privacy_subject_requests, privacy_security_incidents), keine bestehende
 # Tabelle umbenannt/entfernt.
-GOLDEN_SORTED_TABLES_SHA256 = "08332af4bf1c2d3bba919c10c5d404025f95031a0b6755788fc6d93248fc6469"
+# H10 Nachtrag 1: fuenf neue Tabellen (processing_activity_versions,
+# outbound_processing_manifest_versions, privacy_egress_events,
+# privacy_subject_request_events, privacy_security_incident_events).
+GOLDEN_SORTED_TABLES_SHA256 = "925f0e3a7f4730ba845711a933bf56b95a3f5a3dbd49297cf135a407927293bf"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -79,7 +82,10 @@ GOLDEN_SORTED_TABLES_SHA256 = "08332af4bf1c2d3bba919c10c5d404025f95031a0b6755788
 # nur die description von GET /clients/{client_id}/data-export (stillgelegt,
 # 409). Kein bestehendes Schema geaendert (Feld-Diff geprueft).
 # H10 Codex-Vertrag 2026-11-12: neu POST /privacy/incidents/{incident_id}/remediation (Schema IncidentClosure wiederverwendet), sonst unveraendert.
-GOLDEN_OPENAPI_SHA256 = "44037761932134a7dd7dc3c5aca13b2a4109e3df3f53f3e33bb481f61436b1ea"
+# H10 Nachtrag 1: neu POST /privacy/processing-register/approve, POST
+# /privacy/egress-manifest/approve, GET /privacy/egress-events (Schema
+# VersionApproval); IncidentEvidence + sha256 (Pflicht). Feld-Diff geprueft.
+GOLDEN_OPENAPI_SHA256 = "b87d45731480e6d2d9ed0d6fca93da3d4dd3d6746ebd64e827c6aa21dbaf520a"
 
 _PROBE = """
 import hashlib, json

@@ -37,6 +37,7 @@ from models.privacy import PrivacyErasureCase, PrivacyLegalHold, PrivacySubjectR
 from services import data_export
 from services import egress_manifest
 from services import privacy_owner_values as owner_values_module
+from services import privacy_versions
 from services import processing_activity_register as register_module
 
 REQUEST_TYPES = ("ACCESS", "PORTABILITY", "RECTIFICATION", "ERASURE")
@@ -330,6 +331,7 @@ def _privacy_information(db: Session, tenant_id: str) -> dict[str, Any]:
         {
             "channel": channel["id"], "purpose": channel["purpose"], "transmitted_data": channel["transmitted_data"],
             "destination_country": channel["destination_country"], "guarantee": channel["guarantee"],
+            "legal_basis": channel.get("legal_basis"),
         }
         for channel in egress_manifest.channels(manifest) if channel["id"] in configured
     ]
@@ -366,6 +368,15 @@ def build_export(
             ReasonCode.PRIVACY_OWNER_VALUES_OPEN,
             "Angaben des Verantwortlichen fehlen; die Auskunft kann noch nicht ausgegeben werden",
             http_status=409, extra={"open_fields": blocking},
+        )
+    gate = privacy_versions.register_gate(db, case.tenant_id, owner_values_module.owner_values(db, case.tenant_id))
+    open_rows = [row for row in gate if row["reason_code"]]
+    if open_rows:
+        raise DomainError(
+            open_rows[0]["reason_code"],
+            "Verzeichnis der Bearbeitungen nicht wirksam freigegeben; die Auskunft kann noch nicht ausgegeben werden",
+            http_status=409, extra={"activities": [{"activity_key": r["activity_key"], "reason_code": r["reason_code"]}
+                                                   for r in open_rows]},
         )
     try:
         payload = data_export.export_client_data(db, case.client_id)

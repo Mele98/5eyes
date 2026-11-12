@@ -4365,6 +4365,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/privacy/egress-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Egress Events
+         * @description Persistentes Protokoll blockierter Verbindungen (ohne Payload).
+         */
+        get: operations["list_egress_events_privacy_egress_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/privacy/egress-manifest": {
         parameters: {
             query?: never;
@@ -4381,6 +4401,28 @@ export interface paths {
         get: operations["get_egress_manifest_privacy_egress_manifest_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/privacy/egress-manifest/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Egress Manifest
+         * @description Neue, freigegebene Fassung je Kanal (append-only, Content-Hash). Der
+         *     Laufzeitschutz laesst einen Kanal nur mit wirksamer Fassung zu, deren Hash
+         *     dem aktuellen Manifest samt Owner-Angaben entspricht.
+         */
+        post: operations["approve_egress_manifest_privacy_egress_manifest_approve_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4826,6 +4868,27 @@ export interface paths {
         get: operations["get_processing_register_privacy_processing_register_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/privacy/processing-register/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Processing Register
+         * @description Neue, freigegebene Fassung je Bearbeitung (append-only, Content-Hash).
+         *     Nur ohne offene Pflichtangaben und mit vollstaendigem Register.
+         */
+        post: operations["approve_processing_register_privacy_processing_register_approve_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9114,6 +9177,11 @@ export interface components {
             kind: string;
             /** Reference */
             reference?: string | null;
+            /**
+             * Sha256
+             * @description SHA-256 des Nachweis-Artefakts (Kleinbuchstaben)
+             */
+            sha256: string;
         };
         /** IncidentNotification */
         IncidentNotification: {
@@ -13976,6 +14044,14 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /** VersionApproval */
+        VersionApproval: {
+            /**
+             * Keys
+             * @description leer = alle Bearbeitungen bzw. Kanaele
+             */
+            keys?: string[];
         };
         /** WealthInflowCreate */
         WealthInflowCreate: {
@@ -22334,6 +22410,37 @@ export interface operations {
             };
         };
     };
+    list_egress_events_privacy_egress_events_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_egress_manifest_privacy_egress_manifest_get: {
         parameters: {
             query?: never;
@@ -22350,6 +22457,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    approve_egress_manifest_privacy_egress_manifest_approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionApproval"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -23213,6 +23353,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    approve_processing_register_privacy_processing_register_approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionApproval"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

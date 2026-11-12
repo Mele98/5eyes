@@ -20,6 +20,7 @@ from core.reason_codes import DomainError, ReasonCode
 from database import Base, new_uuid
 from models.privacy import PrivacyOwnerValue
 from services import egress_manifest
+from services import privacy_versions
 from services import processing_activity_register as register_module
 from services.postgres_rls import import_tenant_models
 
@@ -192,14 +193,18 @@ def register_view(db: Session, tenant_id: str) -> dict[str, Any]:
         problems.append(str(exc))
     values = owner_values(db, tenant_id)
     blocking = open_blocking_fields(db, tenant_id)
+    approval = privacy_versions.register_gate(db, tenant_id, values)
+    approval_codes = sorted({row["reason_code"] for row in approval if row["reason_code"]})
     return {
         "available": True,
         **register_module.register_summary(register),
+        "approval": approval,
+        "approval_reason_codes": approval_codes,
         "problems": problems,
         "complete": not problems,
         "owner_fields": owner_field_status(db, tenant_id),
         "open_blocking_fields": blocking,
-        "customer_output_ready": not problems and not blocking,
+        "customer_output_ready": not problems and not blocking and not approval_codes,
         "register": register_module.resolve_owner_fields(register, values),
     }
 
@@ -216,6 +221,7 @@ def egress_view(db: Session, tenant_id: str) -> dict[str, Any]:
         "manifest_sha256": register_module.document_sha256(manifest),
         "problems": egress_manifest.manifest_problems(manifest, check_files=False),
         "manifest": register_module.resolve_owner_fields(manifest, owner_values(db, tenant_id)),
+        "approval": privacy_versions.channel_gate(db, tenant_id, owner_values(db, tenant_id)),
         "runtime": egress_manifest.runtime_status(),
     }
 

@@ -117,7 +117,8 @@ def assert_single_head_contains(revision: str, down_revision: str) -> None:
     assert script.get_revision(revision).down_revision == down_revision
 
 
-def assert_sqlite_upgrade_downgrade_upgrade(tmp_path: Path, revision: str, models: dict) -> None:
+def assert_sqlite_upgrade_downgrade_upgrade(tmp_path: Path, revision: str, models: dict,
+                                           later_columns: frozenset = frozenset()) -> None:
     """Upgrade bis ``revision`` (Spalten = ORM), Downgrade um eins (Tabellen
     weg), erneutes Upgrade (Tabellen wieder da)."""
     from alembic import command
@@ -135,7 +136,7 @@ def assert_sqlite_upgrade_downgrade_upgrade(tmp_path: Path, revision: str, model
         finally:
             engine.dispose()
 
-    expected = {t: {c.name for c in m.__table__.columns} for t, m in models.items()}
+    expected = {t: {c.name for c in m.__table__.columns} - set(later_columns) for t, m in models.items()}
     command.upgrade(cfg, revision)
     assert tables_now() == expected
     command.downgrade(cfg, f"{revision}-1")
@@ -154,3 +155,25 @@ def postgres_offline_ddl(down_revision: str, revision: str) -> str:
     cfg.output_buffer = buffer
     command.upgrade(cfg, f"{down_revision}:{revision}", sql=True)
     return buffer.getvalue()
+
+
+
+def approve_register(client) -> None:
+    """Vertrag C-DSG-01: wirksam freigegebene Fassung je Bearbeitung."""
+    response = client.post("/privacy/processing-register/approve", json={})
+    assert response.status_code == 200, response.text
+
+
+def make_customer_output_ready(client) -> None:
+    confirm_all_owner_fields(client, only_blocking=True)
+    approve_register(client)
+
+
+def all_channel_states(manifest: dict, *, owner_block: dict | None = None) -> dict:
+    """Testhilfe: jeder Kanal mit wirksamer, passender Freigabe; Owner-Sperren
+    nur wie angegeben."""
+    return {
+        channel["id"]: {"approved_sha256": "h", "current_sha256": "h",
+                        "owner_block": (owner_block or {}).get(channel["id"]), "approval_exempt": False}
+        for channel in manifest["channels"]
+    }

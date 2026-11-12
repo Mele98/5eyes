@@ -21,6 +21,7 @@ from tests.h10_support import (
     OTHER_TENANT,
     api,
     confirm_all_owner_fields,
+    make_customer_output_ready,
     reason,
     user,
 )
@@ -100,7 +101,7 @@ def test_access_request_full_lifecycle_with_restriction_and_delivery(tmp_path):
         assert blocked.status_code == 409 and reason(blocked) == "PRIVACY_OWNER_VALUES_OPEN"
         assert any(f["key"] == "controller.name" for f in blocked.json()["detail"]["open_fields"])
 
-        confirm_all_owner_fields(client, only_blocking=True)
+        make_customer_output_ready(client)
         export = client.post(f"/privacy/subject-requests/{case_id}/export")
         assert export.status_code == 200, export.text
         document = export.json()
@@ -278,6 +279,7 @@ def test_alembic_revision_single_head_and_sqlite_roundtrip(tmp_path):
     assert_single_head_contains("f4b8d2e6a3c7", "e2f7c4a9d1b3")
     assert_sqlite_upgrade_downgrade_upgrade(
         tmp_path, "f4b8d2e6a3c7", {"privacy_subject_requests": PrivacySubjectRequest},
+        later_columns=frozenset({"row_version"}),  # Nachtrag 1, Revision c4e8a2f6d0b7
     )
 
 

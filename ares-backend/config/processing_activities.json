@@ -552,7 +552,12 @@
         "privacy_erasure_dispositions",
         "privacy_owner_values",
         "privacy_subject_requests",
-        "privacy_security_incidents"
+        "privacy_security_incidents",
+        "outbound_processing_manifest_versions",
+        "privacy_egress_events",
+        "privacy_security_incident_events",
+        "privacy_subject_request_events",
+        "processing_activity_versions"
       ],
       "recipients": [
         "Administration der Firma",

@@ -19,7 +19,9 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 import database as _database
 from database import get_db
@@ -29,12 +31,16 @@ from models.privacy import (
     PrivacyLegalHold,
     PrivacyRetentionPolicy,
     PrivacyRoleDesignation,
+    PrivacyEgressEvent,
     PrivacySecurityIncident,
+    PrivacySecurityIncidentEvent,
     PrivacySubjectRequest,
+    PrivacySubjectRequestEvent,
 )
 from models.users import User
 from services import dsg_governance as gov
 from services import privacy_erasure as pe
+from core.reason_codes import DomainError, ReasonCode
 from services.audit import log
 from services.auth import (
     extract_client_ip,
@@ -519,12 +525,46 @@ def _subject_request(db: Session, request_id: str, user: User) -> PrivacySubject
     return _own(db.get(PrivacySubjectRequest, request_id), user)
 
 
+def _commit_case(db: Session, *steps) -> None:
+    """Optimistische Sperre (row_version) + eindeutige Ereignis-Laufnummer:
+    von zwei gleichzeitigen Schritten wirkt genau einer, der andere 409.
+    ``steps`` (Audit, Ereignis) laufen in derselben Absicherung, weil schon ihr
+    Flush die Versionspruefung ausloesen kann."""
+    try:
+        for step in steps:
+            step()
+        db.commit()
+    except (StaleDataError, IntegrityError) as exc:
+        db.rollback()
+        raise DomainError(
+            ReasonCode.PRIVACY_CASE_CONCURRENT_UPDATE,
+            "Der Fall wurde gleichzeitig geaendert; bitte neu laden und erneut ausfuehren", http_status=409,
+        ) from exc
+
+
+def _subject_event(db: Session, user: User, case: PrivacySubjectRequest, step: str,
+                   extra: Optional[dict[str, Any]] = None) -> None:
+    gov.case_events.append_event(db, PrivacySubjectRequestEvent, tenant_id=case.tenant_id, case_id=case.id,
+                                 event_type=step, actor_id=user.id,
+                                 payload={"status": case.status, **(extra or {})})
+
+
+def _subject_request_out(db: Session, case: PrivacySubjectRequest) -> dict[str, Any]:
+    out = gov.subject_requests.case_out(case)
+    out["events"] = gov.case_events.events_out(db, PrivacySubjectRequestEvent, case.id)
+    out["events_chain_ok"] = not gov.case_events.chain_problems(db, PrivacySubjectRequestEvent, case.id)
+    return out
+
+
 def _subject_request_step(db: Session, user: User, request: Request, case: PrivacySubjectRequest,
                           step: str, extra: Optional[dict[str, Any]] = None):
-    _audit(db, user, request, table="privacy_subject_requests", record_id=case.id, action="UPDATE",
-           client_id=case.client_id, new_value={"step": step, "status": case.status, **(extra or {})})
-    db.commit()
-    return gov.subject_requests.case_out(case)
+    _commit_case(
+        db,
+        lambda: _audit(db, user, request, table="privacy_subject_requests", record_id=case.id, action="UPDATE",
+                       client_id=case.client_id, new_value={"step": step, "status": case.status, **(extra or {})}),
+        lambda: _subject_event(db, user, case, step, extra),
+    )
+    return _subject_request_out(db, case)
 
 
 @router.get("/subject-requests")
@@ -548,14 +588,15 @@ def open_subject_request(body: SubjectRequestOpen, request: Request, db: Session
     )
     _audit(db, current_user, request, table="privacy_subject_requests", record_id=case.id, action="CREATE",
            client_id=case.client_id, new_value={"request_type": case.request_type, "due_at": case.due_at})
-    db.commit()
-    return gov.subject_requests.case_out(case)
+    _subject_event(db, current_user, case, "received", {"request_type": case.request_type, "due_at": case.due_at})
+    _commit_case(db)
+    return _subject_request_out(db, case)
 
 
 @router.get("/subject-requests/{request_id}")
 def get_subject_request(request_id: str, db: Session = Depends(get_db),
                         current_user: User = Depends(get_current_user)):
-    return gov.subject_requests.case_out(_subject_request(db, request_id, current_user))
+    return _subject_request_out(db, _subject_request(db, request_id, current_user))
 
 
 @router.post("/subject-requests/{request_id}/identity")
@@ -600,7 +641,8 @@ def export_subject_request(request_id: str, request: Request, db: Session = Depe
     _audit(db, current_user, request, table="privacy_subject_requests", record_id=case.id, action="EXPORT",
            client_id=case.client_id, new_value={"export_sha256": document["export_sha256"],
                                                 "decision": case.decision})
-    db.commit()
+    _subject_event(db, current_user, case, "export", {"export_sha256": document["export_sha256"]})
+    _commit_case(db)
     return document
 
 
@@ -690,6 +732,7 @@ class IncidentSubjectNotification(BaseModel):
 class IncidentEvidence(BaseModel):
     kind: str
     reference: Optional[str] = Field(default=None, max_length=2000)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$", description="SHA-256 des Nachweis-Artefakts (Kleinbuchstaben)")
 
 
 class IncidentClosure(BaseModel):
@@ -706,12 +749,25 @@ def _incident(db: Session, incident_id: str, user: User) -> PrivacySecurityIncid
     return _own(db.get(PrivacySecurityIncident, incident_id), user)
 
 
+def _incident_out(db: Session, incident: PrivacySecurityIncident) -> dict[str, Any]:
+    out = gov.incidents.incident_out(incident)
+    out["events"] = gov.case_events.events_out(db, PrivacySecurityIncidentEvent, incident.id)
+    out["evidence_chain_ok"] = not gov.case_events.chain_problems(db, PrivacySecurityIncidentEvent, incident.id)
+    return out
+
+
 def _incident_step(db: Session, user: User, request: Request, incident: PrivacySecurityIncident, step: str,
-                   extra: Optional[dict[str, Any]] = None):
-    _audit(db, user, request, table="privacy_security_incidents", record_id=incident.id, action="UPDATE",
-           new_value={"step": step, "status": incident.status, **(extra or {})})
-    db.commit()
-    return gov.incidents.incident_out(incident)
+                   extra: Optional[dict[str, Any]] = None, artifact_sha256: Optional[str] = None):
+    _commit_case(
+        db,
+        lambda: _audit(db, user, request, table="privacy_security_incidents", record_id=incident.id,
+                       action="UPDATE", new_value={"step": step, "status": incident.status, **(extra or {})}),
+        lambda: gov.case_events.append_event(db, PrivacySecurityIncidentEvent, tenant_id=incident.tenant_id,
+                                             case_id=incident.id, event_type=step, actor_id=user.id,
+                                             payload={"status": incident.status, **(extra or {})},
+                                             artifact_sha256=artifact_sha256),
+    )
+    return _incident_out(db, incident)
 
 
 @router.post("/incidents", status_code=201)
@@ -728,8 +784,11 @@ def record_security_incident(body: IncidentRecord, request: Request, db: Session
     )
     _audit(db, current_user, request, table="privacy_security_incidents", record_id=incident.id, action="CREATE",
            new_value={"reference": incident.reference, "incident_type": incident.incident_type})
-    db.commit()
-    return gov.incidents.incident_out(incident)
+    gov.case_events.append_event(db, PrivacySecurityIncidentEvent, tenant_id=incident.tenant_id,
+                                 case_id=incident.id, event_type="recorded", actor_id=current_user.id,
+                                 payload={"reference": incident.reference, "incident_type": incident.incident_type})
+    _commit_case(db)
+    return _incident_out(db, incident)
 
 
 @router.get("/incidents")
@@ -748,7 +807,7 @@ def security_incident_gate(db: Session = Depends(get_db), current_user: User = D
 @router.get("/incidents/{incident_id}")
 def get_security_incident(incident_id: str, db: Session = Depends(get_db),
                           current_user: User = Depends(get_current_user)):
-    return gov.incidents.incident_out(_incident(db, incident_id, current_user))
+    return _incident_out(db, _incident(db, incident_id, current_user))
 
 
 @router.post("/incidents/{incident_id}/assessment")
@@ -809,8 +868,9 @@ def record_security_incident_subject_notification(incident_id: str, body: Incide
 def add_security_incident_evidence(incident_id: str, body: IncidentEvidence, request: Request,
                                    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     incident = gov.incidents.add_evidence(db, _incident(db, incident_id, current_user), kind=body.kind,
-                                          reference=body.reference, actor_id=current_user.id)
-    return _incident_step(db, current_user, request, incident, "evidence", {"kind": body.kind})
+                                          reference=body.reference, sha256=body.sha256, actor_id=current_user.id)
+    return _incident_step(db, current_user, request, incident, "evidence", {"kind": body.kind},
+                          artifact_sha256=body.sha256)
 
 
 @router.post("/incidents/{incident_id}/remediation")
@@ -825,6 +885,68 @@ def record_security_incident_remediation(incident_id: str, body: IncidentClosure
 @router.post("/incidents/{incident_id}/close")
 def close_security_incident(incident_id: str, body: IncidentClosure, request: Request,
                             db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    incident = gov.incidents.close(db, _incident(db, incident_id, current_user), note=body.note,
-                                   actor_id=current_user.id)
+    incident = _incident(db, incident_id, current_user)
+    if gov.case_events.chain_problems(db, PrivacySecurityIncidentEvent, incident.id):
+        raise DomainError(
+            ReasonCode.INCIDENT_EVIDENCE_HASH_MISMATCH,
+            "Ereignis-/Nachweiskette des Vorfalls ist nicht unversehrt; Abschluss gesperrt", http_status=409,
+        )
+    incident = gov.incidents.close(db, incident, note=body.note, actor_id=current_user.id)
     return _incident_step(db, current_user, request, incident, "close")
+
+# ── H10 Nachtrag 1: Freigaben des Verzeichnisses und des Egress-Manifests ──────
+
+class VersionApproval(BaseModel):
+    keys: list[str] = Field(default_factory=list, description="leer = alle Bearbeitungen bzw. Kanaele")
+
+
+@router.post("/processing-register/approve")
+def approve_processing_register(body: VersionApproval, request: Request, db: Session = Depends(get_db),
+                                current_user: User = Depends(get_current_user)):
+    """Neue, freigegebene Fassung je Bearbeitung (append-only, Content-Hash).
+    Nur ohne offene Pflichtangaben und mit vollstaendigem Register."""
+    _require_case_operator(db, current_user)
+    tenant = _tenant(current_user)
+    view = gov.register_view(db, tenant)
+    if view.get("problems"):
+        raise DomainError(ReasonCode.PROCESSING_REGISTER_UNAVAILABLE, "; ".join(view["problems"]), http_status=409)
+    if view.get("open_blocking_fields"):
+        raise DomainError(ReasonCode.PRIVACY_OWNER_VALUES_OPEN,
+                          "Angaben des Verantwortlichen fehlen; Freigabe nicht moeglich", http_status=409,
+                          extra={"open_fields": view["open_blocking_fields"]})
+    rows = gov.versions.approve_register(db, tenant, gov.owner_values(db, tenant), actor_id=current_user.id,
+                                         keys=body.keys or None)
+    _audit(db, current_user, request, table="processing_activity_versions", record_id="approve", action="APPROVE",
+           new_value={"activities": [r.activity_key for r in rows], "hashes": [r.content_sha256 for r in rows]})
+    _commit_case(db)
+    return gov.register_view(db, tenant)
+
+
+@router.post("/egress-manifest/approve")
+def approve_egress_manifest(body: VersionApproval, request: Request, db: Session = Depends(get_db),
+                            current_user: User = Depends(get_current_user)):
+    """Neue, freigegebene Fassung je Kanal (append-only, Content-Hash). Der
+    Laufzeitschutz laesst einen Kanal nur mit wirksamer Fassung zu, deren Hash
+    dem aktuellen Manifest samt Owner-Angaben entspricht."""
+    _require_case_operator(db, current_user)
+    tenant = _tenant(current_user)
+    view = gov.egress_view(db, tenant)
+    if not view.get("available") or view.get("problems"):
+        raise DomainError(ReasonCode.EGRESS_MANIFEST_MISSING, "; ".join(view.get("problems") or []), http_status=409)
+    rows = gov.versions.approve_manifest(db, tenant, gov.owner_values(db, tenant), actor_id=current_user.id,
+                                         keys=body.keys or None)
+    _audit(db, current_user, request, table="outbound_processing_manifest_versions", record_id="approve",
+           action="APPROVE", new_value={"channels": [r.channel_id for r in rows]})
+    _commit_case(db)
+    gov.refresh_egress_confirmations(db, tenant)
+    return gov.egress_view(db, tenant)
+
+
+@router.get("/egress-events")
+def list_egress_events(limit: int = 200, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    """Persistentes Protokoll blockierter Verbindungen (ohne Payload)."""
+    rows = (db.query(PrivacyEgressEvent).filter(PrivacyEgressEvent.tenant_id == _tenant(current_user))
+            .order_by(PrivacyEgressEvent.occurred_at.desc()).limit(max(1, min(limit, 1000))).all())
+    return [{"occurred_at": r.occurred_at, "channel_id": r.channel_id, "channel_class": r.channel_class,
+             "destination_host": r.destination_host, "reason_code": r.reason_code, "result": r.result,
+             "manifest_version": r.manifest_version, "channel_sha256": r.channel_sha256} for r in rows]
