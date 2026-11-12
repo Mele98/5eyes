@@ -58,7 +58,7 @@ from schemas.review import (
     KycReviewPolicyActivate, KycReviewPolicyCreate, KycReviewPolicyOverview, KycReviewPolicyResponse,
 )
 from price_updater import summarize_price_quality
-from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
+from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, same_person, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
 from services.audit import log, release_block_audit, restore_tenant_after_rollback
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
@@ -2181,7 +2181,7 @@ def activate_kyc_review_policy(
             "reason_code": "KYC_REVIEW_POLICY_ALREADY_ACTIVATED",
             "message": "Diese Policy-Version ist bereits freigegeben.",
         })
-    if str(policy_obj.created_by) == str(current_user.id):
+    if same_person(db, policy_obj.created_by, current_user.id):
         raise HTTPException(status_code=403, detail={
             "reason_code": "KYC_REVIEW_POLICY_SAME_PERSON",
             "message": "Die Freigabe muss durch eine zweite Person erfolgen.",

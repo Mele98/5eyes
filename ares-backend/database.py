@@ -725,6 +725,13 @@ KYC_CONFIRMATION_APPROVAL_FIXED_COLUMNS: tuple[str, ...] = (
     "approval_hash",
 )
 KYC_CONFIRMATION_APPROVAL_REDACTABLE_COLUMNS: tuple[str, ...] = ("note",)
+# C-890-01 Nachtrag 2: Ablehnung einer Zweitfreigabe (append-only; die
+# Begruendung ist Freitext mit Kundenbezug und darf nur redigiert werden).
+KYC_CONFIRMATION_REJECTION_FIXED_COLUMNS: tuple[str, ...] = (
+    "id", "tenant_id", "confirmation_id", "client_id", "rejected_by", "rejected_at",
+    "confirmation_hash", "rejection_hash",
+)
+KYC_CONFIRMATION_REJECTION_REDACTABLE_COLUMNS: tuple[str, ...] = ("reason",)
 
 
 def _redaction_only_sqlite_triggers(
@@ -754,6 +761,10 @@ KYC_CONFIRMATION_APPROVAL_SQLITE_TRIGGERS = _redaction_only_sqlite_triggers(
 )
 # C-890-01: versionierte Wiedervorlage-Policy und ihre Vier-Augen-Aktivierung
 # sind vollstaendig append-only (Korrektur = neue Version; Alembic f4c2e8a6d1b3).
+KYC_CONFIRMATION_REJECTION_SQLITE_TRIGGERS = _redaction_only_sqlite_triggers(
+    "kyc_confirmation_rejections", KYC_CONFIRMATION_REJECTION_FIXED_COLUMNS,
+    KYC_CONFIRMATION_REJECTION_REDACTABLE_COLUMNS,
+)
 KYC_REVIEW_POLICY_SQLITE_TRIGGERS = _append_only_sqlite_triggers("kyc_review_policies")
 KYC_REVIEW_POLICY_ACTIVATION_SQLITE_TRIGGERS = _append_only_sqlite_triggers("kyc_review_policy_activations")
 
@@ -1602,6 +1613,7 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         for table, ddls in (
             ("kyc_review_policies", KYC_REVIEW_POLICY_SQLITE_TRIGGERS),
             ("kyc_review_policy_activations", KYC_REVIEW_POLICY_ACTIVATION_SQLITE_TRIGGERS),
+            ("kyc_confirmation_rejections", KYC_CONFIRMATION_REJECTION_SQLITE_TRIGGERS),
         ):
             if inspect(conn).has_table(table):
                 for ddl in ddls:

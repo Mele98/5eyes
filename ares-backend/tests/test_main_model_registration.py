@@ -39,7 +39,8 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # C-890-01 (2026-11-11): zwei neue Tabellen (kyc_review_policies,
 # kyc_review_policy_activations) und acht nullable Bindungsspalten an
 # kyc_confirmations; keine bestehende Tabelle umbenannt/entfernt.
-GOLDEN_SORTED_TABLES_SHA256 = "2efd3226338ac7d3a57a9bdaf29a96eda66f31283c80689438c839944a6f24b9"
+# C-890-01 Nachtrag 2: neue Tabelle kyc_confirmation_rejections.
+GOLDEN_SORTED_TABLES_SHA256 = "8cc4d76454f92c7721a79d38f18a57c6ff1dfad247c9a1f5dadd1b9d5c2b3c21"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -81,7 +82,11 @@ GOLDEN_SORTED_TABLES_SHA256 = "2efd3226338ac7d3a57a9bdaf29a96eda66f31283c8068943
 # C-890-01 Nachtrag 1: Rolle "compliance_reviewer" in UserCreate/UserUpdate/
 # Einladung (Literal erweitert) und description von POST
 # /compliance/kyc-review-policies/{policy_row_id}/activate. Feld-Diff geprueft.
-GOLDEN_OPENAPI_SHA256 = "f53cf0c10e76187c35822a82b010bf7201ada796cabd85babc1de0785619bc3f"
+# C-890-01 Nachtrag 2: neu GET /compliance/kyc-approvals, POST
+# /compliance/kyc-approvals/{confirmation_id}/decision (+ KycPendingApproval*,
+# KycSecondApproval*-Schemas); kein bestehender Pfad, kein bestehendes Schema
+# geaendert. Feld-Diff geprueft.
+GOLDEN_OPENAPI_SHA256 = "19b4d3529adeec26392f4e876fe616d95ae9c1f4f39ba19e3c15c77576912847"
 
 _PROBE = """
 import hashlib, json

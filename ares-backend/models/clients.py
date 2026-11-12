@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from database import (
     CLIENT_PII_KEYS_SQLITE_TRIGGERS,
     KYC_CONFIRMATION_APPROVAL_SQLITE_TRIGGERS,
+    KYC_CONFIRMATION_REJECTION_SQLITE_TRIGGERS,
     KYC_CONFIRMATION_SQLITE_TRIGGERS,
     Base,
 )
@@ -284,6 +285,26 @@ class KycConfirmationApproval(Base):
     approval_hash = Column(String, nullable=False)
 
 
+class KycConfirmationRejection(Base):
+    """C-890-01 Nachtrag 2: begruendete Ablehnung der Zweitfreigabe durch eine
+    zweite Person (Admin oder externe Compliance-Person). Append-only;
+    hoechstens ein Entscheid je Bestaetigung (UNIQUE, zusammen mit der
+    Freigabe). Bindet den gesehenen Siegel-Hash der Bestaetigung. Eine
+    abgelehnte Bestaetigung wird nie wirksam; Heilung = neue Bestaetigung."""
+
+    __tablename__ = "kyc_confirmation_rejections"
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    confirmation_id = Column(String, nullable=False, unique=True)
+    client_id = Column(String, nullable=False)
+    rejected_by = Column(String, ForeignKey("users.id"), nullable=False)
+    rejected_at = Column(String, nullable=False)
+    reason = Column(String, nullable=False)
+    confirmation_hash = Column(String, nullable=False)
+    rejection_hash = Column(String, nullable=False)
+
+
 # ---------------------------------------------------------------------------
 # H8 Luecke 10 (ZGB): Vertretung und Verfuegungsberechtigung, dokumentarisch.
 # Vollmacht (OR 32 ff.), Vorsorgeauftrag (ZGB 360 ff.), Beistandschaft
@@ -330,6 +351,7 @@ class ClientRepresentation(Base):
 for _model, _ddls in (
     (KycConfirmation, KYC_CONFIRMATION_SQLITE_TRIGGERS),
     (KycConfirmationApproval, KYC_CONFIRMATION_APPROVAL_SQLITE_TRIGGERS),
+    (KycConfirmationRejection, KYC_CONFIRMATION_REJECTION_SQLITE_TRIGGERS),
 ):
     for _trigger_ddl in _ddls:
         event.listen(

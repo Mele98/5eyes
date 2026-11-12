@@ -11182,6 +11182,143 @@
         "title": "KycConfirmationResponse",
         "type": "object"
       },
+      "KycPendingApproval": {
+        "properties": {
+          "approval_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Approval Reasons",
+            "type": "array"
+          },
+          "client_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Number"
+          },
+          "confirmation_hash": {
+            "title": "Confirmation Hash",
+            "type": "string"
+          },
+          "confirmation_id": {
+            "title": "Confirmation Id",
+            "type": "string"
+          },
+          "external_reference": {
+            "title": "External Reference",
+            "type": "string"
+          },
+          "form_type": {
+            "title": "Form Type",
+            "type": "string"
+          },
+          "is_pep_new": {
+            "title": "Is Pep New",
+            "type": "boolean"
+          },
+          "is_pep_previous": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Pep Previous"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "pep_withdrawal_recorded": {
+            "default": false,
+            "title": "Pep Withdrawal Recorded",
+            "type": "boolean"
+          },
+          "recorded_at": {
+            "title": "Recorded At",
+            "type": "string"
+          },
+          "recorded_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recorded By Name"
+          },
+          "recorded_by_self": {
+            "default": false,
+            "title": "Recorded By Self",
+            "type": "boolean"
+          },
+          "risk_category_new": {
+            "title": "Risk Category New",
+            "type": "string"
+          },
+          "risk_category_previous": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Category Previous"
+          }
+        },
+        "required": [
+          "confirmation_id",
+          "form_type",
+          "external_reference",
+          "risk_category_new",
+          "is_pep_new",
+          "approval_reasons",
+          "recorded_at",
+          "confirmation_hash"
+        ],
+        "title": "KycPendingApproval",
+        "type": "object"
+      },
+      "KycPendingApprovalList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/KycPendingApproval"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "items"
+        ],
+        "title": "KycPendingApprovalList",
+        "type": "object"
+      },
       "KycReviewPolicyActivate": {
         "description": "Vier-Augen-Freigabe: die zweite Person bestaetigt den gesehenen\nInhalts-Hash und nennt die unveraenderliche Freigabereferenz (z. B.\nBeschluss der Geschaeftsleitung bzw. Vorgabe der SRO/AO).",
         "properties": {
@@ -11480,6 +11617,71 @@
           "status"
         ],
         "title": "KycReviewPolicyResponse",
+        "type": "object"
+      },
+      "KycSecondApprovalDecision": {
+        "description": "C-890-01 Nachtrag 2: Entscheid der zweiten Person ueber eine offene\nKYC-Zweitfreigabe. Begruendung Pflicht; ``confirmation_hash`` = der in der\nListe angezeigte Siegel-Hash (Bestaetigung \"gesehen und geprueft\").",
+        "properties": {
+          "confirmation_hash": {
+            "title": "Confirmation Hash",
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision",
+          "reason",
+          "confirmation_hash"
+        ],
+        "title": "KycSecondApprovalDecision",
+        "type": "object"
+      },
+      "KycSecondApprovalDecisionResponse": {
+        "properties": {
+          "confirmation_id": {
+            "title": "Confirmation Id",
+            "type": "string"
+          },
+          "decided_at": {
+            "title": "Decided At",
+            "type": "string"
+          },
+          "decided_by": {
+            "title": "Decided By",
+            "type": "string"
+          },
+          "decision": {
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "record_id": {
+            "title": "Record Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirmation_id",
+          "decision",
+          "decided_by",
+          "decided_at",
+          "record_id"
+        ],
+        "title": "KycSecondApprovalDecisionResponse",
         "type": "object"
       },
       "LegalHoldExtension": {
@@ -33927,6 +34129,91 @@
         "summary": "Validate Policy",
         "tags": [
           "CMA-Policy"
+        ]
+      }
+    },
+    "/compliance/kyc-approvals": {
+      "get": {
+        "description": "Offene KYC-Zweitfreigaben der eigenen Firma (PEP, erhoehtes Risiko,\nHerabstufung, PEP-Ruecknahme): je Kunde nur die juengste, noch nicht\nentschiedene Bestaetigung, datenminimiert (Kundennummer statt Stammdaten,\nkeine Vermoegens-, Depot- oder Kontaktdaten).",
+        "operationId": "list_pending_kyc_approvals_compliance_kyc_approvals_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KycPendingApprovalList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Pending Kyc Approvals",
+        "tags": [
+          "Kunden"
+        ]
+      }
+    },
+    "/compliance/kyc-approvals/{confirmation_id}/decision": {
+      "post": {
+        "description": "Vier-Augen-Entscheid (freigeben oder ablehnen) mit Pflicht-Begruendung\nund Bestaetigung des Siegel-Hashes. Nie durch die erfassende Person (auch\nnicht ueber ein zweites Konto mit derselben E-Mail). Gleiche Siegel-Logik\nwie die Freigabe in der Kundenmaske; das Gate rechnet sie nach.",
+        "operationId": "decide_kyc_second_approval_compliance_kyc_approvals__confirmation_id__decision_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "confirmation_id",
+            "required": true,
+            "schema": {
+              "title": "Confirmation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KycSecondApprovalDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KycSecondApprovalDecisionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Decide Kyc Second Approval",
+        "tags": [
+          "Kunden"
         ]
       }
     },

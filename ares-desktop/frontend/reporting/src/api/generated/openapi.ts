@@ -2028,6 +2028,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/compliance/kyc-approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Pending Kyc Approvals
+         * @description Offene KYC-Zweitfreigaben der eigenen Firma (PEP, erhoehtes Risiko,
+         *     Herabstufung, PEP-Ruecknahme): je Kunde nur die juengste, noch nicht
+         *     entschiedene Bestaetigung, datenminimiert (Kundennummer statt Stammdaten,
+         *     keine Vermoegens-, Depot- oder Kontaktdaten).
+         */
+        get: operations["list_pending_kyc_approvals_compliance_kyc_approvals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/kyc-approvals/{confirmation_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide Kyc Second Approval
+         * @description Vier-Augen-Entscheid (freigeben oder ablehnen) mit Pflicht-Begruendung
+         *     und Bestaetigung des Siegel-Hashes. Nie durch die erfassende Person (auch
+         *     nicht ueber ein zweites Konto mit derselben E-Mail). Gleiche Siegel-Logik
+         *     wie die Freigabe in der Kundenmaske; das Gate rechnet sie nach.
+         */
+        post: operations["decide_kyc_second_approval_compliance_kyc_approvals__confirmation_id__decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/compliance/kyc-review-policies": {
         parameters: {
             query?: never;
@@ -9083,6 +9129,52 @@ export interface components {
             /** Risk Category */
             risk_category: string;
         };
+        /** KycPendingApproval */
+        KycPendingApproval: {
+            /** Approval Reasons */
+            approval_reasons: string[];
+            /** Client Number */
+            client_number?: string | null;
+            /** Confirmation Hash */
+            confirmation_hash: string;
+            /** Confirmation Id */
+            confirmation_id: string;
+            /** External Reference */
+            external_reference: string;
+            /** Form Type */
+            form_type: string;
+            /** Is Pep New */
+            is_pep_new: boolean;
+            /** Is Pep Previous */
+            is_pep_previous?: boolean | null;
+            /** Note */
+            note?: string | null;
+            /**
+             * Pep Withdrawal Recorded
+             * @default false
+             */
+            pep_withdrawal_recorded?: boolean;
+            /** Recorded At */
+            recorded_at: string;
+            /** Recorded By Name */
+            recorded_by_name?: string | null;
+            /**
+             * Recorded By Self
+             * @default false
+             */
+            recorded_by_self?: boolean;
+            /** Risk Category New */
+            risk_category_new: string;
+            /** Risk Category Previous */
+            risk_category_previous?: string | null;
+        };
+        /** KycPendingApprovalList */
+        KycPendingApprovalList: {
+            /** Items */
+            items: components["schemas"]["KycPendingApproval"][];
+            /** Tenant Id */
+            tenant_id: string;
+        };
         /**
          * KycReviewPolicyActivate
          * @description Vier-Augen-Freigabe: die zweite Person bestaetigt den gesehenen
@@ -9176,6 +9268,39 @@ export interface components {
             valid_until?: string | null;
             /** Version */
             version: number;
+        };
+        /**
+         * KycSecondApprovalDecision
+         * @description C-890-01 Nachtrag 2: Entscheid der zweiten Person ueber eine offene
+         *     KYC-Zweitfreigabe. Begruendung Pflicht; ``confirmation_hash`` = der in der
+         *     Liste angezeigte Siegel-Hash (Bestaetigung "gesehen und geprueft").
+         */
+        KycSecondApprovalDecision: {
+            /** Confirmation Hash */
+            confirmation_hash: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approve" | "reject";
+            /** Reason */
+            reason: string;
+        };
+        /** KycSecondApprovalDecisionResponse */
+        KycSecondApprovalDecisionResponse: {
+            /** Confirmation Id */
+            confirmation_id: string;
+            /** Decided At */
+            decided_at: string;
+            /** Decided By */
+            decided_by: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approve" | "reject";
+            /** Record Id */
+            record_id: string;
         };
         /** LegalHoldExtension */
         LegalHoldExtension: {
@@ -17588,6 +17713,61 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CmaPolicyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_pending_kyc_approvals_compliance_kyc_approvals_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycPendingApprovalList"];
+                };
+            };
+        };
+    };
+    decide_kyc_second_approval_compliance_kyc_approvals__confirmation_id__decision_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                confirmation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KycSecondApprovalDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycSecondApprovalDecisionResponse"];
                 };
             };
             /** @description Validation Error */

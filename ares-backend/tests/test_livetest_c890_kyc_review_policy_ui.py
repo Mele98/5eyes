@@ -200,3 +200,56 @@ def test_capture_self_approval_refused_reviewer_approves_effective(server):
             assert blocked == "403"
         finally:
             browser.close()
+
+
+def test_reviewer_decides_open_kyc_second_approval_in_browser(server):
+    """Nachtrag 2: PEP-Bestaetigung -> die externe Compliance-Person sieht sie
+    datenminimiert unter "Offene KYC-Freigaben" und gibt frei -> wirksam."""
+    base, httpx = server
+    _seed(base, httpx)
+    owner = {"Authorization": "Bearer " + httpx.post(base + "/auth/login", json={
+        "username": "owner", "password": PW}, timeout=30).json()["access_token"]}
+    rev = {"Authorization": "Bearer " + httpx.post(base + "/auth/login", json={
+        "username": "extern", "password": PW2}, timeout=30).json()["access_token"]}
+    today = datetime.now(timezone.utc).date()
+    row = httpx.post(base + "/compliance/kyc-review-policies", headers=owner, timeout=30, json={
+        "jurisdiction": "CH", "policy_id": "TEST-C890-UI", "normal_max_months": 23, "elevated_max_months": 11,
+        "valid_from": today.isoformat(), "source_reference": "TEST-C890 Testwert"}).json()
+    r = httpx.post(base + f"/compliance/kyc-review-policies/{row['id']}/activate", headers=rev, timeout=30,
+                   json={"policy_hash": row["policy_hash"], "approval_reference": "TEST-C890"})
+    assert r.status_code == 200, r.text
+    me = httpx.get(base + "/auth/me", headers=owner, timeout=30).json()
+    c = httpx.post(base + "/clients", headers=owner, timeout=30, json={
+        "client_number": "K-UI-1", "first_name": "Vorname", "last_name": "Geheim", "advisor_id": me["id"]})
+    assert c.status_code in (200, 201), c.text
+    cid = c.json()["id"]
+    httpx.put(base + f"/clients/{cid}/due-diligence", headers=owner, timeout=30,
+              json={"acting_for_own_account": True, "pep_status": True})
+    from datetime import timedelta
+
+    k = httpx.post(base + f"/clients/{cid}/kyc-confirmations", headers=owner, timeout=30, json={
+        "form_type": "A", "form_completed_on": (today - timedelta(days=2)).isoformat(),
+        "external_reference": "SRO-UI-1", "risk_category": "normal", "is_pep": True,
+        "identification_confirmed": True, "identification_date": (today - timedelta(days=2)).isoformat(),
+        "next_review_due": (today + timedelta(days=60)).isoformat()})
+    assert k.status_code == 201, k.text
+    kid = k.json()["id"]
+    sync_api = _playwright_sync_api()
+    with sync_api.sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            _login(page, base, "extern", PW2)
+            page.wait_for_selector(f"#krp-reviewer-view .krp-approval[data-confirmation-id='{kid}']")
+            card = page.inner_text(f".krp-approval[data-confirmation-id='{kid}']")
+            assert "Kunde K-UI-1" in card and "PEP" in card and "SRO-UI-1" in card
+            assert "Geheim" not in card and "Vorname" not in card
+            page.fill(f"#krp-reason-{kid}", "PEP-Abklaerung im SRO-Dossier geprueft (Test)")
+            page.check(f"#krp-cok-{kid}")
+            page.evaluate(f"decideKycApproval('{kid}', 'approve')")
+            page.wait_for_selector("#krp-approvals-empty")
+        finally:
+            browser.close()
+    confs = httpx.get(base + f"/clients/{cid}/kyc-confirmations", headers=owner, timeout=30).json()
+    assert confs[0]["approval"]["approved_by"] != me["id"]
+    assert confs[0]["approval"]["note"].startswith("PEP-Abklaerung")

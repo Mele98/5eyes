@@ -356,6 +356,11 @@ KYC_SECOND_APPROVAL_MISSING = "KYC_SECOND_APPROVAL_MISSING"
 KYC_CONFIRMATION_REVIEW_OVERDUE = "KYC_CONFIRMATION_REVIEW_OVERDUE"
 KYC_PEP_INCONSISTENT = "KYC_PEP_INCONSISTENT"
 KYC_CONFIRMATION_SEAL_INVALID = "KYC_CONFIRMATION_SEAL_INVALID"
+# C-890-01 Nachtrag 2: Zweitfreigabe begruendet abgelehnt -> nie wirksam.
+KYC_CONFIRMATION_REJECTED = "KYC_CONFIRMATION_REJECTED"
+# Wer als zweite Person freigeben darf; gleiche Liste wie
+# services/auth.py::COMPLIANCE_APPROVER_ROLES (Test prueft die Gleichheit).
+KYC_APPROVER_ROLES: tuple[str, ...] = ("admin", "super_admin", "compliance_reviewer")
 
 
 CLIENT_INFORMATION_DOCUMENT_TYPE = "Kundeninformation"
@@ -587,13 +592,45 @@ def latest_kyc_confirmation(db: Session, client_id: str, mandate_id: Optional[st
         _sql_text("SELECT * FROM kyc_confirmation_approvals WHERE confirmation_id = :id"),
         {"id": str(row["id"])},
     ).mappings().first()
+    # C-890-01 Nachtrag 2: eine Freigabe zaehlt nur mit gueltigem Siegel, von
+    # einer freigabeberechtigten Rolle (admin oder compliance_reviewer) und
+    # nicht von derselben Person (gleiche ID oder E-Mail wie der Erfasser).
     approval_ok = approval is not None and (
         row_seal(dict(approval), "approval_hash") == approval["approval_hash"]
-    )
+    ) and kyc_second_person_valid(db, approval["approved_by"], row["recorded_by"])
+    rejection = db.execute(
+        _sql_text("SELECT * FROM kyc_confirmation_rejections WHERE confirmation_id = :id"),
+        {"id": str(row["id"])},
+    ).mappings().first()
+    # Eine Ablehnung gilt auch bei defektem Siegel als "nicht freigegeben";
+    # fail-closed bleibt die Bestaetigung damit in jedem Fall unwirksam.
+    confirmation["rejected"] = rejection is not None
+    confirmation["rejection_id"] = rejection["id"] if rejection is not None else None
     confirmation["approval_id"] = approval["id"] if approval_ok else None
     confirmation["approval_by"] = approval["approved_by"] if approval_ok else None
     confirmation["approval_at"] = approval["approved_at"] if approval_ok else None
     return confirmation
+
+
+def kyc_second_person_valid(db: Session, approver_id: Any, recorder_id: Any) -> bool:
+    """Vier-Augen nachgerechnet: Freigeber existiert mit einer Freigaberolle
+    (``KYC_APPROVER_ROLES``) und ist nicht der Erfasser -- weder gleiche ID
+    noch gleiche E-Mail-Adresse (zweites Konto derselben Person)."""
+    if not approver_id or str(approver_id) == str(recorder_id or ""):
+        return False
+    rows = {
+        str(r["id"]): r for r in db.execute(
+            _sql_text("SELECT id, role, email FROM users WHERE id IN (:a, :b)"),
+            {"a": str(approver_id), "b": str(recorder_id or "")},
+        ).mappings().all()
+    }
+    approver = rows.get(str(approver_id))
+    if approver is None or str(approver["role"] or "") not in KYC_APPROVER_ROLES:
+        return False
+    recorder = rows.get(str(recorder_id or ""))
+    a_mail = _clean(approver["email"]).lower()
+    r_mail = _clean(recorder["email"]).lower() if recorder is not None else ""
+    return not (a_mail and a_mail == r_mail)
 
 
 def kyc_requires_second_approval(confirmation: dict) -> bool:
@@ -1283,7 +1320,17 @@ def _kyc_findings(db: Session, mandate: Any, today: str) -> list[dict]:
     # C-890-01: Bindung an die freigegebene Wiedervorlage-Policy und deren
     # heutige Wirksamkeit (dieselbe Pruefung wie API-Status und Kunden-PDF).
     findings.extend(kyc_review_findings(db, mandate, today, confirmation=confirmation))
-    if kyc_requires_second_approval(confirmation):
+    if kyc_requires_second_approval(confirmation) and confirmation.get("rejected"):
+        findings.append(_finding(
+            KYC_CONFIRMATION_REJECTED,
+            "Die Zweitfreigabe dieser KYC-Bestaetigung wurde begruendet abgelehnt; "
+            "die Bestaetigung wird nie wirksam.",
+            "Berater: Sachverhalt klaeren und eine neue KYC-Bestaetigung erfassen, "
+            "die erneut durch eine zweite Person freigegeben wird.",
+            "client",
+            confirmation_id=confirmation.get("id"),
+        ))
+    elif kyc_requires_second_approval(confirmation):
         approver = str(confirmation.get("approval_by") or "")
         if not approver or approver == str(confirmation.get("recorded_by") or ""):
             findings.append(_finding(
@@ -1291,7 +1338,7 @@ def _kyc_findings(db: Session, mandate: Any, today: str) -> list[dict]:
                 "PEP, erhoehtes Risiko oder Herabstufung gegenueber der zuletzt "
                 "wirksamen Bestaetigung: die KYC-Bestaetigung ist noch nicht "
                 "durch eine zweite Person freigegeben.",
-                "Eine zweite Person mit Admin-Rolle (Geschaeftsleitung/Compliance) "
+                "Eine zweite Person (Admin oder externe Compliance-Freigabe) "
                 "gibt die KYC-Bestaetigung frei.",
                 "client",
                 confirmation_id=confirmation.get("id"),

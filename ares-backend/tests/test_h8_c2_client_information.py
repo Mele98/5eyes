@@ -328,8 +328,10 @@ def test_single_alembic_head_is_h8_revision():
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(alembic_cfg("sqlite://"))
-    # C-890-01: f4c2e8a6d1b3 (Wiedervorlage-Policy) folgt direkt auf H8.
-    assert script.get_heads() == ["f4c2e8a6d1b3"]
+    # C-890-01: f4c2e8a6d1b3 (Wiedervorlage-Policy) folgt direkt auf H8,
+    # Nachtrag 2: a7d3c9e1f5b2 (Ablehnungen der Zweitfreigabe) darauf.
+    assert script.get_heads() == ["a7d3c9e1f5b2"]
+    assert script.get_revision("a7d3c9e1f5b2").down_revision == "f4c2e8a6d1b3"
     assert script.get_revision("f4c2e8a6d1b3").down_revision == "d8e4b2a6c1f9"
 
 

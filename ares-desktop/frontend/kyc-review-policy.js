@@ -12,6 +12,10 @@
  *     Anmeldung NUR diese Freigabe-Ansicht (initApp wird fuer diese Rolle nicht
  *     ausgefuehrt; der Server sperrt alle anderen Routen zentral).
  *   - Benutzerverwaltung: Rolle "Externe Compliance-Freigabe" waehlbar.
+ *   - Nachtrag 2: "Offene KYC-Freigaben" (PEP, erhoehtes Risiko, Herabstufung,
+ *     PEP-Ruecknahme) datenminimiert, Entscheid freigeben/ablehnen mit
+ *     Begruendung und Bestaetigung des Pruefwerts (GET/POST
+ *     /compliance/kyc-approvals).
  *
  * Grundsaetze: keine Fristwerte vorbelegt; Status, Sperrgruende und die
  * Obergrenze kommen 1:1 vom Server (GET /compliance/kyc-review-policies).
@@ -122,7 +126,64 @@
     host.innerHTML = '<div class="admin-section-title">KYC-Wiedervorlage (maximale Frist bis zur nächsten KYC-Aktualisierung)</div>'
       + bannerHtml(data)
       + '<div style="font-weight:600;font-size:10px;margin-top:8px">Versionen</div>' + versionsHtml(data)
-      + createFormHtml(data);
+      + createFormHtml(data)
+      + '<div id="krp-approvals" style="margin-top:12px"></div>';
+    loadKycPendingApprovals();
+  }
+
+  var REASON_LABELS = {pep: 'PEP', erhoehtes_risiko: 'erhöhtes Risiko', herabstufung: 'Herabstufung', pep_ruecknahme: 'PEP-Rücknahme in der Sorgfaltspflicht-Erfassung'};
+  function yesNo(v){ return v == null ? '—' : (v ? 'ja' : 'nein'); }
+
+  function pendingHtml(items){
+    var html = '<div class="admin-section-title" style="font-size:11px">Offene KYC-Freigaben (zweite Person)</div>';
+    if (!items.length) return html + '<div id="krp-approvals-empty" style="font-size:10px;color:var(--n5)">Keine offenen Freigaben.</div>';
+    items.forEach(function(i){
+      var id = esc(i.confirmation_id);
+      html += '<div class="krp-approval" data-confirmation-id="' + id + '" style="border:1px solid var(--b1);padding:6px;margin:4px 0;font-size:10px;line-height:1.6">'
+        + '<div><b>Kunde ' + esc(i.client_number || '—') + '</b> · Grund: ' + esc((i.approval_reasons || []).map(function(r){ return REASON_LABELS[r] || r; }).join(', ')) + '</div>'
+        + '<div>Risikokategorie: ' + esc(i.risk_category_previous || '—') + ' → ' + esc(i.risk_category_new) + ' · PEP: ' + yesNo(i.is_pep_previous) + ' → ' + yesNo(i.is_pep_new) + '</div>'
+        + '<div>Formular ' + esc(i.form_type) + ' · Referenz ' + esc(i.external_reference) + ' · erfasst von ' + esc(i.recorded_by_name || '—') + ' am ' + esc(String(i.recorded_at || '').slice(0, 16).replace('T', ' ')) + '</div>'
+        + (i.note ? '<div>Bemerkung: ' + esc(i.note) + '</div>' : '')
+        + '<div style="color:var(--n5)">Prüfwert (Hash): <code id="krp-chash-' + id + '" style="font-size:9px;word-break:break-all">' + esc(i.confirmation_hash) + '</code></div>';
+      if (i.recorded_by_self) {
+        html += '<div class="krp-self" style="color:var(--warn)">Von Ihnen erfasst – entscheiden muss eine zweite Person.</div></div>';
+        return;
+      }
+      html += '<div>' + L + 'Begründung des Entscheids (Pflicht)</label><input class="fi" id="krp-reason-' + id + '" style="font-size:11px"></div>'
+        + '<label><input type="checkbox" id="krp-cok-' + id + '"> Ich habe die Angaben und den Prüfwert geprüft.</label> '
+        + '<button class="btn-p" id="krp-capprove-' + id + '" style="font-size:10px;padding:3px 10px" onclick="decideKycApproval(\'' + id + '\',\'approve\')">Freigeben</button> '
+        + '<button class="btn btn-sm" id="krp-creject-' + id + '" onclick="decideKycApproval(\'' + id + '\',\'reject\')">Ablehnen</button></div>';
+    });
+    return html;
+  }
+
+  async function loadKycPendingApprovals(){
+    var box = document.getElementById('krp-approvals');
+    if (!box) return;
+    try {
+      box.innerHTML = pendingHtml((await API.get('/compliance/kyc-approvals')).items || []);
+    } catch(e) {
+      box.innerHTML = '<div style="color:var(--neg);font-size:10px">' + esc(errText(e, 'Offene Freigaben konnten nicht geladen werden.')) + '</div>';
+    }
+  }
+
+  async function decideKycApproval(confirmationId, decision){
+    var ok = document.getElementById('krp-cok-' + confirmationId);
+    var hashEl = document.getElementById('krp-chash-' + confirmationId);
+    var reason = val('krp-reason-' + confirmationId);
+    if (!ok || !ok.checked || reason.length < 5) {
+      notify('error', 'Bitte eine Begründung (mind. 5 Zeichen) angeben und die Prüfung bestätigen.');
+      return;
+    }
+    try {
+      await API.post('/compliance/kyc-approvals/' + encodeURIComponent(confirmationId) + '/decision', {
+        decision: decision, reason: reason, confirmation_hash: hashEl ? String(hashEl.textContent || '').trim() : ''
+      });
+      notify('success', decision === 'approve' ? 'KYC-Bestätigung freigegeben.' : 'Freigabe abgelehnt.');
+    } catch(e) {
+      notify('error', errText(e, 'Entscheid fehlgeschlagen.'));
+    }
+    await loadKycPendingApprovals();
   }
 
   function hostEl(){ return document.getElementById('krp-reviewer-body') || document.getElementById('sec-kyc-review-policy'); }
@@ -256,7 +317,7 @@
     view.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
       + '<div style="font-size:14px;font-weight:700">Ares – Compliance-Freigabe</div>'
       + '<div style="font-size:10px">' + esc(u.full_name || u.username || '') + ' · <button class="btn btn-sm" id="krp-logout" onclick="kycReviewerLogout()">Abmelden</button></div></div>'
-      + '<div style="font-size:10px;color:var(--n5);margin-bottom:8px">Dieses Konto darf nur die KYC-Wiedervorlage-Policy der Firma prüfen und als zweite Person freigeben.</div>'
+      + '<div style="font-size:10px;color:var(--n5);margin-bottom:8px">Dieses Konto darf nur als zweite Person freigeben: die KYC-Wiedervorlage-Policy der Firma und offene KYC-Bestätigungen (PEP, erhöhtes Risiko, Herabstufung).</div>'
       + '<div id="krp-reviewer-body" style="display:grid;gap:8px"></div>';
     return loadKycReviewPolicies();
   }
@@ -293,4 +354,6 @@
   window.createKycReviewPolicy = createKycReviewPolicy;
   window.activateKycReviewPolicy = activateKycReviewPolicy;
   window.kycReviewerLogout = kycReviewerLogout;
+  window.loadKycPendingApprovals = loadKycPendingApprovals;
+  window.decideKycApproval = decideKycApproval;
 })();

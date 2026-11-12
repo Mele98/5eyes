@@ -34,6 +34,8 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 NOW = "2026-11-11T10:00:00.000Z"
+# C-890-01 Nachtrag 2: a7d3c9e1f5b2 (Ablehnungen) folgt auf f4c2e8a6d1b3.
+HEAD = "a7d3c9e1f5b2"
 
 
 def _qi(identifier: str) -> str:
@@ -227,7 +229,7 @@ def test_downgrade_is_fail_closed_with_evidence_and_clean_without(pg_schema):
     with pytest.raises(Exception, match="fail-closed"):
         command.downgrade(cfg, "d8e4b2a6c1f9")
     with engine.connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "f4c2e8a6d1b3"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == HEAD
         assert conn.execute(text("SELECT COUNT(*) FROM kyc_review_policies")).scalar() == 1
 
 
@@ -246,4 +248,28 @@ def test_upgrade_downgrade_upgrade_without_evidence(pg_schema):
             {"s": pg_schema["schema"]}).scalar() == 0
     command.upgrade(cfg, "head")
     with engine.connect() as conn:
-        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "f4c2e8a6d1b3"
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == HEAD
+
+
+def test_rejections_are_append_only_with_redaction_only(pg_schema):
+    """Nachtrag 2: Ablehnung der Zweitfreigabe -- unveraenderlich, nur die
+    Begruendung darf auf den DSG-Redaktionsmarker gesetzt werden; eine zweite
+    Entscheidung zur selben Bestaetigung scheitert am UNIQUE-Index."""
+    engine = pg_schema["engine"]
+    insert = text(
+        "INSERT INTO kyc_confirmation_rejections (id, tenant_id, confirmation_id, client_id, rejected_by, "
+        "rejected_at, reason, confirmation_hash, rejection_hash) VALUES (:id, 't-pg', 'k1', 'c1', 'adm-b', "
+        ":now, 'Mittelherkunft offen (Test)', 'h', 'h')")
+    with engine.begin() as conn:
+        conn.execute(insert, {"id": "rj1", "now": NOW})
+    with pytest.raises(Exception):
+        with engine.begin() as conn:
+            conn.execute(insert, {"id": "rj2", "now": NOW})
+    for sql in ("UPDATE kyc_confirmation_rejections SET reason = 'anders'",
+                "UPDATE kyc_confirmation_rejections SET rejected_by = 'adm-a'",
+                "DELETE FROM kyc_confirmation_rejections"):
+        with pytest.raises(Exception, match="immutable"):
+            with engine.begin() as conn:
+                conn.execute(text(sql))
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE kyc_confirmation_rejections SET reason = '[ERASED-DSG-ART-32]'"))

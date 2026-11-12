@@ -302,6 +302,9 @@ def get_current_user(
 # Erfassen einer Policy. Erlaubt sind nur die eigenen Konto-/Anmeldepfade.
 COMPLIANCE_REVIEWER_ROLE = "compliance_reviewer"
 COMPLIANCE_REVIEWER_SCOPE = "COMPLIANCE_REVIEWER_SCOPE"
+# Wer als zweite Person freigeben darf (Policy-Aktivierung, KYC-Zweitfreigabe);
+# gleiche Liste wie services/recommendation_release_gate.py::KYC_APPROVER_ROLES.
+COMPLIANCE_APPROVER_ROLES: tuple[str, ...] = ("admin", "super_admin", "compliance_reviewer")
 _COMPLIANCE_REVIEWER_ALLOWED: tuple[tuple[str, str], ...] = (
     ("GET", r"/auth/me"),
     ("POST", r"/auth/logout"),
@@ -311,7 +314,23 @@ _COMPLIANCE_REVIEWER_ALLOWED: tuple[tuple[str, str], ...] = (
     ("POST", r"/auth/2fa/(setup|enable)"),
     ("GET", r"/compliance/kyc-review-policies"),
     ("POST", r"/compliance/kyc-review-policies/[^/]+/activate"),
+    # C-890-01 Nachtrag 2: offene KYC-Zweitfreigaben (datenminimiert) und
+    # Entscheid (freigeben/ablehnen) -- sonst kein Kunden-/Mandatszugriff.
+    ("GET", r"/compliance/kyc-approvals"),
+    ("POST", r"/compliance/kyc-approvals/[^/]+/decision"),
 )
+
+
+def same_person(db: Session, first_user_id, second_user_id) -> bool:
+    """Vier-Augen: dieselbe Person, soweit technisch erkennbar -- gleiche
+    Benutzer-ID oder (zweites Konto) dieselbe E-Mail-Adresse."""
+    if not first_user_id or not second_user_id:
+        return False
+    if str(first_user_id) == str(second_user_id):
+        return True
+    rows = db.query(User.email).filter(User.id.in_([str(first_user_id), str(second_user_id)])).all()
+    emails = [str(r[0]).strip().lower() for r in rows if r[0] and str(r[0]).strip()]
+    return len(emails) == 2 and emails[0] == emails[1]
 
 
 def compliance_reviewer_may_call(method: str, path: str) -> bool:
@@ -341,7 +360,7 @@ def _enforce_compliance_reviewer_scope(user: User, request) -> None:
 def require_compliance_approver(current_user: User = Depends(get_current_user)) -> User:
     """Zweite Person fuer Compliance-Freigaben: Firmen-Admin oder die schmale
     Rolle ``compliance_reviewer`` (externe Compliance-Person)."""
-    if current_user.role not in ("admin", "super_admin", COMPLIANCE_REVIEWER_ROLE):
+    if current_user.role not in COMPLIANCE_APPROVER_ROLES:
         raise HTTPException(status_code=403, detail="Nur fuer Administratoren oder Compliance-Freigabe")
     return current_user
 

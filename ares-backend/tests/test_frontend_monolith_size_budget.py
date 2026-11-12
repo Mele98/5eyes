@@ -37,6 +37,8 @@ Statuszeile der KYC-Wiedervorlage-Policy (Budget auf den neuen Stand).
 C-890-01 Nachtrag 1: neuer Teil kyc-review-policy.js (eigenes Budget, Stand bei
 Einfuehrung); adminUpdateNewUserRoleHint aus dem Monolithen umgezogen -- der
 Monolith schrumpft trotz Einbindung (Budget gesenkt: 27631 Z./1692930 B).
+C-890-01 Nachtrag 2: kyc-review-policy.js +63 Z./+4282 B fuer "Offene
+KYC-Freigaben" (Entscheid der zweiten Person); Monolith unveraendert.
 """
 from __future__ import annotations
 
@@ -56,7 +58,7 @@ EXTRACTED_PART_BUDGETS = {
     "intro-sequence.js": (761, 36861),
     "goal-review-runtime.js": (1589, 84633),
     "client-compliance.js": (460, 29080),
-    "kyc-review-policy.js": (296, 16405),
+    "kyc-review-policy.js": (359, 20687),
 }
 
 

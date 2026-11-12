@@ -12,7 +12,7 @@ from models.users import User
 from models.clients import (
     Client, ClientNationality, ClientOptHistory,
     ClientDueDiligence, ClientTaxResidency,
-    ClientRepresentation, KycConfirmation, KycConfirmationApproval,
+    ClientRepresentation, KycConfirmation, KycConfirmationApproval, KycConfirmationRejection,
     KYC_PROCESS_EXTERNAL, KYC_RISK_NORMAL,
 )
 from models.mandates import Mandate
@@ -27,6 +27,8 @@ from schemas.clients import (
     KYC_REVIEW_BINDING_CONTEXT_KEY,
     KycConfirmationApprovalCreate, KycConfirmationApprovalResponse,
     KycConfirmationCreate, KycConfirmationRequest, KycConfirmationResponse,
+    KycPendingApproval, KycPendingApprovalList, KycSecondApprovalDecision,
+    KycSecondApprovalDecisionResponse,
     ClientTaxResidencyCreate, ClientTaxResidencyResponse,
     WealthSummaryResponse, CashflowSummaryResponse,
     CashflowYearRow, CashflowProjectionResponse,
@@ -42,6 +44,8 @@ from services.auth import (
     _resolve_tenant_id_for_user,
     require_admin,
     require_advisor,
+    require_compliance_approver,
+    same_person,
 )
 from services.audit import KYC_REVIEW_BLOCK_AUDIT_FIELD, kyc_review_block_audit_value, log
 from services.cashflow_timeline import totals_for_year
@@ -61,6 +65,9 @@ from services.wealth_cashflows import (
 )
 
 router = APIRouter(prefix="/clients", tags=["Kunden"])
+# C-890-01 Nachtrag 2: Ansicht "Offene Freigaben" der zweiten Person (Admin oder
+# externe Compliance-Person) -- ohne Kundenakte, nur entscheidrelevante Angaben.
+kyc_approvals_router = APIRouter(prefix="/compliance/kyc-approvals", tags=["Kunden"])
 
 
 def _now() -> str:
@@ -841,7 +848,7 @@ def approve_kyc_confirmation(
                 "braucht keine Freigabe."
             ),
         })
-    if str(record.recorded_by) == str(current_user.id):
+    if same_person(db, record.recorded_by, current_user.id):
         raise HTTPException(status_code=403, detail={
             "reason_code": "KYC_SECOND_APPROVAL_SAME_PERSON",
             "message": "Die Freigabe muss durch eine zweite Person erfolgen.",
@@ -851,6 +858,13 @@ def approve_kyc_confirmation(
     ).first()
     if existing is not None:
         raise HTTPException(status_code=409, detail="KYC-Bestaetigung ist bereits freigegeben")
+    if db.query(KycConfirmationRejection).filter(
+        KycConfirmationRejection.confirmation_id == record.id
+    ).first() is not None:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_SECOND_APPROVAL_ALREADY_DECIDED",
+            "message": "Die Zweitfreigabe wurde abgelehnt; es braucht eine neue Bestaetigung.",
+        })
     now = _now()
     approval = KycConfirmationApproval(
         id=new_uuid(), tenant_id=record.tenant_id, confirmation_id=record.id,
@@ -866,6 +880,191 @@ def approve_kyc_confirmation(
         ip_address=_extract_client_ip(request))
     db.commit()
     return _kyc_response(db, record)
+
+
+# ── C-890-01 Nachtrag 2: offene KYC-Zweitfreigaben (Admin / externe Compliance) ──
+
+def _approver_tenant(current_user: User) -> str:
+    return _resolve_tenant_id_for_user(current_user)
+
+
+def _tenant_matches(row_tenant, tenant_id: str) -> bool:
+    # Tier 1: NULL-Tenant = Standard-Mandant 'main' (wie _resolve_tenant_id_for_user).
+    return str(row_tenant or "main") == str(tenant_id)
+
+
+def _effective_kyc(db: Session, row: KycConfirmation) -> bool:
+    if not int(row.requires_second_approval or 0):
+        return True
+    approval = db.query(KycConfirmationApproval).filter(
+        KycConfirmationApproval.confirmation_id == row.id).first()
+    return approval is not None and not same_person(db, approval.approved_by, row.recorded_by)
+
+
+def _decided(db: Session, confirmation_id: str) -> bool:
+    return (
+        db.query(KycConfirmationApproval).filter(KycConfirmationApproval.confirmation_id == confirmation_id).first()
+        is not None
+        or db.query(KycConfirmationRejection).filter(KycConfirmationRejection.confirmation_id == confirmation_id).first()
+        is not None
+    )
+
+
+def _pending_item(db: Session, row: KycConfirmation, history: list[KycConfirmation],
+                  current_user: User) -> KycPendingApproval:
+    """Datenminimiert: nur die Angaben, die die zweite Person fuer den
+    Entscheid braucht (Feldliste schemas.clients.KYC_PENDING_APPROVAL_FIELDS)."""
+    previous = next((h for h in history if h.id != row.id and h.recorded_at <= row.recorded_at
+                     and _effective_kyc(db, h)), None)
+    since = previous.recorded_at if previous is not None else None
+    sql = ("SELECT 1 FROM audit_log WHERE client_id = :cid AND table_name = 'client_due_diligence' "
+           "AND field_name = 'pep_status' AND old_value = '1' AND new_value = '0' AND created_at <= :until")
+    params = {"cid": row.client_id, "until": str(row.recorded_at)}
+    if since is not None:
+        sql += " AND created_at > :since"
+        params["since"] = str(since)
+    withdrawal = db.execute(text(sql + " LIMIT 1"), params).first() is not None
+    reasons: list[str] = []
+    if int(row.is_pep or 0):
+        reasons.append("pep")
+    if row.risk_category != KYC_RISK_NORMAL:
+        reasons.append("erhoehtes_risiko")
+    if previous is not None and (
+        _RISK_RANK.get(row.risk_category, 1) < _RISK_RANK.get(previous.risk_category, 1)
+        or (int(previous.is_pep or 0) and not int(row.is_pep or 0))
+    ):
+        reasons.append("herabstufung")
+    if withdrawal and not int(row.is_pep or 0):
+        reasons.append("pep_ruecknahme")
+    client = db.query(Client.client_number).filter(Client.id == row.client_id).first()
+    recorder = db.query(User.full_name).filter(User.id == row.recorded_by).first()
+    return KycPendingApproval(
+        confirmation_id=row.id,
+        client_number=client[0] if client else None,
+        form_type=row.form_type,
+        external_reference=row.external_reference,
+        risk_category_previous=previous.risk_category if previous is not None else None,
+        risk_category_new=row.risk_category,
+        is_pep_previous=(bool(int(previous.is_pep or 0)) if previous is not None else None),
+        is_pep_new=bool(int(row.is_pep or 0)),
+        pep_withdrawal_recorded=withdrawal,
+        approval_reasons=reasons,
+        recorded_by_name=recorder[0] if recorder else None,
+        recorded_by_self=same_person(db, row.recorded_by, current_user.id),
+        recorded_at=row.recorded_at,
+        note=row.note,
+        confirmation_hash=row.confirmation_hash,
+    )
+
+
+def _latest_by_client(db: Session, tenant_id: str) -> dict[str, list[KycConfirmation]]:
+    rows = db.query(KycConfirmation).order_by(
+        KycConfirmation.recorded_at.desc(), KycConfirmation.id.desc()).all()
+    by_client: dict[str, list[KycConfirmation]] = {}
+    for row in rows:
+        if _tenant_matches(row.tenant_id, tenant_id):
+            by_client.setdefault(row.client_id, []).append(row)
+    return by_client
+
+
+@kyc_approvals_router.get("", response_model=KycPendingApprovalList)
+def list_pending_kyc_approvals(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_compliance_approver),
+):
+    """Offene KYC-Zweitfreigaben der eigenen Firma (PEP, erhoehtes Risiko,
+    Herabstufung, PEP-Ruecknahme): je Kunde nur die juengste, noch nicht
+    entschiedene Bestaetigung, datenminimiert (Kundennummer statt Stammdaten,
+    keine Vermoegens-, Depot- oder Kontaktdaten)."""
+    tenant_id = _approver_tenant(current_user)
+    items = []
+    for history in _latest_by_client(db, tenant_id).values():
+        latest = history[0]
+        if int(latest.requires_second_approval or 0) and not _decided(db, latest.id):
+            items.append(_pending_item(db, latest, history, current_user))
+    items.sort(key=lambda i: i.recorded_at)
+    return KycPendingApprovalList(tenant_id=tenant_id, items=items)
+
+
+@kyc_approvals_router.post("/{confirmation_id}/decision", response_model=KycSecondApprovalDecisionResponse)
+def decide_kyc_second_approval(
+    confirmation_id: str,
+    body: KycSecondApprovalDecision,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_compliance_approver),
+):
+    """Vier-Augen-Entscheid (freigeben oder ablehnen) mit Pflicht-Begruendung
+    und Bestaetigung des Siegel-Hashes. Nie durch die erfassende Person (auch
+    nicht ueber ein zweites Konto mit derselben E-Mail). Gleiche Siegel-Logik
+    wie die Freigabe in der Kundenmaske; das Gate rechnet sie nach."""
+    tenant_id = _approver_tenant(current_user)
+    record = db.query(KycConfirmation).filter(KycConfirmation.id == confirmation_id).first()
+    if record is None or not _tenant_matches(record.tenant_id, tenant_id):
+        raise HTTPException(status_code=404, detail="KYC-Bestaetigung nicht gefunden")
+    if not _kyc_requires_second_approval(record):
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_SECOND_APPROVAL_NOT_REQUIRED",
+            "message": "Diese Bestaetigung braucht keine Freigabe.",
+        })
+    if same_person(db, record.recorded_by, current_user.id):
+        raise HTTPException(status_code=403, detail={
+            "reason_code": "KYC_SECOND_APPROVAL_SAME_PERSON",
+            "message": "Die Freigabe muss durch eine zweite Person erfolgen.",
+        })
+    if _decided(db, record.id):
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_SECOND_APPROVAL_ALREADY_DECIDED",
+            "message": "Ueber diese Bestaetigung wurde bereits entschieden.",
+        })
+    history = _latest_by_client(db, tenant_id).get(record.client_id, [])
+    if not history or history[0].id != record.id:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_APPROVAL_SUPERSEDED",
+            "message": "Fuer den Kunden liegt eine neuere Bestaetigung vor.",
+        })
+    if body.confirmation_hash != record.confirmation_hash or (
+        _row_seal(record, "confirmation_hash") != record.confirmation_hash
+    ):
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_APPROVAL_HASH_MISMATCH",
+            "message": "Der bestaetigte Pruefwert stimmt nicht mit der Bestaetigung ueberein.",
+        })
+    now = _now()
+    if body.decision == "approve":
+        entry = KycConfirmationApproval(
+            id=new_uuid(), tenant_id=record.tenant_id, confirmation_id=record.id,
+            client_id=record.client_id, approved_by=current_user.id, approved_at=now, note=body.reason,
+        )
+        entry.approval_hash = _row_seal(entry, "approval_hash")
+        field = "kyc_second_approval"
+    else:
+        entry = KycConfirmationRejection(
+            id=new_uuid(), tenant_id=record.tenant_id, confirmation_id=record.id,
+            client_id=record.client_id, rejected_by=current_user.id, rejected_at=now,
+            reason=body.reason, confirmation_hash=record.confirmation_hash,
+        )
+        entry.rejection_hash = _row_seal(entry, "rejection_hash")
+        field = "kyc_second_approval_rejected"
+    db.add(entry)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_SECOND_APPROVAL_ALREADY_DECIDED",
+            "message": "Ueber diese Bestaetigung wurde gleichzeitig entschieden.",
+        }) from exc
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name=entry.__tablename__, record_id=entry.id, action="CREATE",
+        field_name=field, new_value=record.id,
+        client_id=record.client_id, mandate_id=record.mandate_id,
+        ip_address=_extract_client_ip(request), tenant_id=str(record.tenant_id or tenant_id))
+    db.commit()
+    return KycSecondApprovalDecisionResponse(
+        confirmation_id=record.id, decision=body.decision, decided_by=current_user.id,
+        decided_at=now, record_id=entry.id,
+    )
 
 
 # ── H8 Luecke 10: Vertretung / Verfuegungsberechtigung (ZGB, dokumentarisch) ──

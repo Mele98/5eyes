@@ -537,6 +537,68 @@ class KycConfirmationResponse(BaseResponse):
     review_max_due: Optional[str] = None
 
 
+class KycSecondApprovalDecision(BaseModel):
+    """C-890-01 Nachtrag 2: Entscheid der zweiten Person ueber eine offene
+    KYC-Zweitfreigabe. Begruendung Pflicht; ``confirmation_hash`` = der in der
+    Liste angezeigte Siegel-Hash (Bestaetigung "gesehen und geprueft")."""
+
+    decision: Literal["approve", "reject"]
+    reason: str
+    confirmation_hash: str
+
+    @model_validator(mode="after")
+    def _validate(self):
+        self.reason = (self.reason or "").strip()
+        if len(self.reason) < 5:
+            raise ValueError("Begruendung des Entscheids (mind. 5 Zeichen) ist Pflicht")
+        self.confirmation_hash = (self.confirmation_hash or "").strip()
+        if len(self.confirmation_hash) != 64:
+            raise ValueError("confirmation_hash (Pruefwert der Bestaetigung) ist Pflicht")
+        return self
+
+
+# Datenminimierung (Nachtrag 2): genau diese Felder verlassen den Server in der
+# Ansicht "Offene Freigaben" -- keine Namen, Adressen, Vermoegens-, Depot- oder
+# Kontaktdaten (Test prueft die Feld-Allowlist).
+KYC_PENDING_APPROVAL_FIELDS: tuple[str, ...] = (
+    "confirmation_id", "client_number", "form_type", "external_reference",
+    "risk_category_previous", "risk_category_new", "is_pep_previous", "is_pep_new",
+    "pep_withdrawal_recorded", "approval_reasons", "recorded_by_name", "recorded_by_self",
+    "recorded_at", "note", "confirmation_hash",
+)
+
+
+class KycPendingApproval(BaseModel):
+    confirmation_id: str
+    client_number: Optional[str] = None
+    form_type: str
+    external_reference: str
+    risk_category_previous: Optional[str] = None
+    risk_category_new: str
+    is_pep_previous: Optional[bool] = None
+    is_pep_new: bool
+    pep_withdrawal_recorded: bool = False
+    approval_reasons: list[str]
+    recorded_by_name: Optional[str] = None
+    recorded_by_self: bool = False
+    recorded_at: str
+    note: Optional[str] = None
+    confirmation_hash: str
+
+
+class KycPendingApprovalList(BaseModel):
+    tenant_id: str
+    items: list[KycPendingApproval]
+
+
+class KycSecondApprovalDecisionResponse(BaseModel):
+    confirmation_id: str
+    decision: Literal["approve", "reject"]
+    decided_by: str
+    decided_at: str
+    record_id: str
+
+
 # ---------------------------------------------------------------------------
 # H8 Luecke 10: Vertretung / Verfuegungsberechtigung (dokumentarisch).
 # ---------------------------------------------------------------------------

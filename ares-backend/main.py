@@ -42,7 +42,7 @@ from routers.cost_disclosure import router as cost_disclosure_router  # FIDLEG A
 from routers.privacy import router as privacy_router  # PRIVACY-001 (2026-10-27)
 from routers.eligibility_overrides import router as eligibility_overrides_router  # ELIG-OVERRIDE-CAPTURE-001
 from routers.cma_policy import router as cma_policy_router  # CMA-001
-from routers.clients import router as clients_router
+from routers.clients import kyc_approvals_router, router as clients_router
 from routers.health import router as health_router
 from routers.jurisdiction import (  # WP3 (2026-07-31) — Jurisdiktions-Verwaltung + CMA-Freigabe
     cma_approval_router,
@@ -180,6 +180,7 @@ app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(clients_router)
+app.include_router(kyc_approvals_router)
 app.include_router(mandates_router)
 app.include_router(profiling_router)
 app.include_router(wealth_router)
