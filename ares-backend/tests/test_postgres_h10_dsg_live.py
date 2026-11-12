@@ -116,7 +116,7 @@ def pg_ctx():
         app_url = make_url(scoped).set(username=role, password=password).render_as_string(hide_password=False)
         app = create_engine(app_url, future=True, pool_size=1, max_overflow=0)
         attach_tenant_context_reset(app)
-        yield {"app": app, "owner": owner, "schema": schema}
+        yield {"app": app, "owner": owner, "schema": schema, "app_url": app_url}
     finally:
         if app is not None:
             app.dispose()
@@ -193,7 +193,12 @@ def test_two_concurrent_status_changes_one_wins_on_postgres(pg_ctx, table):
 
     model = PrivacySubjectRequest if table == "privacy_subject_requests" else PrivacySecurityIncident
     field, values = ("status", ("IDENTITY_VERIFIED", "WITHDRAWN")) if model is PrivacySubjectRequest         else ("risk_level", ("LOW", "HIGH"))
-    first, second = _session(pg_ctx, "t-a"), _session(pg_ctx, "t-a")
+    # Eigene Engine mit zwei Verbindungen: zwei gleichzeitige Bearbeiter.
+    engine = create_engine(pg_ctx["app_url"], future=True, pool_size=2, max_overflow=0)
+    attach_tenant_context_reset(engine)
+    first, second = sessionmaker(bind=engine)(), sessionmaker(bind=engine)()
+    set_tenant_context(first, "t-a")
+    set_tenant_context(second, "t-a")
     try:
         a, b = first.get(model, f"{table}-t-a"), second.get(model, f"{table}-t-a")
         assert a is not None and b is not None
@@ -205,6 +210,7 @@ def test_two_concurrent_status_changes_one_wins_on_postgres(pg_ctx, table):
     finally:
         first.close()
         second.close()
+        engine.dispose()
     with pg_ctx["owner"].connect() as conn:
         assert conn.execute(text(f"SELECT {field}, row_version FROM {table} WHERE id = :id"),
                             {"id": f"{table}-t-a"}).one() == (values[0], 2)

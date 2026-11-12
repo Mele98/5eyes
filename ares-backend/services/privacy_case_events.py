@@ -8,14 +8,13 @@ des Artefakts. ``chain_problems`` rechnet die Kette nach.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
 
-from core.evidence import SCHEME_V1, canonical_json
+from core.evidence import SCHEME_V1, evidence_hash
 from database import new_uuid
 
 
@@ -28,7 +27,7 @@ def _iso(now: datetime | None = None) -> str:
 
 def _event_hash(row_values: dict[str, Any]) -> str:
     """SHA-256 ueber die kanonische Form (core.evidence, Schema V1)."""
-    return hashlib.sha256(canonical_json(row_values, scheme=SCHEME_V1).encode("utf-8")).hexdigest()
+    return evidence_hash(row_values, scheme=SCHEME_V1)
 
 
 def _hash_fields(row) -> dict[str, Any]:
