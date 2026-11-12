@@ -541,6 +541,17 @@ class Settings(BaseSettings):
     # kein zusaetzliches Schluesselmaterial zu verwalten).
     backup_hmac_key: str = Field(default='', repr=False)
 
+    # F6 (Codex-Entscheid Runde 3, 2026-11-07): Grenze der SYNCHRONEN
+    # Audit-Kettenpruefung beim Start. Darueber laeuft die Vollpruefung
+    # chunked im Hintergrund (sichtbarer Status: GET /admin/system/audit-log/
+    # verification-status und Compliance-Warnung); das Bestandssiegel wird
+    # unabhaengig von der Zeilenzahl vor dem Return gebildet. Die Grenze
+    # begrenzt nur die Startzeit, nie den Pruefumfang.
+    audit_startup_check_max_rows: int = Field(default=200_000, ge=1)
+    # Zeilen je Teilschritt der Hintergrundpruefung (eigene kurze Session je
+    # Teilschritt, Fortschritt nach jedem Teilschritt gespeichert).
+    audit_verify_chunk_size: int = Field(default=5_000, ge=1)
+
     # Browser-Hosting (2026-06-10): Haupt-App (ares.html) ueber das Backend
     # ausliefern, damit ein einzelner Host/Tunnel die komplette App im Browser
     # bereitstellt (Remote-Demo/Tier-2). Default AUS — Tier-1/Electron laedt die

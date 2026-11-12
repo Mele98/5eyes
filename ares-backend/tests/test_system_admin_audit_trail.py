@@ -102,7 +102,7 @@ def test_valid_actions_whitelist_keeps_legacy_actions():
 def test_db_backup_writes_audit_log(session_factory, monkeypatch):
     monkeypatch.setattr(
         system_router, "create_backup",
-        lambda: {"backup_path": "/tmp/test.bak", "size_bytes": 1234, "status": "ok"},
+        lambda **_kw: {"backup_path": "/tmp/test.bak", "size_bytes": 1234, "status": "ok"},
     )
     try:
         with _client(session_factory) as client:
@@ -311,7 +311,7 @@ def test_audit_log_filter_accepts_new_actions(session_factory, monkeypatch):
     """Wenn ich nach action=BACKUP filtere, darf die Whitelist das nicht verwerfen."""
     monkeypatch.setattr(
         system_router, "create_backup",
-        lambda: {"backup_path": "/tmp/f.bak", "size_bytes": 1, "status": "ok"},
+        lambda **_kw: {"backup_path": "/tmp/f.bak", "size_bytes": 1, "status": "ok"},
     )
     try:
         with _client(session_factory) as client:

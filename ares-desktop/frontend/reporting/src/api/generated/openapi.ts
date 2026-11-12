@@ -309,6 +309,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/system/audit-log/anchor/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Audit Log Anchor
+         * @description F4 (Codex-Entscheid Runde 3): Anker exportieren -- Kettenkopf und
+         *     Bestandssiegel als kurze Quittung ohne Kundendaten, zum Ausdrucken bzw.
+         *     Ablegen in einer getrennten append-only/WORM- oder Treuhand-Ablage.
+         *
+         *     Fail-closed: nur nach erfolgreicher Vollpruefung (409 sonst). Signiert
+         *     mit backup_hmac_key, falls konfiguriert. Der Export wird auditiert
+         *     (EXPORT auf audit_anchor). Operator-Bypass wie GET /audit-log/verify:
+         *     die Kette ist global (alle Tenants).
+         */
+        post: operations["export_audit_log_anchor_admin_system_audit_log_anchor_export_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/system/audit-log/anchor/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify Audit Log Anchor
+         * @description F4: Anker verifizieren -- enthaelt die heutige Kette den Anker-Stand
+         *     unveraendert (Kette 1..N, Kopf, Bestandssiegel)? Antwort ohne Inhalte.
+         *     Ein unlesbarer Anker ergibt 422. N-880-08: das Ergebnis wird auditiert
+         *     (CREATE/ANCHOR_VERIFY mit ok, Fingerabdruck, Sequenzen, Gruenden).
+         */
+        post: operations["verify_audit_log_anchor_admin_system_audit_log_anchor_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/system/audit-log/verification-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Audit Log Verification Status
+         * @description F6 (Codex-Entscheid Runde 3): sichtbarer Integritaetsstatus der Audit-
+         *     Kette (pending/running/ok/broken/error, Fortschritt, letzter erfolgreich
+         *     gepruefter Kopf). integrity_confirmed nur bei 'ok'. Keine Inhalte. Die
+         *     Admin-Uebersicht zeigt den Status zusaetzlich als Compliance-Warnung
+         *     (GET /admin/system/compliance). N-880-08: jede Abfrage wird auditiert
+         *     (CREATE/VERIFICATION_STATUS_READ, Wert = Zustand).
+         */
+        get: operations["get_audit_log_verification_status_admin_system_audit_log_verification_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/system/audit-log/verify": {
         parameters: {
             query?: never;
@@ -6069,6 +6144,94 @@ export interface components {
             /** Target Weight Bps */
             target_weight_bps: number;
         };
+        /**
+         * AuditAnchor
+         * @description F4: Anker der Audit-Kette (Kettenkopf + Bestandssiegel), ohne
+         *     Kundendaten. Feldbedeutung siehe services/audit_anchor.py.
+         */
+        AuditAnchor: {
+            /** Chain Head Hash */
+            chain_head_hash: string;
+            /** Chain Sequence */
+            chain_sequence: number;
+            /** Created At */
+            created_at: string;
+            /** Fingerprint */
+            fingerprint: string;
+            /** Legacy Seal Count */
+            legacy_seal_count: number | string;
+            /** Legacy Seal Digest */
+            legacy_seal_digest: string;
+            /** Legacy Seal Entry Hash */
+            legacy_seal_entry_hash: string;
+            /** Legacy Seal Sequence */
+            legacy_seal_sequence: number | string;
+            /** Product */
+            product: string;
+            /** Scheme */
+            scheme: string;
+            /** Signature */
+            signature: string;
+            /** Source */
+            source: string;
+            /** Verified */
+            verified: string;
+        };
+        /** AuditAnchorExport */
+        AuditAnchorExport: {
+            anchor: components["schemas"]["AuditAnchor"];
+            /** Text */
+            text: string;
+        };
+        /** AuditAnchorVerification */
+        AuditAnchorVerification: {
+            /** Anchor Created At */
+            anchor_created_at: string;
+            /** Anchor Fingerprint */
+            anchor_fingerprint: string;
+            /** Anchor Sequence */
+            anchor_sequence: number;
+            /** Anchor Verified At Export */
+            anchor_verified_at_export: boolean;
+            /** Chain Prefix Ok */
+            chain_prefix_ok: boolean;
+            /** Current Sequence */
+            current_sequence: number;
+            /** Fingerprint Ok */
+            fingerprint_ok: boolean;
+            /** Full Chain Ok */
+            full_chain_ok: boolean;
+            /** Head Match */
+            head_match: boolean;
+            /** Legacy Seal Match */
+            legacy_seal_match: boolean;
+            /** Legacy Seal Ok */
+            legacy_seal_ok?: boolean | null;
+            /** Ok */
+            ok: boolean;
+            /** Reasons */
+            reasons: string[];
+            /**
+             * Signature
+             * @enum {string}
+             */
+            signature: "valid" | "none" | "missing" | "invalid" | "key_missing";
+            /**
+             * Unsigned Accepted
+             * @default false
+             */
+            unsigned_accepted?: boolean;
+        };
+        /** AuditAnchorVerifyRequest */
+        AuditAnchorVerifyRequest: {
+            /**
+             * Allow Unsigned
+             * @default false
+             */
+            allow_unsigned?: boolean;
+            /** Anchor Text */
+            anchor_text: string;
+        };
         /** AuditChainGap */
         AuditChainGap: {
             /** From Sequence */
@@ -6115,6 +6278,50 @@ export interface components {
             legacy: components["schemas"]["AuditLegacySection"];
             /** Ok */
             ok: boolean;
+        };
+        /**
+         * AuditChainVerificationStatusOut
+         * @description F6: persistierter Status der Audit-Kettenpruefung. integrity_confirmed
+         *     nur bei state='ok'; pending/running/error/unknown = nicht bestaetigt.
+         *     Keine Inhalte, nur Zaehler/Sequenznummern/Ketten-Hash/Zeitpunkte.
+         */
+        AuditChainVerificationStatusOut: {
+            /** Checked */
+            checked?: number | null;
+            /** Error */
+            error?: string | null;
+            /** Finding Count */
+            finding_count?: number | null;
+            findings?: components["schemas"]["AuditVerificationFindings"] | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Integrity Confirmed */
+            integrity_confirmed: boolean;
+            /** Last Ok At */
+            last_ok_at?: string | null;
+            /** Last Ok Hash */
+            last_ok_hash?: string | null;
+            /** Last Ok Sequence */
+            last_ok_sequence?: number | null;
+            /** Mode */
+            mode?: ("sync" | "background") | null;
+            /** Started At */
+            started_at?: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "running" | "ok" | "broken" | "error" | "unknown";
+            /** Target Sequence */
+            target_sequence?: number | null;
+            /** Threshold */
+            threshold?: number | null;
+            /** Total Rows */
+            total_rows?: number | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Verified Through Sequence */
+            verified_through_sequence?: number | null;
         };
         /** AuditLegacySection */
         AuditLegacySection: {
@@ -6201,6 +6408,25 @@ export interface components {
             offset: number;
             /** Total */
             total: number;
+        };
+        /** AuditVerificationFindings */
+        AuditVerificationFindings: {
+            /** Break Count */
+            break_count: number;
+            /** Duplicate Count */
+            duplicate_count: number;
+            /** Gap Count */
+            gap_count: number;
+            /** Hash Mismatch Count */
+            hash_mismatch_count: number;
+            /** Legacy Field Shift */
+            legacy_field_shift: number;
+            /** Legacy Mismatches */
+            legacy_mismatches: number;
+            /** Legacy Seal Ok */
+            legacy_seal_ok?: boolean | null;
+            /** Legacy Unexpected Unhashed */
+            legacy_unexpected_unhashed: number;
         };
         /** BaselineProposal */
         BaselineProposal: {
@@ -13857,6 +14083,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_audit_log_anchor_admin_system_audit_log_anchor_export_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditAnchorExport"];
+                };
+            };
+        };
+    };
+    verify_audit_log_anchor_admin_system_audit_log_anchor_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuditAnchorVerifyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditAnchorVerification"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_audit_log_verification_status_admin_system_audit_log_verification_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditChainVerificationStatusOut"];
                 };
             };
         };

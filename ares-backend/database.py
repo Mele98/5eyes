@@ -846,6 +846,16 @@ _COUNTER_LAST_HASH_BACKFILL_SQL = (
 )
 
 
+_AUDIT_CHAIN_VERIFICATION_STATUS_SQL = (
+    "CREATE TABLE IF NOT EXISTS audit_chain_verification_status ("
+    "id TEXT PRIMARY KEY, state TEXT NOT NULL, mode TEXT NOT NULL, "
+    "total_rows INTEGER, threshold INTEGER, target_sequence INTEGER, "
+    "verified_through_sequence INTEGER, checked INTEGER, finding_count INTEGER, "
+    "last_ok_sequence INTEGER, last_ok_hash VARCHAR(64), last_ok_at TEXT, "
+    "started_at TEXT, updated_at TEXT, finished_at TEXT, detail_json TEXT)"
+)
+
+
 def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
     target_engine = _resolve_engine(target_engine)
     additive_columns: dict[str, list[tuple]] = {  # (name, TYPE) oder (name, TYPE, int_default)
@@ -1464,6 +1474,11 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         # unsichtbar). Einmaliger Nachtrag aus der Zeile mit sequence = value
         # (identisch zur Alembic-Revision c8a2f4e6b0d9).
         ensure_column(conn, "audit_log_sequence_counter", "last_hash", "TEXT")
+        # F6 (Codex-Entscheid Runde 3): persistierter Status der Audit-
+        # Kettenpruefung (models.review.AuditChainVerificationStatus). Wie der
+        # Zaehler zusaetzlich per Raw-SQL, damit Fixtures ohne create_all()
+        # die Tabelle ebenfalls haben. Gleiche Spalten in Alembic a9d4e2c6f1b3.
+        conn.execute(text(_AUDIT_CHAIN_VERIFICATION_STATUS_SQL))
         if inspector.has_table('audit_log'):
             audit_columns = {
                 row[1] for row in conn.execute(text("PRAGMA table_info(audit_log)")).fetchall()

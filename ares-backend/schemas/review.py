@@ -2255,6 +2255,90 @@ class AuditChainVerification(BaseModel):
     legacy: AuditLegacySection
 
 
+class AuditVerificationFindings(BaseModel):
+    break_count: int
+    gap_count: int
+    duplicate_count: int
+    hash_mismatch_count: int
+    legacy_mismatches: int
+    legacy_field_shift: int
+    legacy_unexpected_unhashed: int
+    legacy_seal_ok: Optional[bool] = None
+
+
+class AuditChainVerificationStatusOut(BaseModel):
+    """F6: persistierter Status der Audit-Kettenpruefung. integrity_confirmed
+    nur bei state='ok'; pending/running/error/unknown = nicht bestaetigt.
+    Keine Inhalte, nur Zaehler/Sequenznummern/Ketten-Hash/Zeitpunkte."""
+
+    state: Literal["pending", "running", "ok", "broken", "error", "unknown"]
+    mode: Optional[Literal["sync", "background"]] = None
+    integrity_confirmed: bool
+    total_rows: Optional[int] = None
+    threshold: Optional[int] = None
+    target_sequence: Optional[int] = None
+    verified_through_sequence: Optional[int] = None
+    checked: Optional[int] = None
+    finding_count: Optional[int] = None
+    findings: Optional[AuditVerificationFindings] = None
+    last_ok_sequence: Optional[int] = None
+    last_ok_hash: Optional[str] = None
+    last_ok_at: Optional[str] = None
+    started_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    error: Optional[str] = None
+
+
+class AuditAnchor(BaseModel):
+    """F4: Anker der Audit-Kette (Kettenkopf + Bestandssiegel), ohne
+    Kundendaten. Feldbedeutung siehe services/audit_anchor.py."""
+
+    scheme: str
+    product: str
+    created_at: str
+    source: str
+    verified: str
+    chain_sequence: int
+    chain_head_hash: str
+    legacy_seal_sequence: int | str
+    legacy_seal_entry_hash: str
+    legacy_seal_digest: str
+    legacy_seal_count: int | str
+    fingerprint: str
+    signature: str
+
+
+class AuditAnchorExport(BaseModel):
+    anchor: AuditAnchor
+    # Quittung zum Ausdrucken/Ablegen (LF, ASCII).
+    text: str
+
+
+class AuditAnchorVerifyRequest(BaseModel):
+    anchor_text: str = Field(min_length=1, max_length=4000)
+    # N-880-02: bewusst unsignierter Altanker trotz konfiguriertem Schluessel.
+    allow_unsigned: bool = False
+
+
+class AuditAnchorVerification(BaseModel):
+    ok: bool
+    reasons: list[str]
+    anchor_sequence: int
+    anchor_created_at: str
+    anchor_fingerprint: str
+    anchor_verified_at_export: bool
+    signature: Literal["valid", "none", "missing", "invalid", "key_missing"]
+    unsigned_accepted: bool = False
+    fingerprint_ok: bool
+    chain_prefix_ok: bool
+    head_match: bool
+    legacy_seal_match: bool
+    legacy_seal_ok: Optional[bool] = None
+    current_sequence: int
+    full_chain_ok: bool
+
+
 # ---------------------------------------------------------------------------
 # Sprint U-P28: Berater-Overrides für den Advisory-Report.
 #
