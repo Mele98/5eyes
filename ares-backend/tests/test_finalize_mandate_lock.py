@@ -134,6 +134,8 @@ def _add_full_position(session_factory, run_id) -> None:
             product_type="ETF", asset_class="Aktien", sub_asset_class="Aktien Welt",
             currency="CHF", ter_bps=20, sfdr_class="6",
             is_active=1, created_at=now, updated_at=now,
+            # H7 C-4: Retro-Gate -- Fixture ausdruecklich retrozessionsfrei.
+            retrocession_bps=0, retrocession_source="Testfixture: retrozessionsfrei (H7 C-4)",
         ))
         s.flush()
         # ELIG-FINAL-001: Finalize prueft die Produkteignung jeder Position

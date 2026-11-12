@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from config import KekStoreError, ensure_tenant_master_kek, settings
+from config import KekStoreError, ensure_tenant_master_kek, require_tenant_master_kek, settings
 from core.logging_setup import configure_logging
 from core.middleware import (
     MaxBodySizeMiddleware,
@@ -64,7 +64,10 @@ from routers.review import (
 from routers.fx_rates import router as fx_rates_router
 from routers.pdf_reports import router as pdf_reports_router
 from routers.snapshots import router as snapshots_router
-from routers.system import router as system_router
+# H-865-2/N-869-4: Startpruefung der Audit-Kette ueber routers.system (das
+# services.audit bereits importiert; dort im Operator-Bypass fuer PG-RLS) --
+# keine neue Modulkante fuer main.
+from routers.system import backup_snapshot_anchor, router as system_router, run_startup_audit_chain_check
 from routers.tenants import router as tenants_router  # Sprint T4 (2026-06-08)
 from routers.tax import router as tax_router
 from routers.wealth import router as wealth_router
@@ -97,13 +100,18 @@ async def lifespan(app: FastAPI):
     except KekStoreError as exc:
         logger.critical('Start abgebrochen: %s', exc)
         raise
-    if kek_outcome == 'legacy-existing-db':
-        logger.warning(
-            'Master-KEK: vorhandene Datenbank ohne KEK-Ablage -- keine KEK erzeugt '
-            '(Vorgaengervertrag; mit der KEK-Pflicht bricht dieser Start ab)'
-        )
-    else:
-        logger.info('Master-KEK: %s', kek_outcome)
+    # Eine vorhandene Datenbank ohne KEK bricht schon in ensure_tenant_master_kek
+    # ab (KEK_REQUIRED_FOR_EXISTING_DATA, A2b B-2) -- mit dem Hinweis auf
+    # Migrator bzw. Ablage aus Sicherung/Treuhand, ohne eine KEK zu erzeugen.
+    logger.info('Master-KEK: %s', kek_outcome)
+    # W4-c / AF-4: ohne eigene Master-KEK startet Ares nicht (fail-closed;
+    # kein Rueckfall auf SECRET_KEY oder einen Platzhalter). Pruefung aus config
+    # (dieselbe, die services.tenant_crypto beim Entpacken anwendet).
+    try:
+        require_tenant_master_kek(settings)
+    except KekStoreError as exc:
+        logger.critical('Start abgebrochen: %s', exc)
+        raise
     init_db()
     # U-32 / W2-804-01: Discover externe Tax-Regime-Plugins (Entry-Point
     # group 'ares.tax_regime', SDK 2.x). Ohne Erwartungs-Manifest bricht der
@@ -127,8 +135,14 @@ async def lifespan(app: FastAPI):
             db.commit()
     except Exception as exc:  # noqa: BLE001 - reference seed must not stop boot
         logger.warning('Tax-Parameter-Seed skipped due to error: %s', exc)
+    # H-865-2 (Pruefrunde #865): leichte Startpruefung der Audit-Kette.
+    # Blockiert den Start bewusst NICHT (Verfuegbarkeit, Begruendung in
+    # services/audit.py::run_startup_audit_chain_check); ein Bruch wird als
+    # CRITICAL geloggt, Details ueber GET /admin/system/audit-log/verify.
+    run_startup_audit_chain_check()
     start_price_scheduler()
-    start_backup_scheduler()
+    # F4: jedes geplante Backup-Manifest traegt Kettenkopf + Bestandssiegel.
+    start_backup_scheduler(snapshot_anchor=backup_snapshot_anchor)
     try:
         yield
     finally:

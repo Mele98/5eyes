@@ -29,8 +29,10 @@ Verletzung).
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+import json
+from typing import Any, Callable, Optional
 
+from sqlalchemy import text as _sql_text
 from sqlalchemy.orm import Session
 
 from core.reason_codes import DomainError
@@ -314,4 +316,126 @@ def assert_current_allocation_without_adr12a_hold(
         allocation,
         channel=channel,
         channel_label=_CHANNEL_LABELS.get(channel, "Freigabe nicht möglich"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# H7 N-884-04: Retro-Gate auch fuer bereits finale Laeufe (Handoff, Signatur)
+# ---------------------------------------------------------------------------
+#
+# Die Finalisierung sperrt seit H7 C-4 unvollstaendige Retrozessions-Ausweise
+# (services/cost_disclosure.py::retrocession_finalization_block). Laeufe, die
+# VOR diesem Gate final wurden, koennten sonst weiterhin weitergeleitet oder
+# unterzeichnet werden. Gelesen wird das bei der Finalisierung EINGEFRORENE
+# L1-Urteil (``product_retrocessions.complete``, ``requires_resolution`` der
+# Kostenzeilen) -- keine Neuberechnung, keine zweite Retro-Logik. Fehlt der
+# Snapshot oder ist er unlesbar und traegt der Lauf Produkte mit unbekannter
+# oder positiver Retrozession, gilt das als nicht nachgewiesen (fail-closed).
+# Reason-Codes wie bei der Finalisierung (Art. 26 FIDLEG; Art. 400 OR;
+# BGE 137 III 393).
+
+RETRO_RELEASE_INCOMPLETE = "RETROCESSION_DISCLOSURE_INCOMPLETE"
+RETRO_RELEASE_UNAVAILABLE = "RETROCESSION_EVIDENCE_UNAVAILABLE"
+_RETRO_HEAL = (
+    "Retrozession im Fondsuniversum erfassen bzw. Verzicht (Beleg) oder "
+    "Rückerstattung im Mandat dokumentieren und die Empfehlung neu finalisieren "
+    "(Art. 26 FIDLEG; Art. 400 OR; BGE 137 III 393)."
+)
+
+
+def _release_run_row(db: Session, mandate: Any, run: Optional[Any]):
+    if run is not None:
+        return (
+            str(run.id),
+            str(getattr(run, "result_status", "") or ""),
+            getattr(run, "cost_disclosure_snapshot_json", None),
+        )
+    return db.execute(
+        _sql_text(
+            "SELECT id, result_status, cost_disclosure_snapshot_json FROM recommendation_runs "
+            "WHERE mandate_id = :mid AND result_status = 'Final' "
+            "ORDER BY updated_at DESC, created_at DESC LIMIT 1"
+        ),
+        {"mid": str(mandate.id)},
+    ).first()
+
+
+def _run_has_retro_relevant_products(db: Session, run_id: str) -> bool:
+    rates = db.execute(
+        _sql_text(
+            "SELECT p.retrocession_bps FROM recommendation_positions rp "
+            "JOIN products p ON p.id = rp.product_id WHERE rp.run_id = :run_id"
+        ),
+        {"run_id": run_id},
+    ).all()
+    return any(rate is None or int(rate) > 0 for (rate,) in rates)
+
+
+def retrocession_release_finding(
+    db: Session, mandate: Any, run: Optional[Any] = None,
+) -> Optional[tuple[str, str, Optional[str]]]:
+    """(reason_code, message, run_id) fuer einen finalen Lauf mit nicht
+    geklaerter Retrozession, sonst None. Ohne ``run``: der aktuelle finale
+    Lauf des Mandats (Signatur). Nicht finale Laeufe prueft die Finalisierung."""
+    row = _release_run_row(db, mandate, run)
+    if row is None:
+        return None
+    run_id, status, snapshot_json = row[0], row[1], row[2]
+    if status != "Final":
+        return None
+    payload = None
+    if snapshot_json:
+        try:
+            payload = (json.loads(snapshot_json) or {}).get("payload")
+        except (TypeError, ValueError, AttributeError):
+            payload = None
+    if not isinstance(payload, dict):
+        if not _run_has_retro_relevant_products(db, str(run_id)):
+            return None
+        return (
+            RETRO_RELEASE_UNAVAILABLE,
+            "Für die finale Empfehlung liegt kein lesbarer, eingefrorener "
+            "Retrozessions-Nachweis vor, und sie enthält Produkte mit unbekannter "
+            "oder vorhandener Retrozession. " + _RETRO_HEAL,
+            str(run_id),
+        )
+    summary = payload.get("product_retrocessions") or None
+    retro_ok = summary is None or bool(summary.get("complete"))
+    unresolved_items = any(
+        bool(item.get("requires_resolution")) for item in (payload.get("cost_items") or [])
+        if isinstance(item, dict)
+    )
+    if retro_ok and not unresolved_items:
+        return None
+    return (
+        RETRO_RELEASE_INCOMPLETE,
+        "Der eingefrorene Retrozessions-Ausweis der finalen Empfehlung ist "
+        "unvollständig (unbekannte oder ungeregelte Vergütung von Dritten). "
+        + _RETRO_HEAL,
+        str(run_id),
+    )
+
+
+def assert_retrocession_release_eligible(
+    db: Session,
+    mandate: Any,
+    *,
+    channel: str,
+    run: Optional[Any] = None,
+    on_block: Optional[Callable[[str, Optional[str]], None]] = None,
+) -> None:
+    """Fail-closed-Gate fuer Handoff und Signatur (409). ``on_block`` (z.B.
+    Audit-Eintrag des Routers) wird vor dem Raise mit (reason_code, run_id)
+    aufgerufen."""
+    finding = retrocession_release_finding(db, mandate, run)
+    if finding is None:
+        return
+    reason_code, message, run_id = finding
+    if on_block is not None:
+        on_block(reason_code, run_id)
+    raise DomainError(
+        reason_code,
+        f"{_CHANNEL_LABELS.get(channel, 'Freigabe nicht möglich')}: {message}",
+        http_status=409,
+        extra={"channel": channel, "recommendation_run_id": run_id},
     )

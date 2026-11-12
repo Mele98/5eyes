@@ -10,10 +10,12 @@ NICHT absolut: es steht zurueck, wo eine gesetzliche Aufbewahrungspflicht
 entgegensteht. Fuer Ares als Vermoegensverwaltungs-/Beratungs-Software
 sind das insbesondere:
 
-- FIDLEG Art. 11/12/16/19/21 (Dokumentationspflicht Beratung, Eignungs-
-  pruefung, Kostenoffenlegung) -- i.d.R. 10 Jahre.
-- GwG Art. 7 (Sorgfaltspflicht-Belege) -- i.d.R. 10 Jahre.
-- OR Art. 962 (kaufmaennische Buchfuehrung/Aufbewahrung) -- 10 Jahre.
+- FIDLEG Art. 15 (Dokumentationspflicht Beratung, Eignungspruefung,
+  Kostenoffenlegung) -- keine eigene Frist; 10 Jahre aus Beweissicherung
+  (OR Art. 127) ab Mandatsende.
+- GwG Art. 7 Abs. 3 (Sorgfaltspflicht-Belege) -- mindestens 10 Jahre nach
+  Ende der Geschaeftsbeziehung.
+- OR Art. 958f (Buecher und Buchungsbelege) -- 10 Jahre.
 
 Die bestehende, bereits vor diesem Sprint gepflegte Aufstellung in
 ``services/data_export.py::RETENTION_NOTES`` dokumentiert diese Fristen
@@ -24,7 +26,7 @@ Design-Entscheidung: Zwei-Stufen-Modell statt Alles-oder-Nichts
 -----------------------------------------------------------------
 Ein voller Hard-Delete des gesamten Kunden-Fussabdrucks wuerde die oben
 genannten 10-Jahres-Pflichten verletzen, solange die Frist laeuft
-(genau das ist die "Retention-Abwaegung FIDLEG 10 Jahre vs. OR 962", die
+(genau das ist die "Retention-Abwaegung FIDLEG 10 Jahre vs. OR 962" (heute: OR 958f), die
 in docs/planning/2026-08-03-launch-readiness-update.md als offener
 Punkt gelistet ist). Ein reiner Soft-Delete (nur ``deleted_at`` setzen,
 wie der bestehende ``DELETE /clients/{id}``) loescht dagegen faktisch

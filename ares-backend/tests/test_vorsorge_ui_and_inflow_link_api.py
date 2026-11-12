@@ -25,6 +25,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -215,7 +216,7 @@ def test_inflow_put_link_is_validated(auth_client, advisor_user):
 
 
 def _html() -> str:
-    return MONOLITH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _function_source(html: str, name: str) -> str:

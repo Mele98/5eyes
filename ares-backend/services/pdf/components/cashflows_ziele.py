@@ -29,7 +29,7 @@ from services.pdf.styles import (
 def make_cashflows_section(events: Iterable[Mapping], *, base_currency: str = "CHF") -> list:
     """Kapitalzuflüsse-Tabelle (einmalige + wiederkehrende Income-Events)."""
     flowables: list = []
-    flowables.append(_section_title("🌐  Kapitalzuflüsse"))
+    flowables.append(_section_title("Kapitalzuflüsse"))
     events_list = list(events or [])
     if not events_list:
         flowables.append(_fallback_text("Noch keine Kapitalzuflüsse erfasst."))
@@ -50,7 +50,7 @@ def make_ziele_overview_section(goals: Iterable[Mapping], *, base_currency: str 
     nur die definierten Ziele OHNE Achievement-Score (Seite 12 Vorlage).
     """
     flowables: list = []
-    flowables.append(_section_title("🏆  Ihre persönlichen Ziele"))
+    flowables.append(_section_title("Ihre persönlichen Ziele"))
     goals_list = list(goals or [])
     if not goals_list:
         flowables.append(_fallback_text("Noch keine Ziele erfasst."))

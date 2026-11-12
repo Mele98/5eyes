@@ -431,6 +431,41 @@ def _simulation_use_tail_risk(simulation_prefs: dict | None) -> bool:
     return str(raw or "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def path_simulation_distribution_phrase(simulation_prefs: dict | None) -> str:
+    """AUDIT-2026-11 D1: kundensichtbare Beschreibung der Renditeverteilung.
+
+    Der Methodentext sprach von normalverteilten Jahresrenditen. Gerechnet
+    wird mit lognormalen Jahresrenditen, seit CMA-TAIL-ACTIVATION-GOVERNANCE-
+    001 standardmaessig mit Cornish-Fisher-Korrektur fuer die Schiefe und
+    Woelbung aus den Kapitalmarktannahmen (``_simulation_use_tail_risk``).
+    Der Text folgt demselben Schalter wie die Rechnung.
+    """
+    if _simulation_use_tail_risk(simulation_prefs):
+        return (
+            "lognormalen Jahresrenditen mit Cornish-Fisher-Korrektur fuer "
+            "Schiefe und Woelbung (Tail-Risiken der Renditeverteilung)"
+        )
+    return (
+        "lognormalen Jahresrenditen ohne Tail-Korrektur "
+        "(Cornish-Fisher per Simulations-Einstellung deaktiviert)"
+    )
+
+
+def path_simulation_method_sentence(simulation_prefs: dict | None) -> str:
+    return (
+        "Eine Pfadsimulation mit "
+        f"{path_simulation_distribution_phrase(simulation_prefs)} quantifiziert "
+        "Zielwahrscheinlichkeit, Verlustband und Rebalancing-Risiko."
+    )
+
+
+def path_simulation_projection_sentence(simulation_prefs: dict | None) -> str:
+    return (
+        "Die Projektion wird zusaetzlich als Pfadsimulation mit "
+        f"{path_simulation_distribution_phrase(simulation_prefs)} verdichtet."
+    )
+
+
 def _target_bucket_values(total_rappen: int, weights_bps: dict[str, int]) -> dict[str, int]:
     # Lazy Import (Zirkular-Import-Haertung, siehe Modul-Docstring).
     from services.portfolio_engine import BUCKET_FIELDS

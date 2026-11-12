@@ -12,13 +12,14 @@ ebenfalls auf Quelltext-Assertions statt echter JS-Ausfuehrung setzen).
 """
 from pathlib import Path
 import re
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _sync_fn_body() -> str:
@@ -67,8 +68,11 @@ def test_both_charts_redrawn_after_axis_sync():
     body = _sync_fn_body()
     # Ohne erneutes .update() auf BEIDEN Charts bleiben angeglichene Achsen
     # unsichtbar (der urspruengliche 2026-06-14-Bug).
-    assert "charts.opt.update('none')" in body
-    assert "charts.aaCurrent.update('none')" in body
+    # Live-Test 2026-11 H5: Neuzeichnen ueber chartUpdateSettled() (stop() +
+    # update('none')), damit eine laufende Animation die neu berechneten
+    # Punkte nicht auf die alte Skala zurueckzieht.
+    assert "chartUpdateSettled(charts.opt)" in body
+    assert "chartUpdateSettled(charts.aaCurrent)" in body
 
 
 def test_sync_called_after_projection_chart_updates():

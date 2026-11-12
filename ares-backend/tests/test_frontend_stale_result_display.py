@@ -17,6 +17,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HTML_PATH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
@@ -35,7 +36,7 @@ def _function(src: str, signature: str) -> str:
 def _run(scenario: str) -> dict:
     if shutil.which("node") is None:
         pytest.skip("node binary not available to execute extracted JS")
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     fns = [
         _function(src, n)
         for n in (
@@ -148,7 +149,7 @@ def test_mandate_switch_drops_previous_stale_notice():
 
 
 def test_single_banner_component_and_scoped_dim_css():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     assert "strip-w" not in html
     banner = html.split('<div id="al-dirty-banner"', 1)[1].split(">", 1)[0]
     assert 'class="al-banner-warning' in banner
