@@ -17,6 +17,7 @@ Unumsetzbarer Baustein -> 409 ``THEME_CLASSIFICATION_MISSING``.
 """
 from __future__ import annotations
 
+from tests.sustainability_test_support import answer_question_one_for_all_mandates  # noqa: E402
 import json
 import sys
 from datetime import datetime, timezone
@@ -175,6 +176,7 @@ def _finalize(SF, mandate_id, run_id, advisor_id):
     with SF() as s:
         user = s.get(User, advisor_id)
         try:
+            answer_question_one_for_all_mandates(s)  # Nachtrag 1: Pflichtfrage
             return finalize_recommendation(
                 mandate_id=mandate_id, run_id=run_id, request=_FakeRequest(), db=s, current_user=user,
             )

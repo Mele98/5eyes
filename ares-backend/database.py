@@ -797,6 +797,62 @@ RISK_CAPACITY_EVALUATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
 )
 
 
+# E1 Nachhaltigkeitspraeferenzen (Dok. 106, 2026-11-07): append-only
+# InvestmentPreferenceDecisionV1 (models/profiling.py::
+# InvestmentPreferenceDecision). Jede Erfassung ist eine neue Version je
+# Mandat (sequence_no, supersedes_id); die aktuelle ist die hoechste
+# sequence_no. Gleiches Muster wie risk_capacity_plausibility_evaluations:
+# Trigger verbieten UPDATE/DELETE, KEIN harter FK auf mandates/clients
+# (Purge-fest), nur captured_by -> users; tenant_id direkt (RLS) mit
+# INSERT-Guard (core/mandate_evidence_tenant_boundary.py). Dieselbe DDL
+# textgleich in ares_schema.sql, Alembic f3a8c1e5b7d2 fuer PostgreSQL.
+INVESTMENT_PREFERENCE_DECISION_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_investment_preference_decisions_no_update "
+    "BEFORE UPDATE ON investment_preference_decisions FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'investment_preference_decisions is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_investment_preference_decisions_no_delete "
+    "BEFORE DELETE ON investment_preference_decisions FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'investment_preference_decisions is immutable'); END",
+)
+
+INVESTMENT_PREFERENCE_DECISION_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS investment_preference_decisions (
+    id                        TEXT PRIMARY KEY,
+    schema_version            TEXT NOT NULL DEFAULT 'InvestmentPreferenceDecisionV1',
+    tenant_id                 TEXT,
+    mandate_id                TEXT NOT NULL,
+    client_id                 TEXT,
+    sequence_no               INTEGER NOT NULL CHECK(sequence_no >= 1),
+    supersedes_id             TEXT,
+    questionnaire_version     TEXT NOT NULL,
+    definition_hash           TEXT NOT NULL,
+    derivation_version        TEXT NOT NULL,
+    response_status           TEXT NOT NULL CHECK(response_status IN ('answered','declined')),
+    esg_relevance             TEXT CHECK(esg_relevance IS NULL OR esg_relevance IN ('yes','not_relevant')),
+    esg_characteristic        TEXT CHECK(esg_characteristic IS NULL OR esg_characteristic IN ('sdg_alignment','esg_factors','no_specific')),
+    exclusions_json           TEXT NOT NULL,
+    preference_waived         INTEGER NOT NULL CHECK(preference_waived IN (0,1)),
+    waiver_reason_sealed      TEXT,
+    profile_code              TEXT NOT NULL CHECK(profile_code IN ('no_preference','sdg_goals','esg_factors','unspecified','declined')),
+    information_acknowledged  INTEGER NOT NULL CHECK(information_acknowledged IN (0,1)),
+    client_confirmed          INTEGER NOT NULL CHECK(client_confirmed IN (0,1)),
+    capture_channel           TEXT NOT NULL CHECK(capture_channel IN ('in_person','phone','video','written')),
+    mandate_type_at_capture   TEXT,
+    review_policy_version     TEXT NOT NULL,
+    review_policy_months      INTEGER NOT NULL,
+    review_due_on             TEXT NOT NULL,
+    captured_by               TEXT NOT NULL REFERENCES users(id),
+    captured_at               TEXT NOT NULL,
+    decision_hash             TEXT NOT NULL,
+    created_at                TEXT NOT NULL
+)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_investment_preference_decisions_sequence "
+    "ON investment_preference_decisions(mandate_id, sequence_no)",
+    "CREATE INDEX IF NOT EXISTS ix_investment_preference_decisions_tenant_id "
+    "ON investment_preference_decisions(tenant_id)",
+)
+
+
 # N-869-4: einmaliger Nachtrag von audit_log_sequence_counter.last_hash aus der
 # Zeile mit sequence = value (nur solange last_hash noch NULL ist). Gleiche
 # Anweisung in Alembic c8a2f4e6b0d9 (dort unter Operator-Bypass, RLS).
@@ -867,6 +923,10 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # bleiben funktionsfaehig; neue Tenants starten via
             # schemas/tenants.py::TenantCreate explizit mit False.
             ('discretionary_management_licensed', 'INTEGER', 1),
+            # E1 Nachhaltigkeitspraeferenzen (2026-11-07): Review-Frist als
+            # Hauspolitik je Tenant. NULL = Default 36 Monate
+            # (core/sustainability_preference.py), keine gesetzliche Frist.
+            ('sustainability_review_months', 'INTEGER'),
         ],
         # CERT-HANDOFF-EXECUTION-001 (2026-10-25): siehe models/portfolio_handoff.py
         # und Alembic c7e4a19b3d52. Nullable, kein Backfill.
@@ -1194,6 +1254,8 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # CMA-001: CMA_POLICY, an die eine Finalisierung gebunden wurde
             # (models/cma_policy.py; NULL solange das Modell nicht aktiv ist).
             ('cma_policy_row_id', 'TEXT'),
+            # E2b Nachtrag 1: Belege der Produktauswahl (Alembic e7b3d9f1a2c4).
+            ('sustainability_evidence_json', 'TEXT'),
         ],
         'optimizer_runs': [
             # U-9 Stage-9 Telemetry: pro Solver-Start n_paths/n_starts/Seed/
@@ -1521,6 +1583,11 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         # Plausibilitaetsbewertungen (idempotent; siehe Konstanten oben).
         for ddl in RISK_CAPACITY_EVALUATION_SQLITE_TABLE_DDL + RISK_CAPACITY_EVALUATION_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
+        # E1 Nachhaltigkeitspraeferenzen (2026-11-07): append-only Versionen je
+        # Mandat (idempotent; siehe Konstanten oben). Tenant-Guard folgt unten
+        # ueber MANDATE_BOUND_TENANT_TABLES.
+        for ddl in INVESTMENT_PREFERENCE_DECISION_SQLITE_TABLE_DDL + INVESTMENT_PREFERENCE_DECISION_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
         # SIGN-001 (2026-10-27): append-only Vor-Ort-Signatur; DDL einzig aus
         # dem ORM (Indizes + after_create-Trigger), idempotent per checkfirst.
         from models.onsite_signature import APPEND_ONLY_TABLES
@@ -1558,6 +1625,13 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         # Start, ohne vorhandene Vertragsdokumente zu beruehren.
         ensure_column(conn, "contract_documents", "pdf_base64", "TEXT")
         ensure_column(conn, "contract_documents", "content_hash", "TEXT")
+        # E2a (2026-11-11): Bindung Dokument -> Nachhaltigkeitspraeferenz
+        # (Alembic f3a8c1e5b7d2); nullable, kein Backfill (Altbestand).
+        ensure_column(conn, "contract_documents", "bound_preference_decision_hash", "TEXT")
+        # E2b / N-888-09: Bindung Dokument -> Soll-Allokation (Alembic
+        # c4e8a2f6b9d1); nullable, kein Backfill (Altbestand = ungebunden).
+        ensure_column(conn, "contract_documents", "bound_target_allocation_id", "TEXT")
+        ensure_column(conn, "contract_documents", "bound_preferences_sha256", "TEXT")
 
 
 _ADVISORY_LOG_HASH_FIELDS_PRE_REC007: tuple[str, ...] = (

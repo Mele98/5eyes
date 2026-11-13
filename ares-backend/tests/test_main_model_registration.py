@@ -33,7 +33,10 @@ from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
-GOLDEN_SORTED_TABLES_SHA256 = "751a13f478745fdb7729d3191e5d5bf93e52f53b5f2a4d41da1d495efa0ea2b1"
+# E2a Nachhaltigkeitspraeferenzen (Dok. 106): neue append-only Tabelle
+# investment_preference_decisions (+ tenants.sustainability_review_months,
+# contract_documents.bound_preference_decision_hash).
+GOLDEN_SORTED_TABLES_SHA256 = "ca0230439ccd77dc47c1a6e7e72c77ddb64f469d896d4d1361e6ce43dc3d8ec1"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -50,7 +53,19 @@ GOLDEN_SORTED_TABLES_SHA256 = "751a13f478745fdb7729d3191e5d5bf93e52f53b5f2a4d41d
 # Integrationsprobe 2026-11-07: Pins aus #856, #862, #868 und #869 zusammen-
 # gefuehrt; api/openapi.json (Git-Merge ohne Konflikt) besteht
 # scripts/export_openapi.py --check.
-GOLDEN_OPENAPI_SHA256 = "8ca5cb99beed3951ac6deb940efd0333bc42273a4da7b746443d7fb7ba50df65"
+# E2a Nachhaltigkeitspraeferenzen (Dok. 106, Codex-Vertrag E2): GET
+# /sustainability-preferences/definition, GET/POST /mandates/{id}/
+# sustainability-preferences, Schemas SustainabilityPreference*/
+# SustainabilityExclusionOption, ContractDocumentResponse.
+# bound_preference_decision_hash und Tenant*.sustainability_review_months
+# (nur additiv, alle optional bzw. neue Pfade).
+# E2b: GET /mandates/{id}/strategy-option-coverage (StrategyOption*),
+# SustainabilityPreferenceState.allocation_floor_* /allocation_stale_notice,
+# SustainabilityExclusionOption.missing_sub_asset_classes/evidence,
+# ContractDocumentResponse.bound_target_allocation_id (nur additiv).
+# E2 Nachtrag 3 (N-901-06): GET /mandates/{id}/sustainability-preferences/
+# exclusion-options?selected=... (nur additiv).
+GOLDEN_OPENAPI_SHA256 = "5701b47e1dd4e6ba70b94808d357009b8013839e92bbe3a48cdd0ea011611f75"
 
 _PROBE = """
 import hashlib, json

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from tests.sustainability_test_support import answer_question_one_for_all_mandates  # noqa: E402
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import configure_mappers, sessionmaker
@@ -87,6 +88,7 @@ def test_regenerate_with_unchanged_inputs_keeps_allocation_and_final_run(session
             target_allocation_id=ta.id, run_type="Optimizer", depot_bank=None,
         )["run"]
         s.commit()
+        answer_question_one_for_all_mandates(s)  # Nachtrag 1: Pflichtfrage
         finalize_recommendation(mandate.id, run.id, _request(), db=s, current_user=adv)
         assert s.get(RecommendationRun, run.id).result_status == "Final"
 

@@ -32,6 +32,11 @@ und die zugehoerigen Stile nach ``aa-chart.js``/``aa-chart.css`` verlegt
 27639 / 1689802, ``ares.css`` 1143 / 90070 -- beide Budgets entsprechend gesenkt
 (Stand H6-Feinschliff; die neuen Teile sind noch nicht gemergt, ihr Budget ist
 der Stand bei der Einfuehrung durch diesen PR).
+
+E2 Nachhaltigkeitspraeferenzen (Dok. 106, 2026-11-07): Kundenmaske im neuen
+Teil sustainability-preferences.js mit eigenem Budget. Im Monolithen nur die
+Einbindung; Platz dafuer durch eine gemeinsame Themen-Namensliste
+(AA_THEME_NAMES statt dreier gleicher Literale), er schrumpft dabei.
 """
 from __future__ import annotations
 
@@ -42,7 +47,7 @@ MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
 MONOLITH_MAX_LINES = 27639
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1689802
+MONOLITH_MAX_BYTES = 1689665
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -52,6 +57,7 @@ EXTRACTED_PART_BUDGETS = {
     "intro-sequence.js": (761, 36861),
     "aa-chart.js": (331, 21026),
     "goal-review-runtime.js": (1589, 84633),
+    "sustainability-preferences.js": (519, 26082),
 }
 
 

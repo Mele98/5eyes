@@ -10,6 +10,7 @@ identisch zum Audit-Log) + ``warning_codes`` (strukturiert, aus den
 ``[CODE]``-Suffixen).
 """
 from __future__ import annotations
+from tests.sustainability_test_support import answer_question_one_for_all_mandates  # noqa: E402
 
 from main import app
 from models.users import User
@@ -36,6 +37,7 @@ def test_finalize_returns_saa_deviation_warning_in_the_response(session_factory)
 
     with session_factory() as db:
         advisor = db.query(User).filter(User.id == advisor_id).first()
+        answer_question_one_for_all_mandates(db)  # Nachtrag 1: Pflichtfrage
         result = finalize_recommendation(
             mandate_id=mid, run_id=run_id, request=_FakeRequest(), db=db, current_user=advisor,
         )
