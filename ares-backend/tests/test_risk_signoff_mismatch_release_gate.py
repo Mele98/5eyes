@@ -421,7 +421,9 @@ def test_client_portal_report_with_valid_signoff(seeded, monkeypatch):
     session, advisor = seeded
     _sign_profile(session, advisor)
     call, computed = _portal(session, monkeypatch)
-    assert call() == {"ok": True}
+    # C-890-01 N-897-12: das Portal ergaenzt den Entwurfshinweis (hier ohne
+    # KYC-Bestaetigung gesetzt); der Bericht selbst bleibt unveraendert.
+    assert call() == {"ok": True, "kyc_draft_notice": "Entwurf – vor Vertragsabschluss (ohne KYC-Bestätigung)"}
     assert computed == [{"client_facing": True}]
     assert _portal_audit_rows(session) == []
 
@@ -429,5 +431,7 @@ def test_client_portal_report_with_valid_signoff(seeded, monkeypatch):
 def test_client_portal_report_legacy_unsigned(seeded, monkeypatch):
     session, _advisor = seeded
     call, computed = _portal(session, monkeypatch)
-    assert call() == {"ok": True}
+    # C-890-01 N-897-12: das Portal ergaenzt den Entwurfshinweis (hier ohne
+    # KYC-Bestaetigung gesetzt); der Bericht selbst bleibt unveraendert.
+    assert call() == {"ok": True, "kyc_draft_notice": "Entwurf – vor Vertragsabschluss (ohne KYC-Bestätigung)"}
     assert len(computed) == 1

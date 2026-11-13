@@ -289,7 +289,8 @@ def test_parallel_decisions_on_postgres_yield_exactly_one(pg_schema):
             barrier.wait(timeout=30)
             conn.execute(text(
                 "INSERT INTO kyc_confirmation_decisions (id, confirmation_id, tenant_id, decision, decided_by, "
-                "decided_at, record_id) VALUES (:rid, 'k-par', 't-pg', :d, 'adm-b', :now, :rid)"),
+                "decided_at, record_id, approver_ready, decision_hash) "
+                "VALUES (:rid, 'k-par', 't-pg', :d, 'adm-b', :now, :rid, 1, 'h')"),
                 {"d": decision, "now": NOW, "rid": f"r-{name}"})
             if hold:
                 import time
