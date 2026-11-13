@@ -127,6 +127,8 @@ _VALID_ROW_VALUES: dict[str, dict[str, object]] = {
         "integrity_hash": "0" * 64,
         "previous_hash": "",
     },
+    # H10 Nachtrag 1: Einwert-CHECK (result = 'BLOCKED') erkennt der Regex nicht.
+    "privacy_egress_events": {"result": "BLOCKED"},
     "risk_override_decisions": {
         "requested_score_x10": 40,
         "sequence_no": 1,

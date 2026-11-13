@@ -325,6 +325,8 @@ def test_kundeninformation_text_contains_owner_data_and_no_invented_values(sf):
 
 
 def test_single_alembic_head_is_h8_revision():
+    # H10 (2026-11-11): Folgerevisionen haengen an d8e4b2a6c1f9; geprueft wird
+    # die Kette mit genau einem Head, nicht mehr der Head selbst.
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(alembic_cfg("sqlite://"))
@@ -332,14 +334,22 @@ def test_single_alembic_head_is_h8_revision():
     # (Ablehnungen der Zweitfreigabe), Nachtrag 3: d66fbf0588e3 (Konto-Herkunft,
     # ein Entscheid je Bestaetigung).
     # RC-CH-1 Teil 2a (I-03, Drehbuch v2 / CCX-Vertrag Abschnitt 2): H8 folgt auf
-    # H7, H4 a9d4e2c6f1b3 haengt hinter H8, C-890-01 hinter H4; genau ein Head,
-    # jede Kante exakt geprueft.
-    assert script.get_heads() == ["d66fbf0588e3"]
-    assert script.get_revision("d66fbf0588e3").down_revision == "a7d3c9e1f5b2"
-    assert script.get_revision("a7d3c9e1f5b2").down_revision == "f4c2e8a6d1b3"
-    assert script.get_revision("f4c2e8a6d1b3").down_revision == "a9d4e2c6f1b3"
-    assert script.get_revision("a9d4e2c6f1b3").down_revision == "d8e4b2a6c1f9"
-    assert script.get_revision("d8e4b2a6c1f9").down_revision == "e1c6a7d4b2f9"
+    # H7, H4 a9d4e2c6f1b3 haengt hinter H8, C-890-01 hinter H4, H10 hinter
+    # C-890-01; genau ein Head, jede Kante exakt geprueft.
+    heads = script.get_heads()
+    assert len(heads) == 1, heads
+    assert "d8e4b2a6c1f9" in {rev.revision for rev in script.walk_revisions("base", heads[0])}
+    assert heads == ["f2a4c6e8b0d1"]
+    chain = [
+        ("f2a4c6e8b0d1", "e8f1b3c5a7d9"), ("e8f1b3c5a7d9", "c4e8a2f6d0b7"),
+        ("c4e8a2f6d0b7", "a7c3e9f1b5d2"), ("a7c3e9f1b5d2", "f4b8d2e6a3c7"),
+        ("f4b8d2e6a3c7", "e2f7c4a9d1b3"), ("e2f7c4a9d1b3", "d66fbf0588e3"),
+        ("d66fbf0588e3", "a7d3c9e1f5b2"), ("a7d3c9e1f5b2", "f4c2e8a6d1b3"),
+        ("f4c2e8a6d1b3", "a9d4e2c6f1b3"), ("a9d4e2c6f1b3", "d8e4b2a6c1f9"),
+        ("d8e4b2a6c1f9", "e1c6a7d4b2f9"),
+    ]
+    for revision, parent in chain:
+        assert script.get_revision(revision).down_revision == parent, revision
 
 
 def test_alembic_postgres_ddl_creates_client_information_tables_and_triggers():

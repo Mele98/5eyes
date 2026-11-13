@@ -46,6 +46,15 @@ C-890-01 Nachtrag 4: kyc-review-policy.js 421/25340 (Einladung nur per Mail,
 Weitergabe-Hinweis, Herkunftsindiz und Kompromittierungs-Hinweis).
 C-890-01 Nachtrag 5: kyc-review-policy.js 427/25832 (Mailfehler-Hinweis,
 Kompromittierungs-Satz).
+H10 Datenschutz-Governance (2026-11-11): neue Masken im neuen Teil
+privacy-governance.js (eigenes Budget, Stand bei Einfuehrung). Im Monolithen
+nur die Einbindung; renderAuditLogPagination ist unveraendert in den Teil
+umgezogen, der Monolith schrumpft (Budget auf den neuen Stand).
+RC-CH-1 Teil 2a (Merge H10 nach C-890-01): beide Pakete lagern je eine
+Funktion aus dem Monolithen aus (adminUpdateNewUserRoleHint ->
+kyc-review-policy.js, renderAuditLogPagination -> privacy-governance.js);
+beide Einbindungen bleiben. Budget bewusst auf den gemessenen Stand des
+Integrationsbaums gesenkt: 27617 Z./1691994 B (kleiner als beide Seiten).
 """
 from __future__ import annotations
 
@@ -54,9 +63,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 27631
+MONOLITH_MAX_LINES = 27617
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1692930
+MONOLITH_MAX_BYTES = 1691994
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -66,6 +75,7 @@ EXTRACTED_PART_BUDGETS = {
     "goal-review-runtime.js": (1589, 84633),
     "client-compliance.js": (465, 29504),
     "kyc-review-policy.js": (427, 25832),
+    "privacy-governance.js": (503, 35259),
 }
 
 

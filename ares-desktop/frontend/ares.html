@@ -16666,20 +16666,6 @@ async function loadAdminAuditLog(offset) {
   }
 }
 
-function renderAuditLogPagination(container) {
-  if (!container) return;
-  var from = _auditLogTotal > 0 ? (_auditLogOffset + 1) : 0;
-  var to = _auditLogTotal > 0 ? Math.min(_auditLogOffset + _auditLogLimit, _auditLogTotal) : 0;
-  var label = _auditLogTotal > 0
-    ? ('Einträge ' + from + '–' + to + ' von ' + _auditLogTotal)
-    : 'Keine Einträge';
-  var prevDisabled = _auditLogOffset <= 0;
-  var nextDisabled = (_auditLogOffset + _auditLogLimit) >= _auditLogTotal;
-  container.innerHTML = '<button class="btn" style="font-size:10px;padding:2px 8px"' + (prevDisabled ? ' disabled' : '') + ' onclick="loadAdminAuditLog(' + Math.max(0, _auditLogOffset - _auditLogLimit) + ')">&larr; Zurück</button>'
-    + '<span style="padding:0 6px">' + escapeHtml(label) + '</span>'
-    + '<button class="btn" style="font-size:10px;padding:2px 8px"' + (nextDisabled ? ' disabled' : '') + ' onclick="loadAdminAuditLog(' + (_auditLogOffset + _auditLogLimit) + ')">Weiter &rarr;</button>';
-}
-
 // Neuer Benutzer anlegen (Admin)
 async function createNewUser() {
   var fullName = (document.getElementById('nu-fullname')||{value:''}).value.trim();
@@ -27626,6 +27612,6 @@ function openStammdatenModal(){
 </div>
 <!-- ─────────────────────────────────────────────────────────── -->
 
-<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script>
+<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./privacy-governance.js"></script>
 </body>
 </html>
