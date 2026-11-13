@@ -325,6 +325,7 @@
         "client_knowledge",
         "suitability_checks",
         "product_eligibility_snapshots",
+        "investment_preference_decisions",
         "product_eligibility_decisions",
         "product_eligibility_overrides",
         "target_allocations",
