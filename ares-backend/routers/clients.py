@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from core.db_integrity import is_check_constraint_violation
+from core.db_integrity import is_check_constraint_violation, raise_if_check_violation
 from pydantic import ValidationError
 from core.reason_codes import ReasonCode
 from sqlalchemy.orm import Session
@@ -702,6 +702,7 @@ def _record_decision(db: Session, record: KycConfirmation, decision: str, user: 
         db.flush()
     except IntegrityError as exc:
         db.rollback()
+        raise_if_check_violation(exc)
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_SECOND_APPROVAL_ALREADY_DECIDED",
             "message": "Ueber diese Bestaetigung wurde bereits entschieden.",
@@ -1120,6 +1121,7 @@ def decide_kyc_second_approval(
         db.flush()
     except IntegrityError as exc:
         db.rollback()
+        raise_if_check_violation(exc)
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_SECOND_APPROVAL_ALREADY_DECIDED",
             "message": "Ueber diese Bestaetigung wurde gleichzeitig entschieden.",

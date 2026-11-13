@@ -42,6 +42,7 @@ from models.users import User
 from services import dsg_governance as gov
 from services import privacy_erasure as pe
 from core.reason_codes import DomainError, ReasonCode
+from core.db_integrity import raise_if_check_violation
 from services.audit import log
 from services.auth import (
     extract_client_ip,
@@ -537,6 +538,7 @@ def _commit_case(db: Session, *steps) -> None:
         db.commit()
     except (StaleDataError, IntegrityError) as exc:
         db.rollback()
+        raise_if_check_violation(exc)
         raise DomainError(
             ReasonCode.PRIVACY_CASE_CONCURRENT_UPDATE,
             "Der Fall wurde gleichzeitig geaendert; bitte neu laden und erneut ausfuehren", http_status=409,

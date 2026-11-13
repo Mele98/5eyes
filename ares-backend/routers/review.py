@@ -2153,6 +2153,7 @@ def create_kyc_review_policy(
         db.flush()
     except IntegrityError as exc:
         db.rollback()
+        raise_if_check_violation(exc)
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_REVIEW_POLICY_VERSION_CONFLICT",
             "message": "Gleichzeitig wurde eine andere Version erfasst; bitte neu laden.",
@@ -2253,6 +2254,7 @@ def activate_kyc_review_policy(
         db.flush()
     except IntegrityError as exc:
         db.rollback()
+        raise_if_check_violation(exc)
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_REVIEW_POLICY_ACTIVATION_CONFLICT",
             "message": "Gleichzeitig wurde eine andere Version freigegeben; bitte neu laden.",
