@@ -20,7 +20,7 @@
 SQLite: create_all + database.ensure_runtime_columns.
 Downgrade fail-closed, sobald ein Entscheid oder eine Konto-Herkunft vorliegt.
 
-Revision ID: c4e8a2f6b9d1
+Revision ID: d66fbf0588e3
 Revises: a7d3c9e1f5b2
 Create Date: 2026-11-12
 """
@@ -32,7 +32,7 @@ import sqlalchemy as sa
 from alembic import op
 
 
-revision: str = "c4e8a2f6b9d1"
+revision: str = "d66fbf0588e3"
 down_revision: Union[str, Sequence[str], None] = "a7d3c9e1f5b2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None

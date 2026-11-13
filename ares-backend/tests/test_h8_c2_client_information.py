@@ -330,9 +330,9 @@ def test_single_alembic_head_is_h8_revision():
     script = ScriptDirectory.from_config(alembic_cfg("sqlite://"))
     # C-890-01: f4c2e8a6d1b3 (Wiedervorlage-Policy) folgt direkt auf H8,
     # Nachtrag 2: a7d3c9e1f5b2 (Ablehnungen der Zweitfreigabe) darauf.
-    # Nachtrag 3: c4e8a2f6b9d1 (Konto-Herkunft, ein Entscheid je Bestaetigung).
-    assert script.get_heads() == ["c4e8a2f6b9d1"]
-    assert script.get_revision("c4e8a2f6b9d1").down_revision == "a7d3c9e1f5b2"
+    # Nachtrag 3: d66fbf0588e3 (Konto-Herkunft, ein Entscheid je Bestaetigung).
+    assert script.get_heads() == ["d66fbf0588e3"]
+    assert script.get_revision("d66fbf0588e3").down_revision == "a7d3c9e1f5b2"
     assert script.get_revision("a7d3c9e1f5b2").down_revision == "f4c2e8a6d1b3"
     assert script.get_revision("f4c2e8a6d1b3").down_revision == "d8e4b2a6c1f9"
 

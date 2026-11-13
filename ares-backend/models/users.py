@@ -75,7 +75,7 @@ class User(Base):
     # externer Compliance-Personen (Freigabenachweis). ``credentials_set_by`` /
     # ``totp_set_by``: "self" oder die ID des Admins, der sie gesetzt hat.
     # Laufzeit-Migration bestehender DBs: database.ensure_runtime_columns;
-    # Alembic c4e8a2f6b9d1. Bestand: NULL (= Herkunft unbekannt).
+    # Alembic d66fbf0588e3. Bestand: NULL (= Herkunft unbekannt).
     credentials_set_by = Column(String)
     credentials_set_at = Column(String)
     totp_set_by = Column(String)

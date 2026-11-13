@@ -35,7 +35,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 NOW = "2026-11-11T10:00:00.000Z"
 # C-890-01 Nachtrag 2: a7d3c9e1f5b2 (Ablehnungen) folgt auf f4c2e8a6d1b3.
-HEAD = "c4e8a2f6b9d1"  # Nachtrag 3: Konto-Herkunft + Entscheid-Tabelle
+HEAD = "d66fbf0588e3"  # Nachtrag 3: Konto-Herkunft + Entscheid-Tabelle
 
 
 def _qi(identifier: str) -> str:
