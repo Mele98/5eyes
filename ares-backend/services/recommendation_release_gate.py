@@ -1447,6 +1447,11 @@ REPORT_ROUTE_CLASSIFICATION: dict[str, tuple[str, str]] = {
     # RC-CH-1 Teil 2a (Integration H4 x C-890-01): F4-Audit-Anker (H4), Admin/Operator.
     "POST /admin/system/audit-log/anchor/export": (REPORT_INTERNAL, (
         "Audit-Anker (Kettenkopf/Bestandssiegel) fuer die WORM-Ablage, ohne Kundendaten, kein Bericht")),
+    # RC-CH-1 Teil 2a (Integration H10 x C-890-01): Datenschutz-Exporte (H10).
+    "GET /privacy/processing-register/export": (REPORT_INTERNAL, (
+        "Verzeichnis der Bearbeitungstaetigkeiten der Firma (DSG Art. 12), keine Empfehlung")),
+    "POST /privacy/subject-requests/{request_id}/export": (REPORT_INTERNAL, (
+        "Datenauskunft im Betroffenenfall nach DSG (gesetzlicher Anspruch), keine Empfehlung")),
     # N-897-12: Export-/CSV-Routen (Produktstamm, Pflege durch Admin), kein Kundenbezug.
     "GET /products/export/csv": (REPORT_INTERNAL, "Export des Produktstamms (Referenzdaten), kein Kundenbezug"),
     "GET /products/import/csv/template": (REPORT_INTERNAL, "leere CSV-Vorlage fuer den Produktimport"),
