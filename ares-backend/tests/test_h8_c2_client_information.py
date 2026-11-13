@@ -576,6 +576,8 @@ def test_strict_mode_admin_without_tenant_cannot_write_default_tenant_profile(sf
 
 TEMPLATE_TEXT_PINS = {
     "ARES-KI-FIDLEG-1": "dedefafb64aa317b2ec01276bc3bf67b6f83bf63f3c8655ec1efdd2738c463b6",
+    # RC-CH-1 Teil 2b: G7-Formatter + Mandatswaehrung in den Kostenzeilen.
+    "ARES-KI-FIDLEG-2": "c2bccb7714fe51343931c907311141dc27aed96a23e4f4690ccd3c7ff44a3165",
 }
 
 

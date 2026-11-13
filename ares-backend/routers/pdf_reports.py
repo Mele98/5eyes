@@ -45,7 +45,7 @@ from services.recommendation_release_gate import (
     load_tenant_legal_profile,
     mandate_tenant_id,
 )
-from core.presentation_rounding import format_amount_minor, presentation_amounts
+from core.presentation_rounding import format_amount_minor, format_bps_as_pct, presentation_amounts
 from services.recommendation_run_resolver import (
     NO_CURRENT_RECOMMENDATION_MARKER,
     resolve_current_recommendation_run,
@@ -3014,12 +3014,14 @@ _KI_COUNTRY_NAMES = {"CH": "Schweiz", "LI": "Liechtenstein", "DE": "Deutschland"
 
 
 def _ki_money(rappen: int | None, currency: str) -> str:
-    value = int(rappen or 0) / 100.0
-    return f"{currency} {value:,.0f}".replace(",", "'")
+    # RC-CH-1 Teil 2b (G7): gemeinsamer Formatter (Half-up, ganze Einheiten,
+    # Apostroph); fehlender Betrag -> "—" statt 0.
+    return format_amount_minor(rappen, currency)
 
 
 def _ki_bps(bps: int | None) -> str:
-    return "—" if bps is None else f"{int(bps) / 100:.2f} %"
+    # RC-CH-1 Teil 2b (G7): wie Kostenausweis (format_bps_as_pct, 2 Stellen).
+    return format_bps_as_pct(bps, decimals=2)
 
 
 def _kundeninformation_provider_lines(profile: dict) -> tuple:
@@ -3051,7 +3053,8 @@ def _kundeninformation_provider_lines(profile: dict) -> tuple:
 
 
 def _kundeninformation_cost_parts(db: Session, mandate: Mandate, profile: dict) -> tuple[tuple, str, tuple]:
-    currency = str(getattr(mandate, "base_currency", None) or "CHF").upper()
+    # G7-Grundregel: Mandatswaehrung (mandates.base_currency NOT NULL), kein fester CHF-Ersatz.
+    currency = str(mandate.base_currency).upper()
     cost_lines: list[tuple[str, str]] = []
     note = (
         "Die Kosten der Dienstleistung und der Finanzinstrumente werden Ihnen vor "
