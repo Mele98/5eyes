@@ -114,8 +114,8 @@ def test_withdrawn_after_finalize_removes_claim_and_blocks_channels(world, api, 
 
 
 def test_gate_and_pdf_use_the_same_run_resolver(world, api, session_factory):
-    """Final vor Draft: ein spaeterer Draft-Lauf aendert den gezeigten Lauf
-    nicht; Gate und PDF-Resolver liefern denselben Lauf."""
+    """Gate-Abfrage (CURRENT_RUN_SQL) und PDF-Resolver liefern denselben Lauf:
+    juengster Draft ohne Final; Final vor spaeterem Draft."""
     from models.mandates import Mandate
     from services.portfolio_engine import _current_target_allocation_or_none
     from services.recommendation_release_gate import current_run_id
@@ -124,6 +124,9 @@ def test_gate_and_pdf_use_the_same_run_resolver(world, api, session_factory):
     mid = world["mid"]
     _ok_capture(api, mid, exclusions=["tobacco"])
     final_id = _run_id(_run(api, mid))
+    with session_factory() as s:  # nur Drafts: juengster Draft, beide gleich
+        ta = _current_target_allocation_or_none(s, mid)
+        assert current_run_id(s, s.get(Mandate, mid), ta) == resolve_current_recommendation_run(s, mid, ta.id).id == final_id
     assert api.put(f"/mandates/{mid}/recommendations/{final_id}/finalize").status_code == 200
     assert _run(api, mid).status_code == 200  # neuer Draft
     with session_factory() as s:

@@ -959,9 +959,10 @@ def run_evidence_message(decision, channel) -> str:
 REQUIRED_ANSWER_TEXT = "Frage zur Nachhaltigkeit im Risikoprofil beantworten."
 
 
-# N-901-02: EINE Regel "welcher Lauf gilt" fuer Gates UND Kundendokumente
-# (services/recommendation_run_resolver.py nutzt dieselbe Abfrage): an die
+# N-901-02: dieselbe Regel "welcher Lauf gilt" wie services/
+# recommendation_run_resolver.py (Kundendokumente) fuer Gates und App: an die
 # aktuelle Soll-Allokation gebunden, Final vor Draft, sonst keiner.
+# Gleichheit belegt tests/test_sustainability_e2b_n2_live_evidence.py.
 CURRENT_RUN_SQL = (
     "SELECT id FROM recommendation_runs WHERE mandate_id = :mandate_id "
     "AND target_allocation_id = :target_allocation_id AND result_status IN ('Final', 'Draft') "

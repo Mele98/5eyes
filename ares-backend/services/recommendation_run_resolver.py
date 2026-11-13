@@ -17,10 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import text
 from sqlalchemy.orm import Session
-
-from core.sustainability_preference import CURRENT_RUN_SQL
 
 NO_CURRENT_RECOMMENDATION_MARKER = "keine aktuelle Produktempfehlung"
 """Expliziter Marker fuer Dokumente, wenn zur aktuellen Allokation kein
@@ -34,16 +31,23 @@ def resolve_current_recommendation_run(
     mandate_id: Any,
     target_allocation_id: Any,
 ) -> Any:
-    """Final, sonst Draft, gebunden an ``target_allocation_id``; sonst None.
-
-    N-901-02: dieselbe Abfrage (core/sustainability_preference.py::
-    CURRENT_RUN_SQL) nutzen auch die Freigabe-Gates."""
+    """Final, sonst Draft, gebunden an ``target_allocation_id``; sonst None."""
     from models.review import RecommendationRun
 
     if not target_allocation_id:
         return None
-    run_id = db.execute(
-        text(CURRENT_RUN_SQL),
-        {"mandate_id": mandate_id, "target_allocation_id": str(target_allocation_id)},
-    ).scalar()
-    return db.get(RecommendationRun, run_id) if run_id else None
+    matching_runs = (
+        db.query(RecommendationRun)
+        .filter(
+            RecommendationRun.mandate_id == mandate_id,
+            RecommendationRun.target_allocation_id == str(target_allocation_id),
+            RecommendationRun.result_status.in_(RESOLVABLE_STATUS_PRIORITY),
+        )
+        .order_by(RecommendationRun.created_at.desc())
+        .all()
+    )
+    for status in RESOLVABLE_STATUS_PRIORITY:
+        run = next((r for r in matching_runs if r.result_status == status), None)
+        if run is not None:
+            return run
+    return None
