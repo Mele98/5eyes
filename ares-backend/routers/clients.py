@@ -12,7 +12,8 @@ from models.users import User
 from models.clients import (
     Client, ClientNationality, ClientOptHistory,
     ClientDueDiligence, ClientTaxResidency,
-    ClientRepresentation, KycConfirmation, KycConfirmationApproval, KycConfirmationRejection,
+    ClientRepresentation, KycConfirmation, KycConfirmationApproval, KycConfirmationDecision,
+    KycConfirmationRejection,
     KYC_PROCESS_EXTERNAL, KYC_RISK_NORMAL,
 )
 from models.mandates import Mandate
@@ -24,7 +25,7 @@ from schemas.clients import (
     OptHistoryCreate, OptHistoryResponse,
     ClientDueDiligenceCreate, ClientDueDiligenceUpdate, ClientDueDiligenceResponse,
     ClientRepresentationCreate, ClientRepresentationResponse, ClientRepresentationRevoke,
-    KYC_REVIEW_BINDING_CONTEXT_KEY,
+    KYC_REVIEW_BINDING_CONTEXT_KEY, personal_data_hints,
     KycConfirmationApprovalCreate, KycConfirmationApprovalResponse,
     KycConfirmationCreate, KycConfirmationRequest, KycConfirmationResponse,
     KycPendingApproval, KycPendingApprovalList, KycSecondApprovalDecision,
@@ -44,6 +45,7 @@ from services.auth import (
     _resolve_tenant_id_for_user,
     require_admin,
     require_advisor,
+    assert_compliance_reviewer_ready,
     require_compliance_approver,
     same_person,
 )
@@ -55,6 +57,7 @@ from services.quota import assert_within_quota
 from services.recommendation_release_gate import (
     KYC_REVIEW_DUE_EXCEEDS_POLICY,
     KYC_REVIEW_STATUS_BY_CODE,
+    kyc_approver_account,
     kyc_review_entry_binding,
     kyc_review_message,
 )
@@ -653,10 +656,50 @@ def _kyc_response(db: Session, record: KycConfirmation) -> KycConfirmationRespon
     return KycConfirmationResponse.model_validate(record).model_copy(update={
         "requires_second_approval": _kyc_requires_second_approval(record),
         "approval": (
-            KycConfirmationApprovalResponse.model_validate(approval)
+            KycConfirmationApprovalResponse.model_validate(approval).model_copy(update={
+                "approver_account": kyc_approver_account(db, approval.approved_by),
+            })
             if approval is not None else None
         ),
     })
+
+
+def _assert_latest_confirmation(db: Session, record: KycConfirmation) -> None:
+    """N-897-06: entschieden wird nur ueber die juengste Bestaetigung des
+    Kunden -- gleiche Regel in Kundenmaske und Freigabe-Ansicht."""
+    latest = db.query(KycConfirmation).filter(
+        KycConfirmation.client_id == record.client_id,
+    ).order_by(KycConfirmation.recorded_at.desc(), KycConfirmation.id.desc()).first()
+    if latest is not None and latest.id != record.id:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_APPROVAL_SUPERSEDED",
+            "message": "Fuer den Kunden liegt eine neuere Bestaetigung vor.",
+        })
+
+
+def _record_decision(db: Session, record: KycConfirmation, decision: str, user: User, at: str,
+                     entry_id: str) -> None:
+    """N-897-08: genau ein Entscheid je Bestaetigung (Primaerschluessel);
+    ein paralleler zweiter Entscheid scheitert beim Flush mit 409."""
+    db.add(KycConfirmationDecision(
+        confirmation_id=record.id, tenant_id=record.tenant_id, decision=decision,
+        decided_by=user.id, decided_at=at, record_id=entry_id,
+    ))
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_SECOND_APPROVAL_ALREADY_DECIDED",
+            "message": "Ueber diese Bestaetigung wurde bereits entschieden.",
+        }) from exc
+
+
+def _account_audit_suffix(db: Session, user_id: str) -> str:
+    acc = kyc_approver_account(db, user_id) or {}
+    return (f"; Konto {acc.get('role')}: eingeladen von {acc.get('invited_by_name') or '-'} am "
+            f"{acc.get('invited_at') or '-'}, aktiviert {acc.get('activated_at') or '-'}, "
+            f"Zugangsdaten {acc.get('credentials_set_by')}, 2FA {acc.get('totp_set_by')}")
 
 
 def _mandate_of_client_or_404(db: Session, client_id: str, mandate_id: str | None) -> str | None:
@@ -816,7 +859,11 @@ def create_kyc_confirmation(
         ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(record)
-    return _kyc_response(db, record)
+    warnings = sorted({
+        hint for text_value in (record.external_reference, record.note)
+        for hint in personal_data_hints(text_value, (client.first_name, client.last_name))
+    })
+    return _kyc_response(db, record).model_copy(update={"personal_data_warnings": warnings})
 
 
 @router.post(
@@ -865,6 +912,7 @@ def approve_kyc_confirmation(
             "reason_code": "KYC_SECOND_APPROVAL_ALREADY_DECIDED",
             "message": "Die Zweitfreigabe wurde abgelehnt; es braucht eine neue Bestaetigung.",
         })
+    _assert_latest_confirmation(db, record)
     now = _now()
     approval = KycConfirmationApproval(
         id=new_uuid(), tenant_id=record.tenant_id, confirmation_id=record.id,
@@ -872,10 +920,11 @@ def approve_kyc_confirmation(
         note=(body.note or "").strip() or None,
     )
     approval.approval_hash = _row_seal(approval, "approval_hash")
+    _record_decision(db, record, "approve", current_user, now, approval.id)
     db.add(approval)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="kyc_confirmation_approvals", record_id=approval.id, action="CREATE",
-        field_name="kyc_second_approval", new_value=record.id,
+        field_name="kyc_second_approval", new_value=record.id + _account_audit_suffix(db, current_user.id),
         client_id=client_id, mandate_id=record.mandate_id,
         ip_address=_extract_client_ip(request))
     db.commit()
@@ -902,6 +951,9 @@ def _effective_kyc(db: Session, row: KycConfirmation) -> bool:
 
 
 def _decided(db: Session, confirmation_id: str) -> bool:
+    if db.query(KycConfirmationDecision).filter(
+            KycConfirmationDecision.confirmation_id == confirmation_id).first() is not None:
+        return True
     return (
         db.query(KycConfirmationApproval).filter(KycConfirmationApproval.confirmation_id == confirmation_id).first()
         is not None
@@ -1012,6 +1064,8 @@ def decide_kyc_second_approval(
             "reason_code": "KYC_SECOND_APPROVAL_SAME_PERSON",
             "message": "Die Freigabe muss durch eine zweite Person erfolgen.",
         })
+    # N-897-02: externe Compliance-Person nur mit selbst aktiviertem Konto + 2FA.
+    assert_compliance_reviewer_ready(current_user)
     if _decided(db, record.id):
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_SECOND_APPROVAL_ALREADY_DECIDED",
@@ -1046,6 +1100,7 @@ def decide_kyc_second_approval(
         )
         entry.rejection_hash = _row_seal(entry, "rejection_hash")
         field = "kyc_second_approval_rejected"
+    _record_decision(db, record, body.decision, current_user, now, entry.id)
     db.add(entry)
     try:
         db.flush()
@@ -1057,13 +1112,13 @@ def decide_kyc_second_approval(
         }) from exc
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name=entry.__tablename__, record_id=entry.id, action="CREATE",
-        field_name=field, new_value=record.id,
+        field_name=field, new_value=record.id + _account_audit_suffix(db, current_user.id),
         client_id=record.client_id, mandate_id=record.mandate_id,
         ip_address=_extract_client_ip(request), tenant_id=str(record.tenant_id or tenant_id))
     db.commit()
     return KycSecondApprovalDecisionResponse(
         confirmation_id=record.id, decision=body.decision, decided_by=current_user.id,
-        decided_at=now, record_id=entry.id,
+        decided_at=now, record_id=entry.id, approver_account=kyc_approver_account(db, current_user.id),
     )
 
 

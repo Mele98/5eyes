@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from database import (
     CLIENT_PII_KEYS_SQLITE_TRIGGERS,
     KYC_CONFIRMATION_APPROVAL_SQLITE_TRIGGERS,
+    KYC_CONFIRMATION_DECISION_SQLITE_TRIGGERS,
     KYC_CONFIRMATION_REJECTION_SQLITE_TRIGGERS,
     KYC_CONFIRMATION_SQLITE_TRIGGERS,
     Base,
@@ -305,6 +306,23 @@ class KycConfirmationRejection(Base):
     rejection_hash = Column(String, nullable=False)
 
 
+class KycConfirmationDecision(Base):
+    """C-890-01 Nachtrag 3 (N-897-08): genau EIN Entscheid (Freigabe ODER
+    Ablehnung) je Bestaetigung -- Primaerschluessel auf ``confirmation_id``,
+    in derselben Transaktion wie die Freigabe- bzw. Ablehnungszeile
+    geschrieben. Zwei gleichzeitige Entscheide scheitern am Schluessel.
+    Append-only (Trigger); kein Freitext, kein Kundenbezug ausser der ID."""
+
+    __tablename__ = "kyc_confirmation_decisions"
+
+    confirmation_id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    decision = Column(String, nullable=False)
+    decided_by = Column(String, ForeignKey("users.id"), nullable=False)
+    decided_at = Column(String, nullable=False)
+    record_id = Column(String, nullable=False)
+
+
 # ---------------------------------------------------------------------------
 # H8 Luecke 10 (ZGB): Vertretung und Verfuegungsberechtigung, dokumentarisch.
 # Vollmacht (OR 32 ff.), Vorsorgeauftrag (ZGB 360 ff.), Beistandschaft
@@ -352,6 +370,7 @@ for _model, _ddls in (
     (KycConfirmation, KYC_CONFIRMATION_SQLITE_TRIGGERS),
     (KycConfirmationApproval, KYC_CONFIRMATION_APPROVAL_SQLITE_TRIGGERS),
     (KycConfirmationRejection, KYC_CONFIRMATION_REJECTION_SQLITE_TRIGGERS),
+    (KycConfirmationDecision, KYC_CONFIRMATION_DECISION_SQLITE_TRIGGERS),
 ):
     for _trigger_ddl in _ddls:
         event.listen(

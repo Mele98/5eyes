@@ -2804,6 +2804,7 @@ class ClientOnboardingFinding(BaseModel):
     binding_defect: Optional[str] = None
     bound_next_review_due: Optional[str] = None
     current_max_due: Optional[str] = None
+    shortened_by_policy_version: Optional[int] = None
 
 
 class ClientOnboardingStatusResponse(BaseModel):
@@ -2890,6 +2891,8 @@ class KycReviewPolicyResponse(BaseModel):
     approved_at: Optional[str] = None
     approval_reference: Optional[str] = None
     effective_from: Optional[str] = None
+    # N-897-02: Herkunft des Freigeberkontos (Freigabenachweis).
+    approver_account: Optional[dict[str, Any]] = None
 
 
 class KycReviewPolicyOverview(BaseModel):

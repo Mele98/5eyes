@@ -58,7 +58,7 @@ from schemas.review import (
     KycReviewPolicyActivate, KycReviewPolicyCreate, KycReviewPolicyOverview, KycReviewPolicyResponse,
 )
 from price_updater import summarize_price_quality
-from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, same_person, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
+from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, require_staff, same_person, assert_compliance_reviewer_ready, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
 from services.audit import log, release_block_audit, restore_tenant_after_rollback
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
@@ -104,6 +104,7 @@ from services.recommendation_release_gate import (
     assert_retrocession_release_eligible,
     assert_risk_signoff_release_eligible,
     client_onboarding_status,
+    kyc_approver_account,
     kyc_review_effective_from,
     kyc_review_jurisdiction,
     kyc_review_policy_chain,
@@ -2054,7 +2055,7 @@ def _kyc_review_policy_status(policy: dict, activation: dict | None, current: di
 
 
 def _kyc_review_policy_response(policy: dict, activation: dict | None, current: dict,
-                                today: str) -> KycReviewPolicyResponse:
+                                today: str, approver_account: dict | None = None) -> KycReviewPolicyResponse:
     return KycReviewPolicyResponse(
         **{key: policy.get(key) for key in (
             "id", "tenant_id", "jurisdiction", "policy_id", "version", "normal_max_months",
@@ -2068,6 +2069,7 @@ def _kyc_review_policy_response(policy: dict, activation: dict | None, current: 
         approved_at=(activation or {}).get("approved_at"),
         approval_reference=(activation or {}).get("approval_reference"),
         effective_from=kyc_review_effective_from(policy, activation) if activation else None,
+        approver_account=approver_account,
     )
 
 
@@ -2077,14 +2079,17 @@ def _kyc_review_row_response(db: Session, tenant_id: str, jurisdiction: str,
     policies, activations = kyc_review_policy_chain(db, tenant_id, jurisdiction)
     current = resolve_kyc_review_policy(db, tenant_id, jurisdiction, today)
     activation = next((a for a in activations if str(a["policy_row_id"]) == str(policy_row_id)), None)
-    return _kyc_review_policy_response(policies[str(policy_row_id)], activation, current, today)
+    return _kyc_review_policy_response(
+        policies[str(policy_row_id)], activation, current, today,
+        kyc_approver_account(db, activation["approved_by"]) if activation else None,
+    )
 
 
 @router.get("/compliance/kyc-review-policies", response_model=KycReviewPolicyOverview)
 def list_kyc_review_policies(
     jurisdiction: str | None = Query(default=None, min_length=2, max_length=2),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_staff),
 ):
     """Wiedervorlage-Policies der eigenen Firma (alle Versionen samt Status)
     und die heute wirksame Version. Ohne Angabe gilt das Sitzland der Firma
@@ -2098,7 +2103,10 @@ def list_kyc_review_policies(
         policies, activations = kyc_review_policy_chain(db, tenant_id, jur)
         by_policy = {str(a["policy_row_id"]): a for a in activations}
         for policy in sorted(policies.values(), key=lambda p: int(p.get("version") or 0), reverse=True):
-            rows.append(_kyc_review_policy_response(policy, by_policy.get(str(policy["id"])), current, today))
+            act = by_policy.get(str(policy["id"]))
+            rows.append(_kyc_review_policy_response(
+                policy, act, current, today, kyc_approver_account(db, act["approved_by"]) if act else None,
+            ))
     return KycReviewPolicyOverview(
         tenant_id=tenant_id, jurisdiction=jur, status=current["status"],
         reason_code=current["reason_code"], effective_policy=current["policy"], policies=rows,
@@ -2186,6 +2194,8 @@ def activate_kyc_review_policy(
             "reason_code": "KYC_REVIEW_POLICY_SAME_PERSON",
             "message": "Die Freigabe muss durch eine zweite Person erfolgen.",
         })
+    # N-897-02: externe Compliance-Person nur mit selbst aktiviertem Konto + 2FA.
+    assert_compliance_reviewer_ready(current_user)
     if row_seal(policy, "policy_hash") != policy_obj.policy_hash or body.policy_hash != policy_obj.policy_hash:
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_REVIEW_POLICY_HASH_MISMATCH",
@@ -2240,7 +2250,10 @@ def activate_kyc_review_policy(
         table_name="kyc_review_policy_activations", record_id=activation.id, action="CREATE",
         field_name="kyc_review_policy_activated",
         new_value=(f"{policy_obj.policy_id} v{policy_obj.version} ({policy_obj.jurisdiction}); "
-                   f"Vorgaenger {predecessor}; hash {policy_obj.policy_hash}"),
+                   f"Vorgaenger {predecessor}; hash {policy_obj.policy_hash}; Freigeberkonto "
+                   f"{(kyc_approver_account(db, current_user.id) or {}).get('role')}, eingeladen "
+                   f"{(kyc_approver_account(db, current_user.id) or {}).get('invited_at') or '-'}, aktiviert "
+                   f"{(kyc_approver_account(db, current_user.id) or {}).get('activated_at') or '-'}"),
         ip_address=_extract_client_ip(request), tenant_id=tenant_id)
     db.commit()
     return _kyc_review_row_response(db, tenant_id, policy_obj.jurisdiction, policy_obj.id)

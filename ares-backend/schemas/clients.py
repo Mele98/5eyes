@@ -1,3 +1,4 @@
+import re
 from datetime import date as _date
 from pydantic import BaseModel, ValidationInfo, field_validator, model_validator
 from typing import Optional, Literal
@@ -400,6 +401,32 @@ class ClientDueDiligenceResponse(BaseResponse):
 # H8 C-5: GwG-Bestaetigung (Abklaerung im SRO-/Fremdprozess) als Gate.
 # ---------------------------------------------------------------------------
 
+KYC_EXTERNAL_REFERENCE_MAX = 120
+KYC_NOTE_MAX = 500
+_HINT_PATTERNS = (
+    ("email", r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
+    ("iban", r"\b[A-Za-z]{2}\d{2}(?:\s?[A-Za-z0-9]{4}){3,7}(?:\s?[A-Za-z0-9]{1,3})?\b"),
+    ("ahv", r"\b756[.\s]?\d{4}[.\s]?\d{4}[.\s]?\d{2}\b"),
+)
+
+
+def personal_data_hints(text, names=()) -> list[str]:
+    """N-897-07: Hinweise auf Personendaten in einem Freitext (Warnung, keine
+    Sperre): ``kundenname`` (Vor-/Nachname des Kunden, ab 3 Zeichen),
+    ``email``, ``iban``, ``ahv`` (Muster wie fuer Exporte)."""
+    raw = str(text or "")
+    if not raw.strip():
+        return []
+    hints: list[str] = []
+    lowered = raw.lower()
+    if any(len(str(n or "").strip()) >= 3 and str(n).strip().lower() in lowered for n in names):
+        hints.append("kundenname")
+    for code, pattern in _HINT_PATTERNS:
+        if re.search(pattern, raw):
+            hints.append(code)
+    return hints
+
+
 def _iso_date(value: str, field: str) -> str:
     try:
         return _date.fromisoformat(str(value).strip()[:10]).isoformat()
@@ -448,6 +475,13 @@ class KycConfirmationRequest(BaseModel):
             raise ValueError("next_review_due muss nach form_completed_on liegen")
         if len(self.external_reference.strip()) < 3:
             raise ValueError("external_reference (Referenz im SRO-/Fremdprozess) ist Pflicht")
+        # N-897-07: Freitexte erscheinen in der Freigabe-Ansicht der zweiten
+        # Person -- kurz halten, keine Personendaten (Hinweise siehe
+        # personal_data_hints, die Erfassung warnt).
+        if len(self.external_reference.strip()) > KYC_EXTERNAL_REFERENCE_MAX:
+            raise ValueError(f"external_reference hoechstens {KYC_EXTERNAL_REFERENCE_MAX} Zeichen")
+        if self.note is not None and len(self.note.strip()) > KYC_NOTE_MAX:
+            raise ValueError(f"note hoechstens {KYC_NOTE_MAX} Zeichen")
         self.external_reference = self.external_reference.strip()
         return self
 
@@ -505,6 +539,8 @@ class KycConfirmationApprovalResponse(BaseResponse):
     approved_at: str
     note: Optional[str] = None
     approval_hash: str
+    # N-897-02: Herkunft des Freigeberkontos (Freigabenachweis).
+    approver_account: Optional[dict] = None
 
 
 class KycConfirmationResponse(BaseResponse):
@@ -535,6 +571,8 @@ class KycConfirmationResponse(BaseResponse):
     review_risk_class: Optional[str] = None
     review_interval_months: Optional[int] = None
     review_max_due: Optional[str] = None
+    # N-897-07: Hinweise auf Personendaten in Referenz/Bemerkung (nur bei Erfassung).
+    personal_data_warnings: list[str] = []
 
 
 class KycSecondApprovalDecision(BaseModel):
@@ -597,6 +635,7 @@ class KycSecondApprovalDecisionResponse(BaseModel):
     decided_by: str
     decided_at: str
     record_id: str
+    approver_account: Optional[dict] = None
 
 
 # ---------------------------------------------------------------------------

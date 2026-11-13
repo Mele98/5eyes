@@ -48,6 +48,7 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     "depot_check_analysis_snapshots",
     "depot_snapshots",
     "kyc_confirmation_approvals",
+    "kyc_confirmation_decisions",
     "kyc_confirmation_rejections",
     "kyc_confirmations",
     # C-890-01: Wiedervorlage-Policy der KYC-Bestaetigung je Firma/Jurisdiktion

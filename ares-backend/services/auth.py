@@ -321,16 +321,72 @@ _COMPLIANCE_REVIEWER_ALLOWED: tuple[tuple[str, str], ...] = (
 )
 
 
+def normalize_email_identity(value) -> str:
+    """N-897-02: Postfach-Identitaet fuer die Vier-Augen-Pruefung -- Gross-/
+    Kleinschreibung und Leerzeichen egal, ``+alias`` im lokalen Teil entfernt
+    (``Max+kyc@Firma.ch`` == ``max@firma.ch``). Gleiche Regel wie
+    services/recommendation_release_gate.py::_email_identity (Test)."""
+    raw = str(value or "").strip().lower()
+    if "@" not in raw:
+        return raw
+    local, _, domain = raw.rpartition("@")
+    return local.split("+", 1)[0] + "@" + domain
+
+
 def same_person(db: Session, first_user_id, second_user_id) -> bool:
     """Vier-Augen: dieselbe Person, soweit technisch erkennbar -- gleiche
-    Benutzer-ID oder (zweites Konto) dieselbe E-Mail-Adresse."""
+    Benutzer-ID oder (zweites Konto) dieselbe, normalisierte E-Mail-Adresse."""
     if not first_user_id or not second_user_id:
         return False
     if str(first_user_id) == str(second_user_id):
         return True
     rows = db.query(User.email).filter(User.id.in_([str(first_user_id), str(second_user_id)])).all()
-    emails = [str(r[0]).strip().lower() for r in rows if r[0] and str(r[0]).strip()]
+    emails = [normalize_email_identity(r[0]) for r in rows if r[0] and str(r[0]).strip()]
     return len(emails) == 2 and emails[0] == emails[1]
+
+
+CREDENTIALS_SET_BY_SELF = "self"
+COMPLIANCE_REVIEWER_2FA_REQUIRED = "COMPLIANCE_REVIEWER_2FA_REQUIRED"
+COMPLIANCE_REVIEWER_ACCOUNT_UNVERIFIED = "COMPLIANCE_REVIEWER_ACCOUNT_UNVERIFIED"
+
+
+def compliance_reviewer_readiness(user: User) -> str | None:
+    """N-897-02: eine externe Compliance-Person darf erst freigeben, wenn ihr
+    Konto per Einladung aktiviert wurde, sie Passwort UND 2FA selbst gesetzt
+    hat. None = bereit; sonst Reason-Code. Andere Rollen: immer None."""
+    if getattr(user, "role", None) != COMPLIANCE_REVIEWER_ROLE:
+        return None
+    if not getattr(user, "invited_at", None) or not getattr(user, "activated_at", None) or (
+        getattr(user, "credentials_set_by", None) != CREDENTIALS_SET_BY_SELF
+    ):
+        return COMPLIANCE_REVIEWER_ACCOUNT_UNVERIFIED
+    if not int(getattr(user, "totp_enabled", 0) or 0) or getattr(user, "totp_set_by", None) != CREDENTIALS_SET_BY_SELF:
+        return COMPLIANCE_REVIEWER_2FA_REQUIRED
+    return None
+
+
+def assert_compliance_reviewer_ready(user: User) -> None:
+    code = compliance_reviewer_readiness(user)
+    if code == COMPLIANCE_REVIEWER_2FA_REQUIRED:
+        raise DomainError(code, (
+            "Vor der ersten Freigabe muss die externe Compliance-Person die "
+            "Zwei-Faktor-Anmeldung (2FA) selbst einrichten."), http_status=status.HTTP_403_FORBIDDEN)
+    if code is not None:
+        raise DomainError(code, (
+            "Dieses Freigabekonto ist nicht ueber eine Einladung mit selbst gesetztem "
+            "Passwort aktiviert und darf nicht freigeben."), http_status=status.HTTP_403_FORBIDDEN)
+
+
+STAFF_ROLES: tuple[str, ...] = (
+    "admin", "advisor", "readonly", "super_admin", "portfolio_management", COMPLIANCE_REVIEWER_ROLE,
+)
+
+
+def require_staff(current_user: User = Depends(get_current_user)) -> User:
+    """N-897-09: nur Personal-Rollen -- nie Kunden-Logins (Rolle ``client``)."""
+    if current_user.role not in STAFF_ROLES:
+        raise HTTPException(status_code=403, detail="Nur fuer Mitarbeitende")
+    return current_user
 
 
 def compliance_reviewer_may_call(method: str, path: str) -> bool:

@@ -3,7 +3,7 @@
     "css_selectors": 1120,
     "event_handlers": 461,
     "ids": 1018,
-    "js_functions": 1354,
+    "js_functions": 1357,
     "modal_structures": 110,
     "script_blocks": 27,
     "style_blocks": 2,
@@ -9260,14 +9260,14 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/client-compliance.js",
-      "sha256": "1ec4c11917b410b36d4074e3d5b583b18429c1a5dfa4e88ca50565d9a050ffc2",
-      "size_bytes": 29080
+      "sha256": "69ff0fc443dc338344b6d05461ddaef7b6ab0150647d73951d0d44c907c9e8e8",
+      "size_bytes": 29504
     },
     {
       "kind": "js",
       "path": "ares-desktop/frontend/kyc-review-policy.js",
-      "sha256": "b9ed3b45921b1c76fc206d1fd546d14eaa20f051d185620eec59e88c2a26b4ab",
-      "size_bytes": 20687
+      "sha256": "8e423db8986f1b4cb3dfb0f2c5495437abb1d2aa19c8818f1d5a9ce098c7c142",
+      "size_bytes": 24620
     }
   ],
   "ids": [
@@ -21959,7 +21959,7 @@
     },
     {
       "declaration": "function",
-      "line": 325,
+      "line": 330,
       "name": "approveKycConfirmation",
       "source": "client-compliance.js"
     },
@@ -21977,7 +21977,7 @@
     },
     {
       "declaration": "function",
-      "line": 331,
+      "line": 336,
       "name": "createRepresentation",
       "source": "client-compliance.js"
     },
@@ -22025,19 +22025,19 @@
     },
     {
       "declaration": "function",
-      "line": 354,
+      "line": 359,
       "name": "mountAdminLegalProfile",
       "source": "client-compliance.js"
     },
     {
       "declaration": "function",
-      "line": 401,
+      "line": 406,
       "name": "mountClientCompliance",
       "source": "client-compliance.js"
     },
     {
       "declaration": "function",
-      "line": 385,
+      "line": 390,
       "name": "mountClientCompliancePanel",
       "source": "client-compliance.js"
     },
@@ -22055,7 +22055,7 @@
     },
     {
       "declaration": "function",
-      "line": 425,
+      "line": 430,
       "name": "renderAuditLogTable",
       "source": "client-compliance.js"
     },
@@ -22079,7 +22079,7 @@
     },
     {
       "declaration": "function",
-      "line": 342,
+      "line": 347,
       "name": "revokeRepresentation",
       "source": "client-compliance.js"
     },
@@ -22103,7 +22103,7 @@
     },
     {
       "declaration": "function",
-      "line": 380,
+      "line": 385,
       "name": "schedulePanelRefresh",
       "source": "client-compliance.js"
     },
@@ -22115,187 +22115,205 @@
     },
     {
       "declaration": "function",
-      "line": 223,
+      "line": 92,
+      "name": "accountHtml",
+      "source": "kyc-review-policy.js"
+    },
+    {
+      "declaration": "function",
+      "line": 269,
       "name": "activateKycReviewPolicy",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 244,
+      "line": 290,
       "name": "adminUpdateNewUserRoleHint",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 77,
+      "line": 79,
       "name": "approvalHtml",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 63,
+      "line": 65,
       "name": "bannerHtml",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 108,
+      "line": 153,
       "name": "createFormHtml",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 201,
+      "line": 247,
       "name": "createKycReviewPolicy",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 170,
+      "line": 216,
       "name": "decideKycApproval",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 43,
+      "line": 45,
       "name": "errText",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 37,
+      "line": 39,
       "name": "esc",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 189,
+      "line": 235,
       "name": "hostEl",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 52,
+      "line": 100,
+      "name": "inviteFormHtml",
+      "source": "kyc-review-policy.js"
+    },
+    {
+      "declaration": "function",
+      "line": 115,
+      "name": "inviteKycReviewer",
+      "source": "kyc-review-policy.js"
+    },
+    {
+      "declaration": "function",
+      "line": 54,
       "name": "isReviewer",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 325,
+      "line": 378,
       "name": "kycReviewerLogout",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 160,
+      "line": 206,
       "name": "loadKycPendingApprovals",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 191,
+      "line": 237,
       "name": "loadKycReviewPolicies",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 51,
+      "line": 53,
       "name": "me",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 53,
+      "line": 55,
       "name": "months",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 282,
+      "line": 332,
       "name": "mountAdminPanel",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 342,
+      "line": 395,
       "name": "mountKycReviewPolicy",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 254,
+      "line": 300,
       "name": "mountRoles",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 46,
+      "line": 48,
       "name": "notify",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 137,
+      "line": 183,
       "name": "pendingHtml",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 125,
+      "line": 170,
       "name": "render",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 250,
+      "line": 296,
       "name": "reviewerOption",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 308,
+      "line": 358,
       "name": "showReviewerView",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 55,
+      "line": 57,
       "name": "statusLabel",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 50,
+      "line": 52,
       "name": "val",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 90,
+      "line": 135,
       "name": "versionsHtml",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 331,
+      "line": 384,
       "name": "wrapInitApp",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "var",
-      "line": 265,
+      "line": 309,
       "name": "wrapped",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "var",
-      "line": 334,
+      "line": 387,
       "name": "wrapped",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 135,
+      "line": 181,
       "name": "yesNo",
       "source": "kyc-review-policy.js"
     }

@@ -5631,6 +5631,17 @@
           "scope": {
             "title": "Scope",
             "type": "string"
+          },
+          "shortened_by_policy_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shortened By Policy Version"
           }
         },
         "required": [
@@ -10175,6 +10186,28 @@
             "title": "Full Name",
             "type": "string"
           },
+          "reviewer_organisation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewer Organisation"
+          },
+          "reviewer_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewer Reference"
+          },
           "role": {
             "default": "advisor",
             "enum": [
@@ -10854,6 +10887,17 @@
             "title": "Approved By",
             "type": "string"
           },
+          "approver_account": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approver Account"
+          },
           "client_id": {
             "title": "Client Id",
             "type": "string"
@@ -11052,6 +11096,14 @@
               }
             ],
             "title": "Note"
+          },
+          "personal_data_warnings": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Personal Data Warnings",
+            "type": "array"
           },
           "process_scope": {
             "title": "Process Scope",
@@ -11509,6 +11561,17 @@
             ],
             "title": "Approved By"
           },
+          "approver_account": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approver Account"
+          },
           "created_at": {
             "title": "Created At",
             "type": "string"
@@ -11649,6 +11712,17 @@
       },
       "KycSecondApprovalDecisionResponse": {
         "properties": {
+          "approver_account": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approver Account"
+          },
           "confirmation_id": {
             "title": "Confirmation Id",
             "type": "string"
@@ -26272,9 +26346,31 @@
       },
       "UserResponse": {
         "properties": {
+          "activated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activated At"
+          },
           "created_at": {
             "title": "Created At",
             "type": "string"
+          },
+          "credentials_set_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credentials Set By"
           },
           "email": {
             "anyOf": [
@@ -26300,6 +26396,28 @@
             "title": "Invite Pending",
             "type": "boolean"
           },
+          "invited_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invited At"
+          },
+          "invited_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invited By"
+          },
           "is_active": {
             "title": "Is Active",
             "type": "integer"
@@ -26320,6 +26438,28 @@
             "title": "Must Change Password",
             "type": "integer"
           },
+          "reviewer_organisation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewer Organisation"
+          },
+          "reviewer_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewer Reference"
+          },
           "role": {
             "title": "Role",
             "type": "string"
@@ -26328,6 +26468,17 @@
             "default": 0,
             "title": "Totp Enabled",
             "type": "integer"
+          },
+          "totp_set_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Totp Set By"
           },
           "username": {
             "title": "Username",

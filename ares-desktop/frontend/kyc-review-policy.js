@@ -11,7 +11,9 @@
  *   - Rolle "compliance_reviewer" (externe Compliance-Person): nach der
  *     Anmeldung NUR diese Freigabe-Ansicht (initApp wird fuer diese Rolle nicht
  *     ausgefuehrt; der Server sperrt alle anderen Routen zentral).
- *   - Benutzerverwaltung: Rolle "Externe Compliance-Freigabe" waehlbar.
+ *   - Nachtrag 3: externe Compliance-Person NUR per Einladung (Identitaet:
+ *     Name, Organisation, Referenz/Mandat); sie setzt Passwort und 2FA selbst.
+ *     In der Benutzerverwaltung ist die Rolle nicht frei waehlbar.
  *   - Nachtrag 2: "Offene KYC-Freigaben" (PEP, erhoehtes Risiko, Herabstufung,
  *     PEP-Ruecknahme) datenminimiert, Entscheid freigeben/ablehnen mit
  *     Begruendung und Bestaetigung des Pruefwerts (GET/POST
@@ -87,6 +89,49 @@
       + '</div>';
   }
 
+  function accountHtml(a){
+    if (!a) return '';
+    return '<br>Freigeber: ' + esc(a.name || '') + (a.organisation ? ' (' + esc(a.organisation) + ')' : '')
+      + (a.invited_at ? ' · eingeladen von ' + esc(a.invited_by_name || '—') + ' am ' + esc(String(a.invited_at).slice(0, 10)) : '')
+      + (a.activated_at ? ' · aktiviert ' + esc(String(a.activated_at).slice(0, 10)) : '')
+      + ' · Zugangsdaten: ' + esc(a.credentials_set_by) + ' · 2FA: ' + esc(a.totp_set_by);
+  }
+
+  function inviteFormHtml(){
+    if (isReviewer()) return '';
+    return '<div style="font-weight:600;font-size:10px;margin-top:12px">Externe Compliance-Person einladen</div>'
+      + '<div style="font-size:9px;color:var(--n5);line-height:1.5">Für Firmen mit nur einer Person: eine externe, qualifizierte Person gibt als zweite Person frei (Frist und KYC-Bestätigungen). '
+      + 'Sie erhält einen Einladungslink, setzt ihr Passwort selbst und richtet die Zwei-Faktor-Anmeldung ein. Ihr Passwort, ihre E-Mail und ihre Rolle kann kein Admin ändern.</div>'
+      + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:4px">'
+      + '<div>' + L + 'Name</label><input class="fi" id="krp-inv-name" style="font-size:11px"></div>'
+      + '<div>' + L + 'Benutzername</label><input class="fi" id="krp-inv-username" style="font-size:11px"></div>'
+      + '<div>' + L + 'E-Mail</label><input class="fi" id="krp-inv-email" style="font-size:11px"></div>'
+      + '<div>' + L + 'Organisation</label><input class="fi" id="krp-inv-org" style="font-size:11px"></div>'
+      + '<div style="grid-column:span 2">' + L + 'Referenz / Mandat (z. B. Vertrag mit der externen Stelle)</label><input class="fi" id="krp-inv-ref" style="font-size:11px"></div>'
+      + '</div><button class="btn btn-sm" id="btn-krp-invite" style="margin-top:4px" onclick="inviteKycReviewer()">Einladungslink erzeugen</button>'
+      + '<div id="krp-inv-link" style="font-size:9px;word-break:break-all;margin-top:4px"></div>';
+  }
+
+  async function inviteKycReviewer(){
+    var body = {
+      full_name: val('krp-inv-name'), username: val('krp-inv-username'), email: val('krp-inv-email') || null,
+      role: REVIEWER_ROLE, reviewer_organisation: val('krp-inv-org'), reviewer_reference: val('krp-inv-ref')
+    };
+    if (!body.full_name || !body.username || !body.email || !body.reviewer_organisation || !body.reviewer_reference) {
+      notify('error', 'Bitte Name, Benutzername, E-Mail, Organisation und Referenz angeben.');
+      return;
+    }
+    try {
+      var inv = await API.post('/users/invite', body);
+      var box = document.getElementById('krp-inv-link');
+      var link = (window.location ? window.location.origin + '/app/ares.html?invite=' : '?invite=') + inv.invite_token;
+      if (box) box.innerHTML = 'Einladungslink (einmalig, 7 Tage gültig, nur an die Person selbst senden):<br><code id="krp-inv-token">' + esc(link) + '</code>';
+      notify('success', inv.email_sent ? 'Einladung per E-Mail gesendet.' : 'Einladung erzeugt – Link an die Person senden.');
+    } catch(e) {
+      notify('error', errText(e, 'Einladung fehlgeschlagen.'));
+    }
+  }
+
   function versionsHtml(data){
     var rows = data.policies || [];
     if (!rows.length) return '<div style="font-size:10px;color:var(--n5)">Noch keine Version erfasst.</div>';
@@ -99,7 +144,7 @@
         + '<td>ab ' + esc(p.valid_from) + (p.valid_until ? ' bis ' + esc(p.valid_until) : '') + '</td>'
         + '<td>' + esc(p.source_reference) + '</td>'
         + '<td><span class="krp-status">' + statusLabel(p) + '</span>'
-        + (p.approved_at ? '<div style="font-size:9px;color:var(--n5)">Freigabe ' + esc(String(p.approved_at).slice(0, 10)) + ' · Referenz ' + esc(p.approval_reference) + '</div>' : '')
+        + (p.approved_at ? '<div style="font-size:9px;color:var(--n5)">Freigabe ' + esc(String(p.approved_at).slice(0, 10)) + ' · Referenz ' + esc(p.approval_reference) + accountHtml(p.approver_account) + '</div>' : '')
         + (p.status === 'entwurf' ? approvalHtml(p) : '') + '</td></tr>';
     });
     return html + '</tbody></table>';
@@ -127,7 +172,8 @@
       + bannerHtml(data)
       + '<div style="font-weight:600;font-size:10px;margin-top:8px">Versionen</div>' + versionsHtml(data)
       + createFormHtml(data)
-      + '<div id="krp-approvals" style="margin-top:12px"></div>';
+      + '<div id="krp-approvals" style="margin-top:12px"></div>'
+      + inviteFormHtml();
     loadKycPendingApprovals();
   }
 
@@ -258,8 +304,6 @@
         rights: 'Nur KYC-Wiedervorlage-Policy lesen und als zweite Person freigeben · kein Zugriff auf Kunden, Mandate oder Systemdaten'
       };
     }
-    var sel = document.getElementById('nu-role');
-    if (sel && !sel.querySelector('option[value="' + REVIEWER_ROLE + '"]')) sel.insertAdjacentHTML('beforeend', reviewerOption(false));
     if (typeof window.adminRenderUserTable === 'function' && !window.adminRenderUserTable.__krp) {
       var original = window.adminRenderUserTable;
       var wrapped = function(){
@@ -267,9 +311,15 @@
         var users = (typeof adminSystemState !== 'undefined' && Array.isArray(adminSystemState.users)) ? adminSystemState.users : [];
         users.forEach(function(u){
           var el = document.getElementById('ul-role-' + u.id);
-          if (el && !el.querySelector('option[value="' + REVIEWER_ROLE + '"]')) {
-            el.insertAdjacentHTML('beforeend', reviewerOption(u.role === REVIEWER_ROLE));
-            if (u.role === REVIEWER_ROLE) el.value = REVIEWER_ROLE;
+          if (el && u.role === REVIEWER_ROLE && !el.querySelector('option[value="' + REVIEWER_ROLE + '"]')) {
+            // N-897-02: Rolle/E-Mail/Name externer Compliance-Konten aendert kein Admin.
+            el.insertAdjacentHTML('beforeend', reviewerOption(true));
+            el.value = REVIEWER_ROLE;
+            el.disabled = true;
+            ['ul-email-', 'ul-name-'].forEach(function(prefix){
+              var input = document.getElementById(prefix + u.id);
+              if (input) input.disabled = true;
+            });
           }
         });
         return result;
@@ -310,7 +360,8 @@
     if (!view) {
       view = document.createElement('div');
       view.id = 'krp-reviewer-view';
-      view.style.cssText = 'position:fixed;inset:0;z-index:9000;overflow:auto;background:var(--bg,#fff);padding:24px';
+      // unter den Modals (z-index 500), damit die 2FA-Einrichtung darueber erscheint.
+      view.style.cssText = 'position:fixed;inset:0;z-index:400;overflow:auto;background:var(--bg,#fff);padding:24px';
       document.body.appendChild(view);
     }
     var u = me() || {};
@@ -318,6 +369,8 @@
       + '<div style="font-size:14px;font-weight:700">Ares – Compliance-Freigabe</div>'
       + '<div style="font-size:10px">' + esc(u.full_name || u.username || '') + ' · <button class="btn btn-sm" id="krp-logout" onclick="kycReviewerLogout()">Abmelden</button></div></div>'
       + '<div style="font-size:10px;color:var(--n5);margin-bottom:8px">Dieses Konto darf nur als zweite Person freigeben: die KYC-Wiedervorlage-Policy der Firma und offene KYC-Bestätigungen (PEP, erhöhtes Risiko, Herabstufung).</div>'
+      + (Number(u.totp_enabled) ? '' : '<div id="krp-2fa-hint" style="font-size:11px;font-weight:600;color:var(--neg);margin-bottom:8px">Vor der ersten Freigabe die Zwei-Faktor-Anmeldung einrichten. '
+        + '<button class="btn btn-sm" onclick="typeof open2faSetup===\'function\'&&open2faSetup(true)">2FA einrichten</button></div>')
       + '<div id="krp-reviewer-body" style="display:grid;gap:8px"></div>';
     return loadKycReviewPolicies();
   }
@@ -355,5 +408,6 @@
   window.activateKycReviewPolicy = activateKycReviewPolicy;
   window.kycReviewerLogout = kycReviewerLogout;
   window.loadKycPendingApprovals = loadKycPendingApprovals;
+  window.inviteKycReviewer = inviteKycReviewer;
   window.decideKycApproval = decideKycApproval;
 })();

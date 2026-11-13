@@ -35,7 +35,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 NOW = "2026-11-11T10:00:00.000Z"
 # C-890-01 Nachtrag 2: a7d3c9e1f5b2 (Ablehnungen) folgt auf f4c2e8a6d1b3.
-HEAD = "a7d3c9e1f5b2"
+HEAD = "c4e8a2f6b9d1"  # Nachtrag 3: Konto-Herkunft + Entscheid-Tabelle
 
 
 def _qi(identifier: str) -> str:
@@ -273,3 +273,46 @@ def test_rejections_are_append_only_with_redaction_only(pg_schema):
                 conn.execute(text(sql))
     with engine.begin() as conn:
         conn.execute(text("UPDATE kyc_confirmation_rejections SET reason = '[ERASED-DSG-ART-32]'"))
+
+
+def test_parallel_decisions_on_postgres_yield_exactly_one(pg_schema):
+    """N-897-08: zwei echte Transaktionen entscheiden gleichzeitig ueber
+    dieselbe Bestaetigung (Freigabe vs. Ablehnung): genau eine gelingt."""
+    engine = pg_schema["engine"]
+    barrier = threading.Barrier(2)
+    results: dict[str, str] = {}
+
+    def worker(name: str, decision: str, hold: float) -> None:
+        conn = engine.connect()
+        trans = conn.begin()
+        try:
+            barrier.wait(timeout=30)
+            conn.execute(text(
+                "INSERT INTO kyc_confirmation_decisions (confirmation_id, tenant_id, decision, decided_by, "
+                "decided_at, record_id) VALUES ('k-par', 't-pg', :d, 'adm-b', :now, :rid)"),
+                {"d": decision, "now": NOW, "rid": f"r-{name}"})
+            if hold:
+                import time
+
+                time.sleep(hold)
+            trans.commit()
+            results[name] = "committed"
+        except Exception as exc:  # noqa: BLE001
+            trans.rollback()
+            results[name] = type(exc).__name__ + ": " + str(exc).splitlines()[0]
+        finally:
+            conn.close()
+
+    threads = [threading.Thread(target=worker, args=("a", "approve", 1.0)),
+               threading.Thread(target=worker, args=("b", "reject", 0.0))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+    assert sorted(v == "committed" for v in results.values()) == [False, True], results
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM kyc_confirmation_decisions")).scalar() == 1
+    for sql in ("UPDATE kyc_confirmation_decisions SET decision = 'reject'", "DELETE FROM kyc_confirmation_decisions"):
+        with pytest.raises(Exception, match="immutable"):
+            with engine.begin() as conn:
+                conn.execute(text(sql))

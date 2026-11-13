@@ -1174,8 +1174,8 @@ def _assert_client_pdf_signoff(db: Session, mandate: Mandate) -> None:
 
 def _assert_client_pdf_kyc_review(db: Session, mandate: Mandate, current_user: User,
                                   request: Request | None) -> None:
-    """C-890-01: kundenwirksame PDFs (Risikoprofil, Anlagestrategie, Portfolio,
-    Vertrag, Kunden-Sign-off, Beratungsprotokoll, Kostenausweis) nutzen
+    """C-890-01: kundenwirksame PDFs (Klassifikation: services/
+    recommendation_release_gate.py::REPORT_ROUTE_CLASSIFICATION) nutzen
     dieselbe Wiedervorlage-Pruefung wie Finalisierung, Signatur und Handoff:
     liegt eine KYC-Bestaetigung vor, muss sie an die heute wirksame,
     freigegebene Policy gebunden und nicht faellig sein (VOR jedem Render/
@@ -1221,8 +1221,8 @@ def get_anlagestrategie_pdf(
 ):
     """Generiert Anlagestrategie-PDF fuer das Mandat."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
-    _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_kyc_review(db, mandate, current_user, request)
+    _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
     _assert_report_allocation_context(mandate, db, expected_allocation_id)
     ctx = _build_pdf_context(mandate, current_user, db)
@@ -1264,6 +1264,7 @@ def get_assetallocation_pdf(
 ):
     """Reines Asset-Allocation-PDF fuer die Asset-Allocation-Maske."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     _assert_report_allocation_context(mandate, db, expected_allocation_id)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
@@ -1298,8 +1299,8 @@ def get_risikoprofil_pdf(
 ):
     """Generiert Risikoprofil-PDF fuer das Mandat (FINMA W305-konform)."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
-    _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_kyc_review(db, mandate, current_user, request)
+    _assert_client_pdf_signoff(db, mandate)
     ctx = _build_pdf_context(mandate, current_user, db)
 
     # Risikoprofil-Daten aus dem juengsten RiskAssessment laden (defensiv)
@@ -1622,8 +1623,8 @@ def get_portfolio_pdf(
 ):
     """Sprint 11 Phase 6: Portfolio-PDF mit Positionen + Soll-vs-IST + Drift."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
-    _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_kyc_review(db, mandate, current_user, request)
+    _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
@@ -1855,8 +1856,8 @@ def get_contract_signoff_pdf(
 ):
     """Final customer sign-off for the documented advisory decision."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
-    _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_kyc_review(db, mandate, current_user, None)
+    _assert_client_pdf_signoff(db, mandate)
     ctx = _build_pdf_context(mandate, current_user, db)
     try:
         data = _build_contract_signoff_data(mandate, db)
@@ -2105,8 +2106,8 @@ def get_protokoll_pdf(
 ):
     """Beratungsprotokoll-PDF mit AdvisoryLog und Unterschrift."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
-    _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_kyc_review(db, mandate, current_user, request)
+    _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
     ctx = _build_pdf_context(mandate, current_user, db)
     data = _build_protokoll_data(mandate, db)
@@ -2529,6 +2530,7 @@ def get_depotcheck_pdf(
     )
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, request)
     ctx = _build_pdf_context(mandate, current_user, db)
     try:
         if analysis_snapshot_id is not None:
@@ -2698,6 +2700,7 @@ def get_backtest_pdf(
     Brutto-vs-Netto-Vergleich im PDF.
     """
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
     bm_inputs = {
@@ -2768,6 +2771,7 @@ def get_advisory_report_pdf(
     )
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     # RISK-BUDGET-RELEASE-GATE (2026-10-21): kein client-ready PDF einer
     # Strategie, deren Risikobudget-Treue verletzt oder nicht belegt ist --
     # zentrales Gate, VOR dem Rendern.
@@ -2843,8 +2847,8 @@ def get_cost_disclosure_pdf(
     from services.cost_disclosure import build_cost_disclosure
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
-    _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_kyc_review(db, mandate, current_user, request)
+    _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
     payload = build_cost_disclosure(db, mandate)
     if payload.get("evidence_status") == "blocked":

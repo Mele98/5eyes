@@ -29,9 +29,10 @@ from schemas.review import ReportNotesResponse, ReportNotesUpdate
 from services.auth import (
     get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin,
     require_portfolio_management, require_reference_data_reader,
-    enforce_cma_cross_tenant_read_scope,
+    enforce_cma_cross_tenant_read_scope, set_tenant_context,
 )
-from services.audit import log
+from services.audit import log, release_block_audit
+from services.recommendation_release_gate import CHANNEL_CLIENT_PDF, assert_kyc_review_release_eligible
 from services.optimizer_policy_lifecycle import (
     REASON_CODE_HOUSE_MATRIX_INCOMPLETE,
     copy_policy_children,
@@ -49,11 +50,13 @@ from services.data_classification import enforce_data_classification
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer CMA-/Policy-/Allokations-
 # Aenderungen im Audit-Log.
 from routers.auth import _extract_client_ip
-from services.jurisdiction.exceptions import (
+# C-890-01 Nachtrag 3: die Ausnahmen kommen ueber die Fassade
+# services.jurisdiction.resolve (bereits Abhaengigkeit, importiert sie selbst) --
+# so bleibt der Fan-out konstant, obwohl der React-Bericht das zentrale
+# Wiedervorlage-Gate braucht.
+from services.jurisdiction.resolve import (
     CMAValidityWindowError,
     JurisdictionReferenceDataMissingError,
-)
-from services.jurisdiction.resolve import (
     assert_cma_activatable_on,
     resolve_cma_for_jurisdiction,
 )
@@ -893,6 +896,14 @@ def get_advisory_report(
     get_current_user, gleiche Pattern wie Depot-Check-Endpoint.
     """
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    # C-890-01 N-897-01: kundenwirksamer Bericht -> zentrales Wiedervorlage-Gate.
+    assert_kyc_review_release_eligible(
+        db, mandate, channel=CHANNEL_CLIENT_PDF,
+        on_block=release_block_audit(
+            db, user=current_user, ip_address=None, mandate_id=mandate.id,
+            field_name="client_report_blocked", set_tenant_context=set_tenant_context,
+        ),
+    )
     return cached_compute_advisory_report(db, mandate, advisor=current_user)
 
 

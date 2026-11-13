@@ -18,7 +18,7 @@ from schemas.users import (
 )
 from services.auth import (
     hash_password, verify_password, create_access_token,
-    get_current_user, require_admin,
+    get_current_user, require_admin, COMPLIANCE_REVIEWER_ROLE, CREDENTIALS_SET_BY_SELF,
     _effective_strict_tenant_isolation, tenant_access_block_reason,
     extract_client_ip as _extract_client_ip,
 )
@@ -622,6 +622,9 @@ def change_password(
     current_user.password_hash = hash_password(body.new_password)
     current_user.must_change_password = 0
     current_user.updated_at = _now()
+    # N-897-02: Herkunft der Zugangsdaten (Freigabenachweis).
+    current_user.credentials_set_by = CREDENTIALS_SET_BY_SELF
+    current_user.credentials_set_at = current_user.updated_at
     if not was_forced_change:
         current_user.token_revoked_before = _now()
         # Roadmap #28 (2026-08-08): dito fuer Refresh-Tokens -- ein regulaerer
@@ -719,6 +722,9 @@ def twofa_enable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
     login_attempt_guard.register_success(guard_key)
     current_user.totp_enabled = 1
     current_user.updated_at = _now()
+    # N-897-02: 2FA selbst eingerichtet (nur dieser Self-Service-Pfad setzt sie).
+    current_user.totp_set_by = CREDENTIALS_SET_BY_SELF
+    current_user.totp_set_at = current_user.updated_at
     # #25: Recovery-Codes erzeugen und EINMALIG zurueckgeben (nur Hashes gespeichert).
     ensure_account_recovery_columns(db)
     codes, blob = generate_recovery_codes()
@@ -762,6 +768,8 @@ def twofa_disable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
     login_attempt_guard.register_success(guard_key)
     current_user.totp_enabled = 0
     current_user.totp_secret = None
+    current_user.totp_set_by = None
+    current_user.totp_set_at = None
     current_user.totp_recovery_codes = None  # #25: Backup-Codes mit-entwerten
     current_user.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -936,6 +944,8 @@ def password_reset_confirm(body: _PasswordResetConfirm, request: Request, db: Se
     clear_reset_token(user)  # ORM-Objekt synchron halten (Core-Update oben)
     user.must_change_password = 0
     user.updated_at = _now()
+    user.credentials_set_by = CREDENTIALS_SET_BY_SELF
+    user.credentials_set_at = user.updated_at
     # 2026-07-25 (Generalaudit, Wave 12): fehlte hier -- anders als der bereits
     # gefixte change_password-Endpoint (AUTH-02-Folgefund). Passwort-Reset ist
     # der dedizierte Account-Recovery-Pfad fuer vermutete Kompromittierung --
@@ -995,6 +1005,13 @@ def create_user(
     ).first()
     if existing:
         raise HTTPException(status_code=409, detail="Benutzername bereits vergeben")
+    # N-897-02: Konten externer Compliance-Personen nur per Einladung -- die
+    # Person setzt ihr Passwort selbst, ein Admin kennt es nie.
+    if body.role == COMPLIANCE_REVIEWER_ROLE:
+        raise HTTPException(status_code=403, detail={
+            "reason_code": "COMPLIANCE_REVIEWER_INVITE_REQUIRED",
+            "message": "Externe Compliance-Freigabe nur per Einladung anlegen.",
+        })
     now = _now()
     tenant_id = getattr(current_user, "tenant_id", None)
     # 2026-08-09 (Live-Playwright-Fund, FINIG-Gate-Test): ein super_admin, der
@@ -1026,12 +1043,15 @@ def create_user(
         # E1 (2026-06-14): vom Admin angelegter Account -> Initial-Passwort muss
         # beim ersten Login geaendert werden.
         must_change_password=1,
+        credentials_set_by=current_user.id,
+        credentials_set_at=now,
         created_at=now,
         updated_at=now,
     )
     db.add(user)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="users", record_id=user.id, action="CREATE")
+        table_name="users", record_id=user.id, action="CREATE",
+        field_name="role", new_value=user.role)
     db.commit()
     db.refresh(user)
     return user
@@ -1112,12 +1132,17 @@ def invite_user(
         must_change_password=0,            # Mitarbeiter setzt das Passwort selbst
         invite_token_hash=_hash_invite_token(token),
         invite_expires_at=expires_at,
+        invited_by=current_user.id,
+        invited_at=now,
+        reviewer_organisation=body.reviewer_organisation,
+        reviewer_reference=body.reviewer_reference,
         created_at=now,
         updated_at=now,
     )
     db.add(user)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="users", record_id=user.id, action="INVITE")
+        table_name="users", record_id=user.id, action="INVITE",
+        field_name="role", new_value=user.role)
     db.commit()
     db.refresh(user)
     # E-Mail-Versand (best effort, config-gated) — bei Fehlschlag/aus: Link-Copy.
@@ -1196,6 +1221,11 @@ def invite_accept(body: InviteAccept, request: Request, db: Session = Depends(ge
     user.invite_expires_at = None
     user.must_change_password = 0
     user.updated_at = _now()
+    # N-897-02: Passwort selbst gesetzt; Konto damit aktiviert.
+    user.credentials_set_by = CREDENTIALS_SET_BY_SELF
+    user.credentials_set_at = user.updated_at
+    if not user.activated_at:
+        user.activated_at = user.updated_at
     log(db, user_id=user.id, user_name=user.full_name,
         table_name="users", record_id=user.id, action="INVITE_ACCEPT")
     db.commit()
@@ -1258,6 +1288,19 @@ def update_user(
         f: v for f, v in body.model_dump(exclude_none=True).items()
         if f in _ALLOWED_USER_UPDATE_FIELDS
     }
+    # N-897-02: Identitaet, E-Mail und Rolle externer Compliance-Konten aendert
+    # kein Admin (nur Deaktivieren); niemand wird per Rollenwechsel zur
+    # externen Compliance-Person (nur per Einladung mit selbst gesetztem Passwort).
+    reviewer_locked = {f for f, v in updates.items()
+                       if f != "is_active" and v != getattr(user, f, None)}
+    if (user.role == COMPLIANCE_REVIEWER_ROLE and reviewer_locked) or (
+        updates.get("role") == COMPLIANCE_REVIEWER_ROLE and user.role != COMPLIANCE_REVIEWER_ROLE
+    ):
+        raise HTTPException(status_code=403, detail={
+            "reason_code": "COMPLIANCE_REVIEWER_ADMIN_CHANGE_FORBIDDEN",
+            "message": ("Externe Compliance-Konten: nur Deaktivieren durch Admins; "
+                        "neue Konten per Einladung."),
+        })
     # AUTH-TEN-03 (Codex-Audit 2026-08-25): Deaktivierung und Rollenaenderung
     # sind sicherheitsrelevant genau wie ein Passwortwechsel (AUTH-TEN-01) --
     # ohne Session-Widerruf blieb ein bereits ausgestelltes Access-/Refresh-
@@ -1285,6 +1328,10 @@ def update_user(
     if needs_session_revocation:
         user.token_revoked_before = _now()
         revoke_all_for_user(db, user.id)
+    if is_role_changing:
+        # N-897-03: alte Kalender-Feed-Tokens gelten nach einem Rollenwechsel nicht weiter.
+        user.calendar_feed_token_hash = None
+        user.calendar_feed_token_created_at = None
 
     if is_leaving_client_role:
         from models.client_login import ClientLogin
@@ -1294,7 +1341,9 @@ def update_user(
         ).update({"is_active": 0})
 
     log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="users", record_id=user_id, action="UPDATE")
+        table_name="users", record_id=user_id, action="UPDATE",
+        field_name="role" if is_role_changing else None,
+        new_value=updates.get("role") if is_role_changing else None)
     db.commit()
     db.refresh(user)
     return user
@@ -1323,6 +1372,12 @@ def reset_user_password(
     # _assert_user_visible_to).
     if not is_self:
         _assert_user_visible_to(current_user, user)
+        # N-897-02: das Passwort externer Compliance-Konten setzt nie ein Admin.
+        if user.role == COMPLIANCE_REVIEWER_ROLE:
+            raise HTTPException(status_code=403, detail={
+                "reason_code": "COMPLIANCE_REVIEWER_ADMIN_CHANGE_FORBIDDEN",
+                "message": "Das Passwort externer Compliance-Konten setzt nur die Person selbst.",
+            })
     # 2026-07-25 (Generalaudit): siehe change_password oben -- Self-Zweig
     # braucht dieselbe Ausnahme fuer den erzwungenen Erst-Passwortwechsel
     # (dieser Endpoint wird laut test_self_service_password_endpoint_
@@ -1337,6 +1392,8 @@ def reset_user_password(
     # muss das vom Admin gesetzte Passwort beim naechsten Login aendern).
     user.must_change_password = 0 if is_self else 1
     user.updated_at = _now()
+    user.credentials_set_by = CREDENTIALS_SET_BY_SELF if is_self else current_user.id
+    user.credentials_set_at = user.updated_at
     if not is_self or not was_forced_change:
         user.token_revoked_before = _now()
         # AUTH-TEN-01 (Codex-Audit 2026-08-25): dieselbe Luecke wie

@@ -765,6 +765,7 @@ KYC_CONFIRMATION_REJECTION_SQLITE_TRIGGERS = _redaction_only_sqlite_triggers(
     "kyc_confirmation_rejections", KYC_CONFIRMATION_REJECTION_FIXED_COLUMNS,
     KYC_CONFIRMATION_REJECTION_REDACTABLE_COLUMNS,
 )
+KYC_CONFIRMATION_DECISION_SQLITE_TRIGGERS = _append_only_sqlite_triggers("kyc_confirmation_decisions")
 KYC_REVIEW_POLICY_SQLITE_TRIGGERS = _append_only_sqlite_triggers("kyc_review_policies")
 KYC_REVIEW_POLICY_ACTIVATION_SQLITE_TRIGGERS = _append_only_sqlite_triggers("kyc_review_policy_activations")
 
@@ -930,6 +931,16 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # REVIEW-CALENDAR-001 (2026-09-24): siehe models/users.py.
             ('calendar_feed_token_hash', 'TEXT'),
             ('calendar_feed_token_created_at', 'TEXT'),
+            # C-890-01 Nachtrag 3 (N-897-02): siehe models/users.py.
+            ('credentials_set_by', 'TEXT'),
+            ('credentials_set_at', 'TEXT'),
+            ('totp_set_by', 'TEXT'),
+            ('totp_set_at', 'TEXT'),
+            ('invited_by', 'TEXT'),
+            ('invited_at', 'TEXT'),
+            ('activated_at', 'TEXT'),
+            ('reviewer_organisation', 'TEXT'),
+            ('reviewer_reference', 'TEXT'),
         ],
         'tenants': [
             ('encrypted_dek', 'TEXT'),
@@ -1614,6 +1625,7 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             ("kyc_review_policies", KYC_REVIEW_POLICY_SQLITE_TRIGGERS),
             ("kyc_review_policy_activations", KYC_REVIEW_POLICY_ACTIVATION_SQLITE_TRIGGERS),
             ("kyc_confirmation_rejections", KYC_CONFIRMATION_REJECTION_SQLITE_TRIGGERS),
+            ("kyc_confirmation_decisions", KYC_CONFIRMATION_DECISION_SQLITE_TRIGGERS),
         ):
             if inspect(conn).has_table(table):
                 for ddl in ddls:

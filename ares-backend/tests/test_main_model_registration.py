@@ -40,7 +40,8 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # kyc_review_policy_activations) und acht nullable Bindungsspalten an
 # kyc_confirmations; keine bestehende Tabelle umbenannt/entfernt.
 # C-890-01 Nachtrag 2: neue Tabelle kyc_confirmation_rejections.
-GOLDEN_SORTED_TABLES_SHA256 = "8cc4d76454f92c7721a79d38f18a57c6ff1dfad247c9a1f5dadd1b9d5c2b3c21"
+# C-890-01 Nachtrag 3: neue Tabelle kyc_confirmation_decisions, neun Spalten an users.
+GOLDEN_SORTED_TABLES_SHA256 = "ebcac357f1556908df67f9f3ed19bfd148020d304f6ffa89dc26483fbad90621"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -86,7 +87,13 @@ GOLDEN_SORTED_TABLES_SHA256 = "8cc4d76454f92c7721a79d38f18a57c6ff1dfad247c9a1f5d
 # /compliance/kyc-approvals/{confirmation_id}/decision (+ KycPendingApproval*,
 # KycSecondApproval*-Schemas); kein bestehender Pfad, kein bestehendes Schema
 # geaendert. Feld-Diff geprueft.
-GOLDEN_OPENAPI_SHA256 = "19b4d3529adeec26392f4e876fe616d95ae9c1f4f39ba19e3c15c77576912847"
+# C-890-01 Nachtrag 3: nur additive Felder -- InviteCreate (reviewer_organisation,
+# reviewer_reference), UserResponse (Konto-Herkunft), approver_account an
+# KycConfirmationApprovalResponse/KycReviewPolicyResponse/
+# KycSecondApprovalDecisionResponse, KycConfirmationResponse.
+# personal_data_warnings, ClientOnboardingFinding.shortened_by_policy_version.
+# Kein Pfad, kein bestehendes Feld geaendert. Feld-Diff geprueft.
+GOLDEN_OPENAPI_SHA256 = "5fd073b20dab0e83d198568ca2f22bbf9c6b51865a761cefbde7a9c5897ba988"
 
 _PROBE = """
 import hashlib, json

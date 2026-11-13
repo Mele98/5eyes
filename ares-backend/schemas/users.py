@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, field_validator, model_validator
 from typing import Optional, Literal
 from schemas.common import BaseResponse
 
@@ -59,6 +59,14 @@ class UserResponse(BaseResponse):
     totp_enabled: int = 0
     # E1 (2026-06-14): offene Einladung (Account noch nicht aktiviert) — Team-UI.
     invite_pending: bool = False
+    # C-890-01 Nachtrag 3 (N-897-02): Herkunft/Identitaet (Freigabenachweis).
+    invited_by: Optional[str] = None
+    invited_at: Optional[str] = None
+    activated_at: Optional[str] = None
+    credentials_set_by: Optional[str] = None
+    totp_set_by: Optional[str] = None
+    reviewer_organisation: Optional[str] = None
+    reviewer_reference: Optional[str] = None
 
     @field_validator('must_change_password', 'totp_enabled', mode='before')
     @classmethod
@@ -189,6 +197,25 @@ class InviteCreate(BaseModel):
     # 2026-08-09: siehe UserCreate.tenant_id -- identischer Grund (Quota-Check
     # muss gegen die Ziel-Firma laufen, nicht die Operator-Firma).
     tenant_id: Optional[str] = None
+    # C-890-01 Nachtrag 3 (N-897-02): Identitaet der externen Compliance-Person
+    # (Name = full_name). Owner-Angabe, Pflicht nur fuer diese Rolle.
+    reviewer_organisation: Optional[str] = None
+    reviewer_reference: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _reviewer_identity(self):
+        if self.role == "compliance_reviewer":
+            for name in ("reviewer_organisation", "reviewer_reference"):
+                value = str(getattr(self, name) or "").strip()
+                if len(value) < 2:
+                    raise ValueError(f"{name} ist fuer die externe Compliance-Freigabe Pflicht")
+                setattr(self, name, value)
+            if not self.email:
+                raise ValueError("email ist fuer die externe Compliance-Freigabe Pflicht")
+        else:
+            self.reviewer_organisation = None
+            self.reviewer_reference = None
+        return self
 
     @field_validator('username', 'full_name')
     @classmethod

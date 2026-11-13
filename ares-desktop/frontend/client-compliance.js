@@ -212,7 +212,7 @@
     html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:4px">'
       + '<div>' + L + 'Formular</label><select class="fsel" id="kyc-form" style="font-size:11px"><option value="">bitte wählen</option><option value="A">A (wirtschaftlich Berechtigter)</option><option value="K">K (Kontrollinhaber)</option><option value="S">S (Stiftungen/ähnliche)</option><option value="T">T (Trusts)</option></select></div>'
       + '<div>' + L + 'Formular erstellt am</label><input class="fi" type="date" id="kyc-date" style="font-size:11px"></div>'
-      + '<div>' + L + 'Referenz (SRO-/Fremdsystem)</label><input class="fi" id="kyc-ref" style="font-size:11px"></div>'
+      + '<div>' + L + 'Referenz (SRO-/Fremdsystem, keine Kundennamen)</label><input class="fi" id="kyc-ref" maxlength="120" style="font-size:11px"></div>'
       + '<div>' + L + 'Risikokategorie</label><select class="fsel" id="kyc-risk" style="font-size:11px"><option value="">bitte wählen</option><option value="normal">normal</option><option value="erhoeht">erhöht</option></select></div>'
       + '<div>' + L + 'PEP</label><select class="fsel" id="kyc-pep" style="font-size:11px"><option value="">bitte wählen</option><option value="false">nein</option><option value="true">ja</option></select></div>'
       + '<div>' + L + 'Nächste Aktualisierung</label><input class="fi" type="date" id="kyc-review" style="font-size:11px"></div>'
@@ -317,8 +317,13 @@
       identification_confirmed: !!(document.getElementById('kyc-ident-ok') || {}).checked,
       identification_date: val('kyc-ident-date')
     };
-    return run(function(){
-      return API.post('/clients/' + encodeURIComponent(currentClientId) + '/kyc-confirmations', body);
+    return run(async function(){
+      var res = await API.post('/clients/' + encodeURIComponent(currentClientId) + '/kyc-confirmations', body);
+      // N-897-07: Hinweis, wenn Referenz/Bemerkung nach Personendaten aussehen.
+      if (res && res.personal_data_warnings && res.personal_data_warnings.length) {
+        notify('warning', 'Hinweis: Referenz/Bemerkung enthält möglicherweise Personendaten (' + res.personal_data_warnings.join(', ') + '). Diese Texte sieht die zweite Person.');
+      }
+      return res;
     }, 'KYC-Bestätigung erfasst.');
   }
 

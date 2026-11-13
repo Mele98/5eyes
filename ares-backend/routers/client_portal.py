@@ -132,10 +132,13 @@ def _assert_portal_report_releasable(db: Session, mandate: Mandate, client: Clie
         CHANNEL_CLIENT_PORTAL,
         CLIENT_PORTAL_UNAVAILABLE_MESSAGE,
         assert_current_allocation_without_adr12a_hold,
+        assert_kyc_review_release_eligible,
         assert_risk_signoff_release_eligible,
     )
 
     try:
+        # C-890-01 N-897-01: KYC-Wiedervorlage (faellig/ungebunden -> kein Bericht).
+        assert_kyc_review_release_eligible(db, mandate, channel=CHANNEL_CLIENT_PORTAL)
         assert_risk_signoff_release_eligible(db, mandate, channel=CHANNEL_CLIENT_PORTAL)
         # CMA-001 / ADR-12a-Release-Hold: Strategie auf KGV-aktiver CMA wird
         # dem Kunden nicht angezeigt (neutrale Meldung, Code nur in Log/Audit).
@@ -146,6 +149,8 @@ def _assert_portal_report_releasable(db: Session, mandate: Mandate, client: Clie
         # K-2b: die Gates werfen DomainError (detail/status_code wie HTTPException).
         detail = exc.detail if isinstance(exc.detail, dict) else {}
         reason_code = str(detail.get("reason_code") or "RELEASE_BLOCKED")
+        if detail.get("finding_codes"):
+            reason_code = str(detail["finding_codes"][0])
         logger.warning(
             "Client-portal report blocked for mandate %s: %s (%s)",
             mandate.id, reason_code, ", ".join(detail.get("integrity_mismatches") or []),

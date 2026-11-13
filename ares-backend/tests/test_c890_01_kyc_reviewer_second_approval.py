@@ -108,7 +108,9 @@ def test_pep_flow_reviewer_approves_gate_turns_green(client, seeded):
     assert _decide(client, rev, item).json()["detail"]["reason_code"] == "KYC_SECOND_APPROVAL_ALREADY_DECIDED"
     with seeded() as db:
         audit = db.query(AuditLog).filter(AuditLog.field_name == "kyc_second_approval").all()
-        assert [(a.user_id, a.tenant_id, a.new_value) for a in audit] == [("rev-1", TENANT, conf["id"])]
+        assert [(a.user_id, a.tenant_id, a.new_value.split(";")[0]) for a in audit] == [("rev-1", TENANT, conf["id"])]
+        # N-897-02: Herkunft des Freigeberkontos steht im Protokoll.
+        assert "eingeladen von ADM-1" in audit[0].new_value and "2FA selbst" in audit[0].new_value
 
 
 def test_rejection_keeps_gate_red_and_blocks_later_approval(client, seeded):

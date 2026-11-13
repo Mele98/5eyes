@@ -113,7 +113,9 @@ TEST_KYC_REVIEW_APPROVER_ID = "testfixture-c890-zweitfreigabe"
 
 
 def _test_review_approver(db, actor_id: str) -> str:
-    other = db.query(User).filter(User.id != actor_id).order_by(User.id).first()
+    # N-897-04: das Gate rechnet die Vier-Augen-Regel per Person nach -- die
+    # zweite Person muss eine Freigaberolle haben (Admin).
+    other = db.query(User).filter(User.id != actor_id, User.role.in_(("admin", "super_admin"))).order_by(User.id).first()
     if other is not None:
         return str(other.id)
     db.add(User(

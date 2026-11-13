@@ -123,23 +123,46 @@ def _seed(base, httpx) -> None:
         "license_reference": "Testregister", "ombudsman_name": "Ombudsstelle (Testwert)",
         "ombudsman_address": "Testadresse", "contact_email": "test@example.invalid"})
     assert r.status_code == 200, r.text
-    r = httpx.post(base + "/users", headers=admin, timeout=30, json={
-        "username": "extern", "password": PW, "full_name": "Externe Compliance (Test)",
-        "role": "compliance_reviewer"})
-    assert r.status_code in (200, 201), r.text
-    login = httpx.post(base + "/auth/login", json={"username": "extern", "password": PW}, timeout=30)
-    assert login.status_code == 200, login.text
-    rev = {"Authorization": "Bearer " + login.json()["access_token"]}
-    httpx.post(base + "/auth/change-password", headers=rev, timeout=30,
-               json={"current_password": PW, "new_password": PW2})
+    return admin
 
 
-def _login(page, base, user, password):
+def _invite_api(base, httpx, admin) -> str:
+    r = httpx.post(base + "/users/invite", headers=admin, timeout=30, json={
+        "username": "extern", "full_name": "Externe Compliance (Test)", "email": "extern@testfirma.ch",
+        "role": "compliance_reviewer", "reviewer_organisation": "TEST-C890 Revision AG",
+        "reviewer_reference": "TEST-C890 Mandat 1"})
+    assert r.status_code == 201, r.text
+    return r.json()["invite_token"]
+
+
+def _activate_reviewer(base, httpx, token):
+    """Die externe Person nimmt die Einladung an (Passwort selbst) und richtet
+    2FA selbst ein (N-897-02). Rueckgabe: (API-Header, TOTP-Secret)."""
+    from services import totp
+
+    r = httpx.post(base + "/auth/invite/accept", json={"token": token, "password": PW2}, timeout=30)
+    assert r.status_code == 200, r.text
+    rev = {"Authorization": "Bearer " + r.json()["access_token"]}
+    secret = httpx.post(base + "/auth/2fa/setup", headers=rev, timeout=30).json()["secret"]
+    r = httpx.post(base + "/auth/2fa/enable", headers=rev, timeout=30,
+                   json={"code": totp.totp_at(secret, time.time())})
+    assert r.status_code == 200, r.text
+    return rev, secret
+
+
+def _login(page, base, user, password, totp_secret=None):
     page.goto(base + "/app/ares.html")
     page.evaluate("document.getElementById('intro-screen') && document.getElementById('intro-screen').remove()")
     page.fill("#login-username", user)
     page.fill("#login-password", password)
     page.evaluate("doLogin()")
+    if totp_secret:
+        from services import totp
+
+        page.wait_for_function("(document.getElementById('login-error')||{}).textContent.indexOf('2FA') >= 0")
+        # naechstes Zeitfenster (Drift-Toleranz): der Code der Aktivierung ist verbraucht.
+        page.fill("#login-totp", totp.totp_at(totp_secret, time.time() + 30))
+        page.evaluate("doLogin()")
 
 
 def test_capture_self_approval_refused_reviewer_approves_effective(server):
@@ -179,9 +202,19 @@ def test_capture_self_approval_refused_reviewer_approves_effective(server):
               catch (e) { return String(e.status || '') + ' ' + JSON.stringify(e.detail || ''); }
             }""")
             assert refused.startswith("403") and "KYC_REVIEW_POLICY_SAME_PERSON" in refused, refused
+            # Einladung der externen Person ueber die Maske (Identitaet, kein Passwort).
+            page.fill("#krp-inv-name", "Externe Compliance (Test)")
+            page.fill("#krp-inv-username", "extern")
+            page.fill("#krp-inv-email", "extern@testfirma.ch")
+            page.fill("#krp-inv-org", "TEST-C890 Revision AG")
+            page.fill("#krp-inv-ref", "TEST-C890 Mandat 1")
+            page.evaluate("inviteKycReviewer()")
+            page.wait_for_selector("#krp-inv-token")
+            token = page.inner_text("#krp-inv-token").split("invite=")[-1].strip()
             page.evaluate("doLogout()")
+            _rev, secret = _activate_reviewer(base, httpx, token)
 
-            _login(page, base, "extern", PW2)
+            _login(page, base, "extern", PW2, secret)
             page.wait_for_selector("#krp-reviewer-view #krp-banner")
             assert "Compliance-Freigabe" in page.inner_text("#krp-reviewer-view")
             assert page.locator("#krp-reviewer-view #btn-krp-create").count() == 0
@@ -209,8 +242,7 @@ def test_reviewer_decides_open_kyc_second_approval_in_browser(server):
     _seed(base, httpx)
     owner = {"Authorization": "Bearer " + httpx.post(base + "/auth/login", json={
         "username": "owner", "password": PW}, timeout=30).json()["access_token"]}
-    rev = {"Authorization": "Bearer " + httpx.post(base + "/auth/login", json={
-        "username": "extern", "password": PW2}, timeout=30).json()["access_token"]}
+    rev, secret = _activate_reviewer(base, httpx, _invite_api(base, httpx, owner))
     today = datetime.now(timezone.utc).date()
     row = httpx.post(base + "/compliance/kyc-review-policies", headers=owner, timeout=30, json={
         "jurisdiction": "CH", "policy_id": "TEST-C890-UI", "normal_max_months": 23, "elevated_max_months": 11,
@@ -239,7 +271,7 @@ def test_reviewer_decides_open_kyc_second_approval_in_browser(server):
         browser = pw.chromium.launch(headless=True)
         try:
             page = browser.new_page(viewport={"width": 1400, "height": 900})
-            _login(page, base, "extern", PW2)
+            _login(page, base, "extern", PW2, secret)
             page.wait_for_selector(f"#krp-reviewer-view .krp-approval[data-confirmation-id='{kid}']")
             card = page.inner_text(f".krp-approval[data-confirmation-id='{kid}']")
             assert "Kunde K-UI-1" in card and "PEP" in card and "SRO-UI-1" in card

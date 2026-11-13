@@ -612,25 +612,88 @@ def latest_kyc_confirmation(db: Session, client_id: str, mandate_id: Optional[st
     return confirmation
 
 
+def _email_identity(value: Any) -> str:
+    """Gleiche Regel wie services/auth.py::normalize_email_identity (Test):
+    Gross-/Kleinschreibung, Leerzeichen und ``+alias`` zaehlen nicht."""
+    raw = _clean(value).lower()
+    if "@" not in raw:
+        return raw
+    local, _, domain = raw.rpartition("@")
+    return local.split("+", 1)[0] + "@" + domain
+
+
+def kyc_reviewer_account_ready(row: Any) -> bool:
+    """N-897-02: Konto der Rolle compliance_reviewer zaehlt nur, wenn es per
+    Einladung aktiviert wurde und Passwort sowie 2FA zuletzt von der Person
+    selbst gesetzt wurden (nie von einem Admin)."""
+    return bool(
+        row["invited_at"] and row["activated_at"]
+        and str(row["credentials_set_by"] or "") == "self"
+        and int(row["totp_enabled"] or 0)
+        and str(row["totp_set_by"] or "") == "self"
+    )
+
+
 def kyc_second_person_valid(db: Session, approver_id: Any, recorder_id: Any) -> bool:
-    """Vier-Augen nachgerechnet: Freigeber existiert mit einer Freigaberolle
-    (``KYC_APPROVER_ROLES``) und ist nicht der Erfasser -- weder gleiche ID
-    noch gleiche E-Mail-Adresse (zweites Konto derselben Person)."""
+    """Vier-Augen nachgerechnet (KYC-Zweitfreigabe UND Policy-Aktivierung):
+    Freigeber existiert mit einer Freigaberolle (``KYC_APPROVER_ROLES``), ist
+    nicht der Erfasser -- weder gleiche ID noch gleiche normalisierte E-Mail
+    (zweites Konto, ``+alias``) -- und ist, falls externe Compliance-Person,
+    ein selbst aktiviertes Konto mit selbst gesetzter 2FA (N-897-02)."""
     if not approver_id or str(approver_id) == str(recorder_id or ""):
         return False
     rows = {
         str(r["id"]): r for r in db.execute(
-            _sql_text("SELECT id, role, email FROM users WHERE id IN (:a, :b)"),
+            _sql_text(
+                "SELECT id, role, email, invited_at, activated_at, credentials_set_by, "
+                "totp_enabled, totp_set_by FROM users WHERE id IN (:a, :b)"
+            ),
             {"a": str(approver_id), "b": str(recorder_id or "")},
         ).mappings().all()
     }
     approver = rows.get(str(approver_id))
     if approver is None or str(approver["role"] or "") not in KYC_APPROVER_ROLES:
         return False
+    if str(approver["role"]) == "compliance_reviewer" and not kyc_reviewer_account_ready(approver):
+        return False
     recorder = rows.get(str(recorder_id or ""))
-    a_mail = _clean(approver["email"]).lower()
-    r_mail = _clean(recorder["email"]).lower() if recorder is not None else ""
+    a_mail = _email_identity(approver["email"])
+    r_mail = _email_identity(recorder["email"]) if recorder is not None else ""
     return not (a_mail and a_mail == r_mail)
+
+
+def kyc_approver_account(db: Session, user_id: Any) -> Optional[dict]:
+    """Freigabenachweis (N-897-02): Herkunft des Freigeberkontos -- Rolle,
+    Identitaet der externen Person, wer es wann eingeladen hat, wann es
+    aktiviert wurde und wer Passwort/2FA zuletzt gesetzt hat."""
+    if not user_id:
+        return None
+    row = db.execute(
+        _sql_text(
+            "SELECT id, full_name, role, invited_by, invited_at, activated_at, credentials_set_by, "
+            "totp_enabled, totp_set_by, reviewer_organisation, reviewer_reference "
+            "FROM users WHERE id = :id"
+        ),
+        {"id": str(user_id)},
+    ).mappings().first()
+    if row is None:
+        return None
+    inviter = None
+    if row["invited_by"]:
+        found = db.execute(_sql_text("SELECT full_name FROM users WHERE id = :id"),
+                           {"id": str(row["invited_by"])}).first()
+        inviter = found[0] if found is not None else None
+    return {
+        "user_id": row["id"], "name": row["full_name"], "role": row["role"],
+        "organisation": row["reviewer_organisation"], "reference": row["reviewer_reference"],
+        "invited_by": row["invited_by"], "invited_by_name": inviter, "invited_at": row["invited_at"],
+        "activated_at": row["activated_at"],
+        "credentials_set_by": ("selbst" if row["credentials_set_by"] == "self"
+                               else ("Admin" if row["credentials_set_by"] else "unbekannt")),
+        "totp_enabled": bool(int(row["totp_enabled"] or 0)),
+        "totp_set_by": ("selbst" if row["totp_set_by"] == "self"
+                        else ("Admin" if row["totp_set_by"] else "unbekannt")),
+    }
 
 
 def kyc_requires_second_approval(confirmation: dict) -> bool:
@@ -971,8 +1034,9 @@ def resolve_kyc_review_policy(
             or kyc_review_policy_defect(policy) is not None
         ):
             return _review_resolution(KYC_REVIEW_POLICY_INVALID, tenant_id, jurisdiction, policy, activation)
-        if str(activation.get("approved_by") or "") == str(policy.get("created_by") or ""):
-            # Vier-Augen verletzt (nur per Direktzugriff moeglich): gilt nicht.
+        if not kyc_second_person_valid(db, activation.get("approved_by"), policy.get("created_by")):
+            # N-897-04: Vier-Augen per Person wie bei der KYC-Zweitfreigabe
+            # (ID, normalisierte E-Mail, Freigaberolle, Konto-Herkunft).
             return _review_resolution(KYC_REVIEW_POLICY_UNAPPROVED, tenant_id, jurisdiction, policy, activation)
     if not activations:
         newest = max(policies.values(), key=lambda p: int(p.get("version") or 0))
@@ -995,17 +1059,19 @@ def resolve_kyc_review_policy(
     versions = [int(policies[str(a["policy_row_id"])].get("version") or 0) for a in chain]
     if len(chain) != len(activations) or any(b <= a for a, b in zip(versions, versions[1:])):
         return _review_resolution(KYC_REVIEW_POLICY_AMBIGUOUS, tenant_id, jurisdiction)
+    chain_pairs = [(policies[str(a["policy_row_id"])], a) for a in chain]
     for activation in reversed(chain):
         policy = policies[str(activation["policy_row_id"])]
         if kyc_review_effective_from(policy, activation) <= on_date:
             valid_until = _iso_day(policy.get("valid_until")) if policy.get("valid_until") else ""
             if valid_until and on_date > valid_until:
-                return _review_resolution(KYC_REVIEW_POLICY_EXPIRED, tenant_id, jurisdiction, policy, activation)
-            return _review_resolution(None, tenant_id, jurisdiction, policy, activation)
+                return _review_resolution(KYC_REVIEW_POLICY_EXPIRED, tenant_id, jurisdiction, policy, activation,
+                                          chain=chain_pairs)
+            return _review_resolution(None, tenant_id, jurisdiction, policy, activation, chain=chain_pairs)
     head = chain[-1]
     return _review_resolution(
         KYC_REVIEW_POLICY_NOT_YET_EFFECTIVE, tenant_id, jurisdiction,
-        policies[str(head["policy_row_id"])], head,
+        policies[str(head["policy_row_id"])], head, chain=chain_pairs,
     )
 
 
@@ -1170,17 +1236,34 @@ def kyc_review_findings(
     if current["reason_code"]:
         findings.append(_review_finding(current["reason_code"], "tenant", current))
     elif defect is None:
+        # N-897-05 (Entscheid konservativ): massgebend ist die STRENGSTE
+        # Obergrenze aller Versionen, die seit der Erfassung wirksam waren --
+        # eine einmal durch Verkuerzung faellig gewordene Bestaetigung wird
+        # durch eine spaetere Verlaengerung nicht wieder gruen (Heilung nur
+        # durch eine neue KYC-Bestaetigung).
         risk_class = kyc_review_risk_class(confirmation.get("risk_category"), confirmation.get("is_pep"))
-        current_max = add_months_clamped(
-            confirmation.get("form_completed_on"),
-            kyc_review_interval_months(current["policy_row"], risk_class),
-        )
-        if _iso_day(confirmation.get("next_review_due")) > current_max:
+        recorded = _iso_day(confirmation.get("recorded_at"))
+        bound_version = int(confirmation.get("review_policy_version") or 0)
+        strictest = None
+        for policy, activation in current.get("chain") or []:
+            if int(policy.get("version") or 0) < bound_version:
+                continue
+            if kyc_review_effective_from(policy, activation) > today:
+                continue
+            if policy.get("valid_until") and _iso_day(policy.get("valid_until")) < recorded:
+                continue
+            candidate = add_months_clamped(
+                confirmation.get("form_completed_on"), kyc_review_interval_months(policy, risk_class),
+            )
+            if strictest is None or candidate < strictest[0]:
+                strictest = (candidate, policy)
+        if strictest is not None and _iso_day(confirmation.get("next_review_due")) > strictest[0]:
             findings.append(_review_finding(
                 KYC_REVIEW_POLICY_SHORTENED, "client", current,
                 confirmation_id=confirmation.get("id"),
                 bound_next_review_due=_iso_day(confirmation.get("next_review_due")),
-                current_max_due=current_max,
+                current_max_due=strictest[0],
+                shortened_by_policy_version=int(strictest[1].get("version") or 0),
             ))
     return findings
 
@@ -1235,6 +1318,49 @@ def kyc_review_release_findings(db: Session, mandate: Any, today: Optional[str] 
             kyc_review_status=KYC_REVIEW_STATUS_BY_CODE[KYC_CONFIRMATION_REVIEW_OVERDUE],
         ))
     return findings
+
+
+# N-897-01: ausdrueckliche, zentrale Klassifikation ALLER PDF-/Berichtsrouten.
+# "kundenwirksam" = Inhalt geht an den Kunden bzw. dokumentiert Empfehlung/
+# Vertrag -> Wiedervorlage-Gate (assert_kyc_review_release_eligible) VOR jeder
+# Wirkung. tests/test_c890_01_report_route_classification.py liest die echte
+# App-Routentabelle: jede PDF-/Berichtsroute muss hier stehen, jede
+# kundenwirksame muss bei faelliger/ungebundener KYC-Bestaetigung sperren.
+REPORT_CLIENT_FACING = "kundenwirksam"
+REPORT_INTERNAL = "intern"
+REPORT_ROUTE_CLASSIFICATION: dict[str, tuple[str, str]] = {
+    "GET /mandates/{mandate_id}/reports/anlagestrategie.pdf": (REPORT_CLIENT_FACING, "Anlagestrategie fuer den Kunden"),
+    "GET /mandates/{mandate_id}/reports/assetallocation.pdf": (REPORT_CLIENT_FACING, "Asset-Allocation-Ausdruck fuer das Kundengespraech"),
+    "GET /mandates/{mandate_id}/reports/risikoprofil.pdf": (REPORT_CLIENT_FACING, "Risikoprofil zur Unterschrift des Kunden"),
+    "GET /mandates/{mandate_id}/reports/portfolio.pdf": (REPORT_CLIENT_FACING, "Anlagerezept/Portfolio fuer den Kunden"),
+    "GET /mandates/{mandate_id}/reports/vertrag.pdf": (REPORT_CLIENT_FACING, "Vertragsdokumente"),
+    "GET /mandates/{mandate_id}/reports/contract-signoff.pdf": (REPORT_CLIENT_FACING, "Kunden-Sign-off"),
+    "GET /mandates/{mandate_id}/reports/protokoll.pdf": (REPORT_CLIENT_FACING, "Beratungsprotokoll (Kundenexemplar)"),
+    "GET /mandates/{mandate_id}/reports/depotcheck.pdf": (REPORT_CLIENT_FACING, "Depotcheck-Analyse fuer den Kunden"),
+    "GET /mandates/{mandate_id}/reports/backtest.pdf": (REPORT_CLIENT_FACING, "Backtest-Ausdruck fuer den Kunden"),
+    "GET /mandates/{mandate_id}/reports/advisory-report.pdf": (REPORT_CLIENT_FACING, "Beratungsbericht (client-ready, Attachment)"),
+    "GET /mandates/{mandate_id}/reports/cost-disclosure.pdf": (REPORT_CLIENT_FACING, "Ex-ante-Kostenausweis (FIDLEG)"),
+    "GET /mandates/{mandate_id}/advisory-report": (REPORT_CLIENT_FACING, "React-Beratungsbericht (gleicher Inhalt wie das PDF)"),
+    "GET /client-portal/mandates/{mandate_id}/report": (REPORT_CLIENT_FACING, "Bericht im Kundenportal"),
+    "GET /mandates/{mandate_id}/reports/kundeninformation.pdf": (REPORT_INTERNAL, (
+        "Kundeninformation Art. 8/9 FIDLEG: muss VOR Vertragsabschluss und vor der KYC-Bestaetigung "
+        "abgegeben werden koennen; eigenes Gate (rechtliche Angaben)")),
+    "GET /mandates/{mandate_id}/documents/{doc_id}/pdf": (REPORT_INTERNAL, (
+        "Archivabruf bereits erzeugter, gesiegelter Dokumente als Nachweis; erzeugt keinen neuen Inhalt")),
+    "GET /clients/{client_id}/data-export": (REPORT_INTERNAL, (
+        "Datenauskunft nach DSG (gesetzlicher Anspruch der betroffenen Person), keine Empfehlung")),
+    "GET /mandates/{mandate_id}/report-notes": (REPORT_INTERNAL, "interne Beraternotizen zum Bericht"),
+    "PUT /mandates/{mandate_id}/report-notes": (REPORT_INTERNAL, "interne Beraternotizen zum Bericht"),
+    "POST /mandates/{mandate_id}/advisory-log/from-report-generation": (REPORT_INTERNAL, "interner Beratungsprotokoll-Eintrag"),
+    "GET /products/sustainability/attributes/export": (REPORT_INTERNAL, "Produkt-Referenzdaten, kein Kundenbezug"),
+}
+
+
+def is_report_route(path: str) -> bool:
+    """Erkennung einer PDF-/Berichtsroute aus der Routentabelle."""
+    last = path.rstrip("/").split("/")[-1].lower()
+    return (path.endswith(".pdf") or path.endswith("/pdf") or "/reports/" in path
+            or "report" in last or "export" in last)
 
 
 def _call_on_block(on_block: Callable, reason_code: str, findings: list[dict]) -> None:

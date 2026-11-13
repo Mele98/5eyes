@@ -7414,6 +7414,8 @@ export interface components {
             reason_code: string;
             /** Scope */
             scope: string;
+            /** Shortened By Policy Version */
+            shortened_by_policy_version?: number | null;
         };
         /** ClientOnboardingStatusResponse */
         ClientOnboardingStatusResponse: {
@@ -8779,6 +8781,10 @@ export interface components {
             email?: string | null;
             /** Full Name */
             full_name: string;
+            /** Reviewer Organisation */
+            reviewer_organisation?: string | null;
+            /** Reviewer Reference */
+            reviewer_reference?: string | null;
             /**
              * Role
              * @default advisor
@@ -9018,6 +9024,8 @@ export interface components {
             approved_at: string;
             /** Approved By */
             approved_by: string;
+            /** Approver Account */
+            approver_account?: Record<string, unknown> | null;
             /** Client Id */
             client_id: string;
             /** Confirmation Id */
@@ -9099,6 +9107,11 @@ export interface components {
             next_review_due: string;
             /** Note */
             note?: string | null;
+            /**
+             * Personal Data Warnings
+             * @default []
+             */
+            personal_data_warnings?: string[];
             /** Process Scope */
             process_scope: string;
             /** Recorded At */
@@ -9236,6 +9249,8 @@ export interface components {
             approved_at?: string | null;
             /** Approved By */
             approved_by?: string | null;
+            /** Approver Account */
+            approver_account?: Record<string, unknown> | null;
             /** Created At */
             created_at: string;
             /** Created By */
@@ -9288,6 +9303,8 @@ export interface components {
         };
         /** KycSecondApprovalDecisionResponse */
         KycSecondApprovalDecisionResponse: {
+            /** Approver Account */
+            approver_account?: Record<string, unknown> | null;
             /** Confirmation Id */
             confirmation_id: string;
             /** Decided At */
@@ -13657,8 +13674,12 @@ export interface components {
         };
         /** UserResponse */
         UserResponse: {
+            /** Activated At */
+            activated_at?: string | null;
             /** Created At */
             created_at: string;
+            /** Credentials Set By */
+            credentials_set_by?: string | null;
             /** Email */
             email: string | null;
             /** Full Name */
@@ -13670,6 +13691,10 @@ export interface components {
              * @default false
              */
             invite_pending?: boolean;
+            /** Invited At */
+            invited_at?: string | null;
+            /** Invited By */
+            invited_by?: string | null;
             /** Is Active */
             is_active: number;
             /** Last Login At */
@@ -13679,6 +13704,10 @@ export interface components {
              * @default 0
              */
             must_change_password?: number;
+            /** Reviewer Organisation */
+            reviewer_organisation?: string | null;
+            /** Reviewer Reference */
+            reviewer_reference?: string | null;
             /** Role */
             role: string;
             /**
@@ -13686,6 +13715,8 @@ export interface components {
              * @default 0
              */
             totp_enabled?: number;
+            /** Totp Set By */
+            totp_set_by?: string | null;
             /** Username */
             username: string;
         };

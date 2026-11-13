@@ -39,6 +39,9 @@ Einfuehrung); adminUpdateNewUserRoleHint aus dem Monolithen umgezogen -- der
 Monolith schrumpft trotz Einbindung (Budget gesenkt: 27631 Z./1692930 B).
 C-890-01 Nachtrag 2: kyc-review-policy.js +63 Z./+4282 B fuer "Offene
 KYC-Freigaben" (Entscheid der zweiten Person); Monolith unveraendert.
+C-890-01 Nachtrag 3: kyc-review-policy.js 413/24620 (Einladung der externen
+Compliance-Person, 2FA-Hinweis, Konto-Herkunft), client-compliance.js 465/29504
+(Hinweis "keine Kundennamen", Warnung bei Personendaten).
 """
 from __future__ import annotations
 
@@ -57,8 +60,8 @@ EXTRACTED_PART_BUDGETS = {
     "ares.css": (1162, 91800),
     "intro-sequence.js": (761, 36861),
     "goal-review-runtime.js": (1589, 84633),
-    "client-compliance.js": (460, 29080),
-    "kyc-review-policy.js": (359, 20687),
+    "client-compliance.js": (465, 29504),
+    "kyc-review-policy.js": (413, 24620),
 }
 
 

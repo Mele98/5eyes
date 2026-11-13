@@ -77,6 +77,9 @@ def revoke_calendar_feed_token(user: User) -> None:
     user.calendar_feed_token_created_at = None
 
 
+CALENDAR_FEED_ROLES: tuple[str, ...] = ("advisor", "admin")
+
+
 def resolve_user_by_calendar_feed_token(db: Session, token: str) -> User | None:
     raw = (token or "").strip()
     if not raw:
@@ -88,6 +91,10 @@ def resolve_user_by_calendar_feed_token(db: Session, token: str) -> User | None:
             User.calendar_feed_token_hash == hashed,
             User.deleted_at.is_(None),
             User.is_active == 1,
+            # N-897-03: der Feed respektiert die Rollen-Grenzen -- nur Rollen mit
+            # Kalender-Abo (Berater/Admin); z. B. eine externe Compliance-Person
+            # oder ein Kunden-Login erhaelt keine Review-Termine.
+            User.role.in_(CALENDAR_FEED_ROLES),
         )
         .first()
     )

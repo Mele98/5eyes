@@ -115,6 +115,9 @@ KNOWN_UNRESOLVED: dict[tuple[str, str, str], int] = {
     ('services/recommendation_release_gate.py', '_review_finding', 'reason_code'): 1,
     ('services/recommendation_release_gate.py', 'kyc_review_findings', "current['reason_code']"): 2,
     ('services/recommendation_release_gate.py', 'kyc_review_status', 'first'): 1,
+    # C-890-01 Nachtrag 3: Kundenportal protokolliert den ersten Finding-Code
+    # der Wiedervorlage-Sperre (Wertebereich wie oben, geschlossen).
+    ('routers/client_portal.py', '_assert_portal_report_releasable', "str(detail['finding_codes'][0])"): 1,
 }
 
 

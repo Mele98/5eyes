@@ -48,12 +48,18 @@ def session_factory(tmp_path):
     Base.metadata.create_all(bind=engine)
     with factory() as db:
         for tid in (TENANT, "t-fremd"):
-            db.add(Tenant(id=tid, display_name=tid, slug=tid, created_at=NOW, updated_at=NOW))
+            db.add(Tenant(id=tid, display_name=tid, slug=tid, max_users=50, created_at=NOW, updated_at=NOW))
         for uid, role, tid in (("adm-1", "admin", TENANT), ("adm-2", "admin", TENANT),
                                ("adv-1", "advisor", TENANT), ("rev-1", "compliance_reviewer", TENANT),
                                ("rev-f", "compliance_reviewer", "t-fremd")):
+            extra = {}
+            if role == "compliance_reviewer":
+                # N-897-02: per Einladung aktiviert, Passwort und 2FA selbst gesetzt.
+                extra = dict(invited_by="adm-1", invited_at=NOW, activated_at=NOW, credentials_set_by="self",
+                             totp_enabled=1, totp_set_by="self", reviewer_organisation="TEST-C890 Org",
+                             reviewer_reference="TEST-C890 Mandat")
             db.add(User(id=uid, username=uid, password_hash=hash_password(PW), full_name=uid.upper(),
-                        role=role, is_active=1, tenant_id=tid, created_at=NOW, updated_at=NOW))
+                        role=role, is_active=1, tenant_id=tid, created_at=NOW, updated_at=NOW, **extra))
         db.add(Client(id="c-1", tenant_id=TENANT, client_number="K-1", first_name="Eva", last_name="Muster",
                       advisor_id="adv-1", created_at=NOW, updated_at=NOW))
         db.add(Mandate(id="m-1", tenant_id=TENANT, client_id="c-1", mandate_number="M-1",
@@ -84,9 +90,16 @@ def client(session_factory):
 
 
 def _auth(client, uid: str) -> dict:
-    r = client.post("/auth/login", json={"username": uid, "password": PW})
-    assert r.status_code == 200, r.text
-    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+    """Token direkt ausstellen (die Reviewer-Konten haben 2FA; der TOTP-Login
+    ist eigens getestet). Gleiche Claims wie der Login (sub, tid)."""
+    from services.auth import create_access_token
+
+    tid = {"rev-f": "t-fremd"}.get(uid, TENANT)
+    if uid not in ("rev-1", "rev-f") and not uid.startswith("rev"):
+        r = client.post("/auth/login", json={"username": uid, "password": PW})
+        if r.status_code == 200:
+            return {"Authorization": f"Bearer {r.json()['access_token']}"}
+    return {"Authorization": "Bearer " + create_access_token({"sub": uid, "tid": tid})}
 
 
 def _propose(client, headers, **overrides) -> dict:

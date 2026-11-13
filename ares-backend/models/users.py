@@ -71,6 +71,20 @@ class User(Base):
     # database.ensure_runtime_columns.
     calendar_feed_token_hash = Column(String)
     calendar_feed_token_created_at = Column(String)
+    # C-890-01 Nachtrag 3 (N-897-02): Herkunft der Zugangsdaten und Identitaet
+    # externer Compliance-Personen (Freigabenachweis). ``credentials_set_by`` /
+    # ``totp_set_by``: "self" oder die ID des Admins, der sie gesetzt hat.
+    # Laufzeit-Migration bestehender DBs: database.ensure_runtime_columns;
+    # Alembic c4e8a2f6b9d1. Bestand: NULL (= Herkunft unbekannt).
+    credentials_set_by = Column(String)
+    credentials_set_at = Column(String)
+    totp_set_by = Column(String)
+    totp_set_at = Column(String)
+    invited_by = Column(String)
+    invited_at = Column(String)
+    activated_at = Column(String)
+    reviewer_organisation = Column(String)
+    reviewer_reference = Column(String)
 
     @property
     def invite_pending(self) -> bool:
