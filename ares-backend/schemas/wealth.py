@@ -815,6 +815,13 @@ def canonical_goal_hardness(value):
     return _canonical_from(GOAL_HARDNESS_DB_VALUES, value, _goal_hardness_key) or value
 
 
+def canonical_goal_scope(value):
+    """'Beratungsvermoegen'/'gesamtvermoegen' -> DB-Wert; unbekannt -> unveraendert."""
+    if not isinstance(value, str):
+        return value
+    return _canonical_from(GOAL_SCOPE_DB_VALUES, value, _goal_hardness_key) or value
+
+
 def _require_db_value(field: str, value, allowed: tuple[str, ...]) -> None:
     if value is not None and value not in allowed:
         raise ValueError(f"{field} '{value}' ist nicht erlaubt. Erlaubt: {list(allowed)}")
@@ -1004,6 +1011,11 @@ class GoalUpdate(BaseModel):
     @classmethod
     def _canonical_hardness(cls, value):
         return canonical_goal_hardness(value)
+
+    @field_validator("goal_scope", mode="before")
+    @classmethod
+    def _canonical_goal_scope(cls, value):
+        return canonical_goal_scope(value)
 
     @model_validator(mode="after")
     def validate_goal_update_fields(self):

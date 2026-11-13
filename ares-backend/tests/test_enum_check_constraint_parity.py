@@ -46,6 +46,7 @@ import schemas.wealth as wealth_schemas  # noqa: E402
 from database import Base  # noqa: E402
 from services.risk_scoring import canonicalize_horizon_label  # noqa: E402
 from services.sqlite_check_constraint_upgrade import reference_check_in_lists  # noqa: E402
+from tests.monolith_source import read_monolith_bundle  # noqa: E402
 
 for _mod in pkgutil.walk_packages(models.__path__, "models."):
     importlib.import_module(_mod.name)
@@ -73,6 +74,7 @@ CANONICALIZERS: dict[tuple[str, str], typing.Callable[[str], str]] = {
     ("goals", "goal_type"): wealth_schemas.canonical_goal_type,
     ("goals", "goal_family"): wealth_schemas.canonical_goal_family,
     ("goals", "hardness"): wealth_schemas.canonical_goal_hardness,
+    ("goals", "goal_scope"): wealth_schemas.canonical_goal_scope,
     ("risk_assessments", "investment_horizon_label"): canonicalize_horizon_label,
 }
 
@@ -190,7 +192,7 @@ def test_goal_family_type_map_is_db_consistent_after_canonicalization():
 
 
 def _classic_goal_type_options() -> set[str]:
-    html = (REPO_ROOT / "ares-desktop" / "frontend" / "ares.html").read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     select = re.search(r'<select[^>]*id="nz-type"[^>]*>(.*?)</select>', html, re.S)
     assert select, "Classic-Zieltyp-Auswahl (nz-type) nicht gefunden"
     return set(re.findall(r'<option value="([^"]+)"', select.group(1)))

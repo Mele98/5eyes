@@ -194,3 +194,17 @@ def test_update_family_type_mismatch_is_422_not_500(session_factory, auth_client
     r = auth_client.put(f"/mandates/{mid}/goals/{gid}", json={"goal_type": "Maximierung"})
     assert r.status_code == 422, (r.status_code, r.text)
     assert _stored(session_factory, gid)[1] == "Vermögensziel"
+
+
+@pytest.mark.parametrize("raw, canonical", [
+    ("Gesamtvermoegen", "Gesamtvermögen"), ("Beratungsvermoegen", "Beratungsvermögen"),
+])
+def test_update_goal_scope_alias_is_saved_canonically(session_factory, auth_client, advisor_user, raw, canonical):
+    mid = _mandate(auth_client, advisor_user)
+    created = auth_client.post(f"/mandates/{mid}/goals", json=dict(UMBAU, goal_type="Vermögensziel"))
+    gid = created.json()["id"]
+    r = auth_client.put(f"/mandates/{mid}/goals/{gid}", json={"goal_scope": raw})
+    assert r.status_code == 200, r.text
+    with session_factory() as db:
+        stored = db.execute(text("SELECT goal_scope FROM goals WHERE id = :id"), {"id": gid}).scalar()
+    assert stored == canonical
