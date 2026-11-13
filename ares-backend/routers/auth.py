@@ -13,12 +13,13 @@ from models.users import User, AdviserRegistration
 from schemas.users import (
     AdviserRegistrationCreate, AdviserRegistrationResponse, BootstrapAdminRequest,
     BootstrapStatusResponse, InviteAccept, InviteCreate, InvitePreview, InviteResponse,
-    LoginRequest, RefreshTokenRequest, TokenResponse, UserCreate, UserPasswordReset,
+    LoginRequest, RefreshTokenRequest, TokenResponse, UserCompromise, UserCreate, UserPasswordReset,
     UserUpdate, UserResponse,
 )
 from services.auth import (
     hash_password, verify_password, create_access_token,
     get_current_user, require_admin, COMPLIANCE_REVIEWER_ROLE, CREDENTIALS_SET_BY_SELF,
+    short_user_agent,
     _effective_strict_tenant_isolation, tenant_access_block_reason,
     extract_client_ip as _extract_client_ip,
 )
@@ -33,7 +34,7 @@ from services.totp_secret_storage import (
     load_totp_secret,
     store_totp_secret,
 )
-from services.mailer import send_invite_email, send_password_reset_email
+from services.mailer import mail_configured, send_invite_email, send_password_reset_email
 from services.quota import assert_within_quota
 from services.refresh_tokens import (
     RefreshTokenReuseDetected, issue_refresh_token, revoke_all_for_user, rotate_refresh_token,
@@ -688,7 +689,7 @@ def _twofa_mgmt_guard_key(user_id: str) -> str:
 
 @router.post("/2fa/enable")
 def twofa_enable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
-                 current_user: User = Depends(get_current_user)):
+                 current_user: User = Depends(get_current_user), request: Request = None):
     """Aktiviert 2FA nach Bestaetigung eines gueltigen Codes aus dem Authenticator."""
     if not current_user.totp_secret:
         raise HTTPException(status_code=400, detail="Kein 2FA-Setup ausstehend. Zuerst /auth/2fa/setup.")
@@ -729,8 +730,11 @@ def twofa_enable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
     ensure_account_recovery_columns(db)
     codes, blob = generate_recovery_codes()
     current_user.totp_recovery_codes = blob
+    # N-897-10: IP und (gekuerzter) User-Agent als Herkunftsindiz.
     log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="users", record_id=current_user.id, action="2FA_ENABLE")
+        table_name="users", record_id=current_user.id, action="2FA_ENABLE",
+        field_name="user_agent", new_value=short_user_agent(request),
+        ip_address=_extract_client_ip(request) if request is not None else None)
     db.commit()
     return {"enabled": True, "recovery_codes": codes, "recovery_codes_count": len(codes)}
 
@@ -1142,7 +1146,8 @@ def invite_user(
     db.add(user)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="users", record_id=user.id, action="INVITE",
-        field_name="role", new_value=user.role)
+        field_name="role", new_value=f"{user.role}; ua={short_user_agent(request)}",
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(user)
     # E-Mail-Versand (best effort, config-gated) — bei Fehlschlag/aus: Link-Copy.
@@ -1155,9 +1160,13 @@ def invite_user(
     # admin-authentifiziert, keine Anti-Enumeration-Anforderung).
     invite_link = _invite_link_for(request, token)
     email_sent = send_invite_email(body.email, body.full_name, invite_link) if invite_link else False
+    # N-897-10: ist ein Mailkanal konfiguriert, geht der Link einer externen
+    # Compliance-Person NUR per Mail an sie -- nie in API-Antwort/Maske.
+    mail_only = user.role == COMPLIANCE_REVIEWER_ROLE and mail_configured()
     return InviteResponse(
         user_id=user.id, username=user.username,
-        invite_token=token, invite_expires_at=expires_at, email_sent=email_sent,
+        invite_token=None if mail_only else token, invite_expires_at=expires_at, email_sent=email_sent,
+        link_delivery="nur_email" if mail_only else "anzeige",
     )
 
 
@@ -1227,7 +1236,9 @@ def invite_accept(body: InviteAccept, request: Request, db: Session = Depends(ge
     if not user.activated_at:
         user.activated_at = user.updated_at
     log(db, user_id=user.id, user_name=user.full_name,
-        table_name="users", record_id=user.id, action="INVITE_ACCEPT")
+        table_name="users", record_id=user.id, action="INVITE_ACCEPT",
+        field_name="user_agent", new_value=short_user_agent(request),
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(user)
     return _issue_token_response(user, db, request)
@@ -1344,6 +1355,58 @@ def update_user(
         table_name="users", record_id=user_id, action="UPDATE",
         field_name="role" if is_role_changing else None,
         new_value=updates.get("role") if is_role_changing else None)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@users_router.post("/{user_id}/compromise", response_model=UserResponse)
+def compromise_user(
+    user_id: str,
+    body: UserCompromise,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """N-897-13: Konto wegen (Verdacht auf) Kompromittierung widerrufen.
+    Begruendung Pflicht, auditiert; das Konto wird deaktiviert, alle Sitzungen
+    beendet, und jede Freigabe dieses Kontos ab ``compromised_since`` gilt im
+    Gate nicht mehr (KYC-Zweitfreigabe, Policy-Aktivierung). Endgueltig."""
+    user = db.query(User).filter(User.id == user_id, User.deleted_at.is_(None)).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
+    _assert_user_visible_to(current_user, user)
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Eigenes Konto kann nicht widerrufen werden")
+    if user.compromised_since:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "USER_ALREADY_COMPROMISED",
+            "message": "Das Konto ist bereits wegen Kompromittierung widerrufen.",
+        })
+    try:
+        since = datetime.fromisoformat(str(body.compromised_since).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="compromised_since muss ein ISO-Zeitpunkt sein") from exc
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=timezone.utc)
+    now = _now()
+    since_iso = since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    if since_iso > now:
+        raise HTTPException(status_code=422, detail="compromised_since darf nicht in der Zukunft liegen")
+    user.compromised_since = since_iso
+    user.compromised_at = now
+    user.compromised_by = current_user.id
+    user.compromise_reason = body.reason
+    user.is_active = 0
+    user.token_revoked_before = now
+    user.calendar_feed_token_hash = None
+    user.calendar_feed_token_created_at = None
+    user.updated_at = now
+    revoke_all_for_user(db, user.id)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="users", record_id=user.id, action="COMPROMISE",
+        field_name="compromised_since", new_value=f"{since_iso}; Grund: {body.reason}",
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(user)
     return user
@@ -1484,9 +1547,11 @@ def resend_invite(
     # invite_user().
     invite_link = _invite_link_for(request, token)
     email_sent = send_invite_email(getattr(user, "email", None), user.full_name, invite_link) if invite_link else False
+    mail_only = user.role == COMPLIANCE_REVIEWER_ROLE and mail_configured()
     return InviteResponse(
         user_id=user.id, username=user.username,
-        invite_token=token, invite_expires_at=expires_at, email_sent=email_sent,
+        invite_token=None if mail_only else token, invite_expires_at=expires_at, email_sent=email_sent,
+        link_delivery="nur_email" if mail_only else "anzeige",
     )
 
 

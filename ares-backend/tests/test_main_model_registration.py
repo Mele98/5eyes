@@ -93,7 +93,11 @@ GOLDEN_SORTED_TABLES_SHA256 = "ebcac357f1556908df67f9f3ed19bfd148020d304f6ffa89d
 # KycSecondApprovalDecisionResponse, KycConfirmationResponse.
 # personal_data_warnings, ClientOnboardingFinding.shortened_by_policy_version.
 # Kein Pfad, kein bestehendes Feld geaendert. Feld-Diff geprueft.
-GOLDEN_OPENAPI_SHA256 = "5fd073b20dab0e83d198568ca2f22bbf9c6b51865a761cefbde7a9c5897ba988"
+# C-890-01 Nachtrag 4: neu POST /users/{user_id}/compromise (+ UserCompromise),
+# UserResponse.compromised_since, InviteResponse.link_delivery; einzige
+# Aenderung an Bestehendem: InviteResponse.invite_token optional (None, wenn
+# der Link einer externen Compliance-Person nur per Mail geht). Feld-Diff geprueft.
+GOLDEN_OPENAPI_SHA256 = "bdb2a30d43661409c3657cd23ce463b93bf9de3aa89569cd7ff756c438b4f27a"
 
 _PROBE = """
 import hashlib, json

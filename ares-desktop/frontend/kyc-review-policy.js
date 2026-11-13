@@ -94,7 +94,9 @@
     return '<br>Freigeber: ' + esc(a.name || '') + (a.organisation ? ' (' + esc(a.organisation) + ')' : '')
       + (a.invited_at ? ' · eingeladen von ' + esc(a.invited_by_name || '—') + ' am ' + esc(String(a.invited_at).slice(0, 10)) : '')
       + (a.activated_at ? ' · aktiviert ' + esc(String(a.activated_at).slice(0, 10)) : '')
-      + ' · Zugangsdaten: ' + esc(a.credentials_set_by) + ' · 2FA: ' + esc(a.totp_set_by);
+      + ' · Zugangsdaten: ' + esc(a.credentials_set_by) + ' · 2FA: ' + esc(a.totp_set_by)
+      + (a.origin_hint ? '<br>Hinweis: ' + esc(a.origin_hint) : '')
+      + (a.compromised_since ? '<br><b style="color:var(--neg)">Konto wegen Kompromittierung widerrufen seit ' + esc(a.compromised_since) + ' – Freigaben ab dann ungültig</b>' : '');
   }
 
   function inviteFormHtml(){
@@ -124,9 +126,15 @@
     try {
       var inv = await API.post('/users/invite', body);
       var box = document.getElementById('krp-inv-link');
+      if (!inv.invite_token) {
+        // N-897-10: Mailkanal konfiguriert -> Link geht nur per E-Mail an die Person.
+        if (box) box.innerHTML = '<span id="krp-inv-mailonly">Die Einladung wurde per E-Mail direkt an die externe Person gesendet. Der Link wird aus Sicherheitsgründen hier nicht angezeigt.</span>';
+        notify('success', 'Einladung per E-Mail gesendet.');
+        return;
+      }
       var link = (window.location ? window.location.origin + '/app/ares.html?invite=' : '?invite=') + inv.invite_token;
-      if (box) box.innerHTML = 'Einladungslink (einmalig, 7 Tage gültig, nur an die Person selbst senden):<br><code id="krp-inv-token">' + esc(link) + '</code>';
-      notify('success', inv.email_sent ? 'Einladung per E-Mail gesendet.' : 'Einladung erzeugt – Link an die Person senden.');
+      if (box) box.innerHTML = '<b style="color:var(--neg)">Link nur an die externe Person weitergeben – nicht selbst öffnen.</b> Einmalig, 7 Tage gültig:<br><code id="krp-inv-token">' + esc(link) + '</code>';
+      notify('success', inv.email_sent ? 'Einladung per E-Mail gesendet.' : 'Einladung erzeugt – Link nur an die externe Person senden.');
     } catch(e) {
       notify('error', errText(e, 'Einladung fehlgeschlagen.'));
     }

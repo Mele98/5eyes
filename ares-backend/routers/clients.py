@@ -46,7 +46,9 @@ from services.auth import (
     require_admin,
     require_advisor,
     assert_compliance_reviewer_ready,
+    compliance_reviewer_readiness,
     require_compliance_approver,
+    short_user_agent,
     same_person,
 )
 from services.audit import KYC_REVIEW_BLOCK_AUDIT_FIELD, kyc_review_block_audit_value, log
@@ -681,10 +683,15 @@ def _record_decision(db: Session, record: KycConfirmation, decision: str, user: 
                      entry_id: str) -> None:
     """N-897-08: genau ein Entscheid je Bestaetigung (UNIQUE confirmation_id);
     ein paralleler zweiter Entscheid scheitert beim Flush mit 409."""
-    db.add(KycConfirmationDecision(
+    # N-897-13: Bereitschaft des Entscheiders wird hier geprueft (Route) und
+    # gesiegelt eingefroren -- spaetere 2FA-Abschaltung entwertet sie nicht.
+    entry = KycConfirmationDecision(
         id=new_uuid(), confirmation_id=record.id, tenant_id=record.tenant_id, decision=decision,
         decided_by=user.id, decided_at=at, record_id=entry_id,
-    ))
+        approver_ready=1 if compliance_reviewer_readiness(user) is None else 0,
+    )
+    entry.decision_hash = _row_seal(entry, "decision_hash")
+    db.add(entry)
     try:
         db.flush()
     except IntegrityError as exc:
@@ -695,11 +702,12 @@ def _record_decision(db: Session, record: KycConfirmation, decision: str, user: 
         }) from exc
 
 
-def _account_audit_suffix(db: Session, user_id: str) -> str:
+def _account_audit_suffix(db: Session, user_id: str, request: Request | None = None) -> str:
     acc = kyc_approver_account(db, user_id) or {}
+    ua = f"; ua={short_user_agent(request)}" if request is not None else ""
     return (f"; Konto {acc.get('role')}: eingeladen von {acc.get('invited_by_name') or '-'} am "
             f"{acc.get('invited_at') or '-'}, aktiviert {acc.get('activated_at') or '-'}, "
-            f"Zugangsdaten {acc.get('credentials_set_by')}, 2FA {acc.get('totp_set_by')}")
+            f"Zugangsdaten {acc.get('credentials_set_by')}, 2FA {acc.get('totp_set_by')}{ua}")
 
 
 def _mandate_of_client_or_404(db: Session, client_id: str, mandate_id: str | None) -> str | None:
@@ -924,7 +932,7 @@ def approve_kyc_confirmation(
     db.add(approval)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="kyc_confirmation_approvals", record_id=approval.id, action="CREATE",
-        field_name="kyc_second_approval", new_value=record.id + _account_audit_suffix(db, current_user.id),
+        field_name="kyc_second_approval", new_value=record.id + _account_audit_suffix(db, current_user.id, request),
         client_id=client_id, mandate_id=record.mandate_id,
         ip_address=_extract_client_ip(request))
     db.commit()
@@ -1112,7 +1120,7 @@ def decide_kyc_second_approval(
         }) from exc
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name=entry.__tablename__, record_id=entry.id, action="CREATE",
-        field_name=field, new_value=record.id + _account_audit_suffix(db, current_user.id),
+        field_name=field, new_value=record.id + _account_audit_suffix(db, current_user.id, request),
         client_id=record.client_id, mandate_id=record.mandate_id,
         ip_address=_extract_client_ip(request), tenant_id=str(record.tenant_id or tenant_id))
     db.commit()

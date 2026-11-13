@@ -1,5 +1,5 @@
 {
- "dump_sha256": "8c477d53239ffa0ae7dd6c578d1e2dce903a3cff5e90e42847783954b0d97e4a",
+ "dump_sha256": "4f40f4f8399f1b84e1065244007dc492473a10eab00e5e4c31abfe350bbdccd4",
  "tables": {
   "asset_class_annual_returns": {
    "columns": [
@@ -665,6 +665,10 @@
     "activated_at",
     "calendar_feed_token_created_at",
     "calendar_feed_token_hash",
+    "compromise_reason",
+    "compromised_at",
+    "compromised_by",
+    "compromised_since",
     "created_at",
     "credentials_set_at",
     "credentials_set_by",
@@ -699,7 +703,7 @@
    ],
    "row_count": 1,
    "row_sha256": [
-    "72127f1edab966c9b7f2ffc68d70d0d9"
+    "2f1bddd86acd7211fff21c38765a4bac"
    ]
   }
  }

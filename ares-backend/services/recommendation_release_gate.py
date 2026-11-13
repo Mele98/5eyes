@@ -595,9 +595,21 @@ def latest_kyc_confirmation(db: Session, client_id: str, mandate_id: Optional[st
     # C-890-01 Nachtrag 2: eine Freigabe zaehlt nur mit gueltigem Siegel, von
     # einer freigabeberechtigten Rolle (admin oder compliance_reviewer) und
     # nicht von derselben Person (gleiche ID oder E-Mail wie der Erfasser).
+    decision = db.execute(
+        _sql_text("SELECT * FROM kyc_confirmation_decisions WHERE confirmation_id = :id"),
+        {"id": str(row["id"])},
+    ).mappings().first()
+    frozen_ready = bool(
+        approval is not None and decision is not None
+        and decision["decision"] == "approve"
+        and str(decision["decided_by"]) == str(approval["approved_by"])
+        and int(decision["approver_ready"] or 0) == 1
+        and row_seal(dict(decision), "decision_hash") == decision["decision_hash"]
+    )
     approval_ok = approval is not None and (
         row_seal(dict(approval), "approval_hash") == approval["approval_hash"]
-    ) and kyc_second_person_valid(db, approval["approved_by"], row["recorded_by"])
+    ) and kyc_second_person_valid(db, approval["approved_by"], row["recorded_by"],
+                                  frozen_ready=frozen_ready, decided_at=approval["approved_at"])
     rejection = db.execute(
         _sql_text("SELECT * FROM kyc_confirmation_rejections WHERE confirmation_id = :id"),
         {"id": str(row["id"])},
@@ -634,19 +646,26 @@ def kyc_reviewer_account_ready(row: Any) -> bool:
     )
 
 
-def kyc_second_person_valid(db: Session, approver_id: Any, recorder_id: Any) -> bool:
+def kyc_second_person_valid(db: Session, approver_id: Any, recorder_id: Any, *,
+                            frozen_ready: bool = False, decided_at: Optional[str] = None) -> bool:
     """Vier-Augen nachgerechnet (KYC-Zweitfreigabe UND Policy-Aktivierung):
     Freigeber existiert mit einer Freigaberolle (``KYC_APPROVER_ROLES``), ist
     nicht der Erfasser -- weder gleiche ID noch gleiche normalisierte E-Mail
     (zweites Konto, ``+alias``) -- und ist, falls externe Compliance-Person,
-    ein selbst aktiviertes Konto mit selbst gesetzter 2FA (N-897-02)."""
+    ein selbst aktiviertes Konto mit selbst gesetzter 2FA (N-897-02).
+
+    Nachtrag 4 (N-897-13): ``frozen_ready`` = Bereitschaft wurde beim Entscheid
+    geprueft und gesiegelt festgehalten -- eine spaetere 2FA-Abschaltung macht
+    die Freigabe dann NICHT ungueltig. Ausnahme: ein auditierter Widerruf des
+    Kontos wegen Kompromittierung (``users.compromised_since``) entwertet jede
+    Freigabe ab diesem Zeitpunkt."""
     if not approver_id or str(approver_id) == str(recorder_id or ""):
         return False
     rows = {
         str(r["id"]): r for r in db.execute(
             _sql_text(
                 "SELECT id, role, email, invited_at, activated_at, credentials_set_by, "
-                "totp_enabled, totp_set_by FROM users WHERE id IN (:a, :b)"
+                "totp_enabled, totp_set_by, compromised_since FROM users WHERE id IN (:a, :b)"
             ),
             {"a": str(approver_id), "b": str(recorder_id or "")},
         ).mappings().all()
@@ -654,7 +673,9 @@ def kyc_second_person_valid(db: Session, approver_id: Any, recorder_id: Any) -> 
     approver = rows.get(str(approver_id))
     if approver is None or str(approver["role"] or "") not in KYC_APPROVER_ROLES:
         return False
-    if str(approver["role"]) == "compliance_reviewer" and not kyc_reviewer_account_ready(approver):
+    if approver["compromised_since"] and (decided_at is None or str(decided_at) >= str(approver["compromised_since"])):
+        return False
+    if str(approver["role"]) == "compliance_reviewer" and not frozen_ready and not kyc_reviewer_account_ready(approver):
         return False
     recorder = rows.get(str(recorder_id or ""))
     a_mail = _email_identity(approver["email"])
@@ -671,7 +692,7 @@ def kyc_approver_account(db: Session, user_id: Any) -> Optional[dict]:
     row = db.execute(
         _sql_text(
             "SELECT id, full_name, role, invited_by, invited_at, activated_at, credentials_set_by, "
-            "totp_enabled, totp_set_by, reviewer_organisation, reviewer_reference "
+            "totp_enabled, totp_set_by, reviewer_organisation, reviewer_reference, compromised_since "
             "FROM users WHERE id = :id"
         ),
         {"id": str(user_id)},
@@ -693,6 +714,52 @@ def kyc_approver_account(db: Session, user_id: Any) -> Optional[dict]:
         "totp_enabled": bool(int(row["totp_enabled"] or 0)),
         "totp_set_by": ("selbst" if row["totp_set_by"] == "self"
                         else ("Admin" if row["totp_set_by"] else "unbekannt")),
+        "compromised_since": row["compromised_since"],
+        **_invite_origin_hints(db, row["id"], row["invited_at"], row["activated_at"]),
+    }
+
+
+def _ua_of(value: Any) -> str:
+    raw = str(value or "")
+    return raw.split("ua=", 1)[1].strip() if "ua=" in raw else raw.strip()
+
+
+def _invite_origin_hints(db: Session, user_id: Any, invited_at: Any, activated_at: Any) -> dict:
+    """N-897-10 (Hinweis, keine Sperre): wie schnell und von wo die Einladung
+    angenommen wurde -- aus den Audit-Zeilen INVITE / INVITE_ACCEPT."""
+    rows = {
+        str(r["action"]): r for r in db.execute(
+            _sql_text(
+                "SELECT action, ip_address, new_value FROM audit_log WHERE table_name = 'users' "
+                "AND record_id = :id AND action IN ('INVITE', 'INVITE_ACCEPT') ORDER BY created_at"
+            ),
+            {"id": str(user_id)},
+        ).mappings().all()
+    }
+    minutes = None
+    if invited_at and activated_at:
+        try:
+            delta = (datetime.fromisoformat(str(activated_at).replace("Z", "+00:00"))
+                     - datetime.fromisoformat(str(invited_at).replace("Z", "+00:00")))
+            minutes = int(delta.total_seconds() // 60)
+        except ValueError:
+            minutes = None
+    invite, accept = rows.get("INVITE"), rows.get("INVITE_ACCEPT")
+    same_ip = same_device = None
+    if invite is not None and accept is not None:
+        same_ip = bool(invite["ip_address"]) and invite["ip_address"] == accept["ip_address"]
+        ua_i, ua_a = _ua_of(invite["new_value"]), _ua_of(accept["new_value"])
+        same_device = bool(ua_i) and ua_i not in ("-",) and ua_i == ua_a
+    return {
+        "accepted_after_minutes": minutes,
+        "same_ip_as_inviter": same_ip,
+        "same_device_as_inviter": same_device,
+        "origin_hint": (
+            None if minutes is None else
+            f"angenommen nach {minutes} Minuten; gleiche IP wie Einladender: "
+            f"{'ja' if same_ip else ('nein' if same_ip is False else 'unbekannt')}; gleiches Geraet: "
+            f"{'ja' if same_device else ('nein' if same_device is False else 'unbekannt')}"
+        ),
     }
 
 
@@ -1034,7 +1101,9 @@ def resolve_kyc_review_policy(
             or kyc_review_policy_defect(policy) is not None
         ):
             return _review_resolution(KYC_REVIEW_POLICY_INVALID, tenant_id, jurisdiction, policy, activation)
-        if not kyc_second_person_valid(db, activation.get("approved_by"), policy.get("created_by")):
+        if not kyc_second_person_valid(db, activation.get("approved_by"), policy.get("created_by"),
+                                       frozen_ready=int(activation.get("approver_ready") or 0) == 1,
+                                       decided_at=activation.get("approved_at")):
             # N-897-04: Vier-Augen per Person wie bei der KYC-Zweitfreigabe
             # (ID, normalisierte E-Mail, Freigaberolle, Konto-Herkunft).
             return _review_resolution(KYC_REVIEW_POLICY_UNAPPROVED, tenant_id, jurisdiction, policy, activation)
@@ -1353,14 +1422,36 @@ REPORT_ROUTE_CLASSIFICATION: dict[str, tuple[str, str]] = {
     "PUT /mandates/{mandate_id}/report-notes": (REPORT_INTERNAL, "interne Beraternotizen zum Bericht"),
     "POST /mandates/{mandate_id}/advisory-log/from-report-generation": (REPORT_INTERNAL, "interner Beratungsprotokoll-Eintrag"),
     "GET /products/sustainability/attributes/export": (REPORT_INTERNAL, "Produkt-Referenzdaten, kein Kundenbezug"),
+    # N-897-12: Export-/CSV-Routen (Produktstamm, Pflege durch Admin), kein Kundenbezug.
+    "GET /products/export/csv": (REPORT_INTERNAL, "Export des Produktstamms (Referenzdaten), kein Kundenbezug"),
+    "GET /products/import/csv/template": (REPORT_INTERNAL, "leere CSV-Vorlage fuer den Produktimport"),
+    "POST /products/import/csv": (REPORT_INTERNAL, "Import von Produktstammdaten (Admin), kein Bericht"),
+    "POST /products/sustainability/attributes/import/csv": (REPORT_INTERNAL, (
+        "Import von Nachhaltigkeitsmerkmalen der Produkte (Admin), kein Bericht")),
 }
 
 
-def is_report_route(path: str) -> bool:
-    """Erkennung einer PDF-/Berichtsroute aus der Routentabelle."""
-    last = path.rstrip("/").split("/")[-1].lower()
+def is_report_route(path: str, media_types: tuple[str, ...] = ()) -> bool:
+    """Erkennung einer PDF-/Berichts-/Exportroute aus der Routentabelle:
+    Pfad (``.pdf``, ``/pdf``, ``/reports/``, ``report``/``export``/``csv``/
+    ``xlsx`` in einem Segment) ODER deklarierter Medientyp (PDF, CSV, Excel)."""
+    segments = [seg.lower() for seg in path.strip("/").split("/")]
+    last = segments[-1] if segments else ""
+    if any(m in ("application/pdf", "text/csv") or "spreadsheet" in m or "excel" in m for m in media_types):
+        return True
     return (path.endswith(".pdf") or path.endswith("/pdf") or "/reports/" in path
-            or "report" in last or "export" in last)
+            or "report" in last or any(key in seg for seg in segments for key in ("export", "csv", "xlsx")))
+
+
+KYC_DRAFT_NOTICE = "Entwurf – vor Vertragsabschluss (ohne KYC-Bestätigung)"
+
+
+def kyc_release_is_draft(db: Session, mandate: Any) -> bool:
+    """N-897-12: kundenwirksamer Bericht ohne jede KYC-Bestaetigung = Entwurf
+    vor Vertragsabschluss (sichtbar gekennzeichnet, kein fertiges Dokument)."""
+    return latest_kyc_confirmation(
+        db, str(getattr(mandate, "client_id", "") or ""), getattr(mandate, "id", None),
+    ) is None
 
 
 def _call_on_block(on_block: Callable, reason_code: str, findings: list[dict]) -> None:

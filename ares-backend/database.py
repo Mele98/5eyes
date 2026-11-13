@@ -941,6 +941,10 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             ('activated_at', 'TEXT'),
             ('reviewer_organisation', 'TEXT'),
             ('reviewer_reference', 'TEXT'),
+            ('compromised_since', 'TEXT'),
+            ('compromised_at', 'TEXT'),
+            ('compromised_by', 'TEXT'),
+            ('compromise_reason', 'TEXT'),
         ],
         'tenants': [
             ('encrypted_dek', 'TEXT'),
@@ -1124,6 +1128,10 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         # Nullable, KEIN Backfill: Bestandsbestaetigungen bleiben ohne Bindung
         # ("policy_binding_missing") gesperrt, bis eine neue Bestaetigung unter
         # einer freigegebenen Policy erfasst ist.
+        # Nachtrag 4 (N-897-13): Bereitschaft des Freigebers eingefroren.
+        'kyc_review_policy_activations': [
+            ('approver_ready', 'INTEGER'),
+        ],
         'kyc_confirmations': [
             ('review_policy_row_id', 'TEXT'),
             ('review_policy_activation_id', 'TEXT'),

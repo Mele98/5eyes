@@ -196,10 +196,12 @@ def test_pdf_context_builder_carries_mandate_type_and_jurisdiction(monkeypatch):
         mandate_type="Anlageberatung", jurisdiction=None,
     )
     user = SimpleNamespace(full_name="Anna Berater", email=None)
-    ctx = pdf_reports._build_pdf_context(mandate, user, _Db())
+    # C-890-01 N-897-12: der Entwurfs-Check liest KYC aus der DB; der _Db-Stub hat
+    # keine Tabellen -- hier geht es nur um Mandatstyp/Jurisdiktion.
+    ctx = pdf_reports._build_pdf_context(mandate, user, _Db(), draft_check=False)
     assert ctx.mandate_type == "Anlageberatung"
     assert ctx.jurisdiction == "DE"
-    assert pdf_reports._build_pdf_context(null_mandate, user, _Db()).jurisdiction == "CH"
+    assert pdf_reports._build_pdf_context(null_mandate, user, _Db(), draft_check=False).jurisdiction == "CH"
 
 
 # ---------------------------------------------------------------------------

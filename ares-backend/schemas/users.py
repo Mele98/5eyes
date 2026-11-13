@@ -67,6 +67,7 @@ class UserResponse(BaseResponse):
     totp_set_by: Optional[str] = None
     reviewer_organisation: Optional[str] = None
     reviewer_reference: Optional[str] = None
+    compromised_since: Optional[str] = None
 
     @field_validator('must_change_password', 'totp_enabled', mode='before')
     @classmethod
@@ -229,14 +230,31 @@ class InviteCreate(BaseModel):
 class InviteResponse(BaseModel):
     user_id: str
     username: str
-    invite_token: str          # nur EINMALIG im Klartext (danach nur Hash gespeichert)
+    # nur EINMALIG im Klartext (danach nur Hash gespeichert). N-897-10: None,
+    # wenn der Link einer externen Compliance-Person nur per E-Mail geht.
+    invite_token: Optional[str] = None
     invite_expires_at: str
     email_sent: bool = False   # True, wenn die Einladung per E-Mail verschickt wurde
+    link_delivery: str = "anzeige"  # "anzeige" | "nur_email"
 
 
 class InvitePreview(BaseModel):
     username: str
     full_name: str
+
+
+class UserCompromise(BaseModel):
+    """N-897-13: ausdruecklicher Widerruf eines Kontos wegen (Verdacht auf)
+    Kompromittierung. Freigaben ab ``compromised_since`` gelten nicht mehr."""
+    reason: str
+    compromised_since: str
+
+    @field_validator('reason')
+    @classmethod
+    def _reason(cls, value: str) -> str:
+        if len(value.strip()) < 10:
+            raise ValueError('Begruendung (mind. 10 Zeichen) ist Pflicht')
+        return value.strip()[:500]
 
 
 class InviteAccept(BaseModel):

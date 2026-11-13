@@ -85,6 +85,12 @@ class User(Base):
     activated_at = Column(String)
     reviewer_organisation = Column(String)
     reviewer_reference = Column(String)
+    # Nachtrag 4 (N-897-13): auditierter Widerruf wegen Kompromittierung --
+    # Freigaben dieses Kontos ab ``compromised_since`` gelten nicht.
+    compromised_since = Column(String)
+    compromised_at = Column(String)
+    compromised_by = Column(String)
+    compromise_reason = Column(String)
 
     @property
     def invite_pending(self) -> bool:

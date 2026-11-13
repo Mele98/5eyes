@@ -346,6 +346,18 @@ def same_person(db: Session, first_user_id, second_user_id) -> bool:
 
 
 CREDENTIALS_SET_BY_SELF = "self"
+USER_AGENT_AUDIT_MAX = 80
+
+
+def short_user_agent(request) -> str:
+    """N-897-10: gekuerzter User-Agent fuer das Audit (Geraete-Indiz, keine
+    weiteren Personendaten)."""
+    headers = getattr(request, "headers", None) or {}
+    try:
+        value = headers.get("user-agent") or ""
+    except Exception:  # pragma: no cover - defensive gegen Test-Stubs
+        value = ""
+    return str(value)[:USER_AGENT_AUDIT_MAX] or "-"
 COMPLIANCE_REVIEWER_2FA_REQUIRED = "COMPLIANCE_REVIEWER_2FA_REQUIRED"
 COMPLIANCE_REVIEWER_ACCOUNT_UNVERIFIED = "COMPLIANCE_REVIEWER_ACCOUNT_UNVERIFIED"
 

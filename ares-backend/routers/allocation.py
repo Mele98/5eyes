@@ -32,7 +32,9 @@ from services.auth import (
     enforce_cma_cross_tenant_read_scope, set_tenant_context,
 )
 from services.audit import log, release_block_audit
-from services.recommendation_release_gate import CHANNEL_CLIENT_PDF, assert_kyc_review_release_eligible
+from services.recommendation_release_gate import (
+    CHANNEL_CLIENT_PDF, KYC_DRAFT_NOTICE, assert_kyc_review_release_eligible, kyc_release_is_draft,
+)
 from services.optimizer_policy_lifecycle import (
     REASON_CODE_HOUSE_MATRIX_INCOMPLETE,
     copy_policy_children,
@@ -904,7 +906,11 @@ def get_advisory_report(
             field_name="client_report_blocked", set_tenant_context=set_tenant_context,
         ),
     )
-    return cached_compute_advisory_report(db, mandate, advisor=current_user)
+    report = cached_compute_advisory_report(db, mandate, advisor=current_user)
+    # N-897-12: ohne jede KYC-Bestaetigung als Entwurf vor Vertragsabschluss.
+    if isinstance(report, dict):
+        report = {**report, "kyc_draft_notice": KYC_DRAFT_NOTICE if kyc_release_is_draft(db, mandate) else None}
+    return report
 
 
 # ---------------------------------------------------------------------------

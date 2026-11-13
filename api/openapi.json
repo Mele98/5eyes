@@ -10273,7 +10273,19 @@
             "type": "string"
           },
           "invite_token": {
-            "title": "Invite Token",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invite Token"
+          },
+          "link_delivery": {
+            "default": "anzeige",
+            "title": "Link Delivery",
             "type": "string"
           },
           "user_id": {
@@ -10288,7 +10300,6 @@
         "required": [
           "user_id",
           "username",
-          "invite_token",
           "invite_expires_at"
         ],
         "title": "InviteResponse",
@@ -26273,6 +26284,25 @@
         "title": "TokenResponse",
         "type": "object"
       },
+      "UserCompromise": {
+        "description": "N-897-13: ausdruecklicher Widerruf eines Kontos wegen (Verdacht auf)\nKompromittierung. Freigaben ab ``compromised_since`` gelten nicht mehr.",
+        "properties": {
+          "compromised_since": {
+            "title": "Compromised Since",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "compromised_since"
+        ],
+        "title": "UserCompromise",
+        "type": "object"
+      },
       "UserCreate": {
         "properties": {
           "email": {
@@ -26356,6 +26386,17 @@
               }
             ],
             "title": "Activated At"
+          },
+          "compromised_since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compromised Since"
           },
           "created_at": {
             "title": "Created At",
@@ -45470,6 +45511,64 @@
           }
         ],
         "summary": "Upsert Adviser Registration",
+        "tags": [
+          "Benutzer"
+        ]
+      }
+    },
+    "/users/{user_id}/compromise": {
+      "post": {
+        "description": "N-897-13: Konto wegen (Verdacht auf) Kompromittierung widerrufen.\nBegruendung Pflicht, auditiert; das Konto wird deaktiviert, alle Sitzungen\nbeendet, und jede Freigabe dieses Kontos ab ``compromised_since`` gilt im\nGate nicht mehr (KYC-Zweitfreigabe, Policy-Aktivierung). Endgueltig.",
+        "operationId": "compromise_user_users__user_id__compromise_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserCompromise"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Compromise User",
         "tags": [
           "Benutzer"
         ]

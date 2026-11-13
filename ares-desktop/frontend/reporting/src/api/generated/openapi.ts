@@ -5714,6 +5714,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users/{user_id}/compromise": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compromise User
+         * @description N-897-13: Konto wegen (Verdacht auf) Kompromittierung widerrufen.
+         *     Begruendung Pflicht, auditiert; das Konto wird deaktiviert, alle Sitzungen
+         *     beendet, und jede Freigabe dieses Kontos ab ``compromised_since`` gilt im
+         *     Gate nicht mehr (KYC-Zweitfreigabe, Policy-Aktivierung). Endgueltig.
+         */
+        post: operations["compromise_user_users__user_id__compromise_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users/{user_id}/invite": {
         parameters: {
             query?: never;
@@ -8813,7 +8836,12 @@ export interface components {
             /** Invite Expires At */
             invite_expires_at: string;
             /** Invite Token */
-            invite_token: string;
+            invite_token?: string | null;
+            /**
+             * Link Delivery
+             * @default anzeige
+             */
+            link_delivery?: string;
             /** User Id */
             user_id: string;
             /** Username */
@@ -13648,6 +13676,17 @@ export interface components {
             token_type?: string;
             user: components["schemas"]["UserResponse"];
         };
+        /**
+         * UserCompromise
+         * @description N-897-13: ausdruecklicher Widerruf eines Kontos wegen (Verdacht auf)
+         *     Kompromittierung. Freigaben ab ``compromised_since`` gelten nicht mehr.
+         */
+        UserCompromise: {
+            /** Compromised Since */
+            compromised_since: string;
+            /** Reason */
+            reason: string;
+        };
         /** UserCreate */
         UserCreate: {
             /** Email */
@@ -13676,6 +13715,8 @@ export interface components {
         UserResponse: {
             /** Activated At */
             activated_at?: string | null;
+            /** Compromised Since */
+            compromised_since?: string | null;
             /** Created At */
             created_at: string;
             /** Credentials Set By */
@@ -24526,6 +24567,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdviserRegistrationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compromise_user_users__user_id__compromise_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserCompromise"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
                 };
             };
             /** @description Validation Error */

@@ -58,7 +58,7 @@ from schemas.review import (
     KycReviewPolicyActivate, KycReviewPolicyCreate, KycReviewPolicyOverview, KycReviewPolicyResponse,
 )
 from price_updater import summarize_price_quality
-from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, require_staff, same_person, assert_compliance_reviewer_ready, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
+from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, require_staff, same_person, assert_compliance_reviewer_ready, short_user_agent, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
 from services.audit import log, release_block_audit, restore_tenant_after_rollback
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
@@ -1748,11 +1748,19 @@ def get_document_pdf(
     if not doc.pdf_base64:
         raise HTTPException(status_code=404, detail="Fuer dieses Dokument liegt kein PDF vor.")
     safe_title = str(doc.title or "dokument")[:40]
-    filename = f"{safe_title}_v{doc.version}.pdf"
+    # N-897-12: als Archivexemplar gekennzeichnet (Dateiname + Header). Die
+    # Bytes bleiben unveraendert -- ein Wasserzeichen wuerde die gesiegelte
+    # Pruefsumme des Archivs brechen (Nachweis "was wurde dem Kunden gezeigt").
+    archived_on = str(doc.pdf_generated_at or doc.created_at or "")[:10] or "unbekannt"
+    filename = f"Archivexemplar_{archived_on}_{safe_title}_v{doc.version}.pdf"
     return Response(
         content=base64.b64decode(doc.pdf_base64),
         media_type="application/pdf",
-        headers={"Content-Disposition": content_disposition(filename)},
+        headers={
+            "Content-Disposition": content_disposition(filename),
+            "X-Ares-Archive-Copy": "true",
+            "X-Ares-Archived-On": archived_on,
+        },
     )
 
 
@@ -2233,6 +2241,8 @@ def activate_kyc_review_policy(
         policy_row_id=policy_obj.id, predecessor_activation_id=predecessor,
         approved_by=current_user.id, approved_at=now,
         approval_reference=body.approval_reference.strip(), policy_hash=policy_obj.policy_hash,
+        # N-897-13: Bereitschaft (oben geprueft) im Aktivierungssiegel eingefroren.
+        approver_ready=1,
     )
     activation.activation_hash = row_seal(
         {c.name: getattr(activation, c.name) for c in activation.__table__.columns}, "activation_hash",
@@ -2250,7 +2260,8 @@ def activate_kyc_review_policy(
         table_name="kyc_review_policy_activations", record_id=activation.id, action="CREATE",
         field_name="kyc_review_policy_activated",
         new_value=(f"{policy_obj.policy_id} v{policy_obj.version} ({policy_obj.jurisdiction}); "
-                   f"Vorgaenger {predecessor}; hash {policy_obj.policy_hash}; Freigeberkonto "
+                   f"Vorgaenger {predecessor}; hash {policy_obj.policy_hash}; "
+                   f"ua={short_user_agent(request)}; Freigeberkonto "
                    f"{(kyc_approver_account(db, current_user.id) or {}).get('role')}, eingeladen "
                    f"{(kyc_approver_account(db, current_user.id) or {}).get('invited_at') or '-'}, aktiviert "
                    f"{(kyc_approver_account(db, current_user.id) or {}).get('activated_at') or '-'}"),

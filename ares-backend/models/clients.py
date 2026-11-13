@@ -324,6 +324,10 @@ class KycConfirmationDecision(Base):
     decided_by = Column(String, ForeignKey("users.id"), nullable=False)
     decided_at = Column(String, nullable=False)
     record_id = Column(String, nullable=False)
+    # Nachtrag 4 (N-897-13): Bereitschaft (eigene Zugangsdaten + 2FA) zum
+    # Entscheidzeitpunkt eingefroren; Siegel ueber alle Spalten.
+    approver_ready = Column(Integer, nullable=False)
+    decision_hash = Column(String, nullable=False)
 
 
 # ---------------------------------------------------------------------------

@@ -284,6 +284,9 @@ class KycReviewPolicyActivation(Base):
     approval_reference = Column(String, nullable=False)
     policy_hash = Column(String, nullable=False)
     activation_hash = Column(String, nullable=False)
+    # Nachtrag 4 (N-897-13): Bereitschaft des Freigebers zum Freigabezeitpunkt
+    # (1 = geprueft; NULL = Bestand, dann zaehlt der heutige Kontostand).
+    approver_ready = Column(Integer)
 
 
 for _model, _ddls in (

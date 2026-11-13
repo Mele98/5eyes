@@ -9266,8 +9266,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/kyc-review-policy.js",
-      "sha256": "8e423db8986f1b4cb3dfb0f2c5495437abb1d2aa19c8818f1d5a9ce098c7c142",
-      "size_bytes": 24620
+      "sha256": "3c419d2809edad44106b19a5525e563c93dedf88ededeaac855335479000a1e6",
+      "size_bytes": 25340
     }
   ],
   "ids": [
@@ -22121,13 +22121,13 @@
     },
     {
       "declaration": "function",
-      "line": 269,
+      "line": 277,
       "name": "activateKycReviewPolicy",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 290,
+      "line": 298,
       "name": "adminUpdateNewUserRoleHint",
       "source": "kyc-review-policy.js"
     },
@@ -22145,19 +22145,19 @@
     },
     {
       "declaration": "function",
-      "line": 153,
+      "line": 161,
       "name": "createFormHtml",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 247,
+      "line": 255,
       "name": "createKycReviewPolicy",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 216,
+      "line": 224,
       "name": "decideKycApproval",
       "source": "kyc-review-policy.js"
     },
@@ -22175,19 +22175,19 @@
     },
     {
       "declaration": "function",
-      "line": 235,
+      "line": 243,
       "name": "hostEl",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 100,
+      "line": 102,
       "name": "inviteFormHtml",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 115,
+      "line": 117,
       "name": "inviteKycReviewer",
       "source": "kyc-review-policy.js"
     },
@@ -22199,19 +22199,19 @@
     },
     {
       "declaration": "function",
-      "line": 378,
+      "line": 386,
       "name": "kycReviewerLogout",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 206,
+      "line": 214,
       "name": "loadKycPendingApprovals",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 237,
+      "line": 245,
       "name": "loadKycReviewPolicies",
       "source": "kyc-review-policy.js"
     },
@@ -22229,19 +22229,19 @@
     },
     {
       "declaration": "function",
-      "line": 332,
+      "line": 340,
       "name": "mountAdminPanel",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 395,
+      "line": 403,
       "name": "mountKycReviewPolicy",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 300,
+      "line": 308,
       "name": "mountRoles",
       "source": "kyc-review-policy.js"
     },
@@ -22253,25 +22253,25 @@
     },
     {
       "declaration": "function",
-      "line": 183,
+      "line": 191,
       "name": "pendingHtml",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 170,
+      "line": 178,
       "name": "render",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 296,
+      "line": 304,
       "name": "reviewerOption",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 358,
+      "line": 366,
       "name": "showReviewerView",
       "source": "kyc-review-policy.js"
     },
@@ -22289,31 +22289,31 @@
     },
     {
       "declaration": "function",
-      "line": 135,
+      "line": 143,
       "name": "versionsHtml",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 384,
+      "line": 392,
       "name": "wrapInitApp",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "var",
-      "line": 309,
+      "line": 317,
       "name": "wrapped",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "var",
-      "line": 387,
+      "line": 395,
       "name": "wrapped",
       "source": "kyc-review-policy.js"
     },
     {
       "declaration": "function",
-      "line": 181,
+      "line": 189,
       "name": "yesNo",
       "source": "kyc-review-policy.js"
     }

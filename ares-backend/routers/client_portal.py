@@ -118,11 +118,15 @@ def client_portal_mandate_report(
     # REP-002 (Codex-Audit 2026-08-25): Kundenportal darf ausschliesslich
     # eine finalisierte, an die aktuelle Zielallokation gebundene Empfehlung
     # zeigen -- niemals einen Entwurf oder eine ueberholte Version.
-    _assert_portal_report_releasable(db, mandate, client, current_user)
-    return compute_advisory_report(db, mandate, client_facing=True)
+    draft_notice = _assert_portal_report_releasable(db, mandate, client, current_user)
+    report = compute_advisory_report(db, mandate, client_facing=True)
+    # N-897-12: ohne jede KYC-Bestaetigung als Entwurf vor Vertragsabschluss.
+    if isinstance(report, dict):
+        report = {**report, "kyc_draft_notice": draft_notice}
+    return report
 
 
-def _assert_portal_report_releasable(db: Session, mandate: Mandate, client: Client, user: User) -> None:
+def _assert_portal_report_releasable(db: Session, mandate: Mandate, client: Client, user: User) -> str | None:
     """CIO-Entscheid 2026-10-24: kein Kundenbericht, solange die
     Risikoprofil-Signatur nicht mehr zum gespeicherten Profil passt --
     dasselbe zentrale Gate wie Kunden-PDFs, E-Signing und Handoff. Der Kunde
@@ -131,9 +135,11 @@ def _assert_portal_report_releasable(db: Session, mandate: Mandate, client: Clie
     from services.recommendation_release_gate import (
         CHANNEL_CLIENT_PORTAL,
         CLIENT_PORTAL_UNAVAILABLE_MESSAGE,
+        KYC_DRAFT_NOTICE,
         assert_current_allocation_without_adr12a_hold,
         assert_kyc_review_release_eligible,
         assert_risk_signoff_release_eligible,
+        kyc_release_is_draft,
     )
 
     try:
@@ -163,6 +169,8 @@ def _assert_portal_report_releasable(db: Session, mandate: Mandate, client: Clie
         )
         db.commit()
         raise HTTPException(status_code=409, detail=CLIENT_PORTAL_UNAVAILABLE_MESSAGE) from None
+    # N-897-12: Rueckgabe = Entwurfshinweis (ohne jede KYC-Bestaetigung) oder None.
+    return KYC_DRAFT_NOTICE if kyc_release_is_draft(db, mandate) else None
 
 
 @router.post("/mandates/{mandate_id}/risk-profile/sign")

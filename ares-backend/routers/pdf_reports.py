@@ -39,6 +39,7 @@ from services.recommendation_release_gate import (
     CHANNEL_CLIENT_PDF,
     SUPERVISION_LABELS,
     assert_kyc_review_release_eligible,
+    kyc_release_is_draft,
     legal_profile_hash,
     legal_profile_missing_fields,
     load_tenant_legal_profile,
@@ -66,7 +67,8 @@ from services.pdf.base import (
 router = APIRouter(tags=["PDF Reports"])
 
 
-def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDFContext:
+def _build_pdf_context(mandate: Mandate, current_user: User, db: Session, *,
+                       draft_check: bool = True) -> PDFContext:
     """Sammelt PDFContext-Daten aus Mandant + Client + User.
 
     Mandate-Anzeige: <Client.name> [<mandate_number>] — falls Client
@@ -108,6 +110,8 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDF
         base_currency=base_currency,
         mandate_type=getattr(mandate, "mandate_type", None),
         jurisdiction=resolve_pdf_jurisdiction(mandate),
+        # N-897-12: ohne jede KYC-Bestaetigung als Entwurf vor Vertragsabschluss.
+        watermark_mode="vorvertrag" if draft_check and kyc_release_is_draft(db, mandate) else "none",
     )
 
 
@@ -2783,7 +2787,10 @@ def get_advisory_report_pdf(
 
     assert_portfolio_data_release_eligible(db, mandate, action="pdf")
     _enforce_cma_currency_release(db, mandate)  # CMA-CURRENCY-GUARD-001
-    pdf_bytes = render_advisory_report_pdf(db, mandate, current_user)
+    pdf_bytes = render_advisory_report_pdf(
+        db, mandate, current_user,
+        watermark_mode="vorvertrag" if kyc_release_is_draft(db, mandate) else "none",
+    )
     if pdf_bytes is None:
         # CERT-COST-PUBLICATION-001 (COST-PUBLICATION-GATE-001): degraded
         # cost-disclosure evidence blocks a client-ready export -- stable
@@ -3145,7 +3152,8 @@ def get_kundeninformation_pdf(
     # N-890-07: eigene Fusszeile der Kundeninformation (H7-Footer je
     # Dokument-/Mandatstyp), nicht "Dokumentation der Anlageberatung".
     ctx = dataclasses.replace(
-        _build_pdf_context(mandate, current_user, db), mandate_type=CLIENT_INFORMATION_DOCUMENT_TYPE,
+        _build_pdf_context(mandate, current_user, db, draft_check=False),
+        mandate_type=CLIENT_INFORMATION_DOCUMENT_TYPE,
     )
     data = _build_kundeninformation_data(db, mandate, profile)
     content_hash = content_hash_for(data)

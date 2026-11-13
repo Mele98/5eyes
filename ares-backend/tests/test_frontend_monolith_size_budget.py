@@ -42,6 +42,8 @@ KYC-Freigaben" (Entscheid der zweiten Person); Monolith unveraendert.
 C-890-01 Nachtrag 3: kyc-review-policy.js 413/24620 (Einladung der externen
 Compliance-Person, 2FA-Hinweis, Konto-Herkunft), client-compliance.js 465/29504
 (Hinweis "keine Kundennamen", Warnung bei Personendaten).
+C-890-01 Nachtrag 4: kyc-review-policy.js 421/25340 (Einladung nur per Mail,
+Weitergabe-Hinweis, Herkunftsindiz und Kompromittierungs-Hinweis).
 """
 from __future__ import annotations
 
@@ -61,7 +63,7 @@ EXTRACTED_PART_BUDGETS = {
     "intro-sequence.js": (761, 36861),
     "goal-review-runtime.js": (1589, 84633),
     "client-compliance.js": (465, 29504),
-    "kyc-review-policy.js": (413, 24620),
+    "kyc-review-policy.js": (421, 25340),
 }
 
 

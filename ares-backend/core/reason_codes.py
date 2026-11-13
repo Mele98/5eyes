@@ -229,6 +229,7 @@ class ReasonCode(StrEnum):
     TOTP_SECRET_DECRYPT_FAILED = "totp_secret_decrypt_failed"
     TOTP_SECRET_ENCRYPT_FAILED = "totp_secret_encrypt_failed"
     TOTP_SECRET_TENANT_MISSING = "totp_secret_tenant_missing"
+    USER_ALREADY_COMPROMISED = "USER_ALREADY_COMPROMISED"
     WITNESS_STATEMENT_MISMATCH = "WITNESS_STATEMENT_MISMATCH"
     WRONG_CUSTOMER = "WRONG_CUSTOMER"
 

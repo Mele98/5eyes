@@ -7,6 +7,12 @@
   ``reviewer_reference``; Name = ``full_name``). Kein Backfill: Bestandskonten
   haben eine unbekannte Herkunft und zaehlen als Freigeber der Rolle
   compliance_reviewer nicht.
+- Nachtrag 4 (N-897-13, Revision vor Veroeffentlichung erweitert): ``users``
+  zusaetzlich ``compromised_since/_at/_by`` und ``compromise_reason``
+  (auditierter Widerruf wegen Kompromittierung); ``kyc_confirmation_decisions``
+  mit ``approver_ready`` (Bereitschaft zum Entscheidzeitpunkt eingefroren) und
+  Siegel ``decision_hash``; ``kyc_review_policy_activations.approver_ready``
+  (nullable, Teil des Aktivierungssiegels).
 - ``kyc_confirmation_decisions`` (N-897-08): eigene ``id``, UNIQUE
   ``confirmation_id`` -- genau ein Entscheid (Freigabe oder Ablehnung) je
   Bestaetigung, append-only (Trigger SQLite/PG).
@@ -31,7 +37,7 @@ down_revision: Union[str, Sequence[str], None] = "a7d3c9e1f5b2"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-USER_COLUMNS = ('credentials_set_by', 'credentials_set_at', 'totp_set_by', 'totp_set_at', 'invited_by', 'invited_at', 'activated_at', 'reviewer_organisation', 'reviewer_reference')
+USER_COLUMNS = ('credentials_set_by', 'credentials_set_at', 'totp_set_by', 'totp_set_at', 'invited_by', 'invited_at', 'activated_at', 'reviewer_organisation', 'reviewer_reference', 'compromised_since', 'compromised_at', 'compromised_by', 'compromise_reason')
 TABLE = "kyc_confirmation_decisions"
 
 
@@ -47,10 +53,13 @@ def upgrade() -> None:
         sa.Column("decided_by", sa.String(), nullable=False),
         sa.Column("decided_at", sa.String(), nullable=False),
         sa.Column("record_id", sa.String(), nullable=False),
+        sa.Column("approver_ready", sa.Integer(), nullable=False),
+        sa.Column("decision_hash", sa.String(), nullable=False),
         sa.ForeignKeyConstraint(["decided_by"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("confirmation_id"),
     )
+    op.add_column("kyc_review_policy_activations", sa.Column("approver_ready", sa.Integer(), nullable=True))
     dialect = op.get_bind().dialect.name
     if dialect == "sqlite":
         for kind in ("UPDATE", "DELETE"):
@@ -90,6 +99,16 @@ def downgrade() -> None:
         op.execute(f"DROP TRIGGER IF EXISTS trg_{TABLE}_no_update")
         op.execute(f"DROP TRIGGER IF EXISTS trg_{TABLE}_no_delete")
     op.drop_table(TABLE)
+    with op.batch_alter_table("kyc_review_policy_activations") as batch:
+        batch.drop_column("approver_ready")
+    if dialect == "sqlite":
+        # batch_alter_table baut die Tabelle neu -- Append-only-Trigger wieder anlegen.
+        for kind in ("UPDATE", "DELETE"):
+            op.execute(
+                f"CREATE TRIGGER IF NOT EXISTS trg_kyc_review_policy_activations_no_{kind.lower()} "
+                f"BEFORE {kind} ON kyc_review_policy_activations FOR EACH ROW "
+                "BEGIN SELECT RAISE(ABORT, 'kyc_review_policy_activations is immutable'); END"
+            )
     with op.batch_alter_table("users") as batch:
         for name in reversed(USER_COLUMNS):
             batch.drop_column(name)

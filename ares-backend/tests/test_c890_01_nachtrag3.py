@@ -159,7 +159,7 @@ def test_reviewer_only_by_invitation_with_identity(client, session_factory):
         assert (user.invited_by, user.activated_at, user.credentials_set_by) == ("adm-1", None, None)
         assert (user.reviewer_organisation, user.reviewer_reference) == ("TEST-C890 Revision AG", "TEST-C890 Mandat 1")
         audit = db.query(AuditLog).filter(AuditLog.action == "INVITE").one()
-        assert (audit.field_name, audit.new_value) == ("role", "compliance_reviewer")
+        assert audit.field_name == "role" and audit.new_value.startswith("compliance_reviewer; ua=")
 
 
 def test_invited_reviewer_needs_own_password_and_2fa_before_approving(client, session_factory):
@@ -215,15 +215,25 @@ def test_gate_and_policy_chain_reject_approver_with_admin_set_credentials_or_wit
         "decision": "approve", "reason": "geprueft (Test)", "confirmation_hash": item["confirmation_hash"]}
     ).status_code == 200
     assert "KYC_SECOND_APPROVAL_MISSING" not in _codes(session_factory)
+    # Nachtrag 4 (N-897-13): die Bereitschaft ist beim Entscheid eingefroren --
+    # spaetere Aenderungen am Konto entwerten die Freigabe nicht ...
     for column, value in (("credentials_set_by", "adm-1"), ("totp_enabled", 0), ("totp_set_by", None)):
         with session_factory() as db:
             db.execute(text(f"UPDATE users SET {column} = :v WHERE id = 'rev-1'"), {"v": value})
             db.commit()
-        assert "KYC_SECOND_APPROVAL_MISSING" in _codes(session_factory), column
+        assert "KYC_SECOND_APPROVAL_MISSING" not in _codes(session_factory), column
         with session_factory() as db:
             db.execute(text("UPDATE users SET credentials_set_by='self', totp_enabled=1, totp_set_by='self' "
                             "WHERE id = 'rev-1'"))
             db.commit()
+    # ... ohne eingefrorenen Entscheid (z. B. Freigabe direkt geschrieben) zaehlt
+    # der heutige Kontostand: Admin-gesetzte Zugangsdaten -> Freigabe ungueltig.
+    with session_factory() as db:
+        db.execute(text("DROP TRIGGER IF EXISTS trg_kyc_confirmation_decisions_no_delete"))
+        db.execute(text("DELETE FROM kyc_confirmation_decisions"))
+        db.execute(text("UPDATE users SET credentials_set_by='adm-1' WHERE id = 'rev-1'"))
+        db.commit()
+    assert "KYC_SECOND_APPROVAL_MISSING" in _codes(session_factory)
 
 
 def test_policy_four_eyes_in_gate_uses_person_rule(session_factory):
