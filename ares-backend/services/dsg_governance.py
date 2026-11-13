@@ -166,6 +166,54 @@ REASON_LABELS = {
 }
 FX_DEFAULT_MESSAGE = "Ersatzkurs – nicht aktuell"
 
+# N-899-16: Klartext fuer Owner und Berater (Kanal-IDs/Reason-Codes nur in der Detailansicht).
+PLAIN_CLASS_LABELS = {
+    "market_data": "Marktdaten", "reference_data": "Produktdaten", "macro_data": "Zins- und Wirtschaftsdaten",
+    "alerting": "Warnmeldungen", "mail": "E-Mail", "telemetry": "Fehlerberichte", "updates": "Updates",
+}
+PLAIN_CHANNEL_LABELS = {"operator.backup_offsite": "externe Datensicherung",
+                        "operator.database": "Datenbank-Server"}
+PLAIN_OWNER_GAPS = {
+    "EGRESS_GUARANTEE_MISSING": "fehlen noch Angaben (Land/Garantie des Anbieters)",
+    "EGRESS_CONSENT_OR_BASIS_MISSING": "fehlt noch die Grundlage der Datenweitergabe",
+    "EGRESS_DESTINATION_DENIED": "ist der Zielserver noch nicht bestätigt",
+}
+ADVISOR_HINT = "Bitte Administrator informieren."
+
+
+def _plain_label(channel_id: str, channel_class: str) -> str:
+    return PLAIN_CHANNEL_LABELS.get(channel_id) or PLAIN_CLASS_LABELS.get(channel_class, channel_class)
+
+
+def _plain_list(labels: list[str]) -> str:
+    unique = list(dict.fromkeys(labels))
+    return unique[0] if len(unique) == 1 else ", ".join(unique[:-1]) + " und " + unique[-1]
+
+
+def plain_summary(blocked: list[dict[str, Any]]) -> list[str]:
+    """Saetze in Alltagssprache: zuerst die fehlende/veraltete Freigabe, dann
+    fehlende Owner-Angaben je Bereich."""
+    lines = []
+    stale = [_plain_label(b["channel_id"], b["class"]) for b in blocked
+             if b["reason_code"] == ReasonCode.EGRESS_HASH_MISMATCH.value]
+    missing = [_plain_label(b["channel_id"], b["class"]) for b in blocked
+               if b["reason_code"] == ReasonCode.EGRESS_MANIFEST_MISSING.value]
+    if stale:
+        verb = "ist" if len(set(stale)) == 1 else "sind"
+        lines.append("Nach dem Update muss die Datenübermittlung einmal neu freigegeben werden – "
+                     f"{_plain_list(stale)} {verb} bis dahin pausiert.")
+    if missing:
+        verb = "ist" if len(set(missing)) == 1 else "sind"
+        lines.append("Die Datenübermittlung muss einmal freigegeben werden – "
+                     f"{_plain_list(missing)} {verb} bis dahin pausiert.")
+    gaps: dict[str, list[str]] = {}
+    for b in blocked:
+        if b["reason_code"] in PLAIN_OWNER_GAPS:
+            gaps.setdefault(b["reason_code"], []).append(_plain_label(b["channel_id"], b["class"]))
+    for code, labels in gaps.items():
+        lines.append(f"Für {_plain_list(labels)} {PLAIN_OWNER_GAPS[code]}.")
+    return lines
+
 
 def _channel_configured(channel: dict[str, Any]) -> bool:
     if channel.get("enforcement") == "desktop_update_gate":
@@ -228,6 +276,8 @@ def egress_status(db: Any) -> dict[str, Any]:
         "approved_channels": approved_channels,
         "blocked_classes": sorted({b["class"] for b in blocked}),
         "message": EGRESS_BLOCKED_MESSAGE if blocked else None,
+        "plain_summary": plain_summary(blocked),
+        "advisor_hint": ADVISOR_HINT if blocked else None,
         "market_data_status": "NOT_UPDATED_EGRESS_BLOCKED" if market_blocked else "EGRESS_APPROVED",
         "market_data_message": MARKET_DATA_NOT_UPDATED if market_blocked else None,
         "data_as_of": data_as_of,

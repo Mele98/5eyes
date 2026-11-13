@@ -190,8 +190,8 @@ STATUS_BLOCKED = {"approved": False, "message": "Datenübermittlung gesperrt –
 
 
 @pytest.mark.parametrize(("is_admin", "expected", "absent"), [
-    (True, "Zur Freigabe", "Bitte Administrator informieren"),
-    (False, "Bitte Administrator informieren", "Zur Freigabe"),
+    (True, "Jetzt freigeben", "Bitte Administrator informieren"),
+    (False, "Bitte Administrator informieren", "Jetzt freigeben"),
 ])
 def test_banner_on_every_page_for_admins_and_advisors(is_admin, expected, absent):
     status = dict(STATUS_BLOCKED, is_admin=is_admin)
@@ -222,6 +222,23 @@ def test_banner_names_every_blocked_channel_reason_and_fx_default():
     assert "mail.smtp – gesperrt: Grundlage der Bekanntgabe fehlt" in html
     assert "operator.backup_offsite – gesperrt: Zielhost nicht bestaetigt" in html
     assert "Devisen: Ersatzkurs – nicht aktuell: EUR, USD" in html
+    # N-899-16: technische Angaben nur in der aufklappbaren Detailansicht
+    assert html.index("<details") < html.index("mail.smtp") and "<summary" in html
+
+
+def test_banner_leads_with_plain_language_summary():
+    status = dict(STATUS_BLOCKED, is_admin=True, plain_summary=[
+        "Nach dem Update muss die Datenübermittlung einmal neu freigegeben werden – Marktdaten, E-Mail und "
+        "Updates sind bis dahin pausiert.", "Für E-Mail fehlen noch Angaben (Land/Garantie des Anbieters)."],
+        blocked_channels=[{"channel_id": "mail.smtp", "reason_code": "EGRESS_GUARANTEE_MISSING",
+                           "reason": "Staat/Garantie/Verschluesselung fehlt"}])
+    html = _run("RESP['/privacy/egress-status']=" + json.dumps(status) + ";await refreshEgressBanner();")[
+        "DOM"]["pg-egress-banner"]["innerHTML"]
+    visible = html.split("<details")[0]
+    assert visible.startswith("<b>Nach dem Update muss die Datenübermittlung einmal neu freigegeben werden")
+    assert "Für E-Mail fehlen noch Angaben (Land/Garantie des Anbieters)." in visible
+    assert "Jetzt freigeben" in visible
+    assert "mail.smtp" not in visible and "EGRESS_" not in visible
 
 
 def test_banner_refreshes_right_after_init_app():

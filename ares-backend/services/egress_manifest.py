@@ -67,8 +67,13 @@ ENFORCEMENTS = ("python_runtime_guard", "native_library", "desktop_update_gate",
 # ``subprocess_tools`` gebunden sein muss.
 NETWORK_TOOLS = frozenset({
     "rsync", "ssh", "scp", "sftp", "ftp", "tftp", "curl", "wget", "rclone", "aws", "az", "gsutil", "ncat",
-    "telnet", "bitsadmin", "invoke-webrequest", "invoke-restmethod", "start-bitstransfer",
+    "telnet", "bitsadmin", "invoke-webrequest", "invoke-restmethod", "start-bitstransfer", "iwr", "irm",
 })
+# N-899-15: .NET-Netzwerkklassen und Download-Methoden in PowerShell-Kommandozeilen.
+_SHELL_NETWORK_PATTERN = re.compile(
+    r"(?i)(?:\bsystem\.net\.|\bnet\.(?:webclient|webrequest|http|sockets)\b|\bhttpclient\b|"
+    r"\bdownload(?:string|file|data)(?:async)?\b|\bopenread\b|\binvoke-(?:webrequest|restmethod)\b)")
+SHELL_NETWORK_API = "powershell-netzwerk-api"
 # N-899-10: Shells und Startwerkzeuge, deren Argumentstring auf
 # Netzwerkwerkzeuge durchsucht wird (shell=True, cmd /c, PowerShell, os.system).
 SHELL_TOOLS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "cmd", "powershell", "pwsh"})
@@ -413,8 +418,11 @@ def _network_invocations(executable: Any, args: list[str]) -> list[tuple[str, li
     if tool not in SHELL_TOOLS | WRAPPER_TOOLS and first not in SHELL_TOOLS | WRAPPER_TOOLS:
         return []
     found = []
-    # Anfuehrungszeichen entfernen: cmd /c "curl ..." bzw. sh -c 'curl ...'
-    command = " ".join(args).replace('"', " ").replace("'", " ")
+    # Anfuehrungszeichen entfernen: cmd /c "curl ..." bzw. sh -c 'curl ...';
+    # N-899-15: cmd-Escape (^) und PowerShell-Backtick vor dem Abgleich entfernen.
+    command = " ".join(args).replace("^", "").replace("`", "").replace('"', " ").replace("'", " ")
+    if _SHELL_NETWORK_PATTERN.search(command):
+        found.append((SHELL_NETWORK_API, []))
     for segment in _SHELL_SEPARATORS.split(command):
         tokens = segment.split()
         for index, token in enumerate(tokens):

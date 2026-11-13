@@ -166,16 +166,20 @@
       el.style.cssText = 'position:sticky;top:0;z-index:9999;background:var(--neg-bg,#fdecec);color:var(--neg,#a00);padding:6px 12px;font-size:11px;border-bottom:1px solid var(--neg,#a00)';
       document.body.insertBefore(el, document.body.firstChild);
     }
+    // N-899-16: Alltagssprache vorne; Kanal-IDs und Reason-Codes nur in der
+    // aufklappbaren Detailansicht.
     var asOf = status.data_as_of || {};
+    var lines = (status.plain_summary && status.plain_summary.length) ? status.plain_summary : [status.message || 'Datenübermittlung pausiert'];
+    var head = lines.map(function(l){ return esc(l); }).join(' ');
     var stand = 'Datenstand Kurse: ' + esc(asOf.product_prices || asOf.asset_class_prices || 'unbekannt') + ' (' + esc(status.market_data_message || 'nicht aktualisiert') + ').'
       + (asOf.fx_message ? ' Devisen: ' + esc(asOf.fx_message) + '.' : '');
-    var reasons = (status.blocked_channels || []).map(function(c){
-      return esc(c.channel_id) + ' – gesperrt: ' + esc(c.reason || c.reason_code);
-    }).join('; ');
-    if (reasons) stand += ' <span style="font-size:10px">(' + reasons + ')</span>';
+    var details = (status.blocked_channels || []).map(function(c){
+      return '<li>' + esc(c.channel_id) + ' – gesperrt: ' + esc(c.reason || c.reason_code) + ' (' + esc(c.reason_code) + ')</li>';
+    }).join('');
+    var detailHtml = details ? ' <details style="display:inline-block;font-size:10px"><summary style="cursor:pointer">Details</summary><ul style="margin:2px 0 0 14px;padding:0">' + details + '</ul></details>' : '';
     el.innerHTML = status.is_admin
-      ? '<b>' + esc(status.message) + '.</b> ' + stand + ' <button class="btn-p" ' + BTN + ' onclick="openPrivacyApproval()">Zur Freigabe</button>'
-      : '<b>Datenübermittlung gesperrt.</b> ' + stand + ' Bitte Administrator informieren.';
+      ? '<b>' + head + '</b> <button class="btn-p" ' + BTN + ' onclick="openPrivacyApproval()">Jetzt freigeben</button> <span style="font-size:10px">' + stand + '</span>' + detailHtml
+      : '<b>' + head + '</b> ' + esc(status.advisor_hint || 'Bitte Administrator informieren.') + ' <span style="font-size:10px">' + stand + '</span>' + detailHtml;
     return status;
   }
 

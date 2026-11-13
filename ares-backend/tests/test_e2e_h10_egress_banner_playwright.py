@@ -1,7 +1,7 @@
 """H10 Nachtrag 2: Ende-zu-Ende in echtem Chromium gegen ein echtes Backend.
 
 Frische Instanz (Wegwerf-DB/-HOME, Wegwerf-KEK, Scheduler aus) -> Banner
-"Datenuebermittlung gesperrt" sichtbar -> Admin klickt "Zur Freigabe" ->
+Klartext "Datenuebermittlung ... pausiert" sichtbar -> Admin klickt "Jetzt freigeben" ->
 "Manifest freigeben" -> Hash-Uebersicht -> "Freigabe bestaetigen" -> Banner
 weg -> der Marktdatenkanal ist laut Laufzeitschutz erlaubt.
 
@@ -143,10 +143,11 @@ def test_fresh_instance_banner_then_approval_then_market_data_allowed(backend):
             banner = page.locator("#pg-egress-banner")
             banner.wait_for(state="visible", timeout=15000)
             text = banner.inner_text()
-            assert "Datenübermittlung gesperrt – Marktdaten, Updates und E-Mail funktionieren erst nach Freigabe" in text
+            assert "Die Datenübermittlung muss einmal freigegeben werden – Marktdaten" in text
+            assert "bis dahin pausiert." in text
             assert "Datenstand Kurse" in text and "nicht aktualisiert" in text
 
-            banner.get_by_role("button", name="Zur Freigabe").click()
+            banner.get_by_role("button", name="Jetzt freigeben").click()
             page.get_by_role("button", name="Manifest freigeben").click()
             confirm = page.locator("#pg-approve-confirm")
             confirm.get_by_role("button", name="Freigabe bestätigen").wait_for(timeout=10000)
@@ -228,7 +229,12 @@ def test_real_app_shows_banner_right_after_login(full_app):
             banner = page.locator("#pg-egress-banner")
             banner.wait_for(state="visible", timeout=8000)
             text_ = banner.inner_text()
-            assert "Datenübermittlung gesperrt" in text_ and "Zur Freigabe" in text_
-            assert "gesperrt: keine freigegebene Fassung" in text_
+            # N-899-16: Klartext sichtbar, technische Angaben nur aufgeklappt
+            assert "Die Datenübermittlung muss einmal freigegeben werden – Marktdaten" in text_
+            assert "bis dahin pausiert." in text_ and "Jetzt freigeben" in text_
+            assert "market_data." not in text_ and "EGRESS_" not in text_
+            banner.locator("summary", has_text="Details").click()
+            details = banner.inner_text()
+            assert "market_data.stooq" in details and "EGRESS_MANIFEST_MISSING" in details
         finally:
             browser.close()
