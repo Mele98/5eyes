@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
+from core.db_integrity import raise_if_check_violation
 from datetime import date, datetime, timezone
 from typing import Optional
 import json
@@ -423,8 +424,10 @@ def create_target_allocation(
             mandate_id=mandate_id, client_id=mandate.client_id,
             ip_address=_extract_client_ip(request))
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(
             status_code=409,
             detail="Eine andere Soll-Allokation wurde gleichzeitig gespeichert -- bitte Seite neu laden und erneut versuchen.",
@@ -769,8 +772,10 @@ def generate_target_allocation_endpoint(
                 ip_address=_extract_client_ip(request),
             )
             db.commit()
-        except IntegrityError:
+        except IntegrityError as exc:
             db.rollback()
+            # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+            raise_if_check_violation(exc)
             raise HTTPException(
                 status_code=409,
                 detail="Eine andere Soll-Allokation wurde gleichzeitig generiert -- bitte Seite neu laden und erneut versuchen.",
@@ -1469,8 +1474,10 @@ def create_optimizer_policy(
             table_name="optimizer_policies", record_id=policy.id, action="CREATE",
             new_value=body.policy_name, ip_address=_extract_client_ip(request))
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(
             status_code=409,
             detail="Eine andere Policy wurde gleichzeitig aktiviert -- bitte Seite neu laden und erneut versuchen.",
@@ -1620,8 +1627,10 @@ def activate_optimizer_policy(
             table_name="optimizer_policies", record_id=policy_id, action="ACTIVATE",
             ip_address=_extract_client_ip(request))
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(
             status_code=409,
             detail="Eine andere Policy wurde gleichzeitig aktiviert -- bitte Seite neu laden und erneut versuchen.",

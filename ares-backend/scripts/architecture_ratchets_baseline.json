@@ -507,7 +507,7 @@
   },
   "leaf_content_sha256": {
     "core": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "core.db_integrity": "953c05f77a563c042fc19e2ff9bb0aad8e2521591f18eefc33b57fd075428f83",
+    "core.db_integrity": "fc9b6d63bacc3995e8fad41fddaa9195fa4ab98d8a73117257d0334f81c6f0b1",
     "core.evidence": "1ef7d766d44a9f5740fd7e461a00d740cda9489777bcc01fa72cd2a54fbb4e9c",
     "core.goal_vocabulary": "2ce6455a657546ddbc54b665215e899d9e0d4e6df4a79aeaa2562857b0867b82",
     "core.reason_codes": "7c4b8d961635ba2b7154f64bcfd32976967992b28a4ebf3c2280057d98d07468"

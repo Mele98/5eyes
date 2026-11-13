@@ -94,3 +94,18 @@ def test_main_app_registers_the_handler():
     from main import app
 
     assert IntegrityError in app.exception_handlers
+
+
+def test_raise_if_check_violation_only_reraises_check():
+    """Nachtrag 2: gemeinsame Hilfe der Konflikt-Zweige."""
+    from core.db_integrity import raise_if_check_violation
+
+    check = _real_integrity_error("INSERT INTO t (id, kind) VALUES (2, 'zzz')")
+    with pytest.raises(IntegrityError) as caught:
+        raise_if_check_violation(check)
+    assert caught.value is check
+    for statement in ("INSERT INTO t (id, kind) VALUES (1, 'b')", "INSERT INTO t (id, kind) VALUES (3, NULL)"):
+        assert raise_if_check_violation(_real_integrity_error(statement)) is None
+    assert raise_if_check_violation(IntegrityError("x", {}, _PgOrig("23505"))) is None
+    with pytest.raises(IntegrityError):
+        raise_if_check_violation(IntegrityError("x", {}, _PgOrig("23514")))

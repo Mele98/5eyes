@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
+from core.db_integrity import raise_if_check_violation
 from sqlalchemy.orm import Session, selectinload
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
@@ -688,10 +689,12 @@ def override_risk_assessment(
                 mandate_id=mandate_id, client_id=mandate.client_id,
                 ip_address=_extract_client_ip(request))
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         # Paralleler Append mit derselben sequence_no (ux_risk_override_
         # decision_sequence) -- genau ein Gewinner, der Verlierer bekommt 409.
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         _override_conflict(
             "RISK_OVERRIDE_CONCURRENT_MODIFICATION",
             "Ein anderer Override wurde gleichzeitig gespeichert -- bitte Seite "

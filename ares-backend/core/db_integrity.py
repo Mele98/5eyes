@@ -18,3 +18,15 @@ def is_check_constraint_violation(exc: BaseException) -> bool:
     if sqlstate is not None:
         return sqlstate == PG_CHECK_VIOLATION_SQLSTATE
     return "CHECK constraint failed" in str(orig if orig is not None else exc)
+
+
+def raise_if_check_violation(exc: BaseException) -> None:
+    """In ``except IntegrityError``-Zweigen, die einen Konflikt melden (409
+    usw.), ZUERST aufrufen (nach dem Rollback): eine CHECK-Verletzung ist kein
+    Konflikt, sondern ein Wert ausserhalb der Werteliste. Sie wird unveraendert
+    weitergeworfen und vom zentralen Handler als 422
+    ``DB_CHECK_CONSTRAINT_VIOLATION`` (ohne Werte) beantwortet. UNIQUE-, FK-
+    und NOT-NULL-Fehler kehren zurueck -> bisheriges Verhalten der Aufrufstelle.
+    """
+    if is_check_constraint_violation(exc):
+        raise exc

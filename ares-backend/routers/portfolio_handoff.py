@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.exc import IntegrityError
+from core.db_integrity import raise_if_check_violation
 from sqlalchemy.orm import Session
 
 from database import get_db, new_uuid
@@ -318,10 +319,12 @@ def create_portfolio_handoff(
     )
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         # Paralleler identischer Request hat zwischen Pruefung und Commit
         # gewonnen (partieller Unique-Index) -> dessen Ergebnis liefern.
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         existing = _open_handoff_with_business_key(db, mandate_id, business_key)
         if existing is None:
             raise

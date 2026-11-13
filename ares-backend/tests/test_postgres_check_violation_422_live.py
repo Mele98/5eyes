@@ -6,6 +6,10 @@ muss ueber den zentralen Handler (``core.middleware.integrity_error_handler``)
 als 422 ``DB_CHECK_CONSTRAINT_VIOLATION`` enden -- ohne Zeileninhalt aus dem
 PG-``DETAIL``. Gegenprobe: ein UNIQUE-Verstoss (23505) bleibt 500.
 
+Nachtrag 2: ein Konflikt-Zweig nach Router-Muster (``except IntegrityError``
+-> ``raise_if_check_violation`` -> 409) liefert bei echtem psycopg-CHECK 422
+und bei echtem UNIQUE weiterhin 409.
+
 Eigenes Schema je Test. Ohne ``POSTGRES_TEST_DATABASE_URL`` uebersprungen
 (CI-Job ``postgres-rls``, eigener Schritt mit ``-v``).
 """
@@ -33,7 +37,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from core.db_integrity import is_check_constraint_violation  # noqa: E402
+from core.db_integrity import is_check_constraint_violation, raise_if_check_violation  # noqa: E402
 from core.middleware import install_exception_handlers  # noqa: E402
 
 SECRET = "geheimer-zeileninhalt"
@@ -102,3 +106,39 @@ def test_real_postgres_unique_violation_stays_500(pg_engine):
 
 def test_valid_write_still_succeeds(pg_engine):
     assert _app(pg_engine).post("/probe/4/b").status_code == 200
+
+
+def _conflict_branch_app(engine) -> TestClient:
+    """Muster der umgestellten Router (mandates/fx_rates/tenants/...)."""
+    from fastapi import HTTPException
+
+    app = FastAPI()
+    install_exception_handlers(app)
+
+    @app.post("/branch/{row_id}/{kind}")
+    def write(row_id: int, kind: str):
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    text("INSERT INTO probe (id, kind, note) VALUES (:id, :kind, :note)"),
+                    {"id": row_id, "kind": kind, "note": SECRET},
+                )
+        except IntegrityError as exc:
+            raise_if_check_violation(exc)
+            raise HTTPException(status_code=409, detail="Eintrag existiert bereits.")
+        return {"ok": True}
+
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def test_conflict_branch_real_postgres_check_is_422(pg_engine):
+    r = _conflict_branch_app(pg_engine).post("/branch/5/zzz")
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"]["reason_code"] == "DB_CHECK_CONSTRAINT_VIOLATION"
+    assert SECRET not in r.text
+
+
+def test_conflict_branch_real_postgres_unique_keeps_409(pg_engine):
+    r = _conflict_branch_app(pg_engine).post("/branch/1/b")
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"] == "Eintrag existiert bereits."
