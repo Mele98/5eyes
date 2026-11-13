@@ -366,7 +366,7 @@ def _monolith_render_bucket_drift(data: dict) -> str:
         + f"\nvar d={json.dumps(data)};dcRenderBucketDrift(d.buckets,d);"
         "process.stdout.write(out.innerHTML);"
     )
-    res = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=10)
+    res = subprocess.run(["node", "-"], input=script, capture_output=True, text=True, encoding="utf-8", timeout=10)
     assert res.returncode == 0, res.stderr
     return res.stdout
 

@@ -20,7 +20,7 @@ function aaChartPctText(bps){
 }
 // G7: Betraege in Mandatswaehrung (Exponent explizit).
 function aaChartCurrency(){var a=typeof strategyState!=='undefined'&&strategyState&&strategyState.allocation,m=typeof currentMandateData!=='undefined'&&currentMandateData;return String((a&&a.base_currency)||(m&&m.base_currency)||'CHF').toUpperCase();}
-function aaChartMoney(minor,cur){var c=cur||aaChartCurrency();return AresRounding.formatMoneyMinor(Number(minor)||0,c,AresRounding.minorExponent(c),0,{typography:'screen'});}
+function aaChartMoney(minor,cur){return AresRounding.formatStoredAmount(Number(minor)||0,cur||aaChartCurrency(),0,{typography:'screen'});}
 function aaChartChf(chf,cur){return aaChartMoney(Math.round((Number(chf)||0)*100),cur);}
 // Gruppe gemeinsam apportionieren: list = Objekte mit .bps in kanonischer
 // Reihenfolge; setzt .pct (Anzeige) je Objekt. targetDisplay optional.
@@ -208,7 +208,7 @@ function aaChartAllocItems(){
   var rb=a&&typeof allocationReserveBreakdown==='function'?allocationReserveBreakdown(a):{advisoryRappen:0,strategyBaseRappen:0};
   // G7: Betraege wie im PDF (presentationAmounts: Basis Half-up, Largest Remainder).
   var pos=buckets.filter(function(b){return Number(b.target_weight_bps)>0;});
-  var pa=AresRounding.presentationAmounts(rb.advisoryRappen,rb.strategyBaseRappen,pos.map(function(b){return b.target_weight_bps;}),pos.map(function(b){return b.asset_class;}),AresRounding.minorExponent(cur));
+  var pa=AresRounding.presentationAmounts(rb.advisoryRappen,rb.strategyBaseRappen,pos.map(function(b){return b.target_weight_bps;}),pos.map(function(b){return b.asset_class;}),2);
   return list.map(function(r){
     var amount=pos.length?0:Math.round((rb.strategyBaseRappen/100)*Number(r.soll||0)/100),band=null;
     pos.forEach(function(b,i){if(dn(b.asset_class)===r.n)amount=pa.buckets[i];});
@@ -244,7 +244,7 @@ function aaChartLegendHtml(items,rb){
   }).join('');
   if(aaChartHasSubs())html+='<div class="aa-leg-ring">Innenring: Anlageklassen · Aussenring: Subanlageklassen (Farbe wie in «SOLL-Quoten», Name im Tooltip)</div>';
   if(rb&&rb.reserveRappen>0){
-    var u=AresRounding.presentationAmounts(rb.advisoryRappen,rb.strategyBaseRappen,[],[],AresRounding.minorExponent(aaChartCurrency())),fr=function(x){return aaChartChf(x);};
+    var u=AresRounding.presentationAmounts(rb.advisoryRappen,rb.strategyBaseRappen,[],[],2),fr=function(x){return aaChartChf(x);};
     html+='<div class="aa-leg-row aa-leg-reserve" id="alloc-legend-reserve"><span class="aa-leg-sw" aria-hidden="true"></span>'
       +'<span class="aa-leg-name">Liquiditätsreserve (ausserhalb der Anlagestrategie)</span><span class="aa-leg-bar" aria-hidden="true"></span>'
       +'<span class="aa-leg-pct">–</span><span class="aa-leg-amt">'+aaChartEsc(aaChartChf(u.reserve))+'</span></div>'

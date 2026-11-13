@@ -154,7 +154,7 @@ def _run_js(goals: list, extra: str = "") -> dict:
         + "r.tile=goalSuccessTileText(r);r.sub=goalSuccessSubText(r);" + extra
         + "process.stdout.write(JSON.stringify(r));"
     )
-    out = subprocess.run(["node", "-e", script], capture_output=True, timeout=10, check=False)
+    out = subprocess.run(["node", "-"], input=script.encode("utf-8"), capture_output=True, timeout=10, check=False)
     assert out.returncode == 0, out.stderr.decode("utf-8", "replace")
     return json.loads(out.stdout.decode("utf-8"))
 

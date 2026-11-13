@@ -1049,6 +1049,91 @@
     "1"
    ],
    "why": "Gleichstand: gleiches Gewicht -> Engine-Schluessel (bonds < equities)"
+  },
+  {
+   "id": "stored_jpy_whole",
+   "fn": "stored_amount",
+   "args": [
+    8412698413,
+    "JPY"
+   ],
+   "plain": "JPY 84'126'984",
+   "screen": "JPY 84'126'984",
+   "why": "Rappen-Feld Faktor 100 auch bei JPY (vorher JPY 8'412'698'413)"
+  },
+  {
+   "id": "stored_jpy_decimals_capped",
+   "fn": "stored_amount",
+   "args": [
+    8412698450,
+    "JPY",
+    2
+   ],
+   "plain": "JPY 84'126'985",
+   "screen": "JPY 84'126'985",
+   "why": "JPY zeigt hoechstens 0 Nachkommastellen; Half-up"
+  },
+  {
+   "id": "stored_chf_two_decimals",
+   "fn": "stored_amount",
+   "args": [
+    1005,
+    "CHF",
+    2
+   ],
+   "plain": "CHF 10.05",
+   "screen": "CHF 10.05"
+  },
+  {
+   "id": "stored_eur_whole_half_up",
+   "fn": "stored_amount",
+   "args": [
+    150,
+    "EUR"
+   ],
+   "plain": "EUR 2",
+   "screen": "EUR 2"
+  },
+  {
+   "id": "stored_usd_negative",
+   "fn": "stored_amount",
+   "args": [
+    -123450,
+    "USD"
+   ],
+   "plain": "USD -1'235",
+   "screen": "USD \u22121'235"
+  },
+  {
+   "id": "amounts_jpy_storage",
+   "fn": "presentation_amounts",
+   "args": [
+    841269841300,
+    830000000050,
+    [
+     6941,
+     3059
+    ],
+    [
+     "equities",
+     "bonds"
+    ]
+   ],
+   "plain": [
+    "8412698413",
+    "8300000001",
+    "112698412",
+    "5761030001",
+    "2538970000"
+   ],
+   "screen": [
+    "8412698413",
+    "8300000001",
+    "112698412",
+    "5761030001",
+    "2538970000"
+   ],
+   "why": "JPY-Mandat: Speicher-Exponent 2 -> ganze Yen (vorher Exponent 0 = Faktor 100 zu gross)"
   }
  ]
 }

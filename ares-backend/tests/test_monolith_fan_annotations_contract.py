@@ -77,7 +77,7 @@ def _run_js(fns: tuple[str, ...], body: str):
     html = _html()
     script = rounding_module_source() + "\n".join(_extract_function(html, n) for n in fns) + "\n" + body
     proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60,
+        ["node", "-"], input=script, capture_output=True, text=True, encoding="utf-8", timeout=60,
     )
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)

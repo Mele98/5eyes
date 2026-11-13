@@ -89,7 +89,7 @@ def _run_monolith(extra_js: str = ""):
         script = body + "process.stdout.write(JSON.stringify((function(){" + extra_js + "})()));"
     else:
         script = body + _RUNNER.replace("__CONTRACT__", json.dumps(_contract()))
-    proc = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    proc = subprocess.run(["node", "-"], input=script, capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
 

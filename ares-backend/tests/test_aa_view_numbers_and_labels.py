@@ -85,7 +85,7 @@ def _run(names: tuple[str, ...], scenario_js: str):
     fns = "\n".join(_extract_function(src, name) for name in names)
     script = rounding_module_source() + _FAKE_DOM + fns + "\nvar __out=(function(){" + scenario_js + "})();\nprocess.stdout.write(JSON.stringify(__out));"
     proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60
+        ["node", "-"], input=script, capture_output=True, text=True, encoding="utf-8", timeout=60
     )
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)

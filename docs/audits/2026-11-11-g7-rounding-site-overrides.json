@@ -1,14 +1,63 @@
 {
  "schema_version": 1,
  "policy_version": "ares-rounding/1",
- "doc": "G7 Einzelentscheide je Quelltextzeile (siehe scripts/classify_rounding_sites.py)",
+ "doc": "G7 Einzelentscheide je Quelltextzeile (Ausnahme-Annotation). COMPUTATION_KEEP gibt es nur hier; Regeln liefern nur Vorschlaege (scripts/classify_rounding_sites.py).",
  "overrides": [
+  {
+   "file": "ares-backend/routers/pdf_reports.py",
+   "source": "amount = int(round(value * bps / 10000))",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+  },
   {
    "file": "ares-backend/routers/pdf_reports.py",
    "source": "amount = lambda r: format_amount_minor(r, ccy)  # noqa: E731  (G7: Half-up statt round())",
    "class": "MIGRATE",
    "status": "done",
    "reason": "Anzeige ueber gemeinsamen Formatter"
+  },
+  {
+   "file": "ares-backend/routers/pdf_reports.py",
+   "source": "amt = int(round(convert_rappen(",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+  },
+  {
+   "file": "ares-backend/routers/pdf_reports.py",
+   "source": "bucket: int(round(amount / total * 10000)) if total > 0 else 0",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+  },
+  {
+   "file": "ares-backend/routers/pdf_reports.py",
+   "source": "int(round(current_amount / current_total * 10000))",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+  },
+  {
+   "file": "ares-backend/routers/pdf_reports.py",
+   "source": "return int(round(sum((value / total) ** 2 for value in clean) * 10000))",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+  },
+  {
+   "file": "ares-backend/routers/pdf_reports.py",
+   "source": "value = int(round(convert_rappen(raw_value, str(getattr(row, \"currency\", \"\") or \"CHF\"), target_currency)))",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+  },
+  {
+   "file": "ares-backend/services/pdf/components/effektives_portfolio.py",
+   "source": "current_bps = int(round(current_amount / total_amount * 10000))",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
   },
   {
    "file": "ares-backend/services/pdf/components/goal_achievability.py",
@@ -25,6 +74,41 @@
    "reason": "Anzeige ueber gemeinsamen Formatter"
   },
   {
+   "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
+   "source": "f\"{format_chf_rappen(int(round(float(target_amount))))} (\u00fcber Skala)\"",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+  },
+  {
+   "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
+   "source": "return lambda rappen: format_chf_rappen(int(round(rappen)))",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+  },
+  {
+   "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
+   "source": "return sorted({round(k * step) for k in range(n_max)})",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Achsen-/Tick-Raster (Skalenberechnung)"
+  },
+  {
+   "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
+   "source": "while decimals < 3 and abs(step_mio * 10**decimals - round(step_mio * 10**decimals)) > 1e-9:",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Achsen-/Tick-Raster (Skalenberechnung)"
+  },
+  {
+   "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
+   "source": "y_tick_values = [k * y_step for k in range(int(round(max_value / y_step)) + 1)]",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Achsen-/Tick-Raster (Skalenberechnung)"
+  },
+  {
    "file": "ares-backend/services/pdf/components/swiss_numbers.py",
    "source": "ROUND_HALF_UP, identisch zu Classic-App und React). Vorher rundeten sie mit",
    "class": "FALSE_POSITIVE",
@@ -32,18 +116,81 @@
    "reason": "Docstring"
   },
   {
+   "file": "ares-backend/services/pdf/documents/portfolio.py",
+   "source": "group_weight = int(round(group_amount / total_amount * 10000))",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+  },
+  {
+   "file": "ares-backend/services/pdf/documents/portfolio.py",
+   "source": "return int(round(amount / total_amount * 10000)) if total_amount > 0 and amount > 0 else 0",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "(rate>0 ? rate.toFixed(4) : '') + '\" style=\"font-size:11px\">';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "+ '<div class=\"admin-stacked-seg\" style=\"width:' + (g / tot * 100).toFixed(1) + '%;background:var(--pos)\" title=\"GREEN ' + g + '\"></div>'",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): CSS-Breite eines Balkensegments; title zeigt Rohzahl, kein gerundeter Kundenwert"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "+ '<div class=\"admin-stacked-seg\" style=\"width:' + (r / tot * 100).toFixed(1) + '%;background:var(--neg)\" title=\"RED ' + r + '\"></div>'",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): CSS-Breite eines Balkensegments; title zeigt Rohzahl"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "+ '<div class=\"admin-stacked-seg\" style=\"width:' + (y / tot * 100).toFixed(1) + '%;background:var(--warn)\" title=\"YELLOW ' + y + '\"></div>'",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): CSS-Breite eines Balkensegments; title zeigt Rohzahl"
+  },
+  {
    "file": "ares-desktop/frontend/ares.html",
    "source": "+ '<div class=\"pdetail-item\"><strong>Kosten</strong>TER p.a.: '+escapeHtml(fmtPct((Number(row.ter_bps||0)),2))+'<br>Kosten auf Zielvolumen: '+escapeHtml(formatRappen(Math.round(displayAmountRappen*Number(row.ter_bps||0)/10000)))+' p.a.</div",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Kostenbetrag in Rappen (Math.round), Anzeige ueber formatRappen/fmtPct"
+   "reason": "Umrechnung Kostenbetrag -> Integer-Rappen (Math.round); Anzeige ueber formatRappen/fmtPct"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "+'<div class=\"'+barClass+'\" data-aa-tooltip=\"'+hoverLabel+'\" aria-label=\"'+hoverLabel+'\" tabindex=\"0\" style=\"left:'+left.toFixed(2)+'%;width:'+width.toFixed(2)+'%\">'",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): CSS-Position/-Breite der Cashflow-Zeitleiste; Beschriftung ueber hoverLabel (Formatter)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "+'<div class=\"aa-flow-timeline-bar '+(isIncome?'aa-flow-timeline-bar-income':'aa-flow-timeline-bar-expense')+'\" style=\"left:'+left.toFixed(2)+'%;width:'+width.toFixed(2)+'%\">'",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): CSS-Position/-Breite der Cashflow-Zeitleiste; Beschriftung ueber hoverLabel (Formatter)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "source": "+'<div style=\"font-size:9px;color:#64748b\">'+escapeHtml(formatRappen(subtotal))+' / '+escapeHtml(formatBpsPercent(totalPortfolioRappen>0?Math.round(subtotal/totalPortfolioRappen*10000):0))+'</div>'",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Anteil -> Integer-bps (Rechenwert); Anzeige ueber formatBpsPercent"
+   "reason": "Umrechnung Anteil -> Integer-bps (Rechenwert); Anzeige ueber formatBpsPercent"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": ": Math.max(0,Math.min(total0,Math.round(Number(sockelOpts&&sockelOpts.sockelRappen||0))));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -51,6 +198,27 @@
    "class": "MIGRATE",
    "status": "done",
    "reason": "Lokaler Formatter delegiert an den gemeinsamen Formatter"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "? Math.max(0,Math.round(Number(pos.mortgage_amortization_rappen||0)))",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "? Math.max(0,Math.round(Number(sockelOpts.sockelGrossRappen||0)))",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "? Math.round(bucket.rebalance_amount_rappen / 100) : null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -68,10 +236,402 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
+   "source": "Array.from({length:10},function(){return Math.round(ann*100);}),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "Math.round(base*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "Math.round(baselineRate*10000),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "TOTAL=Math.round((Number(result.advisory_wealth_rappen||0))/100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "TOTAL=Math.round(advisoryProjection.startRappen/100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "__istImproved.push(Math.round(Number(totalCurrentSeries[__istI]||0)+(Number(targetSeries[__istI]||0)-Number(advisoryCurrentSeries[__istI]||0))));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "alloc_alternatives_bps:Math.round(alt*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "alloc_bonds_bps:Math.round(obl*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "alloc_equities_bps:Math.round(akt*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "alloc_liquidity_bps:Math.round(liq*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "alloc_real_estate_bps:Math.round(imm*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "alternatives:totalRappen>0?Math.round(bucketRappen.alternatives/totalRappen*10000):0",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "bonds:totalRappen>0?Math.round(bucketRappen.bonds/totalRappen*10000):0,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "bucketRappen.alternatives+=Math.round(value*Number(mix.alternatives||0)/10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "bucketRappen.bonds+=Math.round(value*Number(mix.bonds||0)/10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "bucketRappen.equities+=Math.round(value*Number(mix.equities||0)/10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "bucketRappen.liquidity+=Math.round(value*Number(mix.liquidity||0)/10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "bucketRappen.realEstate+=Math.round(value*Number(mix.realEstate||0)/10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
    "source": "callbacks:{label:function(ctx){var l=ctx&&ctx.dataset&&ctx.dataset.label?ctx.dataset.label+': ':'';return l+formatRappen(Math.round(Number(ctx&&ctx.raw||0)*100000));}}}",
    "class": "COMPUTATION_KEEP",
    "status": "",
    "reason": "Umrechnung Chart-Wert (CHF Mio., float) -> Integer-Rappen; Anzeige danach ueber formatRappen"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "const opt=Array.from({length:11},function(_,idx){return Math.round(startK*Math.pow(1.045,idx));});",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "const pct=Math.min(90,Math.round((p.netWorth/Math.max(1,g.target||1))*35+15));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "const startK=Math.max(1200,Math.round((Number(TOTAL||2848000))/1000));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "const startRappen=Math.max(120000000,Math.round(Number(TOTAL||2848000)*100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "consumable=Math.max(0,Math.round(consumable+recurringNet+capitalNet));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "consumable=Math.round(Math.max(0,consumable)*(1+rate));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "consumableReturnRappenBps+=Math.round(value*posReturnBps);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "currentAnnualNetCashflowRappen:Math.round(ann*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "currentMixReturnBps:Math.round(baselineRate*10000),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "equities:totalRappen>0?Math.round(bucketRappen.equities/totalRappen*10000):0,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "expectedReturnBps:totalRappen>0?Math.round(weightedReturnRappenBps/totalRappen):0,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "expected_return_bps: Number.isFinite(Number(raw.expected_return_bps)) ? Math.round(Number(raw.expected_return_bps)) : 0,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "expected_return_bps: Number.isFinite(expectedReturn) ? Math.round(expectedReturn * 100) : 0,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "expected_volatility_bps: Number.isFinite(Number(raw.expected_volatility_bps)) ? Math.round(Number(raw.expected_volatility_bps)) : 0",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "expected_volatility_bps: Number.isFinite(expectedVolatility) ? Math.round(expectedVolatility * 100) : 0",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "function strategyMedianProjectionRappen(result){var mc=monteCarloPayload(result);var series=mc&&Array.isArray(mc.target_p50_series_rappen)?mc.target_p50_series_rappen:null;if(series&&series.length){var last=Number(series[series.length-1]||0",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "horizonInput.value=years>0?String(Math.max(1,Math.round(years))):'';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "html += '<td style=\"padding:1px\"><input class=\"fi\" id=\"corr-' + i + '-' + j + '\" data-i=\"' + i + '\" data-j=\"' + j + '\" type=\"number\" step=\"0.05\" min=\"-1\" max=\"1\" value=\"' + String(Number(v.toFixed(4))) + '\" style=\"font-size:10px;width:54px;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Korrelationsmatrix-Editor, type=number); Anzeige-Senke geprueft: value-Attribut, kein Kundentext"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "if (Number.isFinite(year) && Number.isFinite(value)) normalized[String(Math.round(year))] = Math.round(value);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "if (mirror) mirror.value = String(Number(n.toFixed(4)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "if(_fanFinite(canonical.probability))return {pct:Math.round(canonical.probability*10000)/100,estimate:false};",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Wahrscheinlichkeit -> Prozentpunkte auf 0.01 normiert (Fan-Vertrag pinnt pct); Anzeige ueber fmtProbPct"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "if(start>0)return Math.round((((next-firstCashflow)-start)/start)*10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "if(target>0)return Math.round(target);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "if(total>0)return Math.round(portfolioMarketValueRappen(row)/total*10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "if(totalWeight>0)return Math.round(weighted/totalWeight);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "if(typeof portfolioMarketValueRappen==='function')return Math.round(portfolioMarketValueRappen(row)||0);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "if(typeof value==='number'&&isFinite(value))return Math.round(Math.abs(value)>100?value:value*100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "improvedSeries.push(Math.max(0,Math.round(totalValue+(advisoryTarget-advisoryCurrent))));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "invested=Math.round(Math.max(0,invested)*(1+rate));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "invested=Math.round(invested+flow*(1+rate/2));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "liquidity:totalRappen>0?Math.round(bucketRappen.liquidity/totalRappen*10000):0,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "n = Math.round(n);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "parts.push(k + ':' + Math.round(subPcts[k] * 100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "partsPdf.push(k + ':' + Math.round(subPctsPdf[k] * 100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "payload.esg_score_x10 = Math.round(esgScore * 10);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "payload.threshold_bps=isFinite(pct)?Math.round(Math.abs(pct)*100):500;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "realEstate:totalRappen>0?Math.round(bucketRappen.realEstate/totalRappen*10000):0,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return (Math.abs(pct-Math.round(pct))<0.05?String(Math.round(pct)):pct.toFixed(1))+'%';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): formatBandPercent: nur Wert/data-initial der Band-Editor-Eingabefelder (Roundtrip mit parseBandPercentInput); Anzeigen nutzen fmtPct"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -89,10 +649,507 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.abs(normalized - Math.round(normalized)) < 0.001 ? String(Math.round(normalized)) : normalized.toFixed(1);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.max(0, Math.min(5, Math.round((Number(scoreX10 || 0) / 10) / 2)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Ganzzahlige Skala (Risikoscore x10, Jahre, Inflationsmittel) -- kein Policy-Grenzfall"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round((Math.pow(end/start,1/years)-1)*10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round((Number(rappen)||0)/100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round((base*Math.pow(1+improvedRate,i)+ann*((Math.pow(1+improvedRate,i)-1)/improvedRate))/1000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round((date.getTime()-today.getTime())/86400000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round((parseFloat(c)||0)*100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round((unitsMilli/1000)*(currentPrice-avgCost));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round(Math.abs(numeric)>100?numeric:numeric*100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round(Number(contributionInput||0)*factor);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round(Number(row.market_value_rappen||row.current_market_value_rappen||0));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round(Number(value||0)/100000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round(future);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round(n * 100); // 0.50% -> 50bps",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round(num * multiplier);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round(numeric*100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round(units*1000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Number.isFinite(n)?Math.round(n):null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Number.isFinite(num) ? Math.round(num * 100) : null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Number.isFinite(num) ? Number(num.toFixed(4)) : 0;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
    "source": "return String(Math.round(Number(rappen)/100));",
    "class": "COMPUTATION_KEEP",
    "status": "",
    "reason": "formatInputCHF: Wert fuer ein editierbares Zahlenfeld (type=number, ohne Gruppierung) -- Eingabe-Roundtrip, keine Anzeige"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return contributionInput.map(function(value){return Math.round(Number(value||0)*factor);});",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return fmtPct(Math.round(n*100),Math.round(n)===n?0:1);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return fmtProbPct(Math.max(0,Math.round(Number(value||0))));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return fmtSignedPct(Math.round(Number(bps||0)),1);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return isFinite(n)?Math.max(0,Math.min(100,Math.round(n))):null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return isFinite(n)?Math.round(n*100):null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return label+formatRappen(Math.round(Number(ctx&&ctx.raw||0)*100000));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return new Date(value).toLocaleString('de-CH',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Datum/Zeit-Formatierung (keine Zahl der Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return totalRappen>0?Math.round(amount/totalRappen*10000):0;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return {n:assetDisplayName(key),c:assetClassColor(key),ist:Number(bucket.current_weight_bps||0)/100,soll:Number(bucket.target_weight_bps||0)/100,chf:Math.round((Number(bucket.current_amount_rappen||0))/100),chfTarget:Math.round((Number(buck",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "row.push(Number(n.toFixed(4)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "seriesK:improvedSeries.map(function(value){return Math.round(Number(value||0)/100000);}),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "seriesK:seriesRappen.map(function(value){return Math.round(value/100000);}),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "seriesRappen.push(Math.max(0,Math.round(consumable+sockel)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "seriesRappen.push(Math.max(0,Math.round(invested)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('acf-amount',formatInputCHF(cashflow.amount_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('acf-gross-amount',formatInputCHF(cashflow.gross_amount_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('acf-tax-amount',formatInputCHF(cashflow.tax_amount_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('ap-cost-price',formatInputCHF(position.holding_avg_cost_price_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('ap-market-value',formatInputCHF(position.holding_market_value_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('awi-amount',formatInputCHF(inflow.amount_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-alt-return',formatInputPercent(pos.asset_expected_return_bps));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-alt-value',formatInputCHF(pos.current_value_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-depot-value',formatInputCHF(pos.current_value_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-immo-appreciation',formatInputPercent(pos.asset_expected_return_bps));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-immo-rent',formatInputCHF(pos.property_rental_income_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-immo-value',formatInputCHF(pos.current_value_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-liq-rate',formatInputPercent(pos.liquidity_interest_rate_bps));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-liq-value',formatInputCHF(pos.current_value_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-mortgage-amortization',formatInputCHF(pos.mortgage_amortization_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-mortgage-rate',formatInputPercent(pos.mortgage_interest_rate_bps));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-mortgage-value',formatInputCHF(pos.current_value_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-pension-interest',formatInputPercent(pos.pension_interest_rate_bps));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-pension-maturity-value',formatInputCHF(pos.pension_maturity_value_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-pension-rate',formatInputPercent(pos.pension_technical_rate_bps));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-pension-tax-chf',formatInputCHF(pos.pension_lumpsum_tax_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-pension-tax-pct',formatInputPercent(pos.pension_lumpsum_tax_bps));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-pension-value',formatInputCHF(pos.current_value_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('sc-akt',Math.round(Number(pos.alloc_equities_bps||0)/100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('sc-alt',Math.round(Number(pos.alloc_alternatives_bps||0)/100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('sc-imm',Math.round(Number(pos.alloc_real_estate_bps||0)/100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('sc-liq',Math.round(Number(pos.alloc_liquidity_bps||0)/100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('sc-obl',Math.round(Number(pos.alloc_bonds_bps||0)/100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "sockel=Math.max(0,Math.round(sockel*(1+sockelRate)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "sockelGross=Math.max(0,Math.round(sockelGross*(1+sockelRate)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "sockelRappen=Math.max(0,Math.min(startRappen,Math.round(Number(_ta.foundation_in_net_wealth_rappen))));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "startRappen=Math.max(0,Math.round(Number(_ta.total_base_rappen)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "surplus_rappen:Math.round(Number(p.surplus||0)*100)",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "svg += '<text x=\"' + (marginLeft - 6) + '\" y=\"' + (y + 3) + '\" font-size=\"9\" fill=\"#64748b\" text-anchor=\"end\" font-family=\"system-ui\">' + (opts.yFormat ? opts.yFormat(yVal) : String(Math.round(yVal))) + '</text>';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "targetCagrBps:Math.round(improvedRate*10000),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "targetProjectedRappen:Math.round(improvedSeries[improvedSeries.length-1]*100000),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -103,10 +1160,108 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
+   "source": "target_wealth_rappen:isWealthGoal?Math.round(Number(g.target||0)*100):null,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "total_expense_rappen:Math.round((p.cashflows||[]).filter(function(c){return c.type==='Expense';}).reduce(function(sum,c){return sum+Number(c.amount||0);},0)*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "total_income_rappen:Math.round((p.cashflows||[]).filter(function(c){return c.type==='Income';}).reduce(function(sum,c){return sum+Number(c.amount||0);},0)*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "values.push(Math.round(val/100000));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var _fmtEndK=function(k){return k==null?null:formatRappen(Math.round(k*100000));};",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var _pAl=Math.round(Number(advisoryProjection.bucketWeightsBps.alternatives||0))/100;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var _pBo=Math.round(Number(advisoryProjection.bucketWeightsBps.bonds||0))/100;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var _pEq=Math.round(Number(advisoryProjection.bucketWeightsBps.equities||0))/100;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var _pLi=Math.round(Number(advisoryProjection.bucketWeightsBps.liquidity||0))/100;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var _pRe=Math.round(Number(advisoryProjection.bucketWeightsBps.realEstate||0))/100;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var advRappen=Math.round(Number(alloc.advisory_wealth_rappen||0));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var avgInflation = inflationKeys.length ? Math.round(inflationKeys.reduce(function(sum, year){ return sum + Number(parsedInflation[year] || 0); }, 0) / inflationKeys.length) : null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Ganzzahlige Skala (Risikoscore x10, Jahre, Inflationsmittel) -- kein Policy-Grenzfall"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
    "source": "var barPct=(Number(bucket.target_weight_bps||0)/totalTargetBps*100).toFixed(1);",
    "class": "COMPUTATION_KEEP",
    "status": "",
    "reason": "Geometrie (CSS-Breite/Position aus bps)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var baseline={min_bps:Math.round(Number(r.min||0)*100),target_bps:Math.round(Number(r.ziel||0)*100),max_bps:Math.round(Number(r.max||0)*100)};",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var bps=(typeof value==='number')?Math.round(value):parseBandPercentInput(value);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -117,10 +1272,38 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
+   "source": "var consumableReturnBps=consumableRappen>0?Math.round(consumableReturnRappenBps/consumableRappen):0;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
    "source": "var currentLeft=(current/100).toFixed(2);",
    "class": "COMPUTATION_KEEP",
    "status": "",
    "reason": "Geometrie (CSS-Breite/Position aus bps)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var debt=Math.max(0,Math.round(Number(pos.current_value_rappen||0)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var deltaChf=Math.round((advisoryProjectedRappen-advisoryCurrentProjectedRappen)/100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var deltaRappen=Math.round((sMain-iMain)*100000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -131,10 +1314,94 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
+   "source": "var groupWeightBps=totalPortfolio>0?Math.round(subtotal/Math.max(1,totalPortfolio)*10000):0;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var invested=Math.max(0,Math.round(Number(startRappen||0)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var keep=Math.round(Number(years))+1;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var loss=Math.max(0,Math.round(Number(bps||0)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var n = Math.max(3, Math.min(60, Math.round(Number(years))));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var normalized = Math.round((Math.max(0, Number(rawPoints || 0)) / Math.max(1, Number(rawMax || 1))) * Math.max(0, Number(scaledMax || 0)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var partialSaleChf = rebalAmtChf ? Math.round(rebalAmtChf * 0.8 / 1000) * 1000 : null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
    "source": "var pct=Math.max(0,Math.min(100,Math.round(Number(bucket.target_weight_bps||0)/100)));",
    "class": "COMPUTATION_KEEP",
    "status": "",
    "reason": "Geometrie (CSS-Breite/Position aus bps)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var pct=Math.round(doneCount/Math.max(1,totalCount)*100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var qPct=Math.min(100,Math.round(qCur/qLim*100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var rawWillScore=Math.round(((willingnessTotal-3)/9)*90+10);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var rebalRoundedChf = rebalAmtChf ? Math.round(rebalAmtChf / 5000) * 5000 : null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var res=Math.round(aaReserveSockelRappen(result,mc));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -145,10 +1412,38 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
+   "source": "var safePercent=Math.max(8,Math.min(100,percent!=null?Number(percent||0):Math.round(((safeStep+1)/strategyCalcJourney.length)*100)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Achsen-/Tick-Raster (Skalenberechnung)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var score=Math.max(1,Math.min(10,Math.round(Number(scoreX10||10)/10)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Ganzzahlige Skala (Risikoscore x10, Jahre, Inflationsmittel) -- kein Policy-Grenzfall"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
    "source": "var score=risk?Math.round(Number(risk.override_score_x10!=null?risk.override_score_x10:risk.final_score_x10||0)/10):7;",
    "class": "COMPUTATION_KEEP",
    "status": "",
    "reason": "Risikoscore x10 -> Ganzzahl 1..10 (Score-Logik)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var seriesRappen=[Math.max(0,Math.round(consumable+sockel))];",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var sockelIndexBps=sockelGrossRappen>0?Math.round(sockelIndexRappenBps/sockelGrossRappen):0;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -166,6 +1461,48 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
+   "source": "var targetRappen=Number(b.target_amount_rappen!=null?b.target_amount_rappen:Math.round(totalAdvisoryRappen*Number(b.target_weight_bps||0)/10000));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var total0=Math.max(0,Math.round(Number(startRappen||0)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var totalAdvisoryRappen=Math.round(Number(alloc.advisory_wealth_rappen||0));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var value=Math.max(0,Math.round(Number(pos&&pos.current_value_rappen||0)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var weighted=weightedBps===null?null:Math.round(weightedBps/100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var weightedBps=weightTotal>0?Math.round(weightedSum/weightTotal*10000):null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
    "source": "var zoneLeft=(min/100).toFixed(2);",
    "class": "COMPUTATION_KEEP",
    "status": "",
@@ -177,6 +1514,13 @@
    "class": "COMPUTATION_KEEP",
    "status": "",
    "reason": "Geometrie (CSS-Breite/Position aus bps)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "weightedReturnRappenBps+=pensionRateBps!=null?Math.round(value*pensionRateBps):Math.round(value*(",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -193,11 +1537,137 @@
    "reason": "Achsenbeschriftung (Tick-Raster, keine Kennzahl)"
   },
   {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "{n:'Aktien (global+CH)',c:assetClassColor('eq'),ist:_pEq,soll:_pEq,chf:Math.round(TOTAL*_pEq/100)},",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "{n:'Alternative / Gold',c:assetClassColor('alt'),ist:_pAl,soll:_pAl,chf:Math.round(TOTAL*_pAl/100)},",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "{n:'Anleihen / Defensiv',c:assetClassColor('bd'),ist:_pBo,soll:_pBo,chf:Math.round(TOTAL*_pBo/100)},",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "{n:'Immobilien (ind.)',c:assetClassColor('re'),ist:_pRe,soll:_pRe,chf:Math.round(TOTAL*_pRe/100)},",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "{n:'Liquidit\u00e4tsreserve',c:assetClassColor('liq'),ist:_pLi,soll:_pLi,chf:Math.round(TOTAL*_pLi/100)},",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/components/Logo.tsx",
+   "source": "const height = Math.round((width * VIEWBOX_HEIGHT) / VIEWBOX_WIDTH);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
+   "source": "Math.abs(stepMio * 10 ** decimals - Math.round(stepMio * 10 ** decimals)) > 1e-9",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Achsen-/Tick-Raster (Skalenberechnung)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
+   "source": "const pillW = Math.round(pillText.length * 5.6 + 14);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
+   "source": "out.add(Math.round(k * step));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Achsen-/Tick-Raster (Skalenberechnung)"
+  },
+  {
    "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
    "source": "return `CHF ${(rappen / MIO_RAPPEN).toFixed(decimals)} Mio.`;",
    "class": "COMPUTATION_KEEP",
    "status": "",
    "reason": "Achsenbeschriftung (Stellen aus Tick-Schritt)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
+   "source": "{ length: Math.round(maxValue / yStep) + 1 },",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Achsen-/Tick-Raster (Skalenberechnung)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/lib/allocationForm.ts",
+   "source": "return Number.isFinite(value) ? Math.round(value * 100) : Number.NaN;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/lib/cashflowForm.ts",
+   "source": "amount_rappen: Math.round(amount * 100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/lib/fanAnnotations.ts",
+   "source": "return { pct: Math.round(canonical.probability * 10000) / 100, estimate: false };",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Wahrscheinlichkeit -> Prozentpunkte auf 0.01 normiert (Fan-Vertrag pinnt pct); Anzeige ueber fmtProbPct"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/lib/format.ts",
+   "source": "const n = Math.round(Number(age));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): formatAge: ganze Jahre (Alter >= 0, Half-up gleich)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/lib/format.ts",
+   "source": "const n = Math.round(Number(value));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): formatInteger: Ganzzahl-Anzeige (Zaehler) ohne Gruppierung; Math.round = Half-up fuer Werte >= 0"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/lib/format.ts",
+   "source": "const n = Math.round(Number(years));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): formatHorizon: ganze Jahre (Horizont >= 0, Half-up gleich)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/lib/wealthInflowForm.ts",
+   "source": "amount_rappen: Math.round(amount * 100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/sections/goals/GoalWizard.tsx",
+   "source": "return n == null ? null : Math.round(n * 100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/sections/goals/GoalsEditor.tsx",

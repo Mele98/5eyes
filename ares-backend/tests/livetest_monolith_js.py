@@ -87,6 +87,6 @@ def run_js(names, scenario_js: str, *, prelude: str = "", optional: tuple[str, .
               + "\nvar __out=(function(){" + scenario_js + "})();\n"
               + "Promise.resolve(__out).then(function(v){process.stdout.write(JSON.stringify(v));})"
               + ".catch(function(e){console.error(e&&e.stack||e);process.exit(3);});")
-    proc = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    proc = subprocess.run(["node", "-"], input=script, capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)

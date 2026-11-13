@@ -2,9 +2,9 @@
  "schema_version": 1,
  "policy_version": "ares-rounding/1",
  "counts": {
-  "COMPUTATION_KEEP": 259,
-  "MIGRATE:done": 371,
-  "FALSE_POSITIVE": 86
+  "COMPUTATION_KEEP": 240,
+  "MIGRATE:done": 378,
+  "FALSE_POSITIVE": 80
  },
  "sites": [
   {
@@ -14,7 +14,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -37,11 +37,20 @@
   {
    "file": "ares-desktop/frontend/ares.html",
    "line": 986,
-   "source": "var deltaChf=Math.round((sMain-iMain)*1000);",
+   "source": "var deltaRappen=Math.round((sMain-iMain)*100000);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "line": 991,
+   "source": "box.innerHTML='Differenz der Median-Endwerte SOLL \u2212 IST bis '+escapeHtml(hLabel)+': '+formatSignedRappen(deltaRappen)+' (Modellrechnung: Differenz zweier Mediane, nicht der Median der Differenz; keine Garantie)';",
+   "channel": "classic",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -50,7 +59,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -104,7 +113,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -113,7 +122,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -122,7 +131,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -131,7 +140,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -140,7 +149,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -149,7 +158,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -158,7 +167,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -167,7 +176,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -176,7 +185,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -185,7 +194,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -194,7 +203,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -203,7 +212,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -212,7 +221,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -221,7 +230,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -230,7 +239,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -239,7 +248,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -248,7 +257,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -257,7 +266,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -266,7 +275,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -275,7 +284,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -338,7 +347,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -482,25 +491,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Datum/Zeit-Formatierung (keine Zahl der Kundenevidenz)"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 6660,
-   "source": "var advisoryChf=Math.round(Number(result.advisory_wealth_rappen||0)/100);",
-   "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 6661,
-   "source": "var totalChf=Math.round(Number(result.total_wealth_rappen||0)/100);",
-   "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Datum/Zeit-Formatierung (keine Zahl der Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -662,7 +653,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -671,7 +662,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -680,7 +671,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -693,12 +684,12 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 6929,
-   "source": "var pct=Math.round(Number(plan.probability||0)*100);",
+   "line": 6932,
+   "source": "+'<strong style=\"color:var(--n8)\">'+escapeHtml(fmtProbPct(pct))+'</strong>'",
    "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -779,7 +770,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -788,7 +779,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -797,7 +788,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -806,7 +797,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+   "reason": "Einzelentscheid (N-894-03): Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -820,7 +811,7 @@
   {
    "file": "ares-desktop/frontend/ares.html",
    "line": 7490,
-   "source": "function fmtCHF(n){if(n===null||n===undefined)return '\u2013';return 'CHF '+AresRounding.formatDecimal(n,0,{typography:'screen'});}",
+   "source": "function fmtCHF(n){if(n===null||n===undefined)return '\u2013';return appCurrency()+' '+AresRounding.formatDecimal(n,0,{typography:'screen'});}",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
    "status": "",
@@ -941,7 +932,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -968,7 +959,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -977,7 +968,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -986,7 +977,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -995,7 +986,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -1004,7 +995,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -1013,7 +1004,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -1022,7 +1013,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -1031,7 +1022,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -1040,7 +1031,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -1049,7 +1040,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -1058,7 +1049,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -1067,7 +1058,7 @@
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -1081,7 +1072,7 @@
   {
    "file": "ares-desktop/frontend/ares.html",
    "line": 7850,
-   "source": "+(advisoryChf?'<div style=\"font-size:11px;color:rgba(255,255,255,0.55);margin-top:6px\">Beratungsverm\u00f6gen<br><span style=\"font-size:15px;font-weight:700;color:#fff\">CHF '+fmtNumber(advisoryChf,0)+'</span></div>':'')",
+   "source": "+(advisoryChf?'<div style=\"font-size:11px;color:rgba(255,255,255,0.55);margin-top:6px\">Beratungsverm\u00f6gen<br><span style=\"font-size:15px;font-weight:700;color:#fff\">'+formatRappen(allocation.advisory_wealth_rappen)+'</span></div>':'')",
    "channel": "classic",
    "class": "MIGRATE",
    "status": "done",
@@ -1089,16 +1080,16 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 7897,
-   "source": "var _dosShown=AresRounding.formatApportionedPercentBps(_dosOrder.map(function(i){return Math.max(0,Math.round(Number(buckets[i].target_weight_bps||0)));}),1,{typography:'screen'});",
+   "line": 7899,
+   "source": "var pct=_pm[String(bucket.asset_class)]||fmtPct(0,1),_k=_pos.indexOf(bucket);",
    "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 7901,
+   "line": 7900,
    "source": "var bandMin=fmtPct(Number(bucket.band_min_bps||0),1);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1107,7 +1098,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 7902,
+   "line": 7901,
    "source": "var bandMax=fmtPct(Number(bucket.band_max_bps||0),1);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1116,7 +1107,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 7905,
+   "line": 7904,
    "source": "var barPct=(Number(bucket.target_weight_bps||0)/totalTargetBps*100).toFixed(1);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -1125,8 +1116,8 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 7911,
-   "source": "+(amtChf?'<td style=\"padding:8px 12px;font-size:11px;color:#334155;text-align:right\">'+formatRappen(bucket.target_amount_rappen)+'</td>':'<td style=\"padding:8px 12px;font-size:11px;color:#94a3b8;text-align:right\">\u2014</td>')",
+   "line": 7910,
+   "source": "+(amtChf?'<td style=\"padding:8px 12px;font-size:11px;color:#334155;text-align:right\">'+formatRappen(amtChf*100)+'</td>':'<td style=\"padding:8px 12px;font-size:11px;color:#94a3b8;text-align:right\">\u2014</td>')",
    "channel": "classic",
    "class": "MIGRATE",
    "status": "done",
@@ -1134,7 +1125,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 7926,
+   "line": 7925,
    "source": "+(totalAmtChf?'<tfoot><tr style=\"border-top:2px solid #e2e8f0\"><td colspan=\"4\" style=\"padding:8px 12px;font-size:10px;font-weight:600;color:#334155\">Total Beratungsverm\u00f6gen</td><td style=\"padding:8px 12px;font-size:11px;font-weight:700;colo",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1143,43 +1134,43 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 7932,
+   "line": 7931,
    "source": "if(target>0)return Math.round(target);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 7934,
+   "line": 7933,
    "source": "if(typeof portfolioMarketValueRappen==='function')return Math.round(portfolioMarketValueRappen(row)||0);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 7936,
+   "line": 7935,
    "source": "return Math.round(Number(row.market_value_rappen||row.current_market_value_rappen||0));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 7942,
+   "line": 7941,
    "source": "return totalRappen>0?Math.round(amount/totalRappen*10000):0;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 7978,
+   "line": 7977,
    "source": "+'<td style=\"padding:7px 10px;font-size:10px;color:#334155;text-align:right\">'+escapeHtml(formatBpsPercent(weightBps))+'</td>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1188,7 +1179,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 7979,
+   "line": 7978,
    "source": "+'<td style=\"padding:7px 10px;font-size:10px;color:#334155;text-align:right\">'+escapeHtml(formatRappen(amount))+'</td>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1197,7 +1188,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 7981,
+   "line": 7980,
    "source": "+'<td style=\"padding:7px 10px;font-size:10px;color:#334155;text-align:right\">'+fmtPct(ter,2)+'</td>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1206,16 +1197,16 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 7987,
+   "line": 7986,
    "source": "+'<div style=\"font-size:9px;color:#64748b\">'+escapeHtml(formatRappen(subtotal))+' / '+escapeHtml(formatBpsPercent(totalPortfolioRappen>0?Math.round(subtotal/totalPortfolioRappen*10000):0))+'</div>'",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Anteil -> Integer-bps (Rechenwert); Anzeige ueber formatBpsPercent"
+   "reason": "Umrechnung Anteil -> Integer-bps (Rechenwert); Anzeige ueber formatBpsPercent"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 8003,
+   "line": 8002,
    "source": "+'<div style=\"background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:11px 12px\"><div style=\"font-size:8px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px\">Zielvolumen</div><div style=\"font-size:16px;font-weight:700;c",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1224,7 +1215,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 8004,
+   "line": 8003,
    "source": "+'<div style=\"background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:11px 12px\"><div style=\"font-size:8px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px\">Gewichtete TER</div><div style=\"font-size:18px;font-weight:70",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1233,7 +1224,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 8019,
+   "line": 8018,
    "source": "var retPct=fmtPct(expectedReturnBps,1);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1242,7 +1233,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 8020,
+   "line": 8019,
    "source": "var volPct=fmtPct(expectedVolBps,1);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1251,7 +1242,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 8021,
+   "line": 8020,
    "source": "var maxDDPct=sim&&sim.max_drawdown_bps!=null?fmtPct(sim.max_drawdown_bps||0,1):null;",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1260,7 +1251,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 8022,
+   "line": 8021,
    "source": "var varPct=sim&&sim.var_95_bps!=null?fmtPct(sim.var_95_bps||0,1):null;",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1269,7 +1260,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 8028,
+   "line": 8027,
    "source": "+(cagrBps!==null?'<div style=\"background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px\"><div style=\"font-size:9px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px\">Median CAGR</div><div style=\"font-size:18px;f",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1278,7 +1269,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 8046,
+   "line": 8045,
    "source": "+'<td style=\"padding:8px 12px;font-size:12px;font-weight:700;color:'+color+';text-align:right\">'+(success==null?'\\u2014':fmtProbPct(success))+(goalSuccessIsEstimate(goal)?('<div style=\"font-size:8px;font-weight:400;color:#64748b\">'+escapeHt",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1287,7 +1278,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 8117,
+   "line": 8116,
    "source": "?Math.round(Number(risk.override_score_x10!=null?risk.override_score_x10:risk.final_score_x10||0)/10)",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -1296,34 +1287,25 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 8130,
+   "line": 8129,
    "source": "var totalAdvisoryRappen=Math.round(Number(alloc.advisory_wealth_rappen||0));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "line": 8133,
-   "source": "var pct=formatBpsPercent(b.target_weight_bps);",
-   "channel": "classic",
-   "class": "MIGRATE",
-   "status": "done",
-   "reason": "Anzeige ueber gemeinsamen Formatter"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 8134,
    "source": "var targetRappen=Number(b.target_amount_rappen!=null?b.target_amount_rappen:Math.round(totalAdvisoryRappen*Number(b.target_weight_bps||0)/10000));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 8136,
+   "line": 8135,
    "source": "?'Band: '+formatBpsPercent(b.band_min_bps)+'\u2013'+formatBpsPercent(b.band_max_bps)",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1332,7 +1314,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 8141,
+   "line": 8140,
    "source": "+'<div style=\"text-align:right;font-size:10px;color:var(--n5)\">'+escapeHtml(formatRappen(targetRappen))+'</div>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1341,7 +1323,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 8147,
+   "line": 8146,
    "source": "+'<span>'+escapeHtml(formatRappen(totalAdvisoryRappen))+'</span>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1350,34 +1332,34 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 8208,
+   "line": 8207,
    "source": "var advRappen=Math.round(Number(alloc.advisory_wealth_rappen||0));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 8410,
+   "line": 8409,
    "source": "setInputValue('ap-market-value',formatInputCHF(position.holding_market_value_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 8411,
+   "line": 8410,
    "source": "setInputValue('ap-cost-price',formatInputCHF(position.holding_avg_cost_price_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 8871,
+   "line": 8870,
    "source": "if(d){d.textContent='Total: '+AresRounding.formatPercent(t,0,{typography:'screen'});d.style.color=Math.abs(t-100)<0.5?'var(--pos)':t>100?'var(--neg)':'var(--n6)';}",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1386,7 +1368,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 8936,
+   "line": 8935,
    "source": "var score=risk?Math.round(Number(risk.override_score_x10!=null?risk.override_score_x10:risk.final_score_x10||0)/10):7;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -1395,7 +1377,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 9175,
+   "line": 9174,
    "source": "if(d){d.textContent='Total: '+AresRounding.formatPercent(t,0,{typography:'screen'});d.style.color=Math.abs(t-100)<0.5?'var(--pos)':t>100?'var(--neg)':'var(--n6)';}",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1404,7 +1386,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 9905,
+   "line": 9904,
    "source": "return (Number(value) / 100).toFixed(2).replace(/\\.00$/, '').replace(/(\\.\\d)0$/, '$1');",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -1413,52 +1395,52 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 9911,
+   "line": 9910,
    "source": "return Number.isFinite(num) ? Math.round(num * 100) : null;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 10012,
+   "line": 10011,
    "source": "if (Number.isFinite(year) && Number.isFinite(value)) normalized[String(Math.round(year))] = Math.round(value);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 10026,
+   "line": 10025,
    "source": "expected_return_bps: Number.isFinite(Number(raw.expected_return_bps)) ? Math.round(Number(raw.expected_return_bps)) : 0,",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 10027,
+   "line": 10026,
    "source": "expected_volatility_bps: Number.isFinite(Number(raw.expected_volatility_bps)) ? Math.round(Number(raw.expected_volatility_bps)) : 0",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 10042,
+   "line": 10041,
    "source": "return Number.isFinite(num) ? Number(num.toFixed(4)) : 0;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 10057,
+   "line": 10056,
    "source": "var values = row.map(function(v){ return '<td style=\"padding:4px 6px;text-align:right;font-size:10px;color:var(--n7)\">' + escapeHtml(fmtNumber(Number(v),2)) + '</td>'; }).join('');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1467,88 +1449,88 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 10091,
+   "line": 10090,
    "source": "html += '<td style=\"padding:1px\"><input class=\"fi\" id=\"corr-' + i + '-' + j + '\" data-i=\"' + i + '\" data-j=\"' + j + '\" type=\"number\" step=\"0.05\" min=\"-1\" max=\"1\" value=\"' + String(Number(v.toFixed(4))) + '\" style=\"font-size:10px;width:54px;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Korrelationsmatrix-Editor, type=number); Anzeige-Senke geprueft: value-Attribut, kein Kundentext"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 10110,
+   "line": 10109,
    "source": "row.push(Number(n.toFixed(4)));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 10124,
+   "line": 10123,
    "source": "if (mirror) mirror.value = String(Number(n.toFixed(4)));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 10261,
+   "line": 10260,
    "source": "expected_return_bps: Number.isFinite(expectedReturn) ? Math.round(expectedReturn * 100) : 0,",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 10262,
+   "line": 10261,
    "source": "expected_volatility_bps: Number.isFinite(expectedVolatility) ? Math.round(expectedVolatility * 100) : 0",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 10304,
+   "line": 10303,
    "source": "var avgInflation = inflationKeys.length ? Math.round(inflationKeys.reduce(function(sum, year){ return sum + Number(parsedInflation[year] || 0); }, 0) / inflationKeys.length) : null;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Ganzzahlige Skala (Risikoscore x10, Jahre, Inflationsmittel) -- kein Policy-Grenzfall"
+   "reason": "Einzelentscheid (N-894-03): Ganzzahlige Skala (Risikoscore x10, Jahre, Inflationsmittel) -- kein Policy-Grenzfall"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 10633,
+   "line": 10632,
    "source": "(rate>0 ? rate.toFixed(4) : '') + '\" style=\"font-size:11px\">';",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+   "reason": "Einzelentscheid (N-894-03): Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 10683,
+   "line": 10682,
    "source": "return Math.round(num * multiplier);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 11193,
+   "line": 11192,
    "source": "payload.esg_score_x10 = Math.round(esgScore * 10);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 11880,
+   "line": 11879,
    "source": "+ ' \u00b7 max RE ' + fmtPct(detail.max_real_estate_bps,0) + ' \u00b7 max Alt ' + fmtPct(detail.max_alternatives_bps,0);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1557,16 +1539,16 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 11957,
+   "line": 11956,
    "source": "n = Math.round(n);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12019,
+   "line": 12018,
    "source": "err(bk.key+'_min_bps', 'liegt \u00fcber dem Maximum ' + fmtPct(mx, 2) + '.');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1575,7 +1557,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12022,
+   "line": 12021,
    "source": "err(bk.key+'_target_bps', 'muss zwischen ' + fmtPct(mn, 2) + ' und ' + fmtPct(mx, 2) + ' liegen.');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1584,7 +1566,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12027,
+   "line": 12026,
    "source": "err(null, 'Summe der Ziele ' + fmtPct(sum, 2) + ' \u2013 muss 100 % ergeben (Toleranz \u00b10.05 %).');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1593,7 +1575,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12033,
+   "line": 12032,
    "source": "err('equity_minimum_bps', 'darf das Aktien-Maximum ' + fmtPct(b.equity_max_bps, 2) + ' nicht \u00fcberschreiten.');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1602,7 +1584,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12058,
+   "line": 12057,
    "source": "err(null, 'Die wirksamen Mindestquoten ergeben ' + fmtPct(minSum, 2) + ' (Aktien-Mindestquote und Policy-Liquidit\u00e4tsminimum eingerechnet) \u2013 mehr als 100 %, die Berechnung kann so keine Allokation bilden.', false);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1611,7 +1593,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12062,
+   "line": 12061,
    "source": "err(null, 'Die wirksamen Maxima ergeben nur ' + fmtPct(maxSum, 2) + ' (Policy-Obergrenzen Immobilien/Alternative eingerechnet) \u2013 weniger als 100 %, die Berechnung kann so keine Allokation bilden.', false);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1620,7 +1602,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12065,
+   "line": 12064,
    "source": "r.hints.push('Aktien-Mindestquote ' + fmtPct(b.equity_minimum_bps, 2) + ' liegt \u00fcber dem Aktien-Ziel ' + fmtPct(b.equity_target_bps, 2) + '; die Berechnung hebt das Aktien-Ziel an.');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1629,7 +1611,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12072,
+   "line": 12071,
    "source": "r.hints.push('Richtwert: Der Zielmix hat mit Standard-Risikoanteilen etwa ' + fmtPct(risky, 1) + ' risikobehaftete Anlagen, das Risikobudget erlaubt ' + fmtPct(b.max_risky_fraction_bps, 1) + '. Die Berechnung weicht dann auf den Risikobudge",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1638,7 +1620,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12170,
+   "line": 12169,
    "source": "if(!r.errors.length) html = '<div style=\"color:var(--pos)\">\u2713 g\u00fcltig \u00b7 Summe Ziele '+escapeHtml(fmtPct(r.targetSum, 2))+'</div>' + html;",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1647,7 +1629,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12264,
+   "line": 12263,
    "source": "function dcFmtPct(bps){ return fmtPct(Number(bps||0),1); }",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1656,7 +1638,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12525,
+   "line": 12524,
    "source": "['Anlagebasis', _formatRappenChf(data.advisory_wealth_rappen, currency)],",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1665,7 +1647,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12526,
+   "line": 12525,
    "source": "['Einmalig', _formatRappenChf(totals.one_time_rappen, currency)],",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1674,7 +1656,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12527,
+   "line": 12526,
    "source": "['Laufend p.a.', _formatRappenChf(totals.annual_rappen, currency)],",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1683,7 +1665,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12528,
+   "line": 12527,
    "source": "['Erstes Jahr', _formatRappenChf(totals.first_year_rappen, currency)],",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1692,7 +1674,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12568,
+   "line": 12567,
    "source": "var rate=(item.rate_bps==null)?'\u2014':fmtPct(Number(item.rate_bps),2);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1701,7 +1683,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12569,
+   "line": 12568,
    "source": "var amount=_formatRappenChf(item.amount_rappen, currency);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1710,7 +1692,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12654,
+   "line": 12653,
    "source": "function _formatRappenChf(rappen, currency){",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
@@ -1719,16 +1701,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12657,
-   "source": "return AresRounding.formatMoneyMinor(Number(rappen||0),unit,exp==null?2:exp,0,{typography:'screen'});",
-   "channel": "classic",
-   "class": "MIGRATE",
-   "status": "done",
-   "reason": "Anzeige ueber gemeinsamen Formatter"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 12821,
+   "line": 12818,
    "source": "document.getElementById('dc-fc-ter').textContent = fc.weighted_ter_bps ? fmtPct(fc.weighted_ter_bps,2)  : '\u2014';",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1737,7 +1710,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12822,
+   "line": 12819,
    "source": "document.getElementById('dc-fc-duration').textContent = fc.weighted_duration_years_x10 ? fmtNumber(fc.weighted_duration_years_x10/10,1) + ' J' : '\u2014';",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1746,7 +1719,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12823,
+   "line": 12820,
    "source": "document.getElementById('dc-fc-esg').textContent = fc.weighted_esg_score_x10 ? fmtNumber(fc.weighted_esg_score_x10/10,1) + ' / 100' : '\u2014';",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1755,7 +1728,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12847,
+   "line": 12844,
    "source": "+ '<td style=\"padding:4px 6px;border:1px solid var(--b1);text-align:right;font-weight:600\">' + fmtPct(hb.ist_bps || 0, 1) + '</td></tr>';",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1764,7 +1737,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12860,
+   "line": 12857,
    "source": "var bandText = (b.band_min_bps != null && b.band_max_bps != null) ? fmtPct(b.band_min_bps, 1) + ' \u2013 ' + fmtPct(b.band_max_bps, 1) : '\u2014';",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1773,7 +1746,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12868,
+   "line": 12865,
    "source": "+ '<td style=\"padding:4px 6px;border:1px solid var(--b1);text-align:right;font-weight:600\">' + fmtPct(ist*100, 1) + '</td>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1782,7 +1755,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12869,
+   "line": 12866,
    "source": "+ '<td style=\"padding:4px 6px;border:1px solid var(--b1);text-align:right\">' + fmtPct(soll*100, 1) + '</td>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1791,7 +1764,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12870,
+   "line": 12867,
    "source": "+ '<td style=\"padding:4px 6px;border:1px solid var(--b1);text-align:right;color:'+(Math.abs(drift)>2 ? 'var(--neg)' : 'var(--n6)')+'\">' + fmtSignedPct(drift*100, 1) + '</td>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1800,7 +1773,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12889,
+   "line": 12886,
    "source": "var pct = fmtPct(kv[1], 1), width = Math.max(0, Math.min(100, Number(kv[1]) / 100));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1809,7 +1782,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12914,
+   "line": 12911,
    "source": "+ '<td style=\"padding:4px;border:1px solid var(--b1);text-align:right;color:var(--n6)\">' + (p.ter_bps ? fmtPct(p.ter_bps,2) : '\u2014') + '</td>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1818,7 +1791,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12933,
+   "line": 12930,
    "source": "var pct = fmtPct(bps, 1);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1827,7 +1800,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12959,
+   "line": 12956,
    "source": "+ '<td style=\"padding:4px;border:1px solid var(--b1);text-align:right;color:'+(ret<0?'var(--neg)':'var(--pos)')+';font-weight:600\">'+fmtSignedPct(ret*100,1)+'</td>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1836,7 +1809,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 12960,
+   "line": 12957,
    "source": "+ '<td style=\"padding:4px;border:1px solid var(--b1);text-align:right;color:var(--neg);font-weight:600\">'+fmtPct(-Math.abs(dd*100),1)+'</td>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1845,7 +1818,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13103,
+   "line": 13100,
    "source": "var ret_a = fmtPct((a.expected_return_bps||0),1) ;",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1854,7 +1827,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13104,
+   "line": 13101,
    "source": "var ret_b = fmtPct((b.expected_return_bps||0),1) ;",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1863,7 +1836,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13106,
+   "line": 13103,
    "source": "var dRetText = fmtSignedPct(dRet, 1);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1872,7 +1845,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13109,
+   "line": 13106,
    "source": "var vol_a = fmtPct((a.expected_volatility_bps||0),1) ;",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1881,7 +1854,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13110,
+   "line": 13107,
    "source": "var vol_b = fmtPct((b.expected_volatility_bps||0),1) ;",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1890,7 +1863,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13112,
+   "line": 13109,
    "source": "var dVolText = fmtSignedPct(dVol, 1);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1899,7 +1872,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13122,
+   "line": 13119,
    "source": "var ter_a = fmtPct((a.expected_ter_bps||0),2) ;",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1908,7 +1881,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13123,
+   "line": 13120,
    "source": "var ter_b = fmtPct((b.expected_ter_bps||0),2) ;",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1917,7 +1890,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13125,
+   "line": 13122,
    "source": "var dTerText = fmtSignedPct(dTer, 2);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1926,7 +1899,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13149,
+   "line": 13146,
    "source": "var a_pct = fmtPct(b.a_bps||0, 1);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1935,7 +1908,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13150,
+   "line": 13147,
    "source": "var b_pct = fmtPct(b.b_bps||0, 1);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1944,7 +1917,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13152,
+   "line": 13149,
    "source": "var dText = fmtSignedPct(delta, 1);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1953,7 +1926,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13197,
+   "line": 13194,
    "source": "+ '<td style=\"padding:4px 6px;border:1px solid var(--b1);text-align:right;color:'+aCumColor+'\">' + fmtSignedPct(aCum, 1) + '</td>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1962,7 +1935,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13198,
+   "line": 13195,
    "source": "+ '<td style=\"padding:4px 6px;border:1px solid var(--b1);text-align:right;color:'+bCumColor+'\">' + fmtSignedPct(bCum, 1) + '</td>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1971,7 +1944,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13199,
+   "line": 13196,
    "source": "+ '<td style=\"padding:4px 6px;border:1px solid var(--b1);text-align:right;font-weight:600;color:'+dCumColor+'\">' + fmtSignedPct(dCum, 1) + '</td>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1980,7 +1953,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13200,
+   "line": 13197,
    "source": "+ '<td style=\"padding:4px 6px;border:1px solid var(--b1);text-align:right;color:var(--neg)\">' + fmtPct(-Math.abs(aDD), 1) + '</td>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1989,7 +1962,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13201,
+   "line": 13198,
    "source": "+ '<td style=\"padding:4px 6px;border:1px solid var(--b1);text-align:right;color:var(--neg)\">' + fmtPct(-Math.abs(bDD), 1) + '</td>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -1998,7 +1971,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13202,
+   "line": 13199,
    "source": "+ '<td style=\"padding:4px 6px;border:1px solid var(--b1);text-align:right;font-weight:600;color:'+dDDColor+'\">' + (dDD>=0&&fmtNumber(dDD/100,1)!=='0.0'?'+':'') + fmtNumber(dDD/100,1) + 'pp</td>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2007,7 +1980,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13229,
+   "line": 13226,
    "source": "function btFormatPctBps(bps, decimals){ return fmtPct(Number(bps||0), decimals==null?1:decimals); }",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2016,7 +1989,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13230,
+   "line": 13227,
    "source": "function btSignedPctBps(bps, decimals){ return fmtSignedPct(Number(bps||0), decimals==null?1:decimals); }",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2025,7 +1998,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13395,
+   "line": 13392,
    "source": "el.textContent = 'Total ' + AresRounding.formatPercent(total,1,{typography:'screen'}) + ' \u2014 wird auf 100% normalisiert';",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2034,16 +2007,16 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13461,
+   "line": 13458,
    "source": "return Math.round(n * 100); // 0.50% -> 50bps",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13472,
+   "line": 13469,
    "source": "? 'Total Strategie ' + fmtPct(fees.strategy,2) + ' p.a.'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2052,16 +2025,16 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13507,
+   "line": 13504,
    "source": "parts.push(k + ':' + Math.round(subPcts[k] * 100));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13600,
+   "line": 13597,
    "source": ".map(function(b){ return fmtPct(soll[b], 0); }).join(' / ')",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2070,7 +2043,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13608,
+   "line": 13605,
    "source": "if(stratFee > 0) parts.push('Strategie ' + fmtPct(-stratFee, 2));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2079,7 +2052,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13609,
+   "line": 13606,
    "source": "if(bmFee > 0) parts.push('Benchmark ' + fmtPct(-bmFee, 2));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2088,7 +2061,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13674,
+   "line": 13671,
    "source": "tipDeltaFormat: function(diff, base){ var pct = base ? (diff/base*100) : 0; return fmtSignedPct(pct*100, 1); },",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2097,7 +2070,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13677,
+   "line": 13674,
    "source": "height: 140, yFormat: function(v){ return fmtPct(v, 0); },",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2106,7 +2079,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13679,
+   "line": 13676,
    "source": "tipFormat: function(v){ return fmtPct(v, 1); },",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2115,7 +2088,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13680,
+   "line": 13677,
    "source": "tipDeltaFormat: function(diff){ return (diff>0&&Math.abs(diff)>=5?'+':'') + fmtNumber(diff/100, 1) + ' pp'; },",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2124,7 +2097,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13700,
+   "line": 13697,
    "source": "{label:'Max Drawdown', fn: function(m){ return fmtPct(-Math.abs(Number(m.max_drawdown_bps||0)), 1); }, neg:true},",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2133,34 +2106,34 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13746,
+   "line": 13743,
    "source": "partsPdf.push(k + ':' + Math.round(subPctsPdf[k] * 100));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13832,
+   "line": 13829,
    "source": "svg += '<text x=\"' + (marginLeft - 6) + '\" y=\"' + (y + 3) + '\" font-size=\"9\" fill=\"#64748b\" text-anchor=\"end\" font-family=\"system-ui\">' + (opts.yFormat ? opts.yFormat(yVal) : String(Math.round(yVal))) + '</text>';",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+   "reason": "Einzelentscheid (N-894-03): Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13894,
-   "source": "tipFormat: opts.tipFormat || opts.yFormat || function(v){ return String(Math.round(v)); },",
+   "line": 13891,
+   "source": "tipFormat: opts.tipFormat || opts.yFormat || function(v){ return fmtNumber(v,0); },",
    "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 13912,
+   "line": 13909,
    "source": "return Number.isInteger(x) ? String(x) : fmtNumber(x,1);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2169,7 +2142,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 14463,
+   "line": 14460,
    "source": "+ '<td class=\"admin-num\" style=\"' + diffCls + '\">' + fmtPct(diff,2) + ' / ' + fmtPct(thr,2) + '</td>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2178,34 +2151,34 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 14578,
+   "line": 14575,
    "source": "+ '<div class=\"admin-stacked-seg\" style=\"width:' + (g / tot * 100).toFixed(1) + '%;background:var(--pos)\" title=\"GREEN ' + g + '\"></div>'",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+   "reason": "Einzelentscheid (N-894-03): CSS-Breite eines Balkensegments; title zeigt Rohzahl, kein gerundeter Kundenwert"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 14579,
+   "line": 14576,
    "source": "+ '<div class=\"admin-stacked-seg\" style=\"width:' + (y / tot * 100).toFixed(1) + '%;background:var(--warn)\" title=\"YELLOW ' + y + '\"></div>'",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+   "reason": "Einzelentscheid (N-894-03): CSS-Breite eines Balkensegments; title zeigt Rohzahl"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 14580,
+   "line": 14577,
    "source": "+ '<div class=\"admin-stacked-seg\" style=\"width:' + (r / tot * 100).toFixed(1) + '%;background:var(--neg)\" title=\"RED ' + r + '\"></div>'",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+   "reason": "Einzelentscheid (N-894-03): CSS-Breite eines Balkensegments; title zeigt Rohzahl"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 14592,
+   "line": 14589,
    "source": "setText('admin-shadow-' + key + '-pct', AresRounding.formatPercent(Number(percentages[key] || 0),1,{typography:'screen'}));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2214,7 +2187,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 14627,
+   "line": 14624,
    "source": "+ ' &middot; Drift: ' + escapeHtml(formatBpsPercent(row.total_drift_bps || 0))",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2223,52 +2196,52 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 14821,
+   "line": 14818,
    "source": "return Math.abs(normalized - Math.round(normalized)) < 0.001 ? String(Math.round(normalized)) : normalized.toFixed(1);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 14845,
+   "line": 14842,
    "source": "return Math.max(0, Math.min(5, Math.round((Number(scoreX10 || 0) / 10) / 2)));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Ganzzahlige Skala (Risikoscore x10, Jahre, Inflationsmittel) -- kein Policy-Grenzfall"
+   "reason": "Einzelentscheid (N-894-03): Ganzzahlige Skala (Risikoscore x10, Jahre, Inflationsmittel) -- kein Policy-Grenzfall"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "line": 15079,
+   "source": "setInputValue('rp-income-annual',fmtCHF(annualIncomeChf));",
+   "channel": "classic",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "line": 15082,
-   "source": "setInputValue('rp-income-annual','CHF '+fmtLocaleCH(Math.round(annualIncomeChf)));",
+   "source": "setInputValue('rp-obligations-annual',fmtCHF(annualObligationsChf));",
    "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 15085,
-   "source": "setInputValue('rp-obligations-annual','CHF '+fmtLocaleCH(Math.round(annualObligationsChf)));",
-   "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 15231,
+   "line": 15228,
    "source": "var normalized = Math.round((Math.max(0, Number(rawPoints || 0)) / Math.max(1, Number(rawMax || 1))) * Math.max(0, Number(scaledMax || 0)));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 15373,
+   "line": 15370,
    "source": "if(rappen > 0) return formatRappen(rappen);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2277,7 +2250,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 15380,
+   "line": 15377,
    "source": "return formatRappen(rappen2);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2286,43 +2259,43 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 15601,
+   "line": 15598,
    "source": "var rawWillScore=Math.round(((willingnessTotal-3)/9)*90+10);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 16809,
+   "line": 16806,
    "source": "return Math.round((parseFloat(c)||0)*100);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 16816,
+   "line": 16813,
    "source": "return Math.round(units*1000);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 16828,
+   "line": 16825,
    "source": "return isFinite(n)?Math.round(n*100):null;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 16882,
+   "line": 16879,
    "source": "var pct=fmtNumber(Number(bps)/100,2).replace(/\\.00$/,'').replace(/(\\.\\d)0$/,'$1');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2331,16 +2304,16 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 16886,
+   "line": 16883,
    "source": "return Math.round((Number(rappen)||0)/100);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 16924,
+   "line": 16921,
    "source": "function formatInputPercent(bps){",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
@@ -2349,7 +2322,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 16926,
+   "line": 16923,
    "source": "return (Number(bps)/100).toFixed(2).replace(/\\.00$/,'').replace(/(\\.\\d)0$/,'$1');",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -2358,7 +2331,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 16928,
+   "line": 16925,
    "source": "function formatInputCHF(rappen){",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
@@ -2367,7 +2340,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 16930,
+   "line": 16927,
    "source": "return String(Math.round(Number(rappen)/100));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -2376,250 +2349,250 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17051,
+   "line": 17048,
    "source": "setInputValue('maw-depot-value',formatInputCHF(pos.current_value_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "line": 17049,
+   "source": "setInputValue('sc-akt',Math.round(Number(pos.alloc_equities_bps||0)/100));",
+   "channel": "classic",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "line": 17050,
+   "source": "setInputValue('sc-obl',Math.round(Number(pos.alloc_bonds_bps||0)/100));",
+   "channel": "classic",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "line": 17051,
+   "source": "setInputValue('sc-imm',Math.round(Number(pos.alloc_real_estate_bps||0)/100));",
+   "channel": "classic",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "line": 17052,
-   "source": "setInputValue('sc-akt',Math.round(Number(pos.alloc_equities_bps||0)/100));",
+   "source": "setInputValue('sc-liq',Math.round(Number(pos.alloc_liquidity_bps||0)/100));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "line": 17053,
-   "source": "setInputValue('sc-obl',Math.round(Number(pos.alloc_bonds_bps||0)/100));",
-   "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 17054,
-   "source": "setInputValue('sc-imm',Math.round(Number(pos.alloc_real_estate_bps||0)/100));",
-   "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 17055,
-   "source": "setInputValue('sc-liq',Math.round(Number(pos.alloc_liquidity_bps||0)/100));",
-   "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 17056,
    "source": "setInputValue('sc-alt',Math.round(Number(pos.alloc_alternatives_bps||0)/100));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17060,
+   "line": 17057,
    "source": "setInputValue('maw-liq-value',formatInputCHF(pos.current_value_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17062,
+   "line": 17059,
    "source": "setInputValue('maw-liq-rate',formatInputPercent(pos.liquidity_interest_rate_bps));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17068,
+   "line": 17065,
    "source": "setInputValue('maw-immo-value',formatInputCHF(pos.current_value_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17070,
+   "line": 17067,
    "source": "setInputValue('maw-immo-rent',formatInputCHF(pos.property_rental_income_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17072,
+   "line": 17069,
    "source": "setInputValue('maw-immo-appreciation',formatInputPercent(pos.asset_expected_return_bps));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17077,
+   "line": 17074,
    "source": "setInputValue('maw-pension-value',formatInputCHF(pos.current_value_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17078,
+   "line": 17075,
    "source": "setInputValue('maw-pension-rate',formatInputPercent(pos.pension_technical_rate_bps));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17084,
+   "line": 17081,
    "source": "setInputValue('maw-pension-interest',formatInputPercent(pos.pension_interest_rate_bps));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17085,
+   "line": 17082,
    "source": "setInputValue('maw-pension-maturity-value',formatInputCHF(pos.pension_maturity_value_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17088,
+   "line": 17085,
    "source": "setInputValue('maw-pension-tax-chf',formatInputCHF(pos.pension_lumpsum_tax_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17089,
+   "line": 17086,
    "source": "setInputValue('maw-pension-tax-pct',formatInputPercent(pos.pension_lumpsum_tax_bps));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17090,
+   "line": 17087,
    "source": "setInputValue('sc-akt',Math.round(Number(pos.alloc_equities_bps||0)/100));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17091,
+   "line": 17088,
    "source": "setInputValue('sc-obl',Math.round(Number(pos.alloc_bonds_bps||0)/100));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17092,
+   "line": 17089,
    "source": "setInputValue('sc-imm',Math.round(Number(pos.alloc_real_estate_bps||0)/100));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17093,
+   "line": 17090,
    "source": "setInputValue('sc-liq',Math.round(Number(pos.alloc_liquidity_bps||0)/100));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17094,
+   "line": 17091,
    "source": "setInputValue('sc-alt',Math.round(Number(pos.alloc_alternatives_bps||0)/100));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17100,
+   "line": 17097,
    "source": "setInputValue('maw-alt-value',formatInputCHF(pos.current_value_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17102,
+   "line": 17099,
    "source": "setInputValue('maw-alt-return',formatInputPercent(pos.asset_expected_return_bps));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17109,
+   "line": 17106,
    "source": "setInputValue('maw-mortgage-value',formatInputCHF(pos.current_value_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17111,
+   "line": 17108,
    "source": "setInputValue('maw-mortgage-rate',formatInputPercent(pos.mortgage_interest_rate_bps));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17113,
+   "line": 17110,
    "source": "setInputValue('maw-mortgage-amortization',formatInputCHF(pos.mortgage_amortization_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17378,
+   "line": 17375,
    "source": "var currentPct = fmtPct(bucket.current_weight_bps, 1);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2628,16 +2601,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17379,
-   "source": "var targetPct  = fmtPct(bucket.target_weight_bps, 1);",
-   "channel": "classic",
-   "class": "MIGRATE",
-   "status": "done",
-   "reason": "Anzeige ueber gemeinsamen Formatter"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 17380,
+   "line": 17377,
    "source": "var bandMaxPct = fmtPct(bucket.band_max_bps, 1);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2646,7 +2610,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17381,
+   "line": 17378,
    "source": "var driftPp    = fmtNumber(Math.abs(bucket.delta_weight_bps) / 100, 1);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2655,7 +2619,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17382,
+   "line": 17379,
    "source": "var rebalChf   = bucket.rebalance_amount_rappen ? formatRappen(bucket.rebalance_amount_rappen) : null;",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2664,16 +2628,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17469,
-   "source": "return Math.max(0,Math.min(100,Math.round((numerator/denominator)*100)));",
-   "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 17486,
+   "line": 17483,
    "source": "var displayValue=typeof value==='string'?value:fmtCHF(value);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2682,7 +2637,34 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17496,
+   "line": 17490,
+   "source": "var advisoryNote=AresRounding.formatPercent(advisoryPct||0,0,{typography:'screen'})+' des Bruttoverm\u00f6gens \u00b7 '+String(Number(meta&&meta.advisoryCount||0))+' Position(en)';",
+   "channel": "classic",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter (AresRounding)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "line": 17491,
+   "source": "var otherNote=AresRounding.formatPercent(otherPct||0,0,{typography:'screen'})+' ausserhalb Beratung \u00b7 '+String(Number(meta&&meta.otherCount||0))+' Position(en)';",
+   "channel": "classic",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter (AresRounding)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "line": 17492,
+   "source": "var liabilityNote=AresRounding.formatPercent(grossChf?wealthSharePercent(liabilitiesChf,grossChf):0,0,{typography:'screen'})+' Abzug \u00b7 '+String(Number(meta&&meta.liabilityCount||0))+' Verbindlichkeit(en)';",
+   "channel": "classic",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter (AresRounding)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "line": 17493,
    "source": "var liabilityValue=liabilitiesChf?('\u2212'+fmtCHF(liabilitiesChf)):'CHF 0';",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2691,7 +2673,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17500,
+   "line": 17497,
    "source": "+ '<div><div style=\"font-size:8px;font-weight:700;letter-spacing:0.11em;text-transform:uppercase;color:rgba(255,255,255,0.45);margin-bottom:5px\">Reinverm\u00f6gen Total</div><div style=\"font-family:var(--f-d);font-size:26px;color:#fff\">'+escapeH",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2700,7 +2682,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17501,
+   "line": 17498,
    "source": "+ '<div style=\"font-size:10px;line-height:1.5;color:rgba(255,255,255,0.74);margin-top:10px\">Bruttoverm\u00f6gen '+escapeHtml(fmtCHF(grossChf))+' \u00b7 Verbindlichkeiten -'+escapeHtml(fmtCHF(liabilitiesChf))+' \u00b7 Nettoquote '+String(netPct)+'%</div>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2709,7 +2691,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17517,
+   "line": 17514,
    "source": "+ '<div style=\"font-size:10px;color:var(--n6)\"><span style=\"display:inline-block;width:8px;height:8px;border-radius:50%;background:#1f6a3b;margin-right:5px\"></span>Beratung '+escapeHtml(fmtCHF(advisoryChf))+'</div>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2718,7 +2700,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17518,
+   "line": 17515,
    "source": "+ '<div style=\"font-size:10px;color:var(--n6)\"><span style=\"display:inline-block;width:8px;height:8px;border-radius:50%;background:#c9a84c;margin-right:5px\"></span>Rest '+escapeHtml(fmtCHF(otherGrossChf))+'</div>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2727,106 +2709,106 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17548,
+   "line": 17545,
    "source": "TOTAL=Math.round(advisoryProjection.startRappen/100);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17549,
+   "line": 17546,
    "source": "var _pEq=Math.round(Number(advisoryProjection.bucketWeightsBps.equities||0))/100;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17550,
+   "line": 17547,
    "source": "var _pBo=Math.round(Number(advisoryProjection.bucketWeightsBps.bonds||0))/100;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17551,
+   "line": 17548,
    "source": "var _pRe=Math.round(Number(advisoryProjection.bucketWeightsBps.realEstate||0))/100;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17552,
+   "line": 17549,
    "source": "var _pLi=Math.round(Number(advisoryProjection.bucketWeightsBps.liquidity||0))/100;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17553,
+   "line": 17550,
    "source": "var _pAl=Math.round(Number(advisoryProjection.bucketWeightsBps.alternatives||0))/100;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17555,
+   "line": 17552,
    "source": "{n:'Aktien (global+CH)',c:assetClassColor('eq'),ist:_pEq,soll:_pEq,chf:Math.round(TOTAL*_pEq/100)},",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17556,
+   "line": 17553,
    "source": "{n:'Anleihen / Defensiv',c:assetClassColor('bd'),ist:_pBo,soll:_pBo,chf:Math.round(TOTAL*_pBo/100)},",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17557,
+   "line": 17554,
    "source": "{n:'Immobilien (ind.)',c:assetClassColor('re'),ist:_pRe,soll:_pRe,chf:Math.round(TOTAL*_pRe/100)},",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17558,
+   "line": 17555,
    "source": "{n:'Liquidit\u00e4tsreserve',c:assetClassColor('liq'),ist:_pLi,soll:_pLi,chf:Math.round(TOTAL*_pLi/100)},",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17559,
+   "line": 17556,
    "source": "{n:'Alternative / Gold',c:assetClassColor('alt'),ist:_pAl,soll:_pAl,chf:Math.round(TOTAL*_pAl/100)},",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17592,
+   "line": 17589,
    "source": "var amountText=(isLiability?'\u2212':'')+fmtCHF(Math.abs(chfFromRappen(pos.current_value_rappen)));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2835,7 +2817,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17603,
+   "line": 17600,
    "source": "var amountText=(isLiability?'\u2212':'')+fmtCHF(Math.abs(chfFromRappen(pos.current_value_rappen)));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2844,7 +2826,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17620,
+   "line": 17617,
    "source": "'<div style=\"display:flex;justify-content:space-between;padding:6px 0 0;border-top:1px solid var(--b1);margin-top:2px\"><span style=\"font-size:11px;font-weight:600\">Total Beratungsverm\u00f6gen</span><span style=\"font-family:var(--f-d);font-size:",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2853,7 +2835,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17626,
+   "line": 17623,
    "source": "'<div style=\"display:flex;justify-content:space-between;padding:6px 0 0;border-top:1px solid var(--b1);margin-top:2px\"><span style=\"font-size:11px;font-weight:600\">Total Anderes (netto)</span><span style=\"font-family:var(--f-d);font-size:15",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2862,7 +2844,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17630,
+   "line": 17627,
    "source": "'<span style=\"font-family:var(--f-d);font-size:20px;color:var(--n8)\">'+fmtCHF(netWorth)+'</span></div>';",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2871,7 +2853,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17777,
+   "line": 17774,
    "source": "function formatBandPercent(bps){",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
@@ -2880,52 +2862,52 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17779,
+   "line": 17776,
    "source": "return (Math.abs(pct-Math.round(pct))<0.05?String(Math.round(pct)):pct.toFixed(1))+'%';",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): formatBandPercent: nur Wert/data-initial der Band-Editor-Eingabefelder (Roundtrip mit parseBandPercentInput); Anzeigen nutzen fmtPct"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17782,
+   "line": 17779,
    "source": "if(typeof value==='number'&&isFinite(value))return Math.round(Math.abs(value)>100?value:value*100);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17787,
+   "line": 17784,
    "source": "return Math.round(Math.abs(numeric)>100?numeric:numeric*100);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17865,
+   "line": 17862,
    "source": "return Math.round(numeric*100);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 17876,
+   "line": 17873,
    "source": "var bps=(typeof value==='number')?Math.round(value):parseBandPercentInput(value);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18158,
+   "line": 18155,
    "source": "// Prozent-Eingaben (z.B. \"15\") ueber den zentralen Helfer fmtPct (bps).",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
@@ -2934,16 +2916,16 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18161,
+   "line": 18158,
    "source": "return fmtPct(Math.round(n*100),Math.round(n)===n?0:1);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18235,
+   "line": 18232,
    "source": "if(reserve>0)add('Mindestreserve '+fmtCHF(reserve),null,'liq');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -2952,43 +2934,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18746,
-   "source": "//  - Prozent fmtPct(bps,d=1): feste Nachkommastellen (keine springenden",
-   "channel": "classic",
-   "class": "FALSE_POSITIVE",
-   "status": "",
-   "reason": "Kommentar/Doku"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 18749,
-   "source": "//  - Minus immer U+2212 (\"\u2212\"), nie Bindestrich; Plus nur bei fmtSignedPct;",
-   "channel": "classic",
-   "class": "FALSE_POSITIVE",
-   "status": "",
-   "reason": "Kommentar/Doku"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 18751,
-   "source": "//  - Wahrscheinlichkeiten ganzzahlig (fmtProbPct), Sharpe 2 Stellen (fmtSharpe).",
-   "channel": "classic",
-   "class": "FALSE_POSITIVE",
-   "status": "",
-   "reason": "Kommentar/Doku"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 18754,
-   "source": "//  - CHF kompakt immer \"Mio.\" (formatCompactCHF).",
-   "channel": "classic",
-   "class": "FALSE_POSITIVE",
-   "status": "",
-   "reason": "Kommentar/Doku"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 18771,
+   "line": 18753,
    "source": "function fmtNumber(value,d){",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
@@ -2997,7 +2943,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18775,
+   "line": 18757,
    "source": "function fmtPct(bps,d){",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
@@ -3006,7 +2952,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18777,
+   "line": 18759,
    "source": "return AresRounding.formatPercentBps(bps,(d==null)?1:d,{typography:'screen'});",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3015,7 +2961,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18779,
+   "line": 18761,
    "source": "function fmtSignedPct(bps,d){",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
@@ -3024,7 +2970,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18781,
+   "line": 18763,
    "source": "return AresRounding.formatPercentBps(bps,(d==null)?1:d,{typography:'screen',signed:true});",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3033,7 +2979,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18783,
+   "line": 18765,
    "source": "function fmtProbPct(pct){",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
@@ -3042,7 +2988,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18785,
+   "line": 18767,
    "source": "return AresRounding.formatProbabilityPct(pct,{typography:'screen'});",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3051,7 +2997,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18787,
+   "line": 18769,
    "source": "function fmtSharpe(x){ return fmtNumber(x,2); }",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
@@ -3060,7 +3006,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18788,
+   "line": 18770,
    "source": "function formatBpsPercent(bps){",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
@@ -3069,7 +3015,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18789,
+   "line": 18771,
    "source": "return fmtPct(Number(bps||0),1);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3078,7 +3024,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18791,
+   "line": 18773,
    "source": "function formatRiskLossBps(bps){",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
@@ -3087,16 +3033,16 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18793,
+   "line": 18775,
    "source": "var loss=Math.max(0,Math.round(Number(bps||0)));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18794,
+   "line": 18776,
    "source": "return fmtPct(-loss,1);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3105,7 +3051,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18796,
+   "line": 18778,
    "source": "function formatProbabilityPct(value){",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
@@ -3114,16 +3060,25 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18798,
+   "line": 18780,
    "source": "return fmtProbPct(Math.max(0,Math.round(Number(value||0))));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18800,
+   "line": 18783,
+   "source": "function sollPct(cls,bps){var a=typeof strategyState!=='undefined'&&strategyState&&strategyState.allocation,m=AresRounding.bucketPctMap(a&&a.buckets,{typography:'screen'}),k=String(cls||'');return m[k]||m[AresRounding.assetClassKey(k)]||for",
+   "channel": "classic",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "line": 18785,
    "source": "function formatRappen(rappen){",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
@@ -3132,16 +3087,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18801,
-   "source": "return AresRounding.formatMoneyMinor(Number(rappen)||0,'CHF',2,0,{typography:'screen'});",
-   "channel": "classic",
-   "class": "MIGRATE",
-   "status": "done",
-   "reason": "Anzeige ueber gemeinsamen Formatter"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 18803,
+   "line": 18788,
    "source": "function formatSignedBpsPercent(bps){",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
@@ -3150,16 +3096,16 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18805,
+   "line": 18790,
    "source": "return fmtSignedPct(Math.round(Number(bps||0)),1);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18807,
+   "line": 18792,
    "source": "function formatSignedRappen(rappen){",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
@@ -3168,8 +3114,8 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18809,
-   "source": "return AresRounding.formatSignedMoneyMinor(Number(rappen||0),'CHF',2,0,{typography:'screen'});",
+   "line": 18794,
+   "source": "return AresRounding.formatSignedMoneyMinor(Number(rappen||0),appCurrency(),2,0,{typography:'screen'});",
    "channel": "classic",
    "class": "MIGRATE",
    "status": "done",
@@ -3177,7 +3123,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18822,
+   "line": 18807,
    "source": "if(capitalNet>0)return 'Kapitalereignisse netto '+formatSignedRappen(capitalNet);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3186,7 +3132,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18823,
+   "line": 18808,
    "source": "if(capitalNet<0)return 'Kapitalereignisse netto '+formatSignedRappen(capitalNet);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3195,7 +3141,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18830,
+   "line": 18815,
    "source": "? recurringCashflowLabel(recurringNet)+' '+formatSignedRappen(recurringNet)+' p.a.'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3204,7 +3150,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18832,
+   "line": 18817,
    "source": "? recurringCashflowLabel(recurringNet)+' '+formatSignedRappen(recurringNet)+' p.a.'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3213,7 +3159,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18835,
+   "line": 18820,
    "source": "? ' Im Startjahr sind einmalige Kapitalereignisse von '+formatSignedRappen(capitalNet)+' separat in der Prognose beruecksichtigt.'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3222,7 +3168,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18848,
+   "line": 18833,
    "source": "function formatCompactCHFAmount(chf){",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
@@ -3231,7 +3177,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18852,
+   "line": 18837,
    "source": "function formatCompactCHF(chf){",
    "channel": "classic",
    "class": "FALSE_POSITIVE",
@@ -3240,8 +3186,8 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18853,
-   "source": "return 'CHF '+formatCompactCHFAmount(chf);",
+   "line": 18838,
+   "source": "return appCurrency()+' '+formatCompactCHFAmount(chf);",
    "channel": "classic",
    "class": "MIGRATE",
    "status": "done",
@@ -3249,7 +3195,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18863,
+   "line": 18848,
    "source": "return formatCompactCHFAmount(chf)+' \u00b7 '+suffix;",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3258,7 +3204,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18868,
+   "line": 18853,
    "source": "return l+' \u00b7 '+(estimate?'~':'')+fmtProbPct(probPct);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3267,16 +3213,16 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18878,
+   "line": 18863,
    "source": "if(_fanFinite(canonical.probability))return {pct:Math.round(canonical.probability*10000)/100,estimate:false};",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Wahrscheinlichkeit -> Prozentpunkte auf 0.01 normiert (Fan-Vertrag pinnt pct); Anzeige ueber fmtProbPct"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18885,
+   "line": 18870,
    "source": "return '\u25b2 CHF '+formatCompactCHFAmount(targetChf)+' \u00fcber Skala';",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3285,7 +3231,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18890,
+   "line": 18875,
    "source": "var lo=formatCompactCHFAmount(p10Chf), hi=formatCompactCHFAmount(p90Chf), MIO=' Mio.';",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3294,7 +3240,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18911,
+   "line": 18896,
    "source": "return 'CHF<br>'+formatCompactCHFAmount(t);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3303,70 +3249,70 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18922,
+   "line": 18907,
    "source": "return contributionInput.map(function(value){return Math.round(Number(value||0)*factor);});",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18924,
+   "line": 18909,
    "source": "return Math.round(Number(contributionInput||0)*factor);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18930,
+   "line": 18915,
    "source": "return Math.round(future);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18936,
+   "line": 18921,
    "source": "values.push(Math.round(val/100000));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18946,
+   "line": 18931,
    "source": "return Math.round((Math.pow(end/start,1/years)-1)*10000);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 18971,
+   "line": 18956,
    "source": "var n = Math.max(3, Math.min(60, Math.round(Number(years))));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19197,
+   "line": 19182,
    "source": "var keep=Math.round(Number(years))+1;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19361,
+   "line": 19346,
    "source": "return formatSignedRappen(currentRecurringNetCashflowRappen(result));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3375,7 +3321,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19366,
+   "line": 19351,
    "source": "return formatSignedRappen(capitalNet);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3384,7 +3330,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19369,
+   "line": 19354,
    "source": "return formatSignedRappen(currentAnnualNetCashflowRappen(result));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3393,178 +3339,178 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19397,
+   "line": 19382,
    "source": "if(totalWeight>0)return Math.round(weighted/totalWeight);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19406,
+   "line": 19391,
    "source": "if(start>0)return Math.round((((next-firstCashflow)-start)/start)*10000);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19414,
+   "line": 19399,
    "source": "var invested=Math.max(0,Math.round(Number(startRappen||0)));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19419,
+   "line": 19404,
    "source": "invested=Math.round(Math.max(0,invested)*(1+rate));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19423,
+   "line": 19408,
    "source": "invested=Math.round(invested+flow*(1+rate/2));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19431,
+   "line": 19416,
    "source": "seriesRappen.push(Math.max(0,Math.round(invested)));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19438,
+   "line": 19423,
    "source": "seriesK:seriesRappen.map(function(value){return Math.round(value/100000);}),",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19454,
+   "line": 19439,
    "source": "var total0=Math.max(0,Math.round(Number(startRappen||0)));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19470,
+   "line": 19455,
    "source": "? Math.max(0,Math.round(Number(sockelOpts.sockelGrossRappen||0)))",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19476,
+   "line": 19461,
    "source": ": Math.max(0,Math.min(total0,Math.round(Number(sockelOpts&&sockelOpts.sockelRappen||0))));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19484,
+   "line": 19469,
    "source": "var seriesRappen=[Math.max(0,Math.round(consumable+sockel))];",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19489,
+   "line": 19474,
    "source": "consumable=Math.round(Math.max(0,consumable)*(1+rate));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19490,
+   "line": 19475,
    "source": "consumable=Math.max(0,Math.round(consumable+recurringNet+capitalNet));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19495,
+   "line": 19480,
    "source": "sockelGross=Math.max(0,Math.round(sockelGross*(1+sockelRate)));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19505,
+   "line": 19490,
    "source": "sockel=Math.max(0,Math.round(sockel*(1+sockelRate)));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19510,
+   "line": 19495,
    "source": "seriesRappen.push(Math.max(0,Math.round(consumable+sockel)));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19517,
+   "line": 19502,
    "source": "seriesK:seriesRappen.map(function(value){return Math.round(value/100000);}),",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19584,
+   "line": 19569,
    "source": "improvedSeries.push(Math.max(0,Math.round(totalValue+(advisoryTarget-advisoryCurrent))));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19590,
+   "line": 19575,
    "source": "seriesK:improvedSeries.map(function(value){return Math.round(Number(value||0)/100000);}),",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19600,
+   "line": 19585,
    "source": "setText('ub-ist-terminal',formatCompactCHF(Number(safeProjection.projectedRappen||0)/100));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3573,7 +3519,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19602,
+   "line": 19587,
    "source": "setText('ub-cagr-ist',fmtPct((Number(safeProjection.expectedReturnBps||safeProjection.cagrBps||0)),1));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3582,34 +3528,25 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19635,
+   "line": 19620,
    "source": "return Math.round(Number(value||0)/100000);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19649,
+   "line": 19634,
    "source": "function strategyMedianProjectionRappen(result){var mc=monteCarloPayload(result);var series=mc&&Array.isArray(mc.target_p50_series_rappen)?mc.target_p50_series_rappen:null;if(series&&series.length){var last=Number(series[series.length-1]||0",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19658,
-   "source": "var deltaChf=Math.round((targetProjectedRappen-currentProjectedRappen)/100);",
-   "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 19660,
+   "line": 19645,
    "source": "setText('ub-ist-terminal',formatCompactCHF(currentProjectedRappen/100));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3618,7 +3555,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19661,
+   "line": 19646,
    "source": "setText('ub-opt-terminal',formatCompactCHF(targetProjectedRappen/100));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3627,7 +3564,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19662,
+   "line": 19647,
    "source": "setText('ub-cagr-ist',fmtPct((currentMixReturnBps||currentCagrBps||0),1));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3636,7 +3573,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19663,
+   "line": 19648,
    "source": "setText('ub-cagr-opt',fmtPct((targetCagrBps||0),1));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3645,16 +3582,16 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19691,
-   "source": "var deltaChf=Math.round((targetProjectedRappen-currentProjectedRappen)/100);",
+   "line": 19649,
+   "source": "setText('ub-delta-terminal',formatSignedRappen(targetProjectedRappen-currentProjectedRappen));",
    "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19692,
+   "line": 19677,
    "source": "setText('aa-proj-current-wealth',formatCompactCHF(currentProjectedRappen/100));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3663,7 +3600,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19693,
+   "line": 19678,
    "source": "setText('aa-proj-target-wealth',formatCompactCHF(targetProjectedRappen/100));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3672,7 +3609,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19694,
+   "line": 19679,
    "source": "setText('aa-proj-current-metric',fmtPct((currentMixReturnBps||0),1));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3681,7 +3618,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19695,
+   "line": 19680,
    "source": "setText('aa-proj-target-metric',fmtPct((targetCagrBps||0),1));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3690,7 +3627,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19696,
+   "line": 19681,
    "source": "setText('aa-proj-current-sub','Beratungsverm\u00f6gen heute im aktuellen Mix mit '+fmtPct((currentMixReturnBps||0),1)+' p.a.; Netto-Cashflow '+formatSignedRappen(currentAnnualNetCashflowRappen)+' additiv bis '+horizonLabel);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3699,7 +3636,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19698,
+   "line": 19683,
    "source": "setText('aa-proj-current-sub','Beratungsvermoegen heute im aktuellen Mix mit '+fmtPct((currentMixReturnBps||0),1)+' p.a.; '+projectionCashflowNarrative(currentRecurringNetCashflowRappen,currentCapitalNetCashflowRappen,horizonLabel));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3708,25 +3645,34 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 19925,
+   "line": 19686,
+   "source": "deltaEl.textContent='Vergleich bis '+horizonLabel+': '+formatSignedRappen(targetProjectedRappen-currentProjectedRappen)+' Mehrwert durch zielbasiertes Investieren nach Rebalancing-Kosten.';",
+   "channel": "classic",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "line": 19910,
    "source": "__istImproved.push(Math.round(Number(totalCurrentSeries[__istI]||0)+(Number(targetSeries[__istI]||0)-Number(advisoryCurrentSeries[__istI]||0))));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20386,
+   "line": 20371,
    "source": "var res=Math.round(aaReserveSockelRappen(result,mc));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20403,
+   "line": 20388,
    "source": "setText('aa-proj-median',tMed?formatCompactCHF(tMed/100):'\u2014');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3735,7 +3681,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20404,
+   "line": 20389,
    "source": "setText('aa-proj-current-median',cMed?formatCompactCHF(cMed/100):'\u2014');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3744,7 +3690,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20405,
+   "line": 20390,
    "source": "setText('aa-proj-p90',tP90?formatCompactCHF(tP90/100):'\u2014');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3753,7 +3699,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20406,
+   "line": 20391,
    "source": "setText('aa-proj-current-p90',cP90?formatCompactCHF(cP90/100):'\u2014');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3762,7 +3708,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20407,
+   "line": 20392,
    "source": "setText('aa-proj-p10',tP10?formatCompactCHF(tP10/100):'\u2014');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3771,7 +3717,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20408,
+   "line": 20393,
    "source": "setText('aa-proj-current-p10',cP10?formatCompactCHF(cP10/100):'\u2014');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3780,7 +3726,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20409,
+   "line": 20394,
    "source": "setText('aa-proj-cagr',tCagr==null?'\u2014':(fmtPct(tCagr,1)));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3789,7 +3735,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20410,
+   "line": 20395,
    "source": "setText('aa-proj-current-cagr',cCagr==null?'\u2014':(fmtPct(cCagr,1)));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3798,7 +3744,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20416,
+   "line": 20401,
    "source": "deltaEl.textContent=(d>=0?'+':'\u2212')+formatCompactCHF(Math.abs(d)/100);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3807,16 +3753,16 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20443,
+   "line": 20428,
    "source": "return Math.round((Math.pow(end/start,1/years)-1)*10000);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20481,
+   "line": 20468,
    "source": "var riskValue=item.risky_fraction_bps==null||item.risky_fraction_bps===undefined?'n/a':formatBpsPercent(item.risky_fraction_bps||0);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3825,7 +3771,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20482,
+   "line": 20469,
    "source": "return '<div style=\"display:grid;grid-template-columns:1.6fr 84px;gap:8px;align-items:center;padding:8px 9px;background:#fff;border:1px solid var(--b1);border-radius:var(--r)\"><div><div style=\"font-size:11px;font-weight:600;color:var(--n8)\"",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3834,16 +3780,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20484,
-   "source": "return '<div style=\"border:1px solid var(--b1);border-radius:var(--r2);background:var(--bg)\"><button type=\"button\" onclick=\"toggleSubAllocationGroup(decodeURIComponent(\\''+encodeURIComponent(key)+'\\'))\" style=\"width:100%;display:flex;align-",
-   "channel": "classic",
-   "class": "MIGRATE",
-   "status": "done",
-   "reason": "Anzeige ueber gemeinsamen Formatter"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 20500,
+   "line": 20487,
    "source": "return '<div style=\"display:grid;grid-template-columns:1fr 62px 62px 78px;gap:8px;align-items:center;padding:8px 9px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r)\"><div><div style=\"font-size:11px;font-weight:500;col",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3852,7 +3789,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20507,
+   "line": 20494,
    "source": "return '<div style=\"display:grid;grid-template-columns:1.2fr 62px 78px;gap:8px;align-items:center;padding:8px 9px;background:#fff;border:1px solid var(--b1);border-radius:var(--r)\"><div><div style=\"font-size:11px;font-weight:500;color:var(-",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3861,43 +3798,25 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20519,
+   "line": 20506,
    "source": "if(total>0)return Math.round(portfolioMarketValueRappen(row)/total*10000);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20595,
+   "line": 20582,
    "source": "return Math.round((unitsMilli/1000)*(currentPrice-avgCost));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20619,
-   "source": "var advisoryChf=Math.round(Number(snapshot.advisoryRappen||0)/100);",
-   "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 20620,
-   "source": "var totalChf=Math.round(Number(snapshot.totalNetRappen||0)/100);",
-   "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 20621,
+   "line": 20608,
    "source": "setText('sr-wealth',advisoryChf?formatCompactCHF(advisoryChf):'\u2014');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3906,7 +3825,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20622,
+   "line": 20609,
    "source": "setText('sr-wealth-share',totalChf&&advisoryChf?AresRounding.formatPercent(advisoryChf/Math.max(1,totalChf)*100,0,{typography:'screen'})+' des Reinverm\u00f6gens':'Strategie ausstehend');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3915,7 +3834,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20664,
+   "line": 20651,
    "source": "setText('po-advisory-wealth',advisoryRappen?formatRappen(advisoryRappen):'\u2014');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3924,7 +3843,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20665,
+   "line": 20652,
    "source": "setText('po-total-footer',advisoryRappen?formatRappen(advisoryRappen):'\u2014');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3933,7 +3852,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20874,
+   "line": 20861,
    "source": "'Beratung '+(snapshot.advisoryRappen?formatRappen(snapshot.advisoryRappen):'offen'),",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3942,7 +3861,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20876,
+   "line": 20863,
    "source": "'Laufend '+(snapshot.recurringNetCashflowRappen==null?'offen':formatSignedRappen(snapshot.recurringNetCashflowRappen)),",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3951,25 +3870,25 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 20920,
+   "line": 20907,
    "source": "var safePercent=Math.max(8,Math.min(100,percent!=null?Number(percent||0):Math.round(((safeStep+1)/strategyCalcJourney.length)*100)));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Achsen-/Tick-Raster (Skalenberechnung)"
+   "reason": "Einzelentscheid (N-894-03): Achsen-/Tick-Raster (Skalenberechnung)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21405,
+   "line": 21392,
    "source": "var groupWeightBps=totalPortfolio>0?Math.round(subtotal/Math.max(1,totalPortfolio)*10000):0;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21416,
+   "line": 21403,
    "source": "metaBits.push('TER '+fmtPct((Number(row.ter_bps||0)),2));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3978,7 +3897,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21424,
+   "line": 21411,
    "source": "? formatRappen(row.latest_price_rappen)",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3987,7 +3906,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21427,
+   "line": 21414,
    "source": "? formatRappen(row.reference_price_rappen)",
    "channel": "classic",
    "class": "MIGRATE",
@@ -3996,7 +3915,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21429,
+   "line": 21416,
    "source": "var targetBarPct=targetWeightBps?Math.max(4,Math.round(Math.abs(targetWeightBps)/Math.max(targetWeightBps,100)*100)):0;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4005,7 +3924,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21440,
+   "line": 21427,
    "source": "+ '<div class=\"pval\">'+escapeHtml(formatRappen(displayAmountRappen))+'</div>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4014,7 +3933,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21441,
+   "line": 21428,
    "source": "+ '<div class=\"pval\">'+escapeHtml(formatBpsPercent(targetWeightBps))+'</div>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4023,7 +3942,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21444,
+   "line": 21431,
    "source": "+ '<div class=\"pdetail-item\"><strong>Soll-Anteil</strong><div class=\"pdetail-bars\"><div class=\"pdetail-bar\"><span>Soll</span><div class=\"pdetail-track\"><div class=\"pdetail-fill\" style=\"width:'+String(targetBarPct)+'%;background:var(--g4)\"><",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4032,7 +3951,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21445,
+   "line": 21432,
    "source": "+ '<div class=\"pdetail-item\"><strong>Zielbetrag</strong>'+escapeHtml(formatRappen(displayAmountRappen))+'</div>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4041,16 +3960,16 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21446,
+   "line": 21433,
    "source": "+ '<div class=\"pdetail-item\"><strong>Kosten</strong>TER p.a.: '+escapeHtml(fmtPct((Number(row.ter_bps||0)),2))+'<br>Kosten auf Zielvolumen: '+escapeHtml(formatRappen(Math.round(displayAmountRappen*Number(row.ter_bps||0)/10000)))+' p.a.</div",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Kostenbetrag in Rappen (Math.round), Anzeige ueber formatRappen/fmtPct"
+   "reason": "Umrechnung Kostenbetrag -> Integer-Rappen (Math.round); Anzeige ueber formatRappen/fmtPct"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21458,
+   "line": 21445,
    "source": "return '<div class=\"ps\"><div class=\"psh\"><span class=\"psn\">'+escapeHtml(group)+'</span><div class=\"psr\"><span class=\"psp\">'+escapeHtml(formatBpsPercent(groupWeightBps))+'</span><span class=\"psc\">'+escapeHtml(formatRappen(subtotal))+'</span>",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4059,25 +3978,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21518,
-   "source": "var advisoryChf=Math.round((Number(allocation.advisory_wealth_rappen||0))/100);",
-   "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 21519,
-   "source": "var totalChf=Math.round((Number(allocation.total_wealth_rappen||0))/100);",
-   "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 21525,
+   "line": 21512,
    "source": "setText('sr-risk-score',fmtNumber(Number(risk.final_score_x10||0)/10,0)+' / 10');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4086,7 +3987,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21530,
+   "line": 21517,
    "source": "setText('sr-wealth',formatCompactCHF(advisoryChf));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4095,7 +3996,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21531,
+   "line": 21518,
    "source": "setText('sr-wealth-share',totalChf?AresRounding.formatPercent(advisoryChf/Math.max(1,totalChf)*100,0,{typography:'screen'})+' des Reinverm\u00f6gens':'Kein Gesamtverm\u00f6gen verf\u00fcgbar');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4104,7 +4005,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21536,
+   "line": 21523,
    "source": "setText('sr-proj-wealth',formatCompactCHF(projectedRappen/100));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4113,7 +4014,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21547,
+   "line": 21534,
    "source": "var pct=Math.max(0,Math.min(100,Math.round(Number(bucket.target_weight_bps||0)/100)));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4122,16 +4023,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21548,
-   "source": "return '<div style=\"display:flex;align-items:center;gap:6px\"><span style=\"font-size:10px;width:90px;color:var(--n6)\">'+escapeHtml(assetDisplayName(bucket.asset_class))+'</span><div style=\"flex:1;height:6px;background:var(--bg2);border-radiu",
-   "channel": "classic",
-   "class": "MIGRATE",
-   "status": "done",
-   "reason": "Anzeige ueber gemeinsamen Formatter"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 21555,
+   "line": 21542,
    "source": "return '<div style=\"display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:6px 8px;background:var(--bg);border-radius:var(--r);border:1px solid var(--b1)\"><div><div><span style=\"font-size:9px;font-weight:600;colo",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4140,8 +4032,8 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21598,
-   "source": "+'<div style=\"font-size:10px;color:var(--n6)\">IST '+escapeHtml(formatBpsPercent(item.currentWeightBps))+' \u2192 SOLL '+escapeHtml(formatBpsPercent(item.targetWeightBps))+' \u00b7 Delta '+escapeHtml(formatSignedBpsPercent(item.deltaWeightBps))+'</div",
+   "line": 21585,
+   "source": "+'<div style=\"font-size:10px;color:var(--n6)\">IST '+escapeHtml(formatBpsPercent(item.currentWeightBps))+' \u2192 SOLL '+escapeHtml(sollPct(item.assetClass,item.targetWeightBps))+' \u00b7 Delta '+escapeHtml(formatSignedBpsPercent(item.deltaWeightBps))",
    "channel": "classic",
    "class": "MIGRATE",
    "status": "done",
@@ -4149,7 +4041,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21606,
+   "line": 21593,
    "source": "+'<div style=\"display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px\"><span class=\"tag '+item.meta.tagClass+'\">'+escapeHtml(item.meta.label)+'</span><span style=\"font-size:10px;font-weight:600;color:'+it",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4158,7 +4050,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21608,
+   "line": 21595,
    "source": "+'<div style=\"font-size:10px;color:var(--n6);margin-bottom:4px\">Aktuell '+escapeHtml(formatBpsPercent(item.currentWeightBps))+' \u00b7 Ziel '+escapeHtml(formatBpsPercent(item.targetWeightBps))+'</div>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4167,25 +4059,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21634,
-   "source": "var advisoryChf=Math.round(Number(activeAllocation.advisory_wealth_rappen||0)/100);",
-   "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 21635,
-   "source": "var totalChf=Math.round(Number(activeAllocation.total_wealth_rappen||0)/100);",
-   "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 21641,
+   "line": 21628,
    "source": "if(cashflow&&cashflow.recurring_net_rappen!=null)goalSubParts.push('Laufend '+formatRappen(cashflow.recurring_net_rappen)+' p.a.');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4194,7 +4068,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21645,
+   "line": 21632,
    "source": "setText('sr-risk-score',fmtNumber(Number(activeRisk.final_score_x10||0)/10,0)+' / 10');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4203,7 +4077,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21650,
+   "line": 21637,
    "source": "setText('sr-wealth',formatCompactCHF(advisoryChf));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4212,7 +4086,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21651,
+   "line": 21638,
    "source": "setText('sr-wealth-share',totalChf?AresRounding.formatPercent(advisoryChf/Math.max(1,totalChf)*100,0,{typography:'screen'})+' des Reinverm\u00f6gens':'Kein Gesamtverm\u00f6gen verf\u00fcgbar');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4221,7 +4095,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21654,
+   "line": 21641,
    "source": "setText('sr-proj-wealth',formatCompactCHF(projectedRappen/100));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4230,7 +4104,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21666,
+   "line": 21653,
    "source": "var pct=Math.max(0,Math.min(100,Math.round(Number(bucket.target_weight_bps||0)/100)));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4239,7 +4113,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21667,
+   "line": 21654,
    "source": "var targetValue=formatRappen(Number(bucket.target_amount_rappen||0));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4248,16 +4122,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21673,
-   "source": "+'<span style=\"font-size:10px;font-weight:600;color:var(--n7);text-align:right\">'+formatBpsPercent(bucket.target_weight_bps)+'</span>'",
-   "channel": "classic",
-   "class": "MIGRATE",
-   "status": "done",
-   "reason": "Anzeige ueber gemeinsamen Formatter"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 21690,
+   "line": 21677,
    "source": "+'<div style=\"display:flex;align-items:center;gap:7px\"><span style=\"font-size:12px;font-weight:700;color:'+tone+'\" title=\"'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP+(goalSuccessIsEstimate(goal)?(' \\u2013 '+GOAL_SUCCESS_ESTIMATE_HINT):'')",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4266,34 +4131,34 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21779,
+   "line": 21766,
    "source": "TOTAL=Math.round((Number(result.advisory_wealth_rappen||0))/100);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21782,
+   "line": 21769,
    "source": "return {n:assetDisplayName(key),c:assetClassColor(key),ist:Number(bucket.current_weight_bps||0)/100,soll:Number(bucket.target_weight_bps||0)/100,chf:Math.round((Number(bucket.current_amount_rappen||0))/100),chfTarget:Math.round((Number(buck",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21827,
+   "line": 21814,
    "source": "var deltaChf=Math.round((advisoryProjectedRappen-advisoryCurrentProjectedRappen)/100);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21828,
+   "line": 21815,
    "source": "setText('aa-proj-wealth',formatCompactCHF(advisoryProjectedRappen/100));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4302,7 +4167,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21856,
+   "line": 21843,
    "source": "setText('ub-return-rein',(fmtPct(Number(totalImprovedProjection.cagrBps||0),1)));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4311,7 +4176,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21857,
+   "line": 21844,
    "source": "setText('ub-return-beratung',(fmtPct(Number(advisoryCagrBps||0),1)));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4320,7 +4185,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21858,
+   "line": 21845,
    "source": "setText('aa-proj-p50-return',(fmtPct(Number(mc&&mc.target_annualized_return_p50_bps||0),1)));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4329,7 +4194,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21859,
+   "line": 21846,
    "source": "setText('aa-proj-current-p50-return',(fmtPct(Number(mc&&mc.current_annualized_return_p50_bps||0),1)));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4338,7 +4203,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21870,
+   "line": 21857,
    "source": "setText('aa-proj-vol',(fmtPct(Number(_tVol||0),1)));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4347,7 +4212,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21871,
+   "line": 21858,
    "source": "setText('aa-proj-current-vol',(fmtPct(Number(mc&&mc.current_volatility_1y_bps||0),1)));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4356,7 +4221,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21872,
+   "line": 21859,
    "source": "setText('aa-proj-var95',formatRiskLossBps(mc&&mc.target_var_95_1y_bps));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4365,7 +4230,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21873,
+   "line": 21860,
    "source": "setText('aa-proj-current-var95',formatRiskLossBps(mc&&mc.current_var_95_1y_bps));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4374,7 +4239,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21874,
+   "line": 21861,
    "source": "setText('aa-proj-cvar95',formatRiskLossBps(mc&&mc.target_cvar_95_1y_bps));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4383,7 +4248,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21875,
+   "line": 21862,
    "source": "setText('aa-proj-current-cvar95',formatRiskLossBps(mc&&mc.current_cvar_95_1y_bps));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4392,7 +4257,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21876,
+   "line": 21863,
    "source": "setText('aa-proj-drawdown',formatRiskLossBps(mc&&mc.target_max_drawdown_p50_bps));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4401,7 +4266,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21877,
+   "line": 21864,
    "source": "setText('aa-proj-current-drawdown',formatRiskLossBps(mc&&mc.current_max_drawdown_p50_bps));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4410,7 +4275,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21878,
+   "line": 21865,
    "source": "setText('aa-proj-lossprob',formatProbabilityPct(mc&&mc.target_loss_probability_1y_pct));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4419,7 +4284,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21879,
+   "line": 21866,
    "source": "setText('aa-proj-current-lossprob',formatProbabilityPct(mc&&mc.current_loss_probability_1y_pct));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4428,7 +4293,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21890,
+   "line": 21877,
    "source": "if(p<=0)return fmtProbPct(0);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4437,7 +4302,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21891,
+   "line": 21878,
    "source": "return fmtProbPct(p)+(year?(' (ab '+year+')'):'');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4446,7 +4311,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21941,
+   "line": 21928,
    "source": "function renderPortfolioReserveNote(rb,positionsTotalRappen){var note=document.getElementById('po-reserve-note'), footerLabel=document.getElementById('po-total-footer-label'), withReserve=!!(rb&&rb.reserveRappen>0&&rb.advisoryRappen>0);setT",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4455,7 +4320,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21950,
+   "line": 21937,
    "source": "setText('po-average-ter',(fmtPct(Number(result.average_ter_bps||0),2)));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4464,34 +4329,34 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 22699,
+   "line": 22686,
    "source": "return Number.isFinite(n)?Math.round(n):null;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 22742,
+   "line": 22729,
    "source": "var score=Math.max(1,Math.min(10,Math.round(Number(scoreX10||10)/10)));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Ganzzahlige Skala (Risikoscore x10, Jahre, Inflationsmittel) -- kein Policy-Grenzfall"
+   "reason": "Einzelentscheid (N-894-03): Ganzzahlige Skala (Risikoscore x10, Jahre, Inflationsmittel) -- kein Policy-Grenzfall"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 22971,
+   "line": 22958,
    "source": "horizonInput.value=years>0?String(Math.max(1,Math.round(years))):'';",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23017,
+   "line": 23004,
    "source": "if(gross>0)parts.push('Brutto '+formatRappen(gross));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4500,7 +4365,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23018,
+   "line": 23005,
    "source": "if(tax>0)parts.push('Steuer '+formatRappen(tax));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4509,7 +4374,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23365,
+   "line": 23352,
    "source": "var amount=formatRappen(Math.abs(Number(item&&item.amount_rappen||0)));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4518,16 +4383,16 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23389,
+   "line": 23376,
    "source": "+'<div class=\"aa-flow-timeline-bar '+(isIncome?'aa-flow-timeline-bar-income':'aa-flow-timeline-bar-expense')+'\" style=\"left:'+left.toFixed(2)+'%;width:'+width.toFixed(2)+'%\">'",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+   "reason": "Einzelentscheid (N-894-03): CSS-Position/-Breite der Cashflow-Zeitleiste; Beschriftung ueber hoverLabel (Formatter)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23417,
+   "line": 23404,
    "source": "var amount=formatRappen(Math.abs(Number(item&&item.amount_rappen||0)));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4536,25 +4401,16 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23450,
+   "line": 23437,
    "source": "+'<div class=\"'+barClass+'\" data-aa-tooltip=\"'+hoverLabel+'\" aria-label=\"'+hoverLabel+'\" tabindex=\"0\" style=\"left:'+left.toFixed(2)+'%;width:'+width.toFixed(2)+'%\">'",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+   "reason": "Einzelentscheid (N-894-03): CSS-Position/-Breite der Cashflow-Zeitleiste; Beschriftung ueber hoverLabel (Formatter)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23605,
-   "source": "var savingsRate=income>0?Math.round(net/income*100):null;",
-   "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "line": 23612,
+   "line": 23599,
    "source": "if(cashflowValue)cashflowValue.textContent=formatSignedRappen(net);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4563,8 +4419,8 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23613,
-   "source": "if(sub)sub.innerHTML=savingsRate==null?'<span class=\"a\">Kapital netto '+formatSignedRappen(capitalNet)+'</span>':'<span class=\"'+(savingsRate>=0?'g':'a')+'\">Sparquote '+Math.max(-999,savingsRate)+'% | Kapital '+formatSignedRappen(capitalNet",
+   "line": 23600,
+   "source": "if(sub)sub.innerHTML=savingsRate==null?'<span class=\"a\">Kapital netto '+formatSignedRappen(capitalNet)+'</span>':'<span class=\"'+(savingsRate>=0?'g':'a')+'\">Sparquote '+AresRounding.formatPercent(Math.max(-999,savingsRate),0,{typography:'sc",
    "channel": "classic",
    "class": "MIGRATE",
    "status": "done",
@@ -4572,7 +4428,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23617,
+   "line": 23604,
    "source": "if(cashflowSubClean)cashflowSubClean.innerHTML='<span class=\"'+(net>=0?'g':'a')+'\">Einnahmen '+formatRappen(income)+' | Ausgaben '+formatRappen(expense)+'</span>'+(capitalNet?'<span class=\"a\"> | Kapital '+formatSignedRappen(capitalNet)+'</s",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4581,43 +4437,43 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23742,
+   "line": 23729,
    "source": "setInputValue('acf-amount',formatInputCHF(cashflow.amount_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23746,
+   "line": 23733,
    "source": "setInputValue('acf-gross-amount',formatInputCHF(cashflow.gross_amount_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23747,
+   "line": 23734,
    "source": "setInputValue('acf-tax-amount',formatInputCHF(cashflow.tax_amount_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23939,
+   "line": 23926,
    "source": "setInputValue('awi-amount',formatInputCHF(inflow.amount_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+   "reason": "Einzelentscheid (N-894-03): Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24081,
+   "line": 24068,
    "source": "var fmtR=function(r){return formatRappen(Number(r||0));};",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4626,7 +4482,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24116,
+   "line": 24103,
    "source": "var fmtR=function(r){return fmtNumber(Number(r||0)/100,0);};",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4635,7 +4491,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24241,
+   "line": 24228,
    "source": "var fmt=function(r){return formatRappen(Number(r||0));};",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4644,7 +4500,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24493,
+   "line": 24480,
    "source": "var fmtR=function(r){return formatRappen(Number(r||0));};",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4653,25 +4509,25 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24525,
-   "source": "var chf = Math.round(Math.abs(Number(rappen || 0)) / 100);",
+   "line": 24511,
+   "source": "var fmtHud = function(rappen) { return formatRappen(Math.abs(Number(rappen || 0))); };",
    "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24530,
-   "source": "var savingsRate = currentIncome > 0 && currentNet > 0 ? Math.round(currentNet / currentIncome * 100) : null;",
+   "line": 24516,
+   "source": "var statusValue = currentNet > 0 && savingsRate !== null ? AresRounding.formatPercent(savingsRate,0,{typography:'screen'}) : fmtHud(currentNet);",
    "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter (AresRounding)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24572,
+   "line": 24557,
    "source": "throw new Error('Allokation muss 100% ergeben (aktuell: '+AresRounding.formatPercent(tot,0,{typography:'screen'})+'). Bitte auf 100% aufteilen oder alle Felder auf 0 lassen (dann wird automatisch 60% Aktien / 25% Obligationen angenommen).')",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4680,7 +4536,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24575,
+   "line": 24560,
    "source": "throw new Error('Vorsorge-Aufteilung muss 100% ergeben (aktuell: '+AresRounding.formatPercent(tot,0,{typography:'screen'})+') oder ganz leer bleiben (dann z\u00e4hlt die Vorsorge nicht ins Anlage-Exposure).');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4689,52 +4545,52 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24598,
+   "line": 24583,
    "source": "alloc_equities_bps:Math.round(akt*100),",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24599,
+   "line": 24584,
    "source": "alloc_bonds_bps:Math.round(obl*100),",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24600,
+   "line": 24585,
    "source": "alloc_real_estate_bps:Math.round(imm*100),",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24601,
+   "line": 24586,
    "source": "alloc_liquidity_bps:Math.round(liq*100),",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24602,
+   "line": 24587,
    "source": "alloc_alternatives_bps:Math.round(alt*100),",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24728,
+   "line": 24713,
    "source": "var fmt=function(v){return 'CHF '+fmtNumber(v,0);};",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4743,34 +4599,43 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24765,
+   "line": 24722,
+   "source": "k2Sub.textContent=AresRounding.formatPercent(share,0,{typography:'screen'})+' des Bruttoverm\u00f6gens';",
+   "channel": "classic",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter (AresRounding)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "line": 24750,
    "source": "? Math.round(bucket.rebalance_amount_rappen / 100) : null;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24766,
+   "line": 24751,
    "source": "var partialSaleChf = rebalAmtChf ? Math.round(rebalAmtChf * 0.8 / 1000) * 1000 : null;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24767,
+   "line": 24752,
    "source": "var rebalRoundedChf = rebalAmtChf ? Math.round(rebalAmtChf / 5000) * 5000 : null;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24768,
+   "line": 24753,
    "source": "var fmtChf = function(v) {",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4779,7 +4644,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24770,
+   "line": 24755,
    "source": "if (v >= 1000000) return 'CHF\u00a0' + formatCompactCHFAmount(v);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4788,7 +4653,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24771,
+   "line": 24756,
    "source": "if (v >= 1000)    return 'CHF\u00a0' + fmtNumber(v/1000,0) + 'k';",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4797,7 +4662,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24772,
+   "line": 24757,
    "source": "return 'CHF\u00a0' + fmtNumber(v,0);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4806,7 +4671,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24778,
+   "line": 24763,
    "source": "? fmtChf(rebalRoundedChf) + ' in defensivere Klassen umlenken. Organische Normalisierung 12\u201318 Monate.'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4815,7 +4680,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24785,
+   "line": 24770,
    "source": "? 'Teilverkauf ' + assetClass + ' ' + fmtChf(partialSaleChf) + '. Sofortige Normalisierung, Steuerfolgen separat pr\u00fcfen.'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4824,16 +4689,16 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24890,
+   "line": 24875,
    "source": "return Math.round((date.getTime()-today.getTime())/86400000);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25081,
+   "line": 25066,
    "source": "var zoneLeft=(min/100).toFixed(2);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4842,7 +4707,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25082,
+   "line": 25067,
    "source": "var zoneWidth=Math.max(1,(max-min)/100).toFixed(2);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4851,7 +4716,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25083,
+   "line": 25068,
    "source": "var targetLeft=(target/100).toFixed(2);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4860,7 +4725,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25084,
+   "line": 25069,
    "source": "var currentLeft=(current/100).toFixed(2);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4869,7 +4734,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25092,
+   "line": 25077,
    "source": "+'</div><div style=\"display:flex;justify-content:space-between;gap:6px;margin-top:4px;font-size:9px;color:var(--n4)\"><span>'+escapeHtml(formatBpsPercent(min))+'</span><span>Ziel '+escapeHtml(formatBpsPercent(target))+'</span><span>'+escapeH",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4878,7 +4743,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25136,
+   "line": 25121,
    "source": "return '<div style=\"display:flex;justify-content:space-between;gap:10px;align-items:flex-start\"><div style=\"font-size:11px;color:var(--n7)\">\u2022 '+escapeHtml(item.assetClass)+': '+escapeHtml(item.meta.action)+'</div><div style=\"font-size:10px;",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4887,16 +4752,16 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25352,
+   "line": 25337,
    "source": "var pct=Math.round(doneCount/Math.max(1,totalCount)*100);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25401,
+   "line": 25386,
    "source": "? (formatSignedBpsPercent(liveDrift.delta_weight_bps||0)+' '+(liveDrift.breached?'VERLETZT':'IM BAND'))",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4905,7 +4770,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25402,
+   "line": 25387,
    "source": ": (trigger.threshold_bps!=null?fmtPct(trigger.threshold_bps,1):'Aktiv');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4914,7 +4779,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25406,
+   "line": 25391,
    "source": "? ((trigger.threshold_bps!=null?'Schwelle +/-'+fmtPct(trigger.threshold_bps,1):'Markt-Trigger')+(trigger.triggered_notes?' / '+trigger.triggered_notes:''))",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4923,8 +4788,8 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25409,
-   "source": "detail=formatBpsPercent(liveDrift.current_weight_bps||0)+' Ist vs. '+formatBpsPercent(liveDrift.target_weight_bps||0)+' Soll / Band '+formatBpsPercent(liveDrift.band_min_bps||0)+' bis '+formatBpsPercent(liveDrift.band_max_bps||0);",
+   "line": 25394,
+   "source": "detail=formatBpsPercent(liveDrift.current_weight_bps||0)+' Ist vs. '+sollPct(liveDrift.asset_class,liveDrift.target_weight_bps||0)+' Soll / Band '+formatBpsPercent(liveDrift.band_min_bps||0)+' bis '+formatBpsPercent(liveDrift.band_max_bps||",
    "channel": "classic",
    "class": "MIGRATE",
    "status": "done",
@@ -4932,7 +4797,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25710,
+   "line": 25695,
    "source": "+'<div style=\"font-family:var(--f-d);font-size:13px;color:var(--n8);text-align:right\" title=\"'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+'\">'+escapeHtml(fmtProbPct(prob*100))+'</div>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4941,7 +4806,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25725,
+   "line": 25710,
    "source": "'Risky-Fraction: '+formatBpsPercent(allocationMetaValue(result,'risky_fraction_bps_at_generation')||0),",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4950,7 +4815,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25726,
+   "line": 25711,
    "source": "'Risikobudget: '+formatBpsPercent(allocationMetaValue(result,'risk_budget_bps_at_generation')||0),",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4959,7 +4824,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25761,
+   "line": 25746,
    "source": "if(probEl){probEl.textContent=prob==null?'\u2014':fmtProbPct(prob*100);probEl.title=GOAL_SUCCESS_PROBABILITY_TOOLTIP;}",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4968,7 +4833,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25764,
+   "line": 25749,
    "source": "if(metaEl)metaEl.textContent=hardnessDisplay(main.hardness)+' \u00b7 '+(mainLegacy?'Altbewertung ohne Priorit\\u00e4tszuordnung \\u2013 Strategie neu berechnen':(PRIORITY_FUNDED_LABEL+(main.tau!=null?(' \u00b7 Zielniveau '+AresRounding.formatPercent(Nu",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4977,7 +4842,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25792,
+   "line": 25777,
    "source": "if(retBps)chips.push('Rendite p.a. '+fmtPct(retBps,1));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4986,7 +4851,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25794,
+   "line": 25779,
    "source": "if(projRappen>0)chips.push('Prognose'+(projYear?(' '+projYear):'')+' (Median) '+formatCompactCHF(projRappen/100));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4995,8 +4860,8 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25813,
-   "source": "summary=top.assetClass+': IST '+formatBpsPercent(top.currentWeightBps)+' / SOLL '+formatBpsPercent(top.targetWeightBps)+' \u2014 ausserhalb der vereinbarten Bandbreite. '+top.meta.action+'.';",
+   "line": 25798,
+   "source": "summary=top.assetClass+': IST '+formatBpsPercent(top.currentWeightBps)+' / SOLL '+sollPct(top.assetClass,top.targetWeightBps)+' \u2014 ausserhalb der vereinbarten Bandbreite. '+top.meta.action+'.';",
    "channel": "classic",
    "class": "MIGRATE",
    "status": "done",
@@ -5004,7 +4869,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25858,
+   "line": 25843,
    "source": "summary=topInfo.assetClass+': aktuell '+formatBpsPercent(topInfo.currentWeightBps)+' / Ziel '+formatBpsPercent(topInfo.targetWeightBps)+'. '+topInfo.meta.action+'.';",
    "channel": "classic",
    "class": "MIGRATE",
@@ -5013,7 +4878,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25992,
+   "line": 25977,
    "source": "var scoreTxt=scoreX10!=null?(' &middot; '+fmtNumber(Number(scoreX10||0)/10,0)+' / 10'):'';",
    "channel": "classic",
    "class": "MIGRATE",
@@ -5022,12 +4887,12 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 26183,
+   "line": 26168,
    "source": "payload.threshold_bps=isFinite(pct)?Math.round(Math.abs(pct)*100):500;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/components/BarChartIstSoll.tsx",
@@ -5040,7 +4905,16 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/components/BarChartIstSoll.tsx",
-   "line": 138,
+   "line": 98,
+   "source": "sollText={sollText[item.label] ?? formatBpsAsPct(item.soll_bps)}",
+   "channel": "react",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/components/BarChartIstSoll.tsx",
+   "line": 143,
    "source": "? ` \u00b7 Band ${formatBpsAsPct(item.band_min_bps)} \u2013 ${formatBpsAsPct(item.band_max_bps)}`",
    "channel": "react",
    "class": "MIGRATE",
@@ -5049,7 +4923,7 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/components/BarChartIstSoll.tsx",
-   "line": 161,
+   "line": 166,
    "source": "label={`IST  ${formatBpsAsPct(item.ist_bps)}`}",
    "channel": "react",
    "class": "MIGRATE",
@@ -5058,16 +4932,7 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/components/BarChartIstSoll.tsx",
-   "line": 167,
-   "source": "label={`SOLL ${formatBpsAsPct(item.soll_bps)}${bandText}`}",
-   "channel": "react",
-   "class": "MIGRATE",
-   "status": "done",
-   "reason": "Anzeige ueber gemeinsamen Formatter"
-  },
-  {
-   "file": "ares-desktop/frontend/reporting/src/components/BarChartIstSoll.tsx",
-   "line": 177,
+   "line": 182,
    "source": "<div data-testid=\"bar-drift\">{formatBpsSignedPct(item.drift_bps)}</div>",
    "channel": "react",
    "class": "MIGRATE",
@@ -5081,7 +4946,7 @@
    "channel": "react",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+   "reason": "Einzelentscheid (N-894-03): Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
@@ -5099,7 +4964,7 @@
    "channel": "react",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Achsen-/Tick-Raster (Skalenberechnung)"
+   "reason": "Einzelentscheid (N-894-03): Achsen-/Tick-Raster (Skalenberechnung)"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
@@ -5108,7 +4973,7 @@
    "channel": "react",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+   "reason": "Einzelentscheid (N-894-03): Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
@@ -5126,7 +4991,7 @@
    "channel": "react",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Achsen-/Tick-Raster (Skalenberechnung)"
+   "reason": "Einzelentscheid (N-894-03): Achsen-/Tick-Raster (Skalenberechnung)"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
@@ -5144,7 +5009,7 @@
    "channel": "react",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Achsen-/Tick-Raster (Skalenberechnung)"
+   "reason": "Einzelentscheid (N-894-03): Achsen-/Tick-Raster (Skalenberechnung)"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/allocationForm.ts",
@@ -5171,7 +5036,7 @@
    "channel": "react",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/allocationForm.ts",
@@ -5198,7 +5063,7 @@
    "channel": "react",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/cashflowForm.ts",
@@ -5243,7 +5108,7 @@
    "channel": "react",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Wahrscheinlichkeit -> Prozentpunkte auf 0.01 normiert (Fan-Vertrag pinnt pct); Anzeige ueber fmtProbPct"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/fanAnnotations.ts",
@@ -5513,7 +5378,7 @@
    "channel": "react",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): formatInteger: Ganzzahl-Anzeige (Zaehler) ohne Gruppierung; Math.round = Half-up fuer Werte >= 0"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/format.ts",
@@ -5522,7 +5387,7 @@
    "channel": "react",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): formatAge: ganze Jahre (Alter >= 0, Half-up gleich)"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/format.ts",
@@ -5531,7 +5396,7 @@
    "channel": "react",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): formatHorizon: ganze Jahre (Horizont >= 0, Half-up gleich)"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
@@ -5589,7 +5454,16 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
-   "line": 130,
+   "line": 135,
+   "source": "return formatMoneyMinor(rappen, unit, STORAGE_EXPONENT, Math.min(decimals, displayDecimals(unit)), opts);",
+   "channel": "react",
+   "class": "FALSE_POSITIVE",
+   "status": "",
+   "reason": "Implementierung des gemeinsamen Formatters (Policy ares-rounding/1)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
+   "line": 146,
    "source": "export function formatMoneyMinor(",
    "channel": "react",
    "class": "FALSE_POSITIVE",
@@ -5598,7 +5472,7 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
-   "line": 140,
+   "line": 156,
    "source": "export function formatSignedMoneyMinor(",
    "channel": "react",
    "class": "FALSE_POSITIVE",
@@ -5607,7 +5481,7 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
-   "line": 164,
+   "line": 180,
    "source": "export function formatMoneyCompactMinor(",
    "channel": "react",
    "class": "FALSE_POSITIVE",
@@ -5616,7 +5490,7 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
-   "line": 208,
+   "line": 224,
    "source": "export function formatApportionedPercentBps(",
    "channel": "react",
    "class": "FALSE_POSITIVE",
@@ -5625,7 +5499,7 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
-   "line": 212,
+   "line": 228,
    "source": "return units.map((u) => formatPercent(unitsToDecimal(u, decimals), decimals, opts));",
    "channel": "react",
    "class": "FALSE_POSITIVE",
@@ -5634,8 +5508,8 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
-   "line": 232,
-   "source": "const clean = weights.map((w) => BigInt(Math.max(0, Math.round(Number(w) || 0))));",
+   "line": 293,
+   "source": "const shown = formatApportionedPercentBps(list.map((x) => Math.round(Number(x.b.target_weight_bps))), 1, opts);",
    "channel": "react",
    "class": "FALSE_POSITIVE",
    "status": "",
@@ -5643,25 +5517,7 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
-   "line": 251,
-   "source": "const adv = Math.max(0, Math.round(Number(advisoryMinor) || 0));",
-   "channel": "react",
-   "class": "FALSE_POSITIVE",
-   "status": "",
-   "reason": "Implementierung des gemeinsamen Formatters (Policy ares-rounding/1)"
-  },
-  {
-   "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
-   "line": 252,
-   "source": "const baseRaw = baseMinor === null || baseMinor === undefined ? adv : Math.max(0, Math.round(Number(baseMinor) || 0));",
-   "channel": "react",
-   "class": "FALSE_POSITIVE",
-   "status": "",
-   "reason": "Implementierung des gemeinsamen Formatters (Policy ares-rounding/1)"
-  },
-  {
-   "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
-   "line": 279,
+   "line": 312,
    "source": "case 'percent_bps': return formatPercentBps(a[0], opt(1, 1), o);",
    "channel": "react",
    "class": "FALSE_POSITIVE",
@@ -5670,7 +5526,7 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
-   "line": 280,
+   "line": 313,
    "source": "case 'signed_percent_bps': return formatPercentBps(a[0], opt(1, 1), { typography, signed: true });",
    "channel": "react",
    "class": "FALSE_POSITIVE",
@@ -5679,7 +5535,7 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
-   "line": 281,
+   "line": 314,
    "source": "case 'percent': return formatPercent(a[0], opt(1, 1), o);",
    "channel": "react",
    "class": "FALSE_POSITIVE",
@@ -5688,7 +5544,7 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
-   "line": 282,
+   "line": 315,
    "source": "case 'probability_pct': return formatProbabilityPct(a[0], o);",
    "channel": "react",
    "class": "FALSE_POSITIVE",
@@ -5697,7 +5553,7 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
-   "line": 284,
+   "line": 317,
    "source": "return formatMoneyMinor(a[0], String(args[1]), Number(args[2]), args.length > 3 ? Number(args[3]) : null, o);",
    "channel": "react",
    "class": "FALSE_POSITIVE",
@@ -5706,7 +5562,7 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
-   "line": 286,
+   "line": 319,
    "source": "return formatSignedMoneyMinor(a[0], String(args[1]), Number(args[2]), args.length > 3 ? Number(args[3]) : null, o);",
    "channel": "react",
    "class": "FALSE_POSITIVE",
@@ -5715,7 +5571,7 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
-   "line": 287,
+   "line": 320,
    "source": "case 'money_compact_minor': return formatMoneyCompactMinor(a[0], String(args[1]), Number(args[2]), o);",
    "channel": "react",
    "class": "FALSE_POSITIVE",
@@ -5724,7 +5580,7 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
-   "line": 289,
+   "line": 322,
    "source": "return formatApportionedPercentBps(args[0] as Numeric[], Number(args[1]), {",
    "channel": "react",
    "class": "FALSE_POSITIVE",
@@ -5733,7 +5589,7 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
-   "line": 299,
+   "line": 334,
    "source": "return formatPercent(unitsToDecimal(u, n), n, o);",
    "channel": "react",
    "class": "FALSE_POSITIVE",
@@ -5756,7 +5612,7 @@
    "channel": "react",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/wealthInflowForm.ts",
@@ -5823,8 +5679,8 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/pages/BuildingBlocks.tsx",
-   "line": 60,
-   "source": "{formatBpsAsPct(b.target_bps)}",
+   "line": 63,
+   "source": "{targetText[b.key] ?? formatBpsAsPct(b.target_bps)}",
    "channel": "react",
    "class": "MIGRATE",
    "status": "done",
@@ -5832,7 +5688,7 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/pages/BuildingBlocks.tsx",
-   "line": 63,
+   "line": 66,
    "source": "{formatBpsAsPct(b.band_min_bps)} \u2013 {formatBpsAsPct(b.band_max_bps)}",
    "channel": "react",
    "class": "MIGRATE",
@@ -5841,7 +5697,7 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/pages/BuildingBlocks.tsx",
-   "line": 101,
+   "line": 104,
    "source": "{formatBpsAsPct(c.value_bps)}",
    "channel": "react",
    "class": "MIGRATE",
@@ -6003,15 +5859,6 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/pages/Kostenausweis.tsx",
-   "line": 23,
-   "source": "import { CURRENCY_EXPONENTS, formatMoneyMinor } from '@/lib/presentationRounding';",
-   "channel": "react",
-   "class": "FALSE_POSITIVE",
-   "status": "",
-   "reason": "Import/Export eines Formatters"
-  },
-  {
-   "file": "ares-desktop/frontend/reporting/src/pages/Kostenausweis.tsx",
    "line": 30,
    "source": "* geteilte `formatChfRappen()` aus lib/format.ts, der (wie der Monolith vor",
    "channel": "react",
@@ -6027,15 +5874,6 @@
    "class": "FALSE_POSITIVE",
    "status": "",
    "reason": "Funktionsdefinition delegiert an den gemeinsamen Formatter"
-  },
-  {
-   "file": "ares-desktop/frontend/reporting/src/pages/Kostenausweis.tsx",
-   "line": 38,
-   "source": "return formatMoneyMinor(Number(rappen), unit, exponent, 0, { typography: 'screen' });",
-   "channel": "react",
-   "class": "MIGRATE",
-   "status": "done",
-   "reason": "Anzeige ueber gemeinsamen Formatter"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/pages/Kostenausweis.tsx",
@@ -6224,7 +6062,7 @@
    "channel": "react",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/sections/goals/GoalWizard.tsx",
@@ -6233,7 +6071,7 @@
    "channel": "react",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
   },
   {
    "file": "ares-desktop/frontend/reporting/src/sections/goals/MaxPensionSpendingPanel.tsx",
@@ -6287,7 +6125,7 @@
    "channel": "pdf",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
@@ -6296,7 +6134,7 @@
    "channel": "pdf",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
@@ -6305,7 +6143,7 @@
    "channel": "pdf",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
@@ -6332,7 +6170,7 @@
    "channel": "pdf",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
@@ -6341,7 +6179,7 @@
    "channel": "pdf",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
@@ -6350,7 +6188,7 @@
    "channel": "pdf",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
   },
   {
    "file": "ares-backend/services/pdf/components/effektives_portfolio.py",
@@ -6359,7 +6197,7 @@
    "channel": "pdf",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
   },
   {
    "file": "ares-backend/services/pdf/components/goal_achievability.py",
@@ -6386,7 +6224,7 @@
    "channel": "pdf",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Achsen-/Tick-Raster (Skalenberechnung)"
+   "reason": "Einzelentscheid (N-894-03): Achsen-/Tick-Raster (Skalenberechnung)"
   },
   {
    "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
@@ -6395,7 +6233,7 @@
    "channel": "pdf",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
   },
   {
    "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
@@ -6404,7 +6242,7 @@
    "channel": "pdf",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
   },
   {
    "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
@@ -6413,7 +6251,7 @@
    "channel": "pdf",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Achsen-/Tick-Raster (Skalenberechnung)"
+   "reason": "Einzelentscheid (N-894-03): Achsen-/Tick-Raster (Skalenberechnung)"
   },
   {
    "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
@@ -6422,7 +6260,7 @@
    "channel": "pdf",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Achsen-/Tick-Raster (Skalenberechnung)"
+   "reason": "Einzelentscheid (N-894-03): Achsen-/Tick-Raster (Skalenberechnung)"
   },
   {
    "file": "ares-backend/services/pdf/components/swiss_numbers.py",
@@ -6440,7 +6278,7 @@
    "channel": "pdf",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
   },
   {
    "file": "ares-backend/services/pdf/documents/portfolio.py",
@@ -6449,8 +6287,8 @@
    "channel": "pdf",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+   "reason": "Einzelentscheid (N-894-03): Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
   }
  ],
- "head_sha_parent": "cf72f5c1579a3a574d17311a13196da326e7b93c"
+ "head_sha_parent": "5e9a93e27da5df5016b484739eedec5365ccf6c7"
 }

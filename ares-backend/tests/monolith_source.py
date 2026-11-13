@@ -113,4 +113,12 @@ def rounding_module_source() -> str:
     extrahieren, muessen ihn voranstellen -- wie ares.html ihn vor dem
     Inline-Skript laedt.
     """
-    return (FRONTEND_DIR / ROUNDING_MODULE).read_text(encoding="utf-8").replace("\r\n", "\n") + "\n"
+    module = (FRONTEND_DIR / ROUNDING_MODULE).read_text(encoding="utf-8").replace("\r\n", "\n")
+    # N-894-05: App-Geldformatter fragen die Mandatswaehrung ueber appCurrency()
+    # ab (ares.html); ohne Mandat/aa-chart.js liefert sie "CHF".
+    html = MONOLITH_PATH.read_text(encoding="utf-8")
+    lines = []
+    for name in ("function sollPct(", "function appCurrency(){"):
+        start = html.index(name)
+        lines.append(html[start:html.index("\n", start)])
+    return module + "\n" + "\n".join(lines) + "\n"

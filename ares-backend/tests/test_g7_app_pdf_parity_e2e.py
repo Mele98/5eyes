@@ -203,7 +203,7 @@ def _app_amounts_for_mandate_currency(currency: str) -> dict:
     return json.loads(proc.stdout)
 
 
-@pytest.mark.parametrize("currency", ["EUR", "USD", "CHF"])
+@pytest.mark.parametrize("currency", ["EUR", "USD", "CHF", "JPY"])
 def test_mandate_currency_labels_app_and_pdf_identically(currency):
     """H-153 Nachtrag 1: H6 beschriftet Betraege in der Mandatswaehrung (vorher fest
     "CHF"); App und PDF zeigen dieselben Betraege (presentation_amounts: Basis

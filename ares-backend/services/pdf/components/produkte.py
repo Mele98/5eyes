@@ -14,7 +14,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 
 from services.pdf.components.header import _esc
-from core.presentation_rounding import format_amount_minor, format_bps_as_pct
+from core.presentation_rounding import allocation_pct_texts, apportion_percent_bps, format_amount_minor, format_bps_as_pct
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_METRIC_BG,
@@ -178,10 +178,26 @@ def _make_isin_table(products: list, base_currency: str):
 
     grand_weight_bps = 0
     grand_amount = 0
+    # G7 N-894-02: Subtotale gemeinsam apportioniert (= Soll-Tabelle), Produktzeilen
+    # auf den angezeigten Subtotal (Gleichstand: Unterklasse, Produktname, Position).
+    class_bps = {
+        b: sum(int(p.get("target_weight_bps", 0) or 0) for p in by_bucket.get(b, []))
+        for b in BUCKET_ORDER if by_bucket.get(b)
+    }
+    class_text = allocation_pct_texts({b: v for b, v in class_bps.items() if v > 0})
     for bucket in BUCKET_ORDER:
         bucket_products = by_bucket.get(bucket, [])
         if not bucket_products:
             continue
+        product_text: dict[int, str] = {}
+        weighted = [(i, int(p.get("target_weight_bps", 0) or 0)) for i, p in enumerate(bucket_products)]
+        weighted = [(i, w) for i, w in weighted if w > 0]
+        if weighted and bucket in class_text:
+            order = sorted(weighted, key=lambda iw: (str(bucket_products[iw[0]].get("sub_asset_class", "") or ""),
+                                                     str(bucket_products[iw[0]].get("name", "") or ""), iw[0]))
+            shown = apportion_percent_bps([w for _, w in order], 1,
+                                          target_display=class_text[bucket].replace("%", "").strip())
+            product_text = {i: f"{v} %" for (i, _), v in zip(order, shown)}
 
         # Gruppen-Header-Zeile (Bucket-Name in Farbe)
         color_hex = asset_class_color(bucket).hexval()[2:]
@@ -203,7 +219,7 @@ def _make_isin_table(products: list, base_currency: str):
 
         bucket_weight_bps = 0
         bucket_amount = 0
-        for p in bucket_products:
+        for p_idx, p in enumerate(bucket_products):
             name = str(p.get("name", "—") or "—")
             isin = str(p.get("isin", "") or "")
             sub = str(p.get("sub_asset_class", "") or "")
@@ -225,7 +241,7 @@ def _make_isin_table(products: list, base_currency: str):
             rows.append([
                 Paragraph("<br/>".join(product_cell_parts), _para_compact()),
                 _esc(sub) if sub else "—",
-                f"{format_bps_as_pct(weight_bps, decimals=1)}" if weight_bps > 0 else "—",
+                product_text.get(p_idx, format_bps_as_pct(weight_bps, decimals=1)) if weight_bps > 0 else "—",
                 # target_amount_rappen ist CHF (base_currency) — NICHT in die Produkt-
                 # Waehrung umrechnen, sonst summieren die Zeilen nicht auf Subtotal/
                 # Total (die base_currency nutzen). Die Produkt-CCY steht separat.
@@ -242,7 +258,7 @@ def _make_isin_table(products: list, base_currency: str):
                 _para_compact(),
             ),
             "",
-            f"{format_bps_as_pct(bucket_weight_bps, decimals=1)}" if bucket_weight_bps > 0 else "—",
+            class_text.get(bucket, format_bps_as_pct(bucket_weight_bps, decimals=1)) if bucket_weight_bps > 0 else "—",
             _format_amount(bucket_amount, base_currency) if bucket_amount > 0 else "—",
             "", "",
         ])

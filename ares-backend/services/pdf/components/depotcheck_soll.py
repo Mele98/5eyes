@@ -9,7 +9,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
-from core.presentation_rounding import format_amount_minor, format_bps_as_pct
+from core.presentation_rounding import allocation_pct_texts, format_amount_minor, format_bps_as_pct, sub_allocation_pct_texts
 from services.pdf.styles import (
     BUCKET_COLORS,
     COLOR_BORDER,
@@ -62,6 +62,7 @@ def make_target_allocation_bars(
     value_w = 20 * mm
     bar_x = label_w
     bar_w = width - label_w - value_w
+    shown = allocation_pct_texts(dict(items))  # G7 N-894-02: Summe 100.0 %
     for index, (bucket, bps) in enumerate(items):
         y = height - 12 * mm - index * row_h
         drawing.add(String(
@@ -105,7 +106,7 @@ def make_target_allocation_bars(
         drawing.add(String(
             width,
             y + 2.5,
-            f"{format_bps_as_pct(bps, decimals=1)}",
+            shown.get(bucket, format_bps_as_pct(bps, decimals=1)),
             textAnchor="end",
             fontName=FONT_BOLD,
             fontSize=9,
@@ -124,6 +125,14 @@ def make_target_allocation_bars(
 
 def make_sub_allocation_table(rows: list[dict], base_currency: str = "CHF") -> Table:
     data = [["Hauptanlageklasse", "Subanlageklasse", "Produkte", "Zielquote", "Zielbetrag"]]
+    # G7 N-894-02: Unterklassen je Klasse auf den apportionierten Klassenwert.
+    by_class: dict[str, dict[str, int]] = {}
+    for item in rows:
+        cls = str(item.get("asset_class") or "")
+        sub = str(item.get("sub_asset_class") or "-")
+        by_class.setdefault(cls, {})[sub] = by_class.get(cls, {}).get(sub, 0) + int(item.get("weight_bps", 0) or 0)
+    class_text = allocation_pct_texts({c: sum(v.values()) for c, v in by_class.items() if sum(v.values()) > 0})
+    sub_text = {c: sub_allocation_pct_texts(class_text[c], v, sum(v.values())) for c, v in by_class.items() if c in class_text}
     for item in rows:
         data.append([
             Paragraph(
@@ -132,7 +141,8 @@ def make_sub_allocation_table(rows: list[dict], base_currency: str = "CHF") -> T
             ),
             Paragraph(_esc(item.get("sub_asset_class") or "-"), _cell_style()),
             str(int(item.get("products", 0) or 0)),
-            f'{format_bps_as_pct(int(item.get("weight_bps", 0) or 0), decimals=1)}',
+            sub_text.get(str(item.get("asset_class") or ""), {}).get(str(item.get("sub_asset_class") or "-"),
+                                                                    format_bps_as_pct(int(item.get("weight_bps", 0) or 0), decimals=1)),
             _format_amount(int(item.get("amount_rappen", 0) or 0), base_currency),
         ])
     if len(data) == 1:

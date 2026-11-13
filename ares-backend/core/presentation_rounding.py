@@ -70,7 +70,13 @@ _TYPOGRAPHY = {
     "screen": {"minus": "−", "pct_sep": " "},
 }
 
-# ISO-4217-Minor-Unit-Exponenten der in Ares vorkommenden Waehrungen.
+# Speicher-Exponent (N-894-01): ALLE ``*_rappen``-Felder fuehrt Ares mit festem
+# Faktor 100 -- auch JPY (services/currency/converter.py "gleicher Faktor 100").
+# Gespeicherte Betraege werden deshalb immer mit Exponent 2 gelesen; nur die
+# angezeigten Nachkommastellen folgen ISO 4217 (``CURRENCY_EXPONENTS``, JPY 0).
+STORAGE_EXPONENT = 2
+
+# ISO-4217-Minor-Unit-Exponenten (= maximale Anzeige-Nachkommastellen).
 CURRENCY_EXPONENTS: dict[str, int] = {
     "CHF": 2, "EUR": 2, "USD": 2, "GBP": 2, "SEK": 2, "NOK": 2, "DKK": 2,
     "CAD": 2, "AUD": 2, "JPY": 0,
@@ -208,6 +214,34 @@ def currency_exponent(currency: str) -> int:
     if code not in CURRENCY_EXPONENTS:
         raise ValueError(f"Minor-Unit-Exponent fuer Waehrung {currency!r} unbekannt")
     return CURRENCY_EXPONENTS[code]
+
+
+def display_decimals(currency: str) -> int:
+    """ISO-Anzeige-Nachkommastellen der Waehrung (unbekannt: 2)."""
+    return CURRENCY_EXPONENTS.get(str(currency or "").upper().strip(), 2)
+
+
+def _require_int(value: Any, what: str) -> int:
+    """N-894-06: Ganzzahl erzwingen (gleiche Regel in JS/TS): bool, None, nicht
+    ganzzahlige Werte -> ValueError."""
+    if isinstance(value, bool) or value is None:
+        raise ValueError(f"{what}: Ganzzahl erwartet")
+    if isinstance(value, int):
+        return value
+    d = to_decimal(value)
+    if d is None or (d[2] < 0 and d[1] % 10 ** (-d[2]) != 0):
+        raise ValueError(f"{what}: Ganzzahl erwartet, erhalten {value!r}")
+    v = d[1] * 10 ** d[2] if d[2] >= 0 else d[1] // 10 ** (-d[2])
+    return -v if d[0] else v
+
+
+def format_stored_amount(rappen: Any, currency: str, decimals: int = 0, *,
+                         typography: str = "plain") -> str:
+    """Gespeicherter Ares-Betrag (``*_rappen``, Exponent 2) -> Anzeige in der
+    Waehrung; Nachkommastellen ``decimals``, hoechstens ISO (JPY 0)."""
+    unit = _unit(currency)
+    shown = min(int(decimals), display_decimals(unit))
+    return format_money_minor(rappen, unit, STORAGE_EXPONENT, shown, typography=typography)
 
 
 def _unit(currency: str) -> str:
@@ -403,8 +437,9 @@ def whole_units(minor: Any, exponent: int = 2) -> int:
 
 def split_largest_remainder(total: int, weights: Sequence[Any], labels: Sequence[Any]) -> list[int]:
     """Ganzzahlige Aufteilung nach Largest Remainder (Hamilton). Gleichstand:
-    groesseres Gewicht, dann Label (Codepoint-Ordnung), dann Position."""
-    clean = [max(0, int(w or 0)) for w in weights]
+    groesseres Gewicht, dann Label (Codepoint-Ordnung), dann Position.
+    Gewichte muessen ganzzahlig sein (N-894-06)."""
+    clean = [max(0, _require_int(w, "Gewicht")) for w in weights]
     weight_sum = sum(clean)
     total = int(total)
     if weight_sum <= 0 or total <= 0:
@@ -418,7 +453,7 @@ def split_largest_remainder(total: int, weights: Sequence[Any], labels: Sequence
 
 
 def presentation_amounts(advisory_minor: Any, base_minor: Any, weights: Sequence[Any],
-                         labels: Sequence[Any], exponent: int = 2) -> dict[str, Any]:
+                         labels: Sequence[Any], exponent: int = STORAGE_EXPONENT) -> dict[str, Any]:
     """Betraege der Soll-Darstellung in ganzen Waehrungseinheiten (App + PDF identisch).
 
     Beratungsvermoegen und Strategiebasis Half-up auf ganze Einheiten, Reserve =
@@ -426,8 +461,8 @@ def presentation_amounts(advisory_minor: Any, base_minor: Any, weights: Sequence
     nach Gewicht -- so summieren Klassen exakt auf die Basis und Basis + Reserve
     exakt auf das Beratungsvermoegen. ``labels`` = Engine-Schluessel.
     """
-    adv = max(0, int(advisory_minor or 0))
-    base_raw = adv if base_minor is None else max(0, int(base_minor))
+    adv = max(0, _require_int(advisory_minor or 0, "Beratungsvermoegen"))
+    base_raw = adv if base_minor is None else max(0, _require_int(base_minor, "Strategiebasis"))
     base = whole_units(min(base_raw, adv), exponent)
     advisory = whole_units(adv, exponent)
     keys = [asset_class_key(lb) for lb in labels]
@@ -497,6 +532,8 @@ def run_case(fn: str, args: Sequence[Any], typography: str) -> Any:
     if fn == "apportion_percent_bps":
         return format_apportioned_percent_bps(args[0], args[1], typography=t,
                                               target_display=args[2] if len(args) > 2 else None)
+    if fn == "stored_amount":
+        return format_stored_amount(args[0], args[1], int(args[2]) if len(args) > 2 else 0, typography=t)
     if fn == "presentation_amounts":
         r = presentation_amounts(args[0], args[1], args[2], args[3], int(args[4]) if len(args) > 4 else 2)
         return [str(r["advisory_units"]), str(r["base_units"]), str(r["reserve_units"])] + [str(u) for u in r["bucket_units"]]
@@ -510,10 +547,6 @@ def run_case(fn: str, args: Sequence[Any], typography: str) -> Any:
 # PDF-Komfortfunktionen (Typografie ``plain``); services.pdf.components.swiss_numbers
 # re-exportiert sie. Komponenten importieren direkt aus diesem Blattmodul.
 # ---------------------------------------------------------------------------
-
-def _exponent_or_default(currency: str) -> int:
-    return CURRENCY_EXPONENTS.get(str(currency or "").upper().strip(), 2)
-
 
 def format_bps_as_pct(bps: Any, *, decimals: int = 1) -> str:
     """``4250 -> 42.5 %``; keine Angabe -> ``NO_VALUE``."""
@@ -535,9 +568,10 @@ def format_number(value: Any, *, decimals: int = 0) -> str:
 
 
 def format_amount_minor(minor: Any, currency: str = "CHF", *, decimals: int = 0) -> str:
-    """Minor-Units der Waehrung -> ``CHF 12'345`` (ganze Einheiten, Half-up)."""
+    """Gespeicherter Ares-Betrag (Rappen-Feld, Exponent 2) -> ``CHF 12'345``
+    (ganze Einheiten, Half-up). JPY: ``JPY 84'126'984`` (N-894-01)."""
     unit = str(currency or "CHF").upper().strip() or "CHF"
-    return format_money_minor(minor, unit, _exponent_or_default(unit), decimals)
+    return format_stored_amount(minor, unit, decimals)
 
 
 def format_minor_number(minor: Any, *, exponent: int = 2, decimals: int = 0) -> str:
@@ -570,7 +604,7 @@ def sub_allocation_pct_texts(class_display_pct: str, subs: Mapping[str, Any], cl
 
 __all__ = [
     "CANONICAL_ASSET_CLASS_ORDER", "CURRENCY_EXPONENTS", "GOLDEN_FILENAME", "NO_VALUE",
-    "ROUNDING_POLICY_VERSION", "allocation_pct_texts", "apportion_bucket_bps",
+    "ROUNDING_POLICY_VERSION", "STORAGE_EXPONENT", "allocation_pct_texts", "display_decimals", "format_stored_amount", "apportion_bucket_bps",
     "apportion_percent_bps", "apportion_sub_bps", "apportion_units", "asset_class_key", "currency_exponent",
     "format_amount_minor", "format_apportioned_percent_bps", "format_bps_as_pct",
     "format_bps_signed_pct", "format_compact_amount", "format_decimal", "format_minor_number",

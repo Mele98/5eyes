@@ -172,7 +172,7 @@ ENV_ATTRS = frozenset({"environ", "getenv", "putenv", "unsetenv"})
 #     Ziel jedes Service-Imports der DomainError-Migration (nur enum/typing).
 #   core.presentation_rounding -- G7 (2026-11-11): gemeinsamer Rundungsformatter
 #     (Policy ares-rounding/1) fuer alle PDF-Komponenten; reine Darstellung, nur
-#     json/decimal/typing -- jede Komponente nutzt ihn, ohne Projektkopplung.
+#     json/typing (Ganzzahl-Dezimalarithmetik) -- ohne Projektkopplung.
 FAN_OUT_EXEMPT_LEAVES = frozenset({"core.evidence", "core.reason_codes", "core.presentation_rounding"})
 _STDLIB = frozenset(sys.stdlib_module_names) | {"__future__"}
 _DYNAMIC_IMPORT_CALLS = frozenset({"__import__", "import_module"})

@@ -87,9 +87,16 @@ RULES: list[tuple[str, str, str, str, str]] = [
 RAW = re.compile(r"\.toFixed\(|Intl\.NumberFormat|toLocaleString\(|Math\.round\(|\bround\(|\.quantize\(|ROUND_HALF|:\.[0-9]+[f%]")
 
 
+# Anzeige-Senken: eine rohe Rundung auf einer solchen Zeile ist nie "rechnend" per Regel.
+SINK = re.compile(r"textContent|innerHTML|setText\(|aria-label|title=|Error\(|return\s+'|\+\s*'[^']*%|\.label\b|label:\s*function|tipFormat|<td|<span|<div")
+
+
 def _classify_one(site: dict) -> tuple[str, str, str]:
-    """FALSE_POSITIVE-Regeln zuerst; rohe Rundung -> COMPUTATION_KEEP-Regel oder
-    Einzelentscheid; sonst Formatter-Aufruf -> MIGRATE/done."""
+    """N-894-03: COMPUTATION_KEEP nur per Einzelentscheid (Overrides-Datei = die
+    Ausnahme-Annotation je Stelle, mit Datenfluss-Begruendung). Regeln liefern fuer
+    rohe Rundung hoechstens einen Vorschlag; ohne Einzelentscheid ist die Stelle
+    UNCLASSIFIED (Test rot). FALSE_POSITIVE und MIGRATE/done (Formatter-Aufruf ohne
+    rohe Rundung) bleiben regelbasiert."""
     src = site["source"]
     override = OVERRIDES.get(_key(site))
     if override:
@@ -101,15 +108,16 @@ def _classify_one(site: dict) -> tuple[str, str, str]:
             return c, st, why
     if RAW.search(src):
         for c, st, why, file_re, src_re in RULES:
-            if (c == "COMPUTATION_KEEP" ) and re.search(file_re, site["file"]) and re.search(src_re, src):
-                return c, st, why
+            if c == "COMPUTATION_KEEP" and re.search(file_re, site["file"]) and re.search(src_re, src):
+                hint = "Anzeige-Senke! " if SINK.search(src) else ""
+                return "UNCLASSIFIED", "", "Vorschlag (Einzelentscheid noetig): " + hint + why
         return "UNCLASSIFIED", "", ""
     for c, st, why, file_re, src_re in RULES:
         if (c, st) == ("MIGRATE", "done") and re.search(file_re, site["file"]) and re.search(src_re, src):
             return c, st, why
     for c, st, why, file_re, src_re in RULES:
         if c == "COMPUTATION_KEEP" and why.startswith("Eingabefeld") and re.search(file_re, site["file"]) and re.search(src_re, src):
-            return c, st, why
+            return "UNCLASSIFIED", "", "Vorschlag (Einzelentscheid noetig): " + why
     return "UNCLASSIFIED", "", ""
 
 

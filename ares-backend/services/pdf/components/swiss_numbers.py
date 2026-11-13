@@ -17,6 +17,7 @@ from typing import Mapping
 from core.presentation_rounding import (  # noqa: F401  (Re-Export fuer bestehende Aufrufer)
     CURRENCY_EXPONENTS,
     NO_VALUE,
+    STORAGE_EXPONENT,
     allocation_pct_texts,
     format_amount_minor,
     format_bps_as_pct,
@@ -30,10 +31,6 @@ from core.presentation_rounding import (  # noqa: F401  (Re-Export fuer bestehen
 )
 
 
-def _exponent(currency: str) -> int:
-    return CURRENCY_EXPONENTS.get(str(currency or "").upper().strip(), 2)
-
-
 def format_chf_rappen(rappen: int | None, *, with_unit: bool = True, currency: str = "CHF") -> str:
     """`1234500` → `CHF 12'345`. None → '—' falls with_unit, sonst '0'.
 
@@ -45,7 +42,8 @@ def format_chf_rappen(rappen: int | None, *, with_unit: bool = True, currency: s
     if to_decimal(rappen) is None:
         return NO_VALUE if with_unit else "0"
     unit = str(currency or "CHF").upper().strip() or "CHF"
-    text = format_money_minor(rappen, unit, _exponent(unit), 0)
+    # N-894-01: Rappen-Felder immer Exponent 2 (auch JPY), Anzeige ganze Einheiten.
+    text = format_money_minor(rappen, unit, STORAGE_EXPONENT, 0)
     return text if with_unit else text[len(unit) + 1:]
 
 

@@ -118,6 +118,22 @@ export function currencyExponent(currency: string): number {
   if (!(c in CURRENCY_EXPONENTS)) throw new Error(`Minor-Unit-Exponent unbekannt: ${currency}`);
   return CURRENCY_EXPONENTS[c];
 }
+/** N-894-01: Speicher-Exponent aller *_rappen-Felder (auch JPY). */
+export const STORAGE_EXPONENT = 2;
+function requireInt(v: unknown, what: string): number {
+  const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+  if (typeof n !== 'number' || !Number.isFinite(n) || Math.floor(n) !== n) throw new Error(`${what}: Ganzzahl erwartet`);
+  return n;
+}
+export function displayDecimals(currency: string): number {
+  return minorExponent(currency);
+}
+/** Gespeicherter Ares-Betrag (Exponent 2) -> Anzeige, hoechstens ISO-Nachkommastellen. */
+export function formatStoredAmount(rappen: Numeric, currency: string, decimals = 0, opts: FormatOptions = {}): string {
+  const unit = String(currency ?? '').toUpperCase().trim();
+  if (!unit) throw new Error('Waehrung ist Pflicht');
+  return formatMoneyMinor(rappen, unit, STORAGE_EXPONENT, Math.min(decimals, displayDecimals(unit)), opts);
+}
 export function minorExponent(currency: string): number {
   const c = String(currency ?? '').toUpperCase().trim();
   return c in CURRENCY_EXPONENTS ? CURRENCY_EXPONENTS[c] : 2;
@@ -229,7 +245,7 @@ function wholeUnits(minor: Numeric, exponent: number): bigint {
 }
 /** Largest Remainder; Gleichstand: groesseres Gewicht, dann Label, dann Position. */
 export function splitLargestRemainder(total: bigint, weights: Numeric[], labels: string[]): bigint[] {
-  const clean = weights.map((w) => BigInt(Math.max(0, Math.round(Number(w) || 0))));
+  const clean = weights.map((w) => BigInt(Math.max(0, requireInt(w, 'Gewicht'))));
   const sum = clean.reduce((a, b) => a + b, ZERO);
   if (sum <= ZERO || total <= ZERO) return clean.map(() => ZERO);
   const floors = clean.map((w) => (total * w) / sum);
@@ -246,10 +262,10 @@ export function splitLargestRemainder(total: bigint, weights: Numeric[], labels:
 }
 /** Soll-Betraege in ganzen Einheiten (identisch zu core/presentation_rounding.py). */
 export function presentationAmounts(
-  advisoryMinor: Numeric, baseMinor: Numeric, weights: Numeric[], labels: unknown[], exponent = 2,
+  advisoryMinor: Numeric, baseMinor: Numeric, weights: Numeric[], labels: unknown[], exponent = STORAGE_EXPONENT,
 ) {
-  const adv = Math.max(0, Math.round(Number(advisoryMinor) || 0));
-  const baseRaw = baseMinor === null || baseMinor === undefined ? adv : Math.max(0, Math.round(Number(baseMinor) || 0));
+  const adv = Math.max(0, requireInt(advisoryMinor ?? 0, 'Beratungsvermoegen'));
+  const baseRaw = baseMinor === null || baseMinor === undefined ? adv : Math.max(0, requireInt(baseMinor, 'Strategiebasis'));
   const base = wholeUnits(Math.min(baseRaw, adv), exponent);
   const advisory = wholeUnits(adv, exponent);
   const keys = labels.map(assetClassKey);
@@ -263,6 +279,23 @@ export function presentationAmounts(
 export function canonicalRank(key: string): number {
   const i = (CANONICAL_ASSET_CLASS_ORDER as readonly string[]).indexOf(String(key ?? ''));
   return i < 0 ? CANONICAL_ASSET_CLASS_ORDER.length : i;
+}
+/** N-894-02: Soll-Anteile einer Bucket-Liste gemeinsam apportionieren -> Map asset_class -> Anzeige. */
+export function bucketPctMap(
+  buckets: { asset_class?: string | null; target_weight_bps?: number | null }[] | null | undefined,
+  opts: FormatOptions = {},
+): Record<string, string> {
+  const list = (buckets ?? []).map((b, i) => ({ b, i }))
+    .filter((x) => x.b && Number(x.b.target_weight_bps) > 0)
+    .sort((x, y) => (canonicalRank(assetClassKey(x.b.asset_class)) - canonicalRank(assetClassKey(y.b.asset_class))) || (x.i - y.i));
+  const out: Record<string, string> = {};
+  if (!list.length) return out;
+  const shown = formatApportionedPercentBps(list.map((x) => Math.round(Number(x.b.target_weight_bps))), 1, opts);
+  list.forEach((x, k) => {
+    out[String(x.b.asset_class)] = shown[k];
+    out[assetClassKey(x.b.asset_class)] = shown[k];
+  });
+  return out;
 }
 export function presentationArtifact(raw: unknown, unit: string, display: string) {
   return { raw, unit, policy_version: POLICY_VERSION, display };
@@ -289,6 +322,8 @@ export function runCase(fn: string, args: unknown[], typography: Typography): st
       return formatApportionedPercentBps(args[0] as Numeric[], Number(args[1]), {
         typography, targetDisplay: args.length > 2 ? (args[2] as Numeric) : null,
       });
+    case 'stored_amount':
+      return formatStoredAmount(a[0], String(args[1]), opt(2, 0), o);
     case 'presentation_amounts': {
       const pa = presentationAmounts(a[0], a[1], args[2] as Numeric[], args[3] as unknown[], opt(4, 2));
       return [String(pa.advisory), String(pa.base), String(pa.reserve), ...pa.buckets.map(String)];

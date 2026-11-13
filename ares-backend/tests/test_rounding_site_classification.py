@@ -68,3 +68,30 @@ def test_core_customer_evidence_paths_have_no_open_site():
     bad = [(r["file"], r["line"]) for r in result["sites"]
            if r["file"] in CORE_FILES and r["class"] == "MIGRATE" and r["status"] == "open"]
     assert bad == []
+
+
+def test_computation_keep_only_by_per_site_decision():
+    """N-894-03: Regeln liefern fuer rohe Rundung nur Vorschlaege; ohne Einzelentscheid
+    (Overrides-Datei = Ausnahme-Annotation je Stelle) ist keine Stelle KEEP."""
+    saved = dict(C.OVERRIDES)
+    try:
+        C.OVERRIDES.clear()
+        result = C.classify(ROOT)
+    finally:
+        C.OVERRIDES.update(saved)
+    assert not [r for r in result["sites"] if r["class"] == "COMPUTATION_KEEP"]
+    keep = [r for r in C.classify(ROOT)["sites"] if r["class"] == "COMPUTATION_KEEP"]
+    assert keep and all(r["reason"].strip() for r in keep)
+
+
+def test_keep_on_display_sink_lines_is_explicitly_justified():
+    """Rohe Rundung auf einer Anzeige-Zeile (textContent/innerHTML/setText/...) nur mit
+    begruendetem Einzelentscheid (Geometrie, Eingabefeld, Achse, Umrechnung)."""
+    rows = [r for r in C.classify(ROOT)["sites"] if r["class"] == "COMPUTATION_KEEP"]
+    allowed = ("CSS-", "Eingabefeld", "Achse", "Umrechnung", "Geometrie", "formatBandPercent", "Zwischenwert")
+    bad = []
+    for r in rows:
+        full = (ROOT / r["file"]).read_text(encoding="utf-8").splitlines()[r["line"] - 1]
+        if C.RAW.search(full) and C.SINK.search(full) and not any(a in r["reason"] for a in allowed):
+            bad.append((r["file"], r["line"], r["reason"][:80]))
+    assert bad == [], bad

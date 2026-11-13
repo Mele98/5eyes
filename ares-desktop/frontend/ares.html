@@ -983,12 +983,12 @@ function _renderSollIstCompare(){
       var sMain=_mainLast(sollDs), iMain=_mainLast(istDs);
       var box=document.getElementById('m-sollist-delta');
       if(box&&sMain!=null&&iMain!=null){
-        var deltaChf=Math.round((sMain-iMain)*1000);
+        var deltaRappen=Math.round((sMain-iMain)*100000);
         var hLabel=labels.length?String(labels[labels.length-1]):'Horizont';
         box.style.display='';
         box.style.color='var(--n7)';
         box.style.background='var(--bg)';
-        box.innerHTML='Differenz der Median-Endwerte SOLL − IST bis '+escapeHtml(hLabel)+': '+(deltaChf>=0?'+':'−')+'CHF '+fmtLocaleCH(Math.abs(deltaChf))+' (Modellrechnung: Differenz zweier Mediane, nicht der Median der Differenz; keine Garantie)';
+        box.innerHTML='Differenz der Median-Endwerte SOLL − IST bis '+escapeHtml(hLabel)+': '+formatSignedRappen(deltaRappen)+' (Modellrechnung: Differenz zweier Mediane, nicht der Median der Differenz; keine Garantie)';
       } else if(box){ box.style.display='none'; }
       // Roadmap #105: aria-label mit dem tatsaechlichen Endwert (mittleres Szenario)
       // fuellen -- ein statisches Label kann den Zahlenwert nicht abbilden.
@@ -6657,8 +6657,8 @@ function engineRebalanceModeLabel(mode){
   return map[key]||key;
 }
 function buildEngineSummaryCards(result, sim, mc){
-  var advisoryChf=Math.round(Number(result.advisory_wealth_rappen||0)/100);
-  var totalChf=Math.round(Number(result.total_wealth_rappen||0)/100);
+  var advisoryChf=Number(result.advisory_wealth_rappen||0)/100;
+  var totalChf=Number(result.total_wealth_rappen||0)/100;
   var rebalanceCount=sim&&Array.isArray(sim.rebalancing_events)?sim.rebalancing_events.length:0;
   return [
     {label:'House Matrix',value:(result.house_matrix_profile||'n/a')+' / Score '+String(result.score_bucket||'-'),sub:'Risikoprofil setzt das Maximalbudget'},
@@ -6926,10 +6926,10 @@ var PLAN_SOLVENCY_LABEL='Plan-Solvenz (alle Ziele gemeinsam)';
 var PRIORITY_FUNDED_LABEL='Erfolgswahrscheinlichkeit nach Priorit\u00e4t';
 function planSolvencyHtml(plan){
   if(!plan)return '';
-  var pct=Math.round(Number(plan.probability||0)*100);
+  var pct=Number(plan.probability||0)*100;
   return '<div class="goal-plan-solvency" data-scope="joint_plan" style="display:flex;justify-content:space-between;gap:8px;font-size:10px;color:var(--n6);padding:6px 8px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r)">'
     +'<span title="Anteil der simulierten Pfade, auf denen alle Ziele gemeinsam finanziert sind.">'+escapeHtml(PLAN_SOLVENCY_LABEL)+'</span>'
-    +'<strong style="color:var(--n8)">'+escapeHtml(pct+'%')+'</strong>'
+    +'<strong style="color:var(--n8)">'+escapeHtml(fmtProbPct(pct))+'</strong>'
     +'</div>';
 }
 function goalById(goalId){
@@ -7487,7 +7487,7 @@ var portfolioTechnicalExpandedRows = {};
 var currentCashflowEditId = null;
 var currentGoalEditId = null;
 
-function fmtCHF(n){if(n===null||n===undefined)return '–';return 'CHF '+AresRounding.formatDecimal(n,0,{typography:'screen'});}
+function fmtCHF(n){if(n===null||n===undefined)return '–';return appCurrency()+' '+AresRounding.formatDecimal(n,0,{typography:'screen'});}
 
   function loadPersona(pid){
     const p=PERSONAS.find(x=>x.id===pid);
@@ -7847,7 +7847,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
     +'<div style="font-size:12px;color:rgba(255,255,255,0.55);margin-top:4px">Vertraulich · Erstellt am '+escapeHtml(today)+'</div></div>'
     +'<div style="text-align:right"><div style="font-size:11px;color:rgba(255,255,255,0.7);font-weight:500">'+escapeHtml(reportSubject)+'</div>'
     +'<div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:3px">'+escapeHtml(mandateLabel)+'</div>'
-    +(advisoryChf?'<div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:6px">Beratungsvermögen<br><span style="font-size:15px;font-weight:700;color:#fff">CHF '+fmtNumber(advisoryChf,0)+'</span></div>':'')
+    +(advisoryChf?'<div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:6px">Beratungsvermögen<br><span style="font-size:15px;font-weight:700;color:#fff">'+formatRappen(allocation.advisory_wealth_rappen)+'</span></div>':'')
     +'</div></div></div>';
   // Section 1b: Kenntnisse & Erfahrungen (Eignungspruefung Seite 1)
   var keHtml='';
@@ -7892,15 +7892,14 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
     +'</div></div>';
   // Section 3: Soll-Allokation
   var totalTargetBps=buckets.reduce(function(s,b){return s+Math.max(0,Number(b.target_weight_bps||0));},0)||10000;
-  // G7: Anteile apportioniert wie Legende/PDF.
-  var _dosOrder=buckets.map(function(b,i){return i;}).sort(function(a,b){return (AresRounding.canonicalRank(buckets[a].asset_class)-AresRounding.canonicalRank(buckets[b].asset_class))||(a-b);});
-  var _dosShown=AresRounding.formatApportionedPercentBps(_dosOrder.map(function(i){return Math.max(0,Math.round(Number(buckets[i].target_weight_bps||0)));}),1,{typography:'screen'});
-  var _dosPct={};_dosOrder.forEach(function(i,k){_dosPct[i]=_dosShown[k];});
-  var allocTableRows=buckets.map(function(bucket,_bi){
-    var pct=_dosPct[_bi];
+  // G7: Anteile und Betraege wie Legende/PDF (bucketPctMap, presentationAmounts).
+  var _pm=AresRounding.bucketPctMap(buckets,{typography:'screen'}),_pos=buckets.filter(function(b){return Number(b.target_weight_bps)>0;});
+  var _rb=allocation?allocationReserveBreakdown(allocation):null,_pa=_rb&&AresRounding.presentationAmounts(_rb.advisoryRappen,_rb.strategyBaseRappen,_pos.map(function(b){return b.target_weight_bps;}),_pos.map(function(b){return b.asset_class;}),2);
+  var allocTableRows=buckets.map(function(bucket){
+    var pct=_pm[String(bucket.asset_class)]||fmtPct(0,1),_k=_pos.indexOf(bucket);
     var bandMin=fmtPct(Number(bucket.band_min_bps||0),1);
     var bandMax=fmtPct(Number(bucket.band_max_bps||0),1);
-    var amtChf=allocation?Number(bucket.target_amount_rappen||0):0;
+    var amtChf=_pa&&_k>=0?_pa.buckets[_k]:0;
     var color=bucketColor(bucket.asset_class);
     var barPct=(Number(bucket.target_weight_bps||0)/totalTargetBps*100).toFixed(1);
     return '<tr>'
@@ -7908,7 +7907,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
       +'<td style="padding:8px 12px;font-size:11px;font-weight:600;color:#0f172a;text-align:right">'+pct+'</td>'
       +'<td style="padding:8px 12px;"><div style="height:8px;background:#e2e8f0;border-radius:4px;width:100%"><div style="height:100%;width:'+barPct+'%;background:'+color+';border-radius:4px"></div></div></td>'
       +'<td style="padding:8px 12px;font-size:10px;color:#64748b;text-align:center">'+bandMin+' – '+bandMax+'</td>'
-      +(amtChf?'<td style="padding:8px 12px;font-size:11px;color:#334155;text-align:right">'+formatRappen(bucket.target_amount_rappen)+'</td>':'<td style="padding:8px 12px;font-size:11px;color:#94a3b8;text-align:right">—</td>')
+      +(amtChf?'<td style="padding:8px 12px;font-size:11px;color:#334155;text-align:right">'+formatRappen(amtChf*100)+'</td>':'<td style="padding:8px 12px;font-size:11px;color:#94a3b8;text-align:right">—</td>')
       +'</tr>';
   }).join('');
   var totalAmtChf=advisoryChf;
@@ -7923,7 +7922,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
     +'<th style="padding:6px 12px;font-size:9px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:#94a3b8;text-align:right">Betrag</th>'
     +'</tr></thead>'
     +'<tbody>'+allocTableRows+'</tbody>'
-    +(totalAmtChf?'<tfoot><tr style="border-top:2px solid #e2e8f0"><td colspan="4" style="padding:8px 12px;font-size:10px;font-weight:600;color:#334155">Total Beratungsvermögen</td><td style="padding:8px 12px;font-size:11px;font-weight:700;color:#0f172a;text-align:right">CHF '+fmtNumber(totalAmtChf,0)+'</td></tr></tfoot>':'')
+    +(totalAmtChf?'<tfoot><tr style="border-top:2px solid #e2e8f0"><td colspan="4" style="padding:8px 12px;font-size:10px;font-weight:600;color:#334155">Total Beratungsvermögen</td><td style="padding:8px 12px;font-size:11px;font-weight:700;color:#0f172a;text-align:right">'+formatRappen(_pa?_pa.advisory*100:totalAmtChf*100)+'</td></tr></tfoot>':'')
     +'</table></div>':'';
   // Section 4: Portfolio implementation
   function reportPositionAmountRappen(row){
@@ -8130,7 +8129,7 @@ function openPortfolioUmsetzenModal(){
     var totalAdvisoryRappen=Math.round(Number(alloc.advisory_wealth_rappen||0));
     var rowsHtml=(alloc.buckets||[]).map(function(b){
       var label=ENGINE_LABELS[String(b.asset_class||'')]||String(b.asset_class||'');
-      var pct=formatBpsPercent(b.target_weight_bps);
+      var pct=sollPct(b.asset_class,b.target_weight_bps);
       var targetRappen=Number(b.target_amount_rappen!=null?b.target_amount_rappen:Math.round(totalAdvisoryRappen*Number(b.target_weight_bps||0)/10000));
       var bandInfo=(b.band_min_bps!=null&&b.band_max_bps!=null)
         ?'Band: '+formatBpsPercent(b.band_min_bps)+'–'+formatBpsPercent(b.band_max_bps)
@@ -12652,9 +12651,7 @@ async function downloadCostDisclosurePdf(){
 // Parameter aller Aufrufer in renderCostDisclosure(); der Default greift nur
 // defensiv, falls diese Funktion je ohne Waehrungsangabe aufgerufen wird.
 function _formatRappenChf(rappen, currency){
-  var unit=String(currency||'CHF').toUpperCase().trim()||'CHF';
-  var exp=AresRounding.CURRENCY_EXPONENTS[unit];
-  return AresRounding.formatMoneyMinor(Number(rappen||0),unit,exp==null?2:exp,0,{typography:'screen'});
+  return AresRounding.formatStoredAmount(Number(rappen||0),String(currency||'CHF').toUpperCase().trim()||'CHF',0,{typography:'screen'});
 }
 
 async function openBausteineModal(){
@@ -13891,7 +13888,7 @@ function btRenderLineChart(container, series, opts){
   btAttachChartHover(container, {
     series: series, xMin: xMin, xMax: xMax, marginLeft: marginLeft,
     innerW: innerW, W: W, H: H, xPx: xPx, yPx: yPx,
-    tipFormat: opts.tipFormat || opts.yFormat || function(v){ return String(Math.round(v)); },
+    tipFormat: opts.tipFormat || opts.yFormat || function(v){ return fmtNumber(v,0); },
     tipDeltaFormat: opts.tipDeltaFormat || null,
     isDrawdown: !!opts.isDrawdown
   });
@@ -15079,10 +15076,10 @@ function prefillRiskCapacityFromCashflows(){
     else if(type==='Expense')annualObligationsChf+=annualized;
   });
   if(incomeLooksDefault&&annualIncomeChf>0){
-    setInputValue('rp-income-annual','CHF '+fmtLocaleCH(Math.round(annualIncomeChf)));
+    setInputValue('rp-income-annual',fmtCHF(annualIncomeChf));
   }
   if(obligationsLooksDefault&&annualObligationsChf>0){
-    setInputValue('rp-obligations-annual','CHF '+fmtLocaleCH(Math.round(annualObligationsChf)));
+    setInputValue('rp-obligations-annual',fmtCHF(annualObligationsChf));
   }
   if((incomeLooksDefault&&annualIncomeChf>0)||(obligationsLooksDefault&&annualObligationsChf>0)){
     if(typeof calcRiskScore==='function')calcRiskScore();
@@ -17376,7 +17373,7 @@ function resetAdvisoryLogModal(){
     if (driftInfo) {
       if (bucket) {
         var currentPct = fmtPct(bucket.current_weight_bps, 1);
-        var targetPct  = fmtPct(bucket.target_weight_bps, 1);
+        var targetPct  = sollPct(bucket.asset_class, bucket.target_weight_bps);
         var bandMaxPct = fmtPct(bucket.band_max_bps, 1);
         var driftPp    = fmtNumber(Math.abs(bucket.delta_weight_bps) / 100, 1);
         var rebalChf   = bucket.rebalance_amount_rappen ? formatRappen(bucket.rebalance_amount_rappen) : null;
@@ -17466,7 +17463,7 @@ function resetAdvisoryLogModal(){
     var numerator=Math.max(0,Number(part||0));
     var denominator=Math.max(0,Number(total||0));
     if(!denominator)return 0;
-    return Math.max(0,Math.min(100,Math.round((numerator/denominator)*100)));
+    return Math.max(0,Math.min(100,numerator/denominator*100));
   }
   function prependWealthSplitSummary(meta){
     var av=document.getElementById('asset-view');
@@ -17490,9 +17487,9 @@ function resetAdvisoryLogModal(){
         + '<div style="font-size:10px;color:var(--n5);margin-top:3px;line-height:1.45">'+escapeHtml(subline)+'</div>'
         + '</div>';
     };
-    var advisoryNote=String(advisoryPct||0)+'% des Bruttovermögens · '+String(Number(meta&&meta.advisoryCount||0))+' Position(en)';
-    var otherNote=String(otherPct||0)+'% ausserhalb Beratung · '+String(Number(meta&&meta.otherCount||0))+' Position(en)';
-    var liabilityNote=String(grossChf?wealthSharePercent(liabilitiesChf,grossChf):0)+'% Abzug · '+String(Number(meta&&meta.liabilityCount||0))+' Verbindlichkeit(en)';
+    var advisoryNote=AresRounding.formatPercent(advisoryPct||0,0,{typography:'screen'})+' des Bruttovermögens · '+String(Number(meta&&meta.advisoryCount||0))+' Position(en)';
+    var otherNote=AresRounding.formatPercent(otherPct||0,0,{typography:'screen'})+' ausserhalb Beratung · '+String(Number(meta&&meta.otherCount||0))+' Position(en)';
+    var liabilityNote=AresRounding.formatPercent(grossChf?wealthSharePercent(liabilitiesChf,grossChf):0,0,{typography:'screen'})+' Abzug · '+String(Number(meta&&meta.liabilityCount||0))+' Verbindlichkeit(en)';
     var liabilityValue=liabilitiesChf?('−'+fmtCHF(liabilitiesChf)):'CHF 0';
     var summaryHtml='<div data-wealth-split="1" style="margin-bottom:14px;padding:12px;border:1px solid var(--b1);border-radius:var(--r2);background:linear-gradient(135deg,#fbfcff 0%,#f4f6fb 100%)">'
       + '<div style="display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,0.85fr);gap:12px;align-items:stretch">'
@@ -18739,22 +18736,7 @@ function setText(id,text){
   var el=document.getElementById(id);
   if(el)el.textContent=text;
 }
-// AA-UX-FORMAT-001: EIN Zahlenformat-Vertrag fuer App und Report. Identische
-// Regeln in reporting/src/lib/format.ts; Vertragstest:
-// tests/test_monolith_number_format_contract.py (fuehrt beide Implementierungen
-// mit denselben Faellen aus).
-//  - Prozent fmtPct(bps,d=1): feste Nachkommastellen (keine springenden
-//    Stellen in einer Spalte), Dezimalpunkt wie de-CH, geschuetztes Leerzeichen
-//    vor "%": 1234 bps -> "12.3 %", 1200 -> "12.0 %".
-//  - Minus immer U+2212 ("−"), nie Bindestrich; Plus nur bei fmtSignedPct;
-//    ein auf 0 gerundeter Wert traegt kein Vorzeichen.
-//  - Wahrscheinlichkeiten ganzzahlig (fmtProbPct), Sharpe 2 Stellen (fmtSharpe).
-//  - Rendite/Volatilitaet/CAGR aus der Simulation: 1 Nachkommastelle (0.01 %
-//    waere Scheingenauigkeit). Kosten (TER) bleiben bewusst 2 Stellen.
-//  - CHF kompakt immer "Mio." (formatCompactCHF).
-//  - Zahlenzellen: tabular-nums + rechtsbuendig (CSS .num / Tabellen-Regel).
-// CIO-Entscheid 2026-10-19: Apostroph U+0027 ("CHF 1'250'000"). G7: fmtLocaleCH
-// ersetzt toLocaleString (gleiche Stellenlogik, Half-up ueber AresRounding).
+// AA-UX-FORMAT-001/G7: Zahlenformat-Regeln in presentation-rounding.js.
 function fmtLocaleCH(value,opts){
   var n=Number(value),o=opts||{},mn=o.minimumFractionDigits||0;
   var mx=o.maximumFractionDigits!=null?o.maximumFractionDigits:Math.max(3,mn);
@@ -18797,8 +18779,11 @@ function formatProbabilityPct(value){
   if(value===null||value===undefined||value==='')return 'n/a';
   return fmtProbPct(Math.max(0,Math.round(Number(value||0))));
 }
+// G7 N-894-02/05: Soll-Anteil apportioniert; Waehrung aus dem Mandat.
+function sollPct(cls,bps){var a=typeof strategyState!=='undefined'&&strategyState&&strategyState.allocation,m=AresRounding.bucketPctMap(a&&a.buckets,{typography:'screen'}),k=String(cls||'');return m[k]||m[AresRounding.assetClassKey(k)]||formatBpsPercent(bps);}
+function appCurrency(){return typeof aaChartCurrency==='function'?aaChartCurrency():'CHF';}
 function formatRappen(rappen){
-  return AresRounding.formatMoneyMinor(Number(rappen)||0,'CHF',2,0,{typography:'screen'});
+  return AresRounding.formatStoredAmount(Number(rappen)||0,appCurrency(),0,{typography:'screen'});
 }
 function formatSignedBpsPercent(bps){
   if(bps===null||bps===undefined||bps==='')return 'n/a';
@@ -18806,7 +18791,7 @@ function formatSignedBpsPercent(bps){
 }
 function formatSignedRappen(rappen){
   if(rappen===null||rappen===undefined||rappen==='')return 'n/a';
-  return AresRounding.formatSignedMoneyMinor(Number(rappen||0),'CHF',2,0,{typography:'screen'});
+  return AresRounding.formatSignedMoneyMinor(Number(rappen||0),appCurrency(),2,0,{typography:'screen'});
 }
 function recurringCashflowLabel(netRappen){
   var net=Number(netRappen||0);
@@ -18850,7 +18835,7 @@ function formatCompactCHFAmount(chf){
   return AresRounding.formatCompactAmount(isFinite(n)?n:0,{typography:'screen'});
 }
 function formatCompactCHF(chf){
-  return 'CHF '+formatCompactCHFAmount(chf);
+  return appCurrency()+' '+formatCompactCHFAmount(chf);
 }
 // AA-UX-HONEST-FAN-001 (UX-Audit Signature-Verbesserung 1 "Ehrlicher Faecher"):
 // Beschriftung des Vermoegensfaechers -- EIN Vertrag mit dem Report
@@ -19655,13 +19640,13 @@ function renderOverviewProjectionSummary(config){
   var currentAnnualNetCashflowRappen=Number(config&&config.currentAnnualNetCashflowRappen||0);
   var currentMixReturnBps=Number(config&&config.currentMixReturnBps||0);
   var horizonLabel=String(config&&config.horizonLabel||'Horizontende');
-  var deltaChf=Math.round((targetProjectedRappen-currentProjectedRappen)/100);
+  var deltaChf=(targetProjectedRappen-currentProjectedRappen)/100;
   var tone=deltaChf>=0?'var(--pos)':'var(--warn)';
   setText('ub-ist-terminal',formatCompactCHF(currentProjectedRappen/100));
   setText('ub-opt-terminal',formatCompactCHF(targetProjectedRappen/100));
   setText('ub-cagr-ist',fmtPct((currentMixReturnBps||currentCagrBps||0),1));
   setText('ub-cagr-opt',fmtPct((targetCagrBps||0),1));
-  setText('ub-delta-terminal',(deltaChf>=0?'+':'\u2212')+'CHF '+fmtLocaleCH(Math.abs(deltaChf)));
+  setText('ub-delta-terminal',formatSignedRappen(targetProjectedRappen-currentProjectedRappen));
   var note=document.getElementById('ub-projection-note');
   if(note){
     note.style.color='var(--n6)';
@@ -19688,7 +19673,7 @@ function updateAllocationProjectionComparison(config){
   var currentMixReturnBps=Number(config&&config.currentMixReturnBps||0);
   var targetCagrBps=Number(config&&config.targetCagrBps||0);
   var horizonLabel=String(config&&config.horizonLabel||'Horizontende');
-  var deltaChf=Math.round((targetProjectedRappen-currentProjectedRappen)/100);
+  var deltaChf=(targetProjectedRappen-currentProjectedRappen)/100;
   setText('aa-proj-current-wealth',formatCompactCHF(currentProjectedRappen/100));
   setText('aa-proj-target-wealth',formatCompactCHF(targetProjectedRappen/100));
   setText('aa-proj-current-metric',fmtPct((currentMixReturnBps||0),1));
@@ -19698,7 +19683,7 @@ function updateAllocationProjectionComparison(config){
   setText('aa-proj-current-sub','Beratungsvermoegen heute im aktuellen Mix mit '+fmtPct((currentMixReturnBps||0),1)+' p.a.; '+projectionCashflowNarrative(currentRecurringNetCashflowRappen,currentCapitalNetCashflowRappen,horizonLabel));
   var deltaEl=document.getElementById('aa-proj-compare-delta');
   if(deltaEl){
-    deltaEl.textContent='Vergleich bis '+horizonLabel+': '+(deltaChf>=0?'+':'−')+'CHF '+fmtLocaleCH(Math.abs(deltaChf))+' Mehrwert durch zielbasiertes Investieren nach Rebalancing-Kosten.';
+    deltaEl.textContent='Vergleich bis '+horizonLabel+': '+formatSignedRappen(targetProjectedRappen-currentProjectedRappen)+' Mehrwert durch zielbasiertes Investieren nach Rebalancing-Kosten.';
     deltaEl.style.color=deltaChf>=0?'var(--pos)':'var(--warn)';
     deltaEl.style.background=deltaChf>=0?'rgba(22,101,52,0.05)':'rgba(146,64,14,0.07)';
     deltaEl.style.borderColor=deltaChf>=0?'rgba(22,101,52,0.14)':'rgba(146,64,14,0.14)';
@@ -20477,11 +20462,13 @@ function renderSubAllocationGroups(items){
     var entries=groups[key]||[];
     var isExpanded=Object.prototype.hasOwnProperty.call(allocationSuballocExpanded,key)?Boolean(allocationSuballocExpanded[key]):true;
     var totalWeight=entries.reduce(function(sum,item){return sum+Number(item.target_weight_bps||0);},0);
+    var _cb=((strategyState.allocation||{}).buckets||[]).filter(function(b){return String(b.asset_class)===key;})[0],_cp=sollPct(key,totalWeight);
+    var _sp=AresRounding.subPctMap(_cp,entries.map(function(it){return {name:it.sub_asset_class,bps:it.target_weight_bps};}),_cb?_cb.target_weight_bps:totalWeight,{typography:'screen'});
     var body=isExpanded?entries.map(function(item){
       var riskValue=item.risky_fraction_bps==null||item.risky_fraction_bps===undefined?'n/a':formatBpsPercent(item.risky_fraction_bps||0);
-      return '<div style="display:grid;grid-template-columns:1.6fr 84px;gap:8px;align-items:center;padding:8px 9px;background:#fff;border:1px solid var(--b1);border-radius:var(--r)"><div><div style="font-size:11px;font-weight:600;color:var(--n8)">'+escapeHtml(item.sub_asset_class||item.asset_class||'Baustein')+'</div><div style="font-size:10px;color:var(--n5);margin-top:3px;line-height:1.55">'+escapeHtml(item.rationale||'Strategischer Baustein innerhalb der Zielallokation.')+'</div><div style="font-size:9px;color:var(--n4);margin-top:5px">Beraterhinweis / Risikoanteil '+escapeHtml(riskValue)+'</div></div><div style="text-align:right"><div style="font-size:9px;color:var(--n4);text-transform:uppercase;letter-spacing:0.06em">Soll</div><div style="font-size:11px;color:var(--n8);font-weight:600;margin-top:2px">'+formatBpsPercent(item.target_weight_bps||0)+'</div></div></div>';
+      return '<div style="display:grid;grid-template-columns:1.6fr 84px;gap:8px;align-items:center;padding:8px 9px;background:#fff;border:1px solid var(--b1);border-radius:var(--r)"><div><div style="font-size:11px;font-weight:600;color:var(--n8)">'+escapeHtml(item.sub_asset_class||item.asset_class||'Baustein')+'</div><div style="font-size:10px;color:var(--n5);margin-top:3px;line-height:1.55">'+escapeHtml(item.rationale||'Strategischer Baustein innerhalb der Zielallokation.')+'</div><div style="font-size:9px;color:var(--n4);margin-top:5px">Beraterhinweis / Risikoanteil '+escapeHtml(riskValue)+'</div></div><div style="text-align:right"><div style="font-size:9px;color:var(--n4);text-transform:uppercase;letter-spacing:0.06em">Soll</div><div style="font-size:11px;color:var(--n8);font-weight:600;margin-top:2px">'+(_sp[String(item.sub_asset_class)]||formatBpsPercent(item.target_weight_bps||0))+'</div></div></div>';
     }).join(''):'';
-    return '<div style="border:1px solid var(--b1);border-radius:var(--r2);background:var(--bg)"><button type="button" onclick="toggleSubAllocationGroup(decodeURIComponent(\''+encodeURIComponent(key)+'\'))" style="width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 10px;border:none;background:transparent;cursor:pointer"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;color:var(--n5)">'+(isExpanded?'v':'>')+'</span><div><div style="font-size:11px;font-weight:600;color:var(--n8);text-align:left">'+escapeHtml(assetDisplayName(key))+'</div><div style="font-size:9px;color:var(--n5);margin-top:2px;text-align:left">'+String(entries.length)+' strategische Subanlageklasse(n)</div></div></div><div style="display:flex;align-items:center;gap:10px"><span style="font-size:10px;color:var(--n5)">Zielbild</span><span style="font-size:11px;font-weight:600;color:var(--n8)">'+formatBpsPercent(totalWeight)+'</span></div></button>'+(isExpanded?('<div style="display:flex;flex-direction:column;gap:5px;padding:0 10px 10px">'+body+'</div>'):'')+'</div>';
+    return '<div style="border:1px solid var(--b1);border-radius:var(--r2);background:var(--bg)"><button type="button" onclick="toggleSubAllocationGroup(decodeURIComponent(\''+encodeURIComponent(key)+'\'))" style="width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 10px;border:none;background:transparent;cursor:pointer"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:12px;color:var(--n5)">'+(isExpanded?'v':'>')+'</span><div><div style="font-size:11px;font-weight:600;color:var(--n8);text-align:left">'+escapeHtml(assetDisplayName(key))+'</div><div style="font-size:9px;color:var(--n5);margin-top:2px;text-align:left">'+String(entries.length)+' strategische Subanlageklasse(n)</div></div></div><div style="display:flex;align-items:center;gap:10px"><span style="font-size:10px;color:var(--n5)">Zielbild</span><span style="font-size:11px;font-weight:600;color:var(--n8)">'+_cp+'</span></div></button>'+(isExpanded?('<div style="display:flex;flex-direction:column;gap:5px;padding:0 10px 10px">'+body+'</div>'):'')+'</div>';
   }).join('');
 }
 function toggleSubAllocationGroup(assetClass){
@@ -20616,8 +20603,8 @@ function renderPortfolioRebalancingSummary(_live,_result,_positions){
 }
 function clearStrategySummaryForDirtyState(){
   var snapshot=currentAllocationInputSnapshot();
-  var advisoryChf=Math.round(Number(snapshot.advisoryRappen||0)/100);
-  var totalChf=Math.round(Number(snapshot.totalNetRappen||0)/100);
+  var advisoryChf=Number(snapshot.advisoryRappen||0)/100;
+  var totalChf=Number(snapshot.totalNetRappen||0)/100;
   setText('sr-wealth',advisoryChf?formatCompactCHF(advisoryChf):'—');
   setText('sr-wealth-share',totalChf&&advisoryChf?AresRounding.formatPercent(advisoryChf/Math.max(1,totalChf)*100,0,{typography:'screen'})+' des Reinvermögens':'Strategie ausstehend');
   setGoalSuccessTile(null);
@@ -21515,8 +21502,8 @@ function renderStrategySummary(){
   if(!allocation)return;
   var risk=currentPersistedRiskForMandate(getActiveMandateId());
   var recommendation=strategyState.recommendation||null;
-  var advisoryChf=Math.round((Number(allocation.advisory_wealth_rappen||0))/100);
-  var totalChf=Math.round((Number(allocation.total_wealth_rappen||0))/100);
+  var advisoryChf=Number(allocation.advisory_wealth_rappen||0)/100;
+  var totalChf=Number(allocation.total_wealth_rappen||0)/100;
   var sim=simulationPayload(allocation);
   var projectedRappen=strategyMedianProjectionRappen(allocation);
   renderSimulationHorizonInfo(allocation);
@@ -21545,7 +21532,7 @@ function renderStrategySummary(){
   if(bars){
     bars.innerHTML=(allocation.buckets||[]).map(function(bucket){
       var pct=Math.max(0,Math.min(100,Math.round(Number(bucket.target_weight_bps||0)/100)));
-      return '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:10px;width:90px;color:var(--n6)">'+escapeHtml(assetDisplayName(bucket.asset_class))+'</span><div style="flex:1;height:6px;background:var(--bg2);border-radius:3px"><div style="width:'+pct+'%;height:100%;background:var(--n5);border-radius:3px"></div></div><span style="font-size:10px;font-weight:500;color:var(--n7);width:40px;text-align:right">'+formatBpsPercent(bucket.target_weight_bps)+'</span></div>';
+      return '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:10px;width:90px;color:var(--n6)">'+escapeHtml(assetDisplayName(bucket.asset_class))+'</span><div style="flex:1;height:6px;background:var(--bg2);border-radius:3px"><div style="width:'+pct+'%;height:100%;background:var(--n5);border-radius:3px"></div></div><span style="font-size:10px;font-weight:500;color:var(--n7);width:40px;text-align:right">'+sollPct(bucket.asset_class,bucket.target_weight_bps)+'</span></div>';
     }).join('');
   }
   var goals=document.getElementById('sr-goal-priority-list');
@@ -21595,7 +21582,7 @@ function renderSrImplementationDecision(entry){
         cards.push('<div style="border:1px solid var(--b1);border-radius:var(--r2);padding:10px">'
           +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><div style="width:20px;height:20px;border-radius:50%;background:'+item.meta.tone+';color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center">'+String(idx+1)+'</div><span style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(verb)+'</span></div>'
           +'<div style="font-size:10px;color:var(--n8);font-weight:500;margin-bottom:3px">'+escapeHtml(item.assetClass)+'</div>'
-          +'<div style="font-size:10px;color:var(--n6)">IST '+escapeHtml(formatBpsPercent(item.currentWeightBps))+' → SOLL '+escapeHtml(formatBpsPercent(item.targetWeightBps))+' · Delta '+escapeHtml(formatSignedBpsPercent(item.deltaWeightBps))+'</div>'
+          +'<div style="font-size:10px;color:var(--n6)">IST '+escapeHtml(formatBpsPercent(item.currentWeightBps))+' → SOLL '+escapeHtml(sollPct(item.assetClass,item.targetWeightBps))+' · Delta '+escapeHtml(formatSignedBpsPercent(item.deltaWeightBps))+'</div>'
           +'<div style="margin-top:5px"><span class="tag '+item.meta.tagClass+'">'+escapeHtml(item.meta.label)+'</span></div>'
           +'</div>');
       } else {
@@ -21631,8 +21618,8 @@ function renderSrApiSummary(risk,allocation,recommendation,cashflow,triggers){
     renderStrategySummary();
     return;
   }
-  var advisoryChf=Math.round(Number(activeAllocation.advisory_wealth_rappen||0)/100);
-  var totalChf=Math.round(Number(activeAllocation.total_wealth_rappen||0)/100);
+  var advisoryChf=Number(activeAllocation.advisory_wealth_rappen||0)/100;
+  var totalChf=Number(activeAllocation.total_wealth_rappen||0)/100;
   var sim=simulationPayload(activeAllocation);
   var projectedRappen=strategyMedianProjectionRappen(activeAllocation);
   var scoredGoals=Array.isArray(activeAllocation.goal_analysis)?activeAllocation.goal_analysis:[];
@@ -21670,7 +21657,7 @@ if(cashflow&&cashflow.recurring_net_rappen!=null)goalSubParts.push('Laufend '+fo
         +'<div style="width:8px;height:8px;border-radius:2px;background:'+color+';flex-shrink:0"></div>'
         +'<span style="font-size:10px;color:var(--n6)">'+escapeHtml(assetDisplayName(bucket.asset_class))+'</span>'
         +'<div style="height:7px;background:var(--bg2);border-radius:3px"><div style="width:'+pct+'%;height:100%;background:'+color+';border-radius:3px;opacity:0.85"></div></div>'
-        +'<span style="font-size:10px;font-weight:600;color:var(--n7);text-align:right">'+formatBpsPercent(bucket.target_weight_bps)+'</span>'
+        +'<span style="font-size:10px;font-weight:600;color:var(--n7);text-align:right">'+sollPct(bucket.asset_class,bucket.target_weight_bps)+'</span>'
         +'<span style="font-size:10px;color:var(--n5);text-align:right">'+escapeHtml(targetValue)+'</span>'
         +'</div>';
     }).join('');
@@ -23602,7 +23589,7 @@ function updateCashflowsAndGoalsKpis(summary){
   var capitalNet=summaryCapitalNetCashflowRappen(summary);
   var income=Number(summary&&summary.recurring_income_rappen!=null?summary.recurring_income_rappen:summary&&summary.total_income_rappen||0);
   var expense=Number(summary&&summary.recurring_expense_rappen!=null?summary.recurring_expense_rappen:summary&&summary.total_expense_rappen||0);
-  var savingsRate=income>0?Math.round(net/income*100):null;
+  var savingsRate=income>0?net/income*100:null;
   var cashflowValue=document.getElementById('kpi-cashflow');
   var cashflowCard=cashflowValue&&cashflowValue.closest?cashflowValue.closest('.kpi'):null;
   if(cashflowCard){
@@ -23610,11 +23597,11 @@ function updateCashflowsAndGoalsKpis(summary){
     var sub=cashflowCard.querySelector('.ks');
     if(label)label.textContent=recurringCashflowLabelWithPeriod(net);
     if(cashflowValue)cashflowValue.textContent=formatSignedRappen(net);
-    if(sub)sub.innerHTML=savingsRate==null?'<span class="a">Kapital netto '+formatSignedRappen(capitalNet)+'</span>':'<span class="'+(savingsRate>=0?'g':'a')+'">Sparquote '+Math.max(-999,savingsRate)+'% | Kapital '+formatSignedRappen(capitalNet)+'</span>';
+    if(sub)sub.innerHTML=savingsRate==null?'<span class="a">Kapital netto '+formatSignedRappen(capitalNet)+'</span>':'<span class="'+(savingsRate>=0?'g':'a')+'">Sparquote '+AresRounding.formatPercent(Math.max(-999,savingsRate),0,{typography:'screen'})+' | Kapital '+formatSignedRappen(capitalNet)+'</span>';
   }
   if(cashflowCard){
     var cashflowSubClean=cashflowCard.querySelector('.ks');
-    if(cashflowSubClean)cashflowSubClean.innerHTML='<span class="'+(net>=0?'g':'a')+'">Einnahmen '+formatRappen(income)+' | Ausgaben '+formatRappen(expense)+'</span>'+(capitalNet?'<span class="a"> | Kapital '+formatSignedRappen(capitalNet)+'</span>':(savingsRate==null?'':'<span class="'+(savingsRate>=0?'g':'a')+'"> | Sparquote '+Math.max(-999,savingsRate)+'%</span>'));
+    if(cashflowSubClean)cashflowSubClean.innerHTML='<span class="'+(net>=0?'g':'a')+'">Einnahmen '+formatRappen(income)+' | Ausgaben '+formatRappen(expense)+'</span>'+(capitalNet?'<span class="a"> | Kapital '+formatSignedRappen(capitalNet)+'</span>':(savingsRate==null?'':'<span class="'+(savingsRate>=0?'g':'a')+'"> | Sparquote '+AresRounding.formatPercent(Math.max(-999,savingsRate),0,{typography:'screen'})+'</span>'));
   }
   var goalValue=document.getElementById('kpi-goal-progress');
   var goalCard=goalValue&&goalValue.closest?goalValue.closest('.kpi'):null;
@@ -24521,14 +24508,12 @@ function renderCashflowProjection(data) {
   var currentIncome = Math.max(0, Number(currentParts.recurringIncomeRappen || 0));
   var currentExpense = Math.max(0, Number(currentParts.recurringExpenseRappen || 0));
   var currentNet = currentIncome - currentExpense;
-  var fmtHud = function(rappen) {
-    var chf = Math.round(Math.abs(Number(rappen || 0)) / 100);
-    return 'CHF ' + fmtLocaleCH(chf);
-  };
+  var fmtHud = function(rappen) { return formatRappen(Math.abs(Number(rappen || 0))); };
+
   var statusLabel = currentNet > 0 ? 'Sparquote' : (currentNet < 0 ? 'Verm\u00f6gensverzehr' : 'Ausgeglichen');
   var statusTone = currentNet > 0 ? 'var(--pos)' : (currentNet < 0 ? 'var(--neg)' : 'var(--n6)');
-  var savingsRate = currentIncome > 0 && currentNet > 0 ? Math.round(currentNet / currentIncome * 100) : null;
-  var statusValue = currentNet > 0 && savingsRate !== null ? savingsRate + '%' : fmtHud(currentNet);
+  var savingsRate = currentIncome > 0 && currentNet > 0 ? currentNet / currentIncome * 100 : null;
+  var statusValue = currentNet > 0 && savingsRate !== null ? AresRounding.formatPercent(savingsRate,0,{typography:'screen'}) : fmtHud(currentNet);
   var statusHint = currentNet > 0
     ? fmtHud(currentNet) + ' p.a. bleibt verfuegbar.'
     : (currentNet < 0 ? fmtHud(currentNet) + ' p.a. aus Vermögen decken.' : 'Einnahmen und Ausgaben sind ausgeglichen.');
@@ -24734,7 +24719,7 @@ async function refreshWealthUI(cid){
       var k2Sub=k2Card?k2Card.querySelector('.ks'):null;
       if(k2Sub){
         var share=wealthSharePercent(d.advisory_wealth_chf||0,d.gross_wealth_chf||0);
-        k2Sub.textContent=share+'% des Bruttovermögens';
+        k2Sub.textContent=AresRounding.formatPercent(share,0,{typography:'screen'})+' des Bruttovermögens';
       }
     }
     if(positionsRes.status==='fulfilled'){
@@ -25406,7 +25391,7 @@ function renderTriggerBucket(targetId,triggers,state){
         ? ((trigger.threshold_bps!=null?'Schwelle +/-'+fmtPct(trigger.threshold_bps,1):'Markt-Trigger')+(trigger.triggered_notes?' / '+trigger.triggered_notes:''))
         : (trigger.next_due_at?'Review bis '+formatDateSwiss(trigger.next_due_at):'Event-basierter Review-Trigger');
     if(trigger.trigger_type==='Markt'&&liveDrift){
-      detail=formatBpsPercent(liveDrift.current_weight_bps||0)+' Ist vs. '+formatBpsPercent(liveDrift.target_weight_bps||0)+' Soll / Band '+formatBpsPercent(liveDrift.band_min_bps||0)+' bis '+formatBpsPercent(liveDrift.band_max_bps||0);
+      detail=formatBpsPercent(liveDrift.current_weight_bps||0)+' Ist vs. '+sollPct(liveDrift.asset_class,liveDrift.target_weight_bps||0)+' Soll / Band '+formatBpsPercent(liveDrift.band_min_bps||0)+' bis '+formatBpsPercent(liveDrift.band_max_bps||0);
     }
     var actions=status==='Erledigt'
       ? ''
@@ -25810,7 +25795,7 @@ function _rvHeroWealthmanagementHtml(rows,violated,tight,allocation){
     badge='HANDLUNGSBEDARF';
     var top=violated.slice().sort(function(a,b){return Math.abs(Number(b.deltaWeightBps||0))-Math.abs(Number(a.deltaWeightBps||0));})[0];
     headline=violated.length===1?'Bandverletzung bei '+top.assetClass:String(violated.length)+' Bandverletzungen — Rebalancing erforderlich';
-    summary=top.assetClass+': IST '+formatBpsPercent(top.currentWeightBps)+' / SOLL '+formatBpsPercent(top.targetWeightBps)+' — ausserhalb der vereinbarten Bandbreite. '+top.meta.action+'.';
+    summary=top.assetClass+': IST '+formatBpsPercent(top.currentWeightBps)+' / SOLL '+sollPct(top.assetClass,top.targetWeightBps)+' — ausserhalb der vereinbarten Bandbreite. '+top.meta.action+'.';
     var live=liveRebalancingPayload(allocation);
     var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(r){return String(r&&r.rebalance_action_code||'')!=='HOLD';}));
     ctaHtml='<button class="btn-p btn-sm" onclick="openDecisionTemplateModal(\'\')">Entscheidungsvorlage</button>'+(hasTradeList?'<button class="btn btn-sm" onclick="openTradeList()">Handelsliste</button>':'');

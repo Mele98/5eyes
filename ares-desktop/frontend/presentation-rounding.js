@@ -113,6 +113,21 @@
     if (!(c in CURRENCY_EXPONENTS)) throw new Error('Minor-Unit-Exponent unbekannt: ' + currency);
     return CURRENCY_EXPONENTS[c];
   }
+  // N-894-01: Ares speichert alle *_rappen-Felder mit Faktor 100 (auch JPY);
+  // gelesen wird immer mit STORAGE_EXPONENT, angezeigt hoechstens mit den
+  // ISO-Nachkommastellen (displayDecimals, JPY 0).
+  var STORAGE_EXPONENT = 2;
+  function displayDecimals(currency) { return minorExponent(currency); }
+  function requireInt(v, what) {
+    var n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+    if (typeof n !== 'number' || !isFinite(n) || Math.floor(n) !== n) throw new Error(what + ': Ganzzahl erwartet');
+    return n;
+  }
+  function formatStoredAmount(rappen, currency, decimals, opts) {
+    var unit = unitOf(currency);
+    var shown = Math.min(decimals == null ? 0 : Number(decimals), displayDecimals(unit));
+    return formatMoneyMinor(rappen, unit, STORAGE_EXPONENT, shown, opts);
+  }
   function minorExponent(currency) {
     var c = String(currency || '').toUpperCase().trim();
     return c in CURRENCY_EXPONENTS ? CURRENCY_EXPONENTS[c] : 2;
@@ -221,7 +236,7 @@
     return r.neg ? -r.units : r.units;
   }
   function splitLargestRemainder(total, weights, labels) {
-    var clean = weights.map(function (w) { var n = BigInt(Math.max(0, Math.round(Number(w) || 0))); return n; });
+    var clean = weights.map(function (w) { return BigInt(Math.max(0, requireInt(w, 'Gewicht'))); });
     var sum = clean.reduce(function (a, b) { return a + b; }, ZERO);
     total = BigInt(total);
     if (sum <= ZERO || total <= ZERO) return clean.map(function () { return ZERO; });
@@ -239,9 +254,9 @@
     return floors;
   }
   function presentationAmounts(advisoryMinor, baseMinor, weights, labels, exponent) {
-    var e = exponent == null ? 2 : Number(exponent);
-    var adv = Math.max(0, Math.round(Number(advisoryMinor) || 0));
-    var baseRaw = baseMinor == null ? adv : Math.max(0, Math.round(Number(baseMinor) || 0));
+    var e = exponent == null ? STORAGE_EXPONENT : Number(exponent);
+    var adv = Math.max(0, requireInt(advisoryMinor == null ? 0 : advisoryMinor, 'Beratungsvermoegen'));
+    var baseRaw = baseMinor == null ? adv : Math.max(0, requireInt(baseMinor, 'Strategiebasis'));
     var base = wholeUnits(Math.min(baseRaw, adv), e), advisory = wholeUnits(adv, e);
     var keys = (labels || []).map(assetClassKey);
     var buckets = base > ZERO ? splitLargestRemainder(base, weights || [], keys) : keys.map(function () { return ZERO; });
@@ -252,6 +267,48 @@
   function canonicalRank(key) {
     var i = CANONICAL_ASSET_CLASS_ORDER.indexOf(String(key || ''));
     return i < 0 ? CANONICAL_ASSET_CLASS_ORDER.length : i;
+  }
+  // N-894-02: Soll-Anteile einer Bucket-Liste ({asset_class,target_weight_bps})
+  // gemeinsam apportionieren (kanonische Gleichstandsregel) -> Map asset_class ->
+  // Anzeige (auch unter dem Engine-Schluessel). Gleiche Regel wie
+  // allocation_pct_texts (PDF) und aaChartPrepare.
+  function bucketPctMap(buckets, opts) {
+    var list = (buckets || []).map(function (b, i) { return { b: b, i: i }; }).filter(function (x) {
+      return x.b && Number(x.b.target_weight_bps) > 0;
+    }).sort(function (x, y) {
+      return (canonicalRank(assetClassKey(x.b.asset_class)) - canonicalRank(assetClassKey(y.b.asset_class))) || (x.i - y.i);
+    });
+    var out = {};
+    if (!list.length) return out;
+    var shown = formatApportionedPercentBps(list.map(function (x) { return Math.round(Number(x.b.target_weight_bps)); }), 1, opts);
+    list.forEach(function (x, k) {
+      out[String(x.b.asset_class)] = shown[k];
+      out[assetClassKey(x.b.asset_class)] = shown[k];
+    });
+    return out;
+  }
+  // Unterklassen (Name -> bps, gleiche Namen summiert) auf den angezeigten
+  // Klassenwert apportionieren; Rest "ohne Unterklasse" zuletzt, nicht ausgegeben.
+  // Identisch zu apportion_sub_bps (Python).
+  function subPctMap(classDisplay, subs, classBps, opts) {
+    var agg = {};
+    (subs || []).forEach(function (s) {
+      var n = String(s && s.name != null ? s.name : ''), v = Math.round(Number(s && s.bps) || 0);
+      if (n && v > 0) agg[n] = (agg[n] || 0) + v;
+    });
+    var names = Object.keys(agg).sort(function (a, b) { return a < b ? -1 : (a > b ? 1 : 0); });
+    var out = {};
+    if (!names.length) return out;
+    var values = names.map(function (n) { return agg[n]; });
+    var total = values.reduce(function (a, b) { return a + b; }, 0), klass = Math.round(Number(classBps) || 0);
+    var target = null;
+    if (total <= klass) {
+      if (total < klass) values.push(klass - total);
+      target = String(classDisplay || '').replace(/[^0-9.]/g, '');
+    }
+    var shown = formatApportionedPercentBps(values, 1, { typography: opts && opts.typography, targetDisplay: target });
+    names.forEach(function (n, k) { out[n] = shown[k]; });
+    return out;
   }
   function presentationArtifact(raw, unit, display) {
     return { raw: raw, unit: unit, policy_version: POLICY_VERSION, display: display };
@@ -270,6 +327,7 @@
       case 'signed_money_minor': return formatSignedMoneyMinor(args[0], args[1], args[2], args.length > 3 ? args[3] : null, o);
       case 'money_compact_minor': return formatMoneyCompactMinor(args[0], args[1], args[2], o);
       case 'apportion_percent_bps': return formatApportionedPercentBps(args[0], args[1], { typography: typography, targetDisplay: args.length > 2 ? args[2] : null });
+      case 'stored_amount': return formatStoredAmount(args[0], args[1], args.length > 2 ? args[2] : 0, o);
       case 'presentation_amounts': {
         var pa = presentationAmounts(args[0], args[1], args[2], args[3], args.length > 4 ? args[4] : 2);
         return [String(pa.advisory), String(pa.base), String(pa.reserve)].concat(pa.buckets.map(String));
@@ -294,6 +352,9 @@
     formatProbabilityPct: formatProbabilityPct,
     currencyExponent: currencyExponent,
     minorExponent: minorExponent,
+    STORAGE_EXPONENT: STORAGE_EXPONENT,
+    displayDecimals: displayDecimals,
+    formatStoredAmount: formatStoredAmount,
     formatMoneyMinor: formatMoneyMinor,
     formatSignedMoneyMinor: formatSignedMoneyMinor,
     formatCompactAmount: formatCompactAmount,
@@ -304,6 +365,8 @@
     canonicalRank: canonicalRank,
     assetClassKey: assetClassKey,
     presentationAmounts: presentationAmounts,
+    bucketPctMap: bucketPctMap,
+    subPctMap: subPctMap,
     presentationArtifact: presentationArtifact,
     runCase: runCase
   };
