@@ -176,7 +176,7 @@ def create_backup() -> dict[str, Any]:
     # AB-2: Delegation an die EINE, atomare, WAL-aware Backup-Engine
     # (services.backup.backup_database). Kein shutil.copy2 + manuelles WAL/SHM
     # mehr — die Online-Backup-API liefert einen konsistenten Snapshot.
-    # Verzeichnis + Dateinamensmuster (5eyes-backup-%Y%m%d-%H%M%S.db) sind damit
+    # Verzeichnis + Dateinamensmuster (ares-backup-%Y%m%d-%H%M%S.db) sind damit
     # identisch zum Scheduler-Pfad; das alte T…Z-Muster entfaellt.
     backup_dir = ensure_backup_dir()
     result = backup_engine.backup_database(
@@ -320,7 +320,7 @@ def tail_app_log(lines: int | None = None) -> dict[str, Any]:
 def create_support_bundle() -> dict[str, Any]:
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     bundle_dir = ensure_support_bundle_dir()
-    bundle_path = bundle_dir / f'5eyes-support-{stamp}.zip'
+    bundle_path = bundle_dir / f'ares-support-{stamp}.zip'
 
     log_payload = tail_app_log(lines=min(settings.recent_log_lines_max, 300))
     backup_payload = list_backups()
@@ -351,7 +351,7 @@ def create_support_bundle() -> dict[str, Any]:
             zf.writestr('logs/recent.log', '\n'.join(redacted_log_lines) + '\n')
 
         backup_dir = ensure_backup_dir()
-        for manifest_path in sorted(backup_dir.glob('5eyes-backup-*.db.json'), reverse=True)[:10]:
+        for manifest_path in sorted(backup_dir.glob('ares-backup-*.db.json'), reverse=True)[:10]:
             zf.write(manifest_path, arcname=f'backup-manifests/{manifest_path.name}')
 
     return {

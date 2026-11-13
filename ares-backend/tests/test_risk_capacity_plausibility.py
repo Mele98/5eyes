@@ -16,6 +16,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -615,7 +616,7 @@ def test_generate_endpoint_adds_reasoning_and_audit_but_does_not_block(session_f
 # Monolith: Anzeige beim Risikoprofil (bestehende Banner-Komponente)
 # ---------------------------------------------------------------------------
 
-HTML = (BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "ares.html").read_text(encoding="utf-8")
+HTML = read_monolith_bundle()
 HTML_MODULE_DIR = BACKEND_ROOT.parent / "ares-desktop" / "frontend"
 
 

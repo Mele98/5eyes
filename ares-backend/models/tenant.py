@@ -139,3 +139,67 @@ class Tenant(Base):
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
+
+
+# ---------------------------------------------------------------------------
+# H8 C-2 (Compliance-Audit 2026-11-07, Luecke 2): Rechtliche Angaben der Firma
+# fuer die Kundeninformation nach Art. 8 Abs. 1 FIDLEG (lit. a Name und
+# Adresse, lit. b Taetigkeitsfeld und Aufsichtsstatus, lit. c Ombudsverfahren;
+# lit. d allgemeine Risiken liefert die Vorlage selbst) und Art. 9 FIDLEG
+# (Abgabe vor Vertragsabschluss).
+#
+# Eine Zeile je Tenant. Ares belegt KEINEN Wert vor: keine Firma, keine
+# Adresse, keine Ombudsstelle, keine Aufsichtsorganisation. Fehlt eine
+# Pflichtangabe, sperren Kundeninformations-PDF, Finalisierung und
+# Vertragsunterzeichnung fail-closed (services/recommendation_release_gate.py::
+# client_onboarding_findings) und nennen die fehlende Angabe.
+#
+# Jede Aenderung wird feldweise im Audit-Log festgehalten; ``revision`` steigt
+# mit jeder inhaltlichen Aenderung, ``profile_hash`` ist der SHA-256 ueber die
+# kanonischen Inhaltsfelder. Eine abgegebene Kundeninformation haelt Revision
+# und Hash fest (models/review.py::ClientInformationDelivery).
+# ---------------------------------------------------------------------------
+
+# Aufsichtsstatus (Art. 8 Abs. 1 lit. b FIDLEG). Bewusst grob und neutral; den
+# Wortlaut der Aufsicht (Behoerde, Aufsichtsorganisation, Register) erfasst der
+# Owner selbst.
+SUPERVISION_PORTFOLIO_MANAGER = "vermoegensverwalter_finig"
+SUPERVISION_OTHER_LICENSE = "andere_finma_bewilligung"
+SUPERVISION_ADVISER_REGISTER = "anlageberater_ohne_prudenzielle_aufsicht"
+
+ALLOWED_SUPERVISION_TYPES = (
+    SUPERVISION_PORTFOLIO_MANAGER,
+    SUPERVISION_OTHER_LICENSE,
+    SUPERVISION_ADVISER_REGISTER,
+)
+
+
+class TenantLegalProfile(Base):
+    __tablename__ = "tenant_legal_profiles"
+
+    # Eigene ``id`` wie jede Tenant-Tabelle (RLS-/Inventar-Konvention);
+    # ``tenant_id`` ist eindeutig -- eine Zeile je Tenant.
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, nullable=False, unique=True)
+    legal_name = Column(String)
+    address_street = Column(String)
+    address_postal_code = Column(String)
+    address_city = Column(String)
+    # ISO-3166-Alpha-2 des Sitzes. Bestimmt das Informationsregime (heute nur
+    # Sitz Schweiz = FIDLEG abgebildet; alles andere sperrt fail-closed).
+    address_country = Column(String)
+    business_activity = Column(String)
+    supervision_type = Column(String)
+    supervisory_authority = Column(String)
+    supervisory_organisation = Column(String)
+    license_reference = Column(String)
+    ombudsman_name = Column(String)
+    ombudsman_address = Column(String)
+    contact_phone = Column(String)
+    contact_email = Column(String)
+    contact_website = Column(String)
+    revision = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    profile_hash = Column(String)
+    updated_by = Column(String)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)

@@ -26,7 +26,7 @@ table therefore cannot ship unclassified.
 """
 from __future__ import annotations
 
-INVENTORY_VERSION = "2026-10-30.2"
+INVENTORY_VERSION = "2026-11-11.1"
 
 TENANT_DIRECT = "tenant_direct"
 GLOBAL_REFERENCE = "global_reference"
@@ -37,11 +37,18 @@ CATEGORIES = (TENANT_DIRECT, GLOBAL_REFERENCE, TENANT_DERIVED, SYSTEM_ONLY)
 
 TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     "audit_log",
+    # H8 C-2/C-5/Luecke 10 (Compliance-Audit 2026-11-07): Kundeninformation,
+    # KYC-Bestaetigung samt Freigabe, Vertretung, rechtliche Angaben der Firma
+    # -- tenant_id direkt bei der Erfassung (aus Kunde bzw. Mandat).
+    "client_information_deliveries",
+    "client_representations",
     "clients",
     # PG-002 (Red-Team 2026-10-28, Befund 6): append-only Mandats-Evidenz,
     # Mandant aus dem Mandat (core/mandate_evidence_tenant_boundary.py).
     "depot_check_analysis_snapshots",
     "depot_snapshots",
+    "kyc_confirmation_approvals",
+    "kyc_confirmations",
     "mandates",
     "onsite_signature_challenges",
     "onsite_signature_events",
@@ -50,8 +57,22 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     "privacy_erasure_cases",
     "privacy_erasure_dispositions",
     "privacy_legal_holds",
+    # H10 C-DSG-01: Angaben des Verantwortlichen je Mandant.
+    "privacy_owner_values",
+    # H10 C-DSG-02: Betroffenenanfragen je Mandant.
+    "privacy_subject_requests",
+    # H10 Nachtrag 1: Freigabefassungen, Ereignisse, Egress-Protokoll.
+    "outbound_processing_manifest_versions",
+    "privacy_egress_daily_counts",
+    "privacy_egress_events",
+    "privacy_security_incident_artifacts",
+    "privacy_security_incident_events",
+    "privacy_subject_request_events",
+    "processing_activity_versions",
     "privacy_retention_policies",
     "privacy_role_designations",
+    # H10 C-DSG-04: Register der Sicherheitsvorfaelle je Mandant.
+    "privacy_security_incidents",
     # PG-002-Folgeauftrag: Mandant ueber Lauf -> Mandat (Guard + Backfill).
     "product_eligibility_overrides",
     "product_eligibility_snapshots",
@@ -64,6 +85,9 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: append-only Plausibilitaets-
     # Evidenz, Mandant aus dem Mandat (hash-gebunden).
     "risk_capacity_plausibility_evaluations",
+    # AUDIT-2026-11 T1: Hausstandard Nachhaltigkeitsschwellen je Tenant.
+    "sustainability_exclusion_standards",
+    "tenant_legal_profiles",
     "users",
     # PG-002 (Closure-Review PR #666): bisher nur transitiv ueber clients.
     "wealth_inflows",
@@ -75,6 +99,8 @@ GLOBAL_REFERENCE_TENANT_TABLES: frozenset[str] = frozenset({
     "capital_market_assumptions",
     "product_eligibility_rule_sets",
     "product_eligibility_rules",
+    # AUDIT-2026-11 T1: NULL = Plattform-Nachweis eines globalen Katalogfonds.
+    "product_sustainability_attributes",
     "products",
 })
 

@@ -87,7 +87,7 @@ from services.sqlite_check_ddl import (
 logger = logging.getLogger(__name__)
 
 MIGRATION_ID = "UPGRADE-PATH-CHECK-DRIFT-001"
-BACKUP_PREFIX = "5eyes_pre_check_upgrade_"
+BACKUP_PREFIX = "ares_pre_check_upgrade_"
 QUARANTINE_SUFFIX = ".check-upgrade-quarantine.json"
 
 
@@ -639,7 +639,7 @@ def upgrade_sqlite_check_in_lists(
 
     Ablauf (nur wenn wirklich etwas fehlt):
       1. Konsistente Sicherung per SQLite-Backup-API nach
-         ``<backup_dir>/5eyes_pre_check_upgrade_<UTC-Zeitstempel>.db``
+         ``<backup_dir>/ares_pre_check_upgrade_<UTC-Zeitstempel>.db``
          (Default ``settings.backup_dir``, ueber
          ``services.backup._perform_atomic_copy``; SQLCipher-faehig; das
          Praefix faellt nicht unter die Rotation). SHA-256 wird sofort

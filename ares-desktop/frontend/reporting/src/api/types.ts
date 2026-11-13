@@ -1523,7 +1523,16 @@ export type NationalityRecord = ApiResponse<'NationalityResponse'>;
 // ---------------------------------------------------------------------------
 
 export interface OptHistoryCreatePayload {
-  event_type: string;
+  // N-890-13: optional; der Server leitet es aus dem Uebergang ab
+  // (FIDLEG-Werteliste wie OptHistoryCreate.event_type).
+  event_type?:
+    | 'Opting-out zu Professionell'
+    | 'Opting-out zu Institutionell'
+    | 'Opting-in zu Privatkunde'
+    | 'Opting-in zu Professionell'
+    | 'Qualifizierter Anleger bestätigt'
+    | 'Klassifizierung überprüft'
+    | null;
   from_classification: ClientClassification;
   to_classification: ClientClassification;
   client_requested?: boolean;

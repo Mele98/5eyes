@@ -45,11 +45,25 @@ CATALOG = {m.value for m in ReasonCode}
 # mit Funktion und Anzahl: eine neue dynamische Stelle mit gleichem Text
 # (andere Funktion oder zusaetzliche Zeile) faellt auf (K-2-Review N1).
 KNOWN_UNRESOLVED: dict[tuple[str, str, str], int] = {
+    # H10 Nachtrag 1: Durchreichungen bereits katalogisierter Codes (Gate-Ergebnis
+    # PROCESSING_ACTIVITY_* bzw. gespeicherter EGRESS_*-Code im Protokoll).
+    ('routers/privacy.py', 'list_egress_events', 'r.reason_code'): 1,
+    ('services/dsg_governance.py', 'sink', "str(item['reason_code'])"): 1,
+    ('services/privacy_subject_requests.py', 'build_export', "open_rows[0]['reason_code']"): 1,
+    ('services/privacy_subject_requests.py', 'build_export', "r['reason_code']"): 1,
+    # H10 Nachtrag 3: Sperrgrund je Kanal (EGRESS_* aus Freigabe bzw. Owner-Sperre).
+    ('services/dsg_governance.py', 'egress_status', 'code'): 1,
     ('core/reason_codes.py', 'DomainError.__init__',
      'reason_code.value if isinstance(reason_code, ReasonCode) else reason_code'): 1,
     ('core/reason_codes.py', 'DomainError.as_detail',
      'self.reason_code'): 1,
     ('routers/client_portal.py', '_assert_portal_report_releasable',
+     "str(detail.get('reason_code') or 'RELEASE_BLOCKED')"): 1,
+    ('routers/review.py', 'finalize_recommendation',
+     "retro_block['reason_code']"): 2,
+    ('services/recommendation_release_gate.py', 'assert_retrocession_release_eligible',
+     'reason_code'): 1,
+    ('routers/onsite_signature.py', '_release_gates',
      "str(detail.get('reason_code') or 'RELEASE_BLOCKED')"): 1,
     ('routers/eligibility_overrides.py', '_conflict',
      'exc.code'): 1,

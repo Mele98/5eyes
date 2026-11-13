@@ -1,4 +1,4 @@
-# 5eyes — Berater-Handbuch
+# Ares — Berater-Handbuch
 
 **Roadmap #78** · Status: v1 (Ist-Stand 2026-07-23)
 

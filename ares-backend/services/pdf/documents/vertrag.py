@@ -41,6 +41,10 @@ def build_vertrag_flowables(ctx: PDFContext, data) -> list:
     - advisory_wealth_rappen (int | None)
     - document_type (str | None) — z.B. 'Anlagestrategie', 'Beratungsvertrag'
     """
+    # H8 C-2: die Kundeninformation (Art. 8/9 FIDLEG) ist ein vorvertragliches
+    # Dokument und laeuft ueber denselben Renderer.
+    if getattr(data, "document_kind", None) == KUNDENINFORMATION_KIND:
+        return build_kundeninformation_flowables(ctx, data)
     flowables: list = []
     styles = make_paragraph_styles()
 
@@ -186,3 +190,201 @@ def _para_compact(after: float = 2):
         leading=12,
         spaceAfter=after,
     )
+
+
+# ---------------------------------------------------------------------------
+# H8 C-2 (Compliance-Audit 2026-11-07): Kundeninformation nach Art. 8/9 FIDLEG.
+#
+# Vorvertragliches Dokument, deshalb ueber den Vertrags-Renderer
+# (render_vertrag -> build_vertrag_flowables) mit ``document_kind``
+# "kundeninformation". Die Angaben zum Finanzdienstleister kommen
+# ausschliesslich aus den rechtlichen Angaben des Tenants. Die allgemeinen
+# Texte unten sind eine eigene, sachliche Formulierung von Ares
+# (COMPLIANCE-GEGENLESEN vor dem ersten echten Kunden, siehe Handoff H-148).
+# Jede inhaltliche Textaenderung braucht eine neue Vorlagenversion
+# (services/recommendation_release_gate.py::CLIENT_INFORMATION_TEMPLATE_VERSION).
+# ---------------------------------------------------------------------------
+
+KUNDENINFORMATION_KIND = "kundeninformation"
+
+KUNDENINFORMATION_SERVICE_TEXTS: dict[str, str] = {
+    "Vermögensverwaltung": (
+        "Vermögensverwaltung: Der Finanzdienstleister verwaltet das vereinbarte "
+        "Vermögen nach eigenem Ermessen im Rahmen der mit Ihnen festgelegten "
+        "Anlagestrategie und trifft die einzelnen Anlageentscheide in Ihrem Namen. "
+        "Risiken der Dienstleistung: Einzelne Entscheide werden ohne Ihre vorgängige "
+        "Zustimmung getroffen. Die Wertentwicklung hängt von der vereinbarten "
+        "Strategie und den Marktverhältnissen ab und kann negativ sein."
+    ),
+    "Anlageberatung": (
+        "Anlageberatung: Der Finanzdienstleister gibt Ihnen persönliche Empfehlungen "
+        "zu Geschäften mit Finanzinstrumenten unter Berücksichtigung Ihres Portfolios. "
+        "Sie entscheiden selbst, ob Sie einer Empfehlung folgen. Risiken der "
+        "Dienstleistung: Empfehlungen beruhen auf Ihren Angaben und auf Einschätzungen "
+        "zum Zeitpunkt der Beratung. Die Entscheide und das Anlagerisiko tragen Sie."
+    ),
+    "Finanzplanung": (
+        "Finanzplanung: Analyse und Planung Ihrer finanziellen Situation (Vermögen, "
+        "Einkommen, Ausgaben, Ziele). Werden dabei persönliche Empfehlungen zu "
+        "Finanzinstrumenten abgegeben, gelten dafür die Regeln der Anlageberatung."
+    ),
+    "Reporting only": (
+        "Berichterstattung: Darstellung und Auswertung Ihres Vermögens, ohne "
+        "persönliche Empfehlungen zu Finanzinstrumenten."
+    ),
+}
+
+KUNDENINFORMATION_GENERAL_RISKS: tuple[str, ...] = (
+    "Marktrisiko: Die Kurse von Finanzinstrumenten schwanken. Verluste bis zum "
+    "vollständigen Verlust des eingesetzten Kapitals sind möglich.",
+    "Währungsrisiko: Anlagen in einer anderen als Ihrer Referenzwährung unterliegen "
+    "Wechselkursschwankungen.",
+    "Zins- und Kreditrisiko: Zinsänderungen beeinflussen die Kurse von Anleihen. "
+    "Schuldner können zahlungsunfähig werden.",
+    "Liquiditätsrisiko: Manche Finanzinstrumente lassen sich nicht jederzeit oder "
+    "nur mit Preisabschlag verkaufen.",
+    "Konzentrationsrisiko: Eine geringe Streuung über Anlagen, Schuldner, Branchen "
+    "oder Länder erhöht das Verlustrisiko.",
+    "Alternative und komplexe Anlagen (z. B. Private Equity, Hedge Funds, "
+    "Derivate): Hebelwirkung, eingeschränkte Transparenz und lange Bindungsfristen "
+    "können die Risiken erhöhen.",
+    "Vergangene Wertentwicklungen und Prognosen sind keine Gewähr für künftige "
+    "Ergebnisse.",
+)
+
+KUNDENINFORMATION_DOCUMENTS_NOTE = (
+    "Zu den einzelnen Finanzinstrumenten erhalten Sie, soweit erstellt, das "
+    "Basisinformationsblatt und den Prospekt kostenlos auf Anfrage."
+)
+
+KUNDENINFORMATION_OMBUDSMAN_INTRO = (
+    "Bei Streitigkeiten können Sie ein Vermittlungsverfahren bei der folgenden "
+    "Ombudsstelle einleiten (Art. 74 ff. FIDLEG):"
+)
+
+KUNDENINFORMATION_RECEIPT_TEXT = (
+    "Ich bestätige, diese Kundeninformation vor Abschluss des Vertrags erhalten "
+    "zu haben."
+)
+
+
+def _ki_paragraph(text: str, styles) -> Paragraph:
+    return Paragraph(
+        f'<font name="{FONT_DEFAULT}" size="{FONT_SIZE_BODY}" color="#334155">'
+        f'{_esc(text)}</font>',
+        styles["body"],
+    )
+
+
+def _ki_pairs_table(pairs) -> Table:
+    page_width, _ = PAGE_SIZE
+    table_w = page_width - 24 * mm
+    rows = [
+        [
+            Paragraph(f'<font color="#64748b" size="8"><b>{_esc(label).upper()}</b></font>',
+                      _para_compact(after=0)),
+            Paragraph(f'<font name="{FONT_DEFAULT}" size="9">{_esc(value)}</font>',
+                      _para_compact(after=0)),
+        ]
+        for label, value in pairs
+    ]
+    table = Table(rows, colWidths=[table_w * 0.32, table_w * 0.68])
+    table.setStyle(TableStyle([
+        ("LINEBELOW", (0, 0), (-1, -2), 0.3, COLOR_BORDER),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    return table
+
+
+def build_kundeninformation_flowables(ctx: PDFContext, data) -> list:
+    styles = make_paragraph_styles()
+    flowables: list = []
+    flowables.extend(make_banner_header(
+        ctx,
+        mandate_number=getattr(data, "mandate_number", None),
+        advisory_wealth_label=None,
+        document_title="Kundeninformation",
+    ))
+    flowables.append(Paragraph(
+        f'<font name="{FONT_BOLD}" size="16" color="#0f172a">'
+        'Kundeninformation vor Vertragsabschluss</font>',
+        _para_compact(after=2),
+    ))
+    flowables.append(Paragraph(
+        f'<font name="{FONT_DEFAULT}" size="9" color="#64748b">'
+        'Informationen nach Art. 8 und 9 FIDLEG über den Finanzdienstleister, die '
+        'Dienstleistung, die Risiken, die Kosten, wirtschaftliche Bindungen und das '
+        'berücksichtigte Marktangebot.</font>',
+        _para_compact(after=4),
+    ))
+
+    flowables.append(_section_title("Finanzdienstleister"))
+    flowables.append(_ki_pairs_table(tuple(data.provider_lines)))
+    flowables.append(Spacer(1, 3 * mm))
+
+    flowables.append(_section_title("Ombudsstelle"))
+    flowables.append(_ki_paragraph(KUNDENINFORMATION_OMBUDSMAN_INTRO, styles))
+    flowables.append(_ki_pairs_table((
+        ("Ombudsstelle", data.ombudsman_name),
+        ("Adresse", data.ombudsman_address),
+    )))
+    flowables.append(Spacer(1, 3 * mm))
+
+    flowables.append(_section_title("Dienstleistung und ihre Risiken"))
+    service_text = KUNDENINFORMATION_SERVICE_TEXTS.get(str(data.mandate_type or ""))
+    flowables.append(_ki_paragraph(
+        service_text
+        or f"Vereinbarte Dienstleistung: {data.mandate_type or 'nicht festgelegt'}.",
+        styles,
+    ))
+    flowables.append(Spacer(1, 3 * mm))
+
+    flowables.append(_section_title("Allgemeine Risiken von Finanzinstrumenten"))
+    for line in KUNDENINFORMATION_GENERAL_RISKS:
+        flowables.append(_ki_paragraph(f"• {line}", styles))
+    flowables.append(_ki_paragraph(KUNDENINFORMATION_DOCUMENTS_NOTE, styles))
+    flowables.append(Spacer(1, 3 * mm))
+
+    flowables.append(_section_title("Kosten"))
+    if data.cost_lines:
+        flowables.append(_ki_pairs_table(tuple(data.cost_lines)))
+    if data.cost_note:
+        flowables.append(_ki_paragraph(data.cost_note, styles))
+    for line in data.retrocession_lines:
+        flowables.append(_ki_paragraph(line, styles))
+    flowables.append(Spacer(1, 3 * mm))
+
+    flowables.append(_section_title("Wirtschaftliche Bindungen an Dritte"))
+    for line in data.economic_ties:
+        flowables.append(_ki_paragraph(line, styles))
+    flowables.append(Spacer(1, 3 * mm))
+
+    flowables.append(_section_title("Berücksichtigtes Marktangebot"))
+    for line in data.market_offer_lines:
+        flowables.append(_ki_paragraph(line, styles))
+    flowables.append(Spacer(1, 3 * mm))
+
+    flowables.append(_section_title("Ausführung und Verwahrung"))
+    bank = str(data.depot_bank or "").strip()
+    flowables.append(_ki_paragraph(
+        "Aufträge werden über die Depotbank ausgeführt; dort wird das Vermögen "
+        "verwahrt" + (f" ({bank})." if bank else "."),
+        styles,
+    ))
+    flowables.append(Spacer(1, 3 * mm))
+
+    flowables.append(Paragraph(
+        f'<font name="{FONT_DEFAULT}" size="7" color="#64748b">'
+        f'Vorlage {_esc(data.template_version)} · Rechtliche Angaben Revision '
+        f'{int(data.legal_profile_revision)} · {_esc(str(data.legal_profile_hash)[:12])}</font>',
+        _para_compact(after=4),
+    ))
+    flowables.extend(make_unterschrift_section(
+        client_confirm_text=KUNDENINFORMATION_RECEIPT_TEXT,
+        advisor_confirm_text="Übergeben durch:",
+    ))
+    return flowables
