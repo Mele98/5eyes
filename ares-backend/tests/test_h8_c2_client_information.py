@@ -321,7 +321,11 @@ def test_single_alembic_head_is_h8_revision():
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(alembic_cfg("sqlite://"))
-    assert script.get_heads() == ["d8e4b2a6c1f9"]
+    # RC-CH-1 Teil 2a (I-03, Drehbuch v2): H8 folgt auf H7, H4 a9d4e2c6f1b3
+    # haengt linear hinter H8; genau ein Head, Kanten exakt geprueft.
+    assert script.get_heads() == ["a9d4e2c6f1b3"]
+    assert script.get_revision("a9d4e2c6f1b3").down_revision == "d8e4b2a6c1f9"
+    assert script.get_revision("d8e4b2a6c1f9").down_revision == "e1c6a7d4b2f9"
 
 
 def test_alembic_postgres_ddl_creates_client_information_tables_and_triggers():

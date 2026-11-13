@@ -15,7 +15,7 @@ Downgrade entfernt die Tabelle (der Status wird beim naechsten Start neu
 geschrieben).
 
 Revision ID: a9d4e2c6f1b3
-Revises: e1c6a7d4b2f9
+Revises: d8e4b2a6c1f9
 Create Date: 2026-11-07
 """
 from __future__ import annotations
@@ -27,7 +27,7 @@ from alembic import op
 
 
 revision: str = "a9d4e2c6f1b3"
-down_revision: Union[str, Sequence[str], None] = "e1c6a7d4b2f9"
+down_revision: Union[str, Sequence[str], None] = "d8e4b2a6c1f9"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
