@@ -41,6 +41,8 @@ H-153 Nachtrag 1: restliche Anzeige-Rundungen und Mandatswaehrung -> 27613 / 168
 ``aa-chart.js`` 318 / 20791.
 H-153 Nachtrag 2 (N-894-01..06): 27598 / 1689133, ``aa-chart.js`` 318 / 20681.
 H-153 Nachtrag 3 (N-894-07..11, CHF-Guard): 27582 / 1688745, ``goal-review-runtime.js`` 1588 / 84613.
+H-153 Nachtrag 4 (Grundregel Waehrung, N-894-12..17): 27447 / 1682837, ``goal-review-runtime.js`` 1564 / 83881,
+``aa-chart.js`` 316 / 20632 (Kommentare gekuerzt, Budgets gesenkt).
 """
 from __future__ import annotations
 
@@ -49,9 +51,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 27582
+MONOLITH_MAX_LINES = 27447
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1688745
+MONOLITH_MAX_BYTES = 1682837
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -59,8 +61,8 @@ EXTRACTED_PART_BUDGETS = {
     "ares.css": (1143, 90070),
     "aa-chart.css": (66, 5978),
     "intro-sequence.js": (761, 36861),
-    "aa-chart.js": (318, 20681),
-    "goal-review-runtime.js": (1588, 84613),
+    "aa-chart.js": (316, 20632),
+    "goal-review-runtime.js": (1564, 83881),
 }
 
 

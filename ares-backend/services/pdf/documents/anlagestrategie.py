@@ -313,7 +313,7 @@ def build_anlagestrategie_flowables(
     # ============================================================
     # TEIL C — METHODIK
     # ============================================================
-    flowables.extend(make_investitionsansatz_section())
+    flowables.extend(make_investitionsansatz_section(ctx.base_currency))
     flowables.append(PageBreak())
 
     flowables.extend(make_anlageuniversum_section(ctx.base_currency))
@@ -460,7 +460,7 @@ def _build_anlagestrategie_flowables_template_order(
     flowables.append(PageBreak())
 
     # 7 Investitionsansatz
-    flowables.extend(make_investitionsansatz_section())
+    flowables.extend(make_investitionsansatz_section(ctx.base_currency))
     flowables.append(PageBreak())
 
     # 8 Anlageuniversum

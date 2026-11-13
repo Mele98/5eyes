@@ -18,7 +18,7 @@ import type {
   MaxPensionSpendingResponse,
 } from '@/api/types';
 
-function formatChf(rappen: number, currency: string): string {
+function formatChf(rappen: number, currency: string | null): string {
   return formatChfFromRappen(rappen, currency);
 }
 

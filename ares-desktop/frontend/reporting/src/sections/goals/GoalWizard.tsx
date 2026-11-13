@@ -405,7 +405,7 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
               )}
               {(typeKey === 'einmalige_ausgabe' || isCashflowRecurring) && (
                 <label className="block text-caption text-ink-muted">
-                  {isCashflowRecurring ? `Betrag pro Zahlung (${currency})` : `Zielbetrag (${currency})`}
+                  {isCashflowRecurring ? `Betrag pro Zahlung (${currency ?? "—"})` : `Zielbetrag (${currency ?? "—"})`}
                   <input
                     type="number"
                     min={0}
@@ -420,7 +420,7 @@ export function GoalWizard({ open, mandateId, editing, onClose, onSaved }: GoalW
               {isWealth && (
                 <>
                   <label className="block text-caption text-ink-muted">
-                    Zielvermögen ({currency})
+                    Zielvermögen ({currency ?? "—"})
                     <input
                       type="number"
                       value={state.wealthChf}

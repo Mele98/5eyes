@@ -497,8 +497,18 @@ def wealth_summary(
     if not row:
         raise HTTPException(status_code=404, detail="Keine Vermögensdaten")
     d = dict(row._mapping)
+    # G7 N4: Waehrung der Rohsummen -- nur eindeutig bei einheitlicher Positionswaehrung.
+    currencies = {
+        str(c or "").upper().strip()
+        for (c,) in db.execute(
+            text("SELECT DISTINCT currency FROM wealth_positions WHERE client_id = :id "
+                 "AND deleted_at IS NULL AND is_active = 1"),
+            {"id": client_id},
+        ).fetchall()
+    }
     return WealthSummaryResponse(
         **d,
+        amount_currency=next(iter(currencies)) if len(currencies) == 1 and "" not in currencies else None,
         gross_wealth_chf=d["gross_wealth_rappen"] / 100,
         liabilities_chf=d["liabilities_rappen"] / 100,
         net_worth_chf=d["net_worth_rappen"] / 100,
@@ -540,7 +550,8 @@ def cashflow_summary(
         fx_source = FXRateSource.from_db(db)
     except Exception:
         fx_source = FXRateSource()
-    totals = totals_for_year(cashflows, fx_source=fx_source, target_currency="CHF")
+    summary_currency = "CHF"
+    totals = totals_for_year(cashflows, fx_source=fx_source, target_currency=summary_currency)
     client_name = f"{client.first_name or ''} {client.last_name or ''}".strip() or client.client_number or client.id
     return CashflowSummaryResponse(
         client_id=client_id,
@@ -558,6 +569,7 @@ def cashflow_summary(
         total_income_chf=totals["income_rappen"] / 100,
         total_expense_chf=totals["expense_rappen"] / 100,
         surplus_chf=totals["net_rappen"] / 100,
+        amount_currency=summary_currency,
     )
 
 
@@ -864,6 +876,7 @@ def cashflow_projection(
         years=rows,
         pension_transfers=list(pension_view.transfers),
         pension_ledger_hash=pension_view.ledger_hash,
+        amount_currency=target_currency,
     )
 
 

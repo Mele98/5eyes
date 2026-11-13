@@ -35,8 +35,8 @@ import {
 // ares-rounding/1, Decimal ROUND_HALF_UP; identisch zu Classic und PDF).
 export const MINUS = '−';
 const SCREEN = { typography: 'screen' as const };
-// N-894-10: Waehrung als Parameter (Bericht: useReportCurrency()); Default nur ohne Kontext.
-const DEFAULT_REPORT_CURRENCY = 'CHF';
+// G7 Nachtrag 4 (Grundregel): Jeder Geldformatter verlangt die Waehrung, in der
+// der Betrag vorliegt; ``null`` = unbekannt -> "—" (keine geratene Einheit).
 
 /**
  * Eingabe -> Zahl. Akzeptiert ' und ' (U+2019/U+02BC) als Tausendertrennung,
@@ -54,7 +54,8 @@ export function parseNumberInputCH(value: string | null | undefined): number | n
 }
 
 /** Ganze CHF aus Rappen: „CHF 12'345" (gerades Apostroph). */
-export function formatChfFromRappen(rappen: number, currency: string = DEFAULT_REPORT_CURRENCY): string {
+export function formatChfFromRappen(rappen: number, currency: string | null): string {
+  if (!currency) return '—';
   return formatStoredAmount(rappen, currency, 0, SCREEN);
 }
 
@@ -97,18 +98,22 @@ export function fmtChfCompactAmount(chf: number | null | undefined): string {
 }
 
 /** CHF (ganze Franken) kompakt: ab 1 Mio. „CHF 2.85 Mio.", darunter voll. */
-export function fmtChfCompact(chf: number | null | undefined, currency: string = DEFAULT_REPORT_CURRENCY): string {
+export function fmtChfCompact(chf: number | null | undefined, currency: string | null): string {
   const amount = fmtChfCompactAmount(chf);
-  return amount === '—' ? amount : `${currency} ${amount}`;
+  return amount === '—' || !currency ? '—' : `${currency} ${amount}`;
 }
 
 export function formatChfRappen(
   rappen: number | null | undefined,
-  options: { withUnit?: boolean; currency?: string } = {},
+  options: { withUnit?: boolean; currency: string | null },
 ): string {
   const withUnit = options.withUnit !== false;
-  const currency = options.currency ?? DEFAULT_REPORT_CURRENCY;
+  const currency = options.currency;
   if (rappen === null || rappen === undefined || !Number.isFinite(Number(rappen))) return withUnit ? '—' : '0';
+  if (!currency) {
+    // Waehrung unbekannt: mit Einheit "—", ohne Einheit nur die Zahl (Achsen).
+    return withUnit ? '—' : formatStoredAmount(Number(rappen), 'EUR', 0, SCREEN).slice('EUR '.length); // nur Zahl, EUR = Exponent-2-Platzhalter
+  }
   const text = formatStoredAmount(Number(rappen), currency, 0, SCREEN);
   return withUnit ? text : text.slice(currency.length + 1);
 }

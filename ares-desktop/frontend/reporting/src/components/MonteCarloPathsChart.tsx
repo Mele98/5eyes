@@ -43,7 +43,6 @@ import {
   type FanEndKey,
 } from '@/lib/fanAnnotations';
 import { formatChfRappen } from '@/lib/format';
-import { useReportCurrency } from '@/lib/reportCurrency';
 import { classifyGoals, type GoalAchievabilityStatus } from '@/lib/goalClassification';
 
 interface MonteCarloPathsChartProps {
@@ -111,7 +110,9 @@ export function MonteCarloPathsChart({
   goals,
   projectionsHidden = false,
 }: MonteCarloPathsChartProps) {
-  const currency = useReportCurrency(); // N-894-10: Mandatswaehrung des Berichts
+  // G7 N4 (Grundregel): Waehrung, in der der Server die Pfade liefert (Rohsumme ohne FX),
+  // NICHT die Mandatswaehrung des Berichts. Unbekannt (gemischt) -> null.
+  const currency = paths.amount_currency ?? null;
   // AA-UX-HONEST-FAN-001: Gate fail-closed -- bei ausgeblendeten Projektionen
   // bzw. veralteter/blockierter Allokation weder Faecher noch Beschriftung.
   if (
@@ -624,7 +625,7 @@ export function computeYScale(
 export function makeYTickFormatter(
   maxValueRappen: number,
   stepRappen: number,
-  currency = 'CHF',
+  currency: string | null,
 ): (rappen: number) => string {
   const MIO_RAPPEN = 1_000_000 * 100;
   if (maxValueRappen < MIO_RAPPEN) {
@@ -639,8 +640,9 @@ export function makeYTickFormatter(
     decimals += 1;
   }
   return (rappen) => {
-    if (rappen === 0) return `${currency} 0`;
-    return `${currency} ${(rappen / MIO_RAPPEN).toFixed(decimals)} Mio.`;
+    const unit = currency ? `${currency} ` : '';
+    if (rappen === 0) return `${unit}0`;
+    return `${unit}${(rappen / MIO_RAPPEN).toFixed(decimals)} Mio.`;
   };
 }
 

@@ -1,10 +1,8 @@
 // H6 Asset-Allocation-Grafik (SOLL-Torte, Legende, SOLL-Quoten mit Bandbreite).
 // Teil des Monolithen (ausgelagert, siehe tests/monolith_source.py): klassisches
 // Skript, globale Funktionen, keine Abhaengigkeit ausser Chart.js (vendor).
-// Fachlich neutral: Gewichte (bps), Betraege und Bandbreiten kommen unveraendert
-// aus der Engine; hier wird nur sortiert, gerundet und gezeichnet.
-//
-// Rundung: G7 (presentation-rounding.js), Anteile apportioniert wie im PDF.
+// Gewichte/Betraege/Bandbreiten unveraendert aus der Engine; nur sortieren, runden
+// (G7, apportioniert wie im PDF) und zeichnen.
 
 // Feste Reihenfolge der Anlageklassen -- nur Gleichstands-Regel beim Sortieren.
 function aaChartClassRank(key){
@@ -18,9 +16,9 @@ function aaChartKey(label){
 function aaChartPctText(bps){
   return AresRounding.formatPercentBps(Math.round(Number(bps)||0),1,{typography:'screen'});
 }
-// G7: Betraege in Mandatswaehrung (Exponent explizit).
-function aaChartCurrency(){var a=typeof strategyState!=='undefined'&&strategyState&&strategyState.allocation,m=typeof currentMandateData!=='undefined'&&currentMandateData;return String((a&&a.base_currency)||(m&&m.base_currency)||'CHF').toUpperCase();}
-function aaChartMoney(minor,cur){return AresRounding.formatStoredAmount(Number(minor)||0,cur||aaChartCurrency(),0,{typography:'screen'});}
+// G7 N4: Betraege in Artefakt-/Mandatswaehrung; unbekannt -> "—".
+function aaChartCurrency(){var a=typeof strategyState!=='undefined'&&strategyState&&strategyState.allocation,m=typeof currentMandateData!=='undefined'&&currentMandateData;var c=String((a&&a.base_currency)||(m&&m.base_currency)||'').toUpperCase().trim();return c||null;}
+function aaChartMoney(minor,cur){cur=cur||aaChartCurrency();return cur?AresRounding.formatStoredAmount(Number(minor)||0,cur,0,{typography:'screen'}):'—';}
 function aaChartChf(chf,cur){return aaChartMoney(Math.round((Number(chf)||0)*100),cur);}
 // Gruppe gemeinsam apportionieren: list = Objekte mit .bps in kanonischer
 // Reihenfolge; setzt .pct (Anzeige) je Objekt. targetDisplay optional.

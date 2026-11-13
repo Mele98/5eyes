@@ -18,6 +18,7 @@ import {
 import {
   CASHFLOW_FREQUENCIES,
   buildCashflowPayload,
+  NO_MANDATE_RECORD_CURRENCY,
   rappenToChf,
   validateCashflow,
   type CashflowFormInput,
@@ -197,7 +198,7 @@ export function CashflowEditor({ clientId }: CashflowEditorProps) {
                         {d.cashflow_type === 'Income' ? 'Einnahme' : 'Ausgabe'}
                       </td>
                       <td className="py-2">{d.label}</td>
-                      <td className="py-2 text-right">{rappenToChf(d.amount_rappen)}</td>
+                      <td className="py-2 text-right">{rappenToChf(d.amount_rappen, d.currency)}</td>
                       <td className="py-2">{d.frequency}</td>
                     </tr>
                   ))}
@@ -231,7 +232,7 @@ interface CashflowFormDrawerProps {
 }
 
 // N-894-10: neue Cashflows in Mandatswaehrung, bestehende behalten ihre eigene (wie Classic).
-function inputFromRecord(rec: CashflowRecord | null, currency: string): CashflowFormInput {
+function inputFromRecord(rec: CashflowRecord | null, currency: string | null): CashflowFormInput {
   if (!rec) {
     return {
       currency,
@@ -268,17 +269,18 @@ function CashflowFormDrawer({
   onSaved,
 }: CashflowFormDrawerProps) {
   const currency = useReportCurrency();
-  const [form, setForm] = useState<CashflowFormInput>(() => inputFromRecord(editing, currency));
+  const recordCurrency = currency ?? NO_MANDATE_RECORD_CURRENCY;
+  const [form, setForm] = useState<CashflowFormInput>(() => inputFromRecord(editing, recordCurrency));
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setForm(inputFromRecord(editing, currency));
+      setForm(inputFromRecord(editing, recordCurrency));
       setErrors([]);
       setSaving(false);
     }
-  }, [open, editing, currency]);
+  }, [open, editing, recordCurrency]);
 
   useEffect(() => {
     if (!open) return;
@@ -378,7 +380,7 @@ function CashflowFormDrawer({
             />
           </label>
           <label className="block text-caption text-ink-muted">
-            Betrag ({form.currency})
+            Betrag ({form.currency ?? '—'})
             <input
               type="number"
               value={form.amountChf}

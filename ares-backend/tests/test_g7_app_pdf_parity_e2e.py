@@ -61,6 +61,7 @@ def _app_values() -> dict:
         "name": asset_class_label(key), "key": {"equities": "eq", "bonds": "bd", "real_estate": "re",
                                                  "alternatives": "alt", "liquidity": "liq"}[key],
         "bps": bps, "color": "#000000", "amountChf": AMOUNTS_RAPPEN[key] / 100,
+        "currency": "CHF",  # G7 N4: Waehrung des Allokations-Artefakts (aaChartAllocItems setzt sie)
         "subs": [{"name": n, "bps": b} for n, b in SUBS.get(key, {}).items()],
     } for key, bps in ALLOCATION_BPS.items()]
     script = (

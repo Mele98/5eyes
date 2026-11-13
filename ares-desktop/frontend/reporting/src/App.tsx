@@ -1,4 +1,4 @@
-import { ReportCurrencyContext, reportCurrencyFrom } from '@/lib/reportCurrency';
+import { MandateCurrencyProvider, ReportCurrencyContext, reportCurrencyFrom } from '@/lib/reportCurrency';
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useAdvisoryReport } from '@/api/useAdvisoryReport';
@@ -133,7 +133,12 @@ function WealthInflowEditorRoute() {
       />
     );
   }
-  return <WealthInflowEditor clientId={clientId} />;
+  // N-894-16: Waehrungs-Provider auch fuer Editor-Routen (Mandate des Kunden).
+  return (
+    <MandateCurrencyProvider clientId={clientId}>
+      <WealthInflowEditor clientId={clientId} />
+    </MandateCurrencyProvider>
+  );
 }
 
 function GoalsEditorRoute() {
@@ -146,7 +151,11 @@ function GoalsEditorRoute() {
       />
     );
   }
-  return <GoalsEditor mandateId={mandateId} />;
+  return (
+    <MandateCurrencyProvider mandateId={mandateId}>
+      <GoalsEditor mandateId={mandateId} />
+    </MandateCurrencyProvider>
+  );
 }
 
 function AllocationEditorRoute() {
@@ -172,7 +181,11 @@ function CashflowEditorRoute() {
       />
     );
   }
-  return <CashflowEditor clientId={clientId} />;
+  return (
+    <MandateCurrencyProvider clientId={clientId}>
+      <CashflowEditor clientId={clientId} />
+    </MandateCurrencyProvider>
+  );
 }
 
 function MandateEditorRoute() {

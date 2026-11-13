@@ -887,6 +887,8 @@ def _build_ausgangslage(
             or _resolve_risk_profile_from_assessment(db, mandate),
         "anlageziel": _derive_primary_goal_label(db, mandate),
         "liquiditaetsbedarf_rappen": _derive_liquidity_need(db, mandate),
+        # G7 N4: Rohsumme der Ausgaben-Cashflows (ohne FX) -> deren Waehrung oder None.
+        "liquiditaetsbedarf_currency": _native_sum_currency(_liquidity_need_rows(db, mandate)),
         "steuerdomizil": str(getattr(client, "country_of_residence", "") or "CH"),
         "referenzwaehrung": str(getattr(mandate, "base_currency", "") or "CHF"),
     }
@@ -1286,6 +1288,29 @@ def _derive_primary_goal_label(db: Session, mandate: Mandate) -> str:
         return label
     fallback = str(getattr(goal, "goal_type", "") or "").strip()
     return fallback or "—"
+
+
+def _native_sum_currency(rows: list[Any]) -> str | None:
+    """G7 N4 (Grundregel): Waehrung einer Rohsumme ohne FX-Umrechnung.
+
+    Eindeutig nur, wenn alle beitragenden Datensaetze dieselbe ``currency``
+    tragen; sonst (gemischt oder leer) ``None`` -> Anzeige "—" statt einer
+    geratenen Einheit. Rechnet nichts um.
+    """
+    currencies = {str(getattr(r, "currency", "") or "").upper().strip() for r in rows}
+    if len(currencies) == 1 and "" not in currencies:
+        return next(iter(currencies))
+    return None
+
+
+def _liquidity_need_rows(db: Session, mandate: Mandate) -> list[Any]:
+    client_id = getattr(mandate, "client_id", None)
+    if not client_id:
+        return []
+    return [
+        cf for cf in _cached_active_cashflows(db, str(client_id))
+        if str(getattr(cf, "cashflow_type", "")) == "Expense" and _safe_int(getattr(cf, "amount_rappen", 0)) > 0
+    ]
 
 
 def _derive_liquidity_need(db: Session, mandate: Mandate) -> int:
@@ -2768,6 +2793,15 @@ def _build_monte_carlo_paths_section(
 
     client = _load_client_or_raise(db, mandate)
     initial_wealth = _compute_beratungsvermoegen_rappen(db, client)
+    # G7 N4 (Grundregel): Startvermoegen (_compute_beratungsvermoegen_rappen) und
+    # Netto-Cashflow (monte_carlo_paths._annual_cashflow_series) sind Rohsummen
+    # OHNE FX-Umrechnung. Die Pfade liegen daher in der gemeinsamen Waehrung
+    # dieser Datensaetze vor -- nicht automatisch in der Mandatswaehrung.
+    amount_currency = _native_sum_currency(
+        _beratungsvermoegen_positions(db, client)
+        + [cf for cf in _cached_active_cashflows(db, str(getattr(mandate, "client_id", "") or ""))
+           if _safe_int(getattr(cf, "amount_rappen", 0)) != 0]
+    )
     # SIM-HORIZON-FROM-RISK-PROFILE-001: derselbe Prognosehorizont wie Solver
     # und Zielanalyse (Risikoprofil / Ziele / Lebenserwartung) statt des
     # frueheren Pensionierungs-Horizonts.
@@ -2786,6 +2820,7 @@ def _build_monte_carlo_paths_section(
         "mortality_cutoff_year_index": None,
     }
     gate = _cached_projection_gate(db, mandate)
+    unavailable["amount_currency"] = amount_currency
     if gate.is_hidden:
         return _data_pending_response(horizon_years, initial_wealth) | unavailable | {
             "note": gate.note,
@@ -2815,6 +2850,7 @@ def _build_monte_carlo_paths_section(
     if not result.get("data_pending"):
         result["projection_status"] = "current"
     result["horizon_note"] = horizon["sentence"]
+    result["amount_currency"] = amount_currency
     result["mortality_mode"] = mortality_mode
     result["mortality_cutoff_year_index"] = death_year_index
     return result
@@ -2827,9 +2863,13 @@ def _compute_beratungsvermoegen_rappen(db: Session, client: Client) -> int:
     sonst nur in _build_wealth_summary geladen — Drift-Risk gering, da
     beide Stellen denselben Filter haben.
     """
+    return sum(_safe_int(getattr(wp, "current_value_rappen", 0)) for wp in _beratungsvermoegen_positions(db, client))
+
+
+def _beratungsvermoegen_positions(db: Session, client: Client) -> list[Any]:
     from models.wealth import WealthPosition
 
-    rows = (
+    return (
         db.query(WealthPosition)
         .filter(
             WealthPosition.client_id == client.id,
@@ -2839,7 +2879,6 @@ def _compute_beratungsvermoegen_rappen(db: Session, client: Client) -> int:
         )
         .all()
     )
-    return sum(_safe_int(getattr(wp, "current_value_rappen", 0)) for wp in rows)
 
 
 def _build_risikoprofilierung(db: Session, mandate: Mandate) -> dict[str, Any]:

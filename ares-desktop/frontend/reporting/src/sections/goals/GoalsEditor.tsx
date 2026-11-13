@@ -23,12 +23,12 @@ import { GoalWizard } from './GoalWizard';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 
-function formatChf(rappen: number | null, currency: string): string {
+function formatChf(rappen: number | null, currency: string | null): string {
   if (rappen == null) return '—';
   return formatChfFromRappen(rappen, currency);
 }
 
-function goalTargetSummary(goal: GoalRecord, currency: string): string {
+function goalTargetSummary(goal: GoalRecord, currency: string | null): string {
   if (goal.target_amount_rappen != null) return formatChf(goal.target_amount_rappen, currency);
   if (goal.target_wealth_rappen != null) return formatChf(goal.target_wealth_rappen, currency);
   if (goal.target_return_bps != null) return formatBpsAsPct(goal.target_return_bps, { decimals: 2 });

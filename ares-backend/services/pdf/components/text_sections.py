@@ -23,6 +23,7 @@ from services.pdf.components.static_texts import (
     KENNZAHLEN_TITLE,
     ZUSAMMENFASSUNG_TEXT,
     ZUSAMMENFASSUNG_TITLE,
+    with_reference_currency,
 )
 from services.pdf.styles import (
     FONT_BOLD,
@@ -32,13 +33,15 @@ from services.pdf.styles import (
 )
 
 
-def make_investitionsansatz_section() -> list:
-    return _make_text_section(INVESTITIONSANSATZ_TITLE, INVESTITIONSANSATZ_TEXT)
+def make_investitionsansatz_section(currency: str | None = None) -> list:
+    # N-894-15: Referenzwaehrung aus dem Mandat (Dokument reicht ctx.base_currency).
+    return _make_text_section(
+        INVESTITIONSANSATZ_TITLE, [with_reference_currency(p, currency) for p in INVESTITIONSANSATZ_TEXT],
+    )
 
 
-def make_anlageuniversum_section(currency: str = "CHF") -> list:
-    # N-894-10: Referenzwaehrung = Mandatswaehrung (Dokument reicht ctx.base_currency).
-    ccy = str(currency or "CHF").upper().strip() or "CHF"
+def make_anlageuniversum_section(currency: str | None = None) -> list:
+    # N-894-10/15: Referenzwaehrung = Mandatswaehrung (Dokument reicht ctx.base_currency).
     styles = make_paragraph_styles()
     flowables = [_section_heading(ANLAGEUNIVERSUM_TITLE)]
 
@@ -61,7 +64,7 @@ def make_anlageuniversum_section(currency: str = "CHF") -> list:
 
     # Outro-Absaetze
     for para in ANLAGEUNIVERSUM_OUTRO:
-        flowables.append(Paragraph(_body_xml(para.replace("{currency}", ccy)), styles["body"]))
+        flowables.append(Paragraph(_body_xml(with_reference_currency(para, currency)), styles["body"]))
 
     return flowables
 

@@ -153,5 +153,38 @@ def test_pdf_backtest_fee_row_and_reference_currency_text():
                    net_path=[(2020, 0), (2021, 12_000_000)], currency="EUR")
     assert "EUR 123'456" in row and "CHF" not in row
     paras = " ".join(getattr(f, "text", "") for f in make_anlageuniversum_section("EUR"))
-    assert "Die Referenzwährung ist der EUR." in paras
+    assert "Die Referenzwährung ist der Euro." in paras
     assert "{currency}" not in paras
+
+
+# --- Nachtrag 4 / N-894-13: Review mit den ECHTEN Standalone-Modulen ------------------
+
+def test_review_bars_with_real_goal_review_runtime_module_loaded():
+    """N-894-13: goal-review-runtime.js ueberschreibt renderStrategySummary (zuletzt geladen).
+    Der Test laedt das echte Modul nach den Monolith-Helfern und prueft die Review-Balken."""
+    import subprocess
+    import shutil
+    from tests.monolith_source import FRONTEND_DIR, rounding_module_source
+    from tests.livetest_monolith_js import FAKE_DOM, extract_function, html
+
+    if shutil.which("node") is None:
+        pytest.skip("node not available")
+    module = (FRONTEND_DIR / "goal-review-runtime.js").read_text(encoding="utf-8")
+    src = html()
+    helpers = "\n".join(extract_function(src, n) for n in ("assetDisplayName", "formatBpsPercent", "fmtPct", "fmtNumber"))
+    script = (
+        rounding_module_source() + FAKE_DOM + helpers + "\n"
+        "document.addEventListener=function(){};var cm=function(){};"
+        "var renderStrategySummary=function(){};"
+        "function goalSuccessPct(){return null;}function goalSuccessAmpel(){return {tone:'',label:'',bg:''};}"
+        "function goalSuccessIsEstimate(){return false;}var GOAL_SUCCESS_PROBABILITY_TOOLTIP='',GOAL_SUCCESS_ESTIMATE_HINT='';"
+        "function fmtProbPct(v){return String(v);}function assetClassCssVar(){return 'var(--x)';}\n"
+        + module + "\n"
+        "var strategyState={allocation:{buckets:" + json.dumps(BUCKETS) + "}};"
+        "renderStrategySummary();"
+        "process.stdout.write(JSON.stringify(document.getElementById('sr-allocation-bars').innerHTML));"
+    )
+    proc = subprocess.run(["node", "-"], input=script, capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    bars = _plain(json.loads(proc.stdout))
+    assert "69.4 %" in bars and "69.3 %" not in bars, bars[:400]

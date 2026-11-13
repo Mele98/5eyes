@@ -1,587 +1,552 @@
 {
  "policy": "ares-rounding/1",
- "rule": "Jedes 'CHF' in Anzeige-/Formatierpfaden braucht eine Einzelbegruendung (G7 N3)",
+ "rule": "Grundregel (Nachtrag 4): Ein Betrag traegt die Waehrung, in der er vorliegt. Jedes CHF/Franken/Fr./SFr/chf in Anzeige-/Formatierpfaden braucht eine Einzelbegruendung.",
  "entries": [
   {
    "file": "ares-backend/routers/pdf_reports.py",
    "code": "\"currency\": item.get(\"currency\") or \"CHF\",",
    "count": 1,
    "context": "_build_depotcheck_data",
-   "reason": "pdf_reports.py _build_depotcheck_data: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "pdf_reports.py _build_depotcheck_data: Datensatzwaehrung (WealthPosition/Product.currency NOT NULL, Modell-Default 'CHF'); ein leerer Wert entspricht dem Modell-Default. Quelle der Umrechnung bzw. Produktwaehrungsangabe, nicht geraten."
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
    "code": "\"currency\": str(getattr(prod, \"currency\", \"CHF\") or \"CHF\"),",
    "count": 1,
    "context": "_build_portfolio_data",
-   "reason": "pdf_reports.py _build_portfolio_data: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "pdf_reports.py _build_portfolio_data: Datensatzwaehrung (WealthPosition/Product.currency NOT NULL, Modell-Default 'CHF'); ein leerer Wert entspricht dem Modell-Default. Quelle der Umrechnung bzw. Produktwaehrungsangabe, nicht geraten."
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
    "code": "\"currency\": str(getattr(product_obj, \"currency\", \"CHF\") or \"CHF\"),",
    "count": 1,
    "context": "_build_anlagestrategie_data",
-   "reason": "pdf_reports.py _build_anlagestrategie_data: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "pdf_reports.py _build_anlagestrategie_data: Datensatzwaehrung (WealthPosition/Product.currency NOT NULL, Modell-Default 'CHF'); ein leerer Wert entspricht dem Modell-Default. Quelle der Umrechnung bzw. Produktwaehrungsangabe, nicht geraten."
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
    "code": "base_currency = str(getattr(mandate, \"base_currency\", \"CHF\") or \"CHF\").upper()",
    "count": 1,
    "context": "_build_pdf_context",
-   "reason": "pdf_reports.py _build_pdf_context: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "pdf_reports.py _build_pdf_context: mandates.base_currency ist NOT NULL; der getattr-Default dient nur der Typsicherheit fuer Attrappen-Objekte in Tests."
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
    "code": "ccy = str(currency or \"CHF\").upper()  # N-858-6: Mandatswaehrung, nicht fest CHF",
    "count": 1,
    "context": "_strategy_basis_from_allocation",
-   "reason": "pdf_reports.py _strategy_basis_from_allocation: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "pdf_reports.py _strategy_basis_from_allocation: Normalisierung im Formatter; die Aufrufer uebergeben ctx.base_currency bzw. die Datensatzwaehrung (NOT NULL)."
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
    "code": "currency=str(getattr(mandate, \"base_currency\", \"CHF\") or \"CHF\"),",
    "count": 1,
    "context": "_build_anlagestrategie_data",
-   "reason": "pdf_reports.py _build_anlagestrategie_data: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "pdf_reports.py _build_anlagestrategie_data: mandates.base_currency ist NOT NULL; der getattr-Default dient nur der Typsicherheit fuer Attrappen-Objekte in Tests."
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
    "code": "raw_amt, str(getattr(wp, \"currency\", \"\") or \"CHF\"), target_currency,",
    "count": 1,
    "context": "_other_wealth_positions",
-   "reason": "pdf_reports.py _other_wealth_positions: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "pdf_reports.py _other_wealth_positions: Datensatzwaehrung (WealthPosition/Product.currency NOT NULL, Modell-Default 'CHF'); ein leerer Wert entspricht dem Modell-Default. Quelle der Umrechnung bzw. Produktwaehrungsangabe, nicht geraten."
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
    "code": "ta_obj, engine_payload: dict | None, current_advisory_wealth_rappen: int | None, currency: str = \"CHF\",",
    "count": 1,
    "context": "_strategy_basis_from_allocation",
-   "reason": "pdf_reports.py _strategy_basis_from_allocation: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "pdf_reports.py _strategy_basis_from_allocation: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
    "code": "target_currency = str(getattr(mandate, \"base_currency\", \"CHF\") or \"CHF\").upper()",
    "count": 2,
    "context": "_advisory_wealth_positions",
-   "reason": "pdf_reports.py _advisory_wealth_positions: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "pdf_reports.py _advisory_wealth_positions: mandates.base_currency ist NOT NULL; der getattr-Default dient nur der Typsicherheit fuer Attrappen-Objekte in Tests."
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
    "code": "value = int(round(convert_rappen(raw_value, str(getattr(row, \"currency\", \"\") or \"CHF\"), target_currency)))",
    "count": 1,
    "context": "_advisory_wealth_positions",
-   "reason": "pdf_reports.py _advisory_wealth_positions: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "pdf_reports.py _advisory_wealth_positions: Datensatzwaehrung (WealthPosition/Product.currency NOT NULL, Modell-Default 'CHF'); ein leerer Wert entspricht dem Modell-Default. Quelle der Umrechnung bzw. Produktwaehrungsangabe, nicht geraten."
   },
   {
    "file": "ares-backend/services/pdf/base.py",
    "code": "base_currency: str = \"CHF\"",
    "count": 1,
    "context": "PDFContext",
-   "reason": "base.py PDFContext: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "base.py PDFContext: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/backtest_metrics.py",
    "code": "currency: str = \"CHF\",",
    "count": 1,
    "context": "make_backtest_metrics_table",
-   "reason": "backtest_metrics.py make_backtest_metrics_table: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "backtest_metrics.py make_backtest_metrics_table: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/cashflows_ziele.py",
    "code": "def _format_amount(rappen: int, currency: str = \"CHF\") -> str:",
    "count": 1,
    "context": "_format_amount",
-   "reason": "cashflows_ziele.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "cashflows_ziele.py _format_amount: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/cashflows_ziele.py",
    "code": "def make_cashflows_section(events: Iterable[Mapping], *, base_currency: str = \"CHF\") -> list:",
    "count": 1,
    "context": "make_cashflows_section",
-   "reason": "cashflows_ziele.py make_cashflows_section: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "cashflows_ziele.py make_cashflows_section: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/cashflows_ziele.py",
    "code": "def make_ziele_overview_section(goals: Iterable[Mapping], *, base_currency: str = \"CHF\") -> list:",
    "count": 1,
    "context": "make_ziele_overview_section",
-   "reason": "cashflows_ziele.py make_ziele_overview_section: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "cashflows_ziele.py make_ziele_overview_section: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/depotcheck_soll.py",
    "code": "def make_concentration_table(positions: list[dict], base_currency: str = \"CHF\") -> Table:",
    "count": 1,
    "context": "make_concentration_table",
-   "reason": "depotcheck_soll.py make_concentration_table: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "depotcheck_soll.py make_concentration_table: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/depotcheck_soll.py",
    "code": "def make_cost_table(costs: Mapping[str, object], base_currency: str = \"CHF\") -> Table:",
    "count": 1,
    "context": "make_cost_table",
-   "reason": "depotcheck_soll.py make_cost_table: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "depotcheck_soll.py make_cost_table: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/depotcheck_soll.py",
    "code": "def make_sub_allocation_table(rows: list[dict], base_currency: str = \"CHF\") -> Table:",
    "count": 1,
    "context": "make_sub_allocation_table",
-   "reason": "depotcheck_soll.py make_sub_allocation_table: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "depotcheck_soll.py make_sub_allocation_table: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/depotcheck_soll.py",
    "code": "return format_amount_minor(int(rappen or 0), currency or \"CHF\")",
    "count": 1,
    "context": "_format_amount",
-   "reason": "depotcheck_soll.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "depotcheck_soll.py _format_amount: Normalisierung im Formatter; die Aufrufer uebergeben ctx.base_currency bzw. die Datensatzwaehrung (NOT NULL)."
   },
   {
    "file": "ares-backend/services/pdf/components/effektives_portfolio.py",
    "code": "base_currency: str = \"CHF\",",
    "count": 1,
    "context": "make_effektives_portfolio_section",
-   "reason": "effektives_portfolio.py make_effektives_portfolio_section: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "effektives_portfolio.py make_effektives_portfolio_section: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/effektives_portfolio.py",
    "code": "ccy = str(p.get(\"currency\", \"CHF\") or \"CHF\")",
    "count": 1,
    "context": "make_effektives_portfolio_section",
-   "reason": "effektives_portfolio.py make_effektives_portfolio_section: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "effektives_portfolio.py make_effektives_portfolio_section: Datensatzwaehrung (WealthPosition/Product.currency NOT NULL, Modell-Default 'CHF'); ein leerer Wert entspricht dem Modell-Default. Quelle der Umrechnung bzw. Produktwaehrungsangabe, nicht geraten."
   },
   {
    "file": "ares-backend/services/pdf/components/effektives_portfolio.py",
    "code": "def _format_amount(rappen: int, currency: str = \"CHF\") -> str:",
    "count": 1,
    "context": "_format_amount",
-   "reason": "effektives_portfolio.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "effektives_portfolio.py _format_amount: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/effektives_portfolio.py",
    "code": "return format_amount_minor(rappen, currency or \"CHF\")",
    "count": 1,
    "context": "_format_amount",
-   "reason": "effektives_portfolio.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "effektives_portfolio.py _format_amount: Normalisierung im Formatter; die Aufrufer uebergeben ctx.base_currency bzw. die Datensatzwaehrung (NOT NULL)."
   },
   {
    "file": "ares-backend/services/pdf/components/kostenausweis.py",
    "code": "\"CHF\": \"Schweizer Franken\",",
    "count": 1,
    "context": "<Modul>",
-   "reason": "kostenausweis.py <Modul>: Waehrungsnamen-Tabelle des Kostenausweises (Code -> ausgeschriebener Name), enthaelt alle Waehrungen."
+   "reason": "kostenausweis.py <Modul>: Waehrungsnamen-Tabelle des Kostenausweises (Code -> Name), enthaelt alle unterstuetzten Waehrungen."
   },
   {
    "file": "ares-backend/services/pdf/components/kostenausweis.py",
    "code": "currency = str((data or {}).get(\"currency\") or \"CHF\").upper().strip() or \"CHF\"",
    "count": 1,
    "context": "build_retrocession_flowables",
-   "reason": "kostenausweis.py build_retrocession_flowables: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "kostenausweis.py build_retrocession_flowables: Kostenausweis-Payload setzt currency aus mandate.base_currency (services/cost_disclosure); Default nur fuer Altpayloads."
   },
   {
    "file": "ares-backend/services/pdf/components/kostenausweis.py",
    "code": "currency = str(data.get(\"currency\") or \"CHF\").upper().strip() or \"CHF\"",
    "count": 1,
    "context": "build_kostenausweis_flowables",
-   "reason": "kostenausweis.py build_kostenausweis_flowables: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "kostenausweis.py build_kostenausweis_flowables: Kostenausweis-Payload setzt currency aus mandate.base_currency (services/cost_disclosure); Default nur fuer Altpayloads."
   },
   {
    "file": "ares-backend/services/pdf/components/kostenausweis.py",
    "code": "currency: str = \"CHF\",",
    "count": 1,
    "context": "_cost_table",
-   "reason": "kostenausweis.py _cost_table: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "kostenausweis.py _cost_table: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/kostenausweis.py",
    "code": "currency_for_intro = str((data or {}).get(\"currency\") or \"CHF\").upper().strip() or \"CHF\"",
    "count": 1,
    "context": "build_kostenausweis_flowables",
-   "reason": "kostenausweis.py build_kostenausweis_flowables: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "kostenausweis.py build_kostenausweis_flowables: Kostenausweis-Payload setzt currency aus mandate.base_currency (services/cost_disclosure); Default nur fuer Altpayloads."
   },
   {
    "file": "ares-backend/services/pdf/components/kostenausweis.py",
    "code": "def _retro_amount(rappen: Any, *, currency: str = \"CHF\") -> str:",
    "count": 1,
    "context": "_retro_amount",
-   "reason": "kostenausweis.py _retro_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "kostenausweis.py _retro_amount: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/kostenausweis.py",
    "code": "def _summary_metrics(data: dict, totals: dict, styles, *, currency: str = \"CHF\", compact: bool) -> Table:",
    "count": 1,
    "context": "_summary_metrics",
-   "reason": "kostenausweis.py _summary_metrics: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "kostenausweis.py _summary_metrics: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/kostenausweis.py",
    "code": "def _total_row(label: str, bps: Any, amount: Any, styles, *, currency: str = \"CHF\", strong: bool) -> list[Any]:",
    "count": 1,
    "context": "_total_row",
-   "reason": "kostenausweis.py _total_row: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "kostenausweis.py _total_row: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/kostenausweis.py",
    "code": "unit = str(currency or \"CHF\").upper().strip() or \"CHF\"",
    "count": 1,
    "context": "_retro_amount",
-   "reason": "kostenausweis.py _retro_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
-   "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
-   "code": "currency: str = \"CHF\",",
-   "count": 1,
-   "context": "build_mc_paths_drawing",
-   "reason": "mc_paths_chart.py build_mc_paths_drawing: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
-   "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
-   "code": "def make_y_tick_formatter(max_value_rappen: float, step_rappen: float, currency: str = \"CHF\"):",
-   "count": 1,
-   "context": "make_y_tick_formatter",
-   "reason": "mc_paths_chart.py make_y_tick_formatter: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "kostenausweis.py _retro_amount: Normalisierung im Formatter; die Aufrufer uebergeben ctx.base_currency bzw. die Datensatzwaehrung (NOT NULL)."
   },
   {
    "file": "ares-backend/services/pdf/components/produkte.py",
    "code": "base_currency: str = \"CHF\",",
    "count": 1,
    "context": "make_produkte_section",
-   "reason": "produkte.py make_produkte_section: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "produkte.py make_produkte_section: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/produkte.py",
    "code": "ccy = str(p.get(\"currency\", \"CHF\") or \"CHF\")",
    "count": 1,
    "context": "_make_isin_table",
-   "reason": "produkte.py _make_isin_table: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "produkte.py _make_isin_table: Datensatzwaehrung (WealthPosition/Product.currency NOT NULL, Modell-Default 'CHF'); ein leerer Wert entspricht dem Modell-Default. Quelle der Umrechnung bzw. Produktwaehrungsangabe, nicht geraten."
   },
   {
    "file": "ares-backend/services/pdf/components/produkte.py",
    "code": "currencies = sorted({str(p.get(\"currency\", \"CHF\") or \"CHF\") for p in products if p.get(\"currency\")})",
    "count": 1,
    "context": "_make_metric_boxes",
-   "reason": "produkte.py _make_metric_boxes: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "produkte.py _make_metric_boxes: Datensatzwaehrung (WealthPosition/Product.currency NOT NULL, Modell-Default 'CHF'); ein leerer Wert entspricht dem Modell-Default. Quelle der Umrechnung bzw. Produktwaehrungsangabe, nicht geraten."
   },
   {
    "file": "ares-backend/services/pdf/components/produkte.py",
    "code": "def _format_amount(rappen: int, currency: str = \"CHF\") -> str:",
    "count": 1,
    "context": "_format_amount",
-   "reason": "produkte.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "produkte.py _format_amount: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/produkte.py",
    "code": "return format_amount_minor(rappen, currency or \"CHF\")",
    "count": 1,
    "context": "_format_amount",
-   "reason": "produkte.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "produkte.py _format_amount: Normalisierung im Formatter; die Aufrufer uebergeben ctx.base_currency bzw. die Datensatzwaehrung (NOT NULL)."
   },
   {
    "file": "ares-backend/services/pdf/components/saa_bar_table.py",
    "code": "base_currency: str = \"CHF\",",
    "count": 1,
    "context": "make_saa_bar_table",
-   "reason": "saa_bar_table.py make_saa_bar_table: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "saa_bar_table.py make_saa_bar_table: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/saa_bar_table.py",
    "code": "def _format_amount(rappen: int, currency: str = \"CHF\") -> str:",
    "count": 1,
    "context": "_format_amount",
-   "reason": "saa_bar_table.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "saa_bar_table.py _format_amount: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/saa_bar_table.py",
    "code": "return format_amount_minor(rappen, currency or \"CHF\")",
    "count": 1,
    "context": "_format_amount",
-   "reason": "saa_bar_table.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "saa_bar_table.py _format_amount: Normalisierung im Formatter; die Aufrufer uebergeben ctx.base_currency bzw. die Datensatzwaehrung (NOT NULL)."
   },
   {
    "file": "ares-backend/services/pdf/components/sollist_vergleich.py",
    "code": "currency: str = \"CHF\",",
    "count": 1,
    "context": "make_sollist_kennzahlen_table",
-   "reason": "sollist_vergleich.py make_sollist_kennzahlen_table: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "sollist_vergleich.py make_sollist_kennzahlen_table: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
+  },
+  {
+   "file": "ares-backend/services/pdf/components/static_texts.py",
+   "code": "\"CHF\": \"der Schweizer Franken\",",
+   "count": 1,
+   "context": "<Modul>",
+   "reason": "static_texts.py <Modul>: Nominativ-Tabelle fuer 'Referenzwaehrung ist ...' (N-894-15), Schluessel aller unterstuetzten Waehrungen; Auswahl ueber ctx.base_currency."
   },
   {
    "file": "ares-backend/services/pdf/components/swiss_numbers.py",
    "code": "def format_chf_rappen(rappen: int | None, *, with_unit: bool = True, currency: str = \"CHF\") -> str:",
    "count": 1,
    "context": "format_chf_rappen",
-   "reason": "swiss_numbers.py format_chf_rappen: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "swiss_numbers.py format_chf_rappen: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/swiss_numbers.py",
    "code": "unit = str(currency or \"CHF\").upper().strip() or \"CHF\"",
    "count": 1,
    "context": "format_chf_rappen",
-   "reason": "swiss_numbers.py format_chf_rappen: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
-   "file": "ares-backend/services/pdf/components/text_sections.py",
-   "code": "ccy = str(currency or \"CHF\").upper().strip() or \"CHF\"",
-   "count": 1,
-   "context": "make_anlageuniversum_section",
-   "reason": "text_sections.py make_anlageuniversum_section: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
-   "file": "ares-backend/services/pdf/components/text_sections.py",
-   "code": "def make_anlageuniversum_section(currency: str = \"CHF\") -> list:",
-   "count": 1,
-   "context": "make_anlageuniversum_section",
-   "reason": "text_sections.py make_anlageuniversum_section: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "swiss_numbers.py format_chf_rappen: Normalisierung im Formatter; die Aufrufer uebergeben ctx.base_currency bzw. die Datensatzwaehrung (NOT NULL)."
   },
   {
    "file": "ares-backend/services/pdf/components/vermoegensuebersicht.py",
    "code": "base_currency: str = \"CHF\",",
    "count": 1,
    "context": "make_vermoegensuebersicht_section",
-   "reason": "vermoegensuebersicht.py make_vermoegensuebersicht_section: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "vermoegensuebersicht.py make_vermoegensuebersicht_section: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/vermoegensuebersicht.py",
    "code": "def _format_amount(rappen: int, currency: str = \"CHF\") -> str:",
    "count": 1,
    "context": "_format_amount",
-   "reason": "vermoegensuebersicht.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "vermoegensuebersicht.py _format_amount: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/vermoegensuebersicht.py",
    "code": "def _format_signed_amount(rappen: int, currency: str = \"CHF\") -> str:",
    "count": 1,
    "context": "_format_signed_amount",
-   "reason": "vermoegensuebersicht.py _format_signed_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "vermoegensuebersicht.py _format_signed_amount: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/wealth_chart.py",
    "code": "currency: str = \"CHF\",",
    "count": 1,
    "context": "make_wealth_chart",
-   "reason": "wealth_chart.py make_wealth_chart: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "wealth_chart.py make_wealth_chart: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/ziele_table.py",
    "code": "def _format_amount(rappen: int, currency: str = \"CHF\") -> str:",
    "count": 1,
    "context": "_format_amount",
-   "reason": "ziele_table.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "ziele_table.py _format_amount: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/ziele_table.py",
    "code": "def make_ziele_section(goals: Iterable[Mapping], *, base_currency: str = \"CHF\") -> list:",
    "count": 1,
    "context": "make_ziele_section",
-   "reason": "ziele_table.py make_ziele_section: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "ziele_table.py make_ziele_section: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/components/ziele_table.py",
    "code": "return format_amount_minor(rappen, currency or \"CHF\")",
    "count": 1,
    "context": "_format_amount",
-   "reason": "ziele_table.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "ziele_table.py _format_amount: Normalisierung im Formatter; die Aufrufer uebergeben ctx.base_currency bzw. die Datensatzwaehrung (NOT NULL)."
   },
   {
    "file": "ares-backend/services/pdf/documents/advisory_report.py",
    "code": "currency = str(client_info.get(\"referenzwaehrung\") or \"CHF\").upper().strip() or \"CHF\"",
    "count": 1,
    "context": "_build_ausgangslage_flowables",
-   "reason": "advisory_report.py _build_ausgangslage_flowables: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "advisory_report.py _build_ausgangslage_flowables: Bericht-Payload setzt mandate_currency/referenzwaehrung immer aus mandates.base_currency (NOT NULL); der Default betrifft nur handgebaute Test-Payloads."
   },
   {
    "file": "ares-backend/services/pdf/documents/advisory_report.py",
    "code": "currency = str(payload.get(\"mandate_currency\") or \"CHF\").upper().strip() or \"CHF\"",
    "count": 1,
    "context": "_build_all_flowables",
-   "reason": "advisory_report.py _build_all_flowables: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "advisory_report.py _build_all_flowables: Bericht-Payload setzt mandate_currency/referenzwaehrung immer aus mandates.base_currency (NOT NULL); der Default betrifft nur handgebaute Test-Payloads."
   },
   {
    "file": "ares-backend/services/pdf/documents/advisory_report.py",
    "code": "currency: str = \"CHF\",",
    "count": 1,
    "context": "_goals_table",
-   "reason": "advisory_report.py _goals_table: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "advisory_report.py _goals_table: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/documents/advisory_report.py",
    "code": "def _build_client_info_block(client_info: dict, styles: dict, *, currency: str = \"CHF\"):",
    "count": 1,
    "context": "_build_client_info_block",
-   "reason": "advisory_report.py _build_client_info_block: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "advisory_report.py _build_client_info_block: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/documents/advisory_report.py",
    "code": "def _build_goals_flowables(gbi: dict, styles: dict, *, currency: str = \"CHF\") -> list[Any]:",
    "count": 1,
    "context": "_build_goals_flowables",
-   "reason": "advisory_report.py _build_goals_flowables: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
-   "file": "ares-backend/services/pdf/documents/advisory_report.py",
-   "code": "def _build_position_group(group: dict, styles: dict, *, currency: str = \"CHF\") -> list[Any]:",
-   "count": 1,
-   "context": "_build_position_group",
-   "reason": "advisory_report.py _build_position_group: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "advisory_report.py _build_goals_flowables: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/documents/advisory_report.py",
    "code": "def _build_positionen_flowables(positionen: dict, styles: dict, *, currency: str = \"CHF\") -> list[Any]:",
    "count": 1,
    "context": "_build_positionen_flowables",
-   "reason": "advisory_report.py _build_positionen_flowables: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "advisory_report.py _build_positionen_flowables: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/documents/advisory_report.py",
    "code": "def _build_wealth_summary_block(wealth: dict, styles: dict, *, currency: str = \"CHF\"):",
    "count": 1,
    "context": "_build_wealth_summary_block",
-   "reason": "advisory_report.py _build_wealth_summary_block: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "advisory_report.py _build_wealth_summary_block: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/documents/anlagestrategie.py",
    "code": "\"chf_only\": \"Nur CHF-Instrumente\",",
    "count": 1,
    "context": "_make_preferences_section",
-   "reason": "anlagestrategie.py _make_preferences_section: Name der Anlagerestriktion 'Nur CHF-Instrumente' bzw. FX-Policy chf_only (Instrumentenwaehrung), kein Betrags- oder Waehrungslabel einer Zahl."
+   "reason": "anlagestrategie.py _make_preferences_section: Name der Anlagerestriktion 'Nur CHF-Instrumente' bzw. FX-Policy chf_only (Instrumentenwaehrung), kein Betragslabel."
   },
   {
    "file": "ares-backend/services/pdf/documents/anlagestrategie.py",
    "code": "(\"chfOnly\", \"Nur CHF-Instrumente\"),",
    "count": 1,
    "context": "_make_preferences_section",
-   "reason": "anlagestrategie.py _make_preferences_section: Name der Anlagerestriktion 'Nur CHF-Instrumente' bzw. FX-Policy chf_only (Instrumentenwaehrung), kein Betrags- oder Waehrungslabel einer Zahl."
+   "reason": "anlagestrategie.py _make_preferences_section: Name der Anlagerestriktion 'Nur CHF-Instrumente' bzw. FX-Policy chf_only (Instrumentenwaehrung), kein Betragslabel."
   },
   {
    "file": "ares-backend/services/pdf/documents/anlagestrategie.py",
    "code": "def _fmt_amount(amount: float, currency: str = \"CHF\") -> str:",
    "count": 1,
    "context": "_fmt_amount",
-   "reason": "anlagestrategie.py _fmt_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "anlagestrategie.py _fmt_amount: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/documents/anlagestrategie.py",
    "code": "def _format_amount(rappen: int, currency: str = \"CHF\") -> str:",
    "count": 1,
    "context": "_format_amount",
-   "reason": "anlagestrategie.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "anlagestrategie.py _format_amount: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/documents/anlagestrategie.py",
    "code": "return format_amount_minor(rappen, currency or \"CHF\")",
    "count": 1,
    "context": "_format_amount",
-   "reason": "anlagestrategie.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "anlagestrategie.py _format_amount: Normalisierung im Formatter; die Aufrufer uebergeben ctx.base_currency bzw. die Datensatzwaehrung (NOT NULL)."
   },
   {
    "file": "ares-backend/services/pdf/documents/asset_allocation.py",
    "code": "def _format_amount(rappen: int, currency: str = \"CHF\") -> str:",
    "count": 1,
    "context": "_format_amount",
-   "reason": "asset_allocation.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "asset_allocation.py _format_amount: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/documents/asset_allocation.py",
    "code": "return format_amount_minor(rappen, currency or \"CHF\")",
    "count": 1,
    "context": "_format_amount",
-   "reason": "asset_allocation.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "asset_allocation.py _format_amount: Normalisierung im Formatter; die Aufrufer uebergeben ctx.base_currency bzw. die Datensatzwaehrung (NOT NULL)."
   },
   {
    "file": "ares-backend/services/pdf/documents/backtest.py",
    "code": "def _format_chf(rappen: int, currency: str = \"CHF\") -> str:",
    "count": 1,
    "context": "_format_chf",
-   "reason": "backtest.py _format_chf: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "backtest.py _format_chf: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/documents/backtest.py",
    "code": "return format_amount_minor(rappen, currency or \"CHF\")",
    "count": 1,
    "context": "_format_chf",
-   "reason": "backtest.py _format_chf: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "backtest.py _format_chf: Normalisierung im Formatter; die Aufrufer uebergeben ctx.base_currency bzw. die Datensatzwaehrung (NOT NULL)."
   },
   {
    "file": "ares-backend/services/pdf/documents/contract_signoff.py",
    "code": "return format_amount_minor(int(rappen or 0), currency or \"CHF\")",
    "count": 1,
    "context": "_format_amount",
-   "reason": "contract_signoff.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "contract_signoff.py _format_amount: Normalisierung im Formatter; die Aufrufer uebergeben ctx.base_currency bzw. die Datensatzwaehrung (NOT NULL)."
   },
   {
    "file": "ares-backend/services/pdf/documents/cost_disclosure.py",
    "code": "return format_amount_minor(rappen, currency or \"CHF\")",
    "count": 1,
    "context": "_format_amount",
-   "reason": "cost_disclosure.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "cost_disclosure.py _format_amount: Normalisierung im Formatter; die Aufrufer uebergeben ctx.base_currency bzw. die Datensatzwaehrung (NOT NULL)."
   },
   {
    "file": "ares-backend/services/pdf/documents/depotcheck.py",
    "code": "return format_amount_minor(int(rappen or 0), currency or \"CHF\")",
    "count": 1,
    "context": "_format_amount",
-   "reason": "depotcheck.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "depotcheck.py _format_amount: Normalisierung im Formatter; die Aufrufer uebergeben ctx.base_currency bzw. die Datensatzwaehrung (NOT NULL)."
   },
   {
    "file": "ares-backend/services/pdf/documents/portfolio.py",
    "code": "def _format_amount(rappen: int, currency: str = \"CHF\") -> str:",
    "count": 1,
    "context": "_format_amount",
-   "reason": "portfolio.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "portfolio.py _format_amount: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/documents/portfolio.py",
    "code": "return format_amount_minor(rappen, currency or \"CHF\")",
    "count": 1,
    "context": "_format_amount",
-   "reason": "portfolio.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "portfolio.py _format_amount: Normalisierung im Formatter; die Aufrufer uebergeben ctx.base_currency bzw. die Datensatzwaehrung (NOT NULL)."
   },
   {
    "file": "ares-backend/services/pdf/documents/protokoll.py",
    "code": "def _format_amount(rappen: int, currency: str = \"CHF\") -> str:",
    "count": 1,
    "context": "_format_amount",
-   "reason": "protokoll.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "protokoll.py _format_amount: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/documents/protokoll.py",
    "code": "return format_amount_minor(rappen, currency or \"CHF\")",
    "count": 1,
    "context": "_format_amount",
-   "reason": "protokoll.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "protokoll.py _format_amount: Normalisierung im Formatter; die Aufrufer uebergeben ctx.base_currency bzw. die Datensatzwaehrung (NOT NULL)."
   },
   {
    "file": "ares-backend/services/pdf/documents/risikoprofil.py",
    "code": "def _format_amount(value_rappen: int | None, currency: str = \"CHF\") -> str:",
    "count": 1,
    "context": "_format_amount",
-   "reason": "risikoprofil.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "risikoprofil.py _format_amount: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/documents/risikoprofil.py",
    "code": "return format_amount_minor(value_rappen, currency or \"CHF\")",
    "count": 1,
    "context": "_format_amount",
-   "reason": "risikoprofil.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "risikoprofil.py _format_amount: Normalisierung im Formatter; die Aufrufer uebergeben ctx.base_currency bzw. die Datensatzwaehrung (NOT NULL)."
   },
   {
    "file": "ares-backend/services/pdf/documents/vertrag.py",
    "code": "def _format_amount(rappen: int, currency: str = \"CHF\") -> str:",
    "count": 1,
    "context": "_format_amount",
-   "reason": "vertrag.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "vertrag.py _format_amount: Signatur-Default; die PDF-Dokumente rufen mit ctx.base_currency bzw. der Datensatzwaehrung auf (mandates.base_currency NOT NULL). Der Default greift nur bei direktem Komponentenaufruf ohne Waehrung (Tests)."
   },
   {
    "file": "ares-backend/services/pdf/documents/vertrag.py",
    "code": "return format_amount_minor(rappen, currency or \"CHF\")",
    "count": 1,
    "context": "_format_amount",
-   "reason": "vertrag.py _format_amount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
-   "file": "ares-desktop/frontend/aa-chart.js",
-   "code": "function aaChartCurrency(){var a=typeof strategyState!=='undefined'&&strategyState&&strategyState.allocation,m=typeof currentMandateData!=='undefined'&&currentMandateData;return String((a&&a.base_currency)||(m&&m.base_currency)||'CHF').toUpperCase();}",
-   "count": 1,
-   "context": "aaChartCurrency",
-   "reason": "aa-chart.js aaChartCurrency: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "vertrag.py _format_amount: Normalisierung im Formatter; die Aufrufer uebergeben ctx.base_currency bzw. die Datensatzwaehrung (NOT NULL)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -595,7 +560,7 @@
    "code": "<div class=\"fg\"><label class=\"fl\">Aktueller Wert (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"maw-alt-value\" type=\"number\" placeholder=\"100000\"></div>",
    "count": 1,
    "context": "#maw-alt-value",
-   "reason": "ares.html #maw-alt-value: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() ersetzt ihn beim Oeffnen (om/go/Vermoegens-Editor mit Positionswaehrung) durch die Mandatswaehrung -- Test test_ccy_labels_follow_mandate."
+   "reason": "ares.html #maw-alt-value: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -609,7 +574,7 @@
    "code": "<div class=\"fg\"><label class=\"fl\">Amortisation p.a. (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"maw-mortgage-amortization\" type=\"number\" placeholder=\"20000\"></div>",
    "count": 1,
    "context": "#maw-mortgage-amortization",
-   "reason": "ares.html #maw-mortgage-amortization: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() ersetzt ihn beim Oeffnen (om/go/Vermoegens-Editor mit Positionswaehrung) durch die Mandatswaehrung -- Test test_ccy_labels_follow_mandate."
+   "reason": "ares.html #maw-mortgage-amortization: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -623,7 +588,7 @@
    "code": "<div class=\"fg\"><label class=\"fl\">Ausstehender Betrag (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"maw-mortgage-value\" type=\"number\" placeholder=\"780000\"></div>",
    "count": 1,
    "context": "#maw-mortgage-value",
-   "reason": "ares.html #maw-mortgage-value: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() ersetzt ihn beim Oeffnen (om/go/Vermoegens-Editor mit Positionswaehrung) durch die Mandatswaehrung -- Test test_ccy_labels_follow_mandate."
+   "reason": "ares.html #maw-mortgage-value: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -637,21 +602,21 @@
    "code": "<div class=\"fg\"><label class=\"fl\">Betrag (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"maw-liq-value\" type=\"number\" placeholder=\"50000\"></div>",
    "count": 1,
    "context": "#maw-liq-value",
-   "reason": "ares.html #maw-liq-value: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() ersetzt ihn beim Oeffnen (om/go/Vermoegens-Editor mit Positionswaehrung) durch die Mandatswaehrung -- Test test_ccy_labels_follow_mandate."
+   "reason": "ares.html #maw-liq-value: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"fg\"><label class=\"fl\">Garantierter Ablaufwert (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"maw-pension-maturity-value\" type=\"number\" placeholder=\"80000\"></div>",
    "count": 1,
    "context": "#maw-pension-maturity-value",
-   "reason": "ares.html #maw-pension-maturity-value: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() ersetzt ihn beim Oeffnen (om/go/Vermoegens-Editor mit Positionswaehrung) durch die Mandatswaehrung -- Test test_ccy_labels_follow_mandate."
+   "reason": "ares.html #maw-pension-maturity-value: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"fg\"><label class=\"fl\">Guthaben (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"maw-pension-value\" type=\"number\" placeholder=\"150000\"></div>",
    "count": 1,
    "context": "#maw-pension-value",
-   "reason": "ares.html #maw-pension-value: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() ersetzt ihn beim Oeffnen (om/go/Vermoegens-Editor mit Positionswaehrung) durch die Mandatswaehrung -- Test test_ccy_labels_follow_mandate."
+   "reason": "ares.html #maw-pension-value: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -665,7 +630,7 @@
    "code": "<div class=\"fg\"><label class=\"fl\">Jährl. Mietertrag (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"maw-immo-rent\" type=\"number\" placeholder=\"0\"></div>",
    "count": 1,
    "context": "#maw-immo-rent",
-   "reason": "ares.html #maw-immo-rent: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() ersetzt ihn beim Oeffnen (om/go/Vermoegens-Editor mit Positionswaehrung) durch die Mandatswaehrung -- Test test_ccy_labels_follow_mandate."
+   "reason": "ares.html #maw-immo-rent: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -679,14 +644,14 @@
    "code": "<div class=\"fg\"><label class=\"fl\">Kapitalbezugssteuer <span class=\"ccy\">CHF</span></label><input class=\"fi\" id=\"maw-pension-tax-chf\" type=\"number\" min=\"0\" placeholder=\"aus dem Steuerrechner des Kantons\"></div>",
    "count": 1,
    "context": "#maw-pension-tax-chf",
-   "reason": "ares.html #maw-pension-tax-chf: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() ersetzt ihn beim Oeffnen (om/go/Vermoegens-Editor mit Positionswaehrung) durch die Mandatswaehrung -- Test test_ccy_labels_follow_mandate."
+   "reason": "ares.html #maw-pension-tax-chf: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"fg\"><label class=\"fl\">Marktwert (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"maw-depot-value\" type=\"number\" placeholder=\"500000\"></div>",
    "count": 1,
    "context": "#maw-depot-value",
-   "reason": "ares.html #maw-depot-value: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() ersetzt ihn beim Oeffnen (om/go/Vermoegens-Editor mit Positionswaehrung) durch die Mandatswaehrung -- Test test_ccy_labels_follow_mandate."
+   "reason": "ares.html #maw-depot-value: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -700,392 +665,399 @@
    "code": "<div class=\"fg\"><label class=\"fl\">Schätzwert (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"maw-immo-value\" type=\"number\" placeholder=\"1200000\"></div>",
    "count": 1,
    "context": "#maw-immo-value",
-   "reason": "ares.html #maw-immo-value: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() ersetzt ihn beim Oeffnen (om/go/Vermoegens-Editor mit Positionswaehrung) durch die Mandatswaehrung -- Test test_ccy_labels_follow_mandate."
+   "reason": "ares.html #maw-immo-value: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"kpi\" onclick=\"go('vg')\" title=\"Zu Vermögen\" style=\"cursor:pointer\"><div class=\"kl\">Reinvermögen</div><div class=\"kv\" id=\"kpi-reinvermoegen\">CHF 3.9 Mio</div><div class=\"ks\"><span class=\"g\">+340k</span> seit Review</div></div>",
    "count": 1,
    "context": "#kpi-reinvermoegen",
-   "reason": "ares.html #kpi-reinvermoegen: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthOverview -> #asset-view.innerHTML, KPI kpi-reinvermoegen bzw. setText ub-*-terminal ueber fmtCHF/formatCompactCHF in Mandatswaehrung)."
+   "reason": "ares.html #kpi-reinvermoegen: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"overlay\" id=\"m-ap\"><div class=\"modal\"><div class=\"mhd\"><div class=\"mtitle\">Bestand zu Empfehlungstitel</div><button class=\"mx\" onclick=\"cm('m-ap')\">✕</button></div><div class=\"mbody\"><div id=\"ap-empty-state\" style=\"display:none;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px;font-size:11px;color:var(--n6);line-height:1.6\">Portfolio-Bestände bauen auf einem vorhandenen Rezept auf. Bitte zuerst die Strategie berechnen und ein aktuelles Anlagerezept laden.</div><div id=\"ap-form-wrap\"><div style=\"background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;margin-bottom:10px;font-size:10px;line-height:1.6;color:var(--n6)\">Hier wird der effektive Depotbestand zum Empfehlungstitel hinterlegt. Wenn ein Bestand vorhanden ist, basiert Live-Drift auf diesem Holding statt auf einer Rekonstruktion aus dem Zielbetrag.</div><div class=\"frow\"><div class=\"fg\"><label class=\"fl\">Empfehlungstitel</label><select class=\"fsel\" id=\"ap-position-id\" onchange=\"syncPortfolioHoldingSelection()\"></select></div></div><div id=\"ap-product-meta\" style=\"font-size:10px;color:var(--n5);margin:-2px 0 10px\"></div><div class=\"frow\"><div class=\"fg\"><label class=\"fl\">Depotbank / Institut</label><input class=\"fi\" id=\"ap-depot-bank\" placeholder=\"z.B. UBS AG Zürich\"></div><div class=\"fg\"><label class=\"fl\">Konto / Depotnummer</label><input class=\"fi\" id=\"ap-custody-account\" placeholder=\"optional\"></div></div><div class=\"frow\"><div class=\"fg\"><label class=\"fl\">Bestand (Stück)</label><input class=\"fi\" id=\"ap-units\" placeholder=\"z.B. 128.750\"></div><div class=\"fg\"><label class=\"fl\">Bestandsmarktwert (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"ap-market-value\" placeholder=\"optional, z.B. 415'600\"></div></div><div class=\"frow\"><div class=\"fg\"><label class=\"fl\">Einstand / Durchschnittskurs (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"ap-cost-price\" placeholder=\"optional\"></div><div class=\"fg\"><label class=\"fl\">Standdatum</label><input class=\"fi\" id=\"ap-as-of\" type=\"date\"></div></div><div class=\"frow\"><div class=\"fg\"><label class=\"fl\">Quelle</label><select class=\"fsel\" id=\"ap-source\"><option value=\"manual\">Manuell</option><option value=\"custody_import\">Custody-Import</option></select></div><div class=\"fg\"><label class=\"fl\">Bewertungsbasis</label><div id=\"ap-basis-note\" style=\"font-size:10px;color:var(--n5);padding:9px 0\">Noch kein Bestand hinterlegt.</div></div></div><div class=\"frow\"><div class=\"fg\"><label class=\"fl\">Notizen</label><textarea class=\"fta\" id=\"ap-notes\" rows=\"3\" placeholder=\"optional\"></textarea></div></div></div><div id=\"ap-error\" style=\"display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px\"></div></div><div class=\"mfooter\"><button class=\"btn\" onclick=\"cm('m-ap')\">Abbrechen</button><button class=\"btn\" id=\"btn-ap-delete\" style=\"display:none\" onclick=\"deletePortfolioHolding()\">Bestand löschen</button><button class=\"btn-p\" id=\"btn-ap-save\" onclick=\"savePortfolioHolding()\">Speichern</button></div></div></div>",
    "count": 1,
    "context": "#m-ap",
-   "reason": "ares.html #m-ap: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() ersetzt ihn beim Oeffnen (om/go/Vermoegens-Editor mit Positionswaehrung) durch die Mandatswaehrung -- Test test_ccy_labels_follow_mandate."
+   "reason": "ares.html #m-ap: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"qopt\" onclick=\"sq(this,'rf-income')\"><div class=\"qrad\"></div><span class=\"qtxt\">Bis CHF 6'000</span></div>",
    "count": 1,
    "context": "#page-rp",
-   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes) und der Antworttext wird serverseitig per Praefix gematcht."
+   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes), der Antworttext wird serverseitig per Praefix gematcht."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"qopt\" onclick=\"sq(this,'rf-income')\"><div class=\"qrad\"></div><span class=\"qtxt\">CHF 12'000 bis 20'000</span></div>",
    "count": 1,
    "context": "#page-rp",
-   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes) und der Antworttext wird serverseitig per Praefix gematcht."
+   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes), der Antworttext wird serverseitig per Praefix gematcht."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"qopt\" onclick=\"sq(this,'rf-income')\"><div class=\"qrad\"></div><span class=\"qtxt\">CHF 6'000 bis 9'000</span></div>",
    "count": 1,
    "context": "#page-rp",
-   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes) und der Antworttext wird serverseitig per Praefix gematcht."
+   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes), der Antworttext wird serverseitig per Praefix gematcht."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"qopt\" onclick=\"sq(this,'rf-income')\"><div class=\"qrad\"></div><span class=\"qtxt\">CHF 9'000 bis 12'000</span></div>",
    "count": 1,
    "context": "#page-rp",
-   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes) und der Antworttext wird serverseitig per Praefix gematcht."
+   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes), der Antworttext wird serverseitig per Praefix gematcht."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"qopt\" onclick=\"sq(this,'rf-income')\"><div class=\"qrad\"></div><span class=\"qtxt\">Über CHF 20'000</span></div>",
    "count": 1,
    "context": "#page-rp",
-   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes) und der Antworttext wird serverseitig per Praefix gematcht."
+   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes), der Antworttext wird serverseitig per Praefix gematcht."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"qopt\" onclick=\"sq(this,'rf-oblig')\"><div class=\"qrad\"></div><span class=\"qtxt\">Bis CHF 3'000</span></div>",
    "count": 1,
    "context": "#page-rp",
-   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes) und der Antworttext wird serverseitig per Praefix gematcht."
+   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes), der Antworttext wird serverseitig per Praefix gematcht."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"qopt\" onclick=\"sq(this,'rf-oblig')\"><div class=\"qrad\"></div><span class=\"qtxt\">CHF 3'000 bis 5'000</span></div>",
    "count": 1,
    "context": "#page-rp",
-   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes) und der Antworttext wird serverseitig per Praefix gematcht."
+   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes), der Antworttext wird serverseitig per Praefix gematcht."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"qopt\" onclick=\"sq(this,'rf-oblig')\"><div class=\"qrad\"></div><span class=\"qtxt\">CHF 5'000 bis 8'000</span></div>",
    "count": 1,
    "context": "#page-rp",
-   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes) und der Antworttext wird serverseitig per Praefix gematcht."
+   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes), der Antworttext wird serverseitig per Praefix gematcht."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"qopt\" onclick=\"sq(this,'rf-oblig')\"><div class=\"qrad\"></div><span class=\"qtxt\">CHF 8'000 bis 12'000</span></div>",
    "count": 1,
    "context": "#page-rp",
-   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes) und der Antworttext wird serverseitig per Praefix gematcht."
+   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes), der Antworttext wird serverseitig per Praefix gematcht."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"qopt\" onclick=\"sq(this,'rf-oblig')\"><div class=\"qrad\"></div><span class=\"qtxt\">Über CHF 12'000</span></div>",
    "count": 1,
    "context": "#page-rp",
-   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes) und der Antworttext wird serverseitig per Praefix gematcht."
+   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes), der Antworttext wird serverseitig per Praefix gematcht."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"qopt\" onclick=\"sq(this,'rf-wealth')\"><div class=\"qrad\"></div><span class=\"qtxt\">Bis CHF 100'000</span></div>",
    "count": 1,
    "context": "#page-rp",
-   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes) und der Antworttext wird serverseitig per Praefix gematcht."
+   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes), der Antworttext wird serverseitig per Praefix gematcht."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"qopt\" onclick=\"sq(this,'rf-wealth')\"><div class=\"qrad\"></div><span class=\"qtxt\">CHF 1'000'000 bis 2'000'000</span></div>",
    "count": 1,
    "context": "#page-rp",
-   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes) und der Antworttext wird serverseitig per Praefix gematcht."
+   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes), der Antworttext wird serverseitig per Praefix gematcht."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"qopt\" onclick=\"sq(this,'rf-wealth')\"><div class=\"qrad\"></div><span class=\"qtxt\">CHF 100'000 bis 250'000</span></div>",
    "count": 1,
    "context": "#page-rp",
-   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes) und der Antworttext wird serverseitig per Praefix gematcht."
+   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes), der Antworttext wird serverseitig per Praefix gematcht."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"qopt\" onclick=\"sq(this,'rf-wealth')\"><div class=\"qrad\"></div><span class=\"qtxt\">CHF 250'000 bis 1'000'000</span></div>",
    "count": 1,
    "context": "#page-rp",
-   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes) und der Antworttext wird serverseitig per Praefix gematcht."
+   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes), der Antworttext wird serverseitig per Praefix gematcht."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"qopt\" onclick=\"sq(this,'rf-wealth')\"><div class=\"qrad\"></div><span class=\"qtxt\">Über CHF 2'000'000</span></div>",
    "count": 1,
    "context": "#page-rp",
-   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes) und der Antworttext wird serverseitig per Praefix gematcht."
+   "reason": "ares.html #page-rp: Antwortband des FINMA-Risikoprofil-Fragebogens (Einkommen/Verpflichtungen/Vermoegen in CHF); Fragebogen ist regulatorisch fixiert (§2, nur Bugfixes), der Antworttext wird serverseitig per Praefix gematcht."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"wr\"><div class=\"wn\"><div class=\"wna\">BVG / Pensionskasse</div><div class=\"wnd\">Gesperrt bis 2033</div></div><div class=\"wa\">CHF 340'000</div><div class=\"wt\"><span class=\"tag tn\">Andere</span></div></div>",
    "count": 1,
    "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthOverview -> #asset-view.innerHTML, KPI kpi-reinvermoegen bzw. setText ub-*-terminal ueber fmtCHF/formatCompactCHF in Mandatswaehrung)."
+   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"wr\"><div class=\"wn\"><div class=\"wna\">Cash / Liquidität</div><div class=\"wnd\">Sichtguthaben UBS</div></div><div class=\"wa\">CHF 210'000</div><div class=\"wt\"><span class=\"tag tb\">Beratung</span></div></div>",
    "count": 1,
    "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthOverview -> #asset-view.innerHTML, KPI kpi-reinvermoegen bzw. setText ub-*-terminal ueber fmtCHF/formatCompactCHF in Mandatswaehrung)."
+   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"wr\"><div class=\"wn\"><div class=\"wna\">Depot UBS AG Zürich</div><div class=\"wnd\">Kto. 12-345678-9</div></div><div class=\"wa\">CHF 1'850'000</div><div class=\"wt\"><span class=\"tag tb\">Beratung</span></div><button class=\"btn-ico e\" onclick=\"om('m-edit-depot')\" title=\"Bearbeiten\">✎</button></div>",
    "count": 1,
    "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthOverview -> #asset-view.innerHTML, KPI kpi-reinvermoegen bzw. setText ub-*-terminal ueber fmtCHF/formatCompactCHF in Mandatswaehrung)."
+   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"wr\"><div class=\"wn\"><div class=\"wna\">Depot ZKB</div><div class=\"wnd\">Kto. 87-654321-0</div></div><div class=\"wa\">CHF 620'000</div><div class=\"wt\"><span class=\"tag tb\">Beratung</span></div></div>",
    "count": 1,
    "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthOverview -> #asset-view.innerHTML, KPI kpi-reinvermoegen bzw. setText ub-*-terminal ueber fmtCHF/formatCompactCHF in Mandatswaehrung)."
+   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"wr\"><div class=\"wn\"><div class=\"wna\">Eigenheim Zürich-Seefeld</div><div class=\"wnd\">Marktwert</div></div><div class=\"wa\">CHF 1'450'000</div><div class=\"wt\"><span class=\"tag tn\">Andere</span></div><button class=\"btn-ico e\" onclick=\"om('m-edit-custom')\" title=\"Bearbeiten\">✎</button></div>",
    "count": 1,
    "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthOverview -> #asset-view.innerHTML, KPI kpi-reinvermoegen bzw. setText ub-*-terminal ueber fmtCHF/formatCompactCHF in Mandatswaehrung)."
+   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"wr\"><div class=\"wn\"><div class=\"wna\">Hypothek Eigenheim</div><div class=\"wnd\">1.2% bis 2027</div></div><div class=\"wa\" style=\"color:var(--neg)\">−CHF 856'000</div><div class=\"wt\"><span class=\"tag tr2\">Verbindl.</span></div><button class=\"btn-ico e\" onclick=\"om('m-edit-hypo')\" title=\"Bearbeiten\">✎</button></div>",
    "count": 1,
    "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthOverview -> #asset-view.innerHTML, KPI kpi-reinvermoegen bzw. setText ub-*-terminal ueber fmtCHF/formatCompactCHF in Mandatswaehrung)."
+   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"wr\"><div class=\"wn\"><div class=\"wna\">Private-Equity-Fonds A</div><div class=\"wnd\">Illiquid · 8 J.</div></div><div class=\"wa\">CHF 168'000</div><div class=\"wt\"><span class=\"tag tb\">Beratung</span></div></div>",
    "count": 1,
    "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthOverview -> #asset-view.innerHTML, KPI kpi-reinvermoegen bzw. setText ub-*-terminal ueber fmtCHF/formatCompactCHF in Mandatswaehrung)."
+   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"wr\"><div class=\"wn\"><div class=\"wna\">Säule 3a (2 Konten BEKB)</div><div class=\"wnd\">Bezug ab 2027</div></div><div class=\"wa\">CHF 112'000</div><div class=\"wt\"><span class=\"tag tn\">Andere</span></div></div>",
    "count": 1,
    "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthOverview -> #asset-view.innerHTML, KPI kpi-reinvermoegen bzw. setText ub-*-terminal ueber fmtCHF/formatCompactCHF in Mandatswaehrung)."
+   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div style=\"display:flex;justify-content:space-between;padding:6px 0 0;border-top:1px solid var(--b1);margin-top:2px\"><span style=\"font-size:11px;font-weight:600\">Total Anderes (netto)</span><span style=\"font-family:var(--f-d);font-size:15px;color:var(--n8)\">CHF 1'046'000</span></div>",
    "count": 1,
    "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthOverview -> #asset-view.innerHTML, KPI kpi-reinvermoegen bzw. setText ub-*-terminal ueber fmtCHF/formatCompactCHF in Mandatswaehrung)."
+   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div style=\"display:flex;justify-content:space-between;padding:6px 0 0;border-top:1px solid var(--b1);margin-top:2px\"><span style=\"font-size:11px;font-weight:600\">Total Beratungsvermögen</span><span style=\"font-family:var(--f-d);font-size:15px;color:var(--pos)\">CHF 2'848'000</span></div>",
    "count": 1,
    "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthOverview -> #asset-view.innerHTML, KPI kpi-reinvermoegen bzw. setText ub-*-terminal ueber fmtCHF/formatCompactCHF in Mandatswaehrung)."
+   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div style=\"font-size:10px;color:var(--n5);line-height:1.4;margin:-2px 0 6px\">Kapitalbezugssteuer aus dem Steuerrechner des Kantons erfassen (CHF-Betrag hat Vorrang vor dem Satz). Leer = defensiv 10 % (3a, Freizügigkeit, BVG-Kapital); 3b-Policen 0 %.</div>",
    "count": 1,
    "context": "#m-aw",
-   "reason": "ares.html #m-aw: Hilfetext zur kantonalen Kapitalbezugssteuer (Vorsorge/Säule 3a/BVG) -- CH-spezifische Steuer, die immer in CHF veranlagt wird."
+   "reason": "ares.html #m-aw: Hilfetext zur kantonalen Kapitalbezugssteuer (Vorsorge/Saeule 3a/BVG) -- CH-spezifische Steuer, immer in CHF veranlagt."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div><div style=\"font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px\">Ist Terminal</div><div id=\"ub-ist-terminal\" style=\"font-family:var(--f-d);font-size:15px;color:var(--warn)\">CHF 5.4 Mio</div></div>",
    "count": 1,
    "context": "#ub-ist-terminal",
-   "reason": "ares.html #ub-ist-terminal: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthOverview -> #asset-view.innerHTML, KPI kpi-reinvermoegen bzw. setText ub-*-terminal ueber fmtCHF/formatCompactCHF in Mandatswaehrung)."
+   "reason": "ares.html #ub-ist-terminal: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div><div style=\"font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px\">Verbessert</div><div id=\"ub-opt-terminal\" style=\"font-family:var(--f-d);font-size:15px;color:var(--pos)\">CHF 6.1 Mio</div></div>",
    "count": 1,
    "context": "#ub-opt-terminal",
-   "reason": "ares.html #ub-opt-terminal: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthOverview -> #asset-view.innerHTML, KPI kpi-reinvermoegen bzw. setText ub-*-terminal ueber fmtCHF/formatCompactCHF in Mandatswaehrung)."
+   "reason": "ares.html #ub-opt-terminal: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div><label style=\"font-size:9px;color:var(--n4);display:block;margin-bottom:2px\">CHF IG Rendite</label><input class=\"fi\" id=\"admin-cma-bond-chf-return\" type=\"number\" step=\"0.1\" style=\"font-size:11px\"></div>",
    "count": 1,
    "context": "#admin-cma-bond-chf-return",
-   "reason": "ares.html #admin-cma-bond-chf-return: Name einer Anlageklasse/eines CMA-Segments (CHF-Obligationen, SARON-Liquiditaet, CHF-gehedgt) -- fachlicher Segmentname, kein Betragsformat."
+   "reason": "ares.html #admin-cma-bond-chf-return: Name einer Anlageklasse/eines CMA-Segments (CHF-Obligationen, SARON-Liquiditaet, CHF-gehedgt) -- Segmentname, kein Betragsformat."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div><label style=\"font-size:9px;color:var(--n4);display:block;margin-bottom:2px\">CHF IG Vol</label><input class=\"fi\" id=\"admin-cma-bond-chf-vol\" type=\"number\" step=\"0.1\" style=\"font-size:11px\"></div>",
    "count": 1,
    "context": "#admin-cma-bond-chf-vol",
-   "reason": "ares.html #admin-cma-bond-chf-vol: Name einer Anlageklasse/eines CMA-Segments (CHF-Obligationen, SARON-Liquiditaet, CHF-gehedgt) -- fachlicher Segmentname, kein Betragsformat."
+   "reason": "ares.html #admin-cma-bond-chf-vol: Name einer Anlageklasse/eines CMA-Segments (CHF-Obligationen, SARON-Liquiditaet, CHF-gehedgt) -- Segmentname, kein Betragsformat."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<div><label style=\"font-size:9px;color:var(--n4);display:block;margin-bottom:2px\">Waehrung</label><input class=\"fi\" id=\"pf-currency\" value=\"CHF\" style=\"font-size:11px\"></div>",
    "count": 1,
    "context": "#pf-currency",
-   "reason": "ares.html #pf-currency: Vorbelegung/Option des Waehrungs-Eingabefelds (Produkt- bzw. Mandatswaehrung waehlbar); Datenfeld, kein Anzeigeformat einer Zahl."
+   "reason": "ares.html #pf-currency: Vorbelegung/Option eines Waehrungs-Eingabefelds (Produkt- bzw. Mandatswaehrung waehlbar); Eingabe-Default, kein Anzeigeformat eines Betrags."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<label class=\"fl\" id=\"acf-amount-label\">Betrag pro Periode (<span class=\"ccy\">CHF</span>) *</label>",
    "count": 1,
    "context": "#acf-amount-label",
-   "reason": "ares.html #acf-amount-label: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() ersetzt ihn beim Oeffnen (om/go/Vermoegens-Editor mit Positionswaehrung) durch die Mandatswaehrung -- Test test_ccy_labels_follow_mandate."
+   "reason": "ares.html #acf-amount-label: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<label class=\"fl\" id=\"nz-amount-label\">Zielbetrag (<span class=\"ccy\">CHF</span>) *</label>",
    "count": 1,
    "context": "#nz-amount-label",
-   "reason": "ares.html #nz-amount-label: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() ersetzt ihn beim Oeffnen (om/go/Vermoegens-Editor mit Positionswaehrung) durch die Mandatswaehrung -- Test test_ccy_labels_follow_mandate."
+   "reason": "ares.html #nz-amount-label: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<label class=\"fl\">Betrag (<span class=\"ccy\">CHF</span>) *</label>",
    "count": 1,
    "context": "#m-awi",
-   "reason": "ares.html #m-awi: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() ersetzt ihn beim Oeffnen (om/go/Vermoegens-Editor mit Positionswaehrung) durch die Mandatswaehrung -- Test test_ccy_labels_follow_mandate."
+   "reason": "ares.html #m-awi: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<label class=\"sbb-lbl\" for=\"aa-liquidity-min-reserve\"><span class=\"sbb-ac sbb-ac-liq\" aria-hidden=\"true\"></span>Mindestreserve (<span class=\"ccy\">CHF</span>)</label>",
    "count": 1,
    "context": "#page-al",
-   "reason": "ares.html #page-al: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() ersetzt ihn beim Oeffnen (om/go/Vermoegens-Editor mit Positionswaehrung) durch die Mandatswaehrung -- Test test_ccy_labels_follow_mandate."
+   "reason": "ares.html #page-al: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<option value=\"CHF\">CHF – Schweizer Franken</option>",
    "count": 1,
    "context": "#m-nc",
-   "reason": "ares.html #m-nc: Vorbelegung/Option des Waehrungs-Eingabefelds (Produkt- bzw. Mandatswaehrung waehlbar); Datenfeld, kein Anzeigeformat einer Zahl."
+   "reason": "ares.html #m-nc: Vorbelegung/Option eines Waehrungs-Eingabefelds (Produkt- bzw. Mandatswaehrung waehlbar); Eingabe-Default, kein Anzeigeformat eines Betrags."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<select class=\"fsel sbb-sel\" id=\"aa-policy-hedging\"><option value=\"none\" selected>Keine Vorgabe</option><option value=\"hedged\">Abgesichert bevorzugt (Vorrang, kein Filter)</option><option value=\"required\">Absicherung obligatorisch (nur Heimwährung oder abgesichert)</option><option value=\"chf_only\">Nur CHF-Instrumente (Filter aktiv)</option><option value=\"risk_budget\">Nur ausserhalb Risiko-Budget</option></select>",
    "count": 1,
    "context": "#aa-policy-hedging",
-   "reason": "ares.html #aa-policy-hedging: Name der Anlagerestriktion 'Nur CHF-Instrumente' bzw. FX-Policy chf_only (Instrumentenwaehrung), kein Betrags- oder Waehrungslabel einer Zahl."
+   "reason": "ares.html #aa-policy-hedging: Name der Anlagerestriktion 'Nur CHF-Instrumente' bzw. FX-Policy chf_only (Instrumentenwaehrung), kein Betragslabel."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<span style=\"font-family:var(--f-d);font-size:20px;color:var(--n8)\">CHF 3'894'000</span>",
    "count": 1,
    "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthOverview -> #asset-view.innerHTML, KPI kpi-reinvermoegen bzw. setText ub-*-terminal ueber fmtCHF/formatCompactCHF in Mandatswaehrung)."
+   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<summary style=\"cursor:pointer;font-size:11px;font-weight:600;color:var(--n6)\">Wechselkurse zu CHF (Multi-Currency-Support)</summary>",
    "count": 1,
    "context": "#m-admin",
-   "reason": "ares.html #m-admin: Admin-FX-Tabelle -- CHF ist die technische Pivotwaehrung der gepflegten Kurse (convert_rappen rechnet ueber CHF); beschreibt die Kursnotierung, nicht ein Mandatsbetrag."
+   "reason": "ares.html #m-admin: Admin-FX-Tabelle -- CHF ist die technische Pivotwaehrung der gepflegten Kurse (convert_rappen rechnet ueber CHF)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<th style=\"padding:5px 8px;text-align:right\">Krisen-Effekt auf End-Vermögen (<span class=\"ccy\">CHF</span>)</th>",
    "count": 1,
    "context": "#page-al",
-   "reason": "ares.html #page-al: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() ersetzt ihn beim Oeffnen (om/go/Vermoegens-Editor mit Positionswaehrung) durch die Mandatswaehrung -- Test test_ccy_labels_follow_mandate."
+   "reason": "ares.html #page-al: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "<thead><tr><th scope=\"col\">Anlageklasse</th><th scope=\"col\">Anteil (%)</th><th scope=\"col\">Betrag (<span class=\"ccy\">CHF</span>)</th></tr></thead>",
    "count": 1,
    "context": "#page-al",
-   "reason": "ares.html #page-al: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() ersetzt ihn beim Oeffnen (om/go/Vermoegens-Editor mit Positionswaehrung) durch die Mandatswaehrung -- Test test_ccy_labels_follow_mandate."
+   "reason": "ares.html #page-al: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "Pro 1 Einheit Fremdwaehrung in CHF. Beispiel EUR=0.95 bedeutet 1 EUR = 0.95 CHF. Wird fuer internationale Mandate genutzt (z.B. EUR-Klient mit CHF-Portfolio).",
    "count": 1,
    "context": "openStammdatenModal",
-   "reason": "ares.html openStammdatenModal: Admin-FX-Tabelle -- CHF ist die technische Pivotwaehrung der gepflegten Kurse (convert_rappen rechnet ueber CHF); beschreibt die Kursnotierung, nicht ein Mandatsbetrag."
+   "reason": "ares.html openStammdatenModal: Admin-FX-Tabelle -- CHF ist die technische Pivotwaehrung der gepflegten Kurse (convert_rappen rechnet ueber CHF)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "const PERSONAS = [{\"id\": \"HH-001\", \"name\": \"Lukas Meier\", \"household\": \"Single\", \"age\": 32, \"profession\": \"Ingenieur\", \"region\": \"ZH\", \"currency\": \"CHF\", \"personaType\": \"Young Accumulator\", \"income\": 125000, \"fixedCosts\": 32000, \"varCosts\": 26000, \"surplus\": 67000, \"liquidity\": 35000, \"securities\": 90000, \"pension\": 28000, \"realEstate\": 0, \"businessValue\": 0, \"debts\": 0, \"netWorth\": 153000, \"horizon\": 30, \"riskProfile\": \"Moderat\", \"knowledge\": \"Mittel\", \"mainGoal\": \"Kapitalaufbau / Eigenheim\", \"event\": \"Kein Ereignis\", \"advisoryStyle\": \"Wachstum\", \"notes\": \"Hohe Cashquote, diszipliniert\", \"assets\": [{\"label\": \"Cash / Liquidität\", \"amount\": 35000, \"currency\": \"CHF\", \"category\": \"Liquidität\", \"notes\": \"Kurzfristige Reserve\"}, {\"label\": \"Börsenportfolio\", \"amount\": 90000, \"currency\": \"CHF\", \"category\": \"Wertschriften\", \"notes\": \"Heute frei investierbar\"}, {\"label\": \"Vorsorge (PK/3a/FZ)\", \"amount\": 28000, \"currency\": \"CHF\", \"category\": \"Vorsorge\", \"notes\": \"Gebunden bzw. teilgebunden\"}], \"liabilities\": [], \"cashflows\": [{\"type\": \"Income\", \"label\": \"Berufseinkommen\", \"amount\": 125000, \"currency\": \"CHF\", \"frequency\": \"jährlich\", \"nature\": \"wiederkehrend\"}, {\"type\": \"Expense\", \"label\": \"Fixkosten\", \"amount\": 32000, \"currency\": \"CHF\", \"frequency\": \"jährlich\", \"nature\": \"wiederkehrend\"}, {\"type\": \"Expense\", \"label\": \"Variable Ausgaben\", \"amount\": 26000, \"currency\": \"CHF\", \"frequency\": \"jährlich\", \"nature\": \"wiederkehrend\"}, {\"type\": \"Surplus\", \"label\": \"Verfügbarer Überschuss\", \"amount\": 67000, \"currency\": \"CHF\", \"frequency\": \"jährlich\", \"nature\": \"abgeleitet\"}], \"goals\": [{\"label\": \"Eigenheim / Eigenkapital\", \"target\": 250000, \"currency\": \"CHF\", \"horizon\": 8, \"priority\": \"hoch\", \"type\": \"einmalig\"}, {\"label\": \"Optionale Lifestyle-/Freiheitsziele\", \"target\": 100000, \"currency\": \"CHF\", \"horizon\": 12, \"priority\": \"mittel\", \"type\": \"einmalig\"}], \"preferences\": {\"riskProfile\": \"Moderat\", \"knowledge\": \"Mittel\", \"homeBias\": \"CH-Home-Bias\", \"esg\": \"ESG neutral\", \"themes\": \"Nur begrenzt\", \"event\": \"Kein Ereignis\"}}, {\"id\": \"HH-002\", \"name\": \"Sarah Keller\", \"household\": \"Single\", \"age\": 38, \"profession\": \"Juristin\", \"region\": \"BS\", \"currency\": \"CHF\", \"personaType\": \"Single High Earner\", \"income\": 165000, \"fixedCosts\": 42000, \"varCosts\": 36000, \"surplus\": 87000, \"liquidity\": 80000, \"securities\": 250000, \"pension\": 70000, \"realEstate\": 0, \"businessValue\": 0, \"debts\": 0, \"netWorth\": 400000, \"horizon\": 25, \"riskProfile\": \"Moderat\", \"knowledge\": \"Tief-Mittel\", \"mainGoal\": \"Vermögensaufbau\", \"event\": \"Kein Ereignis\", \"advisoryStyle\": \"Wachstum\", \"notes\": \"Wenig Erfahrung, hohe Sparrate\", \"assets\": [{\"label\": \"Cash / Liquidität\", \"amount\": 80000, \"currency\": \"CHF\", \"category\": \"Liquidität\", \"notes\": \"Kurzfristige Reserve\"}, {\"label\": \"Börsenportfolio\", \"amount\": 250000, \"currency\": \"CHF\", \"category\": \"Wertschriften\", \"notes\": \"Heute frei investierbar\"}, {\"label\": \"Vorsorge (PK/3a/FZ)\", \"amount\": 70000, \"currency\": \"CHF\", \"category\": \"Vorsorge\", \"notes\": \"Gebunden bzw. teilgebunden\"}], \"liabilities\": [], \"cashflows\": [{\"type\": \"Income\", \"label\": \"Berufseinkommen\", \"amount\": 165000, \"currency\": \"CHF\", \"frequency\": \"jährlich\", \"nature\": \"wiederkehrend\"}, {\"type\": \"Expense\", \"label\": \"Fixkosten\", \"amount\": 42000, \"currency\": \"CHF\", \"frequency\": \"jährlich\", \"nature\": \"wiederkehrend\"}, {\"type\": \"Expense\", \"label\": \"Variable Ausgaben\", \"amount\": 36000, \"currency\": \"CHF\", \"frequency\": \"jährlich\", \"nature\": \"wiederkehrend\"}, {\"type\": \"Surplus\", \"label\": \"Verfügbarer Überschuss\", \"amount\": 87000, \"currency\": \"CHF\", \"frequency\": \"jährlich\", \"nature\": \"abgeleitet\"}], \"goals\": [{\"label\": \"Langfristiges Vermögensziel\", \"target\": 1500000, \"currency\": \"CHF\", \"horizon\": 25, \"priority\": \"hoch\", \"type\": \"Bestand\"}, {\"label\": \"Optionale Lifestyle-/Freiheitsziele\", \"target\": 100000, \"currency\": \"CHF\", \"horizon\": 12, \"priority\": \"mittel\", \"type\": \"einmalig\"}], \"preferences\": {\"riskProfile\": \"Moderat\", \"knowledge\": \"Tief-Mittel\", \"homeBias\": \"CH-Home-Bias\", \"esg\": \"ESG neutral\", \"themes\": \"Nur begrenzt\", \"event\": \"Kein Ereignis\"}}, {\"id\": \"HH-003\", \"name\": \"Daniel & Laura Baumann\", \"household\": \"Family\", \"age\": 41, \"profession\": \"Arzt / Lehrerin\", \"region\": \"AG\", \"currency\": \"CHF\", \"personaType\": \"Family with Mortgage\", \"income\": 210000, \"fixedCosts\": 72000, \"varCosts\": 48000, \"surplus\": 90000, \"liquidity\": 80000, \"securities\": 320000, \"pension\": 450000, \"realEstate\": 1200000, \"businessValue\": 0, \"debts\": 780000, \"netWorth\": 1270000, \"horizon\": 20, \"riskProfile\": \"Moderat\", \"knowledge\": \"Mittel\", \"mainGoal\": \"Ausbildung Kinder\", \"event\": \"Kinder mit 8 und 10\", \"advisoryStyle\": \"Sicherheit + Wachstum\", \"notes\": \"Immobilienlastig\", \"assets\": [{\"label\": \"Cash / Liquidität\", \"amount\": 80000, \"currency\": \"CHF\", \"category\": \"Liquidität\", \"notes\": \"Kurzfristige Reserve\"}, {\"label\": \"Börsenportfolio\", \"amount\": 320000, \"currency\": \"CHF\", \"category\": \"Wertschriften\", \"notes\": \"Heute frei investierbar\"}, {\"label\": \"Vorsorge (PK/3a/FZ)\", \"amount\": 450000, \"currency\": \"CHF\", \"category\": \"Vorsorge\", \"notes\": \"Gebunden bzw. teilgebunden\"}, {\"label\": \"Immobilien\", \"amount\": 1200000, \"currency\": \"CHF\", \"category\": \"Immobilien\", \"notes\": \"Selbstgenutzt und/oder Anlageobjekt\"}], \"liabilities\": [{\"label\": \"Hypothek/Kredite\", \"amount\": 780000, \"currency\": \"CHF\", \"category\": \"Finanzierung\"}], \"cashflows\": [{\"type\": \"Income\", \"label\": \"Berufseinkommen\", \"amount\": 210000, \"currency\": \"CHF\", \"frequency\": \"jährlich\", \"nature\": \"wiederkehrend\"}, {\"type\": \"Expense\", \"label\": \"Fixkosten\", \"amount\": 72000, \"currency\": \"CHF\", \"frequency\": \"jährlich\", \"nature\": \"wiederkehrend\"}, {\"type\": \"Expense\", \"label\": \"Variable Ausgaben\", \"amount\": 48000, \"currency\": \"CHF\", \"frequency\": \"jährlich\", \"nature\": \"wiederkehrend\"}, {\"type\": \"Surplus\", \"label\": \"Verfügbarer Überschuss\", \"amount\": 90000, \"currency\": \"CHF\", \"frequency\": \"jährlich\", \"nature\": \"abgeleitet\"}], \"goals\": [{\"label\": \"Langfristiges Vermögensziel\", \"target\": 2290000, \"currency\": \"CHF\", \"horizon\": 20, \"priority\": \"hoch\", \"type\": \"Bestand\"}, {\"label\": \"Bildung / Familie / Flexibilitätsreserve\", \"target\": 150000, \"currency\": \"CHF\", \"horizon\": 15, \"priority\": \"mittel\", \"type\": \"einmalig\"}], \"preferences\": {\"riskProfile\": \"Moderat\", \"knowledge\": \"Mittel\", \"homeBias\": \"CH-Home-Bias\", \"esg\": \"ESG neutral\", \"themes\": \"Nur begrenzt\", \"event\": \"Kinder mit 8 und 10\"}}];",
    "count": 1,
    "context": "aaFanChartOptions",
-   "reason": "ares.html aaFanChartOptions: Demo-Persona-Datensatz (currency-Feld der Testperson HH-001 ff.), wird als Daten gelesen, nicht formatiert."
+   "reason": "ares.html aaFanChartOptions: Demo-Persona-Datensatz; das Feld currency der Persona ist die Quelle, mit der loadPersona Betraege beschriftet."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "currency: val('pf-currency') || 'CHF',",
    "count": 1,
    "context": "val",
-   "reason": "ares.html val: Vorbelegung/Option des Waehrungs-Eingabefelds (Produkt- bzw. Mandatswaehrung waehlbar); Datenfeld, kein Anzeigeformat einer Zahl."
+   "reason": "ares.html val: Vorbelegung/Option eines Waehrungs-Eingabefelds (Produkt- bzw. Mandatswaehrung waehlbar); Eingabe-Default, kein Anzeigeformat eines Betrags."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "code": "function appCurrency(){return typeof aaChartCurrency==='function'?aaChartCurrency():'CHF';}",
+   "code": "function newRecordCurrency(){return mandateCurrency()||'CHF';}",
    "count": 1,
-   "context": "appCurrency",
-   "reason": "ares.html appCurrency: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "context": "newRecordCurrency",
+   "reason": "ares.html newRecordCurrency: Waehrung NEUER Datensaetze ohne Mandat = Server-Default (schemas/wealth.py currency='CHF'); das Formularlabel (syncCcy) zeigt exakt diese Waehrung, also keine geratene Beschriftung."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "if (ccy === 'CHF') return;",
    "count": 1,
    "context": "loadAdminFxRates",
-   "reason": "ares.html loadAdminFxRates: Admin-FX-Tabelle -- CHF ist die technische Pivotwaehrung der gepflegten Kurse (convert_rappen rechnet ueber CHF); beschreibt die Kursnotierung, nicht ein Mandatsbetrag."
+   "reason": "ares.html loadAdminFxRates: Admin-FX-Tabelle -- CHF ist die technische Pivotwaehrung der gepflegten Kurse (convert_rappen rechnet ueber CHF)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "if(geo.chfOnly||policy.hedging==='chf_only')add('Nur CHF-Instrumente');",
    "count": 1,
    "context": "add",
-   "reason": "ares.html add: Name der Anlagerestriktion 'Nur CHF-Instrumente' bzw. FX-Policy chf_only (Instrumentenwaehrung), kein Betrags- oder Waehrungslabel einer Zahl."
+   "reason": "ares.html add: Name der Anlagerestriktion 'Nur CHF-Instrumente' bzw. FX-Policy chf_only (Instrumentenwaehrung), kein Betragslabel."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "if(prefs.geo&&prefs.geo.chfOnly)restrictions.push('✓ Nur CHF-Instrumente');",
    "count": 1,
    "context": "buildAllocationRestrictionItems",
-   "reason": "ares.html buildAllocationRestrictionItems: Name der Anlagerestriktion 'Nur CHF-Instrumente' bzw. FX-Policy chf_only (Instrumentenwaehrung), kein Betrags- oder Waehrungslabel einer Zahl."
+   "reason": "ares.html buildAllocationRestrictionItems: Name der Anlagerestriktion 'Nur CHF-Instrumente' bzw. FX-Policy chf_only (Instrumentenwaehrung), kein Betragslabel."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "if(prefs.geo.chfOnly)restrictions.push('✓ Nur CHF-Instrumente');",
    "count": 1,
    "context": "renderAllocationPreferenceSummary",
-   "reason": "ares.html renderAllocationPreferenceSummary: Name der Anlagerestriktion 'Nur CHF-Instrumente' bzw. FX-Policy chf_only (Instrumentenwaehrung), kein Betrags- oder Waehrungslabel einer Zahl."
+   "reason": "ares.html renderAllocationPreferenceSummary: Name der Anlagerestriktion 'Nur CHF-Instrumente' bzw. FX-Policy chf_only (Instrumentenwaehrung), kein Betragslabel."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "code": "return AresRounding.formatStoredAmount(Number(rappen||0),String(currency||'CHF').toUpperCase().trim()||'CHF',0,{typography:'screen'});",
+   "code": "if(questionNumber===3||questionNumber===5||questionNumber===6)return text.indexOf('chf')>=0;",
    "count": 1,
-   "context": "_formatRappenChf",
-   "reason": "ares.html _formatRappenChf: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "context": "riskAnswerMatchesCurrentQuestionnaire",
+   "reason": "ares.html riskAnswerMatchesCurrentQuestionnaire: erkennt gespeicherte FINMA-Antworttexte der Betragsfragen 3/5/6 am Waehrungsteil 'chf' (kleingeschriebener Antworttext); Suchmuster, keine Anzeige."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "code": "if(rappen > 0) return formatRappen(rappen,'CHF');",
+   "count": 1,
+   "context": "parseRiskAnnualInput",
+   "reason": "ares.html parseRiskAnnualInput: gibt den im FINMA-Fragebogen gespeicherten Antworttext wieder ('Jaehrlich <Betrag> · monatlich ca. CHF ...'); der Betrag wurde in CHF erfasst, die Einheit ist also die tatsaechliche Waehrung (Grundregel), keine Annahme."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "code": "return formatRappen(rappen2,'CHF');",
+   "count": 1,
+   "context": "parseRiskAnnualInput",
+   "reason": "ares.html parseRiskAnnualInput: gibt den im FINMA-Fragebogen gespeicherten Antworttext wieder ('Jaehrlich <Betrag> · monatlich ca. CHF ...'); der Betrag wurde in CHF erfasst, die Einheit ist also die tatsaechliche Waehrung (Grundregel), keine Annahme."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "setVal('pf-currency', p.currency || 'CHF');",
    "count": 1,
    "context": "setVal",
-   "reason": "ares.html setVal: Vorbelegung/Option des Waehrungs-Eingabefelds (Produkt- bzw. Mandatswaehrung waehlbar); Datenfeld, kein Anzeigeformat einer Zahl."
+   "reason": "ares.html setVal: Vorbelegung/Option eines Waehrungs-Eingabefelds (Produkt- bzw. Mandatswaehrung waehlbar); Eingabe-Default, kein Anzeigeformat eines Betrags."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "var baseCurrency=(currencyEl&&currencyEl.value)?currencyEl.value:'CHF';",
    "count": 1,
    "context": "baseCurrency",
-   "reason": "ares.html baseCurrency: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "var c=String(row&&row.currency||'CHF').trim()||'CHF';",
-   "count": 1,
-   "context": "reportPositionWeightBps",
-   "reason": "ares.html reportPositionWeightBps: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "ares.html baseCurrency: Vorbelegung/Option eines Waehrungs-Eingabefelds (Produkt- bzw. Mandatswaehrung waehlbar); Eingabe-Default, kein Anzeigeformat eines Betrags."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -1096,31 +1068,17 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "code": "var currency=String(data.currency||'CHF').toUpperCase().trim()||'CHF';",
-   "count": 1,
-   "context": "renderCostDisclosure",
-   "reason": "ares.html renderCostDisclosure: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "var currency=String(row&&row.currency||'CHF');",
-   "count": 1,
-   "context": "reportPositionWeightBps",
-   "reason": "ares.html reportPositionWeightBps: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
    "code": "var currencyEl = document.getElementById('pf-currency'); if (currencyEl) currencyEl.value = 'CHF';",
    "count": 1,
    "context": "adminResetFundForm",
-   "reason": "ares.html adminResetFundForm: Vorbelegung/Option des Waehrungs-Eingabefelds (Produkt- bzw. Mandatswaehrung waehlbar); Datenfeld, kein Anzeigeformat einer Zahl."
+   "reason": "ares.html adminResetFundForm: Vorbelegung/Option eines Waehrungs-Eingabefelds (Produkt- bzw. Mandatswaehrung waehlbar); Eingabe-Default, kein Anzeigeformat eines Betrags."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "var hedgingLabels={none:'Keine FX-Vorgabe',hedged:'FX-gehedgt bevorzugt',chf_only:'Nur CHF-Instrumente',risk_budget:'FX ausserhalb Risiko-Budget'};",
    "count": 1,
    "context": "renderAllocationPreferenceSummary",
-   "reason": "ares.html renderAllocationPreferenceSummary: Name der Anlagerestriktion 'Nur CHF-Instrumente' bzw. FX-Policy chf_only (Instrumentenwaehrung), kein Betrags- oder Waehrungslabel einer Zahl."
+   "reason": "ares.html renderAllocationPreferenceSummary: Name der Anlagerestriktion 'Nur CHF-Instrumente' bzw. FX-Policy chf_only (Instrumentenwaehrung), kein Betragslabel."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -1141,42 +1099,35 @@
    "code": "{ key: 'Liquiditaet_CHF',        top: 'Liquiditaet',   label: 'Liquiditaet CHF (SARON)' },",
    "count": 1,
    "context": "btUpdateBenchmarkSum",
-   "reason": "ares.html btUpdateBenchmarkSum: Name einer Anlageklasse/eines CMA-Segments (CHF-Obligationen, SARON-Liquiditaet, CHF-gehedgt) -- fachlicher Segmentname, kein Betragsformat."
+   "reason": "ares.html btUpdateBenchmarkSum: Name einer Anlageklasse/eines CMA-Segments (CHF-Obligationen, SARON-Liquiditaet, CHF-gehedgt) -- Segmentname, kein Betragsformat."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "{ key: 'Obligationen_Welt_IG_HedgedCHF',  top: 'Obligationen', label: 'Obligationen Welt IG (CHF gehedgt)' },",
    "count": 1,
    "context": "btUpdateBenchmarkSum",
-   "reason": "ares.html btUpdateBenchmarkSum: Name einer Anlageklasse/eines CMA-Segments (CHF-Obligationen, SARON-Liquiditaet, CHF-gehedgt) -- fachlicher Segmentname, kein Betragsformat."
+   "reason": "ares.html btUpdateBenchmarkSum: Name einer Anlageklasse/eines CMA-Segments (CHF-Obligationen, SARON-Liquiditaet, CHF-gehedgt) -- Segmentname, kein Betragsformat."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "{ label: 'Obligationen CHF', value: adminPercentLabelFromBps(cma.bonds_chf_ig_return_bps), detail: adminPercentLabelFromBps(cma.bonds_chf_ig_vol_bps) + ' Vol' },",
    "count": 1,
    "context": "renderAdminCapitalMarketAssumptionsSummary",
-   "reason": "ares.html renderAdminCapitalMarketAssumptionsSummary: Name einer Anlageklasse/eines CMA-Segments (CHF-Obligationen, SARON-Liquiditaet, CHF-gehedgt) -- fachlicher Segmentname, kein Betragsformat."
+   "reason": "ares.html renderAdminCapitalMarketAssumptionsSummary: Name einer Anlageklasse/eines CMA-Segments (CHF-Obligationen, SARON-Liquiditaet, CHF-gehedgt) -- Segmentname, kein Betragsformat."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "{ name: 'Obligationen CHF IG', asset_class: 'Obligationen', expected_return_bps: 220, expected_volatility_bps: 350 },",
    "count": 1,
    "context": "adminPercentInputToBps",
-   "reason": "ares.html adminPercentInputToBps: Name einer Anlageklasse/eines CMA-Segments (CHF-Obligationen, SARON-Liquiditaet, CHF-gehedgt) -- fachlicher Segmentname, kein Betragsformat."
+   "reason": "ares.html adminPercentInputToBps: Name einer Anlageklasse/eines CMA-Segments (CHF-Obligationen, SARON-Liquiditaet, CHF-gehedgt) -- Segmentname, kein Betragsformat."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
    "code": "{n:'Obligationen CHF',c:assetClassColor('bd'),ist:6,min:8,ziel:10,max:15},",
    "count": 1,
    "context": "setupCashflowDragList",
-   "reason": "ares.html setupCashflowDragList: Name einer Anlageklasse/eines CMA-Segments (CHF-Obligationen, SARON-Liquiditaet, CHF-gehedgt) -- fachlicher Segmentname, kein Betragsformat."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "||'CHF';",
-   "count": 2,
-   "context": "cashflowCurrency",
-   "reason": "ares.html cashflowCurrency: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "ares.html setupCashflowDragList: Name einer Anlageklasse/eines CMA-Segments (CHF-Obligationen, SARON-Liquiditaet, CHF-gehedgt) -- Segmentname, kein Betragsformat."
   },
   {
    "file": "ares-desktop/frontend/intro-sequence.js",
@@ -1197,56 +1148,14 @@
    "code": "if (Math.abs(minor - Math.round(minor)) > 1e-6) return 'Mindestanlage: hoechstens ' + digits + ' Nachkommastellen fuer ' + (val('pf-currency').toUpperCase() || 'CHF') + '.';",
    "count": 1,
    "context": "flag",
-   "reason": "product-master-data.js flag: Vorbelegung/Option des Waehrungs-Eingabefelds (Produkt- bzw. Mandatswaehrung waehlbar); Datenfeld, kein Anzeigeformat einer Zahl."
-  },
-  {
-   "file": "ares-desktop/frontend/product-master-data.js",
-   "code": "var currency=String(data.currency||'CHF').toUpperCase().trim()||'CHF';",
-   "count": 1,
-   "context": "lines",
-   "reason": "product-master-data.js lines: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
-   "file": "ares-desktop/frontend/product-master-data.js",
-   "code": "var unit = String(currency || 'CHF').toUpperCase().trim() || 'CHF';",
-   "count": 1,
-   "context": "_retroAmount",
-   "reason": "product-master-data.js _retroAmount: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
-   "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
-   "code": "currency = 'CHF',",
-   "count": 1,
-   "context": "makeYTickFormatter",
-   "reason": "MonteCarloPathsChart.tsx makeYTickFormatter: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "product-master-data.js flag: Vorbelegung/Option eines Waehrungs-Eingabefelds (Produkt- bzw. Mandatswaehrung waehlbar); Eingabe-Default, kein Anzeigeformat eines Betrags."
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/cashflowForm.ts",
-   "code": "currency: input.currency ?? 'CHF',",
+   "code": "export const NO_MANDATE_RECORD_CURRENCY = 'CHF';",
    "count": 1,
-   "context": "buildCashflowPayload",
-   "reason": "cashflowForm.ts buildCashflowPayload: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
-   "file": "ares-desktop/frontend/reporting/src/lib/cashflowForm.ts",
-   "code": "export function rappenToChf(rappen: number, currency: string = 'CHF'): string {",
-   "count": 1,
-   "context": "rappenToChf",
-   "reason": "cashflowForm.ts rappenToChf: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
-   "file": "ares-desktop/frontend/reporting/src/lib/fanAnnotations.ts",
-   "code": "export function fanAboveScaleText(targetChf: number | null | undefined, currency = 'CHF'): string {",
-   "count": 1,
-   "context": "fanAboveScaleText",
-   "reason": "fanAnnotations.ts fanAboveScaleText: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
-   "file": "ares-desktop/frontend/reporting/src/lib/fanAnnotations.ts",
-   "code": "p90Chf: number | null | undefined, currency = 'CHF'): string {",
-   "count": 1,
-   "context": "fanRangeSentence",
-   "reason": "fanAnnotations.ts fanRangeSentence: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "context": "<Markup>",
+   "reason": "cashflowForm.ts <Markup>: Waehrung neuer React-Cashflows ohne Mandat = Server-Default (schemas/wealth.py) und Classic newRecordCurrency; das Formularlabel zeigt sie an."
   },
   {
    "file": "ares-desktop/frontend/reporting/src/lib/format.ts",
@@ -1256,13 +1165,6 @@
    "reason": "format.ts parseNumberInputCH: Eingabe-Parser entfernt bzw. erkennt ein eingetipptes 'CHF'-Praefix; Eingabepfad, keine Ausgabe."
   },
   {
-   "file": "ares-desktop/frontend/reporting/src/lib/format.ts",
-   "code": "const DEFAULT_REPORT_CURRENCY = 'CHF';",
-   "count": 1,
-   "context": "<Markup>",
-   "reason": "format.ts <Markup>: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
    "file": "ares-desktop/frontend/reporting/src/lib/presentationRounding.ts",
    "code": "CHF: 2, EUR: 2, USD: 2, GBP: 2, SEK: 2, NOK: 2, DKK: 2, CAD: 2, AUD: 2, JPY: 0,",
    "count": 1,
@@ -1270,46 +1172,11 @@
    "reason": "presentationRounding.ts <Markup>: ISO-4217-Exponententabelle des gemeinsamen Formatters (Schluessel aller unterstuetzten Waehrungen)."
   },
   {
-   "file": "ares-desktop/frontend/reporting/src/lib/reportCurrency.ts",
-   "code": "export const DEFAULT_REPORT_CURRENCY = 'CHF';",
-   "count": 1,
-   "context": "<Markup>",
-   "reason": "reportCurrency.ts <Markup>: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
-   "file": "ares-desktop/frontend/reporting/src/lib/wealthInflowForm.ts",
-   "code": "export function rappenToChf(rappen: number, currency: string = 'CHF'): string {",
-   "count": 1,
-   "context": "rappenToChf",
-   "reason": "wealthInflowForm.ts rappenToChf: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
-   "file": "ares-desktop/frontend/reporting/src/pages/Kostenausweis.tsx",
-   "code": "const currency = (data?.currency || 'CHF').toUpperCase().trim() || 'CHF';",
-   "count": 1,
-   "context": "currency",
-   "reason": "Kostenausweis.tsx currency: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
-   "file": "ares-desktop/frontend/reporting/src/pages/Kostenausweis.tsx",
-   "code": "const unit = String(currency || 'CHF').toUpperCase().trim() || 'CHF';",
-   "count": 1,
-   "context": "formatMoneyRappen",
-   "reason": "Kostenausweis.tsx formatMoneyRappen: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
    "file": "ares-desktop/frontend/reporting/src/sections/mandate/MandateEditor.tsx",
    "code": "base_currency: rec.base_currency ?? 'CHF',",
    "count": 1,
    "context": "inputFromRecord",
-   "reason": "MandateEditor.tsx inputFromRecord: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
-  },
-  {
-   "file": "ares-desktop/frontend/trade-list-preview.js",
-   "code": "var chf=Math.abs(rappen||0)/100,ccy=typeof appCurrency==='function'?appCurrency():'CHF';",
-   "count": 1,
-   "context": "fmtDelta",
-   "reason": "trade-list-preview.js fmtDelta: Fallback-Default nur fuer fehlende Waehrungsangabe (Altdaten/Tests ohne Mandat); der Mandats-/Positionspfad liefert base_currency bzw. mandate_currency explizit."
+   "reason": "MandateEditor.tsx inputFromRecord: Vorbelegung/Option eines Waehrungs-Eingabefelds (Produkt- bzw. Mandatswaehrung waehlbar); Eingabe-Default, kein Anzeigeformat eines Betrags."
   }
  ]
 }

@@ -90,9 +90,10 @@ function ClientInfoBlock({ ci }: { ci: AusgangslageData['client_info'] }) {
     ['Anlagehorizont', formatHorizon(ci.anlagehorizont_jahre)],
     ['Risikoprofil', ci.risikoprofil || '—'],
     ['Anlageziel', ci.anlageziel || '—'],
-    ['Liquiditätsbedarf', formatChfRappen(ci.liquiditaetsbedarf_rappen, { currency })],
+    // G7 N4: Rohsumme der Ausgaben-Cashflows -> deren Waehrung (Server), nicht Mandatswaehrung.
+    ['Liquiditätsbedarf', formatChfRappen(ci.liquiditaetsbedarf_rappen, { currency: ci.liquiditaetsbedarf_currency ?? null })],
     ['Steuerdomizil', ci.steuerdomizil || '—'],
-    ['Referenzwährung', ci.referenzwaehrung || currency],
+    ['Referenzwährung', ci.referenzwaehrung || currency || '—'],
   ];
   return (
     <section className="border border-rule bg-canvas-panel p-5">

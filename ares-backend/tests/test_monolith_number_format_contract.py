@@ -102,8 +102,8 @@ def _run_report(tmp_path: Path):
         "const C = " + json.dumps(_contract()) + ";\n"
         "const fns: Record<string, (...a: unknown[]) => string> = F as never;\n"
         "const out = {cases: C.cases.map((c: [string, unknown[], string]) => fns[c[0]](...c[1])),"
-        " compact: C.compact_chf_cases.map((c: [number, string]) => F.fmtChfCompact(c[0])),"
-        " chf: C.chf_rappen_cases.map((c: [number, string]) => F.formatChfRappen(c[0])),"
+        " compact: C.compact_chf_cases.map((c: [number, string]) => F.fmtChfCompact(c[0], 'CHF')),"
+        " chf: C.chf_rappen_cases.map((c: [number, string]) => F.formatChfRappen(c[0], { currency: 'CHF' })),"
         " parse: C.parse_cases.map((c: [string, number]) => F.parseNumberInputCH(c[0]))};\n"
         "process.stdout.write(JSON.stringify(out));\n",
         encoding="utf-8",

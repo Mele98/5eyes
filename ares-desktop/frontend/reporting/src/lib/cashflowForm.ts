@@ -26,11 +26,19 @@ export const CASHFLOW_FREQUENCIES = [
   'einmalig',
 ] as const;
 
+/**
+ * G7 N4: Waehrung neuer Cashflows ohne Mandat -- identisch zum Server-Default
+ * (schemas/wealth.py CashflowCreate.currency) und zu Classic (ares.html saveCashflow).
+ * Das Formularlabel zeigt genau diese Waehrung, es wird nichts geraten.
+ */
+export const NO_MANDATE_RECORD_CURRENCY = 'CHF';
+
 export interface CashflowFormInput {
   cashflow_type: CashflowType;
   label: string;
   amountChf: string;
-  currency?: string;
+  /** N-894-16: Pflicht -- neue Cashflows in Mandatswaehrung, bestehende in eigener; null = unbekannt. */
+  currency?: string | null;
   frequency?: string;
   nature?: CashflowNature;
   valid_from?: string | null;
@@ -47,6 +55,9 @@ function parseChf(value: string): number | null {
 /** Liefert Fehler-Liste (leer = gültig). valid_until INKLUSIV → darf == valid_from sein. */
 export function validateCashflow(input: CashflowFormInput): string[] {
   const errors: string[] = [];
+  if (!input.currency) {
+    errors.push('Währung unbekannt: kein Mandat mit eindeutiger Basiswährung -- bitte zuerst das Mandat erfassen.');
+  }
   if (!input.label || !input.label.trim()) {
     errors.push('Bezeichnung ist erforderlich.');
   }
@@ -74,11 +85,13 @@ export function validateCashflow(input: CashflowFormInput): string[] {
 /** Baut den CashflowCreate-Payload; CHF → Rappen (×100), data_classification synthetic. */
 export function buildCashflowPayload(input: CashflowFormInput): CashflowCreatePayload {
   const amount = parseChf(input.amountChf) ?? 0;
+  // G7 N4: keine geratene Waehrung (frueher Fallback 'CHF').
+  if (!input.currency) throw new Error('Cashflow-Waehrung fehlt');
   return {
     cashflow_type: input.cashflow_type,
     label: input.label.trim(),
     amount_rappen: Math.round(amount * 100),
-    currency: input.currency ?? 'CHF',
+    currency: input.currency,
     frequency: input.frequency ?? 'jährlich',
     nature: input.nature ?? 'wiederkehrend',
     valid_from: input.valid_from || null,
@@ -90,6 +103,6 @@ export function buildCashflowPayload(input: CashflowFormInput): CashflowCreatePa
 }
 
 /** CHF-Anzeige aus Rappen (1234500 → "CHF 12'345"). */
-export function rappenToChf(rappen: number, currency: string = 'CHF'): string {
+export function rappenToChf(rappen: number, currency: string | null): string {
   return formatChfFromRappen(rappen, currency);
 }

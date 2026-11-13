@@ -127,8 +127,8 @@ def test_report_matches_fan_contract_and_monolith(tmp_path):
         "pill: C.goal_pill_cases.map((x: any) => F.fanGoalPillText(x[0], x[1])),"
         "pillEst: C.goal_pill_estimate_cases.map((x: any) => F.fanGoalPillText(x[0], x[1], x[2])),"
         "prob: C.goal_probability_cases.map((x: any) => F.fanGoalProbability(x[0], x[1])),"
-        "above: C.above_scale_cases.map((x: any) => F.fanAboveScaleText(x[0])),"
-        "sentence: C.range_sentence_cases.map((x: any) => F.fanRangeSentence(x[0], x[1], x[2])),"
+        "above: C.above_scale_cases.map((x: any) => F.fanAboveScaleText(x[0], 'CHF')),"
+        "sentence: C.range_sentence_cases.map((x: any) => F.fanRangeSentence(x[0], x[1], x[2], 'CHF')),"
         "spread: C.spread_cases.map((x: any) => F.fanSpreadLabelYs(x[0], x[1], x[2], x[3]))"
         "}));\n",
         encoding="utf-8",

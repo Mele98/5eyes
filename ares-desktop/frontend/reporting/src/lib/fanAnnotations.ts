@@ -85,9 +85,10 @@ export function fanGoalProbability(
 }
 
 /** „▲ CHF 5.00 Mio. über Skala" (Ziel liegt oberhalb der y-Skala). */
-export function fanAboveScaleText(targetChf: number | null | undefined, currency = 'CHF'): string {
+export function fanAboveScaleText(targetChf: number | null | undefined, currency: string | null): string {
   if (!finite(targetChf)) return '';
-  return `▲ ${currency} ${fmtChfCompactAmount(targetChf)} über Skala`;
+  // Waehrung unbekannt -> Zahl ohne Einheit (keine geratene Waehrung).
+  return `▲ ${currency ? `${currency} ` : ''}${fmtChfCompactAmount(targetChf)} über Skala`;
 }
 
 /**
@@ -97,9 +98,10 @@ export function fanAboveScaleText(targetChf: number | null | undefined, currency
 export function fanRangeSentence(
   year: string | number | null | undefined,
   p10Chf: number | null | undefined,
-  p90Chf: number | null | undefined, currency = 'CHF'): string {
+  p90Chf: number | null | undefined, currency: string | null): string {
   const y = String(year ?? '').trim();
-  if (!y || !finite(p10Chf) || !finite(p90Chf) || p10Chf > p90Chf) return '';
+  // Waehrung unbekannt -> kein Satz (lieber keiner als ein falsch beschrifteter).
+  if (!currency || !y || !finite(p10Chf) || !finite(p90Chf) || p10Chf > p90Chf) return '';
   const lo = fmtChfCompactAmount(p10Chf);
   const hi = fmtChfCompactAmount(p90Chf);
   const MIO = ' Mio.';

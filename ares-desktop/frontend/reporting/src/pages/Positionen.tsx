@@ -13,6 +13,7 @@ import { useMemo, useState } from 'react';
 import type { PositionEntry, PositionGroup, PositionenData } from '@/api/types';
 import { ReportPage } from '@/components/ReportPage';
 import { formatBpsAsPct, formatChfRappen } from '@/lib/format';
+import { bucketPctMap } from '@/lib/presentationRounding';
 import { filterPositions } from '@/lib/filterPositions';
 
 interface PositionenProps {
@@ -20,6 +21,11 @@ interface PositionenProps {
 }
 
 export function Positionen({ data }: PositionenProps) {
+  // N-894-14: Gruppenanteile gemeinsam apportioniert (wie Soll-Tabellen, Summe 100.0 %).
+  const groupShares = useMemo(
+    () => bucketPctMap((data.groups ?? []).map((g) => ({ asset_class: g.key, target_weight_bps: g.share_bps })), { typography: 'screen' }),
+    [data.groups],
+  );
   const currency = useReportCurrency(); // N-894-10
   const groups = data.groups ?? [];
   const total = data.total_rappen ?? 0;
@@ -62,7 +68,7 @@ export function Positionen({ data }: PositionenProps) {
       ) : (
         <div className="space-y-section">
           {filteredGroups.map((g) => (
-            <BucketGroup key={g.key} group={g} />
+            <BucketGroup key={g.key} group={g} shareText={groupShares[g.key]} />
           ))}
         </div>
       )}
@@ -122,7 +128,7 @@ function PositionsSearchBar({
 
 // ---------------------------------------------------------------------------
 
-function BucketGroup({ group }: { group: PositionGroup }) {
+function BucketGroup({ group, shareText }: { group: PositionGroup; shareText?: string }) {
   const currency = useReportCurrency(); // N-894-10
   return (
     <section>
@@ -132,7 +138,7 @@ function BucketGroup({ group }: { group: PositionGroup }) {
           <span>
             Anteil:{' '}
             <span className="font-mono text-ink">
-              {formatBpsAsPct(group.share_bps)}
+              {shareText ?? formatBpsAsPct(group.share_bps)}
             </span>
           </span>
           <span>

@@ -126,7 +126,8 @@ def test_donut_center_has_no_fantasy_placeholder_and_uses_formatter():
     assert '<div class="dcv">—</div>' in html
     out = _run(
         _FMT + ("donutCenterValueHtml",),
-        "return {a:donutCenterValueHtml(2850000),b:donutCenterValueHtml(0),"
+        # G7 N4: TOTAL_CCY = Waehrung von TOTAL (Allokation bzw. Positions-Rohsumme).
+        "TOTAL_CCY='CHF';return {a:donutCenterValueHtml(2850000),b:donutCenterValueHtml(0),"
         "c:donutCenterValueHtml(null),d:donutCenterValueHtml(450000),ref:(450000).toLocaleString('de-CH')};",
     )
     assert out["a"] == "CHF<br>2.85 Mio."

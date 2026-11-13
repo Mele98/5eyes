@@ -114,11 +114,16 @@ def rounding_module_source() -> str:
     Inline-Skript laedt.
     """
     module = (FRONTEND_DIR / ROUNDING_MODULE).read_text(encoding="utf-8").replace("\r\n", "\n")
-    # N-894-05: App-Geldformatter fragen die Mandatswaehrung ueber appCurrency()
-    # ab (ares.html); ohne Mandat/aa-chart.js liefert sie "CHF".
+    # G7 Nachtrag 4: App-Geldformatter beschriften mit der Waehrung der Quelle
+    # (ares.html: ccyOf/_ccyArg/appCurrency/mandateCurrency ...). Ohne Waehrung
+    # zeigen sie "—". Der Harness simuliert ein geladenes CHF-Mandat (wie nach
+    # Kundenwahl); Szenarien koennen ``currentMandateData`` im Prelude ueberschreiben.
     html = MONOLITH_PATH.read_text(encoding="utf-8")
-    lines = []
-    for name in ("function sollPct(", "function appCurrency(){"):
+    lines = ["var currentMandateData={base_currency:'CHF'};"]
+    for name in ("function sollPct(", "function syncCcy(", "function ccyOf(", "function sameCcy(", "function _ccyArg(",
+                 "function appCurrency(){", "function newRecordCurrency(){", "function mandateCurrency(){", "function wealthSummaryCurrency(){",
+                 "function cashflowSummaryCurrency(){", "function cashflowProjectionCurrency(){",
+                 "function positionsCurrency("):
         start = html.index(name)
         lines.append(html[start:html.index("\n", start)])
     return module + "\n" + "\n".join(lines) + "\n"

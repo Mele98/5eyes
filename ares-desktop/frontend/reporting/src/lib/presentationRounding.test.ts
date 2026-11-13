@@ -30,7 +30,7 @@ describe('G7 presentationRounding (Policy ares-rounding/1)', () => {
     expect(fmtPct(1225)).toBe('12.3 %');
     expect(fmtPct(-1225)).toBe('−12.3 %');
     expect(fmtPct(1235)).toBe('12.4 %');
-    expect(formatChfRappen(250)).toBe('CHF 3');
-    expect(formatChfRappen(-150)).toBe('CHF −2');
+    expect(formatChfRappen(250, { currency: 'CHF' })).toBe('CHF 3');
+    expect(formatChfRappen(-150, { currency: 'CHF' })).toBe('CHF −2');
   });
 });

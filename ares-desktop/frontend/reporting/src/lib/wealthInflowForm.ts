@@ -103,6 +103,6 @@ export function buildWealthInflowPayload(input: WealthInflowFormInput): WealthIn
 }
 
 /** CHF-Anzeige aus Rappen. */
-export function rappenToChf(rappen: number, currency: string = 'CHF'): string {
+export function rappenToChf(rappen: number, currency: string | null): string {
   return formatChfFromRappen(rappen, currency);
 }

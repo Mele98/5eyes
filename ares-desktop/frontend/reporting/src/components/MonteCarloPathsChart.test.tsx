@@ -33,6 +33,7 @@ function makeMc(overrides: Partial<MonteCarloPaths> = {}): MonteCarloPaths {
     seed: 42,
     horizon_years: 10,
     initial_wealth_rappen: start,
+    amount_currency: 'CHF', // G7 N4: Server-Waehrung der Pfade
     ...overrides,
   };
 }
@@ -364,15 +365,15 @@ describe('computeYScale / niceStep / makeYTickFormatter', () => {
 
   it('Achsenbeschriftung: feste Nachkommastellen je Achse, CH-Format', () => {
     const mio = (chf: number) => chf * 100;
-    const f1 = makeYTickFormatter(mio(1_000_000), mio(250_000));
+    const f1 = makeYTickFormatter(mio(1_000_000), mio(250_000), 'CHF');
     expect(f1(0)).toBe('CHF 0');
     expect(f1(mio(500_000))).toBe('CHF 0.50 Mio.');
     expect(f1(mio(1_000_000))).toBe('CHF 1.00 Mio.');
-    const f2 = makeYTickFormatter(mio(6_000_000), mio(2_000_000));
+    const f2 = makeYTickFormatter(mio(6_000_000), mio(2_000_000), 'CHF');
     expect(f2(mio(4_000_000))).toBe('CHF 4 Mio.');
-    const f3 = makeYTickFormatter(mio(7_500_000), mio(2_500_000));
+    const f3 = makeYTickFormatter(mio(7_500_000), mio(2_500_000), 'CHF');
     expect(f3(mio(5_000_000))).toBe('CHF 5.0 Mio.');
-    const f4 = makeYTickFormatter(mio(750_000), mio(250_000));
+    const f4 = makeYTickFormatter(mio(750_000), mio(250_000), 'CHF');
     expect(f4(mio(250_000))).toBe("CHF 250'000");
   });
 

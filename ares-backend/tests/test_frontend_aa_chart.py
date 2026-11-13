@@ -42,7 +42,7 @@ var REDUCED=false;
 var window={matchMedia:function(q){return {matches:REDUCED&&q.indexOf('reduce')>=0};}};
 var document={documentElement:{},querySelectorAll:function(){return [];},getElementById:function(){return null;}};
 function getComputedStyle(){return {getPropertyValue:function(){return '#ffffff';}};}
-var strategyState={allocation:{sub_allocations:[{asset_class:'Aktien',sub_asset_class:'Aktien Schweiz',target_weight_bps:3364}]}};
+var strategyState={allocation:{base_currency:'CHF',sub_allocations:[{asset_class:'Aktien',sub_asset_class:'Aktien Schweiz',target_weight_bps:3364}]}};  // G7 N4: Artefakt-Waehrung
 """
 
 

@@ -308,7 +308,7 @@ function WealthInflowFormDrawer({ open, clientId, editing, onClose, onSaved }: D
           </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="block text-caption text-ink-muted">
-              Betrag ({currency})
+              Betrag ({currency ?? "—"})
               <input type="number" value={form.amountChf} onChange={(e) => set('amountChf', e.target.value)} className={inputClass} />
             </label>
             <label className="block text-caption text-ink-muted">

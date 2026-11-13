@@ -192,6 +192,8 @@ export interface ClientInfo {
   risikoprofil: string;
   anlageziel: string;
   liquiditaetsbedarf_rappen: number;
+  /** G7 N4: Waehrung der Rohsumme (Ausgaben-Cashflows ohne FX); null = gemischt/unbekannt. */
+  liquiditaetsbedarf_currency?: string | null;
   steuerdomizil: string;
   referenzwaehrung: string;
 }
@@ -525,6 +527,11 @@ export interface MonteCarloPaths {
   projection_status?: 'current' | 'stale' | 'blocked' | 'data_pending';
   /** SIM-HORIZON-FROM-RISK-PROFILE-001: bestimmende Groesse des Horizonts. */
   horizon_note?: string;
+  /**
+   * G7 N4: Waehrung der Pfadwerte. Startvermoegen und Netto-Cashflow sind
+   * Rohsummen ohne FX; nur bei einheitlicher Datensatzwaehrung gesetzt, sonst null.
+   */
+  amount_currency?: string | null;
   /** MORT-CHANNEL-001: `disabled` = kein Mortalitaets-Cutoff (wie Solver). */
   mortality_mode?: 'disabled' | 'fixed_override' | 'planning_quantile' | null;
   mortality_cutoff_year_index?: number | null;

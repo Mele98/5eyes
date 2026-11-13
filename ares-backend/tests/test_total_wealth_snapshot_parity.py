@@ -88,6 +88,8 @@ def _run_projection(
     helpers = [
         _extract_js_function(html, "mortgageLiabilityAndPledgedSeriesRappen"),
         _extract_js_function(html, "wealthProjectionInputs"),
+        # G7 N4: Waehrung der Projektionseingaben (Grundregel) -- echte Helfer aus ares.html.
+        *(_extract_js_function(html, n) for n in ("ccyOf", "sameCcy", "positionsCurrency", "mandateCurrency", "appCurrency")),
     ]
     if with_baseline:
         helpers.append(_extract_js_function(html, "buildBaselineProjectionFromComponentSeries"))

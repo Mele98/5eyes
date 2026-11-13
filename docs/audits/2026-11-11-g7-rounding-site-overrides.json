@@ -75,20 +75,6 @@
   },
   {
    "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
-   "source": "f\"{format_chf_rappen(int(round(float(target_amount))), currency=currency)} (über Skala)\"",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "build_mc_paths_drawing: `round(float(target_amount))` -> Teilausdruck; Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
-  },
-  {
-   "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
-   "source": "return lambda rappen: format_chf_rappen(int(round(rappen)), currency=currency)",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "make_y_tick_formatter: `round(rappen)` -> Rueckgabewert; Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
-  },
-  {
-   "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
    "source": "return sorted({round(k * step) for k in range(n_max)})",
    "class": "COMPUTATION_KEEP",
    "status": "",
@@ -835,13 +821,6 @@
    "class": "COMPUTATION_KEEP",
    "status": "",
    "reason": "parsePercentToBps: `Math.round(n*100)` -> Rueckgabewert; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "source": "return label+formatRappen(Math.round(Number(ctx&&ctx.raw||0)*100000));",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "label: `Math.round(Number(ctx&&ctx.raw||0)*100000)` -> Rueckgabewert; Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -1594,13 +1573,6 @@
   },
   {
    "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
-   "source": "return `${currency} ${(rappen / MIO_RAPPEN).toFixed(decimals)} Mio.`;",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "Skriptebene: `(rappen / MIO_RAPPEN).toFixed(decimals)` -> Rueckgabewert; Achsenbeschriftung (Stellen aus Tick-Schritt)"
-  },
-  {
-   "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
    "source": "{ length: Math.round(maxValue / yStep) + 1 },",
    "class": "COMPUTATION_KEEP",
    "status": "",
@@ -1689,6 +1661,279 @@
    "class": "MIGRATE",
    "status": "done",
    "reason": "Lokaler Formatter delegiert an den gemeinsamen Formatter"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return label+(ds&&ds.aresCurrency!==undefined?formatRappen(Math.round(Number(ctx&&ctx.raw||0)*100000),ds.aresCurrency):formatRappen(Math.round(Number(ctx&&ctx.raw||0)*100000)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthLineOptions-Tooltip: Math.round(raw*100000) ist die Umrechnung Chartwert (Mio., float) -> ganze Rappen; die sichtbare Zahl formatiert formatRappen in der Waehrung der Reihe (dataset.aresCurrency)."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var groupPct=AresRounding.bucketPctMap(Object.keys(groups).map(function(g){var st=groups[g].reduce(function(a,r){return a+portfolioMarketValueRappen(r);},0);return {asset_class:g,target_weight_bps:totalPortfolio>0?Math.round(st/totalPortfol",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderPortfolioSections: Math.round(st/total*10000) ist die Umrechnung Gruppenbetrag -> ganzzahlige bps als Eingabe der gemeinsamen Apportionierung (bucketPctMap); angezeigt wird das apportionierte Ergebnis."
+  },
+  {
+   "file": "ares-desktop/frontend/aa-chart.js",
+   "source": "return AresRounding.formatPercentBps(Math.round(Number(bps)||0),1,{typography:'screen'});",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aaChartPctText: Normalisierung auf ganzzahlige bps (Serverwerte sind ganzzahlig, kein .5-Fall); die Prozentrundung macht formatPercentBps (gemeinsamer Formatter)."
+  },
+  {
+   "file": "ares-desktop/frontend/aa-chart.js",
+   "source": "function aaChartChf(chf,cur){return aaChartMoney(Math.round((Number(chf)||0)*100),cur);}",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aaChartChf (Modulebene, Einzeiler): Umrechnung ganze Einheiten -> Rappen (x100, ganzzahlig); Anzeige ueber aaChartMoney/formatStoredAmount."
+  },
+  {
+   "file": "ares-desktop/frontend/aa-chart.js",
+   "source": "return {name:String(it.name||''),key:key,bps:Math.max(0,Math.round(Number(it.bps)||0)),color:it.color,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aaChartPrepare: Normalisierung der Legenden-Eingabe auf ganzzahlige bps (Zwischenwert); Prozenttexte kommen aus bucketPctMap."
+  },
+  {
+   "file": "ares-desktop/frontend/aa-chart.js",
+   "source": "return {name:String(s.name||''),bps:Math.max(0,Math.round(Number(s.bps)||0)),note:s.note||'',_j:j};",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aaChartPrepare (Unterklassen): ganzzahlige bps als Eingabe von subPctMap (Zwischenwert); Anzeige apportioniert."
+  },
+  {
+   "file": "ares-desktop/frontend/aa-chart.js",
+   "source": "return count>1?Math.round(idx/(count-1)*50)/100:0;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aaChartShadeStep: Farbmischanteil (Geometrie/Farbe), kein Kundentext."
+  },
+  {
+   "file": "ares-desktop/frontend/aa-chart.js",
+   "source": "return '#'+a.map(function(v,i){var m=Math.round(v+(b[i]-v)*t);return (m<16?'0':'')+m.toString(16);}).join('').toUpperCase();",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aaChartMix: RGB-Kanal auf ganze Zahl (Farbwert, CSS-Geometrie/Farbe), kein Kundentext."
+  },
+  {
+   "file": "ares-desktop/frontend/aa-chart.js",
+   "source": "return 'color-mix(in srgb, '+cssColor+' '+Math.round((1-t)*100)+'%, var(--surface))';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aaChartCssMix: CSS-Farbmischanteil in Prozent (color-mix), keine Kennzahl."
+  },
+  {
+   "file": "ares-desktop/frontend/aa-chart.js",
+   "source": "var amount=pos.length?0:Math.round((rb.strategyBaseRappen/100)*Number(r.soll||0)/100),band=null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aaChartAllocItems: Fallback-Betrag ganze Einheiten nur ohne Positionen; in der Legende ueberschrieben durch presentationAmounts (Largest Remainder) -- Zwischenwert."
+  },
+  {
+   "file": "ares-desktop/frontend/aa-chart.js",
+   "source": "return {name:r.n,bps:Math.round(Number(r.soll||0)*100),color:r.c,amountChf:amount,currency:cur,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aaChartAllocItems: Soll-Prozent (2 Stellen) -> ganzzahlige bps (Umrechnung); Anzeige ueber bucketPctMap."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "return Math.max(0,Math.round(rappen||0));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "goalEditorInitialRappen: Startvermoegen in ganzen Rappen fuer die Live-Diagnose (Zwischenwert); Anzeige ueber formatRappen."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "hintEl.innerHTML='<strong>'+escapeHtml(formatRappen(Math.round(impliedWealth*100),mandateCurrency()))+'</strong> impliziertes Zielverm\\u00f6gen in '+fmtNumber(horizon,1)+' Jahren.';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "updateGoalDerivedDiagnostics: Umrechnung implizites Zielvermoegen (Einheiten, float) -> ganze Rappen; sichtbare Zahl formatiert formatRappen, Jahre ueber fmtNumber."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "hintEl.innerHTML='Vereinfachter Kapitalbedarf des Stroms: <strong>'+escapeHtml(formatRappen(Math.round(streamAmount*dur*100),mandateCurrency()))+'</strong>. Die pr\\u00e4zise Tragf\\u00e4higkeit zeigt der Optimizer.';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "updateGoalDerivedDiagnostics: Umrechnung Kapitalbedarf (Einheiten x Jahre) -> ganze Rappen; sichtbare Zahl formatiert formatRappen."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "else if(isWealthGoalType(goalType))setInputValue('nz-amount',formatInputCHF(goal.target_wealth_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openGoalEditor: Eingabefeld-Wert (type=number, Roundtrip mit parseCHF), keine Kundenevidenz."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "else setInputValue('nz-amount',formatInputCHF(goal.target_amount_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openGoalEditor: Eingabefeld-Wert (type=number, Roundtrip mit parseCHF), keine Kundenevidenz."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "setInputValue('nz-target-return-bps',isReturnGoalType(goalType)?formatInputPercent(goal.target_return_bps):'');",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openGoalEditor: Eingabefeld-Wert Renditeziel (Roundtrip mit parsePercentToBps), keine Kundenevidenz."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "setInputValue('nz-success-prob-min',goal.success_probability_min_x100==null?'':String(Math.round(Number(goal.success_probability_min_x100||0)/100)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openGoalEditor: Eingabefeld-Wert Mindestwahrscheinlichkeit (x100 -> ganze Prozent, Roundtrip), keine Kundenevidenz."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "'<div class=\"gbw\"><div class=\"gp\" title=\"'+escapeHtml(scored?('Erfolgswahrscheinlichkeit: '+GOAL_SUCCESS_PROBABILITY_TOOLTIP+(goalSuccessIsEstimate(successRow)?(' \\u2013 '+GOAL_SUCCESS_ESTIMATE_HINT):'')):'Noch keine aktuelle Strategie bere",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderGoalList: Math.round(pct) nur in der CSS-Breite des Fortschrittsbalkens (width:x%); der Text nutzt fmtProbPct (gemeinsamer Formatter)."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "var horizon=horizonFloat>0?Math.max(1,Math.round(horizonFloat)):null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "saveGoal: Horizont in ganzen Jahren als Persistenzwert (horizon_years INTEGER), Werte >= 1 -> Half-up identisch; keine Anzeige."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "if(pctEl)pctEl.value=bps!=null?(Number(bps)/100).toFixed(2):'';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadPlanningAssumptions: Eingabefeld-Wert Inflationsannahme (bps/100 hat hoechstens 2 Stellen, toFixed(2) rundet nie), Roundtrip mit parse."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "var bps=pctVal==null?null:Math.round(pctVal*100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "savePlanningAssumptions: Eingabe Prozent -> ganzzahlige bps (Persistenzwert); die Bestaetigung zeigt den gespeicherten Wert ueber fmtPct."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "var scoreText=risk&&risk.final_score_x10!=null?('Score '+Math.round(Number(risk.final_score_x10||0)/10)+' / 10'):'';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderActionCards: Risikoscore x10 -> Stufe 1..10 (ganzzahlige Skala, Werte >= 0, Math.round = Half-up), keine Prozent-/Betragsangabe."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "var reserveNeeded=Math.round(Number(allocation.reserve_needed_rappen||0)/100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderActionCards: nur Zwischenwert fuer den Vergleich > 0; der Text formatiert allocation.reserve_needed_rappen direkt mit formatRappen."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "var externalReserve=Math.round(Number(allocation.external_reserve_rappen||0)/100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderActionCards: nur Zwischenwert fuer den Vergleich > 0; der Text formatiert allocation.external_reserve_rappen direkt mit formatRappen."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "var edgeBuffer=Math.max(100,Math.round(bandSpan*0.2));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "reviewBandStateMeta: Skalenrand in bps fuer die Bandgrafik (Geometrie/Zwischenwert), kein Kundentext."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "item.currentWeightBps=Math.round(item.currentRappen/denominator*10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "reviewImplementationHotspots: Umrechnung Betrag -> ganzzahlige bps fuer Schwelle (>= 200 bps) und Apportionierung; Texte ueber bucketPctMap/sollPct."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "item.targetWeightBps=Math.round(item.targetRappen/denominator*10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "reviewImplementationHotspots: Umrechnung Betrag -> ganzzahlige bps fuer Schwelle und Apportionierung; Texte ueber bucketPctMap/sollPct."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "return '<div style=\"width:'+pct.toFixed(2)+'%;background:'+getColor(key)+';display:flex;align-items:center;justify-content:center;overflow:hidden\" title=\"'+escapeHtml(label)+': '+escapeHtml(m[key]||formatBpsPercent(bps))+'\">'",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "reviewAllocationPortraitHtml/seg: toFixed(2) nur in der CSS-Breite des Segments; title und Beschriftung kommen aus den apportionierten Maps (bucketPctMap IST/SOLL)."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "var pct=Math.max(0,Math.min(100,Math.round(Number(bucket.target_weight_bps||0)/100)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderStrategySummary (Modul): pct nur CSS-Breite des Balkens; der Prozenttext kommt aus sollPct (apportioniert, = PDF)."
+  },
+  {
+   "file": "ares-desktop/frontend/intro-sequence.js",
+   "source": "var tileSeed=Math.abs(Math.round(tileLon*13+tileLat*29));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Intro-Animation (Modulebene): Zufalls-Seed fuer Kacheln (Geometrie), kein Kundentext."
+  },
+  {
+   "file": "ares-desktop/frontend/intro-sequence.js",
+   "source": "canvas.width=Math.round(innerWidth*dpr);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Intro-Animation resize(): Canvas-Pixelbreite (Geometrie)."
+  },
+  {
+   "file": "ares-desktop/frontend/intro-sequence.js",
+   "source": "canvas.height=Math.round(innerHeight*dpr);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Intro-Animation resize(): Canvas-Pixelhoehe (Geometrie)."
+  },
+  {
+   "file": "ares-desktop/frontend/intro-sequence.js",
+   "source": "if(bar)bar.style.width=Math.round((i+1)/steps.length*96)+'%';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Intro-Animation tick(): CSS-Breite des Ladebalkens, keine Kennzahl."
+  },
+  {
+   "file": "ares-desktop/frontend/product-master-data.js",
+   "source": "if (Math.abs(minor - Math.round(minor)) > 1e-6) return 'Mindestanlage: hoechstens ' + digits + ' Nachkommastellen fuer ' + (val('pf-currency').toUpperCase() || 'CHF') + '.';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "adminCollectFundMasterData: Ganzzahlpruefung der Eingabe (Zwischenwert/Vergleich), die Meldung nennt nur die erlaubte Stellenzahl."
+  },
+  {
+   "file": "ares-desktop/frontend/product-master-data.js",
+   "source": "payload.minimum_investment_minor_units = Math.round(minor);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "adminCollectFundMasterData: Eingabe -> ganzzahlige Minor-Units (Persistenzwert), keine Anzeige."
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
+   "source": "return `${unit}${(rappen / MIO_RAPPEN).toFixed(decimals)} Mio.`;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "makeYTickFormatter: Achsenbeschriftung; Ticks sind exakte Vielfache des Schritts, toFixed(decimals) mit Stellen aus dem Schritt rundet daher nie (Achse)."
+  },
+  {
+   "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
+   "source": "f\"{_tick_amount(int(round(float(target_amount))), currency)} (über Skala)\"",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "build_mc_paths_drawing: Umrechnung Zielbetrag (float) -> ganze Rappen vor format_chf_rappen (Half-up in ganze Einheiten); Achsen-Annotation."
+  },
+  {
+   "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
+   "source": "return lambda rappen: _tick_amount(int(round(rappen)), currency)",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "make_y_tick_formatter: Achsen-Tick (float) -> ganze Rappen; Formatierung ueber format_chf_rappen (Achse)."
   }
  ]
 }

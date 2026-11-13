@@ -17,7 +17,7 @@ const plain = (t: string | null) => String(t ?? '').replace(/−/g, '-').replace
 describe('Mandatswaehrung im React-Bericht', () => {
   it('liest die Waehrung aus dem Bericht (Default CHF)', () => {
     expect(reportCurrencyFrom({ mandate_currency: 'eur' })).toBe('EUR');
-    expect(reportCurrencyFrom({})).toBe('CHF');
+    expect(reportCurrencyFrom({})).toBeNull(); // G7 N4: unbekannt statt CHF
   });
 
   it.each(['EUR', 'JPY'])('Positionen zeigen %s statt CHF', (currency) => {
@@ -35,7 +35,7 @@ describe('Mandatswaehrung im React-Bericht', () => {
     expect(plain(formatChfRappen(8412698413, { currency: 'JPY' }))).toBe("JPY 84'126'984");
     expect(plain(formatChfFromRappen(55789550, 'EUR'))).toBe("EUR 557'896");
     expect(plain(fmtChfCompact(2855000, 'EUR'))).toBe('EUR 2.86 Mio.');
-    expect(plain(formatChfRappen(123450))).toBe("CHF 1'235");
+    expect(plain(formatChfRappen(123450, { currency: 'CHF' }))).toBe("CHF 1'235");
   });
 
   it('Faecher-Saetze und Achse in Mandatswaehrung', () => {
