@@ -38981,6 +38981,71 @@
         ]
       }
     },
+    "/mandates/{mandate_id}/sustainability-preferences/exclusion-options": {
+      "get": {
+        "description": "N-901-06: Ausschluss-Optionen gegen die LAUFENDE Auswahl der Maske\n(``selected``), ohne zu speichern. Jede Option wird mit der Auswahl\nkombiniert am selben Produkt geprueft.",
+        "operationId": "get_sustainability_exclusion_options_mandates__mandate_id__sustainability_preferences_exclusion_options_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "selected",
+            "required": false,
+            "schema": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Selected",
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SustainabilityExclusionOption"
+                  },
+                  "title": "Response Get Sustainability Exclusion Options Mandates  Mandate Id  Sustainability Preferences Exclusion Options Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Sustainability Exclusion Options",
+        "tags": [
+          "Risikoprofilierung"
+        ]
+      }
+    },
     "/mandates/{mandate_id}/target-allocation": {
       "post": {
         "operationId": "create_target_allocation_mandates__mandate_id__target_allocation_post",

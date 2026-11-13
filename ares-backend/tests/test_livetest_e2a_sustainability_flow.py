@@ -316,3 +316,92 @@ def test_ci_runs_this_behaviour_test_with_playwright_required():
     job = workflow[workflow.index("\n  vitest:"):]
     assert 'ARES_REQUIRE_PLAYWRIGHT: "1"' in job
     assert "tests/test_livetest_e2a_sustainability_flow.py" in job
+
+
+def test_exclusion_options_follow_the_running_selection_in_browser(server):
+    """N-901-06: An-/Abwaehlen bewertet die Ausschluss-Optionen gegen die
+    laufende Auswahl neu (Server-Endpunkt, ohne Speichern). Die fachliche
+    Bewertung testet test_sustainability_e2b_n2_live_evidence.py; hier wird
+    die Antwort des Endpunkts per Route bestimmt, damit genau die UI-Logik
+    geprueft wird: Tabak gewaehlt -> Alkohol ausgegraut mit Grund; Tabak ab ->
+    Alkohol waehlbar (direkter Wechsel); gewaehlte Optionen bleiben abwaehlbar."""
+    from urllib.parse import parse_qs, urlparse
+
+    sync_api = _playwright_sync_api()
+    api = _Api(server)
+    status, login = api("POST", "/auth/login", {"username": USER, "password": PWD})
+    if status != 200:
+        api("POST", "/auth/bootstrap-admin", {"username": USER, "password": PWD, "full_name": "E2a Admin",
+                                              "company_name": "Probe AG", "home_jurisdiction": "CH"})
+        status, login = api("POST", "/auth/login", {"username": USER, "password": PWD})
+    api.token = login["access_token"]
+    advisor_id = api("GET", "/auth/me")[1]["id"]
+    cid, _mid = _seed_mandate(api, advisor_id, "Wechsel", "Anlageberatung")
+    labels = {"fossil": "Fossile Energie", "defense": "Verteidigung", "tobacco": "Tabak", "alcohol": "Alkohol",
+              "gaming": "Glücksspiel", "nuclear": "Kernenergie"}
+    calls: list[list[str]] = []
+
+    def handle(route):
+        selected = parse_qs(urlparse(route.request.url).query).get("selected", [])
+        calls.append(selected)
+        out = []
+        for key, label in labels.items():
+            available = key in ("tobacco", "alcohol") and not (
+                (key == "alcohol" and "tobacco" in selected) or (key == "tobacco" and "alcohol" in selected))
+            reason = None
+            if key in ("tobacco", "alcohol") and not available:
+                other = "Tabak" if key == "alcohol" else "Alkohol"
+                reason = f"Nicht wählbar: Zusammen mit {other} kein belegtes Produkt für Aktien Schweiz."
+            elif not available:
+                reason = "Nicht wählbar: kein belegtes Produkt für Aktien Schweiz."
+            out.append({"key": key, "label": label, "available": available, "reason": reason,
+                        "missing_sub_asset_classes": [], "evidence": []})
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(out))
+
+    state = ("() => ({t: document.getElementById('sust-excl-tobacco').disabled,"
+             " tc: document.getElementById('sust-excl-tobacco').checked,"
+             " a: document.getElementById('sust-excl-alcohol').disabled,"
+             " ac: document.getElementById('sust-excl-alcohol').checked,"
+             " aw: document.getElementById('sust-excl-why-alcohol').textContent,"
+             " tw: document.getElementById('sust-excl-why-tobacco').textContent})")
+    with sync_api.sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(viewport={"width": 1440, "height": 1100})
+            page.route("**/sustainability-preferences/exclusion-options*", handle)
+            page.goto(server + "/app/ares.html")
+            try:
+                page.wait_for_selector("#intro-screen .intro-skip:not([disabled])", timeout=20000)
+                page.click("#intro-screen .intro-skip")
+                page.wait_for_timeout(1000)
+            except sync_api.Error:
+                pass
+            page.evaluate("document.getElementById('intro-screen')&&document.getElementById('intro-screen').remove()")
+            page.fill("#login-username", USER)
+            page.fill("#login-password", PWD)
+            page.evaluate("document.getElementById('btn-login-submit').click()")
+            page.wait_for_timeout(3000)
+            page.evaluate(f"loadClientById('{cid}')")
+            page.wait_for_timeout(3000)
+            page.evaluate("document.querySelectorAll('.overlay.open').forEach(function(o){o.classList.remove('open');})")
+            page.evaluate("go('rp')")
+            page.wait_for_timeout(2500)
+            page.check("#sust-q1-yes")
+            page.wait_for_timeout(500)
+            start = page.evaluate(state)
+            page.check("#sust-excl-tobacco")
+            page.wait_for_timeout(700)
+            with_tobacco = page.evaluate(state)
+            page.uncheck("#sust-excl-tobacco")
+            page.wait_for_timeout(700)
+            page.check("#sust-excl-alcohol")
+            page.wait_for_timeout(700)
+            with_alcohol = page.evaluate(state)
+        finally:
+            browser.close()
+    assert start["t"] is False and start["a"] is False, start
+    assert with_tobacco["tc"] and with_tobacco["t"] is False  # gewaehlt bleibt bedienbar
+    assert with_tobacco["a"] is True and "Zusammen mit Tabak" in with_tobacco["aw"], with_tobacco
+    assert with_alcohol["ac"] and not with_alcohol["tc"] and with_alcohol["a"] is False, with_alcohol
+    assert with_alcohol["t"] is True and "Zusammen mit Alkohol" in with_alcohol["tw"], with_alcohol
+    assert [] in calls and ["tobacco"] in calls and ["alcohol"] in calls

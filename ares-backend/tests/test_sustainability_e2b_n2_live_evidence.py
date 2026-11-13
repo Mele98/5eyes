@@ -97,7 +97,7 @@ def test_withdrawn_after_finalize_removes_claim_and_blocks_channels(world, api, 
         _retire(session_factory, world["advisor_id"], world["evidence"][pid])
     assert _protocol_line(session_factory, mid).startswith("Nicht eingehalten")
     state = api.get(f"/mandates/{mid}/sustainability-preferences").json()
-    assert "nicht belegt" in (state["allocation_stale_notice"] or "")
+    assert "nicht mehr belegt" in (state["allocation_stale_notice"] or "")
     for path in ("anlagestrategie.pdf", "portfolio.pdf", "cost-disclosure.pdf", "advisory-report.pdf"):
         resp = api.get(f"/mandates/{mid}/reports/{path}")
         assert resp.status_code in (409, 422), (path, resp.status_code)
@@ -153,3 +153,80 @@ def test_slot_rule_is_shared_by_engine_and_coverage():
     assert payload.slot_candidates(products, "Gold", "Alternative", pe._norm_text) == []
     umlaut = [P(sub_asset_class="Geldmarkt", asset_class="Liquidität")]
     assert payload.slot_candidates(umlaut, "Konto", "Liquiditaet", pe._norm_text) == umlaut
+
+
+def test_exclusion_options_follow_the_running_selection(world, api, session_factory):
+    """N-901-06: Bewertung gegen die laufende Auswahl, ohne zu speichern.
+    Tabak auf den Alternativ-, Alkohol auf den Standardprodukten -> einzeln
+    waehlbar, zusammen nicht (Grund nennt die Kombination)."""
+    from tests.test_sustainability_e2b_n1_product_enforcement import _evidence
+
+    mid = world["mid"]
+    _evidence(session_factory, world["advisor_id"], sorted(world["picked"]), theme="alcohol")
+    base = f"/mandates/{mid}/sustainability-preferences/exclusion-options"
+
+    def opts(*selected):
+        q = "&".join(f"selected={k}" for k in selected)
+        resp = api.get(base + (f"?{q}" if q else ""))
+        assert resp.status_code == 200, resp.text
+        return {o["key"]: o for o in resp.json()}
+
+    none = opts()
+    assert none["tobacco"]["available"] and none["alcohol"]["available"]
+    with_tobacco = opts("tobacco")
+    assert with_tobacco["alcohol"]["available"] is False
+    assert with_tobacco["alcohol"]["reason"].startswith("Nicht wählbar: Zusammen mit Tabak")
+    with_alcohol = opts("alcohol")
+    assert with_alcohol["tobacco"]["available"] is False
+    assert "Zusammen mit Alkohol" in with_alcohol["tobacco"]["reason"]
+    with session_factory() as s:  # nichts gespeichert
+        assert s.execute(text("SELECT COUNT(*) FROM investment_preference_decisions")).scalar() == 0
+    # Wechsel Tabak -> Alkohol direkt moeglich; Kombination abgelehnt.
+    assert _ok_capture(api, mid, exclusions=["alcohol"])["current"]["exclusions"] == ["alcohol"]
+    from tests.test_sustainability_e2a_contract import _capture
+
+    cur = api.get(f"/mandates/{mid}/sustainability-preferences").json()["current"]["id"]
+    both = _capture(api, mid, expected=cur, exclusions=["tobacco", "alcohol"])
+    assert both.status_code == 422 and both.json()["detail"]["reason_code"] == "SUSTAINABILITY_OPTION_NOT_OFFERABLE"
+    assert api.get(base + "?selected=weapons").status_code == 422
+
+
+def test_finalized_run_losing_evidence_says_so(world, api, session_factory):
+    """Text bei bereits finalisierter Empfehlung (Nachtrag 3)."""
+    from core import sustainability_preference as sp
+
+    mid = world["mid"]
+    _ok_capture(api, mid, exclusions=["tobacco"])
+    run_id = _run_id(_run(api, mid))
+    assert api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize").status_code == 200
+    for pid in _non_liquid_positions(api, mid, session_factory, run_id):
+        _retire(session_factory, world["advisor_id"], world["evidence"][pid])
+    expected = sp.FINAL_RUN_UNEVIDENCED_TEXT.format(labels="Tabak")
+    assert expected == "Die finalisierte Empfehlung erfüllt die Ausschlüsse (Tabak) nicht mehr belegt – bitte neu berechnen."
+    state = api.get(f"/mandates/{mid}/sustainability-preferences").json()
+    assert state["allocation_stale_notice"] == expected
+    pdf = api.get(f"/mandates/{mid}/reports/anlagestrategie.pdf")
+    assert pdf.status_code == 409 and pdf.json()["detail"]["message"] == expected
+
+
+def test_run_resolvers_break_ties_by_id(world, api, session_factory):
+    """Gleicher Zeitstempel: beide Resolver waehlen den Lauf mit der hoechsten id."""
+    from models.mandates import Mandate
+    from services.portfolio_engine import _current_target_allocation_or_none
+    from services.recommendation_release_gate import current_run_id
+    from services.recommendation_run_resolver import resolve_current_recommendation_run
+
+    mid = world["mid"]
+    ids = [_run_id(_run(api, mid)) for _ in range(2)]
+    with session_factory() as s:
+        ta = _current_target_allocation_or_none(s, mid)
+        s.execute(text("UPDATE recommendation_runs SET created_at = '2026-11-13T00:00:00.000Z' "
+                       "WHERE target_allocation_id = :t AND result_status = 'Draft'"), {"t": ta.id})
+        s.commit()
+        drafts = [r[0] for r in s.execute(text(
+            "SELECT id FROM recommendation_runs WHERE target_allocation_id = :t AND result_status = 'Draft'"),
+            {"t": ta.id})]
+        expected = max(drafts)
+        assert set(ids) <= set(drafts)
+        assert current_run_id(s, s.get(Mandate, mid), ta) == expected
+        assert resolve_current_recommendation_run(s, mid, ta.id).id == expected

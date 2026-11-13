@@ -538,9 +538,11 @@ def assert_run_evidence(db: Session, mandate: Any, run_id: Any, *, channel: str,
     result = {"status": "run_evidence_missing", "themes": [], "decision_id": (decision or {}).get("id")}
     if audit is not None:
         audit(sustainability.floor_audit_payload(result, channel), result)
+    final = db.execute(text("SELECT result_status FROM recommendation_runs WHERE id = :r"), {"r": run_id}).scalar()
     raise DomainError(
         ReasonCode.SUSTAINABILITY_EVIDENCE_MISSING,
-        sustainability.run_evidence_message(decision, channel),
+        sustainability.final_run_unevidenced_message(decision) if final == "Final"
+        else sustainability.run_evidence_message(decision, channel),
         http_status=409,
         extra={"channel": channel, "run_id": run_id},
     )

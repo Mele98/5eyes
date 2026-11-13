@@ -66,12 +66,16 @@ def test_no_preselection_and_question_one_first():
 
 
 def test_exclusions_are_offered_only_as_the_server_allows():
-    """Nur Erfuellbares anbieten: gesperrte Optionen sind disabled und
-    nennen ihren Grund (aria-describedby); gesendet werden nur aktive."""
+    """Nur Erfuellbares anbieten (N-901-06): Optionen werden bei jedem An-/
+    Abwaehlen gegen die LAUFENDE Auswahl vom Server neu bewertet; ungewaehlte
+    nicht kombinierbare sind disabled mit Grund (aria-describedby), gewaehlte
+    bleiben abwaehlbar."""
     src = _module()
     assert "state.exclusion_options" in src
-    assert "' disabled aria-describedby=\"'" in src
-    assert "if(cb.checked&&!cb.disabled)" in src
+    assert "/sustainability-preferences/exclusion-options" in src
+    assert "addEventListener('change',sustRefreshExclusions)" in src
+    assert "var off=!o.available&&!cb.checked;" in src
+    assert "cb.setAttribute('aria-describedby','sust-excl-why-'+o.key)" in src
 
 
 def test_waiver_only_for_advisory_mandates():

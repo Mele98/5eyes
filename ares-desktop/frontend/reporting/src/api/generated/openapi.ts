@@ -3932,6 +3932,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/mandates/{mandate_id}/sustainability-preferences/exclusion-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Sustainability Exclusion Options
+         * @description N-901-06: Ausschluss-Optionen gegen die LAUFENDE Auswahl der Maske
+         *     (``selected``), ohne zu speichern. Jede Option wird mit der Auswahl
+         *     kombiniert am selben Produkt geprueft.
+         */
+        get: operations["get_sustainability_exclusion_options_mandates__mandate_id__sustainability_preferences_exclusion_options_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/mandates/{mandate_id}/target-allocation": {
         parameters: {
             query?: never;
@@ -20696,6 +20718,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SustainabilityPreferenceState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_sustainability_exclusion_options_mandates__mandate_id__sustainability_preferences_exclusion_options_get: {
+        parameters: {
+            query?: {
+                selected?: string[];
+            };
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityExclusionOption"][];
                 };
             };
             /** @description Validation Error */

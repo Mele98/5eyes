@@ -1,7 +1,7 @@
 import json
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError
@@ -21,7 +21,8 @@ from schemas.profiling import (
     KnowledgeCreate, KnowledgeResponse,
     RiskAssessmentCreate, RiskAssessmentOverride, RiskAssessmentResponse,
     SuitabilityCheckCreate, SuitabilityCheckResponse,
-    SustainabilityPreferenceCreate, SustainabilityPreferenceResponse, SustainabilityPreferenceState,
+    SustainabilityExclusionOption, SustainabilityPreferenceCreate, SustainabilityPreferenceResponse,
+    SustainabilityPreferenceState,
 )
 from core import sustainability_preference as sp
 from core.evidence import evidence_hash
@@ -995,6 +996,9 @@ def _allocation_floor(db: Session, mandate: Mandate, row) -> dict:
         text(sp.CURRENT_RUN_SQL), {"mandate_id": mandate.id, "target_allocation_id": ta.id},
     ).scalar()
     floor["evidence"] = run_exclusion_evidence_status(db, mandate, run_id)
+    floor["run_final"] = bool(run_id) and db.execute(
+        text("SELECT result_status FROM recommendation_runs WHERE id = :r"), {"r": run_id},
+    ).scalar() == "Final"
     return floor
 
 
@@ -1090,10 +1094,33 @@ def _sustainability_state(db: Session, mandate: Mandate) -> SustainabilityPrefer
         allocation_floor_status=floor["status"],
         allocation_floor_themes=list(floor.get("themes") or ()),
         allocation_stale_notice=sp.floor_stale_notice(floor) or (
-            sp.run_evidence_message(floor_decision, "recommendation")
+            (sp.final_run_unevidenced_message(floor_decision) if floor.get("run_final")
+             else sp.run_evidence_message(floor_decision, "recommendation"))
             if floor.get("evidence") == sp.RUN_EVIDENCE_MISSING else None
         ),
     )
+
+
+@router.get(
+    "/mandates/{mandate_id}/sustainability-preferences/exclusion-options",
+    response_model=list[SustainabilityExclusionOption],
+)
+def get_sustainability_exclusion_options(
+    mandate_id: str,
+    selected: list[str] = Query(default=[]),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """N-901-06: Ausschluss-Optionen gegen die LAUFENDE Auswahl der Maske
+    (``selected``), ohne zu speichern. Jede Option wird mit der Auswahl
+    kombiniert am selben Produkt geprueft."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    _assert_privacy_readable(db, mandate_id, _SUITABILITY_EVIDENCE)
+    try:
+        chosen = sp.normalize_exclusions(selected)
+    except ValueError as exc:
+        raise _sustainability_error(str(exc)) from exc
+    return customer_exclusion_options(db, mandate, chosen)
 
 
 @router.get("/sustainability-preferences/definition")

@@ -83,9 +83,9 @@ function sustRender(){
   html+='</fieldset><fieldset id="sust-q3" style="'+SUST_FS+'"><legend style="'+SUST_LEG+'">'+sustEsc(q3.text)+'</legend>';
   sustExclusionOptions().forEach(function(o){
     var id='sust-excl-'+o.key,why='sust-excl-why-'+o.key;
-    html+='<div style="margin:3px 0"><label for="'+id+'" style="font-size:11px;color:'+(o.available?'var(--n7)':'var(--n5)')+';display:inline-flex;gap:6px;align-items:center;cursor:'+(o.available?'pointer':'not-allowed')+'">'
-      +'<input type="checkbox" class="sust-excl" id="'+id+'" value="'+sustEsc(o.key)+'"'+(o.available?'':' disabled aria-describedby="'+why+'"')+'> '+sustEsc(o.label)+'</label>'
-      +(o.available?'':' <span id="'+why+'" style="font-size:10px;color:var(--n6)">'+sustEsc(o.reason||'')+'</span>')+'</div>';
+    html+='<div style="margin:3px 0"><label for="'+id+'" style="font-size:11px;display:inline-flex;gap:6px;align-items:center">'
+      +'<input type="checkbox" class="sust-excl" id="'+id+'" value="'+sustEsc(o.key)+'"> '+sustEsc(o.label)+'</label>'
+      +' <span id="'+why+'" style="font-size:10px;color:var(--n6)"></span></div>';
   });
   html+='</fieldset>';
   if(st.waiver_allowed){
@@ -108,10 +108,45 @@ function sustRender(){
     +'</div></div>';
   card.innerHTML=html;
   card.querySelectorAll('input[name="sust-q1"],#sust-waiver').forEach(function(el){el.addEventListener('change',sustSyncVisibility);});
+  card.querySelectorAll('.sust-excl').forEach(function(el){el.addEventListener('change',sustRefreshExclusions);});
+  sustApplyExclusionOptions(sustExclusionOptions());
+  sustRefreshExclusions();
   var btn=document.getElementById('btn-sust-save');
   if(btn)btn.addEventListener('click',function(){sustSave();});
   sustSyncVisibility();
   sustShowState();
+}
+
+// N-901-06: Optionen gegen die LAUFENDE Auswahl (Server, ohne Speichern).
+// Gewaehlte Themen bleiben bedienbar (abwaehlbar), nicht kombinierbare
+// ungewaehlte werden ausgegraut und nennen den Grund; Fokus bleibt erhalten.
+function sustApplyExclusionOptions(options){
+  (options||[]).forEach(function(o){
+    var cb=document.getElementById('sust-excl-'+o.key),why=document.getElementById('sust-excl-why-'+o.key);
+    if(!cb)return;
+    var off=!o.available&&!cb.checked;
+    cb.disabled=off;
+    if(!o.available){cb.setAttribute('aria-describedby','sust-excl-why-'+o.key);}else{cb.removeAttribute('aria-describedby');}
+    if(why)why.textContent=o.available?'':(o.reason||'');
+    var lbl=cb.closest('label');
+    if(lbl){lbl.style.color=off?'var(--n5)':'var(--n7)';lbl.style.cursor=off?'not-allowed':'pointer';}
+  });
+}
+
+function sustRefreshExclusions(){
+  var mid=SUST.mandateId;
+  if(!sustIsRealMandate(mid)||typeof API==='undefined'||!API)return Promise.resolve(null);
+  var seq=SUST.loadSeq;
+  var sel=[];
+  document.querySelectorAll('#sust-card .sust-excl').forEach(function(cb){if(cb.checked)sel.push(cb.value);});
+  var qs=sel.map(function(k){return 'selected='+encodeURIComponent(k);}).join('&');
+  return Promise.resolve().then(function(){
+    return API.get('/mandates/'+encodeURIComponent(mid)+'/sustainability-preferences/exclusion-options'+(qs?'?'+qs:''));
+  }).then(function(options){
+    if(seq!==SUST.loadSeq||String(SUST.mandateId||'')!==String(mid))return null;
+    sustApplyExclusionOptions(options);
+    return options;
+  }).catch(function(e){console.warn('Ausschluss-Optionen:',e);return null;});
 }
 
 function sustValue(name){
@@ -125,7 +160,7 @@ function sustChecked(id){
 
 function sustSelectedExclusions(){
   var out=[];
-  document.querySelectorAll('#sust-card .sust-excl').forEach(function(cb){if(cb.checked&&!cb.disabled)out.push(cb.value);});
+  document.querySelectorAll('#sust-card .sust-excl').forEach(function(cb){if(cb.checked)out.push(cb.value);});
   return out;
 }
 

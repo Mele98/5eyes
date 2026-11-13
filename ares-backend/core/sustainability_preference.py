@@ -956,6 +956,22 @@ def run_evidence_message(decision, channel) -> str:
     return RUN_EVIDENCE_MESSAGE.format(label=label, labels=labels)
 
 
+FINAL_RUN_UNEVIDENCED_TEXT = (
+    "Die finalisierte Empfehlung erfüllt die Ausschlüsse ({labels}) nicht mehr belegt – "
+    "bitte neu berechnen."
+)
+
+
+def final_run_unevidenced_message(decision) -> str:
+    """N-901-07: Text, wenn eine bereits finalisierte Empfehlung ihren Beleg
+    nachtraeglich verliert (Nachweis zurueckgezogen/abgelaufen)."""
+    try:
+        labels = ", ".join(exclusion_labels(effective_exclusions(decision)))
+    except (TypeError, ValueError):
+        labels = ""
+    return FINAL_RUN_UNEVIDENCED_TEXT.format(labels=labels)
+
+
 REQUIRED_ANSWER_TEXT = "Frage zur Nachhaltigkeit im Risikoprofil beantworten."
 
 
@@ -966,5 +982,5 @@ REQUIRED_ANSWER_TEXT = "Frage zur Nachhaltigkeit im Risikoprofil beantworten."
 CURRENT_RUN_SQL = (
     "SELECT id FROM recommendation_runs WHERE mandate_id = :mandate_id "
     "AND target_allocation_id = :target_allocation_id AND result_status IN ('Final', 'Draft') "
-    "ORDER BY CASE result_status WHEN 'Final' THEN 0 ELSE 1 END, created_at DESC LIMIT 1"
+    "ORDER BY CASE result_status WHEN 'Final' THEN 0 ELSE 1 END, created_at DESC, id DESC LIMIT 1"
 )
