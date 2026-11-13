@@ -223,7 +223,9 @@
         "client_due_diligence",
         "client_tax_residencies",
         "kyc_confirmations",
-        "kyc_confirmation_approvals"
+        "kyc_confirmation_approvals",
+        "kyc_confirmation_decisions",
+        "kyc_confirmation_rejections"
       ],
       "recipients": [
         "Beraterinnen und Berater der Firma",
@@ -618,6 +620,9 @@
     "tax_parameter_sets": "Steuerparameter (Referenzdaten)",
     "tenant_legal_profiles": "Rechtliche Angaben der Firma (juristische Person; Kontakt als Geschaeftsadresse)",
     "tenants": "Mandanten der Installation (Firmen)",
-    "privacy_egress_daily_counts": "Zaehler erlaubter Uebertragungen je Kanal und Tag (ohne Inhalt, ohne Personenbezug)"
+    "privacy_egress_daily_counts": "Zaehler erlaubter Uebertragungen je Kanal und Tag (ohne Inhalt, ohne Personenbezug)",
+    "audit_chain_verification_status": "Status der Audit-Kettenpruefung (Sequenzen, Hashes, Zaehler; keine Inhalte, siehe PA-08)",
+    "kyc_review_policies": "KYC-Wiedervorlage-Policy der Firma (Referenzdaten, Akteur nur als Benutzer-ID, siehe PA-08)",
+    "kyc_review_policy_activations": "Freigaben der KYC-Wiedervorlage-Policy (Akteur nur als Benutzer-ID, siehe PA-08)"
   }
 }
