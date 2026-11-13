@@ -474,9 +474,12 @@ def test_partial_cover_amounts_are_exact_in_pdf_and_ui():
     import json as _json
     import subprocess
 
-    module = (BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "product-master-data.js").read_text(encoding="utf-8")
+    # G7 N-894-13: _retroAmount nutzt den gemeinsamen Formatter (in ares.html davor geladen).
+    frontend = BACKEND_ROOT.parent / "ares-desktop" / "frontend"
+    module = (frontend / "presentation-rounding.js").read_text(encoding="utf-8") + "\n" + (
+        frontend / "product-master-data.js").read_text(encoding="utf-8")
     script = module + "\nprocess.stdout.write(JSON.stringify([_retroAmount(50000,'CHF'), _retroAmount(49999,'chf'), _retroAmount(123456789,'EUR')]));"
-    proc = subprocess.run(["node", "-e", "var window={}; var document={addEventListener:function(){}};" + script],
-                          capture_output=True, text=True, timeout=30)
+    proc = subprocess.run(["node", "-"], input="var window={}; var document={addEventListener:function(){}};" + script,  # stdin: Windows-Kommandozeilenlimit
+                          capture_output=True, text=True, encoding="utf-8", timeout=30)
     assert proc.returncode == 0, proc.stderr
     assert _json.loads(proc.stdout) == ["CHF 500.00", "CHF 499.99", "EUR 1'234'567.89"]

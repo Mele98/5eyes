@@ -2792,13 +2792,14 @@ def _build_monte_carlo_paths_section(
     )
 
     client = _load_client_or_raise(db, mandate)
-    initial_wealth = _compute_beratungsvermoegen_rappen(db, client)
+    advisory_positions = _beratungsvermoegen_positions(db, client)
+    initial_wealth = sum(_safe_int(getattr(wp, "current_value_rappen", 0)) for wp in advisory_positions)
     # G7 N4 (Grundregel): Startvermoegen (_compute_beratungsvermoegen_rappen) und
     # Netto-Cashflow (monte_carlo_paths._annual_cashflow_series) sind Rohsummen
     # OHNE FX-Umrechnung. Die Pfade liegen daher in der gemeinsamen Waehrung
     # dieser Datensaetze vor -- nicht automatisch in der Mandatswaehrung.
     amount_currency = _native_sum_currency(
-        _beratungsvermoegen_positions(db, client)
+        list(advisory_positions)
         + [cf for cf in _cached_active_cashflows(db, str(getattr(mandate, "client_id", "") or ""))
            if _safe_int(getattr(cf, "amount_rappen", 0)) != 0]
     )
