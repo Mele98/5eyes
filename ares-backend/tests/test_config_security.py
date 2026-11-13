@@ -22,12 +22,12 @@ def test_production_accepts_encrypted_database_configuration():
         app_env='production',
         secret_key='prod-secret-at-least-32-characters-long',
         db_use_sqlcipher=True,
-        db_key='prod-db-key',
+        db_key='prod-db-key-0123456789abcdef0123456789',
         cors_origins=PRODUCTION_CORS_ORIGINS,
     )
 
     assert settings.db_use_sqlcipher is True
-    assert settings.db_key == 'prod-db-key'
+    assert settings.db_key == 'prod-db-key-0123456789abcdef0123456789'
 
 
 def test_development_can_still_run_without_sqlcipher():
@@ -78,7 +78,7 @@ def test_staging_rejects_default_secret_key():
             app_env='staging',
             secret_key=DEFAULT_SECRET_KEY,
             db_use_sqlcipher=True,
-            db_key='staging-db-key',
+            db_key='staging-db-key-0123456789abcdef01234567',
         )
 
 
@@ -89,7 +89,7 @@ def test_production_rejects_default_secret_key():
             app_env='production',
             secret_key=DEFAULT_SECRET_KEY,
             db_use_sqlcipher=True,
-            db_key='prod-db-key',
+            db_key='prod-db-key-0123456789abcdef0123456789',
             cors_origins=PRODUCTION_CORS_ORIGINS,
         )
 
@@ -104,7 +104,7 @@ def test_production_rejects_short_secret_key():
             app_env='production',
             secret_key='x',
             db_use_sqlcipher=True,
-            db_key='prod-db-key',
+            db_key='prod-db-key-0123456789abcdef0123456789',
             cors_origins=PRODUCTION_CORS_ORIGINS,
         )
 
@@ -114,7 +114,7 @@ def test_production_accepts_secret_key_at_exactly_32_chars():
         app_env='production',
         secret_key='x' * 32,
         db_use_sqlcipher=True,
-        db_key='prod-db-key',
+        db_key='prod-db-key-0123456789abcdef0123456789',
         cors_origins=PRODUCTION_CORS_ORIGINS,
     )
     assert len(settings.secret_key) == 32
@@ -152,7 +152,7 @@ def test_production_rejects_plaintext_smtp_when_enabled():
             app_env='production',
             secret_key='prod-secret-at-least-32-characters-long',
             db_use_sqlcipher=True,
-            db_key='prod-db-key',
+            db_key='prod-db-key-0123456789abcdef0123456789',
             cors_origins=PRODUCTION_CORS_ORIGINS,
             smtp_enabled=True,
             smtp_use_tls=False,
@@ -165,7 +165,7 @@ def test_production_allows_smtp_disabled_regardless_of_tls_flag():
         app_env='production',
         secret_key='prod-secret-at-least-32-characters-long',
         db_use_sqlcipher=True,
-        db_key='prod-db-key',
+        db_key='prod-db-key-0123456789abcdef0123456789',
         cors_origins=PRODUCTION_CORS_ORIGINS,
         smtp_enabled=False,
         smtp_use_tls=False,
@@ -178,7 +178,7 @@ def test_production_allows_smtp_enabled_with_tls():
         app_env='production',
         secret_key='prod-secret-at-least-32-characters-long',
         db_use_sqlcipher=True,
-        db_key='prod-db-key',
+        db_key='prod-db-key-0123456789abcdef0123456789',
         cors_origins=PRODUCTION_CORS_ORIGINS,
         smtp_enabled=True,
         smtp_use_tls=True,
@@ -244,7 +244,7 @@ def test_production_requires_active_stochastic_model(mode):
             app_env='production',
             secret_key='prod-secret-at-least-32-characters-long',
             db_use_sqlcipher=True,
-            db_key='prod-db-key',
+            db_key='prod-db-key-0123456789abcdef0123456789',
             cors_origins=PRODUCTION_CORS_ORIGINS,
             optimizer_mode=mode,
         )

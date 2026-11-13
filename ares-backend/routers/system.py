@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
@@ -12,12 +13,35 @@ from database import get_db
 from models.review import AuditLog
 from models.snapshots import AssetClassAnnualReturn, AssetClassPriceHistory
 from models.users import User
-from schemas.review import AuditLogEntry, AuditLogPage
-from services.audit import log as audit_log
+from schemas.review import (
+    AuditAnchorExport,
+    AuditAnchorVerification,
+    AuditAnchorVerifyRequest,
+    AuditChainVerification,
+    AuditChainVerificationStatusOut,
+    AuditLogEntry,
+    AuditLogPage,
+)
+from services.audit import (
+    AuditAnchorError,
+    AuditAnchorNotVerified,
+    audit_log_integrity_report,
+    backup_snapshot_anchor,
+    STATUS_READ_MARKER,
+    export_audit_anchor,
+    format_anchor_text,
+    get_audit_verification_status,
+    log as audit_log,
+    log_anchor_verification,
+    run_startup_audit_chain_check as _run_startup_audit_chain_check,
+    verify_audit_anchor,
+)
 from services.auth import (
     require_admin,
     require_admin_or_platform_scope_for_global_reference_data,
     require_advisor,
+    operator_bypass,
+    require_audit_chain_verifier,
     require_super_admin,
     get_mandate_for_user_or_404,
 )
@@ -157,6 +181,132 @@ def get_audit_log(
     )
 
 
+@router.get('/audit-log/verify', response_model=AuditChainVerification)
+def verify_audit_log_chain(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_audit_chain_verifier),
+):
+    """H-865-2 (Pruefrunde #865): Kettenpruefung des Audit-Logs zur Laufzeit.
+
+    verify_audit_chain() wurde bisher nur in Tests aufgerufen. Der Bericht
+    umfasst die Sequenz-Kette (Brueche, Luecken inkl. abgeschnittenem Ende,
+    Duplikate, Hash-Abweichungen) und die Pruefung pro Zeile fuer Altzeilen
+    ohne sequence. Er enthaelt nur Zaehler, Sequenznummern und Zeilen-IDs,
+    keine Inhalte. Nur lesend; die Kette ist global (alle Tenants), daher
+    require_audit_chain_verifier (siehe services/auth.py).
+
+    N-869-4: unter PostgreSQL steht audit_log unter strikter RLS -- ohne
+    Bypass saehe super_admin (kein Tenant-Kontext) 0 Zeilen, ein Tenant-
+    Admin nur seine eigenen (Scheinluecken). Die Pruefung laeuft deshalb im
+    expliziten Operator-Bypass; zugelassen sind nur die Rollen aus
+    require_audit_chain_verifier, und der Bericht enthaelt keine Inhalte.
+    """
+    with operator_bypass(db):
+        return audit_log_integrity_report(db)
+
+
+def run_startup_audit_chain_check() -> dict | None:
+    """H-865-2/N-869-4: Startpruefung (main.lifespan) im Operator-Bypass,
+    damit sie unter PostgreSQL-RLS alle Zeilen sieht. Blockiert den Start
+    nie (siehe services/audit.py::run_startup_audit_chain_check). F6: ueber
+    settings.audit_startup_check_max_rows wird das Siegel trotzdem gebildet
+    und die Vollpruefung laeuft chunked im Hintergrund (ebenfalls im
+    Operator-Bypass)."""
+    return _run_startup_audit_chain_check(read_scope=operator_bypass)
+
+
+@router.get('/audit-log/verification-status', response_model=AuditChainVerificationStatusOut)
+def get_audit_log_verification_status(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_audit_chain_verifier),
+):
+    """F6 (Codex-Entscheid Runde 3): sichtbarer Integritaetsstatus der Audit-
+    Kette (pending/running/ok/broken/error, Fortschritt, letzter erfolgreich
+    gepruefter Kopf). integrity_confirmed nur bei 'ok'. Keine Inhalte. Die
+    Admin-Uebersicht zeigt den Status zusaetzlich als Compliance-Warnung
+    (GET /admin/system/compliance). N-880-08: jede Abfrage wird auditiert
+    (CREATE/VERIFICATION_STATUS_READ, Wert = Zustand)."""
+    status = get_audit_verification_status(db)
+    with operator_bypass(db):
+        audit_log(
+            db,
+            user_id=current_user.id,
+            user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+            table_name="audit_chain_verification_status",
+            record_id="singleton",
+            action="CREATE",
+            field_name=STATUS_READ_MARKER,
+            new_value=str(status["state"]),
+            ip_address=_extract_client_ip(request),
+        )
+        db.commit()
+    return status
+
+
+@router.post('/audit-log/anchor/export', response_model=AuditAnchorExport)
+def export_audit_log_anchor(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_audit_chain_verifier),
+):
+    """F4 (Codex-Entscheid Runde 3): Anker exportieren -- Kettenkopf und
+    Bestandssiegel als kurze Quittung ohne Kundendaten, zum Ausdrucken bzw.
+    Ablegen in einer getrennten append-only/WORM- oder Treuhand-Ablage.
+
+    Fail-closed: nur nach erfolgreicher Vollpruefung (409 sonst). Signiert
+    mit backup_hmac_key, falls konfiguriert. Der Export wird auditiert
+    (EXPORT auf audit_anchor). Operator-Bypass wie GET /audit-log/verify:
+    die Kette ist global (alle Tenants)."""
+    with operator_bypass(db):
+        try:
+            anchor = export_audit_anchor(db, key=settings.backup_hmac_key)
+        except AuditAnchorNotVerified as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+        except AuditAnchorError as exc:
+            raise HTTPException(status_code=409, detail=f"Audit-Anker nicht bildbar: {exc}") from None
+        audit_log(
+            db,
+            user_id=current_user.id,
+            user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+            table_name="audit_anchor",
+            record_id=str(anchor["fingerprint"]),
+            action="EXPORT",
+            new_value=str(anchor["chain_sequence"]),
+            ip_address=_extract_client_ip(request),
+        )
+        db.commit()
+    return {"anchor": anchor, "text": format_anchor_text(anchor)}
+
+
+@router.post('/audit-log/anchor/verify', response_model=AuditAnchorVerification)
+def verify_audit_log_anchor(
+    payload: AuditAnchorVerifyRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_audit_chain_verifier),
+):
+    """F4: Anker verifizieren -- enthaelt die heutige Kette den Anker-Stand
+    unveraendert (Kette 1..N, Kopf, Bestandssiegel)? Antwort ohne Inhalte.
+    Ein unlesbarer Anker ergibt 422. N-880-08: das Ergebnis wird auditiert
+    (CREATE/ANCHOR_VERIFY mit ok, Fingerabdruck, Sequenzen, Gruenden)."""
+    with operator_bypass(db):
+        try:
+            result = verify_audit_anchor(
+                db, payload.anchor_text, key=settings.backup_hmac_key,
+                allow_unsigned=payload.allow_unsigned,
+            )
+        except AuditAnchorError as exc:
+            raise HTTPException(status_code=422, detail=f"Audit-Anker nicht lesbar: {exc}") from None
+        log_anchor_verification(
+            db, result, user_id=current_user.id,
+            user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
+            ip_address=_extract_client_ip(request),
+        )
+        db.commit()
+    return result
+
+
 @router.get('/db/integrity')
 def database_integrity(
     db: Session = Depends(get_db),
@@ -226,13 +376,16 @@ def backup_database(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    result = create_backup()
+    # F4: Manifest mit Kettenkopf + Bestandssiegel des Snapshots.
+    result = create_backup(snapshot_anchor=backup_snapshot_anchor)
+    # N-880-05: im Audit nur der Dateiname, kein absoluter Pfad/Benutzerprofil.
+    backup_ref = result.get("backup_file") or result.get("backup_path") or result.get("filename")
     audit_log(
         db,
         user_id=current_user.id,
         user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
         table_name="system_backups",
-        record_id=str(result.get("backup_path") or result.get("filename") or "backup"),
+        record_id=Path(str(backup_ref)).name if backup_ref else "backup",
         action="BACKUP",
         new_value=str(result.get("size_bytes") or result.get("bytes") or ""),
         ip_address=_extract_client_ip(request),
@@ -263,8 +416,30 @@ def create_support_bundle_endpoint(
 
 
 @router.get('/compliance')
-def get_compliance_status(current_user: User = Depends(require_admin)):
-    return build_compliance_status()
+def get_compliance_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    # F6: Status der Audit-Kettenpruefung aus derselben Request-Session
+    # (system_only-Tabelle, keine Inhalte).
+    try:
+        audit_status = get_audit_verification_status(db)
+    except Exception:  # noqa: BLE001 -- Compliance-Status darf nie crashen
+        audit_status = {'state': 'unknown', 'integrity_confirmed': False}
+    # N-880-08: Die Kette ist installationsweit. Wer sie nicht pruefen darf
+    # (Firmen-Admin in einer mandantenfaehigen Installation), sieht nur den
+    # Zustand, keine installationsweiten Zaehler -- als installationsweit
+    # gekennzeichnet.
+    try:
+        require_audit_chain_verifier(current_user)
+        audit_status = {**audit_status, 'scope': 'installation'}
+    except HTTPException:
+        audit_status = {
+            'state': audit_status.get('state'),
+            'integrity_confirmed': bool(audit_status.get('integrity_confirmed')),
+            'scope': 'installation_summary',
+        }
+    return build_compliance_status(audit_verification=audit_status)
 
 
 @router.get('/optimizer-mode')
@@ -445,8 +620,14 @@ def backfill_annual_returns_endpoint(
         raise _market_data_config_http_error(exc, endpoint="annual-returns/backfill", db=db) from None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    db.add(AuditLog(
-        id=str(uuid4()),
+    # N-865-2 (Pruefrunde #865): BACKFILL ueberschreibt globale Referenz-
+    # daten, die in CMA/Optimizer/Backtest jedes Tenants einfliessen. Das
+    # hand-gerollte AuditLog(...) liess sequence/previous_hash/integrity_hash
+    # und tenant_id leer -- der Eintrag stand ausserhalb der Hash-Kette, eine
+    # Manipulation waere nicht nachweisbar gewesen. Jetzt ueber log() wie
+    # jede andere Admin-Aktion (siehe tests/test_audit_log_single_writer.py).
+    audit_log(
+        db,
         user_id=current_user.id,
         user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
         table_name="asset_class_annual_returns",
@@ -454,8 +635,8 @@ def backfill_annual_returns_endpoint(
         action="BACKFILL",
         new_value=f"rows_written={result['summary']['rows_written']} errors={result['summary']['error_count']}",
         ip_address=_extract_client_ip(request),
-        created_at=datetime.utcnow().isoformat(),
-    ))
+        tenant_id=getattr(current_user, "tenant_id", None),
+    )
     db.commit()
     return result
 
@@ -590,8 +771,14 @@ def backfill_asset_class_prices_endpoint(
         raise _market_data_config_http_error(exc, endpoint="asset-class-prices/backfill", db=db) from None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    db.add(AuditLog(
-        id=str(uuid4()),
+    # N-865-2 (Pruefrunde #865): BACKFILL ueberschreibt globale Referenz-
+    # daten, die in CMA/Optimizer/Backtest jedes Tenants einfliessen. Das
+    # hand-gerollte AuditLog(...) liess sequence/previous_hash/integrity_hash
+    # und tenant_id leer -- der Eintrag stand ausserhalb der Hash-Kette, eine
+    # Manipulation waere nicht nachweisbar gewesen. Jetzt ueber log() wie
+    # jede andere Admin-Aktion (siehe tests/test_audit_log_single_writer.py).
+    audit_log(
+        db,
         user_id=current_user.id,
         user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
         table_name="asset_class_price_history",
@@ -599,8 +786,8 @@ def backfill_asset_class_prices_endpoint(
         action="BACKFILL",
         new_value=f"rows_written={result['summary']['rows_written']} errors={result['summary']['error_count']}",
         ip_address=_extract_client_ip(request),
-        created_at=datetime.utcnow().isoformat(),
-    ))
+        tenant_id=getattr(current_user, "tenant_id", None),
+    )
     db.commit()
     return result
 

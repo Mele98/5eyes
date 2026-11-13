@@ -33,6 +33,9 @@ from database import new_uuid
 from models.mandates import Mandate
 from models.product_eligibility import ProductEligibilityRule, ProductEligibilityRuleSet
 from models.review import Product
+from core.db_integrity import raise_if_check_violation
+from services.product_eligibility_governance import TENANT_PRODUCT_RULE_SOURCE as _TENANT_PRODUCT_RULE_SOURCE
+from services.product_eligibility_governance import parse_utc_timestamp
 from schemas.product_eligibility import (
     DimensionStatus,
     KnowledgeCategory,
@@ -55,6 +58,22 @@ def canonical_hash(payload: dict) -> str:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _effective_at(row, cutoff) -> bool:
+    """Point-in-Time: freigegeben (approved_at <= cutoff) und cutoff im
+    halboffenen Fenster [valid_from, valid_to). Fehlende/unlesbare Zeitpunkte
+    -> nicht wirksam (fail-closed)."""
+    approved_at = parse_utc_timestamp(row.approved_at)
+    valid_from = parse_utc_timestamp(row.valid_from)
+    if approved_at is None or valid_from is None:
+        return False
+    if approved_at > cutoff or valid_from > cutoff:
+        return False
+    if row.valid_to is None:
+        return True
+    valid_to = parse_utc_timestamp(row.valid_to)
+    return valid_to is not None and cutoff < valid_to
 
 
 def map_product_to_knowledge_categories(product: Product) -> list[KnowledgeCategory]:
@@ -153,34 +172,73 @@ def resolve_active_rules_for_product(
     band and otherwise reports `AMBIGUOUS_RULE_MATCH`.
     """
     from services.product_eligibility_governance import (
+        instant_within_validity,
         rule_visible_to_tenant,
         selector_matches_product,
     )
 
-    as_of = as_of or _now_iso()
-    rows = (
-        db.query(ProductEligibilityRule, ProductEligibilityRuleSet)
-        .join(
-            ProductEligibilityRuleSet,
-            ProductEligibilityRuleSet.id == ProductEligibilityRule.rule_set_id,
-        )
-        .filter(
-            ProductEligibilityRule.status == "approved",
-            ProductEligibilityRule.jurisdiction == jurisdiction,
-            ProductEligibilityRule.valid_from <= as_of,
-            (ProductEligibilityRule.valid_to.is_(None)) | (ProductEligibilityRule.valid_to > as_of),
-            ProductEligibilityRuleSet.status == "approved",
-            ProductEligibilityRuleSet.valid_from <= as_of,
-            (ProductEligibilityRuleSet.valid_to.is_(None)) | (ProductEligibilityRuleSet.valid_to > as_of),
-            (ProductEligibilityRule.product_id == product.id)
-            | (
-                ProductEligibilityRule.product_id.is_(None)
-                & ProductEligibilityRule.product_category_selector.isnot(None)
-            ),
-        )
-        .order_by(ProductEligibilityRule.profile_from, ProductEligibilityRule.id)
-        .all()
+    product_match = (ProductEligibilityRule.product_id == product.id) | (
+        ProductEligibilityRule.product_id.is_(None)
+        & ProductEligibilityRule.product_category_selector.isnot(None)
     )
+    if as_of is None:
+        # Aktueller Stand: Status `approved`. C-860-01: die Gueltigkeitsfenster
+        # von Regel und RuleSet als echte UTC-Zeitpunkte nach dem Laden, nicht
+        # als SQL-Textvergleich ('...SS+00:00' sortierte vor '...SS.000Z' --
+        # eine eben geseedete Regel galt bis zum Sekundenwechsel als ungueltig).
+        as_of = _now_iso()
+        candidates = (
+            db.query(ProductEligibilityRule, ProductEligibilityRuleSet)
+            .join(
+                ProductEligibilityRuleSet,
+                ProductEligibilityRuleSet.id == ProductEligibilityRule.rule_set_id,
+            )
+            .filter(
+                ProductEligibilityRule.status == "approved",
+                ProductEligibilityRule.jurisdiction == jurisdiction,
+                ProductEligibilityRuleSet.status == "approved",
+                product_match,
+            )
+            .order_by(ProductEligibilityRule.profile_from, ProductEligibilityRule.id)
+            .all()
+        )
+        rows = [
+            (rule, rule_set) for rule, rule_set in candidates
+            if instant_within_validity(rule.valid_from, rule.valid_to, as_of)
+            and instant_within_validity(rule_set.valid_from, rule_set.valid_to, as_of)
+        ]
+    else:
+        # Point-in-Time (N-855-6, C-855-01 / N-855-9, 2026-11): galt die Regel
+        # zum Stichtag? Regel UND Regelset muessen zum Stichtag bereits
+        # freigegeben gewesen sein (approved_at gesetzt und <= as_of; Legacy-
+        # Zeilen ohne Freigabezeitpunkt historisch fail-closed), und as_of muss
+        # im halboffenen Fenster [valid_from, valid_to) liegen. Eine durch eine
+        # Folgeregel abgeloeste Regel (retired, valid_to gesetzt) zaehlt in
+        # ihrem Fenster; nie freigegebene Entwuerfe nie. Alle Zeitvergleiche
+        # als UTC-datetime, nicht als String ('Z' und '+00:00' gemischt).
+        cutoff = parse_utc_timestamp(as_of)
+        if cutoff is None:
+            raise ValueError(f"as_of ist kein ISO-Zeitstempel: {as_of!r}")
+        candidates = (
+            db.query(ProductEligibilityRule, ProductEligibilityRuleSet)
+            .join(
+                ProductEligibilityRuleSet,
+                ProductEligibilityRuleSet.id == ProductEligibilityRule.rule_set_id,
+            )
+            .filter(
+                ProductEligibilityRule.status.in_(("approved", "retired")),
+                ProductEligibilityRule.jurisdiction == jurisdiction,
+                ProductEligibilityRuleSet.status == "approved",
+                product_match,
+            )
+            .order_by(ProductEligibilityRule.profile_from, ProductEligibilityRule.id)
+            .all()
+        )
+        rows = [
+            (rule, rule_set) for rule, rule_set in candidates
+            if (rule.status == "approved" or rule.valid_to is not None)
+            and _effective_at(rule, cutoff) and _effective_at(rule_set, cutoff)
+        ]
     visible = [
         rule for rule, rule_set in rows
         if rule_visible_to_tenant(rule, rule_set, tenant_id)
@@ -312,7 +370,9 @@ def ensure_rule_set(
         with db.begin_nested():
             db.add(rule_set)
             db.flush()
-    except IntegrityError:
+    except IntegrityError as exc:
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         winner = _find_open()
         if winner is None:
             raise
@@ -429,6 +489,7 @@ def author_default_catalog_rule(
     source_label: str = DEFAULT_CATALOG_BOOTSTRAP_IDENTITY,
     now: str | None = None,
     approved_by: str | None = _SAME_AS_AUTHOR,
+    supersedes_id: str | None = None,
 ) -> ProductEligibilityRule:
     """Author one product-specific governed rule.
 
@@ -479,7 +540,7 @@ def author_default_catalog_rule(
         prohibited=int(prohibited),
         valid_from=now,
         valid_to=None,
-        supersedes_id=None,
+        supersedes_id=supersedes_id,
     )
     rule = ProductEligibilityRule(
         id=new_uuid(),
@@ -507,7 +568,9 @@ def author_default_catalog_rule(
 # created_by/approved_by MUST be that real advisor's user id (Section 11:
 # "never a synthetic system sentinel" applies in full force here, unlike
 # the bootstrap-catalog case above).
-TENANT_PRODUCT_RULE_SOURCE = "tenant_product_creation_v1"
+# N-855-7: definiert in services.product_eligibility_governance (eine Quelle,
+# dort fuer das Neu-Binden des Hashes bei der Freigabe gebraucht).
+TENANT_PRODUCT_RULE_SOURCE = _TENANT_PRODUCT_RULE_SOURCE
 
 
 def author_tenant_product_rule(
@@ -523,6 +586,7 @@ def author_tenant_product_rule(
     requires_appropriateness: bool = False,
     requires_override: bool = False,
     now: str | None = None,
+    supersedes_id: str | None = None,
 ) -> ProductEligibilityRule:
     """Author the one tenant-scoped governed rule for a product an advisor
     just added to their own tenant's catalog, attributed to that advisor.
@@ -557,7 +621,104 @@ def author_tenant_product_rule(
         source_label=TENANT_PRODUCT_RULE_SOURCE,
         now=now,
         approved_by=None,
+        supersedes_id=supersedes_id,
     )
+
+
+# AUDIT-FIX Fondsuniversum R7/F3 (2026-11): Eignungsfelder einer Import-Zeile
+# (ProductCreate) -> Spalte der governed Regel.
+_IMPORT_SUITABILITY_RULE_FIELDS = (
+    ("suitability_profile_from", "profile_from"),
+    ("suitability_profile_to", "profile_to"),
+    ("suitability_service_modes", "service_modes"),
+    ("suitability_prohibited", "prohibited"),
+    ("suitability_requires_appropriateness", "requires_appropriateness"),
+    ("suitability_requires_override", "requires_override"),
+    ("suitability_max_position_bps", "max_position_bps"),
+)
+
+
+def _rule_policy_view(rule: ProductEligibilityRule) -> dict:
+    return {
+        "profile_from": int(rule.profile_from),
+        "profile_to": int(rule.profile_to),
+        "service_modes": sorted(json.loads(rule.service_modes_json or "[]")),
+        "prohibited": bool(rule.prohibited),
+        "requires_appropriateness": bool(rule.requires_appropriateness),
+        "requires_override": bool(rule.requires_override),
+        "max_position_bps": rule.max_position_bps,
+    }
+
+
+def reauthor_tenant_product_rule_on_import(
+    db: Session,
+    *,
+    product: Product,
+    jurisdiction: str,
+    created_by_user_id: str,
+    row: dict,
+    explicit_fields: set[str],
+    now: str | None = None,
+) -> tuple[ProductEligibilityRule | None, list[str]]:
+    """AUDIT-FIX Fondsuniversum R7/F3 (2026-11): ein Re-Import (Upsert) hat
+    die Eignungsfelder bisher still verworfen -- eine verschaerfte Eignung im
+    monatlichen Upload blieb ohne Hinweis wirkungslos.
+
+    Jetzt derselbe Weg wie beim Erfassen: weicht die Eignung der Zeile von
+    der aktuell massgebenden Regel ab (offener Entwurf, sonst freigegebene
+    Regel), entsteht ein neuer Regel-ENTWURF (Vier-Augen-Freigabe ueber
+    POST /products/{id}/eligibility-rule/approve). Die freigegebene Regel
+    bleibt bis zur Freigabe in Kraft (supersedes_id) und wird erst bei der
+    Freigabe abgeloest (product_eligibility_governance.approve_rule). Ein
+    offener, noch nie wirksamer Vorgaenger-Entwurf wird zurueckgezogen.
+    Nicht gelieferte bzw. leere Eignungsfelder gelten als "unveraendert".
+    Gibt (neuer Entwurf oder None, IDs der zurueckgezogenen Entwuerfe)
+    zurueck; der Aufrufer protokolliert beides im Audit-Log (N-855-4)."""
+    rules = (
+        db.query(ProductEligibilityRule)
+        .filter(
+            ProductEligibilityRule.product_id == product.id,
+            ProductEligibilityRule.jurisdiction == jurisdiction,
+            ProductEligibilityRule.status.in_(("draft", "approved")),
+        )
+        .order_by(ProductEligibilityRule.created_at, ProductEligibilityRule.id)
+        .all()
+    )
+    drafts = [rule for rule in rules if rule.status == "draft"]
+    approved = [rule for rule in rules if rule.status == "approved"]
+    reference = drafts[-1] if drafts else (approved[-1] if approved else None)
+    current = _rule_policy_view(reference) if reference is not None else None
+    desired: dict = {}
+    for row_field, rule_field in _IMPORT_SUITABILITY_RULE_FIELDS:
+        value = row.get(row_field)
+        given = row_field in explicit_fields and value is not None
+        if not given and current is not None:
+            desired[rule_field] = current[rule_field]
+        else:
+            desired[rule_field] = sorted(value) if rule_field == "service_modes" else value
+    if desired["prohibited"]:
+        desired["service_modes"] = []
+    elif not desired["service_modes"]:
+        desired["service_modes"] = sorted(row.get("suitability_service_modes") or [])
+    if current is not None and desired == current:
+        return None, []
+    for draft in drafts:
+        draft.status = "retired"
+        draft.updated_at = now or _now_iso()
+    return author_tenant_product_rule(
+        db,
+        product=product,
+        created_by_user_id=created_by_user_id,
+        jurisdiction=jurisdiction,
+        profile_from=desired["profile_from"],
+        profile_to=desired["profile_to"],
+        service_modes=list(desired["service_modes"]),
+        max_position_bps=desired["max_position_bps"],
+        requires_appropriateness=bool(desired["requires_appropriateness"]),
+        requires_override=bool(desired["requires_override"]),
+        now=now,
+        supersedes_id=approved[-1].id if approved else None,
+    ), [draft.id for draft in drafts]
 
 
 def evaluate_product_eligibility(

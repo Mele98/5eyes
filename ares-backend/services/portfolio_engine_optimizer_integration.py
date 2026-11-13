@@ -123,6 +123,13 @@ from services.risk_matrix import (
     compute_portfolio_risky_fraction_bps,
 )
 
+# F17 (Codex-Entscheid Runde 3): Wanduhr fuer elapsed_ms des Optimierer-Laufs
+# (Verdikt-Schwellen 8000/15000 ms in services/shadow_comparison.py). Eigene
+# Naht, damit Fachtests die Laufzeit injizieren koennen, ohne die Zeitmessung
+# des Solvers selbst zu beruehren; der echte Laufzeitvertrag wird seriell
+# unter dem Marker wallclock_budget geprueft.
+optimizer_wallclock = time.perf_counter
+
 
 def _assessment_score_x10(assessment) -> int:
     """0-100 Score-Wert aus Assessment, konsistent zu _risk_score_bucket-Logik."""
@@ -401,7 +408,10 @@ def _run_stochastic_optimizer_pass(
     external_wealth_rappen: int = 0,
     external_wealth_series_rappen: list[int] | None = None,
     mandate=None,  # Sprint 4 Phase 3: fuer BFS-Mortalitaets-Sampling
-    run_context=None,  # X2b: RunContext des Laufs (duck-typed), optional
+    # X2b: RunContext des Laufs, optional. Kein beliebiges duck-typed Objekt
+    # (N-843-1): Leser rufen ``ensure_bound_to(mandate)`` auf (Mortalitaet,
+    # Payload-Fallback); ein Objekt ohne diese Methode wirft AttributeError.
+    run_context=None,
     # CERT-ALLOCATION-INTENT-001 (MANUAL-TARGET-SEMANTICS-001): explicit,
     # partial Soft-Preference Target Intent -- extracted by the caller via
     # services.optimizer.allocation_intent.extract_soft_preference_bps from
@@ -564,7 +574,7 @@ def _run_stochastic_optimizer_pass(
 
     optimizer_context = None
     try:
-        t0 = time.perf_counter()
+        t0 = optimizer_wallclock()
         context_kwargs = dict(
             cma=cma,
             goals=list(goals),
@@ -601,7 +611,7 @@ def _run_stochastic_optimizer_pass(
                 bucket: int(value) for bucket, value in targets.items()
             },
         )
-        elapsed_ms = int(round((time.perf_counter() - t0) * 1000))
+        elapsed_ms = int(round((optimizer_wallclock() - t0) * 1000))
         object.__setattr__(result, "elapsed_ms", elapsed_ms)
     except (SolverTechnicalError, FloatingPointError, LinAlgError) as exc:
         # The House Matrix is a last-resort safety net for an explicitly
@@ -1233,6 +1243,10 @@ def _build_shadow_comparison_with_evaluations(
                 cashflow_series_rappen=cashflow_projection_series_rappen,
                 horizon_years=horizon,
                 n_paths=_OPTIMIZER_N_PATHS_DEFAULT,
+                # N-858-13 (bewusst): seed 0 ist der Fallback-Marker "kein
+                # Seed" (Optimizer-Fallbacks, SAA-RESAMPLED-STABILITY-001);
+                # dann gilt der Inhalts-Seed. Ein echter Inhalts-Seed 0 hat
+                # die Wahrscheinlichkeit 2^-63 (deterministic_seed, 63 bit).
                 seed=int(optimizer_result.seed or 0) or None,
                 inflation_series_bps=inflation_series_bps,
                 risky_fraction_per_bucket=rf_per_bucket,
@@ -1446,6 +1460,10 @@ def _build_optimizer_explainability(
                 cashflow_series_rappen=cashflow_projection_series_rappen,
                 horizon_years=horizon,
                 n_paths=_OPTIMIZER_N_PATHS_DEFAULT,
+                # N-858-13 (bewusst): seed 0 ist der Fallback-Marker "kein
+                # Seed" (Optimizer-Fallbacks, SAA-RESAMPLED-STABILITY-001);
+                # dann gilt der Inhalts-Seed. Ein echter Inhalts-Seed 0 hat
+                # die Wahrscheinlichkeit 2^-63 (deterministic_seed, 63 bit).
                 seed=int(optimizer_result.seed or 0) or None,
                 inflation_series_bps=inflation_series_bps,
                 risky_fraction_per_bucket=rf_per_bucket,

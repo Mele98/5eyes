@@ -5,6 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
+from core.db_integrity import (
+    check_constraint_label,
+    is_check_constraint_violation,
+    raise_if_check_violation,
+)
 from sqlalchemy.orm import Session, selectinload
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
@@ -436,8 +441,13 @@ def create_risk_assessment(
         db.rollback()
         # RISK-PROFILE-SCHEMA-PARITY-001: eine CHECK-Verletzung ist ein
         # Schema-Defekt, kein paralleles Speichern -- nicht als 409 melden.
-        if _is_check_violation(exc):
-            _logger.error("Risikoprofil verletzt CHECK-Constraint: %s", exc.orig)
+        # N-903-06: gemeinsame Erkennung (psycopg 3 meldet sqlstate, nicht
+        # pgcode); geloggt wird nur der Constraint, nie das Original (PG-DETAIL
+        # enthaelt die komplette Zeile mit Kundendaten).
+        if is_check_constraint_violation(exc):
+            _logger.error(
+                "Risikoprofil verletzt CHECK-Constraint: %s", check_constraint_label(exc),
+            )
             raise HTTPException(
                 status_code=500,
                 detail={
@@ -453,15 +463,6 @@ def create_risk_assessment(
     return db.query(RiskAssessment).options(
         selectinload(RiskAssessment.answers)
     ).filter(RiskAssessment.id == ra.id).one()
-
-
-def _is_check_violation(exc: IntegrityError) -> bool:
-    """CHECK-Verletzung (SQLite-Meldung bzw. PostgreSQL SQLSTATE 23514 mit Constraint-Namen)."""
-    orig = getattr(exc, "orig", None)
-    if "CHECK constraint failed" in str(orig):
-        return True
-    diag = getattr(orig, "diag", None)
-    return getattr(orig, "pgcode", None) == "23514" and bool(getattr(diag, "constraint_name", None))
 
 
 @router.post("/mandates/{mandate_id}/risk-assessments/{ra_id}/override",
@@ -688,10 +689,12 @@ def override_risk_assessment(
                 mandate_id=mandate_id, client_id=mandate.client_id,
                 ip_address=_extract_client_ip(request))
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         # Paralleler Append mit derselben sequence_no (ux_risk_override_
         # decision_sequence) -- genau ein Gewinner, der Verlierer bekommt 409.
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         _override_conflict(
             "RISK_OVERRIDE_CONCURRENT_MODIFICATION",
             "Ein anderer Override wurde gleichzeitig gespeichert -- bitte Seite "

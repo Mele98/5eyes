@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
+from core.db_integrity import raise_if_check_violation
 from datetime import date, datetime, timezone
 from typing import Optional
 import json
@@ -70,6 +71,7 @@ from services.portfolio_engine import (
     require_strategy_ready_assessment,
 )
 from services.portfolio_engine_house_matrix import (
+    AllocationInputError,
     _building_block_rows_for_policy,
 )
 from services.manual_target_allocation import (
@@ -422,8 +424,10 @@ def create_target_allocation(
             mandate_id=mandate_id, client_id=mandate.client_id,
             ip_address=_extract_client_ip(request))
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(
             status_code=409,
             detail="Eine andere Soll-Allokation wurde gleichzeitig gespeichert -- bitte Seite neu laden und erneut versuchen.",
@@ -724,6 +728,12 @@ def generate_target_allocation_endpoint(
                 user_id=current_user.id,
                 preferences=body.preferences.model_dump() if body.preferences else None,
             )
+        except AllocationInputError as exc:
+            # AUDIT-2026-11 A5 / H-859-5: unerfuellbare oder widerspruechliche
+            # Bandbreiten/Ziele sind ein Eingabefehler (422) mit deutscher
+            # Meldung, kein Zustandskonflikt -- einheitlich fuer Ziel ausserhalb
+            # der Bandbreite, Min > Max, Minima ueber 100 % und Maxima unter 100 %.
+            raise HTTPException(status_code=422, detail=str(exc))
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
         # CON-001 (Codex-Audit 2026-08-25): siehe create_target_allocation oben --
@@ -762,8 +772,10 @@ def generate_target_allocation_endpoint(
                 ip_address=_extract_client_ip(request),
             )
             db.commit()
-        except IntegrityError:
+        except IntegrityError as exc:
             db.rollback()
+            # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+            raise_if_check_violation(exc)
             raise HTTPException(
                 status_code=409,
                 detail="Eine andere Soll-Allokation wurde gleichzeitig generiert -- bitte Seite neu laden und erneut versuchen.",
@@ -1462,8 +1474,10 @@ def create_optimizer_policy(
             table_name="optimizer_policies", record_id=policy.id, action="CREATE",
             new_value=body.policy_name, ip_address=_extract_client_ip(request))
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(
             status_code=409,
             detail="Eine andere Policy wurde gleichzeitig aktiviert -- bitte Seite neu laden und erneut versuchen.",
@@ -1613,8 +1627,10 @@ def activate_optimizer_policy(
             table_name="optimizer_policies", record_id=policy_id, action="ACTIVATE",
             ip_address=_extract_client_ip(request))
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(
             status_code=409,
             detail="Eine andere Policy wurde gleichzeitig aktiviert -- bitte Seite neu laden und erneut versuchen.",

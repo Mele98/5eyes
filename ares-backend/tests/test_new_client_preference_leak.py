@@ -21,6 +21,7 @@ test_a11y_gp_001_golden_path_stepper_keyboard.py).
 from __future__ import annotations
 
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 
@@ -37,7 +38,7 @@ def _function_body(src: str, signature: str) -> str:
 
 def test_new_client_screen_resyncs_preference_dom_after_state_reset():
     body = _function_body(
-        HTML_PATH.read_text(encoding="utf-8"),
+        read_monolith_bundle(),
         "function showNewClientScreen(firstName, lastName, mType, meta) {",
     )
     assert "syncAllocationPreferences()" in body, (
@@ -51,7 +52,7 @@ def test_new_client_screen_resyncs_preference_dom_after_state_reset():
 
 def test_fallback_branches_never_reuse_the_previous_clients_mandate():
     body = _function_body(
-        HTML_PATH.read_text(encoding="utf-8"),
+        read_monolith_bundle(),
         "async function createNewMandate() {",
     )
     def first_call_after(marker: str) -> int:

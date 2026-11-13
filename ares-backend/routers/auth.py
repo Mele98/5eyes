@@ -44,6 +44,7 @@ from services.account_recovery import (
 )
 from sqlalchemy import Integer as _sa_Integer, cast as _sa_cast, or_, update as _sa_update
 from sqlalchemy.exc import IntegrityError
+from core.db_integrity import raise_if_check_violation
 from pydantic import BaseModel as _BaseModel
 
 
@@ -333,8 +334,10 @@ def bootstrap_admin(body: BootstrapAdminRequest, request: Request, db: Session =
                 tenant.updated_at = now
         try:
             db.commit()
-        except IntegrityError:
+        except IntegrityError as exc:
             db.rollback()
+            # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+            raise_if_check_violation(exc)
             raise _bootstrap_already_done(guard_key)
         db.refresh(admin)
     login_attempt_guard.register_success(guard_key)
@@ -670,7 +673,7 @@ def twofa_setup(db: Session = Depends(get_db), current_user: User = Depends(get_
     current_user.totp_secret = stored_secret
     current_user.updated_at = _now()
     db.commit()
-    uri = provisioning_uri(secret, current_user.username or current_user.id, issuer="5eyes")
+    uri = provisioning_uri(secret, current_user.username or current_user.id, issuer="Ares")
     return {"secret": secret, "otpauth_uri": uri, "qr_svg": qr_svg_data_uri(uri)}
 
 

@@ -27,6 +27,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import configure_mappers, sessionmaker
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -35,6 +36,7 @@ for _path in (BACKEND_ROOT, TESTS_ROOT):
         sys.path.insert(0, str(_path))
 
 from database import Base, new_uuid  # noqa: E402
+from retro_free_fixture import declare_all_products_retro_free  # noqa: E402
 from models import (  # noqa: E402,F401
     allocation, clients, mandates, profiling, review, snapshots, users, wealth,
 )
@@ -173,6 +175,7 @@ def _finalize(SF, mandate_id, run_id, advisor_id):
 
     with SF() as s:
         user = s.get(User, advisor_id)
+        declare_all_products_retro_free(s)
         try:
             return finalize_recommendation(
                 mandate_id=mandate_id, run_id=run_id, request=_FakeRequest(), db=s, current_user=user,
@@ -528,7 +531,7 @@ def test_contract_signoff_orientation_contains_no_claim_label(policy):
 
 
 def test_advisor_fund_table_shows_esg_data_status():
-    html = MONOLITH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     start = html.index("function adminRenderFundSearchTable(")
     body = html[start:html.index("async function adminSearchFunds(", start)]
     assert "esg_data_status" in body

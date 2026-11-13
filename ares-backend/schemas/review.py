@@ -1,4 +1,6 @@
+import re
 import json
+import re
 from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 from typing import Any, Optional, Literal
@@ -634,6 +636,9 @@ class ConflictDisclosureCreate(BaseModel):
     # unterscheidet sich damit bewusst von einem expliziten False.
     reimbursed_to_client: Optional[bool] = None
     waiver_document_id: Optional[str] = None
+    # N-861-1: optionale Bindung an ein Produkt (sonst Zuordnung ueber den
+    # Anbieternamen). Muss ein fuer den Tenant sichtbares Produkt sein.
+    product_id: Optional[str] = None
     # 2026-07-25 (Generalaudit): Phase-0-Gate fehlte fuer Interessenkonflikte.
     data_classification: Literal["synthetic", "real"] = "synthetic"
 
@@ -715,6 +720,7 @@ class ConflictDisclosureResponse(BaseResponse):
     document_id: Optional[str] = None
     reimbursed_to_client: int = 0
     waiver_document_id: Optional[str] = None
+    product_id: Optional[str] = None
     disclosed_by: str
     created_at: str
     updated_at: str
@@ -860,7 +866,486 @@ def _normalize_climate_benchmark(value: Optional[str]) -> Optional[str]:
     return normalized
 
 
-class ProductCreate(BaseModel):
+# ---------------------------------------------------------------------------
+# AUDIT-2026-11 P1 (Entscheid PO-6, Luecke L1): Produkt-Stammdaten.
+# Validierung/Normalisierung der Stammdatenfelder im Fondsuniversum. Bewusst
+# hier und nicht in einem eigenen Modul (Architektur-Ratsche: kein neuer
+# Fan-out fuer schemas.review / routers.review). NULL = nicht erfasst; ein
+# Produkt ohne Retrozessionssatz gilt NIE als retrozessionsfrei. Die
+# Auswahl-/Scoring-Logik liest diese Felder in P1 nicht (P13).
+# ---------------------------------------------------------------------------
+
+# ── ISIN (ISO 6166) ───────────────────────────────────────────────────────────
+# Aufbau: 2 Buchstaben Laenderpraefix, 9 alphanumerische Zeichen (NSIN),
+# 1 Pruefziffer. Pruefziffer: Buchstaben werden zu Zahlen (A=10 ... Z=35)
+# expandiert, auf die entstehende Ziffernfolge wird Luhn (Modulus 10)
+# angewendet.
+_ISIN_SHAPE = re.compile(r"^[A-Z]{2}[A-Z0-9]{9}[0-9]$")
+
+
+def _luhn_valid(digits: str) -> bool:
+    total = 0
+    for index, char in enumerate(reversed(digits)):
+        value = ord(char) - 48
+        if index % 2 == 1:
+            value *= 2
+            if value > 9:
+                value -= 9
+        total += value
+    return total % 10 == 0
+
+
+def isin_is_valid(value: Any) -> bool:
+    """True, wenn ``value`` eine formal gueltige ISIN mit korrekter
+    Pruefziffer ist. Erwartet die normalisierte Form (Grossbuchstaben, ohne
+    Leerzeichen)."""
+    if not isinstance(value, str) or not _ISIN_SHAPE.match(value):
+        return False
+    expanded = "".join(
+        str(ord(char) - 55) if char.isalpha() else char for char in value
+    )
+    return _luhn_valid(expanded)
+
+
+def normalize_isin(value: Any) -> Optional[str]:
+    """trim + Grossschreibung + Pruefziffer. Leer -> None (keine ISIN,
+    z.B. nicht kotierter Fonds). Ungueltig -> ValueError (422)."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("isin muss eine Zeichenkette sein")
+    normalized = value.strip().upper().replace(" ", "")
+    if not normalized:
+        return None
+    if not _ISIN_SHAPE.match(normalized):
+        raise ValueError(
+            f"isin {value!r} hat nicht das ISIN-Format nach ISO 6166 "
+            "(2 Buchstaben Land, 9 Zeichen, 1 Pruefziffer; 12 Zeichen)"
+        )
+    if not isin_is_valid(normalized):
+        raise ValueError(f"isin {value!r}: Pruefziffer ungueltig (ISO 6166, Luhn)")
+    return normalized
+
+
+def isin_status(value: Any) -> str:
+    """'missing' | 'invalid' | 'valid' -- fuer die Kennzeichnung von
+    Altbestand. Altbestand ohne oder mit formal ungueltiger ISIN wird nicht
+    blockiert, aber sichtbar gekennzeichnet."""
+    text = str(value or "").strip().upper()
+    if not text:
+        return "missing"
+    return "valid" if isin_is_valid(text) else "invalid"
+
+
+# ── Domizil, Waehrung, Valor, Ausschuettungsart, Stichtag ────────────────────
+
+def normalize_country_code(value: Any, *, field_name: str, valid_codes) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} muss ein Laendercode (ISO 3166-1 alpha-2) sein")
+    normalized = value.strip().upper()
+    if not normalized:
+        return None
+    if normalized not in valid_codes:
+        raise ValueError(
+            f"{field_name} {value!r} ist kein gueltiger Laendercode (ISO 3166-1 alpha-2)"
+        )
+    return normalized
+
+
+_CURRENCY_SHAPE = re.compile(r"^[A-Z]{3}$")
+
+
+def normalize_currency_code(value: Any, *, field_name: str) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} muss ein Waehrungscode (ISO 4217) sein")
+    normalized = value.strip().upper()
+    if not normalized:
+        return None
+    if not _CURRENCY_SHAPE.match(normalized):
+        raise ValueError(f"{field_name} {value!r} ist kein Waehrungscode (ISO 4217, 3 Buchstaben)")
+    return normalized
+
+
+_VALOR_SHAPE = re.compile(r"^[0-9]{1,12}$")
+
+
+def normalize_valor(value: Any) -> Optional[str]:
+    """Valorennummer: nur Ziffern. Tausendertrenner (Apostroph, Punkt,
+    Leerzeichen) werden entfernt, fuehrende Nullen bleiben erhalten."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    compact = re.sub(r"[\s'’.]", "", text)
+    if not _VALOR_SHAPE.match(compact):
+        raise ValueError(f"valor {value!r} ist keine Valorennummer (nur Ziffern, max. 12)")
+    return compact
+
+
+DISTRIBUTION_POLICIES = ("accumulating", "distributing")
+_DISTRIBUTION_ALIASES = {
+    "accumulating": "accumulating",
+    "thesaurierend": "accumulating",
+    "acc": "accumulating",
+    "distributing": "distributing",
+    "ausschuettend": "distributing",
+    "ausschüttend": "distributing",
+    "dist": "distributing",
+}
+
+
+def normalize_distribution_policy(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if text not in _DISTRIBUTION_ALIASES:
+        raise ValueError(
+            f"distribution_policy {value!r} unbekannt (erlaubt: accumulating/thesaurierend, "
+            "distributing/ausschuettend)"
+        )
+    return _DISTRIBUTION_ALIASES[text]
+
+
+def normalize_as_of_date(value: Any, *, field_name: str) -> Optional[str]:
+    """Stichtag als ISO-Datum (YYYY-MM-DD), nicht in der Zukunft."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = date.fromisoformat(text[:10]) if len(text) >= 10 else None
+    except ValueError:
+        parsed = None
+    if parsed is None or (len(text) > 10 and text[10] not in "T "):
+        raise ValueError(f"{field_name} {value!r} ist kein Datum (YYYY-MM-DD)")
+    if parsed > date.today():
+        raise ValueError(f"{field_name} {value!r} liegt in der Zukunft")
+    return parsed.isoformat()
+
+
+_SOURCE_MAX_LEN = 200
+
+
+def normalize_source(value: Any, *, field_name: str) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if len(text) > _SOURCE_MAX_LEN:
+        raise ValueError(f"{field_name} ist zu lang (max. {_SOURCE_MAX_LEN} Zeichen)")
+    return text
+
+
+def normalize_optional_bool(value: Any, *, field_name: str) -> Optional[bool]:
+    """CSV-tauglich: ja/nein, true/false, 1/0. Leer -> None (nicht erfasst)."""
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if text in ("1", "true", "ja", "yes", "j", "y", "wahr"):
+        return True
+    if text in ("0", "false", "nein", "no", "n", "falsch"):
+        return False
+    raise ValueError(f"{field_name} {value!r} ist kein Ja/Nein-Wert")
+
+
+LISTING_STATUSES = ("listed", "unlisted")
+PRICE_SOURCES = ("market", "manual_nav", "provider")
+NAV_FREQUENCIES = ("daily", "weekly", "monthly", "quarterly")
+_NAV_FREQUENCY_ALIASES = {
+    "daily": "daily", "taeglich": "daily", "täglich": "daily",
+    "weekly": "weekly", "woechentlich": "weekly", "wöchentlich": "weekly",
+    "monthly": "monthly", "monatlich": "monthly",
+    "quarterly": "quarterly", "quartalsweise": "quarterly", "vierteljaehrlich": "quarterly",
+    "vierteljährlich": "quarterly",
+}
+_INTERNAL_ID_SHAPE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$")
+
+
+def normalize_choice(value: Any, *, field_name: str, choices: tuple[str, ...]) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if text not in choices:
+        raise ValueError(f"{field_name} {value!r} unbekannt (erlaubt: {', '.join(choices)})")
+    return text
+
+
+def normalize_nav_frequency(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if not text:
+        return None
+    if text not in _NAV_FREQUENCY_ALIASES:
+        raise ValueError(
+            f"nav_frequency {value!r} unbekannt (erlaubt: taeglich, woechentlich, monatlich, "
+            "quartalsweise bzw. daily, weekly, monthly, quarterly)"
+        )
+    return _NAV_FREQUENCY_ALIASES[text]
+
+
+def normalize_internal_product_id(value: Any) -> Optional[str]:
+    """Interne Produkt-ID des Tenants (z.B. eigener nicht kotierter Fonds):
+    1-64 Zeichen, Buchstaben/Ziffern und . _ / -; Gross-/Kleinschreibung
+    bleibt erhalten, Eindeutigkeit je Tenant prueft der Router (409)."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if not _INTERNAL_ID_SHAPE.match(text):
+        raise ValueError(
+            f"internal_product_id {value!r} ungueltig (1-64 Zeichen: Buchstaben, Ziffern, . _ / -)"
+        )
+    return text
+
+
+def master_data_consistency_errors(fields: dict) -> list[str]:
+    """Querpruefungen ueber mehrere Felder (Erfassen und gemergter Stand
+    beim Bearbeiten)."""
+    errors: list[str] = []
+    # Owner-Anforderung P1 (eigene Fonds, kotiert oder nicht kotiert): ein
+    # kotierter Fonds braucht eine ISIN; ein nicht kotierter Fonds braucht
+    # ohne ISIN eine interne, tenant-eindeutige Produkt-ID. Eine angegebene
+    # ISIN wird immer validiert (Feldvalidator).
+    listing = fields.get("listing_status")
+    if listing == "listed" and not fields.get("isin"):
+        errors.append("listing_status=listed verlangt eine ISIN")
+    if listing == "unlisted" and not fields.get("isin") and not fields.get("internal_product_id"):
+        errors.append(
+            "listing_status=unlisted ohne ISIN verlangt eine interne Produkt-ID (internal_product_id)"
+        )
+    if listing == "unlisted" and fields.get("price_source") == "market":
+        errors.append("price_source=market ist fuer nicht kotierte Fonds nicht moeglich (manual_nav oder provider)")
+    if fields.get("gating_terms") and fields.get("has_gating") is False:
+        errors.append("gating_terms nur zusammen mit has_gating=true")
+    if fields.get("retrocession_bps") is not None and not fields.get("retrocession_source"):
+        errors.append(
+            "retrocession_source ist Pflicht, sobald ein Retrozessionssatz erfasst ist "
+            "(auch fuer 0 = retrozessionsfrei)"
+        )
+    if fields.get("hedge_currency") and fields.get("is_hedged") is False:
+        errors.append("hedge_currency ist nur bei abgesicherten Anteilsklassen (is_hedged=true) zulaessig")
+    if fields.get("ter_as_of") and fields.get("ter_bps") is None:
+        errors.append("ter_as_of ohne ter_bps: Stichtag nur zusammen mit einer TER erfassen")
+    return errors
+
+
+# ── Kennzeichnung im Katalog ──────────────────────────────────────────────────
+
+# Felder, die PO-6 fuer empfehlbare Produkte verlangt. In P1 werden Luecken
+# nur gekennzeichnet (keine Sperre der Auswahl; die folgt mit P13).
+REQUIRED_MASTER_DATA_FIELDS = (
+    "listing_status",
+    "isin",
+    "domicile",
+    "is_hedged",
+    "ter_bps",
+    "ter_source",
+    "ter_as_of",
+    "retrocession_bps",
+    "is_house_product",
+)
+
+
+def retrocession_status(rate_bps: Any) -> str:
+    """'unknown' (NULL) | 'none' (0, ausdruecklich retrozessionsfrei) |
+    'present' (> 0)."""
+    if rate_bps is None or isinstance(rate_bps, bool):
+        return "unknown"
+    try:
+        rate = int(rate_bps)
+    except (TypeError, ValueError):
+        return "unknown"
+    return "present" if rate > 0 else "none"
+
+
+def master_data_gaps(product: Any) -> list[str]:
+    """Fehlende oder ungueltige Pflicht-Stammdaten (PO-6), stabil sortiert."""
+    gaps: list[str] = []
+    for field in REQUIRED_MASTER_DATA_FIELDS:
+        value = getattr(product, field, None)
+        if field == "isin":
+            # Nicht kotiert: ISIN keine Pflicht, dafuer die interne ID; eine
+            # angegebene, aber ungueltige ISIN bleibt eine Luecke.
+            status = isin_status(value)
+            if getattr(product, "listing_status", None) == "unlisted":
+                if status == "invalid":
+                    gaps.append("isin")
+                elif status == "missing" and not getattr(product, "internal_product_id", None):
+                    gaps.append("internal_product_id")
+            elif status != "valid":
+                gaps.append("isin")
+            continue
+        if value is None or (isinstance(value, str) and not value.strip()):
+            gaps.append(field)
+    return gaps
+
+
+def declared_hedge_currency(product: Any) -> Optional[str]:
+    """Erfasste Absicherungswaehrung aus den Stammdaten, sonst None.
+
+    Anbindungspunkt fuer die Waehrungs-Exposure-Rangfolge
+    (``currency_exposure_with_source``, PR #856): dort soll nach dem
+    gepflegten Exposure-JSON zuerst dieses Stammdatum gelten und erst danach
+    die Namensheuristik. Rueckgabe:
+      * ISO-4217-Code, wenn ``is_hedged`` wahr ist (``hedge_currency``, sonst
+        die Anteilsklassen-Waehrung ``currency``);
+      * None, wenn ``is_hedged`` falsch ist ODER nicht erfasst -- der Aufrufer
+        unterscheidet beides ueber ``getattr(product, "is_hedged", None)``.
+    """
+    flag = getattr(product, "is_hedged", None)
+    if flag is None or not bool(flag):
+        return None
+    code = str(getattr(product, "hedge_currency", None) or getattr(product, "currency", None) or "").strip().upper()
+    return code or None
+
+
+class _ProductMasterDataFields(BaseModel):
+    """AUDIT-2026-11 P1 (Entscheid PO-6, Luecke L1): Produkt-Stammdaten.
+
+    Gemeinsam fuer Erfassen, Import und Bearbeiten. Alle Felder optional;
+    None = nicht erfasst. Validierung: Abschnitt "AUDIT-2026-11 P1" oben.
+    Die Auswahl-/Scoring-Logik liest diese Felder in P1 nicht (P13).
+    """
+    domicile: Optional[str] = Field(
+        default=None, description="Fondsdomizil, ISO 3166-1 alpha-2 (z.B. 'IE', 'LU')."
+    )
+    is_hedged: Optional[bool] = Field(
+        default=None, description="Anteilsklasse waehrungsgesichert; None = nicht erfasst."
+    )
+    hedge_currency: Optional[str] = Field(
+        default=None, description="Waehrung der Absicherung (ISO 4217), nur bei is_hedged=true."
+    )
+    ter_source: Optional[str] = Field(
+        default=None, description="Quelle der TER (z.B. Basisinformationsblatt, Factsheet)."
+    )
+    ter_as_of: Optional[str] = Field(default=None, description="Stichtag der TER (YYYY-MM-DD).")
+    retrocession_bps: Optional[int] = Field(
+        default=None, ge=0, le=1000,
+        description=(
+            "Retrozessionssatz in bps p.a. auf dem investierten Volumen. None = UNBEKANNT "
+            "(gilt nie als retrozessionsfrei), 0 = ausdruecklich retrozessionsfrei."
+        ),
+    )
+    retrocession_source: Optional[str] = Field(
+        default=None, description="Quelle des Retrozessionssatzes (Pflicht, sobald ein Satz erfasst ist)."
+    )
+    is_house_product: Optional[bool] = Field(
+        default=None, description="Haus-/Eigenprodukt der Verwaltung; None = nicht erfasst."
+    )
+    distribution_policy: Optional[Literal["accumulating", "distributing"]] = Field(
+        default=None, description="Ausschuettungsart: thesaurierend (accumulating) oder ausschuettend."
+    )
+    valor: Optional[str] = Field(default=None, description="Valorennummer (optional, nur Ziffern).")
+    minimum_investment_minor_units: Optional[int] = Field(
+        default=None, ge=0, le=PERSISTABLE_INT_MAX,
+        description="Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).",
+    )
+    # Owner-Anforderung P1: eigene Fonds (kotiert/nicht kotiert), Bewertung
+    # und Liquiditaetsrhythmus. Grundlage fuer Universe-Modus "nur eigene"
+    # (P3/P4) sowie Liquiditaets-/Illiquiditaetslimits und Kostentransparenz.
+    listing_status: Optional[Literal["listed", "unlisted"]] = Field(
+        default=None,
+        description="Kotiert (listed, ISIN Pflicht) oder nicht kotiert (unlisted, ohne ISIN interne ID Pflicht).",
+    )
+    internal_product_id: Optional[str] = Field(
+        default=None, description="Interne, tenant-eindeutige Produkt-ID (Pflicht bei unlisted ohne ISIN)."
+    )
+    price_source: Optional[Literal["market", "manual_nav", "provider"]] = Field(
+        default=None, description="Bewertungsquelle: Boersenkurs, manuell gepflegter NAV oder Anbieter-NAV."
+    )
+    nav_frequency: Optional[Literal["daily", "weekly", "monthly", "quarterly"]] = Field(
+        default=None, description="NAV-Rhythmus (taeglich/woechentlich/monatlich/quartalsweise)."
+    )
+    nav_as_of: Optional[str] = Field(default=None, description="Stichtag des zuletzt gepflegten NAV (YYYY-MM-DD).")
+    redemption_period_days: Optional[int] = Field(
+        default=None, ge=0, le=3650, description="Ruecknahmefrist in Kalendertagen (Auszahlung nach Ruecknahme)."
+    )
+    notice_period_days: Optional[int] = Field(
+        default=None, ge=0, le=3650, description="Kuendigungsfrist in Kalendertagen."
+    )
+    has_gating: Optional[bool] = Field(default=None, description="Gating/Ruecknahmebeschraenkung moeglich.")
+    gating_terms: Optional[str] = Field(default=None, description="Gating-Bedingungen (Freitext, optional).")
+
+    @field_validator("domicile", mode="before")
+    @classmethod
+    def _validate_domicile(cls, v):
+        return normalize_country_code(v, field_name="domicile", valid_codes=ISO_3166_ALPHA2_CODES)
+
+    @field_validator("hedge_currency", mode="before")
+    @classmethod
+    def _validate_hedge_currency(cls, v):
+        return normalize_currency_code(v, field_name="hedge_currency")
+
+    @field_validator("listing_status", "price_source", mode="before")
+    @classmethod
+    def _validate_owner_choices(cls, v, info):
+        choices = LISTING_STATUSES if info.field_name == "listing_status" else PRICE_SOURCES
+        return normalize_choice(v, field_name=info.field_name, choices=choices)
+
+    @field_validator("nav_frequency", mode="before")
+    @classmethod
+    def _validate_nav_frequency(cls, v):
+        return normalize_nav_frequency(v)
+
+    @field_validator("internal_product_id", mode="before")
+    @classmethod
+    def _validate_internal_product_id(cls, v):
+        return normalize_internal_product_id(v)
+
+    @field_validator("nav_as_of", mode="before")
+    @classmethod
+    def _validate_nav_as_of(cls, v):
+        return normalize_as_of_date(v, field_name="nav_as_of")
+
+    @field_validator("gating_terms", mode="before")
+    @classmethod
+    def _validate_gating_terms(cls, v):
+        return normalize_source(v, field_name="gating_terms")
+
+    @field_validator("is_hedged", "is_house_product", "has_gating", mode="before")
+    @classmethod
+    def _validate_optional_flags(cls, v, info):
+        return normalize_optional_bool(v, field_name=info.field_name)
+
+    @field_validator("ter_as_of", mode="before")
+    @classmethod
+    def _validate_ter_as_of(cls, v):
+        return normalize_as_of_date(v, field_name="ter_as_of")
+
+    @field_validator("ter_source", "retrocession_source", mode="before")
+    @classmethod
+    def _validate_sources(cls, v, info):
+        return normalize_source(v, field_name=info.field_name)
+
+    @field_validator("distribution_policy", mode="before")
+    @classmethod
+    def _validate_distribution_policy(cls, v):
+        return normalize_distribution_policy(v)
+
+    @field_validator("valor", mode="before")
+    @classmethod
+    def _validate_valor(cls, v):
+        return normalize_valor(v)
+
+
+class ProductCreate(_ProductMasterDataFields):
     isin: Optional[str] = None
     symbol: Optional[str] = None
     product_name: str
@@ -938,6 +1423,21 @@ class ProductCreate(BaseModel):
     def _validate_theme_tags_field(cls, v):
         return _normalize_theme_tags(v)
 
+    @field_validator("isin", mode="before")
+    @classmethod
+    def _validate_isin_field(cls, v):
+        """AUDIT-2026-11 P1 (PO-6, 04/M5): ISIN mit Pruefziffer (ISO 6166,
+        Luhn). Leer = keine ISIN (nicht kotierter Fonds, Altbestand: kein
+        Zwang, aber Kennzeichnung ``isin_status``). Ungueltig -> 422."""
+        return normalize_isin(v)
+
+    @model_validator(mode="after")
+    def _validate_master_data_consistency(self):
+        errors = master_data_consistency_errors(self.model_dump())
+        if errors:
+            raise ValueError("; ".join(errors))
+        return self
+
     @model_validator(mode="after")
     def _validate_suitability_band(self):
         if self.suitability_profile_to < self.suitability_profile_from:
@@ -953,9 +1453,18 @@ class ProductCreate(BaseModel):
         return self
 
 
-class ProductUpdate(BaseModel):
+class ProductUpdate(_ProductMasterDataFields):
     """Sprint U-P10: Berater editiert Produkt-Metadaten (Admin-RBAC).
     Alle Felder optional — nur gesetzte werden geupdated."""
+    # AUDIT-FIX Fondsuniversum R6/F6 (2026-11): isin/symbol/product_type
+    # sind NICHT editierbar. Bisher kannte das Schema sie nicht, Pydantic
+    # verwarf sie still und der Endpoint antwortete 200 mit den alten Werten.
+    # Jetzt explizit angenommen: derselbe Wert ist erlaubt (das Formular
+    # sendet ihn immer mit), ein abweichender Wert wird im Router mit 422
+    # abgelehnt (routers/review.py::update_product).
+    isin: Optional[str] = None
+    symbol: Optional[str] = None
+    product_type: Optional[str] = None
     product_name: Optional[str] = None
     provider: Optional[str] = None
     asset_class: Optional[Literal["Aktien", "Obligationen", "Immobilien", "Alternative", "Liquidität"]] = None
@@ -1044,6 +1553,27 @@ class ProductResponse(BaseResponse):
     liquidity_tier: Optional[str] = None
     climate_benchmark: Optional[str] = None
     theme_tags: Optional[list[str]] = None
+    # AUDIT-2026-11 P1 (PO-6, L1): Produkt-Stammdaten, None = nicht erfasst.
+    domicile: Optional[str] = None
+    is_hedged: Optional[bool] = None
+    hedge_currency: Optional[str] = None
+    ter_source: Optional[str] = None
+    ter_as_of: Optional[str] = None
+    retrocession_bps: Optional[int] = None
+    retrocession_source: Optional[str] = None
+    is_house_product: Optional[bool] = None
+    distribution_policy: Optional[str] = None
+    valor: Optional[str] = None
+    minimum_investment_minor_units: Optional[int] = None
+    listing_status: Optional[str] = None
+    internal_product_id: Optional[str] = None
+    price_source: Optional[str] = None
+    nav_frequency: Optional[str] = None
+    nav_as_of: Optional[str] = None
+    redemption_period_days: Optional[int] = None
+    notice_period_days: Optional[int] = None
+    has_gating: Optional[bool] = None
+    gating_terms: Optional[str] = None
     is_active: int
     # 2026-08-05 (Fondsuniversum): NULL = globaler/geteilter Katalog,
     # gesetzt = privater Fonds dieses Tenants (server-derived, siehe
@@ -1068,6 +1598,28 @@ class ProductResponse(BaseResponse):
         from services.esg_data_provenance import seed_unverified_esg_fields
 
         return list(seed_unverified_esg_fields(self))
+
+    # AUDIT-2026-11 P1: Kennzeichnung statt Zwang fuer den Altbestand.
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def isin_status(self) -> Literal["valid", "invalid", "missing"]:
+        """'missing' (keine ISIN), 'invalid' (Altbestand mit formal
+        ungueltiger ISIN/Pruefziffer) oder 'valid'."""
+        return isin_status(self.isin)  # type: ignore[return-value]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def retrocession_status(self) -> Literal["unknown", "none", "present"]:
+        """'unknown' = kein Satz erfasst (gilt NIE als retrozessionsfrei),
+        'none' = ausdruecklich 0 bps, 'present' = Satz > 0."""
+        return retrocession_status(self.retrocession_bps)  # type: ignore[return-value]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def master_data_gaps(self) -> list[str]:
+        """Fehlende/ungueltige Pflicht-Stammdaten nach PO-6 (nur Anzeige,
+        in P1 keine Sperre)."""
+        return master_data_gaps(self)
 
     @field_validator("theme_tags", mode="before")
     @classmethod
@@ -1106,6 +1658,9 @@ class ProductImportResultItem(BaseModel):
     product_id: Optional[str] = None
     product_name: Optional[str] = None
     error: Optional[str] = None
+    # AUDIT-FIX Fondsuniversum R7/F3 (2026-11): Hinweis, wenn ein Re-Import
+    # die Eignung geaendert hat (neuer Regel-Entwurf, Freigabe ausstehend).
+    eligibility_note: Optional[str] = None
 
 
 class ProductImportResponse(BaseModel):
@@ -1114,6 +1669,41 @@ class ProductImportResponse(BaseModel):
     updated: int
     failed: int
     items: list[ProductImportResultItem] = Field(default_factory=list)
+
+
+# AUDIT-FIX Fondsuniversum R5/F5 (2026-11): offiziell zugewiesene Codes nach
+# ISO 3166-1 alpha-2 (249). Die Positivliste vergleicht die Jurisdiktion
+# exakt mit der des Mandats; ein Freitext wie "ch " matchte nie "CH" und
+# schaltete still den vollen Katalog frei. N-855-1: die Zeilen werden per
+# " ".join verbunden; ohne Trenner verkettete Python die Literale zu
+# Kunstcodes wie "BEBF", und BE/HU/ID/SI/ME/VN u.a. fehlten.
+ISO_3166_ALPHA2_CODES: frozenset[str] = frozenset(" ".join((
+    "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE",
+    "BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD",
+    "CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM",
+    "DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF",
+    "GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU",
+    "ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN",
+    "KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME",
+    "MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA",
+    "NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM",
+    "PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI",
+    "SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK",
+    "TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI",
+    "VN VU WF WS YE YT ZA ZM ZW",
+)).split())
+
+
+def _normalize_universe_jurisdiction(value):
+    """trim + Grossschreibung + ISO-3166-1-alpha-2-Pruefung (422 sonst)."""
+    if not isinstance(value, str):
+        raise ValueError("jurisdiction muss ein Laendercode (ISO 3166-1 alpha-2) sein")
+    normalized = value.strip().upper()
+    if normalized not in ISO_3166_ALPHA2_CODES:
+        raise ValueError(
+            f"jurisdiction {value!r} ist kein gueltiger Laendercode (ISO 3166-1 alpha-2, z.B. 'CH')"
+        )
+    return normalized
 
 
 class ProductUniverseEntryCreate(BaseModel):
@@ -1126,6 +1716,11 @@ class ProductUniverseEntryCreate(BaseModel):
     # behandelt -- ein Produkt erschien dann faelschlich als vollstaendig
     # bekannt UND kostenlos, ohne Warnung.
     override_ter_bps: Optional[int] = Field(default=None, ge=0, le=1000)
+
+    @field_validator("jurisdiction", mode="before")
+    @classmethod
+    def _validate_jurisdiction(cls, v):
+        return _normalize_universe_jurisdiction(v)
 
 
 class ProductUniverseEntryUpdate(BaseModel):
@@ -1178,6 +1773,11 @@ class ProductIdMappingCandidate(BaseModel):
     ticker: Optional[str] = None
     name: Optional[str] = None
     exch_code: Optional[str] = None
+    # OF-1 / Audit O5: interner Boersencode aus der expliziten Tabelle
+    # (Basis der Provider-Symbolik) und Zuordnungsstatus
+    # mapped | unknown | missing. "unknown" wird nie uebernommen.
+    exchange_code: Optional[str] = None
+    exchange_code_status: Optional[str] = None
     composite_figi: Optional[str] = None
     share_class_figi: Optional[str] = None
     security_type: Optional[str] = None
@@ -1241,6 +1841,9 @@ class ProductIdMappingBatchItem(BaseModel):
     status: str
     detail: Optional[str] = None
     applied_candidate: Optional[ProductIdMappingCandidate] = None
+    # OF-1 / Audit OF-a: bei status="ambiguous" die Listings zur Auswahl
+    # (Uebernahme dann ueber /products/openfigi/apply mit preferred_figi).
+    candidates: list[ProductIdMappingCandidate] = Field(default_factory=list)
 
 
 class ProductIdMappingBatchApplyResponse(BaseModel):
@@ -1372,6 +1975,30 @@ class RecommendationRunResponse(BaseResponse):
     created_by: str
     created_at: str
     updated_at: str
+
+
+_FINALIZE_WARNING_CODE_RE = re.compile(r"\[([A-Z][A-Z0-9_]+)\]")
+
+
+def finalize_warning_codes(warnings: list[str]) -> list[str]:
+    """N-856-7: strukturierte Codes aus den ``[CODE]``-Suffixen der
+    Finalize-Warnungen, dedupliziert in Reihenfolge des Auftretens."""
+    codes: list[str] = []
+    for text in warnings or []:
+        for code in _FINALIZE_WARNING_CODE_RE.findall(str(text)):
+            if code not in codes:
+                codes.append(code)
+    return codes
+
+
+class RecommendationFinalizeResponse(RecommendationRunResponse):
+    """N-856-7 (Pruefrunde #856): Finalize-Antwort = Lauf + Warnungen.
+
+    ``warnings`` ist identisch zum Audit-Log-Eintrag ("Final; Warnungen:
+    ..."), ``warning_codes`` die daraus gelesenen Codes (z. B.
+    SAA_BUCKET_DEVIATION, POSITION_LIMIT_EXCEEDED)."""
+    warnings: list[str] = Field(default_factory=list)
+    warning_codes: list[str] = Field(default_factory=list)
 
 
 class RecommendationPositionCreate(BaseModel):
@@ -1521,8 +2148,13 @@ class RecommendationGenerateResponse(BaseModel):
     implementation_steps: list[str]
     advisory_wealth_rappen: int
     investable_advisory_wealth_rappen: Optional[int] = None
+    # PO-04 (Audit 2026-11): expected_* beschreiben das UMGESETZTE Portfolio
+    # (Sub-Klassen der gewaehlten Produkte); saa_expected_* die SAA.
     expected_return_bps: int
     expected_volatility_bps: int
+    saa_expected_return_bps: Optional[int] = None
+    saa_expected_volatility_bps: Optional[int] = None
+    implementation_metrics: dict = Field(default_factory=dict)
     average_ter_bps: int
     average_ter_coverage_bps: int = 0
     missing_ter_positions_count: int = 0
@@ -1555,6 +2187,156 @@ class AuditLogPage(BaseModel):
     limit: int
     offset: int
     entries: list[AuditLogEntry]
+
+
+# H-865-2 (Pruefrunde #865): Ergebnis der Audit-Log-Kettenpruefung
+# (GET /admin/system/audit-log/verify). Bewusst nur Zaehler, Sequenznummern
+# und Zeilen-IDs -- keine Inhalte (Namen, Werte, IPs) der Eintraege.
+class AuditChainGap(BaseModel):
+    from_sequence: int
+    to_sequence: int
+
+
+class AuditChainSection(BaseModel):
+    ok: bool
+    checked: int
+    last_sequence: int
+    counter_value: Optional[int] = None
+    break_count: int
+    breaks: list[int]
+    gap_count: int
+    gaps: list[AuditChainGap]
+    duplicate_count: int
+    duplicates: list[int]
+    hash_mismatch_count: int
+    hash_mismatches: list[int]
+    # N-869-6: '|'-Zeilen mit '|' im Feldwert ohne Hinweis auf Verschiebung
+    # (Hinweis, kein Fehler).
+    ambiguous_count: int
+    ambiguous: list[int]
+
+
+class AuditLegacySection(BaseModel):
+    ok: bool
+    total: int
+    hashed: int
+    unhashed: int
+    verified: int
+    link_unconfirmed: int
+    link_unconfirmed_ids: list[str]
+    mismatches: int
+    mismatch_ids: list[str]
+    # N-869-2/N-869-6: ambiguous = '|' im Feldwert, Feldgrenzen nicht
+    # beweisbar, aber keine Verschiebung erkennbar (Hinweis); unexpected_
+    # unhashed = Zeile ohne Hash nach der ersten
+    # gehashten Zeile, die keinem bekannten Alt-Schreiber entspricht.
+    ambiguous: int
+    ambiguous_ids: list[str]
+    # N-869-6: Gegenprobe ueber die Feldgrenzen fand eine saubere Lesart mit
+    # anderen Feldwerten (Befund).
+    field_shift: int
+    field_shift_ids: list[str]
+    unexpected_unhashed: int
+    unexpected_unhashed_ids: list[str]
+    # Bestandssiegel (#869): verketteter Eintrag ueber den Altbestand; seal_ok
+    # None = kein Siegel vorhanden, False = Altbestand weicht ab (Befund).
+    seal_present: bool
+    seal_ok: Optional[bool] = None
+    seal_sequence: Optional[int] = None
+    seal_count: Optional[int] = None
+    # N-869-8: Altzeilen vorhanden, aber (noch) kein Siegel -- Hinweis.
+    seal_missing: bool = False
+
+
+class AuditChainVerification(BaseModel):
+    ok: bool
+    checked_at: str
+    chain: AuditChainSection
+    legacy: AuditLegacySection
+
+
+class AuditVerificationFindings(BaseModel):
+    break_count: int
+    gap_count: int
+    duplicate_count: int
+    hash_mismatch_count: int
+    legacy_mismatches: int
+    legacy_field_shift: int
+    legacy_unexpected_unhashed: int
+    legacy_seal_ok: Optional[bool] = None
+
+
+class AuditChainVerificationStatusOut(BaseModel):
+    """F6: persistierter Status der Audit-Kettenpruefung. integrity_confirmed
+    nur bei state='ok'; pending/running/error/unknown = nicht bestaetigt.
+    Keine Inhalte, nur Zaehler/Sequenznummern/Ketten-Hash/Zeitpunkte."""
+
+    state: Literal["pending", "running", "ok", "broken", "error", "unknown"]
+    mode: Optional[Literal["sync", "background"]] = None
+    integrity_confirmed: bool
+    total_rows: Optional[int] = None
+    threshold: Optional[int] = None
+    target_sequence: Optional[int] = None
+    verified_through_sequence: Optional[int] = None
+    checked: Optional[int] = None
+    finding_count: Optional[int] = None
+    findings: Optional[AuditVerificationFindings] = None
+    last_ok_sequence: Optional[int] = None
+    last_ok_hash: Optional[str] = None
+    last_ok_at: Optional[str] = None
+    started_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    error: Optional[str] = None
+
+
+class AuditAnchor(BaseModel):
+    """F4: Anker der Audit-Kette (Kettenkopf + Bestandssiegel), ohne
+    Kundendaten. Feldbedeutung siehe services/audit_anchor.py."""
+
+    scheme: str
+    product: str
+    created_at: str
+    source: str
+    verified: str
+    chain_sequence: int
+    chain_head_hash: str
+    legacy_seal_sequence: int | str
+    legacy_seal_entry_hash: str
+    legacy_seal_digest: str
+    legacy_seal_count: int | str
+    fingerprint: str
+    signature: str
+
+
+class AuditAnchorExport(BaseModel):
+    anchor: AuditAnchor
+    # Quittung zum Ausdrucken/Ablegen (LF, ASCII).
+    text: str
+
+
+class AuditAnchorVerifyRequest(BaseModel):
+    anchor_text: str = Field(min_length=1, max_length=4000)
+    # N-880-02: bewusst unsignierter Altanker trotz konfiguriertem Schluessel.
+    allow_unsigned: bool = False
+
+
+class AuditAnchorVerification(BaseModel):
+    ok: bool
+    reasons: list[str]
+    anchor_sequence: int
+    anchor_created_at: str
+    anchor_fingerprint: str
+    anchor_verified_at_export: bool
+    signature: Literal["valid", "none", "missing", "invalid", "key_missing"]
+    unsigned_accepted: bool = False
+    fingerprint_ok: bool
+    chain_prefix_ok: bool
+    head_match: bool
+    legacy_seal_match: bool
+    legacy_seal_ok: Optional[bool] = None
+    current_sequence: int
+    full_chain_ok: bool
 
 
 # ---------------------------------------------------------------------------
@@ -1671,3 +2453,298 @@ class ProductEligibilityDraftsResponse(BaseModel):
     approver_count: int
     current_user_is_sole_approver: bool
     drafts: list[ProductEligibilityDraftItem]
+
+
+# ===========================================================================
+# AUDIT-2026-11 T1 (Audit 05 §4.1/§4.2): Nachhaltigkeits- und
+# Ausschlussnachweise je Produkt, Hausstandard je Tenant.
+# Die Literale spiegeln die Kataloge in models/product_eligibility.py
+# (Quelle der Wahrheit; ein Sync-Test haelt beide gleich). Die fachliche
+# Querpruefung (Art je Kategorie, Schwellen, Quelle, Gueltigkeit) liegt in
+# services/product_eligibility_governance.py::sustainability_attribute_errors,
+# damit Erfassen, Bearbeiten und Import dieselbe Regel nutzen.
+# ===========================================================================
+
+SustainabilityCategory = Literal[
+    "controversial_weapons",
+    "conventional_weapons",
+    "weapons",
+    "tobacco",
+    "thermal_coal",
+    "fossil_fuels",
+    "gambling",
+    "adult_entertainment",
+    "alcohol",
+    "nuclear_power",
+    "animal_testing",
+    "ungc_violation",
+    "sfdr_classification",
+    "impact_theme",
+]
+SustainabilityKind = Literal["exclusion_policy", "measured_exposure", "certification", "classification"]
+SustainabilitySourceType = Literal[
+    "prospectus",
+    "fund_contract",
+    "kid",
+    "factsheet",
+    "provider_exclusion_policy",
+    "provider_confirmation",
+    "data_vendor",
+    "house_analysis",
+]
+# N-863-6: Katalog der neutralen Kunden-Quellbezeichnungen (Codes; Texte in
+# models/product_eligibility.py::SUSTAINABILITY_CLIENT_SOURCE_LABELS).
+SustainabilityClientSourceLabel = Literal[
+    "prospectus",
+    "fund_contract",
+    "kid",
+    "factsheet",
+    "provider_exclusion_policy",
+    "provider_confirmation",
+    "data_vendor",
+    "house_analysis",
+]
+SustainabilityStatus = Literal["draft", "approved", "retired"]
+SustainabilityEvidenceStatus = Literal["draft", "retired", "not_yet_valid", "expired", "valid"]
+SustainabilityScope = Literal["tenant", "global"]
+
+
+def _strip_optional_text(value):
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+    return value
+
+
+class ProductSustainabilityAttributeCreate(BaseModel):
+    """Neuer Nachweis (immer als Entwurf). ``scope='global'`` = Plattform-
+    Nachweis eines globalen Katalogfonds (Multi-Tenant: nur super_admin).
+    Es gibt bewusst keinen Quellentyp fuer Seed-/Default-Werte (T-E2)."""
+    scope: SustainabilityScope = "tenant"
+    category: SustainabilityCategory
+    kind: SustainabilityKind
+    revenue_threshold_bps: Optional[int] = Field(default=None, ge=0, le=10000)
+    measured_exposure_bps: Optional[int] = Field(default=None, ge=0, le=10000)
+    value: Optional[str] = Field(default=None, max_length=200)
+    source_type: SustainabilitySourceType
+    source_reference: str = Field(min_length=1, max_length=500)
+    source_provider: Optional[str] = Field(default=None, max_length=200)
+    source_retrieved_on: Optional[date] = None
+    source_document_title: Optional[str] = Field(default=None, max_length=300)
+    source_document_version: Optional[str] = Field(default=None, max_length=100)
+    source_document_date: Optional[date] = None
+    source_document_sha256: Optional[str] = Field(default=None, min_length=64, max_length=64)
+    client_source_label: Optional[SustainabilityClientSourceLabel] = Field(
+        default=None,
+        description="Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.",
+    )
+    as_of: date
+    valid_until: Optional[date] = Field(
+        default=None,
+        description="Leer = Stichtag + 12 Monate (T-E3); laenger ist nicht zulaessig.",
+    )
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+    @field_validator("value", "source_reference", "source_provider", "note", "source_document_title",
+                     "source_document_version", "client_source_label", mode="before")
+    @classmethod
+    def _strip_text(cls, value):
+        return _strip_optional_text(value)
+
+    @field_validator("source_document_sha256", mode="before")
+    @classmethod
+    def _normalize_sha256(cls, value):
+        value = _strip_optional_text(value)
+        return value.lower() if isinstance(value, str) else value
+
+
+class ProductSustainabilityAttributeUpdate(BaseModel):
+    """Bearbeiten nur im Entwurf. Kategorie, Art und Scope sind fest (sonst
+    neuer Nachweis). Explizites null leert optionale Felder."""
+    revenue_threshold_bps: Optional[int] = Field(default=None, ge=0, le=10000)
+    measured_exposure_bps: Optional[int] = Field(default=None, ge=0, le=10000)
+    value: Optional[str] = Field(default=None, max_length=200)
+    source_type: Optional[SustainabilitySourceType] = None
+    source_reference: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    source_provider: Optional[str] = Field(default=None, max_length=200)
+    source_retrieved_on: Optional[date] = None
+    source_document_title: Optional[str] = Field(default=None, max_length=300)
+    source_document_version: Optional[str] = Field(default=None, max_length=100)
+    source_document_date: Optional[date] = None
+    source_document_sha256: Optional[str] = Field(default=None, min_length=64, max_length=64)
+    client_source_label: Optional[SustainabilityClientSourceLabel] = Field(
+        default=None,
+        description="Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.",
+    )
+    as_of: Optional[date] = None
+    valid_until: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=2000)
+
+    @field_validator("value", "source_reference", "source_provider", "note", "source_document_title",
+                     "source_document_version", "client_source_label", mode="before")
+    @classmethod
+    def _strip_text(cls, value):
+        return _strip_optional_text(value)
+
+    @field_validator("source_document_sha256", mode="before")
+    @classmethod
+    def _normalize_sha256(cls, value):
+        value = _strip_optional_text(value)
+        return value.lower() if isinstance(value, str) else value
+
+
+class ProductSustainabilityAttributeImportItem(ProductSustainabilityAttributeCreate):
+    """Import-Zeile: Produkt ueber product_id ODER isin."""
+    product_id: Optional[str] = Field(default=None, max_length=64)
+    isin: Optional[str] = Field(default=None, max_length=12)
+
+    @field_validator("product_id", "isin", mode="before")
+    @classmethod
+    def _strip_reference(cls, value):
+        return _strip_optional_text(value)
+
+    @model_validator(mode="after")
+    def _product_reference(self):
+        if not self.product_id and not self.isin:
+            raise ValueError("product_id oder isin angeben")
+        return self
+
+
+class ProductSustainabilityAttributeImportRequest(BaseModel):
+    attributes: list[ProductSustainabilityAttributeImportItem] = Field(min_length=1, max_length=1000)
+
+
+class ProductSustainabilityAttributeResponse(BaseResponse):
+    id: str
+    product_id: str
+    tenant_id: Optional[str] = None
+    scope: SustainabilityScope
+    category: str
+    kind: str
+    revenue_threshold_bps: Optional[int] = None
+    measured_exposure_bps: Optional[int] = None
+    value: Optional[str] = None
+    source_type: str
+    source_reference: str
+    source_provider: Optional[str] = None
+    source_retrieved_on: Optional[str] = None
+    source_document_title: Optional[str] = None
+    source_document_version: Optional[str] = None
+    source_document_date: Optional[str] = None
+    source_document_sha256: Optional[str] = None
+    client_source_label: Optional[str] = None
+    client_source_label_text: Optional[str] = None
+    as_of: str
+    valid_until: str
+    status: SustainabilityStatus
+    evidence_status: SustainabilityEvidenceStatus
+    note: Optional[str] = None
+    created_by: str
+    created_at: str
+    approved_by: Optional[str] = None
+    approved_at: Optional[str] = None
+    approval_mode: Optional[str] = None
+    retired_by: Optional[str] = None
+    retired_at: Optional[str] = None
+    supersedes_id: Optional[str] = None
+    updated_at: str
+
+
+class ProductSustainabilityImportResultItem(BaseModel):
+    row: int
+    status: Literal["created", "failed"]
+    attribute_id: Optional[str] = None
+    product_id: Optional[str] = None
+    error: Optional[str] = None
+
+
+class ProductSustainabilityImportResponse(BaseModel):
+    processed: int
+    created: int
+    failed: int
+    items: list[ProductSustainabilityImportResultItem] = Field(default_factory=list)
+
+
+class ProductSustainabilityApprovalRequest(BaseModel):
+    """Standard Vier-Augen (leerer Body). Einzelberater-Ausnahme wie bei den
+    Eignungsregeln: Attest + Begruendung; der Server prueft, dass der Tenant
+    genau eine freigabeberechtigte Person hat."""
+    single_approver_attestation: bool = False
+    attestation_reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+class ProductSustainabilityBatchApprovalRequest(ProductSustainabilityApprovalRequest):
+    attribute_ids: list[str] = Field(min_length=1, max_length=1000)
+
+
+class ProductSustainabilityApprovalResponse(BaseModel):
+    approved_ids: list[str]
+    retired_ids: list[str]
+    approval_mode: str
+
+
+class ProductSustainabilityRetireRequest(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=2000)
+
+
+class SustainabilityCategoryInfo(BaseModel):
+    category: str
+    criterion_type: Literal["revenue_threshold", "conduct", "classification"]
+    kinds: list[str]
+    default_threshold_bps: Optional[int] = None
+    has_house_standard: bool
+
+
+class SustainabilityCatalogResponse(BaseModel):
+    categories: list[SustainabilityCategoryInfo]
+    source_types: list[str]
+    statuses: list[str]
+    sfdr_values: list[str]
+    evidence_validity_months: int
+    client_source_labels: dict[str, str] = Field(default_factory=dict)
+
+
+class SustainabilityStandardPending(BaseModel):
+    """Offene Lockerung (H-1), wirkt erst nach Vier-Augen-Freigabe."""
+    id: str
+    max_revenue_threshold_bps: Optional[int] = None
+    is_disabled: bool
+    created_by: Optional[str] = None
+    created_at: str
+    note: Optional[str] = None
+
+
+class SustainabilityStandardItem(BaseModel):
+    category: str
+    criterion_type: Literal["revenue_threshold", "conduct"]
+    default_threshold_bps: Optional[int] = None
+    tenant_threshold_bps: Optional[int] = None
+    effective_threshold_bps: Optional[int] = None
+    is_overridden: bool
+    is_disabled: bool = False
+    standard_id: Optional[str] = None
+    valid_from: Optional[str] = None
+    approved_by: Optional[str] = None
+    approved_at: Optional[str] = None
+    approval_mode: Optional[str] = None
+    note: Optional[str] = None
+    updated_by: Optional[str] = None
+    updated_at: Optional[str] = None
+    pending: Optional[SustainabilityStandardPending] = None
+
+
+class SustainabilityStandardsResponse(BaseModel):
+    tenant_id: Optional[str] = None
+    items: list[SustainabilityStandardItem]
+
+
+class SustainabilityStandardUpdate(BaseModel):
+    """Hausschwelle setzen. Bei UN Global Compact gibt es keine
+    Umsatzschwelle (null). Schwelle ueber dem T-E1-Default oder
+    is_disabled=true ist eine Lockerung und braucht eine Vier-Augen-Freigabe."""
+    max_revenue_threshold_bps: Optional[int] = Field(default=None, ge=0, le=10000)
+    is_disabled: bool = Field(
+        default=False,
+        description="Kategorie fuer diese Verwaltung deaktivieren (Lockerung, Vier-Augen-Freigabe).",
+    )
+    note: Optional[str] = Field(default=None, max_length=2000)

@@ -224,7 +224,7 @@ def _make_class_legend(allocation_bps: Mapping[str, int], products: Iterable[Map
         for sub, sub_bps in sorted(subs.items(), key=lambda kv: -kv[1]):
             rows.append([
                 Paragraph(
-                    f'<font color="#94a3b8" size="{FONT_SIZE_SMALL}">  ┗ {_esc(sub)}</font>',
+                    f'<font color="#94a3b8" size="{FONT_SIZE_SMALL}">&nbsp;&nbsp;&nbsp;– {_esc(sub)}</font>',
                     _para_compact(),
                 ),
                 Paragraph(

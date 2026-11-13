@@ -12,7 +12,8 @@ Registrierung still verliert, prueft dieser Test in einem frischen Interpreter:
    ``app.openapi()`` (kanonisches JSON) haben exakt den Stand vor K-2
    (Golden-Hashes, berechnet auf ``origin/develop`` 1730911e und auf dem
    K-2-Head identisch; ``sorted_tables`` unveraendert seit 9e6b7dd9, der
-   OpenAPI-Hash wurde beim Rebase auf 1730911e nachgefuehrt). Aendert eine legitime Schema-/API-Aenderung einen
+   OpenAPI-Hash wurde beim Rebase auf 1730911e und mit OF-1 (Audit 2026-11/06,
+   neue Felder exchange_code/exchange_code_status/candidates) nachgefuehrt). Aendert eine legitime Schema-/API-Aenderung einen
    Hash, wird der Golden-Wert bewusst im selben Commit nachgefuehrt.
 
 Negativkontrolle: ``database`` allein registriert ``users`` nicht -- die
@@ -32,8 +33,36 @@ from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
-GOLDEN_SORTED_TABLES_SHA256 = "3489953a3923c0b020c0d41901d8bc2a9df7556270c387caf7523653a10377b3"
-GOLDEN_OPENAPI_SHA256 = "8aebdaead713b4af5daadda6380f0fb3ef33a3d878a7e39b5f8873e611ddbbb5"
+# H-144 (F6): + audit_chain_verification_status (einzige Abweichung der
+# Tabellenliste gegenueber 2e5dfcc3, per Diff der sorted_tables geprueft).
+GOLDEN_SORTED_TABLES_SHA256 = "119de678ec42d2944c9871dc23e8054a527ced25cb6ee447d6d089e9e892a40b"
+# N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
+# und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
+# AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
+# geaendert (Feld-Diff von api/openapi.json, vom Pruefer bestaetigt).
+# N-869-2: AuditLegacySection + ambiguous/ambiguous_ids/unexpected_unhashed/
+# unexpected_unhashed_ids (nur dieses Schema, Feld-Diff geprueft).
+# N-869-4: nur die description von GET /admin/system/audit-log/verify
+# (Docstring: Operator-Bypass unter PG-RLS), Feld-Diff geprueft.
+# N-869-6: AuditChainSection + ambiguous/ambiguous_count, AuditLegacySection
+# + field_shift/field_shift_ids (nur additiv, Feld-Diff geprueft).
+# Bestandssiegel: AuditLegacySection + seal_present/seal_ok/seal_sequence/
+# seal_count (nur additiv, Feld-Diff geprueft).
+# N-869-8: AuditLegacySection + seal_missing (nur additiv, Feld-Diff geprueft).
+# Integrationsprobe 2026-11-07: Pins aus #856, #862, #868 und #869 zusammen-
+# gefuehrt; api/openapi.json (Git-Merge ohne Konflikt) besteht
+# scripts/export_openapi.py --check.
+# H7 C-1: nur description von POST /clients/{client_id}/erase (Direktpfad stillgelegt, 409), Feld-Diff geprueft.
+# H7 C-6: neu POST /privacy/policies/baseline (+BaselineProposal); description GET/POST /clients/{client_id}/due-diligence (GwV-FINMA statt RS 2016/7), Feld-Diff geprueft.
+# H-144 (F4/F6): neue Pfade GET /admin/system/audit-log/verification-status,
+# POST .../anchor/export und .../anchor/verify, neue Schemas AuditAnchor*,
+# AuditChainVerificationStatusOut, AuditVerificationFindings. Kein bestehender
+# Pfad, kein bestehendes Schema geaendert (Diff gegen 2e5dfcc3 geprueft).
+# Pruefrunde H4: AuditAnchorVerifyRequest + allow_unsigned, AuditAnchorVerification
+# + unsigned_accepted/signature "missing" (nur die neuen Schemas).
+# RC-CH-1 (H4-Merge): api/openapi.json vollstaendig regeneriert (export_openapi.py),
+# Pin aus dem Tree neu berechnet, keine Seite gewaehlt.
+GOLDEN_OPENAPI_SHA256 = "6f097bf429c8a60775824b3bba289d46a16a188613d6a00b9797b1335726c24f"
 
 _PROBE = """
 import hashlib, json

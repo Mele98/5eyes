@@ -77,10 +77,10 @@ def make_sollist_kennzahlen_table(
     Leere Liste (kein Render) wenn weder SOLL- noch IST-Monte-Carlo-Werte
     vorliegen -- z.B. bevor 'Anlagestrategie berechnen' je gelaufen ist.
     """
-    has_any = any([
-        target_median_end_rappen, current_median_end_rappen,
-        target_cagr_bps, current_cagr_bps,
-    ])
+    # N-858-12: Eine gerechnete Rendite von 0 bps ist ein Wert, keine Luecke.
+    has_any = any([target_median_end_rappen, current_median_end_rappen]) or any(
+        value is not None for value in (target_cagr_bps, current_cagr_bps)
+    )
     if not has_any:
         return []
 
@@ -112,7 +112,9 @@ def make_sollist_kennzahlen_table(
         Paragraph(_esc(format_bps_as_pct(current_cagr_bps, decimals=2)), cell_style),
     ])
     rows.append([
-        Paragraph(_esc("Volatilität (1 Jahr)"), cell_style),
+        # Live-Test 2026-11 M8: in der Monte-Carlo-Simulation realisiert (nicht
+        # die Modell-Volatilitaet der Kennzahlen-Kachel).
+        Paragraph(_esc("Volatilität 1 Jahr (simuliert)"), cell_style),
         Paragraph(_esc(format_bps_as_pct(target_volatility_1y_bps, decimals=2)), cell_style),
         Paragraph(_esc(format_bps_as_pct(current_volatility_1y_bps, decimals=2)), cell_style),
     ])

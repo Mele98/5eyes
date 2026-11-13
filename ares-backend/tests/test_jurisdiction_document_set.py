@@ -54,10 +54,49 @@ BEFORE_DIGESTS = {
     "cost_disclosure.cover.title": "sha256:7c8051b8bf43178ae61344b0d6159b30467b99933987499186af79caa344485b",
     "cost_disclosure.cover.subtitle": "sha256:8de8dd79369239fdc7dac30ac43fcaf4774dcd3350e108bb336801a3d4d0e701",
     "cost_disclosure.cover.focus_points": "sha256:6b5ef1b1e47d3812287bf909a079d7620646e9e78640ef74b91f5ac323e0930a",
+    # H7 N-884-03: neue Schluessel (Fusszeile je Mandatstyp); Erstfassung.
+    "legal.footer.disclaimer.vermoegensverwaltung": "sha256:3f5335adcd97ffb7a338793b24752a7ff7845792d0925bdc17a8a9c59a9b08cc",
+    "legal.footer.disclaimer.anlageberatung": "sha256:e400049f30a19b645ff37b286bccb56158548c6c48d7154228725f2c5e65b459",
+    "legal.footer.disclaimer.finanzplanung": "sha256:0e67a630601486a6377ee9f0fe4f12b9f83bc334d72f52aabe0adb2a6f2c3f34",
+    "legal.footer.disclaimer.reporting": "sha256:cc3a59375243c559e3e446797b3ebfede9e3e482af4bac5a948479bb39f225df",
 }
 
+# N-856-2 (Pruefrunde #856, Dok. 86): deklariertes Text-Aenderungsregister.
+# BEFORE_DIGESTS bleibt der unveraenderte X1-Extraktionsbeweis; eine bewusste
+# Textaenderung wird HIER mit Von-Digest (= BEFORE), Nach-Digest, Grund und
+# Referenz eingetragen statt BEFORE zu ueberschreiben. Paket ist ``draft``
+# (approvals: []), eingefrorene Dokumente referenzieren den Text-Hash nicht
+# -> Paketversion bleibt 1.0.0.
+DECLARED_TEXT_CHANGES = {
+    "legal.footer.disclaimer": {
+        "from": "sha256:08b31b18f1330ba1154981b0b71c6f0734adb8d77b3b1b59516107977916b876",
+        "to": "sha256:dfc43ec38d8370b57011f8e183f881ccedd2301544d3b7957cb3783174907425",
+        "reason": (
+            "H7 N-884-03: Fusszeile kennzeichnete jede Dienstleistung als "
+            "'Anlageberatung' nach FIDLEG; jetzt neutral ('vereinbarte "
+            "Dienstleistung'), Varianten je Mandatstyp unter footer.disclaimer.<typ>"
+        ),
+        "ref": "H-147 / N-884-03",
+    },
+    "cost_disclosure.cover.focus_points": {
+        "from": "sha256:6b5ef1b1e47d3812287bf909a079d7620646e9e78640ef74b91f5ac323e0930a",
+        "to": "sha256:9f0b3310a4f5b46e8fd185f9d76da14f8b63953351a78f6f81e196300fc5c2dc",
+        "reason": (
+            "PO-17: Transaktionskosten auf den Umschlag; Deckblatt neutral "
+            "'Transaktionen der Umsetzung bzw. Umschichtung' statt 'Erstumsetzung'"
+        ),
+        "ref": "H-120 / N-856-2",
+    },
+}
+
+
+def _expected_digest(key: str) -> str:
+    change = DECLARED_TEXT_CHANGES.get(key)
+    return change["to"] if change else BEFORE_DIGESTS[key]
+
+
 # Gepinnter Inhalts-Hash aller CH-Texte (jede Textaenderung ist sichtbar).
-CH_DOCUMENTS_HASH = "sha256:945c24f22efb710a0cb81ad9af3af3e41fa7144908df4307e6793b3de6777385"
+CH_DOCUMENTS_HASH = "sha256:cd8edab614d8639424e646d55f107c8071165346393f2eb422183364bfa00e9a"  # H7 N-884-03
 
 def _norm(value):
     if isinstance(value, (list, tuple)):
@@ -84,8 +123,18 @@ def _type_name(value) -> str:
 def test_every_pack_text_is_byte_identical_to_the_previous_constant():
     docs = default_documents()
     assert set(docs.keys()) == set(BEFORE_DIGESTS), "jeder Pack-Schluessel braucht einen Vorher-Digest"
-    for key, expected in BEFORE_DIGESTS.items():
-        assert _digest(docs.value(key)) == expected, key
+    for key in BEFORE_DIGESTS:
+        assert _digest(docs.value(key)) == _expected_digest(key), key
+
+
+def test_declared_text_changes_start_from_the_x1_digest():
+    """Ein Registereintrag darf nur eine X1-Fassung ersetzen (keine Kette ohne
+    Beleg) und braucht Grund und Referenz."""
+    for key, change in DECLARED_TEXT_CHANGES.items():
+        assert key in BEFORE_DIGESTS, key
+        assert change["from"] == BEFORE_DIGESTS[key], key
+        assert change["to"] != change["from"], key
+        assert change["reason"].strip() and change["ref"].strip(), key
 
 
 def test_ch_documents_hash_is_pinned():
@@ -109,7 +158,7 @@ def test_static_texts_stay_core_constants_without_pack_import():
 def test_footer_constant_and_runtime_text_come_from_the_document_set(monkeypatch):
     footer = importlib.import_module("services.pdf.components.footer")
     assert footer.FIDLEG_DISCLAIMER == default_documents().text("legal.footer.disclaimer")
-    assert _digest(footer.FIDLEG_DISCLAIMER) == BEFORE_DIGESTS["legal.footer.disclaimer"]
+    assert _digest(footer.FIDLEG_DISCLAIMER) == _expected_digest("legal.footer.disclaimer")
 
     class _Canvas:
         def __init__(self):
@@ -132,15 +181,19 @@ def test_footer_constant_and_runtime_text_come_from_the_document_set(monkeypatch
     expected = footer.FIDLEG_DISCLAIMER + " Erstellt am 15.01.2026."
     canvas = _Canvas()
     footer.make_footer_callback(ctx)(canvas, None)
-    # Zeile 1 ist wie bisher (inkl. Kuerzung auf 220 Zeichen).
-    assert canvas.strings[0] == (expected if len(expected) <= 220 else expected[:217] + "...")
+    # Live-Test 2026-11: Pflichttext vollstaendig (umgebrochen, nie gekuerzt);
+    # die Disclaimer-Zeilen stehen vor "Seite N".
+    def _disclaimer(strings):
+        return " ".join(strings[:next(i for i, t in enumerate(strings) if t.startswith("Seite "))])
+
+    assert _disclaimer(canvas.strings) == expected
 
     # Laufzeit-Lookup ueber das DocumentSet (nicht ueber die Modulkonstante).
     stub = SimpleNamespace(text=lambda key: f"<{key}>")
     monkeypatch.setattr(footer, "default_documents", lambda: stub)
     canvas = _Canvas()
     footer.make_footer_callback(ctx)(canvas, None)
-    assert canvas.strings[0] == "<legal.footer.disclaimer> Erstellt am 15.01.2026."
+    assert _disclaimer(canvas.strings) == "<legal.footer.disclaimer> Erstellt am 15.01.2026."
 
 
 def test_cost_disclosure_cover_reads_title_subtitle_and_articles_from_the_document_set(monkeypatch):
@@ -161,7 +214,7 @@ def test_cost_disclosure_cover_reads_title_subtitle_and_articles_from_the_docume
 
     assert _digest(captured["title"]) == BEFORE_DIGESTS["cost_disclosure.cover.title"]
     assert _digest(captured["subtitle"]) == BEFORE_DIGESTS["cost_disclosure.cover.subtitle"]
-    assert _digest(captured["focus_points"]) == BEFORE_DIGESTS["cost_disclosure.cover.focus_points"]
+    assert _digest(captured["focus_points"]) == _expected_digest("cost_disclosure.cover.focus_points")
     assert isinstance(captured["focus_points"], list)
 
 

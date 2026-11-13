@@ -44,6 +44,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 HTML_PATH = BACKEND_ROOT.parents[0] / "ares-desktop" / "frontend" / "ares.html"
@@ -61,7 +62,7 @@ def _utc_now_iso() -> str:
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 @pytest.fixture()
