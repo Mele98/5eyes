@@ -348,6 +348,12 @@ EXEMPT_TABLES: dict[str, str] = {
     ),
     "privacy_erasure_dispositions": "Dispositionszeilen des Loeschgesuchs selbst",
     "privacy_legal_holds": "Legal-Hold-Register (Fall-ID, Rechtsgrund, Umfang, Genehmiger)",
+    # H10 C-DSG-02: der Nachweis der Betroffenenanfrage muss eine Loeschung
+    # des Kunden ueberdauern (Eingang, Entscheid, Export-Hash, Zustellung).
+    "privacy_subject_requests": (
+        "Bearbeitungsnachweis der Betroffenenanfrage selbst (Eingang, Identitaetspruefung, "
+        "Entscheid, Export-Hash, Zustellnachweis; keine kopierten Exportdaten)"
+    ),
 }
 
 

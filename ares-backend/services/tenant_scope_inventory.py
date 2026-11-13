@@ -26,7 +26,7 @@ table therefore cannot ship unclassified.
 """
 from __future__ import annotations
 
-INVENTORY_VERSION = "2026-11-07.1"
+INVENTORY_VERSION = "2026-11-11.1"
 
 TENANT_DIRECT = "tenant_direct"
 GLOBAL_REFERENCE = "global_reference"
@@ -57,8 +57,22 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     "privacy_erasure_cases",
     "privacy_erasure_dispositions",
     "privacy_legal_holds",
+    # H10 C-DSG-01: Angaben des Verantwortlichen je Mandant.
+    "privacy_owner_values",
+    # H10 C-DSG-02: Betroffenenanfragen je Mandant.
+    "privacy_subject_requests",
+    # H10 Nachtrag 1: Freigabefassungen, Ereignisse, Egress-Protokoll.
+    "outbound_processing_manifest_versions",
+    "privacy_egress_daily_counts",
+    "privacy_egress_events",
+    "privacy_security_incident_artifacts",
+    "privacy_security_incident_events",
+    "privacy_subject_request_events",
+    "processing_activity_versions",
     "privacy_retention_policies",
     "privacy_role_designations",
+    # H10 C-DSG-04: Register der Sicherheitsvorfaelle je Mandant.
+    "privacy_security_incidents",
     # PG-002-Folgeauftrag: Mandant ueber Lauf -> Mandat (Guard + Backfill).
     "product_eligibility_overrides",
     "product_eligibility_snapshots",

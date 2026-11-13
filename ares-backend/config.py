@@ -383,6 +383,10 @@ class Settings(BaseSettings):
     # gegen einen Ausfall des Standorts selbst (Hardware/RZ-Ausfall). Opt-in
     # Kopie via rsync-ueber-SSH an einen zweiten CH-Standort. Default AUS --
     # erfordert einen bereits eingerichteten SSH-Zugang zum Ziel-Host.
+    # N-899-13 (H10): Update-Feed-URL der Desktop-Shell. Setzt der
+    # Electron-Hauptprozess beim Start des Backends aus der gepackten
+    # Build-Konfiguration (leer = Updates aus). Teil des Egress-Fassungs-Hashes.
+    desktop_update_feed_url: str = ''
     backup_offsite_enabled: bool = False
     # rsync-Zielangabe, z.B. "ares-offsite@backup-host.example:/srv/ares-offsite/"
     backup_offsite_target: str = ''

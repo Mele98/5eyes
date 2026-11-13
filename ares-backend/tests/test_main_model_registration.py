@@ -36,7 +36,15 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # H8 (2026-11-07): fuenf neue Tabellen (tenant_legal_profiles,
 # client_information_deliveries, kyc_confirmations, kyc_confirmation_approvals,
 # client_representations), keine bestehende Tabelle umbenannt/entfernt.
-GOLDEN_SORTED_TABLES_SHA256 = "30711a7c792bbe325060308ae7c1c7236ae0bc41ccbadb7f05878c6822451fd2"
+# H10 (2026-11-11): drei neue Tabellen (privacy_owner_values,
+# privacy_subject_requests, privacy_security_incidents), keine bestehende
+# Tabelle umbenannt/entfernt.
+# H10 Nachtrag 1: fuenf neue Tabellen (processing_activity_versions,
+# outbound_processing_manifest_versions, privacy_egress_events,
+# privacy_subject_request_events, privacy_security_incident_events).
+# H10 Nachtrag 2: neue Tabelle privacy_security_incident_artifacts.
+# H10 Nachtrag 3: neue Tabelle privacy_egress_daily_counts.
+GOLDEN_SORTED_TABLES_SHA256 = "fbb693db4f5944627a7799d4ea26d4ff9f214871b342b23ecaa5c4179e90907d"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -67,7 +75,24 @@ GOLDEN_SORTED_TABLES_SHA256 = "30711a7c792bbe325060308ae7c1c7236ae0bc41ccbadb7f0
 # H8 nach Merge H7 (N-890-07): Pins gemeinsam neu. N-890-02/03/12/13: Delivery
 # (delivery_timing, backdating_reason), KYC (identification_*, requires_second_approval),
 # OptHistoryCreate.event_type als FIDLEG-Werteliste. Feld-Diff geprueft.
-GOLDEN_OPENAPI_SHA256 = "9a3bfc78a8c12161b9698eaca86c25f64b4f1cb5b1b14107c2fffbdaca2146bc"
+# H10 (2026-11-11): neu /privacy/processing-register (+ /export),
+# /privacy/owner-fields (+ /{field_key}), /privacy/subject-requests (+ /{id},
+# /identity, /extension, /decision, /export, /action, /delivery, /withdraw),
+# /privacy/egress-manifest, /privacy/incidents (+ /gate, /{id}, /assessment,
+# /notification-decision, /edoeb-notification, /subject-notification-decision,
+# /subject-notification, /evidence, /close) samt 15 neuen Schemas; geaendert
+# nur die description von GET /clients/{client_id}/data-export (stillgelegt,
+# 409). Kein bestehendes Schema geaendert (Feld-Diff geprueft).
+# H10 Codex-Vertrag 2026-11-12: neu POST /privacy/incidents/{incident_id}/remediation (Schema IncidentClosure wiederverwendet), sonst unveraendert.
+# H10 Nachtrag 1: neu POST /privacy/processing-register/approve, POST
+# /privacy/egress-manifest/approve, GET /privacy/egress-events (Schema
+# VersionApproval); IncidentEvidence + sha256 (Pflicht). Feld-Diff geprueft.
+# H10 Nachtrag 2: neu GET /privacy/egress-status (Banner), sonst unveraendert.
+# H10 Nachtrag 2 (Codex C-900-03): IncidentEvidence + media_type/size_bytes (Pflicht), neu
+# POST /privacy/incidents/{incident_id}/artifacts/{artifact_id}/verify (ArtifactVerification).
+# H10 Nachtrag 3: neu POST /privacy/incidents/{incident_id}/notification-note, GET
+# /privacy/egress-counts; Feld-Diff geprueft.
+GOLDEN_OPENAPI_SHA256 = "d1637bae0d5bfb14aa2d85d78b226f36210fb33f46e1c0a536ccae76d10e277c"
 
 _PROBE = """
 import hashlib, json

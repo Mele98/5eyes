@@ -22,6 +22,15 @@ sollte nur aktiv sein wenn:
 - DSN gesetzt
 - Berater/Compliance hat opt-in erteilt
 - Production (in dev/test bewusst aus halten, sonst verzerrt Metriken)
+
+H10 C-DSG-03 (DSG-Technikaudit 2026-11-11): Datenminimierung vor dem
+Versand. ``_scrub_event`` (``before_send``/``before_breadcrumb``) laesst nur
+Fehlerart, Programmstelle (Datei, Funktion, Zeile), Umgebung und Release
+uebrig; Fehlermeldungen, lokale Variablen, Anfragen, Benutzer, Zusatzdaten
+und Breadcrumbs werden entfernt. ``context`` und Nachrichtentexte bleiben
+lokal im Log. Der Kanal ``telemetry.error_reporting`` im Egress-Manifest
+laeuft ausserdem erst, wenn Staat und Garantie des Fehlerdienstes bestaetigt
+sind (services/egress_manifest.py).
 """
 from __future__ import annotations
 
@@ -35,6 +44,46 @@ logger = logging.getLogger(__name__)
 # Modul-State
 _TELEMETRY_ACTIVE: bool = False
 _SENTRY_SDK: Optional[Any] = None
+
+REMOVED = "[entfernt]"
+_KEPT_EVENT_KEYS = ("event_id", "timestamp", "level", "platform", "environment", "release", "exception")
+_KEPT_FRAME_KEYS = ("filename", "module", "function", "lineno", "in_app")
+
+
+def _scrub_frame(frame: Any) -> dict[str, Any]:
+    if not isinstance(frame, dict):
+        return {}
+    return {key: frame[key] for key in _KEPT_FRAME_KEYS if key in frame}
+
+
+def _scrub_event(event: Any, hint: Any = None) -> Optional[dict[str, Any]]:
+    """Nur Fehlerart und Programmstelle verlassen das System."""
+    if not isinstance(event, dict):
+        return None
+    scrubbed: dict[str, Any] = {key: event[key] for key in _KEPT_EVENT_KEYS if key in event}
+    exception = scrubbed.get("exception")
+    if isinstance(exception, dict):
+        values = []
+        for item in exception.get("values") or []:
+            if not isinstance(item, dict):
+                continue
+            frames = ((item.get("stacktrace") or {}).get("frames")) or []
+            values.append({
+                "type": item.get("type"),
+                "module": item.get("module"),
+                "value": REMOVED,
+                "stacktrace": {"frames": [_scrub_frame(frame) for frame in frames]},
+            })
+        scrubbed["exception"] = {"values": values}
+    elif "exception" in scrubbed:
+        del scrubbed["exception"]
+    if "message" in event or "logentry" in event:
+        scrubbed["message"] = REMOVED
+    return scrubbed
+
+
+def _drop_breadcrumb(crumb: Any, hint: Any = None) -> None:
+    return None
 
 
 def is_telemetry_active() -> bool:
@@ -85,6 +134,10 @@ def configure_telemetry() -> bool:
             sample_rate=max(0.0, min(1.0, sample_rate)),
             traces_sample_rate=0.0,
             send_default_pii=False,
+            include_local_variables=False,
+            max_breadcrumbs=0,
+            before_send=_scrub_event,
+            before_breadcrumb=_drop_breadcrumb,
         )
     except Exception:  # noqa: BLE001
         logger.exception("Telemetrie: sentry_sdk.init failed — bleibt inaktiv.")
@@ -103,18 +156,15 @@ def capture_exception(
     *,
     context: Optional[dict[str, Any]] = None,
 ) -> None:
-    """No-op wenn Telemetrie inaktiv. Logged exc IMMER lokal."""
+    """No-op wenn Telemetrie inaktiv. Logged exc IMMER lokal.
+
+    H10 C-DSG-03: ``context`` (z. B. Mandats-IDs) bleibt im lokalen Log und
+    geht nicht an den Fehlerdienst."""
     logger.exception("Captured exception: %s", exc, extra={"context": context})
     if not _TELEMETRY_ACTIVE or _SENTRY_SDK is None:
         return
     try:
-        if context:
-            with _SENTRY_SDK.push_scope() as scope:
-                for k, v in context.items():
-                    scope.set_extra(str(k), v)
-                _SENTRY_SDK.capture_exception(exc)
-        else:
-            _SENTRY_SDK.capture_exception(exc)
+        _SENTRY_SDK.capture_exception(exc)
     except Exception:  # noqa: BLE001
         logger.exception("Telemetrie: capture_exception failed.")
 
