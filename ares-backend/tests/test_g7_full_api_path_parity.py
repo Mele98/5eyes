@@ -87,7 +87,7 @@ def _app(allocation: dict, mandate_currency: str) -> dict:
         + "return {n:assetDisplayName(key),c:assetClassColor(key),soll:Number(bucket.target_weight_bps||0)/100,"
         + "chfTarget:Math.round((Number(bucket.target_amount_rappen||0))/100)};});\n"
         + "var items=aaChartAllocItems();var rows=aaChartPrepare(items);var ds=aaChartDonutDatasets(rows,'#FFFFFF');"
-        + "var review={};(strategyState.allocation.buckets||[]).forEach(function(b){review[assetDisplayName(b.asset_class)]=sollPct(b.asset_class,b.target_weight_bps);});"
+        + "var review={};(strategyState.allocation.buckets||[]).forEach(function(b){review[assetDisplayName(b.asset_class)]=sollPct(b.asset_class,b.target_weight_bps,strategyState.allocation.buckets);});"
         + "process.stdout.write(JSON.stringify({rows:rows.map(function(r){return {name:r.name,bps:r.bps,pct:r.pct};}),review:review,"
         + "advisoryText:formatRappen(strategyState.allocation.advisory_wealth_rappen),"
         + "amounts:ds[ds.length-1]._aaAmt,legend:aaChartLegendHtml(items,allocationReserveBreakdown(strategyState.allocation))}));"

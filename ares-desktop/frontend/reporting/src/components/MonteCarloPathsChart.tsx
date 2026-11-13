@@ -43,6 +43,7 @@ import {
   type FanEndKey,
 } from '@/lib/fanAnnotations';
 import { formatChfRappen } from '@/lib/format';
+import { useReportCurrency } from '@/lib/reportCurrency';
 import { classifyGoals, type GoalAchievabilityStatus } from '@/lib/goalClassification';
 
 interface MonteCarloPathsChartProps {
@@ -110,6 +111,7 @@ export function MonteCarloPathsChart({
   goals,
   projectionsHidden = false,
 }: MonteCarloPathsChartProps) {
+  const currency = useReportCurrency(); // N-894-10: Mandatswaehrung des Berichts
   // AA-UX-HONEST-FAN-001: Gate fail-closed -- bei ausgeblendeten Projektionen
   // bzw. veralteter/blockierter Allokation weder Faecher noch Beschriftung.
   if (
@@ -172,7 +174,7 @@ export function MonteCarloPathsChart({
     { length: Math.round(maxValue / yStep) + 1 },
     (_, k) => k * yStep,
   );
-  const formatYTick = makeYTickFormatter(maxValue, yStep);
+  const formatYTick = makeYTickFormatter(maxValue, yStep, currency);
   // X-Achse Ticks: maximal 6 Beschriftungen (sonst ueberfuellt)
   const xTickIndices = _spacedIndices(n, 6);
   const anyGoalAboveScale = goalTargetsInHorizon.some((v) => v > maxValue);
@@ -194,7 +196,7 @@ export function MonteCarloPathsChart({
     HEIGHT - PADDING_BOTTOM,
   );
   const rangeSentence = fan.symmetric
-    ? fanRangeSentence(time_axis[last], fan.outerLo[last] / 100, fan.outerHi[last] / 100)
+    ? fanRangeSentence(time_axis[last], fan.outerLo[last] / 100, fan.outerHi[last] / 100, currency)
     : '';
 
   return (
@@ -385,7 +387,7 @@ export function MonteCarloPathsChart({
                   fill={COLOR_INK_MUTED}
                   style={TABULAR_NUMS}
                 >
-                  {fanAboveScaleText(goal.target_amount_rappen / 100)}
+                  {fanAboveScaleText(goal.target_amount_rappen / 100, currency)}
                 </text>
               ) : null}
             </g>
@@ -622,10 +624,11 @@ export function computeYScale(
 export function makeYTickFormatter(
   maxValueRappen: number,
   stepRappen: number,
+  currency = 'CHF',
 ): (rappen: number) => string {
   const MIO_RAPPEN = 1_000_000 * 100;
   if (maxValueRappen < MIO_RAPPEN) {
-    return (rappen) => formatChfRappen(rappen);
+    return (rappen) => formatChfRappen(rappen, { currency });
   }
   const stepMio = stepRappen / MIO_RAPPEN;
   let decimals = 0;
@@ -636,8 +639,8 @@ export function makeYTickFormatter(
     decimals += 1;
   }
   return (rappen) => {
-    if (rappen === 0) return 'CHF 0';
-    return `CHF ${(rappen / MIO_RAPPEN).toFixed(decimals)} Mio.`;
+    if (rappen === 0) return `${currency} 0`;
+    return `${currency} ${(rappen / MIO_RAPPEN).toFixed(decimals)} Mio.`;
   };
 }
 

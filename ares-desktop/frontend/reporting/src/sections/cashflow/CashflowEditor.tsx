@@ -6,6 +6,7 @@
  * valid_until ist INKLUSIV.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useReportCurrency } from '@/lib/reportCurrency';
 import { ApiError } from '@/api/client';
 import {
   createCashflow,
@@ -140,7 +141,7 @@ export function CashflowEditor({ clientId }: CashflowEditorProps) {
                   <tr key={cf.id} className="border-b border-rule/50">
                     <td className="py-2">{cf.cashflow_type === 'Income' ? 'Einnahme' : 'Ausgabe'}</td>
                     <td className="py-2">{cf.label}</td>
-                    <td className="py-2 text-right">{rappenToChf(cf.amount_rappen)}</td>
+                    <td className="py-2 text-right">{rappenToChf(cf.amount_rappen, cf.currency)}</td>
                     <td className="py-2">{cf.frequency}</td>
                     <td className="py-2">{cf.valid_until ?? '—'}</td>
                     <td className="py-2 text-right">
@@ -229,9 +230,11 @@ interface CashflowFormDrawerProps {
   onSaved: () => void;
 }
 
-function inputFromRecord(rec: CashflowRecord | null): CashflowFormInput {
+// N-894-10: neue Cashflows in Mandatswaehrung, bestehende behalten ihre eigene (wie Classic).
+function inputFromRecord(rec: CashflowRecord | null, currency: string): CashflowFormInput {
   if (!rec) {
     return {
+      currency,
       cashflow_type: 'Expense',
       label: '',
       amountChf: '',
@@ -244,6 +247,7 @@ function inputFromRecord(rec: CashflowRecord | null): CashflowFormInput {
     };
   }
   return {
+    currency: rec.currency || currency,
     cashflow_type: (rec.cashflow_type as CashflowType) ?? 'Expense',
     label: rec.label,
     amountChf: String(rec.amount_rappen / 100),
@@ -263,17 +267,18 @@ function CashflowFormDrawer({
   onClose,
   onSaved,
 }: CashflowFormDrawerProps) {
-  const [form, setForm] = useState<CashflowFormInput>(() => inputFromRecord(editing));
+  const currency = useReportCurrency();
+  const [form, setForm] = useState<CashflowFormInput>(() => inputFromRecord(editing, currency));
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setForm(inputFromRecord(editing));
+      setForm(inputFromRecord(editing, currency));
       setErrors([]);
       setSaving(false);
     }
-  }, [open, editing]);
+  }, [open, editing, currency]);
 
   useEffect(() => {
     if (!open) return;
@@ -373,7 +378,7 @@ function CashflowFormDrawer({
             />
           </label>
           <label className="block text-caption text-ink-muted">
-            Betrag (CHF)
+            Betrag ({form.currency})
             <input
               type="number"
               value={form.amountChf}

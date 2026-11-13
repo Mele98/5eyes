@@ -36,7 +36,9 @@ def make_investitionsansatz_section() -> list:
     return _make_text_section(INVESTITIONSANSATZ_TITLE, INVESTITIONSANSATZ_TEXT)
 
 
-def make_anlageuniversum_section() -> list:
+def make_anlageuniversum_section(currency: str = "CHF") -> list:
+    # N-894-10: Referenzwaehrung = Mandatswaehrung (Dokument reicht ctx.base_currency).
+    ccy = str(currency or "CHF").upper().strip() or "CHF"
     styles = make_paragraph_styles()
     flowables = [_section_heading(ANLAGEUNIVERSUM_TITLE)]
 
@@ -59,7 +61,7 @@ def make_anlageuniversum_section() -> list:
 
     # Outro-Absaetze
     for para in ANLAGEUNIVERSUM_OUTRO:
-        flowables.append(Paragraph(_body_xml(para), styles["body"]))
+        flowables.append(Paragraph(_body_xml(para.replace("{currency}", ccy)), styles["body"]))
 
     return flowables
 

@@ -98,7 +98,7 @@ def build_backtest_flowables(ctx: PDFContext, data: BacktestData) -> list:
         # MC-CONTEXT-001: Soll-Allokation nicht projizierbar -> Hinweis statt
         # Soll-Pfad. Ein gewaehlter Benchmark-Mix ist von der Soll-Allokation
         # unabhaengig und wird als eigenstaendige Historie gezeigt.
-        flowables.extend(_build_hidden_soll_flowables(data, styles))
+        flowables.extend(_build_hidden_soll_flowables(data, styles, ctx.base_currency))
         flowables.append(PageBreak())
         flowables.extend(_build_appendix_flowables(ctx, data, styles, advisory_label))
         return flowables
@@ -109,7 +109,7 @@ def build_backtest_flowables(ctx: PDFContext, data: BacktestData) -> list:
         flowables.append(make_wealth_chart(
             data.soll_wealth_path_rappen,
             data.benchmark_wealth_path_rappen if data.benchmark_wealth_path_rappen else None,
-            height_mm=72.0,
+            height_mm=72.0, currency=ctx.base_currency,
         ))
     else:
         flowables.append(_fallback_text("Kein Wealth-Pfad verfügbar."))
@@ -133,6 +133,7 @@ def build_backtest_flowables(ctx: PDFContext, data: BacktestData) -> list:
         flowables.append(make_backtest_metrics_table(
             data.soll_metrics,
             data.benchmark_metrics if data.benchmark_metrics else None,
+            currency=ctx.base_currency,
         ))
     else:
         flowables.append(_fallback_text("Keine Kennzahlen verfügbar."))
@@ -142,7 +143,7 @@ def build_backtest_flowables(ctx: PDFContext, data: BacktestData) -> list:
     # nach Fee-Adjustierung liegt die Strategie naeher am realen Anlage-
     # ergebnis dran.' Wir rendern fuer SOLL und Benchmark je eine Mini-
     # Tabelle, die brutto vs. netto CAGR + Endwert + Drag aufzeigt.
-    fee_block = _make_fee_comparison_block(data, styles)
+    fee_block = _make_fee_comparison_block(data, styles, ctx.base_currency)
     if fee_block:
         flowables.append(Spacer(1, 4 * mm))
         flowables.append(_section_title("Brutto vs. Netto (Bug-#8b)"))
@@ -153,7 +154,7 @@ def build_backtest_flowables(ctx: PDFContext, data: BacktestData) -> list:
     return flowables
 
 
-def _build_hidden_soll_flowables(data: BacktestData, styles) -> list:
+def _build_hidden_soll_flowables(data: BacktestData, styles, currency: str) -> list:
     flowables: list = [Paragraph(
         f'<font name="{FONT_BOLD}" size="10.5" color="#7f1d1d">'
         f'{_esc(str(data.projection_hidden_hint))}</font>',
@@ -164,7 +165,7 @@ def _build_hidden_soll_flowables(data: BacktestData, styles) -> list:
     flowables.append(_section_title("Benchmark-Historie"))
     flowables.append(make_wealth_chart(
         data.benchmark_wealth_path_rappen, None,
-        height_mm=72.0, primary_label="Benchmark",
+        height_mm=72.0, primary_label="Benchmark", currency=currency,
     ))
     flowables.append(Spacer(1, 3 * mm))
     if data.benchmark_drawdown_path_bps:
@@ -177,7 +178,7 @@ def _build_hidden_soll_flowables(data: BacktestData, styles) -> list:
     if data.benchmark_metrics:
         flowables.append(_section_title("Kennzahlen Benchmark"))
         flowables.append(make_backtest_metrics_table(
-            data.benchmark_metrics, None, primary_label="Benchmark",
+            data.benchmark_metrics, None, primary_label="Benchmark", currency=currency,
         ))
     return flowables
 
@@ -255,12 +256,12 @@ def _fallback_text(text: str):
     )
 
 
-def _make_fee_comparison_block(data, styles) -> list:
+def _make_fee_comparison_block(data, styles, currency: str) -> list:
     """Bug-#8b (2026-06-08): Brutto-vs-Netto-Vergleich.
 
     Rendert NICHTS, wenn weder strategy_fee_bps noch benchmark_fee_bps > 0
     und die gross-Pfade leer sind. Sonst eine kompakte ASCII-Tabelle als
-    Paragraph mit Endwerten und Performance-Drag (CHF p.a. und Gesamt-bps).
+    Paragraph mit Endwerten und Performance-Drag (Mandatswaehrung und Gesamt-bps).
     """
     has_strat_fee = int(getattr(data, "strategy_fee_bps", 0) or 0) > 0
     has_bm_fee = int(getattr(data, "benchmark_fee_bps", 0) or 0) > 0
@@ -274,6 +275,7 @@ def _make_fee_comparison_block(data, styles) -> list:
             fee_bps=int(getattr(data, "strategy_fee_bps", 0) or 0),
             gross_path=getattr(data, "soll_gross_wealth_path_rappen", []),
             net_path=getattr(data, "soll_wealth_path_rappen", []),
+            currency=currency,
         ))
     if has_bm_fee and getattr(data, "benchmark_gross_wealth_path_rappen", None):
         rows.append(_fee_row(
@@ -281,6 +283,7 @@ def _make_fee_comparison_block(data, styles) -> list:
             fee_bps=int(getattr(data, "benchmark_fee_bps", 0) or 0),
             gross_path=getattr(data, "benchmark_gross_wealth_path_rappen", []),
             net_path=getattr(data, "benchmark_wealth_path_rappen", []),
+            currency=currency,
         ))
     if not rows:
         return []
@@ -308,7 +311,7 @@ def _make_fee_comparison_block(data, styles) -> list:
     return [paragraph, Spacer(1, 2 * mm), note]
 
 
-def _fee_row(*, label: str, fee_bps: int, gross_path, net_path) -> str:
+def _fee_row(*, label: str, fee_bps: int, gross_path, net_path, currency: str) -> str:
     gross_end = _path_end_rappen(gross_path)
     net_end = _path_end_rappen(net_path)
     drag_rappen = max(0, gross_end - net_end)
@@ -316,9 +319,9 @@ def _fee_row(*, label: str, fee_bps: int, gross_path, net_path) -> str:
     return (
         f"{_esc(label)} &nbsp;&middot;&nbsp; "
         f"{format_bps_as_pct(fee_bps, decimals=2)} &nbsp;&middot;&nbsp; "
-        f"CHF {_format_thousands(gross_end)} &nbsp;&middot;&nbsp; "
-        f"CHF {_format_thousands(net_end)} &nbsp;&middot;&nbsp; "
-        f"CHF {_format_thousands(drag_rappen)} ({format_pct_value(drag_pct, decimals=1)})"
+        f"{_format_chf(gross_end, currency)} &nbsp;&middot;&nbsp; "
+        f"{_format_chf(net_end, currency)} &nbsp;&middot;&nbsp; "
+        f"{_format_chf(drag_rappen, currency)} ({format_pct_value(drag_pct, decimals=1)})"
     )
 
 

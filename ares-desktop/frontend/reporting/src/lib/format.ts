@@ -26,8 +26,8 @@
 import {
   formatCompactAmount,
   formatDecimal,
-  formatMoneyMinor,
   formatPercentBps,
+  formatStoredAmount,
   formatProbabilityPct,
 } from './presentationRounding.ts';
 
@@ -35,6 +35,8 @@ import {
 // ares-rounding/1, Decimal ROUND_HALF_UP; identisch zu Classic und PDF).
 export const MINUS = '−';
 const SCREEN = { typography: 'screen' as const };
+// N-894-10: Waehrung als Parameter (Bericht: useReportCurrency()); Default nur ohne Kontext.
+const DEFAULT_REPORT_CURRENCY = 'CHF';
 
 /**
  * Eingabe -> Zahl. Akzeptiert ' und ' (U+2019/U+02BC) als Tausendertrennung,
@@ -52,8 +54,8 @@ export function parseNumberInputCH(value: string | null | undefined): number | n
 }
 
 /** Ganze CHF aus Rappen: „CHF 12'345" (gerades Apostroph). */
-export function formatChfFromRappen(rappen: number): string {
-  return formatMoneyMinor(rappen, 'CHF', 2, 0, SCREEN);
+export function formatChfFromRappen(rappen: number, currency: string = DEFAULT_REPORT_CURRENCY): string {
+  return formatStoredAmount(rappen, currency, 0, SCREEN);
 }
 
 /** Zahl mit fester Nachkommastellenzahl, Apostroph-Gruppierung, U+2212. */
@@ -95,19 +97,20 @@ export function fmtChfCompactAmount(chf: number | null | undefined): string {
 }
 
 /** CHF (ganze Franken) kompakt: ab 1 Mio. „CHF 2.85 Mio.", darunter voll. */
-export function fmtChfCompact(chf: number | null | undefined): string {
+export function fmtChfCompact(chf: number | null | undefined, currency: string = DEFAULT_REPORT_CURRENCY): string {
   const amount = fmtChfCompactAmount(chf);
-  return amount === '—' ? amount : `CHF ${amount}`;
+  return amount === '—' ? amount : `${currency} ${amount}`;
 }
 
 export function formatChfRappen(
   rappen: number | null | undefined,
-  options: { withUnit?: boolean } = {},
+  options: { withUnit?: boolean; currency?: string } = {},
 ): string {
   const withUnit = options.withUnit !== false;
+  const currency = options.currency ?? DEFAULT_REPORT_CURRENCY;
   if (rappen === null || rappen === undefined || !Number.isFinite(Number(rappen))) return withUnit ? '—' : '0';
-  const text = formatMoneyMinor(Number(rappen), 'CHF', 2, 0, SCREEN);
-  return withUnit ? text : text.slice('CHF '.length);
+  const text = formatStoredAmount(Number(rappen), currency, 0, SCREEN);
+  return withUnit ? text : text.slice(currency.length + 1);
 }
 
 export function formatBpsAsPct(

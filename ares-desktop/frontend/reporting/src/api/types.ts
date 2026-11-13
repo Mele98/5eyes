@@ -915,6 +915,8 @@ export interface ProjectionGateData {
 export interface AdvisoryReport {
   schema_version: 2;
   mandate_id: string;
+  /** Mandatswaehrung (immer vorhanden; G7 N-894-10: Betragsbeschriftung im Bericht). */
+  mandate_currency?: string;
   /** ISO-Timestamp YYYY-MM-DDTHH:MM:SS.SSSZ */
   generated_at: string;
   /** TAX-01 (Audit-Finding, 2026-10-07): Hinweistext bei Steuerdomizil-Mismatch

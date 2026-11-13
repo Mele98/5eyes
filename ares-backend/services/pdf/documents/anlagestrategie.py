@@ -316,7 +316,7 @@ def build_anlagestrategie_flowables(
     flowables.extend(make_investitionsansatz_section())
     flowables.append(PageBreak())
 
-    flowables.extend(make_anlageuniversum_section())
+    flowables.extend(make_anlageuniversum_section(ctx.base_currency))
     flowables.append(PageBreak())
 
     # ============================================================
@@ -464,7 +464,7 @@ def _build_anlagestrategie_flowables_template_order(
     flowables.append(PageBreak())
 
     # 8 Anlageuniversum
-    flowables.extend(make_anlageuniversum_section())
+    flowables.extend(make_anlageuniversum_section(ctx.base_currency))
     flowables.append(PageBreak())
 
     # 9 Zusammenfassung + Unterschrift
@@ -1018,7 +1018,3 @@ def _fmt_amount(amount: float, currency: str = "CHF") -> str:
     """Legacy-Name fuer test_currency_integration.py."""
     return _format_amount(int(amount), currency)
 
-
-def _fmt_chf(amount: float) -> str:
-    """Backwards-Compat fuer Sprint 5 Tests."""
-    return _format_amount(int(amount), "CHF")

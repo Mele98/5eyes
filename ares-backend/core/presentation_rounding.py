@@ -221,6 +221,15 @@ def display_decimals(currency: str) -> int:
     return CURRENCY_EXPONENTS.get(str(currency or "").upper().strip(), 2)
 
 
+def _is_decimal_literal(text: str) -> bool:
+    """``[+-]?Ziffern(.0*)?`` -- wie die Regex in JS/TS (keine 0x/0b/Exponenten/_)."""
+    t = text.strip()
+    if t[:1] in "+-":
+        t = t[1:]
+    head, dot, tail = t.partition(".")
+    return bool(head) and all(c in _DIGITS for c in head) and (not dot or all(c == "0" for c in tail))
+
+
 def _require_int(value: Any, what: str) -> int:
     """N-894-06: Ganzzahl erzwingen (gleiche Regel in JS/TS): bool, None, nicht
     ganzzahlige Werte -> ValueError."""
@@ -228,6 +237,8 @@ def _require_int(value: Any, what: str) -> int:
         raise ValueError(f"{what}: Ganzzahl erwartet")
     if isinstance(value, int):
         return value
+    if isinstance(value, str) and not _is_decimal_literal(value):
+        raise ValueError(f"{what}: Ganzzahl erwartet, erhalten {value!r}")
     d = to_decimal(value)
     if d is None or (d[2] < 0 and d[1] % 10 ** (-d[2]) != 0):
         raise ValueError(f"{what}: Ganzzahl erwartet, erhalten {value!r}")
@@ -461,7 +472,7 @@ def presentation_amounts(advisory_minor: Any, base_minor: Any, weights: Sequence
     nach Gewicht -- so summieren Klassen exakt auf die Basis und Basis + Reserve
     exakt auf das Beratungsvermoegen. ``labels`` = Engine-Schluessel.
     """
-    adv = max(0, _require_int(advisory_minor or 0, "Beratungsvermoegen"))
+    adv = max(0, _require_int(advisory_minor, "Beratungsvermoegen"))
     base_raw = adv if base_minor is None else max(0, _require_int(base_minor, "Strategiebasis"))
     base = whole_units(min(base_raw, adv), exponent)
     advisory = whole_units(adv, exponent)

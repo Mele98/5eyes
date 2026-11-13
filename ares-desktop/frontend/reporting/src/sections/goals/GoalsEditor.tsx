@@ -13,6 +13,7 @@
  * Eigener Lade-State (idle/loading/ready/error) statt useAdvisoryReport —
  * dies ist ein Editor-Workflow, kein Report-Read-Model.
  */
+import { useReportCurrency } from '@/lib/reportCurrency';
 import { formatBpsAsPct, formatChfFromRappen } from '@/lib/format';
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError } from '@/api/client';
@@ -22,14 +23,14 @@ import { GoalWizard } from './GoalWizard';
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 
-function formatChf(rappen: number | null): string {
+function formatChf(rappen: number | null, currency: string): string {
   if (rappen == null) return '—';
-  return formatChfFromRappen(rappen);
+  return formatChfFromRappen(rappen, currency);
 }
 
-function goalTargetSummary(goal: GoalRecord): string {
-  if (goal.target_amount_rappen != null) return formatChf(goal.target_amount_rappen);
-  if (goal.target_wealth_rappen != null) return formatChf(goal.target_wealth_rappen);
+function goalTargetSummary(goal: GoalRecord, currency: string): string {
+  if (goal.target_amount_rappen != null) return formatChf(goal.target_amount_rappen, currency);
+  if (goal.target_wealth_rappen != null) return formatChf(goal.target_wealth_rappen, currency);
   if (goal.target_return_bps != null) return formatBpsAsPct(goal.target_return_bps, { decimals: 2 });
   if (goal.frequency) return goal.frequency;
   return '—';
@@ -40,6 +41,7 @@ interface GoalsEditorProps {
 }
 
 export function GoalsEditor({ mandateId }: GoalsEditorProps) {
+  const currency = useReportCurrency(); // N-894-10
   const [state, setState] = useState<LoadState>('idle');
   const [goals, setGoals] = useState<GoalRecord[]>([]);
   const [error, setError] = useState<string>('');
@@ -186,7 +188,7 @@ export function GoalsEditor({ mandateId }: GoalsEditorProps) {
                 <td className="py-2">{goal.rank}</td>
                 <td className="py-2">{goal.label}</td>
                 <td className="py-2">{goal.goal_type.replace(/_/g, ' ')}</td>
-                <td className="py-2">{goalTargetSummary(goal)}</td>
+                <td className="py-2">{goalTargetSummary(goal, currency)}</td>
                 <td className="py-2">{goal.hardness}</td>
                 <td className="py-2">
                   <button

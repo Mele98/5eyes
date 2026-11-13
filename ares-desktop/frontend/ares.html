@@ -1775,7 +1775,7 @@ function _wireSollIstHover(){
                     </div>
                   </div>
                   <div class="sbb-field">
-                    <label class="sbb-lbl" for="aa-liquidity-min-reserve"><span class="sbb-ac sbb-ac-liq" aria-hidden="true"></span>Mindestreserve (CHF)</label>
+                    <label class="sbb-lbl" for="aa-liquidity-min-reserve"><span class="sbb-ac sbb-ac-liq" aria-hidden="true"></span>Mindestreserve (<span class="ccy">CHF</span>)</label>
                     <input class="fi sbb-num" id="aa-liquidity-min-reserve" type="text" inputmode="numeric" placeholder="z.B. 50'000">
                     <div class="sbb-derived">Einzige Reserve-Vorgabe. Die Engine hält mindestens diesen Betrag liquid; ein höherer Bedarf aus Cashflows und Zielen geht vor.</div>
                   </div>
@@ -1801,7 +1801,7 @@ function _wireSollIstHover(){
             <div id="dnleg" class="alloc-legend"></div>
             <table id="ch-dn-table" class="sr-only sr-only-table">
               <caption>SOLL-Allokation nach Anlageklassen (Beratungsvermögen)</caption>
-              <thead><tr><th scope="col">Anlageklasse</th><th scope="col">Anteil (%)</th><th scope="col">Betrag (CHF)</th></tr></thead>
+              <thead><tr><th scope="col">Anlageklasse</th><th scope="col">Anteil (%)</th><th scope="col">Betrag (<span class="ccy">CHF</span>)</th></tr></thead>
               <tbody></tbody>
             </table>
             <div class="aa-ctx-card"><div id="alloc-rein-context" class="aa-ctx" style="display:none"></div>
@@ -1945,7 +1945,7 @@ function _wireSollIstHover(){
                       <th style="padding:5px 8px;text-align:left">Szenario</th>
                       <th style="padding:5px 8px;text-align:right">Portfolio-Rendite kumuliert (Krisenjahre)</th>
                       <th style="padding:5px 8px;text-align:right">Max. Drawdown (Portfolio)</th>
-                      <th style="padding:5px 8px;text-align:right">Krisen-Effekt auf End-Vermögen (CHF)</th>
+                      <th style="padding:5px 8px;text-align:right">Krisen-Effekt auf End-Vermögen (<span class="ccy">CHF</span>)</th>
                     </tr>
                   </thead>
                   <tbody></tbody>
@@ -2850,7 +2850,7 @@ function _wireSollIstHover(){
           </select>
         </div>
         <div class="fg">
-          <label class="fl" id="acf-amount-label">Betrag pro Periode (CHF) *</label>
+          <label class="fl" id="acf-amount-label">Betrag pro Periode (<span class="ccy">CHF</span>) *</label>
           <input class="fi" id="acf-amount" type="number" min="0" placeholder="143000">
         </div>
       </div>
@@ -2975,7 +2975,7 @@ function _wireSollIstHover(){
           </select>
         </div>
         <div class="fg">
-          <label class="fl">Betrag (CHF) *</label>
+          <label class="fl">Betrag (<span class="ccy">CHF</span>) *</label>
           <input class="fi" id="awi-amount" type="number" min="0" placeholder="250000">
         </div>
       </div>
@@ -3127,7 +3127,7 @@ function _wireSollIstHover(){
       </div>
       <div class="frow">
         <div class="fg m-acf-field" id="nz-target-amount-field" data-goal-field="target-amount" data-stage6-id="m-acf-target-amount">
-          <label class="fl" id="nz-amount-label">Zielbetrag (CHF) *</label>
+          <label class="fl" id="nz-amount-label">Zielbetrag (<span class="ccy">CHF</span>) *</label>
           <input class="fi" id="nz-amount" type="number" min="0" placeholder="400000" oninput="updateGoalDerivedDiagnostics()">
         </div>
         <div class="fg m-acf-field" id="nz-target-return-field" data-goal-field="target-return-bps" data-stage6-id="m-acf-target-return-bps" style="display:none">
@@ -3242,7 +3242,7 @@ function _wireSollIstHover(){
   </div>
   <div class="frow">
     <div class="fg"><label class="fl">Konto-/Depotnummer</label><input class="fi" id="maw-depot-account" placeholder="z.B. Kto. 12-345678-9"></div>
-    <div class="fg"><label class="fl">Marktwert (CHF)</label><input class="fi" id="maw-depot-value" type="number" placeholder="500000"></div>
+    <div class="fg"><label class="fl">Marktwert (<span class="ccy">CHF</span>)</label><input class="fi" id="maw-depot-value" type="number" placeholder="500000"></div>
   </div>
   <div id="aw-alloc-split" style="padding:10px;background:var(--bg);border-radius:var(--r2);border:1px solid var(--b1);margin-bottom:8px">
     <div style="font-size:9px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--n5);margin-bottom:7px">Anlageklassen-Aufschlüsselung (%)</div>
@@ -3273,7 +3273,7 @@ function _wireSollIstHover(){
         <option value="Geldmarktfonds">Geldmarktfonds</option>
       </select>
     </div>
-    <div class="fg"><label class="fl">Betrag (CHF)</label><input class="fi" id="maw-liq-value" type="number" placeholder="50000"></div>
+    <div class="fg"><label class="fl">Betrag (<span class="ccy">CHF</span>)</label><input class="fi" id="maw-liq-value" type="number" placeholder="50000"></div>
   </div>
   <div class="frow">
     <div class="fg"><label class="fl">Zinssatz (%)</label><input class="fi" id="maw-liq-rate" type="number" step="0.01" placeholder="0.50"></div>
@@ -3296,11 +3296,11 @@ function _wireSollIstHover(){
   </div>
   <div class="frow">
     <div class="fg"><label class="fl">Adresse / Ort</label><input class="fi" id="maw-immo-address" placeholder="Musterstrasse 12, 8001 Zürich"></div>
-    <div class="fg"><label class="fl">Schätzwert (CHF)</label><input class="fi" id="maw-immo-value" type="number" placeholder="1200000"></div>
+    <div class="fg"><label class="fl">Schätzwert (<span class="ccy">CHF</span>)</label><input class="fi" id="maw-immo-value" type="number" placeholder="1200000"></div>
   </div>
   <div class="frow">
     <div class="fg"><label class="fl">Schätzung per</label><input class="fi" id="maw-immo-valuation-date" type="date"></div>
-    <div class="fg"><label class="fl">Jährl. Mietertrag (CHF)</label><input class="fi" id="maw-immo-rent" type="number" placeholder="0"></div>
+    <div class="fg"><label class="fl">Jährl. Mietertrag (<span class="ccy">CHF</span>)</label><input class="fi" id="maw-immo-rent" type="number" placeholder="0"></div>
     <div class="fg"><label class="fl">Miete teuerungsindexiert</label><label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer;padding-top:7px"><input type="checkbox" id="maw-immo-rent-inflation"> Mietertrag wächst mit der Teuerung</label></div>
     <div class="fg"><label class="fl">Wertsteigerung p.a. (%)</label><input class="fi" id="maw-immo-appreciation" type="number" min="0" max="10" step="0.1" placeholder="0"
       title="Wie sich der Immobilienwert in der Vermögensprojektion entwickelt. 0 = bleibt flach (linear im Vermögen, Sockel). >0 = indexiert (steigt jährlich im Wert)."></div>
@@ -3324,7 +3324,7 @@ function _wireSollIstHover(){
   </div>
   <div class="frow">
     <div class="fg"><label class="fl">Institut / Träger</label><input class="fi" id="maw-pension-institution" placeholder="z.B. Hausbank, Pensionskasse, Vorsorgestiftung"></div>
-    <div class="fg"><label class="fl">Guthaben (CHF)</label><input class="fi" id="maw-pension-value" type="number" placeholder="150000"></div>
+    <div class="fg"><label class="fl">Guthaben (<span class="ccy">CHF</span>)</label><input class="fi" id="maw-pension-value" type="number" placeholder="150000"></div>
   </div>
   <div class="frow">
     <div class="fg"><label class="fl">Technischer Zinssatz (%)</label><input class="fi" id="maw-pension-rate" type="number" step="0.01" placeholder="1.00"></div>
@@ -3355,12 +3355,12 @@ function _wireSollIstHover(){
     <div class="fg"><label class="fl">Zins / Rendite p.a. (%, nominal)</label><input class="fi" id="maw-pension-interest" type="number" step="0.01" placeholder="Standard: Konto 0 / Wertschriften 3 / BVG 0"></div>
   </div>
   <div class="frow">
-    <div class="fg"><label class="fl">Kapitalbezugssteuer CHF</label><input class="fi" id="maw-pension-tax-chf" type="number" min="0" placeholder="aus dem Steuerrechner des Kantons"></div>
+    <div class="fg"><label class="fl">Kapitalbezugssteuer <span class="ccy">CHF</span></label><input class="fi" id="maw-pension-tax-chf" type="number" min="0" placeholder="aus dem Steuerrechner des Kantons"></div>
     <div class="fg"><label class="fl">oder Satz %</label><input class="fi" id="maw-pension-tax-pct" type="number" min="0" max="50" step="0.01" placeholder="Default 10 (defensiv)"></div>
   </div>
   <div style="font-size:10px;color:var(--n5);line-height:1.4;margin:-2px 0 6px">Kapitalbezugssteuer aus dem Steuerrechner des Kantons erfassen (CHF-Betrag hat Vorrang vor dem Satz). Leer = defensiv 10 % (3a, Freizügigkeit, BVG-Kapital); 3b-Policen 0 %.</div>
   <div class="frow" id="maw-pension-police-row" style="display:none">
-    <div class="fg"><label class="fl">Garantierter Ablaufwert (CHF)</label><input class="fi" id="maw-pension-maturity-value" type="number" placeholder="80000"></div>
+    <div class="fg"><label class="fl">Garantierter Ablaufwert (<span class="ccy">CHF</span>)</label><input class="fi" id="maw-pension-maturity-value" type="number" placeholder="80000"></div>
     <div class="fg"><label class="fl">Fälligkeit</label><input class="fi" id="maw-pension-maturity-date" type="date"></div>
   </div>
   <div style="font-size:10px;color:var(--n5);line-height:1.4;margin:-2px 0 6px">Vorsorge wird nicht verwaltet, sondern fortgeschrieben (Konto 0 %, Wertschriften 3 %, BVG 0 % – überschreibbar; Police: Guthaben = Rückkaufswert, bei Fälligkeit der vertragliche Ablaufwert). 3a, Freizügigkeit und Policen werden beim Bezug („Verfügbar ab“, sonst Rentenalter) automatisch freies Vermögen. Eine Aufteilung nur erfassen, wenn sie bewusst ins Aktien-/Immobilien-Exposure zählen soll.</div>
@@ -3387,7 +3387,7 @@ function _wireSollIstHover(){
     </div>
   </div>
   <div class="frow">
-    <div class="fg"><label class="fl">Aktueller Wert (CHF)</label><input class="fi" id="maw-alt-value" type="number" placeholder="100000"></div>
+    <div class="fg"><label class="fl">Aktueller Wert (<span class="ccy">CHF</span>)</label><input class="fi" id="maw-alt-value" type="number" placeholder="100000"></div>
     <div class="fg"><label class="fl">Bewertung per</label><input class="fi" id="maw-alt-valuation-date" type="date"></div>
   </div>
   <div class="frow">
@@ -3414,7 +3414,7 @@ function _wireSollIstHover(){
     <div class="fg"><label class="fl">Kreditgeberin</label><input class="fi" id="maw-mortgage-bank" placeholder="z.B. ZKB, UBS, Raiffeisen"></div>
   </div>
   <div class="frow">
-    <div class="fg"><label class="fl">Ausstehender Betrag (CHF)</label><input class="fi" id="maw-mortgage-value" type="number" placeholder="780000"></div>
+    <div class="fg"><label class="fl">Ausstehender Betrag (<span class="ccy">CHF</span>)</label><input class="fi" id="maw-mortgage-value" type="number" placeholder="780000"></div>
     <div class="fg"><label class="fl">Hypothekartyp</label>
         <select class="fsel" id="maw-mortgage-type">
           <option value="Festhypothek">Festhypothek</option><option value="SARON">SARON / variabel</option><option value="Gemischt">Gemischt</option>
@@ -3426,7 +3426,7 @@ function _wireSollIstHover(){
     <div class="fg"><label class="fl">Laufzeit bis</label><input class="fi" id="maw-mortgage-maturity" type="date"></div>
   </div>
   <div class="frow">
-    <div class="fg"><label class="fl">Amortisation p.a. (CHF)</label><input class="fi" id="maw-mortgage-amortization" type="number" placeholder="20000"></div>
+    <div class="fg"><label class="fl">Amortisation p.a. (<span class="ccy">CHF</span>)</label><input class="fi" id="maw-mortgage-amortization" type="number" placeholder="20000"></div>
     <div class="fg"><label class="fl">Amortisationstyp</label>
       <select class="fsel" id="maw-mortgage-amortization-type"><option>Indirekt (Säule 3a)</option><option>Direkt</option><option>Keine</option></select>
     </div>
@@ -3445,7 +3445,7 @@ function _wireSollIstHover(){
 <div id="es-error" style="display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px"></div>
 <div class="mfooter"><button class="btn" onclick="cm('m-es')">Abbrechen</button><button class="btn-p" id="btn-es-save" onclick="saveClientData()">Speichern</button></div></div></div><div class="overlay" id="m-ne"><div class="modal"><div class="mhd"><div class="mtitle">Protokolleintrag</div><button class="mx" onclick="cm('m-ne')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Datum des Gesprächs</label><input class="fi" type="date" value="2026-03-15"></div><div class="fg"><label class="fl">Entscheid</label><select class="fsel"><option>Keine Transaktion</option><option>Kauf</option><option>Verkauf</option><option>Umschichtung</option><option value="">Noch offen – kein Entscheid</option></select></div></div><div class="frow"><div class="fg"><label class="fl">Anlass</label><input class="fi" placeholder="Jahres-Review / Drift / ..."></div></div><div class="frow"><div class="fg"><label class="fl">Gesprächsinhalt / Begründung (Pflicht, min. 30 Zeichen)</label><textarea class="fta" rows="3"></textarea></div></div><div class="frow"><div class="fg"><label class="fl">Uhrzeit des Gesprächs</label><input class="fi" type="time" id="ne-time"></div><div class="fg"><label class="fl">Dauer (Minuten, Pflicht)</label><input class="fi" type="number" min="1" max="600" step="1" id="ne-duration" placeholder="1–600"></div><div class="fg"><label class="fl">Kanal (Pflicht)</label><select class="fsel" id="ne-channel"><option value="">– bitte wählen –</option><option value="persoenlich">Persönlich</option><option value="video">Video</option><option value="telefon">Telefon</option><option value="schriftlich">Schriftlich</option><option value="hybrid">Hybrid</option></select></div></div><div class="frow"><div class="fg"><label class="fl">Themen (Pflicht, ein Thema pro Zeile, je min. 3 Zeichen)</label><textarea class="fta" rows="2" id="ne-topics" placeholder="z. B. Strategic Asset Allocation"></textarea></div></div><div class="frow"><div class="fg"><label style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--n6);cursor:pointer"><input type="checkbox" id="ne-cost">Ex-ante Kosten dem Kunden kommuniziert (FIDLEG-Pflicht).</label></div></div><div id="ne-context" style="display:none;background:var(--warn-lt);border:1px solid var(--b2);border-radius:var(--r);padding:8px;font-size:11px;line-height:1.5;margin-top:4px"></div><input type="hidden" id="ne-entry-type"></div><div class="mfooter"><button class="btn" onclick="cm('m-ne')">Abbrechen</button><button class="btn-p" onclick="cm('m-ne')">Speichern</button></div></div></div><div class="overlay" id="m-esign"><div class="modal"><div class="mhd"><div class="mtitle">Dokument signieren</div><button class="mx" onclick="cm('m-esign')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Unterzeichner</label><div id="esign-signer-role-label" style="font-size:13px;font-weight:600;color:var(--n7)">—</div></div></div><div class="frow"><div class="fg"><label class="fl">Name</label><input class="fi" id="esign-signer-name" placeholder="Vor- und Nachname"></div></div><div class="frow"><div class="fg" style="width:100%"><label class="fl">Unterschrift (mit Maus oder Finger zeichnen)</label><div style="border:1px solid var(--b1);border-radius:var(--r);background:#fff"><canvas id="esign-canvas" width="480" height="160" style="width:100%;height:160px;display:block;cursor:crosshair;touch-action:none"></canvas></div><div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:10px"><span style="font-size:9px;color:var(--n4);line-height:1.5">Elektronische Unterschrift zur Dokumentation im Beratungsdossier — kein qualifiziertes elektronisches Signaturzertifikat.</span><button type="button" class="btn btn-sm" onclick="clearEsignCanvas()">Löschen</button></div></div></div><div id="esign-error" style="display:none;color:var(--neg);font-size:10px;margin-top:6px"></div></div><div class="mfooter"><button class="btn" onclick="cm('m-esign')">Abbrechen</button><button class="btn-p" id="btn-esign-save" onclick="submitEsignSignature()">Signieren</button></div></div></div>
 <div class="overlay" id="m-nt"><div class="modal"><div class="mhd"><div class="mtitle">Trigger definieren</div><button class="mx" onclick="cm('m-nt')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Trigger-Typ</label><select class="fsel"><option>Zeitbasiert</option><option>Bandbreite / Drift</option><option>Event-basiert</option></select></div></div><div class="frow"><div class="fg"><label class="fl">Bezeichnung</label><input class="fi" placeholder="Jahres-Review"></div><div class="fg"><label class="fl">Schwellenwert</label><input class="fi" placeholder="±5% oder 12 Monate"></div></div></div><div class="mfooter"><button class="btn" onclick="cm('m-nt')">Abbrechen</button><button class="btn-p" onclick="cm('m-nt')">Aktivieren</button></div></div></div>
-<div class="overlay" id="m-ap"><div class="modal"><div class="mhd"><div class="mtitle">Bestand zu Empfehlungstitel</div><button class="mx" onclick="cm('m-ap')">✕</button></div><div class="mbody"><div id="ap-empty-state" style="display:none;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px;font-size:11px;color:var(--n6);line-height:1.6">Portfolio-Bestände bauen auf einem vorhandenen Rezept auf. Bitte zuerst die Strategie berechnen und ein aktuelles Anlagerezept laden.</div><div id="ap-form-wrap"><div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;margin-bottom:10px;font-size:10px;line-height:1.6;color:var(--n6)">Hier wird der effektive Depotbestand zum Empfehlungstitel hinterlegt. Wenn ein Bestand vorhanden ist, basiert Live-Drift auf diesem Holding statt auf einer Rekonstruktion aus dem Zielbetrag.</div><div class="frow"><div class="fg"><label class="fl">Empfehlungstitel</label><select class="fsel" id="ap-position-id" onchange="syncPortfolioHoldingSelection()"></select></div></div><div id="ap-product-meta" style="font-size:10px;color:var(--n5);margin:-2px 0 10px"></div><div class="frow"><div class="fg"><label class="fl">Depotbank / Institut</label><input class="fi" id="ap-depot-bank" placeholder="z.B. UBS AG Zürich"></div><div class="fg"><label class="fl">Konto / Depotnummer</label><input class="fi" id="ap-custody-account" placeholder="optional"></div></div><div class="frow"><div class="fg"><label class="fl">Bestand (Stück)</label><input class="fi" id="ap-units" placeholder="z.B. 128.750"></div><div class="fg"><label class="fl">Bestandsmarktwert (CHF)</label><input class="fi" id="ap-market-value" placeholder="optional, z.B. 415'600"></div></div><div class="frow"><div class="fg"><label class="fl">Einstand / Durchschnittskurs (CHF)</label><input class="fi" id="ap-cost-price" placeholder="optional"></div><div class="fg"><label class="fl">Standdatum</label><input class="fi" id="ap-as-of" type="date"></div></div><div class="frow"><div class="fg"><label class="fl">Quelle</label><select class="fsel" id="ap-source"><option value="manual">Manuell</option><option value="custody_import">Custody-Import</option></select></div><div class="fg"><label class="fl">Bewertungsbasis</label><div id="ap-basis-note" style="font-size:10px;color:var(--n5);padding:9px 0">Noch kein Bestand hinterlegt.</div></div></div><div class="frow"><div class="fg"><label class="fl">Notizen</label><textarea class="fta" id="ap-notes" rows="3" placeholder="optional"></textarea></div></div></div><div id="ap-error" style="display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px"></div></div><div class="mfooter"><button class="btn" onclick="cm('m-ap')">Abbrechen</button><button class="btn" id="btn-ap-delete" style="display:none" onclick="deletePortfolioHolding()">Bestand löschen</button><button class="btn-p" id="btn-ap-save" onclick="savePortfolioHolding()">Speichern</button></div></div></div>
+<div class="overlay" id="m-ap"><div class="modal"><div class="mhd"><div class="mtitle">Bestand zu Empfehlungstitel</div><button class="mx" onclick="cm('m-ap')">✕</button></div><div class="mbody"><div id="ap-empty-state" style="display:none;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px;font-size:11px;color:var(--n6);line-height:1.6">Portfolio-Bestände bauen auf einem vorhandenen Rezept auf. Bitte zuerst die Strategie berechnen und ein aktuelles Anlagerezept laden.</div><div id="ap-form-wrap"><div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;margin-bottom:10px;font-size:10px;line-height:1.6;color:var(--n6)">Hier wird der effektive Depotbestand zum Empfehlungstitel hinterlegt. Wenn ein Bestand vorhanden ist, basiert Live-Drift auf diesem Holding statt auf einer Rekonstruktion aus dem Zielbetrag.</div><div class="frow"><div class="fg"><label class="fl">Empfehlungstitel</label><select class="fsel" id="ap-position-id" onchange="syncPortfolioHoldingSelection()"></select></div></div><div id="ap-product-meta" style="font-size:10px;color:var(--n5);margin:-2px 0 10px"></div><div class="frow"><div class="fg"><label class="fl">Depotbank / Institut</label><input class="fi" id="ap-depot-bank" placeholder="z.B. UBS AG Zürich"></div><div class="fg"><label class="fl">Konto / Depotnummer</label><input class="fi" id="ap-custody-account" placeholder="optional"></div></div><div class="frow"><div class="fg"><label class="fl">Bestand (Stück)</label><input class="fi" id="ap-units" placeholder="z.B. 128.750"></div><div class="fg"><label class="fl">Bestandsmarktwert (<span class="ccy">CHF</span>)</label><input class="fi" id="ap-market-value" placeholder="optional, z.B. 415'600"></div></div><div class="frow"><div class="fg"><label class="fl">Einstand / Durchschnittskurs (<span class="ccy">CHF</span>)</label><input class="fi" id="ap-cost-price" placeholder="optional"></div><div class="fg"><label class="fl">Standdatum</label><input class="fi" id="ap-as-of" type="date"></div></div><div class="frow"><div class="fg"><label class="fl">Quelle</label><select class="fsel" id="ap-source"><option value="manual">Manuell</option><option value="custody_import">Custody-Import</option></select></div><div class="fg"><label class="fl">Bewertungsbasis</label><div id="ap-basis-note" style="font-size:10px;color:var(--n5);padding:9px 0">Noch kein Bestand hinterlegt.</div></div></div><div class="frow"><div class="fg"><label class="fl">Notizen</label><textarea class="fta" id="ap-notes" rows="3" placeholder="optional"></textarea></div></div></div><div id="ap-error" style="display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px"></div></div><div class="mfooter"><button class="btn" onclick="cm('m-ap')">Abbrechen</button><button class="btn" id="btn-ap-delete" style="display:none" onclick="deletePortfolioHolding()">Bestand löschen</button><button class="btn-p" id="btn-ap-save" onclick="savePortfolioHolding()">Speichern</button></div></div></div>
 <div class="overlay" id="m-ums"><div class="modal"><div class="mhd"><div class="mtitle">Anlagerezept für Kunde</div><button class="mx" onclick="cm('m-ums')">✕</button></div><div class="mbody"><div style="background:var(--n0);border:1px solid rgba(29,78,216,0.2);border-radius:var(--r);padding:10px;margin-bottom:10px;font-size:11px;line-height:1.6">Basierend auf Soll-Allokation: Anlageprodukte werden aus dem Anlageuniversum gesucht und ein Bericht erstellt. Erst nach Bestätigung wird der Bericht an die Depotbank übermittelt.</div><div class="frow"><div class="fg"><label class="fl">Depotbank für Umsetzung</label><select class="fsel" id="recipe-depot-bank"><option>UBS AG Zürich</option><option>ZKB</option></select></div></div><div id="recipe-status" style="font-size:10px;color:var(--n4);margin-top:4px">Vor dem Druck wird das aktuelle Rezept live neu aufgebaut.</div></div><div class="mfooter"><button class="btn" onclick="cm('m-ums')">Abbrechen</button><button class="btn-p" onclick="confirmImplementationRecipe()">Umsetzung bestätigen</button></div></div></div>
 <div class="overlay" id="m-rp-print"><div class="modal"><div class="mhd"><div class="mtitle">Risikoprofil PDF</div><button class="mx" onclick="cm('m-rp-print')">✕</button></div><div class="mbody"><div style="font-size:11px;color:var(--n6);line-height:1.7">Das Risikoprofil-Dokument (FINMA Eignungspruefung) wird als PDF generiert und enthält alle Antworten, die Auswertung sowie die Unterschriftszeile für Kunde und Berater.</div></div><div class="mfooter"><button class="btn" onclick="cm('m-rp-print')">Abbrechen</button><button class="btn-p" onclick="cm('m-rp-print');downloadServerPdf('risikoprofil')" title="FINMA-konformes PDF erstellen">PDF erstellen</button></div></div></div>
 
@@ -4156,7 +4156,7 @@ async function loadClientById(clientId) {
       if (wealthRes.status === 'fulfilled' && wealthRes.value) {
         const w = wealthRes.value;
         currentWealthSummary = clientScopedSummary((w||{}), c.id);
-        const fmtK = v => 'CHF ' + fmtNumber(Number(v)||0,0);
+        const fmtK = v => fmtCHF(Number(v)||0);
         const kRV = document.getElementById('kpi-reinvermoegen');
         if (kRV) kRV.textContent = fmtK(w.net_worth_chf);
         const kBV = document.getElementById('kpi-beratungsvermoegen');
@@ -4167,9 +4167,9 @@ async function loadClientById(clientId) {
         // des VORIGEN Klienten sichtbar (staler, plausibel wirkender Wert).
         currentWealthSummary = null;
         const kRV0 = document.getElementById('kpi-reinvermoegen');
-        if (kRV0) kRV0.textContent = 'CHF —';
+        if (kRV0) kRV0.textContent = appCurrency()+' —';
         const kBV0 = document.getElementById('kpi-beratungsvermoegen');
-        if (kBV0) kBV0.textContent = 'CHF —';
+        if (kBV0) kBV0.textContent = appCurrency()+' —';
       }
       currentCashflowSummary = cashflowRes.status === 'fulfilled' && cashflowRes.value
         ? clientScopedSummary((cashflowRes.value||{}), c.id)
@@ -4183,7 +4183,7 @@ async function loadClientById(clientId) {
       if (cashflowRes.status === 'fulfilled' && cashflowRes.value) {
         const cf = cashflowRes.value;
         const kCF = document.getElementById('kpi-cashflow');
-        if (kCF) kCF.textContent = 'CHF ' + fmtNumber(cf.surplus_chf,0);
+        if (kCF) kCF.textContent = fmtCHF(cf.surplus_chf);
       }
       // 2026-06-17: Cashflow-Liste SOFORT rendern — unabhaengig von der langsameren
       // Risiko-/Strategie-Hydration darunter (und vor deren stale-guard). Sonst blieb
@@ -4506,6 +4506,7 @@ async function go(p,b){
   if(p==='ub')p='cf';
   if(p==='sr')p='rv';
   if(!(await ensureRiskProfileBeforeAllocationNavigation(p)))return;
+  if(typeof syncCcy==="function")syncCcy();
   Object.keys(pages).forEach(k=>{const el=document.getElementById('page-'+k);if(el)el.classList.remove('active');});
   const pg=document.getElementById('page-'+p);if(pg)pg.classList.add('active');
   const idx=pages[p];
@@ -5024,6 +5025,7 @@ if(projectionStats.children[2]&&projectionStats.children[2].children&&projection
 // MODALS
 function om(id){
   if(id&&prepareModalBeforeOpen(id)===false)return;
+  if(typeof syncCcy==="function")syncCcy();
   const el=document.getElementById(id);
   if(el)el.classList.add('open');
 }
@@ -7185,7 +7187,7 @@ function renderEngineRuntimePanels(result){
   simEvents.innerHTML=buildSimulationEventsHtml(sim);
   mcSummary.innerHTML=buildMonteCarloSummaryHtml(mc);
   mcGoals.innerHTML=buildMonteCarloGoalsHtml(mc);
-  suballoc.innerHTML=renderSubAllocationGroups(result.sub_allocations||[]);
+  suballoc.innerHTML=renderSubAllocationGroups(result.sub_allocations||[],result.buckets||[]);
   blocks.innerHTML=buildBuildingBlockReferenceHtml(Array.isArray(strategyState.buildingBlocks)?strategyState.buildingBlocks:[]);
 }
 
@@ -8001,7 +8003,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
       +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:11px 12px"><div style="font-size:8px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Produkte</div><div style="font-size:18px;font-weight:700;color:#0f172a">'+String(portfolioPositions.length)+'</div></div>'
       +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:11px 12px"><div style="font-size:8px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Zielvolumen</div><div style="font-size:16px;font-weight:700;color:#0f172a">'+escapeHtml(formatRappen(totalPortfolioRappen))+'</div></div>'
       +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:11px 12px"><div style="font-size:8px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Gewichtete TER</div><div style="font-size:18px;font-weight:700;color:#0f172a">'+fmtPct(weightedTerBps,2)+'</div></div>'
-      +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:11px 12px"><div style="font-size:8px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Währungen</div><div style="font-size:16px;font-weight:700;color:#0f172a">'+escapeHtml(Object.keys(currencyMap).join(', ')||'CHF')+'</div></div>'
+      +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:11px 12px"><div style="font-size:8px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Währungen</div><div style="font-size:16px;font-weight:700;color:#0f172a">'+escapeHtml(Object.keys(currencyMap).join(', ')||appCurrency())+'</div></div>'
       +'</div>'
       +'<div style="font-size:9px;color:#64748b;line-height:1.55;margin-bottom:8px">Das Portfolio ist die konkrete Umsetzung der Soll-Allokation in Produktbausteine. Detailbestände und spätere Live-Drift werden im Review nachgeführt.</div>'
       +groupHtml
@@ -8129,7 +8131,7 @@ function openPortfolioUmsetzenModal(){
     var totalAdvisoryRappen=Math.round(Number(alloc.advisory_wealth_rappen||0));
     var rowsHtml=(alloc.buckets||[]).map(function(b){
       var label=ENGINE_LABELS[String(b.asset_class||'')]||String(b.asset_class||'');
-      var pct=sollPct(b.asset_class,b.target_weight_bps);
+      var pct=sollPct(b.asset_class,b.target_weight_bps,alloc.buckets);
       var targetRappen=Number(b.target_amount_rappen!=null?b.target_amount_rappen:Math.round(totalAdvisoryRappen*Number(b.target_weight_bps||0)/10000));
       var bandInfo=(b.band_min_bps!=null&&b.band_max_bps!=null)
         ?'Band: '+formatBpsPercent(b.band_min_bps)+'–'+formatBpsPercent(b.band_max_bps)
@@ -12261,7 +12263,7 @@ async function adminPolicyActivate(){
 // Sprint U-P14 (2026-05-20): Depot-Check Frontend
 // ====================================================================
 function dcFmtPct(bps){ return fmtPct(Number(bps||0),1); }
-function dcFmtCHF(rappen){ return fmtLocaleCH((Number(rappen||0)/100),{maximumFractionDigits: 0}) + ' CHF'; }
+function dcFmtCHF(rappen){ return formatRappen(rappen); }
 // AA-UX-COLORS-001: Klassen-Tokens (CSS-Variablen, folgen dem Theme). Die
 // generische Reihe (Waehrungen/Regionen) nutzt dieselben Tokens plus Gold-/
 // Navy-Toene -- bewusst ohne Gruen (Gruen = "besser als IST") und ohne Rot.
@@ -13222,7 +13224,7 @@ function abRenderWarnings(warnings){
 
 var BT_LAST_RESULT = null;  // letztes Backtest-Resultat (für Re-Render bei Toggle)
 
-function btFormatCHF(rappen){ return fmtLocaleCH((Number(rappen||0)/100),{maximumFractionDigits: 0}) + ' CHF'; }
+function btFormatCHF(rappen){ return formatRappen(rappen); }
 function btFormatPctBps(bps, decimals){ return fmtPct(Number(bps||0), decimals==null?1:decimals); }
 function btSignedPctBps(bps, decimals){ return fmtSignedPct(Number(bps||0), decimals==null?1:decimals); }
 
@@ -13665,7 +13667,7 @@ function btRender(data){
   }
 
   btRenderLineChart(document.getElementById('bt-wealth-chart'), wealthSeries, {
-    height: 240, yFormat: function(v){ return btFormatCHF(v).replace(' CHF',''); },
+    height: 240, yFormat: function(v){ return fmtNumber(Number(v||0)/100,0); },
     yMin: null, yMax: null,
     tipFormat: function(v){ return btFormatCHF(v); },
     tipDeltaFormat: function(diff, base){ var pct = base ? (diff/base*100) : 0; return fmtSignedPct(pct*100, 1); },
@@ -16295,7 +16297,7 @@ function showNewClientScreen(firstName, lastName, mType, meta) {
   // Tabak exclude, minReserve 250'000 statt none/neutral/leer).
   syncAllocationPreferences();
 
-  document.querySelectorAll('.kpir .kv').forEach(function(el){el.textContent='CHF \u2014';});
+  document.querySelectorAll('.kpir .kv').forEach(function(el){el.textContent=appCurrency()+' \u2014';});
   document.querySelectorAll('.kpir .ks').forEach(function(el){el.textContent='\u2014';});
 
   var av = document.getElementById('asset-view');
@@ -16991,6 +16993,7 @@ var liveClientLoadToken=0;
   }
   function resetWealthEditor(defaultCategory){
     currentWealthEditId=null;
+    if(typeof syncCcy==="function")syncCcy();
     var cat=defaultCategory||'Depot';
     [
       'maw-depot-label','maw-depot-bank','maw-depot-account','maw-depot-value',
@@ -17119,7 +17122,7 @@ var liveClientLoadToken=0;
     var err=document.getElementById('maw-error');
     if(err){err.style.display='none';err.textContent='';}
     var modal=document.getElementById('m-aw');
-    if(modal)modal.classList.add('open');
+    if(modal){syncCcy(pos.currency,modal);modal.classList.add('open');}
   }
   function deleteWealthPositionById(positionId){
     currentWealthEditId=positionId||null;
@@ -17373,7 +17376,7 @@ function resetAdvisoryLogModal(){
     if (driftInfo) {
       if (bucket) {
         var currentPct = fmtPct(bucket.current_weight_bps, 1);
-        var targetPct  = sollPct(bucket.asset_class, bucket.target_weight_bps);
+        var targetPct  = sollPct(bucket.asset_class, bucket.target_weight_bps, live.bucket_drifts);
         var bandMaxPct = fmtPct(bucket.band_max_bps, 1);
         var driftPp    = fmtNumber(Math.abs(bucket.delta_weight_bps) / 100, 1);
         var rebalChf   = bucket.rebalance_amount_rappen ? formatRappen(bucket.rebalance_amount_rappen) : null;
@@ -17490,7 +17493,7 @@ function resetAdvisoryLogModal(){
     var advisoryNote=AresRounding.formatPercent(advisoryPct||0,0,{typography:'screen'})+' des Bruttovermögens · '+String(Number(meta&&meta.advisoryCount||0))+' Position(en)';
     var otherNote=AresRounding.formatPercent(otherPct||0,0,{typography:'screen'})+' ausserhalb Beratung · '+String(Number(meta&&meta.otherCount||0))+' Position(en)';
     var liabilityNote=AresRounding.formatPercent(grossChf?wealthSharePercent(liabilitiesChf,grossChf):0,0,{typography:'screen'})+' Abzug · '+String(Number(meta&&meta.liabilityCount||0))+' Verbindlichkeit(en)';
-    var liabilityValue=liabilitiesChf?('−'+fmtCHF(liabilitiesChf)):'CHF 0';
+    var liabilityValue=liabilitiesChf?('−'+fmtCHF(liabilitiesChf)):fmtCHF(0);
     var summaryHtml='<div data-wealth-split="1" style="margin-bottom:14px;padding:12px;border:1px solid var(--b1);border-radius:var(--r2);background:linear-gradient(135deg,#fbfcff 0%,#f4f6fb 100%)">'
       + '<div style="display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,0.85fr);gap:12px;align-items:stretch">'
         + '<div style="padding:12px 14px;border-radius:var(--r2);background:linear-gradient(135deg,var(--n8) 0%,#273548 100%);color:#fff;display:flex;flex-direction:column;justify-content:space-between">'
@@ -18780,7 +18783,8 @@ function formatProbabilityPct(value){
   return fmtProbPct(Math.max(0,Math.round(Number(value||0))));
 }
 // G7 N-894-02/05: Soll-Anteil apportioniert; Waehrung aus dem Mandat.
-function sollPct(cls,bps){var a=typeof strategyState!=='undefined'&&strategyState&&strategyState.allocation,m=AresRounding.bucketPctMap(a&&a.buckets,{typography:'screen'}),k=String(cls||'');return m[k]||m[AresRounding.assetClassKey(k)]||formatBpsPercent(bps);}
+function sollPct(cls,bps,buckets){var m=AresRounding.bucketPctMap(buckets,{typography:'screen'}),k=String(cls||'');return m[k]||m[AresRounding.assetClassKey(k)]||(Number(bps)>0?'—':fmtPct(0,1));}
+function syncCcy(c,root){c=c||appCurrency();(root||document).querySelectorAll('.ccy').forEach(function(e){e.textContent=c;});}
 function appCurrency(){return typeof aaChartCurrency==='function'?aaChartCurrency():'CHF';}
 function formatRappen(rappen){
   return AresRounding.formatStoredAmount(Number(rappen)||0,appCurrency(),0,{typography:'screen'});
@@ -18867,14 +18871,14 @@ function fanGoalProbability(canonical,simulationPct){
 }
 function fanAboveScaleText(targetChf){
   if(!_fanFinite(targetChf))return '';
-  return '▲ CHF '+formatCompactCHFAmount(targetChf)+' über Skala';
+  return '▲ '+appCurrency()+' '+formatCompactCHFAmount(targetChf)+' über Skala';
 }
 function fanRangeSentence(year,p10Chf,p90Chf){
   var y=String(year==null?'':year).trim();
   if(!y||!_fanFinite(p10Chf)||!_fanFinite(p90Chf)||p10Chf>p90Chf)return '';
   var lo=formatCompactCHFAmount(p10Chf), hi=formatCompactCHFAmount(p90Chf), MIO=' Mio.';
   var isMio=function(t){return t.length>=MIO.length&&t.slice(-MIO.length)===MIO;};
-  var range=(isMio(lo)&&isMio(hi))?('CHF '+lo.slice(0,-MIO.length)+' und '+hi):('CHF '+lo+' und CHF '+hi);
+  var c=appCurrency(),range=(isMio(lo)&&isMio(hi))?(c+' '+lo.slice(0,-MIO.length)+' und '+hi):(c+' '+lo+' und '+c+' '+hi);
   return 'In 8 von 10 Verläufen liegt Ihr Vermögen '+y+' zwischen '+range+(range.slice(-1)==='.'?'':'.');
 }
 function fanSpreadLabelYs(ys,gap,top,bottom){
@@ -18893,7 +18897,7 @@ function fanSpreadLabelYs(ys,gap,top,bottom){
 function donutCenterValueHtml(total){
   var t=Number(total||0);
   if(!isFinite(t)||t<=0)return '—';
-  return 'CHF<br>'+formatCompactCHFAmount(t);
+  return appCurrency()+'<br>'+formatCompactCHFAmount(t);
 }
 function projectionContributionAt(contributionInput,index){
   if(Array.isArray(contributionInput)){
@@ -19596,15 +19600,6 @@ function renderCurrentWealthOnlyProjectionSummary(projection){
   }
   if(note)note.textContent='Bis '+horizonLabel+' zeigt diese Seite die Ist-Situation des Gesamtvermoegens aus heutigem Mix, laufenden Cashflows und separat beruecksichtigten Kapitalereignissen. Die verbesserte Situation erscheint, sobald die Soll-Allokation des Beratungsvermoegens berechnet ist.';
   if(note)note.textContent='Bis '+horizonLabel+' zeigt diese Seite die Ist-Situation des Gesamtvermoegens aus heutigem Mix, laufenden Cashflows und separat beruecksichtigten Kapitalereignissen. Die verbesserte Situation uebernimmt nur die optimierte Soll-Allokation auf dem Beratungsvermoegen; der holistische Rest bleibt unveraendert.';
-  var overviewKpi=document.getElementById('kpi-card-projection');
-  if(overviewKpi){
-    var label=overviewKpi.querySelector('.kl');
-    var value=overviewKpi.querySelector('.kv');
-    var sub=overviewKpi.querySelector('.ks');
-    if(label)label.innerHTML='Strategie-Mehrwert '+horizonLabel+' <span style="font-size:8px;color:var(--n3)">↗</span>';
-    if(value)value.textContent='—';
-    if(sub)sub.innerHTML='<span class="a">Erscheint nach Strategie-Berechnung</span>';
-  }
 }
 function simulationPayload(result){
   return result&&result.simulation&&Array.isArray(result.simulation.target_mix_series_rappen)?result.simulation:null;
@@ -19640,8 +19635,6 @@ function renderOverviewProjectionSummary(config){
   var currentAnnualNetCashflowRappen=Number(config&&config.currentAnnualNetCashflowRappen||0);
   var currentMixReturnBps=Number(config&&config.currentMixReturnBps||0);
   var horizonLabel=String(config&&config.horizonLabel||'Horizontende');
-  var deltaChf=(targetProjectedRappen-currentProjectedRappen)/100;
-  var tone=deltaChf>=0?'var(--pos)':'var(--warn)';
   setText('ub-ist-terminal',formatCompactCHF(currentProjectedRappen/100));
   setText('ub-opt-terminal',formatCompactCHF(targetProjectedRappen/100));
   setText('ub-cagr-ist',fmtPct((currentMixReturnBps||currentCagrBps||0),1));
@@ -19653,15 +19646,6 @@ function renderOverviewProjectionSummary(config){
     note.style.background='var(--bg)';
     note.style.borderColor='rgba(90,104,120,0.12)';
     note.textContent='Bis '+horizonLabel+' zeigt diese Seite die Ist-Situation des Gesamtvermögens aus heutigem Mix und künftigen Netto-Cashflows. Die verbesserte Situation übernimmt nur die optimierte Soll-Allokation auf dem Beratungsvermögen; der holistische Rest bleibt unverändert.';
-  }
-  var overviewKpi=document.getElementById('kpi-card-projection');
-  if(overviewKpi){
-    var label=overviewKpi.querySelector('.kl');
-    var value=overviewKpi.querySelector('.kv');
-    var sub=overviewKpi.querySelector('.ks');
-    if(label)label.innerHTML='Strategie-Mehrwert '+horizonLabel+' <span style="font-size:8px;color:var(--n3)">↗</span>';
-    if(value)value.textContent=(deltaChf>=0?'+':'\u2212')+'CHF '+fmtLocaleCH(Math.abs(deltaChf));
-    if(sub)sub.innerHTML='<span style="color:'+tone+'">'+(deltaChf>=0?'Verbesserte Situation ueber Ist':'Ist liegt ueber Zielpfad')+'</span>';
   }
 }
 function updateAllocationProjectionComparison(config){
@@ -20444,7 +20428,7 @@ function assetDisplayName(name){
   var map={Liquiditaet:'Liquidität',Alternative:'Alternative',Immobilien:'Immobilien',Obligationen:'Obligationen',Aktien:'Aktien'};
   return map[name]||name;
 }
-function renderSubAllocationGroups(items){
+function renderSubAllocationGroups(items,buckets){
   var rows=Array.isArray(items)?items:[];
   if(!rows.length)return '<div style="font-size:10px;color:var(--n4)">Noch keine Subanlageklassen berechnet.</div>';
   var orderedKeys=[];
@@ -20462,7 +20446,7 @@ function renderSubAllocationGroups(items){
     var entries=groups[key]||[];
     var isExpanded=Object.prototype.hasOwnProperty.call(allocationSuballocExpanded,key)?Boolean(allocationSuballocExpanded[key]):true;
     var totalWeight=entries.reduce(function(sum,item){return sum+Number(item.target_weight_bps||0);},0);
-    var _cb=((strategyState.allocation||{}).buckets||[]).filter(function(b){return String(b.asset_class)===key;})[0],_cp=sollPct(key,totalWeight);
+    var _cb=(buckets||[]).filter(function(b){return String(b.asset_class)===key;})[0],_cp=sollPct(key,totalWeight,buckets);
     var _sp=AresRounding.subPctMap(_cp,entries.map(function(it){return {name:it.sub_asset_class,bps:it.target_weight_bps};}),_cb?_cb.target_weight_bps:totalWeight,{typography:'screen'});
     var body=isExpanded?entries.map(function(item){
       var riskValue=item.risky_fraction_bps==null||item.risky_fraction_bps===undefined?'n/a':formatBpsPercent(item.risky_fraction_bps||0);
@@ -21376,7 +21360,7 @@ function renderPortfolioSections(positions){
     portfolioExpandedRows={};
     portfolioTechnicalExpandedRows={};
     // Bug-#5 (2026-06-07): Leerzustand-Zelle in 4-Spalten-Grid (ohne Massnahme).
-    wrap.innerHTML='<div class="ps"><div class="prow"><div class="prow-main" style="cursor:default"><div><div class="pname">Noch keine Produktempfehlungen</div><div class="pdet">Bitte Strategie berechnen.</div></div><div class="pclass"><span class="tag tn">Leer</span></div><div class="pval">CHF 0</div><div class="pval">0%</div></div></div></div>';
+    wrap.innerHTML='<div class="ps"><div class="prow"><div class="prow-main" style="cursor:default"><div><div class="pname">Noch keine Produktempfehlungen</div><div class="pdet">Bitte Strategie berechnen.</div></div><div class="pclass"><span class="tag tn">Leer</span></div><div class="pval">'+escapeHtml(formatRappen(0))+'</div><div class="pval">0%</div></div></div></div>';
     return;
   }
   var totalPortfolio=items.reduce(function(sum,row){return sum+portfolioMarketValueRappen(row);},0);
@@ -21532,7 +21516,7 @@ function renderStrategySummary(){
   if(bars){
     bars.innerHTML=(allocation.buckets||[]).map(function(bucket){
       var pct=Math.max(0,Math.min(100,Math.round(Number(bucket.target_weight_bps||0)/100)));
-      return '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:10px;width:90px;color:var(--n6)">'+escapeHtml(assetDisplayName(bucket.asset_class))+'</span><div style="flex:1;height:6px;background:var(--bg2);border-radius:3px"><div style="width:'+pct+'%;height:100%;background:var(--n5);border-radius:3px"></div></div><span style="font-size:10px;font-weight:500;color:var(--n7);width:40px;text-align:right">'+sollPct(bucket.asset_class,bucket.target_weight_bps)+'</span></div>';
+      return '<div style="display:flex;align-items:center;gap:6px"><span style="font-size:10px;width:90px;color:var(--n6)">'+escapeHtml(assetDisplayName(bucket.asset_class))+'</span><div style="flex:1;height:6px;background:var(--bg2);border-radius:3px"><div style="width:'+pct+'%;height:100%;background:var(--n5);border-radius:3px"></div></div><span style="font-size:10px;font-weight:500;color:var(--n7);width:40px;text-align:right">'+sollPct(bucket.asset_class,bucket.target_weight_bps,allocation.buckets)+'</span></div>';
     }).join('');
   }
   var goals=document.getElementById('sr-goal-priority-list');
@@ -21582,7 +21566,7 @@ function renderSrImplementationDecision(entry){
         cards.push('<div style="border:1px solid var(--b1);border-radius:var(--r2);padding:10px">'
           +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px"><div style="width:20px;height:20px;border-radius:50%;background:'+item.meta.tone+';color:#fff;font-size:10px;font-weight:600;display:flex;align-items:center;justify-content:center">'+String(idx+1)+'</div><span style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(verb)+'</span></div>'
           +'<div style="font-size:10px;color:var(--n8);font-weight:500;margin-bottom:3px">'+escapeHtml(item.assetClass)+'</div>'
-          +'<div style="font-size:10px;color:var(--n6)">IST '+escapeHtml(formatBpsPercent(item.currentWeightBps))+' → SOLL '+escapeHtml(sollPct(item.assetClass,item.targetWeightBps))+' · Delta '+escapeHtml(formatSignedBpsPercent(item.deltaWeightBps))+'</div>'
+          +'<div style="font-size:10px;color:var(--n6)">'+escapeHtml(AresRounding.istSollText(reviewStrategyComparisonRows(allocation),item.assetKey,{typography:'screen'}))+'</div>'
           +'<div style="margin-top:5px"><span class="tag '+item.meta.tagClass+'">'+escapeHtml(item.meta.label)+'</span></div>'
           +'</div>');
       } else {
@@ -21657,7 +21641,7 @@ if(cashflow&&cashflow.recurring_net_rappen!=null)goalSubParts.push('Laufend '+fo
         +'<div style="width:8px;height:8px;border-radius:2px;background:'+color+';flex-shrink:0"></div>'
         +'<span style="font-size:10px;color:var(--n6)">'+escapeHtml(assetDisplayName(bucket.asset_class))+'</span>'
         +'<div style="height:7px;background:var(--bg2);border-radius:3px"><div style="width:'+pct+'%;height:100%;background:'+color+';border-radius:3px;opacity:0.85"></div></div>'
-        +'<span style="font-size:10px;font-weight:600;color:var(--n7);text-align:right">'+sollPct(bucket.asset_class,bucket.target_weight_bps)+'</span>'
+        +'<span style="font-size:10px;font-weight:600;color:var(--n7);text-align:right">'+sollPct(bucket.asset_class,bucket.target_weight_bps,activeAllocation.buckets)+'</span>'
         +'<span style="font-size:10px;color:var(--n5);text-align:right">'+escapeHtml(targetValue)+'</span>'
         +'</div>';
     }).join('');
@@ -21811,7 +21795,6 @@ function applyAllocationEngineResult(result){
   var advisoryCurrentAnnualNetRappen=advisoryBaselineProjection.annualNetCashflowRappen;
   var advisoryCurrentMixReturnBps=advisoryBaselineProjection.expectedReturnBps;
   var advisoryCagrBps=sim?simulationCagrBps(sim.target_mix_series_rappen):Number(result.expected_return_bps||0);
-  var deltaChf=Math.round((advisoryProjectedRappen-advisoryCurrentProjectedRappen)/100);
   setText('aa-proj-wealth',formatCompactCHF(advisoryProjectedRappen/100));
   var aaProjValue=document.getElementById('aa-proj-wealth');
   if(aaProjValue&&aaProjValue.previousElementSibling){
@@ -23012,8 +22995,9 @@ function cashflowOneOffDateLabel(value,precision){
   return formatDateSwiss(raw);
 }
 function cashflowAmountLabel(freq,cashflowType,category){
-  if(isCapitalWithdrawalCashflow(cashflowType,category,freq))return 'Nettozufluss (CHF) *';
-  return isOneOffCashflow(freq)?'Betrag (CHF) *':'Betrag pro Periode (CHF) *';
+  var e=currentCashflowEditId&&currentCashflows.find(function(i){return i&&String(i.id||'')===String(currentCashflowEditId);}),c=' ('+((e&&e.currency)||appCurrency())+') *';
+  if(isCapitalWithdrawalCashflow(cashflowType,category,freq))return 'Nettozufluss'+c;
+  return (isOneOffCashflow(freq)?'Betrag':'Betrag pro Periode')+c;
 }
 function cashflowTimingLabel(cashflow){
   var start=normalizeCashflowDateValue(cashflow&&cashflow.valid_from);
@@ -23835,7 +23819,7 @@ async function saveCashflow(){
       var row=document.createElement('div');row.className='cf-row';row.dataset.cfid='local-'+Date.now();
       var detailLabel=cashflowTimingLabel({frequency:payload.frequency,valid_from:validFrom,valid_until:validUntil,timing_precision:payload.timing_precision,notes:cat,gross_amount_rappen:payload.gross_amount_rappen,tax_amount_rappen:payload.tax_amount_rappen});
       row.innerHTML='<div class="cfn"><div class="cfna">'+escapeHtml(label)+'</div><div class="cfnd">'+escapeHtml(detailLabel)+' (Demo)</div></div>'+
-        '<div class="cfa '+(isInc?'ci':'co')+'">'+(isInc?'+':'−')+'CHF '+fmtLocaleCH(parseFloat(amount))+'</div>'+
+        '<div class="cfa '+(isInc?'ci':'co')+'">'+(isInc?'+':'−')+fmtCHF(parseFloat(amount))+'</div>'+
         '<div><button class="btn-ico" onclick="dcf(this)">&#10005;</button></div>';
       var tot=rows.querySelector('.cft');if(tot)rows.insertBefore(row,tot);else rows.appendChild(row);
       setupCashflowDragList(isInc?'zufluss-rows':'abfluss-rows',isInc?'Income':'Expense');
@@ -24109,7 +24093,7 @@ function buildWealthInflowMarkers(labels){
     if(idx<0)return;
     var nm=String(inflow.label||inflowSourceLabel(inflow.source_type)||'Zufluss');
     if(inflow.certainty==='unsicher')nm+=' – unsicher, nicht eingerechnet';
-    markers.push({index:idx,year:inflow.expected_year,label:nm+' (CHF '+fmtR(inflow.amount_rappen)+')',shortLabel:inflowSourceLabel(inflow.source_type),type:'inflow'});
+    markers.push({index:idx,year:inflow.expected_year,label:nm+' ('+appCurrency()+' '+fmtR(inflow.amount_rappen)+')',shortLabel:inflowSourceLabel(inflow.source_type),type:'inflow'});
   });
   return markers;
 }
@@ -24710,7 +24694,7 @@ async function refreshWealthUI(cid){
     if(summaryRes.status==='fulfilled'&&summaryRes.value){
       var d=summaryRes.value;
       currentWealthSummary=clientScopedSummary((d||{}),cid);
-      var fmt=function(v){return 'CHF '+fmtNumber(v,0);};
+      var fmt=function(v){return fmtCHF(v);};
       var k=document.getElementById('kpi-reinvermoegen');
       if(k)k.textContent=fmt(d.net_worth_chf||0);
       var k2=document.getElementById('kpi-beratungsvermoegen');
@@ -24752,9 +24736,9 @@ function getDecisionChoiceMeta(choice, bucket) {
   var rebalRoundedChf = rebalAmtChf ? Math.round(rebalAmtChf / 5000) * 5000 : null;
   var fmtChf = function(v) {
     if (v == null) return null;
-    if (v >= 1000000) return 'CHF ' + formatCompactCHFAmount(v);
-    if (v >= 1000)    return 'CHF ' + fmtNumber(v/1000,0) + 'k';
-    return 'CHF ' + fmtNumber(v,0);
+    if (v >= 1000000) return appCurrency()+' ' + formatCompactCHFAmount(v);
+    if (v >= 1000)    return appCurrency()+' ' + fmtNumber(v/1000,0) + 'k';
+    return appCurrency()+' ' + fmtNumber(v,0);
   };
   var map = {
     option_a: {
@@ -25391,7 +25375,7 @@ function renderTriggerBucket(targetId,triggers,state){
         ? ((trigger.threshold_bps!=null?'Schwelle +/-'+fmtPct(trigger.threshold_bps,1):'Markt-Trigger')+(trigger.triggered_notes?' / '+trigger.triggered_notes:''))
         : (trigger.next_due_at?'Review bis '+formatDateSwiss(trigger.next_due_at):'Event-basierter Review-Trigger');
     if(trigger.trigger_type==='Markt'&&liveDrift){
-      detail=formatBpsPercent(liveDrift.current_weight_bps||0)+' Ist vs. '+sollPct(liveDrift.asset_class,liveDrift.target_weight_bps||0)+' Soll / Band '+formatBpsPercent(liveDrift.band_min_bps||0)+' bis '+formatBpsPercent(liveDrift.band_max_bps||0);
+      detail=formatBpsPercent(liveDrift.current_weight_bps||0)+' Ist vs. '+sollPct(liveDrift.asset_class,liveDrift.target_weight_bps||0,reviewLiveBucketDrifts(state))+' Soll / Band '+formatBpsPercent(liveDrift.band_min_bps||0)+' bis '+formatBpsPercent(liveDrift.band_max_bps||0);
     }
     var actions=status==='Erledigt'
       ? ''
@@ -25795,7 +25779,7 @@ function _rvHeroWealthmanagementHtml(rows,violated,tight,allocation){
     badge='HANDLUNGSBEDARF';
     var top=violated.slice().sort(function(a,b){return Math.abs(Number(b.deltaWeightBps||0))-Math.abs(Number(a.deltaWeightBps||0));})[0];
     headline=violated.length===1?'Bandverletzung bei '+top.assetClass:String(violated.length)+' Bandverletzungen — Rebalancing erforderlich';
-    summary=top.assetClass+': IST '+formatBpsPercent(top.currentWeightBps)+' / SOLL '+sollPct(top.assetClass,top.targetWeightBps)+' — ausserhalb der vereinbarten Bandbreite. '+top.meta.action+'.';
+    summary=top.assetClass+': IST '+formatBpsPercent(top.currentWeightBps)+' / SOLL '+sollPct(top.assetClass,top.targetWeightBps,allocation&&allocation.buckets)+' — ausserhalb der vereinbarten Bandbreite. '+top.meta.action+'.';
     var live=liveRebalancingPayload(allocation);
     var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(r){return String(r&&r.rebalance_action_code||'')!=='HOLD';}));
     ctaHtml='<button class="btn-p btn-sm" onclick="openDecisionTemplateModal(\'\')">Entscheidungsvorlage</button>'+(hasTradeList?'<button class="btn btn-sm" onclick="openTradeList()">Handelsliste</button>':'');

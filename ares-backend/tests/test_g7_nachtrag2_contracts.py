@@ -115,7 +115,7 @@ def test_app_money_formatters_and_review_soll_use_mandate_currency_and_apportion
     script = (rounding_module_source() + "var strategyState={allocation:" + json.dumps(allocation) + "};\n" + fns
               + "\nprocess.stdout.write(JSON.stringify({r:formatRappen(55789550),s:formatSignedRappen(-150),"
               "c:formatCompactCHF(2855000),f:fmtCHF(1234.5),soll:['Aktien','Obligationen','Immobilien','Alternative','Liquiditaet']"
-              ".map(function(k){var b=strategyState.allocation.buckets.filter(function(x){return x.asset_class===k;})[0];return sollPct(k,b.target_weight_bps);})}));")
+              ".map(function(k){var b=strategyState.allocation.buckets.filter(function(x){return x.asset_class===k;})[0];return sollPct(k,b.target_weight_bps,strategyState.allocation.buckets);})}));")
     proc = subprocess.run(["node", "-"], input=script, capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert proc.returncode == 0, proc.stderr
     out = json.loads(proc.stdout)
@@ -138,7 +138,7 @@ def test_dossier_uses_bucket_apportionment_and_presentation_amounts():
 
 # --- N-894-06 ---------------------------------------------------------------
 
-@pytest.mark.parametrize("bad", [[1000.5, 0], ["x", 0]])
+@pytest.mark.parametrize("bad", [[1000.5, 0], ["x", 0], ["0x10", 0], ["0b11", 0], ["", 0], [False, 0], ["1e3", 0]])
 def test_non_integer_inputs_rejected_in_all_three_channels(bad, tmp_path):
     with pytest.raises(ValueError):
         R.presentation_amounts(bad[0], None, [10000], ["equities"])

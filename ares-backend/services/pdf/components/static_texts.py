@@ -94,7 +94,7 @@ ANLAGEUNIVERSUM_OUTRO = [
     "eingesetzt werden.",
     "Daneben kann ein Teil der Vermögenswerte als Liquidität auf dem Konto "
     "gehalten werden.",
-    "Die Referenzwährung ist der CHF. Anlagen in anderen Währungen sind "
+    "Die Referenzwährung ist der {currency}. Anlagen in anderen Währungen sind "
     "zulässig, womit die Vermögenswerte Wechselkursrisiken ausgesetzt sein "
     "können.",
 ]

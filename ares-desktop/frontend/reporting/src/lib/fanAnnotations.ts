@@ -85,9 +85,9 @@ export function fanGoalProbability(
 }
 
 /** „▲ CHF 5.00 Mio. über Skala" (Ziel liegt oberhalb der y-Skala). */
-export function fanAboveScaleText(targetChf: number | null | undefined): string {
+export function fanAboveScaleText(targetChf: number | null | undefined, currency = 'CHF'): string {
   if (!finite(targetChf)) return '';
-  return `▲ CHF ${fmtChfCompactAmount(targetChf)} über Skala`;
+  return `▲ ${currency} ${fmtChfCompactAmount(targetChf)} über Skala`;
 }
 
 /**
@@ -97,8 +97,7 @@ export function fanAboveScaleText(targetChf: number | null | undefined): string 
 export function fanRangeSentence(
   year: string | number | null | undefined,
   p10Chf: number | null | undefined,
-  p90Chf: number | null | undefined,
-): string {
+  p90Chf: number | null | undefined, currency = 'CHF'): string {
   const y = String(year ?? '').trim();
   if (!y || !finite(p10Chf) || !finite(p90Chf) || p10Chf > p90Chf) return '';
   const lo = fmtChfCompactAmount(p10Chf);
@@ -106,8 +105,8 @@ export function fanRangeSentence(
   const MIO = ' Mio.';
   const range =
     lo.endsWith(MIO) && hi.endsWith(MIO)
-      ? `CHF ${lo.slice(0, -MIO.length)} und ${hi}`
-      : `CHF ${lo} und CHF ${hi}`;
+      ? `${currency} ${lo.slice(0, -MIO.length)} und ${hi}`
+      : `${currency} ${lo} und ${currency} ${hi}`;
   const end = range.endsWith('.') ? '' : '.';
   return `In 8 von 10 Verläufen liegt Ihr Vermögen ${y} zwischen ${range}${end}`;
 }

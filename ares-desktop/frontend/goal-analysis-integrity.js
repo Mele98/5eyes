@@ -70,7 +70,7 @@ function renderGoalAchievementSollIst(result){
   if(!soll.length||!ist.length){ el.style.display='none'; el.innerHTML=''; return; }
   var istById={}; ist.forEach(function(g){ if(g&&g.goal_id!=null) istById[String(g.goal_id)]=g; });
   var pct=function(v){ var n=Number(v); return isFinite(n)?fmtProbPct(Math.max(0,Math.min(100,Math.round(n)))):'—'; };
-  var chf=function(r){ var n=Number(r||0); return n>0?('CHF '+fmtLocaleCH(Math.round(n/100))):'—'; };
+  var chf=function(r){ var n=Number(r||0); return n>0?formatRappen(n):'—'; };
   var tone=function(v){ var n=Number(v||0); return n>=70?'var(--pos)':(n>=45?'var(--warn)':'var(--neg)'); };
   // UX-1 (Befund 8): Primaerkennzahl = Erfolgswahrscheinlichkeit (path_success_rate_pct,
   // nur aus der Simulation; ohne Simulationswert '—', kein deterministischer 0/100-Ersatz).

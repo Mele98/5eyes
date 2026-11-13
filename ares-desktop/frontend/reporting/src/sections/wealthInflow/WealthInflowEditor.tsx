@@ -5,6 +5,7 @@
  * pro Kunde. CRUD via Drawer-Form. Wiederkehrende Zuflüsse brauchen Frequenz +
  * Dauer (Backend _validate_recurring).
  */
+import { useReportCurrency } from '@/lib/reportCurrency';
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError } from '@/api/client';
 import {
@@ -62,6 +63,7 @@ interface WealthInflowEditorProps {
 }
 
 export function WealthInflowEditor({ clientId }: WealthInflowEditorProps) {
+  const currency = useReportCurrency(); // N-894-10: Zufluesse in Mandatswaehrung (kein eigenes Waehrungsfeld)
   const [state, setState] = useState<LoadState>('idle');
   const [rows, setRows] = useState<WealthInflowRecord[]>([]);
   const [error, setError] = useState('');
@@ -160,7 +162,7 @@ export function WealthInflowEditor({ clientId }: WealthInflowEditorProps) {
               <tr key={rec.id} className="border-b border-rule/50">
                 <td className="py-2">{rec.source_type}</td>
                 <td className="py-2">{rec.label}</td>
-                <td className="py-2 text-right">{rappenToChf(rec.amount_rappen)}</td>
+                <td className="py-2 text-right">{rappenToChf(rec.amount_rappen, currency)}</td>
                 <td className="py-2 text-right">{rec.expected_year}</td>
                 <td className="py-2">{rec.is_recurring === 1 ? `${rec.frequency} (${rec.duration_years}J)` : '—'}</td>
                 <td className="py-2 text-right">
@@ -213,6 +215,7 @@ interface DrawerProps {
 }
 
 function WealthInflowFormDrawer({ open, clientId, editing, onClose, onSaved }: DrawerProps) {
+  const currency = useReportCurrency();
   const [form, setForm] = useState<WealthInflowFormInput>(() => emptyInput());
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
@@ -305,7 +308,7 @@ function WealthInflowFormDrawer({ open, clientId, editing, onClose, onSaved }: D
           </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="block text-caption text-ink-muted">
-              Betrag (CHF)
+              Betrag ({currency})
               <input type="number" value={form.amountChf} onChange={(e) => set('amountChf', e.target.value)} className={inputClass} />
             </label>
             <label className="block text-caption text-ink-muted">

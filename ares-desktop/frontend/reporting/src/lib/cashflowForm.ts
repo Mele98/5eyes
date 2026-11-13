@@ -90,6 +90,6 @@ export function buildCashflowPayload(input: CashflowFormInput): CashflowCreatePa
 }
 
 /** CHF-Anzeige aus Rappen (1234500 → "CHF 12'345"). */
-export function rappenToChf(rappen: number): string {
-  return formatChfFromRappen(rappen);
+export function rappenToChf(rappen: number, currency: string = 'CHF'): string {
+  return formatChfFromRappen(rappen, currency);
 }

@@ -1,3 +1,4 @@
+import { ReportCurrencyContext, reportCurrencyFrom } from '@/lib/reportCurrency';
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useAdvisoryReport } from '@/api/useAdvisoryReport';
@@ -259,7 +260,9 @@ function ReportShell({ sectionId }: { sectionId: ReportSectionId }) {
         aria-label={`Beratungsreport-Hauptinhalt: ${sectionId}`}
       >
         <Suspense fallback={<SectionSkeleton />}>
-          {renderSection(sectionId, data, mandateId, reload)}
+          <ReportCurrencyContext.Provider value={reportCurrencyFrom(data)}>
+            {renderSection(sectionId, data, mandateId, reload)}
+          </ReportCurrencyContext.Provider>
         </Suspense>
       </main>
       <KeyboardShortcuts mandateId={mandateId} activeSection={sectionId} />

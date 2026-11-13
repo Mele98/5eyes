@@ -200,11 +200,13 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
             performance.get("benchmark_wealth_path_rappen") or None,
             height_mm=30,
             title="Historischer Vermoegensverlauf",
+            currency=ctx.base_currency,
         ))
         flowables.append(Spacer(1, 4 * mm))
         flowables.append(make_backtest_metrics_table(
             performance.get("metrics") or {},
             performance.get("benchmark_metrics") or None,
+            currency=ctx.base_currency,
         ))
     else:
         flowables.append(_fallback(

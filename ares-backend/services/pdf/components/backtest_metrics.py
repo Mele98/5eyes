@@ -39,8 +39,9 @@ def _fmt_signed_pct_bps(bps: int, decimals: int = 1) -> str:
     return format_bps_signed_pct(int(bps or 0), decimals=decimals)
 
 
-def _fmt_chf(rappen: int) -> str:
-    return format_amount_minor(int(rappen or 0), "CHF")
+def _fmt_chf(rappen: int, currency: str) -> str:
+    # N-894-10: Mandatswaehrung statt fest CHF.
+    return format_amount_minor(int(rappen or 0), currency)
 
 
 def make_backtest_metrics_table(
@@ -48,6 +49,7 @@ def make_backtest_metrics_table(
     benchmark_metrics: Mapping | None = None,
     *,
     primary_label: str = "SOLL-Strategie",
+    currency: str = "CHF",
 ) -> Table:
     """Returns Table mit Backtest-Kennzahlen.
 
@@ -110,9 +112,9 @@ def make_backtest_metrics_table(
             lambda m: _fmt_pct_bps(int(m.get("win_rate_x100", 0) or 0), decimals=0)
                        + f' ({int(m.get("positive_years", 0) or 0)}/{int(m.get("years_count", 0) or 0)})')
     add_row("Startwert",
-            lambda m: _fmt_chf(int(m.get("start_value_rappen", 0) or 0)))
+            lambda m: _fmt_chf(int(m.get("start_value_rappen", 0) or 0), currency))
     add_row("Endwert",
-            lambda m: _fmt_chf(int(m.get("end_value_rappen", 0) or 0)),
+            lambda m: _fmt_chf(int(m.get("end_value_rappen", 0) or 0), currency),
             bold=True)
 
     page_width, _ = PAGE_SIZE

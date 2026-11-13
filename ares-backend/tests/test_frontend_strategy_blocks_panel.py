@@ -659,7 +659,7 @@ def test_removed_duplicates_and_old_dialog_are_gone():
     assert 'id="aa-preferences-card"' not in src and 'id="aa-restrictions-card"' not in src
     assert "toggleAllocationRestrictionsPanel" not in src
     # Genau eine Reserve-Eingabe.
-    assert len(re.findall(r'<label[^>]*>(?:<span[^>]*></span>)*[^<]*reserve[^<]*\(CHF\)</label>', src, re.I)) == 1
+    assert len(re.findall(r'<label[^>]*>(?:<span[^>]*></span>)*[^<]*reserve[^<]*\((?:<span class="ccy">)?CHF(?:</span>)?\)</label>', src, re.I)) == 1
     assert re.findall(r'<input[^>]*\bid="(aa-[a-z-]*reserve[a-z-]*)"', src) == ["aa-liquidity-min-reserve"]
     # Header-Button bleibt (Header-Kontrakt) und oeffnet den Balken, keinen Dialog.
     opener = _extract_function(src, "openAllocationPreferencesModal")

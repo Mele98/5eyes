@@ -73,9 +73,9 @@ function goalDisplayFrequency(value){
 }
 function goalAmountLabel(type){
   if(isReturnGoalType(type))return 'Zielrendite p.a. (%) *';
-  if(isWealthGoalType(type))return 'Zielverm\u00f6gen (CHF) *';
-  if(isRecurringGoalType(type))return 'Betrag pro Periode (CHF) *';
-  if(type==='Einmalige_Ausgabe')return 'Zielbetrag (CHF) *';
+  if(isWealthGoalType(type))return 'Zielverm\u00f6gen ('+appCurrency()+') *';
+  if(isRecurringGoalType(type))return 'Betrag pro Periode ('+appCurrency()+') *';
+  if(type==='Einmalige_Ausgabe')return 'Zielbetrag ('+appCurrency()+') *';
   if(isMaxGoalType(type))return 'Kein fixer Zielbetrag';
   return 'Zielbetrag *';
 }
@@ -1220,8 +1220,7 @@ function runSensitivityCall(btn){
     if(amtRappen==null&&body.target_return_bps_new!=null){
       msg='Neues Renditeziel: '+fmtPct(Number(body.target_return_bps_new),2)+' p.a.';
     }else{
-      var newAmt=Math.round(Number(amtRappen||0)/100);
-      msg='Neuer Zielwert: CHF '+fmtLocaleCH(newAmt);
+      msg='Neuer Zielwert: '+formatRappen(Number(amtRappen||0));
     }
     if(dPct!=null){
       var sign=Number(dPct)>=0?'+':'';
@@ -1292,8 +1291,8 @@ function renderActionCards(reasoning){
       if(cashflowInfo.coveragePct!=null)reserveBody+=' Die laufenden Einkommen decken rund '+cashflowInfo.coveragePct+'% der Ausgaben.';
       if(reliefRows.length)reserveBody+=' Einmalige Kapitalereignisse entlasten temporaer: '+reliefRows.map(function(row){return row.year+' '+row.label+' '+formatRappen(row.amountRappen);}).join(' und ')+'.';
       reserveBody+=' Die strategische Liquiditaet im Mandat bleibt bei '+liqTarget+'.';
-      if(externalReserve>0)reserveBody+=' Zusaetzlich werden CHF '+fmtLocaleCH(externalReserve)+' als separate Reserve ausserhalb des Mandats empfohlen.';
-      else if(reserveNeeded>0)reserveBody+=' Der kurzfristige Reservebedarf liegt bei rund CHF '+fmtLocaleCH(reserveNeeded)+'.';
+      if(externalReserve>0)reserveBody+=' Zusaetzlich werden '+fmtCHF(externalReserve)+' als separate Reserve ausserhalb des Mandats empfohlen.';
+      else if(reserveNeeded>0)reserveBody+=' Der kurzfristige Reservebedarf liegt bei rund '+fmtCHF(reserveNeeded)+'.';
       if(targetRunway!=='-'||currentRunway!=='-')reserveBody+=' Median-Reichweite: IST '+currentRunway+', SOLL '+targetRunway+'.';
       if(runwayDeltaYears!=null&&runwayDeltaYears>0)reserveBody+=' Die Strategie gewinnt im Median rund '+runwayDeltaYears+' Jahre Zeit.';
       else if(runwayDeltaYears!=null&&runwayDeltaYears===0&&targetRunway!=='-')reserveBody+=' Wichtig: Die Strategie puffert den Entnahmepfad, verlaengert die Reichweite in diesem Setup aber nicht wesentlich. Fuer mehr Reichweite braucht es weniger Entnahme, mehr Vermoegen oder zusaetzliche Einkommen.';

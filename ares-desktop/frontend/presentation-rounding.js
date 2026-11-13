@@ -119,7 +119,11 @@
   var STORAGE_EXPONENT = 2;
   function displayDecimals(currency) { return minorExponent(currency); }
   function requireInt(v, what) {
-    var n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+    var n = v;
+    if (typeof v === 'string') {
+      if (!/^[+-]?\d+(\.0*)?$/.test(v.trim())) throw new Error(what + ': Ganzzahl erwartet');
+      n = Number(v.trim());
+    }
     if (typeof n !== 'number' || !isFinite(n) || Math.floor(n) !== n) throw new Error(what + ': Ganzzahl erwartet');
     return n;
   }
@@ -255,7 +259,7 @@
   }
   function presentationAmounts(advisoryMinor, baseMinor, weights, labels, exponent) {
     var e = exponent == null ? STORAGE_EXPONENT : Number(exponent);
-    var adv = Math.max(0, requireInt(advisoryMinor == null ? 0 : advisoryMinor, 'Beratungsvermoegen'));
+    var adv = Math.max(0, requireInt(advisoryMinor, 'Beratungsvermoegen'));
     var baseRaw = baseMinor == null ? adv : Math.max(0, requireInt(baseMinor, 'Strategiebasis'));
     var base = wholeUnits(Math.min(baseRaw, adv), e), advisory = wholeUnits(adv, e);
     var keys = (labels || []).map(assetClassKey);
@@ -309,6 +313,33 @@
     var shown = formatApportionedPercentBps(values, 1, { typography: opts && opts.typography, targetDisplay: target });
     names.forEach(function (n, k) { out[n] = shown[k]; });
     return out;
+  }
+  // Anzeigeeinheiten (Zehntelprozent) je Klasse, gemeinsam apportioniert.
+  function bucketUnitsMap(buckets) {
+    var list = (buckets || []).map(function (b, i) { return { b: b, i: i }; }).filter(function (x) {
+      return x.b && Number(x.b.target_weight_bps) > 0;
+    }).sort(function (x, y) {
+      return (canonicalRank(assetClassKey(x.b.asset_class)) - canonicalRank(assetClassKey(y.b.asset_class))) || (x.i - y.i);
+    });
+    var out = {};
+    if (!list.length) return out;
+    var units = apportionUnits(list.map(function (x) { return Math.round(Number(x.b.target_weight_bps)); }), 1, null);
+    list.forEach(function (x, k) { out[assetClassKey(x.b.asset_class)] = Number(units[k]); });
+    return out;
+  }
+  // Review-Zeile "IST x → SOLL y · Delta z": IST und SOLL je ueber alle Zeilen
+  // apportioniert (wie Legende/PDF), Delta = Differenz der ANGEZEIGTEN Werte, damit
+  // die Zeile in sich stimmt (Rohwert-Delta bleibt fachlich fuer Band-Pruefungen).
+  // rows: [{assetKey|assetClass, currentWeightBps, targetWeightBps}].
+  function istSollText(rows, key, opts) {
+    var k = assetClassKey(key), ist = bucketUnitsMap((rows || []).map(function (r) {
+      return { asset_class: r.assetKey || r.assetClass, target_weight_bps: r.currentWeightBps };
+    })), soll = bucketUnitsMap((rows || []).map(function (r) {
+      return { asset_class: r.assetKey || r.assetClass, target_weight_bps: r.targetWeightBps };
+    }));
+    var i = ist[k] || 0, s = soll[k] || 0, sc = function (u) { return { neg: u < 0, coef: BigInt(Math.abs(u)), exp: -1 }; };
+    return 'IST ' + formatPercent(sc(i), 1, opts) + ' \u2192 SOLL ' + formatPercent(sc(s), 1, opts)
+      + ' \u00b7 Delta ' + formatPercent(sc(i - s), 1, { typography: opts && opts.typography, signed: true });
   }
   function presentationArtifact(raw, unit, display) {
     return { raw: raw, unit: unit, policy_version: POLICY_VERSION, display: display };
@@ -366,6 +397,8 @@
     assetClassKey: assetClassKey,
     presentationAmounts: presentationAmounts,
     bucketPctMap: bucketPctMap,
+    bucketUnitsMap: bucketUnitsMap,
+    istSollText: istSollText,
     subPctMap: subPctMap,
     presentationArtifact: presentationArtifact,
     runCase: runCase

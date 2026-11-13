@@ -121,7 +121,9 @@ export function currencyExponent(currency: string): number {
 /** N-894-01: Speicher-Exponent aller *_rappen-Felder (auch JPY). */
 export const STORAGE_EXPONENT = 2;
 function requireInt(v: unknown, what: string): number {
-  const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+  // N-894-07: wie Python -- nur Integer-Zahl oder Dezimalliteral; bool/''/null/"0x10" werfen.
+  if (typeof v === 'string' && !/^[+-]?\d+(\.0*)?$/.test(v.trim())) throw new Error(`${what}: Ganzzahl erwartet`);
+  const n = typeof v === 'string' ? Number(v.trim()) : v;
   if (typeof n !== 'number' || !Number.isFinite(n) || Math.floor(n) !== n) throw new Error(`${what}: Ganzzahl erwartet`);
   return n;
 }
@@ -264,7 +266,7 @@ export function splitLargestRemainder(total: bigint, weights: Numeric[], labels:
 export function presentationAmounts(
   advisoryMinor: Numeric, baseMinor: Numeric, weights: Numeric[], labels: unknown[], exponent = STORAGE_EXPONENT,
 ) {
-  const adv = Math.max(0, requireInt(advisoryMinor ?? 0, 'Beratungsvermoegen'));
+  const adv = Math.max(0, requireInt(advisoryMinor, 'Beratungsvermoegen'));
   const baseRaw = baseMinor === null || baseMinor === undefined ? adv : Math.max(0, requireInt(baseMinor, 'Strategiebasis'));
   const base = wholeUnits(Math.min(baseRaw, adv), exponent);
   const advisory = wholeUnits(adv, exponent);

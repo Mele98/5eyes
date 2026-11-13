@@ -1397,7 +1397,7 @@ def _build_goals_flowables(gbi: dict, styles: dict, *, currency: str = "CHF") ->
     goals = gbi.get("goals") or []
     mc = gbi.get("monte_carlo_paths") or {}
     mc_classifications = classify_goals(goals, mc)
-    chart = build_mc_paths_drawing(mc, goals)
+    chart = build_mc_paths_drawing(mc, goals, currency=currency)
     if chart is not None:
         out.append(chart)
         if mc.get("horizon_note"):
