@@ -4577,6 +4577,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/privacy/incidents/{incident_id}/artifacts/{artifact_id}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Verify Security Incident Artifact
+         * @description Vorgelegtes Artefakt gegen den erfassten Digest pruefen (Austausch oder
+         *     Veraenderung -> 409 INCIDENT_EVIDENCE_HASH_MISMATCH).
+         */
+        post: operations["verify_security_incident_artifact_privacy_incidents__incident_id__artifacts__artifact_id__verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/privacy/incidents/{incident_id}/assessment": {
         parameters: {
             query?: never;
@@ -6767,6 +6788,11 @@ export interface components {
             target_weight_bps: number;
             /** Within Bucket Weight Bps */
             within_bucket_weight_bps?: number | null;
+        };
+        /** ArtifactVerification */
+        ArtifactVerification: {
+            /** Sha256 */
+            sha256: string;
         };
         /** AssetClassAssumptionResponse */
         AssetClassAssumptionResponse: {
@@ -9196,6 +9222,11 @@ export interface components {
         IncidentEvidence: {
             /** Kind */
             kind: string;
+            /**
+             * Media Type
+             * @description Medientyp, z. B. application/pdf
+             */
+            media_type: string;
             /** Reference */
             reference?: string | null;
             /**
@@ -9203,6 +9234,11 @@ export interface components {
              * @description SHA-256 des Nachweis-Artefakts (Kleinbuchstaben)
              */
             sha256: string;
+            /**
+             * Size Bytes
+             * @description Groesse des Artefakts in Bytes
+             */
+            size_bytes: number;
         };
         /** IncidentNotification */
         IncidentNotification: {
@@ -22744,6 +22780,42 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_security_incident_artifact_privacy_incidents__incident_id__artifacts__artifact_id__verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                incident_id: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ArtifactVerification"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

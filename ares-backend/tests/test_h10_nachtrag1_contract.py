@@ -181,7 +181,8 @@ def test_runtime_requires_approved_channel_hash_and_logs_persistently(tmp_path, 
         assert {"EGRESS_MANIFEST_MISSING", "EGRESS_GUARANTEE_MISSING", "EGRESS_HASH_MISMATCH",
                 "EGRESS_CONSENT_OR_BASIS_MISSING"} <= set(codes)
         assert set(events[0]) == {"occurred_at", "channel_id", "channel_class", "destination_host", "reason_code",
-                                  "result", "manifest_version", "channel_sha256"}
+                                  "result", "manifest_version", "channel_sha256", "manifest_sha256",
+                                  "payload_schema_hash"}
         with factory() as s:
             columns = {row[1] for row in s.execute(text("PRAGMA table_info(privacy_egress_events)")).all()}
             tenants = set(s.execute(text("SELECT DISTINCT tenant_id FROM privacy_egress_events")).scalars())
@@ -250,9 +251,9 @@ def test_incident_evidence_needs_hash_and_tampering_blocks_close(tmp_path):
         assert client.post(f"/privacy/incidents/{iid}/evidence",
                            json={"kind": "REPORT", "reference": "x"}).status_code == 422
         assert client.post(f"/privacy/incidents/{iid}/evidence",
-                           json={"kind": "REPORT", "reference": "x", "sha256": "XYZ"}).status_code == 422
+                           json={"kind": "REPORT", "reference": "x", "sha256": "XYZ", "media_type": "application/pdf", "size_bytes": 1234}).status_code == 422
         out = client.post(f"/privacy/incidents/{iid}/evidence",
-                          json={"kind": "REPORT", "reference": "Bericht (Testwert)", "sha256": "c" * 64}).json()
+                          json={"kind": "REPORT", "reference": "Bericht (Testwert)", "sha256": "c" * 64, "media_type": "application/pdf", "size_bytes": 1234}).json()
         assert out["evidence_chain_ok"] is True and out["events"][-1]["artifact_sha256"] == "c" * 64
         for step, body in (("assessment", {"risk_level": "LOW", "rationale": "r"}),
                            ("notification-decision", {"decision": "NOT_REQUIRED", "reason": "r"}),
@@ -364,10 +365,10 @@ def test_alembic_revision_single_head_and_sqlite_roundtrip(tmp_path):
     assert_sqlite_upgrade_downgrade_upgrade(tmp_path, "c4e8a2f6d0b7", {
         "processing_activity_versions": m.ProcessingActivityVersion,
         "outbound_processing_manifest_versions": m.OutboundManifestVersion,
-        "privacy_egress_events": m.PrivacyEgressEvent,
+        "privacy_egress_events": m.OutboundProcessingEvent,
         "privacy_subject_request_events": m.PrivacySubjectRequestEvent,
         "privacy_security_incident_events": m.PrivacySecurityIncidentEvent,
-    })
+    }, later_columns=frozenset({"manifest_sha256", "payload_schema_hash"}))  # Nachtrag 2, e8f1b3c5a7d9
 
 
 def test_alembic_postgres_ddl_creates_append_only_triggers_and_row_version():

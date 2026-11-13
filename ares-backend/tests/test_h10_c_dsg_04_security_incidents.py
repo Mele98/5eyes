@@ -99,7 +99,7 @@ def test_high_risk_incident_full_lifecycle_and_gate(tmp_path):
             "notified_at": _iso(_now()), "channel": "LETTER", "reference": "Serienbrief 12 Empfaenger (Testwert)"})
         assert informed.status_code == 200
         evidence = client.post(f"/privacy/incidents/{iid}/evidence",
-                               json={"kind": "EDOEB_RECEIPT", "reference": "Ablage DS-2026-01 (Testwert)", "sha256": "a" * 64})
+                               json={"kind": "EDOEB_RECEIPT", "reference": "Ablage DS-2026-01 (Testwert)", "sha256": "a" * 64, "media_type": "application/pdf", "size_bytes": 1234})
         assert evidence.json()["evidence"][0]["kind"] == "EDOEB_RECEIPT"
         assert client.post(f"/privacy/incidents/{iid}/remediation", json={}).status_code == 422
         assert client.post(f"/privacy/incidents/{iid}/remediation",
@@ -108,7 +108,7 @@ def test_high_risk_incident_full_lifecycle_and_gate(tmp_path):
         closed = client.post(f"/privacy/incidents/{iid}/close", json={"note": "Abgeschlossen (Testwert)"})
         assert closed.status_code == 200 and closed.json()["status"] == "CLOSED"
         assert client.post(f"/privacy/incidents/{iid}/evidence",
-                           json={"kind": "OTHER", "reference": "y", "sha256": "b" * 64}).status_code == 409
+                           json={"kind": "OTHER", "reference": "y", "sha256": "b" * 64, "media_type": "application/pdf", "size_bytes": 1234}).status_code == 409
         assert client.get("/privacy/incidents/gate").json()["findings"] == []
 
         with factory() as s:

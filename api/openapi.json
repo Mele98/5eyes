@@ -1892,6 +1892,20 @@
         "title": "AllocationSubBucketResponse",
         "type": "object"
       },
+      "ArtifactVerification": {
+        "properties": {
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha256"
+        ],
+        "title": "ArtifactVerification",
+        "type": "object"
+      },
       "AssetClassAssumptionResponse": {
         "properties": {
           "asset_class": {
@@ -10146,6 +10160,13 @@
             "title": "Kind",
             "type": "string"
           },
+          "media_type": {
+            "description": "Medientyp, z. B. application/pdf",
+            "maxLength": 200,
+            "minLength": 3,
+            "title": "Media Type",
+            "type": "string"
+          },
           "reference": {
             "anyOf": [
               {
@@ -10163,11 +10184,19 @@
             "pattern": "^[0-9a-f]{64}$",
             "title": "Sha256",
             "type": "string"
+          },
+          "size_bytes": {
+            "description": "Groesse des Artefakts in Bytes",
+            "minimum": 0.0,
+            "title": "Size Bytes",
+            "type": "integer"
           }
         },
         "required": [
           "kind",
-          "sha256"
+          "sha256",
+          "media_type",
+          "size_bytes"
         ],
         "title": "IncidentEvidence",
         "type": "object"
@@ -41831,6 +41860,71 @@
           }
         ],
         "summary": "Get Security Incident",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/incidents/{incident_id}/artifacts/{artifact_id}/verify": {
+      "post": {
+        "description": "Vorgelegtes Artefakt gegen den erfassten Digest pruefen (Austausch oder\nVeraenderung -> 409 INCIDENT_EVIDENCE_HASH_MISMATCH).",
+        "operationId": "verify_security_incident_artifact_privacy_incidents__incident_id__artifacts__artifact_id__verify_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "incident_id",
+            "required": true,
+            "schema": {
+              "title": "Incident Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "artifact_id",
+            "required": true,
+            "schema": {
+              "title": "Artifact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArtifactVerification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Verify Security Incident Artifact",
         "tags": [
           "Datenschutz"
         ]

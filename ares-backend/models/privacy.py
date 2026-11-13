@@ -437,7 +437,7 @@ class OutboundManifestVersion(Base):
     created_at = Column(String, nullable=False)
 
 
-class PrivacyEgressEvent(Base):
+class OutboundProcessingEvent(Base):
     """C-DSG-03: blockierte ausgehende Verbindung (persistent, Mandant der
     Installation). Nur Kanal, Klasse, Zielhost, Reason-Code, Zeit und die
     Hash-Referenz des Kanals -- nie Payload, Secrets oder Personendaten."""
@@ -458,6 +458,35 @@ class PrivacyEgressEvent(Base):
     result = Column(String, nullable=False)
     manifest_version = Column(String)
     channel_sha256 = Column(String(64))
+    # H10 Nachtrag 2 (C-900-02): Manifest-Hash und Schema-Hash des Payloads
+    # (nur Methode, Pfadtiefe, Feldnamen -- nie Werte).
+    manifest_sha256 = Column(String(64))
+    payload_schema_hash = Column(String(64))
+
+
+class SecurityIncidentArtifact(Base):
+    """C-DSG-04 / C-900-03: Nachweis-Artefakt eines Vorfalls mit Digest,
+    Medientyp, Groesse und Erfassungszeit; ``row_sha256`` versiegelt die
+    Zeile, ``event_sha256`` bindet sie an das Ereignis der Fallkette.
+    Append-only."""
+
+    __tablename__ = "privacy_security_incident_artifacts"
+    __table_args__ = (
+        Index("ix_privacy_security_incident_artifacts_incident", "tenant_id", "incident_id"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    incident_id = Column(String, nullable=False)
+    kind = Column(String, nullable=False)
+    reference = Column(Text, nullable=False)
+    sha256 = Column(String(64), nullable=False)
+    media_type = Column(String, nullable=False)
+    size_bytes = Column(Integer, nullable=False)
+    recorded_by = Column(String, nullable=False)
+    recorded_at = Column(String, nullable=False)
+    event_sha256 = Column(String(64))
+    row_sha256 = Column(String(64), nullable=False)
 
 
 class _CaseEventColumns:
@@ -499,10 +528,10 @@ class PrivacySecurityIncidentEvent(_CaseEventColumns, Base):
 
 H10_APPEND_ONLY_TABLES = (
     "processing_activity_versions", "outbound_processing_manifest_versions", "privacy_egress_events",
-    "privacy_subject_request_events", "privacy_security_incident_events",
+    "privacy_subject_request_events", "privacy_security_incident_events", "privacy_security_incident_artifacts",
 )
 
-for _model in (ProcessingActivityVersion, OutboundManifestVersion, PrivacyEgressEvent,
-               PrivacySubjectRequestEvent, PrivacySecurityIncidentEvent):
+for _model in (ProcessingActivityVersion, OutboundManifestVersion, OutboundProcessingEvent,
+               PrivacySubjectRequestEvent, PrivacySecurityIncidentEvent, SecurityIncidentArtifact):
     for _trigger_ddl in _append_only_sqlite_triggers(_model.__tablename__):
         event.listen(_model.__table__, "after_create", DDL(_trigger_ddl).execute_if(dialect="sqlite"))

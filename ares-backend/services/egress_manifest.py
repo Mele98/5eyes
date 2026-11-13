@@ -46,6 +46,7 @@ from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import parse_qsl, unquote, urlsplit
 
+from core.evidence import SCHEME_V1, evidence_hash
 from core.reason_codes import ReasonCode
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,10 @@ def _load(path_text: str) -> dict[str, Any]:
 
 def load_manifest(path: Path | None = None) -> dict[str, Any]:
     return json.loads(json.dumps(_load(str(path or MANIFEST_PATH))))
+
+
+def manifest_hash(manifest: dict[str, Any]) -> str:
+    return evidence_hash(manifest, scheme=SCHEME_V1)
 
 
 def channels(manifest: dict[str, Any]) -> list[dict[str, Any]]:
@@ -249,6 +254,7 @@ class _GuardState:
         self.installed = False
         self.manifest: dict[str, Any] | None = None
         self.manifest_error: str | None = None
+        self.manifest_sha256: str | None = None
         self.settings: Any = None
         # None = keine Freigabe-Information -> jeder Kanal gesperrt (fail-closed)
         self.channel_states: dict[str, dict[str, Any]] | None = None
@@ -299,12 +305,14 @@ def _block(reason_code: str, message: str, *, host: str, channel: str | None) ->
         "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "reason_code": reason_code, "channel": channel, "host": host,
     }
-    record = None
+    record = {"manifest_sha256": _STATE.manifest_sha256,
+              "payload_schema_hash": payload_schema_hash(getattr(_STATE.local, "shape", None))}
     if _STATE.manifest is not None and channel:
         found = channel_by_id(_STATE.manifest, channel) or {}
         state = (_STATE.channel_states or {}).get(channel) or {}
-        record = {"channel_class": found.get("class"), "manifest_version": _STATE.manifest.get("manifest_version"),
-                  "channel_sha256": state.get("current_sha256")}
+        record.update({"channel_class": found.get("class"),
+                       "manifest_version": _STATE.manifest.get("manifest_version"),
+                       "channel_sha256": state.get("current_sha256")})
     with _STATE.lock:
         _STATE.recent_blocked.append(entry)
         _STATE.pending_events.append({**entry, **(record or {})})
@@ -431,9 +439,45 @@ def _screen_values(channel: dict[str, Any], pairs: list[tuple[str, Any]], host: 
                    host=host, channel=channel["id"])
 
 
+def payload_shape(data: Any) -> dict[str, Any]:
+    """Form eines HTTP-Blocks ohne Werte: Methode, Pfadtiefe, Feldnamen."""
+    if isinstance(data, memoryview):
+        data = data.tobytes()
+    if not isinstance(data, (bytes, bytearray)):
+        return {"kind": "stream"}
+    data = bytes(data)
+    match = _REQUEST_LINE.match(data)
+    shape: dict[str, Any] = {"kind": "request" if match else "body"}
+    body = data
+    if match:
+        parts = urlsplit(match.group(2).decode("latin-1"))
+        shape["method"] = match.group(1).decode()
+        shape["path_depth"] = len([s for s in parts.path.split("/") if s])
+        shape["query_fields"] = sorted({k for k, _ in parse_qsl(parts.query, keep_blank_values=True)})
+        end = data.find(b"\r\n\r\n")
+        body = data[end + 4:] if end >= 0 else b""
+    pairs, structured = _fields_of_body(body)
+    shape["body_fields"] = sorted({k for k, _ in pairs if k}) if structured else ["(unstrukturiert)"] if body else []
+    return shape
+
+
+def payload_schema_hash(shape: dict[str, Any] | None) -> str:
+    """Hash ueber die Form (nie Werte); reine Verbindungsversuche ohne Payload
+    haben die Form ``connect``."""
+    return evidence_hash(shape or {"kind": "connect"}, scheme=SCHEME_V1)
+
+
 def check_http_payload(raw_host: Any, data: Any) -> None:
     """Prueft einen ausgehenden HTTP-Datenblock (Request-Zeile + Body)."""
     host = _normalize_host(raw_host)
+    _STATE.local.shape = payload_shape(data)
+    try:
+        _check_http_payload(host, data)
+    finally:
+        _STATE.local.shape = None
+
+
+def _check_http_payload(host: str, data: Any) -> None:
     channel = check_host(host)
     if channel is None:
         return
@@ -537,8 +581,9 @@ def activate(settings_obj: Any, *, channel_states: dict[str, dict[str, Any]] | N
             if problems:
                 raise ManifestUnavailable("; ".join(problems))
             _STATE.manifest, _STATE.manifest_error = manifest, None
+            _STATE.manifest_sha256 = manifest_hash(manifest)
         except ManifestUnavailable as exc:
-            _STATE.manifest, _STATE.manifest_error = None, str(exc)
+            _STATE.manifest, _STATE.manifest_error, _STATE.manifest_sha256 = None, str(exc), None
             logger.critical("Egress-Manifest ungueltig, alle externen Kanaele gesperrt: %s", exc)
         if not _STATE.installed:
             sys.addaudithook(_audit_hook)

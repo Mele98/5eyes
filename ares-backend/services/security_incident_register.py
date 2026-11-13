@@ -28,9 +28,10 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from core.evidence import SCHEME_V1, evidence_hash
 from core.reason_codes import DomainError, ReasonCode
 from database import new_uuid
-from models.privacy import PrivacySecurityIncident
+from models.privacy import PrivacySecurityIncident, SecurityIncidentArtifact
 
 INCIDENT_TYPES = ("CONFIDENTIALITY", "INTEGRITY", "AVAILABILITY")
 RISK_LEVELS = ("LOW", "HIGH", "UNKNOWN")
@@ -400,3 +401,64 @@ def gate_findings(
         "notification_target_hours": target,
         "findings": findings,
     }
+
+
+# ── H10 Nachtrag 2 (C-900-03): hashgebundene Nachweis-Artefakte ───────────────
+
+def _artifact_seal(artifact: SecurityIncidentArtifact) -> str:
+    return evidence_hash({
+        "incident_id": artifact.incident_id, "kind": artifact.kind, "reference": artifact.reference,
+        "sha256": artifact.sha256, "media_type": artifact.media_type, "size_bytes": artifact.size_bytes,
+        "recorded_by": artifact.recorded_by, "recorded_at": artifact.recorded_at,
+        "event_sha256": artifact.event_sha256,
+    }, scheme=SCHEME_V1)
+
+
+def record_artifact(db: Session, incident: PrivacySecurityIncident, *, kind: str, reference: str | None,
+                    sha256: str, media_type: str | None, size_bytes: int | None, actor_id: str,
+                    event_sha256: str | None, now: datetime | None = None) -> SecurityIncidentArtifact:
+    if size_bytes is None or size_bytes < 0:
+        raise DomainError(ReasonCode.INCIDENT_INPUT_INVALID, "Groesse des Artefakts fehlt", http_status=422)
+    artifact = SecurityIncidentArtifact(
+        id=new_uuid(), tenant_id=incident.tenant_id, incident_id=incident.id,
+        kind=_choice(kind, EVIDENCE_KINDS, "Nachweisart"), reference=_text(reference, "Referenz", required=True),
+        sha256=sha256, media_type=_text(media_type, "Medientyp", required=True), size_bytes=int(size_bytes),
+        recorded_by=actor_id, recorded_at=_iso(_utc(now)), event_sha256=event_sha256,
+    )
+    artifact.row_sha256 = _artifact_seal(artifact)
+    db.add(artifact)
+    db.flush()
+    return artifact
+
+
+def list_artifacts(db: Session, incident_id: str) -> list[SecurityIncidentArtifact]:
+    return (db.query(SecurityIncidentArtifact).filter(SecurityIncidentArtifact.incident_id == incident_id)
+            .order_by(SecurityIncidentArtifact.recorded_at, SecurityIncidentArtifact.id).all())
+
+
+def artifact_problems(db: Session, incident_id: str, event_hashes: dict[str, str]) -> list[str]:
+    """Versiegelung je Artefakt und Bindung an das Ereignis (event_sha256 ->
+    artifact_sha256 des Ereignisses)."""
+    problems = []
+    for artifact in list_artifacts(db, incident_id):
+        if _artifact_seal(artifact) != artifact.row_sha256:
+            problems.append(f"Artefakt {artifact.id}: Zeile veraendert")
+        if event_hashes.get(artifact.event_sha256 or "") != artifact.sha256:
+            problems.append(f"Artefakt {artifact.id}: passt nicht zum Ereignis der Fallkette")
+    return problems
+
+
+def verify_artifact(db: Session, incident: PrivacySecurityIncident, artifact_id: str, sha256: str) -> dict:
+    artifact = db.get(SecurityIncidentArtifact, artifact_id)
+    if artifact is None or artifact.incident_id != incident.id:
+        raise DomainError(ReasonCode.INCIDENT_STATE_INVALID, "Artefakt nicht gefunden", http_status=404)
+    if artifact.sha256 != sha256 or _artifact_seal(artifact) != artifact.row_sha256:
+        raise DomainError(ReasonCode.INCIDENT_EVIDENCE_HASH_MISMATCH,
+                          "Vorgelegtes Artefakt stimmt nicht mit dem erfassten Digest ueberein", http_status=409)
+    return {"artifact_id": artifact.id, "match": True, "sha256": artifact.sha256}
+
+
+def artifacts_out(db: Session, incident_id: str) -> list[dict]:
+    return [{"id": a.id, "kind": a.kind, "reference": a.reference, "sha256": a.sha256, "media_type": a.media_type,
+             "size_bytes": a.size_bytes, "recorded_by": a.recorded_by, "recorded_at": a.recorded_at,
+             "row_sha256": a.row_sha256} for a in list_artifacts(db, incident_id)]

@@ -557,7 +557,8 @@
         "privacy_egress_events",
         "privacy_security_incident_events",
         "privacy_subject_request_events",
-        "processing_activity_versions"
+        "processing_activity_versions",
+        "privacy_security_incident_artifacts"
       ],
       "recipients": [
         "Administration der Firma",

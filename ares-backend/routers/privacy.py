@@ -31,7 +31,7 @@ from models.privacy import (
     PrivacyLegalHold,
     PrivacyRetentionPolicy,
     PrivacyRoleDesignation,
-    PrivacyEgressEvent,
+    OutboundProcessingEvent,
     PrivacySecurityIncident,
     PrivacySecurityIncidentEvent,
     PrivacySubjectRequest,
@@ -733,6 +733,12 @@ class IncidentEvidence(BaseModel):
     kind: str
     reference: Optional[str] = Field(default=None, max_length=2000)
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$", description="SHA-256 des Nachweis-Artefakts (Kleinbuchstaben)")
+    media_type: str = Field(min_length=3, max_length=200, description="Medientyp, z. B. application/pdf")
+    size_bytes: int = Field(ge=0, description="Groesse des Artefakts in Bytes")
+
+
+class ArtifactVerification(BaseModel):
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class IncidentClosure(BaseModel):
@@ -749,10 +755,18 @@ def _incident(db: Session, incident_id: str, user: User) -> PrivacySecurityIncid
     return _own(db.get(PrivacySecurityIncident, incident_id), user)
 
 
+def _incident_integrity_problems(db: Session, incident: PrivacySecurityIncident) -> list[str]:
+    problems = gov.case_events.chain_problems(db, PrivacySecurityIncidentEvent, incident.id)
+    events = gov.case_events.list_events(db, PrivacySecurityIncidentEvent, incident.id)
+    hashes = {e.event_sha256: e.artifact_sha256 for e in events if e.artifact_sha256}
+    return problems + gov.incidents.artifact_problems(db, incident.id, hashes)
+
+
 def _incident_out(db: Session, incident: PrivacySecurityIncident) -> dict[str, Any]:
     out = gov.incidents.incident_out(incident)
     out["events"] = gov.case_events.events_out(db, PrivacySecurityIncidentEvent, incident.id)
-    out["evidence_chain_ok"] = not gov.case_events.chain_problems(db, PrivacySecurityIncidentEvent, incident.id)
+    out["artifacts"] = gov.incidents.artifacts_out(db, incident.id)
+    out["evidence_chain_ok"] = not _incident_integrity_problems(db, incident)
     return out
 
 
@@ -869,8 +883,34 @@ def add_security_incident_evidence(incident_id: str, body: IncidentEvidence, req
                                    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     incident = gov.incidents.add_evidence(db, _incident(db, incident_id, current_user), kind=body.kind,
                                           reference=body.reference, sha256=body.sha256, actor_id=current_user.id)
-    return _incident_step(db, current_user, request, incident, "evidence", {"kind": body.kind},
-                          artifact_sha256=body.sha256)
+
+    def event_and_artifact():
+        event = gov.case_events.append_event(
+            db, PrivacySecurityIncidentEvent, tenant_id=incident.tenant_id, case_id=incident.id,
+            event_type="evidence", actor_id=current_user.id,
+            payload={"status": incident.status, "kind": body.kind, "media_type": body.media_type,
+                     "size_bytes": body.size_bytes},
+            artifact_sha256=body.sha256)
+        gov.incidents.record_artifact(db, incident, kind=body.kind, reference=body.reference, sha256=body.sha256,
+                                      media_type=body.media_type, size_bytes=body.size_bytes,
+                                      actor_id=current_user.id, event_sha256=event.event_sha256)
+
+    _commit_case(
+        db,
+        lambda: _audit(db, current_user, request, table="privacy_security_incidents", record_id=incident.id,
+                       action="UPDATE", new_value={"step": "evidence", "kind": body.kind, "sha256": body.sha256}),
+        event_and_artifact,
+    )
+    return _incident_out(db, incident)
+
+
+@router.post("/incidents/{incident_id}/artifacts/{artifact_id}/verify")
+def verify_security_incident_artifact(incident_id: str, artifact_id: str, body: ArtifactVerification,
+                                      db: Session = Depends(get_db),
+                                      current_user: User = Depends(get_current_user)):
+    """Vorgelegtes Artefakt gegen den erfassten Digest pruefen (Austausch oder
+    Veraenderung -> 409 INCIDENT_EVIDENCE_HASH_MISMATCH)."""
+    return gov.incidents.verify_artifact(db, _incident(db, incident_id, current_user), artifact_id, body.sha256)
 
 
 @router.post("/incidents/{incident_id}/remediation")
@@ -886,7 +926,7 @@ def record_security_incident_remediation(incident_id: str, body: IncidentClosure
 def close_security_incident(incident_id: str, body: IncidentClosure, request: Request,
                             db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     incident = _incident(db, incident_id, current_user)
-    if gov.case_events.chain_problems(db, PrivacySecurityIncidentEvent, incident.id):
+    if _incident_integrity_problems(db, incident):
         raise DomainError(
             ReasonCode.INCIDENT_EVIDENCE_HASH_MISMATCH,
             "Ereignis-/Nachweiskette des Vorfalls ist nicht unversehrt; Abschluss gesperrt", http_status=409,
@@ -945,11 +985,12 @@ def approve_egress_manifest(body: VersionApproval, request: Request, db: Session
 @router.get("/egress-events")
 def list_egress_events(limit: int = 200, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     """Persistentes Protokoll blockierter Verbindungen (ohne Payload)."""
-    rows = (db.query(PrivacyEgressEvent).filter(PrivacyEgressEvent.tenant_id == _tenant(current_user))
-            .order_by(PrivacyEgressEvent.occurred_at.desc()).limit(max(1, min(limit, 1000))).all())
+    rows = (db.query(OutboundProcessingEvent).filter(OutboundProcessingEvent.tenant_id == _tenant(current_user))
+            .order_by(OutboundProcessingEvent.occurred_at.desc()).limit(max(1, min(limit, 1000))).all())
     return [{"occurred_at": r.occurred_at, "channel_id": r.channel_id, "channel_class": r.channel_class,
              "destination_host": r.destination_host, "reason_code": r.reason_code, "result": r.result,
-             "manifest_version": r.manifest_version, "channel_sha256": r.channel_sha256} for r in rows]
+             "manifest_version": r.manifest_version, "channel_sha256": r.channel_sha256,
+             "manifest_sha256": r.manifest_sha256, "payload_schema_hash": r.payload_schema_hash} for r in rows]
 
 
 # ── H10 Nachtrag 2: kein stiller Ausfall bei gesperrter Datenuebermittlung ─────

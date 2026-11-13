@@ -42,7 +42,8 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # H10 Nachtrag 1: fuenf neue Tabellen (processing_activity_versions,
 # outbound_processing_manifest_versions, privacy_egress_events,
 # privacy_subject_request_events, privacy_security_incident_events).
-GOLDEN_SORTED_TABLES_SHA256 = "925f0e3a7f4730ba845711a933bf56b95a3f5a3dbd49297cf135a407927293bf"
+# H10 Nachtrag 2: neue Tabelle privacy_security_incident_artifacts.
+GOLDEN_SORTED_TABLES_SHA256 = "ef1534b157d95e70fe744cd3da0fc0fa928861b7a4b902bd94d75aba2c5f3335"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -86,7 +87,9 @@ GOLDEN_SORTED_TABLES_SHA256 = "925f0e3a7f4730ba845711a933bf56b95a3f5a3dbd49297cf
 # /privacy/egress-manifest/approve, GET /privacy/egress-events (Schema
 # VersionApproval); IncidentEvidence + sha256 (Pflicht). Feld-Diff geprueft.
 # H10 Nachtrag 2: neu GET /privacy/egress-status (Banner), sonst unveraendert.
-GOLDEN_OPENAPI_SHA256 = "1f050ec49d87962b97ac0da87a0d508d1d246e6c6cbfb2136bf41012a9090936"
+# H10 Nachtrag 2 (Codex C-900-03): IncidentEvidence + media_type/size_bytes (Pflicht), neu
+# POST /privacy/incidents/{incident_id}/artifacts/{artifact_id}/verify (ArtifactVerification).
+GOLDEN_OPENAPI_SHA256 = "cf7dc4cb5a1b79175d6ed0ae490732d8ef38667b277eb87de672879d8867e4a2"
 
 _PROBE = """
 import hashlib, json

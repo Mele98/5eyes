@@ -64,6 +64,7 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     # H10 Nachtrag 1: Freigabefassungen, Ereignisse, Egress-Protokoll.
     "outbound_processing_manifest_versions",
     "privacy_egress_events",
+    "privacy_security_incident_artifacts",
     "privacy_security_incident_events",
     "privacy_subject_request_events",
     "processing_activity_versions",

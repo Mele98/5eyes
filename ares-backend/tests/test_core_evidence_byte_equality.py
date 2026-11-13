@@ -520,6 +520,10 @@ SITES: dict[tuple[str, str], tuple[tuple[str, str | None], ...]] = {
     ("services/risk_override_decision.py", "compute_decision_hash"): ((EH, SCHEME_V1),),
     # H10 Nachtrag 1: Hash-Kette der Datenschutz-Fallereignisse.
     ("services/privacy_case_events.py", "_event_hash"): ((EH, SCHEME_V1),),
+    # H10 Nachtrag 2: Manifest-Hash und Schema-Hash blockierter Payloads.
+    ("services/egress_manifest.py", "manifest_hash"): ((EH, SCHEME_V1),),
+    ("services/egress_manifest.py", "payload_schema_hash"): ((EH, SCHEME_V1),),
+    ("services/security_incident_register.py", "_artifact_seal"): ((EH, SCHEME_V1),),
     # H8 N-890-10: Siegel der append-only Nachweise (KYC, Abgabe) und
     # Inhalts-Hash der rechtlichen Angaben -- Router schreiben, Gate rechnet nach.
     ("routers/clients.py", "_row_seal"): ((EH, SCHEME_V1),),

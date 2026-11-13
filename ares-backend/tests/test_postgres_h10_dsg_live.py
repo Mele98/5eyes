@@ -52,7 +52,8 @@ from tests.test_tenant_database_boundary import _raw_insert  # noqa: E402
 
 TABLES = ("privacy_owner_values", "privacy_subject_requests", "privacy_security_incidents",
           "processing_activity_versions", "outbound_processing_manifest_versions", "privacy_egress_events",
-          "privacy_subject_request_events", "privacy_security_incident_events")
+          "privacy_subject_request_events", "privacy_security_incident_events",
+          "privacy_security_incident_artifacts")
 APPEND_ONLY = TABLES[3:]
 FIRST_H10_DOWN = "d8e4b2a6c1f9"
 _NUMERIC = ("integer", "bigint", "smallint", "numeric", "double precision", "real")

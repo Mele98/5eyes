@@ -19,7 +19,7 @@ from sqlalchemy import text
 
 from config import settings
 from database import new_uuid
-from models.privacy import PrivacyEgressEvent
+from models.privacy import OutboundProcessingEvent
 from services import egress_manifest
 from services import privacy_case_events as case_events
 from services import privacy_versions as versions
@@ -57,11 +57,12 @@ def _event_sink(session_factory: Callable[[], Any]) -> Callable[[list[dict[str, 
     def sink(batch: list[dict[str, Any]]) -> None:
         with session_factory() as db:
             for item in batch:
-                db.add(PrivacyEgressEvent(
+                db.add(OutboundProcessingEvent(
                     id=new_uuid(), tenant_id=INSTALLATION_TENANT, occurred_at=item["at"],
                     channel_id=item.get("channel"), channel_class=item.get("channel_class"),
                     destination_host=item["host"] or "", reason_code=str(item["reason_code"]), result="BLOCKED",
                     manifest_version=item.get("manifest_version"), channel_sha256=item.get("channel_sha256"),
+                    manifest_sha256=item.get("manifest_sha256"), payload_schema_hash=item.get("payload_schema_hash"),
                 ))
             db.commit()
     return sink
