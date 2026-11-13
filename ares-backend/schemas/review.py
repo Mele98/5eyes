@@ -2748,3 +2748,152 @@ class SustainabilityStandardUpdate(BaseModel):
         description="Kategorie fuer diese Verwaltung deaktivieren (Lockerung, Vier-Augen-Freigabe).",
     )
     note: Optional[str] = Field(default=None, max_length=2000)
+
+
+# ---------------------------------------------------------------------------
+# H8 C-2 (Compliance-Audit 2026-11-07): Rechtliche Angaben der Firma und
+# Abgabenachweis der Kundeninformation (Art. 8/9 FIDLEG).
+# ---------------------------------------------------------------------------
+
+_LEGAL_TEXT = Field(default=None, max_length=500)
+
+
+class TenantLegalProfileUpdate(BaseModel):
+    """Teil-Update der rechtlichen Angaben (nur gesetzte Felder). Leerer
+    String loescht eine Angabe. Kein Feld hat einen Vorgabewert."""
+
+    legal_name: Optional[str] = _LEGAL_TEXT
+    address_street: Optional[str] = _LEGAL_TEXT
+    address_postal_code: Optional[str] = Field(default=None, max_length=20)
+    address_city: Optional[str] = _LEGAL_TEXT
+    address_country: Optional[str] = Field(default=None, max_length=2)
+    business_activity: Optional[str] = Field(default=None, max_length=2000)
+    supervision_type: Optional[Literal[
+        "vermoegensverwalter_finig",
+        "andere_finma_bewilligung",
+        "anlageberater_ohne_prudenzielle_aufsicht",
+        "",
+    ]] = None
+    supervisory_authority: Optional[str] = _LEGAL_TEXT
+    supervisory_organisation: Optional[str] = _LEGAL_TEXT
+    license_reference: Optional[str] = _LEGAL_TEXT
+    ombudsman_name: Optional[str] = _LEGAL_TEXT
+    ombudsman_address: Optional[str] = _LEGAL_TEXT
+    contact_phone: Optional[str] = Field(default=None, max_length=50)
+    contact_email: Optional[str] = Field(default=None, max_length=200)
+    contact_website: Optional[str] = Field(default=None, max_length=200)
+
+    @field_validator("address_country")
+    @classmethod
+    def _country(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or value.strip() == "":
+            return value
+        code = value.strip().upper()
+        if not re.fullmatch(r"[A-Z]{2}", code):
+            raise ValueError("address_country muss ein ISO-3166-Alpha-2-Code sein (z.B. CH)")
+        return code
+
+    @field_validator("contact_email")
+    @classmethod
+    def _email(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or value.strip() == "":
+            return value
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value.strip()):
+            raise ValueError("contact_email ist keine gueltige E-Mail-Adresse")
+        return value.strip()
+
+
+class TenantLegalProfileResponse(BaseModel):
+    tenant_id: str
+    present: bool
+    legal_name: Optional[str] = None
+    address_street: Optional[str] = None
+    address_postal_code: Optional[str] = None
+    address_city: Optional[str] = None
+    address_country: Optional[str] = None
+    business_activity: Optional[str] = None
+    supervision_type: Optional[str] = None
+    supervisory_authority: Optional[str] = None
+    supervisory_organisation: Optional[str] = None
+    license_reference: Optional[str] = None
+    ombudsman_name: Optional[str] = None
+    ombudsman_address: Optional[str] = None
+    contact_phone: Optional[str] = None
+    contact_email: Optional[str] = None
+    contact_website: Optional[str] = None
+    revision: int = 0
+    profile_hash: Optional[str] = None
+    updated_by: Optional[str] = None
+    updated_at: Optional[str] = None
+    missing_fields: list[str]
+    missing_labels: list[str]
+    field_labels: dict[str, str]
+    supervision_labels: dict[str, str]
+    complete: bool
+
+
+class ClientInformationDeliveryCreate(BaseModel):
+    """Abgabe der Kundeninformation: welche archivierte Fassung, wann, wie."""
+
+    contract_document_id: str = Field(min_length=1, max_length=100)
+    delivered_at: str
+    delivery_channel: Literal["persoenlich_papier", "post", "email", "kundenportal"]
+    # N-890-02: Pflicht, wenn die Uebergabe mehr als 24 h zurueckliegt.
+    backdating_reason: Optional[str] = Field(default=None, max_length=2000)
+    data_classification: Literal["synthetic", "real"] = "synthetic"
+
+    @field_validator("delivered_at")
+    @classmethod
+    def _delivered_at(cls, value: str) -> str:
+        raw = str(value or "").strip()
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("delivered_at muss ein ISO-Zeitpunkt sein") from exc
+        if parsed.tzinfo is None:
+            raise ValueError("delivered_at braucht eine Zeitzone (z.B. ...Z oder +01:00)")
+        return parsed.isoformat()
+
+
+class ClientInformationDeliveryResponse(BaseResponse):
+    id: str
+    mandate_id: str
+    client_id: str
+    contract_document_id: str
+    template_version: str
+    legal_profile_revision: int
+    legal_profile_hash: str
+    pdf_sha256: str
+    delivered_at: str
+    delivery_channel: str
+    delivery_timing: str
+    backdating_reason: Optional[str] = None
+    recorded_by: str
+    recorded_at: str
+    delivery_hash: str
+
+
+class ClientOnboardingFinding(BaseModel):
+    reason_code: str
+    message: str
+    owner_action: str
+    scope: str
+    missing_fields: Optional[list[str]] = None
+    missing_labels: Optional[list[str]] = None
+    confirmation_id: Optional[str] = None
+    contract_concluded_at: Optional[str] = None
+
+
+class ClientOnboardingStatusResponse(BaseModel):
+    mandate_id: str
+    client_id: str
+    release_ready: bool
+    findings: list[ClientOnboardingFinding]
+    legal_profile: dict[str, Any]
+    contract_concluded_at: Optional[str] = None
+    deliveries: list[dict[str, Any]]
+    kyc_confirmation: Optional[dict[str, Any]] = None
+    kyc_requires_second_approval: Optional[bool] = None
+    template_version: str
+    latest_document: Optional[dict[str, Any]] = None
+    due_diligence: Optional[dict[str, Any]] = None

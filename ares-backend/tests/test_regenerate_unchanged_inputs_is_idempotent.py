@@ -89,6 +89,10 @@ def test_regenerate_with_unchanged_inputs_keeps_allocation_and_final_run(session
         )["run"]
         s.commit()
         declare_all_products_retro_free(s)
+        # H8 C-2/C-5: Kundeninformations-/KYC-Gate mit Testwerten erfuellen.
+        from client_onboarding_fixture import satisfy_client_onboarding
+
+        satisfy_client_onboarding(s, mandate)
         finalize_recommendation(mandate.id, run.id, _request(), db=s, current_user=adv)
         assert s.get(RecommendationRun, run.id).result_status == "Final"
 

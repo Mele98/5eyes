@@ -226,6 +226,40 @@ class NationalityResponse(BaseResponse):
     created_at: str
 
 
+class OptOutCriteria(BaseModel):
+    """H8 Luecke 7: Kriterien-Checkliste fuer ein Opting-out nach Art. 5 FIDLEG
+    (vermoegende Privatkunden erklaeren, als professionelle Kunden gelten zu
+    wollen). Kriterien gemaess Art. 5 Abs. 2 FIDLEG [Compliance pruefen]:
+    lit. a Kenntnisse aus Ausbildung/Berufserfahrung UND anrechenbares
+    Vermoegen von mindestens CHF 500 000, oder lit. b anrechenbares Vermoegen
+    von mindestens CHF 2 Mio. Ares prueft nicht das Vermoegen selbst, sondern
+    verlangt die dokumentierte Bestaetigung je Kriterium."""
+
+    basis: Literal["kenntnisse_und_vermoegen_500k", "vermoegen_2mio"]
+    eligible_assets_verified: bool
+    knowledge_basis: Optional[str] = None
+    client_informed_of_protection_loss: bool
+    declaration_in_text_form: bool
+
+    @model_validator(mode="after")
+    def _validate_checklist(self):
+        missing: list[str] = []
+        if not self.eligible_assets_verified:
+            missing.append("anrechenbares Vermoegen geprueft")
+        if not self.client_informed_of_protection_loss:
+            missing.append("Aufklaerung ueber den Verlust des Anlegerschutzes")
+        if not self.declaration_in_text_form:
+            missing.append("Erklaerung des Kunden in Textform")
+        if self.basis == "kenntnisse_und_vermoegen_500k" and len((self.knowledge_basis or "").strip()) < 10:
+            missing.append("Nachweis der Kenntnisse (Ausbildung/Berufserfahrung, mind. 10 Zeichen)")
+        if missing:
+            raise ValueError(
+                "Opting-out nach Art. 5 FIDLEG unvollstaendig dokumentiert: "
+                + "; ".join(missing)
+            )
+        return self
+
+
 class OptHistoryCreate(BaseModel):
     # FIDLEG-STATE-001 (2026-08-27-Audit): from_classification/
     # to_classification waren zuvor freie Strings -- der Router setzte
@@ -238,7 +272,17 @@ class OptHistoryCreate(BaseModel):
     # uebereinstimmt (stale/falscher Ausgangszustand -> 409), erfolgt im
     # Router (routers/clients.py::add_opt_history), da sie den DB-Zustand
     # kennen muss.
-    event_type: str
+    # N-890-13: feste Werteliste gemaess FIDLEG (vorher freier String -> 500 am
+    # DB-CHECK). Leer = vom Server aus dem Uebergang abgeleitet; ein
+    # widerspruechlicher Wert ergibt 422.
+    event_type: Optional[Literal[
+        "Opting-out zu Professionell",
+        "Opting-out zu Institutionell",
+        "Opting-in zu Privatkunde",
+        "Opting-in zu Professionell",
+        "Qualifizierter Anleger bestätigt",
+        "Klassifizierung überprüft",
+    ]] = None
     from_classification: ClientClassification
     to_classification: ClientClassification
     client_requested: bool = True
@@ -259,6 +303,11 @@ class OptHistoryCreate(BaseModel):
     to_professional_opt_out: Optional[bool] = None
     from_qualified_investor: Optional[bool] = None
     to_qualified_investor: Optional[bool] = None
+    # H8 Luecke 7 (Art. 5 FIDLEG): Pflicht bei einem Opting-out (Privatkunde
+    # -> professionell bzw. Opting-out-Flag -> True), zusammen mit
+    # ``document_id`` (Beleg der Erklaerung). Pruefung im Router, weil sie den
+    # gespeicherten Ausgangszustand kennen muss.
+    opt_out_criteria: Optional[OptOutCriteria] = None
     # DATA-CLASSIFICATION-GATE-COVERAGE-002 (Kontrollrunde 2026-09-24):
     # Phase-0-Gate fehlte fuer Opt-History -- enthaelt Freitext (notes) und
     # dokumentiert eine echte Klassifikations-Aenderung des Kunden.
@@ -280,12 +329,15 @@ class OptHistoryResponse(BaseResponse):
     to_professional_opt_out: Optional[int] = None
     from_qualified_investor: Optional[int] = None
     to_qualified_investor: Optional[int] = None
+    document_id: Optional[str] = None
+    opt_out_criteria_json: Optional[str] = None
 
 
 class ClientDueDiligenceBase(BaseModel):
     pep_status: bool = False
     pep_details: Optional[str] = None
-    acting_for_own_account: bool = True
+    # H8 C-5: kein Default "ja" mehr. None = unbeantwortet (KYC-Gate rot).
+    acting_for_own_account: Optional[bool] = None
     beneficial_owner_name: Optional[str] = None
     source_of_wealth: Optional[str] = None
     id_document_type: Optional[str] = None
@@ -300,7 +352,7 @@ class ClientDueDiligenceBase(BaseModel):
         # Berechtigten), MUSS dessen Identitaet festgehalten werden. Anders
         # als pep_details (optional, kann spaeter ergaenzt werden) ist das
         # hier eine gesetzliche Pflichtangabe -- siehe Design-Vorgabe.
-        if not self.acting_for_own_account and not (self.beneficial_owner_name or "").strip():
+        if self.acting_for_own_account is False and not (self.beneficial_owner_name or "").strip():
             raise ValueError(
                 "beneficial_owner_name ist Pflicht, wenn acting_for_own_account=False "
                 "(GwG Art. 4: wirtschaftlich Berechtigter muss festgehalten werden)"
@@ -324,7 +376,9 @@ class ClientDueDiligenceResponse(BaseResponse):
     client_id: str
     pep_status: int
     pep_details: Optional[str]
-    acting_for_own_account: int
+    # H8 C-5: None = unbeantwortet (auch Bestandszeilen vor H8).
+    acting_for_own_account: Optional[int] = None
+    acting_for_own_account_answered: int = 0
     beneficial_owner_name: Optional[str]
     source_of_wealth: Optional[str]
     id_document_type: Optional[str]
@@ -334,6 +388,173 @@ class ClientDueDiligenceResponse(BaseResponse):
     fatca_crs_self_certified: int
     created_at: str
     updated_at: str
+
+    @model_validator(mode="after")
+    def _hide_unanswered_own_account(self):
+        if not self.acting_for_own_account_answered:
+            self.acting_for_own_account = None
+        return self
+
+
+# ---------------------------------------------------------------------------
+# H8 C-5: GwG-Bestaetigung (Abklaerung im SRO-/Fremdprozess) als Gate.
+# ---------------------------------------------------------------------------
+
+def _iso_date(value: str, field: str) -> str:
+    try:
+        return _date.fromisoformat(str(value).strip()[:10]).isoformat()
+    except ValueError as exc:
+        raise ValueError(f"{field} muss ein ISO-Datum (JJJJ-MM-TT) sein") from exc
+
+
+class KycConfirmationCreate(BaseModel):
+    """Bestaetigung, dass die GwG-Abklaerung im Prozess der SRO/AO bzw. im
+    Fremdsystem erfolgt ist. Alle fachlichen Felder ohne Vorbelegung --
+    insbesondere ``is_pep`` und ``risk_category`` muessen ausdruecklich
+    beantwortet werden."""
+
+    mandate_id: Optional[str] = None
+    form_type: Literal["A", "K", "S", "T"]
+    form_completed_on: str
+    external_reference: str
+    risk_category: Literal["normal", "erhoeht"]
+    is_pep: bool
+    # N-890-12: Identifizierung der Vertragspartei (GwG Art. 3) ausdruecklich
+    # bestaetigen (Pflicht True) samt Datum.
+    identification_confirmed: bool
+    identification_date: str
+    next_review_due: str
+    note: Optional[str] = None
+    data_classification: Literal["synthetic", "real"] = "synthetic"
+
+    @model_validator(mode="after")
+    def _validate(self):
+        self.form_completed_on = _iso_date(self.form_completed_on, "form_completed_on")
+        self.next_review_due = _iso_date(self.next_review_due, "next_review_due")
+        self.identification_date = _iso_date(self.identification_date, "identification_date")
+        if not self.identification_confirmed:
+            raise ValueError(
+                "identification_confirmed muss bestaetigt sein (Identifizierung der "
+                "Vertragspartei nach GwG Art. 3)"
+            )
+        if _date.fromisoformat(self.identification_date) > _date.today():
+            raise ValueError("identification_date darf nicht in der Zukunft liegen")
+        if _date.fromisoformat(self.form_completed_on) > _date.today():
+            raise ValueError("form_completed_on darf nicht in der Zukunft liegen")
+        if self.next_review_due <= self.form_completed_on:
+            raise ValueError("next_review_due muss nach form_completed_on liegen")
+        if len(self.external_reference.strip()) < 3:
+            raise ValueError("external_reference (Referenz im SRO-/Fremdprozess) ist Pflicht")
+        self.external_reference = self.external_reference.strip()
+        return self
+
+
+class KycConfirmationApprovalCreate(BaseModel):
+    note: Optional[str] = None
+
+
+class KycConfirmationApprovalResponse(BaseResponse):
+    id: str
+    confirmation_id: str
+    client_id: str
+    approved_by: str
+    approved_at: str
+    note: Optional[str] = None
+    approval_hash: str
+
+
+class KycConfirmationResponse(BaseResponse):
+    id: str
+    client_id: str
+    mandate_id: Optional[str] = None
+    process_scope: str
+    form_type: str
+    form_completed_on: str
+    external_reference: str
+    risk_category: str
+    is_pep: int
+    identification_confirmed: int
+    identification_date: str
+    next_review_due: str
+    note: Optional[str] = None
+    recorded_by: str
+    recorded_at: str
+    confirmation_hash: str
+    requires_second_approval: bool = False
+    approval: Optional[KycConfirmationApprovalResponse] = None
+
+
+# ---------------------------------------------------------------------------
+# H8 Luecke 10: Vertretung / Verfuegungsberechtigung (dokumentarisch).
+# ---------------------------------------------------------------------------
+
+class ClientRepresentationCreate(BaseModel):
+    mandate_id: Optional[str] = None
+    representation_type: Literal["vollmacht", "vorsorgeauftrag", "beistandschaft", "gemeinschaftsdepot"]
+    representative_name: str
+    scope: str
+    evidence_reference: str
+    effective_from: Optional[str] = None
+    effective_until: Optional[str] = None
+    disposal_rule: Optional[Literal["einzeln", "gemeinsam"]] = None
+    note: Optional[str] = None
+    data_classification: Literal["synthetic", "real"] = "synthetic"
+
+    @model_validator(mode="after")
+    def _validate(self):
+        for name in ("representative_name", "scope", "evidence_reference"):
+            value = str(getattr(self, name) or "").strip()
+            if len(value) < 2:
+                raise ValueError(f"{name} ist Pflicht")
+            setattr(self, name, value)
+        if self.effective_from:
+            self.effective_from = _iso_date(self.effective_from, "effective_from")
+        if self.effective_until:
+            self.effective_until = _iso_date(self.effective_until, "effective_until")
+        if self.effective_from and self.effective_until and self.effective_until < self.effective_from:
+            raise ValueError("effective_until liegt vor effective_from")
+        # Vorsorgeauftrag (ZGB 363) und Beistandschaft (ZGB 390 ff.) wirken
+        # erst ab Validierung bzw. Errichtung durch die KESB: Wirksamkeit Pflicht.
+        if self.representation_type in ("vorsorgeauftrag", "beistandschaft") and not self.effective_from:
+            raise ValueError(
+                "effective_from (Wirksamkeit gemaess KESB-Entscheid) ist bei "
+                "Vorsorgeauftrag und Beistandschaft Pflicht"
+            )
+        if self.representation_type == "gemeinschaftsdepot" and not self.disposal_rule:
+            raise ValueError("disposal_rule (einzeln/gemeinsam) ist beim Gemeinschaftsdepot Pflicht")
+        if self.representation_type != "gemeinschaftsdepot" and self.disposal_rule:
+            raise ValueError("disposal_rule gilt nur fuer das Gemeinschaftsdepot")
+        return self
+
+
+class ClientRepresentationRevoke(BaseModel):
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def _reason(cls, value: str) -> str:
+        if len(value.strip()) < 5:
+            raise ValueError("Begruendung des Widerrufs (mind. 5 Zeichen) ist Pflicht")
+        return value.strip()
+
+
+class ClientRepresentationResponse(BaseResponse):
+    id: str
+    client_id: str
+    mandate_id: Optional[str] = None
+    representation_type: str
+    representative_name: str
+    scope: str
+    evidence_reference: str
+    effective_from: Optional[str] = None
+    effective_until: Optional[str] = None
+    disposal_rule: Optional[str] = None
+    note: Optional[str] = None
+    recorded_by: str
+    recorded_at: str
+    revoked_at: Optional[str] = None
+    revoked_by: Optional[str] = None
+    revocation_reason: Optional[str] = None
 
 
 class ClientTaxResidencyCreate(BaseModel):

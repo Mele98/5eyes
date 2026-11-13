@@ -35,7 +35,11 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 # H-144 (F6): + audit_chain_verification_status (einzige Abweichung der
 # Tabellenliste gegenueber 2e5dfcc3, per Diff der sorted_tables geprueft).
-GOLDEN_SORTED_TABLES_SHA256 = "119de678ec42d2944c9871dc23e8054a527ced25cb6ee447d6d089e9e892a40b"
+# H8 (2026-11-07): fuenf neue Tabellen (tenant_legal_profiles,
+# client_information_deliveries, kyc_confirmations, kyc_confirmation_approvals,
+# client_representations), keine bestehende Tabelle umbenannt/entfernt.
+# RC-CH-1 (H8-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
+GOLDEN_SORTED_TABLES_SHA256 = "c13d17868d4502cdbe7a2e7bf176b96f9649f091be4005999e8e1482add11d68"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -62,7 +66,20 @@ GOLDEN_SORTED_TABLES_SHA256 = "119de678ec42d2944c9871dc23e8054a527ced25cb6ee447d
 # + unsigned_accepted/signature "missing" (nur die neuen Schemas).
 # RC-CH-1 (H4-Merge): api/openapi.json vollstaendig regeneriert (export_openapi.py),
 # Pin aus dem Tree neu berechnet, keine Seite gewaehlt.
-GOLDEN_OPENAPI_SHA256 = "6f097bf429c8a60775824b3bba289d46a16a188613d6a00b9797b1335726c24f"
+# H8 (2026-11-07): neu GET/PUT /compliance/legal-profile, GET
+# /mandates/{mandate_id}/client-onboarding/status, POST
+# /mandates/{mandate_id}/client-information/deliveries, GET
+# /mandates/{mandate_id}/reports/kundeninformation.pdf, GET/POST
+# /clients/{client_id}/kyc-confirmations (+ /approve), GET/POST
+# /clients/{client_id}/representations (+ /revoke) samt Schemas; geaendert nur
+# ClientDueDiligenceUpdate/-Response (acting_for_own_account ohne Default, neu
+# acting_for_own_account_answered) und OptHistoryCreate/-Response
+# (opt_out_criteria, document_id, opt_out_criteria_json). Feld-Diff geprueft.
+# H8 nach Merge H7 (N-890-07): Pins gemeinsam neu. N-890-02/03/12/13: Delivery
+# (delivery_timing, backdating_reason), KYC (identification_*, requires_second_approval),
+# OptHistoryCreate.event_type als FIDLEG-Werteliste. Feld-Diff geprueft.
+# RC-CH-1 (H8-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
+GOLDEN_OPENAPI_SHA256 = "847d0fef5ca35bf3de5907f26921f15d6d0dfadb21e4bb275d7011f39065ca5d"
 
 _PROBE = """
 import hashlib, json

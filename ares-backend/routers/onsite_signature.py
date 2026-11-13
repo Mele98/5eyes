@@ -45,8 +45,10 @@ from services.onsite_signature import state_machine as sm
 from services.onsite_signature.runtime import OnsiteSignatureRuntime, get_onsite_signature_runtime
 from services.recommendation_release_gate import (
     CHANNEL_SIGNATURE,
+    CONTRACT_CONCLUSION_DOCUMENT_TYPES,
     RECOMMENDATION_DOCUMENT_TYPES,
     SIGNOFF_BOUND_DOCUMENT_TYPES,
+    assert_client_onboarding_release_eligible,
     assert_recommendation_release_eligible,
     assert_retrocession_release_eligible,
     assert_risk_signoff_release_eligible,
@@ -101,7 +103,8 @@ def _release_gates(
     on_blocked=None,
 ) -> None:
     """Freigabe-Gates der Vor-Ort-Signatur. H7 N-884-07: jede Sperre (Risiko-
-    profil-Signoff, Empfehlungsfreigabe, Retrozession) wird im Audit-Log
+    profil-Signoff, Empfehlungsfreigabe, Retrozession, H8 Kundeninformation/
+    KYC) wird im Audit-Log
     festgehalten (``onsite_signature_blocked``); ``on_blocked(reason_code)``
     erlaubt dem Aufrufer, einen offenen Vorgang danach sauber zu schliessen."""
     audit = release_block_audit(
@@ -118,6 +121,11 @@ def _release_gates(
             assert_recommendation_release_eligible(db, mandate, channel=CHANNEL_SIGNATURE)
             # H7 N-884-04: Retro-Gate auch fuer finale Laeufe (fail-closed).
             assert_retrocession_release_eligible(db, mandate, channel=CHANNEL_SIGNATURE)
+        if document_type in CONTRACT_CONCLUSION_DOCUMENT_TYPES:
+            # H8 N-890-01: die Vor-Ort-Signatur ist der In-App-Weg fuer die
+            # Kundenunterschrift -- dasselbe Kundeninformations-/KYC-Gate wie
+            # Berater-Signatur und Finalisierung (Sperre auditiert, siehe unten).
+            assert_client_onboarding_release_eligible(db, mandate, channel=CHANNEL_SIGNATURE)
     except Exception as exc:
         # Gates werfen DomainError (reason_code im Detail); alles andere
         # (Programmfehler) geht unveraendert weiter.

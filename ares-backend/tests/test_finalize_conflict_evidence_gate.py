@@ -53,7 +53,7 @@ def _now() -> str:
     return datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z")
 
 
-def _ready_run(session_factory, *, suffix: str):
+def _ready_run(session_factory, *, suffix: str, client_onboarding: bool = True):
     advisor_id, _client_id, mandate_id, assessment_id, _goal_id = (
         _seed_realistic_mandate(session_factory, suffix=suffix)
     )
@@ -63,7 +63,7 @@ def _ready_run(session_factory, *, suffix: str):
         session_factory, mandate_id, allocation_id, assessment_id,
         advisor_id, policy, cma,
     )
-    _add_full_position(session_factory, run_id)
+    _add_full_position(session_factory, run_id, client_onboarding=client_onboarding)
     return advisor_id, mandate_id, run_id
 
 

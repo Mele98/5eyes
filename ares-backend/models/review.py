@@ -1,6 +1,6 @@
-from sqlalchemy import BigInteger, Column, String, Integer, ForeignKey, UniqueConstraint, Index, text
+from sqlalchemy import DDL, BigInteger, Column, String, Integer, ForeignKey, UniqueConstraint, Index, event, text
 from sqlalchemy.orm import relationship
-from database import Base
+from database import CLIENT_INFORMATION_DELIVERY_SQLITE_TRIGGERS, Base
 
 
 class ReviewTrigger(Base):
@@ -713,3 +713,49 @@ class MandateReportNotes(Base):
 
     mandate = relationship("Mandate", back_populates="report_notes")
     editor = relationship("User")
+
+
+class ClientInformationDelivery(Base):
+    """H8 C-2 (Compliance-Audit 2026-11-07, Luecke 2): Abgabenachweis der
+    Kundeninformation nach Art. 8/9 FIDLEG.
+
+    Belegt, WELCHE archivierte Fassung (``contract_document_id`` mit Byte-Hash
+    ``pdf_sha256``, Vorlagenversion, Revision/Hash der rechtlichen Angaben)
+    WANN (``delivered_at``) und WIE (``delivery_channel``) dem Kunden
+    uebergeben wurde. Gate: Finalisierung und Vertragsunterzeichnung nur, wenn
+    die Uebergabe vor dem Vertragsabschluss liegt
+    (services/recommendation_release_gate.py::client_onboarding_findings).
+
+    Append-only (Trigger SQLite/PostgreSQL); kein FK auf mandates/clients
+    (Purge-fest wie audit_log), nur der Akteur verweist auf users.
+    """
+
+    __tablename__ = "client_information_deliveries"
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    mandate_id = Column(String, nullable=False)
+    client_id = Column(String, nullable=False)
+    contract_document_id = Column(String, nullable=False)
+    template_version = Column(String, nullable=False)
+    legal_profile_revision = Column(Integer, nullable=False)
+    legal_profile_hash = Column(String, nullable=False)
+    pdf_sha256 = Column(String, nullable=False)
+    delivered_at = Column(String, nullable=False)
+    delivery_channel = Column(String, nullable=False)
+    # N-890-02: "vor_vertragsabschluss" (erfasst, bevor ein Vertrag unterzeichnet
+    # war) oder "nachtraeglich" (Bestandsvertrag; zaehlt nie als vorvertraglich).
+    delivery_timing = Column(String, nullable=False)
+    # Pflicht, wenn delivered_at mehr als 24 h vor recorded_at liegt.
+    backdating_reason = Column(String)
+    recorded_by = Column(String, ForeignKey("users.id"), nullable=False)
+    recorded_at = Column(String, nullable=False)
+    delivery_hash = Column(String, nullable=False)
+
+
+for _trigger_ddl in CLIENT_INFORMATION_DELIVERY_SQLITE_TRIGGERS:
+    event.listen(
+        ClientInformationDelivery.__table__,
+        "after_create",
+        DDL(_trigger_ddl).execute_if(dialect="sqlite"),
+    )

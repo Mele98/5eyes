@@ -722,6 +722,68 @@ CLIENT_PII_KEYS_SQLITE_TABLE_DDL: tuple[str, ...] = (
 )""",
 )
 
+# H8 C-2/C-5 (Compliance-Audit 2026-11-07): append-only Nachweise der
+# Kundeninformation (Art. 8/9 FIDLEG) und der GwG-Bestaetigung samt Vier-Augen-
+# Freigabe. Die Tabellen legt create_all an (Modelle in models/review.py bzw.
+# models/clients.py, after_create); Alembic d8e4b2a6c1f9 fuer PostgreSQL.
+def _append_only_sqlite_triggers(table: str) -> tuple[str, ...]:
+    return (
+        f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_update "
+        f"BEFORE UPDATE ON {table} FOR EACH ROW "
+        f"BEGIN SELECT RAISE(ABORT, '{table} is immutable'); END",
+        f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_delete "
+        f"BEFORE DELETE ON {table} FOR EACH ROW "
+        f"BEGIN SELECT RAISE(ABORT, '{table} is immutable'); END",
+    )
+
+
+CLIENT_INFORMATION_DELIVERY_SQLITE_TRIGGERS = _append_only_sqlite_triggers("client_information_deliveries")
+# N-890-09 (DSG Art. 6 Abs. 4): die KYC-Nachweise bleiben append-only, ihre
+# Freitexte duerfen aber im Loeschvorgang (services/client_erasure.py) auf den
+# Redaktionsmarker gesetzt werden -- sonst nichts. Gleicher Wert wie
+# services/client_erasure.py::REDACTION_MARKER (Test prueft die Gleichheit).
+ERASURE_REDACTION_MARKER = "[ERASED-DSG-ART-32]"
+KYC_CONFIRMATION_FIXED_COLUMNS: tuple[str, ...] = (
+    "id", "tenant_id", "client_id", "mandate_id", "process_scope", "form_type",
+    "form_completed_on", "risk_category", "is_pep", "identification_confirmed",
+    "identification_date", "next_review_due", "requires_second_approval",
+    "recorded_by", "recorded_at", "confirmation_hash",
+)
+KYC_CONFIRMATION_REDACTABLE_COLUMNS: tuple[str, ...] = ("external_reference", "note")
+KYC_CONFIRMATION_APPROVAL_FIXED_COLUMNS: tuple[str, ...] = (
+    "id", "tenant_id", "confirmation_id", "client_id", "approved_by", "approved_at",
+    "approval_hash",
+)
+KYC_CONFIRMATION_APPROVAL_REDACTABLE_COLUMNS: tuple[str, ...] = ("note",)
+
+
+def _redaction_only_sqlite_triggers(
+    table: str, fixed: tuple[str, ...], redactable: tuple[str, ...],
+) -> tuple[str, ...]:
+    changed = " OR ".join(f"NEW.{c} IS NOT OLD.{c}" for c in fixed)
+    bad_text = " OR ".join(
+        f"(NEW.{c} IS NOT OLD.{c} AND NEW.{c} IS NOT NULL AND NEW.{c} != '{ERASURE_REDACTION_MARKER}')"
+        for c in redactable
+    )
+    return (
+        f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_update "
+        f"BEFORE UPDATE ON {table} FOR EACH ROW WHEN {changed} OR {bad_text} "
+        f"BEGIN SELECT RAISE(ABORT, '{table} is immutable'); END",
+        f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_delete "
+        f"BEFORE DELETE ON {table} FOR EACH ROW "
+        f"BEGIN SELECT RAISE(ABORT, '{table} is immutable'); END",
+    )
+
+
+KYC_CONFIRMATION_SQLITE_TRIGGERS = _redaction_only_sqlite_triggers(
+    "kyc_confirmations", KYC_CONFIRMATION_FIXED_COLUMNS, KYC_CONFIRMATION_REDACTABLE_COLUMNS,
+)
+KYC_CONFIRMATION_APPROVAL_SQLITE_TRIGGERS = _redaction_only_sqlite_triggers(
+    "kyc_confirmation_approvals", KYC_CONFIRMATION_APPROVAL_FIXED_COLUMNS,
+    KYC_CONFIRMATION_APPROVAL_REDACTABLE_COLUMNS,
+)
+
+
 CLIENT_PII_KEYS_SQLITE_TRIGGERS: tuple[str, ...] = (
     "CREATE TRIGGER IF NOT EXISTS trg_client_pii_keys_shred_only "
     "BEFORE UPDATE ON client_pii_keys FOR EACH ROW "
@@ -1064,6 +1126,13 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             ('to_professional_opt_out', 'INTEGER'),
             ('from_qualified_investor', 'INTEGER'),
             ('to_qualified_investor', 'INTEGER'),
+            # H8 Luecke 7 (Art. 5 FIDLEG): Kriterien-Checkliste des Opting-out.
+            ('opt_out_criteria_json', 'TEXT'),
+        ],
+        # H8 C-5: "auf eigene Rechnung" nicht mehr vorbelegt. Bestandszeilen
+        # erhalten 0 = unbeantwortet ("Bestaetigung fehlt"), bis neu erfasst.
+        'client_due_diligence': [
+            ('acting_for_own_account_answered', 'INTEGER', 0),
         ],
         # Sprint U-37 (2026-06-03): Notes-Versionierungs-Log.
         # Append-only JSON-Array von Edit-Snapshots fuer FINMA-Audit

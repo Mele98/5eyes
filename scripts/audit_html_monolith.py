@@ -29,6 +29,9 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     ("ares.css", "css"),
     ("intro-sequence.js", "js"),
     ("goal-review-runtime.js", "js"),
+    # H8 (Compliance-Audit 2026-11-07): Kundeninformation, KYC-Bestaetigung,
+    # Vertretung + Audit-Tabelle (renderAuditLogTable umgezogen, N-873-09).
+    ("client-compliance.js", "js"),
 )
 
 # N-875-05: Bewusste, dokumentierte Liste der VOR H3 bereits eigen-

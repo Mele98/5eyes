@@ -5,25 +5,42 @@ Sprint 11 Phase 5: Logging + Fallback-Sektionen + Portfolio-PDF
 """
 from __future__ import annotations
 
+import base64
+import dataclasses
 import hashlib
 import json
 import logging
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models.clients import Client
+from models.clients import Client, ClientRepresentation
 
 logger = logging.getLogger(__name__)
 from core.http_filenames import content_disposition
 from models.mandates import Mandate
+from models.review import ConflictOfInterestDisclosure, ContractDocument, Product
 from models.users import User
 from routers.auth import _extract_client_ip
 from services.auth import get_current_user, get_mandate_for_user_or_404
 from services.document_archive import archive_generated_pdf, content_hash_for
+from services.cost_disclosure import build_cost_disclosure
 from services.pdf import ReportLabRenderer
+from services.recommendation_release_gate import (
+    CLIENT_INFORMATION_DOCUMENT_TYPE,
+    CLIENT_INFORMATION_REGIME_UNSUPPORTED,
+    CLIENT_INFORMATION_SEAT_REGIMES,
+    CLIENT_INFORMATION_TEMPLATE_VERSION,
+    CLIENT_INFORMATION_TENANT_DATA_MISSING,
+    SUPERVISION_LABELS,
+    legal_profile_hash,
+    legal_profile_missing_fields,
+    load_tenant_legal_profile,
+    mandate_tenant_id,
+)
 from services.recommendation_run_resolver import (
     NO_CURRENT_RECOMMENDATION_MARKER,
     resolve_current_recommendation_run,
@@ -35,6 +52,7 @@ from services.pdf.base import (
     ContractSignoffData,
     CostDisclosurePDFData,
     DepotCheckData,
+    KundeninformationData,
     PDFContext,
     PortfolioData,
     ProtokollData,
@@ -1890,6 +1908,34 @@ def _risk_signoff_view(db: Session, ra) -> dict:
     return view
 
 
+_REPRESENTATION_LABELS = {
+    "vollmacht": "Vollmacht",
+    "vorsorgeauftrag": "Vorsorgeauftrag (ZGB 360 ff.)",
+    "beistandschaft": "Beistandschaft (ZGB 390 ff.)",
+    "gemeinschaftsdepot": "Gemeinschaftsdepot",
+}
+
+
+def _protocol_representation_lines(db: Session, mandate: Mandate) -> tuple:
+    rows = db.query(ClientRepresentation).filter(
+        ClientRepresentation.client_id == mandate.client_id,
+        ClientRepresentation.revoked_at.is_(None),
+        or_(ClientRepresentation.mandate_id.is_(None), ClientRepresentation.mandate_id == mandate.id),
+    ).order_by(ClientRepresentation.recorded_at).all()
+    lines: list[str] = []
+    for row in rows:
+        kind = _REPRESENTATION_LABELS.get(row.representation_type, row.representation_type)
+        period = ""
+        if row.effective_from or row.effective_until:
+            period = f"; wirksam {row.effective_from or 'offen'} bis {row.effective_until or 'unbefristet'}"
+        disposal = f"; Verfuegung {row.disposal_rule}" if row.disposal_rule else ""
+        lines.append(
+            f"{kind}: {row.representative_name} -- Umfang: {row.scope}; "
+            f"Beleg: {row.evidence_reference}{period}{disposal}."
+        )
+    return tuple(lines)
+
+
 def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     """Beratungsprotokoll-Daten aus AdvisoryLog + letzter Empfehlung."""
     advisory_wealth = None
@@ -2031,6 +2077,10 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     except Exception as exc:  # noqa: BLE001 — PDF darf nicht crashen
         logger.warning("Protokoll data: knowledge gap check failed: %s", exc)
 
+    # H8 Luecke 10 (ZGB): erfasste Vertretungen/Verfuegungsberechtigungen
+    # (nicht widerrufen) als dokumentarischer Hinweis im Protokoll.
+    representation_lines = _protocol_representation_lines(db, mandate)
+
     return ProtokollData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
         advisory_wealth_rappen=advisory_wealth,
@@ -2043,6 +2093,7 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
         risk_signoff_hash=risk_signoff_view.get("signoff_hash"),
         risk_signoff_lines=risk_signoff_view.get("lines", ()),
         knowledge_gap_hints=knowledge_gap_hints,
+        representation_lines=representation_lines,
     )
 
 
@@ -2880,5 +2931,261 @@ def get_cost_disclosure_pdf(
             "X-Cost-Disclosure-Byte-Sha256": doc.checksum_sha256 or "",
             "X-Cost-Disclosure-Content-Hash": doc.content_hash or "",
             "X-Cost-Disclosure-Snapshot-Id": str(payload.get("source_run_id") or ""),
+        },
+    )
+
+
+# ============================================================================
+# H8 C-2 (Compliance-Audit 2026-11-07): Kundeninformation nach Art. 8/9 FIDLEG
+# ============================================================================
+
+_KI_COUNTRY_NAMES = {"CH": "Schweiz", "LI": "Liechtenstein", "DE": "Deutschland", "AT": "Österreich"}
+
+
+def _ki_money(rappen: int | None, currency: str) -> str:
+    value = int(rappen or 0) / 100.0
+    return f"{currency} {value:,.0f}".replace(",", "'")
+
+
+def _ki_bps(bps: int | None) -> str:
+    return "—" if bps is None else f"{int(bps) / 100:.2f} %"
+
+
+def _kundeninformation_provider_lines(profile: dict) -> tuple:
+    def clean(name: str) -> str:
+        return str(profile.get(name) or "").strip()
+
+    country = clean("address_country").upper()
+    lines: list[tuple[str, str]] = [
+        ("Firma", clean("legal_name")),
+        ("Adresse", ", ".join(part for part in (
+            clean("address_street"),
+            " ".join(p for p in (clean("address_postal_code"), clean("address_city")) if p),
+            _KI_COUNTRY_NAMES.get(country, country),
+        ) if part)),
+    ]
+    for name, label in (("contact_phone", "Telefon"), ("contact_email", "E-Mail"),
+                        ("contact_website", "Website")):
+        if clean(name):
+            lines.append((label, clean(name)))
+    lines.append(("Tätigkeitsfeld", clean("business_activity")))
+    supervision = clean("supervision_type")
+    lines.append(("Aufsichtsstatus", SUPERVISION_LABELS.get(supervision, supervision)))
+    for name, label in (("supervisory_authority", "Aufsichtsbehörde"),
+                        ("supervisory_organisation", "Aufsichtsorganisation"),
+                        ("license_reference", "Bewilligung / Register")):
+        if clean(name):
+            lines.append((label, clean(name)))
+    return tuple(lines)
+
+
+def _kundeninformation_cost_parts(db: Session, mandate: Mandate, profile: dict) -> tuple[tuple, str, tuple]:
+    currency = str(getattr(mandate, "base_currency", None) or "CHF").upper()
+    cost_lines: list[tuple[str, str]] = []
+    note = (
+        "Die Kosten der Dienstleistung und der Finanzinstrumente werden Ihnen vor "
+        "Erbringung der Dienstleistung im Ex-ante-Kostenausweis ausgewiesen."
+    )
+    try:
+        payload = build_cost_disclosure(db, mandate)
+    except Exception as exc:  # noqa: BLE001 -- Kundeninformation darf nicht crashen
+        logger.warning("Kundeninformation: Kostenausweis nicht verfuegbar: %s", exc)
+        payload = {"data_pending": True}
+    if not payload.get("data_pending") and payload.get("evidence_status") != "blocked":
+        for item in payload.get("cost_items") or []:
+            if not item.get("included_in_total", True):
+                continue
+            cost_lines.append((
+                f"{item.get('label') or 'Kosten'} ({item.get('frequency') or ''})".strip(),
+                f"{_ki_bps(item.get('rate_bps'))} · {_ki_money(item.get('amount_rappen'), currency)}",
+            ))
+        totals = payload.get("totals") or {}
+        cost_lines.append((
+            "Total erstes Jahr",
+            f"{_ki_bps(totals.get('first_year_bps'))} · "
+            f"{_ki_money(totals.get('first_year_rappen'), currency)}",
+        ))
+        note = (
+            "Stand des aktuellen Ex-ante-Kostenausweises "
+            f"({str(payload.get('as_of') or '')[:10] or 'ohne Datum'}"
+            + ("; vorläufig, Empfehlung noch nicht freigegeben" if payload.get("source_run_status") != "Final" else "")
+            + "). Massgebend ist der Kostenausweis."
+        )
+    retro: list[str] = []
+    # N-890-04: Grundsatz der Firma (tenants.default_retrocession_reimbursement).
+    if int(profile.get("tenant_default_retrocession_reimbursement") or 0):
+        retro.append(
+            "Entschädigungen Dritter (z. B. Retrozessionen): Grundsatz der Firma ist "
+            "die Weitergabe an Sie (Art. 26 FIDLEG)."
+        )
+    else:
+        retro.append(
+            "Entschädigungen Dritter (z. B. Retrozessionen) werden an Sie weitergegeben, "
+            "ausser Sie verzichten nach Information über Art und Umfang ausdrücklich "
+            "darauf (Art. 26 FIDLEG)."
+        )
+    summary = payload.get("product_retrocessions") if isinstance(payload, dict) else None
+    if isinstance(summary, dict):
+        present = int(summary.get("present_count") or 0)
+        unknown = int(summary.get("unknown_count") or 0)
+        retro.append(
+            f"Empfohlene Produkte mit Retrozession: {present}; ohne erfassten Satz: {unknown}. "
+            "Sätze und Beträge je Produkt stehen im Kostenausweis."
+        )
+    return tuple(cost_lines), note, tuple(retro)
+
+
+# N-890-11: Klartext fuer Mandate.investment_universe [Compliance gegenlesen].
+_KI_UNIVERSE_LABELS = {
+    "Standard": "Standardauswahl des Finanzdienstleisters",
+    "Alternativ": "breitere Auswahl aus dem Marktdurchschnitt",
+}
+
+
+def _kundeninformation_ties_and_offer(db: Session, mandate: Mandate, tenant_id: str | None) -> tuple[tuple, tuple]:
+    ties: list[str] = []
+    conflicts = db.query(ConflictOfInterestDisclosure).filter(
+        ConflictOfInterestDisclosure.mandate_id == mandate.id,
+        ConflictOfInterestDisclosure.deleted_at.is_(None),
+    ).order_by(ConflictOfInterestDisclosure.created_at).all()
+    for row in conflicts:
+        provider = f" ({row.inducement_provider})" if row.inducement_provider else ""
+        ties.append(f"{row.conflict_type}{provider}: {row.description}")
+    products = db.query(Product).filter(
+        Product.deleted_at.is_(None), Product.is_active == 1,
+        or_(Product.tenant_id.is_(None), Product.tenant_id == tenant_id),
+    ).all()
+    house = [p for p in products if int(p.is_house_product or 0) == 1]
+    house_unknown = sum(1 for p in products if p.is_house_product is None)
+    if house:
+        ties.append(
+            f"Das Produktuniversum enthält {len(house)} eigene Produkte des "
+            "Finanzdienstleisters bzw. ihm nahestehender Gesellschaften."
+        )
+    if not ties:
+        ties.append("Für dieses Mandat sind keine wirtschaftlichen Bindungen an Dritte erfasst.")
+    # N-890-11: keine "0 Produkte"-Aussage und kein interner Rohwert.
+    if products:
+        offer = [
+            "Berücksichtigt werden Finanzinstrumente aus dem Produktuniversum des "
+            f"Finanzdienstleisters ({len(products)} Produkte, davon {len(house)} eigene"
+            + (f", {house_unknown} ohne Angabe zur Herkunft" if house_unknown else "")
+            + ")."
+        ]
+    else:
+        offer = [
+            "Berücksichtigt werden Finanzinstrumente aus dem Produktuniversum, das der "
+            "Finanzdienstleister für seine Empfehlungen festlegt."
+        ]
+    universe_label = _KI_UNIVERSE_LABELS.get(str(getattr(mandate, "investment_universe", "") or ""))
+    if universe_label:
+        offer.append(f"Für dieses Mandat gilt die {universe_label}.")
+    return tuple(ties), tuple(offer)
+
+
+def _build_kundeninformation_data(db: Session, mandate: Mandate, profile: dict) -> KundeninformationData:
+    tenant_id = mandate_tenant_id(db, mandate)
+    cost_lines, cost_note, retro_lines = _kundeninformation_cost_parts(db, mandate, profile)
+    ties, offer = _kundeninformation_ties_and_offer(db, mandate, tenant_id)
+    return KundeninformationData(
+        template_version=CLIENT_INFORMATION_TEMPLATE_VERSION,
+        legal_profile_revision=int(profile.get("revision") or 0),
+        legal_profile_hash=legal_profile_hash(profile),
+        provider_lines=_kundeninformation_provider_lines(profile),
+        ombudsman_name=str(profile.get("ombudsman_name") or "").strip(),
+        ombudsman_address=str(profile.get("ombudsman_address") or "").strip(),
+        mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,
+        mandate_type=str(getattr(mandate, "mandate_type", "") or ""),
+        cost_lines=cost_lines,
+        cost_note=cost_note,
+        retrocession_lines=retro_lines,
+        economic_ties=ties,
+        market_offer_lines=offer,
+        depot_bank=getattr(mandate, "depot_bank", None),
+    )
+
+
+@router.get(
+    "/mandates/{mandate_id}/reports/kundeninformation.pdf",
+    response_class=Response,
+    responses={200: {"content": {"application/pdf": {}}}},
+)
+def get_kundeninformation_pdf(
+    mandate_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Kundeninformation nach Art. 8/9 FIDLEG als PDF (vor Vertragsabschluss
+    zu uebergeben). Fail-closed: ohne vollstaendige rechtliche Angaben der
+    Firma (Firma, Adresse, Aufsichtsstatus, Ombudsstelle, Kontakt) wird kein
+    Dokument erstellt (409 mit Liste der fehlenden Angaben). Render-once/
+    archive-once; die archivierte Fassung traegt Vorlagenversion und Revision/
+    Hash der rechtlichen Angaben (Grundlage des Abgabenachweises)."""
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    tenant_id = mandate_tenant_id(db, mandate)
+    profile = load_tenant_legal_profile(db, tenant_id)
+    missing = legal_profile_missing_fields(profile)
+    if missing:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": CLIENT_INFORMATION_TENANT_DATA_MISSING,
+            "message": (
+                "Die Kundeninformation kann nicht erstellt werden: Pflichtangaben der "
+                "Firma fehlen. Ein Firmen-Admin ergaenzt sie unter Administration > "
+                "Rechtliche Angaben."
+            ),
+            "missing_fields": missing,
+        })
+    if str(profile.get("address_country") or "").strip().upper() not in CLIENT_INFORMATION_SEAT_REGIMES:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": CLIENT_INFORMATION_REGIME_UNSUPPORTED,
+            "message": "Fuer den Sitz der Firma bildet Ares keine Kundeninformation ab (nur Schweiz/FIDLEG).",
+        })
+    # N-890-07: eigene Fusszeile der Kundeninformation (H7-Footer je
+    # Dokument-/Mandatstyp), nicht "Dokumentation der Anlageberatung".
+    ctx = dataclasses.replace(
+        _build_pdf_context(mandate, current_user, db), mandate_type=CLIENT_INFORMATION_DOCUMENT_TYPE,
+    )
+    data = _build_kundeninformation_data(db, mandate, profile)
+    content_hash = content_hash_for(data)
+    existing = (
+        db.query(ContractDocument)
+        .filter(
+            ContractDocument.mandate_id == mandate.id,
+            ContractDocument.document_type == CLIENT_INFORMATION_DOCUMENT_TYPE,
+            ContractDocument.deleted_at.is_(None),
+        )
+        .order_by(ContractDocument.version.desc())
+        .first()
+    )
+    if existing is not None and existing.content_hash == content_hash and existing.pdf_base64:
+        doc = existing
+        pdf_bytes = base64.b64decode(doc.pdf_base64)
+    else:
+        pdf_bytes = ReportLabRenderer().render_vertrag(ctx, data)
+        doc = archive_generated_pdf(
+            db, mandate_id=mandate.id, document_type=CLIENT_INFORMATION_DOCUMENT_TYPE,
+            title="Kundeninformation (Art. 8/9 FIDLEG)", pdf_bytes=pdf_bytes,
+            content_hash=content_hash, current_user=current_user,
+            ip_address=_extract_client_ip(request),
+            content_json=json.dumps({
+                "template_version": data.template_version,
+                "legal_profile_revision": data.legal_profile_revision,
+                "legal_profile_hash": data.legal_profile_hash,
+                "tenant_id": tenant_id,
+                "retrocession_policy": profile.get("tenant_default_retrocession_reimbursement"),
+            }, sort_keys=True),
+        )
+    safe_mandate = str(mandate.mandate_number or "mandat")[:40]
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": content_disposition(f"kundeninformation-{safe_mandate}.pdf"),
+            "X-Client-Information-Document-Id": doc.id,
+            "X-Client-Information-Document-Version": str(doc.version),
+            "X-Client-Information-Byte-Sha256": doc.checksum_sha256 or "",
+            "X-Client-Information-Template-Version": data.template_version,
+            "X-Client-Information-Legal-Profile-Revision": str(data.legal_profile_revision),
         },
     )
