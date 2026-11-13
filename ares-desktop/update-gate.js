@@ -127,7 +127,25 @@ function evaluateRuntimeUpdateGate({ packageJson, isPackaged }) {
   return { enabled: true, reason: null, feedUrl: feed.url };
 }
 
+// N-899-09 (H10): Update-Pruefung nur mit wirksamer Freigabe des Kanals
+// updates.desktop im Egress-Manifest. Fail-closed: kein Status, kein Kanal in
+// approved_channels oder ein Eintrag in blocked_channels -> keine Pruefung.
+const UPDATE_CHANNEL_ID = 'updates.desktop';
+
+function evaluateEgressApproval(status, channelId) {
+  const id = channelId || UPDATE_CHANNEL_ID;
+  if (!status || typeof status !== 'object') return { allowed: false, reason: 'EGRESS_MANIFEST_MISSING' };
+  const blocked = (Array.isArray(status.blocked_channels) ? status.blocked_channels : [])
+    .find((c) => c && c.channel_id === id);
+  if (blocked) return { allowed: false, reason: String(blocked.reason_code || 'EGRESS_MANIFEST_MISSING') };
+  const approved = Array.isArray(status.approved_channels) ? status.approved_channels : [];
+  if (!approved.includes(id)) return { allowed: false, reason: 'EGRESS_MANIFEST_MISSING' };
+  return { allowed: true, reason: null };
+}
+
 module.exports = {
+  UPDATE_CHANNEL_ID,
+  evaluateEgressApproval,
   checkFeedUrl,
   evaluateBuildGate,
   evaluateRuntimeUpdateGate,

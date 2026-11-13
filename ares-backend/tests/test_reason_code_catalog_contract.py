@@ -51,6 +51,8 @@ KNOWN_UNRESOLVED: dict[tuple[str, str, str], int] = {
     ('services/dsg_governance.py', 'sink', "str(item['reason_code'])"): 1,
     ('services/privacy_subject_requests.py', 'build_export', "open_rows[0]['reason_code']"): 1,
     ('services/privacy_subject_requests.py', 'build_export', "r['reason_code']"): 1,
+    # H10 Nachtrag 3: Sperrgrund je Kanal (EGRESS_* aus Freigabe bzw. Owner-Sperre).
+    ('services/dsg_governance.py', 'egress_status', 'code'): 1,
     ('core/reason_codes.py', 'DomainError.__init__',
      'reason_code.value if isinstance(reason_code, ReasonCode) else reason_code'): 1,
     ('core/reason_codes.py', 'DomainError.as_detail',

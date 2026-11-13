@@ -48,6 +48,7 @@ from database import Base, new_uuid
 from models.privacy import (
     OutboundManifestVersion,
     OutboundProcessingEvent,
+    OutboundTransferDailyCount,
     PrivacyErasureCase,
     PrivacyErasureDisposition,
     PrivacyLegalHold,
@@ -113,6 +114,7 @@ PRIVACY_TABLES = (
     PrivacySubjectRequestEvent.__table__,
     PrivacySecurityIncidentEvent.__table__,
     SecurityIncidentArtifact.__table__,
+    OutboundTransferDailyCount.__table__,
 )
 
 

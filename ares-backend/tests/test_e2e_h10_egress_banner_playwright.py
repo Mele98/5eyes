@@ -165,3 +165,70 @@ def test_fresh_instance_banner_then_approval_then_market_data_allowed(backend):
 def test_ci_runs_this_test_with_playwright_required():
     workflow = (BACKEND.parent / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
     assert "tests/test_e2e_h10_egress_banner_playwright.py" in workflow
+
+
+@pytest.fixture(scope="module")
+def full_app(tmp_path_factory):
+    """Echte Haupt-App (/app/ares.html) mit Browser-Hosting, frische Instanz."""
+    from cryptography.fernet import Fernet
+
+    root = tmp_path_factory.mktemp("h10e2efull")
+    for name in ("home", "appdata", "localappdata"):
+        (root / name).mkdir()
+    port = _free_port()
+    env = {**os.environ, "HOME": str(root / "home"), "USERPROFILE": str(root / "home"),
+           "APPDATA": str(root / "appdata"), "LOCALAPPDATA": str(root / "localappdata"),
+           "DB_PATH": str(root / "ares-e2e-full.db"), "TENANT_MASTER_KEK": Fernet.generate_key().decode(),
+           "SECRET_KEY": "h10-e2e-full-wegwerf-secret-key-0123456789ab", "PRICE_SCHEDULER_ENABLED": "false",
+           "BACKUP_SCHEDULER_ENABLED": "false", "DATABASE_URL": "", "SERVE_MAIN_FRONTEND": "true"}
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(port),
+         "--log-level", "warning"], cwd=str(BACKEND), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    base = f"http://127.0.0.1:{port}"
+    try:
+        for _ in range(120):
+            try:
+                if _call(base, "GET", "/health")[0] == 200:
+                    break
+            except OSError:
+                pass
+            time.sleep(1)
+        else:
+            pytest.fail("Backend startet nicht")
+        status, raw = _call(base, "POST", "/auth/bootstrap-admin", {
+            "username": "e2efull", "password": "E2E-Passwort-2026!x", "full_name": "E2E Full Admin"})
+        assert status == 201, raw
+        yield base
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
+def test_real_app_shows_banner_right_after_login(full_app):
+    """N-899-04: echte /app/ares.html, echter Login ueber die Maske; das Banner
+    ist direkt nach dem Login sichtbar (Hook auf initApp), externe Ressourcen
+    werden blockiert."""
+    sync_api = _sync_api()
+    with sync_api.sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.route("**/*", lambda route: route.continue_() if route.request.url.startswith(full_app)
+                       else route.abort())
+            page.goto(f"{full_app}/app/ares.html")
+            page.locator("#login-username").wait_for(state="visible", timeout=30000)
+            assert page.locator("#pg-egress-banner").count() == 0  # vor dem Login kein Banner
+            page.fill("#login-username", "e2efull")
+            page.fill("#login-password", "E2E-Passwort-2026!x")
+            page.press("#login-password", "Enter")
+            banner = page.locator("#pg-egress-banner")
+            banner.wait_for(state="visible", timeout=8000)
+            text_ = banner.inner_text()
+            assert "Datenübermittlung gesperrt" in text_ and "Zur Freigabe" in text_
+            assert "gesperrt: keine freigegebene Fassung" in text_
+        finally:
+            browser.close()

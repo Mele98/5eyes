@@ -26,6 +26,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from config import settings
 from core.reason_codes import DomainError, ReasonCode
 from database import new_uuid
 from models.privacy import OutboundManifestVersion, ProcessingActivityVersion
@@ -64,11 +65,36 @@ def activity_contents(values: dict[str, str]) -> dict[str, dict[str, Any]]:
     }
 
 
-def channel_contents(values: dict[str, str]) -> dict[str, dict[str, Any]]:
+DESKTOP_PACKAGE_JSON = register_module.REPO_ROOT / "ares-desktop" / "package.json"
+
+
+def _desktop_feed_host() -> str:
+    """Update-URL der Desktop-Shell (falls im Quellbaum vorhanden)."""
+    try:
+        package = json.loads(DESKTOP_PACKAGE_JSON.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    updates = package.get("desktopUpdates") or {}
+    return egress_manifest._host_from_setting(updates.get("feedUrl") or updates.get("url") or "")
+
+
+def configured_hosts(channel: dict[str, Any], settings_obj: Any = None) -> list[str]:
+    """N-899-02: tatsaechlich konfigurierte Zielhosts (Einstellungen bzw.
+    Update-URL) -- Teil des Fassungs-Hashes: ein Hostwechsel verlangt eine
+    neue Freigabe."""
+    source = settings_obj if settings_obj is not None else settings
+    if channel.get("id") == "updates.desktop":
+        host = _desktop_feed_host()
+        return [host] if host else []
+    return egress_manifest.channel_hosts(channel, source)
+
+
+def channel_contents(values: dict[str, str], settings_obj: Any = None) -> dict[str, dict[str, Any]]:
     manifest = egress_manifest.load_manifest()
     resolved = register_module.resolve_owner_fields(manifest, values)
     return {
-        channel["id"]: {"manifest_version": manifest["manifest_version"], "channel": channel}
+        channel["id"]: {"manifest_version": manifest["manifest_version"], "channel": channel,
+                        "configured_hosts": configured_hosts(channel, settings_obj)}
         for channel in egress_manifest.channels(resolved)
     }
 
@@ -207,6 +233,27 @@ def approve_manifest(db: Session, tenant_id: str, values: dict[str, str], *, act
                    version_value=manifest["manifest_version"], now=now)
 
 
+def owner_block_for(channel: dict[str, Any], values: dict[str, str], settings_obj: Any = None) -> str | None:
+    """Sperrgrund aus fehlenden/abweichenden Owner-Angaben (N-899-03)."""
+    def field(name):
+        node = channel.get(name)
+        return node.get("owner_field") if isinstance(node, dict) and node.get("blocking") == "channel" else None
+
+    for name in ("destination_country", "guarantee", "encryption"):
+        key = field(name)
+        if key and not values.get(key):
+            return ReasonCode.EGRESS_GUARANTEE_MISSING.value
+    key = field("target_host")
+    if key:
+        confirmed = egress_manifest._host_from_setting(values.get(key) or "")
+        if not confirmed or confirmed not in configured_hosts(channel, settings_obj):
+            return ReasonCode.EGRESS_DESTINATION_DENIED.value
+    key = field("legal_basis")
+    if key and not values.get(key):
+        return ReasonCode.EGRESS_CONSENT_OR_BASIS_MISSING.value
+    return None
+
+
 def runtime_channel_states(db: Session, tenant_id: str, values: dict[str, str]) -> dict[str, dict[str, Any]]:
     """Fuer den Laufzeitschutz: je Kanal freigegebener und aktueller Hash sowie
     die Sperre wegen fehlender Owner-Angaben (Garantie bzw. Grundlage)."""
@@ -221,15 +268,7 @@ def runtime_channel_states(db: Session, tenant_id: str, values: dict[str, str]) 
         if row["reason_code"] == ReasonCode.EGRESS_HASH_MISMATCH.value and effective is not None:
             # gespeicherter Inhalt manipuliert oder veraltet -> nie gleich dem aktuellen Hash
             approved = approved if approved != row["current_sha256"] else f"!{approved}"
-        owner_block = None
-        if egress_manifest.blocking_owner_keys(channel):
-            guarantee_keys = [channel[k]["owner_field"] for k in ("destination_country", "guarantee")
-                              if isinstance(channel.get(k), dict) and channel[k].get("owner_field")]
-            basis = channel.get("legal_basis") or {}
-            if not all(values.get(k) for k in guarantee_keys):
-                owner_block = ReasonCode.EGRESS_GUARANTEE_MISSING.value
-            elif basis.get("owner_field") and not values.get(basis["owner_field"]):
-                owner_block = ReasonCode.EGRESS_CONSENT_OR_BASIS_MISSING.value
+        owner_block = owner_block_for(channel, values)
         states[cid] = {
             "approved_sha256": approved, "current_sha256": row["current_sha256"], "owner_block": owner_block,
             "approval_exempt": (channel.get("guarantee") or {}).get("status") == OPERATOR_INFRASTRUCTURE,

@@ -464,6 +464,23 @@ class OutboundProcessingEvent(Base):
     payload_schema_hash = Column(String(64))
 
 
+class OutboundTransferDailyCount(Base):
+    """H10 Nachtrag 3: erlaubte Uebertragungen nur als Zaehler je Kanal und
+    Tag (Mandant der Installation), ohne Inhalt, Ziel-URL oder Payload."""
+
+    __tablename__ = "privacy_egress_daily_counts"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "day", "channel_id", name="uq_privacy_egress_daily_count"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    day = Column(String, nullable=False)
+    channel_id = Column(String, nullable=False)
+    allowed_count = Column(Integer, nullable=False, default=0)
+    updated_at = Column(String, nullable=False)
+
+
 class SecurityIncidentArtifact(Base):
     """C-DSG-04 / C-900-03: Nachweis-Artefakt eines Vorfalls mit Digest,
     Medientyp, Groesse und Erfassungszeit; ``row_sha256`` versiegelt die

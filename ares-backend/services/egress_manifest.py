@@ -37,8 +37,10 @@ import json
 import unicodedata
 import logging
 import re
+import socket
 import sys
 import threading
+import time as _time
 from collections import deque
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -60,7 +62,12 @@ CHANNEL_CLASSES = (
     "operator_infrastructure", "updates",
 )
 REQUIRED_CLASSES = ("market_data", "updates", "telemetry")
-ENFORCEMENTS = ("python_runtime_guard", "native_library", "desktop_update_gate")
+ENFORCEMENTS = ("python_runtime_guard", "native_library", "desktop_update_gate", "subprocess_guard")
+# N-899-01: Netzwerkwerkzeuge, deren Aufruf (subprocess) an einen Kanal mit
+# ``subprocess_tools`` gebunden sein muss.
+NETWORK_TOOLS = frozenset({"rsync", "ssh", "scp", "sftp", "ftp", "curl", "wget", "rclone", "aws", "az", "gsutil"})
+# Entfernte Ziele user@host:/pfad bzw. host:pfad; Windows-Laufwerke (C:\) zaehlen nicht.
+_REMOTE_TOKEN = re.compile(r"^(?:rsync://)?(?:[^@\s/:\\]+@)?([A-Za-z0-9][A-Za-z0-9.\-]+):(?![\\/]{0,1}\\)")
 NON_BLOCKING_GUARANTEES = ("NOT_REQUIRED", "OPERATOR_INFRASTRUCTURE")
 # Feldnamen erzwingen (Standard) oder -- nur fuer anbietergesteuerte Ablaeufe
 # ohne Personendaten, mit Begruendung -- nur die Werte pruefen.
@@ -118,10 +125,10 @@ def channel_by_id(manifest: dict[str, Any], channel_id: str) -> dict[str, Any] |
 
 
 def blocking_owner_keys(channel: dict[str, Any]) -> list[str]:
-    """Owner-Felder, ohne die ein Kanal mit Personendaten nicht laeuft."""
+    """Owner-Felder, ohne die ein Kanal nicht laeuft (alle mit Sperrwirkung
+    ``channel``: Staat, Garantie, Grundlage, ggf. Zielhost, Verschluesselung)."""
     keys = []
-    for name in ("destination_country", "guarantee", "legal_basis"):
-        node = channel.get(name) or {}
+    for node in channel.values():
         if isinstance(node, dict) and node.get("owner_field") and node.get("blocking") == "channel":
             keys.append(node["owner_field"])
     return keys
@@ -179,6 +186,11 @@ def manifest_problems(manifest: dict[str, Any], *, check_files: bool = True) -> 
                 problems.append(f"{cid}: Host {host} auch in {hosts[normalized]}")
             hosts[normalized] = cid
         is_guarded = channel.get("enforcement") == "python_runtime_guard"
+        if channel.get("enforcement") == "subprocess_guard" and not channel.get("subprocess_tools"):
+            problems.append(f"{cid}: Subprozess-Kanal ohne subprocess_tools")
+        for tool in channel.get("subprocess_tools") or []:
+            if tool not in NETWORK_TOOLS:
+                problems.append(f"{cid}: unbekanntes Netzwerkwerkzeug {tool}")
         if is_guarded and not (channel.get("hosts") or channel.get("host_from_setting")):
             problems.append(f"{cid}: Laufzeitkanal ohne Host")
         if is_guarded and channel.get("personal_data") is False and not channel.get("allowed_fields"):
@@ -231,6 +243,9 @@ def _host_from_setting(raw: Any) -> str:
     text = str(raw or "").strip()
     if not text:
         return ""
+    remote = _REMOTE_TOKEN.match(text)
+    if "://" not in text and remote:  # rsync/scp-Ziel user@host:/pfad
+        return _normalize_host(remote.group(1))
     if "://" not in text:
         text = f"//{text}"
     try:
@@ -264,6 +279,9 @@ class _GuardState:
         self.client_name_provider: Any = None
         self.flusher: threading.Thread | None = None
         self.stop_flusher = threading.Event()
+        self.resolved: dict[str, float] = {}
+        self.allowed_counts: dict[tuple[str, str], int] = {}
+        self.counter_sink: Any = None
         self.lock = threading.Lock()
         self.local = threading.local()
 
@@ -335,50 +353,179 @@ def check_host(raw_host: Any) -> dict[str, Any] | None:
     if not channel_enabled(channel):
         _block(ReasonCode.EGRESS_CHANNEL_DISABLED, f"Kanal {channel['id']} ist nicht konfiguriert",
                host=host, channel=channel["id"])
+    _apply_channel_state(channel, host)
+    return channel
+
+
+def _apply_channel_state(channel: dict[str, Any], host: str) -> None:
     state = (_STATE.channel_states or {}).get(channel["id"])
-    if state is None:
+    if state is None or (not state.get("approval_exempt") and not state.get("approved_sha256")):
         _block(ReasonCode.EGRESS_MANIFEST_MISSING, f"Kanal {channel['id']}: keine freigegebene Fassung",
                host=host, channel=channel["id"])
-    if not state.get("approval_exempt"):
-        if not state.get("approved_sha256"):
-            _block(ReasonCode.EGRESS_MANIFEST_MISSING, f"Kanal {channel['id']}: keine freigegebene Fassung",
-                   host=host, channel=channel["id"])
-        if state.get("approved_sha256") != state.get("current_sha256"):
-            _block(ReasonCode.EGRESS_HASH_MISMATCH,
-                   f"Kanal {channel['id']}: freigegebene Fassung weicht vom aktuellen Manifest ab",
-                   host=host, channel=channel["id"])
-    if state.get("owner_block") == ReasonCode.EGRESS_CONSENT_OR_BASIS_MISSING:
+    if not state.get("approval_exempt") and state.get("approved_sha256") != state.get("current_sha256"):
+        _block(ReasonCode.EGRESS_HASH_MISMATCH,
+               f"Kanal {channel['id']}: freigegebene Fassung weicht vom aktuellen Manifest ab",
+               host=host, channel=channel["id"])
+    block = state.get("owner_block")
+    if block == ReasonCode.EGRESS_CONSENT_OR_BASIS_MISSING:
         _block(ReasonCode.EGRESS_CONSENT_OR_BASIS_MISSING,
                f"Kanal {channel['id']}: Grundlage der Bekanntgabe nicht erfasst", host=host, channel=channel["id"])
-    if state.get("owner_block"):
+    if block == ReasonCode.EGRESS_DESTINATION_DENIED:
+        _block(ReasonCode.EGRESS_DESTINATION_DENIED,
+               f"Kanal {channel['id']}: bestaetigter Zielhost passt nicht zur Einstellung", host=host,
+               channel=channel["id"])
+    if block:
         _block(ReasonCode.EGRESS_GUARANTEE_MISSING,
-               f"Kanal {channel['id']}: Staat/Garantie des Empfaengers nicht bestaetigt",
+               f"Kanal {channel['id']}: Pflichtangaben (Staat/Garantie/Verschluesselung) nicht bestaetigt",
                host=host, channel=channel["id"])
-    return channel
+
+
+def check_subprocess(executable: Any, argv: Any) -> None:
+    """N-899-01: Netzwerkwerkzeuge (rsync, ssh, curl ...) nur ueber einen
+    freigegebenen Kanal mit ``subprocess_tools``; jedes entfernte Ziel in den
+    Argumenten muss ein Host dieses Kanals sein."""
+    if isinstance(argv, (list, tuple)):
+        args = [str(a) for a in argv]
+    else:  # Windows: Kommandozeile als Zeichenkette (list2cmdline)
+        args = [t.strip('"') for t in re.findall(r'"[^"]*"|\S+', str(argv or ""))]
+    tool = Path(str(executable or (args[0] if args else ""))).name.lower()
+    tool = tool[:-4] if tool.endswith(".exe") else tool
+    if tool not in NETWORK_TOOLS:
+        return
+    if _STATE.manifest is None:
+        _block(ReasonCode.EGRESS_MANIFEST_MISSING, _STATE.manifest_error or "Manifest fehlt",
+               host=tool, channel=None)
+    channel = next((c for c in channels(_STATE.manifest) if tool in (c.get("subprocess_tools") or [])), None)
+    if channel is None:
+        _block(ReasonCode.EGRESS_DESTINATION_DENIED, f"Netzwerkwerkzeug {tool} ist an keinen Kanal gebunden",
+               host=tool, channel=None)
+    hosts = channel_hosts(channel)
+    remote = [m.group(1).lower() for m in (_REMOTE_TOKEN.match(a) for a in args[1:]) if m]
+    target = remote[0] if remote else (hosts[0] if hosts else tool)
+    if not channel_enabled(channel):
+        _block(ReasonCode.EGRESS_CHANNEL_DISABLED, f"Kanal {channel['id']} ist nicht konfiguriert",
+               host=target, channel=channel["id"])
+    for host in remote:
+        if host not in hosts:
+            _block(ReasonCode.EGRESS_DESTINATION_DENIED, f"Kanal {channel['id']}: Ziel {host} nicht freigegeben",
+                   host=host, channel=channel["id"])
+    _apply_channel_state(channel, target)
+    _count_allowed(channel["id"])
+
+
+_RESOLVED_TTL_SECONDS = 600.0
+
+
+def _remember_resolution(host: str, port: Any) -> None:
+    """Aufgeloeste Adressen erlaubter Hosts merken; ``socket.connect`` darf
+    nur diese (oder lokale) Adressen erreichen."""
+    with _STATE.lock:
+        if _STATE.resolved.get(f"host:{host}", 0) >= _time.monotonic():
+            return
+    try:
+        infos = socket.getaddrinfo(host, port or 443)
+    except OSError:
+        return
+    expiry = _time.monotonic() + _RESOLVED_TTL_SECONDS
+    with _STATE.lock:
+        _STATE.resolved[f"host:{host}"] = expiry
+        for info in infos:
+            _STATE.resolved[str(info[4][0])] = expiry
+
+
+def check_connect(address: Any) -> None:
+    """N-899-08: direkter Socket-Connect nur zu lokalen Adressen oder zu
+    Adressen, die zuvor fuer einen erlaubten Manifest-Host aufgeloest wurden."""
+    if not isinstance(address, tuple) or not address:
+        return  # AF_UNIX u. a.
+    host = _normalize_host(address[0])
+    if is_loopback(host):
+        return
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        check_host(host)  # Name statt Adresse: wie Namensaufloesung pruefen
+        return
+    with _STATE.lock:
+        expiry = _STATE.resolved.get(host)
+    if expiry is not None and expiry >= _time.monotonic():
+        return
+    if resolve_channel(host) is not None:  # IP-Literal als Manifest-Host
+        check_host(host)
+        return
+    _block(ReasonCode.EGRESS_DESTINATION_DENIED, f"Direkte Verbindung zu {host} ist kein Manifest-Ziel",
+           host=host, channel=None)
+
+
+_GERMAN_TRANSLIT = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue", "ß": "ss"})
+# N-899-07: gaengige Produkt-/Firmenbegriffe loesen den Nachnamen-allein-Treffer
+# nicht aus (Falsch-Positiv-Grenze). Ein Nachname, der zugleich ein solcher
+# Begriff ist, wird nur zusammen mit dem Vornamen bzw. der Initiale erkannt.
+PRODUCT_TERMS = frozenset({
+    "fund", "fonds", "etf", "index", "core", "global", "world", "swiss", "schweiz", "europe", "europa",
+    "gold", "silver", "silber", "bond", "bonds", "equity", "aktien", "obligationen", "immobilien", "real",
+    "estate", "income", "growth", "value", "dividend", "dividende", "select", "quality", "small", "large",
+    "capital", "invest", "investment", "asset", "management", "bank", "kantonalbank", "trust", "holding",
+    "msci", "ftse", "stoxx", "smi", "spi", "ishares", "vanguard", "xtrackers", "amundi", "lyxor", "ubs",
+    "credit", "suisse", "pictet", "vontobel", "julius", "baer", "lombard", "odier", "sustainable", "esg",
+    "climate", "green", "money", "market", "treasury", "corporate", "emerging", "markets", "america", "usa",
+    "japan", "china", "asia", "pacific", "energy", "health", "technology", "tech", "first", "trust",
+})
+
+
+def _fold(text: str) -> list[str]:
+    folded = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii").casefold()
+    return [token for token in re.split(r"[^a-z0-9]+", folded) if token]
 
 
 def normalize_name(text: Any) -> list[str]:
     """Kleinbuchstaben ohne Akzente, nur Buchstaben/Ziffern als Tokens."""
-    folded = unicodedata.normalize("NFKD", str(text or "")).encode("ascii", "ignore").decode("ascii").casefold()
-    return [token for token in re.split(r"[^a-z0-9]+", folded) if token]
+    return _fold(str(text or ""))
+
+
+def name_variants(text: Any) -> list[list[str]]:
+    """Transliterationen: Akzente entfernt (ue -> u) und deutsche Umschrift
+    (ue, oe, ae, ss)."""
+    raw = str(text or "")
+    variants = [_fold(raw), _fold(raw.translate(_GERMAN_TRANSLIT))]
+    unique: list[list[str]] = []
+    for variant in variants:
+        if variant and variant not in unique:
+            unique.append(variant)
+    return unique
+
+
+def _name_matches(tokens: list[str], parts: list[str]) -> bool:
+    joined, compact = f" {' '.join(tokens)} ", "".join(tokens)
+    last, first = parts[-1], parts[0]
+    if f" {' '.join(parts)} " in joined:
+        return True
+    if len(parts) >= 2 and all(p in tokens for p in parts):
+        return True
+    if len(parts) >= 2 and len("".join(parts)) >= 6 and "".join(parts) in compact:
+        return True  # zusammengeschrieben
+    if len(parts) >= 2:
+        for i in range(len(tokens) - 1):
+            if tokens[i] == first[0] and tokens[i + 1] == last:
+                return True  # Initiale + Nachname
+    if len(last) >= 4 and last not in PRODUCT_TERMS and last in tokens:
+        return True  # Nachname allein
+    return False
 
 
 def _client_name_hit(text: str) -> bool:
     provider = _STATE.client_name_provider
     if provider is None:
         return False
-    tokens = normalize_name(text)
-    if not tokens:
+    term_variants = name_variants(text)
+    if not term_variants:
         return False
-    joined = " ".join(tokens)
     for name in provider():
-        parts = normalize_name(name)
-        if not parts or all(len(p) < 3 for p in parts):
-            continue
-        if f" {' '.join(parts)} " in f" {joined} ":
-            return True
-        if len(parts) >= 2 and all(p in tokens for p in parts):
-            return True
+        for parts in name_variants(name):
+            if all(len(p) < 2 for p in parts):
+                continue
+            if any(_name_matches(tokens, parts) for tokens in term_variants):
+                return True
     return False
 
 
@@ -467,14 +614,26 @@ def payload_schema_hash(shape: dict[str, Any] | None) -> str:
     return evidence_hash(shape or {"kind": "connect"}, scheme=SCHEME_V1)
 
 
+def _count_allowed(channel_id: str) -> None:
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    with _STATE.lock:
+        key = (day, channel_id)
+        _STATE.allowed_counts[key] = _STATE.allowed_counts.get(key, 0) + 1
+
+
 def check_http_payload(raw_host: Any, data: Any) -> None:
     """Prueft einen ausgehenden HTTP-Datenblock (Request-Zeile + Body)."""
     host = _normalize_host(raw_host)
-    _STATE.local.shape = payload_shape(data)
+    shape = payload_shape(data)
+    _STATE.local.shape = shape
     try:
         _check_http_payload(host, data)
     finally:
         _STATE.local.shape = None
+    if shape.get("kind") == "request":
+        channel = resolve_channel(host)
+        if channel is not None:
+            _count_allowed(channel["id"])
 
 
 def _check_http_payload(host: str, data: Any) -> None:
@@ -541,7 +700,8 @@ def check_url_request(full_url: Any, data: Any, method: Any) -> None:
     check_http_payload(parts.hostname, head + bytes(body))
 
 
-_WATCHED_EVENTS = frozenset({"socket.getaddrinfo", "http.client.send", "urllib.Request"})
+_WATCHED_EVENTS = frozenset({"socket.getaddrinfo", "socket.connect", "http.client.send", "urllib.Request",
+                             "subprocess.Popen"})
 
 
 def _audit_hook(event: str, args: tuple) -> None:
@@ -552,7 +712,12 @@ def _audit_hook(event: str, args: tuple) -> None:
     _STATE.local.busy = True
     try:
         if event == "socket.getaddrinfo":
-            check_host(args[0] if args else None)
+            if check_host(args[0] if args else None) is not None:
+                _remember_resolution(_normalize_host(args[0]), args[1] if len(args) > 1 else None)
+        elif event == "socket.connect":
+            check_connect(args[1] if len(args) > 1 else None)
+        elif event == "subprocess.Popen":
+            check_subprocess(args[0] if args else None, args[1] if len(args) > 1 else None)
         elif event == "urllib.Request":
             check_url_request(args[0], args[1], args[3] if len(args) > 3 else None)
         else:
@@ -564,7 +729,7 @@ def _audit_hook(event: str, args: tuple) -> None:
 
 def activate(settings_obj: Any, *, channel_states: dict[str, dict[str, Any]] | None = None,
              manifest_path: Path | None = None, event_sink: Any = None, client_name_provider: Any = None,
-             flush_interval_seconds: float = 5.0) -> None:
+             flush_interval_seconds: float = 5.0, counter_sink: Any = None) -> None:
     """Laufzeitschutz einschalten (idempotent). Fehlt das Manifest oder die
     Freigabe-Information, bleibt jeder nicht-lokale Kanal gesperrt; die App
     startet trotzdem. ``event_sink`` erhaelt blockierte Versuche gesammelt
@@ -574,6 +739,7 @@ def activate(settings_obj: Any, *, channel_states: dict[str, dict[str, Any]] | N
         _STATE.settings = settings_obj
         _STATE.channel_states = channel_states
         _STATE.event_sink = event_sink
+        _STATE.counter_sink = counter_sink
         _STATE.client_name_provider = client_name_provider
         try:
             manifest = load_manifest(manifest_path)
@@ -589,7 +755,7 @@ def activate(settings_obj: Any, *, channel_states: dict[str, dict[str, Any]] | N
             sys.addaudithook(_audit_hook)
             _STATE.installed = True
         _STATE.active = True
-        if event_sink is not None and _STATE.flusher is None:
+        if (event_sink is not None or counter_sink is not None) and _STATE.flusher is None:
             _STATE.stop_flusher.clear()
             _STATE.flusher = threading.Thread(
                 target=_flush_loop, args=(flush_interval_seconds,), name="egress-event-flush", daemon=True,
@@ -602,8 +768,30 @@ def update_channel_states(channel_states: dict[str, dict[str, Any]] | None) -> N
         _STATE.channel_states = channel_states
 
 
+def flush_counts() -> int:
+    """Zaehler erlaubter Uebertragungen (je Tag/Kanal, ohne Inhalt) speichern."""
+    with _STATE.lock:
+        counts, _STATE.allowed_counts = _STATE.allowed_counts, {}
+        sink = _STATE.counter_sink
+    if not counts or sink is None:
+        return 0
+    _STATE.local.busy = True
+    try:
+        sink(counts)
+    except Exception:  # noqa: BLE001 - Zaehler duerfen den Schutz nicht stoppen
+        logger.exception("Egress-Zaehler konnten nicht gespeichert werden")
+        with _STATE.lock:
+            for key, value in counts.items():
+                _STATE.allowed_counts[key] = _STATE.allowed_counts.get(key, 0) + value
+        return 0
+    finally:
+        _STATE.local.busy = False
+    return sum(counts.values())
+
+
 def flush_events() -> int:
     """Gesammelte Sperren an den Sink geben (persistentes Protokoll)."""
+    flush_counts()
     with _STATE.lock:
         batch, _STATE.pending_events = _STATE.pending_events, []
         sink = _STATE.event_sink
@@ -634,6 +822,7 @@ def deactivate() -> None:
         flusher, _STATE.flusher = _STATE.flusher, None
         _STATE.stop_flusher.set()
         _STATE.event_sink = None
+        _STATE.counter_sink = None
         _STATE.client_name_provider = None
     if flusher is not None and flusher is not threading.current_thread():
         flusher.join(timeout=2)

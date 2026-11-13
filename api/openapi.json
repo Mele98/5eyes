@@ -41407,6 +41407,31 @@
         ]
       }
     },
+    "/privacy/egress-counts": {
+      "get": {
+        "description": "Erlaubte Uebertragungen je Kanal und Tag (nur Zaehler, ohne Inhalt).",
+        "operationId": "list_egress_counts_privacy_egress_counts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Egress Counts",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
     "/privacy/egress-events": {
       "get": {
         "description": "Persistentes Protokoll blockierter Verbindungen (ohne Payload).",
@@ -42200,6 +42225,62 @@
           }
         ],
         "summary": "Decide Security Incident Notification",
+        "tags": [
+          "Datenschutz"
+        ]
+      }
+    },
+    "/privacy/incidents/{incident_id}/notification-note": {
+      "post": {
+        "description": "N-899-05: Aenderung zum Meldeentscheid nur als neues, begruendetes\nEreignis; der bisherige Entscheid wird nicht aufgehoben.",
+        "operationId": "add_security_incident_notification_note_privacy_incidents__incident_id__notification_note_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "incident_id",
+            "required": true,
+            "schema": {
+              "title": "Incident Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentClosure"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add Security Incident Notification Note",
         "tags": [
           "Datenschutz"
         ]

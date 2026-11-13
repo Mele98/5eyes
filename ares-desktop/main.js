@@ -1,7 +1,7 @@
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require('electron');
 // UPDATE-001: electron-updater wird erst geladen, wenn das Build-Gate in der
 // gepackten package.json offen ist (siehe update-gate.js); sonst nie.
-const { evaluateRuntimeUpdateGate } = require('./update-gate');
+const { evaluateEgressApproval, evaluateRuntimeUpdateGate } = require('./update-gate');
 let autoUpdater = null;
 const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
@@ -180,10 +180,34 @@ function configureAutoUpdates() {
   });
 }
 
+// N-899-09 (H10): Freigabestatus des Egress-Manifests beim lokalen Backend
+// abfragen. Ohne Token, ohne Backend oder bei Fehler -> null (gesperrt).
+async function fetchEgressStatus() {
+  try {
+    const token = readStoredToken();
+    if (!token) return null;
+    const response = await fetch(`${backendRuntime.baseUrl}/privacy/egress-status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (_error) {
+    return null;
+  }
+}
+
 async function checkForUpdates() {
   if (!updateState.enabled || !autoUpdater) {
     return { ...updateState, message: 'Auto-update disabled' };
   }
+  const egress = evaluateEgressApproval(await fetchEgressStatus());
+  if (!egress.allowed) {
+    updateState = { ...updateState, checking: false, blockedReason: egress.reason };
+    logLine(`Update check blocked by egress manifest | reason=${egress.reason}`);
+    notifyRendererUpdateState();
+    return { ...updateState, message: `Update-Pruefung gesperrt (${egress.reason})` };
+  }
+  updateState = { ...updateState, blockedReason: null };
   try {
     const result = await autoUpdater.checkForUpdates();
     return { ...updateState, checkResult: result?.updateInfo || null };

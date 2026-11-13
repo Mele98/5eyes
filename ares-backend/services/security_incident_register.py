@@ -168,6 +168,16 @@ def decide_notification(
             http_status=409,
         )
     decision = _choice(decision, NOTIFICATION_DECISIONS, "Meldeentscheid")
+    if incident.notification_decision == "NOTIFY":
+        # N-899-05: ein Meldeentscheid ist endgueltig; Aenderungen nur als
+        # begruendete Notiz (neues Ereignis), die ihn nicht aufhebt.
+        if decision != "NOTIFY":
+            raise DomainError(
+                ReasonCode.INCIDENT_NOTIFICATION_DECISION_FINAL,
+                "Der Entscheid 'an den EDOEB melden' ist endgueltig; eine Aenderung nur als begruendete Notiz",
+                http_status=409,
+            )
+        return incident
     if incident.risk_level in ESCALATING_RISKS and decision != "NOTIFY":
         raise DomainError(
             ReasonCode.INCIDENT_HIGH_RISK_REQUIRES_NOTIFICATION,
@@ -271,8 +281,12 @@ def record_remediation(
     return incident
 
 
-def close_problems(incident: PrivacySecurityIncident) -> list[str]:
+def close_problems(incident: PrivacySecurityIncident, *, has_edoeb_receipt: bool | None = None) -> list[str]:
     problems = []
+    if incident.risk_level == "UNKNOWN":
+        problems.append("Risiko noch unbekannt")
+    if incident.notification_decision == "NOTIFY" and has_edoeb_receipt is False:
+        problems.append("EDOEB-Meldenachweis als Artefakt mit Hash fehlt")
     if incident.remediation_status != "DONE":
         problems.append("Behebung/Massnahmen nicht abgeschlossen")
     if not incident.risk_level:
@@ -294,7 +308,12 @@ def close(
     db: Session, incident: PrivacySecurityIncident, *, note: str | None, actor_id: str, now: datetime | None = None,
 ) -> PrivacySecurityIncident:
     _require_open(incident)
-    problems = close_problems(incident)
+    receipt = any(a.kind == "EDOEB_RECEIPT" for a in list_artifacts(db, incident.id))
+    problems = close_problems(incident, has_edoeb_receipt=receipt)
+    if incident.risk_level == "UNKNOWN":
+        raise DomainError(ReasonCode.INCIDENT_RISK_UNKNOWN_AT_CLOSE,
+                          "Abschluss mit unbekanntem Risiko ist nicht zulaessig", http_status=409,
+                          extra={"problems": problems})
     if incident.remediation_status != "DONE":
         raise DomainError(
             ReasonCode.INCIDENT_REMEDIATION_OPEN, "Abschluss nicht moeglich: " + "; ".join(problems),
@@ -462,3 +481,10 @@ def artifacts_out(db: Session, incident_id: str) -> list[dict]:
     return [{"id": a.id, "kind": a.kind, "reference": a.reference, "sha256": a.sha256, "media_type": a.media_type,
              "size_bytes": a.size_bytes, "recorded_by": a.recorded_by, "recorded_at": a.recorded_at,
              "row_sha256": a.row_sha256} for a in list_artifacts(db, incident_id)]
+
+
+def notification_note(db: Session, incident: PrivacySecurityIncident, *, reason: str | None) -> str:
+    """Begruendete Notiz zum Meldeentscheid (z. B. nach Herabstufung); der
+    Entscheid selbst bleibt unveraendert."""
+    _require_open(incident)
+    return _text(reason, "Begruendung", required=True)

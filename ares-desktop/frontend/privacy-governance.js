@@ -167,7 +167,12 @@
       document.body.insertBefore(el, document.body.firstChild);
     }
     var asOf = status.data_as_of || {};
-    var stand = 'Datenstand Kurse: ' + esc(asOf.product_prices || asOf.asset_class_prices || 'unbekannt') + ' (' + esc(status.market_data_message || 'nicht aktualisiert') + ').';
+    var stand = 'Datenstand Kurse: ' + esc(asOf.product_prices || asOf.asset_class_prices || 'unbekannt') + ' (' + esc(status.market_data_message || 'nicht aktualisiert') + ').'
+      + (asOf.fx_message ? ' Devisen: ' + esc(asOf.fx_message) + '.' : '');
+    var reasons = (status.blocked_channels || []).map(function(c){
+      return esc(c.channel_id) + ' – gesperrt: ' + esc(c.reason || c.reason_code);
+    }).join('; ');
+    if (reasons) stand += ' <span style="font-size:10px">(' + reasons + ')</span>';
     el.innerHTML = status.is_admin
       ? '<b>' + esc(status.message) + '.</b> ' + stand + ' <button class="btn-p" ' + BTN + ' onclick="openPrivacyApproval()">Zur Freigabe</button>'
       : '<b>Datenübermittlung gesperrt.</b> ' + stand + ' Bitte Administrator informieren.';
@@ -452,6 +457,20 @@
       auditPanel.parentNode.insertBefore(panel, auditPanel);
     }
   }
+  // N-899-04: direkt nach Login und App-Start (initApp des Monolithen).
+  function hookInitApp(){
+    var original = (typeof window !== 'undefined') ? window.initApp : null;
+    if (typeof original !== 'function' || original.__egressBannerHooked) return;
+    var wrapped = async function(){
+      var result = await original.apply(this, arguments);
+      refreshEgressBanner();
+      return result;
+    };
+    wrapped.__egressBannerHooked = true;
+    window.initApp = wrapped;
+  }
+  hookInitApp();
+
   function startEgressBanner(){
     refreshEgressBanner();
     var timer = (typeof setInterval === 'function') ? setInterval(refreshEgressBanner, 300000) : null;

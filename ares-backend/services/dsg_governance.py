@@ -13,14 +13,17 @@ Der Router importiert nur dieses Modul (eine Kante statt je Fachmodul eine):
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from sqlalchemy import text
 
 from config import settings
 from database import new_uuid
-from models.privacy import OutboundProcessingEvent
+from models.privacy import OutboundProcessingEvent, OutboundTransferDailyCount
+from core.reason_codes import ReasonCode
 from services import egress_manifest
+from services.currency.fx_rates import DEFAULT_FX_RATES
 from services import privacy_case_events as case_events
 from services import privacy_versions as versions
 from services import privacy_erasure_inventory as erasure_inventory
@@ -68,6 +71,25 @@ def _event_sink(session_factory: Callable[[], Any]) -> Callable[[list[dict[str, 
     return sink
 
 
+def _counter_sink(session_factory: Callable[[], Any]) -> Callable[[dict], None]:
+    def sink(counts: dict) -> None:
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with session_factory() as db:
+            for (day, channel_id), value in counts.items():
+                row = db.query(OutboundTransferDailyCount).filter(
+                    OutboundTransferDailyCount.tenant_id == INSTALLATION_TENANT,
+                    OutboundTransferDailyCount.day == day, OutboundTransferDailyCount.channel_id == channel_id,
+                ).first()
+                if row is None:
+                    db.add(OutboundTransferDailyCount(id=new_uuid(), tenant_id=INSTALLATION_TENANT, day=day,
+                                                      channel_id=channel_id, allowed_count=value, updated_at=stamp))
+                else:
+                    row.allowed_count += value
+                    row.updated_at = stamp
+            db.commit()
+    return sink
+
+
 def _client_names(session_factory: Callable[[], Any]) -> Callable[[], list[str]]:
     def provider() -> list[str]:
         with session_factory() as db:
@@ -100,7 +122,8 @@ def activate_egress_guard(session_factory: Callable[[], Any]) -> None:
     except Exception:  # noqa: BLE001 - Start nie wegen der Freigaben abbrechen
         logger.exception("Egress-Freigaben nicht lesbar; alle externen Kanaele bleiben gesperrt")
     egress_manifest.activate(settings, channel_states=states, event_sink=_event_sink(session_factory),
-                             client_name_provider=_client_names(session_factory))
+                             client_name_provider=_client_names(session_factory),
+                             counter_sink=_counter_sink(session_factory))
 
 
 def deactivate_egress_guard() -> None:
@@ -132,30 +155,75 @@ EGRESS_BLOCKED_MESSAGE = (
 MARKET_DATA_NOT_UPDATED = "nicht aktualisiert – Datenübermittlung nicht freigegeben"
 
 
+REASON_LABELS = {
+    "EGRESS_MANIFEST_MISSING": "keine freigegebene Fassung",
+    "EGRESS_HASH_MISMATCH": "Fassung veraltet (neu freigeben)",
+    "EGRESS_GUARANTEE_MISSING": "Staat/Garantie/Verschluesselung fehlt",
+    "EGRESS_CONSENT_OR_BASIS_MISSING": "Grundlage der Bekanntgabe fehlt",
+    "EGRESS_DESTINATION_DENIED": "Zielhost nicht bestaetigt",
+}
+FX_DEFAULT_MESSAGE = "Ersatzkurs – nicht aktuell"
+
+
+def _channel_configured(channel: dict[str, Any]) -> bool:
+    if channel.get("enforcement") == "desktop_update_gate":
+        return bool(versions.configured_hosts(channel))
+    if channel.get("enforcement") not in ("python_runtime_guard", "subprocess_guard"):
+        return False
+    return egress_manifest.channel_enabled(channel, settings)
+
+
+def _fx_status(db: Any) -> dict[str, Any]:
+    rows = db.execute(text(
+        "SELECT currency, MAX(valid_from) FROM fx_rates WHERE is_current = 1 AND valid_until IS NULL "
+        "GROUP BY currency")).all()
+    present = {str(r[0]) for r in rows}
+    defaults = sorted(c for c in DEFAULT_FX_RATES if c not in present and c != "CHF")
+    return {
+        "fx_rates_as_of": max((r[1] for r in rows if r[1]), default=None),
+        "fx_default_currencies": defaults,
+        "fx_message": f"{FX_DEFAULT_MESSAGE}: {', '.join(defaults)}" if defaults else None,
+    }
+
+
 def egress_status(db: Any) -> dict[str, Any]:
-    """H10 Nachtrag 2: kein stiller Ausfall. Welche konfigurierten Kanaele
-    mangels gueltiger Freigabe gesperrt sind, und der Datenstand der Kurse.
-    Bewertungen bleiben auf dem letzten Stand; es wird nie ein Ersatzkurs
+    """H10 Nachtrag 2/3: kein stiller Ausfall. Jeder aktivierte Kanal, der
+    aus irgendeinem Grund gesperrt ist (keine/veraltete Freigabe, fehlende
+    Owner-Angaben, Garantie, Grundlage, Zielhost), mit Grund; Datenstand der
+    Kurse und Devisen (Ersatzkurse sichtbar). Es wird nie ein Ersatzkurs
     geschrieben."""
     manifest = egress_manifest.load_manifest()
     states = channel_states(db)
     blocked = []
+    approved_channels = sorted(
+        cid for cid, state in states.items()
+        if state.get("approval_exempt") or (state.get("approved_sha256")
+                                            and state.get("approved_sha256") == state.get("current_sha256"))
+    )
     for channel in egress_manifest.channels(manifest):
-        if channel.get("enforcement") != "python_runtime_guard" or not egress_manifest.channel_enabled(channel, settings):
+        if not _channel_configured(channel):
             continue
         state = states.get(channel["id"]) or {}
-        if state.get("approval_exempt"):
-            continue
-        if not state.get("approved_sha256") or state.get("approved_sha256") != state.get("current_sha256"):
-            blocked.append({"channel_id": channel["id"], "class": channel["class"]})
+        code = None
+        if not state.get("approval_exempt"):
+            if not state.get("approved_sha256"):
+                code = ReasonCode.EGRESS_MANIFEST_MISSING.value
+            elif state.get("approved_sha256") != state.get("current_sha256"):
+                code = ReasonCode.EGRESS_HASH_MISMATCH.value
+        code = code or state.get("owner_block")
+        if code:
+            blocked.append({"channel_id": channel["id"], "class": channel["class"], "reason_code": code,
+                            "reason": REASON_LABELS.get(code, code)})
     market_blocked = any(b["class"] == "market_data" for b in blocked)
     data_as_of = {
         "product_prices": db.execute(text("SELECT MAX(price_date) FROM price_history")).scalar(),
         "asset_class_prices": db.execute(text("SELECT MAX(price_date) FROM asset_class_price_history")).scalar(),
+        **_fx_status(db),
     }
     return {
         "approved": not blocked,
         "blocked_channels": blocked,
+        "approved_channels": approved_channels,
         "blocked_classes": sorted({b["class"] for b in blocked}),
         "message": EGRESS_BLOCKED_MESSAGE if blocked else None,
         "market_data_status": "NOT_UPDATED_EGRESS_BLOCKED" if market_blocked else "EGRESS_APPROVED",

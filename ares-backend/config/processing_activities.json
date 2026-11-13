@@ -509,10 +509,12 @@
       ],
       "recipients": [
         "Administration der Firma",
-        "Fehlerdienst (nur wenn Telemetrie aktiviert; Inhalte vor Versand entfernt)"
+        "Fehlerdienst (nur wenn Telemetrie aktiviert; Inhalte vor Versand entfernt)",
+        "Offsite-Sicherungsziel der Firma (nur wenn aktiviert)"
       ],
       "egress_channels": [
-        "telemetry.error_reporting"
+        "telemetry.error_reporting",
+        "operator.backup_offsite"
       ],
       "retention": {
         "evidence_types": [
@@ -615,6 +617,7 @@
     "sustainability_exclusion_standards": "Nachhaltigkeits-Hausstandard der Firma (Referenzdaten)",
     "tax_parameter_sets": "Steuerparameter (Referenzdaten)",
     "tenant_legal_profiles": "Rechtliche Angaben der Firma (juristische Person; Kontakt als Geschaeftsadresse)",
-    "tenants": "Mandanten der Installation (Firmen)"
+    "tenants": "Mandanten der Installation (Firmen)",
+    "privacy_egress_daily_counts": "Zaehler erlaubter Uebertragungen je Kanal und Tag (ohne Inhalt, ohne Personenbezug)"
   }
 }

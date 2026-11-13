@@ -32,6 +32,7 @@ from models.privacy import (
     PrivacyRetentionPolicy,
     PrivacyRoleDesignation,
     OutboundProcessingEvent,
+    OutboundTransferDailyCount,
     PrivacySecurityIncident,
     PrivacySecurityIncidentEvent,
     PrivacySubjectRequest,
@@ -913,6 +914,18 @@ def verify_security_incident_artifact(incident_id: str, artifact_id: str, body: 
     return gov.incidents.verify_artifact(db, _incident(db, incident_id, current_user), artifact_id, body.sha256)
 
 
+@router.post("/incidents/{incident_id}/notification-note")
+def add_security_incident_notification_note(incident_id: str, body: IncidentClosure, request: Request,
+                                            db: Session = Depends(get_db),
+                                            current_user: User = Depends(get_current_user)):
+    """N-899-05: Aenderung zum Meldeentscheid nur als neues, begruendetes
+    Ereignis; der bisherige Entscheid wird nicht aufgehoben."""
+    incident = _incident(db, incident_id, current_user)
+    note = gov.incidents.notification_note(db, incident, reason=body.note)
+    return _incident_step(db, current_user, request, incident, "notification_note",
+                          {"note": note, "notification_decision": incident.notification_decision})
+
+
 @router.post("/incidents/{incident_id}/remediation")
 def record_security_incident_remediation(incident_id: str, body: IncidentClosure, request: Request,
                                          db: Session = Depends(get_db),
@@ -1003,3 +1016,12 @@ def get_egress_status(db: Session = Depends(get_db), current_user: User = Depend
     status = gov.egress_status(db)
     status["is_admin"] = current_user.role in ("admin", "super_admin")
     return status
+
+
+@router.get("/egress-counts")
+def list_egress_counts(db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+    """Erlaubte Uebertragungen je Kanal und Tag (nur Zaehler, ohne Inhalt)."""
+    rows = (db.query(OutboundTransferDailyCount)
+            .filter(OutboundTransferDailyCount.tenant_id == _tenant(current_user))
+            .order_by(OutboundTransferDailyCount.day.desc(), OutboundTransferDailyCount.channel_id).limit(500).all())
+    return [{"day": r.day, "channel_id": r.channel_id, "allowed_count": r.allowed_count} for r in rows]

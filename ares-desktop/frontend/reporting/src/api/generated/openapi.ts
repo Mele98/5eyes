@@ -4365,6 +4365,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/privacy/egress-counts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Egress Counts
+         * @description Erlaubte Uebertragungen je Kanal und Tag (nur Zaehler, ohne Inhalt).
+         */
+        get: operations["list_egress_counts_privacy_egress_counts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/privacy/egress-events": {
         parameters: {
             query?: never;
@@ -4677,6 +4697,27 @@ export interface paths {
         put?: never;
         /** Decide Security Incident Notification */
         post: operations["decide_security_incident_notification_privacy_incidents__incident_id__notification_decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/privacy/incidents/{incident_id}/notification-note": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Security Incident Notification Note
+         * @description N-899-05: Aenderung zum Meldeentscheid nur als neues, begruendetes
+         *     Ereignis; der bisherige Entscheid wird nicht aufgehoben.
+         */
+        post: operations["add_security_incident_notification_note_privacy_incidents__incident_id__notification_note_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -22467,6 +22508,26 @@ export interface operations {
             };
         };
     };
+    list_egress_counts_privacy_egress_counts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     list_egress_events_privacy_egress_events_get: {
         parameters: {
             query?: {
@@ -22989,6 +23050,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["IncidentDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_security_incident_notification_note_privacy_incidents__incident_id__notification_note_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                incident_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IncidentClosure"];
             };
         };
         responses: {

@@ -50,6 +50,7 @@ var API={
   post:async function(url,b){calls.posts.push([url,b]);return {};}
 };
 var _auditLogTotal=0,_auditLogOffset=0,_auditLogLimit=50;
+window.initApp=async function(){return 'init';};
 """
 
 REGISTER = {
@@ -207,3 +208,23 @@ def test_banner_disappears_after_approval():
                   + ";await refreshEgressBanner();RESP['/privacy/egress-status']={approved:true};"
                   + "await refreshEgressBanner();")
     assert "pg-egress-banner" not in result["DOM"]
+
+
+def test_banner_names_every_blocked_channel_reason_and_fx_default():
+    status = dict(STATUS_BLOCKED, is_admin=True, blocked_channels=[
+        {"channel_id": "mail.smtp", "reason_code": "EGRESS_CONSENT_OR_BASIS_MISSING",
+         "reason": "Grundlage der Bekanntgabe fehlt"},
+        {"channel_id": "operator.backup_offsite", "reason_code": "EGRESS_DESTINATION_DENIED",
+         "reason": "Zielhost nicht bestaetigt"}],
+        data_as_of={"product_prices": "2026-11-10", "fx_message": "Ersatzkurs – nicht aktuell: EUR, USD"})
+    html = _run("RESP['/privacy/egress-status']=" + json.dumps(status) + ";await refreshEgressBanner();")[
+        "DOM"]["pg-egress-banner"]["innerHTML"]
+    assert "mail.smtp – gesperrt: Grundlage der Bekanntgabe fehlt" in html
+    assert "operator.backup_offsite – gesperrt: Zielhost nicht bestaetigt" in html
+    assert "Devisen: Ersatzkurs – nicht aktuell: EUR, USD" in html
+
+
+def test_banner_refreshes_right_after_init_app():
+    result = _run("RESP['/privacy/egress-status']=" + json.dumps(dict(STATUS_BLOCKED, is_admin=False))
+                  + ";await window.initApp();")
+    assert "Bitte Administrator informieren" in result["DOM"]["pg-egress-banner"]["innerHTML"]

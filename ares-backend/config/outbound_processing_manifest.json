@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "manifest_version": "2026-11-12.1",
+  "manifest_version": "2026-11-13.1",
   "title": "Egress-Manifest (ausgehende Verbindungen von Ares)",
   "policy": "fail_closed",
   "notice": "Jede ausgehende Verbindung des Backends muss hier einem Kanal zugeordnet sein; alles andere wird zur Laufzeit blockiert (services/egress_manifest.py). Lokale Verbindungen (localhost, 127.0.0.0/8, ::1) sind keine Uebermittlung und immer erlaubt. Kanaele mit personal_data=true laufen erst, wenn der Verantwortliche Staat und Garantie bestaetigt hat. Staaten und Garantien sind Angaben des Verantwortlichen (owner_field), Ares belegt sie nicht vor. Keine Rechtsberatung.",
@@ -173,7 +173,8 @@
       "enforcement": "python_runtime_guard",
       "code_references": [
         "ares-backend/services/market_data/providers/alphavantage_provider.py"
-      ]
+      ],
+      "client_name_screen": true
     },
     {
       "id": "market_data.twelvedata",
@@ -653,6 +654,62 @@
       "enforcement": "python_runtime_guard",
       "code_references": [
         "ares-backend/database.py"
+      ]
+    },
+    {
+      "id": "operator.backup_offsite",
+      "class": "operator_infrastructure",
+      "purpose": "Offsite-Replikation der verschluesselten Sicherung (rsync ueber SSH), nur wenn aktiviert",
+      "personal_data": true,
+      "host_from_setting": "backup_offsite_target",
+      "requires_settings": [
+        "backup_offsite_enabled",
+        "backup_offsite_target"
+      ],
+      "subprocess_tools": [
+        "rsync",
+        "ssh"
+      ],
+      "transmitted_data": "Verschluesselte Sicherungsdatei der gesamten Datenbank",
+      "target_host": {
+        "owner_field": "egress.operator.backup_offsite.target_host",
+        "label": "Bestaetigter Zielhost der Offsite-Sicherung (muss der Einstellung entsprechen)",
+        "kind": "text",
+        "blocking": "channel",
+        "channel": "operator.backup_offsite"
+      },
+      "destination_country": {
+        "owner_field": "egress.operator.backup_offsite.destination_country",
+        "label": "Staat des Offsite-Sicherungsziels",
+        "kind": "country_list",
+        "blocking": "channel",
+        "channel": "operator.backup_offsite"
+      },
+      "guarantee": {
+        "owner_field": "egress.operator.backup_offsite.guarantee",
+        "label": "Garantie bzw. Auftragsbearbeitungsvertrag des Sicherungsziels",
+        "kind": "guarantee",
+        "blocking": "channel",
+        "channel": "operator.backup_offsite"
+      },
+      "legal_basis": {
+        "owner_field": "egress.operator.backup_offsite.legal_basis",
+        "label": "Grundlage der Uebermittlung (z. B. Auftragsbearbeitung)",
+        "kind": "text",
+        "blocking": "channel",
+        "channel": "operator.backup_offsite"
+      },
+      "encryption": {
+        "owner_field": "egress.operator.backup_offsite.encryption",
+        "label": "Verschluesselung der Sicherung und des Transports (z. B. SQLCipher + SSH)",
+        "kind": "text",
+        "blocking": "channel",
+        "channel": "operator.backup_offsite"
+      },
+      "enforcement": "subprocess_guard",
+      "code_references": [
+        "ares-backend/services/backup.py",
+        "ares-backend/backup_scheduler.py"
       ]
     },
     {
