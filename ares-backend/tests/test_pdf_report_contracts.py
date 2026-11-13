@@ -1,4 +1,5 @@
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 PDF_REPORTS_PATH = Path(__file__).resolve().parents[1] / "routers" / "pdf_reports.py"
@@ -27,7 +28,7 @@ def test_portfolio_pdf_blocks_stale_recommendation_runs():
 
 def test_current_recommendation_payload_uses_current_target_allocation():
     source = REVIEW_ROUTER_PATH.read_text(encoding="utf-8")
-    frontend = FRONTEND_PATH.read_text(encoding="utf-8")
+    frontend = read_monolith_bundle()
 
     assert "runs_for_current_allocation" in source
     assert "item.target_allocation_id" in source
@@ -47,7 +48,7 @@ def test_pdf_reports_use_current_allocation_field_names():
 
 def test_pdf_reports_have_server_protokoll_endpoint():
     source = PDF_REPORTS_PATH.read_text(encoding="utf-8")
-    frontend = FRONTEND_PATH.read_text(encoding="utf-8")
+    frontend = read_monolith_bundle()
 
     assert '"/mandates/{mandate_id}/reports/protokoll.pdf"' in source
     assert "render_protokoll" in source
@@ -57,7 +58,7 @@ def test_pdf_reports_have_server_protokoll_endpoint():
 
 def test_pdf_reports_have_separate_assetallocation_endpoint():
     source = PDF_REPORTS_PATH.read_text(encoding="utf-8")
-    frontend = FRONTEND_PATH.read_text(encoding="utf-8")
+    frontend = read_monolith_bundle()
 
     assert '"/mandates/{mandate_id}/reports/assetallocation.pdf"' in source
     assert "render_asset_allocation" in source
@@ -66,7 +67,7 @@ def test_pdf_reports_have_separate_assetallocation_endpoint():
 
 
 def test_asset_allocation_save_flow_uses_rubric_scoped_pdf():
-    frontend = FRONTEND_PATH.read_text(encoding="utf-8")
+    frontend = read_monolith_bundle()
     start = frontend.index("async function savePortfolioUmsetzen")
     end = frontend.index("function printCurrentRubricPdf", start)
     save_flow = frontend[start:end]

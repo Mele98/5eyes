@@ -1,9 +1,9 @@
 # CMA-Quartals-Update — Workflow
 
 Capital Market Assumptions (erwartete Renditen, Volatilitaeten, Korrelationen
-pro Asset-Klasse) sind die Grundlage fuer den 5eyes Stochastic Optimizer.
+pro Asset-Klasse) sind die Grundlage fuer den Ares Stochastic Optimizer.
 Sie werden quartalsweise von Asset-Managern publiziert und muessen in
-5eyes manuell gepflegt werden — das Skript `scripts/import_cma_from_csv.py`
+Ares manuell gepflegt werden — das Skript `scripts/import_cma_from_csv.py`
 automatisiert das Schreiben in die Datenbank.
 
 ## Quellen (gratis, public)
@@ -68,7 +68,7 @@ Mietertrag modelliert.
 ### 1. Excel-Vorbereitung
 
 1. Asset-Manager-PDF oeffnen (z.B. BlackRock LTCMA Q2 2026).
-2. Werte fuer die 5eyes-Buckets ablesen:
+2. Werte fuer die Ares-Buckets ablesen:
    - **Bonds CHF IG**: Schweizer Staats-/Untern.-Bonds Investment Grade
    - **Bonds FX-Hedged**: globale Bonds CHF-hedged
    - **Bonds HY**: High Yield (USD oder global)
@@ -86,7 +86,7 @@ Tipp: aus mehreren Quellen den **Min** der Renditen nehmen (konservativ).
 ### 2. Dry-Run
 
 ```bash
-cd C:\5eyes\5eyes_stage9_release_ready
+cd <Repo-Root>
 python scripts/import_cma_from_csv.py cma_q2_2026.csv
 ```
 

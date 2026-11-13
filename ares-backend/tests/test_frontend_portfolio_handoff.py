@@ -8,6 +8,7 @@ selbst), ruft die drei Backend-Endpunkte korrekt auf, und der Verlauf wird
 nach jeder Statusaenderung neu geladen.
 """
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
@@ -16,7 +17,7 @@ TRADE_LIST_JS = HTML_PATH.parent / "trade-list-preview.js"
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _trade_list_js() -> str:

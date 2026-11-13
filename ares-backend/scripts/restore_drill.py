@@ -102,7 +102,7 @@ def main() -> int:
     from services.backup import backup_database
     from services.maintenance import restore_backup
 
-    workdir = Path(tempfile.mkdtemp(prefix="5eyes-restore-drill-"))
+    workdir = Path(tempfile.mkdtemp(prefix="ares-restore-drill-"))
     source_db = workdir / "source" / "drill.db"
     backup_dir = workdir / "backups"
     source_db.parent.mkdir(parents=True, exist_ok=True)

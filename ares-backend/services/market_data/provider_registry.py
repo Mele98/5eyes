@@ -102,13 +102,25 @@ def resolve_providers(settings: object) -> list[MarketDataProvider]:
     if missing:
         known = sorted(BUILTIN_PROVIDERS) + list(external)
         raise ProviderConfigurationError(
-            "Explizit konfigurierte Marktdaten-Provider sind nicht verfuegbar "
+            "MARKET_DATA_PROVIDERS: explizit konfigurierte Marktdaten-Provider sind nicht verfuegbar "
             f"(fehlen, nicht ladbar oder ungueltige Klasse): {', '.join(missing)}. "
             f"Verfuegbar: {', '.join(known)}. Ladefehler externer Pakete "
             f"(Entry-Point-Gruppe {provider_discovery.ENTRY_POINT_GROUP!r}) "
             "stehen im Log. Kein Rueckfall auf andere Quellen."
         )
-    return [
+    providers = [
         external[n] if n in external else BUILTIN_PROVIDERS[n](settings)
         for n in names
     ]
+    # N-862-3 (Audit 2026-11/06): eine massgebliche Quelle (authoritative,
+    # z. B. Bloomberg) muss an erster Stelle stehen. Eine davor konfigurierte
+    # Gratisquelle wuerde sonst still liefern, obwohl die massgebliche Quelle
+    # gesund ist. Abgelehnt statt umsortiert.
+    authoritative = [p.name for p in providers if getattr(p, "authoritative", False)]
+    if authoritative and not getattr(providers[0], "authoritative", False):
+        raise ProviderConfigurationError(
+            f"MARKET_DATA_PROVIDERS: massgebliche Quelle(n) {', '.join(authoritative)} "
+            f"muessen an erster Stelle stehen (konfiguriert: {', '.join(names)}). "
+            "Kein stilles Umsortieren, kein Rueckfall."
+        )
+    return providers

@@ -53,6 +53,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -87,7 +88,7 @@ def _now_iso() -> str:
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _extract_balanced_block(html: str, signature: str) -> str:
@@ -551,6 +552,20 @@ def test_cost_disclosure_pdf_response_carries_no_artifact_identity(
         "services.cost_disclosure.build_cost_disclosure",
         lambda db, mandate: _full_payload(),
     )
+    # C-890-01 N-897-17: ohne KYC-Bestaetigung ist der Kostenausweis ein
+    # Entwurf (nie archiviert, keine Artefakt-Identitaet, Header X-Ares-Draft).
+    draft = auth_client.get(f"/mandates/{mandate_id}/reports/cost-disclosure.pdf")
+    assert draft.status_code == 200 and draft.headers.get("X-Ares-Draft") == "vorvertrag"
+    import sys as _sys
+    from pathlib import Path as _Path
+
+    _sys.path.insert(0, str(_Path(__file__).resolve().parent))
+    from client_onboarding_fixture import satisfy_client_onboarding
+    from models.mandates import Mandate as _Mandate
+
+    with session_factory() as db:
+        satisfy_client_onboarding(db, db.get(_Mandate, mandate_id), actor_id=advisor_user.id)
+        db.commit()
     resp = auth_client.get(f"/mandates/{mandate_id}/reports/cost-disclosure.pdf")
     assert resp.status_code == 200, resp.text  # unchanged positive behavior
 

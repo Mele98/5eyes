@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -146,7 +147,7 @@ def test_finalize_stale_ledger_policy_returns_stale_code(session_factory, monkey
 
 
 def test_monolith_finalize_error_shows_message_not_reason_code():
-    html = MONOLITH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     recipe = re.search(r"async function confirmImplementationRecipe\(\)\{.*?\n\}", html, re.S)
     assert recipe, "confirmImplementationRecipe fehlt"
     assert "finalizeErrorText(e)" in recipe.group(0)

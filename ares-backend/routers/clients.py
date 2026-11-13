@@ -1,14 +1,23 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from core.db_integrity import is_check_constraint_violation, raise_if_check_violation
+from pydantic import ValidationError
+from core.reason_codes import ReasonCode
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timezone
+import json
+from core.evidence import SCHEME_V1, evidence_hash
 from database import get_db, new_uuid
 from models.users import User
 from models.clients import (
     Client, ClientNationality, ClientOptHistory,
     ClientDueDiligence, ClientTaxResidency,
+    ClientRepresentation, KycConfirmation, KycConfirmationApproval, KycConfirmationDecision,
+    KycConfirmationRejection,
+    KYC_PROCESS_EXTERNAL, KYC_RISK_NORMAL,
 )
+from models.mandates import Mandate
 from models.wealth import Cashflow, WealthPosition, WealthInflow
 from schemas.clients import (
     ClientCreate, ClientUpdate, ClientResponse,
@@ -16,10 +25,17 @@ from schemas.clients import (
     NationalityCreate, NationalityResponse,
     OptHistoryCreate, OptHistoryResponse,
     ClientDueDiligenceCreate, ClientDueDiligenceUpdate, ClientDueDiligenceResponse,
+    ClientRepresentationCreate, ClientRepresentationResponse, ClientRepresentationRevoke,
+    KYC_REVIEW_BINDING_CONTEXT_KEY, personal_data_hints,
+    KycConfirmationApprovalCreate, KycConfirmationApprovalResponse,
+    KycConfirmationCreate, KycConfirmationRequest, KycConfirmationResponse,
+    KycPendingApproval, KycPendingApprovalList, KycSecondApprovalDecision,
+    KycSecondApprovalDecisionResponse,
     ClientTaxResidencyCreate, ClientTaxResidencyResponse,
     WealthSummaryResponse, CashflowSummaryResponse,
     CashflowYearRow, CashflowProjectionResponse,
 )
+from routers.auth import _extract_client_ip
 from services.auth import (
     _apply_tenant_filter_to_client_query,
     get_client_for_erasure_or_404 as _get_client_for_erasure_or_404,
@@ -27,15 +43,27 @@ from services.auth import (
     get_current_user,
     has_global_client_access,
     hash_password,
+    _resolve_tenant_id_for_user,
     require_admin,
     require_advisor,
+    assert_compliance_reviewer_ready,
+    compliance_reviewer_readiness,
+    require_compliance_approver,
+    short_user_agent,
+    same_person,
 )
-from services.audit import log
+from services.audit import KYC_REVIEW_BLOCK_AUDIT_FIELD, kyc_review_block_audit_value, log
 from services.cashflow_timeline import totals_for_year
-from services.client_erasure import erase_client_personal_data
 from services.data_classification import enforce_data_classification
 from services.planning_horizon import life_expectancy_year_for
 from services.quota import assert_within_quota
+from services.recommendation_release_gate import (
+    KYC_REVIEW_DUE_EXCEEDS_POLICY,
+    KYC_REVIEW_STATUS_BY_CODE,
+    kyc_approver_account,
+    kyc_review_entry_binding,
+    kyc_review_message,
+)
 from services.wealth_cashflows import (
     derive_wealth_cashflows,
     mortgage_amortization_adjustment_series,
@@ -43,6 +71,9 @@ from services.wealth_cashflows import (
 )
 
 router = APIRouter(prefix="/clients", tags=["Kunden"])
+# C-890-01 Nachtrag 2: Ansicht "Offene Freigaben" der zweiten Person (Admin oder
+# externe Compliance-Person) -- ohne Kundenakte, nur entscheidrelevante Angaben.
+kyc_approvals_router = APIRouter(prefix="/compliance/kyc-approvals", tags=["Kunden"])
 
 
 def _now() -> str:
@@ -113,7 +144,13 @@ def create_client(
         client_id=client.id)
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
+        db.rollback()
+        # RC-CH-1-F1 (N-903-01): eine CHECK-Verletzung (z.B. civil_status
+        # ausserhalb der Werteliste) ist keine doppelte Kundennummer; sie geht
+        # an den zentralen Handler (422 DB_CHECK_CONSTRAINT_VIOLATION).
+        if is_check_constraint_violation(exc):
+            raise
         # 2026-07-24 (Generalaudit): der Pre-Check oben ist TOCTOU-racy --
         # zwei parallele Requests (z.B. Doppelklick) koennen beide den
         # Check passieren, bevor einer committet. Der UNIQUE-Constraint auf
@@ -121,7 +158,6 @@ def create_client(
         # Duplikat, gab dem VERLIERENDEN Request bisher aber einen 500
         # statt eines klaren 409. Kein Datenintegritaets-Bug (kein Duplikat
         # persistiert), nur eine falsche HTTP-Statuscode-Antwort.
-        db.rollback()
         raise HTTPException(status_code=409, detail="Kundennummer bereits vergeben")
     db.refresh(client)
     return client
@@ -185,29 +221,40 @@ def erase_client(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """DSG Art. 32 -- Loeschungsanspruch. Anonymisiert irreversibel alle
-    direkt identifizierenden Personendaten dieses Kunden (siehe
-    services/client_erasure.py fuer die vollstaendige rechtliche und
-    technische Begruendung des Umfangs). Admin-only, Pflichtbegruendung
-    (schemas.clients.ClientErasureRequest), idempotent-sicher (409 bei
-    Doppelaufruf). Die Aktion selbst wird -- wie jede sensible Aktion --
-    unveraenderlich im Audit-Log protokolliert (wer hat wann wen aus
-    welchem Grund geloescht)."""
+    """Stillgelegt (H7 C-1): Loeschgesuche laufen nur ueber den
+    Datenschutz-Workflow ``/privacy/erasure-cases``.
+
+    Dieser Endpoint hat frueher sofort redigiert -- ohne Pruefung von
+    Aufbewahrungsfrist, Legal Hold oder aktivem Mandat. Dabei wurden auch
+    KYC-Belege (GwG Art. 7 Abs. 3: mindestens 10 Jahre nach Ende der
+    Geschaeftsbeziehung) und die Schluessel fuer versiegelte Nachweise
+    vernichtet. Ein zweiter Weg zur Vernichtung vor Fristablauf darf nicht
+    bestehen. Der Endpoint antwortet deshalb immer mit 409 und verweist auf
+    den Workflow (Loeschvorgang eroeffnen -> Entscheid je Nachweisart nach
+    genehmigter Aufbewahrungsmatrix und Legal Hold -> Ausfuehrung). Die
+    Ablehnung wird im Audit-Log festgehalten; Daten werden nicht veraendert.
+    """
     from routers.auth import _extract_client_ip
     _get_client_for_erasure_or_404(client_id, db, current_user)
-    result = erase_client_personal_data(db, client_id, reason=body.reason)
+    reason_code = ReasonCode.LEGACY_ERASURE_DISABLED.value
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="clients", record_id=client_id, action="CLIENT_ERASE",
-        client_id=client_id,
-        new_value=str({
-            "reason": body.reason,
-            "redacted": result["redacted"],
-            "pii_keys_shredded": result.get("pii_keys_shredded", 0),
-            "unsealed_append_only_rows": result.get("unsealed_append_only_rows", {}),
-        }),
+        field_name="erase_refused", client_id=client_id,
+        new_value=str({"refused": True, "reason_code": reason_code, "request_reason": body.reason}),
         ip_address=_extract_client_ip(request))
     db.commit()
-    return result
+    raise HTTPException(status_code=409, detail={
+        "reason_code": reason_code,
+        "message": (
+            "Die direkte Löschung ist stillgelegt. Löschgesuche laufen über den "
+            "Datenschutz-Workflow: Löschvorgang eröffnen (POST /privacy/erasure-cases), "
+            "Entscheid je Nachweisart nach freigegebener Aufbewahrungsmatrix und "
+            "Legal Hold, danach Ausführung (POST /privacy/erasure-cases/{id}/execute). "
+            "Aufbewahrungspflichtige Belege (u. a. GwG Art. 7 Abs. 3) bleiben bis "
+            "Fristablauf gesperrt erhalten."
+        ),
+        "workflow": "/privacy/erasure-cases",
+    })
 
 
 # ── Nationalities ──────────────────────────────────────────────────────────────
@@ -269,6 +316,98 @@ def get_opt_history(
     ).order_by(ClientOptHistory.documented_at.desc()).all()
 
 
+_PRIVATE_CLIENT = "Privatkunde"
+# Schutzniveau nach FIDLEG: Privat > Professionell > Institutionell.
+_PROTECTION_LEVEL = {"Privatkunde": 3, "Professioneller Kunde": 2, "Institutioneller Kunde": 1}
+
+# N-890-13: Ereignisbezeichnungen gemaess FIDLEG (Opting-out = Verzicht auf
+# Schutz, Opting-in = Rueckkehr zu mehr Schutz). Die frueheren, vertauschten
+# Bezeichnungen bleiben nur in Altzeilen (DB-CHECK) bestehen.
+EVENT_OPT_OUT_PROFESSIONAL = "Opting-out zu Professionell"
+EVENT_OPT_OUT_INSTITUTIONAL = "Opting-out zu Institutionell"
+EVENT_OPT_IN_PRIVATE = "Opting-in zu Privatkunde"
+EVENT_OPT_IN_PROFESSIONAL = "Opting-in zu Professionell"
+EVENT_QUALIFIED_INVESTOR = "Qualifizierter Anleger bestätigt"
+EVENT_REVIEWED = "Klassifizierung überprüft"
+
+
+def _opting_event(body: OptHistoryCreate) -> str:
+    """Ereignis aus dem Uebergang abgeleitet (N-890-13); widerspricht ein
+    mitgeschicktes ``event_type`` dem Uebergang -> 422."""
+    src = _PROTECTION_LEVEL[body.from_classification]
+    dst = _PROTECTION_LEVEL[body.to_classification]
+    if src == 3 and dst == 1:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "OPTING_TRANSITION_INVALID",
+            "message": (
+                "Ein Privatkunde wird nicht direkt institutionell (Art. 4/5 FIDLEG); "
+                "zuerst Opting-out zu Professionell, dann gesondert."
+            ),
+        })
+    if dst < src:
+        derived = EVENT_OPT_OUT_PROFESSIONAL if dst == 2 else EVENT_OPT_OUT_INSTITUTIONAL
+    elif dst > src:
+        derived = EVENT_OPT_IN_PRIVATE if dst == 3 else EVENT_OPT_IN_PROFESSIONAL
+    elif body.to_professional_opt_out is True:
+        derived = EVENT_OPT_OUT_PROFESSIONAL
+    elif body.to_professional_opt_out is False:
+        derived = EVENT_OPT_IN_PRIVATE
+    elif body.to_qualified_investor is not None:
+        derived = EVENT_QUALIFIED_INVESTOR
+    else:
+        derived = EVENT_REVIEWED
+    if body.event_type is not None and body.event_type != derived:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "OPTING_TRANSITION_INVALID",
+            "message": f"event_type '{body.event_type}' passt nicht zum Uebergang ({derived}).",
+        })
+    return derived
+
+
+def _enforce_opting_evidence(body: OptHistoryCreate) -> None:
+    """H8 Luecke 7 / N-890-05 (Art. 5 FIDLEG).
+
+    Jeder Wechsel auf ein TIEFERES Schutzniveau (Privat -> professionell,
+    professionell -> institutionell, Opting-out-Flag -> True) braucht den Beleg
+    der Erklaerung (``document_id``). Die Kriterien-Checkliste
+    (``opt_out_criteria``) gilt fuer das Opting-out vermoegender Privatkunden
+    (Art. 5 Abs. 2 FIDLEG). Jede Rueckkehr zu mehr Schutz (Opting-in) braucht
+    den Beleg, keine Kriterien.
+    """
+    has_document = bool((body.document_id or "").strip())
+    src = _PROTECTION_LEVEL[body.from_classification]
+    dst = _PROTECTION_LEVEL[body.to_classification]
+    lowers = dst < src or body.to_professional_opt_out is True
+    raises = dst > src or body.to_professional_opt_out is False
+    needs_criteria = body.from_classification == _PRIVATE_CLIENT and lowers
+    if lowers and not has_document:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "OPT_OUT_EVIDENCE_MISSING",
+            "message": (
+                "Ein Wechsel auf ein tieferes Schutzniveau (Art. 5 FIDLEG) nur mit "
+                "Beleg der Erklaerung des Kunden (document_id)."
+            ),
+        })
+    if needs_criteria and body.opt_out_criteria is None:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "OPT_OUT_EVIDENCE_MISSING",
+            "message": (
+                "Opting-out eines Privatkunden nach Art. 5 Abs. 2 FIDLEG nur mit "
+                "vollstaendiger Kriterien-Checkliste (opt_out_criteria)."
+            ),
+        })
+    if body.opt_out_criteria is not None and not needs_criteria:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "OPT_OUT_EVIDENCE_MISSING",
+            "message": "opt_out_criteria gilt nur fuer das Opting-out eines Privatkunden.",
+        })
+    if raises and not has_document:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "OPT_OUT_EVIDENCE_MISSING",
+            "message": "Opting-in (Rueckkehr zu mehr Schutz) nur mit Beleg (document_id).",
+        })
+
+
 @router.post("/{client_id}/opt-history", response_model=OptHistoryResponse, status_code=201)
 def add_opt_history(
     client_id: str,
@@ -297,6 +436,8 @@ def add_opt_history(
     Flag-Aenderung (from_*/to_* fuer die Flags bleiben None)."""
     enforce_data_classification(body.data_classification)
     client = _get_client_or_404(client_id, db, current_user)
+    _enforce_opting_evidence(body)
+    event_type = _opting_event(body)
     if body.from_classification != client.client_classification:
         raise HTTPException(
             status_code=409,
@@ -336,15 +477,19 @@ def add_opt_history(
     now = _now()
     entry = ClientOptHistory(
         id=new_uuid(), client_id=client_id,
-        event_type=body.event_type,
+        event_type=event_type,
         from_classification=body.from_classification,
         to_classification=body.to_classification,
         client_requested=1 if body.client_requested else 0,
         documented_by=current_user.id,
         documented_at=now,
-        document_id=body.document_id,
+        document_id=(body.document_id or "").strip() or None,
         notes=body.notes,
         created_at=now,
+        opt_out_criteria_json=(
+            json.dumps(body.opt_out_criteria.model_dump(), sort_keys=True, ensure_ascii=False)
+            if body.opt_out_criteria is not None else None
+        ),
         from_professional_opt_out=(
             None if body.from_professional_opt_out is None
             else int(body.from_professional_opt_out)
@@ -378,7 +523,7 @@ def add_opt_history(
     return entry
 
 
-# ── Due Diligence (KYC-01: GwG Art. 3-6 / FINMA-RS 2016/7) ────────────────────
+# ── Due Diligence (KYC-01: GwG Art. 3-6 / GwV-FINMA) ────────────────────
 
 @router.get("/{client_id}/due-diligence", response_model=ClientDueDiligenceResponse)
 def get_due_diligence(
@@ -402,7 +547,7 @@ def upsert_due_diligence(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
-    """1:1-Erfassung (GwG Art. 3-6 / FINMA-RS 2016/7 Sorgfaltspflichten) --
+    """1:1-Erfassung (GwG Art. 3-6 / GwV-FINMA Sorgfaltspflichten) --
     anders als Nationalitaeten/Opt-History keine Liste, sondern genau eine
     Zeile pro Kunde. Upsert: legt die Zeile beim ersten Aufruf an, aktualisiert
     sie bei jedem weiteren -- ein PUT-nur-Create haette erzwungen, dass der
@@ -417,9 +562,20 @@ def upsert_due_diligence(
     if record is None:
         record = ClientDueDiligence(id=new_uuid(), client_id=client_id, created_at=now)
         db.add(record)
+    previous_pep = None if action == "CREATE" else int(record.pep_status or 0)
     record.pep_status = 1 if body.pep_status else 0
+    if previous_pep is not None and previous_pep != record.pep_status:
+        # N-890-03: PEP-Aenderung eigens auditiert; eine Ruecknahme wirkt im
+        # KYC-Gate erst ueber eine neue, zweitfreigegebene Bestaetigung.
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="client_due_diligence", record_id=record.id, action="UPDATE",
+            field_name="pep_status", old_value=str(previous_pep),
+            new_value=str(record.pep_status), client_id=client_id)
     record.pep_details = body.pep_details
-    record.acting_for_own_account = 1 if body.acting_for_own_account else 0
+    # H8 C-5: unbeantwortet bleibt unbeantwortet (KYC-Gate rot); der Rohwert
+    # wird dann konservativ 0 ("nicht auf eigene Rechnung") gespeichert.
+    record.acting_for_own_account = 1 if body.acting_for_own_account is True else 0
+    record.acting_for_own_account_answered = 0 if body.acting_for_own_account is None else 1
     record.beneficial_owner_name = body.beneficial_owner_name
     record.source_of_wealth = body.source_of_wealth
     record.id_document_type = body.id_document_type
@@ -431,6 +587,635 @@ def upsert_due_diligence(
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="client_due_diligence", record_id=record.id, action=action,
         client_id=client_id)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+# ── H8 C-5: KYC-Bestaetigung (GwG-Abklaerung im SRO-/Fremdprozess) ─────────────
+
+def _row_seal(record, seal_column: str) -> str:
+    """N-890-10: Siegel = core.evidence-Hash (SCHEME_V1) ueber alle Spalten
+    ausser der Siegelspalte -- dieselbe Regel, mit der das Freigabe-Gate
+    (services/recommendation_release_gate.py::row_seal) nachrechnet."""
+    return evidence_hash(
+        {column.name: getattr(record, column.name)
+         for column in record.__table__.columns if column.name != seal_column},
+        scheme=SCHEME_V1,
+    )
+
+
+_RISK_RANK = {KYC_RISK_NORMAL: 0, "erhoeht": 1}
+
+
+def _reference_kyc_level(db: Session, client_id: str) -> tuple[int, int] | None:
+    """Massgebender Stand fuer die Herabstufungspruefung (N-890-03/-15): das
+    hoechste Risiko bzw. PEP aller Bestaetigungen seit (und inklusive) der
+    zuletzt WIRKSAMEN -- wirksam ist eine Bestaetigung, die keine Freigabe
+    brauchte oder von einer zweiten Person freigegeben wurde. Noch nicht
+    freigegebene Hoeherstufungen bleiben so massgebend, bis eine zweite
+    Person eine Herabstufung freigibt.
+
+    N-890-15 (Entscheid konservativ, GwG/FINMA best practice): eine
+    auditierte PEP-Ruecknahme in der Sorgfaltspflicht-Erfassung (pep_status
+    1 -> 0) nach der zuletzt wirksamen Bestaetigung -- oder ueberhaupt, wenn
+    es noch keine gibt -- zaehlt ebenfalls als Referenz "PEP". Die erste
+    Bestaetigung "kein PEP" danach braucht die Zweitfreigabe."""
+    rows = db.query(KycConfirmation).filter(
+        KycConfirmation.client_id == client_id
+    ).order_by(KycConfirmation.recorded_at.desc(), KycConfirmation.id.desc()).all()
+    risk = pep = None
+    effective_at = None
+    for row in rows:
+        risk = max(risk or 0, _RISK_RANK.get(row.risk_category, 1))
+        pep = max(pep or 0, int(row.is_pep or 0))
+        if not int(row.requires_second_approval or 0):
+            effective_at = row.recorded_at
+            break
+        approval = db.query(KycConfirmationApproval).filter(
+            KycConfirmationApproval.confirmation_id == row.id
+        ).first()
+        if approval is not None and str(approval.approved_by) != str(row.recorded_by):
+            effective_at = approval.approved_at
+            break
+    sql = (
+        "SELECT 1 FROM audit_log WHERE client_id = :cid AND table_name = 'client_due_diligence' "
+        "AND field_name = 'pep_status' AND old_value = '1' AND new_value = '0'"
+    )
+    params: dict = {"cid": client_id}
+    if effective_at is not None:
+        sql += " AND created_at > :since"
+        params["since"] = str(effective_at)
+    withdrawal = db.execute(text(sql + " LIMIT 1"), params).first()
+    if withdrawal is not None:
+        risk = risk if risk is not None else 0
+        pep = 1
+    return None if risk is None else (risk, pep)
+
+
+def _kyc_requires_second_approval(record: KycConfirmation) -> bool:
+    return bool(int(record.requires_second_approval or 0))
+
+
+def _kyc_response(db: Session, record: KycConfirmation) -> KycConfirmationResponse:
+    approval = db.query(KycConfirmationApproval).filter(
+        KycConfirmationApproval.confirmation_id == record.id
+    ).first()
+    return KycConfirmationResponse.model_validate(record).model_copy(update={
+        "requires_second_approval": _kyc_requires_second_approval(record),
+        "approval": (
+            KycConfirmationApprovalResponse.model_validate(approval).model_copy(update={
+                "approver_account": kyc_approver_account(db, approval.approved_by),
+            })
+            if approval is not None else None
+        ),
+    })
+
+
+def _assert_latest_confirmation(db: Session, record: KycConfirmation) -> None:
+    """N-897-06: entschieden wird nur ueber die juengste Bestaetigung des
+    Kunden -- gleiche Regel in Kundenmaske und Freigabe-Ansicht."""
+    latest = db.query(KycConfirmation).filter(
+        KycConfirmation.client_id == record.client_id,
+    ).order_by(KycConfirmation.recorded_at.desc(), KycConfirmation.id.desc()).first()
+    if latest is not None and latest.id != record.id:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_APPROVAL_SUPERSEDED",
+            "message": "Fuer den Kunden liegt eine neuere Bestaetigung vor.",
+        })
+
+
+def _record_decision(db: Session, record: KycConfirmation, decision: str, user: User, at: str,
+                     entry_id: str) -> None:
+    """N-897-08: genau ein Entscheid je Bestaetigung (UNIQUE confirmation_id);
+    ein paralleler zweiter Entscheid scheitert beim Flush mit 409."""
+    # N-897-13: Bereitschaft des Entscheiders wird hier geprueft (Route) und
+    # gesiegelt eingefroren -- spaetere 2FA-Abschaltung entwertet sie nicht.
+    entry = KycConfirmationDecision(
+        id=new_uuid(), confirmation_id=record.id, tenant_id=record.tenant_id, decision=decision,
+        decided_by=user.id, decided_at=at, record_id=entry_id,
+        approver_ready=1 if compliance_reviewer_readiness(user) is None else 0,
+    )
+    entry.decision_hash = _row_seal(entry, "decision_hash")
+    db.add(entry)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise_if_check_violation(exc)
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_SECOND_APPROVAL_ALREADY_DECIDED",
+            "message": "Ueber diese Bestaetigung wurde bereits entschieden.",
+        }) from exc
+
+
+def _account_audit_suffix(db: Session, user_id: str, request: Request | None = None) -> str:
+    acc = kyc_approver_account(db, user_id) or {}
+    ua = f"; ua={short_user_agent(request)}" if request is not None else ""
+    return (f"; Konto {acc.get('role')}: eingeladen von {acc.get('invited_by_name') or '-'} am "
+            f"{acc.get('invited_at') or '-'}, aktiviert {acc.get('activated_at') or '-'}, "
+            f"Zugangsdaten {acc.get('credentials_set_by')}, 2FA {acc.get('totp_set_by')}{ua}")
+
+
+def _mandate_of_client_or_404(db: Session, client_id: str, mandate_id: str | None) -> str | None:
+    if not mandate_id:
+        return None
+    mandate = db.query(Mandate).filter(
+        Mandate.id == mandate_id, Mandate.client_id == client_id,
+    ).first()
+    if mandate is None:
+        raise HTTPException(status_code=404, detail="Mandat gehoert nicht zu diesem Kunden")
+    return mandate.id
+
+
+def _kyc_review_detail(code: str, review: dict, *, message: str | None = None) -> dict:
+    """Fehlerdetail einer Wiedervorlage-Sperre bei der Erfassung (C-890-01):
+    derselbe Reason-Code/Status wie Gate, Status-Maske und Kunden-PDF."""
+    default_message, owner_action = kyc_review_message(code)
+    if code == KYC_REVIEW_DUE_EXCEEDS_POLICY:
+        default_message += f" Obergrenze: {review.get('max_due')}."
+    policy = review.get("policy") or {}
+    return {
+        "reason_code": code,
+        "message": message or default_message,
+        "owner_action": owner_action,
+        "kyc_review_status": KYC_REVIEW_STATUS_BY_CODE.get(code),
+        "policy_ref": {
+            "policy_row_id": policy.get("id"), "policy_id": policy.get("policy_id"),
+            "version": policy.get("version"), "jurisdiction": review.get("jurisdiction"),
+            "tenant_id": review.get("tenant_id"),
+        },
+        "max_due": review.get("max_due"),
+        "risk_class": review.get("risk_class"),
+        "interval_months": review.get("interval_months"),
+    }
+
+
+def _audit_kyc_review_block(db: Session, current_user: User, request: Request, client_id: str,
+                            mandate_id: str | None, tenant_id: str, code: str, review: dict) -> None:
+    """Tenantgebundener Auditbeleg einer gesperrten Erfassung (ohne Freitext)."""
+    ref = _kyc_review_detail(code, review)["policy_ref"]
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="kyc_review_policies",
+        record_id=str(ref["policy_row_id"] or "-"), action="CREATE",
+        field_name=KYC_REVIEW_BLOCK_AUDIT_FIELD,
+        new_value=kyc_review_block_audit_value(code, "kyc_confirmation_create", ref),
+        client_id=client_id, mandate_id=mandate_id,
+        ip_address=_extract_client_ip(request), tenant_id=tenant_id)
+    db.commit()
+
+
+@router.get("/{client_id}/kyc-confirmations", response_model=list[KycConfirmationResponse])
+def list_kyc_confirmations(
+    client_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Verlauf der KYC-Bestaetigungen (juengste zuerst; es gilt die juengste)."""
+    _get_client_or_404(client_id, db, current_user)
+    rows = db.query(KycConfirmation).filter(
+        KycConfirmation.client_id == client_id
+    ).order_by(KycConfirmation.recorded_at.desc(), KycConfirmation.id.desc()).all()
+    return [_kyc_response(db, row) for row in rows]
+
+
+@router.post("/{client_id}/kyc-confirmations", response_model=KycConfirmationResponse, status_code=201)
+def create_kyc_confirmation(
+    client_id: str,
+    body: KycConfirmationRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """H8 C-5: Ares fuehrt die GwG-Abklaerung nicht selbst; sie erfolgt im
+    Prozess der SRO/AO bzw. im Fremdsystem. Erfasst wird die Pflicht-
+    Bestaetigung (Formular A/K/S/T, Datum, Referenz, Risikokategorie, PEP,
+    naechste Aktualisierung). Append-only: eine Korrektur ist eine neue
+    Bestaetigung. Bei PEP oder erhoehtem Risiko erst nach Freigabe durch eine
+    zweite Person wirksam (Gate vor Finalisierung/Vertragsunterzeichnung).
+
+    C-890-01: ``next_review_due`` darf hoechstens bis zur serverseitig
+    berechneten Obergrenze der wirksamen, freigegebenen Wiedervorlage-Policy
+    der Firma reichen (Abschlussdatum plus freigegebener Abstand je
+    Risikoklasse; PEP/erhoehtes Risiko = strengere Frist). Ohne wirksame Policy
+    ist keine Erfassung moeglich (409 mit Reason-Code der Policy). Die Bindung
+    (Policy, Version, Hash, Risikoklasse, Abstand, Obergrenze) steht im Siegel."""
+    enforce_data_classification(body.data_classification)
+    client = _get_client_or_404(client_id, db, current_user)
+    mandate_id = _mandate_of_client_or_404(db, client_id, body.mandate_id)
+    tenant_id = client.tenant_id or _resolve_tenant_id_for_user(current_user)
+    now = _now()
+    review = kyc_review_entry_binding(
+        db, tenant_id=tenant_id, form_completed_on=body.form_completed_on,
+        risk_category=body.risk_category, is_pep=body.is_pep, at=now,
+    )
+    if review.get("reason_code"):
+        _audit_kyc_review_block(db, current_user, request, client_id, mandate_id, tenant_id,
+                                review["reason_code"], review)
+        raise HTTPException(status_code=409, detail=_kyc_review_detail(review["reason_code"], review))
+    if body.next_review_due > review["max_due"]:
+        _audit_kyc_review_block(db, current_user, request, client_id, mandate_id, tenant_id,
+                                KYC_REVIEW_DUE_EXCEEDS_POLICY, review)
+        raise HTTPException(status_code=422, detail=_kyc_review_detail(KYC_REVIEW_DUE_EXCEEDS_POLICY, review))
+    try:
+        # Zweite Verteidigungslinie: die fachliche Bestaetigung existiert nur
+        # mit der serverseitigen Policy-Bindung (schemas/clients.py).
+        body = KycConfirmationCreate.model_validate(
+            body.model_dump(), context={KYC_REVIEW_BINDING_CONTEXT_KEY: review},
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=_kyc_review_detail(
+            KYC_REVIEW_DUE_EXCEEDS_POLICY, review, message=str(exc.errors()[0].get("msg")),
+        )) from exc
+    dd = db.query(ClientDueDiligence).filter(ClientDueDiligence.client_id == client_id).first()
+    # N-890-03: Vier-Augen auch bei Herabstufung. Massgebend bleibt der zuletzt
+    # wirksame Stand, bis eine zweite Person die Herabstufung freigibt.
+    reference = _reference_kyc_level(db, client_id)
+    downgrade = reference is not None and (
+        _RISK_RANK.get(body.risk_category, 1) < reference[0]
+        or (reference[1] and not body.is_pep)
+    )
+    requires_second_approval = bool(body.is_pep) or body.risk_category != KYC_RISK_NORMAL or downgrade
+    if dd is not None and int(dd.pep_status or 0) and not body.is_pep:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_PEP_INCONSISTENT",
+            "message": (
+                "Die Sorgfaltspflicht-Erfassung fuehrt den Kunden als PEP; die "
+                "KYC-Bestaetigung muss PEP = ja ausweisen oder die Erfassung "
+                "ist zuerst zu korrigieren."
+            ),
+        })
+    record = KycConfirmation(
+        id=new_uuid(), tenant_id=tenant_id,
+        client_id=client_id, mandate_id=mandate_id, process_scope=KYC_PROCESS_EXTERNAL,
+        form_type=body.form_type, form_completed_on=body.form_completed_on,
+        external_reference=body.external_reference, risk_category=body.risk_category,
+        is_pep=1 if body.is_pep else 0,
+        identification_confirmed=1, identification_date=body.identification_date,
+        next_review_due=body.next_review_due,
+        requires_second_approval=1 if requires_second_approval else 0,
+        note=(body.note or "").strip() or None,
+        recorded_by=current_user.id, recorded_at=now,
+        **review["binding"],
+    )
+    record.confirmation_hash = _row_seal(record, "confirmation_hash")
+    db.add(record)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="kyc_confirmations", record_id=record.id, action="CREATE",
+        field_name="kyc_confirmation",
+        new_value=f"Formular {record.form_type}; Identifizierung {record.identification_date}; "
+                  f"Risiko {record.risk_category}; PEP {'ja' if record.is_pep else 'nein'}; "
+                  f"naechste Aktualisierung {record.next_review_due}; "
+                  f"Wiedervorlage-Policy {record.review_policy_id} v{record.review_policy_version} "
+                  f"({record.review_risk_class}, {record.review_interval_months} Monate, "
+                  f"Obergrenze {record.review_max_due})"
+                  + ("; Herabstufung, Zweitfreigabe noetig" if downgrade else ""),
+        client_id=client_id, mandate_id=mandate_id,
+        ip_address=_extract_client_ip(request))
+    db.commit()
+    db.refresh(record)
+    warnings = sorted({
+        hint for text_value in (record.external_reference, record.note)
+        for hint in personal_data_hints(text_value, (client.first_name, client.last_name))
+    })
+    return _kyc_response(db, record).model_copy(update={"personal_data_warnings": warnings})
+
+
+@router.post(
+    "/{client_id}/kyc-confirmations/{confirmation_id}/approve",
+    response_model=KycConfirmationResponse,
+)
+def approve_kyc_confirmation(
+    client_id: str,
+    confirmation_id: str,
+    body: KycConfirmationApprovalCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Vier-Augen-Freigabe (PEP/erhoehtes Risiko/Herabstufung): nur eine zweite Person mit
+    Admin-Rolle (Geschaeftsleitung/Compliance), nie die erfassende Person."""
+    _get_client_or_404(client_id, db, current_user)
+    record = db.query(KycConfirmation).filter(
+        KycConfirmation.id == confirmation_id,
+        KycConfirmation.client_id == client_id,
+    ).first()
+    if record is None:
+        raise HTTPException(status_code=404, detail="KYC-Bestaetigung nicht gefunden")
+    if not _kyc_requires_second_approval(record):
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_SECOND_APPROVAL_NOT_REQUIRED",
+            "message": (
+                "Diese Bestaetigung (kein PEP, normales Risiko, keine Herabstufung) "
+                "braucht keine Freigabe."
+            ),
+        })
+    if same_person(db, record.recorded_by, current_user.id):
+        raise HTTPException(status_code=403, detail={
+            "reason_code": "KYC_SECOND_APPROVAL_SAME_PERSON",
+            "message": "Die Freigabe muss durch eine zweite Person erfolgen.",
+        })
+    existing = db.query(KycConfirmationApproval).filter(
+        KycConfirmationApproval.confirmation_id == record.id
+    ).first()
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="KYC-Bestaetigung ist bereits freigegeben")
+    if db.query(KycConfirmationRejection).filter(
+        KycConfirmationRejection.confirmation_id == record.id
+    ).first() is not None:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_SECOND_APPROVAL_ALREADY_DECIDED",
+            "message": "Die Zweitfreigabe wurde abgelehnt; es braucht eine neue Bestaetigung.",
+        })
+    _assert_latest_confirmation(db, record)
+    now = _now()
+    approval = KycConfirmationApproval(
+        id=new_uuid(), tenant_id=record.tenant_id, confirmation_id=record.id,
+        client_id=client_id, approved_by=current_user.id, approved_at=now,
+        note=(body.note or "").strip() or None,
+    )
+    approval.approval_hash = _row_seal(approval, "approval_hash")
+    _record_decision(db, record, "approve", current_user, now, approval.id)
+    db.add(approval)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="kyc_confirmation_approvals", record_id=approval.id, action="CREATE",
+        field_name="kyc_second_approval", new_value=record.id + _account_audit_suffix(db, current_user.id, request),
+        client_id=client_id, mandate_id=record.mandate_id,
+        ip_address=_extract_client_ip(request))
+    db.commit()
+    return _kyc_response(db, record)
+
+
+# ── C-890-01 Nachtrag 2: offene KYC-Zweitfreigaben (Admin / externe Compliance) ──
+
+def _approver_tenant(current_user: User) -> str:
+    return _resolve_tenant_id_for_user(current_user)
+
+
+def _tenant_matches(row_tenant, tenant_id: str) -> bool:
+    # Tier 1: NULL-Tenant = Standard-Mandant 'main' (wie _resolve_tenant_id_for_user).
+    return str(row_tenant or "main") == str(tenant_id)
+
+
+def _effective_kyc(db: Session, row: KycConfirmation) -> bool:
+    if not int(row.requires_second_approval or 0):
+        return True
+    approval = db.query(KycConfirmationApproval).filter(
+        KycConfirmationApproval.confirmation_id == row.id).first()
+    return approval is not None and not same_person(db, approval.approved_by, row.recorded_by)
+
+
+def _decided(db: Session, confirmation_id: str) -> bool:
+    if db.query(KycConfirmationDecision).filter(
+            KycConfirmationDecision.confirmation_id == confirmation_id).first() is not None:
+        return True
+    return (
+        db.query(KycConfirmationApproval).filter(KycConfirmationApproval.confirmation_id == confirmation_id).first()
+        is not None
+        or db.query(KycConfirmationRejection).filter(KycConfirmationRejection.confirmation_id == confirmation_id).first()
+        is not None
+    )
+
+
+def _pending_item(db: Session, row: KycConfirmation, history: list[KycConfirmation],
+                  current_user: User) -> KycPendingApproval:
+    """Datenminimiert: nur die Angaben, die die zweite Person fuer den
+    Entscheid braucht (Feldliste schemas.clients.KYC_PENDING_APPROVAL_FIELDS)."""
+    previous = next((h for h in history if h.id != row.id and h.recorded_at <= row.recorded_at
+                     and _effective_kyc(db, h)), None)
+    since = previous.recorded_at if previous is not None else None
+    sql = ("SELECT 1 FROM audit_log WHERE client_id = :cid AND table_name = 'client_due_diligence' "
+           "AND field_name = 'pep_status' AND old_value = '1' AND new_value = '0' AND created_at <= :until")
+    params = {"cid": row.client_id, "until": str(row.recorded_at)}
+    if since is not None:
+        sql += " AND created_at > :since"
+        params["since"] = str(since)
+    withdrawal = db.execute(text(sql + " LIMIT 1"), params).first() is not None
+    reasons: list[str] = []
+    if int(row.is_pep or 0):
+        reasons.append("pep")
+    if row.risk_category != KYC_RISK_NORMAL:
+        reasons.append("erhoehtes_risiko")
+    if previous is not None and (
+        _RISK_RANK.get(row.risk_category, 1) < _RISK_RANK.get(previous.risk_category, 1)
+        or (int(previous.is_pep or 0) and not int(row.is_pep or 0))
+    ):
+        reasons.append("herabstufung")
+    if withdrawal and not int(row.is_pep or 0):
+        reasons.append("pep_ruecknahme")
+    client = db.query(Client.client_number).filter(Client.id == row.client_id).first()
+    recorder = db.query(User.full_name).filter(User.id == row.recorded_by).first()
+    return KycPendingApproval(
+        confirmation_id=row.id,
+        client_number=client[0] if client else None,
+        form_type=row.form_type,
+        external_reference=row.external_reference,
+        risk_category_previous=previous.risk_category if previous is not None else None,
+        risk_category_new=row.risk_category,
+        is_pep_previous=(bool(int(previous.is_pep or 0)) if previous is not None else None),
+        is_pep_new=bool(int(row.is_pep or 0)),
+        pep_withdrawal_recorded=withdrawal,
+        approval_reasons=reasons,
+        recorded_by_name=recorder[0] if recorder else None,
+        recorded_by_self=same_person(db, row.recorded_by, current_user.id),
+        recorded_at=row.recorded_at,
+        note=row.note,
+        confirmation_hash=row.confirmation_hash,
+    )
+
+
+def _latest_by_client(db: Session, tenant_id: str) -> dict[str, list[KycConfirmation]]:
+    rows = db.query(KycConfirmation).order_by(
+        KycConfirmation.recorded_at.desc(), KycConfirmation.id.desc()).all()
+    by_client: dict[str, list[KycConfirmation]] = {}
+    for row in rows:
+        if _tenant_matches(row.tenant_id, tenant_id):
+            by_client.setdefault(row.client_id, []).append(row)
+    return by_client
+
+
+@kyc_approvals_router.get("", response_model=KycPendingApprovalList)
+def list_pending_kyc_approvals(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_compliance_approver),
+):
+    """Offene KYC-Zweitfreigaben der eigenen Firma (PEP, erhoehtes Risiko,
+    Herabstufung, PEP-Ruecknahme): je Kunde nur die juengste, noch nicht
+    entschiedene Bestaetigung, datenminimiert (Kundennummer statt Stammdaten,
+    keine Vermoegens-, Depot- oder Kontaktdaten)."""
+    tenant_id = _approver_tenant(current_user)
+    items = []
+    for history in _latest_by_client(db, tenant_id).values():
+        latest = history[0]
+        if int(latest.requires_second_approval or 0) and not _decided(db, latest.id):
+            items.append(_pending_item(db, latest, history, current_user))
+    items.sort(key=lambda i: i.recorded_at)
+    return KycPendingApprovalList(tenant_id=tenant_id, items=items)
+
+
+@kyc_approvals_router.post("/{confirmation_id}/decision", response_model=KycSecondApprovalDecisionResponse)
+def decide_kyc_second_approval(
+    confirmation_id: str,
+    body: KycSecondApprovalDecision,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_compliance_approver),
+):
+    """Vier-Augen-Entscheid (freigeben oder ablehnen) mit Pflicht-Begruendung
+    und Bestaetigung des Siegel-Hashes. Nie durch die erfassende Person (auch
+    nicht ueber ein zweites Konto mit derselben E-Mail). Gleiche Siegel-Logik
+    wie die Freigabe in der Kundenmaske; das Gate rechnet sie nach."""
+    tenant_id = _approver_tenant(current_user)
+    record = db.query(KycConfirmation).filter(KycConfirmation.id == confirmation_id).first()
+    if record is None or not _tenant_matches(record.tenant_id, tenant_id):
+        raise HTTPException(status_code=404, detail="KYC-Bestaetigung nicht gefunden")
+    if not _kyc_requires_second_approval(record):
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_SECOND_APPROVAL_NOT_REQUIRED",
+            "message": "Diese Bestaetigung braucht keine Freigabe.",
+        })
+    if same_person(db, record.recorded_by, current_user.id):
+        raise HTTPException(status_code=403, detail={
+            "reason_code": "KYC_SECOND_APPROVAL_SAME_PERSON",
+            "message": "Die Freigabe muss durch eine zweite Person erfolgen.",
+        })
+    # N-897-02: externe Compliance-Person nur mit selbst aktiviertem Konto + 2FA.
+    assert_compliance_reviewer_ready(current_user)
+    if _decided(db, record.id):
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_SECOND_APPROVAL_ALREADY_DECIDED",
+            "message": "Ueber diese Bestaetigung wurde bereits entschieden.",
+        })
+    history = _latest_by_client(db, tenant_id).get(record.client_id, [])
+    if not history or history[0].id != record.id:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_APPROVAL_SUPERSEDED",
+            "message": "Fuer den Kunden liegt eine neuere Bestaetigung vor.",
+        })
+    if body.confirmation_hash != record.confirmation_hash or (
+        _row_seal(record, "confirmation_hash") != record.confirmation_hash
+    ):
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_APPROVAL_HASH_MISMATCH",
+            "message": "Der bestaetigte Pruefwert stimmt nicht mit der Bestaetigung ueberein.",
+        })
+    now = _now()
+    if body.decision == "approve":
+        entry = KycConfirmationApproval(
+            id=new_uuid(), tenant_id=record.tenant_id, confirmation_id=record.id,
+            client_id=record.client_id, approved_by=current_user.id, approved_at=now, note=body.reason,
+        )
+        entry.approval_hash = _row_seal(entry, "approval_hash")
+        field = "kyc_second_approval"
+    else:
+        entry = KycConfirmationRejection(
+            id=new_uuid(), tenant_id=record.tenant_id, confirmation_id=record.id,
+            client_id=record.client_id, rejected_by=current_user.id, rejected_at=now,
+            reason=body.reason, confirmation_hash=record.confirmation_hash,
+        )
+        entry.rejection_hash = _row_seal(entry, "rejection_hash")
+        field = "kyc_second_approval_rejected"
+    _record_decision(db, record, body.decision, current_user, now, entry.id)
+    db.add(entry)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise_if_check_violation(exc)
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_SECOND_APPROVAL_ALREADY_DECIDED",
+            "message": "Ueber diese Bestaetigung wurde gleichzeitig entschieden.",
+        }) from exc
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name=entry.__tablename__, record_id=entry.id, action="CREATE",
+        field_name=field, new_value=record.id + _account_audit_suffix(db, current_user.id, request),
+        client_id=record.client_id, mandate_id=record.mandate_id,
+        ip_address=_extract_client_ip(request), tenant_id=str(record.tenant_id or tenant_id))
+    db.commit()
+    return KycSecondApprovalDecisionResponse(
+        confirmation_id=record.id, decision=body.decision, decided_by=current_user.id,
+        decided_at=now, record_id=entry.id, approver_account=kyc_approver_account(db, current_user.id),
+    )
+
+
+# ── H8 Luecke 10: Vertretung / Verfuegungsberechtigung (ZGB, dokumentarisch) ──
+
+@router.get("/{client_id}/representations", response_model=list[ClientRepresentationResponse])
+def list_representations(
+    client_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _get_client_or_404(client_id, db, current_user)
+    return db.query(ClientRepresentation).filter(
+        ClientRepresentation.client_id == client_id
+    ).order_by(ClientRepresentation.recorded_at.desc()).all()
+
+
+@router.post("/{client_id}/representations", response_model=ClientRepresentationResponse, status_code=201)
+def create_representation(
+    client_id: str,
+    body: ClientRepresentationCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Vollmacht, Vorsorgeauftrag, Beistandschaft oder Gemeinschaftsdepot mit
+    Umfang, Beleg und Wirksamkeit. Dokumentarisch (kein Gate); erscheint im
+    Beratungsprotokoll-PDF."""
+    enforce_data_classification(body.data_classification)
+    client = _get_client_or_404(client_id, db, current_user)
+    mandate_id = _mandate_of_client_or_404(db, client_id, body.mandate_id)
+    record = ClientRepresentation(
+        id=new_uuid(), tenant_id=client.tenant_id or _resolve_tenant_id_for_user(current_user),
+        client_id=client_id, mandate_id=mandate_id, representation_type=body.representation_type,
+        representative_name=body.representative_name, scope=body.scope,
+        evidence_reference=body.evidence_reference,
+        effective_from=body.effective_from, effective_until=body.effective_until,
+        disposal_rule=body.disposal_rule, note=(body.note or "").strip() or None,
+        recorded_by=current_user.id, recorded_at=_now(),
+    )
+    db.add(record)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="client_representations", record_id=record.id, action="CREATE",
+        field_name="representation_type", new_value=record.representation_type,
+        client_id=client_id, mandate_id=mandate_id,
+        ip_address=_extract_client_ip(request))
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@router.post(
+    "/{client_id}/representations/{representation_id}/revoke",
+    response_model=ClientRepresentationResponse,
+)
+def revoke_representation(
+    client_id: str,
+    representation_id: str,
+    body: ClientRepresentationRevoke,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Widerruf statt Loeschen: der Eintrag bleibt als Nachweis erhalten."""
+    _get_client_or_404(client_id, db, current_user)
+    record = db.query(ClientRepresentation).filter(
+        ClientRepresentation.id == representation_id,
+        ClientRepresentation.client_id == client_id,
+    ).first()
+    if record is None:
+        raise HTTPException(status_code=404, detail="Vertretung nicht gefunden")
+    if record.revoked_at:
+        raise HTTPException(status_code=409, detail="Vertretung ist bereits widerrufen")
+    record.revoked_at = _now()
+    record.revoked_by = current_user.id
+    record.revocation_reason = body.reason
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="client_representations", record_id=record.id, action="UPDATE",
+        field_name="revoked_at", new_value=record.revoked_at,
+        client_id=client_id, mandate_id=record.mandate_id,
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(record)
     return record
@@ -990,39 +1775,25 @@ def create_client_login(
 @router.get("/{client_id}/data-export")
 def export_data(
     client_id: str,
-    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
 ):
-    """DSG Art. 25 — Auskunftsrecht. Liefert alle personenbezogenen Daten
-    des Kunden in maschinenlesbarem JSON-Format.
-
-    Authentifizierung
-        Advisor-only. Mandantentrennung wird ueber `_get_client_or_404`
-        erzwungen (Berater darf nur seine eigenen Kunden exportieren,
-        ausser bei globalem Zugriff).
-
-    Audit
-        Jeder Export landet als `EXPORT`-Eintrag im audit_log mit
-        integrity_hash, sodass spaeter nachvollziehbar bleibt, welcher
-        Berater wann welche Daten herausgegeben hat (FINMA-konform).
+    """DSG-Auskunft (Art. 25) -- H10 C-DSG-02 (DSG-Technikaudit 2026-11-11):
+    der direkte Export ist stillgelegt. Ein Admin-Download allein belegt
+    keinen Auskunftsprozess (Eingang, Identitaetspruefung, Frist, Entscheid,
+    Zustellnachweis). Der Export entsteht nur noch ueber den Betroffenen-
+    anfrage-Fall: POST /privacy/subject-requests, Identitaet, Entscheid, dann
+    POST /privacy/subject-requests/{id}/export. Es werden keine Daten
+    ausgegeben; fremde Kunden bleiben 404.
     """
-    from routers.auth import _extract_client_ip
-    from services.data_export import export_client_data
-
-    client = _get_client_or_404(client_id, db, current_user)
-    payload = export_client_data(db, client.id)
-    log(
-        db,
-        user_id=current_user.id,
-        user_name=current_user.full_name,
-        table_name="clients",
-        record_id=client.id,
-        action="EXPORT",
-        client_id=client.id,
-        new_value=f"DSG-Export schema_v{payload['schema_version']}, "
-                  f"{sum(payload['manifest'].values())} Datensaetze",
-        ip_address=_extract_client_ip(request),
-    )
-    db.commit()
-    return payload
+    _get_client_or_404(client_id, db, current_user)
+    raise HTTPException(status_code=409, detail={
+        "reason_code": ReasonCode.SUBJECT_REQUEST_REQUIRED.value,
+        "message": (
+            "Der direkte Datenexport ist stillgelegt. Auskunft und Herausgabe laufen ueber "
+            "eine Betroffenenanfrage (Datenschutz > Betroffenenanfragen): Eingang erfassen, "
+            "Identitaet pruefen, entscheiden, dann ueber den Fall exportieren und die "
+            "Zustellung nachweisen."
+        ),
+        "workflow": "/privacy/subject-requests",
+    })

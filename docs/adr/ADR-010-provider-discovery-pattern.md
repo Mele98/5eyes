@@ -16,7 +16,7 @@ besteht aber konkreter Bedarf nach professionellen Quellen:
 - **Refinitiv** als Bloomberg-Alternative
 - **Morningstar Direct** fuer Funds-Coverage
 
-Diese Quellen kosten 5'000-50'000 CHF/Jahr und sind nicht fuer alle 5eyes-
+Diese Quellen kosten 5'000-50'000 CHF/Jahr und sind nicht fuer alle Ares-
 Nutzer relevant. ADR-005 bleibt strikt: KEINE Pflicht-Kosten fuer Daten.
 
 Wie integrieren wir diese Provider, ohne dass:
@@ -46,8 +46,8 @@ Externe pip-Pakete deklarieren in ihrer `pyproject.toml`:
 
 ```toml
 [project.entry-points."ares.market_data_provider"]
-bloomberg = "fivee_eyes_bloomberg:BloombergProvider"
-refinitiv = "fivee_eyes_refinitiv:RefinitivProvider"
+bloomberg = "ares_bloomberg:BloombergProvider"
+refinitiv = "ares_refinitiv:RefinitivProvider"
 ```
 
 > **Breaking (2026-10, Welle W2-d):** Die Entry-Point-Gruppe heisst
@@ -55,7 +55,7 @@ refinitiv = "fivee_eyes_refinitiv:RefinitivProvider"
 > gelesen, es gibt keinen Alias. Dritt-Pakete muessen ihre
 > `pyproject.toml` auf den neuen Gruppennamen umstellen.
 
-Beim Boot scannt 5eyes diese Entry-Group, instanziiert konforme Provider
+Beim Boot scannt Ares diese Entry-Group, instanziiert konforme Provider
 und fuegt sie in die Aggregator-Cascade. Konformanz-Check:
 
 1. Class erbt von `MarketDataProvider`
@@ -88,11 +88,11 @@ fuer den Boot benoetigt wird.
   kostenpflichtigen Dependencies. Berater entscheiden bewusst pro
   Bloomberg-Aktivierung.
 - **Modulare Erweiterung**: Bloomberg/Refinitiv/Morningstar koennen als
-  separate pip-Pakete entwickelt + ausgeliefert werden, ohne 5eyes-Kern
+  separate pip-Pakete entwickelt + ausgeliefert werden, ohne Ares-Kern
   zu touchen.
 - **Plugin-Konfusion klein**: Provider-Interface ist eng (3 Methoden +
   `name`), Konformanz-Check verhindert Wildwuchs.
-- **Tier-2/3-Lizenz-Modell**: Lizenzkunden koennen 5eyes-Bloomberg-
+- **Tier-2/3-Lizenz-Modell**: Lizenzkunden koennen Ares-Bloomberg-
   Adapter als Add-on lizensieren.
 
 ### Negativ
@@ -113,7 +113,6 @@ fuer den Boot benoetigt wird.
 - `services/market_data/providers/bloomberg_provider.py` — Skelett
 - `tests/test_provider_discovery.py` — Konformanz-Tests + Default-Provider
 - `tests/test_bloomberg_provider_stub.py` — Stub-Tests (blpapi-Missing-Fall)
-- Memory: `[[5eyes-roadmap-110-offene-punkte]]` Punkt SMI-1988-Sub-Asset
 
 ## Verwandt
 

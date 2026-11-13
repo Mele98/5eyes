@@ -1,0 +1,628 @@
+{
+  "schema_version": 1,
+  "register_version": "2026-11-11.1",
+  "title": "Verzeichnis der Bearbeitungstaetigkeiten (Ares)",
+  "notice": "Technisches Register der Bearbeitungen, die Ares als Software ausfuehrt. Felder mit owner_field sind Angaben des Verantwortlichen (Firma) und werden in Ares unter Administration > Datenschutz erfasst. Solange ein Pflichtwert offen ist, bleibt die kundenwirksame Ausgabe (z. B. Auskunft an betroffene Personen) gesperrt. Keine Rechtsberatung.",
+  "controller": {
+    "name": {
+      "owner_field": "controller.name",
+      "label": "Verantwortliche Firma (Name)",
+      "kind": "text",
+      "blocking": "customer_output"
+    },
+    "address": {
+      "owner_field": "controller.address",
+      "label": "Adresse der verantwortlichen Firma",
+      "kind": "text",
+      "blocking": "customer_output"
+    },
+    "privacy_contact": {
+      "owner_field": "controller.privacy_contact",
+      "label": "Kontakt fuer Datenschutzanfragen (E-Mail oder Postadresse)",
+      "kind": "text",
+      "blocking": "customer_output"
+    },
+    "representative": {
+      "owner_field": "controller.representative",
+      "label": "Vertretung in der Schweiz (nur bei Sitz im Ausland; sonst 'nicht anwendbar')",
+      "kind": "text",
+      "blocking": "customer_output"
+    }
+  },
+  "register_owner_fields": {
+    "additional_recipients": {
+      "owner_field": "register.additional_recipients",
+      "label": "Weitere Empfaenger ausserhalb von Ares (z. B. Revisionsstelle, SRO, Depotbank, IT-Dienstleister) inkl. Staat",
+      "kind": "text",
+      "blocking": "customer_output"
+    },
+    "organizational_toms": {
+      "owner_field": "register.organizational_toms",
+      "label": "Organisatorische Massnahmen der Firma (z. B. Zutritt, Schulung, Weisungen, Geraeteverwaltung)",
+      "kind": "text",
+      "blocking": "informational"
+    },
+    "incident_escalation_contact": {
+      "owner_field": "incident.escalation_contact",
+      "label": "Eskalationskontakt bei Sicherheitsvorfaellen (Person/Funktion, Erreichbarkeit)",
+      "kind": "text",
+      "blocking": "informational"
+    },
+    "incident_notification_target_hours": {
+      "owner_field": "incident.notification_target_hours",
+      "label": "Interne Zielfrist bis zur Meldung an den EDOEB in Stunden (optional)",
+      "kind": "hours",
+      "blocking": "informational"
+    },
+    "subject_request_deadline_days": {
+      "owner_field": "subject_request.deadline_days",
+      "label": "Frist fuer Betroffenenanfragen in Tagen ab Eingang (Policy der Firma)",
+      "kind": "days",
+      "blocking": "customer_output"
+    }
+  },
+  "data_subject_categories": {
+    "clients": "Kundinnen und Kunden",
+    "client_partners": "Partnerinnen und Partner bzw. Angehoerige der Kundschaft (soweit erfasst)",
+    "representatives": "Bevollmaechtigte und gesetzliche Vertretungen der Kundschaft",
+    "portal_users": "Kundschaft mit Zugang zum Kundenportal",
+    "staff": "Mitarbeitende der Firma (Beratung, Administration)",
+    "privacy_case_parties": "Personen, die eine Datenschutzanfrage stellen oder von einem Sicherheitsvorfall betroffen sind"
+  },
+  "additional_data_categories": {
+    "staff_account": "Benutzerkonto, Rolle und Zuordnung der Mitarbeitenden",
+    "authentication_security": "Anmeldeversuche, Sperren, Sitzungen, Zwei-Faktor-Zustand",
+    "privacy_case_records": "Datenschutzvorgaenge: Anfragen, Loeschvorgaenge, Legal Holds, Sicherheitsvorfaelle, Angaben des Verantwortlichen"
+  },
+  "toms": {
+    "TOM-ACCESS-RBAC": {
+      "description": "Rollenbasierter Zugriff (Administration, Beratung, Kundenportal) und Mandatszuordnung je Beraterin/Berater",
+      "evidence": [
+        "ares-backend/services/auth.py"
+      ]
+    },
+    "TOM-TENANT-ISOLATION": {
+      "description": "Mandantentrennung je Firma, auf PostgreSQL per Row-Level-Security, vollstaendiges Tabelleninventar",
+      "evidence": [
+        "ares-backend/services/postgres_rls.py",
+        "ares-backend/services/tenant_scope_inventory.py"
+      ]
+    },
+    "TOM-ENCRYPTION-AT-REST": {
+      "description": "Verschluesselte Datenbank (SQLCipher), Schluesselablage je Installation, versiegelte Freitexte je Kunde",
+      "evidence": [
+        "ares-backend/database_sqlcipher.py",
+        "ares-backend/services/tenant_crypto.py",
+        "ares-backend/services/pii_vault.py"
+      ]
+    },
+    "TOM-AUDIT-TRAIL": {
+      "description": "Unveraenderbares, verkettetes Protokoll jeder schreibenden Aktion",
+      "evidence": [
+        "ares-backend/services/audit.py"
+      ]
+    },
+    "TOM-AUTH-HARDENING": {
+      "description": "Zwei-Faktor-Anmeldung, Sperre nach Fehlversuchen, widerrufbare Sitzungen",
+      "evidence": [
+        "ares-backend/services/totp.py",
+        "ares-backend/services/login_guard.py",
+        "ares-backend/services/session_revocation.py"
+      ]
+    },
+    "TOM-BACKUP": {
+      "description": "Verschluesselte Sicherung mit Wiederherstellungsprobe",
+      "evidence": [
+        "ares-backend/services/backup.py"
+      ]
+    },
+    "TOM-RETENTION-ERASURE": {
+      "description": "Aufbewahrungsmatrix, Legal Hold und Loeschvorgang mit Beleg",
+      "evidence": [
+        "ares-backend/services/privacy_erasure.py",
+        "ares-backend/services/privacy_erasure_inventory.py"
+      ]
+    },
+    "TOM-PRIVACY-CASES": {
+      "description": "Betroffenenanfragen als Fall mit Identitaetspruefung, Frist, Entscheid und Zustellnachweis; Export nur ueber den Fall",
+      "evidence": [
+        "ares-backend/services/privacy_subject_requests.py"
+      ]
+    },
+    "TOM-INCIDENT-REGISTER": {
+      "description": "Register der Verletzungen der Datensicherheit mit Risikobewertung, Meldeentscheid, Nachweisen und Gate fuer hohes Risiko",
+      "evidence": [
+        "ares-backend/services/security_incident_register.py"
+      ]
+    },
+    "TOM-EGRESS-ALLOWLIST": {
+      "description": "Ausgehende Verbindungen nur gemaess Egress-Manifest (fail-closed), Feld-Allowlist und Payload-Pruefung gegen Personendaten",
+      "evidence": [
+        "ares-backend/config/outbound_processing_manifest.json",
+        "ares-backend/services/egress_manifest.py"
+      ]
+    },
+    "TOM-DESKTOP-HARDENING": {
+      "description": "Desktop-Shell: nur lokale Oberflaeche, Navigation und Fenster gesperrt, Renderer nur zum lokalen Backend",
+      "evidence": [
+        "ares-desktop/main.js",
+        "ares-desktop/frontend/ares.html"
+      ]
+    }
+  },
+  "activities": [
+    {
+      "id": "PA-01",
+      "name": "Kundenbeziehung und Mandatsfuehrung",
+      "purpose": "Erfassung der Kundschaft, Abschluss und Fuehrung von Beratungs- und Verwaltungsmandaten, Vertragsdokumente, Kundeninformation und Vertretung",
+      "data_subjects": [
+        "clients",
+        "client_partners",
+        "representatives"
+      ],
+      "data_categories": [
+        "client_master_data",
+        "client_classification",
+        "mandate_contract",
+        "crypto_key_material"
+      ],
+      "tables": [
+        "clients",
+        "client_nationalities",
+        "client_opt_history",
+        "client_pii_keys",
+        "mandates",
+        "contract_documents",
+        "client_information_deliveries",
+        "client_representations",
+        "onsite_signature_challenges",
+        "onsite_signature_events",
+        "onsite_signature_evidence"
+      ],
+      "recipients": [
+        "Beraterinnen und Berater der Firma",
+        "Administration der Firma"
+      ],
+      "egress_channels": [],
+      "retention": {
+        "evidence_types": [
+          "client_master_data",
+          "client_classification",
+          "mandate_contract",
+          "crypto_key_material"
+        ],
+        "source": "Aufbewahrungsmatrix (Datenschutz > Aufbewahrung), nur genehmigte Zeilen wirken",
+        "basis": {
+          "owner_field": "activity.PA-01.retention_basis",
+          "label": "Begruendung der Aufbewahrungsdauer: Kundenbeziehung und Mandate",
+          "kind": "text",
+          "blocking": "customer_output"
+        }
+      },
+      "toms": [
+        "TOM-ACCESS-RBAC",
+        "TOM-TENANT-ISOLATION",
+        "TOM-ENCRYPTION-AT-REST",
+        "TOM-AUDIT-TRAIL",
+        "TOM-BACKUP",
+        "TOM-RETENTION-ERASURE"
+      ]
+    },
+    {
+      "id": "PA-02",
+      "name": "Sorgfaltspflichten und Steuerdomizil",
+      "purpose": "Dokumentation der Sorgfaltspflichten (Identifizierung, wirtschaftlich berechtigte Person, PEP-Status, KYC-Bestaetigung) und der Steuerdomizile",
+      "data_subjects": [
+        "clients",
+        "representatives"
+      ],
+      "data_categories": [
+        "kyc_due_diligence"
+      ],
+      "tables": [
+        "client_due_diligence",
+        "client_tax_residencies",
+        "kyc_confirmations",
+        "kyc_confirmation_approvals",
+        "kyc_confirmation_decisions",
+        "kyc_confirmation_rejections"
+      ],
+      "recipients": [
+        "Beraterinnen und Berater der Firma",
+        "Administration der Firma (Vier-Augen-Freigabe)"
+      ],
+      "egress_channels": [],
+      "retention": {
+        "evidence_types": [
+          "kyc_due_diligence"
+        ],
+        "source": "Aufbewahrungsmatrix (Datenschutz > Aufbewahrung), nur genehmigte Zeilen wirken",
+        "basis": {
+          "owner_field": "activity.PA-02.retention_basis",
+          "label": "Begruendung der Aufbewahrungsdauer: Sorgfaltspflichten",
+          "kind": "text",
+          "blocking": "customer_output"
+        }
+      },
+      "toms": [
+        "TOM-ACCESS-RBAC",
+        "TOM-TENANT-ISOLATION",
+        "TOM-ENCRYPTION-AT-REST",
+        "TOM-AUDIT-TRAIL",
+        "TOM-BACKUP",
+        "TOM-RETENTION-ERASURE"
+      ]
+    },
+    {
+      "id": "PA-03",
+      "name": "Finanz- und Vorsorgeplanung",
+      "purpose": "Erfassung von Vermoegen, Zufluessen, Cashflows, Zielen und Planungsannahmen als Grundlage der Beratung",
+      "data_subjects": [
+        "clients",
+        "client_partners"
+      ],
+      "data_categories": [
+        "financial_situation",
+        "goals_planning",
+        "risk_capacity_plausibility_evidence"
+      ],
+      "tables": [
+        "wealth_positions",
+        "wealth_inflows",
+        "cashflows",
+        "planning_assumptions",
+        "goals",
+        "goal_lifecycle_transitions",
+        "goal_revision_decisions",
+        "financial_coverage_attestations"
+      ],
+      "recipients": [
+        "Beraterinnen und Berater der Firma"
+      ],
+      "egress_channels": [],
+      "retention": {
+        "evidence_types": [
+          "financial_situation",
+          "goals_planning",
+          "risk_capacity_plausibility_evidence"
+        ],
+        "source": "Aufbewahrungsmatrix (Datenschutz > Aufbewahrung), nur genehmigte Zeilen wirken",
+        "basis": {
+          "owner_field": "activity.PA-03.retention_basis",
+          "label": "Begruendung der Aufbewahrungsdauer: Finanz- und Vorsorgeplanung",
+          "kind": "text",
+          "blocking": "customer_output"
+        }
+      },
+      "toms": [
+        "TOM-ACCESS-RBAC",
+        "TOM-TENANT-ISOLATION",
+        "TOM-ENCRYPTION-AT-REST",
+        "TOM-AUDIT-TRAIL",
+        "TOM-BACKUP",
+        "TOM-RETENTION-ERASURE"
+      ]
+    },
+    {
+      "id": "PA-04",
+      "name": "Risikoprofil, Eignungspruefung und Anlageempfehlung",
+      "purpose": "Risikoprofil, Kenntnisse und Erfahrung, Eignungs- und Produktpruefung, Anlagestrategie, Empfehlung, Depotabgleich und Uebergabe",
+      "data_subjects": [
+        "clients"
+      ],
+      "data_categories": [
+        "risk_profile_evidence",
+        "risk_capacity_plausibility_evidence",
+        "suitability_evidence",
+        "recommendation_evidence"
+      ],
+      "tables": [
+        "risk_assessments",
+        "risk_assessment_answers",
+        "risk_override_decisions",
+        "risk_profile_signoffs",
+        "risk_capacity_plausibility_evaluations",
+        "client_knowledge",
+        "suitability_checks",
+        "product_eligibility_snapshots",
+        "product_eligibility_decisions",
+        "product_eligibility_overrides",
+        "target_allocations",
+        "optimizer_runs",
+        "recommendation_runs",
+        "recommendation_positions",
+        "recommendation_holdings",
+        "strategy_snapshots",
+        "portfolio_handoffs",
+        "depot_snapshots",
+        "depot_check_analysis_snapshots",
+        "review_triggers"
+      ],
+      "recipients": [
+        "Beraterinnen und Berater der Firma",
+        "Depotbank der Kundschaft (Uebergabe des Auftrags durch die Beratung, ausserhalb von Ares)"
+      ],
+      "egress_channels": [],
+      "retention": {
+        "evidence_types": [
+          "risk_profile_evidence",
+          "risk_capacity_plausibility_evidence",
+          "suitability_evidence",
+          "recommendation_evidence"
+        ],
+        "source": "Aufbewahrungsmatrix (Datenschutz > Aufbewahrung), nur genehmigte Zeilen wirken",
+        "basis": {
+          "owner_field": "activity.PA-04.retention_basis",
+          "label": "Begruendung der Aufbewahrungsdauer: Risikoprofil, Eignung und Empfehlung",
+          "kind": "text",
+          "blocking": "customer_output"
+        }
+      },
+      "toms": [
+        "TOM-ACCESS-RBAC",
+        "TOM-TENANT-ISOLATION",
+        "TOM-ENCRYPTION-AT-REST",
+        "TOM-AUDIT-TRAIL",
+        "TOM-BACKUP",
+        "TOM-RETENTION-ERASURE"
+      ]
+    },
+    {
+      "id": "PA-05",
+      "name": "Beratungsdokumentation und Interessenkonflikte",
+      "purpose": "Beratungsprotokoll, Berichtsnotizen, Protokollbausteine und Offenlegung von Interessenkonflikten",
+      "data_subjects": [
+        "clients"
+      ],
+      "data_categories": [
+        "advisory_protocol"
+      ],
+      "tables": [
+        "advisory_log",
+        "mandate_report_notes",
+        "mandate_baustein_selections",
+        "conflict_of_interest_disclosures"
+      ],
+      "recipients": [
+        "Beraterinnen und Berater der Firma"
+      ],
+      "egress_channels": [],
+      "retention": {
+        "evidence_types": [
+          "advisory_protocol"
+        ],
+        "source": "Aufbewahrungsmatrix (Datenschutz > Aufbewahrung), nur genehmigte Zeilen wirken",
+        "basis": {
+          "owner_field": "activity.PA-05.retention_basis",
+          "label": "Begruendung der Aufbewahrungsdauer: Beratungsdokumentation",
+          "kind": "text",
+          "blocking": "customer_output"
+        }
+      },
+      "toms": [
+        "TOM-ACCESS-RBAC",
+        "TOM-TENANT-ISOLATION",
+        "TOM-ENCRYPTION-AT-REST",
+        "TOM-AUDIT-TRAIL",
+        "TOM-BACKUP",
+        "TOM-RETENTION-ERASURE"
+      ]
+    },
+    {
+      "id": "PA-06",
+      "name": "Kundenportal",
+      "purpose": "Zugang der Kundschaft zum Kundenportal (Konto, Anmeldung, Sitzungen)",
+      "data_subjects": [
+        "portal_users"
+      ],
+      "data_categories": [
+        "client_portal_account",
+        "authentication_security"
+      ],
+      "tables": [
+        "client_logins",
+        "users",
+        "refresh_tokens"
+      ],
+      "recipients": [
+        "Administration der Firma",
+        "E-Mail-Anbieter der Firma (nur wenn SMTP aktiviert)"
+      ],
+      "egress_channels": [
+        "mail.smtp"
+      ],
+      "retention": {
+        "evidence_types": [
+          "client_portal_account"
+        ],
+        "source": "Aufbewahrungsmatrix (Datenschutz > Aufbewahrung), nur genehmigte Zeilen wirken",
+        "basis": {
+          "owner_field": "activity.PA-06.retention_basis",
+          "label": "Begruendung der Aufbewahrungsdauer: Kundenportal",
+          "kind": "text",
+          "blocking": "customer_output"
+        }
+      },
+      "toms": [
+        "TOM-ACCESS-RBAC",
+        "TOM-TENANT-ISOLATION",
+        "TOM-AUTH-HARDENING",
+        "TOM-AUDIT-TRAIL",
+        "TOM-EGRESS-ALLOWLIST"
+      ]
+    },
+    {
+      "id": "PA-07",
+      "name": "Benutzerkonten und Anmeldesicherheit der Mitarbeitenden",
+      "purpose": "Benutzerverwaltung, Rollen, Anmeldung, Zwei-Faktor, Sperren und Sitzungen der Mitarbeitenden",
+      "data_subjects": [
+        "staff"
+      ],
+      "data_categories": [
+        "staff_account",
+        "authentication_security"
+      ],
+      "tables": [
+        "users",
+        "adviser_registrations",
+        "refresh_tokens",
+        "login_attempts",
+        "login_lockouts",
+        "privacy_role_designations"
+      ],
+      "recipients": [
+        "Administration der Firma",
+        "E-Mail-Anbieter der Firma (nur wenn SMTP aktiviert)"
+      ],
+      "egress_channels": [
+        "mail.smtp"
+      ],
+      "retention": {
+        "evidence_types": [],
+        "source": "Betriebliche Aufbewahrung der Firma (Personaldaten, nicht Teil der Kunden-Aufbewahrungsmatrix)",
+        "basis": {
+          "owner_field": "activity.PA-07.retention_basis",
+          "label": "Begruendung der Aufbewahrungsdauer: Benutzerkonten der Mitarbeitenden",
+          "kind": "text",
+          "blocking": "informational"
+        }
+      },
+      "toms": [
+        "TOM-ACCESS-RBAC",
+        "TOM-AUTH-HARDENING",
+        "TOM-AUDIT-TRAIL",
+        "TOM-EGRESS-ALLOWLIST"
+      ]
+    },
+    {
+      "id": "PA-08",
+      "name": "Protokollierung und Nachvollziehbarkeit",
+      "purpose": "Unveraenderbares Protokoll schreibender Aktionen zur Nachvollziehbarkeit und Datensicherheit",
+      "data_subjects": [
+        "clients",
+        "staff"
+      ],
+      "data_categories": [
+        "audit_trail",
+        "authentication_security"
+      ],
+      "tables": [
+        "audit_log"
+      ],
+      "recipients": [
+        "Administration der Firma",
+        "Fehlerdienst (nur wenn Telemetrie aktiviert; Inhalte vor Versand entfernt)",
+        "Offsite-Sicherungsziel der Firma (nur wenn aktiviert)"
+      ],
+      "egress_channels": [
+        "telemetry.error_reporting",
+        "operator.backup_offsite"
+      ],
+      "retention": {
+        "evidence_types": [
+          "audit_trail"
+        ],
+        "source": "Aufbewahrungsmatrix (Datenschutz > Aufbewahrung), nur genehmigte Zeilen wirken",
+        "basis": {
+          "owner_field": "activity.PA-08.retention_basis",
+          "label": "Begruendung der Aufbewahrungsdauer: Protokoll",
+          "kind": "text",
+          "blocking": "customer_output"
+        }
+      },
+      "toms": [
+        "TOM-AUDIT-TRAIL",
+        "TOM-TENANT-ISOLATION",
+        "TOM-ENCRYPTION-AT-REST",
+        "TOM-EGRESS-ALLOWLIST"
+      ]
+    },
+    {
+      "id": "PA-09",
+      "name": "Datenschutz-Governance",
+      "purpose": "Bearbeitung von Betroffenenanfragen, Loeschvorgaengen, Legal Holds und Sicherheitsvorfaellen sowie die Angaben des Verantwortlichen",
+      "data_subjects": [
+        "privacy_case_parties",
+        "clients",
+        "staff"
+      ],
+      "data_categories": [
+        "privacy_case_records"
+      ],
+      "tables": [
+        "privacy_retention_policies",
+        "privacy_legal_holds",
+        "privacy_erasure_cases",
+        "privacy_erasure_dispositions",
+        "privacy_owner_values",
+        "privacy_subject_requests",
+        "privacy_security_incidents",
+        "outbound_processing_manifest_versions",
+        "privacy_egress_events",
+        "privacy_security_incident_events",
+        "privacy_subject_request_events",
+        "processing_activity_versions",
+        "privacy_security_incident_artifacts"
+      ],
+      "recipients": [
+        "Administration der Firma",
+        "Benannte Legal-/Datenschutzpersonen der Firma",
+        "Betroffene Person (Auskunft, Herausgabe)",
+        "EDOEB (Meldung einer Verletzung der Datensicherheit, durch die Firma)"
+      ],
+      "egress_channels": [],
+      "retention": {
+        "evidence_types": [],
+        "source": "Nachweis der Datenschutzvorgaenge; Dauer legt die Firma fest",
+        "basis": {
+          "owner_field": "activity.PA-09.retention_basis",
+          "label": "Begruendung der Aufbewahrungsdauer: Datenschutzvorgaenge",
+          "kind": "text",
+          "blocking": "customer_output"
+        }
+      },
+      "toms": [
+        "TOM-ACCESS-RBAC",
+        "TOM-TENANT-ISOLATION",
+        "TOM-AUDIT-TRAIL",
+        "TOM-PRIVACY-CASES",
+        "TOM-INCIDENT-REGISTER"
+      ]
+    }
+  ],
+  "non_personal_tables": {
+    "asset_class_annual_returns": "Marktdaten (Renditereihen je Anlageklasse)",
+    "asset_class_fx_history": "Marktdaten (Waehrungsreihen)",
+    "asset_class_price_history": "Marktdaten (Preisreihen je Anlageklasse)",
+    "audit_log_sequence_counter": "Zaehler der Protokollkette, keine Inhalte",
+    "bootstrap_lock": "Installationszustand",
+    "building_blocks": "Produktbausteine (Referenzdaten)",
+    "capital_market_assumptions": "Kapitalmarktannahmen (Referenzdaten)",
+    "cma_policies": "Kapitalmarktannahmen-Policy (Referenzdaten, Akteur nur als Benutzer-ID)",
+    "cma_policy_approvals": "Freigaben der Kapitalmarktannahmen (Akteur nur als Benutzer-ID, siehe PA-08)",
+    "cma_policy_components": "Bestandteile der Kapitalmarktannahmen (Referenzdaten)",
+    "fx_rates": "Devisenkurse (Referenzdaten)",
+    "house_matrix": "Hausmatrix der Firma (Referenzdaten)",
+    "jurisdiction_home_bias_defaults": "Jurisdiktions-Referenzdaten",
+    "jurisdiction_profiles": "Jurisdiktions-Referenzdaten",
+    "market_data_cache": "Marktdaten-Zwischenspeicher",
+    "market_data_validation_log": "Pruefprotokoll der Marktdaten (Symbole und Abweichungen)",
+    "optimizer_policies": "Optimierer-Parameter (Referenzdaten)",
+    "price_history": "Preisreihen der Produkte",
+    "product_eligibility_rule_sets": "Regelwerke der Produkteignung (Referenzdaten)",
+    "product_eligibility_rules": "Regeln der Produkteignung (Referenzdaten)",
+    "product_suitability": "Produktmerkmale (Referenzdaten)",
+    "product_sustainability_attributes": "Nachhaltigkeitsmerkmale der Produkte (Referenzdaten)",
+    "product_universe_entries": "Produktuniversum der Firma (Referenzdaten, Akteur nur als Benutzer-ID)",
+    "products": "Produktstammdaten (Referenzdaten)",
+    "protocol_bausteine": "Textbausteine der Firma (Vorlagen ohne Kundenbezug)",
+    "sustainability_exclusion_standards": "Nachhaltigkeits-Hausstandard der Firma (Referenzdaten)",
+    "tax_parameter_sets": "Steuerparameter (Referenzdaten)",
+    "tenant_legal_profiles": "Rechtliche Angaben der Firma (juristische Person; Kontakt als Geschaeftsadresse)",
+    "tenants": "Mandanten der Installation (Firmen)",
+    "privacy_egress_daily_counts": "Zaehler erlaubter Uebertragungen je Kanal und Tag (ohne Inhalt, ohne Personenbezug)",
+    "audit_chain_verification_status": "Status der Audit-Kettenpruefung (Sequenzen, Hashes, Zaehler; keine Inhalte, siehe PA-08)",
+    "kyc_review_policies": "KYC-Wiedervorlage-Policy der Firma (Referenzdaten, Akteur nur als Benutzer-ID, siehe PA-08)",
+    "kyc_review_policy_activations": "Freigaben der KYC-Wiedervorlage-Policy (Akteur nur als Benutzer-ID, siehe PA-08)"
+  }
+}

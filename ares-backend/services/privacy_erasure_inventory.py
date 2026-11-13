@@ -148,6 +148,32 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
            method=TIER_A_REDACTION),
         _c(RECORD, "kyc_due_diligence"),
     ),
+    # H8 C-5: GwG-Bestaetigung (append-only) und Vier-Augen-Freigabe.
+    "kyc_confirmations": _t(
+        _CLIENT,
+        _c(FREE_TEXT, "kyc_due_diligence", "external_reference", "note", method=TIER_A_REDACTION),
+        _c(RECORD, "kyc_due_diligence"),
+    ),
+    "kyc_confirmation_approvals": _t(
+        _CLIENT,
+        _c(FREE_TEXT, "kyc_due_diligence", "note", method=TIER_A_REDACTION),
+        _c(RECORD, "kyc_due_diligence"),
+    ),
+    # C-890-01 Nachtrag 2: begruendete Ablehnung der Zweitfreigabe.
+    "kyc_confirmation_rejections": _t(
+        _CLIENT,
+        _c(FREE_TEXT, "kyc_due_diligence", "reason", method=TIER_A_REDACTION),
+        _c(RECORD, "kyc_due_diligence"),
+    ),
+    # H8 Luecke 10: Vertretung/Verfuegungsberechtigung (Name der vertretenden
+    # Person = Personendatum eines Dritten).
+    "client_representations": _t(
+        _CLIENT,
+        _c(IDENTITY, "mandate_contract", "representative_name", method=TIER_A_REDACTION),
+        _c(FREE_TEXT, "mandate_contract", "scope", "evidence_reference", "note", "revocation_reason",
+           method=TIER_A_REDACTION),
+        _c(RECORD, "mandate_contract"),
+    ),
     "client_tax_residencies": _t(
         _CLIENT,
         _c(IDENTITY, "kyc_due_diligence", "tax_id_number", method=TIER_A_REDACTION),
@@ -183,6 +209,9 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
            method=TIER_A_REDACTION),
         _c(RECORD, "mandate_contract"),
     ),
+    # H8 C-2: Abgabenachweis der Kundeninformation (append-only, keine
+    # Personendaten ausser dem Bezug).
+    "client_information_deliveries": _t(_MANDATE, _c(RECORD, "mandate_contract")),
     "contract_documents": _t(
         _MANDATE,
         _c(SIGNATURE, "mandate_contract",
@@ -325,6 +354,12 @@ EXEMPT_TABLES: dict[str, str] = {
     ),
     "privacy_erasure_dispositions": "Dispositionszeilen des Loeschgesuchs selbst",
     "privacy_legal_holds": "Legal-Hold-Register (Fall-ID, Rechtsgrund, Umfang, Genehmiger)",
+    # H10 C-DSG-02: der Nachweis der Betroffenenanfrage muss eine Loeschung
+    # des Kunden ueberdauern (Eingang, Entscheid, Export-Hash, Zustellung).
+    "privacy_subject_requests": (
+        "Bearbeitungsnachweis der Betroffenenanfrage selbst (Eingang, Identitaetspruefung, "
+        "Entscheid, Export-Hash, Zustellnachweis; keine kopierten Exportdaten)"
+    ),
 }
 
 
