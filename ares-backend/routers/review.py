@@ -26,7 +26,7 @@ from models.review import (
 )
 from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
 from models.profiling import RiskAssessment, SuitabilityCheck
-from models.tenant import Tenant, TenantLegalProfile
+from models.tenant import KYC_REVIEW_GENESIS, KycReviewPolicy, KycReviewPolicyActivation, Tenant, TenantLegalProfile
 from schemas.review import (
     master_data_consistency_errors,
     ReviewTriggerCreate, ReviewTriggerResolve, ReviewTriggerResponse,
@@ -56,9 +56,10 @@ from schemas.review import (
     TenantLegalProfileUpdate, TenantLegalProfileResponse,
     ClientInformationDeliveryCreate, ClientInformationDeliveryResponse,
     ClientOnboardingStatusResponse,
+    KycReviewPolicyActivate, KycReviewPolicyCreate, KycReviewPolicyOverview, KycReviewPolicyResponse,
 )
 from price_updater import summarize_price_quality
-from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
+from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, require_staff, same_person, assert_compliance_reviewer_ready, short_user_agent, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
 from services.audit import log, release_block_audit, restore_tenant_after_rollback
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
@@ -104,6 +105,12 @@ from services.recommendation_release_gate import (
     assert_retrocession_release_eligible,
     assert_risk_signoff_release_eligible,
     client_onboarding_status,
+    kyc_approver_account,
+    kyc_review_effective_from,
+    kyc_review_jurisdiction,
+    kyc_review_policy_chain,
+    kyc_review_policy_defect,
+    resolve_kyc_review_policy,
     legal_profile_hash,
     legal_profile_missing_fields,
     load_tenant_legal_profile,
@@ -1742,11 +1749,19 @@ def get_document_pdf(
     if not doc.pdf_base64:
         raise HTTPException(status_code=404, detail="Fuer dieses Dokument liegt kein PDF vor.")
     safe_title = str(doc.title or "dokument")[:40]
-    filename = f"{safe_title}_v{doc.version}.pdf"
+    # N-897-12: als Archivexemplar gekennzeichnet (Dateiname + Header). Die
+    # Bytes bleiben unveraendert -- ein Wasserzeichen wuerde die gesiegelte
+    # Pruefsumme des Archivs brechen (Nachweis "was wurde dem Kunden gezeigt").
+    archived_on = str(doc.pdf_generated_at or doc.created_at or "")[:10] or "unbekannt"
+    filename = f"Archivexemplar_{archived_on}_{safe_title}_v{doc.version}.pdf"
     return Response(
         content=base64.b64decode(doc.pdf_base64),
         media_type="application/pdf",
-        headers={"Content-Disposition": content_disposition(filename)},
+        headers={
+            "Content-Disposition": content_disposition(filename),
+            "X-Ares-Archive-Copy": "true",
+            "X-Ares-Archived-On": archived_on,
+        },
     )
 
 
@@ -1995,6 +2010,265 @@ def update_tenant_legal_profile(
                 ip_address=ip_address, tenant_id=tenant_id)
         db.commit()
     return _legal_profile_response(tenant_id, load_tenant_legal_profile(db, tenant_id))
+
+
+# ── C-890-01: Wiedervorlage-Policy der KYC-Bestaetigung ────────────────────────
+#
+# Ares erfindet keine Frist: der Owner erfasst je Jurisdiktion eine Policy-
+# Version (Normalfrist, optional strengere PEP-/Hochrisiko-Frist, Gueltigkeit,
+# Quelle), eine ZWEITE Person mit Admin-Rolle aktiviert sie mit dem gesehenen
+# Inhalts-Hash und der Freigabereferenz. Beide Tabellen sind append-only; eine
+# Aenderung ist eine neue Version. Ohne wirksame Policy sperrt das Gate
+# (services/recommendation_release_gate.py::kyc_review_findings).
+
+def _kyc_review_tenant(current_user: User) -> str:
+    # Wie die rechtlichen Angaben (N-890-08): im Strict-Modus nie die Policy
+    # des Standard-Mandanten fuer einen Admin ohne eigene Firma.
+    if not getattr(current_user, "tenant_id", None) and _effective_strict_tenant_isolation(settings):
+        raise HTTPException(status_code=403, detail={
+            "reason_code": "KYC_REVIEW_POLICY_TENANT_REQUIRED",
+            "message": "Im Mehrmandanten-Betrieb braucht der Admin eine eigene Firma.",
+        })
+    return _resolve_tenant_id_for_user(current_user)
+
+
+def _kyc_review_defect_or_422(policy: dict) -> None:
+    defect = kyc_review_policy_defect(policy)
+    if defect is None:
+        return
+    if defect == "elevated_looser_than_normal":
+        detail = {"reason_code": "KYC_REVIEW_POLICY_ELEVATED_LOOSER", "message": (
+            "Die Frist fuer PEP/erhoehtes Risiko darf nicht laenger sein als die Normalfrist.")}
+    elif defect in ("valid_from", "valid_until"):
+        detail = {"reason_code": "KYC_REVIEW_POLICY_VALIDITY_INVALID", "message": (
+            "Das Gueltigkeitsende liegt vor dem Gueltigkeitsbeginn.")}
+    else:
+        detail = {"reason_code": "KYC_REVIEW_POLICY_INTERVAL_INVALID", "message": (
+            "Der Abstand muss eine positive Zahl ganzer Monate sein.")}
+    raise HTTPException(status_code=422, detail={**detail, "defect": defect})
+
+
+def _kyc_review_policy_status(policy: dict, activation: dict | None, current: dict, today: str) -> str:
+    if activation is None:
+        return "entwurf"
+    effective = current.get("policy") or {}
+    if str(effective.get("id")) == str(policy["id"]):
+        if current["reason_code"] == "KYC_REVIEW_POLICY_EXPIRED":
+            return "abgelaufen"
+        if current["reason_code"] == "KYC_REVIEW_POLICY_NOT_YET_EFFECTIVE":
+            return "freigegeben_noch_nicht_wirksam"
+        return "wirksam" if not current["reason_code"] else "gesperrt"
+    if kyc_review_effective_from(policy, activation) > today:
+        return "freigegeben_noch_nicht_wirksam"
+    return "abgeloest"
+
+
+def _kyc_review_policy_response(policy: dict, activation: dict | None, current: dict,
+                                today: str, approver_account: dict | None = None) -> KycReviewPolicyResponse:
+    return KycReviewPolicyResponse(
+        **{key: policy.get(key) for key in (
+            "id", "tenant_id", "jurisdiction", "policy_id", "version", "normal_max_months",
+            "elevated_max_months", "valid_from", "valid_until", "source_reference",
+            "created_by", "created_at", "policy_hash",
+        )},
+        status=_kyc_review_policy_status(policy, activation, current, today),
+        activation_id=(activation or {}).get("id"),
+        predecessor_activation_id=(activation or {}).get("predecessor_activation_id"),
+        approved_by=(activation or {}).get("approved_by"),
+        approved_at=(activation or {}).get("approved_at"),
+        approval_reference=(activation or {}).get("approval_reference"),
+        effective_from=kyc_review_effective_from(policy, activation) if activation else None,
+        approver_account=approver_account,
+    )
+
+
+def _kyc_review_row_response(db: Session, tenant_id: str, jurisdiction: str,
+                             policy_row_id: str) -> KycReviewPolicyResponse:
+    today = _now()[:10]
+    policies, activations = kyc_review_policy_chain(db, tenant_id, jurisdiction)
+    current = resolve_kyc_review_policy(db, tenant_id, jurisdiction, today)
+    activation = next((a for a in activations if str(a["policy_row_id"]) == str(policy_row_id)), None)
+    return _kyc_review_policy_response(
+        policies[str(policy_row_id)], activation, current, today,
+        kyc_approver_account(db, activation["approved_by"]) if activation else None,
+    )
+
+
+@router.get("/compliance/kyc-review-policies", response_model=KycReviewPolicyOverview)
+def list_kyc_review_policies(
+    jurisdiction: str | None = Query(default=None, min_length=2, max_length=2),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff),
+):
+    """Wiedervorlage-Policies der eigenen Firma (alle Versionen samt Status)
+    und die heute wirksame Version. Ohne Angabe gilt das Sitzland der Firma
+    aus den rechtlichen Angaben."""
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    jur = (jurisdiction or "").upper() or kyc_review_jurisdiction(db, tenant_id)
+    today = _now()[:10]
+    current = resolve_kyc_review_policy(db, tenant_id, jur, today)
+    rows: list[KycReviewPolicyResponse] = []
+    if jur:
+        policies, activations = kyc_review_policy_chain(db, tenant_id, jur)
+        by_policy = {str(a["policy_row_id"]): a for a in activations}
+        for policy in sorted(policies.values(), key=lambda p: int(p.get("version") or 0), reverse=True):
+            act = by_policy.get(str(policy["id"]))
+            rows.append(_kyc_review_policy_response(
+                policy, act, current, today, kyc_approver_account(db, act["approved_by"]) if act else None,
+            ))
+    return KycReviewPolicyOverview(
+        tenant_id=tenant_id, jurisdiction=jur, status=current["status"],
+        reason_code=current["reason_code"], effective_policy=current["policy"], policies=rows,
+    )
+
+
+@router.post("/compliance/kyc-review-policies", response_model=KycReviewPolicyResponse, status_code=201)
+def create_kyc_review_policy(
+    body: KycReviewPolicyCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Neue Version der Wiedervorlage-Policy erfassen (Firmen-Admin). Wirksam
+    erst nach Freigabe durch eine zweite Person (``/activate``). Ares belegt
+    keinen Wert vor; die Version vergibt der Server fortlaufend."""
+    tenant_id = _kyc_review_tenant(current_user)
+    data = body.model_dump()
+    _kyc_review_defect_or_422(data)
+    policies, _activations = kyc_review_policy_chain(db, tenant_id, body.jurisdiction)
+    version = max((int(p.get("version") or 0) for p in policies.values()), default=0) + 1
+    now = _now()
+    record = KycReviewPolicy(
+        id=new_uuid(), tenant_id=tenant_id, jurisdiction=body.jurisdiction, policy_id=body.policy_id,
+        version=version, normal_max_months=int(body.normal_max_months),
+        elevated_max_months=(int(body.elevated_max_months) if body.elevated_max_months is not None else None),
+        valid_from=body.valid_from, valid_until=body.valid_until, source_reference=body.source_reference,
+        created_by=current_user.id, created_at=now,
+    )
+    record.policy_hash = row_seal(
+        {c.name: getattr(record, c.name) for c in record.__table__.columns}, "policy_hash",
+    )
+    db.add(record)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_REVIEW_POLICY_VERSION_CONFLICT",
+            "message": "Gleichzeitig wurde eine andere Version erfasst; bitte neu laden.",
+        }) from exc
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="kyc_review_policies", record_id=record.id, action="CREATE",
+        field_name="kyc_review_policy_proposed",
+        new_value=(f"{record.policy_id} v{record.version} ({record.jurisdiction}); normal "
+                   f"{record.normal_max_months} Monate; PEP/erhoeht "
+                   f"{record.elevated_max_months if record.elevated_max_months is not None else 'wie normal'}; "
+                   f"gueltig ab {record.valid_from}; hash {record.policy_hash}"),
+        ip_address=_extract_client_ip(request), tenant_id=tenant_id)
+    db.commit()
+    return _kyc_review_row_response(db, tenant_id, record.jurisdiction, record.id)
+
+
+@router.post("/compliance/kyc-review-policies/{policy_row_id}/activate", response_model=KycReviewPolicyResponse)
+def activate_kyc_review_policy(
+    policy_row_id: str,
+    body: KycReviewPolicyActivate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_compliance_approver),
+):
+    """Vier-Augen-Freigabe und Aktivierung einer Policy-Version: nur eine
+    ZWEITE Person -- Firmen-Admin oder externe Compliance-Person (Rolle
+    ``compliance_reviewer``, nur Freigabe/Lesen) --, mit dem gesehenen Inhalts-Hash und der
+    Freigabereferenz. Die Aktivierungen bilden eine lineare Kette; zwei
+    gleichzeitige Aktivierungen auf denselben Stand koennen nie beide gelingen
+    (UNIQUE auf den Vorgaenger, 409)."""
+    tenant_id = _kyc_review_tenant(current_user)
+    policy_obj = db.query(KycReviewPolicy).filter(
+        KycReviewPolicy.id == policy_row_id, KycReviewPolicy.tenant_id == tenant_id,
+    ).first()
+    if policy_obj is None:
+        raise HTTPException(status_code=404, detail="Policy-Version nicht gefunden")
+    policy = {c.name: getattr(policy_obj, c.name) for c in policy_obj.__table__.columns}
+    existing = db.query(KycReviewPolicyActivation).filter(
+        KycReviewPolicyActivation.policy_row_id == policy_obj.id,
+    ).first()
+    if existing is not None:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_REVIEW_POLICY_ALREADY_ACTIVATED",
+            "message": "Diese Policy-Version ist bereits freigegeben.",
+        })
+    if same_person(db, policy_obj.created_by, current_user.id):
+        raise HTTPException(status_code=403, detail={
+            "reason_code": "KYC_REVIEW_POLICY_SAME_PERSON",
+            "message": "Die Freigabe muss durch eine zweite Person erfolgen.",
+        })
+    # N-897-02: externe Compliance-Person nur mit selbst aktiviertem Konto + 2FA.
+    assert_compliance_reviewer_ready(current_user)
+    if row_seal(policy, "policy_hash") != policy_obj.policy_hash or body.policy_hash != policy_obj.policy_hash:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_REVIEW_POLICY_HASH_MISMATCH",
+            "message": "Der bestaetigte Inhalts-Hash stimmt nicht mit der Policy-Version ueberein.",
+        })
+    _kyc_review_defect_or_422(policy)
+    now = _now()
+    if policy_obj.valid_until and str(policy_obj.valid_until) < now[:10]:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "KYC_REVIEW_POLICY_VALIDITY_INVALID",
+            "message": "Eine bereits abgelaufene Policy-Version kann nicht freigegeben werden.",
+        })
+    # Kopf der bestehenden Kette (Stichtag weit in der Zukunft = juengste
+    # Aktivierung); eine defekte oder mehrdeutige Kette wird nicht verlaengert.
+    head = resolve_kyc_review_policy(db, tenant_id, policy_obj.jurisdiction, "9999-12-31")
+    if head["activation_row"] is None:
+        if head["reason_code"] not in ("KYC_REVIEW_POLICY_MISSING", "KYC_REVIEW_POLICY_UNAPPROVED"):
+            raise HTTPException(status_code=409, detail={
+                "reason_code": head["reason_code"], "message": "Die bestehende Policy-Kette ist nicht eindeutig.",
+            })
+        predecessor = KYC_REVIEW_GENESIS
+    else:
+        if head["reason_code"] not in (None, "KYC_REVIEW_POLICY_EXPIRED"):
+            raise HTTPException(status_code=409, detail={
+                "reason_code": head["reason_code"], "message": "Die bestehende Policy-Kette ist ungueltig.",
+            })
+        if int(policy_obj.version) <= int(head["policy_row"]["version"]):
+            raise HTTPException(status_code=409, detail={
+                "reason_code": "KYC_REVIEW_POLICY_VERSION_STALE",
+                "message": "Es ist bereits eine neuere Version freigegeben; bitte eine neue Version erfassen.",
+            })
+        predecessor = str(head["activation_row"]["id"])
+    activation = KycReviewPolicyActivation(
+        id=new_uuid(), tenant_id=tenant_id, jurisdiction=policy_obj.jurisdiction,
+        policy_row_id=policy_obj.id, predecessor_activation_id=predecessor,
+        approved_by=current_user.id, approved_at=now,
+        approval_reference=body.approval_reference.strip(), policy_hash=policy_obj.policy_hash,
+        # N-897-13: Bereitschaft (oben geprueft) im Aktivierungssiegel eingefroren.
+        approver_ready=1,
+    )
+    activation.activation_hash = row_seal(
+        {c.name: getattr(activation, c.name) for c in activation.__table__.columns}, "activation_hash",
+    )
+    db.add(activation)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_REVIEW_POLICY_ACTIVATION_CONFLICT",
+            "message": "Gleichzeitig wurde eine andere Version freigegeben; bitte neu laden.",
+        }) from exc
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="kyc_review_policy_activations", record_id=activation.id, action="CREATE",
+        field_name="kyc_review_policy_activated",
+        new_value=(f"{policy_obj.policy_id} v{policy_obj.version} ({policy_obj.jurisdiction}); "
+                   f"Vorgaenger {predecessor}; hash {policy_obj.policy_hash}; "
+                   f"ua={short_user_agent(request)}; Freigeberkonto "
+                   f"{(kyc_approver_account(db, current_user.id) or {}).get('role')}, eingeladen "
+                   f"{(kyc_approver_account(db, current_user.id) or {}).get('invited_at') or '-'}, aktiviert "
+                   f"{(kyc_approver_account(db, current_user.id) or {}).get('activated_at') or '-'}"),
+        ip_address=_extract_client_ip(request), tenant_id=tenant_id)
+    db.commit()
+    return _kyc_review_row_response(db, tenant_id, policy_obj.jurisdiction, policy_obj.id)
 
 
 @router.get("/mandates/{mandate_id}/client-onboarding/status",

@@ -1,5 +1,5 @@
 {
- "dump_sha256": "99dbe0730258b932e6c9d91b85c0f17839427c3baededdb433852bd36bf0f414",
+ "dump_sha256": "4f40f4f8399f1b84e1065244007dc492473a10eab00e5e4c31abfe350bbdccd4",
  "tables": {
   "asset_class_annual_returns": {
    "columns": [
@@ -662,21 +662,32 @@
   },
   "users": {
    "columns": [
+    "activated_at",
     "calendar_feed_token_created_at",
     "calendar_feed_token_hash",
+    "compromise_reason",
+    "compromised_at",
+    "compromised_by",
+    "compromised_since",
     "created_at",
+    "credentials_set_at",
+    "credentials_set_by",
     "deleted_at",
     "email",
     "full_name",
     "id",
     "invite_expires_at",
     "invite_token_hash",
+    "invited_at",
+    "invited_by",
     "is_active",
     "last_login_at",
     "must_change_password",
     "password_hash",
     "reset_token_expires_at",
     "reset_token_hash",
+    "reviewer_organisation",
+    "reviewer_reference",
     "role",
     "tenant_id",
     "token_revoked_before",
@@ -685,12 +696,14 @@
     "totp_last_counter",
     "totp_recovery_codes",
     "totp_secret",
+    "totp_set_at",
+    "totp_set_by",
     "updated_at",
     "username"
    ],
    "row_count": 1,
    "row_sha256": [
-    "9ffa8d3626b5b37d462543727110a9fe"
+    "2f1bddd86acd7211fff21c38765a4bac"
    ]
   }
  }

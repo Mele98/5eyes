@@ -25,7 +25,8 @@ from models.mandates import Mandate
 from models.review import ConflictOfInterestDisclosure, ContractDocument, Product
 from models.users import User
 from routers.auth import _extract_client_ip
-from services.auth import get_current_user, get_mandate_for_user_or_404
+from services.audit import release_block_audit
+from services.auth import get_current_user, get_mandate_for_user_or_404, set_tenant_context
 from services.document_archive import archive_generated_pdf, content_hash_for
 from services.cost_disclosure import build_cost_disclosure
 from services.pdf import ReportLabRenderer
@@ -35,7 +36,10 @@ from services.recommendation_release_gate import (
     CLIENT_INFORMATION_SEAT_REGIMES,
     CLIENT_INFORMATION_TEMPLATE_VERSION,
     CLIENT_INFORMATION_TENANT_DATA_MISSING,
+    CHANNEL_CLIENT_PDF,
     SUPERVISION_LABELS,
+    assert_kyc_review_release_eligible,
+    kyc_release_is_draft,
     legal_profile_hash,
     legal_profile_missing_fields,
     load_tenant_legal_profile,
@@ -63,7 +67,8 @@ from services.pdf.base import (
 router = APIRouter(tags=["PDF Reports"])
 
 
-def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDFContext:
+def _build_pdf_context(mandate: Mandate, current_user: User, db: Session, *,
+                       draft_check: bool = True) -> PDFContext:
     """Sammelt PDFContext-Daten aus Mandant + Client + User.
 
     Mandate-Anzeige: <Client.name> [<mandate_number>] — falls Client
@@ -105,6 +110,8 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session) -> PDF
         base_currency=base_currency,
         mandate_type=getattr(mandate, "mandate_type", None),
         jurisdiction=resolve_pdf_jurisdiction(mandate),
+        # N-897-12: ohne jede KYC-Bestaetigung als Entwurf vor Vertragsabschluss.
+        watermark_mode="vorvertrag" if draft_check and kyc_release_is_draft(db, mandate) else "none",
     )
 
 
@@ -1201,6 +1208,45 @@ def _assert_client_pdf_signoff(db: Session, mandate: Mandate) -> None:
     assert_risk_signoff_release_eligible(db, mandate, channel=CHANNEL_CLIENT_PDF)
 
 
+def _assert_client_pdf_kyc_review(db: Session, mandate: Mandate, current_user: User,
+                                  request: Request | None) -> None:
+    """C-890-01: kundenwirksame PDFs (Klassifikation: services/
+    recommendation_release_gate.py::REPORT_ROUTE_CLASSIFICATION) nutzen
+    dieselbe Wiedervorlage-Pruefung wie Finalisierung, Signatur und Handoff:
+    liegt eine KYC-Bestaetigung vor, muss sie an die heute wirksame,
+    freigegebene Policy gebunden und nicht faellig sein (VOR jedem Render/
+    Archiv; Sperre tenantgebunden auditiert, ``client_pdf_blocked``)."""
+    assert_kyc_review_release_eligible(
+        db, mandate, channel=CHANNEL_CLIENT_PDF,
+        on_block=release_block_audit(
+            db, user=current_user,
+            ip_address=_extract_client_ip(request) if request is not None else None,
+            mandate_id=mandate.id, field_name="client_pdf_blocked",
+            set_tenant_context=set_tenant_context,
+        ),
+    )
+
+
+def _archive_content_hash(data, ctx: PDFContext) -> str:
+    """N-897-17: der Markierungszustand ist Teil des Archiv-Schluessels --
+    eine Entwurfsfassung ("vorvertrag") hat nie denselben Hash wie die finale."""
+    base = content_hash_for(data)
+    mode = getattr(ctx, "watermark_mode", "none") or "none"
+    if mode == "none":
+        return base
+    return hashlib.sha256(f"{base}|{mode}".encode("utf-8")).hexdigest()
+
+
+def _archive_final(ctx: PDFContext, db: Session, **kwargs):
+    """N-897-17: nur FINALE Fassungen werden archiviert (und damit signierbar).
+    Ein Entwurf vor Vertragsabschluss (ohne KYC-Bestaetigung) wird ausgeliefert,
+    aber nie als Archivversion abgelegt; nach der KYC-Bestaetigung entsteht beim
+    naechsten Erzeugen eine neue, finale Fassung."""
+    if (getattr(ctx, "watermark_mode", "none") or "none") != "none":
+        return None
+    return archive_generated_pdf(db, **kwargs)
+
+
 def _assert_client_pdf_cma_hold(db: Session, mandate: Mandate) -> None:
     """CMA-001 / ADR-12a-Release-Hold: Kunden-PDFs, die Strategie oder
     Positionen der aktuellen Soll-Allokation tragen, sind gesperrt, solange
@@ -1231,6 +1277,7 @@ def get_anlagestrategie_pdf(
 ):
     """Generiert Anlagestrategie-PDF fuer das Mandat."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, request)
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
     _assert_report_allocation_context(mandate, db, expected_allocation_id)
@@ -1241,10 +1288,10 @@ def get_anlagestrategie_pdf(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     pdf_bytes = ReportLabRenderer().render_anlagestrategie(ctx, data)
-    archive_generated_pdf(
-        db, mandate_id=mandate.id, document_type="Anlagestrategie",
+    _archive_final(
+        ctx, db, mandate_id=mandate.id, document_type="Anlagestrategie",
         title="Anlagestrategie / Vertrag", pdf_bytes=pdf_bytes,
-        content_hash=content_hash_for(data),
+        content_hash=_archive_content_hash(data, ctx),
         current_user=current_user, ip_address=_extract_client_ip(request),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
@@ -1273,6 +1320,7 @@ def get_assetallocation_pdf(
 ):
     """Reines Asset-Allocation-PDF fuer die Asset-Allocation-Maske."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     _assert_report_allocation_context(mandate, db, expected_allocation_id)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
@@ -1307,6 +1355,7 @@ def get_risikoprofil_pdf(
 ):
     """Generiert Risikoprofil-PDF fuer das Mandat (FINMA W305-konform)."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, request)
     _assert_client_pdf_signoff(db, mandate)
     ctx = _build_pdf_context(mandate, current_user, db)
 
@@ -1466,10 +1515,10 @@ def get_risikoprofil_pdf(
     )
 
     pdf_bytes = ReportLabRenderer().render_risikoprofil(ctx, risk_data)
-    archive_generated_pdf(
-        db, mandate_id=mandate.id, document_type="Risikoprofilierung",
+    _archive_final(
+        ctx, db, mandate_id=mandate.id, document_type="Risikoprofilierung",
         title="Risikoprofil", pdf_bytes=pdf_bytes,
-        content_hash=content_hash_for(risk_data),
+        content_hash=_archive_content_hash(risk_data, ctx),
         current_user=current_user, ip_address=_extract_client_ip(request),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
@@ -1630,16 +1679,17 @@ def get_portfolio_pdf(
 ):
     """Sprint 11 Phase 6: Portfolio-PDF mit Positionen + Soll-vs-IST + Drift."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, request)
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
     data = _build_portfolio_data(mandate, db)
     pdf_bytes = ReportLabRenderer().render_portfolio(ctx, data)
-    archive_generated_pdf(
-        db, mandate_id=mandate.id, document_type="Anlagerezept",
+    _archive_final(
+        ctx, db, mandate_id=mandate.id, document_type="Anlagerezept",
         title="Portfolio-/Umsetzungsplan", pdf_bytes=pdf_bytes,
-        content_hash=content_hash_for(data),
+        content_hash=_archive_content_hash(data, ctx),
         current_user=current_user, ip_address=_extract_client_ip(request),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
@@ -1744,6 +1794,7 @@ def get_vertrag_pdf(
 ):
     """Sprint 12: Vertrags-PDF (ContractDocument). Optional ?document_id=..."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     ctx = _build_pdf_context(mandate, current_user, db)
     data = _build_vertrag_data(mandate, document_id, db)
     pdf_bytes = ReportLabRenderer().render_vertrag(ctx, data)
@@ -1861,6 +1912,7 @@ def get_contract_signoff_pdf(
 ):
     """Final customer sign-off for the documented advisory decision."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     _assert_client_pdf_signoff(db, mandate)
     ctx = _build_pdf_context(mandate, current_user, db)
     try:
@@ -2110,15 +2162,16 @@ def get_protokoll_pdf(
 ):
     """Beratungsprotokoll-PDF mit AdvisoryLog und Unterschrift."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, request)
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
     ctx = _build_pdf_context(mandate, current_user, db)
     data = _build_protokoll_data(mandate, db)
     pdf_bytes = ReportLabRenderer().render_protokoll(ctx, data)
-    archive_generated_pdf(
-        db, mandate_id=mandate.id, document_type="Beratungsprotokoll",
+    _archive_final(
+        ctx, db, mandate_id=mandate.id, document_type="Beratungsprotokoll",
         title="Beratungsprotokoll", pdf_bytes=pdf_bytes,
-        content_hash=content_hash_for(data),
+        content_hash=_archive_content_hash(data, ctx),
         current_user=current_user, ip_address=_extract_client_ip(request),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
@@ -2533,6 +2586,7 @@ def get_depotcheck_pdf(
     )
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, request)
     ctx = _build_pdf_context(mandate, current_user, db)
     try:
         if analysis_snapshot_id is not None:
@@ -2702,6 +2756,7 @@ def get_backtest_pdf(
     Brutto-vs-Netto-Vergleich im PDF.
     """
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
     bm_inputs = {
@@ -2772,6 +2827,7 @@ def get_advisory_report_pdf(
     )
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     # RISK-BUDGET-RELEASE-GATE (2026-10-21): kein client-ready PDF einer
     # Strategie, deren Risikobudget-Treue verletzt oder nicht belegt ist --
     # zentrales Gate, VOR dem Rendern.
@@ -2783,7 +2839,10 @@ def get_advisory_report_pdf(
 
     assert_portfolio_data_release_eligible(db, mandate, action="pdf")
     _enforce_cma_currency_release(db, mandate)  # CMA-CURRENCY-GUARD-001
-    pdf_bytes = render_advisory_report_pdf(db, mandate, current_user)
+    pdf_bytes = render_advisory_report_pdf(
+        db, mandate, current_user,
+        watermark_mode="vorvertrag" if kyc_release_is_draft(db, mandate) else "none",
+    )
     if pdf_bytes is None:
         # CERT-COST-PUBLICATION-001 (COST-PUBLICATION-GATE-001): degraded
         # cost-disclosure evidence blocks a client-ready export -- stable
@@ -2847,6 +2906,7 @@ def get_cost_disclosure_pdf(
     from services.cost_disclosure import build_cost_disclosure
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    _assert_client_pdf_kyc_review(db, mandate, current_user, request)
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
     payload = build_cost_disclosure(db, mandate)
@@ -2889,8 +2949,9 @@ def get_cost_disclosure_pdf(
         advisory_wealth_rappen=int(payload.get("advisory_wealth_rappen") or 0),
         payload=payload,
     )
-    content_hash = content_hash_for(data)
-    existing = (
+    content_hash = _archive_content_hash(data, ctx)
+    is_draft = (getattr(ctx, "watermark_mode", "none") or "none") != "none"
+    existing = None if is_draft else (
         db.query(ContractDocument)
         .filter(
             ContractDocument.mandate_id == mandate.id,
@@ -2909,15 +2970,25 @@ def get_cost_disclosure_pdf(
         doc = existing
         pdf_bytes = base64.b64decode(doc.pdf_base64)
     else:
+        # N-897-17: Render-once nie mit Entwurfs-Bytes (Entwuerfe werden nicht archiviert).
         pdf_bytes = ReportLabRenderer().render_cost_disclosure(ctx, data)
-        doc = archive_generated_pdf(
-            db, mandate_id=mandate.id, document_type="Kostenausweis",
+        doc = _archive_final(
+            ctx, db, mandate_id=mandate.id, document_type="Kostenausweis",
             title="Kostenausweis ex-ante", pdf_bytes=pdf_bytes,
             content_hash=content_hash, current_user=current_user,
             ip_address=_extract_client_ip(request),
         )
     safe_mandate = str(mandate.mandate_number or "mandate")[:40]
     filename = f"kostenausweis-{safe_mandate}.pdf"
+    if doc is None:
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": content_disposition(filename),
+                "X-Ares-Draft": "vorvertrag",
+            },
+        )
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -3144,7 +3215,8 @@ def get_kundeninformation_pdf(
     # N-890-07: eigene Fusszeile der Kundeninformation (H7-Footer je
     # Dokument-/Mandatstyp), nicht "Dokumentation der Anlageberatung".
     ctx = dataclasses.replace(
-        _build_pdf_context(mandate, current_user, db), mandate_type=CLIENT_INFORMATION_DOCUMENT_TYPE,
+        _build_pdf_context(mandate, current_user, db, draft_check=False),
+        mandate_type=CLIENT_INFORMATION_DOCUMENT_TYPE,
     )
     data = _build_kundeninformation_data(db, mandate, profile)
     content_hash = content_hash_for(data)

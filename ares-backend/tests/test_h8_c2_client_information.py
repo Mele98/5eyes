@@ -128,7 +128,14 @@ def test_foreign_seat_is_not_silently_released(sf):
         satisfy_client_onboarding(db, mandate(db), actor_id="adv-1")
         ensure_test_legal_profile(db, TENANT, address_country="DE")
         db.commit()
-        assert codes(db) == ["CLIENT_INFORMATION_REGIME_UNSUPPORTED"]
+        # C-890-01: die KYC-Bestaetigung ist an die CH-Policy gebunden; mit
+        # dem Sitz DE gilt diese Bindung nicht mehr und fuer DE fehlt eine
+        # Wiedervorlage-Policy (beides fail-closed).
+        assert codes(db) == [
+            "CLIENT_INFORMATION_REGIME_UNSUPPORTED",
+            "KYC_REVIEW_POLICY_BINDING_INVALID",
+            "KYC_REVIEW_POLICY_MISSING",
+        ]
 
 
 def test_client_information_deliveries_are_append_only(sf):
@@ -321,9 +328,16 @@ def test_single_alembic_head_is_h8_revision():
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(alembic_cfg("sqlite://"))
-    # RC-CH-1 Teil 2a (I-03, Drehbuch v2): H8 folgt auf H7, H4 a9d4e2c6f1b3
-    # haengt linear hinter H8; genau ein Head, Kanten exakt geprueft.
-    assert script.get_heads() == ["a9d4e2c6f1b3"]
+    # C-890-01: f4c2e8a6d1b3 (Wiedervorlage-Policy), Nachtrag 2: a7d3c9e1f5b2
+    # (Ablehnungen der Zweitfreigabe), Nachtrag 3: d66fbf0588e3 (Konto-Herkunft,
+    # ein Entscheid je Bestaetigung).
+    # RC-CH-1 Teil 2a (I-03, Drehbuch v2 / CCX-Vertrag Abschnitt 2): H8 folgt auf
+    # H7, H4 a9d4e2c6f1b3 haengt hinter H8, C-890-01 hinter H4; genau ein Head,
+    # jede Kante exakt geprueft.
+    assert script.get_heads() == ["d66fbf0588e3"]
+    assert script.get_revision("d66fbf0588e3").down_revision == "a7d3c9e1f5b2"
+    assert script.get_revision("a7d3c9e1f5b2").down_revision == "f4c2e8a6d1b3"
+    assert script.get_revision("f4c2e8a6d1b3").down_revision == "a9d4e2c6f1b3"
     assert script.get_revision("a9d4e2c6f1b3").down_revision == "d8e4b2a6c1f9"
     assert script.get_revision("d8e4b2a6c1f9").down_revision == "e1c6a7d4b2f9"
 

@@ -39,7 +39,13 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # client_information_deliveries, kyc_confirmations, kyc_confirmation_approvals,
 # client_representations), keine bestehende Tabelle umbenannt/entfernt.
 # RC-CH-1 (H8-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
-GOLDEN_SORTED_TABLES_SHA256 = "c13d17868d4502cdbe7a2e7bf176b96f9649f091be4005999e8e1482add11d68"
+# C-890-01 (2026-11-11): zwei neue Tabellen (kyc_review_policies,
+# kyc_review_policy_activations) und acht nullable Bindungsspalten an
+# kyc_confirmations; keine bestehende Tabelle umbenannt/entfernt.
+# C-890-01 Nachtrag 2: neue Tabelle kyc_confirmation_rejections.
+# C-890-01 Nachtrag 3: neue Tabelle kyc_confirmation_decisions, neun Spalten an users.
+# RC-CH-1 (C-890-01-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
+GOLDEN_SORTED_TABLES_SHA256 = "c5c8c871756fa51faaba1660abc8ee6b45eb4b4302736f445725d841fb37cd6d"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -79,7 +85,33 @@ GOLDEN_SORTED_TABLES_SHA256 = "c13d17868d4502cdbe7a2e7bf176b96f9649f091be4005999
 # (delivery_timing, backdating_reason), KYC (identification_*, requires_second_approval),
 # OptHistoryCreate.event_type als FIDLEG-Werteliste. Feld-Diff geprueft.
 # RC-CH-1 (H8-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
-GOLDEN_OPENAPI_SHA256 = "847d0fef5ca35bf3de5907f26921f15d6d0dfadb21e4bb275d7011f39065ca5d"
+# C-890-01: neu GET/POST /compliance/kyc-review-policies, POST
+# /compliance/kyc-review-policies/{policy_row_id}/activate (+ KycReviewPolicy*-
+# Schemas); Request-Body von POST /clients/{client_id}/kyc-confirmations heisst
+# KycConfirmationRequest (Felder unveraendert; KycConfirmationCreate ist das
+# policy-gebundene Fachobjekt); additiv: KycConfirmationResponse.review_*,
+# ClientOnboardingFinding (kyc_review_status, policy_ref, binding_defect,
+# bound_next_review_due, current_max_due), ClientOnboardingStatusResponse.
+# kyc_review_policy. Feld-Diff geprueft.
+# C-890-01 Nachtrag 1: Rolle "compliance_reviewer" in UserCreate/UserUpdate/
+# Einladung (Literal erweitert) und description von POST
+# /compliance/kyc-review-policies/{policy_row_id}/activate. Feld-Diff geprueft.
+# C-890-01 Nachtrag 2: neu GET /compliance/kyc-approvals, POST
+# /compliance/kyc-approvals/{confirmation_id}/decision (+ KycPendingApproval*,
+# KycSecondApproval*-Schemas); kein bestehender Pfad, kein bestehendes Schema
+# geaendert. Feld-Diff geprueft.
+# C-890-01 Nachtrag 3: nur additive Felder -- InviteCreate (reviewer_organisation,
+# reviewer_reference), UserResponse (Konto-Herkunft), approver_account an
+# KycConfirmationApprovalResponse/KycReviewPolicyResponse/
+# KycSecondApprovalDecisionResponse, KycConfirmationResponse.
+# personal_data_warnings, ClientOnboardingFinding.shortened_by_policy_version.
+# Kein Pfad, kein bestehendes Feld geaendert. Feld-Diff geprueft.
+# C-890-01 Nachtrag 4: neu POST /users/{user_id}/compromise (+ UserCompromise),
+# UserResponse.compromised_since, InviteResponse.link_delivery; einzige
+# Aenderung an Bestehendem: InviteResponse.invite_token optional (None, wenn
+# der Link einer externen Compliance-Person nur per Mail geht). Feld-Diff geprueft.
+# RC-CH-1 (C-890-01-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
+GOLDEN_OPENAPI_SHA256 = "2d43fa5ca2e623e81a29042b50d148945453bffdb0fff9717a4cb5147ae099a6"
 
 _PROBE = """
 import hashlib, json

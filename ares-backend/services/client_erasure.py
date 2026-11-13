@@ -351,6 +351,7 @@ def erase_client_personal_data(
     _apply("kyc_confirmations", "client_id", [client_id],
            marker_columns=["external_reference", "note"])
     _apply("kyc_confirmation_approvals", "client_id", [client_id], marker_columns=["note"])
+    _apply("kyc_confirmation_rejections", "client_id", [client_id], marker_columns=["reason"])
     # H8 N-890-09: Vertretung -- Name der vertretenden Person (Dritter) und
     # Freitexte redigiert; Art, Wirksamkeit und Widerruf bleiben als Nachweis.
     _apply("client_representations", "client_id", [client_id],

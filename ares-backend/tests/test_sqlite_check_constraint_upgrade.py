@@ -28,7 +28,9 @@ SCHEMA_FILE = BACKEND_ROOT / "ares_schema.sql"
 # (aktuelles Referenzfragment, Fragment der realen Alt-DB)
 _LEGACY_FRAGMENTS = (
     (
-        "CHECK(role IN ('admin', 'advisor', 'readonly', 'super_admin', 'portfolio_management', 'client'))",
+        # C-890-01 Nachtrag 1: Referenz um 'compliance_reviewer' erweitert.
+        "CHECK(role IN ('admin', 'advisor', 'readonly', 'super_admin', 'portfolio_management', 'client', "
+        "'compliance_reviewer'))",
         "CHECK(role IN ('admin', 'advisor', 'readonly'))",
     ),
     (
@@ -125,7 +127,7 @@ def test_legacy_maintenance_path_widens_stale_check_lists(tmp_path, monkeypatch)
     db_module._run_sqlite_legacy_schema_maintenance()
     test_engine.dispose()
 
-    for role in ("client", "super_admin", "portfolio_management"):
+    for role in ("client", "super_admin", "portfolio_management", "compliance_reviewer"):
         assert _accepts(db_path, "users", "role", role, f"u-{role}"), role
     assert _accepts(db_path, "contract_documents", "status", "Teilweise unterzeichnet", "")
     assert _accepts(db_path, "wealth_positions", "mortgage_amortization_type", "Indirekt (Säule 3a)", "")
@@ -139,7 +141,7 @@ def test_legacy_maintenance_path_widens_stale_check_lists(tmp_path, monkeypatch)
 
 
 _EXPECTED_ADDED = {
-    "users": {"role": ["'super_admin'", "'portfolio_management'", "'client'"]},
+    "users": {"role": ["'super_admin'", "'portfolio_management'", "'client'", "'compliance_reviewer'"]},
     "wealth_positions": {"mortgage_amortization_type": ["'Indirekt (Säule 3a)'"]},
     "contract_documents": {"status": ["'Teilweise unterzeichnet'"]},
 }

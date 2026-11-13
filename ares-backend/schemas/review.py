@@ -2882,6 +2882,13 @@ class ClientOnboardingFinding(BaseModel):
     missing_labels: Optional[list[str]] = None
     confirmation_id: Optional[str] = None
     contract_concluded_at: Optional[str] = None
+    # C-890-01: Wiedervorlage-Policy (gleicher Status/Policybezug in allen Kanaelen).
+    kyc_review_status: Optional[str] = None
+    policy_ref: Optional[dict[str, Any]] = None
+    binding_defect: Optional[str] = None
+    bound_next_review_due: Optional[str] = None
+    current_max_due: Optional[str] = None
+    shortened_by_policy_version: Optional[int] = None
 
 
 class ClientOnboardingStatusResponse(BaseModel):
@@ -2897,3 +2904,85 @@ class ClientOnboardingStatusResponse(BaseModel):
     template_version: str
     latest_document: Optional[dict[str, Any]] = None
     due_diligence: Optional[dict[str, Any]] = None
+    kyc_review_policy: Optional[dict[str, Any]] = None
+
+
+# ---------------------------------------------------------------------------
+# C-890-01: Wiedervorlage-Policy der KYC-Bestaetigung (je Tenant/Jurisdiktion)
+# ---------------------------------------------------------------------------
+
+
+class KycReviewPolicyCreate(BaseModel):
+    """Neue Policy-Version (append-only). Alle Werte kommen vom Owner bzw.
+    der Compliance; Ares belegt keine Frist vor. Die Abstaende sind ganze
+    Kalendermonate ab dem Abschluss der GwG-Abklaerung. Inhaltliche Regeln
+    (Abstand > 0, PEP/erhoehtes Risiko nie lockerer) prueft der Server mit
+    eigenem Reason-Code."""
+
+    jurisdiction: str = Field(min_length=2, max_length=2)
+    policy_id: str = Field(min_length=3, max_length=64)
+    normal_max_months: int
+    elevated_max_months: Optional[int] = None
+    valid_from: str
+    valid_until: Optional[str] = None
+    source_reference: str = Field(min_length=3, max_length=500)
+
+    @model_validator(mode="after")
+    def _normalize(self):
+        self.jurisdiction = self.jurisdiction.strip().upper()
+        if not re.fullmatch(r"[A-Z]{2}", self.jurisdiction):
+            raise ValueError("jurisdiction muss ein ISO-3166-Alpha-2-Code sein")
+        self.policy_id = self.policy_id.strip()
+        self.source_reference = self.source_reference.strip()
+        for name in ("valid_from", "valid_until"):
+            value = getattr(self, name)
+            if value is None:
+                continue
+            try:
+                setattr(self, name, date.fromisoformat(str(value).strip()[:10]).isoformat())
+            except ValueError as exc:
+                raise ValueError(f"{name} muss ein ISO-Datum (JJJJ-MM-TT) sein") from exc
+        return self
+
+
+class KycReviewPolicyActivate(BaseModel):
+    """Vier-Augen-Freigabe: die zweite Person bestaetigt den gesehenen
+    Inhalts-Hash und nennt die unveraenderliche Freigabereferenz (z. B.
+    Beschluss der Geschaeftsleitung bzw. Vorgabe der SRO/AO)."""
+
+    policy_hash: str = Field(min_length=64, max_length=64)
+    approval_reference: str = Field(min_length=3, max_length=500)
+
+
+class KycReviewPolicyResponse(BaseModel):
+    id: str
+    tenant_id: str
+    jurisdiction: str
+    policy_id: str
+    version: int
+    normal_max_months: int
+    elevated_max_months: Optional[int] = None
+    valid_from: str
+    valid_until: Optional[str] = None
+    source_reference: str
+    created_by: str
+    created_at: str
+    policy_hash: str
+    status: str
+    activation_id: Optional[str] = None
+    predecessor_activation_id: Optional[str] = None
+    approved_by: Optional[str] = None
+    approved_at: Optional[str] = None
+    approval_reference: Optional[str] = None
+    effective_from: Optional[str] = None
+    # N-897-02: Herkunft des Freigeberkontos (Freigabenachweis).
+    approver_account: Optional[dict[str, Any]] = None
+
+
+class KycReviewPolicyOverview(BaseModel):
+    tenant_id: str
+    jurisdiction: Optional[str] = None
+    status: str
+    reason_code: Optional[str] = None
+    effective_policy: Optional[dict[str, Any]] = None
+    policies: list[KycReviewPolicyResponse]

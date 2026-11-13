@@ -48,6 +48,9 @@ class PDFContext:
     # (services/pdf/components/static_texts.py::disclaimer_paragraphs).
     mandate_type: str | None = None
     jurisdiction: str | None = None
+    # C-890-01 Nachtrag 4 (N-897-12): "vorvertrag" fuer kundenwirksame Berichte
+    # ohne jede KYC-Bestaetigung (Entwurf vor Vertragsabschluss), sonst "none".
+    watermark_mode: str = "none"
 
 
 @dataclass(frozen=True)

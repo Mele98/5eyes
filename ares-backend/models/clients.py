@@ -3,6 +3,8 @@ from sqlalchemy.orm import relationship
 from database import (
     CLIENT_PII_KEYS_SQLITE_TRIGGERS,
     KYC_CONFIRMATION_APPROVAL_SQLITE_TRIGGERS,
+    KYC_CONFIRMATION_DECISION_SQLITE_TRIGGERS,
+    KYC_CONFIRMATION_REJECTION_SQLITE_TRIGGERS,
     KYC_CONFIRMATION_SQLITE_TRIGGERS,
     Base,
 )
@@ -252,6 +254,19 @@ class KycConfirmation(Base):
     recorded_by = Column(String, ForeignKey("users.id"), nullable=False)
     recorded_at = Column(String, nullable=False)
     confirmation_hash = Column(String, nullable=False)
+    # C-890-01: Bindung an die bei der Erfassung wirksame, freigegebene
+    # Wiedervorlage-Policy (Teil des Siegels): Policy-Zeile, Aktivierung,
+    # Policy-ID/-Version/-Hash, Risikoklasse (normal|erhoeht), angewandter
+    # Abstand in Monaten und die serverseitig berechnete Obergrenze fuer
+    # ``next_review_due``. Bestandszeilen: NULL = "policy_binding_missing".
+    review_policy_row_id = Column(String)
+    review_policy_activation_id = Column(String)
+    review_policy_id = Column(String)
+    review_policy_version = Column(Integer)
+    review_policy_hash = Column(String)
+    review_risk_class = Column(String)
+    review_interval_months = Column(Integer)
+    review_max_due = Column(String)
 
 
 class KycConfirmationApproval(Base):
@@ -269,6 +284,50 @@ class KycConfirmationApproval(Base):
     approved_at = Column(String, nullable=False)
     note = Column(String)
     approval_hash = Column(String, nullable=False)
+
+
+class KycConfirmationRejection(Base):
+    """C-890-01 Nachtrag 2: begruendete Ablehnung der Zweitfreigabe durch eine
+    zweite Person (Admin oder externe Compliance-Person). Append-only;
+    hoechstens ein Entscheid je Bestaetigung (UNIQUE, zusammen mit der
+    Freigabe). Bindet den gesehenen Siegel-Hash der Bestaetigung. Eine
+    abgelehnte Bestaetigung wird nie wirksam; Heilung = neue Bestaetigung."""
+
+    __tablename__ = "kyc_confirmation_rejections"
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    confirmation_id = Column(String, nullable=False, unique=True)
+    client_id = Column(String, nullable=False)
+    rejected_by = Column(String, ForeignKey("users.id"), nullable=False)
+    rejected_at = Column(String, nullable=False)
+    reason = Column(String, nullable=False)
+    confirmation_hash = Column(String, nullable=False)
+    rejection_hash = Column(String, nullable=False)
+
+
+class KycConfirmationDecision(Base):
+    """C-890-01 Nachtrag 3 (N-897-08): genau EIN Entscheid (Freigabe ODER
+    Ablehnung) je Bestaetigung -- UNIQUE auf ``confirmation_id``,
+    in derselben Transaktion wie die Freigabe- bzw. Ablehnungszeile
+    geschrieben. Zwei gleichzeitige Entscheide scheitern an UNIQUE(confirmation_id).
+    Append-only (Trigger); kein Freitext, kein Kundenbezug ausser der ID."""
+
+    __tablename__ = "kyc_confirmation_decisions"
+
+    # Eigene ``id`` wie jede Tenant-Tabelle (RLS-Seeding/Inventar-Konvention);
+    # die Eindeutigkeit des Entscheids traegt UNIQUE(confirmation_id).
+    id = Column(String, primary_key=True)
+    confirmation_id = Column(String, nullable=False, unique=True)
+    tenant_id = Column(String)
+    decision = Column(String, nullable=False)
+    decided_by = Column(String, ForeignKey("users.id"), nullable=False)
+    decided_at = Column(String, nullable=False)
+    record_id = Column(String, nullable=False)
+    # Nachtrag 4 (N-897-13): Bereitschaft (eigene Zugangsdaten + 2FA) zum
+    # Entscheidzeitpunkt eingefroren; Siegel ueber alle Spalten.
+    approver_ready = Column(Integer, nullable=False)
+    decision_hash = Column(String, nullable=False)
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +376,8 @@ class ClientRepresentation(Base):
 for _model, _ddls in (
     (KycConfirmation, KYC_CONFIRMATION_SQLITE_TRIGGERS),
     (KycConfirmationApproval, KYC_CONFIRMATION_APPROVAL_SQLITE_TRIGGERS),
+    (KycConfirmationRejection, KYC_CONFIRMATION_REJECTION_SQLITE_TRIGGERS),
+    (KycConfirmationDecision, KYC_CONFIRMATION_DECISION_SQLITE_TRIGGERS),
 ):
     for _trigger_ddl in _ddls:
         event.listen(
