@@ -554,6 +554,16 @@ SITES: dict[tuple[str, str], tuple[tuple[str, str | None], ...]] = {
     ("services/portfolio_engine_allocation_integrity.py", "allocation_context_hash_for"):
         ((EH, SCHEME_V1_ASCII_STR_DEFAULT),),
     # --- gemischt (Quelltext-Reihenfolge) ---
+    # E2a Nachhaltigkeitspraeferenzen (Dok. 106): Ausschlussliste, Decision-
+    # Hash (v1) und Audit-Payload (sortierte Keys, Standardtrenner).
+    ("routers/profiling.py", "create_sustainability_preference"): (
+        (J, None),                    # exclusions_json
+        (EH, SCHEME_V1),              # decision_hash
+        (J, SCHEME_LEGACY_SPACED),    # Audit-new_value
+    ),
+    # Definitions-Hash des Fragebogens: sortiert, kompakt, UTF-8 = v1 (eigene
+    # json.dumps-Zeile, weil das Blatt core.evidence nicht importieren darf).
+    ("core/sustainability_preference.py", "definition_hash"): ((J, SCHEME_V1),),
     ("services/manual_target_allocation.py", "build_manual_target_allocation"): (
         (CJ, SCHEME_V1),                         # sub_allocations_json
         (CJ, SCHEME_V1),                         # effective_constraints_json

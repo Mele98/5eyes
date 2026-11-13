@@ -177,9 +177,13 @@ ENV_ATTRS = frozenset({"environ", "getenv", "putenv", "unsetenv"})
 #   core.presentation_rounding -- G7 (2026-11-11): gemeinsamer Rundungsformatter
 #     (Policy ares-rounding/1) fuer alle PDF-Komponenten; reine Darstellung, nur
 #     json/typing (Ganzzahl-Dezimalarithmetik) -- ohne Projektkopplung.
+#   core.sustainability_preference -- E2 (Dok. 106): Definition, Ableitung,
+#     Zustandsmodell, Kundentexte und Pruefregeln der Nachhaltigkeitspraeferenz
+#     (nur hashlib/json); Router, Gates, PDF und Tests lesen dieselbe Quelle
+#     ohne neue Kopplung.
 FAN_OUT_EXEMPT_LEAVES = frozenset(
     {"core.evidence", "core.reason_codes", "core.db_integrity", "core.goal_vocabulary",
-     "core.presentation_rounding"}
+     "core.presentation_rounding", "core.sustainability_preference"}
 )
 _STDLIB = frozenset(sys.stdlib_module_names) | {"__future__"}
 _DYNAMIC_IMPORT_CALLS = frozenset({"__import__", "import_module"})

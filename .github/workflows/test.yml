@@ -755,7 +755,7 @@ jobs:
         # H10 (DSG-Technikaudit 2026-11-11): test_postgres_h10_dsg_live.py prueft
         # die drei Datenschutz-Tabellen unter FORCE RLS (zwei Tenants, NOBYPASSRLS),
         # Downgrade/Upgrade der H10-Revisionen und den CHECK hohes Risiko -> melden.
-        run: python -m pytest tests/test_postgres_rls_adversarial.py tests/test_authten07_login_guard_postgres_ddl.py tests/test_rls_dynamic_table_coverage_guard.py tests/test_postgres_alembic_views_live.py tests/test_postgres_rls_global_reference_rows.py tests/test_postgres_wealth_tenant_boundary_live.py tests/test_postgres_risk_evidence_tenant_boundary_live.py tests/test_portfolio_handoff_db_invariants.py tests/test_postgres_money_bigint_live.py tests/test_postgres_mandate_evidence_tenant_boundary_live.py tests/test_postgres_tenant_direct_followup_live.py tests/test_postgres_audit_immutable_function_live.py tests/test_postgres_audit_chain_multi_entry_live.py tests/test_postgres_audit_chain_rls_live.py tests/test_postgres_audit_sequence_unique_live.py tests/test_postgres_goals_rank_unique_live.py tests/test_postgres_release_block_audit_rls_live.py tests/test_postgres_kyc_review_policy_live.py tests/test_postgres_h10_dsg_live.py -q
+        run: python -m pytest tests/test_postgres_rls_adversarial.py tests/test_authten07_login_guard_postgres_ddl.py tests/test_rls_dynamic_table_coverage_guard.py tests/test_postgres_alembic_views_live.py tests/test_postgres_rls_global_reference_rows.py tests/test_postgres_wealth_tenant_boundary_live.py tests/test_postgres_risk_evidence_tenant_boundary_live.py tests/test_portfolio_handoff_db_invariants.py tests/test_postgres_money_bigint_live.py tests/test_postgres_mandate_evidence_tenant_boundary_live.py tests/test_postgres_tenant_direct_followup_live.py tests/test_postgres_audit_immutable_function_live.py tests/test_postgres_audit_chain_multi_entry_live.py tests/test_postgres_audit_chain_rls_live.py tests/test_postgres_audit_sequence_unique_live.py tests/test_postgres_goals_rank_unique_live.py tests/test_postgres_release_block_audit_rls_live.py tests/test_postgres_kyc_review_policy_live.py tests/test_postgres_h10_dsg_live.py tests/test_postgres_investment_preference_decisions_live.py -q
 
       - name: Postgres CHECK-Verstoss -> 422 (RC-CH-1-F1)
         working-directory: ares-backend
@@ -844,6 +844,13 @@ jobs:
           ARES_REQUIRE_PLAYWRIGHT: "1"
         run: |
           python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/c890-ui             --startup-timeout 300 --test-timeout 300 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_c890_kyc_review_policy_ui.py -p no:xdist -rs --tb=short
+
+      - name: Nachhaltigkeitspraeferenzen Flow und Strategiebausteine (E2a/E2b, Playwright Pflicht)
+        working-directory: ares-backend
+        env:
+          ARES_REQUIRE_PLAYWRIGHT: "1"
+        run: |
+          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/e2a-flow             --startup-timeout 300 --test-timeout 300 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_e2a_sustainability_flow.py tests/test_livetest_e2b_strategy_blocks.py -p no:xdist -rs --tb=short
 
       - name: Upload vitest log on failure
         if: failure()

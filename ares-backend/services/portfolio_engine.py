@@ -1460,9 +1460,14 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     default_catalog_theme_tags,
     _suitability_block_hint,
     _tenant_visible_products_query,
+    slot_asset_fallback,
+    slot_candidates,
+    slot_exact,
+    strategy_option_coverage,
     _ter_coverage_bps,
     _validate_recommendation_concentration_limits,
 )
+from services.product_eligibility import run_exclusion_evidence_status  # noqa: E402,F401 (E2 N-901-02, Re-Export)
 
 
 
@@ -6763,8 +6768,9 @@ def generate_recommendation_run(
     # der fruehere Suitability-Relaxation-Fallback-Pfad ist entfernt -- ein
     # Produkt ausserhalb seines Risikobands/Service-Modus wird nicht mehr
     # als letzter Ausweg wieder zum Kandidaten (Spec Section 9.2).
-    from services.product_eligibility import derive_service_mode, is_eligible_candidate, mandate_tenant_id
+    from services.product_eligibility import customer_exclusion_evidence, derive_service_mode, is_eligible_candidate, mandate_tenant_id
     service_mode, run_tenant_id = derive_service_mode(mandate), mandate_tenant_id(mandate)
+    exclusion_evidence = customer_exclusion_evidence(db, mandate)  # E2b N1: nur belegte Produkte
 
     # Beide Praedikate sind schleifeninvariant (haengen nicht von `sub` ab).
     # Vorher stand die Liste IN der Schleife: 351 statt 36 DB-Abfragen pro
@@ -6773,11 +6779,14 @@ def generate_recommendation_run(
         product for product in products
         if _product_matches_constraints(product, prefs, score_bucket, jurisdiction_ctx=jurisdiction_ctx)
         and is_eligible_candidate(db, product, service_mode=service_mode, score_bucket=score_bucket, jurisdiction=jurisdiction, tenant_id=run_tenant_id)
+        and (exclusion_evidence is None or exclusion_evidence(product))
     ]
+    if exclusion_evidence is not None:
+        exclusion_evidence.raise_if_uncovered(eligible_products, sub_allocations, lambda ps, sub_name, asset: slot_candidates(ps, sub_name, asset, _norm_text))
 
     theme_diag = ThemeGapDiagnosis(db, products, prefs, score_bucket, service_mode=service_mode, jurisdiction=jurisdiction, jurisdiction_ctx=jurisdiction_ctx, tenant_id=run_tenant_id)
     for sub in sub_allocations:
-        exact = [product for product in eligible_products if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])]
+        exact = slot_exact(eligible_products, sub["sub_asset_class"])  # N-901-05: eine Slot-Regel
         used_fallback = False
         suitability_block_hint = None
         if not exact:
@@ -6791,7 +6800,7 @@ def generate_recommendation_run(
         theme_gap_hint = None if exact else theme_diag.hint(sub)  # THEME-MISSINGNESS-001
         candidates = exact
         if not candidates:
-            candidates = [product for product in eligible_products if _norm_text(product.asset_class) == _norm_text(sub["asset_class"])]
+            candidates = slot_asset_fallback(eligible_products, sub["asset_class"], _norm_text)
             used_fallback = bool(candidates)
         if not candidates:
             warnings.append(f"Kein passendes Produkt fuer {sub['sub_asset_class']} gefunden." + (f" {esg_gap_hint}." if esg_gap_hint else ""))
@@ -6863,6 +6872,7 @@ def generate_recommendation_run(
 
     _validate_recommendation_concentration_limits(aggregated_positions, prefs)
     warnings.extend(w for w in [seed_unverified_run_warning(prefs, [e["product"] for e in aggregated_positions.values()])] if w)
+    run.sustainability_evidence_json = exclusion_evidence.snapshot([e["product"] for e in aggregated_positions.values()]) if exclusion_evidence is not None else None
 
     latest_prices = latest_price_snapshot(db, list(aggregated_positions.keys()))
     market_data_quality = summarize_price_quality(db, list(aggregated_positions.keys()))

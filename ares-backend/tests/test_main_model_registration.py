@@ -54,7 +54,11 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # H10 Nachtrag 2: neue Tabelle privacy_security_incident_artifacts.
 # H10 Nachtrag 3: neue Tabelle privacy_egress_daily_counts.
 # RC-CH-1 (H10-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
-GOLDEN_SORTED_TABLES_SHA256 = "7bec954fcbe77cda3eab7d0dd8acc6a9ab53c4de5ab945d982a80ae24c3eac3a"
+# E2a Nachhaltigkeitspraeferenzen (Dok. 106): neue append-only Tabelle
+# investment_preference_decisions (+ tenants.sustainability_review_months,
+# contract_documents.bound_preference_decision_hash).
+# RC-CH-1 (E2-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
+GOLDEN_SORTED_TABLES_SHA256 = "d81632111a28c5666148749dfd4b619067737b9c619b07043e08dabcbc1aacad"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -143,7 +147,20 @@ GOLDEN_SORTED_TABLES_SHA256 = "7bec954fcbe77cda3eab7d0dd8acc6a9ab53c4de5ab945d98
 # amount_currency (str, Default "CHF"); kein Pfad, kein bestehendes Feld geaendert
 # (Feld-Diff von api/openapi.json, export_openapi.py --check gruen).
 # RC-CH-1 (G7-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
-GOLDEN_OPENAPI_SHA256 = "22d0253f7095a65689e82d0fca4c67c70887478ee6511e17d01bc81e0e08bc2c"
+# E2a Nachhaltigkeitspraeferenzen (Dok. 106, Codex-Vertrag E2): GET
+# /sustainability-preferences/definition, GET/POST /mandates/{id}/
+# sustainability-preferences, Schemas SustainabilityPreference*/
+# SustainabilityExclusionOption, ContractDocumentResponse.
+# bound_preference_decision_hash und Tenant*.sustainability_review_months
+# (nur additiv, alle optional bzw. neue Pfade).
+# E2b: GET /mandates/{id}/strategy-option-coverage (StrategyOption*),
+# SustainabilityPreferenceState.allocation_floor_* /allocation_stale_notice,
+# SustainabilityExclusionOption.missing_sub_asset_classes/evidence,
+# ContractDocumentResponse.bound_target_allocation_id (nur additiv).
+# E2 Nachtrag 3 (N-901-06): GET /mandates/{id}/sustainability-preferences/
+# exclusion-options?selected=... (nur additiv).
+# RC-CH-1 (E2-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
+GOLDEN_OPENAPI_SHA256 = "a19b69faa4c96e556e0efa0b0c98a9dff8cb0c32c939080c5b3dbb47d66caad5"
 
 _PROBE = """
 import hashlib, json

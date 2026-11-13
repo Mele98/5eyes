@@ -49,6 +49,8 @@ from services.recommendation_release_gate import (
     RECOMMENDATION_DOCUMENT_TYPES,
     SIGNOFF_BOUND_DOCUMENT_TYPES,
     assert_client_onboarding_release_eligible,
+    assert_document_sustainability_floor,
+    assert_preference_document_bound,
     assert_recommendation_release_eligible,
     assert_retrocession_release_eligible,
     assert_risk_signoff_release_eligible,
@@ -121,6 +123,12 @@ def _release_gates(
             assert_recommendation_release_eligible(db, mandate, channel=CHANNEL_SIGNATURE)
             # H7 N-884-04: Retro-Gate auch fuer finale Laeufe (fail-closed).
             assert_retrocession_release_eligible(db, mandate, channel=CHANNEL_SIGNATURE)
+        # E2a (Negativfaelle 4/6/7): gleiche Dokumentbindung wie die Berater-
+        # Signatur. RC-CH-1 Teil 2b: im H7-Auditblock, damit die Sperre wie
+        # vorgesehen ueber release_block_audit protokolliert wird (N-888-13).
+        assert_preference_document_bound(db, mandate, document, channel=CHANNEL_SIGNATURE)
+        # E2b / N-888-09: gebundener Strategie-Inhalt gegen die Kundenausschluesse.
+        assert_document_sustainability_floor(db, mandate, document, channel=CHANNEL_SIGNATURE)
         if document_type in CONTRACT_CONCLUSION_DOCUMENT_TYPES:
             # H8 N-890-01: die Vor-Ort-Signatur ist der In-App-Weg fuer die
             # Kundenunterschrift -- dasselbe Kundeninformations-/KYC-Gate wie

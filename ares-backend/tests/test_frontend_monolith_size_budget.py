@@ -76,6 +76,13 @@ H-153 Nachtrag 4 (Grundregel Waehrung, N-894-12..17): 27447 / 1682837, ``goal-re
 RC-CH-1 Teil 2b (Merge G7+H6 nach H8/C-890-01/H10): Auslagerungen beider
 Seiten gelten; Budget bewusst auf den gemessenen Stand des Integrationsbaums
 gesenkt: 27389 Z./1679385 B (kleiner als beide Seiten).
+
+E2 Nachhaltigkeitspraeferenzen (Dok. 106, 2026-11-07): Kundenmaske im neuen
+Teil sustainability-preferences.js mit eigenem Budget. Im Monolithen nur die
+Einbindung; Platz dafuer durch eine gemeinsame Themen-Namensliste
+(AA_THEME_NAMES statt dreier gleicher Literale), er schrumpft dabei.
+RC-CH-1 Teil 2b (Merge E2 nach G7): Budget auf den gemessenen Stand des
+Integrationsbaums gesenkt: 27389 Z./1679248 B.
 """
 from __future__ import annotations
 
@@ -86,7 +93,7 @@ MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
 MONOLITH_MAX_LINES = 27389
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1679385
+MONOLITH_MAX_BYTES = 1679248
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -99,6 +106,7 @@ EXTRACTED_PART_BUDGETS = {
     "client-compliance.js": (465, 29504),
     "kyc-review-policy.js": (427, 25832),
     "privacy-governance.js": (503, 35259),
+    "sustainability-preferences.js": (519, 26082),
 }
 
 

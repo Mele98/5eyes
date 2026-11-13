@@ -228,6 +228,10 @@ def test_foundation_case_appears_in_aggregate(session_factory, monkeypatch):
 # 3. Foundation-Verdikt — Methodology §4 GREEN-Erwartung
 # ---------------------------------------------------------------------------
 
+# Wandzeit-Schranke im Verdikt (elapsed_ms > 15000 -> RED): seriell im Job
+# "Backend Test Wallclock Budgets", nicht neben xdist-Workern (in Shard 8
+# mehrfach 24.6 s nur durch CPU-Konkurrenz, Solver-Code unveraendert).
+@pytest.mark.wallclock_budget
 def test_foundation_case_yields_green_or_yellow_verdict(
     session_factory, monkeypatch
 ):

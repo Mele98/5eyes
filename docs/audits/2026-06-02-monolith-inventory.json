@@ -3,9 +3,9 @@
     "css_selectors": 1176,
     "event_handlers": 461,
     "ids": 1018,
-    "js_functions": 1445,
+    "js_functions": 1477,
     "modal_structures": 110,
-    "script_blocks": 30,
+    "script_blocks": 31,
     "style_blocks": 2,
     "sub_sections": 42
   },
@@ -9566,6 +9566,12 @@
       "path": "ares-desktop/frontend/privacy-governance.js",
       "sha256": "cf207a4c1190c75b43973f03a2a5598b99d69380546b3e0f114a43319d1d6b5a",
       "size_bytes": 35259
+    },
+    {
+      "kind": "js",
+      "path": "ares-desktop/frontend/sustainability-preferences.js",
+      "sha256": "2fd8a4daf87220ad32683c1f29a41745d103eb451f9f78b6771fe714d7a61e61",
+      "size_bytes": 26082
     }
   ],
   "ids": [
@@ -23131,6 +23137,198 @@
       "line": 460,
       "name": "wrapped",
       "source": "privacy-governance.js"
+    },
+    {
+      "declaration": "function",
+      "line": 344,
+      "name": "sustActiveExclusions",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 123,
+      "name": "sustApplyExclusionOptions",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 441,
+      "name": "sustApplyStale",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 350,
+      "name": "sustApplyStrategyBlocks",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 36,
+      "name": "sustCard",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 157,
+      "name": "sustChecked",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 227,
+      "name": "sustCollect",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 324,
+      "name": "sustCoverageOption",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 205,
+      "name": "sustErrors",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 18,
+      "name": "sustEsc",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 59,
+      "name": "sustExclusionOptions",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 473,
+      "name": "sustInstallWrappers",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 26,
+      "name": "sustIsRealMandate",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 296,
+      "name": "sustLoad",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 397,
+      "name": "sustLoadCoverage",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 285,
+      "name": "sustLoadDefinition",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 22,
+      "name": "sustMandateId",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 332,
+      "name": "sustNote",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 30,
+      "name": "sustQuestion",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 55,
+      "name": "sustRadio",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 455,
+      "name": "sustRefreshAllocationStale",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 136,
+      "name": "sustRefreshExclusions",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 408,
+      "name": "sustRefreshStrategyBlocks",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 63,
+      "name": "sustRender",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 263,
+      "name": "sustSave",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 161,
+      "name": "sustSelectedExclusions",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 256,
+      "name": "sustServerError",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 177,
+      "name": "sustShowState",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 427,
+      "name": "sustStaleNotice",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 433,
+      "name": "sustSyncUmsetzenButton",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 167,
+      "name": "sustSyncVisibility",
+      "source": "sustainability-preferences.js"
+    },
+    {
+      "declaration": "function",
+      "line": 152,
+      "name": "sustValue",
+      "source": "sustainability-preferences.js"
     }
   ],
   "modal_structures": [
@@ -23906,8 +24104,8 @@
     }
   ],
   "source_path": "ares-desktop/frontend/ares.html",
-  "source_sha256": "cd66b70f618d3cdd58d90c1c2bda8dd94d1f75bfc4641e3f0751d86f026aa1b2",
-  "source_size_bytes": 1679385,
+  "source_sha256": "17ca17cb2236eb73d097ab5543112b22af867afafe8c0251153f30309028afc0",
+  "source_size_bytes": 1679248,
   "sub_sections": [
     {
       "class": "sbb",

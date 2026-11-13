@@ -43,7 +43,7 @@ def resolve_current_recommendation_run(
             RecommendationRun.target_allocation_id == str(target_allocation_id),
             RecommendationRun.result_status.in_(RESOLVABLE_STATUS_PRIORITY),
         )
-        .order_by(RecommendationRun.created_at.desc())
+        .order_by(RecommendationRun.created_at.desc(), RecommendationRun.id.desc())  # Gleichstand: id
         .all()
     )
     for status in RESOLVABLE_STATUS_PRIORITY:

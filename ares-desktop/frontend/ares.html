@@ -17923,7 +17923,7 @@ function buildAllocationRestrictionItems(prefs){
     net_zero:'Net Zero (SFDR 8/9 + EU-Klima-Benchmark PAB/CTB Pflicht)'
   };
   var tiltActionLabels={exclude:'Ausschliessen',underweight:'Untergewichten',allow:'Bewusst zulassen',overweight:'Übergewichten'};
-  var tiltNames={fossil:'Fossile Energie',defense:'Verteidigung',tobacco:'Tabak',alcohol:'Alkohol',gaming:'Glücksspiel',nuclear:'Kernenergie'};
+  var tiltNames=AA_THEME_NAMES;
   var restrictions=[];
   if(prefs.policy&&prefs.policy.esg&&prefs.policy.esg!=='none')restrictions.push('✓ '+(esgLabels[prefs.policy.esg]||'ESG-Integration'));
   if(prefs.product&&prefs.product.noDerivatives)restrictions.push('✓ Keine Derivate');
@@ -17961,7 +17961,7 @@ function updateAllocationPreferencesEntryButton(){
 // (Tilts, Praeferenzen, Restriktionen, Reserve) in EINEM einklappbaren Balken
 // direkt ueber der Asset Allocation. Eingeklappt: ruhige Chips der aktiven
 // Bausteine; aufgeklappt: Detail-Auswahl je Thema mit genau einer Steuerung.
-var STRATEGY_BLOCK_CHIP_LIMIT=9;
+var STRATEGY_BLOCK_CHIP_LIMIT=9;var AA_THEME_NAMES={fossil:'Fossile Energie',defense:'Verteidigung',tobacco:'Tabak',alcohol:'Alkohol',gaming:'Glücksspiel',nuclear:'Kernenergie'};
 function sbbParseAmount(value){
   // AA-UX-FORMAT-001: Eingaben mit ' oder ' (U+2019) als Tausendertrennung.
   var n=Number(normalizeNumberInputCH(value).replace(/[^0-9.]/g,''));
@@ -18028,7 +18028,7 @@ function buildStrategyBlockChips(prefs){
   if(geo.noUsd)add('Kein USD');
   var esg={esg_integration:'ESG: SFDR 8/9',best_in_class:'ESG: Best-in-Class (SFDR 8/9 + Rating)',impact:'ESG: nur SFDR 9',net_zero:'ESG: SFDR 8/9 + PAB/CTB',negative_screening:'ESG: Negativ-Screening'};
   add(esg[policy.esg]);
-  var themeNames={fossil:'Fossile Energie',defense:'Verteidigung',tobacco:'Tabak',alcohol:'Alkohol',gaming:'Glücksspiel',nuclear:'Kernenergie'};
+  var themeNames=AA_THEME_NAMES;
   [['exclude','Ausschluss'],['underweight','Untergewichtet'],['allow','Bewusst zugelassen'],['overweight','Übergewichtet']].forEach(function(group){
     var names=Object.keys(themeNames).filter(function(key){return tilts[key]===group[0];}).map(function(key){return themeNames[key];});
     if(names.length)add(group[1]+': '+names.join(', '));
@@ -18236,7 +18236,7 @@ function renderAllocationPreferenceSummary(prefs){
   var homeBiasLabels={none:'Kein Heimmarkt-Bias',ch_focus:'CH-Fokus bevorzugt',europe_focus:'Europa-Fokus',global:'Global neutral'};
   var hedgingLabels={none:'Keine FX-Vorgabe',hedged:'FX-gehedgt bevorzugt',chf_only:'Nur CHF-Instrumente',risk_budget:'FX ausserhalb Risiko-Budget'};
   var tiltActionLabels={exclude:'Ausschliessen',underweight:'Untergewichten',allow:'Bewusst zulassen',overweight:'Übergewichten'};
-  var tiltNames={fossil:'Fossile Energie',defense:'Verteidigung',tobacco:'Tabak',alcohol:'Alkohol',gaming:'Glücksspiel',nuclear:'Kernenergie'};
+  var tiltNames=AA_THEME_NAMES;
   var altPrefs=['Gold / Rohstoffe','Liquid Alternatives','Hedge Funds','Private Equity','Krypto'].filter(function(label,idx){
     return [prefs.assetClasses.altsGold,prefs.assetClasses.altsLiquidAlts,prefs.assetClasses.altsHedge,prefs.assetClasses.altsPe,prefs.assetClasses.altsCrypto][idx];
   });
@@ -27384,6 +27384,6 @@ function openStammdatenModal(){
 </div>
 <!-- ─────────────────────────────────────────────────────────── -->
 
-<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./privacy-governance.js"></script>
+<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./privacy-governance.js"></script><script src="./sustainability-preferences.js"></script>
 </body>
 </html>

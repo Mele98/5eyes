@@ -91,6 +91,9 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     # RISK-CAPACITY-EVALUATION-SNAPSHOT-001: append-only Plausibilitaets-
     # Evidenz, Mandant aus dem Mandat (hash-gebunden).
     "risk_capacity_plausibility_evaluations",
+    # E1 Nachhaltigkeitspraeferenzen (Dok. 106): append-only Kundenpraeferenz
+    # je Mandat, Mandant aus dem Mandat (core/mandate_evidence_tenant_boundary.py).
+    "investment_preference_decisions",
     # AUDIT-2026-11 T1: Hausstandard Nachhaltigkeitsschwellen je Tenant.
     "sustainability_exclusion_standards",
     "tenant_legal_profiles",

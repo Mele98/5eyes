@@ -17,6 +17,7 @@ greift, UND dass es den Normalbetrieb nicht lahmlegt.
 """
 from __future__ import annotations
 
+from tests.sustainability_test_support import answer_question_one_for_all_mandates  # noqa: E402
 import sys
 from pathlib import Path
 
@@ -102,6 +103,7 @@ def _finalize(session_factory, mandate_id, run_id, advisor_id):
     with session_factory() as db:
         advisor = db.query(User).filter(User.id == advisor_id).first()
         declare_all_products_retro_free(db)
+        answer_question_one_for_all_mandates(db)  # Nachtrag 1: Pflichtfrage
         return finalize_recommendation(
             mandate_id=mandate_id, run_id=run_id, request=_FakeRequest(),
             db=db, current_user=advisor,

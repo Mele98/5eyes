@@ -295,9 +295,11 @@ def test_exempt_leaves_allowlist_is_explicit_and_versioned(gate):
     """Explizite Liste, keine Mustererkennung; jede Aufnahme ist ein Review-Entscheid."""
     # RC-CH-1-F1: core.db_integrity und core.goal_vocabulary als Review-Entscheid aufgenommen.
     # G7 (2026-11-11): core.presentation_rounding als Review-Entscheid aufgenommen (Handoff H-153).
+    # E2 (Dok. 106): core.sustainability_preference als bewusst gepruefte
+    # Aufnahme (Definition/Ableitung/Zustand/Kundentexte der Nachhaltigkeitspraeferenz).
     assert gate.FAN_OUT_EXEMPT_LEAVES == frozenset(
         {"core.evidence", "core.reason_codes", "core.db_integrity", "core.goal_vocabulary",
-         "core.presentation_rounding"}
+         "core.presentation_rounding", "core.sustainability_preference"}
     )
 
 

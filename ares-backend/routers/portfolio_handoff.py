@@ -38,7 +38,7 @@ from schemas.portfolio_handoff import (
     PortfolioHandoffPreviewResponse,
     PortfolioHandoffResponse,
 )
-from services.audit import log, release_block_audit
+from services.audit import gate_block_audit, log, release_block_audit
 from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor, set_tenant_context
 from services.portfolio_handoff import (
     HoldingsValuationIncompleteError,
@@ -50,6 +50,7 @@ from services.portfolio_handoff import (
 from services.recommendation_release_gate import (
     CHANNEL_HANDOFF,
     assert_client_onboarding_release_eligible,
+    assert_preference_release_ready,
     assert_recommendation_release_eligible,
     assert_retrocession_release_eligible,
     assert_risk_signoff_release_eligible,
@@ -245,6 +246,19 @@ def create_portfolio_handoff(
     # Persistierung.
     assert_recommendation_release_eligible(
         db, mandate, channel=CHANNEL_HANDOFF, run=run,
+        audit=gate_block_audit(
+            db, user=current_user, mandate=mandate, ip_address=_extract_client_ip(request),
+            table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+        ),
+    )
+    # E2a (Negativfall 4/6): veraltete/nicht lesbare Nachhaltigkeitspraeferenz
+    # sperrt die Weiterleitung (mit Audit-Eintrag).
+    assert_preference_release_ready(
+        db, mandate, channel=CHANNEL_HANDOFF,
+        audit=gate_block_audit(
+            db, user=current_user, mandate=mandate, ip_address=_extract_client_ip(request),
+            table_name="investment_preference_decisions", field_name="sustainability_preference_blocked",
+        ),
     )
     # H7 N-884-04: auch ein bereits finaler Lauf ohne geklaerte Retrozession
     # wird nicht weitergeleitet (fail-closed, Sperre im Audit-Log).

@@ -16,6 +16,8 @@ from config import settings
 from database import get_db, new_uuid
 from models.users import User
 from core.http_filenames import content_disposition
+from core import sustainability_preference
+from core.reason_codes import DomainError, ReasonCode
 from models.mandates import Mandate
 from models.review import (
     ReviewTrigger, AdvisoryLog, ContractDocument,
@@ -28,6 +30,7 @@ from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAl
 from models.profiling import RiskAssessment, SuitabilityCheck
 from models.tenant import KYC_REVIEW_GENESIS, KycReviewPolicy, KycReviewPolicyActivation, Tenant, TenantLegalProfile
 from schemas.review import (
+    StrategyOptionCoverageResponse,
     master_data_consistency_errors,
     ReviewTriggerCreate, ReviewTriggerResolve, ReviewTriggerResponse,
     ReviewTriggerFrequencyUpdate, CalendarFeedTokenResponse,
@@ -60,7 +63,7 @@ from schemas.review import (
 )
 from price_updater import summarize_price_quality
 from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, require_staff, same_person, assert_compliance_reviewer_ready, short_user_agent, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
-from services.audit import log, release_block_audit, restore_tenant_after_rollback
+from services.audit import gate_block_audit, log, release_block_audit, restore_tenant_after_rollback
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
 from routers.auth import _extract_client_ip
@@ -76,7 +79,11 @@ from services.preference_snapshot import (
 from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible
 from services.portfolio_engine import (
     _current_target_allocation_or_none,
+    _norm_text,
+    _normalize_preferences,
+    _resolve_jurisdiction_context,
     _risk_score_bucket,
+    strategy_option_coverage,
     build_recommendation_payload_from_run,
     build_run_context,
     build_target_payload_from_allocation,
@@ -101,8 +108,13 @@ from services.recommendation_release_gate import (
     SIGNOFF_BOUND_DOCUMENT_TYPES,
     SUPERVISION_LABELS,
     assert_client_onboarding_release_eligible,
+    assert_document_sustainability_floor,
+    assert_preference_document_bound,
+    assert_preference_release_ready,
     assert_recommendation_release_eligible,
     assert_retrocession_release_eligible,
+    assert_sustainability_preference_floor,
+    preference_state,
     assert_risk_signoff_release_eligible,
     client_onboarding_status,
     kyc_approver_account,
@@ -128,6 +140,15 @@ from services.signature_artifact import CLIENT_SIGNATURE_REQUIRES_CLIENT_PRINCIP
 from services.suitability_audit import audit_mandate_suitability, suitability_gate_blocks
 from services.product_eligibility_finalization import finalization_eligibility_findings, saa_bucket_reconciliation_warnings
 from services.product_eligibility_governance import parse_utc_timestamp
+from services.product_eligibility import (
+    assert_product_evidenced,
+    assert_run_positions_evidenced,
+    derive_service_mode,
+    is_eligible_candidate,
+    # RC-CH-1 Teil 2b: Alias -- gleichnamige Funktion (db, mandate) aus
+    # recommendation_release_gate (H8) wird oben importiert.
+    mandate_tenant_id as eligibility_mandate_tenant_id,
+)
 from services.review_calendar_feed import (
     build_ics_feed,
     issue_calendar_feed_token,
@@ -1798,6 +1819,41 @@ def create_document(
     return doc
 
 
+def _floor_audit(db: Session, current_user, mandate, request):
+    """E2b: Audit-Callback der Untergrenze (N-888-01); IP erst beim Block lesen."""
+    def _audit(payload: str, result: dict) -> None:
+        ip = _extract_client_ip(request) if request is not None else None
+        gate_block_audit(
+            db, user=current_user, mandate=mandate, ip_address=ip,
+            table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+        )(payload, result)
+
+    return _audit
+
+
+def _floor_target_allocation(db: Session, mandate, target_allocation_id=None):
+    """Allokation, deren Praeferenz-Snapshot Produktlauf/Finalize nutzen:
+    die explizit genannte (Mandat, nicht geloescht) bzw. die aktuelle."""
+    query = db.query(TargetAllocation).filter(
+        TargetAllocation.mandate_id == mandate.id, TargetAllocation.deleted_at.is_(None),
+    )
+    if target_allocation_id:
+        return query.filter(TargetAllocation.id == target_allocation_id).first()
+    return query.filter(TargetAllocation.is_current == 1).first()
+
+
+def _preference_audit(db: Session, current_user, mandate, request):
+    """E2a: Audit-Callback der Praeferenz-Gates; IP erst beim Block lesen."""
+    def _audit(payload: str, result: dict) -> None:
+        ip = _extract_client_ip(request) if request is not None else None
+        gate_block_audit(
+            db, user=current_user, mandate=mandate, ip_address=ip,
+            table_name="investment_preference_decisions", field_name="sustainability_preference_blocked",
+        )(payload, result)
+
+    return _audit
+
+
 @router.post("/mandates/{mandate_id}/documents/{doc_id}/sign",
              response_model=ContractDocumentResponse)
 def sign_document(
@@ -1846,6 +1902,7 @@ def sign_document(
     if str(doc.document_type or "") in RECOMMENDATION_DOCUMENT_TYPES:
         assert_recommendation_release_eligible(
             db, mandate, channel=CHANNEL_SIGNATURE,
+            audit=_floor_audit(db, current_user, mandate, request),
         )
         # H7 N-884-04: keine Signatur, solange die finale Empfehlung keinen
         # geklaerten Retrozessions-Ausweis traegt (fail-closed, Audit).
@@ -1874,6 +1931,19 @@ def sign_document(
     # CERT-SIGNED-PUBLICATION-001: signiert wird nur ein archiviertes,
     # pruefsummengesichertes PDF -- nie ein leerer Entwurf (VOR jeder
     # Mutation, nach den fachlichen Freigabe-Gates).
+    # E2a (Codex-Vertrag E2, Negativfaelle 4/6/7): nur ein an die AKTUELLE
+    # Nachhaltigkeitspraeferenz gebundenes Kundendokument ist signierbar;
+    # veraltete/nicht lesbare Erfassung sperrt (mit Audit-Eintrag).
+    assert_preference_document_bound(
+        db, mandate, doc, channel=CHANNEL_SIGNATURE,
+        audit=_preference_audit(db, current_user, mandate, request),
+    )
+    # E2b / N-888-09: genau den gebundenen Strategie-Inhalt des Dokuments
+    # gegen die Kundenausschluesse pruefen (nicht die aktuelle Allokation).
+    assert_document_sustainability_floor(
+        db, mandate, doc, channel=CHANNEL_SIGNATURE,
+        audit=_floor_audit(db, current_user, mandate, request),
+    )
     from services.signature_artifact import assert_signable_artifact
 
     assert_signable_artifact(doc)
@@ -4405,6 +4475,13 @@ def generate_recommendation_run_endpoint(
                     "(require_suitability_before_recommendation=True)."
                 ),
             )
+    # E2b / N-888-01: der Produktlauf waehlt Produkte aus dem Praeferenz-
+    # Snapshot der (aktuellen bzw. angeforderten) Soll-Allokation; dieser muss
+    # die Kundenausschluesse einhalten -- vor jeder Berechnung.
+    assert_sustainability_preference_floor(
+        db, mandate, allocation=_floor_target_allocation(db, mandate, body.target_allocation_id),
+        channel="recommendation", audit=_floor_audit(db, current_user, mandate, request),
+    )
     try:
         result = generate_recommendation_run(
             db=db,
@@ -4442,6 +4519,10 @@ def generate_recommendation_run_endpoint(
         ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(result["run"])
+    # N-888-04: Praeferenz-Zustand als Hinweis (nicht erfasst / veraltet).
+    _notice = preference_state(db, mandate).get("notice")
+    if _notice:
+        result["warnings"] = list(result.get("warnings") or []) + [_notice]
     return result
 
 
@@ -4617,6 +4698,30 @@ def finalize_recommendation(
     )
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
     assert_portfolio_data_release_eligible(db, mandate, action="finalize")
+    # E2a (Negativfall 4): veraltete Text-/Policy-Version der
+    # Nachhaltigkeitspraeferenz blockiert die Finalisierung (mit Audit).
+    assert_preference_release_ready(
+        db, mandate, channel="finalize",
+        audit=_preference_audit(db, current_user, mandate, request),
+    )
+    # E2b / N-888-01: Finalize nur, wenn die Allokation des Laufs die
+    # Kundenausschluesse einhaelt (auch fuer Laeufe von VOR der Erfassung) und
+    # die Ausschluesse im Produktuniversum noch belegt erfuellbar sind.
+    _floor_ta = _floor_target_allocation(db, mandate, getattr(run, "target_allocation_id", None))
+    assert_sustainability_preference_floor(
+        db, mandate, allocation=_floor_ta, preferences=getattr(_floor_ta, "preferences_json", None),
+        channel="finalize", audit=_floor_audit(db, current_user, mandate, request),
+    )
+    # Nachtrag 1/2: jede Position muss den Ausschluss HEUTE belegt erfuellen
+    # (abgelaufener/zurueckgezogener Nachweis -> 409, kurze Meldung, Audit).
+    try:
+        assert_run_positions_evidenced(db, mandate, run, label="Die Empfehlung kann nicht finalisiert werden")
+    except DomainError as exc:
+        _floor_audit(db, current_user, mandate, request)(json.dumps({
+            "event": "sustainability_evidence_missing", "channel": "finalize", "run_id": run.id,
+        }, sort_keys=True), {"decision_id": None})
+        raise exc
+    assert_customer_exclusions_offerable(db, mandate, channel="finalize")
     if cma_currency_warning:
         warnings.append(cma_currency_warning)
     # PREF-FINAL-001 (ESG-P0-3): jede Position wird mit demselben Matcher wie
@@ -4697,6 +4802,8 @@ def add_position(
     legacy_warning = _enforce_run_preferences(
         db, mandate, run, context="manual_position", products=[(None, product)],
     )
+    # N-901-02: bei aktivem Kundenausschluss nur belegte Produkte (409).
+    assert_product_evidenced(db, mandate, product)
     now = _now()
     pos = RecommendationPosition(
         id=new_uuid(), run_id=run_id,
@@ -4941,6 +5048,8 @@ from services.product_eligibility_governance import (  # noqa: E402
     approve_sustainability_attribute,
     approve_sustainability_standard,
     criterion_type as sustainability_criterion_type,
+    effective_sustainability_threshold,
+    evaluate_criterion,
     client_source_label_text,
     default_client_source_label,
     default_evidence_valid_until,
@@ -5687,3 +5796,131 @@ def create_product_sustainability_attribute(
         raise HTTPException(status_code=409, detail="Nachweis existiert bereits.")
     db.commit()
     return _sustainability_response(attribute)
+
+
+
+# ── E2b: Erfuellbarkeit der Strategie-Optionen (nur Erfuellbares anbieten) ────
+# Komposition aus dem Produktuniversum + Matcher des Produktlaufs (services/
+# portfolio_engine_payload.py::strategy_option_coverage) und den Ausschluss-
+# nachweisen (services/product_eligibility_governance.py::evaluate_criterion,
+# einzige Stelle fuer "erfuellt": nur freigegebene, gueltige, sichtbare
+# Nachweise mit Quelle und Stichtag; Seed-/Katalogfelder zaehlen nie).
+def strategy_option_coverage_for_mandate(db: Session, mandate, base_exclusions=None, *, only_exclusions=False) -> dict:
+    """``base_exclusions``: Ausschluesse, mit denen jede Option KOMBINIERT
+    geprueft wird (Default: die aktuell erfassten)."""
+    as_of = date.today().isoformat()
+    tenant_id = getattr(mandate, "tenant_id", None)
+    categories = sustainability_preference.EXCLUSION_EVIDENCE_CATEGORIES
+    thresholds = {
+        theme: effective_sustainability_threshold(db, tenant_id, category, as_of)
+        for theme, category in categories.items()
+    }
+    by_product: dict[str, list] = {}
+    for attribute in db.query(ProductSustainabilityAttribute).filter(
+        ProductSustainabilityAttribute.status == "approved",
+    ).all():
+        by_product.setdefault(attribute.product_id, []).append(attribute)
+
+    cache: dict[tuple, bool] = {}
+
+    def _evidence(product, themes):
+        """Alle Themen am SELBEN Produkt belegt (N-901-03)."""
+        rows = by_product.get(product.id)
+        if not rows:
+            return False
+        for theme in themes:
+            key = (product.id, theme)
+            if key not in cache:
+                cache[key] = evaluate_criterion(
+                    db, product, categories[theme], thresholds[theme], as_of, tenant_id=tenant_id, attributes=rows,
+                ).satisfied
+            if not cache[key]:
+                return False
+        return True
+
+    assessment = (
+        db.query(RiskAssessment).filter(RiskAssessment.mandate_id == mandate.id)
+        .order_by(RiskAssessment.created_at.desc()).first()
+    )
+    service_mode, run_tenant = derive_service_mode(mandate), eligibility_mandate_tenant_id(mandate)
+    jurisdiction = build_run_context(mandate).jurisdiction  # X2b: eine Aufloesung
+    bucket = _risk_score_bucket(assessment) if assessment else 0
+
+    def _eligible(product):
+        return is_eligible_candidate(
+            db, product, service_mode=service_mode, score_bucket=bucket, jurisdiction=jurisdiction,
+            tenant_id=run_tenant,
+        )
+
+    if base_exclusions is None:
+        try:
+            base_exclusions = sustainability_preference.effective_exclusions(preference_state(db, mandate).get("decision"))
+        except (TypeError, ValueError):
+            base_exclusions = []
+    current_ta = _current_target_allocation_or_none(db, mandate.id)
+    try:
+        base_preferences = json.loads(current_ta.preferences_json) if current_ta is not None and current_ta.preferences_json else None
+    except (TypeError, ValueError):
+        base_preferences = None
+    return strategy_option_coverage(
+        db, mandate, exclusion_evidence=_evidence, as_of=as_of, eligible=_eligible,
+        normalize_preferences=_normalize_preferences, norm=_norm_text,
+        jurisdiction_ctx=_resolve_jurisdiction_context(db, mandate, jurisdiction),
+        base_preferences=base_preferences if isinstance(base_preferences, dict) else None,
+        base_exclusions=base_exclusions, only_exclusions=only_exclusions,
+    )
+
+
+def customer_exclusion_options(db: Session, mandate, base_exclusions=None) -> list[dict]:
+    """Ausschlusswuensche der Erhebung mit Abdeckung (exclusion:<thema>),
+    jeweils kombiniert mit ``base_exclusions`` geprueft (N-901-03)."""
+    coverage = strategy_option_coverage_for_mandate(db, mandate, base_exclusions, only_exclusions=True)
+    by_key = {option["key"]: option for option in coverage["options"]}
+    return [
+        {**by_key["exclusion:" + theme], "key": theme}
+        for theme in sustainability_preference.EXCLUSION_KEYS
+    ]
+
+
+def assert_customer_exclusions_offerable(db: Session, mandate, *, channel: str) -> None:
+    """Fail-closed: ein erfasster Ausschluss, dessen Abdeckung im Produkt-
+    universum nicht (mehr) belegt ist, sperrt den Kanal (kurze Meldung +
+    Detail)."""
+    decision = preference_state(db, mandate).get("decision")
+    try:
+        exclusions = sustainability_preference.effective_exclusions(decision)
+    except (TypeError, ValueError):
+        exclusions = []
+    if not exclusions:
+        return
+    options = {o["key"]: o for o in customer_exclusion_options(db, mandate, exclusions)}
+    blocked = [key for key in exclusions if not options.get(key, {}).get("available")]
+    if blocked:
+        label = sustainability_preference.FLOOR_CHANNEL_LABELS.get(channel, "Freigabe nicht möglich")
+        raise DomainError(
+            ReasonCode.SUSTAINABILITY_OPTION_NOT_OFFERABLE,
+            f"{label}: Ausschluss ({', '.join(sustainability_preference.exclusion_labels(blocked))}) "
+            "nicht mehr belegt erfüllbar. Einstellung: Nachhaltigkeitspräferenz. "
+            "Bitte neu erheben oder belegte Produkte aufnehmen.",
+            http_status=409,
+            extra={"channel": channel, "detail": "; ".join(
+                f"{sustainability_preference.EXCLUSION_LABELS[k]}: {options.get(k, {}).get('reason') or ''}"
+                for k in blocked
+            )},
+        )
+
+
+@recommendations_router.get(
+    "/mandates/{mandate_id}/strategy-option-coverage",
+    response_model=StrategyOptionCoverageResponse,
+)
+def get_strategy_option_coverage(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """E2b: welche Strategie-Optionen (Restriktionen, Themen, Kunden-
+    ausschluesse) das aktive Produktuniversum des Mandats belegt erfuellen
+    kann. Nicht erfuellbare Optionen tragen einen kurzen Grund."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    return strategy_option_coverage_for_mandate(db, mandate)

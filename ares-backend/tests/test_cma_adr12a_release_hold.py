@@ -12,6 +12,7 @@ Aufgabe ist, die Spaltengruppe "gesetzt" zu machen.
 """
 from __future__ import annotations
 
+from tests.sustainability_test_support import answer_question_one_for_all_mandates  # noqa: E402
 import json
 import sys
 from pathlib import Path
@@ -290,6 +291,7 @@ def test_finalization_blocked_with_reason_code(session_factory):
     with session_factory() as db:
         advisor = db.query(User).filter(User.id == advisor_id).one()
         with pytest.raises(HTTPException) as exc:
+            answer_question_one_for_all_mandates(db)  # Nachtrag 1: Pflichtfrage
             finalize_recommendation(
                 mandate_id=mid, run_id=run_id, request=_FakeRequest(),
                 db=db, current_user=advisor,

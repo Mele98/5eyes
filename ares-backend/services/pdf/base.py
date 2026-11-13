@@ -381,6 +381,13 @@ class ProtokollData:
     # Hinweiszeilen (dokumentarisch). Leer = keine erfasst (kein Abschnitt).
     representation_lines: tuple = ()
 
+    # E2a Nachhaltigkeitspraeferenzen (Dok. 106): Zeilen (Label, Wert) und
+    # Hinweise (was im Portfolio heute nicht beruecksichtigt wird, Review).
+    # state: Pflichtzustand (core/sustainability_preference.py::STATES).
+    sustainability_state: str | None = None
+    sustainability_lines: tuple = ()
+    sustainability_notes: tuple = ()
+
 
 @dataclass(frozen=True)
 class CostDisclosurePDFData:

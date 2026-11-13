@@ -94,6 +94,19 @@ class ContractDocument(Base):
     signature_client_signer_name = Column(String)
     signature_client_signed_at = Column(String)
     signature_client_ip = Column(String)
+    # E2a (Dok. 106, Codex-Vertrag E2): Bindung eines archivierten
+    # Kundendokuments an die Nachhaltigkeitspraeferenz, die bei der Erzeugung
+    # aktuell war (decision_hash bzw. 'keine-erfassung:<mandat>'). Signatur,
+    # Vor-Ort-Signatur und Handoff vergleichen sie mit der aktuellen
+    # Erfassung; eine neue Erfassung macht alte Dokumente unwirksam.
+    # NULL = Altbestand vor E2 (gebunden nur, solange keine Erfassung besteht).
+    bound_preference_decision_hash = Column(String)
+    # E2b / N-888-09: Bindung eines Empfehlungsdokuments an die Soll-Allokation,
+    # deren Inhalt es traegt (ID + SHA-256 des Praeferenz-Snapshots); Signatur
+    # und Vor-Ort-Signatur pruefen GENAU diesen Inhalt gegen die Kunden-
+    # ausschluesse (Alembic c4e8a2f6b9d1). NULL = Altbestand/ohne Strategie.
+    bound_target_allocation_id = Column(String)
+    bound_preferences_sha256 = Column(String)
     version = Column(Integer, nullable=False, default=1)
     supersedes_id = Column(String)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
@@ -509,6 +522,10 @@ class RecommendationRun(Base):
     # Finalisierung gebunden ist. NULL fuer Entwuerfe und solange das
     # Policy-Modell nicht aktiv geschaltet ist (services/cma_policy.py).
     cma_policy_row_id = Column(String)
+    # E2b Nachtrag 1: Belege der Produktauswahl fuer die Kundenausschluesse
+    # (decision_hash, Themen, Stichtag, Nachweis-ID je Position). NULL = kein
+    # Ausschluss aktiv bzw. Altlauf (Alembic e7b3d9f1a2c4).
+    sustainability_evidence_json = Column(String)
     result_status = Column(String, nullable=False, default="Draft")
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)

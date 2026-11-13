@@ -43,6 +43,7 @@
       "frontend/client-compliance.js",
       "frontend/kyc-review-policy.js",
       "frontend/privacy-governance.js",
+      "frontend/sustainability-preferences.js",
       "frontend/eligibility-overrides.js",
       "frontend/desktop-api.js",
       "frontend/risk-capacity-recheck.js",

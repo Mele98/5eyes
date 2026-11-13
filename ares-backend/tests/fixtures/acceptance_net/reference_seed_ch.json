@@ -653,11 +653,12 @@
     "max_users",
     "slug",
     "storage_quota_mb",
+    "sustainability_review_months",
     "updated_at"
    ],
    "row_count": 1,
    "row_sha256": [
-    "2321cd0207c3197fb94f0b3d27781855"
+    "467204ebdcfa5f9eb153e2b3b2b37eff"
    ]
   },
   "users": {

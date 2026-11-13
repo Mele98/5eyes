@@ -590,6 +590,11 @@ class ContractDocumentResponse(BaseResponse):
     supersedes_id: Optional[str]
     pdf_path: Optional[str]
     checksum_sha256: Optional[str]
+    # E2a (Codex-Vertrag E2, Negativfall 10): Bindung an die bei der Erzeugung
+    # aktuelle Nachhaltigkeitspraeferenz (decision_hash bzw. 'keine-erfassung:').
+    bound_preference_decision_hash: Optional[str] = None
+    # E2b / N-888-09: gebundene Soll-Allokation (NULL = ohne Strategie/Altbestand).
+    bound_target_allocation_id: Optional[str] = None
     # Dokumenten-Archiv (2026-08-20): NICHT pdf_base64 hier -- die Liste
     # bleibt bewusst leicht (kann pro Mandat viele Versionen enthalten),
     # die eigentlichen Bytes gibt es nur einzeln ueber
@@ -2986,3 +2991,25 @@ class KycReviewPolicyOverview(BaseModel):
     reason_code: Optional[str] = None
     effective_policy: Optional[dict[str, Any]] = None
     policies: list[KycReviewPolicyResponse]
+
+
+# ── E2b: Erfuellbarkeit der Strategie-Optionen ───────────────────────────────
+class StrategyOptionEvidence(BaseModel):
+    sub_asset_class: str
+    product_id: str
+    evidence_id: str
+
+
+class StrategyOptionCoverage(BaseModel):
+    key: str
+    label: str
+    available: bool
+    reason: Optional[str] = None
+    missing_sub_asset_classes: list[str] = []
+    evidence: list[StrategyOptionEvidence] = []
+
+
+class StrategyOptionCoverageResponse(BaseModel):
+    as_of: str
+    needed_sub_asset_classes: list[str] = []
+    options: list[StrategyOptionCoverage] = []
