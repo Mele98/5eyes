@@ -16,7 +16,7 @@ from models.profiling import (
     ClientKnowledge, InvestmentPreferenceDecision, RiskAssessment, RiskAssessmentAnswer,
     RiskOverrideDecision, SuitabilityCheck, current_investment_preference,
 )
-from models.review import AdvisoryLog, RecommendationRun
+from models.review import AdvisoryLog
 from schemas.profiling import (
     KnowledgeCreate, KnowledgeResponse,
     RiskAssessmentCreate, RiskAssessmentOverride, RiskAssessmentResponse,
@@ -44,6 +44,7 @@ from services.portfolio_engine import (
     _current_risk_assessment_or_none,
     _current_target_allocation_or_none,
     risk_assessment_ready_for_strategy,
+    run_exclusion_evidence_status,
 )
 from services.risk_scoring import canonicalize_horizon_label, compute_scores, profile_for_score_x10
 from services.risk_questionnaire_integrity import (
@@ -989,14 +990,11 @@ def _allocation_floor(db: Session, mandate: Mandate, row) -> dict:
         "id": row.id, "exclusions_json": row.exclusions_json, "decision_hash": row.decision_hash,
     }
     floor = sp.evaluate_floor(decision, getattr(ta, "preferences_json", None), has_strategy=ta is not None)
-    # Nachtrag 1: Umsetzung nur behaupten, wenn die Produktauswahl belegt ist.
-    run = None if ta is None else (
-        db.query(RecommendationRun).filter(RecommendationRun.target_allocation_id == ta.id)
-        .order_by(RecommendationRun.created_at.desc()).first()
-    )
-    floor["evidence"] = sp.run_evidence_status(decision, getattr(run, "sustainability_evidence_json", None))
-    if run is None and floor["evidence"] == sp.RUN_EVIDENCE_MISSING:
-        floor["evidence"] = "no_run"
+    # N-901-02: gezeigter Lauf (Final vor Draft), heute neu bewertet.
+    run_id = None if ta is None else db.execute(
+        text(sp.CURRENT_RUN_SQL), {"mandate_id": mandate.id, "target_allocation_id": ta.id},
+    ).scalar()
+    floor["evidence"] = run_exclusion_evidence_status(db, mandate, run_id)
     return floor
 
 
@@ -1150,7 +1148,9 @@ def _assert_exclusions_offerable(db: Session, mandate: Mandate, exclusions: list
     """Nur Erfuellbares anbieten (serverseitig, fail-closed)."""
     if not exclusions:
         return
-    options = {o["key"]: o for o in _exclusion_options(db, mandate)}
+    # N-901-03: die gewaehlten Ausschluesse muessen ZUSAMMEN am selben Produkt
+    # erfuellbar sein (plus die Restriktionen der aktuellen Strategie).
+    options = {o["key"]: o for o in customer_exclusion_options(db, mandate, exclusions)}
     blocked = [key for key in exclusions if not options.get(key, {}).get("available")]
     if blocked:
         labels = ", ".join(sp.exclusion_labels(blocked))

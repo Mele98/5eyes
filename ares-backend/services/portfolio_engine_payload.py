@@ -1855,21 +1855,22 @@ def _coverage_needed_sub_asset_classes(db: Session, mandate: Mandate, products: 
     return sorted(needed.items())
 
 
-def _coverage_candidates(products: list, sub: str, asset: str, qualifies, *, filter_slot: bool) -> list:
-    """Kandidaten wie im Produktlauf.
+def slot_exact(products: list, sub_asset_class) -> list:
+    """Slot-Regel des Produktlaufs (N-901-05, eine Quelle): exakt die
+    Sub-Anlageklasse des Slots."""
+    return [p for p in products if str(getattr(p, "sub_asset_class", None) or "") == str(sub_asset_class or "")]
 
-    ``filter_slot=True`` (Restriktion ist ein Produktfilter des Laufs): zuerst
-    exakt die Sub-Anlageklasse; besteht dort kein Produkt den Filter, die
-    Anlageklasse (Fallback-Slot). ``filter_slot=False`` (Ausschlussnachweis,
-    filtert den Lauf NICHT): gibt es Produkte der Sub-Anlageklasse, waehlt der
-    Lauf eines davon -- also muss dort ein belegtes Produkt sein; nur ohne
-    jedes Produkt der Sub-Anlageklasse zaehlt die Anlageklasse."""
-    exact = [p for p in products if str(getattr(p, "sub_asset_class", None) or "").strip() == sub]
-    qualified = [p for p in exact if qualifies(p)]
-    if qualified or (exact and not filter_slot):
-        return qualified
-    norm = lambda value: str(value or "").strip().replace("ä", "ae").lower()  # noqa: E731
-    return [p for p in products if norm(getattr(p, "asset_class", None)) == norm(asset) and qualifies(p)]
+
+def slot_asset_fallback(products: list, asset_class, norm) -> list:
+    """Fallback-Slot des Produktlaufs: dieselbe Anlageklasse, normalisiert
+    wie die Engine (``norm`` = services.portfolio_engine._norm_text)."""
+    return [p for p in products if norm(getattr(p, "asset_class", None)) == norm(asset_class)]
+
+
+def slot_candidates(products: list, sub_asset_class, asset_class, norm) -> list:
+    """Kandidaten eines Slots: exakt, sonst Fallback der Anlageklasse --
+    genau die Reihenfolge von generate_recommendation_run()."""
+    return slot_exact(products, sub_asset_class) or slot_asset_fallback(products, asset_class, norm)
 
 
 def strategy_option_coverage(
@@ -1880,55 +1881,70 @@ def strategy_option_coverage(
     as_of: str,
     normalize_preferences,
     jurisdiction_ctx: dict | None,
+    norm,
     eligible=None,
+    base_preferences: dict | None = None,
+    base_exclusions=(),
+    only_exclusions: bool = False,
 ) -> dict:
-    """``eligible``: Eignungskern des Produktlaufs (governed rules); nur
-    empfehlbare Produkte koennen eine Option erfuellen."""
+    """Erfuellbarkeit je Option (N-901-03): geprueft wird die KOMBINATION am
+    selben Produkt -- die Restriktionen der aktuellen Strategie
+    (``base_preferences``), alle bereits erfassten Ausschluesse
+    (``base_exclusions``) und die Option selbst; Kandidaten nur empfehlbare
+    Produkte (``eligible``) nach der Slot-Regel des Produktlaufs.
+    ``exclusion_evidence(product, themes) -> bool`` belegt alle Themen am
+    Produkt (freigegebene, gueltige Nachweise)."""
     products = _filter_products_by_universe(db, mandate, _tenant_visible_products_query(db, mandate).all())
     if eligible is not None:
         products = [p for p in products if eligible(p)]
     needed = _coverage_needed_sub_asset_classes(db, mandate, products)
     names = [sub for sub, _asset in needed]
+    base = dict(base_preferences or {})
+    base_themes = [t for t in _sustainability.EXCLUSION_KEYS if t in set(base_exclusions or ())]
 
-    def _restriction_missing(prefs_patch, known_type: bool) -> list[str]:
-        prefs = normalize_preferences(prefs_patch)
+    def _merged(patch: dict) -> dict:
+        merged = {k: dict(v) if isinstance(v, dict) else v for k, v in base.items()}
+        for key, value in patch.items():
+            merged[key] = {**(merged.get(key) or {}), **value} if isinstance(value, dict) else value
+        tilts = dict(merged.get("tilts") or {})
+        for theme in base_themes:
+            tilts[theme] = "exclude"
+        merged["tilts"] = tilts
+        return normalize_preferences(merged)
+
+    def _missing(prefs_patch, *, known_type=False, themes=()) -> list[str]:
+        prefs = _merged(prefs_patch)
+        all_themes = sorted(set(base_themes) | set(themes))
 
         def qualifies(p):
             return (
                 (not known_type or bool(str(getattr(p, "product_type", "") or "").strip()))
                 and _product_matches_constraints(p, prefs, 0, jurisdiction_ctx=jurisdiction_ctx)
+                and (not all_themes or str(getattr(p, "asset_class", None) or "").strip()
+                     in _COVERAGE_EXEMPT_ASSET_CLASSES or exclusion_evidence(p, all_themes))
             )
 
-        return [sub for sub, asset in needed if not _coverage_candidates(products, sub, asset, qualifies, filter_slot=True)]
+        qualified = [p for p in products if qualifies(p)]
+        return [sub for sub, asset in needed if not slot_candidates(qualified, sub, asset, norm)]
 
-    options = [
+    options = [] if only_exclusions else [
         _sustainability.coverage_option(
-            key, label, _restriction_missing(patch, key in ("noStructured", "noLeverage")), names,
+            key, label, _missing(patch, known_type=key in ("noStructured", "noLeverage")), names,
         )
         for key, label, patch in STRATEGY_RESTRICTION_OPTIONS
     ]
-    for theme in _sustainability.EXCLUSION_KEYS:
+    for theme in () if only_exclusions else _sustainability.EXCLUSION_KEYS:
         options.append(_sustainability.coverage_option(
             "theme:" + theme, _sustainability.EXCLUSION_LABELS[theme],
-            _restriction_missing({"tilts": {theme: "exclude"}}, False), names,
+            _missing({"tilts": {theme: "exclude"}}), names,
         ))
     for theme in _sustainability.EXCLUSION_KEYS:
-        found: dict[str, str] = {}
-
-        def has_evidence(p, theme=theme):
-            evidence_id = exclusion_evidence(p, theme)
-            if evidence_id:
-                found[p.id] = evidence_id
-            return bool(evidence_id)
-
-        missing, evidence = [], []
-        for sub, asset in needed:
-            hits = _coverage_candidates(products, sub, asset, has_evidence, filter_slot=False)
-            if not hits:
-                missing.append(sub)
-            else:
-                evidence.append({"sub_asset_class": sub, "product_id": hits[0].id, "evidence_id": found[hits[0].id]})
-        options.append(_sustainability.coverage_option(
-            "exclusion:" + theme, _sustainability.EXCLUSION_LABELS[theme], missing, names, evidence,
-        ))
+        missing = _missing({"tilts": {theme: "exclude"}}, themes=(theme,))
+        option = _sustainability.coverage_option(
+            "exclusion:" + theme, _sustainability.EXCLUSION_LABELS[theme], missing, names,
+        )
+        others = [t for t in base_themes if t != theme]
+        if missing and others:
+            option["reason"] = _sustainability.combination_reason(others, missing)
+        options.append(option)
     return {"as_of": as_of, "needed_sub_asset_classes": names, "options": options}

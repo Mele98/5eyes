@@ -29,12 +29,12 @@ from services.portfolio_engine_payload import ESG_CUSTOMER_CLAIM_LABELS
 from services.recommendation_release_gate import (
     assert_run_evidence as _assert_run_evidence,
     assert_sustainability_preference_floor as _assert_floor,
-    latest_run_for_allocation as _latest_run_for_allocation,
-    run_evidence_status as _run_evidence_status,
+    current_run_id as _current_run_id,
     document_strategy_binding as _document_binding,
     preference_state as _preference_state,
 )
 from services.audit import gate_block_audit
+from services.portfolio_engine import run_exclusion_evidence_status
 from sqlalchemy import text as sql_text
 from services.pdf import ReportLabRenderer
 from services.recommendation_run_resolver import (
@@ -1173,7 +1173,7 @@ def _assert_client_pdf_sustainability_floor(db: Session, mandate: Mandate, curre
     )
     _assert_floor(db, mandate, allocation=allocation, channel="client_pdf", audit=audit)
     # Nachtrag 1: Produkte im Kundendokument nur mit belegtem Ausschluss.
-    _assert_run_evidence(db, mandate, _latest_run_for_allocation(db, allocation), channel="client_pdf", audit=audit)
+    _assert_run_evidence(db, mandate, _current_run_id(db, mandate, allocation), channel="client_pdf", audit=audit)
 
 
 def _assert_client_pdf_cma_hold(db: Session, mandate: Mandate) -> None:
@@ -1911,7 +1911,8 @@ def _protocol_floor(db: Session, mandate: Mandate, row: dict) -> dict:
         decision, getattr(ta, "preferences_json", None), has_strategy=ta is not None,
     )
     # Nachtrag 1: "eingehalten" nur mit belegter Produktauswahl des juengsten Laufs.
-    floor["evidence"] = _run_evidence_status(db, mandate, _latest_run_for_allocation(db, ta))
+    # N-901-02: gezeigter Lauf, heute neu bewertet (kein Snapshot).
+    floor["evidence"] = run_exclusion_evidence_status(db, mandate, _current_run_id(db, mandate, ta))
     final_prefs = db.execute(sql_text(
         "SELECT ta.preferences_json, rr.updated_at FROM recommendation_runs rr "
         "JOIN target_allocations ta ON ta.id = rr.target_allocation_id "
@@ -1970,7 +1971,7 @@ def _sustainability_protocol_view(db: Session, mandate: Mandate) -> dict:
         evidence = floor.get("evidence")
         ok_text = {
             sustainability.RUN_EVIDENCE_OK: (
-                "Ausschlusswünsche eingehalten; alle Produkte der Empfehlung mit belegtem Nachweis"
+                "Ausschlusswünsche eingehalten; alle Produkte der Empfehlung ausser Liquidität mit belegtem Nachweis"
             ),
             sustainability.RUN_EVIDENCE_MISSING: (
                 "Nicht eingehalten – Produktauswahl nicht belegt; Empfehlung neu erstellen"

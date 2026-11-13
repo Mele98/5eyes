@@ -1033,20 +1033,27 @@ class CustomerExclusionEvidence:
     def __call__(self, product) -> bool:
         return all(self.evidence(product).values())
 
+    def satisfies(self, product, themes) -> bool:
+        """Belegt das Produkt ALLE genannten Themen (Kombination am selben
+        Produkt)? Liquiditaet ausgenommen."""
+        if self.exempt(product):
+            return True
+        ev = self.evidence(product)
+        return all(ev.get(t) for t in themes)
+
     def missing_themes(self, product) -> list:
         return [t for t, ev in self.evidence(product).items() if not ev]
 
-    def raise_if_uncovered(self, eligible_products, sub_allocations) -> None:
-        """Vor der Selektion: je Slot ein belegtes Produkt (exakt oder im
-        Fallback der Anlageklasse), sonst kurze fail-closed-Meldung."""
+    def raise_if_uncovered(self, eligible_products, sub_allocations, slot_candidates) -> None:
+        """Vor der Selektion: je Slot ein belegtes Produkt nach DERSELBEN
+        Slot-Regel wie die Engine (``slot_candidates``: exakt, sonst
+        Anlageklasse normalisiert), sonst kurze fail-closed-Meldung."""
         missing = []
         for sub in sub_allocations:
             if str(sub.get("asset_class") or "").strip() in _EVIDENCE_EXEMPT_ASSET_CLASSES:
                 continue
-            name, asset = str(sub.get("sub_asset_class") or ""), str(sub.get("asset_class") or "")
-            if not any(str(p.sub_asset_class or "") == name or str(p.asset_class or "") == asset
-                       for p in eligible_products):
-                missing.append(name)
+            if not slot_candidates(eligible_products, sub.get("sub_asset_class"), sub.get("asset_class")):
+                missing.append(str(sub.get("sub_asset_class") or ""))
         if missing:
             self._raise("Produktauswahl gesperrt", missing)
 
@@ -1099,4 +1106,36 @@ def assert_run_positions_evidenced(db: Session, mandate: Mandate, run, *, label:
     products = db.query(Product).filter(Product.id.in_(product_ids)).all() if product_ids else []
     bad = [p for p in products if not check(p)]
     if bad:
-        check._raise(label, [str(p.name or p.id) for p in bad])
+        check._raise(label, [str(p.product_name or p.id) for p in bad])
+
+
+RUN_EVIDENCE_NO_RUN = "no_run"
+
+
+def run_exclusion_evidence_status(db: Session, mandate: Mandate, run_id) -> str:
+    """N-901-02: Beleg-Status der Produktauswahl eines Laufs, HEUTE neu
+    bewertet (Nachweis gueltig, nicht zurueckgezogen/abgelaufen, Tenant) --
+    nie aus einem eingefrorenen Snapshot. ``none`` = kein Ausschluss aktiv,
+    ``no_run`` = Ausschluss aktiv, aber kein Lauf, ``ok``/``missing``."""
+    check = customer_exclusion_evidence(db, mandate)
+    if check is None:
+        return sustainability.RUN_EVIDENCE_NONE
+    if not run_id:
+        return RUN_EVIDENCE_NO_RUN
+    product_ids = [r.product_id for r in db.query(RecommendationPosition).filter(
+        RecommendationPosition.run_id == run_id,
+    ).all()]
+    if not product_ids:
+        return sustainability.RUN_EVIDENCE_MISSING
+    products = db.query(Product).filter(Product.id.in_(product_ids)).all()
+    if len(products) != len(set(product_ids)) or not all(check(p) for p in products):
+        return sustainability.RUN_EVIDENCE_MISSING
+    return sustainability.RUN_EVIDENCE_OK
+
+
+def assert_product_evidenced(db: Session, mandate: Mandate, product) -> None:
+    """N-901-02: bei aktivem Ausschluss ist eine unbelegte Position nicht
+    hinzufuegbar (409, kurze Meldung)."""
+    check = customer_exclusion_evidence(db, mandate)
+    if check is not None and not check(product):
+        check._raise("Position kann nicht hinzugefügt werden", [str(product.product_name or product.id)])

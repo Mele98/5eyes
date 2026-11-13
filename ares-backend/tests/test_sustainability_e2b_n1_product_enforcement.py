@@ -135,7 +135,7 @@ def test_tobacco_exclusion_selects_only_evidenced_products_and_counterprobe(worl
 
     with session_factory() as s:
         data = _build_protokoll_data(s.get(Mandate, mid), s)
-    assert "alle Produkte der Empfehlung mit belegtem Nachweis" in dict(data.sustainability_lines)[
+    assert "alle Produkte der Empfehlung ausser Liquidität mit belegtem Nachweis" in dict(data.sustainability_lines)[
         "Umsetzung in der Anlagestrategie"]
     assert sp.EXCLUSION_LIMIT_TEXT in data.sustainability_notes
     assert api.get(f"/mandates/{mid}/reports/anlagestrategie.pdf").status_code == 200
@@ -148,6 +148,7 @@ def test_tobacco_exclusion_selects_only_evidenced_products_and_counterprobe(worl
     assert resp.status_code == 200, resp.text
     positions = _non_liquid_positions(api, mid, session_factory, _run_id(resp))
     assert set(positions) == world["picked"], "Gegenprobe: ohne Durchsetzung die Standardauswahl"
+    monkeypatch.undo()  # Bewertung der Kundenaussagen wieder mit echter (Live-)Pruefung
     with session_factory() as s:
         data = _build_protokoll_data(s.get(Mandate, mid), s)
     assert dict(data.sustainability_lines)["Umsetzung in der Anlagestrategie"].startswith("Nicht eingehalten")
@@ -171,7 +172,7 @@ def test_expired_evidence_blocks_finalization_and_new_selection(world, api, sess
     fin = api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize")
     assert fin.status_code == 409, fin.text
     detail = fin.json()["detail"]
-    assert detail["reason_code"] in ("SUSTAINABILITY_EVIDENCE_MISSING", "SUSTAINABILITY_OPTION_NOT_OFFERABLE")
+    assert detail["reason_code"] == "SUSTAINABILITY_EVIDENCE_MISSING"
     assert "Tabak" in detail["message"] and detail["detail"]
     again = _run(api, mid)
     assert again.status_code == 409, again.text

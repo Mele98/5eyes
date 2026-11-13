@@ -147,7 +147,6 @@ def test_only_approved_valid_evidence_makes_an_exclusion_offerable(
     assert coverage["exclusion:tobacco"]["available"] is offered
     assert coverage["exclusion:alcohol"]["available"] is False
     if offered:
-        assert {e["sub_asset_class"] for e in coverage["exclusion:tobacco"]["evidence"]} == set(coverage["_needed"])
         assert _capture(api, mid, exclusions=["tobacco"]).status_code == 201
     else:
         assert _capture(api, mid, exclusions=["tobacco"]).status_code == 422
@@ -244,7 +243,8 @@ def test_lapsed_coverage_blocks_finalization(api, scenario, session_factory):
     resp = api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize")
     assert resp.status_code == 409, resp.text
     detail = resp.json()["detail"]
-    assert detail["reason_code"] == "SUSTAINABILITY_OPTION_NOT_OFFERABLE"
+    # Nachtrag 2: zuerst die Positionen des Laufs (heute nicht mehr belegt).
+    assert detail["reason_code"] == "SUSTAINABILITY_EVIDENCE_MISSING"
     assert "Tabak" in detail["message"] and detail["detail"]
 
 

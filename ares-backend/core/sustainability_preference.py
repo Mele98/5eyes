@@ -712,6 +712,13 @@ def coverage_reason(missing_sub_asset_classes) -> str:
     return f"Nicht wählbar: kein belegtes Produkt für {subs}."
 
 
+def combination_reason(other_themes, missing_sub_asset_classes) -> str:
+    """N-901-03: Grund, wenn eine Option nur in Kombination unerfuellbar ist."""
+    others = ", ".join(exclusion_labels(other_themes))
+    subs = ", ".join(str(s) for s in missing_sub_asset_classes)
+    return f"Nicht wählbar: Zusammen mit {others} kein belegtes Produkt für {subs}."
+
+
 def coverage_option(key, label, missing, needed, evidence=None) -> dict:
     """Ein Eintrag der Abdeckungspruefung (verfuegbar nur ohne Luecke)."""
     available = bool(needed) and not missing
@@ -925,31 +932,13 @@ DOCUMENT_STRATEGY_UNBOUND_TEXT = (
 )
 
 
-# ── E2b Nachtrag 1: Belege der Produktauswahl (an der Empfehlung) ────────────
+# ── E2b Nachtrag 1/2: Beleg-Status der Produktauswahl ────────────────────────
+# Der Status wird immer HEUTE aus den Positionen des gezeigten Laufs neu
+# bewertet (services/product_eligibility.py::run_exclusion_evidence_status);
+# der Snapshot an der Empfehlung ist nur Nachweis, nie Entscheidungsgrundlage.
 RUN_EVIDENCE_NONE = "none"        # kein Ausschluss aktiv
 RUN_EVIDENCE_OK = "ok"            # alle Positionen belegt, zur aktuellen Erfassung
 RUN_EVIDENCE_MISSING = "missing"  # Altlauf, andere Erfassung oder Luecke
-
-
-def run_evidence_status(decision, snapshot_json) -> str:
-    """Ist die Produktauswahl einer Empfehlung fuer die AKTUELLEN Ausschluesse
-    belegt? Fail-closed: unlesbar, andere Erfassung, fehlendes Thema oder
-    Luecke = missing."""
-    try:
-        exclusions = effective_exclusions(decision)
-    except (TypeError, ValueError):
-        return RUN_EVIDENCE_MISSING
-    if not exclusions:
-        return RUN_EVIDENCE_NONE
-    try:
-        snap = json.loads(snapshot_json) if snapshot_json else None
-    except (TypeError, ValueError):
-        snap = None
-    if not isinstance(snap, dict) or snap.get("decision_hash") != (decision or {}).get("decision_hash"):
-        return RUN_EVIDENCE_MISSING
-    if not set(exclusions) <= set(snap.get("themes") or ()) or snap.get("complete") is not True:
-        return RUN_EVIDENCE_MISSING
-    return RUN_EVIDENCE_OK
 
 
 RUN_EVIDENCE_MESSAGE = (
@@ -968,3 +957,13 @@ def run_evidence_message(decision, channel) -> str:
 
 
 REQUIRED_ANSWER_TEXT = "Frage zur Nachhaltigkeit im Risikoprofil beantworten."
+
+
+# N-901-02: EINE Regel "welcher Lauf gilt" fuer Gates UND Kundendokumente
+# (services/recommendation_run_resolver.py nutzt dieselbe Abfrage): an die
+# aktuelle Soll-Allokation gebunden, Final vor Draft, sonst keiner.
+CURRENT_RUN_SQL = (
+    "SELECT id FROM recommendation_runs WHERE mandate_id = :mandate_id "
+    "AND target_allocation_id = :target_allocation_id AND result_status IN ('Final', 'Draft') "
+    "ORDER BY CASE result_status WHEN 'Final' THEN 0 ELSE 1 END, created_at DESC LIMIT 1"
+)

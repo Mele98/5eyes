@@ -73,6 +73,7 @@ from services.preference_snapshot import (
 from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible
 from services.portfolio_engine import (
     _current_target_allocation_or_none,
+    _norm_text,
     _normalize_preferences,
     _resolve_jurisdiction_context,
     _risk_score_bucket,
@@ -112,6 +113,7 @@ from services.suitability_audit import audit_mandate_suitability, suitability_ga
 from services.product_eligibility_finalization import finalization_eligibility_findings, saa_bucket_reconciliation_warnings
 from services.product_eligibility_governance import parse_utc_timestamp
 from services.product_eligibility import (
+    assert_product_evidenced,
     assert_run_positions_evidenced,
     derive_service_mode,
     is_eligible_candidate,
@@ -4131,10 +4133,16 @@ def finalize_recommendation(
         db, mandate, allocation=_floor_ta, preferences=getattr(_floor_ta, "preferences_json", None),
         channel="finalize", audit=_floor_audit(db, current_user, mandate, request),
     )
+    # Nachtrag 1/2: jede Position muss den Ausschluss HEUTE belegt erfuellen
+    # (abgelaufener/zurueckgezogener Nachweis -> 409, kurze Meldung, Audit).
+    try:
+        assert_run_positions_evidenced(db, mandate, run, label="Die Empfehlung kann nicht finalisiert werden")
+    except DomainError as exc:
+        _floor_audit(db, current_user, mandate, request)(json.dumps({
+            "event": "sustainability_evidence_missing", "channel": "finalize", "run_id": run.id,
+        }, sort_keys=True), {"decision_id": None})
+        raise exc
     assert_customer_exclusions_offerable(db, mandate, channel="finalize")
-    # Nachtrag 1: jede Position muss den Ausschluss HEUTE belegt erfuellen
-    # (abgelaufener/zurueckgezogener Nachweis -> 409, kurze Meldung).
-    assert_run_positions_evidenced(db, mandate, run, label="Die Empfehlung kann nicht finalisiert werden")
     if cma_currency_warning:
         warnings.append(cma_currency_warning)
     # PREF-FINAL-001 (ESG-P0-3): jede Position wird mit demselben Matcher wie
@@ -4216,6 +4224,8 @@ def add_position(
     legacy_warning = _enforce_run_preferences(
         db, mandate, run, context="manual_position", products=[(None, product)],
     )
+    # N-901-02: bei aktivem Kundenausschluss nur belegte Produkte (409).
+    assert_product_evidenced(db, mandate, product)
     now = _now()
     pos = RecommendationPosition(
         id=new_uuid(), run_id=run_id,
@@ -5206,7 +5216,9 @@ def create_product_sustainability_attribute(
 # nachweisen (services/product_eligibility_governance.py::evaluate_criterion,
 # einzige Stelle fuer "erfuellt": nur freigegebene, gueltige, sichtbare
 # Nachweise mit Quelle und Stichtag; Seed-/Katalogfelder zaehlen nie).
-def strategy_option_coverage_for_mandate(db: Session, mandate) -> dict:
+def strategy_option_coverage_for_mandate(db: Session, mandate, base_exclusions=None, *, only_exclusions=False) -> dict:
+    """``base_exclusions``: Ausschluesse, mit denen jede Option KOMBINIERT
+    geprueft wird (Default: die aktuell erfassten)."""
     as_of = date.today().isoformat()
     tenant_id = getattr(mandate, "tenant_id", None)
     categories = sustainability_preference.EXCLUSION_EVIDENCE_CATEGORIES
@@ -5220,14 +5232,22 @@ def strategy_option_coverage_for_mandate(db: Session, mandate) -> dict:
     ).all():
         by_product.setdefault(attribute.product_id, []).append(attribute)
 
-    def _evidence(product, theme):
+    cache: dict[tuple, bool] = {}
+
+    def _evidence(product, themes):
+        """Alle Themen am SELBEN Produkt belegt (N-901-03)."""
         rows = by_product.get(product.id)
         if not rows:
-            return None
-        result = evaluate_criterion(
-            db, product, categories[theme], thresholds[theme], as_of, tenant_id=tenant_id, attributes=rows,
-        )
-        return result.attribute_id if result.satisfied else None
+            return False
+        for theme in themes:
+            key = (product.id, theme)
+            if key not in cache:
+                cache[key] = evaluate_criterion(
+                    db, product, categories[theme], thresholds[theme], as_of, tenant_id=tenant_id, attributes=rows,
+                ).satisfied
+            if not cache[key]:
+                return False
+        return True
 
     assessment = (
         db.query(RiskAssessment).filter(RiskAssessment.mandate_id == mandate.id)
@@ -5243,16 +5263,29 @@ def strategy_option_coverage_for_mandate(db: Session, mandate) -> dict:
             tenant_id=run_tenant,
         )
 
+    if base_exclusions is None:
+        try:
+            base_exclusions = sustainability_preference.effective_exclusions(preference_state(db, mandate).get("decision"))
+        except (TypeError, ValueError):
+            base_exclusions = []
+    current_ta = _current_target_allocation_or_none(db, mandate.id)
+    try:
+        base_preferences = json.loads(current_ta.preferences_json) if current_ta is not None and current_ta.preferences_json else None
+    except (TypeError, ValueError):
+        base_preferences = None
     return strategy_option_coverage(
         db, mandate, exclusion_evidence=_evidence, as_of=as_of, eligible=_eligible,
-        normalize_preferences=_normalize_preferences,
+        normalize_preferences=_normalize_preferences, norm=_norm_text,
         jurisdiction_ctx=_resolve_jurisdiction_context(db, mandate, jurisdiction),
+        base_preferences=base_preferences if isinstance(base_preferences, dict) else None,
+        base_exclusions=base_exclusions, only_exclusions=only_exclusions,
     )
 
 
-def customer_exclusion_options(db: Session, mandate) -> list[dict]:
-    """Ausschlusswuensche der Erhebung mit Abdeckung (exclusion:<thema>)."""
-    coverage = strategy_option_coverage_for_mandate(db, mandate)
+def customer_exclusion_options(db: Session, mandate, base_exclusions=None) -> list[dict]:
+    """Ausschlusswuensche der Erhebung mit Abdeckung (exclusion:<thema>),
+    jeweils kombiniert mit ``base_exclusions`` geprueft (N-901-03)."""
+    coverage = strategy_option_coverage_for_mandate(db, mandate, base_exclusions, only_exclusions=True)
     by_key = {option["key"]: option for option in coverage["options"]}
     return [
         {**by_key["exclusion:" + theme], "key": theme}
@@ -5271,7 +5304,7 @@ def assert_customer_exclusions_offerable(db: Session, mandate, *, channel: str) 
         exclusions = []
     if not exclusions:
         return
-    options = {o["key"]: o for o in customer_exclusion_options(db, mandate)}
+    options = {o["key"]: o for o in customer_exclusion_options(db, mandate, exclusions)}
     blocked = [key for key in exclusions if not options.get(key, {}).get("available")]
     if blocked:
         label = sustainability_preference.FLOOR_CHANNEL_LABELS.get(channel, "Freigabe nicht möglich")

@@ -1460,10 +1460,14 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     default_catalog_theme_tags,
     _suitability_block_hint,
     _tenant_visible_products_query,
+    slot_asset_fallback,
+    slot_candidates,
+    slot_exact,
     strategy_option_coverage,
     _ter_coverage_bps,
     _validate_recommendation_concentration_limits,
 )
+from services.product_eligibility import run_exclusion_evidence_status  # noqa: E402,F401 (E2 N-901-02, Re-Export)
 
 
 
@@ -6778,11 +6782,11 @@ def generate_recommendation_run(
         and (exclusion_evidence is None or exclusion_evidence(product))
     ]
     if exclusion_evidence is not None:
-        exclusion_evidence.raise_if_uncovered(eligible_products, sub_allocations)
+        exclusion_evidence.raise_if_uncovered(eligible_products, sub_allocations, lambda ps, sub_name, asset: slot_candidates(ps, sub_name, asset, _norm_text))
 
     theme_diag = ThemeGapDiagnosis(db, products, prefs, score_bucket, service_mode=service_mode, jurisdiction=jurisdiction, jurisdiction_ctx=jurisdiction_ctx, tenant_id=run_tenant_id)
     for sub in sub_allocations:
-        exact = [product for product in eligible_products if str(product.sub_asset_class or "") == str(sub["sub_asset_class"])]
+        exact = slot_exact(eligible_products, sub["sub_asset_class"])  # N-901-05: eine Slot-Regel
         used_fallback = False
         suitability_block_hint = None
         if not exact:
@@ -6796,7 +6800,7 @@ def generate_recommendation_run(
         theme_gap_hint = None if exact else theme_diag.hint(sub)  # THEME-MISSINGNESS-001
         candidates = exact
         if not candidates:
-            candidates = [product for product in eligible_products if _norm_text(product.asset_class) == _norm_text(sub["asset_class"])]
+            candidates = slot_asset_fallback(eligible_products, sub["asset_class"], _norm_text)
             used_fallback = bool(candidates)
         if not candidates:
             warnings.append(f"Kein passendes Produkt fuer {sub['sub_asset_class']} gefunden." + (f" {esg_gap_hint}." if esg_gap_hint else ""))
