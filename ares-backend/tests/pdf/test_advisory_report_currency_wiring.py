@@ -47,15 +47,19 @@ def test_format_chf_rappen_defaults_to_chf_but_accepts_override():
 
 
 def test_client_info_block_uses_given_currency_not_chf():
+    # G7 N4 (Grundregel): der Liquiditaetsbedarf ist eine Rohsumme der Ausgaben-Cashflows
+    # und traegt deren Waehrung (liquiditaetsbedarf_currency), nicht die Mandatswaehrung.
     styles = make_advisory_styles()
     table = _build_client_info_block(
-        {"liquiditaetsbedarf_rappen": 1_000_000},
+        {"liquiditaetsbedarf_rappen": 1_000_000, "liquiditaetsbedarf_currency": "EUR"},
         styles,
-        currency="EUR",
+        currency="JPY",
     )
     text = _render_text(table)
     assert "EUR 10'000" in text
-    assert "CHF 10'000" not in text
+    assert "CHF 10'000" not in text and "JPY 10'000" not in text
+    unknown = _render_text(_build_client_info_block({"liquiditaetsbedarf_rappen": 1_000_000}, styles, currency="JPY"))
+    assert "10'000" not in unknown  # Waehrung unbekannt -> "—" statt geratener Einheit
 
 
 def test_wealth_summary_block_uses_given_currency_not_chf():

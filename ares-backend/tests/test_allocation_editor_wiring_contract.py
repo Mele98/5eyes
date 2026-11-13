@@ -28,6 +28,7 @@ erreichbar (CIO-Review #656).
 """
 from pathlib import Path
 import re
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -95,7 +96,7 @@ def test_html_allocation_editor_entry_redirects_to_the_single_band_editor():
     Prozent, mit Live-Validierung). Der fruehere zweite Einstieg (React-Editor
     in Basispunkten, neuer Browser-Tab) ist umgeleitet: openAllocationEditor()
     oeffnet dasselbe Modal statt der React-Route."""
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
 
     assert "async function openAllocationEditor(){" in html
     bridge_fn = html.split(
@@ -108,7 +109,7 @@ def test_html_allocation_editor_entry_redirects_to_the_single_band_editor():
 
 
 def test_html_bridge_reuses_same_token_handoff_as_other_editor_bridges():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
 
     assert "async function resolveReportingAppUrl(path){" in html
     # Die verbleibenden Editor-Bridges teilen sich dieselbe Token-/Base-URL-
@@ -121,7 +122,7 @@ def test_html_bridge_reuses_same_token_handoff_as_other_editor_bridges():
 
 
 def test_asset_allocation_section_offers_exactly_one_band_editor_entry():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
     al_header = html.split('<div id="page-al" class="page">', 1)[1].split(
         '<div id="al-dirty-banner"', 1
     )[0]
@@ -139,7 +140,7 @@ def test_manual_target_save_stays_reachable_from_the_single_editor():
     /mandates/{id}/target-allocation, frueher nur im React-Editor) bleibt im
     EINEN Bandbreiten-Editor des Monolithen erreichbar -- gleicher Endpunkt
     wie saveTargetAllocation() im React-API-Client."""
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
     allocation_api = _read(ALLOCATION_API_PATH)
 
     save_fn = html.split("async function saveManualTargetAllocationFromModal(){", 1)[1].split("\n}\n", 1)[0]
@@ -149,7 +150,7 @@ def test_manual_target_save_stays_reachable_from_the_single_editor():
 
 
 def test_react_allocation_api_client_calls_same_generate_and_sensitivity_endpoints_as_html_monolith():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
     allocation_api = _read(ALLOCATION_API_PATH)
 
     # HTML (calculateInvestmentStrategy / openStrategyBacktest-Flow) und React

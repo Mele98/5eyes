@@ -67,6 +67,7 @@ def build_mc_paths_drawing(
     *,
     width_mm: float = 180,
     height_mm: float = 85,
+    currency: str | None = None,
 ) -> Drawing | None:
     """Build a ReportLab Drawing for the Monte-Carlo quantile fan.
 
@@ -107,7 +108,7 @@ def build_mc_paths_drawing(
             in_horizon_targets.append(target)
     fan_max = max(max(fan["outer_hi"]), max(float(v) for v in p50))  # type: ignore[arg-type]
     max_value, y_step = compute_y_scale(fan_max, in_horizon_targets)
-    format_y_tick = make_y_tick_formatter(max_value, y_step)
+    format_y_tick = make_y_tick_formatter(max_value, y_step, currency)
     min_value = 0.0
     value_range = max_value - min_value or 1.0
     y_tick_values = [k * y_step for k in range(int(round(max_value / y_step)) + 1)]
@@ -204,7 +205,7 @@ def build_mc_paths_drawing(
         if above_scale:
             label = (
                 f"{_shorten(label, 24)} · Ziel "
-                f"{format_chf_rappen(int(round(float(target_amount))))} (über Skala)"
+                f"{_tick_amount(int(round(float(target_amount))), currency)} (über Skala)"
             ).strip(" ·")
         else:
             label = _shorten(label, 30)
@@ -317,12 +318,19 @@ def compute_y_scale(fan_max: float, goal_targets: list[float]) -> tuple[float, f
     return max_value, step
 
 
-def make_y_tick_formatter(max_value_rappen: float, step_rappen: float):
-    """One fixed number of decimals for the whole axis. From CHF 1 Mio.:
-    "CHF x.xx Mio." with as many decimals as the step needs; below: full
+def _tick_amount(rappen: int, currency: str | None) -> str:
+    """G7 N4: Betrag mit Waehrung; ist die Waehrung unbekannt, ohne Einheit (nicht raten)."""
+    if not currency:
+        return format_chf_rappen(rappen, with_unit=False)
+    return format_chf_rappen(rappen, currency=currency)
+
+
+def make_y_tick_formatter(max_value_rappen: float, step_rappen: float, currency: str | None = None):
+    """One fixed number of decimals for the whole axis. From 1 Mio.:
+    "<Waehrung> x.xx Mio." with as many decimals as the step needs; below: full
     amount with apostrophe (swiss_numbers.format_chf_rappen)."""
     if max_value_rappen < _MIO_RAPPEN:
-        return lambda rappen: format_chf_rappen(int(round(rappen)))
+        return lambda rappen: _tick_amount(int(round(rappen)), currency)
     step_mio = step_rappen / _MIO_RAPPEN
     decimals = 0
     while decimals < 3 and abs(step_mio * 10**decimals - round(step_mio * 10**decimals)) > 1e-9:
@@ -330,8 +338,9 @@ def make_y_tick_formatter(max_value_rappen: float, step_rappen: float):
 
     def _fmt(rappen: float) -> str:
         if rappen == 0:
-            return "CHF 0"
-        return f"CHF {rappen / _MIO_RAPPEN:.{decimals}f} Mio."
+            return f"{currency} 0" if currency else "0"
+        text = f"{rappen / _MIO_RAPPEN:.{decimals}f} Mio."
+        return f"{currency} {text}" if currency else text
 
     return _fmt
 

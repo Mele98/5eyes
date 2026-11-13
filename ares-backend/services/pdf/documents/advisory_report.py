@@ -77,12 +77,14 @@ from services.pdf.components.advisory_palette import (
     make_advisory_styles,
 )
 from services.pdf.components.goal_classification import classify_goals
+from core.presentation_rounding import allocation_pct_texts
 from services.pdf.components.mc_paths_chart import build_mc_paths_drawing
 from services.pdf.components.swiss_numbers import (
     format_bps_as_pct,
     format_bps_signed_pct,
     format_chf_rappen,
     format_integer,
+    format_number,
 )
 
 
@@ -700,7 +702,8 @@ def _build_client_info_block(client_info: dict, styles: dict, *, currency: str =
         ("Anlageziel", _safe_string(client_info.get("anlageziel"))),
         (
             "Liquiditätsbedarf",
-            format_chf_rappen(client_info.get("liquiditaetsbedarf_rappen"), currency=currency),
+            # G7 N4: Rohsumme der Ausgaben-Cashflows -> deren Waehrung; unbekannt -> "—".
+            _amount_in(client_info.get("liquiditaetsbedarf_rappen"), client_info.get("liquiditaetsbedarf_currency")),
         ),
         ("Steuerdomizil", _safe_string(client_info.get("steuerdomizil"))),
         ("Referenzwährung", _safe_string(client_info.get("referenzwaehrung"))),
@@ -841,8 +844,14 @@ def _build_positionen_flowables(positionen: dict, styles: dict, *, currency: str
         ))
         return out
 
-    for group in groups:
-        out.extend(_build_position_group(group, styles, currency=currency))
+    # N-894-14: Gruppenanteile ueber die gemeinsame Apportionierung (Summe exakt
+    # 100.0 %, kanonische Gleichstandsregel) -- dieselbe Zahl wie die Soll-Tabellen.
+    group_pct = allocation_pct_texts({
+        str(g.get("key") or g.get("label") or i): g.get("share_bps") or 0 for i, g in enumerate(groups)
+    })
+    for i, group in enumerate(groups):
+        shown = group_pct.get(str(group.get("key") or group.get("label") or i))
+        out.extend(_build_position_group(group, styles, currency=currency, share_text=shown))
         out.append(Spacer(1, 4 * mm))
 
     total_rappen = positionen.get("total_rappen") or 0
@@ -858,7 +867,8 @@ def _build_positionen_flowables(positionen: dict, styles: dict, *, currency: str
     return out
 
 
-def _build_position_group(group: dict, styles: dict, *, currency: str = "CHF") -> list[Any]:
+def _build_position_group(group: dict, styles: dict, *, currency: str,
+                          share_text: str | None = None) -> list[Any]:
     """Ein Bucket: Header (Label + Share + Total) + Positions-Tabelle."""
     out: list[Any] = []
     label = _safe_string(group.get("label"))
@@ -867,7 +877,7 @@ def _build_position_group(group: dict, styles: dict, *, currency: str = "CHF") -
 
     header_text = (
         f"<b>{_escape(label)}</b>"
-        f"  &mdash; {format_bps_as_pct(share_bps)}"
+        f"  &mdash; {share_text or format_bps_as_pct(share_bps)}"
         f"  &middot; {format_chf_rappen(total_rappen, currency=currency)}"
     )
     out.append(Paragraph(header_text, _ar_paragraph_style(
@@ -1379,6 +1389,13 @@ _GOAL_STATUS_PILL = {
 }
 
 
+def _amount_in(rappen: Any, currency: str | None) -> str:
+    """G7 N4 (Grundregel): Betrag mit der Waehrung, in der er vorliegt; unbekannt -> "—"."""
+    if not currency:
+        return "—"
+    return format_chf_rappen(rappen, currency=currency)
+
+
 def _build_goals_flowables(gbi: dict, styles: dict, *, currency: str = "CHF") -> list[Any]:
     """Goals-Tabelle + Achievement-Score-KPI + MC-Chart/-Hinweis."""
     out: list[Any] = []
@@ -1396,7 +1413,8 @@ def _build_goals_flowables(gbi: dict, styles: dict, *, currency: str = "CHF") ->
     goals = gbi.get("goals") or []
     mc = gbi.get("monte_carlo_paths") or {}
     mc_classifications = classify_goals(goals, mc)
-    chart = build_mc_paths_drawing(mc, goals)
+    # G7 N4: Pfade in der Waehrung, in der der Server sie liefert (amount_currency), nicht Mandatswaehrung.
+    chart = build_mc_paths_drawing(mc, goals, currency=mc.get("amount_currency"))
     if chart is not None:
         out.append(chart)
         if mc.get("horizon_note"):
@@ -2936,7 +2954,7 @@ def _ab_policy_label(policy: dict) -> str:
 
 def _format_x100(value: int | float | None) -> str:
     try:
-        return f"{float(value or 0) / 100:.2f}"
+        return format_number(float(value or 0) / 100, decimals=2)
     except (TypeError, ValueError):
         return "0.00"
 
@@ -2946,8 +2964,8 @@ def _format_signed_x100(value: int | float | None) -> str:
         numeric = float(value or 0) / 100
     except (TypeError, ValueError):
         numeric = 0.0
-    sign = "+" if numeric > 0 else ""
-    return f"{sign}{numeric:.2f}"
+    text = format_number(numeric, decimals=2)
+    return ("+" + text) if numeric > 0 and text != "0.00" else text
 
 
 # ---------------------------------------------------------------------------

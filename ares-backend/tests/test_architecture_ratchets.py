@@ -293,7 +293,8 @@ def test_update_baseline_refuses_to_raise(gate, mini, tmp_path, monkeypatch):
 
 def test_exempt_leaves_allowlist_is_explicit_and_versioned(gate):
     """Explizite Liste, keine Mustererkennung; jede Aufnahme ist ein Review-Entscheid."""
-    assert gate.FAN_OUT_EXEMPT_LEAVES == frozenset({"core.evidence", "core.reason_codes"})
+    # G7 (2026-11-11): core.presentation_rounding als Review-Entscheid aufgenommen (Handoff H-153).
+    assert gate.FAN_OUT_EXEMPT_LEAVES == frozenset({"core.evidence", "core.reason_codes", "core.presentation_rounding"})
 
 
 def test_every_exempt_leaf_exists_and_is_a_pure_stdlib_leaf(gate):
@@ -1218,3 +1219,50 @@ def test_n_844_3_decorator_and_call_aliases_are_red(gate, mini, monkeypatch, bod
     _, result = _check(gate, mini, base)
     leaf = _leaf_regressions(result)
     assert leaf and needle in leaf, result.regressions
+
+
+_N_844_5_CASES = [
+    # Fall aus Dok. 86: Neubindung des Dekoratornamens im Klassenkoerper.
+    ("from enum import Enum, property as eprop\nclass E(Enum):\n    staticmethod = eprop\n"
+     "    A = 1\n    @staticmethod\n    def p(self):\n        return 1\nX = E.A.p\n",
+     "<Klassenbindung in Klasse E ueberdeckt reinen Namen (N-844-5): staticmethod>"),
+    ("from enum import Enum\nclass E(Enum):\n    from enum import property as staticmethod\n"
+     "    A = 1\n    @staticmethod\n    def p(self):\n        return 1\nX = E.A.p\n",
+     "<Klassenbindung in Klasse E ueberdeckt reinen Namen (N-844-5): staticmethod>"),
+    ("class C:\n    def classmethod(f):\n        return f\n    @classmethod\n"
+     "    def p(cls):\n        return 1\n",
+     "<Klassenbindung in Klasse C ueberdeckt reinen Namen (N-844-5): classmethod>"),
+    ("from dataclasses import dataclass\nclass C:\n    dataclass: int = 1\n",
+     "<Klassenbindung in Klasse C ueberdeckt reinen Namen (N-844-5): dataclass>"),
+    ("class C:\n    tuple = list\n    X = tuple([1])\n",
+     "<Klassenbindung in Klasse C ueberdeckt reinen Namen (N-844-5): tuple>"),
+    ("class Outer:\n    class property:\n        pass\n",
+     "<Klassenbindung in Klasse Outer ueberdeckt reinen Namen (N-844-5): property>"),
+]
+
+
+@pytest.mark.parametrize(
+    "body,needle",
+    _N_844_5_CASES,
+    ids=["assign_eprop_as_staticmethod", "class_body_import_alias", "class_body_def_classmethod",
+         "annassign_imported_decorator", "assign_constructor_name", "nested_class_property"],
+)
+def test_n_844_5_class_body_rebinding_of_pure_names_is_red(gate, mini, monkeypatch, body, needle):
+    _mini_with_leaf(gate, mini, monkeypatch, "import json\n")
+    base = _baseline(gate, mini)
+    _write(mini, "core/leaf.py", body)
+    _, result = _check(gate, mini, base)
+    leaf = _leaf_regressions(result)
+    assert leaf and needle in leaf, result.regressions
+
+
+def test_n_844_5_harmless_class_body_names_stay_green(gate, mini, monkeypatch):
+    """Kein Fehlalarm: gewoehnliche Klassenattribute und Methodennamen."""
+    _mini_with_leaf(
+        gate, mini, monkeypatch,
+        "from enum import Enum\nclass E(str, Enum):\n    A = 'a'\n    VALUES = ('a',)\n"
+        "class C:\n    __slots__ = ('x',)\n    name: str = 'n'\n    @staticmethod\n"
+        "    def values():\n        return 1\n",
+    )
+    _, result = _check(gate, mini, _baseline(gate, mini))
+    assert result.regressions == []

@@ -44,15 +44,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from config import settings
-from database import SQLCIPHER_AVAILABLE, _sqlcipher_enabled, sqlcipher3
+from database import SQLCIPHER_AVAILABLE, _sqlcipher_enabled, apply_sqlcipher_key, sqlcipher3
 
 logger = logging.getLogger(__name__)
 
 
-# Dateinamens-Muster: 5eyes-backup-YYYYMMDD-HHMMSS.db
+# Dateinamens-Muster: ares-backup-YYYYMMDD-HHMMSS.db
 # Strict Format -> Retention / Listing kann zuverlaessig parsen.
-_BACKUP_FILENAME_PATTERN = "5eyes-backup-{ts}.db"
-_BACKUP_FILENAME_GLOB = "5eyes-backup-*.db"
+_BACKUP_FILENAME_PATTERN = "ares-backup-{ts}.db"
+_BACKUP_FILENAME_GLOB = "ares-backup-*.db"
 _TIMESTAMP_FORMAT = "%Y%m%d-%H%M%S"
 
 # AB-1: Temp-Dateien beim atomaren Schreiben. Werden bei Absturz sichtbar
@@ -397,11 +397,11 @@ def _open_connection(path_or_uri: str, *, uri: bool, db_key: str | None) -> sqli
                 "ist nicht moeglich. Installiere sqlcipher3-binary oder sqlcipher3."
             )
         conn = sqlcipher3.connect(path_or_uri, uri=uri)
-        conn.execute("PRAGMA key = ?", [key or ""])
-        conn.execute("PRAGMA cipher_page_size = 4096")
-        conn.execute("PRAGMA kdf_iter = 256000")
-        conn.execute("PRAGMA cipher_hmac_algorithm = HMAC_SHA512")
-        conn.execute("PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512")
+        try:
+            apply_sqlcipher_key(conn, key or "")
+        except Exception:
+            conn.close()
+            raise
         return conn
     return sqlite3.connect(path_or_uri, uri=uri)
 
@@ -626,7 +626,7 @@ def replicate_offsite(
         (bei konfiguriertem backup_hmac_key) Authentizitaet unabhaengig
         pruefen kann.
     target
-        rsync-Ziel, z.B. "5eyes-offsite@backup-host.ch:/srv/5eyes-offsite/".
+        rsync-Ziel, z.B. "ares-offsite@backup-host.example:/srv/ares-offsite/".
         Muss auf ein Verzeichnis zeigen (trailing slash empfohlen).
     ssh_key_path
         Optionaler Pfad zu einem privaten SSH-Key. Leer/None -> rsync nutzt

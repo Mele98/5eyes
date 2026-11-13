@@ -1,6 +1,8 @@
 """SAA-Tabelle Komponente."""
 from __future__ import annotations
 
+from core.presentation_rounding import allocation_pct_texts, format_bps_as_pct
+
 from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.platypus import Table, TableStyle
@@ -26,16 +28,21 @@ def make_saa_table(allocation_bps: dict[str, int]) -> Table:
     header = ["Asset-Klasse", "Anteil"]
     rows: list[list] = [header]
 
+    # G7: Anteile apportioniert (Summe exakt 100.0 %), gemeinsamer Formatter.
+    shown = allocation_pct_texts({
+        b: int(allocation_bps.get(b, 0) or 0)
+        for b in ("equities", "bonds", "real_estate", "alternatives", "liquidity")
+        if int(allocation_bps.get(b, 0) or 0) > 0
+    })
     for bucket in ("equities", "bonds", "real_estate", "alternatives", "liquidity"):
         bps = int(allocation_bps.get(bucket, 0) or 0)
         if bps == 0:
             continue
-        pct = bps / 100.0
-        rows.append([BUCKET_LABELS_DE.get(bucket, bucket), f"{pct:.1f} %"])
+        rows.append([BUCKET_LABELS_DE.get(bucket, bucket), shown[bucket]])
 
     # Summen-Zeile
     total_bps = sum(int(allocation_bps.get(b, 0) or 0) for b in BUCKET_LABELS_DE)
-    rows.append(["Total", f"{total_bps / 100.0:.1f} %"])
+    rows.append(["Total", format_bps_as_pct(total_bps)])
 
     table = Table(rows, colWidths=[80 * mm, 30 * mm])
     style_cmds = [

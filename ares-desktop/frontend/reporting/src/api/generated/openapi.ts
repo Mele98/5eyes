@@ -309,6 +309,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/system/audit-log/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Verify Audit Log Chain
+         * @description H-865-2 (Pruefrunde #865): Kettenpruefung des Audit-Logs zur Laufzeit.
+         *
+         *     verify_audit_chain() wurde bisher nur in Tests aufgerufen. Der Bericht
+         *     umfasst die Sequenz-Kette (Brueche, Luecken inkl. abgeschnittenem Ende,
+         *     Duplikate, Hash-Abweichungen) und die Pruefung pro Zeile fuer Altzeilen
+         *     ohne sequence. Er enthaelt nur Zaehler, Sequenznummern und Zeilen-IDs,
+         *     keine Inhalte. Nur lesend; die Kette ist global (alle Tenants), daher
+         *     require_audit_chain_verifier (siehe services/auth.py).
+         *
+         *     N-869-4: unter PostgreSQL steht audit_log unter strikter RLS -- ohne
+         *     Bypass saehe super_admin (kein Tenant-Kontext) 0 Zeilen, ein Tenant-
+         *     Admin nur seine eigenen (Scheinluecken). Die Pruefung laeuft deshalb im
+         *     expliziten Operator-Bypass; zugelassen sind nur die Rollen aus
+         *     require_audit_chain_verifier, und der Bericht enthaelt keine Inhalte.
+         */
+        get: operations["verify_audit_log_chain_admin_system_audit_log_verify_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/system/backups": {
         parameters: {
             query?: never;
@@ -4541,6 +4574,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/products/export/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Products Csv
+         * @description AUDIT-2026-11 P1 (PO-6): Export der fuer diesen Tenant sichtbaren,
+         *     aktiven Fonds im Spaltenformat des CSV-Imports (globaler Katalog plus
+         *     eigene Fonds, nie die eines anderen Tenants -- dieselbe Abfrage wie
+         *     GET /products).
+         *
+         *     Zweck: Stammdaten (ISIN, Domizil, TER-Quelle, Retrozession ...) extern
+         *     ergaenzen und wieder einspielen. Die Eignungsspalten bleiben leer: die
+         *     Eignung wird ueber die Vier-Augen-Regeln gepflegt und ist kein
+         *     Stammdatum. Fuer einen Re-Import muessen sie ergaenzt werden (eine
+         *     geaenderte Eignung wird dabei als Regel-Entwurf angelegt). Leere Zellen
+         *     bedeuten "nicht erfasst" -- es wird nichts vorbelegt.
+         */
+        get: operations["export_products_csv_products_export_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/products/import": {
         parameters: {
             query?: never;
@@ -4682,6 +4745,297 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/products/sustainability/attributes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Sustainability Attributes
+         * @description Alle fuer die eigene Verwaltung sichtbaren Nachweise (Plattform +
+         *     eigener Tenant), z. B. ``status=draft`` als Freigabe-Warteschlange.
+         */
+        get: operations["list_sustainability_attributes_products_sustainability_attributes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/attributes/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Sustainability Attributes Batch
+         * @description Sammelfreigabe (z. B. nach einem Import). Alles oder nichts: ein
+         *     Vier-Augen-Verstoss oder ein ungueltiger Entwurf -> 409, nichts wird
+         *     freigegeben.
+         */
+        post: operations["approve_sustainability_attributes_batch_products_sustainability_attributes_approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/attributes/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Sustainability Attributes
+         * @description Export der sichtbaren Nachweise (Plattform + eigener Tenant). Die
+         *     ersten Spalten entsprechen dem Import; leerer Export = CSV-Vorlage.
+         */
+        get: operations["export_sustainability_attributes_products_sustainability_attributes_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/attributes/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Sustainability Attributes
+         * @description JSON-Import. Jede Zeile wird als ENTWURF angelegt (nie direkt
+         *     freigegeben); die Freigabe erfolgt danach durch eine andere Person
+         *     (Vier-Augen, POST .../approve). Fehlerhafte Zeilen werden einzeln
+         *     gemeldet, gueltige trotzdem angelegt.
+         */
+        post: operations["import_sustainability_attributes_products_sustainability_attributes_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/attributes/import/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Sustainability Attributes Csv
+         * @description CSV-Import (Komma/Semikolon/Tab, UTF-8, Kopfzeile = Spaltennamen des
+         *     Exports). Wie der JSON-Import: nur Entwuerfe, Fehler je Zeile.
+         */
+        post: operations["import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/attributes/{attribute_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Sustainability Attribute Draft
+         * @description Nur Entwuerfe loeschen (sie waren nie Nachweis). Freigegebene
+         *     Nachweise werden zurueckgezogen, nicht geloescht (Audit-Spur).
+         */
+        delete: operations["delete_sustainability_attribute_draft_products_sustainability_attributes__attribute_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Sustainability Attribute
+         * @description Entwurf bearbeiten -- nur durch die erfassende Person, damit die
+         *     freigebende Person nie Inhalte freigibt, die sie selbst geschrieben hat.
+         *     Freigegebene Nachweise sind unveraenderlich (Korrektur = neuer Entwurf).
+         */
+        patch: operations["update_sustainability_attribute_products_sustainability_attributes__attribute_id__patch"];
+        trace?: never;
+    };
+    "/products/sustainability/attributes/{attribute_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Sustainability Attribute Endpoint
+         * @description Vier-Augen-Freigabe eines Entwurfs: 409, wenn die erfassende Person
+         *     selbst freigibt (Einzelberater-Ausnahme wie bei den Eignungsregeln);
+         *     403 fuer Plattform-Nachweise ohne Plattform-Recht.
+         */
+        post: operations["approve_sustainability_attribute_endpoint_products_sustainability_attributes__attribute_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/attributes/{attribute_id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retire Sustainability Attribute Endpoint
+         * @description Freigegebenen Nachweis zurueckziehen; er zaehlt danach nie mehr.
+         */
+        post: operations["retire_sustainability_attribute_endpoint_products_sustainability_attributes__attribute_id__retire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Sustainability Catalog
+         * @description Kategorien, zulaessige Arten, Quellentypen und Haus-Defaults (T-E1).
+         */
+        get: operations["get_sustainability_catalog_products_sustainability_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/standards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Sustainability Standards
+         * @description Hausstandard der eigenen Verwaltung: Default (T-E1), Tenant-Wert, wirksam.
+         */
+        get: operations["get_sustainability_standards_products_sustainability_standards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/standards/{category}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Sustainability Standard Endpoint
+         * @description Hausschwelle der eigenen Verwaltung setzen (neue Version, auditiert).
+         *
+         *     H-1/N-863-5: Richtung relativ zur GELTENDEN Version. Verschaerfung wirkt
+         *     sofort; Lockerung (hoehere Schwelle als die geltende oder Kategorie
+         *     deaktiviert) entsteht als Entwurf (``pending``) und wirkt erst nach der
+         *     Vier-Augen-Freigabe (POST .../approve). Unveraendert -> keine neue
+         *     Version. UN Global Compact kennt keine Umsatzschwelle (null).
+         */
+        put: operations["set_sustainability_standard_endpoint_products_sustainability_standards__category__put"];
+        post?: never;
+        /**
+         * Reset Sustainability Standard Endpoint
+         * @description Zurueck auf den Haus-Default (T-E1), auditiert. N-863-5: ist die
+         *     geltende Version strenger als der Default, entsteht ein Entwurf
+         *     (Vier-Augen-Freigabe); sonst wirkt der Reset sofort.
+         */
+        delete: operations["reset_sustainability_standard_endpoint_products_sustainability_standards__category__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/standards/{category}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Sustainability Standard Endpoint
+         * @description Vier-Augen-Freigabe einer offenen Lockerung: 409, wenn die Person, die
+         *     sie beantragt hat, selbst freigibt (Einzelberater-Ausnahme wie bei den
+         *     Eignungsregeln); 409 auch ohne offenen Entwurf.
+         */
+        post: operations["approve_sustainability_standard_endpoint_products_sustainability_standards__category__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/standards/{category}/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Discard Sustainability Standard Endpoint
+         * @description Offene Lockerung verwerfen (auditiert).
+         */
+        delete: operations["discard_sustainability_standard_endpoint_products_sustainability_standards__category__pending_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/products/{product_id}": {
         parameters: {
             query?: never;
@@ -4750,6 +5104,28 @@ export interface paths {
         /** Set Product Market Override */
         put: operations["set_product_market_override_products__product_id__market_override_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/{product_id}/sustainability-attributes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Product Sustainability Attributes */
+        get: operations["list_product_sustainability_attributes_products__product_id__sustainability_attributes_get"];
+        put?: never;
+        /**
+         * Create Product Sustainability Attribute
+         * @description Nachweis als Entwurf erfassen (Quelle und Stichtag Pflicht; gueltig
+         *     bis leer = Stichtag + 12 Monate). Zaehlt erst nach Vier-Augen-Freigabe.
+         */
+        post: operations["create_product_sustainability_attribute_products__product_id__sustainability_attributes_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5666,6 +6042,99 @@ export interface components {
             /** Target Weight Bps */
             target_weight_bps: number;
         };
+        /** AuditChainGap */
+        AuditChainGap: {
+            /** From Sequence */
+            from_sequence: number;
+            /** To Sequence */
+            to_sequence: number;
+        };
+        /** AuditChainSection */
+        AuditChainSection: {
+            /** Ambiguous */
+            ambiguous: number[];
+            /** Ambiguous Count */
+            ambiguous_count: number;
+            /** Break Count */
+            break_count: number;
+            /** Breaks */
+            breaks: number[];
+            /** Checked */
+            checked: number;
+            /** Counter Value */
+            counter_value?: number | null;
+            /** Duplicate Count */
+            duplicate_count: number;
+            /** Duplicates */
+            duplicates: number[];
+            /** Gap Count */
+            gap_count: number;
+            /** Gaps */
+            gaps: components["schemas"]["AuditChainGap"][];
+            /** Hash Mismatch Count */
+            hash_mismatch_count: number;
+            /** Hash Mismatches */
+            hash_mismatches: number[];
+            /** Last Sequence */
+            last_sequence: number;
+            /** Ok */
+            ok: boolean;
+        };
+        /** AuditChainVerification */
+        AuditChainVerification: {
+            chain: components["schemas"]["AuditChainSection"];
+            /** Checked At */
+            checked_at: string;
+            legacy: components["schemas"]["AuditLegacySection"];
+            /** Ok */
+            ok: boolean;
+        };
+        /** AuditLegacySection */
+        AuditLegacySection: {
+            /** Ambiguous */
+            ambiguous: number;
+            /** Ambiguous Ids */
+            ambiguous_ids: string[];
+            /** Field Shift */
+            field_shift: number;
+            /** Field Shift Ids */
+            field_shift_ids: string[];
+            /** Hashed */
+            hashed: number;
+            /** Link Unconfirmed */
+            link_unconfirmed: number;
+            /** Link Unconfirmed Ids */
+            link_unconfirmed_ids: string[];
+            /** Mismatch Ids */
+            mismatch_ids: string[];
+            /** Mismatches */
+            mismatches: number;
+            /** Ok */
+            ok: boolean;
+            /** Seal Count */
+            seal_count?: number | null;
+            /**
+             * Seal Missing
+             * @default false
+             */
+            seal_missing?: boolean;
+            /** Seal Ok */
+            seal_ok?: boolean | null;
+            /** Seal Present */
+            seal_present: boolean;
+            /** Seal Sequence */
+            seal_sequence?: number | null;
+            /** Total */
+            total: number;
+            /** Unexpected Unhashed */
+            unexpected_unhashed: number;
+            /** Unexpected Unhashed Ids */
+            unexpected_unhashed_ids: string[];
+            /** Unhashed */
+            unhashed: number;
+            /** Verified */
+            verified: number;
+        };
         /** AuditLogEntry */
         AuditLogEntry: {
             /** Action */
@@ -5761,6 +6230,11 @@ export interface components {
         };
         /** Body_import_products_csv_products_import_csv_post */
         Body_import_products_csv_products_import_csv_post: {
+            /** File */
+            file: string;
+        };
+        /** Body_import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post */
+        Body_import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post: {
             /** File */
             file: string;
         };
@@ -6158,6 +6632,11 @@ export interface components {
         };
         /** CashflowProjectionResponse */
         CashflowProjectionResponse: {
+            /**
+             * Amount Currency
+             * @default CHF
+             */
+            amount_currency?: string;
             /** Client Id */
             client_id: string;
             /** Pension Ledger Hash */
@@ -6218,6 +6697,11 @@ export interface components {
         };
         /** CashflowSummaryResponse */
         CashflowSummaryResponse: {
+            /**
+             * Amount Currency
+             * @default CHF
+             */
+            amount_currency?: string;
             /**
              * Capital Inflow Rappen
              * @default 0
@@ -6923,6 +7407,8 @@ export interface components {
             inducement_provider?: string | null;
             /** Mitigation Action */
             mitigation_action?: string | null;
+            /** Product Id */
+            product_id?: string | null;
             /** Reimbursed To Client */
             reimbursed_to_client?: boolean | null;
             /** Waiver Document Id */
@@ -6962,6 +7448,8 @@ export interface components {
             missing_evidence?: string[];
             /** Mitigation Action */
             mitigation_action: string | null;
+            /** Product Id */
+            product_id?: string | null;
             /**
              * Reimbursed To Client
              * @default 0
@@ -7157,6 +7645,8 @@ export interface components {
              * @default 0
              */
             product_cost_coverage_bps?: number;
+            /** @description Retrozession je empfohlenem Produkt (AUDIT-2026-11 P1). None, wenn der Ausweis ohne Produktbezug entstand oder vor P1 eingefroren wurde. */
+            product_retrocessions?: components["schemas"]["ProductRetrocessionDisclosure"] | null;
             /**
              * Snapshot Schema Version
              * @description Schema-Version des verifizierten Snapshots (nur 'certified').
@@ -7560,6 +8050,12 @@ export interface components {
             probability_pct?: number | null;
             /** Rank */
             rank: number;
+            /** Rank Adjusted From */
+            rank_adjusted_from?: number | null;
+            /** Rank Adjusted To */
+            rank_adjusted_to?: number | null;
+            /** Rank Adjustment Notice */
+            rank_adjustment_notice?: string | null;
             /** Start Date */
             start_date: string | null;
             /** Success Probability Min X100 */
@@ -9138,22 +9634,107 @@ export interface components {
             currency?: string;
             /** Currency Exposure Json */
             currency_exposure_json?: string | null;
+            /**
+             * Distribution Policy
+             * @description Ausschuettungsart: thesaurierend (accumulating) oder ausschuettend.
+             */
+            distribution_policy?: ("accumulating" | "distributing") | null;
+            /**
+             * Domicile
+             * @description Fondsdomizil, ISO 3166-1 alpha-2 (z.B. 'IE', 'LU').
+             */
+            domicile?: string | null;
             /** Duration Years X10 */
             duration_years_x10?: number | null;
             /** Esg Rating */
             esg_rating?: string | null;
             /** Esg Score X10 */
             esg_score_x10?: number | null;
+            /**
+             * Gating Terms
+             * @description Gating-Bedingungen (Freitext, optional).
+             */
+            gating_terms?: string | null;
+            /**
+             * Has Gating
+             * @description Gating/Ruecknahmebeschraenkung moeglich.
+             */
+            has_gating?: boolean | null;
+            /**
+             * Hedge Currency
+             * @description Waehrung der Absicherung (ISO 4217), nur bei is_hedged=true.
+             */
+            hedge_currency?: string | null;
+            /**
+             * Internal Product Id
+             * @description Interne, tenant-eindeutige Produkt-ID (Pflicht bei unlisted ohne ISIN).
+             */
+            internal_product_id?: string | null;
+            /**
+             * Is Hedged
+             * @description Anteilsklasse waehrungsgesichert; None = nicht erfasst.
+             */
+            is_hedged?: boolean | null;
+            /**
+             * Is House Product
+             * @description Haus-/Eigenprodukt der Verwaltung; None = nicht erfasst.
+             */
+            is_house_product?: boolean | null;
             /** Isin */
             isin?: string | null;
             /** Liquidity Tier */
             liquidity_tier?: string | null;
+            /**
+             * Listing Status
+             * @description Kotiert (listed, ISIN Pflicht) oder nicht kotiert (unlisted, ohne ISIN interne ID Pflicht).
+             */
+            listing_status?: ("listed" | "unlisted") | null;
+            /**
+             * Minimum Investment Minor Units
+             * @description Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).
+             */
+            minimum_investment_minor_units?: number | null;
+            /**
+             * Nav As Of
+             * @description Stichtag des zuletzt gepflegten NAV (YYYY-MM-DD).
+             */
+            nav_as_of?: string | null;
+            /**
+             * Nav Frequency
+             * @description NAV-Rhythmus (taeglich/woechentlich/monatlich/quartalsweise).
+             */
+            nav_frequency?: ("daily" | "weekly" | "monthly" | "quarterly") | null;
+            /**
+             * Notice Period Days
+             * @description Kuendigungsfrist in Kalendertagen.
+             */
+            notice_period_days?: number | null;
+            /**
+             * Price Source
+             * @description Bewertungsquelle: Boersenkurs, manuell gepflegter NAV oder Anbieter-NAV.
+             */
+            price_source?: ("market" | "manual_nav" | "provider") | null;
             /** Product Name */
             product_name: string;
             /** Product Type */
             product_type: string;
             /** Provider */
             provider?: string | null;
+            /**
+             * Redemption Period Days
+             * @description Ruecknahmefrist in Kalendertagen (Auszahlung nach Ruecknahme).
+             */
+            redemption_period_days?: number | null;
+            /**
+             * Retrocession Bps
+             * @description Retrozessionssatz in bps p.a. auf dem investierten Volumen. None = UNBEKANNT (gilt nie als retrozessionsfrei), 0 = ausdruecklich retrozessionsfrei.
+             */
+            retrocession_bps?: number | null;
+            /**
+             * Retrocession Source
+             * @description Quelle des Retrozessionssatzes (Pflicht, sobald ein Satz erfasst ist).
+             */
+            retrocession_source?: string | null;
             /** Sector Exposure Json */
             sector_exposure_json?: string | null;
             /** Sfdr Class */
@@ -9185,10 +9766,25 @@ export interface components {
             suitability_service_modes?: ("investment_advice" | "portfolio_management" | "financial_planning" | "reporting_only")[];
             /** Symbol */
             symbol?: string | null;
+            /**
+             * Ter As Of
+             * @description Stichtag der TER (YYYY-MM-DD).
+             */
+            ter_as_of?: string | null;
             /** Ter Bps */
             ter_bps?: number | null;
+            /**
+             * Ter Source
+             * @description Quelle der TER (z.B. Basisinformationsblatt, Factsheet).
+             */
+            ter_source?: string | null;
             /** Theme Tags */
             theme_tags?: string | null;
+            /**
+             * Valor
+             * @description Valorennummer (optional, nur Ziffern).
+             */
+            valor?: string | null;
         };
         /**
          * ProductEligibilityApprovalRequest
@@ -9304,6 +9900,8 @@ export interface components {
         /** ProductIdMappingBatchItem */
         ProductIdMappingBatchItem: {
             applied_candidate?: components["schemas"]["ProductIdMappingCandidate"] | null;
+            /** Candidates */
+            candidates?: components["schemas"]["ProductIdMappingCandidate"][];
             /** Detail */
             detail?: string | null;
             /** Isin */
@@ -9321,6 +9919,10 @@ export interface components {
             composite_figi?: string | null;
             /** Exch Code */
             exch_code?: string | null;
+            /** Exchange Code */
+            exchange_code?: string | null;
+            /** Exchange Code Status */
+            exchange_code_status?: string | null;
             /** Figi */
             figi?: string | null;
             /** Market Sector */
@@ -9385,6 +9987,8 @@ export interface components {
         };
         /** ProductImportResultItem */
         ProductImportResultItem: {
+            /** Eligibility Note */
+            eligibility_note?: string | null;
             /** Error */
             error?: string | null;
             /** Product Id */
@@ -9590,6 +10194,10 @@ export interface components {
             currency: string;
             /** Currency Exposure Json */
             currency_exposure_json?: string | null;
+            /** Distribution Policy */
+            distribution_policy?: string | null;
+            /** Domicile */
+            domicile?: string | null;
             /** Duration Years X10 */
             duration_years_x10?: number | null;
             /** Esg Data Seed Fields */
@@ -9604,14 +10212,35 @@ export interface components {
             exchange_code?: string | null;
             /** Figi */
             figi?: string | null;
+            /** Gating Terms */
+            gating_terms?: string | null;
+            /** Has Gating */
+            has_gating?: boolean | null;
+            /** Hedge Currency */
+            hedge_currency?: string | null;
             /** Id */
             id: string;
+            /** Internal Product Id */
+            internal_product_id?: string | null;
             /** Is Active */
             is_active: number;
+            /** Is Hedged */
+            is_hedged?: boolean | null;
+            /** Is House Product */
+            is_house_product?: boolean | null;
             /** Isin */
             isin: string | null;
+            /**
+             * Isin Status
+             * @description 'missing' (keine ISIN), 'invalid' (Altbestand mit formal
+             *     ungueltiger ISIN/Pruefziffer) oder 'valid'.
+             * @enum {string}
+             */
+            readonly isin_status: "valid" | "invalid" | "missing";
             /** Liquidity Tier */
             liquidity_tier?: string | null;
+            /** Listing Status */
+            listing_status?: string | null;
             /** Lookup Mode Override */
             lookup_mode_override?: string | null;
             /** Lookup Symbol Override */
@@ -9622,16 +10251,45 @@ export interface components {
             mapping_resolved_at?: string | null;
             /** Market Sector */
             market_sector?: string | null;
+            /**
+             * Master Data Gaps
+             * @description Fehlende/ungueltige Pflicht-Stammdaten nach PO-6 (nur Anzeige,
+             *     in P1 keine Sperre).
+             */
+            readonly master_data_gaps: string[];
+            /** Minimum Investment Minor Units */
+            minimum_investment_minor_units?: number | null;
+            /** Nav As Of */
+            nav_as_of?: string | null;
+            /** Nav Frequency */
+            nav_frequency?: string | null;
+            /** Notice Period Days */
+            notice_period_days?: number | null;
+            /** Price Source */
+            price_source?: string | null;
             /** Product Name */
             product_name: string;
             /** Product Type */
             product_type: string;
             /** Provider */
             provider: string | null;
+            /** Redemption Period Days */
+            redemption_period_days?: number | null;
             /** Reference Data Provider */
             reference_data_provider?: string | null;
             /** Reference Data Refreshed At */
             reference_data_refreshed_at?: string | null;
+            /** Retrocession Bps */
+            retrocession_bps?: number | null;
+            /** Retrocession Source */
+            retrocession_source?: string | null;
+            /**
+             * Retrocession Status
+             * @description 'unknown' = kein Satz erfasst (gilt NIE als retrozessionsfrei),
+             *     'none' = ausdruecklich 0 bps, 'present' = Satz > 0.
+             * @enum {string}
+             */
+            readonly retrocession_status: "unknown" | "none" | "present";
             /** Sector Exposure Json */
             sector_exposure_json?: string | null;
             /** Security Type */
@@ -9648,12 +10306,462 @@ export interface components {
             symbol: string | null;
             /** Tenant Id */
             tenant_id?: string | null;
+            /** Ter As Of */
+            ter_as_of?: string | null;
             /** Ter Bps */
             ter_bps: number | null;
+            /** Ter Source */
+            ter_source?: string | null;
             /** Theme Tags */
             theme_tags?: string[] | null;
             /** Updated At */
             updated_at: string;
+            /** Valor */
+            valor?: string | null;
+        };
+        /**
+         * ProductRetrocessionDisclosure
+         * @description AUDIT-2026-11 P1 (L1): produktgebundene Retrozessions-Offenlegung
+         *     (Art. 26 FIDLEG). Fehlt bei Nachweisen, die vor P1 eingefroren wurden.
+         */
+        ProductRetrocessionDisclosure: {
+            /**
+             * Complete
+             * @default false
+             */
+            complete?: boolean;
+            /**
+             * Legal Reference
+             * @default
+             */
+            legal_reference?: string;
+            /** Lines */
+            lines?: components["schemas"]["ProductRetrocessionLine"][];
+            /**
+             * Present Count
+             * @default 0
+             */
+            present_count?: number;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version?: number;
+            /**
+             * Unknown Count
+             * @default 0
+             */
+            unknown_count?: number;
+            /**
+             * Unresolved Count
+             * @default 0
+             */
+            unresolved_count?: number;
+        };
+        /**
+         * ProductRetrocessionLine
+         * @description AUDIT-2026-11 P1 (L1): Retrozession je empfohlenem Produkt.
+         */
+        ProductRetrocessionLine: {
+            /**
+             * Amount Rappen
+             * @description Investiertes Volumen des Produkts im Vorschlag
+             * @default 0
+             */
+            amount_rappen?: number;
+            /**
+             * Covered By Mandate Entry
+             * @description True, wenn die manuelle Retrozessions-Zeile des Mandats (gleicher Anbieter) die Offenlegungszeile ist -- dann entsteht keine zweite Kostenzeile.
+             * @default false
+             */
+            covered_by_mandate_entry?: boolean;
+            /**
+             * Estimated Annual Rappen
+             * @description Geschaetzter Jahresbetrag (Satz x Volumen); None bei unbekanntem Satz
+             */
+            estimated_annual_rappen?: number | null;
+            /** Isin */
+            isin?: string | null;
+            /**
+             * Mandate Disclosed Other Rappen
+             * @description Einmalig oder ohne Frequenz offengelegter Mandatsbetrag (anteilig); deckt die jaehrliche Retrozession nicht und gilt nicht als aufgeklaert (N-861-8)
+             */
+            mandate_disclosed_other_rappen?: number | null;
+            /**
+             * Mandate Disclosed Rappen
+             * @description Anteil des im Mandat aufgeklaerten (offengelegten) Betrags
+             */
+            mandate_disclosed_rappen?: number | null;
+            /**
+             * Mandate Resolved Rappen
+             * @description Davon geregelt (zurueckerstattet oder Verzicht belegt, jaehrlich)
+             */
+            mandate_resolved_rappen?: number | null;
+            /** Product Id */
+            product_id?: string | null;
+            /** Product Name */
+            product_name: string;
+            /** Provider */
+            provider?: string | null;
+            /**
+             * Rate Bps
+             * @description Retrozessionssatz p.a.; None = unbekannt (gilt nie als retrozessionsfrei)
+             */
+            rate_bps?: number | null;
+            /**
+             * Requires Resolution
+             * @default false
+             */
+            requires_resolution?: boolean;
+            /** Source */
+            source?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "unknown" | "none" | "present";
+            /**
+             * Treatment
+             * @enum {string}
+             */
+            treatment: "reimbursed" | "waiver_documented" | "partially_covered" | "unresolved" | "not_applicable" | "unknown";
+            /** Treatment Label */
+            treatment_label: string;
+            /**
+             * Undisclosed Rappen
+             * @description Geschaetzter, durch keine Mandatszeile offengelegter Teil (eigene Kostenzeile)
+             */
+            undisclosed_rappen?: number | null;
+            /**
+             * Unresolved Rappen
+             * @description Geschaetzter, nicht geregelter Rest (requires_resolution, wenn > 0)
+             */
+            unresolved_rappen?: number | null;
+        };
+        /**
+         * ProductSustainabilityApprovalRequest
+         * @description Standard Vier-Augen (leerer Body). Einzelberater-Ausnahme wie bei den
+         *     Eignungsregeln: Attest + Begruendung; der Server prueft, dass der Tenant
+         *     genau eine freigabeberechtigte Person hat.
+         */
+        ProductSustainabilityApprovalRequest: {
+            /** Attestation Reason */
+            attestation_reason?: string | null;
+            /**
+             * Single Approver Attestation
+             * @default false
+             */
+            single_approver_attestation?: boolean;
+        };
+        /** ProductSustainabilityApprovalResponse */
+        ProductSustainabilityApprovalResponse: {
+            /** Approval Mode */
+            approval_mode: string;
+            /** Approved Ids */
+            approved_ids: string[];
+            /** Retired Ids */
+            retired_ids: string[];
+        };
+        /**
+         * ProductSustainabilityAttributeCreate
+         * @description Neuer Nachweis (immer als Entwurf). ``scope='global'`` = Plattform-
+         *     Nachweis eines globalen Katalogfonds (Multi-Tenant: nur super_admin).
+         *     Es gibt bewusst keinen Quellentyp fuer Seed-/Default-Werte (T-E2).
+         */
+        ProductSustainabilityAttributeCreate: {
+            /**
+             * As Of
+             * Format: date
+             */
+            as_of: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "controversial_weapons" | "conventional_weapons" | "weapons" | "tobacco" | "thermal_coal" | "fossil_fuels" | "gambling" | "adult_entertainment" | "alcohol" | "nuclear_power" | "animal_testing" | "ungc_violation" | "sfdr_classification" | "impact_theme";
+            /**
+             * Client Source Label
+             * @description Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.
+             */
+            client_source_label?: ("prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis") | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "exclusion_policy" | "measured_exposure" | "certification" | "classification";
+            /** Measured Exposure Bps */
+            measured_exposure_bps?: number | null;
+            /** Note */
+            note?: string | null;
+            /** Revenue Threshold Bps */
+            revenue_threshold_bps?: number | null;
+            /**
+             * Scope
+             * @default tenant
+             * @enum {string}
+             */
+            scope?: "tenant" | "global";
+            /** Source Document Date */
+            source_document_date?: string | null;
+            /** Source Document Sha256 */
+            source_document_sha256?: string | null;
+            /** Source Document Title */
+            source_document_title?: string | null;
+            /** Source Document Version */
+            source_document_version?: string | null;
+            /** Source Provider */
+            source_provider?: string | null;
+            /** Source Reference */
+            source_reference: string;
+            /** Source Retrieved On */
+            source_retrieved_on?: string | null;
+            /**
+             * Source Type
+             * @enum {string}
+             */
+            source_type: "prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis";
+            /**
+             * Valid Until
+             * @description Leer = Stichtag + 12 Monate (T-E3); laenger ist nicht zulaessig.
+             */
+            valid_until?: string | null;
+            /** Value */
+            value?: string | null;
+        };
+        /**
+         * ProductSustainabilityAttributeImportItem
+         * @description Import-Zeile: Produkt ueber product_id ODER isin.
+         */
+        ProductSustainabilityAttributeImportItem: {
+            /**
+             * As Of
+             * Format: date
+             */
+            as_of: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "controversial_weapons" | "conventional_weapons" | "weapons" | "tobacco" | "thermal_coal" | "fossil_fuels" | "gambling" | "adult_entertainment" | "alcohol" | "nuclear_power" | "animal_testing" | "ungc_violation" | "sfdr_classification" | "impact_theme";
+            /**
+             * Client Source Label
+             * @description Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.
+             */
+            client_source_label?: ("prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis") | null;
+            /** Isin */
+            isin?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "exclusion_policy" | "measured_exposure" | "certification" | "classification";
+            /** Measured Exposure Bps */
+            measured_exposure_bps?: number | null;
+            /** Note */
+            note?: string | null;
+            /** Product Id */
+            product_id?: string | null;
+            /** Revenue Threshold Bps */
+            revenue_threshold_bps?: number | null;
+            /**
+             * Scope
+             * @default tenant
+             * @enum {string}
+             */
+            scope?: "tenant" | "global";
+            /** Source Document Date */
+            source_document_date?: string | null;
+            /** Source Document Sha256 */
+            source_document_sha256?: string | null;
+            /** Source Document Title */
+            source_document_title?: string | null;
+            /** Source Document Version */
+            source_document_version?: string | null;
+            /** Source Provider */
+            source_provider?: string | null;
+            /** Source Reference */
+            source_reference: string;
+            /** Source Retrieved On */
+            source_retrieved_on?: string | null;
+            /**
+             * Source Type
+             * @enum {string}
+             */
+            source_type: "prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis";
+            /**
+             * Valid Until
+             * @description Leer = Stichtag + 12 Monate (T-E3); laenger ist nicht zulaessig.
+             */
+            valid_until?: string | null;
+            /** Value */
+            value?: string | null;
+        };
+        /** ProductSustainabilityAttributeImportRequest */
+        ProductSustainabilityAttributeImportRequest: {
+            /** Attributes */
+            attributes: components["schemas"]["ProductSustainabilityAttributeImportItem"][];
+        };
+        /** ProductSustainabilityAttributeResponse */
+        ProductSustainabilityAttributeResponse: {
+            /** Approval Mode */
+            approval_mode?: string | null;
+            /** Approved At */
+            approved_at?: string | null;
+            /** Approved By */
+            approved_by?: string | null;
+            /** As Of */
+            as_of: string;
+            /** Category */
+            category: string;
+            /** Client Source Label */
+            client_source_label?: string | null;
+            /** Client Source Label Text */
+            client_source_label_text?: string | null;
+            /** Created At */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /**
+             * Evidence Status
+             * @enum {string}
+             */
+            evidence_status: "draft" | "retired" | "not_yet_valid" | "expired" | "valid";
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Measured Exposure Bps */
+            measured_exposure_bps?: number | null;
+            /** Note */
+            note?: string | null;
+            /** Product Id */
+            product_id: string;
+            /** Retired At */
+            retired_at?: string | null;
+            /** Retired By */
+            retired_by?: string | null;
+            /** Revenue Threshold Bps */
+            revenue_threshold_bps?: number | null;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "tenant" | "global";
+            /** Source Document Date */
+            source_document_date?: string | null;
+            /** Source Document Sha256 */
+            source_document_sha256?: string | null;
+            /** Source Document Title */
+            source_document_title?: string | null;
+            /** Source Document Version */
+            source_document_version?: string | null;
+            /** Source Provider */
+            source_provider?: string | null;
+            /** Source Reference */
+            source_reference: string;
+            /** Source Retrieved On */
+            source_retrieved_on?: string | null;
+            /** Source Type */
+            source_type: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "approved" | "retired";
+            /** Supersedes Id */
+            supersedes_id?: string | null;
+            /** Tenant Id */
+            tenant_id?: string | null;
+            /** Updated At */
+            updated_at: string;
+            /** Valid Until */
+            valid_until: string;
+            /** Value */
+            value?: string | null;
+        };
+        /**
+         * ProductSustainabilityAttributeUpdate
+         * @description Bearbeiten nur im Entwurf. Kategorie, Art und Scope sind fest (sonst
+         *     neuer Nachweis). Explizites null leert optionale Felder.
+         */
+        ProductSustainabilityAttributeUpdate: {
+            /** As Of */
+            as_of?: string | null;
+            /**
+             * Client Source Label
+             * @description Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.
+             */
+            client_source_label?: ("prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis") | null;
+            /** Measured Exposure Bps */
+            measured_exposure_bps?: number | null;
+            /** Note */
+            note?: string | null;
+            /** Revenue Threshold Bps */
+            revenue_threshold_bps?: number | null;
+            /** Source Document Date */
+            source_document_date?: string | null;
+            /** Source Document Sha256 */
+            source_document_sha256?: string | null;
+            /** Source Document Title */
+            source_document_title?: string | null;
+            /** Source Document Version */
+            source_document_version?: string | null;
+            /** Source Provider */
+            source_provider?: string | null;
+            /** Source Reference */
+            source_reference?: string | null;
+            /** Source Retrieved On */
+            source_retrieved_on?: string | null;
+            /** Source Type */
+            source_type?: ("prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis") | null;
+            /** Valid Until */
+            valid_until?: string | null;
+            /** Value */
+            value?: string | null;
+        };
+        /** ProductSustainabilityBatchApprovalRequest */
+        ProductSustainabilityBatchApprovalRequest: {
+            /** Attestation Reason */
+            attestation_reason?: string | null;
+            /** Attribute Ids */
+            attribute_ids: string[];
+            /**
+             * Single Approver Attestation
+             * @default false
+             */
+            single_approver_attestation?: boolean;
+        };
+        /** ProductSustainabilityImportResponse */
+        ProductSustainabilityImportResponse: {
+            /** Created */
+            created: number;
+            /** Failed */
+            failed: number;
+            /** Items */
+            items?: components["schemas"]["ProductSustainabilityImportResultItem"][];
+            /** Processed */
+            processed: number;
+        };
+        /** ProductSustainabilityImportResultItem */
+        ProductSustainabilityImportResultItem: {
+            /** Attribute Id */
+            attribute_id?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Product Id */
+            product_id?: string | null;
+            /** Row */
+            row: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "created" | "failed";
+        };
+        /** ProductSustainabilityRetireRequest */
+        ProductSustainabilityRetireRequest: {
+            /** Reason */
+            reason?: string | null;
         };
         /** ProductUniverseEntryCreate */
         ProductUniverseEntryCreate: {
@@ -9706,30 +10814,178 @@ export interface components {
             currency?: string | null;
             /** Currency Exposure Json */
             currency_exposure_json?: string | null;
+            /**
+             * Distribution Policy
+             * @description Ausschuettungsart: thesaurierend (accumulating) oder ausschuettend.
+             */
+            distribution_policy?: ("accumulating" | "distributing") | null;
+            /**
+             * Domicile
+             * @description Fondsdomizil, ISO 3166-1 alpha-2 (z.B. 'IE', 'LU').
+             */
+            domicile?: string | null;
             /** Duration Years X10 */
             duration_years_x10?: number | null;
             /** Esg Rating */
             esg_rating?: string | null;
             /** Esg Score X10 */
             esg_score_x10?: number | null;
+            /**
+             * Gating Terms
+             * @description Gating-Bedingungen (Freitext, optional).
+             */
+            gating_terms?: string | null;
+            /**
+             * Has Gating
+             * @description Gating/Ruecknahmebeschraenkung moeglich.
+             */
+            has_gating?: boolean | null;
+            /**
+             * Hedge Currency
+             * @description Waehrung der Absicherung (ISO 4217), nur bei is_hedged=true.
+             */
+            hedge_currency?: string | null;
+            /**
+             * Internal Product Id
+             * @description Interne, tenant-eindeutige Produkt-ID (Pflicht bei unlisted ohne ISIN).
+             */
+            internal_product_id?: string | null;
             /** Is Active */
             is_active?: number | null;
+            /**
+             * Is Hedged
+             * @description Anteilsklasse waehrungsgesichert; None = nicht erfasst.
+             */
+            is_hedged?: boolean | null;
+            /**
+             * Is House Product
+             * @description Haus-/Eigenprodukt der Verwaltung; None = nicht erfasst.
+             */
+            is_house_product?: boolean | null;
+            /** Isin */
+            isin?: string | null;
             /** Liquidity Tier */
             liquidity_tier?: string | null;
+            /**
+             * Listing Status
+             * @description Kotiert (listed, ISIN Pflicht) oder nicht kotiert (unlisted, ohne ISIN interne ID Pflicht).
+             */
+            listing_status?: ("listed" | "unlisted") | null;
+            /**
+             * Minimum Investment Minor Units
+             * @description Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).
+             */
+            minimum_investment_minor_units?: number | null;
+            /**
+             * Nav As Of
+             * @description Stichtag des zuletzt gepflegten NAV (YYYY-MM-DD).
+             */
+            nav_as_of?: string | null;
+            /**
+             * Nav Frequency
+             * @description NAV-Rhythmus (taeglich/woechentlich/monatlich/quartalsweise).
+             */
+            nav_frequency?: ("daily" | "weekly" | "monthly" | "quarterly") | null;
+            /**
+             * Notice Period Days
+             * @description Kuendigungsfrist in Kalendertagen.
+             */
+            notice_period_days?: number | null;
+            /**
+             * Price Source
+             * @description Bewertungsquelle: Boersenkurs, manuell gepflegter NAV oder Anbieter-NAV.
+             */
+            price_source?: ("market" | "manual_nav" | "provider") | null;
             /** Product Name */
             product_name?: string | null;
+            /** Product Type */
+            product_type?: string | null;
             /** Provider */
             provider?: string | null;
+            /**
+             * Redemption Period Days
+             * @description Ruecknahmefrist in Kalendertagen (Auszahlung nach Ruecknahme).
+             */
+            redemption_period_days?: number | null;
+            /**
+             * Retrocession Bps
+             * @description Retrozessionssatz in bps p.a. auf dem investierten Volumen. None = UNBEKANNT (gilt nie als retrozessionsfrei), 0 = ausdruecklich retrozessionsfrei.
+             */
+            retrocession_bps?: number | null;
+            /**
+             * Retrocession Source
+             * @description Quelle des Retrozessionssatzes (Pflicht, sobald ein Satz erfasst ist).
+             */
+            retrocession_source?: string | null;
             /** Sector Exposure Json */
             sector_exposure_json?: string | null;
             /** Sfdr Class */
             sfdr_class?: ("6" | "8" | "9") | null;
             /** Sub Asset Class */
             sub_asset_class?: string | null;
+            /** Symbol */
+            symbol?: string | null;
+            /**
+             * Ter As Of
+             * @description Stichtag der TER (YYYY-MM-DD).
+             */
+            ter_as_of?: string | null;
             /** Ter Bps */
             ter_bps?: number | null;
+            /**
+             * Ter Source
+             * @description Quelle der TER (z.B. Basisinformationsblatt, Factsheet).
+             */
+            ter_source?: string | null;
             /** Theme Tags */
             theme_tags?: string | null;
+            /**
+             * Valor
+             * @description Valorennummer (optional, nur Ziffern).
+             */
+            valor?: string | null;
+        };
+        /**
+         * RecommendationFinalizeResponse
+         * @description N-856-7 (Pruefrunde #856): Finalize-Antwort = Lauf + Warnungen.
+         *
+         *     ``warnings`` ist identisch zum Audit-Log-Eintrag ("Final; Warnungen:
+         *     ..."), ``warning_codes`` die daraus gelesenen Codes (z. B.
+         *     SAA_BUCKET_DEVIATION, POSITION_LIMIT_EXCEEDED).
+         */
+        RecommendationFinalizeResponse: {
+            /** Assessment Id */
+            assessment_id: string | null;
+            /** Client Id */
+            client_id: string;
+            /** Created At */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /** Id */
+            id: string;
+            /** Mandate Id */
+            mandate_id: string;
+            /** Objective Summary */
+            objective_summary: string | null;
+            /** Other Assets Included */
+            other_assets_included: number;
+            /** Policy Id */
+            policy_id: string;
+            /** Result Status */
+            result_status: string;
+            /** Run Type */
+            run_type: string;
+            /** Target Allocation Id */
+            target_allocation_id: string | null;
+            /** Updated At */
+            updated_at: string;
+            /** Warning Codes */
+            warning_codes?: string[];
+            /** Warnings */
+            warnings?: string[];
+            /** Weighting Regime */
+            weighting_regime: string | null;
         };
         /** RecommendationGenerateRequest */
         RecommendationGenerateRequest: {
@@ -9765,6 +11021,8 @@ export interface components {
             expected_return_bps: number;
             /** Expected Volatility Bps */
             expected_volatility_bps: number;
+            /** Implementation Metrics */
+            implementation_metrics?: Record<string, unknown>;
             /** Implementation Steps */
             implementation_steps: string[];
             /** Investable Advisory Wealth Rappen */
@@ -9780,6 +11038,10 @@ export interface components {
             /** Positions */
             positions: components["schemas"]["RecommendationPositionDetailResponse"][];
             run: components["schemas"]["RecommendationRunResponse"];
+            /** Saa Expected Return Bps */
+            saa_expected_return_bps?: number | null;
+            /** Saa Expected Volatility Bps */
+            saa_expected_volatility_bps?: number | null;
             /** Target Allocation Id */
             target_allocation_id: string;
             /** Warnings */
@@ -10647,6 +11909,122 @@ export interface components {
             warning_delivered: number;
             /** Warning Delivered At */
             warning_delivered_at: string | null;
+        };
+        /** SustainabilityCatalogResponse */
+        SustainabilityCatalogResponse: {
+            /** Categories */
+            categories: components["schemas"]["SustainabilityCategoryInfo"][];
+            /** Client Source Labels */
+            client_source_labels?: {
+                [key: string]: string;
+            };
+            /** Evidence Validity Months */
+            evidence_validity_months: number;
+            /** Sfdr Values */
+            sfdr_values: string[];
+            /** Source Types */
+            source_types: string[];
+            /** Statuses */
+            statuses: string[];
+        };
+        /** SustainabilityCategoryInfo */
+        SustainabilityCategoryInfo: {
+            /** Category */
+            category: string;
+            /**
+             * Criterion Type
+             * @enum {string}
+             */
+            criterion_type: "revenue_threshold" | "conduct" | "classification";
+            /** Default Threshold Bps */
+            default_threshold_bps?: number | null;
+            /** Has House Standard */
+            has_house_standard: boolean;
+            /** Kinds */
+            kinds: string[];
+        };
+        /** SustainabilityStandardItem */
+        SustainabilityStandardItem: {
+            /** Approval Mode */
+            approval_mode?: string | null;
+            /** Approved At */
+            approved_at?: string | null;
+            /** Approved By */
+            approved_by?: string | null;
+            /** Category */
+            category: string;
+            /**
+             * Criterion Type
+             * @enum {string}
+             */
+            criterion_type: "revenue_threshold" | "conduct";
+            /** Default Threshold Bps */
+            default_threshold_bps?: number | null;
+            /** Effective Threshold Bps */
+            effective_threshold_bps?: number | null;
+            /**
+             * Is Disabled
+             * @default false
+             */
+            is_disabled?: boolean;
+            /** Is Overridden */
+            is_overridden: boolean;
+            /** Note */
+            note?: string | null;
+            pending?: components["schemas"]["SustainabilityStandardPending"] | null;
+            /** Standard Id */
+            standard_id?: string | null;
+            /** Tenant Threshold Bps */
+            tenant_threshold_bps?: number | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Updated By */
+            updated_by?: string | null;
+            /** Valid From */
+            valid_from?: string | null;
+        };
+        /**
+         * SustainabilityStandardPending
+         * @description Offene Lockerung (H-1), wirkt erst nach Vier-Augen-Freigabe.
+         */
+        SustainabilityStandardPending: {
+            /** Created At */
+            created_at: string;
+            /** Created By */
+            created_by?: string | null;
+            /** Id */
+            id: string;
+            /** Is Disabled */
+            is_disabled: boolean;
+            /** Max Revenue Threshold Bps */
+            max_revenue_threshold_bps?: number | null;
+            /** Note */
+            note?: string | null;
+        };
+        /**
+         * SustainabilityStandardUpdate
+         * @description Hausschwelle setzen. Bei UN Global Compact gibt es keine
+         *     Umsatzschwelle (null). Schwelle ueber dem T-E1-Default oder
+         *     is_disabled=true ist eine Lockerung und braucht eine Vier-Augen-Freigabe.
+         */
+        SustainabilityStandardUpdate: {
+            /**
+             * Is Disabled
+             * @description Kategorie fuer diese Verwaltung deaktivieren (Lockerung, Vier-Augen-Freigabe).
+             * @default false
+             */
+            is_disabled?: boolean;
+            /** Max Revenue Threshold Bps */
+            max_revenue_threshold_bps?: number | null;
+            /** Note */
+            note?: string | null;
+        };
+        /** SustainabilityStandardsResponse */
+        SustainabilityStandardsResponse: {
+            /** Items */
+            items: components["schemas"]["SustainabilityStandardItem"][];
+            /** Tenant Id */
+            tenant_id?: string | null;
         };
         /** TargetAllocationCreate */
         TargetAllocationCreate: {
@@ -11886,6 +13264,8 @@ export interface components {
             advisory_wealth_chf: number;
             /** Advisory Wealth Rappen */
             advisory_wealth_rappen: number;
+            /** Amount Currency */
+            amount_currency?: string | null;
             /** Client Classification */
             client_classification: string | null;
             /** Client Id */
@@ -12457,6 +13837,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_audit_log_chain_admin_system_audit_log_verify_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditChainVerification"];
                 };
             };
         };
@@ -17807,7 +19207,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RecommendationRunResponse"];
+                    "application/json": components["schemas"]["RecommendationFinalizeResponse"];
                 };
             };
             /** @description Validation Error */
@@ -20201,6 +21601,26 @@ export interface operations {
             };
         };
     };
+    export_products_csv_products_export_csv_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     import_products_bulk_products_import_post: {
         parameters: {
             query?: never;
@@ -20406,6 +21826,476 @@ export interface operations {
             };
         };
     };
+    list_sustainability_attributes_products_sustainability_attributes_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                category?: string | null;
+                product_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityAttributeResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_sustainability_attributes_batch_products_sustainability_attributes_approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityBatchApprovalRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityApprovalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_sustainability_attributes_products_sustainability_attributes_export_get: {
+        parameters: {
+            query?: {
+                format?: string;
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_sustainability_attributes_products_sustainability_attributes_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityAttributeImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityImportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityImportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_sustainability_attribute_draft_products_sustainability_attributes__attribute_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attribute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_sustainability_attribute_products_sustainability_attributes__attribute_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attribute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityAttributeUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityAttributeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_sustainability_attribute_endpoint_products_sustainability_attributes__attribute_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attribute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityApprovalRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityApprovalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retire_sustainability_attribute_endpoint_products_sustainability_attributes__attribute_id__retire_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attribute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityRetireRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityAttributeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_sustainability_catalog_products_sustainability_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityCatalogResponse"];
+                };
+            };
+        };
+    };
+    get_sustainability_standards_products_sustainability_standards_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityStandardsResponse"];
+                };
+            };
+        };
+    };
+    set_sustainability_standard_endpoint_products_sustainability_standards__category__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SustainabilityStandardUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityStandardsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_sustainability_standard_endpoint_products_sustainability_standards__category__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityStandardsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_sustainability_standard_endpoint_products_sustainability_standards__category__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityApprovalRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityStandardsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discard_sustainability_standard_endpoint_products_sustainability_standards__category__pending_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityStandardsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     update_product_products__product_id__put: {
         parameters: {
             query?: never;
@@ -20498,6 +22388,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProductMarketOverrideResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_product_sustainability_attributes_products__product_id__sustainability_attributes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityAttributeResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_product_sustainability_attribute_products__product_id__sustainability_attributes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityAttributeCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityAttributeResponse"];
                 };
             };
             /** @description Validation Error */

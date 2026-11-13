@@ -20,6 +20,7 @@
 import type { CostDisclosureData, CostDisclosureItem } from '@/api/types';
 import { ReportPage } from '@/components/ReportPage';
 import { formatBpsAsPct } from '@/lib/format';
+import { formatStoredAmount } from '@/lib/presentationRounding';
 
 interface KostenausweisProps {
   data: CostDisclosureData;
@@ -30,13 +31,12 @@ interface KostenausweisProps {
  * diesem Fix) die Einheit hartkodiert auf "CHF" setzt. Diese Sektion ist die
  * einzige im Reporting-App, die eine vom Mandat abweichende Fremdwaehrung
  * (EUR/USD) korrekt ausweisen muss. */
-function formatMoneyRappen(rappen: number | null | undefined, currency: string): string {
-  if (rappen === null || rappen === undefined) return '—';
-  const value = Math.round(Number(rappen) / 100);
-  if (!Number.isFinite(value)) return '—';
-  const formatted = value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, "'");
-  const unit = (currency || 'CHF').toUpperCase().trim() || 'CHF';
-  return `${unit} ${formatted}`;
+function formatMoneyRappen(rappen: number | null | undefined, currency: string | null): string {
+  if (rappen === null || rappen === undefined || !Number.isFinite(Number(rappen))) return '—';
+  const unit = String(currency ?? '').toUpperCase().trim();
+  if (!unit) return '—'; // G7 N4: Waehrung unbekannt -> keine geratene Einheit
+  // N-894-01: Rappen-Felder immer Faktor 100 (auch JPY); Anzeige ganze Einheiten.
+  return formatStoredAmount(Number(rappen), unit, 0, { typography: 'screen' });
 }
 
 function formatRate(rateBps: number | null): string {
@@ -45,7 +45,7 @@ function formatRate(rateBps: number | null): string {
 }
 
 export function Kostenausweis({ data }: KostenausweisProps) {
-  const currency = (data?.currency || 'CHF').toUpperCase().trim() || 'CHF';
+  const currency = String(data?.currency ?? '').toUpperCase().trim() || null;
   const totals = data?.totals;
   const items = data?.cost_items ?? [];
   const warnings = (data?.warnings ?? []).filter(Boolean);
@@ -145,7 +145,7 @@ function SummaryTile({ label, value }: { label: string; value: string }) {
   );
 }
 
-function CostItemRow({ item, currency }: { item: CostDisclosureItem; currency: string }) {
+function CostItemRow({ item, currency }: { item: CostDisclosureItem; currency: string | null }) {
   const label = item.is_estimate ? `${item.label} *` : item.label;
   // COST-RENDER-SEMANTICS-001: frequency ist bereits der lokalisierte
   // Backend-Text (einmalig/jährlich/monatlich/quartalsweise/"nicht

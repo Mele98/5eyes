@@ -107,7 +107,8 @@ def test_strategy_pdf_does_not_label_ignored_manual_target_as_soll(ctx: PDFConte
     # Sanity: the effective/approved allocation (65% equities) IS present
     # in the document -- this is the number that actually governs the
     # portfolio and the only one that should ever carry the "Soll" label.
-    assert "65.0%" in text
+    # G7: gemeinsamer Formatter -> "65.0 %" (geschuetzte Schreibweise mit Leerzeichen).
+    assert "65.0 %" in text
 
     # TODAY's bug, confirmed live against the production PDF renderer: the
     # ignored manual preference (20%) is published under the exact same
@@ -116,7 +117,7 @@ def test_strategy_pdf_does_not_label_ignored_manual_target_as_soll(ctx: PDFConte
     # the converged solver and the real approved strategy (65%) is more
     # than 3x away. Desired behavior: this must NOT happen -- the manual,
     # ignored preference must never be published under the "Soll" label.
-    assert "Soll 20.0%" not in text, (
+    assert "Soll 20.0%" not in text and "Soll 20.0 %" not in text, (
         "PDF labels the ignored manual target_bps preference (20.0%) as "
         "'Soll' on the Anlagepraeferenzen page, using the same word the "
         "Soll-Allokation table uses for the effective/approved allocation "

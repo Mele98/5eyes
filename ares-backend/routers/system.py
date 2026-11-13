@@ -12,12 +12,18 @@ from database import get_db
 from models.review import AuditLog
 from models.snapshots import AssetClassAnnualReturn, AssetClassPriceHistory
 from models.users import User
-from schemas.review import AuditLogEntry, AuditLogPage
-from services.audit import log as audit_log
+from schemas.review import AuditChainVerification, AuditLogEntry, AuditLogPage
+from services.audit import (
+    audit_log_integrity_report,
+    log as audit_log,
+    run_startup_audit_chain_check as _run_startup_audit_chain_check,
+)
 from services.auth import (
     require_admin,
     require_admin_or_platform_scope_for_global_reference_data,
     require_advisor,
+    operator_bypass,
+    require_audit_chain_verifier,
     require_super_admin,
     get_mandate_for_user_or_404,
 )
@@ -155,6 +161,37 @@ def get_audit_log(
         offset=offset,
         entries=entries,
     )
+
+
+@router.get('/audit-log/verify', response_model=AuditChainVerification)
+def verify_audit_log_chain(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_audit_chain_verifier),
+):
+    """H-865-2 (Pruefrunde #865): Kettenpruefung des Audit-Logs zur Laufzeit.
+
+    verify_audit_chain() wurde bisher nur in Tests aufgerufen. Der Bericht
+    umfasst die Sequenz-Kette (Brueche, Luecken inkl. abgeschnittenem Ende,
+    Duplikate, Hash-Abweichungen) und die Pruefung pro Zeile fuer Altzeilen
+    ohne sequence. Er enthaelt nur Zaehler, Sequenznummern und Zeilen-IDs,
+    keine Inhalte. Nur lesend; die Kette ist global (alle Tenants), daher
+    require_audit_chain_verifier (siehe services/auth.py).
+
+    N-869-4: unter PostgreSQL steht audit_log unter strikter RLS -- ohne
+    Bypass saehe super_admin (kein Tenant-Kontext) 0 Zeilen, ein Tenant-
+    Admin nur seine eigenen (Scheinluecken). Die Pruefung laeuft deshalb im
+    expliziten Operator-Bypass; zugelassen sind nur die Rollen aus
+    require_audit_chain_verifier, und der Bericht enthaelt keine Inhalte.
+    """
+    with operator_bypass(db):
+        return audit_log_integrity_report(db)
+
+
+def run_startup_audit_chain_check() -> dict | None:
+    """H-865-2/N-869-4: Startpruefung (main.lifespan) im Operator-Bypass,
+    damit sie unter PostgreSQL-RLS alle Zeilen sieht. Blockiert den Start
+    nie (siehe services/audit.py::run_startup_audit_chain_check)."""
+    return _run_startup_audit_chain_check(read_scope=operator_bypass)
 
 
 @router.get('/db/integrity')
@@ -445,8 +482,14 @@ def backfill_annual_returns_endpoint(
         raise _market_data_config_http_error(exc, endpoint="annual-returns/backfill", db=db) from None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    db.add(AuditLog(
-        id=str(uuid4()),
+    # N-865-2 (Pruefrunde #865): BACKFILL ueberschreibt globale Referenz-
+    # daten, die in CMA/Optimizer/Backtest jedes Tenants einfliessen. Das
+    # hand-gerollte AuditLog(...) liess sequence/previous_hash/integrity_hash
+    # und tenant_id leer -- der Eintrag stand ausserhalb der Hash-Kette, eine
+    # Manipulation waere nicht nachweisbar gewesen. Jetzt ueber log() wie
+    # jede andere Admin-Aktion (siehe tests/test_audit_log_single_writer.py).
+    audit_log(
+        db,
         user_id=current_user.id,
         user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
         table_name="asset_class_annual_returns",
@@ -454,8 +497,8 @@ def backfill_annual_returns_endpoint(
         action="BACKFILL",
         new_value=f"rows_written={result['summary']['rows_written']} errors={result['summary']['error_count']}",
         ip_address=_extract_client_ip(request),
-        created_at=datetime.utcnow().isoformat(),
-    ))
+        tenant_id=getattr(current_user, "tenant_id", None),
+    )
     db.commit()
     return result
 
@@ -590,8 +633,14 @@ def backfill_asset_class_prices_endpoint(
         raise _market_data_config_http_error(exc, endpoint="asset-class-prices/backfill", db=db) from None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    db.add(AuditLog(
-        id=str(uuid4()),
+    # N-865-2 (Pruefrunde #865): BACKFILL ueberschreibt globale Referenz-
+    # daten, die in CMA/Optimizer/Backtest jedes Tenants einfliessen. Das
+    # hand-gerollte AuditLog(...) liess sequence/previous_hash/integrity_hash
+    # und tenant_id leer -- der Eintrag stand ausserhalb der Hash-Kette, eine
+    # Manipulation waere nicht nachweisbar gewesen. Jetzt ueber log() wie
+    # jede andere Admin-Aktion (siehe tests/test_audit_log_single_writer.py).
+    audit_log(
+        db,
         user_id=current_user.id,
         user_name=getattr(current_user, "full_name", None) or getattr(current_user, "email", "admin"),
         table_name="asset_class_price_history",
@@ -599,8 +648,8 @@ def backfill_asset_class_prices_endpoint(
         action="BACKFILL",
         new_value=f"rows_written={result['summary']['rows_written']} errors={result['summary']['error_count']}",
         ip_address=_extract_client_ip(request),
-        created_at=datetime.utcnow().isoformat(),
-    ))
+        tenant_id=getattr(current_user, "tenant_id", None),
+    )
     db.commit()
     return result
 

@@ -28,6 +28,7 @@ from services.pdf.components.advisory_palette import (
 from services.pdf.components.swiss_numbers import (
     format_bps_as_pct,
     format_chf_rappen,
+    format_amount_minor,
 )
 
 
@@ -108,6 +109,11 @@ def build_kostenausweis_flowables(
         currency=currency,
         compact=compact,
     ))
+
+    # AUDIT-2026-11 P1 (L1): Retrozession je Produkt -- eigener Baustein
+    # (Abschnitt am Dateiende), rendert nichts ohne
+    # payload["product_retrocessions"].
+    out.extend(build_retrocession_flowables(data, styles, compact=compact))
 
     warnings = [str(item) for item in data.get("warnings") or [] if str(item).strip()]
     if warnings:
@@ -413,4 +419,139 @@ def _escape(value: Any) -> str:
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
+    )
+
+
+# ===========================================================================
+# AUDIT-2026-11 P1 (L1): Retrozessionen je empfohlenem Produkt (Art. 26 FIDLEG).
+# Abgegrenzter Baustein; Daten nur aus payload["product_retrocessions"]
+# (services/cost_disclosure.py, Abschnitt P1). Fehlt der Schluessel (Nachweis
+# vor P1 eingefroren oder Ausweis ohne Produktbezug), rendert er nichts.
+# ===========================================================================
+
+RETROCESSION_TITLE = "Vergütungen von Dritten (Retrozessionen) je Produkt"
+
+
+def build_retrocession_flowables(
+    data: dict[str, Any] | None,
+    styles,
+    *,
+    compact: bool = False,
+) -> list[Any]:
+    disclosure = (data or {}).get("product_retrocessions")
+    if not isinstance(disclosure, dict):
+        return []
+    lines = [line for line in disclosure.get("lines") or [] if isinstance(line, dict)]
+    if not lines:
+        return []
+    currency = str((data or {}).get("currency") or "CHF").upper().strip() or "CHF"
+
+    rows: list[list[Any]] = [[
+        _th("Produkt", styles),
+        _th("ISIN", styles),
+        _th("Satz p.a.", styles),
+        _th("Betrag p.a.", styles),
+        _th("Behandlung", styles),
+    ]]
+    flagged_rows: list[int] = []
+    for index, line in enumerate(lines, start=1):
+        status = str(line.get("status") or "unknown")
+        if status == "unknown":
+            rate_text, amount_text = "unbekannt", "unbekannt"
+        elif status == "none":
+            rate_text, amount_text = "keine", "—"
+        else:
+            rate_text = format_bps_as_pct(line.get("rate_bps"), decimals=2)
+            amount_text = "geschätzt " + _retro_amount(line.get("estimated_annual_rappen"), currency=currency)
+            # N-861-3: bei einer Mandatszeile beide Betraege klar beschriften
+            # (Schaetzung aus dem Produktsatz vs. im Mandat aufgeklaert).
+            if line.get("covered_by_mandate_entry") and line.get("mandate_disclosed_rappen"):
+                amount_text += " / aufgeklärt " + _retro_amount(
+                    line.get("mandate_disclosed_rappen"), currency=currency,
+                )
+            # N-861-8: einmalig/ohne Frequenz offengelegt ist keine Aufklaerung
+            # einer laufenden Retrozession.
+            if line.get("mandate_disclosed_other_rappen"):
+                amount_text += (
+                    " / offengelegt (einmalig bzw. ohne Frequenz) "
+                    + _retro_amount(line.get("mandate_disclosed_other_rappen"), currency=currency)
+                    + ", deckt die jährliche Retrozession nicht"
+                )
+        if status == "unknown" or line.get("requires_resolution"):
+            flagged_rows.append(index)
+        rows.append([
+            Paragraph(_escape(line.get("product_name") or "Produkt"), _retro_style(styles["caption"], color=COLOR_INK)),
+            Paragraph(_escape(line.get("isin") or "fehlt"), _retro_style(styles["micro"], color=COLOR_INK_SUBTLE)),
+            Paragraph(_escape(rate_text), _retro_style(styles["caption_mono"], color=COLOR_INK)),
+            Paragraph(_escape(amount_text), _retro_style(styles["caption_mono"], color=COLOR_INK)),
+            Paragraph(_escape(line.get("treatment_label") or "—"), _retro_style(styles["micro"], color=COLOR_INK_MUTED)),
+        ])
+    width = _inner_width()
+    table = Table(
+        rows,
+        colWidths=[width * 0.30, width * 0.15, width * 0.11, width * 0.16, width * 0.28],
+        repeatRows=1,
+    )
+    style_cmds = [
+        ("BACKGROUND", (0, 0), (-1, 0), COLOR_INK),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.3, COLOR_RULE),
+        ("ALIGN", (2, 1), (3, -1), "RIGHT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 3 if compact else 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3 if compact else 5),
+    ]
+    for row_index in flagged_rows:
+        line = lines[row_index - 1]
+        color = COLOR_STATUS_ROT if line.get("requires_resolution") else COLOR_STATUS_GELB
+        style_cmds.append(("LINEBEFORE", (0, row_index), (0, row_index), 2.5, color))
+    table.setStyle(TableStyle(style_cmds))
+
+    note = (
+        "Vergütungen, die Ihr Finanzdienstleister von Dritten im Zusammenhang mit den "
+        "empfohlenen Produkten erhält, stehen grundsätzlich Ihnen zu. Sie dürfen nur behalten "
+        "werden, wenn Sie nach Aufklärung über Art und Umfang ausdrücklich verzichtet "
+        "haben (Art. 26 FIDLEG; Art. 400 OR; BGE 132 III 460 und 137 III 393). Die Beträge "
+        "sind Teil der Produktkosten (TER) und nicht zusätzlich im Total enthalten. "
+        "Betrag p.a.: «geschätzt» = Satz × investiertes Volumen; «aufgeklärt» = der Ihnen "
+        "im Mandat jährlich offengelegte Betrag; beide auf Rappen genau. «unbekannt» heisst: "
+        "der Satz ist nicht erfasst; das Produkt gilt nicht als retrozessionsfrei."
+    )
+    return [
+        Spacer(1, (2 if compact else 4) * mm),
+        Paragraph(
+            _escape(RETROCESSION_TITLE.upper()),
+            _retro_style(styles["micro"], font=FONT_SANS_BOLD, color=COLOR_INK_SUBTLE),
+        ),
+        Spacer(1, 1.5 * mm),
+        table,
+        Spacer(1, 1.5 * mm),
+        Paragraph(_escape(note), _retro_style(styles["micro"], color=COLOR_INK_MUTED)),
+    ]
+
+
+def _retro_amount(rappen: Any, *, currency: str = "CHF") -> str:
+    """N-861-12: Retro-Betraege immer mit zwei Nachkommastellen. Sonst
+    stuenden bei Teil-Deckung zwei gleich gerundete Betraege (z.B. CHF 500
+    "geschaetzt" und CHF 500 "aufgeklaert" bei 499.99) neben "deckt nur einen
+    Teil" -- ein Widerspruch im Kundendokument."""
+    if rappen is None:
+        return "—"
+    try:
+        value = int(rappen)
+    except (TypeError, ValueError):
+        return "—"
+    unit = str(currency or "CHF").upper().strip() or "CHF"
+    return format_amount_minor(value, unit, decimals=2)
+
+
+def _retro_style(base: ParagraphStyle, *, font: str | None = None, color=None) -> ParagraphStyle:
+    return ParagraphStyle(
+        f"{base.name}Retrocession{font or ''}",
+        parent=base,
+        fontName=font or base.fontName or FONT_SANS,
+        textColor=color or base.textColor,
+        spaceBefore=0,
+        spaceAfter=0,
     )

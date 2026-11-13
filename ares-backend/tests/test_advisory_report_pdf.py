@@ -70,6 +70,7 @@ def _make_minimal_payload() -> dict:
                 "risikoprofil": "Defensiv",
                 "anlageziel": "Frühpension mit 60",
                 "liquiditaetsbedarf_rappen": 6_600_000,
+                "liquiditaetsbedarf_currency": "CHF",  # G7 N4: Server-Feld
                 "steuerdomizil": "CH",
                 "referenzwaehrung": "CHF",
             },
