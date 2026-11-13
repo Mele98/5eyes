@@ -126,8 +126,32 @@ def _git_head(root: Path) -> str:
                           capture_output=True, text=True).stdout.strip()
 
 
+def classic_modules() -> list[str]:
+    """N-894-13: alle ausgelagerten bzw. eigenstaendigen Classic-Module, generiert aus
+    scripts/audit_html_monolith.py (EXTRACTED_MONOLITH_PARTS + STANDALONE_FRONTEND_MODULES)."""
+    from audit_html_monolith import EXTRACTED_MONOLITH_PARTS, STANDALONE_FRONTEND_MODULES
+
+    names = {name for name, kind in EXTRACTED_MONOLITH_PARTS if kind == "js"}
+    names |= {name for name in STANDALONE_FRONTEND_MODULES if name.endswith(".js")}
+    return sorted(names)
+
+
+def _classic_module_sites(root: Path) -> list[dict]:
+    """Gleiches Muster wie das (unveraenderte) Codex-Inventar, angewandt auf die Module."""
+    rows: list[dict] = []
+    for name in classic_modules():
+        path = root / "ares-desktop" / "frontend" / name
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if inventory_mod.PATTERN.search(line):
+                rows.append({"file": path.relative_to(root).as_posix(), "line": number, "source": line.strip()[:240]})
+    return rows
+
+
 def classify(root: Path = REPO_ROOT) -> dict:
     data = inventory_mod.inventory(root)
+    # N-894-13: das Codex-Inventar deckt fuer Classic nur ares.html ab; die Module
+    # (goal-review-runtime.js, product-master-data.js, aa-chart.js, ...) gehoeren dazu.
+    data["classic"] = list(data["classic"]) + _classic_module_sites(root)
     rows = []
     texts: dict[str, list[str]] = {}
     for channel, sites in data.items():
