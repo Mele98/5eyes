@@ -233,7 +233,8 @@ def test_real_app_shows_banner_right_after_login(full_app):
             assert "Die Datenübermittlung muss einmal freigegeben werden – Marktdaten" in text_
             assert "bis dahin pausiert." in text_ and "Jetzt freigeben" in text_
             assert "market_data." not in text_ and "EGRESS_" not in text_
-            banner.locator("summary", has_text="Details").click()
+            # Aufklappen per DOM (sticky Banner: Klick wird von der App-Leiste ueberdeckt)
+            banner.locator("details").evaluate("d => { d.open = true; }")
             details = banner.inner_text()
             assert "market_data.stooq" in details and "EGRESS_MANIFEST_MISSING" in details
         finally:
