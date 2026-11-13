@@ -689,14 +689,16 @@ def test_h1_loosening_needs_four_eyes_and_tightening_is_immediate(SF, client):
     own = client.post("/products/sustainability/standards/tobacco/approve")
     assert own.status_code == 409 and "Vier-Augen" in own.json()["detail"]
     assert _std(client)["tobacco"]["effective_threshold_bps"] == 500
-    with SF() as s:
-        before_approval = NOW_TS()
     _as("admin-a2", "admin", "firm-a")
     ok = client.post("/products/sustainability/standards/tobacco/approve")
     assert ok.status_code == 200, ok.text
     tob = {i["category"]: i for i in ok.json()["items"]}["tobacco"]
     assert tob["effective_threshold_bps"] == 1000 and tob["approval_mode"] == "four_eyes"
     assert tob["approved_by"] == "admin-a2" and tob["valid_from"] and tob["pending"] is None
+    # RC-CH-1-F1: Point-in-Time 1 ms VOR dem valid_from der Freigabe. Ein vor dem
+    # Request gezogener Zeitstempel fiel bei schnellen Laeufen in dieselbe
+    # Millisekunde wie valid_from (valid_from <= at ist inklusiv) -> Flake.
+    before_approval = _ms_before(tob["valid_from"])
     with SF() as s:
         past = effective_sustainability_standard(s, "firm-a", "tobacco", as_of=before_approval)
         assert past["effective_threshold_bps"] == 500, "Point-in-Time vor der Freigabe = Default"
@@ -736,9 +738,11 @@ def test_h1_approve_without_pending_is_409(SF, client):
     assert client.post("/products/sustainability/standards/tobacco/approve").status_code == 409
 
 
-def NOW_TS():
-    from datetime import datetime, timezone
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+def _ms_before(ts: str) -> str:
+    """Zeitstempel im Audit-/Governance-Format (ms, ``Z``) minus 1 ms."""
+    from datetime import datetime, timedelta, timezone
+    parsed = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(timezone.utc)
+    return (parsed - timedelta(milliseconds=1)).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 # ---------------------------------------------------------------------------
@@ -908,9 +912,12 @@ def test_n863_4_parent_policy_refuted_by_child_measurement_at_its_cutoff(SF):
 
 
 def _std_audit(SF):
+    # RC-CH-1-F1: Reihenfolge ueber die monotone Ketten-Sequenz, nicht ueber
+    # created_at (nur ms-genau; gleiche ms sortierte nach new_value -> Flake).
     with SF() as s:
         rows = s.query(AuditLog).filter(AuditLog.table_name == "sustainability_exclusion_standards").all()
-    return sorted((r.created_at, r.new_value) for r in rows)
+    assert all(r.sequence is not None for r in rows)
+    return [(r.sequence, r.new_value) for r in sorted(rows, key=lambda r: r.sequence)]
 
 
 def test_n863_5_relaxation_back_to_default_after_tightening_needs_four_eyes(SF, client):
