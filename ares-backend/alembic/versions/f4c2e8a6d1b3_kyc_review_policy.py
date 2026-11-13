@@ -36,7 +36,7 @@ der Downgrade mit einer Fehlermeldung ab; nur eine Datenbank ohne solche
 Evidenz wird zurueckgebaut.
 
 Revision ID: f4c2e8a6d1b3
-Revises: d8e4b2a6c1f9 (H8)
+Revises: a9d4e2c6f1b3 (H4, hinter H8; RC-CH-1 I-03)
 Create Date: 2026-11-11
 """
 from __future__ import annotations
@@ -48,7 +48,7 @@ from alembic import op
 
 
 revision: str = "f4c2e8a6d1b3"
-down_revision: Union[str, Sequence[str], None] = "d8e4b2a6c1f9"
+down_revision: Union[str, Sequence[str], None] = "a9d4e2c6f1b3"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

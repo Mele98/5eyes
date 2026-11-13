@@ -227,7 +227,7 @@ def test_downgrade_is_fail_closed_with_evidence_and_clean_without(pg_schema):
     with engine.begin() as conn:
         _policy(conn, "p-down", 1)
     with pytest.raises(Exception, match="fail-closed"):
-        command.downgrade(cfg, "d8e4b2a6c1f9")
+        command.downgrade(cfg, "a9d4e2c6f1b3")
     with engine.connect() as conn:
         assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == HEAD
         assert conn.execute(text("SELECT COUNT(*) FROM kyc_review_policies")).scalar() == 1
@@ -237,7 +237,7 @@ def test_upgrade_downgrade_upgrade_without_evidence(pg_schema):
     from alembic import command
 
     engine, cfg = pg_schema["engine"], pg_schema["config"]
-    command.downgrade(cfg, "d8e4b2a6c1f9")
+    command.downgrade(cfg, "a9d4e2c6f1b3")
     with engine.connect() as conn:
         assert conn.execute(text(
             "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = :s "

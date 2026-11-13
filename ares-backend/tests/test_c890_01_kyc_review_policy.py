@@ -895,7 +895,7 @@ def test_alembic_sqlite_upgrade_downgrade_upgrade_and_fail_closed_downgrade(tmp_
     url = f"sqlite:///{tmp_path / 'mig.db'}"
     cfg = alembic_cfg(url)
     command.upgrade(cfg, "head")
-    command.downgrade(cfg, "d8e4b2a6c1f9")
+    command.downgrade(cfg, "a9d4e2c6f1b3")
     engine = create_engine(url)
     assert "kyc_review_policies" not in inspect(engine).get_table_names()
     assert "review_policy_row_id" not in {c["name"] for c in inspect(engine).get_columns("kyc_confirmations")}
@@ -914,7 +914,7 @@ def test_alembic_sqlite_upgrade_downgrade_upgrade_and_fail_closed_downgrade(tmp_
                 "created_at, policy_hash) VALUES ('p2','t','CH','TEST-C890',2,12,24,'2026-01-01','x','u','n','h')"))
     engine.dispose()
     with pytest.raises(RuntimeError, match="fail-closed"):
-        command.downgrade(cfg, "d8e4b2a6c1f9")
+        command.downgrade(cfg, "a9d4e2c6f1b3")
     engine = create_engine(url)
     assert "kyc_review_policies" in inspect(engine).get_table_names()
     engine.dispose()
