@@ -18,6 +18,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from sqlalchemy.exc import IntegrityError
 
 from config import settings
+from core.db_integrity import is_check_constraint_violation
 from core.reason_codes import DomainError, ReasonCode
 
 
@@ -286,18 +287,9 @@ async def domain_error_handler(request: Request, exc: DomainError) -> Response:
 # Antwort nennt weder Werte noch Zeileninhalt -- PostgreSQL liefert im DETAIL
 # die komplette Zeile ("Failing row contains ..."), das bleibt auch im Log aus.
 
-PG_CHECK_VIOLATION_SQLSTATE = "23514"
 CHECK_CONSTRAINT_VIOLATION_MESSAGE = (
     "Ein Wert liegt ausserhalb des zulaessigen Wertebereichs und wurde nicht gespeichert."
 )
-
-
-def is_check_constraint_violation(exc: IntegrityError) -> bool:
-    orig = getattr(exc, "orig", None)
-    sqlstate = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
-    if sqlstate is not None:
-        return sqlstate == PG_CHECK_VIOLATION_SQLSTATE
-    return "CHECK constraint failed" in str(orig if orig is not None else exc)
 
 
 def _check_constraint_hint(exc: IntegrityError) -> str:

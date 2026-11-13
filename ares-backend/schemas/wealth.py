@@ -2,6 +2,21 @@ from datetime import date as _date
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Literal
 from schemas.common import BaseResponse, PERSISTABLE_INT_MAX, PERSISTABLE_INT_MIN
+# RC-CH-1-F1 (N-903-03): Vokabular und Kanonisierung liegen in genau einer
+# Funktion (core.goal_vocabulary), die GoalCreate UND GoalUpdate vor der
+# Pruefung aufrufen. Die Tabelle ``goals`` erlaubt per CHECK nur die
+# GOAL_*_DB_VALUES; gespeichert wird nur die DB-Form (Befund: "Umbau
+# Wohneigentum" mit goal_type="Vermoegensziel" -> 500).
+from core.goal_vocabulary import (
+    GOAL_FAMILY_DB_VALUES,
+    GOAL_HARDNESS_DB_VALUES,
+    GOAL_SCOPE_DB_VALUES,
+    GOAL_TYPE_DB_VALUES,
+    GOAL_VALUE_MODE_DB_VALUES,
+    canonicalize_goal_payload,
+    goal_hardness_key as _goal_hardness_key,
+    goal_type_key as _goal_type_key,
+)
 from services.wealth_position_semantics import (
     require_supported_mortgage_amortization,
     require_supported_position_assignment,
@@ -745,83 +760,6 @@ GOAL_FAMILY_TYPE_MAP = {
 }
 
 
-def _goal_type_key(value: str | None) -> str:
-    raw = str(value or "").strip().lower().replace(" ", "_")
-    return (
-        raw.replace("ä", "ae")
-        .replace("ö", "oe")
-        .replace("ü", "ue")
-        .replace("Ã¤", "ae")
-        .replace("Ã¶", "oe")
-        .replace("Ã¼", "ue")
-    )
-
-
-def _goal_hardness_key(value: str | None) -> str:
-    raw = str(value or "").strip().lower()
-    return (
-        raw.replace("ä", "ae")
-        .replace("ö", "oe")
-        .replace("ü", "ue")
-        .replace("Ã¤", "ae")
-        .replace("Ã¶", "oe")
-        .replace("Ã¼", "ue")
-    )
-
-
-# RC-CH-1-F1: Die Tabelle ``goals`` (ares_schema.sql) erlaubt per CHECK nur
-# genau diese Werte. Eingabe-Aliase (ASCII-Umschrift, Gross-/Kleinschreibung)
-# werden an der API-Grenze auf den DB-Wert kanonisiert, sonst endet der
-# Commit in einem CHECK-Fehler (Befund: "Umbau Wohneigentum" mit
-# goal_type="Vermoegensziel" -> 500). Die Engine liest beide Schreibweisen
-# gleich (``_norm_text``/``_norm_goal_type``), gespeichert wird nur die DB-Form.
-GOAL_FAMILY_DB_VALUES = ("Vermögen", "Cashflow", "Rendite", "Maximierung")
-GOAL_TYPE_DB_VALUES = (
-    "Kapitalerhalt", "Vermögensziel",
-    "Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe",
-    "Renditeziel", "Maximierung",
-)
-GOAL_HARDNESS_DB_VALUES = ("Hart", "Primär", "Opportunistisch")
-GOAL_SCOPE_DB_VALUES = ("Beratungsvermögen", "Gesamtvermögen")
-GOAL_VALUE_MODE_DB_VALUES = ("nominal", "real")
-
-
-def _canonical_from(values: tuple[str, ...], value, key) -> str | None:
-    """DB-Wert zu ``value`` ueber den Normalisierungsschluessel; None = unbekannt."""
-    wanted = key(value)
-    for candidate in values:
-        if key(candidate) == wanted:
-            return candidate
-    return None
-
-
-def canonical_goal_type(value):
-    """'Vermoegensziel'/'vermögensziel' -> 'Vermögensziel'; unbekannt -> unveraendert."""
-    if not isinstance(value, str):
-        return value
-    return _canonical_from(GOAL_TYPE_DB_VALUES, value, _goal_type_key) or value
-
-
-def canonical_goal_family(value):
-    if not isinstance(value, str):
-        return value
-    return _canonical_from(GOAL_FAMILY_DB_VALUES, value, _goal_type_key) or value
-
-
-def canonical_goal_hardness(value):
-    """'Primaer'/'primär'/'hart' -> 'Primär'/'Hart'; unbekannt -> unveraendert."""
-    if not isinstance(value, str):
-        return value
-    return _canonical_from(GOAL_HARDNESS_DB_VALUES, value, _goal_hardness_key) or value
-
-
-def canonical_goal_scope(value):
-    """'Beratungsvermoegen'/'gesamtvermoegen' -> DB-Wert; unbekannt -> unveraendert."""
-    if not isinstance(value, str):
-        return value
-    return _canonical_from(GOAL_SCOPE_DB_VALUES, value, _goal_hardness_key) or value
-
-
 def _require_db_value(field: str, value, allowed: tuple[str, ...]) -> None:
     if value is not None and value not in allowed:
         raise ValueError(f"{field} '{value}' ist nicht erlaubt. Erlaubt: {list(allowed)}")
@@ -934,17 +872,10 @@ class GoalCreate(BaseModel):
     notes: Optional[str] = None
     data_classification: Literal["synthetic", "real"] = "synthetic"
 
-    @field_validator("goal_type", mode="after")
+    @model_validator(mode="before")
     @classmethod
-    def _canonical_goal_type(cls, value):
-        # RC-CH-1-F1: 'Vermoegensziel' bleibt als Eingabe gueltig, gespeichert
-        # wird der DB-Wert 'Vermögensziel' (CHECK in ares_schema.sql).
-        return canonical_goal_type(value)
-
-    @field_validator("hardness", mode="before")
-    @classmethod
-    def _canonical_hardness(cls, value):
-        return canonical_goal_hardness(value)
+    def _canonicalize(cls, data):
+        return canonicalize_goal_payload(data)
 
     @model_validator(mode="after")
     def validate_family_type(self):
@@ -997,25 +928,10 @@ class GoalUpdate(BaseModel):
     is_included: Optional[bool] = None
     data_classification: Optional[Literal["synthetic", "real"]] = None
 
-    @field_validator("goal_type", mode="before")
+    @model_validator(mode="before")
     @classmethod
-    def _canonical_goal_type(cls, value):
-        return canonical_goal_type(value)
-
-    @field_validator("goal_family", mode="before")
-    @classmethod
-    def _canonical_goal_family(cls, value):
-        return canonical_goal_family(value)
-
-    @field_validator("hardness", mode="before")
-    @classmethod
-    def _canonical_hardness(cls, value):
-        return canonical_goal_hardness(value)
-
-    @field_validator("goal_scope", mode="before")
-    @classmethod
-    def _canonical_goal_scope(cls, value):
-        return canonical_goal_scope(value)
+    def _canonicalize(cls, data):
+        return canonicalize_goal_payload(data)
 
     @model_validator(mode="after")
     def validate_goal_update_fields(self):

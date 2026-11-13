@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from core.db_integrity import is_check_constraint_violation
 from core.reason_codes import ReasonCode
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -113,7 +114,13 @@ def create_client(
         client_id=client.id)
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
+        db.rollback()
+        # RC-CH-1-F1 (N-903-01): eine CHECK-Verletzung (z.B. civil_status
+        # ausserhalb der Werteliste) ist keine doppelte Kundennummer; sie geht
+        # an den zentralen Handler (422 DB_CHECK_CONSTRAINT_VIOLATION).
+        if is_check_constraint_violation(exc):
+            raise
         # 2026-07-24 (Generalaudit): der Pre-Check oben ist TOCTOU-racy --
         # zwei parallele Requests (z.B. Doppelklick) koennen beide den
         # Check passieren, bevor einer committet. Der UNIQUE-Constraint auf
@@ -121,7 +128,6 @@ def create_client(
         # Duplikat, gab dem VERLIERENDEN Request bisher aber einen 500
         # statt eines klaren 409. Kein Datenintegritaets-Bug (kein Duplikat
         # persistiert), nur eine falsche HTTP-Statuscode-Antwort.
-        db.rollback()
         raise HTTPException(status_code=409, detail="Kundennummer bereits vergeben")
     db.refresh(client)
     return client

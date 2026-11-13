@@ -27,7 +27,9 @@ from services.optimizer.solver import GOAL_ECONOMIC_FIELDS, goal_economic_finger
 
 def _goal(hardness):
     return {
-        "goal_type": "Vermoegensziel", "target_wealth_rappen": 300_000_00,
+        # RC-CH-1-F1 (N-903-02): gespeicherte DB-Form; der Zieltyp wird seither
+        # ebenfalls kanonisiert, die "Legacy-Zeile" (Rohwert) gilt fuer DB-Werte.
+        "goal_type": "Vermögensziel", "target_wealth_rappen": 300_000_00,
         "target_date": "2036-06-30", "start_date": None, "is_active": 1,
         "hardness": hardness,
     }

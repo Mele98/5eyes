@@ -15,8 +15,8 @@ value_mode/hardness).
 Tests auf dem echten Desktop-Startpfad (``init_db`` mit Rohschema-Bootstrap).
 
 Fix: Eingabe-Aliase werden an der API-Grenze auf genau den DB-Wert
-kanonisiert (``schemas.wealth.canonical_goal_type`` /
-``canonical_goal_hardness``), unbekannte Werte sind 422 -- kein Schema-
+kanonisiert (``core.goal_vocabulary.canonicalize_goal_payload``,
+fuer GoalCreate und GoalUpdate gleich), unbekannte Werte sind 422 -- kein Schema-
 Umbau, weil die Engine beide Schreibweisen ohnehin gleich behandelt.
 """
 from __future__ import annotations
@@ -183,16 +183,25 @@ def test_update_rejects_values_outside_the_db_domain_with_422(session_factory, a
     gid = created.json()["id"]
     r = auth_client.put(f"/mandates/{mid}/goals/{gid}", json={field: value})
     assert r.status_code == 422, (r.status_code, r.text)
+    # N-903-04 (geschaerft): die Ablehnung kommt jetzt aus GoalUpdate selbst
+    # (Pydantic-Fehlerliste mit Feldnamen). An fb83c8e7 lehnten -- wenn
+    # ueberhaupt -- Router-Pruefungen mit Freitext ab bzw. erst die DB.
+    detail = r.json()["detail"]
+    assert isinstance(detail, list), detail
+    assert field in detail[0]["msg"], detail
 
 
 def test_update_family_type_mismatch_is_422_not_500(session_factory, auth_client, advisor_user):
-    """goal_type allein auf einen Typ einer anderen Familie: der Konsistenz-
-    CHECK der DB griff bisher erst beim Commit (500)."""
+    """goal_family + goal_type einer anderen Familie im selben Update: GoalUpdate
+    lehnt mit Feldbezug ab (an fb83c8e7 lehnte erst eine Router-Pruefung ab)."""
     mid = _mandate(auth_client, advisor_user)
     created = auth_client.post(f"/mandates/{mid}/goals", json=dict(UMBAU, goal_type="Vermögensziel"))
     gid = created.json()["id"]
-    r = auth_client.put(f"/mandates/{mid}/goals/{gid}", json={"goal_type": "Maximierung"})
+    r = auth_client.put(f"/mandates/{mid}/goals/{gid}", json={"goal_type": "Maximierung", "goal_family": "Vermögen"})
     assert r.status_code == 422, (r.status_code, r.text)
+    # N-903-04 (geschaerft): Familie/Typ-Konsistenz prueft GoalUpdate selbst.
+    detail = r.json()["detail"]
+    assert isinstance(detail, list) and "goal_family" in detail[0]["msg"], detail
     assert _stored(session_factory, gid)[1] == "Vermögensziel"
 
 

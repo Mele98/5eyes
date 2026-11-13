@@ -20,7 +20,21 @@ Geprueft wird ueber Modell-Metadaten, ohne DB:
    aus der Pruefung.
 3. Ziele: die Werte, die Classic-Maske und React-Editor fuer goal_type
    anbieten, sind nach Kanonisierung CHECK-Werte; die DB-Wertelisten in
-   ``schemas.wealth`` sind exakt die CHECK-Listen.
+   ``core.goal_vocabulary`` sind exakt die CHECK-Listen.
+4. CHECK-Quellen (N-903-01): ``ares_schema.sql`` (Desktop-Bootstrap), ORM-
+   ``CheckConstraint`` (create_all/PG-Baseline, z.B. privacy_*,
+   Sustainability) und Alembic-Revisionen; je Spalte gilt die Schnittmenge.
+5. Freie ``str``-Felder auf CHECK-Spalten sind in ``STR_FIELD_POLICY``
+   registriert (Vollstaendigkeit hier, Verhalten in
+   ``test_check_free_text_fields_real_schema.py``).
+
+Rueckname-Gegenprobe an fb83c8e7 (N-903-04): rot ist
+``test_registered_goal_canonicalizers_are_applied_by_create_and_update``
+(GoalCreate lehnte 'Vermoegen' ab, GoalUpdate speicherte roh). Die uebrigen
+Tests sind bewusst STRUKTUR-Waechter (Quellen, Zuordnung, Vollstaendigkeit,
+UI-Werte, Konstanten) und schon am alten Code gruen: sie schlagen an, sobald
+ein neues Schema, eine neue CHECK-Liste oder ein neuer UI-Wert ohne
+Gegenstueck dazukommt.
 """
 from __future__ import annotations
 
@@ -43,9 +57,11 @@ if str(BACKEND_ROOT) not in sys.path:
 import models  # noqa: E402
 import schemas  # noqa: E402
 import schemas.wealth as wealth_schemas  # noqa: E402
+import core.goal_vocabulary as vocab  # noqa: E402
 from database import Base  # noqa: E402
 from services.risk_scoring import canonicalize_horizon_label  # noqa: E402
 from services.sqlite_check_constraint_upgrade import reference_check_in_lists  # noqa: E402
+from services.sqlite_check_ddl import DdlParseError, SupportedCheck, parse_table_ddl  # noqa: E402
 from tests.monolith_source import read_monolith_bundle  # noqa: E402
 
 for _mod in pkgutil.walk_packages(models.__path__, "models."):
@@ -61,6 +77,46 @@ EXPLICIT_TARGETS: dict[str, str] = {
     "schemas.review.RecommendationGenerateRequest": "recommendation_runs",
     # Einladungen legen spaeter einen users-Eintrag mit genau dieser Rolle an.
     "schemas.users.InviteCreate": "users",
+    "schemas.clients.OptHistoryCreate": "client_opt_history",
+    "schemas.review.ConflictMitigateRequest": "conflict_of_interest_disclosures",
+    "schemas.protocol_bausteine.BausteinCreate": "protocol_bausteine",
+    "schemas.protocol_bausteine.BausteinUpdate": "protocol_bausteine",
+}
+
+# N-903-01: freie ``str``-Felder, die in eine CHECK-Spalte schreiben. Keine
+# statische Werteliste -> Verhaltenspruefung auf dem echten Schema in
+# ``test_check_free_text_fields_real_schema.py``: ein Wert ausserhalb der
+# Liste ist 422 (nie 500), und zwar ueber genau den hier genannten Pfad:
+#   schema      -> Pydantic lehnt ab,
+#   router      -> der Router lehnt fachlich ab,
+#   central_422 -> erst die DB; zentraler Handler (DB_CHECK_CONSTRAINT_VIOLATION),
+#   derived     -> der Router leitet den Wert ab (normalize_nature); die Eingabe
+#                  wird verworfen, gespeichert wird ein CHECK-Wert.
+STR_FIELD_POLICY: dict[str, str] = {
+    "schemas.clients.ClientCreate.civil_status": "central_422",
+    "schemas.clients.ClientCreate.partner_salutation": "central_422",
+    "schemas.clients.ClientUpdate.civil_status": "central_422",
+    "schemas.clients.ClientUpdate.partner_salutation": "central_422",
+    "schemas.clients.OptHistoryCreate.event_type": "central_422",
+    "schemas.review.ConflictDisclosureCreate.inducement_frequency": "central_422",
+    "schemas.review.ConflictDisclosureCreate.mitigation_action": "central_422",
+    "schemas.review.ConflictMitigateRequest.mitigation_action": "central_422",
+    "schemas.review.ProductCreate.product_type": "central_422",
+    "schemas.review.ProductUpdate.product_type": "router",
+    "schemas.review.ReviewTriggerCreate.frequency": "schema",
+    "schemas.users.AdviserRegistrationCreate.register_status": "central_422",
+    "schemas.wealth.CashflowCreate.frequency": "schema",
+    "schemas.wealth.CashflowUpdate.frequency": "schema",
+    "schemas.wealth.CashflowUpdate.nature": "derived",
+    "schemas.wealth.GoalCreate.frequency": "schema",
+    "schemas.wealth.GoalCreate.hardness": "schema",
+    "schemas.wealth.GoalUpdate.goal_family": "schema",
+    "schemas.wealth.GoalUpdate.goal_type": "schema",
+    "schemas.wealth.GoalUpdate.goal_scope": "schema",
+    "schemas.wealth.GoalUpdate.value_mode": "schema",
+    "schemas.wealth.GoalUpdate.frequency": "router",
+    "schemas.wealth.GoalUpdate.hardness": "schema",
+    "schemas.wealth.WealthPositionUpdate.assignment": "router",
 }
 
 # Literal-Felder, die nicht in die gleichnamige CHECK-Spalte geschrieben werden.
@@ -71,20 +127,78 @@ NOT_PERSISTED: dict[str, str] = {
 
 # Dokumentierte Kanonisierung an der API-Grenze: (Tabelle, Spalte) -> Funktion.
 CANONICALIZERS: dict[tuple[str, str], typing.Callable[[str], str]] = {
-    ("goals", "goal_type"): wealth_schemas.canonical_goal_type,
-    ("goals", "goal_family"): wealth_schemas.canonical_goal_family,
-    ("goals", "hardness"): wealth_schemas.canonical_goal_hardness,
-    ("goals", "goal_scope"): wealth_schemas.canonical_goal_scope,
+    ("goals", "goal_type"): vocab.canonical_goal_type,
+    ("goals", "goal_family"): vocab.canonical_goal_family,
+    ("goals", "hardness"): vocab.canonical_goal_hardness,
+    ("goals", "goal_scope"): vocab.canonical_goal_scope,
     ("risk_assessments", "investment_horizon_label"): canonicalize_horizon_label,
 }
 
 
-def _check_lists() -> dict[tuple[str, str], set[str]]:
+def _sql_check_lists() -> dict[tuple[str, str], set[str]]:
     raw = reference_check_in_lists((BACKEND_ROOT / "ares_schema.sql").read_text(encoding="utf-8"))
     return {key: {lit[1:-1].replace("''", "'") for lit in lits} for key, lits in raw.items()}
 
 
-CHECKS = _check_lists()
+def _orm_check_lists() -> dict[tuple[str, str], set[str]]:
+    """CHECK-Wertelisten aus den ORM-Modellen (``CheckConstraint``), z.B. privacy_*,
+    Sustainability -- Quelle fuer create_all und die PG-Baseline."""
+    from sqlalchemy.dialects import sqlite
+    from sqlalchemy.schema import CreateTable
+
+    out: dict[tuple[str, str], set[str]] = {}
+    for table in Base.metadata.sorted_tables:
+        ddl = str(CreateTable(table).compile(dialect=sqlite.dialect()))
+        try:
+            parsed = parse_table_ddl(ddl)
+        except DdlParseError:
+            continue
+        for check in parsed.checks:
+            if isinstance(check, SupportedCheck):
+                out.setdefault((table.name, check.column), set()).update(check.values)
+    return out
+
+
+_ALEMBIC_TABLE = re.compile(r"""(?:create_table|batch_alter_table)\(\s*(?:["'](\w+)["']|([A-Za-z_]\w*)\s*[,)])""")
+_ALEMBIC_IN = re.compile(r"""["'](\w+) IN \(((?:\s*'[^']*'\s*,?)+)\)["']""")
+
+
+def _alembic_check_lists() -> dict[tuple[str, str], set[str]]:
+    """``col IN ('a','b')``-CHECKs aus den Alembic-Revisionen (PostgreSQL-Pfad)."""
+    out: dict[tuple[str, str], set[str]] = {}
+    for path in sorted((BACKEND_ROOT / "alembic" / "versions").glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        for match in _ALEMBIC_IN.finditer(text):
+            constants = dict(re.findall(r"""^([A-Z_]+)\s*=\s*["'](\w+)["']""", text, re.M))
+            tables = [
+                literal or constants.get(name)
+                for literal, name in _ALEMBIC_TABLE.findall(text[: match.start()])
+            ]
+            tables = [t for t in tables if t]
+            if not tables:
+                continue
+            values = set(re.findall(r"'([^']*)'", match.group(2)))
+            out.setdefault((tables[-1], match.group(1)), set()).update(values)
+    return out
+
+
+CHECK_SOURCES: dict[str, dict[tuple[str, str], set[str]]] = {
+    "ares_schema.sql": _sql_check_lists(),
+    "orm": _orm_check_lists(),
+    "alembic": _alembic_check_lists(),
+}
+
+
+def _merged_checks() -> dict[tuple[str, str], set[str]]:
+    """Pro Spalte die Werte, die JEDE Quelle mit einer Liste akzeptiert."""
+    merged: dict[tuple[str, str], set[str]] = {}
+    for lists in CHECK_SOURCES.values():
+        for key, values in lists.items():
+            merged[key] = merged[key] & values if key in merged else set(values)
+    return merged
+
+
+CHECKS = _merged_checks()
 ORM_TABLES = {
     mapper.class_.__name__: mapper.local_table.name
     for mapper in Base.registry.mappers
@@ -133,6 +247,33 @@ def test_reference_schema_has_check_lists():
     assert len(CHECKS) > 50
 
 
+def test_orm_and_alembic_check_sources_are_read():
+    """Positivkontrolle N-903-01: ORM- und Alembic-CHECKs fliessen ein."""
+    for source in ("orm", "alembic"):
+        tables = {table for table, _column in CHECK_SOURCES[source]}
+        assert any(t.startswith("privacy_") for t in tables), (source, sorted(tables))
+        assert any("sustainability" in t for t in tables), (source, sorted(tables))
+
+
+def test_free_text_check_fields_are_registered():
+    """Vollstaendigkeit N-903-01: jedes freie str-Feld eines Schreib-Schemas, das
+    in eine CHECK-Spalte schreibt, hat eine gepruefte 422-Strategie."""
+    found: set[str] = set()
+    for qualname, cls in _write_schemas():
+        table = _target_table(qualname)
+        for field, info in cls.model_fields.items():
+            args = typing.get_args(info.annotation) or (info.annotation,)
+            if str not in args or _literals(info.annotation):
+                continue
+            if table is not None and (table, field) in CHECKS:
+                found.add(f"{qualname}.{field}")
+    assert found == set(STR_FIELD_POLICY), (
+        f"neu/unregistriert: {sorted(found - set(STR_FIELD_POLICY))}; "
+        f"veraltet: {sorted(set(STR_FIELD_POLICY) - found)}"
+    )
+    assert set(STR_FIELD_POLICY.values()) <= {"schema", "router", "central_422", "derived"}
+
+
 def test_write_schema_literals_are_subset_of_db_check_lists():
     drifts: list[str] = []
     checked = 0
@@ -170,7 +311,7 @@ def test_canonicalizers_drift_detection_positive_control():
     """Die Pruefung erkennt eine Drift: ohne Kanonisierung fehlt 'Vermoegensziel'."""
     assert "Vermoegensziel" in _literals(wealth_schemas.GoalCreate.model_fields["goal_type"].annotation)
     assert "Vermoegensziel" not in CHECKS[("goals", "goal_type")]
-    assert wealth_schemas.canonical_goal_type("Vermoegensziel") == "Vermögensziel"
+    assert vocab.canonical_goal_type("Vermoegensziel") == "Vermögensziel"
 
 
 @pytest.mark.parametrize("constant, key", [
@@ -181,14 +322,14 @@ def test_canonicalizers_drift_detection_positive_control():
     ("GOAL_VALUE_MODE_DB_VALUES", ("goals", "value_mode")),
 ])
 def test_goal_db_value_constants_equal_check_lists(constant, key):
-    assert set(getattr(wealth_schemas, constant)) == CHECKS[key]
+    assert set(getattr(vocab, constant)) == CHECK_SOURCES["ares_schema.sql"][key]
 
 
 def test_goal_family_type_map_is_db_consistent_after_canonicalization():
     for family, types in wealth_schemas.GOAL_FAMILY_TYPE_MAP.items():
         assert family in CHECKS[("goals", "goal_family")]
         for goal_type in types:
-            assert wealth_schemas.canonical_goal_type(goal_type) in CHECKS[("goals", "goal_type")]
+            assert vocab.canonical_goal_type(goal_type) in CHECKS[("goals", "goal_type")]
 
 
 def _classic_goal_type_options() -> set[str]:
@@ -215,5 +356,29 @@ def test_ui_goal_types_are_db_values_after_canonicalization(source):
     values = _classic_goal_type_options() if source == "classic" else _react_goal_types()
     assert len(values) >= 6, values
     allowed = CHECKS[("goals", "goal_type")]
-    missing = sorted(v for v in values if wealth_schemas.canonical_goal_type(v) not in allowed)
+    missing = sorted(v for v in values if vocab.canonical_goal_type(v) not in allowed)
     assert not missing, f"{source}-Maske bietet goal_type ohne DB-Gegenstueck an: {missing}"
+
+
+def test_registered_goal_canonicalizers_are_applied_by_create_and_update():
+    """Die Kanonisierer oben sind nicht nur registriert, sondern werden von
+    GoalCreate UND GoalUpdate mit denselben Regeln angewendet (N-903-03/-04;
+    an fb83c8e7 rot: GoalCreate lehnte 'Vermoegen' ab, GoalUpdate speicherte roh)."""
+    aliases = {
+        "goal_family": "Vermoegen", "goal_type": "Vermoegensziel",
+        "goal_scope": "Gesamtvermoegen", "hardness": "Primaer",
+    }
+    expected = {
+        "goal_family": "Vermögen", "goal_type": "Vermögensziel",
+        "goal_scope": "Gesamtvermögen", "hardness": "Primär",
+    }
+    created = wealth_schemas.GoalCreate.model_validate({
+        **aliases, "label": "Umbau Wohneigentum", "rank": 1,
+        "target_wealth_rappen": 250_000_00, "horizon_years": 6,
+    })
+    updated = wealth_schemas.GoalUpdate.model_validate(aliases)
+    for model in (created, updated):
+        assert {field: getattr(model, field) for field in expected} == expected
+    for (table, column), canonical in CANONICALIZERS.items():
+        if table == "goals":
+            assert canonical(aliases[column]) == expected[column]
