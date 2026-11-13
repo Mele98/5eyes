@@ -177,11 +177,6 @@ def _send(ctx: _Ctx, key: str):
         })
     if key in ("schemas.clients.ClientUpdate.civil_status", "schemas.clients.ClientUpdate.partner_salutation"):
         return c.put(f"/clients/{ctx.client_id()}", json={key.rsplit(".", 1)[1]: BAD})
-    if key == "schemas.clients.OptHistoryCreate.event_type":
-        return c.post(f"/clients/{ctx.client_id()}/opt-history", json={
-            "event_type": BAD, "from_classification": "Privatkunde",
-            "to_classification": "Privatkunde",
-        })
     if key in ("schemas.review.ConflictDisclosureCreate.inducement_frequency",
                "schemas.review.ConflictDisclosureCreate.mitigation_action"):
         return c.post(f"/mandates/{ctx.mandate_id()}/conflicts", json={

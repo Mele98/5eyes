@@ -97,7 +97,6 @@ STR_FIELD_POLICY: dict[str, str] = {
     "schemas.clients.ClientCreate.partner_salutation": "central_422",
     "schemas.clients.ClientUpdate.civil_status": "central_422",
     "schemas.clients.ClientUpdate.partner_salutation": "central_422",
-    "schemas.clients.OptHistoryCreate.event_type": "central_422",
     "schemas.review.ConflictDisclosureCreate.inducement_frequency": "central_422",
     "schemas.review.ConflictDisclosureCreate.mitigation_action": "central_422",
     "schemas.review.ConflictMitigateRequest.mitigation_action": "central_422",
