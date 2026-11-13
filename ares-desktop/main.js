@@ -196,11 +196,13 @@ async function fetchEgressStatus() {
   }
 }
 
+let egressStatusFetcher = fetchEgressStatus;
+
 async function checkForUpdates() {
   if (!updateState.enabled || !autoUpdater) {
     return { ...updateState, message: 'Auto-update disabled' };
   }
-  const egress = evaluateEgressApproval(await fetchEgressStatus());
+  const egress = evaluateEgressApproval(await egressStatusFetcher());
   if (!egress.allowed) {
     updateState = { ...updateState, checking: false, blockedReason: egress.reason };
     logLine(`Update check blocked by egress manifest | reason=${egress.reason}`);
@@ -864,6 +866,7 @@ if (typeof module !== 'undefined' && module.exports) {
   // UPDATE-001: Update-Gate deterministisch pruefbar (tests/update-gate.test.js).
   module.exports._configureAutoUpdatesForTest = configureAutoUpdates;
   module.exports._checkForUpdatesForTest = checkForUpdates;
+  module.exports._setEgressStatusFetcherForTest = (fn) => { egressStatusFetcher = fn || fetchEgressStatus; };
   module.exports._getUpdateStateForTest = () => ({ ...updateState });
   module.exports.backendProcessStillAlive = backendProcessStillAlive;
   // DESK-001: erlaubt das deterministische Pruefen, dass eine gepackte App

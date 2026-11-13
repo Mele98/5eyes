@@ -274,9 +274,16 @@ test('main.js: gepackte App mit ENABLE_AUTO_UPDATE=1 laedt den Updater nicht, so
     assert.strictEqual(mainExports._getUpdateStateForTest().enabled, true);
     assert.strictEqual(updaterCalls.loads, 1);
     assert.ok(updaterCalls.on >= 5, 'Lifecycle-Events registriert');
+    // N-899-09 (H10): ohne freigegebenen Kanal updates.desktop kein Netzwerkaufruf.
+    mainExports._setEgressStatusFetcherForTest(async () => null);
+    const blocked = await mainExports._checkForUpdatesForTest();
+    assert.strictEqual(updaterCalls.checks, 0);
+    assert.ok(blocked.blockedReason, 'Sperrgrund wird gemeldet');
+    mainExports._setEgressStatusFetcherForTest(async () => ({ approved_channels: ['updates.desktop'], blocked_channels: [] }));
     await mainExports._checkForUpdatesForTest();
     assert.strictEqual(updaterCalls.checks, 1);
   } finally {
+    try { require(MAIN_JS_PATH)._setEgressStatusFetcherForTest(null); } catch (_e) { /* ignore */ }
     Module._load = originalLoad;
     if (previousFlag === undefined) delete process.env.ENABLE_AUTO_UPDATE;
     else process.env.ENABLE_AUTO_UPDATE = previousFlag;

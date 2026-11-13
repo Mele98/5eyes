@@ -29,6 +29,6 @@ test('freigegebener Kanal -> erlaubt', () => {
 test('main.js prueft die Freigabe vor autoUpdater.checkForUpdates', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
   const body = source.slice(source.indexOf('async function checkForUpdates()'));
-  assert.ok(body.indexOf('evaluateEgressApproval(await fetchEgressStatus())') > 0);
+  assert.ok(body.indexOf('evaluateEgressApproval(await egressStatusFetcher())') > 0);
   assert.ok(body.indexOf('evaluateEgressApproval') < body.indexOf('autoUpdater.checkForUpdates()'));
 });
