@@ -44,7 +44,11 @@ def test_donut_legend_lists_reserve_and_sums_to_advisory_wealth():
         "buildDLegend(); return {leg: document.getElementById('dnleg').innerHTML,"
         " center: document.getElementById('qs:.dcv').innerHTML};",
         prelude=ALLOCATION,
-        optional=("allocationReserveBreakdown",),
+        # H6: Legenden-Markup kommt aus aa-chart.js (Teil des Bundles).
+        optional=("allocationReserveBreakdown", "aaChartLegendHtml", "aaChartPrepare", "aaChartApportion", "aaChartPctNumber", "aaChartAllocItems", "aaChartCurrency", "aaChartMoney",
+                  "allocationSubAllocationsForBucket", "allocationTableGroupKey", "allocationBucketKey", "assetDisplayName",
+                  "aaChartPctText", "aaChartChf", "aaChartEsc", "aaChartKey", "aaChartClassRank",
+                  "aaChartShadeStep", "aaChartHasSubs"),
     )
     leg = out["leg"]
     assert "Liquiditätsreserve" in leg, "Reserve fehlt in der Legende"

@@ -24,6 +24,11 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
+from core.presentation_rounding import (
+    allocation_pct_texts,
+    format_bps_as_pct,
+    sub_allocation_pct_texts,
+)
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TEXT,
@@ -171,9 +176,8 @@ def _make_donut_drawing(allocation_bps: Mapping[str, int], diameter_mm: float) -
     drawing.add(pie)
 
     # Total-Label in der Mitte
-    total_pct = sum(values) / 100.0
     drawing.add(String(
-        size / 2, size / 2 + 1, f"{total_pct:.0f}%",
+        size / 2, size / 2 + 1, format_bps_as_pct(sum(values), decimals=0),
         fontSize=11, fontName=FONT_BOLD, textAnchor="middle",
         fillColor=colors.HexColor("#0f172a"),
     ))
@@ -202,6 +206,9 @@ def _make_class_legend(allocation_bps: Mapping[str, int], products: Iterable[Map
         sub_by_bucket[ac][sub] = sub_by_bucket[ac].get(sub, 0) + weight
 
     rows = []
+    # G7: Anteile gemeinsam apportioniert (Summe 100.0 %, Unterklassen = Klasse),
+    # identisch zur App-Legende (aa-chart.js).
+    shown = allocation_pct_texts({b: int(allocation_bps.get(b, 0) or 0) for b in _ordered_buckets(allocation_bps)})
     for bucket in _ordered_buckets(allocation_bps):
         bps = int(allocation_bps.get(bucket, 0) or 0)
         color_hex = asset_class_color(bucket).hexval()[2:]
@@ -215,13 +222,16 @@ def _make_class_legend(allocation_bps: Mapping[str, int], products: Iterable[Map
             ),
             Paragraph(
                 f'<para align="right"><font name="{FONT_BOLD}" size="{FONT_SIZE_TABLE}">'
-                f'{bps/100:.1f}%</font></para>',
+                f'{shown[bucket]}</font></para>',
                 _para_compact(),
             ),
         ])
         # Sub-Klassen-Zeilen (eingerueckt)
         subs = sub_by_bucket.get(bucket, {})
+        sub_shown = sub_allocation_pct_texts(shown[bucket], subs, bps)
         for sub, sub_bps in sorted(subs.items(), key=lambda kv: -kv[1]):
+            if sub not in sub_shown:
+                continue
             rows.append([
                 Paragraph(
                     f'<font color="#94a3b8" size="{FONT_SIZE_SMALL}">&nbsp;&nbsp;&nbsp;– {_esc(sub)}</font>',
@@ -229,7 +239,7 @@ def _make_class_legend(allocation_bps: Mapping[str, int], products: Iterable[Map
                 ),
                 Paragraph(
                     f'<para align="right"><font color="#64748b" size="{FONT_SIZE_SMALL}">'
-                    f'{sub_bps/100:.1f}%</font></para>',
+                    f'{sub_shown[sub]}</font></para>',
                     _para_compact(),
                 ),
             ])

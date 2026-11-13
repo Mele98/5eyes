@@ -39,6 +39,7 @@ function escapeHtml(v){return String(v==null?'':v);}
 function formatRappen(v){return 'R'+String(v);}
 function formatBpsPercent(v){return 'B'+String(v);}
 function formatCompactCHFAmount(v){return String(v);}
+function fmtNumber(v,d){return Number(v).toFixed(d==null?0:d);}
 function getActiveMandateId(){return 'm-1';}
 function renderPortfolioHandoffSection(){calls.handoffSections++;}
 var _tlHandoffCtx=null;

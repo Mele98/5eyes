@@ -4773,6 +4773,11 @@
       },
       "CashflowProjectionResponse": {
         "properties": {
+          "amount_currency": {
+            "default": "CHF",
+            "title": "Amount Currency",
+            "type": "string"
+          },
           "client_id": {
             "title": "Client Id",
             "type": "string"
@@ -4964,6 +4969,11 @@
       },
       "CashflowSummaryResponse": {
         "properties": {
+          "amount_currency": {
+            "default": "CHF",
+            "title": "Amount Currency",
+            "type": "string"
+          },
           "capital_inflow_rappen": {
             "default": 0,
             "title": "Capital Inflow Rappen",
@@ -29744,6 +29754,17 @@
           "advisory_wealth_rappen": {
             "title": "Advisory Wealth Rappen",
             "type": "integer"
+          },
+          "amount_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Currency"
           },
           "client_classification": {
             "anyOf": [

@@ -517,6 +517,7 @@
     "core.db_integrity": "b2221c8d06a7cb27e782d6ab1db7f765d699b166392a90f67c9d1769ae28fe58",
     "core.evidence": "1ef7d766d44a9f5740fd7e461a00d740cda9489777bcc01fa72cd2a54fbb4e9c",
     "core.goal_vocabulary": "2ce6455a657546ddbc54b665215e899d9e0d4e6df4a79aeaa2562857b0867b82",
+    "core.presentation_rounding": "be5c45fc1b51629e3bfc7093c74a3bc79855a63f70f1d23830b45486276dbed7",
     "core.reason_codes": "3d5299e4bbb2049e92f14af95627e3717115983bfa1723ac7c1051cbe4d5cde2"
   }
 }

@@ -38,6 +38,8 @@ RAW_READ_ALLOWED = {
     "test_frontend_monolith_extracted_parts.py",
     "test_frontend_monolith_bundle_coverage.py",
     "reason_code_contract_support.py",
+    # G7 N3: CHF-Guard scannt jede Datei einzeln (ares.html UND jedes Standalone-Modul).
+    "currency_literal_scan.py",
 }
 
 _READ_ATTRS = {"read_text", "read_bytes", "open"}

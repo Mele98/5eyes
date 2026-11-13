@@ -43,7 +43,8 @@ def test_wealth_position_payload_does_not_hardcode_chf_currency():
 
 def test_wealth_position_payload_defaults_new_positions_to_mandate_base_currency():
     builder = _wealth_position_payload_builder()
-    assert "currentMandateData" in builder and "base_currency" in builder, (
+    # G7 N4: zentral ueber newRecordCurrency() (= mandateCurrency() aus currentMandateData.base_currency).
+    assert "newRecordCurrency()" in builder or ("currentMandateData" in builder and "base_currency" in builder), (
         "Neue Positionen muessen auf mandate.base_currency defaulten statt "
         "hart CHF, sobald keine bestehende Position zum Uebernehmen da ist."
     )

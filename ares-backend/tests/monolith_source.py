@@ -9,6 +9,12 @@ klassische synchrone Skripte bzw. Stylesheet an derselben Stelle):
 * ``intro-sequence.js``     -- Intro-Animation + arrMin/arrMax-Helfer
 * ``goal-review-runtime.js``-- letzter Skriptblock (Ziele/Allokation/Review)
 
+H6 (Asset-Allocation-Grafik) fuehrt zwei neue Teile nach derselben Regel:
+``aa-chart.css`` (direkt nach ``ares.css``) und ``aa-chart.js`` (direkt nach
+``intro-sequence.js``). Sie waren nie inline; die Rekonstruktion setzt sie wie
+die anderen Teile an ihrer Einbindung ein (die sha256-Aussage unten gilt fuer
+den Stand vor H6).
+
 Quelltext-Vertragstests, die Code aus diesen Bloecken pruefen, lesen ueber
 :func:`read_monolith_bundle` die rekonstruierte Gesamtquelle: jede Einbindung
 wird durch den Dateiinhalt im urspruenglichen Inline-Format ersetzt. Das
@@ -95,3 +101,29 @@ def read_frontend_sources() -> str:
     for name, text in read_standalone_modules().items():
         parts.append(f"\n/* ---- frontend module: {name} ---- */\n{text}")
     return "".join(parts)
+
+
+ROUNDING_MODULE = "presentation-rounding.js"
+
+
+def rounding_module_source() -> str:
+    """G7: Quelltext von presentation-rounding.js (definiert ``AresRounding``).
+
+    Node-Harnesses, die Monolith-Formatter (fmtPct/fmtNumber/formatRappen ...)
+    extrahieren, muessen ihn voranstellen -- wie ares.html ihn vor dem
+    Inline-Skript laedt.
+    """
+    module = (FRONTEND_DIR / ROUNDING_MODULE).read_text(encoding="utf-8").replace("\r\n", "\n")
+    # G7 Nachtrag 4: App-Geldformatter beschriften mit der Waehrung der Quelle
+    # (ares.html: ccyOf/_ccyArg/appCurrency/mandateCurrency ...). Ohne Waehrung
+    # zeigen sie "—". Der Harness simuliert ein geladenes CHF-Mandat (wie nach
+    # Kundenwahl); Szenarien koennen ``currentMandateData`` im Prelude ueberschreiben.
+    html = MONOLITH_PATH.read_text(encoding="utf-8")
+    lines = ["var currentMandateData={base_currency:'CHF'};"]
+    for name in ("function sollPct(", "function syncCcy(", "function ccyOf(", "function sameCcy(", "function _ccyArg(",
+                 "function appCurrency(){", "function newRecordCurrency(){", "function mandateCurrency(){", "function wealthSummaryCurrency(){",
+                 "function cashflowSummaryCurrency(){", "function cashflowProjectionCurrency(){",
+                 "function positionsCurrency("):
+        start = html.index(name)
+        lines.append(html[start:html.index("\n", start)])
+    return module + "\n" + "\n".join(lines) + "\n"

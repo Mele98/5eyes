@@ -138,7 +138,12 @@ GOLDEN_SORTED_TABLES_SHA256 = "7bec954fcbe77cda3eab7d0dd8acc6a9ab53c4de5ab945d98
 # H10 Nachtrag 3: neu POST /privacy/incidents/{incident_id}/notification-note, GET
 # /privacy/egress-counts; Feld-Diff geprueft.
 # RC-CH-1 (H10-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
-GOLDEN_OPENAPI_SHA256 = "3e0f6906c0a5beb7202eb9d2b6f272dc94478f538d0b4c3d881690037bc2d57f"
+# G7 H-153 Nachtrag 4 (Grundregel Waehrung): nur additiv WealthSummaryResponse.amount_currency
+# (Optional[str]), CashflowSummaryResponse.amount_currency und CashflowProjectionResponse.
+# amount_currency (str, Default "CHF"); kein Pfad, kein bestehendes Feld geaendert
+# (Feld-Diff von api/openapi.json, export_openapi.py --check gruen).
+# RC-CH-1 (G7-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
+GOLDEN_OPENAPI_SHA256 = "22d0253f7095a65689e82d0fca4c67c70887478ee6511e17d01bc81e0e08bc2c"
 
 _PROBE = """
 import hashlib, json

@@ -39,6 +39,7 @@ from database import new_uuid
 from models.review import ContractDocument
 from models.users import User
 from services.audit import log as audit_log
+from core.presentation_rounding import ROUNDING_POLICY_VERSION
 
 
 def _now() -> str:
@@ -52,7 +53,13 @@ def content_hash_for(data) -> str:
     den PDF-Bytes) und uebergeben das Ergebnis an archive_generated_pdf()
     -- siehe Modul-Docstring fuer den Grund.
     """
-    payload = json.dumps(dataclasses.asdict(data), sort_keys=True, default=str)
+    # G7 N-894-04: Die Rundungs-Policy gehoert zur Evidenz -- dieselben Fachdaten
+    # unter einer anderen Darstellungs-Policy ergeben eine neue Archivversion.
+    # Bestehende Archivdokumente bleiben gueltig (pdf_base64/checksum unberuehrt).
+    payload = json.dumps(
+        {"data": dataclasses.asdict(data), "rounding_policy": ROUNDING_POLICY_VERSION},
+        sort_keys=True, default=str,
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 

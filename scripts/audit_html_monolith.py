@@ -25,9 +25,15 @@ DEFAULT_OUTPUT = REPO_ROOT / "docs" / "audits" / "2026-06-02-monolith-inventory.
 # ihre CSS-Selektoren und JS-Deklarationen werden mit ``source`` = Dateiname
 # (Zeilen relativ zur Datei) mitinventarisiert, damit das Sicherheitsnetz
 # durch die Auslagerung nicht duenner wird.
+# H6 (2026-11-07): aa-chart.css/aa-chart.js -- Asset-Allocation-Grafik (SOLL-
+# Torte, Legende, SOLL-Quoten mit Bandbreite). Neue Darstellungslogik, die zum
+# Monolithen gehoert; als Teil (statt eigenstaendiges Modul) gefuehrt, damit
+# Bundle, Budget und die Verbots-Guards sie automatisch abdecken.
 EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     ("ares.css", "css"),
+    ("aa-chart.css", "css"),
     ("intro-sequence.js", "js"),
+    ("aa-chart.js", "js"),
     ("goal-review-runtime.js", "js"),
     # H8 (Compliance-Audit 2026-11-07): Kundeninformation, KYC-Bestaetigung,
     # Vertretung + Audit-Tabelle (renderAuditLogTable umgezogen, N-873-09).
@@ -61,6 +67,7 @@ STANDALONE_FRONTEND_MODULES: dict[str, str] = {
     "goal-analysis-integrity.js": "eigenes Modul, test_frontend_goal_analysis_integrity.py",
     "advisory-log-finma.js": "eigenes Modul, test_monolith_advisory_log_finma_fields.py",
     "product-master-data.js": "eigenes Modul, test_audit_2026_11_p1_ui.py",
+    "presentation-rounding.js": "G7 Rundungsformatter (Policy ares-rounding/1), test_presentation_rounding_parity.py",
 }
 
 _JS_PATTERNS = (

@@ -7804,6 +7804,11 @@ export interface components {
         };
         /** CashflowProjectionResponse */
         CashflowProjectionResponse: {
+            /**
+             * Amount Currency
+             * @default CHF
+             */
+            amount_currency?: string;
             /** Client Id */
             client_id: string;
             /** Pension Ledger Hash */
@@ -7864,6 +7869,11 @@ export interface components {
         };
         /** CashflowSummaryResponse */
         CashflowSummaryResponse: {
+            /**
+             * Amount Currency
+             * @default CHF
+             */
+            amount_currency?: string;
             /**
              * Capital Inflow Rappen
              * @default 0
@@ -15240,6 +15250,8 @@ export interface components {
             advisory_wealth_chf: number;
             /** Advisory Wealth Rappen */
             advisory_wealth_rappen: number;
+            /** Amount Currency */
+            amount_currency?: string | null;
             /** Client Classification */
             client_classification: string | null;
             /** Client Id */

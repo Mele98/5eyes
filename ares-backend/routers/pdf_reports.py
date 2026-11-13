@@ -45,6 +45,7 @@ from services.recommendation_release_gate import (
     load_tenant_legal_profile,
     mandate_tenant_id,
 )
+from core.presentation_rounding import format_amount_minor, presentation_amounts
 from services.recommendation_run_resolver import (
     NO_CURRENT_RECOMMENDATION_MARKER,
     resolve_current_recommendation_run,
@@ -380,7 +381,7 @@ def _strategy_basis_from_allocation(
     reserve = int(stored) if stored is not None else int(payload.get("external_reserve_rappen") or 0)
     reserve = min(max(0, reserve), max(0, advisory))
     ccy = str(currency or "CHF").upper()  # N-858-6: Mandatswaehrung, nicht fest CHF
-    amount = lambda r: f"{ccy} " + f"{int(round(r / 100)):,}".replace(",", "'")  # noqa: E731
+    amount = lambda r: format_amount_minor(r, ccy)  # noqa: E731  (G7: Half-up statt round())
     notes = []
     if advisory and reserve >= advisory:
         # N-858-7: alles in der Reserve -- Basis 0 sichtbar machen statt die
@@ -430,14 +431,13 @@ def _strategy_presentation_amounts(
     base = advisory if strategy_base_rappen is None else max(0, int(strategy_base_rappen))
     if base > advisory:
         base = advisory
-    advisory_chf = int(round(advisory / 100))
-    base_chf = int(round(base / 100))
-    reserve_chf = max(0, advisory_chf - base_chf)
-
+    # G7: dieselbe Regel wie die App (core.presentation_rounding.presentation_amounts):
+    # Half-up auf ganze Franken (vorher round() = Banker's Rounding), Klassen per
+    # Largest Remainder auf die Strategiebasis.
     buckets = [b for b, bps in (target_alloc_bps or {}).items() if int(bps or 0) > 0]
-    bucket_chf = _largest_remainder_split(
-        base_chf, [int(target_alloc_bps[b]) for b in buckets], buckets,
-    ) if base_chf > 0 else [0] * len(buckets)
+    units = presentation_amounts(advisory, base, [int(target_alloc_bps[b]) for b in buckets], buckets)
+    advisory_chf, base_chf, reserve_chf = units["advisory_units"], units["base_units"], units["reserve_units"]
+    bucket_chf = units["bucket_units"]
     bucket_amounts = {b: chf * 100 for b, chf in zip(buckets, bucket_chf)}
 
     by_bucket: dict[str, list[dict]] = {}

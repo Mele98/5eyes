@@ -28,6 +28,7 @@ from services.pdf.components.advisory_palette import (
 from services.pdf.components.swiss_numbers import (
     format_bps_as_pct,
     format_chf_rappen,
+    format_amount_minor,
 )
 
 
@@ -541,10 +542,8 @@ def _retro_amount(rappen: Any, *, currency: str = "CHF") -> str:
         value = int(rappen)
     except (TypeError, ValueError):
         return "—"
-    whole, cents = divmod(abs(value), 100)
     unit = str(currency or "CHF").upper().strip() or "CHF"
-    sign = "-" if value < 0 else ""
-    return f"{unit} {sign}{whole:,}.{cents:02d}".replace(",", "'")
+    return format_amount_minor(value, unit, decimals=2)
 
 
 def _retro_style(base: ParagraphStyle, *, font: str | None = None, color=None) -> ParagraphStyle:

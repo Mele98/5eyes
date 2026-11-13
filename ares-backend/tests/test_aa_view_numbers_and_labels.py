@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 HTML_PATH = (
     Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
@@ -82,9 +83,9 @@ def _run(names: tuple[str, ...], scenario_js: str):
         pytest.skip("node not available")
     src = _html()
     fns = "\n".join(_extract_function(src, name) for name in names)
-    script = _FAKE_DOM + fns + "\nvar __out=(function(){" + scenario_js + "})();\nprocess.stdout.write(JSON.stringify(__out));"
+    script = rounding_module_source() + _FAKE_DOM + fns + "\nvar __out=(function(){" + scenario_js + "})();\nprocess.stdout.write(JSON.stringify(__out));"
     proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60
+        ["node", "-"], input=script, capture_output=True, text=True, encoding="utf-8", timeout=60
     )
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
@@ -125,7 +126,8 @@ def test_donut_center_has_no_fantasy_placeholder_and_uses_formatter():
     assert '<div class="dcv">—</div>' in html
     out = _run(
         _FMT + ("donutCenterValueHtml",),
-        "return {a:donutCenterValueHtml(2850000),b:donutCenterValueHtml(0),"
+        # G7 N4: TOTAL_CCY = Waehrung von TOTAL (Allokation bzw. Positions-Rohsumme).
+        "TOTAL_CCY='CHF';return {a:donutCenterValueHtml(2850000),b:donutCenterValueHtml(0),"
         "c:donutCenterValueHtml(null),d:donutCenterValueHtml(450000),ref:(450000).toLocaleString('de-CH')};",
     )
     assert out["a"] == "CHF<br>2.85 Mio."

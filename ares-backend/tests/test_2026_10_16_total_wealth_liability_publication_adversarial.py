@@ -60,7 +60,9 @@ def test_total_wealth_projection_subtracts_non_mortgage_liabilities(tmp_path: Pa
     mortgage_helper = _extract_js_function(
         html, "mortgageLiabilityAndPledgedSeriesRappen"
     )
-    projection_helper = _extract_js_function(html, "wealthProjectionInputs")
+    projection_helper = _extract_js_function(html, "wealthProjectionInputs") + "\n" + "\n".join(
+        # G7 N4: Waehrung der Projektionseingaben (Grundregel) -- echte Helfer aus ares.html.
+        _extract_js_function(html, n) for n in ("ccyOf", "sameCcy", "positionsCurrency", "mandateCurrency", "appCurrency"))
     script = f"""
 const assets = [
   {{position_type:'Depot', assignment:'Beratungsvermögen', current_value_rappen:10000000}},

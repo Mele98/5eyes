@@ -37,6 +37,7 @@ from tests.brand_digest_support import assert_no_legacy_brand  # noqa: E402
 
 import pytest
 from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
@@ -238,7 +239,8 @@ def _run(scenario_js: str) -> object:
     parts += [_extract_function(src, name) for name in _FUNCTIONS]
     parts.append(LEGACY_COLLECT.read_text(encoding="utf-8"))
     script = (
-        "var __RADIO_OPTIONS=" + json.dumps(_radio_options(src)) + ";\n"
+        rounding_module_source()
+        + "var __RADIO_OPTIONS=" + json.dumps(_radio_options(src)) + ";\n"
         + _HARNESS
         + "\n".join(parts)
         + "\nconsole.log(JSON.stringify((function(){" + scenario_js + "})()));\n"
@@ -657,7 +659,7 @@ def test_removed_duplicates_and_old_dialog_are_gone():
     assert 'id="aa-preferences-card"' not in src and 'id="aa-restrictions-card"' not in src
     assert "toggleAllocationRestrictionsPanel" not in src
     # Genau eine Reserve-Eingabe.
-    assert len(re.findall(r'<label[^>]*>(?:<span[^>]*></span>)*[^<]*reserve[^<]*\(CHF\)</label>', src, re.I)) == 1
+    assert len(re.findall(r'<label[^>]*>(?:<span[^>]*></span>)*[^<]*reserve[^<]*\((?:<span class="ccy">)?CHF(?:</span>)?\)</label>', src, re.I)) == 1
     assert re.findall(r'<input[^>]*\bid="(aa-[a-z-]*reserve[a-z-]*)"', src) == ["aa-liquidity-min-reserve"]
     # Header-Button bleibt (Header-Kontrakt) und oeffnet den Balken, keinen Dialog.
     opener = _extract_function(src, "openAllocationPreferencesModal")

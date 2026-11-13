@@ -40,7 +40,8 @@ def test_save_cashflow_does_not_hardcode_chf_currency():
 
 def test_save_cashflow_defaults_new_entries_to_mandate_base_currency():
     fn = _save_cashflow_fn()
-    assert "currentMandateData" in fn and "base_currency" in fn, (
+    # G7 N4: zentral ueber newRecordCurrency() (= mandateCurrency() aus currentMandateData.base_currency).
+    assert "newRecordCurrency()" in fn or ("currentMandateData" in fn and "base_currency" in fn), (
         "Neue Cashflows muessen auf mandate.base_currency defaulten statt "
         "hart CHF, sobald kein bestehender Cashflow zum Uebernehmen da ist."
     )
@@ -57,3 +58,11 @@ def test_save_cashflow_preserves_existing_currency_on_edit():
         "payload.currency muss aus der hergeleiteten cashflowCurrency kommen, "
         "nicht mehr aus einem Literal."
     )
+
+
+def test_new_record_currency_reads_mandate_base_currency():
+    """G7 N4: newRecordCurrency() nimmt die Mandatswaehrung, nur ohne Mandat den Server-Default."""
+    from tests.monolith_source import read_monolith_bundle
+    src = read_monolith_bundle()
+    assert "function newRecordCurrency(){return mandateCurrency()||'CHF';}" in src
+    assert "function mandateCurrency(){return ccyOf(typeof currentMandateData!=='undefined'&&currentMandateData&&currentMandateData.base_currency);}" in src

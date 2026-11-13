@@ -17,7 +17,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
-from services.pdf.components.swiss_numbers import format_bps_as_pct, format_chf_rappen
+from services.pdf.components.swiss_numbers import format_bps_as_pct, format_chf_rappen, format_number
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -45,7 +45,7 @@ def _sharpe_ratio(cagr_bps: int | None, vol_bps: int | None, risk_free_bps: int)
 
 
 def _fmt_sharpe(value: float | None) -> str:
-    return "—" if value is None else f"{value:.2f}"
+    return "—" if value is None else format_number(value, decimals=2)
 
 
 def _fmt_chf_pair_row(label: str, soll_rappen: int | None, ist_rappen: int | None, currency: str) -> list:
@@ -121,7 +121,7 @@ def make_sollist_kennzahlen_table(
     rows.append([
         Paragraph(
             f'<font color="#475569">Rendite/Risiko (Sharpe, risikofrei '
-            f'{risk_free_bps / 100:.1f}%)</font>', cell_style,
+            f'{format_bps_as_pct(risk_free_bps, decimals=1)})</font>', cell_style,
         ),
         Paragraph(_esc(_fmt_sharpe(sharpe_target)), cell_style),
         Paragraph(_esc(_fmt_sharpe(sharpe_current)), cell_style),

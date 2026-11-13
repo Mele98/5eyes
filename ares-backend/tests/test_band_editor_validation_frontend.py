@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HTML_PATH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
@@ -100,7 +101,7 @@ console.log(JSON.stringify({valid:r.valid,fieldErrors:r.fieldErrors,rowErrors:r.
   sent:collectBandOverridesFromModal()}));
 """
     )
-    script = "\n".join(fns) + "\n" + harness
+    script = rounding_module_source() + "\n".join(fns) + "\n" + harness
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as fh:
         fh.write(script)
         path = fh.name
@@ -302,7 +303,7 @@ saveManualTargetAllocationFromModal().then(function(ok){
 });
 """
     )
-    script = "\n".join(fns) + "\n" + harness
+    script = rounding_module_source() + "\n".join(fns) + "\n" + harness
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as fh:
         fh.write(script)
         path = fh.name
@@ -405,7 +406,7 @@ def test_band_percent_parser_accepts_format_helper_output_and_both_apostrophes()
             "function parseBandPercentUserInput(",
         )
     ]
-    script = "\n".join(fns) + "\n" + (
+    script = rounding_module_source() + "\n".join(fns) + "\n" + (
         "console.log(JSON.stringify(["
         "parseBandPercentUserInput(fmtPct(4550,1)),"
         "parseBandPercentUserInput('12,5 %'),"

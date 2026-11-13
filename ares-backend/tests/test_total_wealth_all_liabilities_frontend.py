@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 ROOT = Path(__file__).resolve().parents[2]
 HTML_PATH = ROOT / "ares-desktop" / "frontend" / "ares.html"
@@ -56,7 +57,7 @@ def _extract_js_function(source: str, name: str) -> str:
 
 def _run_node(tmp_path: Path, script: str) -> dict:
     path = tmp_path / "contract.js"
-    path.write_text(script, encoding="utf-8")
+    path.write_text(rounding_module_source() + script, encoding="utf-8")
     completed = subprocess.run(
         ["node", str(path)], check=True, capture_output=True, text=True, encoding="utf-8", timeout=30
     )
@@ -91,8 +92,12 @@ process.stdout.write(JSON.stringify(mortgageLiabilityAndPledgedSeriesRappen(posi
 
 def _donut_script(html: str, total_allocation: dict, total_wealth: int) -> str:
     # Live-Test 2026-11 H2: der Kontexttext nutzt allocationReserveBreakdown().
-    sync = _extract_js_function(html, "allocationReserveBreakdown") + chr(10) + _extract_js_function(
-        html, "syncAllocationDonutFromStrategyState"
+    # H6: die Kennzahlen-Karte baut aaChartContextHtml() (aa-chart.js, Teil des Bundles).
+    # G7: Betraege ueber den echten formatRappen (gemeinsamer Formatter).
+    sync = chr(10).join(
+        _extract_js_function(html, name)
+        for name in ("allocationReserveBreakdown", "aaChartEsc", "aaChartContextHtml",
+                     "formatRappen", "aaChartCurrency", "aaChartMoney", "syncAllocationDonutFromStrategyState")
     )
     return (
         """
@@ -130,8 +135,9 @@ def test_classic_context_shows_net_foundation(tmp_path):
         "total_base_rappen": 40_000_000,
     }
     out = _run_node(tmp_path, _donut_script(html, payload, 40_000_000))["html"]
-    assert "Eigenheim-Fundament CHF 400000" in out, out
-    assert "CHF 500000" not in out, out
+    # H6: Kennzahlen-Karte -- Label und Betrag als Zeile (Inhalt unveraendert).
+    assert "<span>davon Eigenheim-Fundament</span><strong>CHF 400'000</strong>" in out, out
+    assert "CHF 500'000" not in out, out
     assert "ungedeckte" not in out, out
 
 
@@ -145,6 +151,6 @@ def test_classic_context_surfaces_uncovered_debt(tmp_path):
         "total_base_rappen": 0,
     }
     out = _run_node(tmp_path, _donut_script(html, payload, 0))["html"]
-    assert "Reinvermögen (gesamt, netto aller Verbindlichkeiten): <strong>CHF 0</strong>" in out, out
+    assert "<span>Reinvermögen (gesamt, netto aller Verbindlichkeiten)</span><strong>CHF 0</strong>" in out, out
     assert "Verbindlichkeiten übersteigen die Aktiven" in out, out
-    assert "ungedeckte Schulden CHF 30000" in out, out
+    assert "ungedeckte Schulden CHF 30'000" in out, out

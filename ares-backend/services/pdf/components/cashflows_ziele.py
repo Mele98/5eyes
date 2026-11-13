@@ -12,6 +12,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 
 from services.pdf.components.header import _esc
+from core.presentation_rounding import format_minor_number, format_pct_value
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -89,7 +90,7 @@ def _make_goals_table(goals: list, base_currency: str):
         if amount > 0:
             amount_text = _format_amount(amount, base_currency)
         elif target_pct is not None:
-            amount_text = f"{float(target_pct):.2f} %"
+            amount_text = format_pct_value(float(target_pct), decimals=2)
         else:
             amount_text = "—"
         rows.append([
@@ -129,11 +130,7 @@ def _format_amount(rappen: int, currency: str = "CHF") -> str:
     # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): rappen ist bereits in
     # mandate.base_currency (siehe portfolio_engine._load_allocation_inputs).
     # Kein zweites convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
-    try:
-        value = rappen / 100.0
-        return f"{value:,.0f}".replace(",", "'")
-    except Exception:
-        return f"{rappen/100.0:,.0f}".replace(",", "'")
+    return format_minor_number(rappen)
 
 
 def _section_title(text: str):

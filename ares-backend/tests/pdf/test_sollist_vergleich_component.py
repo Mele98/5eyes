@@ -112,8 +112,9 @@ def test_kennzahlen_table_sharpe_row_present_and_formatted():
     sharpe_row = table._cellvalues[-1]
     assert "Sharpe" in sharpe_row[0].text
     # (650-80)/1200 = 0.475, current (420-80)/900 = 0.3778...
-    assert sharpe_row[1].text == f"{(650 - 80) / 1200:.2f}"
-    assert sharpe_row[2].text == f"{(420 - 80) / 900:.2f}"
+    # G7: Half-up (0.475 -> 0.48); vorher Banker's Rounding auf dem Binaerwert (0.47).
+    assert sharpe_row[1].text == "0.48"
+    assert sharpe_row[2].text == "0.38"
 
 
 def test_kennzahlen_table_renders_with_only_target_side_present():
