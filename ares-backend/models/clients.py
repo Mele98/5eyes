@@ -308,14 +308,17 @@ class KycConfirmationRejection(Base):
 
 class KycConfirmationDecision(Base):
     """C-890-01 Nachtrag 3 (N-897-08): genau EIN Entscheid (Freigabe ODER
-    Ablehnung) je Bestaetigung -- Primaerschluessel auf ``confirmation_id``,
+    Ablehnung) je Bestaetigung -- UNIQUE auf ``confirmation_id``,
     in derselben Transaktion wie die Freigabe- bzw. Ablehnungszeile
-    geschrieben. Zwei gleichzeitige Entscheide scheitern am Schluessel.
+    geschrieben. Zwei gleichzeitige Entscheide scheitern an UNIQUE(confirmation_id).
     Append-only (Trigger); kein Freitext, kein Kundenbezug ausser der ID."""
 
     __tablename__ = "kyc_confirmation_decisions"
 
-    confirmation_id = Column(String, primary_key=True)
+    # Eigene ``id`` wie jede Tenant-Tabelle (RLS-Seeding/Inventar-Konvention);
+    # die Eindeutigkeit des Entscheids traegt UNIQUE(confirmation_id).
+    id = Column(String, primary_key=True)
+    confirmation_id = Column(String, nullable=False, unique=True)
     tenant_id = Column(String)
     decision = Column(String, nullable=False)
     decided_by = Column(String, ForeignKey("users.id"), nullable=False)

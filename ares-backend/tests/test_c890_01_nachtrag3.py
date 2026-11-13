@@ -399,7 +399,7 @@ def test_exactly_one_decision_per_confirmation(client, session_factory):
     assert r.status_code == 409 and r.json()["detail"]["reason_code"] == "KYC_SECOND_APPROVAL_ALREADY_DECIDED"
     with session_factory() as db:
         assert db.query(KycConfirmationDecision).count() == 1
-        db.add(KycConfirmationDecision(confirmation_id=conf["id"], tenant_id=TENANT, decision="reject",
+        db.add(KycConfirmationDecision(id="dup", confirmation_id=conf["id"], tenant_id=TENANT, decision="reject",
                                        decided_by="rev-1", decided_at=NOW, record_id="x"))
         with pytest.raises(IntegrityError):
             db.commit()
@@ -411,7 +411,7 @@ def test_exactly_one_decision_per_confirmation(client, session_factory):
 
 def test_racing_decisions_on_sqlite_yield_one_winner(client, session_factory, monkeypatch):
     """Zwei Entscheide, die beide noch "unentschieden" gesehen haben: der
-    zweite scheitert am Primaerschluessel (409), es bleibt genau einer."""
+    zweite scheitert an UNIQUE(confirmation_id) (409), es bleibt genau einer."""
     import routers.clients as clients_router
 
     adv, rev, adm = _auth(client, "adv-1"), _auth(client, "rev-1"), _auth(client, "adm-2")

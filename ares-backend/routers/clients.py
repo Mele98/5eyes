@@ -679,10 +679,10 @@ def _assert_latest_confirmation(db: Session, record: KycConfirmation) -> None:
 
 def _record_decision(db: Session, record: KycConfirmation, decision: str, user: User, at: str,
                      entry_id: str) -> None:
-    """N-897-08: genau ein Entscheid je Bestaetigung (Primaerschluessel);
+    """N-897-08: genau ein Entscheid je Bestaetigung (UNIQUE confirmation_id);
     ein paralleler zweiter Entscheid scheitert beim Flush mit 409."""
     db.add(KycConfirmationDecision(
-        confirmation_id=record.id, tenant_id=record.tenant_id, decision=decision,
+        id=new_uuid(), confirmation_id=record.id, tenant_id=record.tenant_id, decision=decision,
         decided_by=user.id, decided_at=at, record_id=entry_id,
     ))
     try:

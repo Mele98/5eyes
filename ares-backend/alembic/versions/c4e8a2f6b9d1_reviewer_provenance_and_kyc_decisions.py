@@ -7,7 +7,7 @@
   ``reviewer_reference``; Name = ``full_name``). Kein Backfill: Bestandskonten
   haben eine unbekannte Herkunft und zaehlen als Freigeber der Rolle
   compliance_reviewer nicht.
-- ``kyc_confirmation_decisions`` (N-897-08): Primaerschluessel
+- ``kyc_confirmation_decisions`` (N-897-08): eigene ``id``, UNIQUE
   ``confirmation_id`` -- genau ein Entscheid (Freigabe oder Ablehnung) je
   Bestaetigung, append-only (Trigger SQLite/PG).
 
@@ -40,6 +40,7 @@ def upgrade() -> None:
         op.add_column("users", sa.Column(name, sa.String(), nullable=True))
     op.create_table(
         TABLE,
+        sa.Column("id", sa.String(), nullable=False),
         sa.Column("confirmation_id", sa.String(), nullable=False),
         sa.Column("tenant_id", sa.String(), nullable=True),
         sa.Column("decision", sa.String(), nullable=False),
@@ -47,7 +48,8 @@ def upgrade() -> None:
         sa.Column("decided_at", sa.String(), nullable=False),
         sa.Column("record_id", sa.String(), nullable=False),
         sa.ForeignKeyConstraint(["decided_by"], ["users.id"]),
-        sa.PrimaryKeyConstraint("confirmation_id"),
+        sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("confirmation_id"),
     )
     dialect = op.get_bind().dialect.name
     if dialect == "sqlite":
