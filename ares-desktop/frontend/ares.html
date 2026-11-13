@@ -16680,13 +16680,6 @@ function renderAuditLogPagination(container) {
     + '<button class="btn" style="font-size:10px;padding:2px 8px"' + (nextDisabled ? ' disabled' : '') + ' onclick="loadAdminAuditLog(' + (_auditLogOffset + _auditLogLimit) + ')">Weiter &rarr;</button>';
 }
 
-// Zeigt die Rechte der gewaehlten Rolle live unter dem Rollen-Select.
-function adminUpdateNewUserRoleHint(){
-  var role = (document.getElementById('nu-role')||{value:'advisor'}).value;
-  var hint = document.getElementById('nu-role-hint');
-  if (hint) hint.textContent = (ADMIN_ROLE_META[role] && ADMIN_ROLE_META[role].rights) || '';
-}
-
 // Neuer Benutzer anlegen (Admin)
 async function createNewUser() {
   var fullName = (document.getElementById('nu-fullname')||{value:''}).value.trim();
@@ -27633,6 +27626,6 @@ function openStammdatenModal(){
 </div>
 <!-- ─────────────────────────────────────────────────────────── -->
 
-<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script>
+<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script>
 </body>
 </html>

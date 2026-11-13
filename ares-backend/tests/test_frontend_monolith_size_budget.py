@@ -31,6 +31,21 @@ client-compliance.js (eigenes Budget, Stand bei Einfuehrung); sie haengen sich
 selbst in Administration und Stammdaten ein. Im Monolithen nur die Einbindung;
 renderAuditLogTable ist mit der Feldbezeichnung (N-873-09) in den Teil
 umgezogen. Der Monolith schrumpft dabei (Budget auf den neuen Stand).
+
+C-890-01 (2026-11-11): client-compliance.js +5 Zeilen/+727 Bytes fuer die
+Statuszeile der KYC-Wiedervorlage-Policy (Budget auf den neuen Stand).
+C-890-01 Nachtrag 1: neuer Teil kyc-review-policy.js (eigenes Budget, Stand bei
+Einfuehrung); adminUpdateNewUserRoleHint aus dem Monolithen umgezogen -- der
+Monolith schrumpft trotz Einbindung (Budget gesenkt: 27631 Z./1692930 B).
+C-890-01 Nachtrag 2: kyc-review-policy.js +63 Z./+4282 B fuer "Offene
+KYC-Freigaben" (Entscheid der zweiten Person); Monolith unveraendert.
+C-890-01 Nachtrag 3: kyc-review-policy.js 413/24620 (Einladung der externen
+Compliance-Person, 2FA-Hinweis, Konto-Herkunft), client-compliance.js 465/29504
+(Hinweis "keine Kundennamen", Warnung bei Personendaten).
+C-890-01 Nachtrag 4: kyc-review-policy.js 421/25340 (Einladung nur per Mail,
+Weitergabe-Hinweis, Herkunftsindiz und Kompromittierungs-Hinweis).
+C-890-01 Nachtrag 5: kyc-review-policy.js 427/25832 (Mailfehler-Hinweis,
+Kompromittierungs-Satz).
 """
 from __future__ import annotations
 
@@ -39,9 +54,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 27638
+MONOLITH_MAX_LINES = 27631
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1693221
+MONOLITH_MAX_BYTES = 1692930
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -49,7 +64,8 @@ EXTRACTED_PART_BUDGETS = {
     "ares.css": (1162, 91800),
     "intro-sequence.js": (761, 36861),
     "goal-review-runtime.js": (1589, 84633),
-    "client-compliance.js": (455, 28353),
+    "client-compliance.js": (465, 29504),
+    "kyc-review-policy.js": (427, 25832),
 }
 
 

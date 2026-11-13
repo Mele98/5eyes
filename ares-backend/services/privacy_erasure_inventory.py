@@ -159,6 +159,12 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
         _c(FREE_TEXT, "kyc_due_diligence", "note", method=TIER_A_REDACTION),
         _c(RECORD, "kyc_due_diligence"),
     ),
+    # C-890-01 Nachtrag 2: begruendete Ablehnung der Zweitfreigabe.
+    "kyc_confirmation_rejections": _t(
+        _CLIENT,
+        _c(FREE_TEXT, "kyc_due_diligence", "reason", method=TIER_A_REDACTION),
+        _c(RECORD, "kyc_due_diligence"),
+    ),
     # H8 Luecke 10: Vertretung/Verfuegungsberechtigung (Name der vertretenden
     # Person = Personendatum eines Dritten).
     "client_representations": _t(

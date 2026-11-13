@@ -1716,6 +1716,9 @@ def test_endpoint_returns_full_report_structure(session_factory):
         "ab_backtest",
         # U-FINMA-3: additive Sektion 27 (re-architektiert 2026-06-09 von Sektion 17)
         "suitability_summary",
+        # C-890-01 Nachtrag 4 (N-897-12): Entwurfshinweis ohne KYC-Bestaetigung
+        # (nur der React-Bericht/Kundenportal, additiv am Ende).
+        "kyc_draft_notice",
     ]
     assert list(data.keys()) == expected
     assert data["schema_version"] == 2

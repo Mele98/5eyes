@@ -134,7 +134,8 @@ def _release_gates(
             raise
         detail = as_detail()
         reason_code = str(detail.get("reason_code") or "RELEASE_BLOCKED")
-        audit(reason_code, detail.get("recommendation_run_id"))
+        # C-890-01: Policy-Bezug der Wiedervorlage-Sperren mitprotokollieren.
+        audit(reason_code, detail.get("recommendation_run_id"), findings=detail.get("findings"))
         if on_blocked is not None:
             on_blocked(reason_code)
         raise

@@ -13,12 +13,13 @@ from models.users import User, AdviserRegistration
 from schemas.users import (
     AdviserRegistrationCreate, AdviserRegistrationResponse, BootstrapAdminRequest,
     BootstrapStatusResponse, InviteAccept, InviteCreate, InvitePreview, InviteResponse,
-    LoginRequest, RefreshTokenRequest, TokenResponse, UserCreate, UserPasswordReset,
+    LoginRequest, RefreshTokenRequest, TokenResponse, UserCompromise, UserCreate, UserPasswordReset,
     UserUpdate, UserResponse,
 )
 from services.auth import (
     hash_password, verify_password, create_access_token,
-    get_current_user, require_admin,
+    get_current_user, require_admin, COMPLIANCE_REVIEWER_ROLE, CREDENTIALS_SET_BY_SELF,
+    short_user_agent,
     _effective_strict_tenant_isolation, tenant_access_block_reason,
     extract_client_ip as _extract_client_ip,
 )
@@ -33,7 +34,7 @@ from services.totp_secret_storage import (
     load_totp_secret,
     store_totp_secret,
 )
-from services.mailer import send_invite_email, send_password_reset_email
+from services.mailer import mail_configured, send_compromise_notice_email, send_invite_email, send_password_reset_email
 from services.quota import assert_within_quota
 from services.refresh_tokens import (
     RefreshTokenReuseDetected, issue_refresh_token, revoke_all_for_user, rotate_refresh_token,
@@ -622,6 +623,9 @@ def change_password(
     current_user.password_hash = hash_password(body.new_password)
     current_user.must_change_password = 0
     current_user.updated_at = _now()
+    # N-897-02: Herkunft der Zugangsdaten (Freigabenachweis).
+    current_user.credentials_set_by = CREDENTIALS_SET_BY_SELF
+    current_user.credentials_set_at = current_user.updated_at
     if not was_forced_change:
         current_user.token_revoked_before = _now()
         # Roadmap #28 (2026-08-08): dito fuer Refresh-Tokens -- ein regulaerer
@@ -685,7 +689,7 @@ def _twofa_mgmt_guard_key(user_id: str) -> str:
 
 @router.post("/2fa/enable")
 def twofa_enable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
-                 current_user: User = Depends(get_current_user)):
+                 current_user: User = Depends(get_current_user), request: Request = None):
     """Aktiviert 2FA nach Bestaetigung eines gueltigen Codes aus dem Authenticator."""
     if not current_user.totp_secret:
         raise HTTPException(status_code=400, detail="Kein 2FA-Setup ausstehend. Zuerst /auth/2fa/setup.")
@@ -719,12 +723,18 @@ def twofa_enable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
     login_attempt_guard.register_success(guard_key)
     current_user.totp_enabled = 1
     current_user.updated_at = _now()
+    # N-897-02: 2FA selbst eingerichtet (nur dieser Self-Service-Pfad setzt sie).
+    current_user.totp_set_by = CREDENTIALS_SET_BY_SELF
+    current_user.totp_set_at = current_user.updated_at
     # #25: Recovery-Codes erzeugen und EINMALIG zurueckgeben (nur Hashes gespeichert).
     ensure_account_recovery_columns(db)
     codes, blob = generate_recovery_codes()
     current_user.totp_recovery_codes = blob
+    # N-897-10: IP und (gekuerzter) User-Agent als Herkunftsindiz.
     log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="users", record_id=current_user.id, action="2FA_ENABLE")
+        table_name="users", record_id=current_user.id, action="2FA_ENABLE",
+        field_name="user_agent", new_value=short_user_agent(request),
+        ip_address=_extract_client_ip(request) if request is not None else None)
     db.commit()
     return {"enabled": True, "recovery_codes": codes, "recovery_codes_count": len(codes)}
 
@@ -762,6 +772,8 @@ def twofa_disable(body: _TwoFACodeRequest, db: Session = Depends(get_db),
     login_attempt_guard.register_success(guard_key)
     current_user.totp_enabled = 0
     current_user.totp_secret = None
+    current_user.totp_set_by = None
+    current_user.totp_set_at = None
     current_user.totp_recovery_codes = None  # #25: Backup-Codes mit-entwerten
     current_user.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -936,6 +948,8 @@ def password_reset_confirm(body: _PasswordResetConfirm, request: Request, db: Se
     clear_reset_token(user)  # ORM-Objekt synchron halten (Core-Update oben)
     user.must_change_password = 0
     user.updated_at = _now()
+    user.credentials_set_by = CREDENTIALS_SET_BY_SELF
+    user.credentials_set_at = user.updated_at
     # 2026-07-25 (Generalaudit, Wave 12): fehlte hier -- anders als der bereits
     # gefixte change_password-Endpoint (AUTH-02-Folgefund). Passwort-Reset ist
     # der dedizierte Account-Recovery-Pfad fuer vermutete Kompromittierung --
@@ -995,6 +1009,13 @@ def create_user(
     ).first()
     if existing:
         raise HTTPException(status_code=409, detail="Benutzername bereits vergeben")
+    # N-897-02: Konten externer Compliance-Personen nur per Einladung -- die
+    # Person setzt ihr Passwort selbst, ein Admin kennt es nie.
+    if body.role == COMPLIANCE_REVIEWER_ROLE:
+        raise HTTPException(status_code=403, detail={
+            "reason_code": "COMPLIANCE_REVIEWER_INVITE_REQUIRED",
+            "message": "Externe Compliance-Freigabe nur per Einladung anlegen.",
+        })
     now = _now()
     tenant_id = getattr(current_user, "tenant_id", None)
     # 2026-08-09 (Live-Playwright-Fund, FINIG-Gate-Test): ein super_admin, der
@@ -1026,12 +1047,15 @@ def create_user(
         # E1 (2026-06-14): vom Admin angelegter Account -> Initial-Passwort muss
         # beim ersten Login geaendert werden.
         must_change_password=1,
+        credentials_set_by=current_user.id,
+        credentials_set_at=now,
         created_at=now,
         updated_at=now,
     )
     db.add(user)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="users", record_id=user.id, action="CREATE")
+        table_name="users", record_id=user.id, action="CREATE",
+        field_name="role", new_value=user.role)
     db.commit()
     db.refresh(user)
     return user
@@ -1112,12 +1136,18 @@ def invite_user(
         must_change_password=0,            # Mitarbeiter setzt das Passwort selbst
         invite_token_hash=_hash_invite_token(token),
         invite_expires_at=expires_at,
+        invited_by=current_user.id,
+        invited_at=now,
+        reviewer_organisation=body.reviewer_organisation,
+        reviewer_reference=body.reviewer_reference,
         created_at=now,
         updated_at=now,
     )
     db.add(user)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="users", record_id=user.id, action="INVITE")
+        table_name="users", record_id=user.id, action="INVITE",
+        field_name="role", new_value=f"{user.role}; ua={short_user_agent(request)}",
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(user)
     # E-Mail-Versand (best effort, config-gated) — bei Fehlschlag/aus: Link-Copy.
@@ -1130,9 +1160,15 @@ def invite_user(
     # admin-authentifiziert, keine Anti-Enumeration-Anforderung).
     invite_link = _invite_link_for(request, token)
     email_sent = send_invite_email(body.email, body.full_name, invite_link) if invite_link else False
+    # N-897-10: ist ein Mailkanal konfiguriert, geht der Link einer externen
+    # Compliance-Person NUR per Mail an sie -- nie in API-Antwort/Maske.
+    # N-897-10: nur wenn die Mail wirklich versendet wurde; sonst Link anzeigen.
+    mail_only = user.role == COMPLIANCE_REVIEWER_ROLE and mail_configured() and email_sent
     return InviteResponse(
         user_id=user.id, username=user.username,
-        invite_token=token, invite_expires_at=expires_at, email_sent=email_sent,
+        invite_token=None if mail_only else token, invite_expires_at=expires_at, email_sent=email_sent,
+        link_delivery="nur_email" if mail_only else (
+            "anzeige_mailfehler" if user.role == COMPLIANCE_REVIEWER_ROLE and mail_configured() else "anzeige"),
     )
 
 
@@ -1196,8 +1232,15 @@ def invite_accept(body: InviteAccept, request: Request, db: Session = Depends(ge
     user.invite_expires_at = None
     user.must_change_password = 0
     user.updated_at = _now()
+    # N-897-02: Passwort selbst gesetzt; Konto damit aktiviert.
+    user.credentials_set_by = CREDENTIALS_SET_BY_SELF
+    user.credentials_set_at = user.updated_at
+    if not user.activated_at:
+        user.activated_at = user.updated_at
     log(db, user_id=user.id, user_name=user.full_name,
-        table_name="users", record_id=user.id, action="INVITE_ACCEPT")
+        table_name="users", record_id=user.id, action="INVITE_ACCEPT",
+        field_name="user_agent", new_value=short_user_agent(request),
+        ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(user)
     return _issue_token_response(user, db, request)
@@ -1258,6 +1301,19 @@ def update_user(
         f: v for f, v in body.model_dump(exclude_none=True).items()
         if f in _ALLOWED_USER_UPDATE_FIELDS
     }
+    # N-897-02: Identitaet, E-Mail und Rolle externer Compliance-Konten aendert
+    # kein Admin (nur Deaktivieren); niemand wird per Rollenwechsel zur
+    # externen Compliance-Person (nur per Einladung mit selbst gesetztem Passwort).
+    reviewer_locked = {f for f, v in updates.items()
+                       if f != "is_active" and v != getattr(user, f, None)}
+    if (user.role == COMPLIANCE_REVIEWER_ROLE and reviewer_locked) or (
+        updates.get("role") == COMPLIANCE_REVIEWER_ROLE and user.role != COMPLIANCE_REVIEWER_ROLE
+    ):
+        raise HTTPException(status_code=403, detail={
+            "reason_code": "COMPLIANCE_REVIEWER_ADMIN_CHANGE_FORBIDDEN",
+            "message": ("Externe Compliance-Konten: nur Deaktivieren durch Admins; "
+                        "neue Konten per Einladung."),
+        })
     # AUTH-TEN-03 (Codex-Audit 2026-08-25): Deaktivierung und Rollenaenderung
     # sind sicherheitsrelevant genau wie ein Passwortwechsel (AUTH-TEN-01) --
     # ohne Session-Widerruf blieb ein bereits ausgestelltes Access-/Refresh-
@@ -1285,6 +1341,10 @@ def update_user(
     if needs_session_revocation:
         user.token_revoked_before = _now()
         revoke_all_for_user(db, user.id)
+    if is_role_changing:
+        # N-897-03: alte Kalender-Feed-Tokens gelten nach einem Rollenwechsel nicht weiter.
+        user.calendar_feed_token_hash = None
+        user.calendar_feed_token_created_at = None
 
     if is_leaving_client_role:
         from models.client_login import ClientLogin
@@ -1294,9 +1354,81 @@ def update_user(
         ).update({"is_active": 0})
 
     log(db, user_id=current_user.id, user_name=current_user.full_name,
-        table_name="users", record_id=user_id, action="UPDATE")
+        table_name="users", record_id=user_id, action="UPDATE",
+        field_name="role" if is_role_changing else None,
+        new_value=updates.get("role") if is_role_changing else None)
     db.commit()
     db.refresh(user)
+    return user
+
+
+COMPROMISE_MAX_BACKDATE_DAYS = 30
+
+
+@users_router.post("/{user_id}/compromise", response_model=UserResponse)
+def compromise_user(
+    user_id: str,
+    body: UserCompromise,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """N-897-13: Konto wegen (Verdacht auf) Kompromittierung widerrufen.
+    Begruendung Pflicht, auditiert; das Konto wird deaktiviert, alle Sitzungen
+    beendet, und jede Freigabe dieses Kontos ab ``compromised_since`` gilt im
+    Gate nicht mehr (KYC-Zweitfreigabe, Policy-Aktivierung). Endgueltig."""
+    user = db.query(User).filter(User.id == user_id, User.deleted_at.is_(None)).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
+    _assert_user_visible_to(current_user, user)
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="Eigenes Konto kann nicht widerrufen werden")
+    if user.compromised_since:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "USER_ALREADY_COMPROMISED",
+            "message": "Das Konto ist bereits wegen Kompromittierung widerrufen.",
+        })
+    try:
+        since = datetime.fromisoformat(str(body.compromised_since).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="compromised_since muss ein ISO-Zeitpunkt sein") from exc
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=timezone.utc)
+    now = _now()
+    since_iso = since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    if since_iso > now:
+        raise HTTPException(status_code=422, detail="compromised_since darf nicht in der Zukunft liegen")
+    # N-897-16: rueckdatierbar hoechstens 30 Tage und nie vor der Aktivierung
+    # (bzw. Anlage) des Kontos -- keine rueckwirkende Entwertung beliebig alter Freigaben.
+    earliest = (datetime.now(timezone.utc) - timedelta(days=COMPROMISE_MAX_BACKDATE_DAYS)).strftime(
+        "%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    floor = str(user.activated_at or user.created_at or "")
+    if since_iso < earliest or (floor and since_iso < floor):
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "COMPROMISE_BACKDATE_INVALID",
+            "message": (f"compromised_since hoechstens {COMPROMISE_MAX_BACKDATE_DAYS} Tage zurueck "
+                        "und nicht vor der Aktivierung des Kontos."),
+        })
+    backdated_days = (datetime.now(timezone.utc) - since.astimezone(timezone.utc)).days
+    user.compromised_since = since_iso
+    user.compromised_at = now
+    user.compromised_by = current_user.id
+    user.compromise_reason = body.reason
+    user.is_active = 0
+    user.token_revoked_before = now
+    user.calendar_feed_token_hash = None
+    user.calendar_feed_token_created_at = None
+    user.updated_at = now
+    revoke_all_for_user(db, user.id)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="users", record_id=user.id, action="COMPROMISE",
+        field_name="compromised_since",
+        new_value=f"{since_iso}; rueckwirkend {backdated_days} Tage; Grund: {body.reason}",
+        ip_address=_extract_client_ip(request))
+    db.commit()
+    db.refresh(user)
+    # N-897-16: die betroffene Person erfaehrt es (falls ein Mailkanal besteht).
+    send_compromise_notice_email(user.email, user.full_name, since_iso, current_user.full_name)
     return user
 
 
@@ -1323,6 +1455,12 @@ def reset_user_password(
     # _assert_user_visible_to).
     if not is_self:
         _assert_user_visible_to(current_user, user)
+        # N-897-02: das Passwort externer Compliance-Konten setzt nie ein Admin.
+        if user.role == COMPLIANCE_REVIEWER_ROLE:
+            raise HTTPException(status_code=403, detail={
+                "reason_code": "COMPLIANCE_REVIEWER_ADMIN_CHANGE_FORBIDDEN",
+                "message": "Das Passwort externer Compliance-Konten setzt nur die Person selbst.",
+            })
     # 2026-07-25 (Generalaudit): siehe change_password oben -- Self-Zweig
     # braucht dieselbe Ausnahme fuer den erzwungenen Erst-Passwortwechsel
     # (dieser Endpoint wird laut test_self_service_password_endpoint_
@@ -1337,6 +1475,8 @@ def reset_user_password(
     # muss das vom Admin gesetzte Passwort beim naechsten Login aendern).
     user.must_change_password = 0 if is_self else 1
     user.updated_at = _now()
+    user.credentials_set_by = CREDENTIALS_SET_BY_SELF if is_self else current_user.id
+    user.credentials_set_at = user.updated_at
     if not is_self or not was_forced_change:
         user.token_revoked_before = _now()
         # AUTH-TEN-01 (Codex-Audit 2026-08-25): dieselbe Luecke wie
@@ -1427,9 +1567,13 @@ def resend_invite(
     # invite_user().
     invite_link = _invite_link_for(request, token)
     email_sent = send_invite_email(getattr(user, "email", None), user.full_name, invite_link) if invite_link else False
+    # N-897-10: nur wenn die Mail wirklich versendet wurde; sonst Link anzeigen.
+    mail_only = user.role == COMPLIANCE_REVIEWER_ROLE and mail_configured() and email_sent
     return InviteResponse(
         user_id=user.id, username=user.username,
-        invite_token=token, invite_expires_at=expires_at, email_sent=email_sent,
+        invite_token=None if mail_only else token, invite_expires_at=expires_at, email_sent=email_sent,
+        link_delivery="nur_email" if mail_only else (
+            "anzeige_mailfehler" if user.role == COMPLIANCE_REVIEWER_ROLE and mail_configured() else "anzeige"),
     )
 
 

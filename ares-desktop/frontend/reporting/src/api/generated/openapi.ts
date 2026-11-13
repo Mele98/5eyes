@@ -1627,6 +1627,13 @@ export interface paths {
          *     naechste Aktualisierung). Append-only: eine Korrektur ist eine neue
          *     Bestaetigung. Bei PEP oder erhoehtem Risiko erst nach Freigabe durch eine
          *     zweite Person wirksam (Gate vor Finalisierung/Vertragsunterzeichnung).
+         *
+         *     C-890-01: ``next_review_due`` darf hoechstens bis zur serverseitig
+         *     berechneten Obergrenze der wirksamen, freigegebenen Wiedervorlage-Policy
+         *     der Firma reichen (Abschlussdatum plus freigegebener Abstand je
+         *     Risikoklasse; PEP/erhoehtes Risiko = strengere Frist). Ohne wirksame Policy
+         *     ist keine Erfassung moeglich (409 mit Reason-Code der Policy). Die Bindung
+         *     (Policy, Version, Hash, Risikoklasse, Abstand, Obergrenze) steht im Siegel.
          */
         post: operations["create_kyc_confirmation_clients__client_id__kyc_confirmations_post"];
         delete?: never;
@@ -2015,6 +2022,105 @@ export interface paths {
         put?: never;
         /** Validate Policy */
         post: operations["validate_policy_cma_policies__policy_row_id__validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/kyc-approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Pending Kyc Approvals
+         * @description Offene KYC-Zweitfreigaben der eigenen Firma (PEP, erhoehtes Risiko,
+         *     Herabstufung, PEP-Ruecknahme): je Kunde nur die juengste, noch nicht
+         *     entschiedene Bestaetigung, datenminimiert (Kundennummer statt Stammdaten,
+         *     keine Vermoegens-, Depot- oder Kontaktdaten).
+         */
+        get: operations["list_pending_kyc_approvals_compliance_kyc_approvals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/kyc-approvals/{confirmation_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide Kyc Second Approval
+         * @description Vier-Augen-Entscheid (freigeben oder ablehnen) mit Pflicht-Begruendung
+         *     und Bestaetigung des Siegel-Hashes. Nie durch die erfassende Person (auch
+         *     nicht ueber ein zweites Konto mit derselben E-Mail). Gleiche Siegel-Logik
+         *     wie die Freigabe in der Kundenmaske; das Gate rechnet sie nach.
+         */
+        post: operations["decide_kyc_second_approval_compliance_kyc_approvals__confirmation_id__decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/kyc-review-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Kyc Review Policies
+         * @description Wiedervorlage-Policies der eigenen Firma (alle Versionen samt Status)
+         *     und die heute wirksame Version. Ohne Angabe gilt das Sitzland der Firma
+         *     aus den rechtlichen Angaben.
+         */
+        get: operations["list_kyc_review_policies_compliance_kyc_review_policies_get"];
+        put?: never;
+        /**
+         * Create Kyc Review Policy
+         * @description Neue Version der Wiedervorlage-Policy erfassen (Firmen-Admin). Wirksam
+         *     erst nach Freigabe durch eine zweite Person (``/activate``). Ares belegt
+         *     keinen Wert vor; die Version vergibt der Server fortlaufend.
+         */
+        post: operations["create_kyc_review_policy_compliance_kyc_review_policies_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/kyc-review-policies/{policy_row_id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Activate Kyc Review Policy
+         * @description Vier-Augen-Freigabe und Aktivierung einer Policy-Version: nur eine
+         *     ZWEITE Person -- Firmen-Admin oder externe Compliance-Person (Rolle
+         *     ``compliance_reviewer``, nur Freigabe/Lesen) --, mit dem gesehenen Inhalts-Hash und der
+         *     Freigabereferenz. Die Aktivierungen bilden eine lineare Kette; zwei
+         *     gleichzeitige Aktivierungen auf denselben Stand koennen nie beide gelingen
+         *     (UNIQUE auf den Vorgaenger, 409).
+         */
+        post: operations["activate_kyc_review_policy_compliance_kyc_review_policies__policy_row_id__activate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5608,6 +5714,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users/{user_id}/compromise": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compromise User
+         * @description N-897-13: Konto wegen (Verdacht auf) Kompromittierung widerrufen.
+         *     Begruendung Pflicht, auditiert; das Konto wird deaktiviert, alle Sitzungen
+         *     beendet, und jede Freigabe dieses Kontos ab ``compromised_since`` gilt im
+         *     Gate nicht mehr (KYC-Zweitfreigabe, Policy-Aktivierung). Endgueltig.
+         */
+        post: operations["compromise_user_users__user_id__compromise_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users/{user_id}/invite": {
         parameters: {
             query?: never;
@@ -7282,10 +7411,18 @@ export interface components {
         };
         /** ClientOnboardingFinding */
         ClientOnboardingFinding: {
+            /** Binding Defect */
+            binding_defect?: string | null;
+            /** Bound Next Review Due */
+            bound_next_review_due?: string | null;
             /** Confirmation Id */
             confirmation_id?: string | null;
             /** Contract Concluded At */
             contract_concluded_at?: string | null;
+            /** Current Max Due */
+            current_max_due?: string | null;
+            /** Kyc Review Status */
+            kyc_review_status?: string | null;
             /** Message */
             message: string;
             /** Missing Fields */
@@ -7294,10 +7431,14 @@ export interface components {
             missing_labels?: string[] | null;
             /** Owner Action */
             owner_action: string;
+            /** Policy Ref */
+            policy_ref?: Record<string, unknown> | null;
             /** Reason Code */
             reason_code: string;
             /** Scope */
             scope: string;
+            /** Shortened By Policy Version */
+            shortened_by_policy_version?: number | null;
         };
         /** ClientOnboardingStatusResponse */
         ClientOnboardingStatusResponse: {
@@ -7315,6 +7456,8 @@ export interface components {
             kyc_confirmation?: Record<string, unknown> | null;
             /** Kyc Requires Second Approval */
             kyc_requires_second_approval?: boolean | null;
+            /** Kyc Review Policy */
+            kyc_review_policy?: Record<string, unknown> | null;
             /** Latest Document */
             latest_document?: Record<string, unknown> | null;
             /** Legal Profile */
@@ -8661,12 +8804,16 @@ export interface components {
             email?: string | null;
             /** Full Name */
             full_name: string;
+            /** Reviewer Organisation */
+            reviewer_organisation?: string | null;
+            /** Reviewer Reference */
+            reviewer_reference?: string | null;
             /**
              * Role
              * @default advisor
              * @enum {string}
              */
-            role?: "admin" | "advisor" | "readonly" | "portfolio_management";
+            role?: "admin" | "advisor" | "readonly" | "portfolio_management" | "compliance_reviewer";
             /** Tenant Id */
             tenant_id?: string | null;
             /** Username */
@@ -8689,7 +8836,12 @@ export interface components {
             /** Invite Expires At */
             invite_expires_at: string;
             /** Invite Token */
-            invite_token: string;
+            invite_token?: string | null;
+            /**
+             * Link Delivery
+             * @default anzeige
+             */
+            link_delivery?: string;
             /** User Id */
             user_id: string;
             /** Username */
@@ -8900,6 +9052,8 @@ export interface components {
             approved_at: string;
             /** Approved By */
             approved_by: string;
+            /** Approver Account */
+            approver_account?: Record<string, unknown> | null;
             /** Client Id */
             client_id: string;
             /** Confirmation Id */
@@ -8910,13 +9064,17 @@ export interface components {
             note?: string | null;
         };
         /**
-         * KycConfirmationCreate
+         * KycConfirmationRequest
          * @description Bestaetigung, dass die GwG-Abklaerung im Prozess der SRO/AO bzw. im
          *     Fremdsystem erfolgt ist. Alle fachlichen Felder ohne Vorbelegung --
          *     insbesondere ``is_pep`` und ``risk_category`` muessen ausdruecklich
          *     beantwortet werden.
+         *
+         *     Eingangsform der API (nur formale Pruefung). Die fachlich gueltige
+         *     Bestaetigung ist ``KycConfirmationCreate``: erst mit der serverseitig
+         *     ermittelten Bindung an die freigegebene Wiedervorlage-Policy (C-890-01).
          */
-        KycConfirmationCreate: {
+        KycConfirmationRequest: {
             /**
              * Data Classification
              * @default synthetic
@@ -8977,6 +9135,11 @@ export interface components {
             next_review_due: string;
             /** Note */
             note?: string | null;
+            /**
+             * Personal Data Warnings
+             * @default []
+             */
+            personal_data_warnings?: string[];
             /** Process Scope */
             process_scope: string;
             /** Recorded At */
@@ -8988,8 +9151,201 @@ export interface components {
              * @default false
              */
             requires_second_approval?: boolean;
+            /** Review Interval Months */
+            review_interval_months?: number | null;
+            /** Review Max Due */
+            review_max_due?: string | null;
+            /** Review Policy Activation Id */
+            review_policy_activation_id?: string | null;
+            /** Review Policy Hash */
+            review_policy_hash?: string | null;
+            /** Review Policy Id */
+            review_policy_id?: string | null;
+            /** Review Policy Row Id */
+            review_policy_row_id?: string | null;
+            /** Review Policy Version */
+            review_policy_version?: number | null;
+            /** Review Risk Class */
+            review_risk_class?: string | null;
             /** Risk Category */
             risk_category: string;
+        };
+        /** KycPendingApproval */
+        KycPendingApproval: {
+            /** Approval Reasons */
+            approval_reasons: string[];
+            /** Client Number */
+            client_number?: string | null;
+            /** Confirmation Hash */
+            confirmation_hash: string;
+            /** Confirmation Id */
+            confirmation_id: string;
+            /** External Reference */
+            external_reference: string;
+            /** Form Type */
+            form_type: string;
+            /** Is Pep New */
+            is_pep_new: boolean;
+            /** Is Pep Previous */
+            is_pep_previous?: boolean | null;
+            /** Note */
+            note?: string | null;
+            /**
+             * Pep Withdrawal Recorded
+             * @default false
+             */
+            pep_withdrawal_recorded?: boolean;
+            /** Recorded At */
+            recorded_at: string;
+            /** Recorded By Name */
+            recorded_by_name?: string | null;
+            /**
+             * Recorded By Self
+             * @default false
+             */
+            recorded_by_self?: boolean;
+            /** Risk Category New */
+            risk_category_new: string;
+            /** Risk Category Previous */
+            risk_category_previous?: string | null;
+        };
+        /** KycPendingApprovalList */
+        KycPendingApprovalList: {
+            /** Items */
+            items: components["schemas"]["KycPendingApproval"][];
+            /** Tenant Id */
+            tenant_id: string;
+        };
+        /**
+         * KycReviewPolicyActivate
+         * @description Vier-Augen-Freigabe: die zweite Person bestaetigt den gesehenen
+         *     Inhalts-Hash und nennt die unveraenderliche Freigabereferenz (z. B.
+         *     Beschluss der Geschaeftsleitung bzw. Vorgabe der SRO/AO).
+         */
+        KycReviewPolicyActivate: {
+            /** Approval Reference */
+            approval_reference: string;
+            /** Policy Hash */
+            policy_hash: string;
+        };
+        /**
+         * KycReviewPolicyCreate
+         * @description Neue Policy-Version (append-only). Alle Werte kommen vom Owner bzw.
+         *     der Compliance; Ares belegt keine Frist vor. Die Abstaende sind ganze
+         *     Kalendermonate ab dem Abschluss der GwG-Abklaerung. Inhaltliche Regeln
+         *     (Abstand > 0, PEP/erhoehtes Risiko nie lockerer) prueft der Server mit
+         *     eigenem Reason-Code.
+         */
+        KycReviewPolicyCreate: {
+            /** Elevated Max Months */
+            elevated_max_months?: number | null;
+            /** Jurisdiction */
+            jurisdiction: string;
+            /** Normal Max Months */
+            normal_max_months: number;
+            /** Policy Id */
+            policy_id: string;
+            /** Source Reference */
+            source_reference: string;
+            /** Valid From */
+            valid_from: string;
+            /** Valid Until */
+            valid_until?: string | null;
+        };
+        /** KycReviewPolicyOverview */
+        KycReviewPolicyOverview: {
+            /** Effective Policy */
+            effective_policy?: Record<string, unknown> | null;
+            /** Jurisdiction */
+            jurisdiction?: string | null;
+            /** Policies */
+            policies: components["schemas"]["KycReviewPolicyResponse"][];
+            /** Reason Code */
+            reason_code?: string | null;
+            /** Status */
+            status: string;
+            /** Tenant Id */
+            tenant_id: string;
+        };
+        /** KycReviewPolicyResponse */
+        KycReviewPolicyResponse: {
+            /** Activation Id */
+            activation_id?: string | null;
+            /** Approval Reference */
+            approval_reference?: string | null;
+            /** Approved At */
+            approved_at?: string | null;
+            /** Approved By */
+            approved_by?: string | null;
+            /** Approver Account */
+            approver_account?: Record<string, unknown> | null;
+            /** Created At */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /** Effective From */
+            effective_from?: string | null;
+            /** Elevated Max Months */
+            elevated_max_months?: number | null;
+            /** Id */
+            id: string;
+            /** Jurisdiction */
+            jurisdiction: string;
+            /** Normal Max Months */
+            normal_max_months: number;
+            /** Policy Hash */
+            policy_hash: string;
+            /** Policy Id */
+            policy_id: string;
+            /** Predecessor Activation Id */
+            predecessor_activation_id?: string | null;
+            /** Source Reference */
+            source_reference: string;
+            /** Status */
+            status: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Valid From */
+            valid_from: string;
+            /** Valid Until */
+            valid_until?: string | null;
+            /** Version */
+            version: number;
+        };
+        /**
+         * KycSecondApprovalDecision
+         * @description C-890-01 Nachtrag 2: Entscheid der zweiten Person ueber eine offene
+         *     KYC-Zweitfreigabe. Begruendung Pflicht; ``confirmation_hash`` = der in der
+         *     Liste angezeigte Siegel-Hash (Bestaetigung "gesehen und geprueft").
+         */
+        KycSecondApprovalDecision: {
+            /** Confirmation Hash */
+            confirmation_hash: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approve" | "reject";
+            /** Reason */
+            reason: string;
+        };
+        /** KycSecondApprovalDecisionResponse */
+        KycSecondApprovalDecisionResponse: {
+            /** Approver Account */
+            approver_account?: Record<string, unknown> | null;
+            /** Confirmation Id */
+            confirmation_id: string;
+            /** Decided At */
+            decided_at: string;
+            /** Decided By */
+            decided_by: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approve" | "reject";
+            /** Record Id */
+            record_id: string;
         };
         /** LegalHoldExtension */
         LegalHoldExtension: {
@@ -13320,6 +13676,17 @@ export interface components {
             token_type?: string;
             user: components["schemas"]["UserResponse"];
         };
+        /**
+         * UserCompromise
+         * @description N-897-13: ausdruecklicher Widerruf eines Kontos wegen (Verdacht auf)
+         *     Kompromittierung. Freigaben ab ``compromised_since`` gelten nicht mehr.
+         */
+        UserCompromise: {
+            /** Compromised Since */
+            compromised_since: string;
+            /** Reason */
+            reason: string;
+        };
         /** UserCreate */
         UserCreate: {
             /** Email */
@@ -13333,7 +13700,7 @@ export interface components {
              * @default advisor
              * @enum {string}
              */
-            role?: "admin" | "advisor" | "readonly" | "portfolio_management";
+            role?: "admin" | "advisor" | "readonly" | "portfolio_management" | "compliance_reviewer";
             /** Tenant Id */
             tenant_id?: string | null;
             /** Username */
@@ -13346,8 +13713,14 @@ export interface components {
         };
         /** UserResponse */
         UserResponse: {
+            /** Activated At */
+            activated_at?: string | null;
+            /** Compromised Since */
+            compromised_since?: string | null;
             /** Created At */
             created_at: string;
+            /** Credentials Set By */
+            credentials_set_by?: string | null;
             /** Email */
             email: string | null;
             /** Full Name */
@@ -13359,6 +13732,10 @@ export interface components {
              * @default false
              */
             invite_pending?: boolean;
+            /** Invited At */
+            invited_at?: string | null;
+            /** Invited By */
+            invited_by?: string | null;
             /** Is Active */
             is_active: number;
             /** Last Login At */
@@ -13368,6 +13745,10 @@ export interface components {
              * @default 0
              */
             must_change_password?: number;
+            /** Reviewer Organisation */
+            reviewer_organisation?: string | null;
+            /** Reviewer Reference */
+            reviewer_reference?: string | null;
             /** Role */
             role: string;
             /**
@@ -13375,6 +13756,8 @@ export interface components {
              * @default 0
              */
             totp_enabled?: number;
+            /** Totp Set By */
+            totp_set_by?: string | null;
             /** Username */
             username: string;
         };
@@ -13387,7 +13770,7 @@ export interface components {
             /** Is Active */
             is_active?: boolean | null;
             /** Role */
-            role?: ("admin" | "advisor" | "readonly" | "portfolio_management") | null;
+            role?: ("admin" | "advisor" | "readonly" | "portfolio_management" | "compliance_reviewer") | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -16456,7 +16839,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["KycConfirmationCreate"];
+                "application/json": components["schemas"]["KycConfirmationRequest"];
             };
         };
         responses: {
@@ -17402,6 +17785,160 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CmaPolicyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_pending_kyc_approvals_compliance_kyc_approvals_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycPendingApprovalList"];
+                };
+            };
+        };
+    };
+    decide_kyc_second_approval_compliance_kyc_approvals__confirmation_id__decision_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                confirmation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KycSecondApprovalDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycSecondApprovalDecisionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_kyc_review_policies_compliance_kyc_review_policies_get: {
+        parameters: {
+            query?: {
+                jurisdiction?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycReviewPolicyOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_kyc_review_policy_compliance_kyc_review_policies_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KycReviewPolicyCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycReviewPolicyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    activate_kyc_review_policy_compliance_kyc_review_policies__policy_row_id__activate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy_row_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KycReviewPolicyActivate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycReviewPolicyResponse"];
                 };
             };
             /** @description Validation Error */
@@ -24030,6 +24567,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdviserRegistrationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compromise_user_users__user_id__compromise_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserCompromise"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
                 };
             };
             /** @description Validation Error */

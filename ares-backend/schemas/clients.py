@@ -1,5 +1,6 @@
+import re
 from datetime import date as _date
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, ValidationInfo, field_validator, model_validator
 from typing import Optional, Literal
 from schemas.common import BaseResponse
 
@@ -400,6 +401,32 @@ class ClientDueDiligenceResponse(BaseResponse):
 # H8 C-5: GwG-Bestaetigung (Abklaerung im SRO-/Fremdprozess) als Gate.
 # ---------------------------------------------------------------------------
 
+KYC_EXTERNAL_REFERENCE_MAX = 120
+KYC_NOTE_MAX = 500
+_HINT_PATTERNS = (
+    ("email", r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
+    ("iban", r"\b[A-Za-z]{2}\d{2}(?:\s?[A-Za-z0-9]{4}){3,7}(?:\s?[A-Za-z0-9]{1,3})?\b"),
+    ("ahv", r"\b756[.\s]?\d{4}[.\s]?\d{4}[.\s]?\d{2}\b"),
+)
+
+
+def personal_data_hints(text, names=()) -> list[str]:
+    """N-897-07: Hinweise auf Personendaten in einem Freitext (Warnung, keine
+    Sperre): ``kundenname`` (Vor-/Nachname des Kunden, ab 3 Zeichen),
+    ``email``, ``iban``, ``ahv`` (Muster wie fuer Exporte)."""
+    raw = str(text or "")
+    if not raw.strip():
+        return []
+    hints: list[str] = []
+    lowered = raw.lower()
+    if any(len(str(n or "").strip()) >= 3 and str(n).strip().lower() in lowered for n in names):
+        hints.append("kundenname")
+    for code, pattern in _HINT_PATTERNS:
+        if re.search(pattern, raw):
+            hints.append(code)
+    return hints
+
+
 def _iso_date(value: str, field: str) -> str:
     try:
         return _date.fromisoformat(str(value).strip()[:10]).isoformat()
@@ -407,11 +434,15 @@ def _iso_date(value: str, field: str) -> str:
         raise ValueError(f"{field} muss ein ISO-Datum (JJJJ-MM-TT) sein") from exc
 
 
-class KycConfirmationCreate(BaseModel):
+class KycConfirmationRequest(BaseModel):
     """Bestaetigung, dass die GwG-Abklaerung im Prozess der SRO/AO bzw. im
     Fremdsystem erfolgt ist. Alle fachlichen Felder ohne Vorbelegung --
     insbesondere ``is_pep`` und ``risk_category`` muessen ausdruecklich
-    beantwortet werden."""
+    beantwortet werden.
+
+    Eingangsform der API (nur formale Pruefung). Die fachlich gueltige
+    Bestaetigung ist ``KycConfirmationCreate``: erst mit der serverseitig
+    ermittelten Bindung an die freigegebene Wiedervorlage-Policy (C-890-01)."""
 
     mandate_id: Optional[str] = None
     form_type: Literal["A", "K", "S", "T"]
@@ -427,8 +458,7 @@ class KycConfirmationCreate(BaseModel):
     note: Optional[str] = None
     data_classification: Literal["synthetic", "real"] = "synthetic"
 
-    @model_validator(mode="after")
-    def _validate(self):
+    def _validate_form(self):
         self.form_completed_on = _iso_date(self.form_completed_on, "form_completed_on")
         self.next_review_due = _iso_date(self.next_review_due, "next_review_due")
         self.identification_date = _iso_date(self.identification_date, "identification_date")
@@ -445,7 +475,55 @@ class KycConfirmationCreate(BaseModel):
             raise ValueError("next_review_due muss nach form_completed_on liegen")
         if len(self.external_reference.strip()) < 3:
             raise ValueError("external_reference (Referenz im SRO-/Fremdprozess) ist Pflicht")
+        # N-897-07: Freitexte erscheinen in der Freigabe-Ansicht der zweiten
+        # Person -- kurz halten, keine Personendaten (Hinweise siehe
+        # personal_data_hints, die Erfassung warnt).
+        if len(self.external_reference.strip()) > KYC_EXTERNAL_REFERENCE_MAX:
+            raise ValueError(f"external_reference hoechstens {KYC_EXTERNAL_REFERENCE_MAX} Zeichen")
+        if self.note is not None and len(self.note.strip()) > KYC_NOTE_MAX:
+            raise ValueError(f"note hoechstens {KYC_NOTE_MAX} Zeichen")
         self.external_reference = self.external_reference.strip()
+        return self
+
+    @model_validator(mode="after")
+    def _validate(self):
+        return self._validate_form()
+
+
+KYC_REVIEW_BINDING_CONTEXT_KEY = "kyc_review_binding"
+
+
+class KycConfirmationCreate(KycConfirmationRequest):
+    """C-890-01: fachlich gueltige KYC-Bestaetigung -- nur mit der Bindung an
+    die zum Erfassungszeitpunkt wirksame, freigegebene Wiedervorlage-Policy
+    (Validierungskontext ``kyc_review_binding``, serverseitig aus
+    services/recommendation_release_gate.py::kyc_review_entry_binding).
+
+    Fail-closed: ohne Kontext (keine Policy), mit Sperrcode der Policy oder
+    mit einem Termin nach der berechneten Obergrenze ist die Bestaetigung
+    ungueltig. Ares setzt keine eigene Frist; gueltig ist nur
+    ``form_completed_on < next_review_due <= max_due``."""
+
+    @model_validator(mode="after")
+    def _validate(self, info: ValidationInfo):
+        self._validate_form()
+        context = info.context if isinstance(info.context, dict) else {}
+        binding = context.get(KYC_REVIEW_BINDING_CONTEXT_KEY)
+        if not isinstance(binding, dict):
+            raise ValueError(
+                "KYC_REVIEW_POLICY_MISSING: keine freigegebene Wiedervorlage-Policy "
+                "gebunden; Ares setzt keine eigene Frist"
+            )
+        if binding.get("reason_code"):
+            raise ValueError(f"{binding['reason_code']}: Wiedervorlage-Policy nicht wirksam")
+        risk_class = "erhoeht" if (self.is_pep or self.risk_category != "normal") else "normal"
+        if binding.get("form_completed_on") != self.form_completed_on or binding.get("risk_class") != risk_class:
+            raise ValueError("KYC_REVIEW_POLICY_BINDING_INVALID: Bindung passt nicht zur Bestaetigung")
+        max_due = str(binding.get("max_due") or "")
+        if not max_due or self.next_review_due > max_due:
+            raise ValueError(
+                f"KYC_REVIEW_DUE_EXCEEDS_POLICY: next_review_due liegt nach der Obergrenze {max_due or '-'}"
+            )
         return self
 
 
@@ -461,6 +539,8 @@ class KycConfirmationApprovalResponse(BaseResponse):
     approved_at: str
     note: Optional[str] = None
     approval_hash: str
+    # N-897-02: Herkunft des Freigeberkontos (Freigabenachweis).
+    approver_account: Optional[dict] = None
 
 
 class KycConfirmationResponse(BaseResponse):
@@ -482,6 +562,80 @@ class KycConfirmationResponse(BaseResponse):
     confirmation_hash: str
     requires_second_approval: bool = False
     approval: Optional[KycConfirmationApprovalResponse] = None
+    # C-890-01: Bindung an die Wiedervorlage-Policy (Bestand: None).
+    review_policy_row_id: Optional[str] = None
+    review_policy_activation_id: Optional[str] = None
+    review_policy_id: Optional[str] = None
+    review_policy_version: Optional[int] = None
+    review_policy_hash: Optional[str] = None
+    review_risk_class: Optional[str] = None
+    review_interval_months: Optional[int] = None
+    review_max_due: Optional[str] = None
+    # N-897-07: Hinweise auf Personendaten in Referenz/Bemerkung (nur bei Erfassung).
+    personal_data_warnings: list[str] = []
+
+
+class KycSecondApprovalDecision(BaseModel):
+    """C-890-01 Nachtrag 2: Entscheid der zweiten Person ueber eine offene
+    KYC-Zweitfreigabe. Begruendung Pflicht; ``confirmation_hash`` = der in der
+    Liste angezeigte Siegel-Hash (Bestaetigung "gesehen und geprueft")."""
+
+    decision: Literal["approve", "reject"]
+    reason: str
+    confirmation_hash: str
+
+    @model_validator(mode="after")
+    def _validate(self):
+        self.reason = (self.reason or "").strip()
+        if len(self.reason) < 5:
+            raise ValueError("Begruendung des Entscheids (mind. 5 Zeichen) ist Pflicht")
+        self.confirmation_hash = (self.confirmation_hash or "").strip()
+        if len(self.confirmation_hash) != 64:
+            raise ValueError("confirmation_hash (Pruefwert der Bestaetigung) ist Pflicht")
+        return self
+
+
+# Datenminimierung (Nachtrag 2): genau diese Felder verlassen den Server in der
+# Ansicht "Offene Freigaben" -- keine Namen, Adressen, Vermoegens-, Depot- oder
+# Kontaktdaten (Test prueft die Feld-Allowlist).
+KYC_PENDING_APPROVAL_FIELDS: tuple[str, ...] = (
+    "confirmation_id", "client_number", "form_type", "external_reference",
+    "risk_category_previous", "risk_category_new", "is_pep_previous", "is_pep_new",
+    "pep_withdrawal_recorded", "approval_reasons", "recorded_by_name", "recorded_by_self",
+    "recorded_at", "note", "confirmation_hash",
+)
+
+
+class KycPendingApproval(BaseModel):
+    confirmation_id: str
+    client_number: Optional[str] = None
+    form_type: str
+    external_reference: str
+    risk_category_previous: Optional[str] = None
+    risk_category_new: str
+    is_pep_previous: Optional[bool] = None
+    is_pep_new: bool
+    pep_withdrawal_recorded: bool = False
+    approval_reasons: list[str]
+    recorded_by_name: Optional[str] = None
+    recorded_by_self: bool = False
+    recorded_at: str
+    note: Optional[str] = None
+    confirmation_hash: str
+
+
+class KycPendingApprovalList(BaseModel):
+    tenant_id: str
+    items: list[KycPendingApproval]
+
+
+class KycSecondApprovalDecisionResponse(BaseModel):
+    confirmation_id: str
+    decision: Literal["approve", "reject"]
+    decided_by: str
+    decided_at: str
+    record_id: str
+    approver_account: Optional[dict] = None
 
 
 # ---------------------------------------------------------------------------

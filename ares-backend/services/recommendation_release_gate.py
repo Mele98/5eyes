@@ -30,7 +30,7 @@ Verletzung).
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import date as _date, datetime, timezone
 from typing import Any, Callable, Optional
 
 from sqlalchemy import text as _sql_text
@@ -356,6 +356,11 @@ KYC_SECOND_APPROVAL_MISSING = "KYC_SECOND_APPROVAL_MISSING"
 KYC_CONFIRMATION_REVIEW_OVERDUE = "KYC_CONFIRMATION_REVIEW_OVERDUE"
 KYC_PEP_INCONSISTENT = "KYC_PEP_INCONSISTENT"
 KYC_CONFIRMATION_SEAL_INVALID = "KYC_CONFIRMATION_SEAL_INVALID"
+# C-890-01 Nachtrag 2: Zweitfreigabe begruendet abgelehnt -> nie wirksam.
+KYC_CONFIRMATION_REJECTED = "KYC_CONFIRMATION_REJECTED"
+# Wer als zweite Person freigeben darf; gleiche Liste wie
+# services/auth.py::COMPLIANCE_APPROVER_ROLES (Test prueft die Gleichheit).
+KYC_APPROVER_ROLES: tuple[str, ...] = ("admin", "super_admin", "compliance_reviewer")
 
 
 CLIENT_INFORMATION_DOCUMENT_TYPE = "Kundeninformation"
@@ -575,24 +580,937 @@ def latest_kyc_confirmation(db: Session, client_id: str, mandate_id: Optional[st
     if row is None:
         return None
     confirmation = dict(row)
-    confirmation["seal_verified"] = row_seal(dict(row), "confirmation_hash") == row["confirmation_hash"]
+    # C-890-01: eine Bestandsbestaetigung (vor der Policy-Bindung erfasst) hat
+    # die Bindungsspalten NULL; ihr Siegel deckt nur die damaligen Spalten.
+    # Sie bleibt nachpruefbar, gilt aber als "policy_binding_missing".
+    seal_input = dict(row)
+    if all(seal_input.get(column) is None for column in KYC_REVIEW_BINDING_COLUMNS):
+        for column in KYC_REVIEW_BINDING_COLUMNS:
+            seal_input.pop(column, None)
+    confirmation["seal_verified"] = row_seal(seal_input, "confirmation_hash") == row["confirmation_hash"]
     approval = db.execute(
         _sql_text("SELECT * FROM kyc_confirmation_approvals WHERE confirmation_id = :id"),
         {"id": str(row["id"])},
     ).mappings().first()
+    # C-890-01 Nachtrag 2: eine Freigabe zaehlt nur mit gueltigem Siegel, von
+    # einer freigabeberechtigten Rolle (admin oder compliance_reviewer) und
+    # nicht von derselben Person (gleiche ID oder E-Mail wie der Erfasser).
+    decision = db.execute(
+        _sql_text("SELECT * FROM kyc_confirmation_decisions WHERE confirmation_id = :id"),
+        {"id": str(row["id"])},
+    ).mappings().first()
+    frozen_ready = bool(
+        approval is not None and decision is not None
+        and decision["decision"] == "approve"
+        and str(decision["decided_by"]) == str(approval["approved_by"])
+        and int(decision["approver_ready"] or 0) == 1
+        and row_seal(dict(decision), "decision_hash") == decision["decision_hash"]
+    )
     approval_ok = approval is not None and (
         row_seal(dict(approval), "approval_hash") == approval["approval_hash"]
-    )
+    ) and kyc_second_person_valid(db, approval["approved_by"], row["recorded_by"],
+                                  frozen_ready=frozen_ready, decided_at=approval["approved_at"])
+    rejection = db.execute(
+        _sql_text("SELECT * FROM kyc_confirmation_rejections WHERE confirmation_id = :id"),
+        {"id": str(row["id"])},
+    ).mappings().first()
+    # Eine Ablehnung gilt auch bei defektem Siegel als "nicht freigegeben";
+    # fail-closed bleibt die Bestaetigung damit in jedem Fall unwirksam.
+    confirmation["rejected"] = rejection is not None
+    confirmation["rejection_id"] = rejection["id"] if rejection is not None else None
     confirmation["approval_id"] = approval["id"] if approval_ok else None
     confirmation["approval_by"] = approval["approved_by"] if approval_ok else None
     confirmation["approval_at"] = approval["approved_at"] if approval_ok else None
     return confirmation
 
 
+def _email_identity(value: Any) -> str:
+    """Gleiche Regel wie services/auth.py::normalize_email_identity (Test):
+    Gross-/Kleinschreibung, Leerzeichen und ``+alias`` zaehlen nicht."""
+    raw = _clean(value).lower()
+    if "@" not in raw:
+        return raw
+    local, _, domain = raw.rpartition("@")
+    return local.split("+", 1)[0] + "@" + domain
+
+
+def kyc_reviewer_account_ready(row: Any) -> bool:
+    """N-897-02: Konto der Rolle compliance_reviewer zaehlt nur, wenn es per
+    Einladung aktiviert wurde und Passwort sowie 2FA zuletzt von der Person
+    selbst gesetzt wurden (nie von einem Admin)."""
+    return bool(
+        row["invited_at"] and row["activated_at"]
+        and str(row["credentials_set_by"] or "") == "self"
+        and int(row["totp_enabled"] or 0)
+        and str(row["totp_set_by"] or "") == "self"
+    )
+
+
+def kyc_second_person_valid(db: Session, approver_id: Any, recorder_id: Any, *,
+                            frozen_ready: bool = False, decided_at: Optional[str] = None) -> bool:
+    """Vier-Augen nachgerechnet (KYC-Zweitfreigabe UND Policy-Aktivierung):
+    Freigeber existiert mit einer Freigaberolle (``KYC_APPROVER_ROLES``), ist
+    nicht der Erfasser -- weder gleiche ID noch gleiche normalisierte E-Mail
+    (zweites Konto, ``+alias``) -- und ist, falls externe Compliance-Person,
+    ein selbst aktiviertes Konto mit selbst gesetzter 2FA (N-897-02).
+
+    Nachtrag 4 (N-897-13): ``frozen_ready`` = Bereitschaft wurde beim Entscheid
+    geprueft und gesiegelt festgehalten -- eine spaetere 2FA-Abschaltung macht
+    die Freigabe dann NICHT ungueltig. Ausnahme: ein auditierter Widerruf des
+    Kontos wegen Kompromittierung (``users.compromised_since``) entwertet jede
+    Freigabe ab diesem Zeitpunkt."""
+    if not approver_id or str(approver_id) == str(recorder_id or ""):
+        return False
+    rows = {
+        str(r["id"]): r for r in db.execute(
+            _sql_text(
+                "SELECT id, role, email, invited_at, activated_at, credentials_set_by, "
+                "totp_enabled, totp_set_by, compromised_since FROM users WHERE id IN (:a, :b)"
+            ),
+            {"a": str(approver_id), "b": str(recorder_id or "")},
+        ).mappings().all()
+    }
+    approver = rows.get(str(approver_id))
+    if approver is None or str(approver["role"] or "") not in KYC_APPROVER_ROLES:
+        return False
+    if approver["compromised_since"] and (decided_at is None or str(decided_at) >= str(approver["compromised_since"])):
+        return False
+    if str(approver["role"]) == "compliance_reviewer" and not frozen_ready and not kyc_reviewer_account_ready(approver):
+        return False
+    recorder = rows.get(str(recorder_id or ""))
+    a_mail = _email_identity(approver["email"])
+    r_mail = _email_identity(recorder["email"]) if recorder is not None else ""
+    return not (a_mail and a_mail == r_mail)
+
+
+def kyc_approver_account(db: Session, user_id: Any) -> Optional[dict]:
+    """Freigabenachweis (N-897-02): Herkunft des Freigeberkontos -- Rolle,
+    Identitaet der externen Person, wer es wann eingeladen hat, wann es
+    aktiviert wurde und wer Passwort/2FA zuletzt gesetzt hat."""
+    if not user_id:
+        return None
+    row = db.execute(
+        _sql_text(
+            "SELECT id, full_name, role, invited_by, invited_at, activated_at, credentials_set_by, "
+            "totp_enabled, totp_set_by, reviewer_organisation, reviewer_reference, compromised_since, "
+            "compromised_at, compromised_by FROM users WHERE id = :id"
+        ),
+        {"id": str(user_id)},
+    ).mappings().first()
+    if row is None:
+        return None
+    inviter = None
+    if row["invited_by"]:
+        found = db.execute(_sql_text("SELECT full_name FROM users WHERE id = :id"),
+                           {"id": str(row["invited_by"])}).first()
+        inviter = found[0] if found is not None else None
+    return {
+        "user_id": row["id"], "name": row["full_name"], "role": row["role"],
+        "organisation": row["reviewer_organisation"], "reference": row["reviewer_reference"],
+        "invited_by": row["invited_by"], "invited_by_name": inviter, "invited_at": row["invited_at"],
+        "activated_at": row["activated_at"],
+        "credentials_set_by": ("selbst" if row["credentials_set_by"] == "self"
+                               else ("Admin" if row["credentials_set_by"] else "unbekannt")),
+        "totp_enabled": bool(int(row["totp_enabled"] or 0)),
+        "totp_set_by": ("selbst" if row["totp_set_by"] == "self"
+                        else ("Admin" if row["totp_set_by"] else "unbekannt")),
+        "compromised_since": row["compromised_since"],
+        "compromised_at": row["compromised_at"],
+        "compromised_by": row["compromised_by"],
+        "compromise_notice": _compromise_notice(db, row),
+        **_invite_origin_hints(db, row["id"], row["invited_at"], row["activated_at"]),
+    }
+
+
+def _compromise_notice(db: Session, row: Any) -> Optional[str]:
+    """N-897-16: deutlicher Satz im Freigabenachweis."""
+    if not row["compromised_since"]:
+        return None
+    admin = None
+    if row["compromised_by"]:
+        found = db.execute(_sql_text("SELECT full_name FROM users WHERE id = :id"),
+                           {"id": str(row["compromised_by"])}).first()
+        admin = found[0] if found is not None else None
+    return (f"durch Admin {admin or row['compromised_by']} am {str(row['compromised_at'] or '')[:16]} "
+            f"als kompromittiert gemeldet, wirksam ab {str(row['compromised_since'])[:16]}")
+
+
+_LOCAL_IPS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def _ua_of(value: Any) -> str:
+    raw = str(value or "")
+    return raw.split("ua=", 1)[1].strip() if "ua=" in raw else raw.strip()
+
+
+def _invite_origin_hints(db: Session, user_id: Any, invited_at: Any, activated_at: Any) -> dict:
+    """N-897-10 (Hinweis, keine Sperre): wie schnell und von wo die Einladung
+    angenommen wurde -- aus den Audit-Zeilen INVITE / INVITE_ACCEPT."""
+    rows = {
+        str(r["action"]): r for r in db.execute(
+            _sql_text(
+                "SELECT action, ip_address, new_value FROM audit_log WHERE table_name = 'users' "
+                "AND record_id = :id AND action IN ('INVITE', 'INVITE_ACCEPT') ORDER BY created_at"
+            ),
+            {"id": str(user_id)},
+        ).mappings().all()
+    }
+    minutes = None
+    if invited_at and activated_at:
+        try:
+            delta = (datetime.fromisoformat(str(activated_at).replace("Z", "+00:00"))
+                     - datetime.fromisoformat(str(invited_at).replace("Z", "+00:00")))
+            minutes = int(delta.total_seconds() // 60)
+        except ValueError:
+            minutes = None
+    invite, accept = rows.get("INVITE"), rows.get("INVITE_ACCEPT")
+    same_ip = same_device = None
+    local = False
+    if invite is not None and accept is not None:
+        # N-897-10: im Desktop-Betrieb ist die IP immer 127.0.0.1 -- kein Indiz.
+        local = str(invite["ip_address"] or "") in _LOCAL_IPS and str(accept["ip_address"] or "") in _LOCAL_IPS
+        same_ip = None if local else (bool(invite["ip_address"]) and invite["ip_address"] == accept["ip_address"])
+        ua_i, ua_a = _ua_of(invite["new_value"]), _ua_of(accept["new_value"])
+        same_device = bool(ua_i) and ua_i not in ("-",) and ua_i == ua_a
+    return {
+        "accepted_after_minutes": minutes,
+        "same_ip_as_inviter": same_ip,
+        "same_device_as_inviter": same_device,
+        "origin_hint": (
+            None if minutes is None else
+            f"angenommen nach {minutes} Minuten; gleiche IP wie Einladender: "
+            f"{'nicht aussagekraeftig (lokale Installation)' if local else ('ja' if same_ip else ('nein' if same_ip is False else 'unbekannt'))}; gleiches Geraet: "
+            f"{'ja' if same_device else ('nein' if same_device is False else 'unbekannt')}"
+        ),
+    }
+
+
 def kyc_requires_second_approval(confirmation: dict) -> bool:
     """Bei der Erfassung festgehalten (N-890-03): PEP, erhoehtes Risiko ODER
     Herabstufung gegenueber dem zuletzt wirksamen Stand."""
     return bool(int(confirmation.get("requires_second_approval") or 0))
+
+
+# ---------------------------------------------------------------------------
+# C-890-01: Wiedervorlage-Policy der KYC-Bestaetigung (Maximalabstand)
+# ---------------------------------------------------------------------------
+#
+# Ares erfindet keine Frist. Wie weit ``next_review_due`` hoechstens nach dem
+# Abschluss der GwG-Abklaerung (``form_completed_on``) liegen darf, steht
+# ausschliesslich in einer vom Owner erfassten, von einer zweiten Person
+# (Admin) freigegebenen und hashgesicherten Policy je Tenant/Jurisdiktion
+# (``kyc_review_policies`` + ``kyc_review_policy_activations``, append-only).
+# Fehlt sie, ist sie noch nicht wirksam, abgelaufen, mehrdeutig, ohne
+# Vier-Augen-Freigabe oder hashungueltig, blockieren Erfassung (API) und jede
+# Kundenfreigabe (Finalisierung, Berater-/Vor-Ort-Signatur, Handoff,
+# Kunden-PDF) mit demselben Reason-Code -- es gibt keinen Default.
+#
+# Jurisdiktion = Sitzland der Firma aus den rechtlichen Angaben (gleiche
+# Quelle wie das Informationsregime oben, kein Mandats-Fallback).
+#
+# Kalendervertrag (``add_months_clamped``): Obergrenze = Abschlussdatum plus
+# N Kalendermonate. Gibt es den Tag im Zielmonat nicht (31. -> 30. April,
+# 29. Februar -> 28. Februar im Nicht-Schaltjahr), gilt der LETZTE Tag des
+# Zielmonats -- nie ein Ueberlauf in den Folgemonat (die strengere Lesart).
+# Die exakte Obergrenze ist zulaessig: form_completed_on < next_review_due
+# <= Obergrenze.
+
+KYC_REVIEW_POLICY_MISSING = "KYC_REVIEW_POLICY_MISSING"
+KYC_REVIEW_POLICY_JURISDICTION_UNKNOWN = "KYC_REVIEW_POLICY_JURISDICTION_UNKNOWN"
+KYC_REVIEW_POLICY_UNAPPROVED = "KYC_REVIEW_POLICY_UNAPPROVED"
+KYC_REVIEW_POLICY_NOT_YET_EFFECTIVE = "KYC_REVIEW_POLICY_NOT_YET_EFFECTIVE"
+KYC_REVIEW_POLICY_EXPIRED = "KYC_REVIEW_POLICY_EXPIRED"
+KYC_REVIEW_POLICY_AMBIGUOUS = "KYC_REVIEW_POLICY_AMBIGUOUS"
+KYC_REVIEW_POLICY_INVALID = "KYC_REVIEW_POLICY_INVALID"
+KYC_REVIEW_POLICY_BINDING_MISSING = "KYC_REVIEW_POLICY_BINDING_MISSING"
+KYC_REVIEW_POLICY_BINDING_INVALID = "KYC_REVIEW_POLICY_BINDING_INVALID"
+KYC_REVIEW_POLICY_SHORTENED = "KYC_REVIEW_POLICY_SHORTENED"
+KYC_REVIEW_DUE_EXCEEDS_POLICY = "KYC_REVIEW_DUE_EXCEEDS_POLICY"
+
+# Stabile Status (API, Status-Maske, Fehlerdetail aller Kanaele).
+KYC_REVIEW_STATUS_EFFECTIVE = "effective"
+KYC_REVIEW_STATUS_OK = "ok"
+KYC_REVIEW_STATUS_BY_CODE: dict[str, str] = {
+    KYC_REVIEW_POLICY_MISSING: "policy_missing",
+    KYC_REVIEW_POLICY_JURISDICTION_UNKNOWN: "jurisdiction_unknown",
+    KYC_REVIEW_POLICY_UNAPPROVED: "policy_unapproved",
+    KYC_REVIEW_POLICY_NOT_YET_EFFECTIVE: "policy_not_yet_effective",
+    KYC_REVIEW_POLICY_EXPIRED: "policy_expired",
+    KYC_REVIEW_POLICY_AMBIGUOUS: "policy_ambiguous",
+    KYC_REVIEW_POLICY_INVALID: "policy_invalid",
+    KYC_REVIEW_POLICY_BINDING_MISSING: "policy_binding_missing",
+    KYC_REVIEW_POLICY_BINDING_INVALID: "policy_binding_invalid",
+    KYC_REVIEW_POLICY_SHORTENED: "due_under_shortened_policy",
+    KYC_REVIEW_DUE_EXCEEDS_POLICY: "due_exceeds_policy",
+    KYC_CONFIRMATION_REVIEW_OVERDUE: "review_overdue",
+}
+
+KYC_REVIEW_RISK_NORMAL = "normal"
+KYC_REVIEW_RISK_ELEVATED = "erhoeht"
+# Gleicher Wert wie models/tenant.py::KYC_REVIEW_GENESIS (Test prueft die
+# Gleichheit; Literal, damit das Gate keine neue Modulkante bekommt).
+KYC_REVIEW_GENESIS = "GENESIS"
+# Gleiche Liste wie database.py::KYC_CONFIRMATION_REVIEW_BINDING_COLUMNS.
+KYC_REVIEW_BINDING_COLUMNS: tuple[str, ...] = (
+    "review_policy_row_id", "review_policy_activation_id", "review_policy_id",
+    "review_policy_version", "review_policy_hash", "review_risk_class",
+    "review_interval_months", "review_max_due",
+)
+
+_REVIEW_OWNER_POLICY_ACTION = (
+    "Owner/Compliance: die freigegebene Wiedervorlage-Frist der Firma als neue "
+    "Policy-Version erfassen (POST /compliance/kyc-review-policies); eine zweite "
+    "Person mit Admin-Rolle gibt sie mit der Freigabereferenz frei."
+)
+_REVIEW_MESSAGES: dict[str, tuple[str, str]] = {
+    KYC_REVIEW_POLICY_MISSING: (
+        "Fuer diese Firma und Jurisdiktion ist keine Wiedervorlage-Policy "
+        "(maximaler Abstand bis zur naechsten KYC-Aktualisierung) erfasst; Ares "
+        "setzt keine eigene Frist.",
+        _REVIEW_OWNER_POLICY_ACTION,
+    ),
+    KYC_REVIEW_POLICY_JURISDICTION_UNKNOWN: (
+        "Die Jurisdiktion der Wiedervorlage-Policy ist unbekannt: das Sitzland "
+        "der Firma fehlt in den rechtlichen Angaben.",
+        "Ein Firmen-Admin ergaenzt unter Administration > Rechtliche Angaben das "
+        "Sitzland der Firma.",
+    ),
+    KYC_REVIEW_POLICY_UNAPPROVED: (
+        "Die Wiedervorlage-Policy ist nicht durch eine zweite Person freigegeben "
+        "und deshalb nicht wirksam.",
+        "Eine zweite Person mit Admin-Rolle gibt die erfasste Policy-Version mit "
+        "Freigabereferenz frei.",
+    ),
+    KYC_REVIEW_POLICY_NOT_YET_EFFECTIVE: (
+        "Die freigegebene Wiedervorlage-Policy ist noch nicht wirksam "
+        "(Gueltigkeitsbeginn liegt in der Zukunft).",
+        "Bis zum Gueltigkeitsbeginn warten oder eine ab heute gueltige Version "
+        "erfassen und freigeben lassen.",
+    ),
+    KYC_REVIEW_POLICY_EXPIRED: (
+        "Die Wiedervorlage-Policy ist abgelaufen (Gueltigkeitsende ueberschritten).",
+        _REVIEW_OWNER_POLICY_ACTION,
+    ),
+    KYC_REVIEW_POLICY_AMBIGUOUS: (
+        "Die Wiedervorlage-Policy ist mehrdeutig (keine eindeutige Kette der "
+        "freigegebenen Versionen); keine Version gilt.",
+        "Owner/Compliance: Vorgang pruefen lassen; danach eine neue Version "
+        "erfassen und freigeben.",
+    ),
+    KYC_REVIEW_POLICY_INVALID: (
+        "Die Wiedervorlage-Policy ist ungueltig (Siegel bzw. Freigabe-Hash "
+        "stimmt nicht oder der Inhalt verletzt die Regeln); keine Version gilt.",
+        "Owner/Compliance: Vorgang pruefen lassen; danach eine neue Version "
+        "erfassen und freigeben.",
+    ),
+    KYC_REVIEW_POLICY_BINDING_MISSING: (
+        "Die KYC-Bestaetigung ist an keine freigegebene Wiedervorlage-Policy "
+        "gebunden (erfasst vor Einfuehrung der Policy).",
+        "Berater: nach Freigabe der Policy eine neue KYC-Bestaetigung erfassen.",
+    ),
+    KYC_REVIEW_POLICY_BINDING_INVALID: (
+        "Die Policy-Bindung der KYC-Bestaetigung ist ungueltig (Policy, Version, "
+        "Hash, Mandant, Zeitpunkt oder berechnete Obergrenze stimmen nicht).",
+        "Berater: neue KYC-Bestaetigung erfassen; Owner/Compliance: Vorgang pruefen.",
+    ),
+    KYC_REVIEW_POLICY_SHORTENED: (
+        "Die heute wirksame Wiedervorlage-Policy ist strenger als die bei der "
+        "Erfassung gebundene: der erfasste Termin liegt nach der neuen "
+        "Obergrenze, die Aktualisierung ist sofort faellig.",
+        "Berater: Aktualisierung im SRO-/Fremdprozess durchfuehren und eine neue "
+        "KYC-Bestaetigung erfassen.",
+    ),
+    KYC_REVIEW_DUE_EXCEEDS_POLICY: (
+        "Die naechste Aktualisierung liegt nach der Obergrenze der wirksamen "
+        "Wiedervorlage-Policy.",
+        "Berater: einen Termin bis zur angegebenen Obergrenze erfassen.",
+    ),
+}
+
+
+def kyc_review_message(reason_code: str) -> tuple[str, str]:
+    """(Meldung, Owner-Hinweis) eines Wiedervorlage-Reason-Codes."""
+    return _REVIEW_MESSAGES[reason_code]
+
+
+def _iso_day(value: Any) -> str:
+    return str(value or "")[:10]
+
+
+def _days_in_month(year: int, month: int) -> int:
+    if month == 12:
+        return 31
+    return (_date(year, month + 1, 1) - _date(year, month, 1)).days
+
+
+def add_months_clamped(day: Any, months: int) -> str:
+    """Kalendersichere Obergrenze (Vertrag siehe Abschnittskopf): ``day``
+    (ISO-Datum) plus ``months`` Kalendermonate; fehlt der Tag im Zielmonat,
+    gilt der letzte Tag des Zielmonats. Beispiele: 2024-02-29 + 12 ->
+    2025-02-28; 2024-02-29 + 48 -> 2028-02-29; 2026-01-31 + 1 -> 2026-02-28;
+    2026-08-31 + 1 -> 2026-09-30."""
+    if int(months) <= 0:
+        raise ValueError("Abstand muss positiv sein")
+    start = _date.fromisoformat(_iso_day(day))
+    index = start.year * 12 + (start.month - 1) + int(months)
+    year, month = divmod(index, 12)
+    month += 1
+    return _date(year, month, min(start.day, _days_in_month(year, month))).isoformat()
+
+
+def kyc_review_risk_class(risk_category: Any, is_pep: Any) -> str:
+    """PEP ODER erhoehtes Risiko -> Klasse ``erhoeht`` (strengere Frist)."""
+    if bool(int(is_pep or 0)) or str(risk_category or "") != KYC_REVIEW_RISK_NORMAL:
+        return KYC_REVIEW_RISK_ELEVATED
+    return KYC_REVIEW_RISK_NORMAL
+
+
+def kyc_review_policy_defect(policy: dict) -> Optional[str]:
+    """Inhaltliche Regeln einer Policy (bei Erfassung, Aktivierung und im Gate
+    geprueft): Abstand > 0; eine eigene PEP-/Hochrisiko-Frist darf nie
+    lockerer sein als die Normalfrist; Gueltigkeitsende nicht vor dem Beginn.
+    None = in Ordnung, sonst Kennung der Regel."""
+    try:
+        normal = int(policy.get("normal_max_months"))
+    except (TypeError, ValueError):
+        return "normal_max_months"
+    if normal <= 0:
+        return "normal_max_months"
+    elevated = policy.get("elevated_max_months")
+    if elevated is not None:
+        try:
+            elevated = int(elevated)
+        except (TypeError, ValueError):
+            return "elevated_max_months"
+        if elevated <= 0:
+            return "elevated_max_months"
+        if elevated > normal:
+            return "elevated_looser_than_normal"
+    valid_from = _iso_day(policy.get("valid_from"))
+    valid_until = _iso_day(policy.get("valid_until")) if policy.get("valid_until") else ""
+    if not valid_from:
+        return "valid_from"
+    if valid_until and valid_until < valid_from:
+        return "valid_until"
+    return None
+
+
+def kyc_review_interval_months(policy: dict, risk_class: str) -> int:
+    if risk_class == KYC_REVIEW_RISK_ELEVATED and policy.get("elevated_max_months") is not None:
+        return int(policy["elevated_max_months"])
+    return int(policy["normal_max_months"])
+
+
+def kyc_review_jurisdiction(db: Session, tenant_id: Optional[str]) -> Optional[str]:
+    """Sitzland der Firma (rechtliche Angaben), gross geschrieben; None wenn
+    nicht erfasst."""
+    if not tenant_id:
+        return None
+    row = db.execute(
+        _sql_text("SELECT address_country FROM tenant_legal_profiles WHERE tenant_id = :tid"),
+        {"tid": str(tenant_id)},
+    ).first()
+    country = _clean(row[0] if row is not None else None).upper()
+    return country or None
+
+
+def kyc_review_effective_from(policy: dict, activation: dict) -> str:
+    """Wirksam ab Gueltigkeitsbeginn, fruehestens ab dem Tag der Freigabe
+    (eine rueckdatierte Policy wirkt nie vor ihrer Freigabe)."""
+    return max(_iso_day(policy.get("valid_from")), _iso_day(activation.get("approved_at")))
+
+
+def kyc_review_public_policy(policy: dict, activation: Optional[dict]) -> dict:
+    return {
+        "id": policy.get("id"),
+        "tenant_id": policy.get("tenant_id"),
+        "jurisdiction": policy.get("jurisdiction"),
+        "policy_id": policy.get("policy_id"),
+        "version": policy.get("version"),
+        "normal_max_months": policy.get("normal_max_months"),
+        "elevated_max_months": policy.get("elevated_max_months"),
+        "valid_from": policy.get("valid_from"),
+        "valid_until": policy.get("valid_until"),
+        "source_reference": policy.get("source_reference"),
+        "created_by": policy.get("created_by"),
+        "created_at": policy.get("created_at"),
+        "policy_hash": policy.get("policy_hash"),
+        "activation_id": (activation or {}).get("id"),
+        "approved_by": (activation or {}).get("approved_by"),
+        "approved_at": (activation or {}).get("approved_at"),
+        "approval_reference": (activation or {}).get("approval_reference"),
+        "effective_from": (
+            kyc_review_effective_from(policy, activation) if activation is not None else None
+        ),
+    }
+
+
+def _review_resolution(code: Optional[str], tenant_id: Any, jurisdiction: Any,
+                       policy: Optional[dict] = None, activation: Optional[dict] = None,
+                       **extra: Any) -> dict:
+    return {
+        "status": KYC_REVIEW_STATUS_BY_CODE[code] if code else KYC_REVIEW_STATUS_EFFECTIVE,
+        "reason_code": code,
+        "tenant_id": tenant_id,
+        "jurisdiction": jurisdiction,
+        "policy": kyc_review_public_policy(policy, activation) if policy is not None else None,
+        "policy_row": policy,
+        "activation_row": activation,
+        **extra,
+    }
+
+
+def kyc_review_policy_chain(db: Session, tenant_id: str, jurisdiction: str) -> tuple[dict, list[dict]]:
+    """Alle Policy-Versionen (nach id) und Aktivierungen eines Tenants/einer
+    Jurisdiktion, roh gelesen (per SQL, Muster H7 N-884-04)."""
+    params = {"tid": str(tenant_id), "jur": str(jurisdiction)}
+    policies = {
+        str(row["id"]): dict(row)
+        for row in db.execute(
+            _sql_text("SELECT * FROM kyc_review_policies WHERE tenant_id = :tid AND jurisdiction = :jur"),
+            params,
+        ).mappings().all()
+    }
+    activations = [
+        dict(row)
+        for row in db.execute(
+            _sql_text(
+                "SELECT * FROM kyc_review_policy_activations "
+                "WHERE tenant_id = :tid AND jurisdiction = :jur ORDER BY approved_at, id"
+            ),
+            params,
+        ).mappings().all()
+    ]
+    return policies, activations
+
+
+def resolve_kyc_review_policy(
+    db: Session,
+    tenant_id: Optional[str],
+    jurisdiction: Optional[str],
+    on_date: str,
+    *,
+    as_of: Optional[str] = None,
+) -> dict:
+    """Die am Tag ``on_date`` wirksame Policy-Version (fail-closed). Mit
+    ``as_of`` (Zeitstempel) zaehlen nur Freigaben bis zu diesem Zeitpunkt --
+    so rechnet das Gate die Bindung einer frueheren Erfassung nach.
+
+    Ergebnis: ``status`` (``effective`` oder ein Sperrstatus), ``reason_code``
+    (None nur bei ``effective``) und die oeffentliche Sicht ``policy``.
+
+    Wirksam ist von der juengsten Aktivierung der Kette rueckwaerts die erste
+    Version, deren Wirksamkeitsbeginn (Gueltigkeitsbeginn, fruehestens Tag der
+    Freigabe) erreicht ist; ist deren Gueltigkeitsende ueberschritten, gilt
+    keine Version (``expired``). Jede Aktivierung muss ihr Siegel, den
+    gesehenen Policy-Hash und die Vier-Augen-Regel erfuellen; die Kette muss
+    linear sein und die Versionen streng steigen -- sonst gilt keine Version."""
+    on_date = _iso_day(on_date)
+    if not jurisdiction:
+        return _review_resolution(KYC_REVIEW_POLICY_JURISDICTION_UNKNOWN, tenant_id, jurisdiction)
+    policies, activations = kyc_review_policy_chain(db, str(tenant_id), str(jurisdiction))
+    if as_of is not None:
+        activations = [a for a in activations if str(a.get("approved_at") or "") <= str(as_of)]
+    if not policies and not activations:
+        return _review_resolution(KYC_REVIEW_POLICY_MISSING, tenant_id, jurisdiction)
+    for activation in activations:
+        policy = policies.get(str(activation.get("policy_row_id")))
+        if (
+            policy is None
+            or row_seal(policy, "policy_hash") != policy.get("policy_hash")
+            or row_seal(activation, "activation_hash") != activation.get("activation_hash")
+            or activation.get("policy_hash") != policy.get("policy_hash")
+            or kyc_review_policy_defect(policy) is not None
+        ):
+            return _review_resolution(KYC_REVIEW_POLICY_INVALID, tenant_id, jurisdiction, policy, activation)
+        if not kyc_second_person_valid(db, activation.get("approved_by"), policy.get("created_by"),
+                                       frozen_ready=int(activation.get("approver_ready") or 0) == 1,
+                                       decided_at=activation.get("approved_at")):
+            # N-897-04: Vier-Augen per Person wie bei der KYC-Zweitfreigabe
+            # (ID, normalisierte E-Mail, Freigaberolle, Konto-Herkunft).
+            return _review_resolution(KYC_REVIEW_POLICY_UNAPPROVED, tenant_id, jurisdiction, policy, activation)
+    if not activations:
+        newest = max(policies.values(), key=lambda p: int(p.get("version") or 0))
+        return _review_resolution(KYC_REVIEW_POLICY_UNAPPROVED, tenant_id, jurisdiction, newest)
+    by_predecessor: dict[str, list[dict]] = {}
+    for activation in activations:
+        by_predecessor.setdefault(str(activation.get("predecessor_activation_id")), []).append(activation)
+    if any(len(items) > 1 for items in by_predecessor.values()):
+        return _review_resolution(KYC_REVIEW_POLICY_AMBIGUOUS, tenant_id, jurisdiction)
+    chain: list[dict] = []
+    seen: set[str] = set()
+    cursor = KYC_REVIEW_GENESIS
+    while cursor in by_predecessor:
+        activation = by_predecessor[cursor][0]
+        if str(activation["id"]) in seen:
+            return _review_resolution(KYC_REVIEW_POLICY_AMBIGUOUS, tenant_id, jurisdiction)
+        chain.append(activation)
+        seen.add(str(activation["id"]))
+        cursor = str(activation["id"])
+    versions = [int(policies[str(a["policy_row_id"])].get("version") or 0) for a in chain]
+    if len(chain) != len(activations) or any(b <= a for a, b in zip(versions, versions[1:])):
+        return _review_resolution(KYC_REVIEW_POLICY_AMBIGUOUS, tenant_id, jurisdiction)
+    chain_pairs = [(policies[str(a["policy_row_id"])], a) for a in chain]
+    for activation in reversed(chain):
+        policy = policies[str(activation["policy_row_id"])]
+        if kyc_review_effective_from(policy, activation) <= on_date:
+            valid_until = _iso_day(policy.get("valid_until")) if policy.get("valid_until") else ""
+            if valid_until and on_date > valid_until:
+                return _review_resolution(KYC_REVIEW_POLICY_EXPIRED, tenant_id, jurisdiction, policy, activation,
+                                          chain=chain_pairs)
+            return _review_resolution(None, tenant_id, jurisdiction, policy, activation, chain=chain_pairs)
+    head = chain[-1]
+    return _review_resolution(
+        KYC_REVIEW_POLICY_NOT_YET_EFFECTIVE, tenant_id, jurisdiction,
+        policies[str(head["policy_row_id"])], head, chain=chain_pairs,
+    )
+
+
+def kyc_review_entry_binding(
+    db: Session,
+    *,
+    tenant_id: str,
+    form_completed_on: str,
+    risk_category: str,
+    is_pep: Any,
+    at: str,
+) -> dict:
+    """Bindung einer NEUEN KYC-Bestaetigung (API): die zum Erfassungszeitpunkt
+    ``at`` wirksame Policy, Risikoklasse, Abstand und serverseitig berechnete
+    Obergrenze. ``reason_code`` gesetzt = Erfassung gesperrt."""
+    jurisdiction = kyc_review_jurisdiction(db, tenant_id)
+    resolution = resolve_kyc_review_policy(db, tenant_id, jurisdiction, _iso_day(at), as_of=at)
+    if resolution["reason_code"]:
+        return resolution
+    policy = resolution["policy_row"]
+    activation = resolution["activation_row"]
+    risk_class = kyc_review_risk_class(risk_category, is_pep)
+    interval = kyc_review_interval_months(policy, risk_class)
+    max_due = add_months_clamped(form_completed_on, interval)
+    return {
+        **resolution,
+        "form_completed_on": _iso_day(form_completed_on),
+        "risk_class": risk_class,
+        "interval_months": interval,
+        "max_due": max_due,
+        "binding": {
+            "review_policy_row_id": policy["id"],
+            "review_policy_activation_id": activation["id"],
+            "review_policy_id": policy["policy_id"],
+            "review_policy_version": int(policy["version"]),
+            "review_policy_hash": policy["policy_hash"],
+            "review_risk_class": risk_class,
+            "review_interval_months": interval,
+            "review_max_due": max_due,
+        },
+    }
+
+
+def kyc_review_binding_defect(db: Session, confirmation: dict, tenant_id: str,
+                              jurisdiction: Optional[str]) -> Optional[str]:
+    """Rechnet die im Siegel gebundene Policy nach (Hash-, Mandanten-,
+    Versions- und Zeitmanipulation). None = Bindung gueltig; sonst Kennung der
+    Abweichung. ``missing`` = Bestandsbestaetigung ohne Bindung."""
+    values = {column: confirmation.get(column) for column in KYC_REVIEW_BINDING_COLUMNS}
+    if all(value is None for value in values.values()):
+        return "missing"
+    if any(value is None for value in values.values()):
+        return "partial"
+    policy_row = db.execute(
+        _sql_text("SELECT * FROM kyc_review_policies WHERE id = :id"),
+        {"id": str(values["review_policy_row_id"])},
+    ).mappings().first()
+    activation_row = db.execute(
+        _sql_text("SELECT * FROM kyc_review_policy_activations WHERE id = :id"),
+        {"id": str(values["review_policy_activation_id"])},
+    ).mappings().first()
+    if policy_row is None or activation_row is None:
+        return "policy_row"
+    policy, activation = dict(policy_row), dict(activation_row)
+    if str(activation.get("policy_row_id")) != str(policy.get("id")):
+        return "activation"
+    if row_seal(policy, "policy_hash") != policy.get("policy_hash") or (
+        row_seal(activation, "activation_hash") != activation.get("activation_hash")
+    ):
+        return "policy_seal"
+    if not (policy.get("policy_hash") == activation.get("policy_hash") == values["review_policy_hash"]):
+        return "policy_hash"
+    confirmation_tenant = str(confirmation.get("tenant_id") or _DEFAULT_TENANT_ID)
+    if not (str(policy.get("tenant_id")) == str(tenant_id) == confirmation_tenant):
+        return "tenant"
+    if str(policy.get("jurisdiction")) != str(jurisdiction or ""):
+        return "jurisdiction"
+    if str(policy.get("policy_id")) != str(values["review_policy_id"]) or (
+        int(policy.get("version") or 0) != int(values["review_policy_version"])
+    ):
+        return "version"
+    recorded_at = str(confirmation.get("recorded_at") or "")
+    at_recording = resolve_kyc_review_policy(
+        db, policy.get("tenant_id"), policy.get("jurisdiction"), _iso_day(recorded_at), as_of=recorded_at,
+    )
+    if at_recording["reason_code"] or (
+        str((at_recording["activation_row"] or {}).get("id")) != str(activation.get("id"))
+    ):
+        return "time"
+    risk_class = kyc_review_risk_class(confirmation.get("risk_category"), confirmation.get("is_pep"))
+    if risk_class != values["review_risk_class"]:
+        return "risk_class"
+    interval = kyc_review_interval_months(policy, risk_class)
+    if interval != int(values["review_interval_months"]):
+        return "interval"
+    completed = _iso_day(confirmation.get("form_completed_on"))
+    try:
+        max_due = add_months_clamped(completed, interval)
+    except ValueError:
+        return "max_due"
+    if max_due != _iso_day(values["review_max_due"]):
+        return "max_due"
+    due = _iso_day(confirmation.get("next_review_due"))
+    if not (completed < due <= max_due):
+        return "next_review_due"
+    return None
+
+
+def _review_finding(reason_code: str, scope: str, resolution: Optional[dict] = None, **extra: Any) -> dict:
+    message, owner_action = _REVIEW_MESSAGES[reason_code]
+    policy = (resolution or {}).get("policy") or {}
+    return _finding(
+        reason_code, message, owner_action, scope,
+        kyc_review_status=KYC_REVIEW_STATUS_BY_CODE.get(reason_code),
+        policy_ref={
+            "policy_row_id": policy.get("id"),
+            "policy_id": policy.get("policy_id"),
+            "version": policy.get("version"),
+            "jurisdiction": (resolution or {}).get("jurisdiction"),
+            "tenant_id": (resolution or {}).get("tenant_id"),
+        },
+        **extra,
+    )
+
+
+def kyc_review_findings(
+    db: Session,
+    mandate: Any,
+    today: str,
+    *,
+    confirmation: Optional[dict],
+    include_without_confirmation: bool = True,
+) -> list[dict]:
+    """Die EINE Wiedervorlage-Pruefung aller Kanaele (API-Status,
+    Finalisierung, Berater-/Vor-Ort-Signatur, Handoff, Kunden-PDF).
+
+    Reihenfolge: Bindung der juengsten Bestaetigung (fehlend/ungueltig), dann
+    die heute wirksame Policy (fehlend/unfreigegeben/... -> deren Code), dann
+    "Policy verkuerzt" (der gebundene Termin liegt nach der Obergrenze der
+    heute wirksamen Policy -> sofort faellig). Eine spaetere, laengere Policy
+    verlaengert einen gebundenen Termin nie: massgebend bleibt der gebundene
+    ``next_review_due`` (Ablauf: KYC_CONFIRMATION_REVIEW_OVERDUE)."""
+    today = _iso_day(today)
+    tenant_id = mandate_tenant_id(db, mandate)
+    jurisdiction = kyc_review_jurisdiction(db, tenant_id)
+    current = resolve_kyc_review_policy(db, tenant_id, jurisdiction, today)
+    findings: list[dict] = []
+    if confirmation is None:
+        if include_without_confirmation and current["reason_code"]:
+            findings.append(_review_finding(current["reason_code"], "tenant", current))
+        return findings
+    defect = kyc_review_binding_defect(db, confirmation, tenant_id, jurisdiction)
+    if defect == "missing":
+        findings.append(_review_finding(
+            KYC_REVIEW_POLICY_BINDING_MISSING, "client", current, confirmation_id=confirmation.get("id"),
+        ))
+    elif defect is not None:
+        findings.append(_review_finding(
+            KYC_REVIEW_POLICY_BINDING_INVALID, "client", current,
+            confirmation_id=confirmation.get("id"), binding_defect=defect,
+        ))
+    if current["reason_code"]:
+        findings.append(_review_finding(current["reason_code"], "tenant", current))
+    elif defect is None:
+        # N-897-05 (Entscheid konservativ): massgebend ist die STRENGSTE
+        # Obergrenze aller Versionen, die seit der Erfassung wirksam waren --
+        # eine einmal durch Verkuerzung faellig gewordene Bestaetigung wird
+        # durch eine spaetere Verlaengerung nicht wieder gruen (Heilung nur
+        # durch eine neue KYC-Bestaetigung).
+        risk_class = kyc_review_risk_class(confirmation.get("risk_category"), confirmation.get("is_pep"))
+        recorded = _iso_day(confirmation.get("recorded_at"))
+        bound_version = int(confirmation.get("review_policy_version") or 0)
+        strictest = None
+        for policy, activation in current.get("chain") or []:
+            if int(policy.get("version") or 0) < bound_version:
+                continue
+            if kyc_review_effective_from(policy, activation) > today:
+                continue
+            if policy.get("valid_until") and _iso_day(policy.get("valid_until")) < recorded:
+                continue
+            candidate = add_months_clamped(
+                confirmation.get("form_completed_on"), kyc_review_interval_months(policy, risk_class),
+            )
+            if strictest is None or candidate < strictest[0]:
+                strictest = (candidate, policy)
+        if strictest is not None and _iso_day(confirmation.get("next_review_due")) > strictest[0]:
+            findings.append(_review_finding(
+                KYC_REVIEW_POLICY_SHORTENED, "client", current,
+                confirmation_id=confirmation.get("id"),
+                bound_next_review_due=_iso_day(confirmation.get("next_review_due")),
+                current_max_due=strictest[0],
+                shortened_by_policy_version=int(strictest[1].get("version") or 0),
+            ))
+    return findings
+
+
+def kyc_review_status(db: Session, mandate: Any, confirmation: Optional[dict],
+                      today: Optional[str] = None) -> dict:
+    """Anzeige-Status der Wiedervorlage-Policy (gleiche Quelle wie das Gate)."""
+    today = _iso_day(today or _utc_now_iso())
+    tenant_id = mandate_tenant_id(db, mandate)
+    jurisdiction = kyc_review_jurisdiction(db, tenant_id)
+    current = resolve_kyc_review_policy(db, tenant_id, jurisdiction, today)
+    codes = [f["reason_code"] for f in kyc_review_findings(db, mandate, today, confirmation=confirmation)]
+    if confirmation is not None and _iso_day(confirmation.get("next_review_due")) < today:
+        codes.append(KYC_CONFIRMATION_REVIEW_OVERDUE)
+    first = codes[0] if codes else None
+    return {
+        "status": KYC_REVIEW_STATUS_BY_CODE[first] if first else KYC_REVIEW_STATUS_OK,
+        "reason_code": first,
+        "finding_codes": codes,
+        "policy_status": current["status"],
+        "policy_reason_code": current["reason_code"],
+        "tenant_id": tenant_id,
+        "jurisdiction": jurisdiction,
+        "policy": current["policy"],
+        "binding": (
+            {column: confirmation.get(column) for column in KYC_REVIEW_BINDING_COLUMNS}
+            if confirmation is not None else None
+        ),
+    }
+
+
+def kyc_review_release_findings(db: Session, mandate: Any, today: Optional[str] = None) -> list[dict]:
+    """Kunden-PDF-Kanal: dieselbe Wiedervorlage-Pruefung, sobald eine
+    KYC-Bestaetigung vorliegt (Bindung, Policy, Verkuerzung, Ablauf). Ohne
+    Bestaetigung bleibt das PDF ein Entwurf vor Vertragsabschluss; den
+    Abschluss sperren Finalisierung/Signatur (KYC_CONFIRMATION_MISSING)."""
+    today = _iso_day(today or _utc_now_iso())
+    confirmation = latest_kyc_confirmation(db, str(getattr(mandate, "client_id", "") or ""),
+                                           getattr(mandate, "id", None))
+    if confirmation is None:
+        return []
+    findings = kyc_review_findings(db, mandate, today, confirmation=confirmation)
+    if _iso_day(confirmation.get("next_review_due")) < today:
+        findings.append(_finding(
+            KYC_CONFIRMATION_REVIEW_OVERDUE,
+            "Die KYC-Bestaetigung ist ueberfaellig (naechste Aktualisierung am "
+            f"{confirmation.get('next_review_due')}).",
+            "Berater: Aktualisierung im SRO-/Fremdprozess durchfuehren und eine neue "
+            "KYC-Bestaetigung erfassen.",
+            "client",
+            confirmation_id=confirmation.get("id"),
+            kyc_review_status=KYC_REVIEW_STATUS_BY_CODE[KYC_CONFIRMATION_REVIEW_OVERDUE],
+        ))
+    return findings
+
+
+# N-897-01: ausdrueckliche, zentrale Klassifikation ALLER PDF-/Berichtsrouten.
+# "kundenwirksam" = Inhalt geht an den Kunden bzw. dokumentiert Empfehlung/
+# Vertrag -> Wiedervorlage-Gate (assert_kyc_review_release_eligible) VOR jeder
+# Wirkung. tests/test_c890_01_report_route_classification.py liest die echte
+# App-Routentabelle: jede PDF-/Berichtsroute muss hier stehen, jede
+# kundenwirksame muss bei faelliger/ungebundener KYC-Bestaetigung sperren.
+REPORT_CLIENT_FACING = "kundenwirksam"
+REPORT_INTERNAL = "intern"
+REPORT_ROUTE_CLASSIFICATION: dict[str, tuple[str, str]] = {
+    "GET /mandates/{mandate_id}/reports/anlagestrategie.pdf": (REPORT_CLIENT_FACING, "Anlagestrategie fuer den Kunden"),
+    "GET /mandates/{mandate_id}/reports/assetallocation.pdf": (REPORT_CLIENT_FACING, "Asset-Allocation-Ausdruck fuer das Kundengespraech"),
+    "GET /mandates/{mandate_id}/reports/risikoprofil.pdf": (REPORT_CLIENT_FACING, "Risikoprofil zur Unterschrift des Kunden"),
+    "GET /mandates/{mandate_id}/reports/portfolio.pdf": (REPORT_CLIENT_FACING, "Anlagerezept/Portfolio fuer den Kunden"),
+    "GET /mandates/{mandate_id}/reports/vertrag.pdf": (REPORT_CLIENT_FACING, "Vertragsdokumente"),
+    "GET /mandates/{mandate_id}/reports/contract-signoff.pdf": (REPORT_CLIENT_FACING, "Kunden-Sign-off"),
+    "GET /mandates/{mandate_id}/reports/protokoll.pdf": (REPORT_CLIENT_FACING, "Beratungsprotokoll (Kundenexemplar)"),
+    "GET /mandates/{mandate_id}/reports/depotcheck.pdf": (REPORT_CLIENT_FACING, "Depotcheck-Analyse fuer den Kunden"),
+    "GET /mandates/{mandate_id}/reports/backtest.pdf": (REPORT_CLIENT_FACING, "Backtest-Ausdruck fuer den Kunden"),
+    "GET /mandates/{mandate_id}/reports/advisory-report.pdf": (REPORT_CLIENT_FACING, "Beratungsbericht (client-ready, Attachment)"),
+    "GET /mandates/{mandate_id}/reports/cost-disclosure.pdf": (REPORT_CLIENT_FACING, "Ex-ante-Kostenausweis (FIDLEG)"),
+    "GET /mandates/{mandate_id}/advisory-report": (REPORT_CLIENT_FACING, "React-Beratungsbericht (gleicher Inhalt wie das PDF)"),
+    "GET /client-portal/mandates/{mandate_id}/report": (REPORT_CLIENT_FACING, "Bericht im Kundenportal"),
+    "GET /mandates/{mandate_id}/reports/kundeninformation.pdf": (REPORT_INTERNAL, (
+        "Kundeninformation Art. 8/9 FIDLEG: muss VOR Vertragsabschluss und vor der KYC-Bestaetigung "
+        "abgegeben werden koennen; eigenes Gate (rechtliche Angaben)")),
+    "GET /mandates/{mandate_id}/documents/{doc_id}/pdf": (REPORT_INTERNAL, (
+        "Archivabruf bereits erzeugter, gesiegelter Dokumente als Nachweis; erzeugt keinen neuen Inhalt")),
+    "GET /clients/{client_id}/data-export": (REPORT_INTERNAL, (
+        "Datenauskunft nach DSG (gesetzlicher Anspruch der betroffenen Person), keine Empfehlung")),
+    "GET /mandates/{mandate_id}/report-notes": (REPORT_INTERNAL, "interne Beraternotizen zum Bericht"),
+    "PUT /mandates/{mandate_id}/report-notes": (REPORT_INTERNAL, "interne Beraternotizen zum Bericht"),
+    "POST /mandates/{mandate_id}/advisory-log/from-report-generation": (REPORT_INTERNAL, "interner Beratungsprotokoll-Eintrag"),
+    "GET /products/sustainability/attributes/export": (REPORT_INTERNAL, "Produkt-Referenzdaten, kein Kundenbezug"),
+    # N-897-12: Export-/CSV-Routen (Produktstamm, Pflege durch Admin), kein Kundenbezug.
+    "GET /products/export/csv": (REPORT_INTERNAL, "Export des Produktstamms (Referenzdaten), kein Kundenbezug"),
+    "GET /products/import/csv/template": (REPORT_INTERNAL, "leere CSV-Vorlage fuer den Produktimport"),
+    "POST /products/import/csv": (REPORT_INTERNAL, "Import von Produktstammdaten (Admin), kein Bericht"),
+    "POST /products/sustainability/attributes/import/csv": (REPORT_INTERNAL, (
+        "Import von Nachhaltigkeitsmerkmalen der Produkte (Admin), kein Bericht")),
+}
+
+
+def is_report_route(path: str, media_types: tuple[str, ...] = ()) -> bool:
+    """Erkennung einer PDF-/Berichts-/Exportroute aus der Routentabelle:
+    Pfad (``.pdf``, ``/pdf``, ``/reports/``, ``report``/``export``/``csv``/
+    ``xlsx`` in einem Segment) ODER deklarierter Medientyp (PDF, CSV, Excel)."""
+    segments = [seg.lower() for seg in path.strip("/").split("/")]
+    last = segments[-1] if segments else ""
+    if any(m in ("application/pdf", "text/csv") or "spreadsheet" in m or "excel" in m for m in media_types):
+        return True
+    return (path.endswith(".pdf") or path.endswith("/pdf") or "/reports/" in path
+            or "report" in last or any(key in seg for seg in segments for key in ("export", "csv", "xlsx")))
+
+
+KYC_DRAFT_NOTICE = "Entwurf – vor Vertragsabschluss (ohne KYC-Bestätigung)"
+
+
+def kyc_release_is_draft(db: Session, mandate: Any) -> bool:
+    """N-897-12: kundenwirksamer Bericht ohne jede KYC-Bestaetigung = Entwurf
+    vor Vertragsabschluss (sichtbar gekennzeichnet, kein fertiges Dokument)."""
+    return latest_kyc_confirmation(
+        db, str(getattr(mandate, "client_id", "") or ""), getattr(mandate, "id", None),
+    ) is None
+
+
+def _call_on_block(on_block: Callable, reason_code: str, findings: list[dict]) -> None:
+    # Ein Callback aus services.audit.release_block_audit protokolliert die
+    # Policy-Bezuege der Wiedervorlage-Sperren zusaetzlich (ohne Freitext).
+    if getattr(on_block, "accepts_findings", False):
+        on_block(reason_code, None, findings=findings)
+    else:
+        on_block(reason_code, None)
+
+
+def assert_kyc_review_release_eligible(
+    db: Session,
+    mandate: Any,
+    *,
+    channel: str,
+    http_status: int = 409,
+    on_block: Optional[Callable[..., None]] = None,
+) -> None:
+    """Kunden-PDF-Gate der Wiedervorlage-Policy (gleiche Hülle wie
+    ``assert_client_onboarding_release_eligible``)."""
+    findings = kyc_review_release_findings(db, mandate)
+    if not findings:
+        return
+    if on_block is not None:
+        _call_on_block(on_block, CLIENT_ONBOARDING_INCOMPLETE, findings)
+    raise DomainError(
+        CLIENT_ONBOARDING_INCOMPLETE,
+        f"{_CHANNEL_LABELS.get(channel, 'Freigabe nicht möglich')}: "
+        + " ".join(f["message"] for f in findings),
+        http_status=http_status,
+        extra={
+            "channel": channel,
+            "findings": findings,
+            "finding_codes": [f["reason_code"] for f in findings],
+        },
+    )
 
 
 def _kyc_findings(db: Session, mandate: Any, today: str) -> list[dict]:
@@ -616,6 +1534,7 @@ def _kyc_findings(db: Session, mandate: Any, today: str) -> list[dict]:
         ))
     confirmation = latest_kyc_confirmation(db, client_id, getattr(mandate, "id", None))
     if confirmation is None:
+        findings.extend(kyc_review_findings(db, mandate, today, confirmation=None))
         findings.append(_finding(
             KYC_CONFIRMATION_MISSING,
             "Bestaetigung fehlt: Fuer diesen Kunden ist nicht erfasst, dass die "
@@ -637,7 +1556,20 @@ def _kyc_findings(db: Session, mandate: Any, today: str) -> list[dict]:
             "client",
             confirmation_id=confirmation.get("id"),
         ))
-    if kyc_requires_second_approval(confirmation):
+    # C-890-01: Bindung an die freigegebene Wiedervorlage-Policy und deren
+    # heutige Wirksamkeit (dieselbe Pruefung wie API-Status und Kunden-PDF).
+    findings.extend(kyc_review_findings(db, mandate, today, confirmation=confirmation))
+    if kyc_requires_second_approval(confirmation) and confirmation.get("rejected"):
+        findings.append(_finding(
+            KYC_CONFIRMATION_REJECTED,
+            "Die Zweitfreigabe dieser KYC-Bestaetigung wurde begruendet abgelehnt; "
+            "die Bestaetigung wird nie wirksam.",
+            "Berater: Sachverhalt klaeren und eine neue KYC-Bestaetigung erfassen, "
+            "die erneut durch eine zweite Person freigegeben wird.",
+            "client",
+            confirmation_id=confirmation.get("id"),
+        ))
+    elif kyc_requires_second_approval(confirmation):
         approver = str(confirmation.get("approval_by") or "")
         if not approver or approver == str(confirmation.get("recorded_by") or ""):
             findings.append(_finding(
@@ -645,7 +1577,7 @@ def _kyc_findings(db: Session, mandate: Any, today: str) -> list[dict]:
                 "PEP, erhoehtes Risiko oder Herabstufung gegenueber der zuletzt "
                 "wirksamen Bestaetigung: die KYC-Bestaetigung ist noch nicht "
                 "durch eine zweite Person freigegeben.",
-                "Eine zweite Person mit Admin-Rolle (Geschaeftsleitung/Compliance) "
+                "Eine zweite Person (Admin oder externe Compliance-Freigabe) "
                 "gibt die KYC-Bestaetigung frei.",
                 "client",
                 confirmation_id=confirmation.get("id"),
@@ -659,6 +1591,7 @@ def _kyc_findings(db: Session, mandate: Any, today: str) -> list[dict]:
             "KYC-Bestaetigung erfassen.",
             "client",
             confirmation_id=confirmation.get("id"),
+            kyc_review_status=KYC_REVIEW_STATUS_BY_CODE[KYC_CONFIRMATION_REVIEW_OVERDUE],
         ))
     dd_pep = int(dd.get("pep_status") or 0) if dd is not None else None
     conf_pep = int(confirmation.get("is_pep") or 0)
@@ -823,6 +1756,8 @@ def client_onboarding_status(db: Session, mandate: Any) -> dict:
         "kyc_requires_second_approval": (
             kyc_requires_second_approval(confirmation) if confirmation else None
         ),
+        # C-890-01: Wiedervorlage-Policy (Status, wirksame Version, Bindung).
+        "kyc_review_policy": kyc_review_status(db, mandate, confirmation),
         "template_version": CLIENT_INFORMATION_TEMPLATE_VERSION,
         "latest_document": latest_document,
         "due_diligence": due_diligence,
@@ -846,8 +1781,9 @@ def assert_client_onboarding_release_eligible(
     if not findings:
         return
     if on_block is not None:
-        # N-890-07: Audit-Eintrag (H7 release_block_audit) vor dem Raise.
-        on_block(CLIENT_ONBOARDING_INCOMPLETE, None)
+        # N-890-07: Audit-Eintrag (H7 release_block_audit) vor dem Raise;
+        # C-890-01: Policy-Bezug der Wiedervorlage-Sperren mitprotokolliert.
+        _call_on_block(on_block, CLIENT_ONBOARDING_INCOMPLETE, findings)
     raise DomainError(
         CLIENT_ONBOARDING_INCOMPLETE,
         (

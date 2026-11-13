@@ -705,18 +705,33 @@ CLIENT_INFORMATION_DELIVERY_SQLITE_TRIGGERS = _append_only_sqlite_triggers("clie
 # Redaktionsmarker gesetzt werden -- sonst nichts. Gleicher Wert wie
 # services/client_erasure.py::REDACTION_MARKER (Test prueft die Gleichheit).
 ERASURE_REDACTION_MARKER = "[ERASED-DSG-ART-32]"
+# C-890-01: Bindung der KYC-Bestaetigung an die freigegebene Wiedervorlage-
+# Policy (Teil des Siegels). Bestandszeilen haben hier NULL und gelten als
+# "policy_binding_missing". Gleiche Liste wie Alembic f4c2e8a6d1b3.
+KYC_CONFIRMATION_REVIEW_BINDING_COLUMNS: tuple[str, ...] = (
+    "review_policy_row_id", "review_policy_activation_id", "review_policy_id",
+    "review_policy_version", "review_policy_hash", "review_risk_class",
+    "review_interval_months", "review_max_due",
+)
 KYC_CONFIRMATION_FIXED_COLUMNS: tuple[str, ...] = (
     "id", "tenant_id", "client_id", "mandate_id", "process_scope", "form_type",
     "form_completed_on", "risk_category", "is_pep", "identification_confirmed",
     "identification_date", "next_review_due", "requires_second_approval",
     "recorded_by", "recorded_at", "confirmation_hash",
-)
+) + KYC_CONFIRMATION_REVIEW_BINDING_COLUMNS
 KYC_CONFIRMATION_REDACTABLE_COLUMNS: tuple[str, ...] = ("external_reference", "note")
 KYC_CONFIRMATION_APPROVAL_FIXED_COLUMNS: tuple[str, ...] = (
     "id", "tenant_id", "confirmation_id", "client_id", "approved_by", "approved_at",
     "approval_hash",
 )
 KYC_CONFIRMATION_APPROVAL_REDACTABLE_COLUMNS: tuple[str, ...] = ("note",)
+# C-890-01 Nachtrag 2: Ablehnung einer Zweitfreigabe (append-only; die
+# Begruendung ist Freitext mit Kundenbezug und darf nur redigiert werden).
+KYC_CONFIRMATION_REJECTION_FIXED_COLUMNS: tuple[str, ...] = (
+    "id", "tenant_id", "confirmation_id", "client_id", "rejected_by", "rejected_at",
+    "confirmation_hash", "rejection_hash",
+)
+KYC_CONFIRMATION_REJECTION_REDACTABLE_COLUMNS: tuple[str, ...] = ("reason",)
 
 
 def _redaction_only_sqlite_triggers(
@@ -744,6 +759,15 @@ KYC_CONFIRMATION_APPROVAL_SQLITE_TRIGGERS = _redaction_only_sqlite_triggers(
     "kyc_confirmation_approvals", KYC_CONFIRMATION_APPROVAL_FIXED_COLUMNS,
     KYC_CONFIRMATION_APPROVAL_REDACTABLE_COLUMNS,
 )
+# C-890-01: versionierte Wiedervorlage-Policy und ihre Vier-Augen-Aktivierung
+# sind vollstaendig append-only (Korrektur = neue Version; Alembic f4c2e8a6d1b3).
+KYC_CONFIRMATION_REJECTION_SQLITE_TRIGGERS = _redaction_only_sqlite_triggers(
+    "kyc_confirmation_rejections", KYC_CONFIRMATION_REJECTION_FIXED_COLUMNS,
+    KYC_CONFIRMATION_REJECTION_REDACTABLE_COLUMNS,
+)
+KYC_CONFIRMATION_DECISION_SQLITE_TRIGGERS = _append_only_sqlite_triggers("kyc_confirmation_decisions")
+KYC_REVIEW_POLICY_SQLITE_TRIGGERS = _append_only_sqlite_triggers("kyc_review_policies")
+KYC_REVIEW_POLICY_ACTIVATION_SQLITE_TRIGGERS = _append_only_sqlite_triggers("kyc_review_policy_activations")
 
 
 CLIENT_PII_KEYS_SQLITE_TRIGGERS: tuple[str, ...] = (
@@ -907,6 +931,20 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # REVIEW-CALENDAR-001 (2026-09-24): siehe models/users.py.
             ('calendar_feed_token_hash', 'TEXT'),
             ('calendar_feed_token_created_at', 'TEXT'),
+            # C-890-01 Nachtrag 3 (N-897-02): siehe models/users.py.
+            ('credentials_set_by', 'TEXT'),
+            ('credentials_set_at', 'TEXT'),
+            ('totp_set_by', 'TEXT'),
+            ('totp_set_at', 'TEXT'),
+            ('invited_by', 'TEXT'),
+            ('invited_at', 'TEXT'),
+            ('activated_at', 'TEXT'),
+            ('reviewer_organisation', 'TEXT'),
+            ('reviewer_reference', 'TEXT'),
+            ('compromised_since', 'TEXT'),
+            ('compromised_at', 'TEXT'),
+            ('compromised_by', 'TEXT'),
+            ('compromise_reason', 'TEXT'),
         ],
         'tenants': [
             ('encrypted_dek', 'TEXT'),
@@ -1085,6 +1123,24 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         # erhalten 0 = unbeantwortet ("Bestaetigung fehlt"), bis neu erfasst.
         'client_due_diligence': [
             ('acting_for_own_account_answered', 'INTEGER', 0),
+        ],
+        # C-890-01: Bindung der KYC-Bestaetigung an die Wiedervorlage-Policy.
+        # Nullable, KEIN Backfill: Bestandsbestaetigungen bleiben ohne Bindung
+        # ("policy_binding_missing") gesperrt, bis eine neue Bestaetigung unter
+        # einer freigegebenen Policy erfasst ist.
+        # Nachtrag 4 (N-897-13): Bereitschaft des Freigebers eingefroren.
+        'kyc_review_policy_activations': [
+            ('approver_ready', 'INTEGER'),
+        ],
+        'kyc_confirmations': [
+            ('review_policy_row_id', 'TEXT'),
+            ('review_policy_activation_id', 'TEXT'),
+            ('review_policy_id', 'TEXT'),
+            ('review_policy_version', 'INTEGER'),
+            ('review_policy_hash', 'TEXT'),
+            ('review_risk_class', 'TEXT'),
+            ('review_interval_months', 'INTEGER'),
+            ('review_max_due', 'TEXT'),
         ],
         # Sprint U-37 (2026-06-03): Notes-Versionierungs-Log.
         # Append-only JSON-Array von Edit-Snapshots fuer FINMA-Audit
@@ -1559,6 +1615,29 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         if inspect(conn).has_table("cma_policy_approvals"):
             for ddl in CMA_POLICY_APPROVAL_SQLITE_TRIGGERS:
                 conn.execute(text(ddl))
+        # C-890-01: der Redaktions-Trigger der KYC-Bestaetigung muss die neuen
+        # Bindungsspalten mitschuetzen. Ein Bestands-Trigger (H8) ohne diese
+        # Spalten wird ersetzt (idempotent); die Policy-Tabellen selbst legt
+        # create_all samt Append-only-Triggern an.
+        if inspect(conn).has_table("kyc_confirmations"):
+            current = conn.execute(text(
+                "SELECT sql FROM sqlite_master WHERE type = 'trigger' "
+                "AND name = 'trg_kyc_confirmations_no_update'"
+            )).scalar()
+            if current is None or KYC_CONFIRMATION_REVIEW_BINDING_COLUMNS[0] not in str(current):
+                conn.execute(text("DROP TRIGGER IF EXISTS trg_kyc_confirmations_no_update"))
+                conn.execute(text("DROP TRIGGER IF EXISTS trg_kyc_confirmations_no_delete"))
+                for ddl in KYC_CONFIRMATION_SQLITE_TRIGGERS:
+                    conn.execute(text(ddl))
+        for table, ddls in (
+            ("kyc_review_policies", KYC_REVIEW_POLICY_SQLITE_TRIGGERS),
+            ("kyc_review_policy_activations", KYC_REVIEW_POLICY_ACTIVATION_SQLITE_TRIGGERS),
+            ("kyc_confirmation_rejections", KYC_CONFIRMATION_REJECTION_SQLITE_TRIGGERS),
+            ("kyc_confirmation_decisions", KYC_CONFIRMATION_DECISION_SQLITE_TRIGGERS),
+        ):
+            if inspect(conn).has_table(table):
+                for ddl in ddls:
+                    conn.execute(text(ddl))
         # DEPOT-E2E-SNAPSHOT-001: append-only DepotSnapshotV1 (idempotent).
         for ddl in DEPOT_SNAPSHOT_SQLITE_TABLE_DDL + DEPOT_SNAPSHOT_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
@@ -1931,7 +2010,7 @@ _AUDIT_LOG_REBUILT_DDL = """
             'INVITE_ACCEPT','INVITE_RESEND','INVITE_REVOKE','MARKET_DATA_PURGE',
             'MARKET_DATA_REFRESH','OPTIMIZER_MODE_CHANGE','PASSWORD_CHANGE',
             'PASSWORD_RESET_CONFIRM','PASSWORD_RESET_REQUEST','REPLACE',
-            'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT'
+            'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT','COMPROMISE','INSERT','lifecycle_decision'
         )),
         field_name TEXT,
         old_value TEXT,
@@ -1962,9 +2041,11 @@ def _audit_log_ddl_is_current(ddl_text: str) -> bool:
     # DSG Art. 32 (2026-08-15): eigener Marker fuer die neue 'CLIENT_ERASE'-
     # Action (identische Bugklasse wie has_expanded_actions oben).
     has_erasure_action = 'CLIENT_ERASE' in ddl_text
+    # C-890-01 N-897-15: Marker fuer 'COMPROMISE' (Bestands-DBs werden neu aufgebaut).
+    has_compromise_action = "'COMPROMISE'" in ddl_text
     return (
         has_password_reset and has_integrity_hash and has_ip_address
-        and has_expanded_actions and has_erasure_action
+        and has_expanded_actions and has_erasure_action and has_compromise_action
     )
 
 

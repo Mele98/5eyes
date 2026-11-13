@@ -32,6 +32,10 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     # H8 (Compliance-Audit 2026-11-07): Kundeninformation, KYC-Bestaetigung,
     # Vertretung + Audit-Tabelle (renderAuditLogTable umgezogen, N-873-09).
     ("client-compliance.js", "js"),
+    # C-890-01 Nachtrag 1: KYC-Wiedervorlage-Policy (Administration, Freigabe
+    # durch eine zweite Person, Ansicht der Rolle compliance_reviewer);
+    # adminUpdateNewUserRoleHint umgezogen.
+    ("kyc-review-policy.js", "js"),
 )
 
 # N-875-05: Bewusste, dokumentierte Liste der VOR H3 bereits eigen-

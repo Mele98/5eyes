@@ -158,3 +158,40 @@ def test_kyc_submission_sends_unanswered_pep_as_null_not_false():
     url, body = result["calls"]["posts"][0]
     assert url == "/clients/c-1/kyc-confirmations"
     assert body["is_pep"] is None
+
+
+def test_c890_kyc_review_policy_status_is_shown_from_the_backend():
+    """C-890-01: die Maske zeigt Sperrgrund (data-reason-code) und Status der
+    Wiedervorlage-Policy 1:1 aus dem Status-Endpoint; ohne wirksame Policy
+    erscheint keine Frist, sondern der Hinweis auf die Sperre."""
+    finding = {"reason_code": "KYC_REVIEW_POLICY_MISSING", "message": "Keine Wiedervorlage-Policy",
+               "owner_action": "Owner/Compliance: Policy erfassen", "scope": "tenant",
+               "kyc_review_status": "policy_missing"}
+    base = {"mandate_id": "m-1", "client_id": "c-1", "release_ready": False, "findings": [finding],
+            "legal_profile": {}, "deliveries": [], "kyc_confirmation": None,
+            "kyc_requires_second_approval": None, "template_version": "ARES-KI-FIDLEG-1",
+            "latest_document": None}
+    missing = dict(base, kyc_review_policy={"status": "policy_missing", "reason_code": "KYC_REVIEW_POLICY_MISSING",
+                                            "policy_status": "policy_missing", "policy": None})
+    result = _run(
+        "RESP['/mandates/m-1/client-onboarding/status']=" + json.dumps(missing) + ";"
+        "RESP['/clients/c-1/representations']=[];"
+        "await new Promise(function(r){setTimeout(r,200);});"
+        "await renderClientCompliancePanel();"
+    )
+    html = result["DOM"]["sd-client-compliance"]["innerHTML"]
+    assert 'data-reason-code="KYC_REVIEW_POLICY_MISSING"' in html
+    assert 'data-kyc-review-status="policy_missing"' in html
+    assert "keine wirksame, freigegebene Policy der Firma" in html and "Monate" not in html
+    effective = dict(base, findings=[], release_ready=True, kyc_review_policy={
+        "status": "ok", "reason_code": None, "policy_status": "effective",
+        "policy": {"policy_id": "TEST-C890", "version": 2, "normal_max_months": 23, "elevated_max_months": 11}})
+    result = _run(
+        "RESP['/mandates/m-1/client-onboarding/status']=" + json.dumps(effective) + ";"
+        "RESP['/clients/c-1/representations']=[];"
+        "await new Promise(function(r){setTimeout(r,200);});"
+        "await renderClientCompliancePanel();"
+    )
+    html = result["DOM"]["sd-client-compliance"]["innerHTML"]
+    assert 'data-kyc-review-status="ok"' in html
+    assert "Policy TEST-C890 v2, nächste Aktualisierung höchstens 23 Monate (PEP/erhöht 11)" in html

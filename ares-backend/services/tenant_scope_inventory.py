@@ -26,7 +26,7 @@ table therefore cannot ship unclassified.
 """
 from __future__ import annotations
 
-INVENTORY_VERSION = "2026-11-07.1"
+INVENTORY_VERSION = "2026-11-11.1"
 
 TENANT_DIRECT = "tenant_direct"
 GLOBAL_REFERENCE = "global_reference"
@@ -48,7 +48,13 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     "depot_check_analysis_snapshots",
     "depot_snapshots",
     "kyc_confirmation_approvals",
+    "kyc_confirmation_decisions",
+    "kyc_confirmation_rejections",
     "kyc_confirmations",
+    # C-890-01: Wiedervorlage-Policy der KYC-Bestaetigung je Firma/Jurisdiktion
+    # samt Vier-Augen-Aktivierung (append-only, tenant_id NOT NULL).
+    "kyc_review_policies",
+    "kyc_review_policy_activations",
     "mandates",
     "onsite_signature_challenges",
     "onsite_signature_events",
