@@ -15,8 +15,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from sqlalchemy.exc import IntegrityError
+
 from config import settings
-from core.reason_codes import DomainError
+from core.reason_codes import DomainError, ReasonCode
 
 
 logger = logging.getLogger(__name__)
@@ -271,5 +273,62 @@ async def domain_error_handler(request: Request, exc: DomainError) -> Response:
     return response
 
 
+# ---------------------------------------------------------------------------
+# RC-CH-1-F1: CHECK-Verletzungen der Datenbank nie als 500
+# ---------------------------------------------------------------------------
+# Ein Wert ausserhalb einer CHECK-Werteliste ist ein Eingabefehler, kein
+# Serverfehler (Bugklasse Schema-Drift: Hypothek-Amortisationstyp,
+# contract_documents-Status, goal_type). Erkannt werden genau CHECK-
+# Verletzungen: PostgreSQL ueber SQLSTATE 23514 (check_violation), SQLite/
+# SQLCipher ueber die Meldung "CHECK constraint failed". Alle anderen
+# Integritaetsfehler (UNIQUE, FK, NOT NULL) laufen unveraendert weiter (die
+# Router bilden sie heute gezielt ab; unbehandelt bleiben sie 500). Die
+# Antwort nennt weder Werte noch Zeileninhalt -- PostgreSQL liefert im DETAIL
+# die komplette Zeile ("Failing row contains ..."), das bleibt auch im Log aus.
+
+PG_CHECK_VIOLATION_SQLSTATE = "23514"
+CHECK_CONSTRAINT_VIOLATION_MESSAGE = (
+    "Ein Wert liegt ausserhalb des zulaessigen Wertebereichs und wurde nicht gespeichert."
+)
+
+
+def is_check_constraint_violation(exc: IntegrityError) -> bool:
+    orig = getattr(exc, "orig", None)
+    sqlstate = getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
+    if sqlstate is not None:
+        return sqlstate == PG_CHECK_VIOLATION_SQLSTATE
+    return "CHECK constraint failed" in str(orig if orig is not None else exc)
+
+
+def _check_constraint_hint(exc: IntegrityError) -> str:
+    """Constraint-Name (PG) bzw. CHECK-Ausdruck (SQLite) fuer das Log, ohne Werte."""
+    orig = getattr(exc, "orig", None)
+    diag = getattr(orig, "diag", None)
+    name = getattr(diag, "constraint_name", None)
+    table = getattr(diag, "table_name", None)
+    if name or table:
+        return f"{table or '?'}.{name or '?'}"
+    return str(orig if orig is not None else exc).splitlines()[0][:300]
+
+
+def check_constraint_violation_error() -> DomainError:
+    return DomainError(
+        ReasonCode.DB_CHECK_CONSTRAINT_VIOLATION,
+        CHECK_CONSTRAINT_VIOLATION_MESSAGE,
+        http_status=422,
+    )
+
+
+async def integrity_error_handler(request: Request, exc: IntegrityError) -> Response:
+    if not is_check_constraint_violation(exc):
+        raise exc
+    logger.warning(
+        "CHECK-Verletzung als 422 beantwortet | method=%s path=%s constraint=%s",
+        request.method, request.url.path, _check_constraint_hint(exc),
+    )
+    return await domain_error_handler(request, check_constraint_violation_error())
+
+
 def install_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(DomainError, domain_error_handler)
+    app.add_exception_handler(IntegrityError, integrity_error_handler)

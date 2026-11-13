@@ -769,6 +769,57 @@ def _goal_hardness_key(value: str | None) -> str:
     )
 
 
+# RC-CH-1-F1: Die Tabelle ``goals`` (ares_schema.sql) erlaubt per CHECK nur
+# genau diese Werte. Eingabe-Aliase (ASCII-Umschrift, Gross-/Kleinschreibung)
+# werden an der API-Grenze auf den DB-Wert kanonisiert, sonst endet der
+# Commit in einem CHECK-Fehler (Befund: "Umbau Wohneigentum" mit
+# goal_type="Vermoegensziel" -> 500). Die Engine liest beide Schreibweisen
+# gleich (``_norm_text``/``_norm_goal_type``), gespeichert wird nur die DB-Form.
+GOAL_FAMILY_DB_VALUES = ("Vermögen", "Cashflow", "Rendite", "Maximierung")
+GOAL_TYPE_DB_VALUES = (
+    "Kapitalerhalt", "Vermögensziel",
+    "Einmalige_Ausgabe", "Wiederkehrende_Ausgabe", "Pensionsausgabe",
+    "Renditeziel", "Maximierung",
+)
+GOAL_HARDNESS_DB_VALUES = ("Hart", "Primär", "Opportunistisch")
+GOAL_SCOPE_DB_VALUES = ("Beratungsvermögen", "Gesamtvermögen")
+GOAL_VALUE_MODE_DB_VALUES = ("nominal", "real")
+
+
+def _canonical_from(values: tuple[str, ...], value, key) -> str | None:
+    """DB-Wert zu ``value`` ueber den Normalisierungsschluessel; None = unbekannt."""
+    wanted = key(value)
+    for candidate in values:
+        if key(candidate) == wanted:
+            return candidate
+    return None
+
+
+def canonical_goal_type(value):
+    """'Vermoegensziel'/'vermögensziel' -> 'Vermögensziel'; unbekannt -> unveraendert."""
+    if not isinstance(value, str):
+        return value
+    return _canonical_from(GOAL_TYPE_DB_VALUES, value, _goal_type_key) or value
+
+
+def canonical_goal_family(value):
+    if not isinstance(value, str):
+        return value
+    return _canonical_from(GOAL_FAMILY_DB_VALUES, value, _goal_type_key) or value
+
+
+def canonical_goal_hardness(value):
+    """'Primaer'/'primär'/'hart' -> 'Primär'/'Hart'; unbekannt -> unveraendert."""
+    if not isinstance(value, str):
+        return value
+    return _canonical_from(GOAL_HARDNESS_DB_VALUES, value, _goal_hardness_key) or value
+
+
+def _require_db_value(field: str, value, allowed: tuple[str, ...]) -> None:
+    if value is not None and value not in allowed:
+        raise ValueError(f"{field} '{value}' ist nicht erlaubt. Erlaubt: {list(allowed)}")
+
+
 def _has_value(value) -> bool:
     return value not in (None, "")
 
@@ -876,6 +927,18 @@ class GoalCreate(BaseModel):
     notes: Optional[str] = None
     data_classification: Literal["synthetic", "real"] = "synthetic"
 
+    @field_validator("goal_type", mode="after")
+    @classmethod
+    def _canonical_goal_type(cls, value):
+        # RC-CH-1-F1: 'Vermoegensziel' bleibt als Eingabe gueltig, gespeichert
+        # wird der DB-Wert 'Vermögensziel' (CHECK in ares_schema.sql).
+        return canonical_goal_type(value)
+
+    @field_validator("hardness", mode="before")
+    @classmethod
+    def _canonical_hardness(cls, value):
+        return canonical_goal_hardness(value)
+
     @model_validator(mode="after")
     def validate_family_type(self):
         allowed = GOAL_FAMILY_TYPE_MAP.get(self.goal_family, [])
@@ -927,8 +990,37 @@ class GoalUpdate(BaseModel):
     is_included: Optional[bool] = None
     data_classification: Optional[Literal["synthetic", "real"]] = None
 
+    @field_validator("goal_type", mode="before")
+    @classmethod
+    def _canonical_goal_type(cls, value):
+        return canonical_goal_type(value)
+
+    @field_validator("goal_family", mode="before")
+    @classmethod
+    def _canonical_goal_family(cls, value):
+        return canonical_goal_family(value)
+
+    @field_validator("hardness", mode="before")
+    @classmethod
+    def _canonical_hardness(cls, value):
+        return canonical_goal_hardness(value)
+
     @model_validator(mode="after")
     def validate_goal_update_fields(self):
+        # RC-CH-1-F1: Teil-Updates schrieben bisher freie Strings direkt in
+        # CHECK-Spalten (500 beim Commit). Jetzt: nur DB-Werte, sonst 422.
+        _require_db_value("goal_family", self.goal_family, GOAL_FAMILY_DB_VALUES)
+        _require_db_value("goal_type", self.goal_type, GOAL_TYPE_DB_VALUES)
+        _require_db_value("goal_scope", self.goal_scope, GOAL_SCOPE_DB_VALUES)
+        _require_db_value("value_mode", self.value_mode, GOAL_VALUE_MODE_DB_VALUES)
+        _require_db_value("hardness", self.hardness, GOAL_HARDNESS_DB_VALUES)
+        if self.goal_family is not None and self.goal_type is not None:
+            allowed = GOAL_FAMILY_TYPE_MAP.get(self.goal_family, [])
+            if self.goal_type not in allowed:
+                raise ValueError(
+                    f"goal_type '{self.goal_type}' ist nicht erlaubt für goal_family "
+                    f"'{self.goal_family}'. Erlaubt: {allowed}"
+                )
         if self.goal_type is not None:
             _validate_goal_field_isolation(self, require_targets=False)
         return self
