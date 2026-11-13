@@ -52,6 +52,7 @@ contract from Sections 4/6/7/8 of the spec.
 """
 from __future__ import annotations
 
+from tests.sustainability_test_support import answer_question_one_for_all_mandates  # noqa: E402
 import json
 import sys
 import uuid
@@ -366,6 +367,7 @@ def test_certified_final_run_cost_totals_must_not_drift_with_later_live_ter_corr
     with session_factory() as db:
         mandate = db.query(Mandate).filter(Mandate.id == mid).first()
         advisor = db.query(User).filter(User.id == advisor_id).first()
+        answer_question_one_for_all_mandates(db)  # Nachtrag 1: Pflichtfrage
         finalize_recommendation(
             mandate_id=mid, run_id=run_id, request=_FakeRequest(),
             db=db, current_user=advisor,
@@ -749,6 +751,7 @@ def test_finalize_must_block_when_mandate_has_unresolved_conflict_evidence(sessi
         # Soll: finalize must refuse to certify a run while unresolved
         # conflict evidence exists for the mandate.
         with pytest.raises(HTTPException):
+            answer_question_one_for_all_mandates(db)  # Nachtrag 1: Pflichtfrage
             finalize_recommendation(
                 mandate_id=mid, run_id=run_id, request=_FakeRequest(),
                 db=db, current_user=advisor,

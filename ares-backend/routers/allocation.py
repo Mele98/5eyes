@@ -12,7 +12,7 @@ from database import get_db, new_uuid
 from models.users import User
 from models.mandates import Mandate
 from models.allocation import TargetAllocation, OptimizerPolicy, OptimizerRun, CapitalMarketAssumption, HouseMatrix, BuildingBlock
-from models.profiling import RiskAssessment
+from models.profiling import RiskAssessment, current_investment_preference
 from models.review import MandateReportNotes
 from schemas.allocation import (
     TargetAllocationCreate, TargetAllocationResponse,
@@ -26,12 +26,14 @@ from schemas.allocation import (
     OptimizerPolicyDetailResponse, HouseMatrixRowsReplace,
 )
 from schemas.review import ReportNotesResponse, ReportNotesUpdate
+from core import sustainability_preference as sustainability
+from core.reason_codes import DomainError, ReasonCode
 from services.auth import (
     get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin,
     require_portfolio_management, require_reference_data_reader,
     enforce_cma_cross_tenant_read_scope,
 )
-from services.audit import log
+from services.audit import gate_block_audit, log
 from services.optimizer_policy_lifecycle import (
     REASON_CODE_HOUSE_MATRIX_INCOMPLETE,
     copy_policy_children,
@@ -61,6 +63,7 @@ from jurisdictions.resolve import resolve_pack
 from services.cma_currency_guard import attach_to_strategy_payload as attach_cma_currency_guard
 from services.portfolio_engine import (
     BUCKET_FIELDS,
+    _allocation_snapshot_preferences,
     _current_risk_assessment_or_none,
     _current_target_allocation_or_none,
     build_target_payload_from_allocation,
@@ -70,6 +73,7 @@ from services.portfolio_engine import (
     require_strategy_ready_assessment,
 )
 from services.portfolio_engine_house_matrix import (
+    AllocationInputError,
     _building_block_rows_for_policy,
 )
 from services.manual_target_allocation import (
@@ -396,6 +400,12 @@ def create_target_allocation(
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     ta = candidate.allocation
+    # N-888-01: der manuelle Datensatz uebernimmt die Praeferenzen der
+    # bisherigen Allokation -- dieselbe Untergrenze wie Generate.
+    assert_sustainability_preference_floor(
+        db, mandate, json.loads(ta.preferences_json or "{}"), channel="manual_allocation",
+        audit=_floor_audit(db, current_user, mandate, request),
+    )
     if prev:
         prev.is_current = 0
         # Release the existing partial-unique anchor before inserting the new
@@ -685,6 +695,65 @@ def update_cma(
     return cma
 
 
+_FLOOR_UNSET = object()
+
+
+def assert_sustainability_preference_floor(
+    db: Session,
+    mandate,
+    preferences=_FLOOR_UNSET,
+    *,
+    channel: str = "generate",
+    audit=None,
+) -> dict:
+    """E2b / N-888-01 (Dok. 106): Ausschlusswuensche der aktuellen
+    Nachhaltigkeitspraeferenz sind die Untergrenze der Strategiebausteine.
+
+    Gleiche Entscheidung wie services/recommendation_release_gate.py::
+    assert_sustainability_preference_floor (Produktlauf, Finalize, Signatur,
+    PDF, Handoff): ausschliesslich core/sustainability_preference.py::
+    evaluate_floor. ``preferences``: wirksame Praeferenzen (dict/JSON);
+    ``None`` = die der aktuellen Soll-Allokation (wie Generate). Gelockert ->
+    422 SUSTAINABILITY_PREFERENCE_FLOOR_VIOLATED (kurze Meldung, Detail),
+    unlesbar -> 409, beides mit Audit-Eintrag (``audit``). Wirkung nur ueber
+    den bestehenden Restriktionsmechanismus (Validierung, keine neue
+    Engine-Logik)."""
+    row = current_investment_preference(db, mandate.id)
+    decision = None if row is None else {"id": row.id, "exclusions_json": row.exclusions_json}
+    if preferences is None or preferences is _FLOOR_UNSET:
+        preferences = _allocation_snapshot_preferences(
+            _current_target_allocation_or_none(db, mandate.id)
+        ) or {}
+    result = sustainability.evaluate_floor(decision, preferences)
+    if not sustainability.floor_blocks(result):
+        return result
+    if audit is not None:
+        audit(sustainability.floor_audit_payload(result, channel), result)
+    unreadable = result["status"] == sustainability.FLOOR_UNREADABLE
+    extra = {"channel": channel, "themes": list(result.get("themes") or ())}
+    if not unreadable:
+        extra["detail"] = sustainability.floor_detail(result)
+    raise DomainError(
+        ReasonCode.SUSTAINABILITY_PREFERENCE_UNREADABLE if unreadable
+        else ReasonCode.SUSTAINABILITY_PREFERENCE_FLOOR_VIOLATED,
+        sustainability.floor_message(result, channel),
+        http_status=409 if unreadable else 422,
+        extra=extra,
+    )
+
+
+def _floor_audit(db: Session, current_user, mandate, request):
+    """Audit-Callback; Request/IP werden erst beim Block gelesen."""
+    def _audit(payload: str, result: dict) -> None:
+        gate_block_audit(
+            db, user=current_user, mandate=mandate,
+            ip_address=_extract_client_ip(request) if request is not None else None,
+            table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+        )(payload, result)
+
+    return _audit
+
+
 @router.post("/mandates/{mandate_id}/target-allocation/generate",
              response_model=TargetAllocationGenerateResponse)
 def generate_target_allocation_endpoint(
@@ -717,13 +786,25 @@ def generate_target_allocation_endpoint(
                         "(require_suitability_before_recommendation=True)."
                     ),
                 )
+        preferences = body.preferences.model_dump() if body.preferences else None
         try:
+            # E2b: Kunden-Ausschluesse als Untergrenze (vor jeder Berechnung).
+            assert_sustainability_preference_floor(
+                db, mandate, preferences, channel="generate",
+                audit=_floor_audit(db, current_user, mandate, request),
+            )
             result = generate_target_allocation(
                 db=db,
                 mandate=mandate,
                 user_id=current_user.id,
-                preferences=body.preferences.model_dump() if body.preferences else None,
+                preferences=preferences,
             )
+        except AllocationInputError as exc:
+            # AUDIT-2026-11 A5 / H-859-5: unerfuellbare oder widerspruechliche
+            # Bandbreiten/Ziele sind ein Eingabefehler (422) mit deutscher
+            # Meldung, kein Zustandskonflikt -- einheitlich fuer Ziel ausserhalb
+            # der Bandbreite, Min > Max, Minima ueber 100 % und Maxima unter 100 %.
+            raise HTTPException(status_code=422, detail=str(exc))
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
         # CON-001 (Codex-Audit 2026-08-25): siehe create_target_allocation oben --
@@ -803,6 +884,12 @@ def goal_target_sensitivity(
     # Solver sogar zweimal (Baseline + Counterfactual) auf.
     with _admit_solver_slot():
         mandate = _get_mandate_or_404(mandate_id, db, current_user)
+        # N-888-01: Sensitivity rechnet auf der aktuellen Allokation; deren
+        # Praeferenzen muessen die Kundenausschluesse einhalten.
+        assert_sustainability_preference_floor(
+            db, mandate, None, channel="sensitivity",
+            audit=_floor_audit(db, current_user, mandate, request),
+        )
         try:
             result = evaluate_goal_sensitivity(
                 db=db,

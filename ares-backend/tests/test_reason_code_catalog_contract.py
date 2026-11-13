@@ -85,6 +85,11 @@ KNOWN_UNRESOLVED: dict[tuple[str, str, str], int] = {
      'event.reason_code'): 1,
     ('services/product_eligibility_override.py', 'override_evidence_hash',
      'row.reason_code'): 1,
+    # E2a: Durchreichung der Literale aus core/sustainability_preference.py::
+    # release_violation/document_violation (SUSTAINABILITY_PREFERENCE_STALE/
+    # _UNREADABLE, SUSTAINABILITY_DOCUMENT_OUTDATED/_UNBOUND, alle im Katalog).
+    ('services/recommendation_release_gate.py', '_preference_block',
+     'code'): 1,
     ('services/risk_capacity_evaluation_snapshot.py', 'replay_snapshot',
      "stored_result.get('reason_code')"): 1,
     ('services/risk_capacity_evaluation_snapshot.py', 'structured_result',

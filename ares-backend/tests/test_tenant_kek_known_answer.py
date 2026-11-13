@@ -1,4 +1,4 @@
-"""AF-2: Known-Answer-Test (KAT) fuer die Tenant-Master-KEK-Ableitung.
+"""Known-Answer-Test (KAT) fuer die Tenant-Master-KEK, Vertrag v2 (W4-c).
 
 Warum: ``services/tenant_crypto.py`` leitet einen Passphrase-KEK per
 PBKDF2-HMAC-SHA256 mit einem festen App-Salt ab. Der bisherige Test
@@ -16,9 +16,14 @@ Ergebnis gegen eingefrorene Erwartungswerte:
 * ein fester ``enc1:``-TOTP-Ciphertext unter diesem DEK (Ende-zu-Ende ueber
   ``load_totp_secret``).
 
-Alle Werte sind reine Testwerte (kein echtes Secret). Die Vektoren wurden
-einmalig mit dem Code-Stand von origin/develop erzeugt; sie duerfen NUR mit
-einem expliziten Migrationsentscheid (Rewrap aller DEKs) geaendert werden.
+Alle Werte sind reine Testwerte (kein echtes Secret). Die Passphrase-Vektoren
+wurden einmalig fuer den KEK-Vertrag v2 (Salt ``ares.tenant.kek.pbkdf2.v2``,
+Zeitstempel 2026-01-01, feste IV) erzeugt; sie duerfen NUR mit einem
+expliziten Migrationsentscheid (Rewrap aller DEKs) geaendert werden. Der KAT
+des vorherigen Vertrags liegt nicht mehr im Produkt, sondern nur beim
+externen Migrator, der Bestands-DEKs damit entpackt und auf v2 umverpackt.
+Der Fernet-Key-Pfad (keine KDF) und der TOTP-Vektor unter dem DEK sind vom
+Salt unabhaengig und deshalb unveraendert.
 """
 from __future__ import annotations
 
@@ -49,6 +54,7 @@ from services.tenant_crypto import (  # noqa: E402
     get_tenant_dek,
 )
 from services.totp_secret_storage import load_totp_secret  # noqa: E402
+from config import settings  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Eingefrorene Testvektoren (NICHT neu berechnen -- siehe Modul-Docstring)
@@ -57,7 +63,7 @@ from services.totp_secret_storage import load_totp_secret  # noqa: E402
 # Passphrase-Pfad (kein gueltiger Fernet-Key -> PBKDF2-Ableitung).
 KAT_PASSPHRASE = "kat-only-test-passphrase-not-a-real-secret"
 KAT_PASSPHRASE_KEK_SHA256 = (
-    "19bd7045ad5375904d3b1bba7931291f1f3112ca976c779c193abea694aee363"
+    "79cd381bad152729d61b96bb3cd213cd90c658a4582b00d69e50039750807ccf"
 )
 
 # Fernet-Key-Pfad (gueltiger Fernet-Key -> direkte Verwendung, keine KDF).
@@ -72,8 +78,8 @@ KAT_DEK = b"ZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXp7fH1-f4CBgoM="
 
 # KAT_DEK, Fernet-verpackt unter dem jeweiligen KEK (Zeitstempel 2026-01-01).
 KAT_ENCRYPTED_DEK_PASSPHRASE = (
-    "gAAAAABpVbkAKElylLYRD15rfqeAoZaRufYjhQSddB_jjSaHoivzAbffPT1QNh8KFPj9fsU8"
-    "U8sgJm-0yPZXRxIW8mS7AozE4P03t47vXKELDsW81DbyNsItNvimNxV1r5EhujrbdPFM"
+    "gAAAAABpVbkAoKGio6SlpqeoqaqrrK2uryEIXFQ0GtSpOCs4w2SiPrYvHXaNoX8moJNhNWD9"
+    "LhWLzf2U42BbZQ492HSfKWo85dkghB44KitT9IowJK9bJFXRJzYqxlG0IcaZvQkNPFcg"
 )
 KAT_ENCRYPTED_DEK_FERNET = (
     "gAAAAABpVbkAYsFG6GWHi9WmRGmeluDsTXWt9lK5Miicd-f1MgI6d0UZELxwLd6CSPbVolo4"
@@ -88,8 +94,8 @@ KAT_TOTP_STORED = (
 )
 
 # Ein beliebiger anderer Salt fuer die Negativkontrolle (Struktur wie ein
-# naheliegendes Umbenennen, markenneutral).
-_OTHER_SALT = b"renamed.tenant.kek.pbkdf2.v1"
+# naheliegendes Umbenennen bzw. eine andere Vertragsversion, markenneutral).
+_OTHER_SALT = b"ares.tenant.kek.pbkdf2.v1"
 
 
 def _fp(key: bytes) -> str:
@@ -114,7 +120,7 @@ def session_factory(tmp_path):
         engine.dispose()
 
 
-def _seed_tenant(db, tenant_id: str, encrypted_dek: str) -> None:
+def _seed_tenant(db, tenant_id: str, encrypted_dek: str, kek_version: int = 2) -> None:
     db.add(
         Tenant(
             id=tenant_id,
@@ -126,6 +132,7 @@ def _seed_tenant(db, tenant_id: str, encrypted_dek: str) -> None:
             is_active=1,
             encrypted_dek=encrypted_dek,
             dek_version=1,
+            kek_version=kek_version,
             created_at=_now(),
             updated_at=_now(),
         )
@@ -149,9 +156,9 @@ def test_passphrase_kek_decrypts_frozen_dek_ciphertext():
 def test_passphrase_kek_decrypts_stored_tenant_dek_and_totp_secret(
     session_factory, monkeypatch
 ):
-    # Ende-zu-Ende wie im Betrieb: KEK aus der Umgebung, DEK aus der Tenant-
+    # Ende-zu-Ende wie im Betrieb: KEK aus den Settings, DEK aus der Tenant-
     # Zeile, TOTP-Secret aus der User-Zeile (enc1:).
-    monkeypatch.setenv("TENANT_MASTER_KEK", KAT_PASSPHRASE)
+    monkeypatch.setattr(settings, "tenant_master_kek", KAT_PASSPHRASE)
     Session = session_factory
     with Session() as db:
         _seed_tenant(db, "kat-pass", KAT_ENCRYPTED_DEK_PASSPHRASE)
@@ -170,7 +177,7 @@ def test_negative_control_changed_salt_breaks_passphrase_kat(
         _decrypt_dek(KAT_ENCRYPTED_DEK_PASSPHRASE, KAT_PASSPHRASE)
 
     # Und die Folge im Betrieb: das TOTP-Secret ist mit diesem KEK unlesbar.
-    monkeypatch.setenv("TENANT_MASTER_KEK", KAT_PASSPHRASE)
+    monkeypatch.setattr(settings, "tenant_master_kek", KAT_PASSPHRASE)
     with session_factory() as db:
         _seed_tenant(db, "kat-salt", KAT_ENCRYPTED_DEK_PASSPHRASE)
         user = User(tenant_id="kat-salt", totp_secret=KAT_TOTP_STORED)
@@ -202,7 +209,7 @@ def test_fernet_kek_is_used_directly_and_matches_frozen_fingerprint():
 
 def test_fernet_kek_decrypts_frozen_dek_ciphertext(session_factory, monkeypatch):
     assert _decrypt_dek(KAT_ENCRYPTED_DEK_FERNET, KAT_FERNET_KEK) == KAT_DEK
-    monkeypatch.setenv("TENANT_MASTER_KEK", KAT_FERNET_KEK)
+    monkeypatch.setattr(settings, "tenant_master_kek", KAT_FERNET_KEK)
     with session_factory() as db:
         _seed_tenant(db, "kat-fern", KAT_ENCRYPTED_DEK_FERNET)
         assert get_tenant_dek(db, "kat-fern") == KAT_DEK
@@ -226,3 +233,50 @@ def test_paths_are_not_interchangeable():
         _decrypt_dek(KAT_ENCRYPTED_DEK_PASSPHRASE, KAT_FERNET_KEK)
     with pytest.raises(TenantCryptoError):
         _decrypt_dek(KAT_ENCRYPTED_DEK_FERNET, KAT_PASSPHRASE)
+
+
+# ---------------------------------------------------------------------------
+# Vertrag v2: Generation, Salt-Struktur, kein Rueckfall
+# ---------------------------------------------------------------------------
+
+
+def test_current_kek_version_is_2_and_salt_is_versioned_v2():
+    assert tenant_crypto.CURRENT_KEK_VERSION == 2
+    assert tenant_crypto._KEK_KDF_SALT == b"ares.tenant.kek.pbkdf2.v2"
+
+
+def test_dek_of_an_older_kek_generation_is_refused_with_migrator_hint(
+    session_factory, monkeypatch
+):
+    monkeypatch.setattr(settings, "tenant_master_kek", KAT_FERNET_KEK)
+    with session_factory() as db:
+        _seed_tenant(db, "kat-v1", KAT_ENCRYPTED_DEK_FERNET, kek_version=1)
+        with pytest.raises(TenantCryptoError, match="Migrator"):
+            get_tenant_dek(db, "kat-v1")
+        user = User(tenant_id="kat-v1", totp_secret=KAT_TOTP_STORED)
+        from services.totp_secret_storage import TotpSecretStorageError
+
+        with pytest.raises(TotpSecretStorageError):
+            load_totp_secret(db, user)
+        # Nichts wurde neu verpackt oder ueberschrieben.
+        row = db.get(Tenant, "kat-v1")
+        db.refresh(row)
+        assert row.encrypted_dek == KAT_ENCRYPTED_DEK_FERNET
+        assert row.kek_version == 1
+
+
+def test_new_dek_is_provisioned_under_generation_2(session_factory, monkeypatch):
+    monkeypatch.setattr(settings, "tenant_master_kek", KAT_FERNET_KEK)
+    with session_factory() as db:
+        db.add(
+            Tenant(
+                id="kat-new", display_name="KAT Neu", slug="kat-new",
+                hosting_tier="tier2", license_status="active", max_users=10,
+                is_active=1, created_at=_now(), updated_at=_now(),
+            )
+        )
+        db.commit()
+        dek = get_tenant_dek(db, "kat-new")
+        row = db.get(Tenant, "kat-new")
+        assert row.kek_version == 2
+        assert _decrypt_dek(row.encrypted_dek, KAT_FERNET_KEK) == dek

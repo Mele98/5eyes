@@ -257,6 +257,13 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
         _MANDATE, _c(RECORD, "risk_capacity_plausibility_evidence"),
     ),
     "suitability_checks": _t(_MANDATE, _c(RECORD, "suitability_evidence")),
+    # E1 Nachhaltigkeitspraeferenzen: Teil der Eignungspruefung; die
+    # Verzichtsbegruendung ist versiegelt (pii_vault, Crypto-Shredding).
+    "investment_preference_decisions": _t(
+        _MANDATE,
+        _c(SEALED_FREE_TEXT, "suitability_evidence", "waiver_reason_sealed", method=CRYPTO_SHRED),
+        _c(RECORD, "suitability_evidence"),
+    ),
     "product_eligibility_snapshots": _t(_MANDATE, _c(RECORD, "suitability_evidence")),
     "product_eligibility_decisions": _t(
         ("snapshot_id", "product_eligibility_snapshots"), _c(RECORD, "suitability_evidence"),

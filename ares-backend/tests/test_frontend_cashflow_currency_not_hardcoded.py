@@ -11,6 +11,7 @@ gewaehlt werden, wodurch Fremdwaehrungs-Cashflows real vorkommen."""
 from __future__ import annotations
 
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 HTML_PATH = (
@@ -22,7 +23,7 @@ HTML_PATH = (
 
 
 def _save_cashflow_fn() -> str:
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     return html.split(
         "async function saveCashflow(){", 1
     )[1].split("function inflowSourceLabel(", 1)[0]

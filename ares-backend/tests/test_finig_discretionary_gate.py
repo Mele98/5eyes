@@ -19,6 +19,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -278,7 +279,7 @@ def test_tenant_orm_default_is_licensed_for_backwards_compat(session_factory):
 
 def test_frontend_provisioning_has_finig_checkbox_wired():
     html_path = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
-    html = html_path.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     assert 'id="prov-t-vv-licensed"' in html
     start = html.index("async function provCreateTenant()")
     end = html.index("\n}", start)
@@ -296,7 +297,7 @@ def test_frontend_provisioning_has_finig_checkbox_wired():
 
 def _html() -> str:
     html_path = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
-    return html_path.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def test_frontend_employee_provisioning_passes_target_tenant_id():

@@ -1940,6 +1940,290 @@
         "title": "AssetClassAssumptionResponse",
         "type": "object"
       },
+      "AuditChainGap": {
+        "properties": {
+          "from_sequence": {
+            "title": "From Sequence",
+            "type": "integer"
+          },
+          "to_sequence": {
+            "title": "To Sequence",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from_sequence",
+          "to_sequence"
+        ],
+        "title": "AuditChainGap",
+        "type": "object"
+      },
+      "AuditChainSection": {
+        "properties": {
+          "ambiguous": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Ambiguous",
+            "type": "array"
+          },
+          "ambiguous_count": {
+            "title": "Ambiguous Count",
+            "type": "integer"
+          },
+          "break_count": {
+            "title": "Break Count",
+            "type": "integer"
+          },
+          "breaks": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Breaks",
+            "type": "array"
+          },
+          "checked": {
+            "title": "Checked",
+            "type": "integer"
+          },
+          "counter_value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Counter Value"
+          },
+          "duplicate_count": {
+            "title": "Duplicate Count",
+            "type": "integer"
+          },
+          "duplicates": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Duplicates",
+            "type": "array"
+          },
+          "gap_count": {
+            "title": "Gap Count",
+            "type": "integer"
+          },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/AuditChainGap"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "hash_mismatch_count": {
+            "title": "Hash Mismatch Count",
+            "type": "integer"
+          },
+          "hash_mismatches": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Hash Mismatches",
+            "type": "array"
+          },
+          "last_sequence": {
+            "title": "Last Sequence",
+            "type": "integer"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "checked",
+          "last_sequence",
+          "break_count",
+          "breaks",
+          "gap_count",
+          "gaps",
+          "duplicate_count",
+          "duplicates",
+          "hash_mismatch_count",
+          "hash_mismatches",
+          "ambiguous_count",
+          "ambiguous"
+        ],
+        "title": "AuditChainSection",
+        "type": "object"
+      },
+      "AuditChainVerification": {
+        "properties": {
+          "chain": {
+            "$ref": "#/components/schemas/AuditChainSection"
+          },
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "legacy": {
+            "$ref": "#/components/schemas/AuditLegacySection"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "checked_at",
+          "chain",
+          "legacy"
+        ],
+        "title": "AuditChainVerification",
+        "type": "object"
+      },
+      "AuditLegacySection": {
+        "properties": {
+          "ambiguous": {
+            "title": "Ambiguous",
+            "type": "integer"
+          },
+          "ambiguous_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ambiguous Ids",
+            "type": "array"
+          },
+          "field_shift": {
+            "title": "Field Shift",
+            "type": "integer"
+          },
+          "field_shift_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Field Shift Ids",
+            "type": "array"
+          },
+          "hashed": {
+            "title": "Hashed",
+            "type": "integer"
+          },
+          "link_unconfirmed": {
+            "title": "Link Unconfirmed",
+            "type": "integer"
+          },
+          "link_unconfirmed_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Link Unconfirmed Ids",
+            "type": "array"
+          },
+          "mismatch_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Mismatch Ids",
+            "type": "array"
+          },
+          "mismatches": {
+            "title": "Mismatches",
+            "type": "integer"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "seal_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seal Count"
+          },
+          "seal_missing": {
+            "default": false,
+            "title": "Seal Missing",
+            "type": "boolean"
+          },
+          "seal_ok": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seal Ok"
+          },
+          "seal_present": {
+            "title": "Seal Present",
+            "type": "boolean"
+          },
+          "seal_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seal Sequence"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "unexpected_unhashed": {
+            "title": "Unexpected Unhashed",
+            "type": "integer"
+          },
+          "unexpected_unhashed_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unexpected Unhashed Ids",
+            "type": "array"
+          },
+          "unhashed": {
+            "title": "Unhashed",
+            "type": "integer"
+          },
+          "verified": {
+            "title": "Verified",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ok",
+          "total",
+          "hashed",
+          "unhashed",
+          "verified",
+          "link_unconfirmed",
+          "link_unconfirmed_ids",
+          "mismatches",
+          "mismatch_ids",
+          "ambiguous",
+          "ambiguous_ids",
+          "field_shift",
+          "field_shift_ids",
+          "unexpected_unhashed",
+          "unexpected_unhashed_ids",
+          "seal_present"
+        ],
+        "title": "AuditLegacySection",
+        "type": "object"
+      },
       "AuditLogEntry": {
         "properties": {
           "action": {
@@ -2278,6 +2562,20 @@
           "file"
         ],
         "title": "Body_import_products_csv_products_import_csv_post",
+        "type": "object"
+      },
+      "Body_import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post",
         "type": "object"
       },
       "BootstrapAdminRequest": {
@@ -6528,6 +6826,17 @@
             ],
             "title": "Mitigation Action"
           },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
           "reimbursed_to_client": {
             "anyOf": [
               {
@@ -6676,6 +6985,17 @@
             ],
             "title": "Mitigation Action"
           },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
           "reimbursed_to_client": {
             "default": 0,
             "title": "Reimbursed To Client",
@@ -6796,6 +7116,28 @@
       },
       "ContractDocumentResponse": {
         "properties": {
+          "bound_preference_decision_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bound Preference Decision Hash"
+          },
+          "bound_target_allocation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bound Target Allocation Id"
+          },
           "checksum_sha256": {
             "anyOf": [
               {
@@ -7141,6 +7483,17 @@
             "default": 0,
             "title": "Product Cost Coverage Bps",
             "type": "integer"
+          },
+          "product_retrocessions": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProductRetrocessionDisclosure"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retrozession je empfohlenem Produkt (AUDIT-2026-11 P1). None, wenn der Ausweis ohne Produktbezug entstand oder vor P1 eingefroren wurde."
           },
           "snapshot_schema_version": {
             "anyOf": [
@@ -8348,6 +8701,39 @@
           "rank": {
             "title": "Rank",
             "type": "integer"
+          },
+          "rank_adjusted_from": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank Adjusted From"
+          },
+          "rank_adjusted_to": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank Adjusted To"
+          },
+          "rank_adjustment_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank Adjustment Notice"
           },
           "start_date": {
             "anyOf": [
@@ -13374,6 +13760,34 @@
             ],
             "title": "Currency Exposure Json"
           },
+          "distribution_policy": {
+            "anyOf": [
+              {
+                "enum": [
+                  "accumulating",
+                  "distributing"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ausschuettungsart: thesaurierend (accumulating) oder ausschuettend.",
+            "title": "Distribution Policy"
+          },
+          "domicile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fondsdomizil, ISO 3166-1 alpha-2 (z.B. 'IE', 'LU').",
+            "title": "Domicile"
+          },
           "duration_years_x10": {
             "anyOf": [
               {
@@ -13411,6 +13825,78 @@
             ],
             "title": "Esg Score X10"
           },
+          "gating_terms": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Gating-Bedingungen (Freitext, optional).",
+            "title": "Gating Terms"
+          },
+          "has_gating": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Gating/Ruecknahmebeschraenkung moeglich.",
+            "title": "Has Gating"
+          },
+          "hedge_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Waehrung der Absicherung (ISO 4217), nur bei is_hedged=true.",
+            "title": "Hedge Currency"
+          },
+          "internal_product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Interne, tenant-eindeutige Produkt-ID (Pflicht bei unlisted ohne ISIN).",
+            "title": "Internal Product Id"
+          },
+          "is_hedged": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Anteilsklasse waehrungsgesichert; None = nicht erfasst.",
+            "title": "Is Hedged"
+          },
+          "is_house_product": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Haus-/Eigenprodukt der Verwaltung; None = nicht erfasst.",
+            "title": "Is House Product"
+          },
           "isin": {
             "anyOf": [
               {
@@ -13433,6 +13919,97 @@
             ],
             "title": "Liquidity Tier"
           },
+          "listing_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "listed",
+                  "unlisted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kotiert (listed, ISIN Pflicht) oder nicht kotiert (unlisted, ohne ISIN interne ID Pflicht).",
+            "title": "Listing Status"
+          },
+          "minimum_investment_minor_units": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).",
+            "title": "Minimum Investment Minor Units"
+          },
+          "nav_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stichtag des zuletzt gepflegten NAV (YYYY-MM-DD).",
+            "title": "Nav As Of"
+          },
+          "nav_frequency": {
+            "anyOf": [
+              {
+                "enum": [
+                  "daily",
+                  "weekly",
+                  "monthly",
+                  "quarterly"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "NAV-Rhythmus (taeglich/woechentlich/monatlich/quartalsweise).",
+            "title": "Nav Frequency"
+          },
+          "notice_period_days": {
+            "anyOf": [
+              {
+                "maximum": 3650.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kuendigungsfrist in Kalendertagen.",
+            "title": "Notice Period Days"
+          },
+          "price_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "market",
+                  "manual_nav",
+                  "provider"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Bewertungsquelle: Boersenkurs, manuell gepflegter NAV oder Anbieter-NAV.",
+            "title": "Price Source"
+          },
           "product_name": {
             "title": "Product Name",
             "type": "string"
@@ -13451,6 +14028,46 @@
               }
             ],
             "title": "Provider"
+          },
+          "redemption_period_days": {
+            "anyOf": [
+              {
+                "maximum": 3650.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ruecknahmefrist in Kalendertagen (Auszahlung nach Ruecknahme).",
+            "title": "Redemption Period Days"
+          },
+          "retrocession_bps": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retrozessionssatz in bps p.a. auf dem investierten Volumen. None = UNBEKANNT (gilt nie als retrozessionsfrei), 0 = ausdruecklich retrozessionsfrei.",
+            "title": "Retrocession Bps"
+          },
+          "retrocession_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Quelle des Retrozessionssatzes (Pflicht, sobald ein Satz erfasst ist).",
+            "title": "Retrocession Source"
           },
           "sector_exposure_json": {
             "anyOf": [
@@ -13554,6 +14171,18 @@
             ],
             "title": "Symbol"
           },
+          "ter_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stichtag der TER (YYYY-MM-DD).",
+            "title": "Ter As Of"
+          },
           "ter_bps": {
             "anyOf": [
               {
@@ -13567,6 +14196,18 @@
             ],
             "title": "Ter Bps"
           },
+          "ter_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Quelle der TER (z.B. Basisinformationsblatt, Factsheet).",
+            "title": "Ter Source"
+          },
           "theme_tags": {
             "anyOf": [
               {
@@ -13577,6 +14218,18 @@
               }
             ],
             "title": "Theme Tags"
+          },
+          "valor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Valorennummer (optional, nur Ziffern).",
+            "title": "Valor"
           }
         },
         "required": [
@@ -13880,6 +14533,13 @@
               }
             ]
           },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ProductIdMappingCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
           "detail": {
             "anyOf": [
               {
@@ -13946,6 +14606,28 @@
               }
             ],
             "title": "Exch Code"
+          },
+          "exchange_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange Code"
+          },
+          "exchange_code_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange Code Status"
           },
           "figi": {
             "anyOf": [
@@ -14205,6 +14887,17 @@
       },
       "ProductImportResultItem": {
         "properties": {
+          "eligibility_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eligibility Note"
+          },
           "error": {
             "anyOf": [
               {
@@ -14864,6 +15557,28 @@
             ],
             "title": "Currency Exposure Json"
           },
+          "distribution_policy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distribution Policy"
+          },
+          "domicile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domicile"
+          },
           "duration_years_x10": {
             "anyOf": [
               {
@@ -14932,13 +15647,79 @@
             ],
             "title": "Figi"
           },
+          "gating_terms": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gating Terms"
+          },
+          "has_gating": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Has Gating"
+          },
+          "hedge_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hedge Currency"
+          },
           "id": {
             "title": "Id",
             "type": "string"
           },
+          "internal_product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Internal Product Id"
+          },
           "is_active": {
             "title": "Is Active",
             "type": "integer"
+          },
+          "is_hedged": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Hedged"
+          },
+          "is_house_product": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is House Product"
           },
           "isin": {
             "anyOf": [
@@ -14951,6 +15732,17 @@
             ],
             "title": "Isin"
           },
+          "isin_status": {
+            "description": "'missing' (keine ISIN), 'invalid' (Altbestand mit formal\nungueltiger ISIN/Pruefziffer) oder 'valid'.",
+            "enum": [
+              "valid",
+              "invalid",
+              "missing"
+            ],
+            "readOnly": true,
+            "title": "Isin Status",
+            "type": "string"
+          },
           "liquidity_tier": {
             "anyOf": [
               {
@@ -14961,6 +15753,17 @@
               }
             ],
             "title": "Liquidity Tier"
+          },
+          "listing_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listing Status"
           },
           "lookup_mode_override": {
             "anyOf": [
@@ -15017,6 +15820,70 @@
             ],
             "title": "Market Sector"
           },
+          "master_data_gaps": {
+            "description": "Fehlende/ungueltige Pflicht-Stammdaten nach PO-6 (nur Anzeige,\nin P1 keine Sperre).",
+            "items": {
+              "type": "string"
+            },
+            "readOnly": true,
+            "title": "Master Data Gaps",
+            "type": "array"
+          },
+          "minimum_investment_minor_units": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum Investment Minor Units"
+          },
+          "nav_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nav As Of"
+          },
+          "nav_frequency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nav Frequency"
+          },
+          "notice_period_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice Period Days"
+          },
+          "price_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Source"
+          },
           "product_name": {
             "title": "Product Name",
             "type": "string"
@@ -15035,6 +15902,17 @@
               }
             ],
             "title": "Provider"
+          },
+          "redemption_period_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Redemption Period Days"
           },
           "reference_data_provider": {
             "anyOf": [
@@ -15057,6 +15935,39 @@
               }
             ],
             "title": "Reference Data Refreshed At"
+          },
+          "retrocession_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrocession Bps"
+          },
+          "retrocession_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrocession Source"
+          },
+          "retrocession_status": {
+            "description": "'unknown' = kein Satz erfasst (gilt NIE als retrozessionsfrei),\n'none' = ausdruecklich 0 bps, 'present' = Satz > 0.",
+            "enum": [
+              "unknown",
+              "none",
+              "present"
+            ],
+            "readOnly": true,
+            "title": "Retrocession Status",
+            "type": "string"
           },
           "sector_exposure_json": {
             "anyOf": [
@@ -15146,6 +16057,17 @@
             ],
             "title": "Tenant Id"
           },
+          "ter_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ter As Of"
+          },
           "ter_bps": {
             "anyOf": [
               {
@@ -15156,6 +16078,17 @@
               }
             ],
             "title": "Ter Bps"
+          },
+          "ter_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ter Source"
           },
           "theme_tags": {
             "anyOf": [
@@ -15174,6 +16107,17 @@
           "updated_at": {
             "title": "Updated At",
             "type": "string"
+          },
+          "valor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valor"
           }
         },
         "required": [
@@ -15193,9 +16137,1461 @@
           "created_at",
           "updated_at",
           "esg_data_status",
-          "esg_data_seed_fields"
+          "esg_data_seed_fields",
+          "isin_status",
+          "retrocession_status",
+          "master_data_gaps"
         ],
         "title": "ProductResponse",
+        "type": "object"
+      },
+      "ProductRetrocessionDisclosure": {
+        "description": "AUDIT-2026-11 P1 (L1): produktgebundene Retrozessions-Offenlegung\n(Art. 26 FIDLEG). Fehlt bei Nachweisen, die vor P1 eingefroren wurden.",
+        "properties": {
+          "complete": {
+            "default": false,
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "legal_reference": {
+            "default": "",
+            "title": "Legal Reference",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/ProductRetrocessionLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "present_count": {
+            "default": 0,
+            "title": "Present Count",
+            "type": "integer"
+          },
+          "schema_version": {
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "unknown_count": {
+            "default": 0,
+            "title": "Unknown Count",
+            "type": "integer"
+          },
+          "unresolved_count": {
+            "default": 0,
+            "title": "Unresolved Count",
+            "type": "integer"
+          }
+        },
+        "title": "ProductRetrocessionDisclosure",
+        "type": "object"
+      },
+      "ProductRetrocessionLine": {
+        "description": "AUDIT-2026-11 P1 (L1): Retrozession je empfohlenem Produkt.",
+        "properties": {
+          "amount_rappen": {
+            "default": 0,
+            "description": "Investiertes Volumen des Produkts im Vorschlag",
+            "title": "Amount Rappen",
+            "type": "integer"
+          },
+          "covered_by_mandate_entry": {
+            "default": false,
+            "description": "True, wenn die manuelle Retrozessions-Zeile des Mandats (gleicher Anbieter) die Offenlegungszeile ist -- dann entsteht keine zweite Kostenzeile.",
+            "title": "Covered By Mandate Entry",
+            "type": "boolean"
+          },
+          "estimated_annual_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Geschaetzter Jahresbetrag (Satz x Volumen); None bei unbekanntem Satz",
+            "title": "Estimated Annual Rappen"
+          },
+          "isin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isin"
+          },
+          "mandate_disclosed_other_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Einmalig oder ohne Frequenz offengelegter Mandatsbetrag (anteilig); deckt die jaehrliche Retrozession nicht und gilt nicht als aufgeklaert (N-861-8)",
+            "title": "Mandate Disclosed Other Rappen"
+          },
+          "mandate_disclosed_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Anteil des im Mandat aufgeklaerten (offengelegten) Betrags",
+            "title": "Mandate Disclosed Rappen"
+          },
+          "mandate_resolved_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Davon geregelt (zurueckerstattet oder Verzicht belegt, jaehrlich)",
+            "title": "Mandate Resolved Rappen"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
+          "product_name": {
+            "title": "Product Name",
+            "type": "string"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "rate_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retrozessionssatz p.a.; None = unbekannt (gilt nie als retrozessionsfrei)",
+            "title": "Rate Bps"
+          },
+          "requires_resolution": {
+            "default": false,
+            "title": "Requires Resolution",
+            "type": "boolean"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "status": {
+            "enum": [
+              "unknown",
+              "none",
+              "present"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "treatment": {
+            "enum": [
+              "reimbursed",
+              "waiver_documented",
+              "partially_covered",
+              "unresolved",
+              "not_applicable",
+              "unknown"
+            ],
+            "title": "Treatment",
+            "type": "string"
+          },
+          "treatment_label": {
+            "title": "Treatment Label",
+            "type": "string"
+          },
+          "undisclosed_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Geschaetzter, durch keine Mandatszeile offengelegter Teil (eigene Kostenzeile)",
+            "title": "Undisclosed Rappen"
+          },
+          "unresolved_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Geschaetzter, nicht geregelter Rest (requires_resolution, wenn > 0)",
+            "title": "Unresolved Rappen"
+          }
+        },
+        "required": [
+          "product_name",
+          "status",
+          "treatment",
+          "treatment_label"
+        ],
+        "title": "ProductRetrocessionLine",
+        "type": "object"
+      },
+      "ProductSustainabilityApprovalRequest": {
+        "description": "Standard Vier-Augen (leerer Body). Einzelberater-Ausnahme wie bei den\nEignungsregeln: Attest + Begruendung; der Server prueft, dass der Tenant\ngenau eine freigabeberechtigte Person hat.",
+        "properties": {
+          "attestation_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attestation Reason"
+          },
+          "single_approver_attestation": {
+            "default": false,
+            "title": "Single Approver Attestation",
+            "type": "boolean"
+          }
+        },
+        "title": "ProductSustainabilityApprovalRequest",
+        "type": "object"
+      },
+      "ProductSustainabilityApprovalResponse": {
+        "properties": {
+          "approval_mode": {
+            "title": "Approval Mode",
+            "type": "string"
+          },
+          "approved_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Approved Ids",
+            "type": "array"
+          },
+          "retired_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Retired Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "approved_ids",
+          "retired_ids",
+          "approval_mode"
+        ],
+        "title": "ProductSustainabilityApprovalResponse",
+        "type": "object"
+      },
+      "ProductSustainabilityAttributeCreate": {
+        "description": "Neuer Nachweis (immer als Entwurf). ``scope='global'`` = Plattform-\nNachweis eines globalen Katalogfonds (Multi-Tenant: nur super_admin).\nEs gibt bewusst keinen Quellentyp fuer Seed-/Default-Werte (T-E2).",
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "category": {
+            "enum": [
+              "controversial_weapons",
+              "conventional_weapons",
+              "weapons",
+              "tobacco",
+              "thermal_coal",
+              "fossil_fuels",
+              "gambling",
+              "adult_entertainment",
+              "alcohol",
+              "nuclear_power",
+              "animal_testing",
+              "ungc_violation",
+              "sfdr_classification",
+              "impact_theme"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "client_source_label": {
+            "anyOf": [
+              {
+                "enum": [
+                  "prospectus",
+                  "fund_contract",
+                  "kid",
+                  "factsheet",
+                  "provider_exclusion_policy",
+                  "provider_confirmation",
+                  "data_vendor",
+                  "house_analysis"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.",
+            "title": "Client Source Label"
+          },
+          "kind": {
+            "enum": [
+              "exclusion_policy",
+              "measured_exposure",
+              "certification",
+              "classification"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "measured_exposure_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Exposure Bps"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "revenue_threshold_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Threshold Bps"
+          },
+          "scope": {
+            "default": "tenant",
+            "enum": [
+              "tenant",
+              "global"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "source_document_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Date"
+          },
+          "source_document_sha256": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Sha256"
+          },
+          "source_document_title": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Title"
+          },
+          "source_document_version": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Version"
+          },
+          "source_provider": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Provider"
+          },
+          "source_reference": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Source Reference",
+            "type": "string"
+          },
+          "source_retrieved_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Retrieved On"
+          },
+          "source_type": {
+            "enum": [
+              "prospectus",
+              "fund_contract",
+              "kid",
+              "factsheet",
+              "provider_exclusion_policy",
+              "provider_confirmation",
+              "data_vendor",
+              "house_analysis"
+            ],
+            "title": "Source Type",
+            "type": "string"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Leer = Stichtag + 12 Monate (T-E3); laenger ist nicht zulaessig.",
+            "title": "Valid Until"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "category",
+          "kind",
+          "source_type",
+          "source_reference",
+          "as_of"
+        ],
+        "title": "ProductSustainabilityAttributeCreate",
+        "type": "object"
+      },
+      "ProductSustainabilityAttributeImportItem": {
+        "description": "Import-Zeile: Produkt ueber product_id ODER isin.",
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "category": {
+            "enum": [
+              "controversial_weapons",
+              "conventional_weapons",
+              "weapons",
+              "tobacco",
+              "thermal_coal",
+              "fossil_fuels",
+              "gambling",
+              "adult_entertainment",
+              "alcohol",
+              "nuclear_power",
+              "animal_testing",
+              "ungc_violation",
+              "sfdr_classification",
+              "impact_theme"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "client_source_label": {
+            "anyOf": [
+              {
+                "enum": [
+                  "prospectus",
+                  "fund_contract",
+                  "kid",
+                  "factsheet",
+                  "provider_exclusion_policy",
+                  "provider_confirmation",
+                  "data_vendor",
+                  "house_analysis"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.",
+            "title": "Client Source Label"
+          },
+          "isin": {
+            "anyOf": [
+              {
+                "maxLength": 12,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isin"
+          },
+          "kind": {
+            "enum": [
+              "exclusion_policy",
+              "measured_exposure",
+              "certification",
+              "classification"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "measured_exposure_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Exposure Bps"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
+          "revenue_threshold_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Threshold Bps"
+          },
+          "scope": {
+            "default": "tenant",
+            "enum": [
+              "tenant",
+              "global"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "source_document_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Date"
+          },
+          "source_document_sha256": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Sha256"
+          },
+          "source_document_title": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Title"
+          },
+          "source_document_version": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Version"
+          },
+          "source_provider": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Provider"
+          },
+          "source_reference": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Source Reference",
+            "type": "string"
+          },
+          "source_retrieved_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Retrieved On"
+          },
+          "source_type": {
+            "enum": [
+              "prospectus",
+              "fund_contract",
+              "kid",
+              "factsheet",
+              "provider_exclusion_policy",
+              "provider_confirmation",
+              "data_vendor",
+              "house_analysis"
+            ],
+            "title": "Source Type",
+            "type": "string"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Leer = Stichtag + 12 Monate (T-E3); laenger ist nicht zulaessig.",
+            "title": "Valid Until"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "category",
+          "kind",
+          "source_type",
+          "source_reference",
+          "as_of"
+        ],
+        "title": "ProductSustainabilityAttributeImportItem",
+        "type": "object"
+      },
+      "ProductSustainabilityAttributeImportRequest": {
+        "properties": {
+          "attributes": {
+            "items": {
+              "$ref": "#/components/schemas/ProductSustainabilityAttributeImportItem"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Attributes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "attributes"
+        ],
+        "title": "ProductSustainabilityAttributeImportRequest",
+        "type": "object"
+      },
+      "ProductSustainabilityAttributeResponse": {
+        "properties": {
+          "approval_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Mode"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "as_of": {
+            "title": "As Of",
+            "type": "string"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "client_source_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Source Label"
+          },
+          "client_source_label_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Source Label Text"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "evidence_status": {
+            "enum": [
+              "draft",
+              "retired",
+              "not_yet_valid",
+              "expired",
+              "valid"
+            ],
+            "title": "Evidence Status",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "measured_exposure_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Exposure Bps"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "product_id": {
+            "title": "Product Id",
+            "type": "string"
+          },
+          "retired_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired At"
+          },
+          "retired_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired By"
+          },
+          "revenue_threshold_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Threshold Bps"
+          },
+          "scope": {
+            "enum": [
+              "tenant",
+              "global"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "source_document_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Date"
+          },
+          "source_document_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Sha256"
+          },
+          "source_document_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Title"
+          },
+          "source_document_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Version"
+          },
+          "source_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Provider"
+          },
+          "source_reference": {
+            "title": "Source Reference",
+            "type": "string"
+          },
+          "source_retrieved_on": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Retrieved On"
+          },
+          "source_type": {
+            "title": "Source Type",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "approved",
+              "retired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "supersedes_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Id"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "valid_until": {
+            "title": "Valid Until",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "id",
+          "product_id",
+          "scope",
+          "category",
+          "kind",
+          "source_type",
+          "source_reference",
+          "as_of",
+          "valid_until",
+          "status",
+          "evidence_status",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ProductSustainabilityAttributeResponse",
+        "type": "object"
+      },
+      "ProductSustainabilityAttributeUpdate": {
+        "description": "Bearbeiten nur im Entwurf. Kategorie, Art und Scope sind fest (sonst\nneuer Nachweis). Explizites null leert optionale Felder.",
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "client_source_label": {
+            "anyOf": [
+              {
+                "enum": [
+                  "prospectus",
+                  "fund_contract",
+                  "kid",
+                  "factsheet",
+                  "provider_exclusion_policy",
+                  "provider_confirmation",
+                  "data_vendor",
+                  "house_analysis"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.",
+            "title": "Client Source Label"
+          },
+          "measured_exposure_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Exposure Bps"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "revenue_threshold_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revenue Threshold Bps"
+          },
+          "source_document_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Date"
+          },
+          "source_document_sha256": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Sha256"
+          },
+          "source_document_title": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Title"
+          },
+          "source_document_version": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Version"
+          },
+          "source_provider": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Provider"
+          },
+          "source_reference": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Reference"
+          },
+          "source_retrieved_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Retrieved On"
+          },
+          "source_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "prospectus",
+                  "fund_contract",
+                  "kid",
+                  "factsheet",
+                  "provider_exclusion_policy",
+                  "provider_confirmation",
+                  "data_vendor",
+                  "house_analysis"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Type"
+          },
+          "valid_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Until"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "title": "ProductSustainabilityAttributeUpdate",
+        "type": "object"
+      },
+      "ProductSustainabilityBatchApprovalRequest": {
+        "properties": {
+          "attestation_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attestation Reason"
+          },
+          "attribute_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "title": "Attribute Ids",
+            "type": "array"
+          },
+          "single_approver_attestation": {
+            "default": false,
+            "title": "Single Approver Attestation",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "attribute_ids"
+        ],
+        "title": "ProductSustainabilityBatchApprovalRequest",
+        "type": "object"
+      },
+      "ProductSustainabilityImportResponse": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProductSustainabilityImportResultItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "processed": {
+            "title": "Processed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "processed",
+          "created",
+          "failed"
+        ],
+        "title": "ProductSustainabilityImportResponse",
+        "type": "object"
+      },
+      "ProductSustainabilityImportResultItem": {
+        "properties": {
+          "attribute_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attribute Id"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
+          "row": {
+            "title": "Row",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "created",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "row",
+          "status"
+        ],
+        "title": "ProductSustainabilityImportResultItem",
+        "type": "object"
+      },
+      "ProductSustainabilityRetireRequest": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "ProductSustainabilityRetireRequest",
         "type": "object"
       },
       "ProductUniverseEntryCreate": {
@@ -15379,6 +17775,34 @@
             ],
             "title": "Currency Exposure Json"
           },
+          "distribution_policy": {
+            "anyOf": [
+              {
+                "enum": [
+                  "accumulating",
+                  "distributing"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ausschuettungsart: thesaurierend (accumulating) oder ausschuettend.",
+            "title": "Distribution Policy"
+          },
+          "domicile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Fondsdomizil, ISO 3166-1 alpha-2 (z.B. 'IE', 'LU').",
+            "title": "Domicile"
+          },
           "duration_years_x10": {
             "anyOf": [
               {
@@ -15416,6 +17840,54 @@
             ],
             "title": "Esg Score X10"
           },
+          "gating_terms": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Gating-Bedingungen (Freitext, optional).",
+            "title": "Gating Terms"
+          },
+          "has_gating": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Gating/Ruecknahmebeschraenkung moeglich.",
+            "title": "Has Gating"
+          },
+          "hedge_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Waehrung der Absicherung (ISO 4217), nur bei is_hedged=true.",
+            "title": "Hedge Currency"
+          },
+          "internal_product_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Interne, tenant-eindeutige Produkt-ID (Pflicht bei unlisted ohne ISIN).",
+            "title": "Internal Product Id"
+          },
           "is_active": {
             "anyOf": [
               {
@@ -15429,6 +17901,41 @@
             ],
             "title": "Is Active"
           },
+          "is_hedged": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Anteilsklasse waehrungsgesichert; None = nicht erfasst.",
+            "title": "Is Hedged"
+          },
+          "is_house_product": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Haus-/Eigenprodukt der Verwaltung; None = nicht erfasst.",
+            "title": "Is House Product"
+          },
+          "isin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isin"
+          },
           "liquidity_tier": {
             "anyOf": [
               {
@@ -15439,6 +17946,97 @@
               }
             ],
             "title": "Liquidity Tier"
+          },
+          "listing_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "listed",
+                  "unlisted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kotiert (listed, ISIN Pflicht) oder nicht kotiert (unlisted, ohne ISIN interne ID Pflicht).",
+            "title": "Listing Status"
+          },
+          "minimum_investment_minor_units": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).",
+            "title": "Minimum Investment Minor Units"
+          },
+          "nav_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stichtag des zuletzt gepflegten NAV (YYYY-MM-DD).",
+            "title": "Nav As Of"
+          },
+          "nav_frequency": {
+            "anyOf": [
+              {
+                "enum": [
+                  "daily",
+                  "weekly",
+                  "monthly",
+                  "quarterly"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "NAV-Rhythmus (taeglich/woechentlich/monatlich/quartalsweise).",
+            "title": "Nav Frequency"
+          },
+          "notice_period_days": {
+            "anyOf": [
+              {
+                "maximum": 3650.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kuendigungsfrist in Kalendertagen.",
+            "title": "Notice Period Days"
+          },
+          "price_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "market",
+                  "manual_nav",
+                  "provider"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Bewertungsquelle: Boersenkurs, manuell gepflegter NAV oder Anbieter-NAV.",
+            "title": "Price Source"
           },
           "product_name": {
             "anyOf": [
@@ -15451,6 +18049,17 @@
             ],
             "title": "Product Name"
           },
+          "product_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Type"
+          },
           "provider": {
             "anyOf": [
               {
@@ -15461,6 +18070,46 @@
               }
             ],
             "title": "Provider"
+          },
+          "redemption_period_days": {
+            "anyOf": [
+              {
+                "maximum": 3650.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ruecknahmefrist in Kalendertagen (Auszahlung nach Ruecknahme).",
+            "title": "Redemption Period Days"
+          },
+          "retrocession_bps": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Retrozessionssatz in bps p.a. auf dem investierten Volumen. None = UNBEKANNT (gilt nie als retrozessionsfrei), 0 = ausdruecklich retrozessionsfrei.",
+            "title": "Retrocession Bps"
+          },
+          "retrocession_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Quelle des Retrozessionssatzes (Pflicht, sobald ein Satz erfasst ist).",
+            "title": "Retrocession Source"
           },
           "sector_exposure_json": {
             "anyOf": [
@@ -15500,6 +18149,29 @@
             ],
             "title": "Sub Asset Class"
           },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          },
+          "ter_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Stichtag der TER (YYYY-MM-DD).",
+            "title": "Ter As Of"
+          },
           "ter_bps": {
             "anyOf": [
               {
@@ -15513,6 +18185,18 @@
             ],
             "title": "Ter Bps"
           },
+          "ter_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Quelle der TER (z.B. Basisinformationsblatt, Factsheet).",
+            "title": "Ter Source"
+          },
           "theme_tags": {
             "anyOf": [
               {
@@ -15523,9 +18207,142 @@
               }
             ],
             "title": "Theme Tags"
+          },
+          "valor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Valorennummer (optional, nur Ziffern).",
+            "title": "Valor"
           }
         },
         "title": "ProductUpdate",
+        "type": "object"
+      },
+      "RecommendationFinalizeResponse": {
+        "description": "N-856-7 (Pruefrunde #856): Finalize-Antwort = Lauf + Warnungen.\n\n``warnings`` ist identisch zum Audit-Log-Eintrag (\"Final; Warnungen:\n...\"), ``warning_codes`` die daraus gelesenen Codes (z. B.\nSAA_BUCKET_DEVIATION, POSITION_LIMIT_EXCEEDED).",
+        "properties": {
+          "assessment_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessment Id"
+          },
+          "client_id": {
+            "title": "Client Id",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "mandate_id": {
+            "title": "Mandate Id",
+            "type": "string"
+          },
+          "objective_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Objective Summary"
+          },
+          "other_assets_included": {
+            "title": "Other Assets Included",
+            "type": "integer"
+          },
+          "policy_id": {
+            "title": "Policy Id",
+            "type": "string"
+          },
+          "result_status": {
+            "title": "Result Status",
+            "type": "string"
+          },
+          "run_type": {
+            "title": "Run Type",
+            "type": "string"
+          },
+          "target_allocation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Allocation Id"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "warning_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warning Codes",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "weighting_regime": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weighting Regime"
+          }
+        },
+        "required": [
+          "id",
+          "mandate_id",
+          "client_id",
+          "run_type",
+          "assessment_id",
+          "target_allocation_id",
+          "policy_id",
+          "result_status",
+          "weighting_regime",
+          "other_assets_included",
+          "objective_summary",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "RecommendationFinalizeResponse",
         "type": "object"
       },
       "RecommendationGenerateRequest": {
@@ -15605,6 +18422,10 @@
             "title": "Expected Volatility Bps",
             "type": "integer"
           },
+          "implementation_metrics": {
+            "title": "Implementation Metrics",
+            "type": "object"
+          },
           "implementation_steps": {
             "items": {
               "type": "string"
@@ -15651,6 +18472,28 @@
           },
           "run": {
             "$ref": "#/components/schemas/RecommendationRunResponse"
+          },
+          "saa_expected_return_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saa Expected Return Bps"
+          },
+          "saa_expected_volatility_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saa Expected Volatility Bps"
           },
           "target_allocation_id": {
             "title": "Target Allocation Id",
@@ -18166,6 +21009,108 @@
         "title": "RoleGrant",
         "type": "object"
       },
+      "StrategyOptionCoverage": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "evidence": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/StrategyOptionEvidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "missing_sub_asset_classes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Sub Asset Classes",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "available"
+        ],
+        "title": "StrategyOptionCoverage",
+        "type": "object"
+      },
+      "StrategyOptionCoverageResponse": {
+        "properties": {
+          "as_of": {
+            "title": "As Of",
+            "type": "string"
+          },
+          "needed_sub_asset_classes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Needed Sub Asset Classes",
+            "type": "array"
+          },
+          "options": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/StrategyOptionCoverage"
+            },
+            "title": "Options",
+            "type": "array"
+          }
+        },
+        "required": [
+          "as_of"
+        ],
+        "title": "StrategyOptionCoverageResponse",
+        "type": "object"
+      },
+      "StrategyOptionEvidence": {
+        "properties": {
+          "evidence_id": {
+            "title": "Evidence Id",
+            "type": "string"
+          },
+          "product_id": {
+            "title": "Product Id",
+            "type": "string"
+          },
+          "sub_asset_class": {
+            "title": "Sub Asset Class",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sub_asset_class",
+          "product_id",
+          "evidence_id"
+        ],
+        "title": "StrategyOptionEvidence",
+        "type": "object"
+      },
       "StrategySnapshotCreate": {
         "properties": {
           "advisor_note": {
@@ -18886,6 +21831,866 @@
           "created_at"
         ],
         "title": "SuitabilityCheckResponse",
+        "type": "object"
+      },
+      "SustainabilityCatalogResponse": {
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/SustainabilityCategoryInfo"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "client_source_labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Client Source Labels",
+            "type": "object"
+          },
+          "evidence_validity_months": {
+            "title": "Evidence Validity Months",
+            "type": "integer"
+          },
+          "sfdr_values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sfdr Values",
+            "type": "array"
+          },
+          "source_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Types",
+            "type": "array"
+          },
+          "statuses": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Statuses",
+            "type": "array"
+          }
+        },
+        "required": [
+          "categories",
+          "source_types",
+          "statuses",
+          "sfdr_values",
+          "evidence_validity_months"
+        ],
+        "title": "SustainabilityCatalogResponse",
+        "type": "object"
+      },
+      "SustainabilityCategoryInfo": {
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "criterion_type": {
+            "enum": [
+              "revenue_threshold",
+              "conduct",
+              "classification"
+            ],
+            "title": "Criterion Type",
+            "type": "string"
+          },
+          "default_threshold_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Threshold Bps"
+          },
+          "has_house_standard": {
+            "title": "Has House Standard",
+            "type": "boolean"
+          },
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Kinds",
+            "type": "array"
+          }
+        },
+        "required": [
+          "category",
+          "criterion_type",
+          "kinds",
+          "has_house_standard"
+        ],
+        "title": "SustainabilityCategoryInfo",
+        "type": "object"
+      },
+      "SustainabilityExclusionOption": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "evidence": {
+            "default": [],
+            "items": {
+              "type": "object"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "missing_sub_asset_classes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Sub Asset Classes",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "available"
+        ],
+        "title": "SustainabilityExclusionOption",
+        "type": "object"
+      },
+      "SustainabilityPreferenceCreate": {
+        "properties": {
+          "capture_channel": {
+            "enum": [
+              "in_person",
+              "phone",
+              "video",
+              "written"
+            ],
+            "title": "Capture Channel",
+            "type": "string"
+          },
+          "client_confirmed": {
+            "default": false,
+            "title": "Client Confirmed",
+            "type": "boolean"
+          },
+          "data_classification": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Classification"
+          },
+          "definition_hash": {
+            "title": "Definition Hash",
+            "type": "string"
+          },
+          "esg_characteristic": {
+            "anyOf": [
+              {
+                "enum": [
+                  "sdg_alignment",
+                  "esg_factors",
+                  "no_specific"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esg Characteristic"
+          },
+          "esg_relevance": {
+            "anyOf": [
+              {
+                "enum": [
+                  "yes",
+                  "not_relevant"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esg Relevance"
+          },
+          "exclusions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Exclusions",
+            "type": "array"
+          },
+          "expected_current_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Current Id"
+          },
+          "information_acknowledged": {
+            "default": false,
+            "title": "Information Acknowledged",
+            "type": "boolean"
+          },
+          "preference_waived": {
+            "default": false,
+            "title": "Preference Waived",
+            "type": "boolean"
+          },
+          "questionnaire_version": {
+            "title": "Questionnaire Version",
+            "type": "string"
+          },
+          "response_status": {
+            "enum": [
+              "answered",
+              "declined"
+            ],
+            "title": "Response Status",
+            "type": "string"
+          },
+          "waiver_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiver Reason"
+          }
+        },
+        "required": [
+          "questionnaire_version",
+          "definition_hash",
+          "response_status",
+          "capture_channel"
+        ],
+        "title": "SustainabilityPreferenceCreate",
+        "type": "object"
+      },
+      "SustainabilityPreferenceResponse": {
+        "properties": {
+          "capture_channel": {
+            "title": "Capture Channel",
+            "type": "string"
+          },
+          "captured_at": {
+            "title": "Captured At",
+            "type": "string"
+          },
+          "captured_by": {
+            "title": "Captured By",
+            "type": "string"
+          },
+          "client_confirmed": {
+            "title": "Client Confirmed",
+            "type": "boolean"
+          },
+          "decision_hash": {
+            "title": "Decision Hash",
+            "type": "string"
+          },
+          "definition_hash": {
+            "title": "Definition Hash",
+            "type": "string"
+          },
+          "derivation_version": {
+            "title": "Derivation Version",
+            "type": "string"
+          },
+          "esg_characteristic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esg Characteristic"
+          },
+          "esg_relevance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Esg Relevance"
+          },
+          "exclusions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Exclusions",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "information_acknowledged": {
+            "title": "Information Acknowledged",
+            "type": "boolean"
+          },
+          "limit_texts": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Limit Texts",
+            "type": "array"
+          },
+          "mandate_id": {
+            "title": "Mandate Id",
+            "type": "string"
+          },
+          "mandate_type_at_capture": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mandate Type At Capture"
+          },
+          "preference_waived": {
+            "default": false,
+            "title": "Preference Waived",
+            "type": "boolean"
+          },
+          "profile_code": {
+            "title": "Profile Code",
+            "type": "string"
+          },
+          "profile_text": {
+            "title": "Profile Text",
+            "type": "string"
+          },
+          "questionnaire_version": {
+            "title": "Questionnaire Version",
+            "type": "string"
+          },
+          "response_status": {
+            "title": "Response Status",
+            "type": "string"
+          },
+          "review_due_on": {
+            "title": "Review Due On",
+            "type": "string"
+          },
+          "review_policy_months": {
+            "title": "Review Policy Months",
+            "type": "integer"
+          },
+          "review_policy_version": {
+            "title": "Review Policy Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "sequence_no": {
+            "title": "Sequence No",
+            "type": "integer"
+          },
+          "supersedes_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supersedes Id"
+          }
+        },
+        "required": [
+          "id",
+          "schema_version",
+          "mandate_id",
+          "sequence_no",
+          "questionnaire_version",
+          "definition_hash",
+          "derivation_version",
+          "response_status",
+          "profile_code",
+          "profile_text",
+          "information_acknowledged",
+          "client_confirmed",
+          "capture_channel",
+          "review_policy_version",
+          "review_policy_months",
+          "review_due_on",
+          "captured_by",
+          "captured_at",
+          "decision_hash"
+        ],
+        "title": "SustainabilityPreferenceResponse",
+        "type": "object"
+      },
+      "SustainabilityPreferenceState": {
+        "properties": {
+          "allocation_floor_status": {
+            "default": "none",
+            "title": "Allocation Floor Status",
+            "type": "string"
+          },
+          "allocation_floor_themes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Allocation Floor Themes",
+            "type": "array"
+          },
+          "allocation_stale_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allocation Stale Notice"
+          },
+          "answer_state": {
+            "title": "Answer State",
+            "type": "string"
+          },
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SustainabilityPreferenceResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "document_binding": {
+            "title": "Document Binding",
+            "type": "string"
+          },
+          "exclusion_options": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SustainabilityExclusionOption"
+            },
+            "title": "Exclusion Options",
+            "type": "array"
+          },
+          "history": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/SustainabilityPreferenceResponse"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "review_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Notice"
+          },
+          "review_policy_label": {
+            "title": "Review Policy Label",
+            "type": "string"
+          },
+          "review_policy_months": {
+            "title": "Review Policy Months",
+            "type": "integer"
+          },
+          "review_status": {
+            "enum": [
+              "current",
+              "due",
+              "missing"
+            ],
+            "title": "Review Status",
+            "type": "string"
+          },
+          "stale_reasons": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Stale Reasons",
+            "type": "array"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "state_label": {
+            "title": "State Label",
+            "type": "string"
+          },
+          "state_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State Notice"
+          },
+          "waiver_allowed": {
+            "title": "Waiver Allowed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "state",
+          "state_label",
+          "answer_state",
+          "review_status",
+          "review_policy_months",
+          "review_policy_label",
+          "waiver_allowed",
+          "document_binding"
+        ],
+        "title": "SustainabilityPreferenceState",
+        "type": "object"
+      },
+      "SustainabilityStandardItem": {
+        "properties": {
+          "approval_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Mode"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "criterion_type": {
+            "enum": [
+              "revenue_threshold",
+              "conduct"
+            ],
+            "title": "Criterion Type",
+            "type": "string"
+          },
+          "default_threshold_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Threshold Bps"
+          },
+          "effective_threshold_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Threshold Bps"
+          },
+          "is_disabled": {
+            "default": false,
+            "title": "Is Disabled",
+            "type": "boolean"
+          },
+          "is_overridden": {
+            "title": "Is Overridden",
+            "type": "boolean"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "pending": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SustainabilityStandardPending"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "standard_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Id"
+          },
+          "tenant_threshold_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Threshold Bps"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          },
+          "valid_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid From"
+          }
+        },
+        "required": [
+          "category",
+          "criterion_type",
+          "is_overridden"
+        ],
+        "title": "SustainabilityStandardItem",
+        "type": "object"
+      },
+      "SustainabilityStandardPending": {
+        "description": "Offene Lockerung (H-1), wirkt erst nach Vier-Augen-Freigabe.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_disabled": {
+            "title": "Is Disabled",
+            "type": "boolean"
+          },
+          "max_revenue_threshold_bps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Revenue Threshold Bps"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "id",
+          "is_disabled",
+          "created_at"
+        ],
+        "title": "SustainabilityStandardPending",
+        "type": "object"
+      },
+      "SustainabilityStandardUpdate": {
+        "description": "Hausschwelle setzen. Bei UN Global Compact gibt es keine\nUmsatzschwelle (null). Schwelle ueber dem T-E1-Default oder\nis_disabled=true ist eine Lockerung und braucht eine Vier-Augen-Freigabe.",
+        "properties": {
+          "is_disabled": {
+            "default": false,
+            "description": "Kategorie fuer diese Verwaltung deaktivieren (Lockerung, Vier-Augen-Freigabe).",
+            "title": "Is Disabled",
+            "type": "boolean"
+          },
+          "max_revenue_threshold_bps": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Revenue Threshold Bps"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "title": "SustainabilityStandardUpdate",
+        "type": "object"
+      },
+      "SustainabilityStandardsResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SustainabilityStandardItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "SustainabilityStandardsResponse",
         "type": "object"
       },
       "TargetAllocationCreate": {
@@ -20495,6 +24300,17 @@
             ],
             "title": "Storage Quota Mb"
           },
+          "sustainability_review_months": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sustainability Review Months"
+          },
           "updated_at": {
             "title": "Updated At",
             "type": "string"
@@ -20652,6 +24468,17 @@
             ],
             "title": "Storage Quota Mb"
           },
+          "sustainability_review_months": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sustainability Review Months"
+          },
           "updated_at": {
             "title": "Updated At",
             "type": "string"
@@ -20707,6 +24534,19 @@
               }
             ],
             "title": "Home Jurisdiction"
+          },
+          "sustainability_review_months": {
+            "anyOf": [
+              {
+                "maximum": 120.0,
+                "minimum": 6.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sustainability Review Months"
           }
         },
         "title": "TenantSelfServiceUpdate",
@@ -20875,6 +24715,19 @@
               }
             ],
             "title": "Storage Quota Mb"
+          },
+          "sustainability_review_months": {
+            "anyOf": [
+              {
+                "maximum": 120.0,
+                "minimum": 6.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sustainability Review Months"
           }
         },
         "title": "TenantUpdate",
@@ -24359,6 +28212,33 @@
           }
         ],
         "summary": "Get Audit Log",
+        "tags": [
+          "System"
+        ]
+      }
+    },
+    "/admin/system/audit-log/verify": {
+      "get": {
+        "description": "H-865-2 (Pruefrunde #865): Kettenpruefung des Audit-Logs zur Laufzeit.\n\nverify_audit_chain() wurde bisher nur in Tests aufgerufen. Der Bericht\numfasst die Sequenz-Kette (Brueche, Luecken inkl. abgeschnittenem Ende,\nDuplikate, Hash-Abweichungen) und die Pruefung pro Zeile fuer Altzeilen\nohne sequence. Er enthaelt nur Zaehler, Sequenznummern und Zeilen-IDs,\nkeine Inhalte. Nur lesend; die Kette ist global (alle Tenants), daher\nrequire_audit_chain_verifier (siehe services/auth.py).\n\nN-869-4: unter PostgreSQL steht audit_log unter strikter RLS -- ohne\nBypass saehe super_admin (kein Tenant-Kontext) 0 Zeilen, ein Tenant-\nAdmin nur seine eigenen (Scheinluecken). Die Pruefung laeuft deshalb im\nexpliziten Operator-Bypass; zugelassen sind nur die Rollen aus\nrequire_audit_chain_verifier, und der Bericht enthaelt keine Inhalte.",
+        "operationId": "verify_audit_log_chain_admin_system_audit_log_verify_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditChainVerification"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Verify Audit Log Chain",
         "tags": [
           "System"
         ]
@@ -32953,7 +36833,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RecommendationRunResponse"
+                  "$ref": "#/components/schemas/RecommendationFinalizeResponse"
                 }
               }
             },
@@ -34690,6 +38570,54 @@
         ]
       }
     },
+    "/mandates/{mandate_id}/strategy-option-coverage": {
+      "get": {
+        "description": "E2b: welche Strategie-Optionen (Restriktionen, Themen, Kunden-\nausschluesse) das aktive Produktuniversum des Mandats belegt erfuellen\nkann. Nicht erfuellbare Optionen tragen einen kurzen Grund.",
+        "operationId": "get_strategy_option_coverage_mandates__mandate_id__strategy_option_coverage_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StrategyOptionCoverageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Strategy Option Coverage",
+        "tags": [
+          "Empfehlungen"
+        ]
+      }
+    },
     "/mandates/{mandate_id}/strategy-snapshots": {
       "get": {
         "operationId": "list_snapshots_mandates__mandate_id__strategy_snapshots_get",
@@ -34944,6 +38872,175 @@
           }
         ],
         "summary": "Create Suitability Check",
+        "tags": [
+          "Risikoprofilierung"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/sustainability-preferences": {
+      "get": {
+        "description": "Aktuelle Nachhaltigkeitspraeferenz, Historie (neueste zuerst),\nPflichtzustand und anbietbare Ausschlusswuensche.",
+        "operationId": "get_sustainability_preferences_mandates__mandate_id__sustainability_preferences_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityPreferenceState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Sustainability Preferences",
+        "tags": [
+          "Risikoprofilierung"
+        ]
+      },
+      "post": {
+        "description": "Neue Version der Nachhaltigkeitspraeferenz (append-only).",
+        "operationId": "create_sustainability_preference_mandates__mandate_id__sustainability_preferences_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SustainabilityPreferenceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityPreferenceState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Sustainability Preference",
+        "tags": [
+          "Risikoprofilierung"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/sustainability-preferences/exclusion-options": {
+      "get": {
+        "description": "N-901-06: Ausschluss-Optionen gegen die LAUFENDE Auswahl der Maske\n(``selected``), ohne zu speichern. Jede Option wird mit der Auswahl\nkombiniert am selben Produkt geprueft.",
+        "operationId": "get_sustainability_exclusion_options_mandates__mandate_id__sustainability_preferences_exclusion_options_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "selected",
+            "required": false,
+            "schema": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Selected",
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SustainabilityExclusionOption"
+                  },
+                  "title": "Response Get Sustainability Exclusion Options Mandates  Mandate Id  Sustainability Preferences Exclusion Options Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Sustainability Exclusion Options",
         "tags": [
           "Risikoprofilierung"
         ]
@@ -36898,6 +40995,31 @@
         ]
       }
     },
+    "/products/export/csv": {
+      "get": {
+        "description": "AUDIT-2026-11 P1 (PO-6): Export der fuer diesen Tenant sichtbaren,\naktiven Fonds im Spaltenformat des CSV-Imports (globaler Katalog plus\neigene Fonds, nie die eines anderen Tenants -- dieselbe Abfrage wie\nGET /products).\n\nZweck: Stammdaten (ISIN, Domizil, TER-Quelle, Retrozession ...) extern\nergaenzen und wieder einspielen. Die Eignungsspalten bleiben leer: die\nEignung wird ueber die Vier-Augen-Regeln gepflegt und ist kein\nStammdatum. Fuer einen Re-Import muessen sie ergaenzt werden (eine\ngeaenderte Eignung wird dabei als Regel-Entwurf angelegt). Leere Zellen\nbedeuten \"nicht erfasst\" -- es wird nichts vorbelegt.",
+        "operationId": "export_products_csv_products_export_csv_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Products Csv",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
     "/products/import": {
       "post": {
         "description": "Fondsuniversum Bulk-API-Import: fuer externe Asset-Manager-Systeme,\ndie ihren Fondskatalog programmatisch pushen wollen. Nutzt dieselbe\nBearer-Token-Authentifizierung wie jeder andere Endpoint (kein\nseparates API-Key-System noetig) -- ein Asset Manager erhaelt einen\nTenant-User-Account, meldet sich ueber POST /auth/login an und ruft\ndiesen Endpoint mit dem erhaltenen Token auf. Siehe _import_products\nfuer die Upsert-/Isolationslogik.",
@@ -37179,6 +41301,800 @@
         ]
       }
     },
+    "/products/sustainability/attributes": {
+      "get": {
+        "description": "Alle fuer die eigene Verwaltung sichtbaren Nachweise (Plattform +\neigener Tenant), z. B. ``status=draft`` als Freigabe-Warteschlange.",
+        "operationId": "list_sustainability_attributes_products_sustainability_attributes_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "in": "query",
+            "name": "product_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProductSustainabilityAttributeResponse"
+                  },
+                  "title": "Response List Sustainability Attributes Products Sustainability Attributes Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Sustainability Attributes",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/approve": {
+      "post": {
+        "description": "Sammelfreigabe (z. B. nach einem Import). Alles oder nichts: ein\nVier-Augen-Verstoss oder ein ungueltiger Entwurf -> 409, nichts wird\nfreigegeben.",
+        "operationId": "approve_sustainability_attributes_batch_products_sustainability_attributes_approve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductSustainabilityBatchApprovalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityApprovalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Sustainability Attributes Batch",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/export": {
+      "get": {
+        "description": "Export der sichtbaren Nachweise (Plattform + eigener Tenant). Die\nersten Spalten entsprechen dem Import; leerer Export = CSV-Vorlage.",
+        "operationId": "export_sustainability_attributes_products_sustainability_attributes_export_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "csv",
+              "pattern": "^(csv|json)$",
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Sustainability Attributes",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/import": {
+      "post": {
+        "description": "JSON-Import. Jede Zeile wird als ENTWURF angelegt (nie direkt\nfreigegeben); die Freigabe erfolgt danach durch eine andere Person\n(Vier-Augen, POST .../approve). Fehlerhafte Zeilen werden einzeln\ngemeldet, gueltige trotzdem angelegt.",
+        "operationId": "import_sustainability_attributes_products_sustainability_attributes_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductSustainabilityAttributeImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Import Sustainability Attributes",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/import/csv": {
+      "post": {
+        "description": "CSV-Import (Komma/Semikolon/Tab, UTF-8, Kopfzeile = Spaltennamen des\nExports). Wie der JSON-Import: nur Entwuerfe, Fehler je Zeile.",
+        "operationId": "import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Import Sustainability Attributes Csv",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/{attribute_id}": {
+      "delete": {
+        "description": "Nur Entwuerfe loeschen (sie waren nie Nachweis). Freigegebene\nNachweise werden zurueckgezogen, nicht geloescht (Audit-Spur).",
+        "operationId": "delete_sustainability_attribute_draft_products_sustainability_attributes__attribute_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attribute_id",
+            "required": true,
+            "schema": {
+              "title": "Attribute Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Sustainability Attribute Draft",
+        "tags": [
+          "Produkte"
+        ]
+      },
+      "patch": {
+        "description": "Entwurf bearbeiten -- nur durch die erfassende Person, damit die\nfreigebende Person nie Inhalte freigibt, die sie selbst geschrieben hat.\nFreigegebene Nachweise sind unveraenderlich (Korrektur = neuer Entwurf).",
+        "operationId": "update_sustainability_attribute_products_sustainability_attributes__attribute_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attribute_id",
+            "required": true,
+            "schema": {
+              "title": "Attribute Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductSustainabilityAttributeUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityAttributeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Sustainability Attribute",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/{attribute_id}/approve": {
+      "post": {
+        "description": "Vier-Augen-Freigabe eines Entwurfs: 409, wenn die erfassende Person\nselbst freigibt (Einzelberater-Ausnahme wie bei den Eignungsregeln);\n403 fuer Plattform-Nachweise ohne Plattform-Recht.",
+        "operationId": "approve_sustainability_attribute_endpoint_products_sustainability_attributes__attribute_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attribute_id",
+            "required": true,
+            "schema": {
+              "title": "Attribute Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ProductSustainabilityApprovalRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityApprovalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Sustainability Attribute Endpoint",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/attributes/{attribute_id}/retire": {
+      "post": {
+        "description": "Freigegebenen Nachweis zurueckziehen; er zaehlt danach nie mehr.",
+        "operationId": "retire_sustainability_attribute_endpoint_products_sustainability_attributes__attribute_id__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attribute_id",
+            "required": true,
+            "schema": {
+              "title": "Attribute Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ProductSustainabilityRetireRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityAttributeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retire Sustainability Attribute Endpoint",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/catalog": {
+      "get": {
+        "description": "Kategorien, zulaessige Arten, Quellentypen und Haus-Defaults (T-E1).",
+        "operationId": "get_sustainability_catalog_products_sustainability_catalog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Sustainability Catalog",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/standards": {
+      "get": {
+        "description": "Hausstandard der eigenen Verwaltung: Default (T-E1), Tenant-Wert, wirksam.",
+        "operationId": "get_sustainability_standards_products_sustainability_standards_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityStandardsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Sustainability Standards",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/standards/{category}": {
+      "delete": {
+        "description": "Zurueck auf den Haus-Default (T-E1), auditiert. N-863-5: ist die\ngeltende Version strenger als der Default, entsteht ein Entwurf\n(Vier-Augen-Freigabe); sonst wirkt der Reset sofort.",
+        "operationId": "reset_sustainability_standard_endpoint_products_sustainability_standards__category__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category",
+            "required": true,
+            "schema": {
+              "title": "Category",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityStandardsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reset Sustainability Standard Endpoint",
+        "tags": [
+          "Produkte"
+        ]
+      },
+      "put": {
+        "description": "Hausschwelle der eigenen Verwaltung setzen (neue Version, auditiert).\n\nH-1/N-863-5: Richtung relativ zur GELTENDEN Version. Verschaerfung wirkt\nsofort; Lockerung (hoehere Schwelle als die geltende oder Kategorie\ndeaktiviert) entsteht als Entwurf (``pending``) und wirkt erst nach der\nVier-Augen-Freigabe (POST .../approve). Unveraendert -> keine neue\nVersion. UN Global Compact kennt keine Umsatzschwelle (null).",
+        "operationId": "set_sustainability_standard_endpoint_products_sustainability_standards__category__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category",
+            "required": true,
+            "schema": {
+              "title": "Category",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SustainabilityStandardUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityStandardsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Sustainability Standard Endpoint",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/standards/{category}/approve": {
+      "post": {
+        "description": "Vier-Augen-Freigabe einer offenen Lockerung: 409, wenn die Person, die\nsie beantragt hat, selbst freigibt (Einzelberater-Ausnahme wie bei den\nEignungsregeln); 409 auch ohne offenen Entwurf.",
+        "operationId": "approve_sustainability_standard_endpoint_products_sustainability_standards__category__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category",
+            "required": true,
+            "schema": {
+              "title": "Category",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ProductSustainabilityApprovalRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityStandardsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Sustainability Standard Endpoint",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/sustainability/standards/{category}/pending": {
+      "delete": {
+        "description": "Offene Lockerung verwerfen (auditiert).",
+        "operationId": "discard_sustainability_standard_endpoint_products_sustainability_standards__category__pending_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "category",
+            "required": true,
+            "schema": {
+              "title": "Category",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SustainabilityStandardsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Discard Sustainability Standard Endpoint",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
     "/products/{product_id}": {
       "put": {
         "description": "Sprint U-P10: Admin editiert Produkt-Metadaten + Diversifikations-Tiefe.\n\nAlle Felder optional; nur gesetzte werden ueberschrieben. JSON-Strings\n(country/sector/currency_exposure_json) werden bereits am Schema-Rand\nvalidiert (siehe schemas/review.py::ProductUpdate -- PROD-DOMAIN-001,\n2026-09-05): Form (dict[str,number]), Non-Negativitaet, Summe ~10000bps.\nservices/product_exposures.py::_parse_or_proxy bleibt zusaetzlich\nfault-tolerant fuer bereits vor dem Fix gespeicherte Legacy-Daten.",
@@ -37354,6 +42270,113 @@
           }
         ],
         "summary": "Set Product Market Override",
+        "tags": [
+          "Produkte"
+        ]
+      }
+    },
+    "/products/{product_id}/sustainability-attributes": {
+      "get": {
+        "operationId": "list_product_sustainability_attributes_products__product_id__sustainability_attributes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "product_id",
+            "required": true,
+            "schema": {
+              "title": "Product Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProductSustainabilityAttributeResponse"
+                  },
+                  "title": "Response List Product Sustainability Attributes Products  Product Id  Sustainability Attributes Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Product Sustainability Attributes",
+        "tags": [
+          "Produkte"
+        ]
+      },
+      "post": {
+        "description": "Nachweis als Entwurf erfassen (Quelle und Stichtag Pflicht; gueltig\nbis leer = Stichtag + 12 Monate). Zaehlt erst nach Vier-Augen-Freigabe.",
+        "operationId": "create_product_sustainability_attribute_products__product_id__sustainability_attributes_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "product_id",
+            "required": true,
+            "schema": {
+              "title": "Product Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductSustainabilityAttributeCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSustainabilityAttributeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Product Sustainability Attribute",
         "tags": [
           "Produkte"
         ]
@@ -37564,6 +42587,31 @@
         "summary": "Update Baustein",
         "tags": [
           "Protocol-Bausteine"
+        ]
+      }
+    },
+    "/sustainability-preferences/definition": {
+      "get": {
+        "description": "Versionierte Fragebogen-Definition (Texte, Optionen, Ableitung) mit\nDefinitions-Hash. Die Anzeigetexte sind Entwurf (Compliance-Freigabe offen).",
+        "operationId": "get_sustainability_preference_definition_sustainability_preferences_definition_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Sustainability Preference Definition",
+        "tags": [
+          "Risikoprofilierung"
         ]
       }
     },

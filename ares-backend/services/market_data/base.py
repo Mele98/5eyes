@@ -36,6 +36,10 @@ class Bar:
     volume: Optional[int] = None
     adjusted_close: Optional[Decimal] = None
     source: str = "unknown"
+    # BBG-1: gesetzt, wenn der Wert NICHT von der massgeblichen Quelle stammt,
+    # sondern von einer explizit erlaubten Ersatzquelle (``source``). None =
+    # kein Fallback. Ein Fallback ist damit im Ergebnis immer sichtbar.
+    fallback_reason: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -54,6 +58,7 @@ class ProductInfo:
     country: Optional[str] = None
     figi: Optional[str] = None
     source: str = "unknown"
+    fallback_reason: Optional[str] = None  # BBG-1, siehe Bar.fallback_reason
 
 
 class MarketDataProvider(ABC):
@@ -71,6 +76,11 @@ class MarketDataProvider(ABC):
     """
 
     name: str = "abstract"
+    # BBG-1 (Audit 2026-11/06, B4): massgebliche (lizenzierte bzw. explizit
+    # gewaehlte) Quelle. Faellt sie aus, bricht der Aggregator mit
+    # ProviderUnavailableError ab, statt still auf die naechste (Gratis-)
+    # Quelle zu wechseln. Gratisquellen bleiben False (bisherige Kaskade).
+    authoritative: bool = False
 
     @abstractmethod
     def get_eod(self, symbol: str, on_date: Date) -> Bar:

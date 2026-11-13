@@ -22,7 +22,20 @@ from models.mandates import Mandate
 from models.users import User
 from routers.auth import _extract_client_ip
 from services.auth import get_current_user, get_mandate_for_user_or_404
-from services.document_archive import archive_generated_pdf, content_hash_for
+from services.document_archive import archive_generated_pdf, content_hash_for, current_preference_binding
+from core import sustainability_preference as sustainability
+from core.reason_codes import DomainError, ReasonCode
+from services.portfolio_engine_payload import ESG_CUSTOMER_CLAIM_LABELS
+from services.recommendation_release_gate import (
+    assert_run_evidence as _assert_run_evidence,
+    assert_sustainability_preference_floor as _assert_floor,
+    current_run_id as _current_run_id,
+    document_strategy_binding as _document_binding,
+    preference_state as _preference_state,
+)
+from services.audit import gate_block_audit
+from services.portfolio_engine import run_exclusion_evidence_status
+from sqlalchemy import text as sql_text
 from services.pdf import ReportLabRenderer
 from services.recommendation_run_resolver import (
     NO_CURRENT_RECOMMENDATION_MARKER,
@@ -293,6 +306,154 @@ def _advisory_wealth_positions(mandate: Mandate, db: Session) -> tuple[list[dict
     return positions, current_bps, total
 
 
+def _largest_remainder_split(total: int, weights: list[int], labels: list[str]) -> list[int]:
+    """Ganzzahlige Aufteilung nach Largest Remainder (Hamilton), Tie-Break
+    groesseres Gewicht, dann Label -- dieselbe Regel wie
+    services.sub_allocation_apportionment.apportion_bps, hier nur fuer die
+    Franken-Rundung der PDF-Darstellung (bewusst lokal: keine zusaetzliche
+    Modulabhaengigkeit des Routers, Architektur-Ratsche)."""
+    clean = [max(0, int(w)) for w in weights]
+    weight_sum = sum(clean)
+    total = int(total)
+    if weight_sum <= 0 or total <= 0:
+        return [0] * len(clean)
+    floors = [total * w // weight_sum for w in clean]
+    remainders = [total * w % weight_sum for w in clean]
+    order = sorted(range(len(clean)), key=lambda i: (-remainders[i], -clean[i], str(labels[i]), i))
+    for i in order[: total - sum(floors)]:
+        floors[i] += 1
+    return floors
+
+
+def _generation_date_label(created_at) -> str:
+    """N-858-8: Generierungsdatum in Europe/Zurich (created_at ist UTC)."""
+    from zoneinfo import ZoneInfo
+
+    raw = str(created_at or "").strip()
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return raw[:10] or "Generierung"
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(ZoneInfo("Europe/Zurich")).strftime("%d.%m.%Y")
+
+
+def _strategy_basis_from_allocation(
+    ta_obj, engine_payload: dict | None, current_advisory_wealth_rappen: int | None, currency: str = "CHF",
+) -> dict:
+    """Pruefrunde #858 N-858-2: Strategiebasis und Reserve aus EINEM Zeitpunkt.
+
+    ``build_target_payload_from_allocation`` rechnet ``strategy_base_rappen``
+    mit dem AKTUELLEN Beratungsvermoegen, das PDF zeigt aber das Vermoegen bei
+    Generierung. Die Differenz beider Werte als Reserve war nach einer
+    Vermoegensaenderung falsch (bei Anstieg still 0). Quelle ist deshalb der
+    gespeicherte Generierungs-Snapshot der TargetAllocation
+    (``external_reserve_at_generation_rappen``); nur Altbestaende ohne
+    Snapshot fallen auf die Payload-Reserve zurueck. Weicht das aktuelle
+    Beratungsvermoegen ab, wird darauf ausdruecklich hingewiesen.
+    """
+    payload = engine_payload if isinstance(engine_payload, dict) else {}
+    current = int(current_advisory_wealth_rappen or 0)
+    # I-02 (Integrationsprobe 2026-11-07): ein Snapshot von 0 ist ein Betrag,
+    # kein fehlender Wert -- nur None (Altbestand) faellt aufs aktuelle
+    # Beratungsvermoegen zurueck (wie N-858-11).
+    snapshot = getattr(ta_obj, "advisory_wealth_at_generation_rappen", None)
+    advisory = int(snapshot) if snapshot is not None else current
+    has_basis = snapshot is not None or bool(advisory)
+    stored = getattr(ta_obj, "external_reserve_at_generation_rappen", None)
+    reserve = int(stored) if stored is not None else int(payload.get("external_reserve_rappen") or 0)
+    reserve = min(max(0, reserve), max(0, advisory))
+    ccy = str(currency or "CHF").upper()  # N-858-6: Mandatswaehrung, nicht fest CHF
+    amount = lambda r: f"{ccy} " + f"{int(round(r / 100)):,}".replace(",", "'")  # noqa: E731
+    notes = []
+    if advisory and reserve >= advisory:
+        # N-858-7: alles in der Reserve -- Basis 0 sichtbar machen statt die
+        # Reserve still auf 0 zu setzen.
+        notes.append(
+            f"Die Liquiditätsreserve ({amount(reserve)}) umfasst das ganze Beratungsvermögen: "
+            "keine investierbare Strategiebasis."
+        )
+    if has_basis and current and abs(current - advisory) >= 100:
+        date_label = _generation_date_label(getattr(ta_obj, "created_at", None))
+        notes.append(
+            f"Strategie berechnet auf Beratungsvermögen {amount(advisory)} per {date_label}; "
+            f"aktuelles Beratungsvermögen {amount(current)}. Für aktuelle Beträge die "
+            "Anlagestrategie neu berechnen."
+        )
+    note = " ".join(notes) or None
+    return {
+        "advisory_wealth_rappen": advisory if has_basis else None,
+        "strategy_base_rappen": advisory - reserve if has_basis else None,
+        "external_reserve_rappen": reserve,
+        "note": note,
+    }
+
+
+def _strategy_presentation_amounts(
+    advisory_wealth_rappen: int | None,
+    strategy_base_rappen: int | None,
+    target_alloc_bps: dict[str, int],
+    raw_sub_allocations: list | None,
+) -> dict:
+    """Live-Test 2026-11 H2/H3: EINE Rechenbasis fuer alle Betraege im PDF.
+
+    Die SAA-Gewichte beziehen sich auf die Strategiebasis (Beratungsvermoegen
+    minus externe Liquiditaetsreserve, ``portfolio_engine.
+    _investable_advisory_wealth_rappen``) -- so rechnen App-Buckets und
+    Produktempfehlung. Das PDF rechnete Hauptklassen dagegen auf dem vollen
+    Beratungsvermoegen und Subklassen aus der Produktempfehlung (andere
+    Basis, EM im CH-Produkt). Reine Darstellung: Gewichte bleiben unveraendert.
+
+    Rundung in ganzen Franken nach Largest Remainder, damit Subklassen exakt
+    auf die Klasse, Klassen exakt auf die Strategiebasis und Strategiebasis +
+    Reserve exakt auf das Beratungsvermoegen summieren.
+    """
+    advisory = max(0, int(advisory_wealth_rappen or 0))
+    # N-858-7: None = keine Angabe (Rueckfall auf das Beratungsvermoegen),
+    # 0 = alles in der Reserve (Basis 0, Reserve = Beratungsvermoegen).
+    base = advisory if strategy_base_rappen is None else max(0, int(strategy_base_rappen))
+    if base > advisory:
+        base = advisory
+    advisory_chf = int(round(advisory / 100))
+    base_chf = int(round(base / 100))
+    reserve_chf = max(0, advisory_chf - base_chf)
+
+    buckets = [b for b, bps in (target_alloc_bps or {}).items() if int(bps or 0) > 0]
+    bucket_chf = _largest_remainder_split(
+        base_chf, [int(target_alloc_bps[b]) for b in buckets], buckets,
+    ) if base_chf > 0 else [0] * len(buckets)
+    bucket_amounts = {b: chf * 100 for b, chf in zip(buckets, bucket_chf)}
+
+    by_bucket: dict[str, list[dict]] = {}
+    for item in raw_sub_allocations or []:
+        if not isinstance(item, dict):
+            continue
+        bucket = _bucket_key(item.get("asset_class"))
+        bps = int(item.get("target_weight_bps") or 0)
+        sub = str(item.get("sub_asset_class") or "").strip()
+        if not bucket or not sub or bps <= 0:
+            continue
+        by_bucket.setdefault(bucket, []).append({
+            "asset_class": bucket, "sub_asset_class": sub, "target_weight_bps": bps,
+        })
+    sub_allocations: list[dict] = []
+    for bucket, rows in by_bucket.items():
+        total_chf = bucket_amounts.get(bucket, 0) // 100
+        split = _largest_remainder_split(
+            total_chf, [r["target_weight_bps"] for r in rows], [r["sub_asset_class"] for r in rows],
+        )
+        for row, chf in zip(rows, split):
+            sub_allocations.append({**row, "target_amount_rappen": chf * 100})
+
+    return {
+        "bucket_amounts_rappen": bucket_amounts,
+        "strategy_base_rappen": base_chf * 100 if advisory else None,
+        "external_reserve_rappen": reserve_chf * 100,
+        "sub_allocations": sub_allocations,
+    }
+
+
 def _other_wealth_positions(mandate: Mandate, db: Session) -> list[dict]:
     """Nicht-Beratungsvermoegen-Positionen fuer die Anlagestrategie-PDF's
     "Anderes Vermoegen"-Tabelle. Analoges FX-DRIFT-001/P2-3-Fix wie
@@ -302,7 +463,7 @@ def _other_wealth_positions(mandate: Mandate, db: Session) -> list[dict]:
     Pipeline (TargetAllocation/CMA/RiskAssessment) mitzuseeden."""
     from models.wealth import WealthPosition
     from services.currency.converter import convert_rappen
-    from services.wealth_position_semantics import canonical_assignment
+    from services.wealth_position_semantics import canonical_assignment, is_liability_assignment
 
     other_wealth_positions: list[dict] = []
     client_id = getattr(mandate, "client_id", None)
@@ -333,6 +494,12 @@ def _other_wealth_positions(mandate: Mandate, db: Session) -> list[dict]:
             "label": str(getattr(wp, "label", "—") or "—"),
             "amount_rappen": amt,
             "kind": str(getattr(wp, "position_type", "") or ""),
+            # Live-Test 2026-11 H1: Betraege sind immer >= 0, die Richtung
+            # laeuft ueber das Assignment (LIABILITY-PUBLICATION-001). Ohne
+            # dieses Flag summierte die PDF-Tabelle eine Hypothek als Aktivum
+            # (ETW 500k + Hypothek 300k = "Total Anderes Vermoegen 800k"
+            # statt netto 200k wie in der App).
+            "is_liability": bool(is_liability_assignment(getattr(wp, "assignment", None))),
         })
     return other_wealth_positions
 
@@ -518,14 +685,14 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     )
     target_alloc_bps = _target_allocation_weights(ta_obj)
     bucket_bands = _target_allocation_bands(ta_obj)
-    advisory_wealth = (
+    # N-858-11: ein Generierungs-Snapshot von 0 ist ein Betrag (Strategie auf 0
+    # gerechnet); nur ein fehlender Snapshot (None, Altbestand) faellt zurueck.
+    _snapshot = getattr(ta_obj, "advisory_wealth_at_generation_rappen", None)
+    advisory_wealth = int(_snapshot) if _snapshot is not None else (
         int(getattr(ta_obj, "advisory_wealth_at_generation_rappen", 0) or 0)
         or current_advisory_wealth
         or None
     )
-    if advisory_wealth:
-        for bucket, bps in target_alloc_bps.items():
-            bucket_amounts[bucket] = int(advisory_wealth * bps / 10000)
     prefs_raw = getattr(ta_obj, "preferences_json", None)
     if prefs_raw:
         parsed_prefs = json.loads(prefs_raw)
@@ -569,6 +736,23 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         )
     cma_return = int(engine_payload.get("expected_return_bps", 0) or 0)
     cma_vol = int(engine_payload.get("expected_volatility_bps", 0) or 0)
+
+    # Live-Test 2026-11 H2/H3: Betraege auf der Strategiebasis der Engine
+    # (Gewichte beziehen sich auf Beratungsvermoegen minus externe Reserve),
+    # Reserve separat, Subklassen aus der SAA-Sub-Allokation.
+    # N-858-2: Basis und Reserve aus dem Generierungs-Snapshot, nicht aus dem
+    # live gerechneten Payload (anderer Zeitpunkt).
+    strategy_basis = _strategy_basis_from_allocation(
+        ta_obj, engine_payload, current_advisory_wealth,
+        currency=str(getattr(mandate, "base_currency", "CHF") or "CHF"),
+    )
+    presentation_amounts = _strategy_presentation_amounts(
+        strategy_basis["advisory_wealth_rappen"],
+        strategy_basis["strategy_base_rappen"],
+        target_alloc_bps,
+        engine_payload.get("sub_allocations"),
+    )
+    bucket_amounts = presentation_amounts["bucket_amounts_rappen"]
 
     # ---- Risk-Assessment ----
     risk_score_x10 = None
@@ -930,6 +1114,10 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         knowledge_instruments=knowledge_instruments,
         bucket_bands_bps=bucket_bands,
         bucket_amounts_rappen=bucket_amounts,
+        strategy_base_rappen=presentation_amounts["strategy_base_rappen"],
+        external_reserve_rappen=presentation_amounts["external_reserve_rappen"],
+        sub_allocations=presentation_amounts["sub_allocations"],
+        strategy_basis_note=strategy_basis["note"],
         products=products,
         recommendation_status=recommendation_status,
         goal_analysis=goal_analysis,
@@ -973,6 +1161,21 @@ def _assert_client_pdf_signoff(db: Session, mandate: Mandate) -> None:
     assert_risk_signoff_release_eligible(db, mandate, channel=CHANNEL_CLIENT_PDF)
 
 
+def _assert_client_pdf_sustainability_floor(db: Session, mandate: Mandate, current_user, request) -> None:
+    """E2b / N-888-10: Kunden-PDFs mit Strategie/Produkten (Anlagestrategie,
+    Anlagerezept, Kostenausweis) nur, wenn die aktuelle Soll-Allokation die
+    Kundenausschluesse einhaelt -- mit Audit-Eintrag, VOR Render und Archiv."""
+    allocation = _latest_target_allocation(mandate, db)
+    audit = gate_block_audit(
+        db, user=current_user, mandate=mandate,
+        ip_address=_extract_client_ip(request) if request is not None else None,
+        table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+    )
+    _assert_floor(db, mandate, allocation=allocation, channel="client_pdf", audit=audit)
+    # Nachtrag 1: Produkte im Kundendokument nur mit belegtem Ausschluss.
+    _assert_run_evidence(db, mandate, _current_run_id(db, mandate, allocation), channel="client_pdf", audit=audit)
+
+
 def _assert_client_pdf_cma_hold(db: Session, mandate: Mandate) -> None:
     """CMA-001 / ADR-12a-Release-Hold: Kunden-PDFs, die Strategie oder
     Positionen der aktuellen Soll-Allokation tragen, sind gesperrt, solange
@@ -1005,6 +1208,7 @@ def get_anlagestrategie_pdf(
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
+    _assert_client_pdf_sustainability_floor(db, mandate, current_user, request)
     _assert_report_allocation_context(mandate, db, expected_allocation_id)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
@@ -1018,6 +1222,7 @@ def get_anlagestrategie_pdf(
         title="Anlagestrategie / Vertrag", pdf_bytes=pdf_bytes,
         content_hash=content_hash_for(data),
         current_user=current_user, ip_address=_extract_client_ip(request),
+        binding=_document_binding(db, mandate),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
     # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
@@ -1368,7 +1573,10 @@ def _build_portfolio_data(mandate: Mandate, db: Session) -> PortfolioData:
                     "target_weight_bps": target_bps,
                     "current_weight_bps": current_bps,
                     "drift_bps": drift_bps,
-                    "target_amount_rappen": int(getattr(pos, "target_amount_rappen", 0) or 0),
+                    "target_amount_rappen": (  # N-858-11: None bleibt None, 0 bleibt 0
+                        None if getattr(pos, "target_amount_rappen", None) is None
+                        else int(pos.target_amount_rappen)
+                    ),
                     "current_amount_rappen": current_amount,
                     "currency": str(getattr(prod, "currency", "CHF") or "CHF"),
                     "ter_bps": int(getattr(prod, "ter_bps", 0) or 0),
@@ -1401,6 +1609,7 @@ def get_portfolio_pdf(
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
+    _assert_client_pdf_sustainability_floor(db, mandate, current_user, request)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
     data = _build_portfolio_data(mandate, db)
@@ -1410,6 +1619,7 @@ def get_portfolio_pdf(
         title="Portfolio-/Umsetzungsplan", pdf_bytes=pdf_bytes,
         content_hash=content_hash_for(data),
         current_user=current_user, ip_address=_extract_client_ip(request),
+        binding=_document_binding(db, mandate),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
     # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
@@ -1677,6 +1887,140 @@ def _risk_signoff_view(db: Session, ra) -> dict:
     return view
 
 
+# E2a (Dok. 106, Codex-Vertrag E2): Abschnitt "Nachhaltigkeitspraeferenzen"
+# im Beratungsprotokoll. Zustand aus services/recommendation_release_gate.py::preference_state
+# (dieselbe Quelle wie UI, API, Gates und Archiv, Negativfall 10); Texte
+# ausschliesslich aus core/sustainability_preference.py (Claim-Waechter zur
+# Laufzeit). Fehlt die Erfassung, steht das ausdruecklich im Protokoll; ein
+# Ladefehler wird sichtbar ausgewiesen (fail-closed, nie stilles Weglassen).
+_SUSTAINABILITY_LOAD_FAILED = {
+    "state": "unreadable",
+    "lines": (("Nachhaltigkeitspräferenz", "Konnte nicht geladen werden – bitte prüfen"),),
+    "notes": (),
+}
+_RELEVANCE_LABELS = {"yes": "Ja", "not_relevant": "Nicht relevant"}
+
+
+def _protocol_floor(db: Session, mandate: Mandate, row: dict) -> dict:
+    """E2b / N-888-01/-09: Produktwirkung nur behaupten, wenn die aktuelle
+    Soll-Allokation die Ausschluesse einhaelt UND die letzte finalisierte
+    Empfehlung nicht gelockert ist."""
+    decision = {"id": row.get("id"), "exclusions_json": row.get("exclusions_json")}
+    ta = _latest_target_allocation(mandate, db)
+    floor = sustainability.evaluate_floor(
+        decision, getattr(ta, "preferences_json", None), has_strategy=ta is not None,
+    )
+    # Nachtrag 1: "eingehalten" nur mit belegter Produktauswahl des juengsten Laufs.
+    # N-901-02: gezeigter Lauf, heute neu bewertet (kein Snapshot).
+    floor["evidence"] = run_exclusion_evidence_status(db, mandate, _current_run_id(db, mandate, ta))
+    final_prefs = db.execute(sql_text(
+        "SELECT ta.preferences_json, rr.updated_at FROM recommendation_runs rr "
+        "JOIN target_allocations ta ON ta.id = rr.target_allocation_id "
+        "WHERE rr.mandate_id = :mid AND rr.result_status = 'Final' "
+        "ORDER BY rr.updated_at DESC LIMIT 1"
+    ), {"mid": mandate.id}).first()
+    if final_prefs is not None and floor["status"] != sustainability.FLOOR_NONE:
+        final_floor = sustainability.evaluate_floor(decision, final_prefs[0])
+        if sustainability.floor_blocks(final_floor) and floor["status"] in (
+            sustainability.FLOOR_OK, sustainability.FLOOR_NO_STRATEGY,
+        ):
+            return {**final_floor, "status": sustainability.FLOOR_VIOLATED, "final_violated": True}
+    return floor
+
+
+def _sustainability_protocol_view(db: Session, mandate: Mandate) -> dict:
+    info = _preference_state(db, mandate)
+    row = info["decision"]
+    if row is None:
+        return {
+            "state": info["state"],
+            "lines": (
+                ("Zustand", info["label"]),
+                ("Nachhaltigkeitspräferenz", sustainability.NOT_CAPTURED_TEXT),
+            ),
+            "notes": (sustainability.NO_RISK_EFFECT_TEXT,),
+        }
+    exclusions = list(json.loads(row.get("exclusions_json") or "[]"))
+    question1 = _RELEVANCE_LABELS.get(row.get("esg_relevance")) or "Keine Angabe"
+    question2 = "entfällt"
+    if row.get("esg_characteristic"):
+        options = {o["value"]: o["label"] for o in sustainability.QUESTIONS[1]["options"]}
+        question2 = options.get(row["esg_characteristic"], row["esg_characteristic"])
+    lines = [
+        ("Zustand", info["label"]),
+        ("Erhebung", (
+            f"Fragebogen {row.get('questionnaire_version')} · Version {int(row.get('sequence_no') or 0)} · "
+            f"erfasst am {sustainability.format_date_ch(row.get('captured_at'))} · "
+            f"{sustainability.CAPTURE_CHANNELS.get(row.get('capture_channel'), row.get('capture_channel'))}"
+        )),
+        ("Frage 1 · Relevanz", question1),
+    ]
+    floor = _protocol_floor(db, mandate, row) if exclusions else None
+    if row.get("esg_relevance") == "yes":
+        lines += [
+            ("Frage 2 · Merkmal", question2),
+            ("Ausschlusswünsche", ", ".join(sustainability.exclusion_labels(exclusions)) or "keine"),
+            ("Verzicht", (
+                "dokumentierter Verzicht in der Anlageberatung (Begründung im Nachweis)"
+                if row.get("preference_waived") else "kein Verzicht"
+            )),
+            ("Information", "abgegeben und zur Kenntnis genommen"
+             if row.get("information_acknowledged") else "nicht dokumentiert"),
+        ]
+    if floor is not None:
+        evidence = floor.get("evidence")
+        ok_text = {
+            sustainability.RUN_EVIDENCE_OK: (
+                "Ausschlusswünsche eingehalten; alle Produkte der Empfehlung ausser Liquidität mit belegtem Nachweis"
+            ),
+            sustainability.RUN_EVIDENCE_MISSING: (
+                "Nicht eingehalten – Produktauswahl nicht belegt; Empfehlung neu erstellen"
+            ),
+        }.get(evidence, "Strategie hält die Ausschlüsse ein; noch keine belegte Produktauswahl")
+        lines.append(("Umsetzung in der Anlagestrategie", {
+            sustainability.FLOOR_OK: ok_text,
+            sustainability.FLOOR_VIOLATED: (
+                "Nicht eingehalten – die finalisierte Empfehlung enthält gelockerte Ausschlüsse; "
+                "Empfehlung neu erstellen und finalisieren"
+                if floor.get("final_violated") else "Nicht eingehalten – Anlagestrategie neu berechnen"
+            ),
+            sustainability.FLOOR_NO_STRATEGY: "Noch keine Anlagestrategie berechnet",
+        }.get(floor["status"], "Nicht prüfbar – bitte prüfen")))
+    lines += [
+        ("Ergebnis", sustainability.PROFILE_TEXTS.get(row.get("profile_code"), row.get("profile_code"))),
+        ("Kundenbestätigung", "bestätigt" if row.get("client_confirmed") else "ausstehend"),
+        ("Überprüfung", (
+            sustainability.review_policy_label(int(row.get("review_policy_months") or 0))
+            + f" Nächste Überprüfung bis {sustainability.format_date_ch(row.get('review_due_on'))}."
+        )),
+        ("Nachweis", f"Definition {row.get('definition_hash')} · Erfassung {row.get('decision_hash')}"),
+    ]
+    notes = list(sustainability.limit_texts(row.get("profile_code")))
+    if floor is not None:
+        notes += sustainability.exclusion_limit_texts(exclusions, floor["status"], floor.get("evidence"))
+    if info.get("notice"):
+        notes.insert(0, info["notice"])
+    notes.append(sustainability.NO_RISK_EFFECT_TEXT)
+    return {"state": info["state"], "lines": tuple(lines), "notes": tuple(notes)}
+
+
+def _assert_sustainability_texts_claim_free(view: dict) -> None:
+    """N-888-06: Werbe-Waechter zur Laufzeit (fail-closed). Kein Kunden-
+    dokument mit einer Produkt-/Portfolio-Bezeichnung wie "nachhaltig" oder
+    "verantwortungsbewusst" (FINMA-AM 05/2021); erlaubt sind nur die
+    Praeferenz-Begriffe (NEUTRAL_PREFERENCE_PHRASES)."""
+    texts = [str(part) for pair in view.get("lines", ()) for part in pair]
+    texts += [str(note) for note in view.get("notes", ())]
+    hits = sustainability.customer_text_claim_hits(" ".join(texts), ESG_CUSTOMER_CLAIM_LABELS)
+    if hits:
+        raise DomainError(
+            ReasonCode.SUSTAINABILITY_CLAIM_TEXT_BLOCKED,
+            "Beratungsprotokoll gesperrt: der Abschnitt Nachhaltigkeitspräferenzen "
+            f"enthält eine unzulässige Bezeichnung ({', '.join(hits)}).",
+            http_status=409,
+        )
+
+
 def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     """Beratungsprotokoll-Daten aus AdvisoryLog + letzter Empfehlung."""
     advisory_wealth = None
@@ -1818,6 +2162,14 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     except Exception as exc:  # noqa: BLE001 — PDF darf nicht crashen
         logger.warning("Protokoll data: knowledge gap check failed: %s", exc)
 
+    # E2a (Dok. 106): Nachhaltigkeitspraeferenzen (Ladefehler sichtbar).
+    try:
+        sustainability_view = _sustainability_protocol_view(db, mandate)
+    except Exception as exc:  # noqa: BLE001 — PDF darf nicht crashen
+        logger.warning("Protokoll data: sustainability preference load failed: %s", exc)
+        sustainability_view = _SUSTAINABILITY_LOAD_FAILED
+    _assert_sustainability_texts_claim_free(sustainability_view)
+
     return ProtokollData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
         advisory_wealth_rappen=advisory_wealth,
@@ -1830,6 +2182,9 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
         risk_signoff_hash=risk_signoff_view.get("signoff_hash"),
         risk_signoff_lines=risk_signoff_view.get("lines", ()),
         knowledge_gap_hints=knowledge_gap_hints,
+        sustainability_state=sustainability_view["state"],
+        sustainability_lines=sustainability_view["lines"],
+        sustainability_notes=sustainability_view["notes"],
     )
 
 
@@ -1856,6 +2211,7 @@ def get_protokoll_pdf(
         title="Beratungsprotokoll", pdf_bytes=pdf_bytes,
         content_hash=content_hash_for(data),
         current_user=current_user, ip_address=_extract_client_ip(request),
+        binding=_document_binding(db, mandate, "Beratungsprotokoll"),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
     # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
@@ -2490,6 +2846,7 @@ def get_backtest_pdf(
 )
 def get_advisory_report_pdf(
     mandate_id: str,
+    request: Request = None,  # FastAPI injiziert ihn; Direktaufruf ohne Request = keine IP
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -2513,6 +2870,11 @@ def get_advisory_report_pdf(
     # zentrales Gate, VOR dem Rendern.
     assert_recommendation_release_eligible(
         db, mandate, channel=CHANNEL_ADVISORY_PDF,
+        audit=gate_block_audit(
+            db, user=current_user, mandate=mandate,
+            ip_address=_extract_client_ip(request) if request is not None else None,
+            table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+        ),
     )
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
     from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible
@@ -2585,6 +2947,7 @@ def get_cost_disclosure_pdf(
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
+    _assert_client_pdf_sustainability_floor(db, mandate, current_user, request)
     payload = build_cost_disclosure(db, mandate)
     if payload.get("evidence_status") == "blocked":
         # COST-SNAPSHOT-BINDING-001: ein vorhandener, aber ungueltiger
@@ -2636,7 +2999,17 @@ def get_cost_disclosure_pdf(
         .order_by(ContractDocument.version.desc())
         .first()
     )
-    if existing is not None and existing.content_hash == content_hash:
+    # E2a (Negativfall 7): nur wiederverwenden, wenn das archivierte Dokument
+    # an die AKTUELLE Nachhaltigkeitspraeferenz gebunden ist -- sonst bliebe
+    # nach einer neuen Erfassung nur ein nicht mehr signierbares Dokument.
+    binding = _document_binding(db, mandate) or {}
+    if (
+        existing is not None and existing.content_hash == content_hash
+        and getattr(existing, "bound_preference_decision_hash", None)
+        == current_preference_binding(db, mandate.id)
+        and getattr(existing, "bound_target_allocation_id", None) == binding.get("target_allocation_id")
+        and getattr(existing, "bound_preferences_sha256", None) == binding.get("preferences_sha256")
+    ):
         # Render-once: identischer Fachinhalt -> dieselben archivierten
         # Bytes ausliefern statt erneut zu rendern (ReportLab bettet pro
         # Rendering einen wechselnden Font-Subset-Tag ein, siehe
@@ -2651,6 +3024,7 @@ def get_cost_disclosure_pdf(
             title="Kostenausweis ex-ante", pdf_bytes=pdf_bytes,
             content_hash=content_hash, current_user=current_user,
             ip_address=_extract_client_ip(request),
+            binding=binding or None,
         )
     safe_mandate = str(mandate.mandate_number or "mandate")[:40]
     filename = f"kostenausweis-{safe_mandate}.pdf"

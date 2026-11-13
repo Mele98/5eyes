@@ -85,7 +85,7 @@ def test_production_rejects_localhost_in_origins(monkeypatch):
     monkeypatch.setenv('APP_ENV', 'production')
     monkeypatch.setenv('SECRET_KEY', 'strong-random-key-1234567890abcdefghij')
     monkeypatch.setenv('DB_USE_SQLCIPHER', 'true')
-    monkeypatch.setenv('DB_KEY', 'strong-db-key-abc1234567890')
+    monkeypatch.setenv('DB_KEY', 'strong-db-key-abc1234567890-0123456789ab')
     # CORS_ORIGINS via env-string (pydantic-settings JSON-parsing)
     monkeypatch.setenv('CORS_ORIGINS', '["http://localhost:5173","app://."]')
     with pytest.raises(ValidationError, match=r'localhost'):
@@ -97,7 +97,7 @@ def test_production_rejects_127_0_0_1_in_origins(monkeypatch):
     monkeypatch.setenv('APP_ENV', 'production')
     monkeypatch.setenv('SECRET_KEY', 'strong-random-key-1234567890abcdefghij')
     monkeypatch.setenv('DB_USE_SQLCIPHER', 'true')
-    monkeypatch.setenv('DB_KEY', 'strong-db-key-abc1234567890')
+    monkeypatch.setenv('DB_KEY', 'strong-db-key-abc1234567890-0123456789ab')
     monkeypatch.setenv('CORS_ORIGINS', '["http://127.0.0.1:5173","app://."]')
     with pytest.raises(ValidationError, match=r'127.0.0.1|localhost'):
         Settings()
@@ -108,7 +108,7 @@ def test_production_accepts_app_only_origins(monkeypatch):
     monkeypatch.setenv('APP_ENV', 'production')
     monkeypatch.setenv('SECRET_KEY', 'strong-random-key-1234567890abcdefghij')
     monkeypatch.setenv('DB_USE_SQLCIPHER', 'true')
-    monkeypatch.setenv('DB_KEY', 'strong-db-key-abc1234567890')
+    monkeypatch.setenv('DB_KEY', 'strong-db-key-abc1234567890-0123456789ab')
     monkeypatch.setenv('CORS_ORIGINS', '["app://.","null"]')
     settings_prod = Settings()
     assert 'app://.' in settings_prod.cors_origins

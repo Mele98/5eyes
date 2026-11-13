@@ -1,0 +1,9 @@
+# SQLCIPHER-ENGINE-POOL-001 (Pruefrunde #861, N-861-6): SQLCipher-Treiber fuer
+# verschluesselte SQLite-Installationen (DB_USE_SQLCIPHER=true + DB_KEY) und den
+# CI-Job "SQLCipher (echte Verschluesselung)". Exakt gepinnt mit Hashes; separat
+# installieren (pip install --require-hashes --only-binary=:all: -r ...), weil
+# --require-hashes fuer alle Anforderungen eines pip-Aufrufs gilt.
+# Wheels: CPython 3.12, Linux x86_64 (CI) und Windows x64 (Release, BUILD_WITH_SQLCIPHER=1).
+sqlcipher3==0.6.4 \
+    --hash=sha256:27b4d537011dc57f25dd6e5b8a9dd8e9ca7470d7286618be83113cc46aabcf6d \
+    --hash=sha256:ff612c1f731a1870457a3fa4c0095bf27ce13ad7e2035ec3f98a489e2d6ccf5c
