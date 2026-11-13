@@ -10,7 +10,7 @@ Kein FK auf users (Purge-fest, wie die PRIVACY-001-Tabellen). SQLite legt
 die Tabelle ueber create_all an (Modell in models/privacy.py).
 
 Revision ID: e2f7c4a9d1b3
-Revises: d8e4b2a6c1f9
+Revises: d66fbf0588e3
 Create Date: 2026-11-11
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ from alembic import op
 
 
 revision: str = "e2f7c4a9d1b3"
-down_revision: Union[str, Sequence[str], None] = "d8e4b2a6c1f9"
+down_revision: Union[str, Sequence[str], None] = "d66fbf0588e3"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

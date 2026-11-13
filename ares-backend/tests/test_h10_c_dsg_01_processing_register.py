@@ -175,14 +175,14 @@ def test_alembic_revision_single_head_and_sqlite_roundtrip(tmp_path):
     from models.privacy import PrivacyOwnerValue
     from tests.h10_support import assert_single_head_contains, assert_sqlite_upgrade_downgrade_upgrade
 
-    assert_single_head_contains("e2f7c4a9d1b3", "d8e4b2a6c1f9")
+    assert_single_head_contains("e2f7c4a9d1b3", "d66fbf0588e3")
     assert_sqlite_upgrade_downgrade_upgrade(tmp_path, "e2f7c4a9d1b3", {"privacy_owner_values": PrivacyOwnerValue})
 
 
 def test_alembic_postgres_ddl_creates_owner_values():
     from tests.h10_support import postgres_offline_ddl
 
-    ddl = postgres_offline_ddl("d8e4b2a6c1f9", "e2f7c4a9d1b3")
+    ddl = postgres_offline_ddl("d66fbf0588e3", "e2f7c4a9d1b3")
     assert "CREATE TABLE privacy_owner_values" in ddl
     assert "ck_privacy_owner_value_status" in ddl
 

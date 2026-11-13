@@ -55,7 +55,7 @@ TABLES = ("privacy_owner_values", "privacy_subject_requests", "privacy_security_
           "privacy_subject_request_events", "privacy_security_incident_events",
           "privacy_security_incident_artifacts")
 APPEND_ONLY = TABLES[3:]
-FIRST_H10_DOWN = "d8e4b2a6c1f9"
+FIRST_H10_DOWN = "d66fbf0588e3"  # RC-CH-1 Teil 2a: H10 hinter C-890-01
 _NUMERIC = ("integer", "bigint", "smallint", "numeric", "double precision", "real")
 _VALUES = {
     "status": {"privacy_owner_values": "CONFIRMED", "privacy_subject_requests": "RECEIVED",
