@@ -1,5 +1,5 @@
 {
- "dump_sha256": "4f40f4f8399f1b84e1065244007dc492473a10eab00e5e4c31abfe350bbdccd4",
+ "dump_sha256": "d5cdee3b6fa7ce64ab512b878a7b5e3c95cac48d7cb5bbe5ed10c76f0bdbf3c5",
  "tables": {
   "asset_class_annual_returns": {
    "columns": [
