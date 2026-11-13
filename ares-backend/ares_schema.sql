@@ -1712,7 +1712,11 @@ CREATE TABLE IF NOT EXISTS audit_log (
         'INVITE_ACCEPT','INVITE_RESEND','INVITE_REVOKE','MARKET_DATA_PURGE',
         'MARKET_DATA_REFRESH','OPTIMIZER_MODE_CHANGE','PASSWORD_CHANGE',
         'PASSWORD_RESET_CONFIRM','PASSWORD_RESET_REQUEST','REPLACE',
-        'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT'
+        'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT','COMPROMISE','INSERT','lifecycle_decision'
+        -- C-890-01 N-897-15: 'COMPROMISE' (Widerruf wegen Kompromittierung),
+        -- 'INSERT' (Eignungs-Override, routers/eligibility_overrides.py) und
+        -- 'lifecycle_decision' (Zielstatus, services/goal_lifecycle_transitions.py)
+        -- -- beide letzteren scheiterten bisher auf echten Installationen.
         -- DSG Art. 32 (2026-08-15): 'CLIENT_ERASE' hinzugefuegt fuer
         -- POST /clients/{id}/erase (services/client_erasure.py).
     )),

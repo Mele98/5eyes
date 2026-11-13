@@ -2010,7 +2010,7 @@ _AUDIT_LOG_REBUILT_DDL = """
             'INVITE_ACCEPT','INVITE_RESEND','INVITE_REVOKE','MARKET_DATA_PURGE',
             'MARKET_DATA_REFRESH','OPTIMIZER_MODE_CHANGE','PASSWORD_CHANGE',
             'PASSWORD_RESET_CONFIRM','PASSWORD_RESET_REQUEST','REPLACE',
-            'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT'
+            'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT','COMPROMISE','INSERT','lifecycle_decision'
         )),
         field_name TEXT,
         old_value TEXT,
@@ -2041,9 +2041,11 @@ def _audit_log_ddl_is_current(ddl_text: str) -> bool:
     # DSG Art. 32 (2026-08-15): eigener Marker fuer die neue 'CLIENT_ERASE'-
     # Action (identische Bugklasse wie has_expanded_actions oben).
     has_erasure_action = 'CLIENT_ERASE' in ddl_text
+    # C-890-01 N-897-15: Marker fuer 'COMPROMISE' (Bestands-DBs werden neu aufgebaut).
+    has_compromise_action = "'COMPROMISE'" in ddl_text
     return (
         has_password_reset and has_integrity_hash and has_ip_address
-        and has_expanded_actions and has_erasure_action
+        and has_expanded_actions and has_erasure_action and has_compromise_action
     )
 
 

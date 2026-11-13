@@ -44,6 +44,8 @@ Compliance-Person, 2FA-Hinweis, Konto-Herkunft), client-compliance.js 465/29504
 (Hinweis "keine Kundennamen", Warnung bei Personendaten).
 C-890-01 Nachtrag 4: kyc-review-policy.js 421/25340 (Einladung nur per Mail,
 Weitergabe-Hinweis, Herkunftsindiz und Kompromittierungs-Hinweis).
+C-890-01 Nachtrag 5: kyc-review-policy.js 427/25832 (Mailfehler-Hinweis,
+Kompromittierungs-Satz).
 """
 from __future__ import annotations
 
@@ -63,7 +65,7 @@ EXTRACTED_PART_BUDGETS = {
     "intro-sequence.js": (761, 36861),
     "goal-review-runtime.js": (1589, 84633),
     "client-compliance.js": (465, 29504),
-    "kyc-review-policy.js": (421, 25340),
+    "kyc-review-policy.js": (427, 25832),
 }
 
 

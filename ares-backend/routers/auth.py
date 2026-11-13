@@ -34,7 +34,7 @@ from services.totp_secret_storage import (
     load_totp_secret,
     store_totp_secret,
 )
-from services.mailer import mail_configured, send_invite_email, send_password_reset_email
+from services.mailer import mail_configured, send_compromise_notice_email, send_invite_email, send_password_reset_email
 from services.quota import assert_within_quota
 from services.refresh_tokens import (
     RefreshTokenReuseDetected, issue_refresh_token, revoke_all_for_user, rotate_refresh_token,
@@ -1162,11 +1162,13 @@ def invite_user(
     email_sent = send_invite_email(body.email, body.full_name, invite_link) if invite_link else False
     # N-897-10: ist ein Mailkanal konfiguriert, geht der Link einer externen
     # Compliance-Person NUR per Mail an sie -- nie in API-Antwort/Maske.
-    mail_only = user.role == COMPLIANCE_REVIEWER_ROLE and mail_configured()
+    # N-897-10: nur wenn die Mail wirklich versendet wurde; sonst Link anzeigen.
+    mail_only = user.role == COMPLIANCE_REVIEWER_ROLE and mail_configured() and email_sent
     return InviteResponse(
         user_id=user.id, username=user.username,
         invite_token=None if mail_only else token, invite_expires_at=expires_at, email_sent=email_sent,
-        link_delivery="nur_email" if mail_only else "anzeige",
+        link_delivery="nur_email" if mail_only else (
+            "anzeige_mailfehler" if user.role == COMPLIANCE_REVIEWER_ROLE and mail_configured() else "anzeige"),
     )
 
 
@@ -1360,6 +1362,9 @@ def update_user(
     return user
 
 
+COMPROMISE_MAX_BACKDATE_DAYS = 30
+
+
 @users_router.post("/{user_id}/compromise", response_model=UserResponse)
 def compromise_user(
     user_id: str,
@@ -1393,6 +1398,18 @@ def compromise_user(
     since_iso = since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     if since_iso > now:
         raise HTTPException(status_code=422, detail="compromised_since darf nicht in der Zukunft liegen")
+    # N-897-16: rueckdatierbar hoechstens 30 Tage und nie vor der Aktivierung
+    # (bzw. Anlage) des Kontos -- keine rueckwirkende Entwertung beliebig alter Freigaben.
+    earliest = (datetime.now(timezone.utc) - timedelta(days=COMPROMISE_MAX_BACKDATE_DAYS)).strftime(
+        "%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    floor = str(user.activated_at or user.created_at or "")
+    if since_iso < earliest or (floor and since_iso < floor):
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "COMPROMISE_BACKDATE_INVALID",
+            "message": (f"compromised_since hoechstens {COMPROMISE_MAX_BACKDATE_DAYS} Tage zurueck "
+                        "und nicht vor der Aktivierung des Kontos."),
+        })
+    backdated_days = (datetime.now(timezone.utc) - since.astimezone(timezone.utc)).days
     user.compromised_since = since_iso
     user.compromised_at = now
     user.compromised_by = current_user.id
@@ -1405,10 +1422,13 @@ def compromise_user(
     revoke_all_for_user(db, user.id)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="users", record_id=user.id, action="COMPROMISE",
-        field_name="compromised_since", new_value=f"{since_iso}; Grund: {body.reason}",
+        field_name="compromised_since",
+        new_value=f"{since_iso}; rueckwirkend {backdated_days} Tage; Grund: {body.reason}",
         ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(user)
+    # N-897-16: die betroffene Person erfaehrt es (falls ein Mailkanal besteht).
+    send_compromise_notice_email(user.email, user.full_name, since_iso, current_user.full_name)
     return user
 
 
@@ -1547,11 +1567,13 @@ def resend_invite(
     # invite_user().
     invite_link = _invite_link_for(request, token)
     email_sent = send_invite_email(getattr(user, "email", None), user.full_name, invite_link) if invite_link else False
-    mail_only = user.role == COMPLIANCE_REVIEWER_ROLE and mail_configured()
+    # N-897-10: nur wenn die Mail wirklich versendet wurde; sonst Link anzeigen.
+    mail_only = user.role == COMPLIANCE_REVIEWER_ROLE and mail_configured() and email_sent
     return InviteResponse(
         user_id=user.id, username=user.username,
         invite_token=None if mail_only else token, invite_expires_at=expires_at, email_sent=email_sent,
-        link_delivery="nur_email" if mail_only else "anzeige",
+        link_delivery="nur_email" if mail_only else (
+            "anzeige_mailfehler" if user.role == COMPLIANCE_REVIEWER_ROLE and mail_configured() else "anzeige"),
     )
 
 

@@ -692,8 +692,8 @@ def kyc_approver_account(db: Session, user_id: Any) -> Optional[dict]:
     row = db.execute(
         _sql_text(
             "SELECT id, full_name, role, invited_by, invited_at, activated_at, credentials_set_by, "
-            "totp_enabled, totp_set_by, reviewer_organisation, reviewer_reference, compromised_since "
-            "FROM users WHERE id = :id"
+            "totp_enabled, totp_set_by, reviewer_organisation, reviewer_reference, compromised_since, "
+            "compromised_at, compromised_by FROM users WHERE id = :id"
         ),
         {"id": str(user_id)},
     ).mappings().first()
@@ -715,8 +715,27 @@ def kyc_approver_account(db: Session, user_id: Any) -> Optional[dict]:
         "totp_set_by": ("selbst" if row["totp_set_by"] == "self"
                         else ("Admin" if row["totp_set_by"] else "unbekannt")),
         "compromised_since": row["compromised_since"],
+        "compromised_at": row["compromised_at"],
+        "compromised_by": row["compromised_by"],
+        "compromise_notice": _compromise_notice(db, row),
         **_invite_origin_hints(db, row["id"], row["invited_at"], row["activated_at"]),
     }
+
+
+def _compromise_notice(db: Session, row: Any) -> Optional[str]:
+    """N-897-16: deutlicher Satz im Freigabenachweis."""
+    if not row["compromised_since"]:
+        return None
+    admin = None
+    if row["compromised_by"]:
+        found = db.execute(_sql_text("SELECT full_name FROM users WHERE id = :id"),
+                           {"id": str(row["compromised_by"])}).first()
+        admin = found[0] if found is not None else None
+    return (f"durch Admin {admin or row['compromised_by']} am {str(row['compromised_at'] or '')[:16]} "
+            f"als kompromittiert gemeldet, wirksam ab {str(row['compromised_since'])[:16]}")
+
+
+_LOCAL_IPS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 
 def _ua_of(value: Any) -> str:
@@ -746,8 +765,11 @@ def _invite_origin_hints(db: Session, user_id: Any, invited_at: Any, activated_a
             minutes = None
     invite, accept = rows.get("INVITE"), rows.get("INVITE_ACCEPT")
     same_ip = same_device = None
+    local = False
     if invite is not None and accept is not None:
-        same_ip = bool(invite["ip_address"]) and invite["ip_address"] == accept["ip_address"]
+        # N-897-10: im Desktop-Betrieb ist die IP immer 127.0.0.1 -- kein Indiz.
+        local = str(invite["ip_address"] or "") in _LOCAL_IPS and str(accept["ip_address"] or "") in _LOCAL_IPS
+        same_ip = None if local else (bool(invite["ip_address"]) and invite["ip_address"] == accept["ip_address"])
         ua_i, ua_a = _ua_of(invite["new_value"]), _ua_of(accept["new_value"])
         same_device = bool(ua_i) and ua_i not in ("-",) and ua_i == ua_a
     return {
@@ -757,7 +779,7 @@ def _invite_origin_hints(db: Session, user_id: Any, invited_at: Any, activated_a
         "origin_hint": (
             None if minutes is None else
             f"angenommen nach {minutes} Minuten; gleiche IP wie Einladender: "
-            f"{'ja' if same_ip else ('nein' if same_ip is False else 'unbekannt')}; gleiches Geraet: "
+            f"{'nicht aussagekraeftig (lokale Installation)' if local else ('ja' if same_ip else ('nein' if same_ip is False else 'unbekannt'))}; gleiches Geraet: "
             f"{'ja' if same_device else ('nein' if same_device is False else 'unbekannt')}"
         ),
     }

@@ -96,7 +96,7 @@
       + (a.activated_at ? ' · aktiviert ' + esc(String(a.activated_at).slice(0, 10)) : '')
       + ' · Zugangsdaten: ' + esc(a.credentials_set_by) + ' · 2FA: ' + esc(a.totp_set_by)
       + (a.origin_hint ? '<br>Hinweis: ' + esc(a.origin_hint) : '')
-      + (a.compromised_since ? '<br><b style="color:var(--neg)">Konto wegen Kompromittierung widerrufen seit ' + esc(a.compromised_since) + ' – Freigaben ab dann ungültig</b>' : '');
+      + (a.compromised_since ? '<br><b style="color:var(--neg)">Konto ' + esc(a.compromise_notice || ('kompromittiert seit ' + a.compromised_since)) + ' – Freigaben ab dann ungültig</b>' : '');
   }
 
   function inviteFormHtml(){
@@ -133,8 +133,14 @@
         return;
       }
       var link = (window.location ? window.location.origin + '/app/ares.html?invite=' : '?invite=') + inv.invite_token;
-      if (box) box.innerHTML = '<b style="color:var(--neg)">Link nur an die externe Person weitergeben – nicht selbst öffnen.</b> Einmalig, 7 Tage gültig:<br><code id="krp-inv-token">' + esc(link) + '</code>';
-      notify('success', inv.email_sent ? 'Einladung per E-Mail gesendet.' : 'Einladung erzeugt – Link nur an die externe Person senden.');
+      // N-897-10: "per E-Mail gesendet" nur, wenn email_sent wirklich true ist.
+      var mailFailed = inv.link_delivery === 'anzeige_mailfehler';
+      var lead = mailFailed
+        ? '<b id="krp-inv-mailfail" style="color:var(--neg)">E-Mail konnte nicht gesendet werden – Link bitte sicher übergeben (nur an die externe Person).</b>'
+        : '<b style="color:var(--neg)">Link nur an die externe Person weitergeben – nicht selbst öffnen.</b>';
+      if (box) box.innerHTML = lead + ' Einmalig, 7 Tage gültig:<br><code id="krp-inv-token">' + esc(link) + '</code>';
+      notify(mailFailed ? 'error' : 'success', mailFailed ? 'E-Mail konnte nicht gesendet werden – Link bitte sicher übergeben.'
+        : (inv.email_sent ? 'Einladung per E-Mail gesendet.' : 'Einladung erzeugt – Link nur an die externe Person senden.'));
     } catch(e) {
       notify('error', errText(e, 'Einladung fehlgeschlagen.'));
     }

@@ -39,6 +39,31 @@ depends_on: Union[str, Sequence[str], None] = None
 
 USER_COLUMNS = ('credentials_set_by', 'credentials_set_at', 'totp_set_by', 'totp_set_at', 'invited_by', 'invited_at', 'activated_at', 'reviewer_organisation', 'reviewer_reference', 'compromised_since', 'compromised_at', 'compromised_by', 'compromise_reason')
 TABLE = "kyc_confirmation_decisions"
+# N-897-15: PostgreSQL-CHECK audit_log.action (ck_audit_log_action_allowed aus
+# e84f9a2d1c70) um die seither im Code genutzten Aktionen erweitern --
+# 'CLIENT_ERASE' (DSG-Loeschung), 'COMPROMISE' (Kontowiderruf), 'INSERT'
+# (Eignungs-Override), 'lifecycle_decision' (Zielstatus). Gleiche Liste wie ares_schema.sql / database.py (Test).
+PREVIOUS_AUDIT_ACTIONS: tuple[str, ...] = (
+    "CREATE", "UPDATE", "DELETE", "LOGIN", "EXPORT", "PASSWORD_RESET",
+    "2FA_DISABLE", "2FA_ENABLE", "2FA_RECOVERY_REGEN", "2FA_RECOVERY_USED",
+    "ACTIVATE", "APPROVE", "BACKFILL", "BACKUP", "CLONE", "DB_OPTIMIZE",
+    "FOUNDATION_EXAMPLE", "FOUNDATION_PURGE", "INVITE", "INVITE_ACCEPT",
+    "INVITE_RESEND", "INVITE_REVOKE", "MARKET_DATA_PURGE", "MARKET_DATA_REFRESH",
+    "OPTIMIZER_MODE_CHANGE", "PASSWORD_CHANGE", "PASSWORD_RESET_CONFIRM",
+    "PASSWORD_RESET_REQUEST", "REPLACE", "REPLACE_ALL", "SENSITIVITY",
+    "SUPPORT_BUNDLE", "UPSERT",
+)
+AUDIT_ACTIONS: tuple[str, ...] = PREVIOUS_AUDIT_ACTIONS + (
+    "CLIENT_ERASE", "COMPROMISE", "INSERT", "lifecycle_decision",
+)
+
+
+def _replace_audit_action_check(actions: tuple[str, ...]) -> None:
+    op.drop_constraint("ck_audit_log_action_allowed", "audit_log", type_="check")
+    op.create_check_constraint(
+        "ck_audit_log_action_allowed", "audit_log",
+        "action IN (" + ", ".join(f"'{a}'" for a in actions) + ")",
+    )
 
 
 def upgrade() -> None:
@@ -68,6 +93,7 @@ def upgrade() -> None:
                 f"FOR EACH ROW BEGIN SELECT RAISE(ABORT, '{TABLE} is immutable'); END"
             )
     elif dialect == "postgresql":
+        _replace_audit_action_check(AUDIT_ACTIONS)
         op.execute(
             f"CREATE OR REPLACE FUNCTION {TABLE}_immutable() RETURNS trigger AS $$\n"
             "BEGIN\n"
@@ -93,6 +119,8 @@ def downgrade() -> None:
         )
     dialect = bind.dialect.name
     if dialect == "postgresql":
+        # fail-closed: Zeilen mit den neuen Aktionen verletzen die alte Liste.
+        _replace_audit_action_check(PREVIOUS_AUDIT_ACTIONS)
         op.execute(f"DROP TRIGGER IF EXISTS trg_{TABLE}_immutable ON {TABLE}")
         op.execute(f"DROP FUNCTION IF EXISTS {TABLE}_immutable()")
     elif dialect == "sqlite":

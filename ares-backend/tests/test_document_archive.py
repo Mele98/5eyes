@@ -24,6 +24,9 @@ from sqlalchemy.orm import sessionmaker
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
+TESTS_DIR = Path(__file__).resolve().parent
+if str(TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(TESTS_DIR))
 
 from database import Base, get_db
 import models.allocation  # noqa: F401
@@ -111,6 +114,12 @@ def _seed_minimal_mandate(session_factory, advisor_user, mandate_id: str = "mdt-
             created_at=_now(), updated_at=_now(),
         ))
         db.commit()
+        # C-890-01 N-897-17: archiviert werden nur finale Fassungen -- also mit
+        # erfasster KYC-Bestaetigung (Testwerte der Onboarding-Fixture).
+        from client_onboarding_fixture import satisfy_client_onboarding
+
+        satisfy_client_onboarding(db, db.get(Mandate, mandate_id), actor_id=advisor_user.id)
+        db.commit()
     return mandate_id
 
 
@@ -156,7 +165,9 @@ def test_list_documents_exposes_has_pdf_and_creator_name(auth_client, advisor_us
 
     resp = auth_client.get(f"/mandates/{mandate_id}/documents")
     assert resp.status_code == 200, resp.text
-    docs = resp.json()
+    # C-890-01 N-897-17: die Onboarding-Fixture legt zusaetzlich die
+    # Kundeninformation ab -- hier zaehlt nur das erzeugte Risikoprofil.
+    docs = [d for d in resp.json() if d["document_type"] != "Kundeninformation"]
     assert len(docs) == 1
     assert docs[0]["document_type"] == "Risikoprofilierung"
     assert docs[0]["has_pdf"] is True
@@ -190,8 +201,10 @@ def test_new_mandate_generation_creates_independent_version_history(auth_client,
     auth_client.get(f"/mandates/{mid_b}/reports/risikoprofil.pdf")
 
     with session_factory() as db:
-        rows_a = db.query(ContractDocument).filter(ContractDocument.mandate_id == mid_a).all()
-        rows_b = db.query(ContractDocument).filter(ContractDocument.mandate_id == mid_b).all()
+        rows_a = db.query(ContractDocument).filter(ContractDocument.mandate_id == mid_a,
+                                                   ContractDocument.document_type == "Risikoprofilierung").all()
+        rows_b = db.query(ContractDocument).filter(ContractDocument.mandate_id == mid_b,
+                                                   ContractDocument.document_type == "Risikoprofilierung").all()
     assert len(rows_a) == 1
     assert len(rows_b) == 1
     assert rows_a[0].version == 1

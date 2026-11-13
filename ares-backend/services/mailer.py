@@ -136,6 +136,34 @@ def send_invite_email(to_email: str | None, full_name: str, invite_link: str) ->
     return _send(_build_invite_message(to_email, full_name, invite_link))
 
 
+def _build_compromise_notice_message(to_email: str, full_name: str, since: str, admin_name: str) -> EmailMessage:
+    msg = EmailMessage()
+    msg["Subject"] = "Ares — Ihr Freigabekonto wurde als kompromittiert gemeldet"
+    msg["From"] = settings.smtp_from
+    msg["To"] = to_email
+    greeting = (full_name or "").strip() or "Guten Tag"
+    msg.set_content(
+        f"Hallo {greeting},\n\n"
+        f"{admin_name or 'Ein Administrator'} hat Ihr Ares-Konto als kompromittiert gemeldet "
+        f"(wirksam ab {since}). Das Konto ist gesperrt; Ihre Freigaben ab diesem Zeitpunkt "
+        "gelten nicht mehr.\n\n"
+        "Wenn Sie das nicht nachvollziehen koennen, wenden Sie sich bitte direkt an die Firma.\n\n"
+        "— Ares"
+    )
+    return msg
+
+
+def send_compromise_notice_email(to_email: str | None, full_name: str, since: str, admin_name: str) -> bool:
+    """C-890-01 N-897-16: Benachrichtigung der betroffenen Person, wenn SMTP
+    konfiguriert ist. True nur bei tatsaechlichem Versand."""
+    if _not_configured():
+        return False
+    to_email = (to_email or "").strip()
+    if not to_email or not _is_safe_single_recipient(to_email):
+        return False
+    return _send(_build_compromise_notice_message(to_email, full_name, since, admin_name))
+
+
 def _build_password_reset_message(to_email: str, full_name: str, reset_link: str) -> EmailMessage:
     msg = EmailMessage()
     msg["Subject"] = "Ares — Passwort zuruecksetzen"

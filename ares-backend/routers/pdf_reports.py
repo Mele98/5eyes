@@ -1195,6 +1195,26 @@ def _assert_client_pdf_kyc_review(db: Session, mandate: Mandate, current_user: U
     )
 
 
+def _archive_content_hash(data, ctx: PDFContext) -> str:
+    """N-897-17: der Markierungszustand ist Teil des Archiv-Schluessels --
+    eine Entwurfsfassung ("vorvertrag") hat nie denselben Hash wie die finale."""
+    base = content_hash_for(data)
+    mode = getattr(ctx, "watermark_mode", "none") or "none"
+    if mode == "none":
+        return base
+    return hashlib.sha256(f"{base}|{mode}".encode("utf-8")).hexdigest()
+
+
+def _archive_final(ctx: PDFContext, db: Session, **kwargs):
+    """N-897-17: nur FINALE Fassungen werden archiviert (und damit signierbar).
+    Ein Entwurf vor Vertragsabschluss (ohne KYC-Bestaetigung) wird ausgeliefert,
+    aber nie als Archivversion abgelegt; nach der KYC-Bestaetigung entsteht beim
+    naechsten Erzeugen eine neue, finale Fassung."""
+    if (getattr(ctx, "watermark_mode", "none") or "none") != "none":
+        return None
+    return archive_generated_pdf(db, **kwargs)
+
+
 def _assert_client_pdf_cma_hold(db: Session, mandate: Mandate) -> None:
     """CMA-001 / ADR-12a-Release-Hold: Kunden-PDFs, die Strategie oder
     Positionen der aktuellen Soll-Allokation tragen, sind gesperrt, solange
@@ -1236,10 +1256,10 @@ def get_anlagestrategie_pdf(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     pdf_bytes = ReportLabRenderer().render_anlagestrategie(ctx, data)
-    archive_generated_pdf(
-        db, mandate_id=mandate.id, document_type="Anlagestrategie",
+    _archive_final(
+        ctx, db, mandate_id=mandate.id, document_type="Anlagestrategie",
         title="Anlagestrategie / Vertrag", pdf_bytes=pdf_bytes,
-        content_hash=content_hash_for(data),
+        content_hash=_archive_content_hash(data, ctx),
         current_user=current_user, ip_address=_extract_client_ip(request),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
@@ -1463,10 +1483,10 @@ def get_risikoprofil_pdf(
     )
 
     pdf_bytes = ReportLabRenderer().render_risikoprofil(ctx, risk_data)
-    archive_generated_pdf(
-        db, mandate_id=mandate.id, document_type="Risikoprofilierung",
+    _archive_final(
+        ctx, db, mandate_id=mandate.id, document_type="Risikoprofilierung",
         title="Risikoprofil", pdf_bytes=pdf_bytes,
-        content_hash=content_hash_for(risk_data),
+        content_hash=_archive_content_hash(risk_data, ctx),
         current_user=current_user, ip_address=_extract_client_ip(request),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
@@ -1634,10 +1654,10 @@ def get_portfolio_pdf(
     ctx = _attach_provisional_notice(ctx, db, mandate)
     data = _build_portfolio_data(mandate, db)
     pdf_bytes = ReportLabRenderer().render_portfolio(ctx, data)
-    archive_generated_pdf(
-        db, mandate_id=mandate.id, document_type="Anlagerezept",
+    _archive_final(
+        ctx, db, mandate_id=mandate.id, document_type="Anlagerezept",
         title="Portfolio-/Umsetzungsplan", pdf_bytes=pdf_bytes,
-        content_hash=content_hash_for(data),
+        content_hash=_archive_content_hash(data, ctx),
         current_user=current_user, ip_address=_extract_client_ip(request),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
@@ -2116,10 +2136,10 @@ def get_protokoll_pdf(
     ctx = _build_pdf_context(mandate, current_user, db)
     data = _build_protokoll_data(mandate, db)
     pdf_bytes = ReportLabRenderer().render_protokoll(ctx, data)
-    archive_generated_pdf(
-        db, mandate_id=mandate.id, document_type="Beratungsprotokoll",
+    _archive_final(
+        ctx, db, mandate_id=mandate.id, document_type="Beratungsprotokoll",
         title="Beratungsprotokoll", pdf_bytes=pdf_bytes,
-        content_hash=content_hash_for(data),
+        content_hash=_archive_content_hash(data, ctx),
         current_user=current_user, ip_address=_extract_client_ip(request),
     )
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
@@ -2897,8 +2917,9 @@ def get_cost_disclosure_pdf(
         advisory_wealth_rappen=int(payload.get("advisory_wealth_rappen") or 0),
         payload=payload,
     )
-    content_hash = content_hash_for(data)
-    existing = (
+    content_hash = _archive_content_hash(data, ctx)
+    is_draft = (getattr(ctx, "watermark_mode", "none") or "none") != "none"
+    existing = None if is_draft else (
         db.query(ContractDocument)
         .filter(
             ContractDocument.mandate_id == mandate.id,
@@ -2917,15 +2938,25 @@ def get_cost_disclosure_pdf(
         doc = existing
         pdf_bytes = base64.b64decode(doc.pdf_base64)
     else:
+        # N-897-17: Render-once nie mit Entwurfs-Bytes (Entwuerfe werden nicht archiviert).
         pdf_bytes = ReportLabRenderer().render_cost_disclosure(ctx, data)
-        doc = archive_generated_pdf(
-            db, mandate_id=mandate.id, document_type="Kostenausweis",
+        doc = _archive_final(
+            ctx, db, mandate_id=mandate.id, document_type="Kostenausweis",
             title="Kostenausweis ex-ante", pdf_bytes=pdf_bytes,
             content_hash=content_hash, current_user=current_user,
             ip_address=_extract_client_ip(request),
         )
     safe_mandate = str(mandate.mandate_number or "mandate")[:40]
     filename = f"kostenausweis-{safe_mandate}.pdf"
+    if doc is None:
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": content_disposition(filename),
+                "X-Ares-Draft": "vorvertrag",
+            },
+        )
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
