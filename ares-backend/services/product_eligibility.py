@@ -33,6 +33,7 @@ from database import new_uuid
 from models.mandates import Mandate
 from models.product_eligibility import ProductEligibilityRule, ProductEligibilityRuleSet
 from models.review import Product
+from core.db_integrity import raise_if_check_violation
 from services.product_eligibility_governance import TENANT_PRODUCT_RULE_SOURCE as _TENANT_PRODUCT_RULE_SOURCE
 from services.product_eligibility_governance import parse_utc_timestamp
 from schemas.product_eligibility import (
@@ -369,7 +370,9 @@ def ensure_rule_set(
         with db.begin_nested():
             db.add(rule_set)
             db.flush()
-    except IntegrityError:
+    except IntegrityError as exc:
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         winner = _find_open()
         if winner is None:
             raise

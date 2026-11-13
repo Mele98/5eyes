@@ -2,6 +2,21 @@ from datetime import date as _date
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, Literal
 from schemas.common import BaseResponse, PERSISTABLE_INT_MAX, PERSISTABLE_INT_MIN
+# RC-CH-1-F1 (N-903-03): Vokabular und Kanonisierung liegen in genau einer
+# Funktion (core.goal_vocabulary), die GoalCreate UND GoalUpdate vor der
+# Pruefung aufrufen. Die Tabelle ``goals`` erlaubt per CHECK nur die
+# GOAL_*_DB_VALUES; gespeichert wird nur die DB-Form (Befund: "Umbau
+# Wohneigentum" mit goal_type="Vermoegensziel" -> 500).
+from core.goal_vocabulary import (
+    GOAL_FAMILY_DB_VALUES,
+    GOAL_HARDNESS_DB_VALUES,
+    GOAL_SCOPE_DB_VALUES,
+    GOAL_TYPE_DB_VALUES,
+    GOAL_VALUE_MODE_DB_VALUES,
+    canonicalize_goal_payload,
+    goal_hardness_key as _goal_hardness_key,
+    goal_type_key as _goal_type_key,
+)
 from services.wealth_position_semantics import (
     require_supported_mortgage_amortization,
     require_supported_position_assignment,
@@ -745,28 +760,9 @@ GOAL_FAMILY_TYPE_MAP = {
 }
 
 
-def _goal_type_key(value: str | None) -> str:
-    raw = str(value or "").strip().lower().replace(" ", "_")
-    return (
-        raw.replace("ä", "ae")
-        .replace("ö", "oe")
-        .replace("ü", "ue")
-        .replace("Ã¤", "ae")
-        .replace("Ã¶", "oe")
-        .replace("Ã¼", "ue")
-    )
-
-
-def _goal_hardness_key(value: str | None) -> str:
-    raw = str(value or "").strip().lower()
-    return (
-        raw.replace("ä", "ae")
-        .replace("ö", "oe")
-        .replace("ü", "ue")
-        .replace("Ã¤", "ae")
-        .replace("Ã¶", "oe")
-        .replace("Ã¼", "ue")
-    )
+def _require_db_value(field: str, value, allowed: tuple[str, ...]) -> None:
+    if value is not None and value not in allowed:
+        raise ValueError(f"{field} '{value}' ist nicht erlaubt. Erlaubt: {list(allowed)}")
 
 
 def _has_value(value) -> bool:
@@ -876,6 +872,11 @@ class GoalCreate(BaseModel):
     notes: Optional[str] = None
     data_classification: Literal["synthetic", "real"] = "synthetic"
 
+    @model_validator(mode="before")
+    @classmethod
+    def _canonicalize(cls, data):
+        return canonicalize_goal_payload(data)
+
     @model_validator(mode="after")
     def validate_family_type(self):
         allowed = GOAL_FAMILY_TYPE_MAP.get(self.goal_family, [])
@@ -927,8 +928,27 @@ class GoalUpdate(BaseModel):
     is_included: Optional[bool] = None
     data_classification: Optional[Literal["synthetic", "real"]] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def _canonicalize(cls, data):
+        return canonicalize_goal_payload(data)
+
     @model_validator(mode="after")
     def validate_goal_update_fields(self):
+        # RC-CH-1-F1: Teil-Updates schrieben bisher freie Strings direkt in
+        # CHECK-Spalten (500 beim Commit). Jetzt: nur DB-Werte, sonst 422.
+        _require_db_value("goal_family", self.goal_family, GOAL_FAMILY_DB_VALUES)
+        _require_db_value("goal_type", self.goal_type, GOAL_TYPE_DB_VALUES)
+        _require_db_value("goal_scope", self.goal_scope, GOAL_SCOPE_DB_VALUES)
+        _require_db_value("value_mode", self.value_mode, GOAL_VALUE_MODE_DB_VALUES)
+        _require_db_value("hardness", self.hardness, GOAL_HARDNESS_DB_VALUES)
+        if self.goal_family is not None and self.goal_type is not None:
+            allowed = GOAL_FAMILY_TYPE_MAP.get(self.goal_family, [])
+            if self.goal_type not in allowed:
+                raise ValueError(
+                    f"goal_type '{self.goal_type}' ist nicht erlaubt für goal_family "
+                    f"'{self.goal_family}'. Erlaubt: {allowed}"
+                )
         if self.goal_type is not None:
             _validate_goal_field_isolation(self, require_targets=False)
         return self

@@ -37,6 +37,7 @@ import numpy as np
 from scipy.optimize import OptimizeResult, differential_evolution, minimize
 
 from core.evidence import SCHEME_V1_ASCII, canonical_json
+from core.goal_vocabulary import canonical_goal_family, canonical_goal_scope, canonical_goal_type
 from services.return_moments import ReturnMomentError
 
 from .allocation_intent import (
@@ -1725,6 +1726,20 @@ def _seed_hardness(value):
     return _CANONICAL_HARDNESS_LABEL[_HARDNESS_LABELS_TO_KEY.get(raw, "primaer")]
 
 
+# RC-CH-1-F1 (N-903-02): goal_type/goal_family/goal_scope gingen roh in den
+# Fingerabdruck. Seit die API Legacy-Schreibweisen ("Vermoegensziel",
+# "Vermoegen", "Gesamtvermoegen") auf den DB-Wert kanonisiert, haette eine
+# reine Umschreibung ohne wirtschaftliche Aenderung einen neuen Wuerfel
+# gezogen. Kanonisiert wird -- wie beim Haertegrad -- auf die gespeicherte
+# DB-Form; gespeicherte Werte (CHECK-Werte) behalten ihren Seed bitgleich,
+# unbekannte Werte bleiben roh.
+_SEED_VOCABULARY_FIELDS = {
+    "goal_family": canonical_goal_family,
+    "goal_type": canonical_goal_type,
+    "goal_scope": canonical_goal_scope,
+}
+
+
 def _seed_scalar(value):
     if value is None or isinstance(value, (bool, int, str)):
         return value
@@ -1758,6 +1773,8 @@ def goal_economic_fingerprint(
                 if name in _GOAL_DATE_FIELDS
                 else _seed_hardness(value)
                 if name == "hardness"
+                else _seed_scalar(_SEED_VOCABULARY_FIELDS[name](value))
+                if name in _SEED_VOCABULARY_FIELDS
                 else _seed_scalar(value)
             )
             for name, value in raw.items()

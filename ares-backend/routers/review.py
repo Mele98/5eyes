@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 from sqlalchemy import bindparam, or_, text, update
 from sqlalchemy.exc import IntegrityError
+from core.db_integrity import is_check_constraint_violation, raise_if_check_violation
 from datetime import date, datetime, timezone
 from config import settings
 from database import get_db, new_uuid
@@ -3645,8 +3646,10 @@ def create_product_universe_entry(
     # faellt hier als sauberer 409 statt als 500/IntegrityError durch.
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(
             status_code=409,
             detail=f"Eintrag fuer Produkt {body.product_id} in Jurisdiktion {body.jurisdiction!r} existiert bereits.",
@@ -4793,8 +4796,15 @@ def _sustainability_import_item(
         return ProductSustainabilityImportResultItem(
             row=row_number, status="failed", product_id=product.id, error=str(exc.detail),
         )
-    except IntegrityError:
+    except IntegrityError as exc:
         savepoint.rollback()
+        # RC-CH-1-F1: eine CHECK-Verletzung ist kein Duplikat; die Zeile scheitert
+        # mit eigenem Grund (ohne Werte), der Import der uebrigen Zeilen laeuft weiter.
+        if is_check_constraint_violation(exc):
+            return ProductSustainabilityImportResultItem(
+                row=row_number, status="failed", product_id=product.id,
+                error="Wert ausserhalb des zulaessigen Wertebereichs",
+            )
         return ProductSustainabilityImportResultItem(
             row=row_number, status="failed", product_id=product.id, error="Nachweis existiert bereits",
         )
@@ -5073,8 +5083,10 @@ def update_sustainability_attribute(
     attribute.updated_at = _now()
     try:
         db.flush()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(status_code=409, detail="Nachweis mit diesem Stichtag existiert bereits.")
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="product_sustainability_attributes", record_id=attribute.id, action="UPDATE",
@@ -5134,8 +5146,10 @@ def create_product_sustainability_attribute(
     product = _get_product_or_404(product_id, db, current_user)
     try:
         attribute = _create_sustainability_attribute(db, current_user, product, body, _now())
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(status_code=409, detail="Nachweis existiert bereits.")
     db.commit()
     return _sustainability_response(attribute)

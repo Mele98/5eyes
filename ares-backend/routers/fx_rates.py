@@ -11,6 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ValidationError, field_validator, model_validator
 from sqlalchemy.exc import IntegrityError
+from core.db_integrity import raise_if_check_violation
 from sqlalchemy.orm import Session
 
 from database import get_db, new_uuid
@@ -281,8 +282,10 @@ async def upsert_fx_rates(
     # 409 statt eines rohen 500 oder zweier effektiver Current-Zeilen.
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(
             status_code=409,
             detail=(

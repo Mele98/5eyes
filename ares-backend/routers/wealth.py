@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
+from core.db_integrity import raise_if_check_violation
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timezone
 from database import get_db, new_uuid
@@ -1629,6 +1630,8 @@ def create_goal_revision_decision(
         ) from exc
     except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(
             status_code=409,
             detail={

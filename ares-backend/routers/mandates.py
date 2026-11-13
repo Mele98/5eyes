@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from core.db_integrity import raise_if_check_violation
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from database import get_db, new_uuid
@@ -133,7 +134,7 @@ def create_mandate(
         client_id=client_id, ip_address=_extract_client_ip(request))
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         # RACE-01 (Audit-Finding, 2026-10-07): der Pre-Check oben ist TOCTOU-
         # racy -- zwei parallele Requests (z.B. Doppelklick) koennen beide den
         # Check passieren, bevor einer committet. Der UNIQUE-Constraint auf
@@ -143,6 +144,8 @@ def create_mandate(
         # persistiert), nur eine falsche HTTP-Statuscode-Antwort. Identisches
         # Muster wie routers/clients.py::create_client (2026-07-24).
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(status_code=409, detail="Mandatsnummer bereits vergeben")
     db.refresh(mandate)
     return mandate

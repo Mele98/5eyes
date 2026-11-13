@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from core.db_integrity import raise_if_check_violation
 from core.evidence import canonical_json
 from core.reason_codes import DomainError, ReasonCode
 from models.mandates import Mandate
@@ -290,6 +291,8 @@ def _commit(db: Session, *rows: Any) -> None:
         db.commit()
     except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1 (N-903-05): CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise OnsiteSignatureError(
             CONCURRENT_TRANSITION,
             "Der Signaturvorgang wurde gleichzeitig veraendert -- Schritt nicht ausgefuehrt.",
