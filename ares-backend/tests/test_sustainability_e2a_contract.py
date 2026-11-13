@@ -407,3 +407,49 @@ def test_n07c_cost_disclosure_is_reissued_after_a_new_preference(api, scenario, 
     docs = [d for d in api.get(f"/mandates/{mid}/documents").json() if d["document_type"] == "Kostenausweis"]
     bindings = [d["bound_preference_decision_hash"] for d in sorted(docs, key=lambda d: d["version"])]
     assert bindings == [first["current"]["decision_hash"], second["current"]["decision_hash"]]
+
+
+def test_mutation_harness_positive_control_wealth_change(api, scenario):
+    """C-901-01 (Codex 2026-11-12): Positivkontrolle des Neutralitaets-
+    Harnesses. Dieselbe Ergebnis-Erfassung (_results/_normalize) muss eine
+    WIRKSAME Nicht-ESG-Inputmutation erkennen -- sonst waere der Mutationstest
+    oben leer. Eingriff ausschliesslich ueber denselben API-Pfad: eine
+    zusaetzliche Vermoegensposition (Beratungsvermoegen)."""
+    mid = scenario["mandate_id"]
+    _results(api, mid)
+    baseline = _results(api, mid)
+    resp = api.post(f"/clients/{scenario['client_id']}/wealth-positions", json={
+        "label": "Konto Positivkontrolle", "position_type": "Liquidität", "assignment": "Beratungsvermögen",
+        "current_value_rappen": 100_000_00, "currency": "CHF",
+        "liquidity_instrument": "Kontoguthaben", "data_classification": "synthetic",
+    })
+    assert resp.status_code == 201, resp.text
+    mutated = _results(api, mid)
+    assert mutated["risk"] == baseline["risk"]  # Risikoprofil unberuehrt
+    changed = [k for k in ("allocation", "positions") if mutated[k] != baseline[k]]
+    assert changed, "Harness erkennt eine wirksame Vermoegensaenderung nicht"
+    assert mutated["positions"] != baseline["positions"]
+    path, _a, _b = _first_diff(mutated["allocation"], baseline["allocation"])
+    assert path, "Allocation-Vergleich zeigt keinen Unterschied"
+
+
+def test_mutation_harness_negative_control_volatile_fields_only():
+    """Gegenstueck: Aenderungen nur an ausgenommenen, volatilen Feldern
+    (IDs, Zeitstempel, Hashes, Warnungen) bleiben im Vergleich gleich; eine
+    fachliche Zahl dagegen nicht."""
+    import copy
+
+    base = {"id": "a", "created_at": "t1", "allocation_context_hash": "h1", "warnings": ["x"],
+            "target_allocation": {"run_id": "r1", "set_at": "t", "target_equities_bps": 4000},
+            "sub": [{"evaluation_id": "e1", "target_weight_bps": 1200}]}
+    volatile = copy.deepcopy(base)
+    volatile.update(id="b", created_at="t2", allocation_context_hash="h2", warnings=["y"])
+    volatile["target_allocation"].update(run_id="r2", set_at="u")
+    volatile["sub"][0]["evaluation_id"] = "e2"
+    assert _normalize(volatile) == _normalize(base)
+    material = copy.deepcopy(base)
+    material["target_allocation"]["target_equities_bps"] = 4100
+    assert _normalize(material) != _normalize(base)
+    material = copy.deepcopy(base)
+    material["sub"][0]["target_weight_bps"] = 1300
+    assert _normalize(material) != _normalize(base)
