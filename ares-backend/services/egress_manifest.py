@@ -390,7 +390,8 @@ def _apply_channel_state(channel: dict[str, Any], host: str) -> None:
 
 
 def _tool_name(raw: Any) -> str:
-    name = Path(str(raw or "").strip().strip("\"'")).name.lower()
+    # Beide Trenner: eine Windows-Kommandozeile wird auch unter POSIX erkannt.
+    name = re.split(r"[\\/]", str(raw or "").strip().strip("\"'"))[-1].lower()
     for suffix in (".exe", ".cmd", ".bat", ".ps1"):
         if name.endswith(suffix):
             return name[: -len(suffix)]
