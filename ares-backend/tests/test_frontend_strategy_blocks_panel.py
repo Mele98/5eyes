@@ -36,6 +36,7 @@ from pathlib import Path
 from tests.brand_digest_support import assert_no_legacy_brand  # noqa: E402
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
@@ -79,7 +80,7 @@ REMOVED_DUPLICATE_IDS = (
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _panel(src: str) -> str:

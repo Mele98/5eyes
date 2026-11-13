@@ -51,6 +51,12 @@ KNOWN_UNRESOLVED: dict[tuple[str, str, str], int] = {
      'self.reason_code'): 1,
     ('routers/client_portal.py', '_assert_portal_report_releasable',
      "str(detail.get('reason_code') or 'RELEASE_BLOCKED')"): 1,
+    ('routers/review.py', 'finalize_recommendation',
+     "retro_block['reason_code']"): 2,
+    ('services/recommendation_release_gate.py', 'assert_retrocession_release_eligible',
+     'reason_code'): 1,
+    ('routers/onsite_signature.py', '_release_gates',
+     "str(detail.get('reason_code') or 'RELEASE_BLOCKED')"): 1,
     ('routers/eligibility_overrides.py', '_conflict',
      'exc.code'): 1,
     ('routers/eligibility_overrides.py', 'approve_eligibility_override',
@@ -97,6 +103,21 @@ KNOWN_UNRESOLVED: dict[tuple[str, str, str], int] = {
      'reason_code'): 1,
     ('services/suitability_cap_check.py', 'evaluate_house_matrix_cap',
      'resolution.reason_code'): 1,
+    # C-890-01: Durchreichungen des Wiedervorlage-Codes aus der Policy-
+    # Aufloesung (resolve_kyc_review_policy). Der Wertebereich ist geschlossen:
+    # genau die Schluessel von recommendation_release_gate._REVIEW_MESSAGES,
+    # jeder davon im Katalog (tests/test_c890_01_kyc_review_policy.py::
+    # test_reason_codes_are_in_the_catalog).
+    ('routers/clients.py', '_kyc_review_detail', 'code'): 2,
+    ('routers/review.py', 'activate_kyc_review_policy', "head['reason_code']"): 2,
+    ('routers/review.py', 'list_kyc_review_policies', "current['reason_code']"): 1,
+    ('services/recommendation_release_gate.py', '_finding', 'reason_code'): 1,
+    ('services/recommendation_release_gate.py', '_review_finding', 'reason_code'): 1,
+    ('services/recommendation_release_gate.py', 'kyc_review_findings', "current['reason_code']"): 2,
+    ('services/recommendation_release_gate.py', 'kyc_review_status', 'first'): 1,
+    # C-890-01 Nachtrag 3: Kundenportal protokolliert den ersten Finding-Code
+    # der Wiedervorlage-Sperre (Wertebereich wie oben, geschlossen).
+    ('routers/client_portal.py', '_assert_portal_report_releasable', "str(detail['finding_codes'][0])"): 1,
 }
 
 

@@ -16,6 +16,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND = REPO_ROOT / "ares-desktop" / "frontend"
@@ -111,7 +112,7 @@ def test_stale_response_for_other_mandate_is_ignored():
 
 
 def test_monolith_loads_module_and_hosts_hint_next_to_banner():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     assert '<script src="./risk-capacity-recheck.js"></script>' in html
     assert "function refreshRiskCapacityPlausibility(" not in html
     assert 'id="rp-capacity-recheck"' in html

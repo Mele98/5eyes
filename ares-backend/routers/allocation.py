@@ -29,9 +29,12 @@ from schemas.review import ReportNotesResponse, ReportNotesUpdate
 from services.auth import (
     get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin,
     require_portfolio_management, require_reference_data_reader,
-    enforce_cma_cross_tenant_read_scope,
+    enforce_cma_cross_tenant_read_scope, set_tenant_context,
 )
-from services.audit import log
+from services.audit import log, release_block_audit
+from services.recommendation_release_gate import (
+    CHANNEL_CLIENT_PDF, KYC_DRAFT_NOTICE, assert_kyc_review_release_eligible, kyc_release_is_draft,
+)
 from services.optimizer_policy_lifecycle import (
     REASON_CODE_HOUSE_MATRIX_INCOMPLETE,
     copy_policy_children,
@@ -49,11 +52,13 @@ from services.data_classification import enforce_data_classification
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer CMA-/Policy-/Allokations-
 # Aenderungen im Audit-Log.
 from routers.auth import _extract_client_ip
-from services.jurisdiction.exceptions import (
+# C-890-01 Nachtrag 3: die Ausnahmen kommen ueber die Fassade
+# services.jurisdiction.resolve (bereits Abhaengigkeit, importiert sie selbst) --
+# so bleibt der Fan-out konstant, obwohl der React-Bericht das zentrale
+# Wiedervorlage-Gate braucht.
+from services.jurisdiction.resolve import (
     CMAValidityWindowError,
     JurisdictionReferenceDataMissingError,
-)
-from services.jurisdiction.resolve import (
     assert_cma_activatable_on,
     resolve_cma_for_jurisdiction,
 )
@@ -70,6 +75,7 @@ from services.portfolio_engine import (
     require_strategy_ready_assessment,
 )
 from services.portfolio_engine_house_matrix import (
+    AllocationInputError,
     _building_block_rows_for_policy,
 )
 from services.manual_target_allocation import (
@@ -724,6 +730,12 @@ def generate_target_allocation_endpoint(
                 user_id=current_user.id,
                 preferences=body.preferences.model_dump() if body.preferences else None,
             )
+        except AllocationInputError as exc:
+            # AUDIT-2026-11 A5 / H-859-5: unerfuellbare oder widerspruechliche
+            # Bandbreiten/Ziele sind ein Eingabefehler (422) mit deutscher
+            # Meldung, kein Zustandskonflikt -- einheitlich fuer Ziel ausserhalb
+            # der Bandbreite, Min > Max, Minima ueber 100 % und Maxima unter 100 %.
+            raise HTTPException(status_code=422, detail=str(exc))
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
         # CON-001 (Codex-Audit 2026-08-25): siehe create_target_allocation oben --
@@ -886,7 +898,19 @@ def get_advisory_report(
     get_current_user, gleiche Pattern wie Depot-Check-Endpoint.
     """
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    return cached_compute_advisory_report(db, mandate, advisor=current_user)
+    # C-890-01 N-897-01: kundenwirksamer Bericht -> zentrales Wiedervorlage-Gate.
+    assert_kyc_review_release_eligible(
+        db, mandate, channel=CHANNEL_CLIENT_PDF,
+        on_block=release_block_audit(
+            db, user=current_user, ip_address=None, mandate_id=mandate.id,
+            field_name="client_report_blocked", set_tenant_context=set_tenant_context,
+        ),
+    )
+    report = cached_compute_advisory_report(db, mandate, advisor=current_user)
+    # N-897-12: ohne jede KYC-Bestaetigung als Entwurf vor Vertragsabschluss.
+    if isinstance(report, dict):
+        report = {**report, "kyc_draft_notice": KYC_DRAFT_NOTICE if kyc_release_is_draft(db, mandate) else None}
+    return report
 
 
 # ---------------------------------------------------------------------------

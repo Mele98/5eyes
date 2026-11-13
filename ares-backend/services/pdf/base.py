@@ -10,6 +10,15 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Mapping, Protocol, Sequence, runtime_checkable
 
+from jurisdictions.resolve import resolve_pack
+
+
+def resolve_pdf_jurisdiction(mandate) -> str:
+    """H7 N-884-02: Laendercode des Mandats fuer PDF-Texte ueber den zentralen
+    Resolver (jurisdictions.resolve, NULL = Altsemantik CH) -- kein eigener
+    Inline-Rueckgriff in den Textbausteinen."""
+    return str(resolve_pack(mandate).code)
+
 
 @dataclass(frozen=True)
 class PDFContext:
@@ -35,6 +44,13 @@ class PDFContext:
     # Backtest) gesetzt/gerendert -- fuer CH IMMER None (kein DB-Zugriff,
     # siehe resolve_pdf_provisional_notice).
     provisional_notice: Mapping[str, object] | None = None
+    # H7 C-3: Mandatstyp und Jurisdiktion fuer den Disclaimer je Mandat
+    # (services/pdf/components/static_texts.py::disclaimer_paragraphs).
+    mandate_type: str | None = None
+    jurisdiction: str | None = None
+    # C-890-01 Nachtrag 4 (N-897-12): "vorvertrag" fuer kundenwirksame Berichte
+    # ohne jede KYC-Bestaetigung (Entwurf vor Vertragsabschluss), sonst "none".
+    watermark_mode: str = "none"
 
 
 @dataclass(frozen=True)
@@ -99,7 +115,27 @@ class AnlagestrategieData:
     """{'equities': (min_bps, max_bps), ...} fuer Toleranzbaender-Spalte."""
 
     bucket_amounts_rappen: Mapping[str, int] = field(default_factory=dict)
-    """{'equities': target_amount_rappen, ...} fuer Betrag-Spalte."""
+    """{'equities': target_amount_rappen, ...} fuer Betrag-Spalte.
+
+    Live-Test 2026-11 H2/H3: Betraege auf der Strategiebasis
+    (``strategy_base_rappen``), auf die sich die SAA-Gewichte beziehen."""
+
+    strategy_base_rappen: int | None = None
+    """Strategiebasis = Beratungsvermoegen minus externe Liquiditaetsreserve
+    (Engine: ``strategy_base_rappen``). None = keine Reserve-Angabe."""
+
+    external_reserve_rappen: int = 0
+    """Ausserhalb der Anlagestrategie gehaltene Liquiditaetsreserve; wird als
+    eigene Zeile ausgewiesen, damit die Betraege auf das Beratungsvermoegen
+    summieren."""
+
+    strategy_basis_note: str | None = None
+    """N-858-2: Hinweis, wenn das aktuelle Beratungsvermoegen vom Vermoegen bei
+    Generierung der Strategie abweicht (Betraege beziehen sich auf letzteres)."""
+
+    sub_allocations: list = field(default_factory=list)
+    """SAA-Subanlageklassen (nicht Produktmix): dicts mit asset_class
+    (Bucket-Key), sub_asset_class, target_weight_bps, target_amount_rappen."""
 
     products: list = field(default_factory=list)
     """ISIN-Produkt-Liste. Jedes Element ist dict mit:
@@ -234,6 +270,37 @@ class VertragData:
 
 
 @dataclass(frozen=True)
+class KundeninformationData:
+    """H8 C-2 (Compliance-Audit 2026-11-07): Kundeninformation nach Art. 8/9
+    FIDLEG. Alle Angaben zum Finanzdienstleister stammen aus den rechtlichen
+    Angaben des Tenants (keine Vorbelegung); Kosten, Retrozessionen,
+    wirtschaftliche Bindungen und Marktangebot aus den bestehenden Daten.
+    ``template_version`` geht in den Inhalts-Hash ein -- eine Textaenderung der
+    Vorlage braucht eine neue Version (sonst liefert das Archiv die alte
+    Fassung)."""
+
+    template_version: str
+    legal_profile_revision: int
+    legal_profile_hash: str
+    provider_lines: tuple = ()
+    """(Bezeichnung, Wert)-Paare: Firma, Adresse, Kontakt, Taetigkeitsfeld,
+    Aufsichtsstatus, Aufsichtsbehoerde/-organisation, Register."""
+    ombudsman_name: str = ""
+    ombudsman_address: str = ""
+    mandate_number: str | None = None
+    mandate_type: str = ""
+    cost_lines: tuple = ()
+    """(Bezeichnung, Wert)-Paare aus dem Ex-ante-Kostenausweis; leer =
+    noch kein Kostenausweis (Hinweis wird gedruckt)."""
+    cost_note: str = ""
+    retrocession_lines: tuple = ()
+    economic_ties: tuple = ()
+    market_offer_lines: tuple = ()
+    depot_bank: str | None = None
+    document_kind: str = "kundeninformation"
+
+
+@dataclass(frozen=True)
 class ContractSignoffData:
     """Final customer sign-off for the documented advisory decision."""
 
@@ -309,6 +376,10 @@ class ProtokollData:
     # dokumentierte Kenntnis/Aufklaerung (Reason-Code KNOWLEDGE_GAP_ASSET_CLASS).
     # Reiner Hinweis -- die Allokation wurde dadurch nicht veraendert.
     knowledge_gap_hints: list = field(default_factory=list)
+
+    # H8 Luecke 10 (ZGB): erfasste Vertretungen/Verfuegungsberechtigungen als
+    # Hinweiszeilen (dokumentarisch). Leer = keine erfasst (kein Abschnitt).
+    representation_lines: tuple = ()
 
 
 @dataclass(frozen=True)

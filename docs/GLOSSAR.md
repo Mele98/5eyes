@@ -1,4 +1,4 @@
-# 5eyes — Glossar
+# Ares — Glossar
 
 Begriffsregister für Berater, Engineering und Compliance. Wenn ein Begriff
 im Code oder PDF auftaucht, muss er hier definiert sein. Drift-getestet via
@@ -15,10 +15,12 @@ Stand: 2026-06-05
 Sektionen für PDF-Rendering und Sub-App-Anzeige. Single-Source-of-Truth für
 den Beratungsreport.
 
-**Anlagephilosophie** — 5eyes betreibt **keine** aktive
+**Anlagephilosophie** — Ares betreibt **keine** aktive
 Portfolio-Überwachung und **kein** Markt-Timing. Re-Balancing erfolgt
 ausschließlich (a) im Rahmen der periodischen Eignungsprüfung oder (b) auf
 Kunden-Initiative. Auto-Trigger sind explizit ausgeschlossen.
+
+**Ares** — Produktname.
 
 **Asset Allocation** — Aufteilung des Beratungsvermögens auf Asset-Klassen
 (Aktien, Obligationen, Liquidität, Sachwerte, Alternative). Im PDF
@@ -39,7 +41,7 @@ Beratungsgesprächs. Aggregator-Sektion 16
 Sub-App. Auto-Log bei Suitability-Mismatch (U-FINMA-2.2).
 
 **Beratungsvermögen** — Teilmenge des Gesamtvermögens, die unter
-5eyes-Beratung steht. Basis für SAA, Torte, Portfolio-Empfehlung. **NICHT**
+Ares-Beratung steht. Basis für SAA, Torte, Portfolio-Empfehlung. **NICHT**
 identisch mit Gesamtvermögen.
 
 **Building Blocks** — Vordefinierte Anlageprodukt-Bausteine (ETFs, Fonds)
@@ -96,7 +98,7 @@ matte Status-Farben. Siehe
 Risikoprofil, Beratungsprotokoll, Eignungsprüfung,
 Konflikt-Offenlegung. Aggregator-Sektionen 16/18/19 decken dies ab.
 
-**FINMA** — Eidgenössische Finanzmarktaufsicht. 5eyes ist
+**FINMA** — Eidgenössische Finanzmarktaufsicht. Ares ist
 FINMA-konform-orientiert. Risikoprofil-Fragebogen folgt FINMA-Vorlagen.
 
 ## G
@@ -131,7 +133,7 @@ Liquiditäts-Engpässen. Stages: `normal`, `hard_cap` (300bps),
 
 ## M
 
-**Mandat** — Beratungsauftrag eines Kunden bei 5eyes. Status: `Entwurf`,
+**Mandat** — Beratungsauftrag eines Kunden bei Ares. Status: `Entwurf`,
 `Aktiv`, `Geschlossen`. Mandate-Lock-Audit (U-22) kontrolliert
 Editierbarkeit.
 
@@ -205,15 +207,10 @@ Aggregator-Sektion 17 (`stress_replay`).
 **Token-Handoff** — Token-Übergabe Hauptapp → Sub-App via URL-Fragment
 (`#token=<jwt>`). Sub-App räumt Fragment nach Read.
 
-## W
-
-**WealthArchitekten** — Produktname. 5eyes ist die Software-Plattform der
-WealthArchitekten-Beratung.
-
 ---
 
 ## Begriffe die NICHT auftauchen dürfen
 
-- Drittmarken: Swiss Life, UBS, Pictet, Julius Bär, 3eyes, PPC Metrics
+- Drittmarken: Swiss Life, UBS, Pictet, Julius Bär, PPC Metrics
 - Garantie-Sprache: "garantiert", "sicher", "risikofrei"
 - Markt-Timing-Sprache: "jetzt einsteigen", "Markt-Chance nutzen"

@@ -168,6 +168,28 @@ def build_protokoll_flowables(ctx: PDFContext, data) -> list:
             styles["small_muted"],
         ))
 
+    # H8 Luecke 10 (ZGB): Vertretung und Verfuegungsberechtigung, dokumentarisch.
+    representation_lines = [
+        str(line).strip() for line in tuple(getattr(data, "representation_lines", ()) or ()) if str(line).strip()
+    ]
+    if representation_lines:
+        flowables.append(Spacer(1, 4 * mm))
+        flowables.append(_section_title("Vertretung und Verfügungsberechtigung"))
+        for line in representation_lines:
+            flowables.append(Paragraph(
+                f'<font name="{FONT_DEFAULT}" size="{FONT_SIZE_BODY}">{_esc(line)}</font>',
+                styles["body"],
+            ))
+            flowables.append(Spacer(1, 1.5 * mm))
+        flowables.append(Paragraph(
+            f'<font name="{FONT_DEFAULT}" size="8" color="#64748b">'
+            'Hinweis: Unterschriften und Weisungen nur durch die berechtigten Personen im '
+            'erfassten Umfang. Bei Vorsorgeauftrag und Beistandschaft gelten zusätzlich die '
+            'Vorgaben der Erwachsenenschutzbehörde und die Anlagevorschriften für '
+            'verwaltetes Vermögen (VBVV).</font>',
+            styles["small_muted"],
+        ))
+
     # RISK-PROFILE-SIGNOFF-001: Signoff-/Decision-Referenz des aktuellen
     # Risikoprofils -- dieselben Zeilen wie im Risikoprofil-PDF.
     signoff_lines = tuple(getattr(data, "risk_signoff_lines", ()) or ())

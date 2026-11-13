@@ -335,13 +335,13 @@ def test_compute_candidate_advisor_forbidden(client, session_factory):
 def test_compute_candidate_success_portfolio_management(client, session_factory, monkeypatch):
     from models.allocation import CapitalMarketAssumption
 
-    def _fake_compute(db, jurisdiction, as_of_date):
+    def _fake_compute(db, jurisdiction, as_of_date, *, created_by_user_id):
         now = _now()
         cma = CapitalMarketAssumption(
             id="cma-de-fake-1", assumption_set_name="DE-fake", version=1,
             valid_from=as_of_date, is_current=0, jurisdiction=jurisdiction,
             status="data_derived", bonds_home_ig_return_bps=250,
-            created_by="system:cma_data_pipeline", created_at=now, updated_at=now,
+            created_by=created_by_user_id, created_at=now, updated_at=now,
         )
         db.add(cma)
         db.flush()
@@ -365,13 +365,13 @@ def test_compute_candidate_success_portfolio_management(client, session_factory,
 def test_compute_candidate_admin_also_allowed(client, session_factory, monkeypatch):
     from models.allocation import CapitalMarketAssumption
 
-    def _fake_compute(db, jurisdiction, as_of_date):
+    def _fake_compute(db, jurisdiction, as_of_date, *, created_by_user_id):
         now = _now()
         cma = CapitalMarketAssumption(
             id="cma-de-fake-2", assumption_set_name="DE-fake-2", version=1,
             valid_from=as_of_date, is_current=0, jurisdiction=jurisdiction,
             status="data_derived", bonds_home_ig_return_bps=250,
-            created_by="system:cma_data_pipeline", created_at=now, updated_at=now,
+            created_by=created_by_user_id, created_at=now, updated_at=now,
         )
         db.add(cma)
         db.flush()
@@ -389,7 +389,7 @@ def test_compute_candidate_admin_also_allowed(client, session_factory, monkeypat
 
 
 def test_compute_candidate_no_yield_curve_source_returns_400_not_500(client, session_factory, monkeypatch):
-    def _boom(db, jurisdiction, as_of_date):
+    def _boom(db, jurisdiction, as_of_date, *, created_by_user_id):
         raise NoYieldCurveSourceConfiguredError(f"Keine Zinskurven-Quelle fuer {jurisdiction}")
 
     monkeypatch.setattr(jurisdiction_router_module, "compute_cma_candidate_for_jurisdiction", _boom)
@@ -405,7 +405,7 @@ def test_compute_candidate_no_yield_curve_source_returns_400_not_500(client, ses
 
 
 def test_compute_candidate_insufficient_yield_curve_data_returns_400(client, session_factory, monkeypatch):
-    def _boom(db, jurisdiction, as_of_date):
+    def _boom(db, jurisdiction, as_of_date, *, created_by_user_id):
         raise InsufficientYieldCurveDataError("Nur 1 von 5 Punkten erhalten")
 
     monkeypatch.setattr(jurisdiction_router_module, "compute_cma_candidate_for_jurisdiction", _boom)

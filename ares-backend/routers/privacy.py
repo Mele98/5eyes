@@ -53,6 +53,10 @@ class PolicyProposal(BaseModel):
     retention_months: Optional[int] = Field(default=None, ge=1)
 
 
+class BaselineProposal(BaseModel):
+    matrix: dict[str, Any] = Field(default_factory=dict)
+
+
 class RoleGrant(BaseModel):
     user_id: str
     privacy_role: str
@@ -173,6 +177,7 @@ def privacy_status(db: Session = Depends(get_db), current_user: User = Depends(r
         "matrix_complete": not missing,
         "evidence_types_without_approved_policy": missing,
         "inventory_version": inv.INVENTORY_VERSION,
+        "retention_baseline_version": pe.RETENTION_BASELINE_VERSION,
         "message": (
             "Aufbewahrungsmatrix ist nicht durch Legal/Datenschutz freigegeben. Loeschgesuche "
             "bleiben 'Entscheid ausstehend'; es wird weder automatisch geloescht noch "
@@ -246,6 +251,24 @@ def propose_policy(body: PolicyProposal, request: Request, db: Session = Depends
            action="CREATE", new_value={"status": policy.status, "policy_hash": policy.policy_hash})
     db.commit()
     return _policy_out(policy)
+
+
+@router.post("/policies/baseline", status_code=201)
+def propose_retention_baseline(body: BaselineProposal, request: Request, db: Session = Depends(get_db),
+                               current_user: User = Depends(require_admin)):
+    """H7 C-6: Aufbewahrungsmatrix aus der gesetzlichen Vorlage vorschlagen
+    (10 Jahre ab Beziehungsende nach GwG Art. 7 Abs. 3 / OR 127, Vertrag und
+    Belege OR 958f). Legt nur PROPOSED-Zeilen an (fehlende Nachweisarten);
+    Betreiberangaben im Body, Genehmigung weiterhin im Vier-Augen-Prinzip."""
+    created = pe.propose_retention_baseline(
+        db, tenant_id=_tenant(current_user), proposed_by=current_user.id, operator_matrix=body.matrix,
+    )
+    for policy in created:
+        _audit(db, current_user, request, table="privacy_retention_policies", record_id=policy.id,
+               action="CREATE", new_value={"status": policy.status, "policy_hash": policy.policy_hash,
+                                           "baseline_version": pe.RETENTION_BASELINE_VERSION})
+    db.commit()
+    return [_policy_out(policy) for policy in created]
 
 
 @router.post("/policies/{policy_id}/approve")

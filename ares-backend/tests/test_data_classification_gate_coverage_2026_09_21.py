@@ -359,6 +359,12 @@ def _seed_handoff_prereqs(session_factory, *, mandate_id="mandate-handoff", run_
             run_type="Initial", result_status="Final", created_by="advisor-handoff",
             created_at=_now(), updated_at=_now(),
         ))
+        db.flush()
+        # H8 N-890-12: der Handoff verlangt Kundeninformation und KYC (Testwerte).
+        from client_onboarding_fixture import satisfy_client_onboarding
+        from models.mandates import Mandate as _Mandate
+
+        satisfy_client_onboarding(db, db.get(_Mandate, mandate_id), actor_id="advisor-handoff")
         db.commit()
     return mandate_id, run_id
 

@@ -19,13 +19,14 @@ with a freshly rendered (enabled-by-default) input. The failure path keeps
 the same input, so it IS re-enabled explicitly there.
 """
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def test_cashflow_toggle_disables_input_before_put():

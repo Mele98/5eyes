@@ -309,6 +309,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/system/audit-log/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Verify Audit Log Chain
+         * @description H-865-2 (Pruefrunde #865): Kettenpruefung des Audit-Logs zur Laufzeit.
+         *
+         *     verify_audit_chain() wurde bisher nur in Tests aufgerufen. Der Bericht
+         *     umfasst die Sequenz-Kette (Brueche, Luecken inkl. abgeschnittenem Ende,
+         *     Duplikate, Hash-Abweichungen) und die Pruefung pro Zeile fuer Altzeilen
+         *     ohne sequence. Er enthaelt nur Zaehler, Sequenznummern und Zeilen-IDs,
+         *     keine Inhalte. Nur lesend; die Kette ist global (alle Tenants), daher
+         *     require_audit_chain_verifier (siehe services/auth.py).
+         *
+         *     N-869-4: unter PostgreSQL steht audit_log unter strikter RLS -- ohne
+         *     Bypass saehe super_admin (kein Tenant-Kontext) 0 Zeilen, ein Tenant-
+         *     Admin nur seine eigenen (Scheinluecken). Die Pruefung laeuft deshalb im
+         *     expliziten Operator-Bypass; zugelassen sind nur die Rollen aus
+         *     require_audit_chain_verifier, und der Bericht enthaelt keine Inhalte.
+         */
+        get: operations["verify_audit_log_chain_admin_system_audit_log_verify_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/system/backups": {
         parameters: {
             query?: never;
@@ -1510,7 +1543,7 @@ export interface paths {
         get: operations["get_due_diligence_clients__client_id__due_diligence_get"];
         /**
          * Upsert Due Diligence
-         * @description 1:1-Erfassung (GwG Art. 3-6 / FINMA-RS 2016/7 Sorgfaltspflichten) --
+         * @description 1:1-Erfassung (GwG Art. 3-6 / GwV-FINMA Sorgfaltspflichten) --
          *     anders als Nationalitaeten/Opt-History keine Liste, sondern genau eine
          *     Zeile pro Kunde. Upsert: legt die Zeile beim ersten Aufruf an, aktualisiert
          *     sie bei jedem weiteren -- ein PUT-nur-Create haette erzwungen, dass der
@@ -1535,14 +1568,18 @@ export interface paths {
         put?: never;
         /**
          * Erase Client
-         * @description DSG Art. 32 -- Loeschungsanspruch. Anonymisiert irreversibel alle
-         *     direkt identifizierenden Personendaten dieses Kunden (siehe
-         *     services/client_erasure.py fuer die vollstaendige rechtliche und
-         *     technische Begruendung des Umfangs). Admin-only, Pflichtbegruendung
-         *     (schemas.clients.ClientErasureRequest), idempotent-sicher (409 bei
-         *     Doppelaufruf). Die Aktion selbst wird -- wie jede sensible Aktion --
-         *     unveraenderlich im Audit-Log protokolliert (wer hat wann wen aus
-         *     welchem Grund geloescht).
+         * @description Stillgelegt (H7 C-1): Loeschgesuche laufen nur ueber den
+         *     Datenschutz-Workflow ``/privacy/erasure-cases``.
+         *
+         *     Dieser Endpoint hat frueher sofort redigiert -- ohne Pruefung von
+         *     Aufbewahrungsfrist, Legal Hold oder aktivem Mandat. Dabei wurden auch
+         *     KYC-Belege (GwG Art. 7 Abs. 3: mindestens 10 Jahre nach Ende der
+         *     Geschaeftsbeziehung) und die Schluessel fuer versiegelte Nachweise
+         *     vernichtet. Ein zweiter Weg zur Vernichtung vor Fristablauf darf nicht
+         *     bestehen. Der Endpoint antwortet deshalb immer mit 409 und verweist auf
+         *     den Workflow (Loeschvorgang eroeffnen -> Entscheid je Nachweisart nach
+         *     genehmigter Aufbewahrungsmatrix und Legal Hold -> Ausfuehrung). Die
+         *     Ablehnung wird im Audit-Log festgehalten; Daten werden nicht veraendert.
          */
         post: operations["erase_client_clients__client_id__erase_post"];
         delete?: never;
@@ -1563,6 +1600,63 @@ export interface paths {
         put?: never;
         /** Create Knowledge */
         post: operations["create_knowledge_clients__client_id__knowledge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{client_id}/kyc-confirmations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Kyc Confirmations
+         * @description Verlauf der KYC-Bestaetigungen (juengste zuerst; es gilt die juengste).
+         */
+        get: operations["list_kyc_confirmations_clients__client_id__kyc_confirmations_get"];
+        put?: never;
+        /**
+         * Create Kyc Confirmation
+         * @description H8 C-5: Ares fuehrt die GwG-Abklaerung nicht selbst; sie erfolgt im
+         *     Prozess der SRO/AO bzw. im Fremdsystem. Erfasst wird die Pflicht-
+         *     Bestaetigung (Formular A/K/S/T, Datum, Referenz, Risikokategorie, PEP,
+         *     naechste Aktualisierung). Append-only: eine Korrektur ist eine neue
+         *     Bestaetigung. Bei PEP oder erhoehtem Risiko erst nach Freigabe durch eine
+         *     zweite Person wirksam (Gate vor Finalisierung/Vertragsunterzeichnung).
+         *
+         *     C-890-01: ``next_review_due`` darf hoechstens bis zur serverseitig
+         *     berechneten Obergrenze der wirksamen, freigegebenen Wiedervorlage-Policy
+         *     der Firma reichen (Abschlussdatum plus freigegebener Abstand je
+         *     Risikoklasse; PEP/erhoehtes Risiko = strengere Frist). Ohne wirksame Policy
+         *     ist keine Erfassung moeglich (409 mit Reason-Code der Policy). Die Bindung
+         *     (Policy, Version, Hash, Risikoklasse, Abstand, Obergrenze) steht im Siegel.
+         */
+        post: operations["create_kyc_confirmation_clients__client_id__kyc_confirmations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{client_id}/kyc-confirmations/{confirmation_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Kyc Confirmation
+         * @description Vier-Augen-Freigabe (PEP/erhoehtes Risiko/Herabstufung): nur eine zweite Person mit
+         *     Admin-Rolle (Geschaeftsleitung/Compliance), nie die erfassende Person.
+         */
+        post: operations["approve_kyc_confirmation_clients__client_id__kyc_confirmations__confirmation_id__approve_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1638,6 +1732,49 @@ export interface paths {
          *     Flag-Aenderung (from_*\/to_* fuer die Flags bleiben None).
          */
         post: operations["add_opt_history_clients__client_id__opt_history_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{client_id}/representations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Representations */
+        get: operations["list_representations_clients__client_id__representations_get"];
+        put?: never;
+        /**
+         * Create Representation
+         * @description Vollmacht, Vorsorgeauftrag, Beistandschaft oder Gemeinschaftsdepot mit
+         *     Umfang, Beleg und Wirksamkeit. Dokumentarisch (kein Gate); erscheint im
+         *     Beratungsprotokoll-PDF.
+         */
+        post: operations["create_representation_clients__client_id__representations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{client_id}/representations/{representation_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke Representation
+         * @description Widerruf statt Loeschen: der Eintrag bleibt als Nachweis erhalten.
+         */
+        post: operations["revoke_representation_clients__client_id__representations__representation_id__revoke_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1885,6 +2022,132 @@ export interface paths {
         put?: never;
         /** Validate Policy */
         post: operations["validate_policy_cma_policies__policy_row_id__validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/kyc-approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Pending Kyc Approvals
+         * @description Offene KYC-Zweitfreigaben der eigenen Firma (PEP, erhoehtes Risiko,
+         *     Herabstufung, PEP-Ruecknahme): je Kunde nur die juengste, noch nicht
+         *     entschiedene Bestaetigung, datenminimiert (Kundennummer statt Stammdaten,
+         *     keine Vermoegens-, Depot- oder Kontaktdaten).
+         */
+        get: operations["list_pending_kyc_approvals_compliance_kyc_approvals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/kyc-approvals/{confirmation_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide Kyc Second Approval
+         * @description Vier-Augen-Entscheid (freigeben oder ablehnen) mit Pflicht-Begruendung
+         *     und Bestaetigung des Siegel-Hashes. Nie durch die erfassende Person (auch
+         *     nicht ueber ein zweites Konto mit derselben E-Mail). Gleiche Siegel-Logik
+         *     wie die Freigabe in der Kundenmaske; das Gate rechnet sie nach.
+         */
+        post: operations["decide_kyc_second_approval_compliance_kyc_approvals__confirmation_id__decision_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/kyc-review-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Kyc Review Policies
+         * @description Wiedervorlage-Policies der eigenen Firma (alle Versionen samt Status)
+         *     und die heute wirksame Version. Ohne Angabe gilt das Sitzland der Firma
+         *     aus den rechtlichen Angaben.
+         */
+        get: operations["list_kyc_review_policies_compliance_kyc_review_policies_get"];
+        put?: never;
+        /**
+         * Create Kyc Review Policy
+         * @description Neue Version der Wiedervorlage-Policy erfassen (Firmen-Admin). Wirksam
+         *     erst nach Freigabe durch eine zweite Person (``/activate``). Ares belegt
+         *     keinen Wert vor; die Version vergibt der Server fortlaufend.
+         */
+        post: operations["create_kyc_review_policy_compliance_kyc_review_policies_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/kyc-review-policies/{policy_row_id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Activate Kyc Review Policy
+         * @description Vier-Augen-Freigabe und Aktivierung einer Policy-Version: nur eine
+         *     ZWEITE Person -- Firmen-Admin oder externe Compliance-Person (Rolle
+         *     ``compliance_reviewer``, nur Freigabe/Lesen) --, mit dem gesehenen Inhalts-Hash und der
+         *     Freigabereferenz. Die Aktivierungen bilden eine lineare Kette; zwei
+         *     gleichzeitige Aktivierungen auf denselben Stand koennen nie beide gelingen
+         *     (UNIQUE auf den Vorgaenger, 409).
+         */
+        post: operations["activate_kyc_review_policy_compliance_kyc_review_policies__policy_row_id__activate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/legal-profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Tenant Legal Profile
+         * @description Rechtliche Angaben der eigenen Firma fuer die Kundeninformation nach
+         *     Art. 8 Abs. 1 FIDLEG, samt Liste der fehlenden Pflichtangaben.
+         */
+        get: operations["get_tenant_legal_profile_compliance_legal_profile_get"];
+        /**
+         * Update Tenant Legal Profile
+         * @description Pflege durch einen Firmen-Admin. Jede geaenderte Angabe wird feldweise
+         *     (alt/neu) im Audit-Log festgehalten; Revision und Inhalts-Hash werden
+         *     nachgefuehrt. Ares belegt keinen Wert vor.
+         */
+        put: operations["update_tenant_legal_profile_compliance_legal_profile_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2392,6 +2655,50 @@ export interface paths {
          *     historischer Time-Series kommt in Sprint U-P11.
          */
         get: operations["get_backtest_stress_replays_mandates__mandate_id__backtest_stress_replays_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mandates/{mandate_id}/client-information/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record Client Information Delivery
+         * @description Abgabenachweis der Kundeninformation: archivierte Fassung (Byte-Hash),
+         *     Vorlagenversion, Revision/Hash der rechtlichen Angaben, Zeitpunkt und Kanal.
+         *     Append-only. Nur die zu den aktuellen rechtlichen Angaben passende Fassung
+         *     ist abgebbar; der Zeitpunkt darf nicht in der Zukunft liegen.
+         */
+        post: operations["record_client_information_delivery_mandates__mandate_id__client_information_deliveries_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mandates/{mandate_id}/client-onboarding/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Client Onboarding Status
+         * @description Stand von Kundeninformation (Art. 8/9 FIDLEG) und GwG-Bestaetigung --
+         *     dieselbe Quelle wie das Gate vor Finalisierung und Vertragsunterzeichnung.
+         */
+        get: operations["get_client_onboarding_status_mandates__mandate_id__client_onboarding_status_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3593,6 +3900,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/mandates/{mandate_id}/reports/kundeninformation.pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Kundeninformation Pdf
+         * @description Kundeninformation nach Art. 8/9 FIDLEG als PDF (vor Vertragsabschluss
+         *     zu uebergeben). Fail-closed: ohne vollstaendige rechtliche Angaben der
+         *     Firma (Firma, Adresse, Aufsichtsstatus, Ombudsstelle, Kontakt) wird kein
+         *     Dokument erstellt (409 mit Liste der fehlenden Angaben). Render-once/
+         *     archive-once; die archivierte Fassung traegt Vorlagenversion und Revision/
+         *     Hash der rechtlichen Angaben (Grundlage des Abgabenachweises).
+         */
+        get: operations["get_kundeninformation_pdf_mandates__mandate_id__reports_kundeninformation_pdf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/mandates/{mandate_id}/reports/portfolio.pdf": {
         parameters: {
             query?: never;
@@ -4299,6 +4631,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/privacy/policies/baseline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Propose Retention Baseline
+         * @description H7 C-6: Aufbewahrungsmatrix aus der gesetzlichen Vorlage vorschlagen
+         *     (10 Jahre ab Beziehungsende nach GwG Art. 7 Abs. 3 / OR 127, Vertrag und
+         *     Belege OR 958f). Legt nur PROPOSED-Zeilen an (fehlende Nachweisarten);
+         *     Betreiberangaben im Body, Genehmigung weiterhin im Vier-Augen-Prinzip.
+         */
+        post: operations["propose_retention_baseline_privacy_policies_baseline_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/privacy/policies/{policy_id}/approve": {
         parameters: {
             query?: never;
@@ -4541,6 +4896,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/products/export/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Products Csv
+         * @description AUDIT-2026-11 P1 (PO-6): Export der fuer diesen Tenant sichtbaren,
+         *     aktiven Fonds im Spaltenformat des CSV-Imports (globaler Katalog plus
+         *     eigene Fonds, nie die eines anderen Tenants -- dieselbe Abfrage wie
+         *     GET /products).
+         *
+         *     Zweck: Stammdaten (ISIN, Domizil, TER-Quelle, Retrozession ...) extern
+         *     ergaenzen und wieder einspielen. Die Eignungsspalten bleiben leer: die
+         *     Eignung wird ueber die Vier-Augen-Regeln gepflegt und ist kein
+         *     Stammdatum. Fuer einen Re-Import muessen sie ergaenzt werden (eine
+         *     geaenderte Eignung wird dabei als Regel-Entwurf angelegt). Leere Zellen
+         *     bedeuten "nicht erfasst" -- es wird nichts vorbelegt.
+         */
+        get: operations["export_products_csv_products_export_csv_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/products/import": {
         parameters: {
             query?: never;
@@ -4682,6 +5067,297 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/products/sustainability/attributes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Sustainability Attributes
+         * @description Alle fuer die eigene Verwaltung sichtbaren Nachweise (Plattform +
+         *     eigener Tenant), z. B. ``status=draft`` als Freigabe-Warteschlange.
+         */
+        get: operations["list_sustainability_attributes_products_sustainability_attributes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/attributes/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Sustainability Attributes Batch
+         * @description Sammelfreigabe (z. B. nach einem Import). Alles oder nichts: ein
+         *     Vier-Augen-Verstoss oder ein ungueltiger Entwurf -> 409, nichts wird
+         *     freigegeben.
+         */
+        post: operations["approve_sustainability_attributes_batch_products_sustainability_attributes_approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/attributes/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Sustainability Attributes
+         * @description Export der sichtbaren Nachweise (Plattform + eigener Tenant). Die
+         *     ersten Spalten entsprechen dem Import; leerer Export = CSV-Vorlage.
+         */
+        get: operations["export_sustainability_attributes_products_sustainability_attributes_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/attributes/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Sustainability Attributes
+         * @description JSON-Import. Jede Zeile wird als ENTWURF angelegt (nie direkt
+         *     freigegeben); die Freigabe erfolgt danach durch eine andere Person
+         *     (Vier-Augen, POST .../approve). Fehlerhafte Zeilen werden einzeln
+         *     gemeldet, gueltige trotzdem angelegt.
+         */
+        post: operations["import_sustainability_attributes_products_sustainability_attributes_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/attributes/import/csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Sustainability Attributes Csv
+         * @description CSV-Import (Komma/Semikolon/Tab, UTF-8, Kopfzeile = Spaltennamen des
+         *     Exports). Wie der JSON-Import: nur Entwuerfe, Fehler je Zeile.
+         */
+        post: operations["import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/attributes/{attribute_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Sustainability Attribute Draft
+         * @description Nur Entwuerfe loeschen (sie waren nie Nachweis). Freigegebene
+         *     Nachweise werden zurueckgezogen, nicht geloescht (Audit-Spur).
+         */
+        delete: operations["delete_sustainability_attribute_draft_products_sustainability_attributes__attribute_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Sustainability Attribute
+         * @description Entwurf bearbeiten -- nur durch die erfassende Person, damit die
+         *     freigebende Person nie Inhalte freigibt, die sie selbst geschrieben hat.
+         *     Freigegebene Nachweise sind unveraenderlich (Korrektur = neuer Entwurf).
+         */
+        patch: operations["update_sustainability_attribute_products_sustainability_attributes__attribute_id__patch"];
+        trace?: never;
+    };
+    "/products/sustainability/attributes/{attribute_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Sustainability Attribute Endpoint
+         * @description Vier-Augen-Freigabe eines Entwurfs: 409, wenn die erfassende Person
+         *     selbst freigibt (Einzelberater-Ausnahme wie bei den Eignungsregeln);
+         *     403 fuer Plattform-Nachweise ohne Plattform-Recht.
+         */
+        post: operations["approve_sustainability_attribute_endpoint_products_sustainability_attributes__attribute_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/attributes/{attribute_id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retire Sustainability Attribute Endpoint
+         * @description Freigegebenen Nachweis zurueckziehen; er zaehlt danach nie mehr.
+         */
+        post: operations["retire_sustainability_attribute_endpoint_products_sustainability_attributes__attribute_id__retire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Sustainability Catalog
+         * @description Kategorien, zulaessige Arten, Quellentypen und Haus-Defaults (T-E1).
+         */
+        get: operations["get_sustainability_catalog_products_sustainability_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/standards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Sustainability Standards
+         * @description Hausstandard der eigenen Verwaltung: Default (T-E1), Tenant-Wert, wirksam.
+         */
+        get: operations["get_sustainability_standards_products_sustainability_standards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/standards/{category}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Sustainability Standard Endpoint
+         * @description Hausschwelle der eigenen Verwaltung setzen (neue Version, auditiert).
+         *
+         *     H-1/N-863-5: Richtung relativ zur GELTENDEN Version. Verschaerfung wirkt
+         *     sofort; Lockerung (hoehere Schwelle als die geltende oder Kategorie
+         *     deaktiviert) entsteht als Entwurf (``pending``) und wirkt erst nach der
+         *     Vier-Augen-Freigabe (POST .../approve). Unveraendert -> keine neue
+         *     Version. UN Global Compact kennt keine Umsatzschwelle (null).
+         */
+        put: operations["set_sustainability_standard_endpoint_products_sustainability_standards__category__put"];
+        post?: never;
+        /**
+         * Reset Sustainability Standard Endpoint
+         * @description Zurueck auf den Haus-Default (T-E1), auditiert. N-863-5: ist die
+         *     geltende Version strenger als der Default, entsteht ein Entwurf
+         *     (Vier-Augen-Freigabe); sonst wirkt der Reset sofort.
+         */
+        delete: operations["reset_sustainability_standard_endpoint_products_sustainability_standards__category__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/standards/{category}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Sustainability Standard Endpoint
+         * @description Vier-Augen-Freigabe einer offenen Lockerung: 409, wenn die Person, die
+         *     sie beantragt hat, selbst freigibt (Einzelberater-Ausnahme wie bei den
+         *     Eignungsregeln); 409 auch ohne offenen Entwurf.
+         */
+        post: operations["approve_sustainability_standard_endpoint_products_sustainability_standards__category__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/sustainability/standards/{category}/pending": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Discard Sustainability Standard Endpoint
+         * @description Offene Lockerung verwerfen (auditiert).
+         */
+        delete: operations["discard_sustainability_standard_endpoint_products_sustainability_standards__category__pending_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/products/{product_id}": {
         parameters: {
             query?: never;
@@ -4750,6 +5426,28 @@ export interface paths {
         /** Set Product Market Override */
         put: operations["set_product_market_override_products__product_id__market_override_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/products/{product_id}/sustainability-attributes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Product Sustainability Attributes */
+        get: operations["list_product_sustainability_attributes_products__product_id__sustainability_attributes_get"];
+        put?: never;
+        /**
+         * Create Product Sustainability Attribute
+         * @description Nachweis als Entwurf erfassen (Quelle und Stichtag Pflicht; gueltig
+         *     bis leer = Stichtag + 12 Monate). Zaehlt erst nach Vier-Augen-Freigabe.
+         */
+        post: operations["create_product_sustainability_attribute_products__product_id__sustainability_attributes_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5010,6 +5708,29 @@ export interface paths {
         /** Upsert Adviser Registration */
         put: operations["upsert_adviser_registration_users__user_id__adviser_registration_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{user_id}/compromise": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compromise User
+         * @description N-897-13: Konto wegen (Verdacht auf) Kompromittierung widerrufen.
+         *     Begruendung Pflicht, auditiert; das Konto wird deaktiviert, alle Sitzungen
+         *     beendet, und jede Freigabe dieses Kontos ab ``compromised_since`` gilt im
+         *     Gate nicht mehr (KYC-Zweitfreigabe, Policy-Aktivierung). Endgueltig.
+         */
+        post: operations["compromise_user_users__user_id__compromise_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5666,6 +6387,99 @@ export interface components {
             /** Target Weight Bps */
             target_weight_bps: number;
         };
+        /** AuditChainGap */
+        AuditChainGap: {
+            /** From Sequence */
+            from_sequence: number;
+            /** To Sequence */
+            to_sequence: number;
+        };
+        /** AuditChainSection */
+        AuditChainSection: {
+            /** Ambiguous */
+            ambiguous: number[];
+            /** Ambiguous Count */
+            ambiguous_count: number;
+            /** Break Count */
+            break_count: number;
+            /** Breaks */
+            breaks: number[];
+            /** Checked */
+            checked: number;
+            /** Counter Value */
+            counter_value?: number | null;
+            /** Duplicate Count */
+            duplicate_count: number;
+            /** Duplicates */
+            duplicates: number[];
+            /** Gap Count */
+            gap_count: number;
+            /** Gaps */
+            gaps: components["schemas"]["AuditChainGap"][];
+            /** Hash Mismatch Count */
+            hash_mismatch_count: number;
+            /** Hash Mismatches */
+            hash_mismatches: number[];
+            /** Last Sequence */
+            last_sequence: number;
+            /** Ok */
+            ok: boolean;
+        };
+        /** AuditChainVerification */
+        AuditChainVerification: {
+            chain: components["schemas"]["AuditChainSection"];
+            /** Checked At */
+            checked_at: string;
+            legacy: components["schemas"]["AuditLegacySection"];
+            /** Ok */
+            ok: boolean;
+        };
+        /** AuditLegacySection */
+        AuditLegacySection: {
+            /** Ambiguous */
+            ambiguous: number;
+            /** Ambiguous Ids */
+            ambiguous_ids: string[];
+            /** Field Shift */
+            field_shift: number;
+            /** Field Shift Ids */
+            field_shift_ids: string[];
+            /** Hashed */
+            hashed: number;
+            /** Link Unconfirmed */
+            link_unconfirmed: number;
+            /** Link Unconfirmed Ids */
+            link_unconfirmed_ids: string[];
+            /** Mismatch Ids */
+            mismatch_ids: string[];
+            /** Mismatches */
+            mismatches: number;
+            /** Ok */
+            ok: boolean;
+            /** Seal Count */
+            seal_count?: number | null;
+            /**
+             * Seal Missing
+             * @default false
+             */
+            seal_missing?: boolean;
+            /** Seal Ok */
+            seal_ok?: boolean | null;
+            /** Seal Present */
+            seal_present: boolean;
+            /** Seal Sequence */
+            seal_sequence?: number | null;
+            /** Total */
+            total: number;
+            /** Unexpected Unhashed */
+            unexpected_unhashed: number;
+            /** Unexpected Unhashed Ids */
+            unexpected_unhashed_ids: string[];
+            /** Unhashed */
+            unhashed: number;
+            /** Verified */
+            verified: number;
+        };
         /** AuditLogEntry */
         AuditLogEntry: {
             /** Action */
@@ -5705,6 +6519,11 @@ export interface components {
             offset: number;
             /** Total */
             total: number;
+        };
+        /** BaselineProposal */
+        BaselineProposal: {
+            /** Matrix */
+            matrix?: Record<string, unknown>;
         };
         /** BausteinCreate */
         BausteinCreate: {
@@ -5761,6 +6580,11 @@ export interface components {
         };
         /** Body_import_products_csv_products_import_csv_post */
         Body_import_products_csv_products_import_csv_post: {
+            /** File */
+            file: string;
+        };
+        /** Body_import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post */
+        Body_import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post: {
             /** File */
             file: string;
         };
@@ -6422,7 +7246,12 @@ export interface components {
         /** ClientDueDiligenceResponse */
         ClientDueDiligenceResponse: {
             /** Acting For Own Account */
-            acting_for_own_account: number;
+            acting_for_own_account?: number | null;
+            /**
+             * Acting For Own Account Answered
+             * @default 0
+             */
+            acting_for_own_account_answered?: number;
             /** Beneficial Owner Name */
             beneficial_owner_name: string | null;
             /** Client Id */
@@ -6452,11 +7281,8 @@ export interface components {
         };
         /** ClientDueDiligenceUpdate */
         ClientDueDiligenceUpdate: {
-            /**
-             * Acting For Own Account
-             * @default true
-             */
-            acting_for_own_account?: boolean;
+            /** Acting For Own Account */
+            acting_for_own_account?: boolean | null;
             /** Beneficial Owner Name */
             beneficial_owner_name?: string | null;
             /**
@@ -6526,6 +7352,192 @@ export interface components {
             unsealed_append_only_rows?: {
                 [key: string]: number;
             };
+        };
+        /**
+         * ClientInformationDeliveryCreate
+         * @description Abgabe der Kundeninformation: welche archivierte Fassung, wann, wie.
+         */
+        ClientInformationDeliveryCreate: {
+            /** Backdating Reason */
+            backdating_reason?: string | null;
+            /** Contract Document Id */
+            contract_document_id: string;
+            /**
+             * Data Classification
+             * @default synthetic
+             * @enum {string}
+             */
+            data_classification?: "synthetic" | "real";
+            /** Delivered At */
+            delivered_at: string;
+            /**
+             * Delivery Channel
+             * @enum {string}
+             */
+            delivery_channel: "persoenlich_papier" | "post" | "email" | "kundenportal";
+        };
+        /** ClientInformationDeliveryResponse */
+        ClientInformationDeliveryResponse: {
+            /** Backdating Reason */
+            backdating_reason?: string | null;
+            /** Client Id */
+            client_id: string;
+            /** Contract Document Id */
+            contract_document_id: string;
+            /** Delivered At */
+            delivered_at: string;
+            /** Delivery Channel */
+            delivery_channel: string;
+            /** Delivery Hash */
+            delivery_hash: string;
+            /** Delivery Timing */
+            delivery_timing: string;
+            /** Id */
+            id: string;
+            /** Legal Profile Hash */
+            legal_profile_hash: string;
+            /** Legal Profile Revision */
+            legal_profile_revision: number;
+            /** Mandate Id */
+            mandate_id: string;
+            /** Pdf Sha256 */
+            pdf_sha256: string;
+            /** Recorded At */
+            recorded_at: string;
+            /** Recorded By */
+            recorded_by: string;
+            /** Template Version */
+            template_version: string;
+        };
+        /** ClientOnboardingFinding */
+        ClientOnboardingFinding: {
+            /** Binding Defect */
+            binding_defect?: string | null;
+            /** Bound Next Review Due */
+            bound_next_review_due?: string | null;
+            /** Confirmation Id */
+            confirmation_id?: string | null;
+            /** Contract Concluded At */
+            contract_concluded_at?: string | null;
+            /** Current Max Due */
+            current_max_due?: string | null;
+            /** Kyc Review Status */
+            kyc_review_status?: string | null;
+            /** Message */
+            message: string;
+            /** Missing Fields */
+            missing_fields?: string[] | null;
+            /** Missing Labels */
+            missing_labels?: string[] | null;
+            /** Owner Action */
+            owner_action: string;
+            /** Policy Ref */
+            policy_ref?: Record<string, unknown> | null;
+            /** Reason Code */
+            reason_code: string;
+            /** Scope */
+            scope: string;
+            /** Shortened By Policy Version */
+            shortened_by_policy_version?: number | null;
+        };
+        /** ClientOnboardingStatusResponse */
+        ClientOnboardingStatusResponse: {
+            /** Client Id */
+            client_id: string;
+            /** Contract Concluded At */
+            contract_concluded_at?: string | null;
+            /** Deliveries */
+            deliveries: Record<string, unknown>[];
+            /** Due Diligence */
+            due_diligence?: Record<string, unknown> | null;
+            /** Findings */
+            findings: components["schemas"]["ClientOnboardingFinding"][];
+            /** Kyc Confirmation */
+            kyc_confirmation?: Record<string, unknown> | null;
+            /** Kyc Requires Second Approval */
+            kyc_requires_second_approval?: boolean | null;
+            /** Kyc Review Policy */
+            kyc_review_policy?: Record<string, unknown> | null;
+            /** Latest Document */
+            latest_document?: Record<string, unknown> | null;
+            /** Legal Profile */
+            legal_profile: Record<string, unknown>;
+            /** Mandate Id */
+            mandate_id: string;
+            /** Release Ready */
+            release_ready: boolean;
+            /** Template Version */
+            template_version: string;
+        };
+        /** ClientRepresentationCreate */
+        ClientRepresentationCreate: {
+            /**
+             * Data Classification
+             * @default synthetic
+             * @enum {string}
+             */
+            data_classification?: "synthetic" | "real";
+            /** Disposal Rule */
+            disposal_rule?: ("einzeln" | "gemeinsam") | null;
+            /** Effective From */
+            effective_from?: string | null;
+            /** Effective Until */
+            effective_until?: string | null;
+            /** Evidence Reference */
+            evidence_reference: string;
+            /** Mandate Id */
+            mandate_id?: string | null;
+            /** Note */
+            note?: string | null;
+            /**
+             * Representation Type
+             * @enum {string}
+             */
+            representation_type: "vollmacht" | "vorsorgeauftrag" | "beistandschaft" | "gemeinschaftsdepot";
+            /** Representative Name */
+            representative_name: string;
+            /** Scope */
+            scope: string;
+        };
+        /** ClientRepresentationResponse */
+        ClientRepresentationResponse: {
+            /** Client Id */
+            client_id: string;
+            /** Disposal Rule */
+            disposal_rule?: string | null;
+            /** Effective From */
+            effective_from?: string | null;
+            /** Effective Until */
+            effective_until?: string | null;
+            /** Evidence Reference */
+            evidence_reference: string;
+            /** Id */
+            id: string;
+            /** Mandate Id */
+            mandate_id?: string | null;
+            /** Note */
+            note?: string | null;
+            /** Recorded At */
+            recorded_at: string;
+            /** Recorded By */
+            recorded_by: string;
+            /** Representation Type */
+            representation_type: string;
+            /** Representative Name */
+            representative_name: string;
+            /** Revocation Reason */
+            revocation_reason?: string | null;
+            /** Revoked At */
+            revoked_at?: string | null;
+            /** Revoked By */
+            revoked_by?: string | null;
+            /** Scope */
+            scope: string;
+        };
+        /** ClientRepresentationRevoke */
+        ClientRepresentationRevoke: {
+            /** Reason */
+            reason: string;
         };
         /** ClientResponse */
         ClientResponse: {
@@ -6923,6 +7935,8 @@ export interface components {
             inducement_provider?: string | null;
             /** Mitigation Action */
             mitigation_action?: string | null;
+            /** Product Id */
+            product_id?: string | null;
             /** Reimbursed To Client */
             reimbursed_to_client?: boolean | null;
             /** Waiver Document Id */
@@ -6962,6 +7976,8 @@ export interface components {
             missing_evidence?: string[];
             /** Mitigation Action */
             mitigation_action: string | null;
+            /** Product Id */
+            product_id?: string | null;
             /**
              * Reimbursed To Client
              * @default 0
@@ -7157,6 +8173,8 @@ export interface components {
              * @default 0
              */
             product_cost_coverage_bps?: number;
+            /** @description Retrozession je empfohlenem Produkt (AUDIT-2026-11 P1). None, wenn der Ausweis ohne Produktbezug entstand oder vor P1 eingefroren wurde. */
+            product_retrocessions?: components["schemas"]["ProductRetrocessionDisclosure"] | null;
             /**
              * Snapshot Schema Version
              * @description Schema-Version des verifizierten Snapshots (nur 'certified').
@@ -7560,6 +8578,12 @@ export interface components {
             probability_pct?: number | null;
             /** Rank */
             rank: number;
+            /** Rank Adjusted From */
+            rank_adjusted_from?: number | null;
+            /** Rank Adjusted To */
+            rank_adjusted_to?: number | null;
+            /** Rank Adjustment Notice */
+            rank_adjustment_notice?: string | null;
             /** Start Date */
             start_date: string | null;
             /** Success Probability Min X100 */
@@ -7780,12 +8804,16 @@ export interface components {
             email?: string | null;
             /** Full Name */
             full_name: string;
+            /** Reviewer Organisation */
+            reviewer_organisation?: string | null;
+            /** Reviewer Reference */
+            reviewer_reference?: string | null;
             /**
              * Role
              * @default advisor
              * @enum {string}
              */
-            role?: "admin" | "advisor" | "readonly" | "portfolio_management";
+            role?: "admin" | "advisor" | "readonly" | "portfolio_management" | "compliance_reviewer";
             /** Tenant Id */
             tenant_id?: string | null;
             /** Username */
@@ -7808,7 +8836,12 @@ export interface components {
             /** Invite Expires At */
             invite_expires_at: string;
             /** Invite Token */
-            invite_token: string;
+            invite_token?: string | null;
+            /**
+             * Link Delivery
+             * @default anzeige
+             */
+            link_delivery?: string;
             /** User Id */
             user_id: string;
             /** Username */
@@ -8005,6 +9038,314 @@ export interface components {
             valid_to: string | null;
             /** Version */
             version: number;
+        };
+        /** KycConfirmationApprovalCreate */
+        KycConfirmationApprovalCreate: {
+            /** Note */
+            note?: string | null;
+        };
+        /** KycConfirmationApprovalResponse */
+        KycConfirmationApprovalResponse: {
+            /** Approval Hash */
+            approval_hash: string;
+            /** Approved At */
+            approved_at: string;
+            /** Approved By */
+            approved_by: string;
+            /** Approver Account */
+            approver_account?: Record<string, unknown> | null;
+            /** Client Id */
+            client_id: string;
+            /** Confirmation Id */
+            confirmation_id: string;
+            /** Id */
+            id: string;
+            /** Note */
+            note?: string | null;
+        };
+        /**
+         * KycConfirmationRequest
+         * @description Bestaetigung, dass die GwG-Abklaerung im Prozess der SRO/AO bzw. im
+         *     Fremdsystem erfolgt ist. Alle fachlichen Felder ohne Vorbelegung --
+         *     insbesondere ``is_pep`` und ``risk_category`` muessen ausdruecklich
+         *     beantwortet werden.
+         *
+         *     Eingangsform der API (nur formale Pruefung). Die fachlich gueltige
+         *     Bestaetigung ist ``KycConfirmationCreate``: erst mit der serverseitig
+         *     ermittelten Bindung an die freigegebene Wiedervorlage-Policy (C-890-01).
+         */
+        KycConfirmationRequest: {
+            /**
+             * Data Classification
+             * @default synthetic
+             * @enum {string}
+             */
+            data_classification?: "synthetic" | "real";
+            /** External Reference */
+            external_reference: string;
+            /** Form Completed On */
+            form_completed_on: string;
+            /**
+             * Form Type
+             * @enum {string}
+             */
+            form_type: "A" | "K" | "S" | "T";
+            /** Identification Confirmed */
+            identification_confirmed: boolean;
+            /** Identification Date */
+            identification_date: string;
+            /** Is Pep */
+            is_pep: boolean;
+            /** Mandate Id */
+            mandate_id?: string | null;
+            /** Next Review Due */
+            next_review_due: string;
+            /** Note */
+            note?: string | null;
+            /**
+             * Risk Category
+             * @enum {string}
+             */
+            risk_category: "normal" | "erhoeht";
+        };
+        /** KycConfirmationResponse */
+        KycConfirmationResponse: {
+            approval?: components["schemas"]["KycConfirmationApprovalResponse"] | null;
+            /** Client Id */
+            client_id: string;
+            /** Confirmation Hash */
+            confirmation_hash: string;
+            /** External Reference */
+            external_reference: string;
+            /** Form Completed On */
+            form_completed_on: string;
+            /** Form Type */
+            form_type: string;
+            /** Id */
+            id: string;
+            /** Identification Confirmed */
+            identification_confirmed: number;
+            /** Identification Date */
+            identification_date: string;
+            /** Is Pep */
+            is_pep: number;
+            /** Mandate Id */
+            mandate_id?: string | null;
+            /** Next Review Due */
+            next_review_due: string;
+            /** Note */
+            note?: string | null;
+            /**
+             * Personal Data Warnings
+             * @default []
+             */
+            personal_data_warnings?: string[];
+            /** Process Scope */
+            process_scope: string;
+            /** Recorded At */
+            recorded_at: string;
+            /** Recorded By */
+            recorded_by: string;
+            /**
+             * Requires Second Approval
+             * @default false
+             */
+            requires_second_approval?: boolean;
+            /** Review Interval Months */
+            review_interval_months?: number | null;
+            /** Review Max Due */
+            review_max_due?: string | null;
+            /** Review Policy Activation Id */
+            review_policy_activation_id?: string | null;
+            /** Review Policy Hash */
+            review_policy_hash?: string | null;
+            /** Review Policy Id */
+            review_policy_id?: string | null;
+            /** Review Policy Row Id */
+            review_policy_row_id?: string | null;
+            /** Review Policy Version */
+            review_policy_version?: number | null;
+            /** Review Risk Class */
+            review_risk_class?: string | null;
+            /** Risk Category */
+            risk_category: string;
+        };
+        /** KycPendingApproval */
+        KycPendingApproval: {
+            /** Approval Reasons */
+            approval_reasons: string[];
+            /** Client Number */
+            client_number?: string | null;
+            /** Confirmation Hash */
+            confirmation_hash: string;
+            /** Confirmation Id */
+            confirmation_id: string;
+            /** External Reference */
+            external_reference: string;
+            /** Form Type */
+            form_type: string;
+            /** Is Pep New */
+            is_pep_new: boolean;
+            /** Is Pep Previous */
+            is_pep_previous?: boolean | null;
+            /** Note */
+            note?: string | null;
+            /**
+             * Pep Withdrawal Recorded
+             * @default false
+             */
+            pep_withdrawal_recorded?: boolean;
+            /** Recorded At */
+            recorded_at: string;
+            /** Recorded By Name */
+            recorded_by_name?: string | null;
+            /**
+             * Recorded By Self
+             * @default false
+             */
+            recorded_by_self?: boolean;
+            /** Risk Category New */
+            risk_category_new: string;
+            /** Risk Category Previous */
+            risk_category_previous?: string | null;
+        };
+        /** KycPendingApprovalList */
+        KycPendingApprovalList: {
+            /** Items */
+            items: components["schemas"]["KycPendingApproval"][];
+            /** Tenant Id */
+            tenant_id: string;
+        };
+        /**
+         * KycReviewPolicyActivate
+         * @description Vier-Augen-Freigabe: die zweite Person bestaetigt den gesehenen
+         *     Inhalts-Hash und nennt die unveraenderliche Freigabereferenz (z. B.
+         *     Beschluss der Geschaeftsleitung bzw. Vorgabe der SRO/AO).
+         */
+        KycReviewPolicyActivate: {
+            /** Approval Reference */
+            approval_reference: string;
+            /** Policy Hash */
+            policy_hash: string;
+        };
+        /**
+         * KycReviewPolicyCreate
+         * @description Neue Policy-Version (append-only). Alle Werte kommen vom Owner bzw.
+         *     der Compliance; Ares belegt keine Frist vor. Die Abstaende sind ganze
+         *     Kalendermonate ab dem Abschluss der GwG-Abklaerung. Inhaltliche Regeln
+         *     (Abstand > 0, PEP/erhoehtes Risiko nie lockerer) prueft der Server mit
+         *     eigenem Reason-Code.
+         */
+        KycReviewPolicyCreate: {
+            /** Elevated Max Months */
+            elevated_max_months?: number | null;
+            /** Jurisdiction */
+            jurisdiction: string;
+            /** Normal Max Months */
+            normal_max_months: number;
+            /** Policy Id */
+            policy_id: string;
+            /** Source Reference */
+            source_reference: string;
+            /** Valid From */
+            valid_from: string;
+            /** Valid Until */
+            valid_until?: string | null;
+        };
+        /** KycReviewPolicyOverview */
+        KycReviewPolicyOverview: {
+            /** Effective Policy */
+            effective_policy?: Record<string, unknown> | null;
+            /** Jurisdiction */
+            jurisdiction?: string | null;
+            /** Policies */
+            policies: components["schemas"]["KycReviewPolicyResponse"][];
+            /** Reason Code */
+            reason_code?: string | null;
+            /** Status */
+            status: string;
+            /** Tenant Id */
+            tenant_id: string;
+        };
+        /** KycReviewPolicyResponse */
+        KycReviewPolicyResponse: {
+            /** Activation Id */
+            activation_id?: string | null;
+            /** Approval Reference */
+            approval_reference?: string | null;
+            /** Approved At */
+            approved_at?: string | null;
+            /** Approved By */
+            approved_by?: string | null;
+            /** Approver Account */
+            approver_account?: Record<string, unknown> | null;
+            /** Created At */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /** Effective From */
+            effective_from?: string | null;
+            /** Elevated Max Months */
+            elevated_max_months?: number | null;
+            /** Id */
+            id: string;
+            /** Jurisdiction */
+            jurisdiction: string;
+            /** Normal Max Months */
+            normal_max_months: number;
+            /** Policy Hash */
+            policy_hash: string;
+            /** Policy Id */
+            policy_id: string;
+            /** Predecessor Activation Id */
+            predecessor_activation_id?: string | null;
+            /** Source Reference */
+            source_reference: string;
+            /** Status */
+            status: string;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Valid From */
+            valid_from: string;
+            /** Valid Until */
+            valid_until?: string | null;
+            /** Version */
+            version: number;
+        };
+        /**
+         * KycSecondApprovalDecision
+         * @description C-890-01 Nachtrag 2: Entscheid der zweiten Person ueber eine offene
+         *     KYC-Zweitfreigabe. Begruendung Pflicht; ``confirmation_hash`` = der in der
+         *     Liste angezeigte Siegel-Hash (Bestaetigung "gesehen und geprueft").
+         */
+        KycSecondApprovalDecision: {
+            /** Confirmation Hash */
+            confirmation_hash: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approve" | "reject";
+            /** Reason */
+            reason: string;
+        };
+        /** KycSecondApprovalDecisionResponse */
+        KycSecondApprovalDecisionResponse: {
+            /** Approver Account */
+            approver_account?: Record<string, unknown> | null;
+            /** Confirmation Id */
+            confirmation_id: string;
+            /** Decided At */
+            decided_at: string;
+            /** Decided By */
+            decided_by: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approve" | "reject";
+            /** Record Id */
+            record_id: string;
         };
         /** LegalHoldExtension */
         LegalHoldExtension: {
@@ -8594,7 +9935,7 @@ export interface components {
             /** Document Id */
             document_id?: string | null;
             /** Event Type */
-            event_type: string;
+            event_type?: ("Opting-out zu Professionell" | "Opting-out zu Institutionell" | "Opting-in zu Privatkunde" | "Opting-in zu Professionell" | "Qualifizierter Anleger bestätigt" | "Klassifizierung überprüft") | null;
             /**
              * From Classification
              * @enum {string}
@@ -8606,6 +9947,7 @@ export interface components {
             from_qualified_investor?: boolean | null;
             /** Notes */
             notes?: string | null;
+            opt_out_criteria?: components["schemas"]["OptOutCriteria"] | null;
             /**
              * To Classification
              * @enum {string}
@@ -8624,6 +9966,8 @@ export interface components {
             client_requested: number;
             /** Created At */
             created_at: string;
+            /** Document Id */
+            document_id?: string | null;
             /** Documented At */
             documented_at: string;
             /** Documented By */
@@ -8640,12 +9984,39 @@ export interface components {
             id: string;
             /** Notes */
             notes: string | null;
+            /** Opt Out Criteria Json */
+            opt_out_criteria_json?: string | null;
             /** To Classification */
             to_classification: string;
             /** To Professional Opt Out */
             to_professional_opt_out?: number | null;
             /** To Qualified Investor */
             to_qualified_investor?: number | null;
+        };
+        /**
+         * OptOutCriteria
+         * @description H8 Luecke 7: Kriterien-Checkliste fuer ein Opting-out nach Art. 5 FIDLEG
+         *     (vermoegende Privatkunden erklaeren, als professionelle Kunden gelten zu
+         *     wollen). Kriterien gemaess Art. 5 Abs. 2 FIDLEG [Compliance pruefen]:
+         *     lit. a Kenntnisse aus Ausbildung/Berufserfahrung UND anrechenbares
+         *     Vermoegen von mindestens CHF 500 000, oder lit. b anrechenbares Vermoegen
+         *     von mindestens CHF 2 Mio. Ares prueft nicht das Vermoegen selbst, sondern
+         *     verlangt die dokumentierte Bestaetigung je Kriterium.
+         */
+        OptOutCriteria: {
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "kenntnisse_und_vermoegen_500k" | "vermoegen_2mio";
+            /** Client Informed Of Protection Loss */
+            client_informed_of_protection_loss: boolean;
+            /** Declaration In Text Form */
+            declaration_in_text_form: boolean;
+            /** Eligible Assets Verified */
+            eligible_assets_verified: boolean;
+            /** Knowledge Basis */
+            knowledge_basis?: string | null;
         };
         /**
          * OptimizerConstraintResponse
@@ -9138,22 +10509,107 @@ export interface components {
             currency?: string;
             /** Currency Exposure Json */
             currency_exposure_json?: string | null;
+            /**
+             * Distribution Policy
+             * @description Ausschuettungsart: thesaurierend (accumulating) oder ausschuettend.
+             */
+            distribution_policy?: ("accumulating" | "distributing") | null;
+            /**
+             * Domicile
+             * @description Fondsdomizil, ISO 3166-1 alpha-2 (z.B. 'IE', 'LU').
+             */
+            domicile?: string | null;
             /** Duration Years X10 */
             duration_years_x10?: number | null;
             /** Esg Rating */
             esg_rating?: string | null;
             /** Esg Score X10 */
             esg_score_x10?: number | null;
+            /**
+             * Gating Terms
+             * @description Gating-Bedingungen (Freitext, optional).
+             */
+            gating_terms?: string | null;
+            /**
+             * Has Gating
+             * @description Gating/Ruecknahmebeschraenkung moeglich.
+             */
+            has_gating?: boolean | null;
+            /**
+             * Hedge Currency
+             * @description Waehrung der Absicherung (ISO 4217), nur bei is_hedged=true.
+             */
+            hedge_currency?: string | null;
+            /**
+             * Internal Product Id
+             * @description Interne, tenant-eindeutige Produkt-ID (Pflicht bei unlisted ohne ISIN).
+             */
+            internal_product_id?: string | null;
+            /**
+             * Is Hedged
+             * @description Anteilsklasse waehrungsgesichert; None = nicht erfasst.
+             */
+            is_hedged?: boolean | null;
+            /**
+             * Is House Product
+             * @description Haus-/Eigenprodukt der Verwaltung; None = nicht erfasst.
+             */
+            is_house_product?: boolean | null;
             /** Isin */
             isin?: string | null;
             /** Liquidity Tier */
             liquidity_tier?: string | null;
+            /**
+             * Listing Status
+             * @description Kotiert (listed, ISIN Pflicht) oder nicht kotiert (unlisted, ohne ISIN interne ID Pflicht).
+             */
+            listing_status?: ("listed" | "unlisted") | null;
+            /**
+             * Minimum Investment Minor Units
+             * @description Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).
+             */
+            minimum_investment_minor_units?: number | null;
+            /**
+             * Nav As Of
+             * @description Stichtag des zuletzt gepflegten NAV (YYYY-MM-DD).
+             */
+            nav_as_of?: string | null;
+            /**
+             * Nav Frequency
+             * @description NAV-Rhythmus (taeglich/woechentlich/monatlich/quartalsweise).
+             */
+            nav_frequency?: ("daily" | "weekly" | "monthly" | "quarterly") | null;
+            /**
+             * Notice Period Days
+             * @description Kuendigungsfrist in Kalendertagen.
+             */
+            notice_period_days?: number | null;
+            /**
+             * Price Source
+             * @description Bewertungsquelle: Boersenkurs, manuell gepflegter NAV oder Anbieter-NAV.
+             */
+            price_source?: ("market" | "manual_nav" | "provider") | null;
             /** Product Name */
             product_name: string;
             /** Product Type */
             product_type: string;
             /** Provider */
             provider?: string | null;
+            /**
+             * Redemption Period Days
+             * @description Ruecknahmefrist in Kalendertagen (Auszahlung nach Ruecknahme).
+             */
+            redemption_period_days?: number | null;
+            /**
+             * Retrocession Bps
+             * @description Retrozessionssatz in bps p.a. auf dem investierten Volumen. None = UNBEKANNT (gilt nie als retrozessionsfrei), 0 = ausdruecklich retrozessionsfrei.
+             */
+            retrocession_bps?: number | null;
+            /**
+             * Retrocession Source
+             * @description Quelle des Retrozessionssatzes (Pflicht, sobald ein Satz erfasst ist).
+             */
+            retrocession_source?: string | null;
             /** Sector Exposure Json */
             sector_exposure_json?: string | null;
             /** Sfdr Class */
@@ -9185,10 +10641,25 @@ export interface components {
             suitability_service_modes?: ("investment_advice" | "portfolio_management" | "financial_planning" | "reporting_only")[];
             /** Symbol */
             symbol?: string | null;
+            /**
+             * Ter As Of
+             * @description Stichtag der TER (YYYY-MM-DD).
+             */
+            ter_as_of?: string | null;
             /** Ter Bps */
             ter_bps?: number | null;
+            /**
+             * Ter Source
+             * @description Quelle der TER (z.B. Basisinformationsblatt, Factsheet).
+             */
+            ter_source?: string | null;
             /** Theme Tags */
             theme_tags?: string | null;
+            /**
+             * Valor
+             * @description Valorennummer (optional, nur Ziffern).
+             */
+            valor?: string | null;
         };
         /**
          * ProductEligibilityApprovalRequest
@@ -9304,6 +10775,8 @@ export interface components {
         /** ProductIdMappingBatchItem */
         ProductIdMappingBatchItem: {
             applied_candidate?: components["schemas"]["ProductIdMappingCandidate"] | null;
+            /** Candidates */
+            candidates?: components["schemas"]["ProductIdMappingCandidate"][];
             /** Detail */
             detail?: string | null;
             /** Isin */
@@ -9321,6 +10794,10 @@ export interface components {
             composite_figi?: string | null;
             /** Exch Code */
             exch_code?: string | null;
+            /** Exchange Code */
+            exchange_code?: string | null;
+            /** Exchange Code Status */
+            exchange_code_status?: string | null;
             /** Figi */
             figi?: string | null;
             /** Market Sector */
@@ -9385,6 +10862,8 @@ export interface components {
         };
         /** ProductImportResultItem */
         ProductImportResultItem: {
+            /** Eligibility Note */
+            eligibility_note?: string | null;
             /** Error */
             error?: string | null;
             /** Product Id */
@@ -9590,6 +11069,10 @@ export interface components {
             currency: string;
             /** Currency Exposure Json */
             currency_exposure_json?: string | null;
+            /** Distribution Policy */
+            distribution_policy?: string | null;
+            /** Domicile */
+            domicile?: string | null;
             /** Duration Years X10 */
             duration_years_x10?: number | null;
             /** Esg Data Seed Fields */
@@ -9604,14 +11087,35 @@ export interface components {
             exchange_code?: string | null;
             /** Figi */
             figi?: string | null;
+            /** Gating Terms */
+            gating_terms?: string | null;
+            /** Has Gating */
+            has_gating?: boolean | null;
+            /** Hedge Currency */
+            hedge_currency?: string | null;
             /** Id */
             id: string;
+            /** Internal Product Id */
+            internal_product_id?: string | null;
             /** Is Active */
             is_active: number;
+            /** Is Hedged */
+            is_hedged?: boolean | null;
+            /** Is House Product */
+            is_house_product?: boolean | null;
             /** Isin */
             isin: string | null;
+            /**
+             * Isin Status
+             * @description 'missing' (keine ISIN), 'invalid' (Altbestand mit formal
+             *     ungueltiger ISIN/Pruefziffer) oder 'valid'.
+             * @enum {string}
+             */
+            readonly isin_status: "valid" | "invalid" | "missing";
             /** Liquidity Tier */
             liquidity_tier?: string | null;
+            /** Listing Status */
+            listing_status?: string | null;
             /** Lookup Mode Override */
             lookup_mode_override?: string | null;
             /** Lookup Symbol Override */
@@ -9622,16 +11126,45 @@ export interface components {
             mapping_resolved_at?: string | null;
             /** Market Sector */
             market_sector?: string | null;
+            /**
+             * Master Data Gaps
+             * @description Fehlende/ungueltige Pflicht-Stammdaten nach PO-6 (nur Anzeige,
+             *     in P1 keine Sperre).
+             */
+            readonly master_data_gaps: string[];
+            /** Minimum Investment Minor Units */
+            minimum_investment_minor_units?: number | null;
+            /** Nav As Of */
+            nav_as_of?: string | null;
+            /** Nav Frequency */
+            nav_frequency?: string | null;
+            /** Notice Period Days */
+            notice_period_days?: number | null;
+            /** Price Source */
+            price_source?: string | null;
             /** Product Name */
             product_name: string;
             /** Product Type */
             product_type: string;
             /** Provider */
             provider: string | null;
+            /** Redemption Period Days */
+            redemption_period_days?: number | null;
             /** Reference Data Provider */
             reference_data_provider?: string | null;
             /** Reference Data Refreshed At */
             reference_data_refreshed_at?: string | null;
+            /** Retrocession Bps */
+            retrocession_bps?: number | null;
+            /** Retrocession Source */
+            retrocession_source?: string | null;
+            /**
+             * Retrocession Status
+             * @description 'unknown' = kein Satz erfasst (gilt NIE als retrozessionsfrei),
+             *     'none' = ausdruecklich 0 bps, 'present' = Satz > 0.
+             * @enum {string}
+             */
+            readonly retrocession_status: "unknown" | "none" | "present";
             /** Sector Exposure Json */
             sector_exposure_json?: string | null;
             /** Security Type */
@@ -9648,12 +11181,462 @@ export interface components {
             symbol: string | null;
             /** Tenant Id */
             tenant_id?: string | null;
+            /** Ter As Of */
+            ter_as_of?: string | null;
             /** Ter Bps */
             ter_bps: number | null;
+            /** Ter Source */
+            ter_source?: string | null;
             /** Theme Tags */
             theme_tags?: string[] | null;
             /** Updated At */
             updated_at: string;
+            /** Valor */
+            valor?: string | null;
+        };
+        /**
+         * ProductRetrocessionDisclosure
+         * @description AUDIT-2026-11 P1 (L1): produktgebundene Retrozessions-Offenlegung
+         *     (Art. 26 FIDLEG). Fehlt bei Nachweisen, die vor P1 eingefroren wurden.
+         */
+        ProductRetrocessionDisclosure: {
+            /**
+             * Complete
+             * @default false
+             */
+            complete?: boolean;
+            /**
+             * Legal Reference
+             * @default
+             */
+            legal_reference?: string;
+            /** Lines */
+            lines?: components["schemas"]["ProductRetrocessionLine"][];
+            /**
+             * Present Count
+             * @default 0
+             */
+            present_count?: number;
+            /**
+             * Schema Version
+             * @default 1
+             */
+            schema_version?: number;
+            /**
+             * Unknown Count
+             * @default 0
+             */
+            unknown_count?: number;
+            /**
+             * Unresolved Count
+             * @default 0
+             */
+            unresolved_count?: number;
+        };
+        /**
+         * ProductRetrocessionLine
+         * @description AUDIT-2026-11 P1 (L1): Retrozession je empfohlenem Produkt.
+         */
+        ProductRetrocessionLine: {
+            /**
+             * Amount Rappen
+             * @description Investiertes Volumen des Produkts im Vorschlag
+             * @default 0
+             */
+            amount_rappen?: number;
+            /**
+             * Covered By Mandate Entry
+             * @description True, wenn die manuelle Retrozessions-Zeile des Mandats (gleicher Anbieter) die Offenlegungszeile ist -- dann entsteht keine zweite Kostenzeile.
+             * @default false
+             */
+            covered_by_mandate_entry?: boolean;
+            /**
+             * Estimated Annual Rappen
+             * @description Geschaetzter Jahresbetrag (Satz x Volumen); None bei unbekanntem Satz
+             */
+            estimated_annual_rappen?: number | null;
+            /** Isin */
+            isin?: string | null;
+            /**
+             * Mandate Disclosed Other Rappen
+             * @description Einmalig oder ohne Frequenz offengelegter Mandatsbetrag (anteilig); deckt die jaehrliche Retrozession nicht und gilt nicht als aufgeklaert (N-861-8)
+             */
+            mandate_disclosed_other_rappen?: number | null;
+            /**
+             * Mandate Disclosed Rappen
+             * @description Anteil des im Mandat aufgeklaerten (offengelegten) Betrags
+             */
+            mandate_disclosed_rappen?: number | null;
+            /**
+             * Mandate Resolved Rappen
+             * @description Davon geregelt (zurueckerstattet oder Verzicht belegt, jaehrlich)
+             */
+            mandate_resolved_rappen?: number | null;
+            /** Product Id */
+            product_id?: string | null;
+            /** Product Name */
+            product_name: string;
+            /** Provider */
+            provider?: string | null;
+            /**
+             * Rate Bps
+             * @description Retrozessionssatz p.a.; None = unbekannt (gilt nie als retrozessionsfrei)
+             */
+            rate_bps?: number | null;
+            /**
+             * Requires Resolution
+             * @default false
+             */
+            requires_resolution?: boolean;
+            /** Source */
+            source?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "unknown" | "none" | "present";
+            /**
+             * Treatment
+             * @enum {string}
+             */
+            treatment: "reimbursed" | "waiver_documented" | "partially_covered" | "unresolved" | "not_applicable" | "unknown";
+            /** Treatment Label */
+            treatment_label: string;
+            /**
+             * Undisclosed Rappen
+             * @description Geschaetzter, durch keine Mandatszeile offengelegter Teil (eigene Kostenzeile)
+             */
+            undisclosed_rappen?: number | null;
+            /**
+             * Unresolved Rappen
+             * @description Geschaetzter, nicht geregelter Rest (requires_resolution, wenn > 0)
+             */
+            unresolved_rappen?: number | null;
+        };
+        /**
+         * ProductSustainabilityApprovalRequest
+         * @description Standard Vier-Augen (leerer Body). Einzelberater-Ausnahme wie bei den
+         *     Eignungsregeln: Attest + Begruendung; der Server prueft, dass der Tenant
+         *     genau eine freigabeberechtigte Person hat.
+         */
+        ProductSustainabilityApprovalRequest: {
+            /** Attestation Reason */
+            attestation_reason?: string | null;
+            /**
+             * Single Approver Attestation
+             * @default false
+             */
+            single_approver_attestation?: boolean;
+        };
+        /** ProductSustainabilityApprovalResponse */
+        ProductSustainabilityApprovalResponse: {
+            /** Approval Mode */
+            approval_mode: string;
+            /** Approved Ids */
+            approved_ids: string[];
+            /** Retired Ids */
+            retired_ids: string[];
+        };
+        /**
+         * ProductSustainabilityAttributeCreate
+         * @description Neuer Nachweis (immer als Entwurf). ``scope='global'`` = Plattform-
+         *     Nachweis eines globalen Katalogfonds (Multi-Tenant: nur super_admin).
+         *     Es gibt bewusst keinen Quellentyp fuer Seed-/Default-Werte (T-E2).
+         */
+        ProductSustainabilityAttributeCreate: {
+            /**
+             * As Of
+             * Format: date
+             */
+            as_of: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "controversial_weapons" | "conventional_weapons" | "weapons" | "tobacco" | "thermal_coal" | "fossil_fuels" | "gambling" | "adult_entertainment" | "alcohol" | "nuclear_power" | "animal_testing" | "ungc_violation" | "sfdr_classification" | "impact_theme";
+            /**
+             * Client Source Label
+             * @description Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.
+             */
+            client_source_label?: ("prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis") | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "exclusion_policy" | "measured_exposure" | "certification" | "classification";
+            /** Measured Exposure Bps */
+            measured_exposure_bps?: number | null;
+            /** Note */
+            note?: string | null;
+            /** Revenue Threshold Bps */
+            revenue_threshold_bps?: number | null;
+            /**
+             * Scope
+             * @default tenant
+             * @enum {string}
+             */
+            scope?: "tenant" | "global";
+            /** Source Document Date */
+            source_document_date?: string | null;
+            /** Source Document Sha256 */
+            source_document_sha256?: string | null;
+            /** Source Document Title */
+            source_document_title?: string | null;
+            /** Source Document Version */
+            source_document_version?: string | null;
+            /** Source Provider */
+            source_provider?: string | null;
+            /** Source Reference */
+            source_reference: string;
+            /** Source Retrieved On */
+            source_retrieved_on?: string | null;
+            /**
+             * Source Type
+             * @enum {string}
+             */
+            source_type: "prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis";
+            /**
+             * Valid Until
+             * @description Leer = Stichtag + 12 Monate (T-E3); laenger ist nicht zulaessig.
+             */
+            valid_until?: string | null;
+            /** Value */
+            value?: string | null;
+        };
+        /**
+         * ProductSustainabilityAttributeImportItem
+         * @description Import-Zeile: Produkt ueber product_id ODER isin.
+         */
+        ProductSustainabilityAttributeImportItem: {
+            /**
+             * As Of
+             * Format: date
+             */
+            as_of: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "controversial_weapons" | "conventional_weapons" | "weapons" | "tobacco" | "thermal_coal" | "fossil_fuels" | "gambling" | "adult_entertainment" | "alcohol" | "nuclear_power" | "animal_testing" | "ungc_violation" | "sfdr_classification" | "impact_theme";
+            /**
+             * Client Source Label
+             * @description Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.
+             */
+            client_source_label?: ("prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis") | null;
+            /** Isin */
+            isin?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "exclusion_policy" | "measured_exposure" | "certification" | "classification";
+            /** Measured Exposure Bps */
+            measured_exposure_bps?: number | null;
+            /** Note */
+            note?: string | null;
+            /** Product Id */
+            product_id?: string | null;
+            /** Revenue Threshold Bps */
+            revenue_threshold_bps?: number | null;
+            /**
+             * Scope
+             * @default tenant
+             * @enum {string}
+             */
+            scope?: "tenant" | "global";
+            /** Source Document Date */
+            source_document_date?: string | null;
+            /** Source Document Sha256 */
+            source_document_sha256?: string | null;
+            /** Source Document Title */
+            source_document_title?: string | null;
+            /** Source Document Version */
+            source_document_version?: string | null;
+            /** Source Provider */
+            source_provider?: string | null;
+            /** Source Reference */
+            source_reference: string;
+            /** Source Retrieved On */
+            source_retrieved_on?: string | null;
+            /**
+             * Source Type
+             * @enum {string}
+             */
+            source_type: "prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis";
+            /**
+             * Valid Until
+             * @description Leer = Stichtag + 12 Monate (T-E3); laenger ist nicht zulaessig.
+             */
+            valid_until?: string | null;
+            /** Value */
+            value?: string | null;
+        };
+        /** ProductSustainabilityAttributeImportRequest */
+        ProductSustainabilityAttributeImportRequest: {
+            /** Attributes */
+            attributes: components["schemas"]["ProductSustainabilityAttributeImportItem"][];
+        };
+        /** ProductSustainabilityAttributeResponse */
+        ProductSustainabilityAttributeResponse: {
+            /** Approval Mode */
+            approval_mode?: string | null;
+            /** Approved At */
+            approved_at?: string | null;
+            /** Approved By */
+            approved_by?: string | null;
+            /** As Of */
+            as_of: string;
+            /** Category */
+            category: string;
+            /** Client Source Label */
+            client_source_label?: string | null;
+            /** Client Source Label Text */
+            client_source_label_text?: string | null;
+            /** Created At */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /**
+             * Evidence Status
+             * @enum {string}
+             */
+            evidence_status: "draft" | "retired" | "not_yet_valid" | "expired" | "valid";
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Measured Exposure Bps */
+            measured_exposure_bps?: number | null;
+            /** Note */
+            note?: string | null;
+            /** Product Id */
+            product_id: string;
+            /** Retired At */
+            retired_at?: string | null;
+            /** Retired By */
+            retired_by?: string | null;
+            /** Revenue Threshold Bps */
+            revenue_threshold_bps?: number | null;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "tenant" | "global";
+            /** Source Document Date */
+            source_document_date?: string | null;
+            /** Source Document Sha256 */
+            source_document_sha256?: string | null;
+            /** Source Document Title */
+            source_document_title?: string | null;
+            /** Source Document Version */
+            source_document_version?: string | null;
+            /** Source Provider */
+            source_provider?: string | null;
+            /** Source Reference */
+            source_reference: string;
+            /** Source Retrieved On */
+            source_retrieved_on?: string | null;
+            /** Source Type */
+            source_type: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "approved" | "retired";
+            /** Supersedes Id */
+            supersedes_id?: string | null;
+            /** Tenant Id */
+            tenant_id?: string | null;
+            /** Updated At */
+            updated_at: string;
+            /** Valid Until */
+            valid_until: string;
+            /** Value */
+            value?: string | null;
+        };
+        /**
+         * ProductSustainabilityAttributeUpdate
+         * @description Bearbeiten nur im Entwurf. Kategorie, Art und Scope sind fest (sonst
+         *     neuer Nachweis). Explizites null leert optionale Felder.
+         */
+        ProductSustainabilityAttributeUpdate: {
+            /** As Of */
+            as_of?: string | null;
+            /**
+             * Client Source Label
+             * @description Wird aus source_type abgeleitet (N-863-8); eine abweichende Angabe ergibt 422.
+             */
+            client_source_label?: ("prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis") | null;
+            /** Measured Exposure Bps */
+            measured_exposure_bps?: number | null;
+            /** Note */
+            note?: string | null;
+            /** Revenue Threshold Bps */
+            revenue_threshold_bps?: number | null;
+            /** Source Document Date */
+            source_document_date?: string | null;
+            /** Source Document Sha256 */
+            source_document_sha256?: string | null;
+            /** Source Document Title */
+            source_document_title?: string | null;
+            /** Source Document Version */
+            source_document_version?: string | null;
+            /** Source Provider */
+            source_provider?: string | null;
+            /** Source Reference */
+            source_reference?: string | null;
+            /** Source Retrieved On */
+            source_retrieved_on?: string | null;
+            /** Source Type */
+            source_type?: ("prospectus" | "fund_contract" | "kid" | "factsheet" | "provider_exclusion_policy" | "provider_confirmation" | "data_vendor" | "house_analysis") | null;
+            /** Valid Until */
+            valid_until?: string | null;
+            /** Value */
+            value?: string | null;
+        };
+        /** ProductSustainabilityBatchApprovalRequest */
+        ProductSustainabilityBatchApprovalRequest: {
+            /** Attestation Reason */
+            attestation_reason?: string | null;
+            /** Attribute Ids */
+            attribute_ids: string[];
+            /**
+             * Single Approver Attestation
+             * @default false
+             */
+            single_approver_attestation?: boolean;
+        };
+        /** ProductSustainabilityImportResponse */
+        ProductSustainabilityImportResponse: {
+            /** Created */
+            created: number;
+            /** Failed */
+            failed: number;
+            /** Items */
+            items?: components["schemas"]["ProductSustainabilityImportResultItem"][];
+            /** Processed */
+            processed: number;
+        };
+        /** ProductSustainabilityImportResultItem */
+        ProductSustainabilityImportResultItem: {
+            /** Attribute Id */
+            attribute_id?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Product Id */
+            product_id?: string | null;
+            /** Row */
+            row: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "created" | "failed";
+        };
+        /** ProductSustainabilityRetireRequest */
+        ProductSustainabilityRetireRequest: {
+            /** Reason */
+            reason?: string | null;
         };
         /** ProductUniverseEntryCreate */
         ProductUniverseEntryCreate: {
@@ -9706,30 +11689,178 @@ export interface components {
             currency?: string | null;
             /** Currency Exposure Json */
             currency_exposure_json?: string | null;
+            /**
+             * Distribution Policy
+             * @description Ausschuettungsart: thesaurierend (accumulating) oder ausschuettend.
+             */
+            distribution_policy?: ("accumulating" | "distributing") | null;
+            /**
+             * Domicile
+             * @description Fondsdomizil, ISO 3166-1 alpha-2 (z.B. 'IE', 'LU').
+             */
+            domicile?: string | null;
             /** Duration Years X10 */
             duration_years_x10?: number | null;
             /** Esg Rating */
             esg_rating?: string | null;
             /** Esg Score X10 */
             esg_score_x10?: number | null;
+            /**
+             * Gating Terms
+             * @description Gating-Bedingungen (Freitext, optional).
+             */
+            gating_terms?: string | null;
+            /**
+             * Has Gating
+             * @description Gating/Ruecknahmebeschraenkung moeglich.
+             */
+            has_gating?: boolean | null;
+            /**
+             * Hedge Currency
+             * @description Waehrung der Absicherung (ISO 4217), nur bei is_hedged=true.
+             */
+            hedge_currency?: string | null;
+            /**
+             * Internal Product Id
+             * @description Interne, tenant-eindeutige Produkt-ID (Pflicht bei unlisted ohne ISIN).
+             */
+            internal_product_id?: string | null;
             /** Is Active */
             is_active?: number | null;
+            /**
+             * Is Hedged
+             * @description Anteilsklasse waehrungsgesichert; None = nicht erfasst.
+             */
+            is_hedged?: boolean | null;
+            /**
+             * Is House Product
+             * @description Haus-/Eigenprodukt der Verwaltung; None = nicht erfasst.
+             */
+            is_house_product?: boolean | null;
+            /** Isin */
+            isin?: string | null;
             /** Liquidity Tier */
             liquidity_tier?: string | null;
+            /**
+             * Listing Status
+             * @description Kotiert (listed, ISIN Pflicht) oder nicht kotiert (unlisted, ohne ISIN interne ID Pflicht).
+             */
+            listing_status?: ("listed" | "unlisted") | null;
+            /**
+             * Minimum Investment Minor Units
+             * @description Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).
+             */
+            minimum_investment_minor_units?: number | null;
+            /**
+             * Nav As Of
+             * @description Stichtag des zuletzt gepflegten NAV (YYYY-MM-DD).
+             */
+            nav_as_of?: string | null;
+            /**
+             * Nav Frequency
+             * @description NAV-Rhythmus (taeglich/woechentlich/monatlich/quartalsweise).
+             */
+            nav_frequency?: ("daily" | "weekly" | "monthly" | "quarterly") | null;
+            /**
+             * Notice Period Days
+             * @description Kuendigungsfrist in Kalendertagen.
+             */
+            notice_period_days?: number | null;
+            /**
+             * Price Source
+             * @description Bewertungsquelle: Boersenkurs, manuell gepflegter NAV oder Anbieter-NAV.
+             */
+            price_source?: ("market" | "manual_nav" | "provider") | null;
             /** Product Name */
             product_name?: string | null;
+            /** Product Type */
+            product_type?: string | null;
             /** Provider */
             provider?: string | null;
+            /**
+             * Redemption Period Days
+             * @description Ruecknahmefrist in Kalendertagen (Auszahlung nach Ruecknahme).
+             */
+            redemption_period_days?: number | null;
+            /**
+             * Retrocession Bps
+             * @description Retrozessionssatz in bps p.a. auf dem investierten Volumen. None = UNBEKANNT (gilt nie als retrozessionsfrei), 0 = ausdruecklich retrozessionsfrei.
+             */
+            retrocession_bps?: number | null;
+            /**
+             * Retrocession Source
+             * @description Quelle des Retrozessionssatzes (Pflicht, sobald ein Satz erfasst ist).
+             */
+            retrocession_source?: string | null;
             /** Sector Exposure Json */
             sector_exposure_json?: string | null;
             /** Sfdr Class */
             sfdr_class?: ("6" | "8" | "9") | null;
             /** Sub Asset Class */
             sub_asset_class?: string | null;
+            /** Symbol */
+            symbol?: string | null;
+            /**
+             * Ter As Of
+             * @description Stichtag der TER (YYYY-MM-DD).
+             */
+            ter_as_of?: string | null;
             /** Ter Bps */
             ter_bps?: number | null;
+            /**
+             * Ter Source
+             * @description Quelle der TER (z.B. Basisinformationsblatt, Factsheet).
+             */
+            ter_source?: string | null;
             /** Theme Tags */
             theme_tags?: string | null;
+            /**
+             * Valor
+             * @description Valorennummer (optional, nur Ziffern).
+             */
+            valor?: string | null;
+        };
+        /**
+         * RecommendationFinalizeResponse
+         * @description N-856-7 (Pruefrunde #856): Finalize-Antwort = Lauf + Warnungen.
+         *
+         *     ``warnings`` ist identisch zum Audit-Log-Eintrag ("Final; Warnungen:
+         *     ..."), ``warning_codes`` die daraus gelesenen Codes (z. B.
+         *     SAA_BUCKET_DEVIATION, POSITION_LIMIT_EXCEEDED).
+         */
+        RecommendationFinalizeResponse: {
+            /** Assessment Id */
+            assessment_id: string | null;
+            /** Client Id */
+            client_id: string;
+            /** Created At */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /** Id */
+            id: string;
+            /** Mandate Id */
+            mandate_id: string;
+            /** Objective Summary */
+            objective_summary: string | null;
+            /** Other Assets Included */
+            other_assets_included: number;
+            /** Policy Id */
+            policy_id: string;
+            /** Result Status */
+            result_status: string;
+            /** Run Type */
+            run_type: string;
+            /** Target Allocation Id */
+            target_allocation_id: string | null;
+            /** Updated At */
+            updated_at: string;
+            /** Warning Codes */
+            warning_codes?: string[];
+            /** Warnings */
+            warnings?: string[];
+            /** Weighting Regime */
+            weighting_regime: string | null;
         };
         /** RecommendationGenerateRequest */
         RecommendationGenerateRequest: {
@@ -9765,6 +11896,8 @@ export interface components {
             expected_return_bps: number;
             /** Expected Volatility Bps */
             expected_volatility_bps: number;
+            /** Implementation Metrics */
+            implementation_metrics?: Record<string, unknown>;
             /** Implementation Steps */
             implementation_steps: string[];
             /** Investable Advisory Wealth Rappen */
@@ -9780,6 +11913,10 @@ export interface components {
             /** Positions */
             positions: components["schemas"]["RecommendationPositionDetailResponse"][];
             run: components["schemas"]["RecommendationRunResponse"];
+            /** Saa Expected Return Bps */
+            saa_expected_return_bps?: number | null;
+            /** Saa Expected Volatility Bps */
+            saa_expected_volatility_bps?: number | null;
             /** Target Allocation Id */
             target_allocation_id: string;
             /** Warnings */
@@ -10648,6 +12785,122 @@ export interface components {
             /** Warning Delivered At */
             warning_delivered_at: string | null;
         };
+        /** SustainabilityCatalogResponse */
+        SustainabilityCatalogResponse: {
+            /** Categories */
+            categories: components["schemas"]["SustainabilityCategoryInfo"][];
+            /** Client Source Labels */
+            client_source_labels?: {
+                [key: string]: string;
+            };
+            /** Evidence Validity Months */
+            evidence_validity_months: number;
+            /** Sfdr Values */
+            sfdr_values: string[];
+            /** Source Types */
+            source_types: string[];
+            /** Statuses */
+            statuses: string[];
+        };
+        /** SustainabilityCategoryInfo */
+        SustainabilityCategoryInfo: {
+            /** Category */
+            category: string;
+            /**
+             * Criterion Type
+             * @enum {string}
+             */
+            criterion_type: "revenue_threshold" | "conduct" | "classification";
+            /** Default Threshold Bps */
+            default_threshold_bps?: number | null;
+            /** Has House Standard */
+            has_house_standard: boolean;
+            /** Kinds */
+            kinds: string[];
+        };
+        /** SustainabilityStandardItem */
+        SustainabilityStandardItem: {
+            /** Approval Mode */
+            approval_mode?: string | null;
+            /** Approved At */
+            approved_at?: string | null;
+            /** Approved By */
+            approved_by?: string | null;
+            /** Category */
+            category: string;
+            /**
+             * Criterion Type
+             * @enum {string}
+             */
+            criterion_type: "revenue_threshold" | "conduct";
+            /** Default Threshold Bps */
+            default_threshold_bps?: number | null;
+            /** Effective Threshold Bps */
+            effective_threshold_bps?: number | null;
+            /**
+             * Is Disabled
+             * @default false
+             */
+            is_disabled?: boolean;
+            /** Is Overridden */
+            is_overridden: boolean;
+            /** Note */
+            note?: string | null;
+            pending?: components["schemas"]["SustainabilityStandardPending"] | null;
+            /** Standard Id */
+            standard_id?: string | null;
+            /** Tenant Threshold Bps */
+            tenant_threshold_bps?: number | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Updated By */
+            updated_by?: string | null;
+            /** Valid From */
+            valid_from?: string | null;
+        };
+        /**
+         * SustainabilityStandardPending
+         * @description Offene Lockerung (H-1), wirkt erst nach Vier-Augen-Freigabe.
+         */
+        SustainabilityStandardPending: {
+            /** Created At */
+            created_at: string;
+            /** Created By */
+            created_by?: string | null;
+            /** Id */
+            id: string;
+            /** Is Disabled */
+            is_disabled: boolean;
+            /** Max Revenue Threshold Bps */
+            max_revenue_threshold_bps?: number | null;
+            /** Note */
+            note?: string | null;
+        };
+        /**
+         * SustainabilityStandardUpdate
+         * @description Hausschwelle setzen. Bei UN Global Compact gibt es keine
+         *     Umsatzschwelle (null). Schwelle ueber dem T-E1-Default oder
+         *     is_disabled=true ist eine Lockerung und braucht eine Vier-Augen-Freigabe.
+         */
+        SustainabilityStandardUpdate: {
+            /**
+             * Is Disabled
+             * @description Kategorie fuer diese Verwaltung deaktivieren (Lockerung, Vier-Augen-Freigabe).
+             * @default false
+             */
+            is_disabled?: boolean;
+            /** Max Revenue Threshold Bps */
+            max_revenue_threshold_bps?: number | null;
+            /** Note */
+            note?: string | null;
+        };
+        /** SustainabilityStandardsResponse */
+        SustainabilityStandardsResponse: {
+            /** Items */
+            items: components["schemas"]["SustainabilityStandardItem"][];
+            /** Tenant Id */
+            tenant_id?: string | null;
+        };
         /** TargetAllocationCreate */
         TargetAllocationCreate: {
             /** Band Alternatives Max Bps */
@@ -11144,6 +13397,105 @@ export interface components {
             /** Storage Quota Mb */
             storage_quota_mb?: number | null;
         };
+        /** TenantLegalProfileResponse */
+        TenantLegalProfileResponse: {
+            /** Address City */
+            address_city?: string | null;
+            /** Address Country */
+            address_country?: string | null;
+            /** Address Postal Code */
+            address_postal_code?: string | null;
+            /** Address Street */
+            address_street?: string | null;
+            /** Business Activity */
+            business_activity?: string | null;
+            /** Complete */
+            complete: boolean;
+            /** Contact Email */
+            contact_email?: string | null;
+            /** Contact Phone */
+            contact_phone?: string | null;
+            /** Contact Website */
+            contact_website?: string | null;
+            /** Field Labels */
+            field_labels: {
+                [key: string]: string;
+            };
+            /** Legal Name */
+            legal_name?: string | null;
+            /** License Reference */
+            license_reference?: string | null;
+            /** Missing Fields */
+            missing_fields: string[];
+            /** Missing Labels */
+            missing_labels: string[];
+            /** Ombudsman Address */
+            ombudsman_address?: string | null;
+            /** Ombudsman Name */
+            ombudsman_name?: string | null;
+            /** Present */
+            present: boolean;
+            /** Profile Hash */
+            profile_hash?: string | null;
+            /**
+             * Revision
+             * @default 0
+             */
+            revision?: number;
+            /** Supervision Labels */
+            supervision_labels: {
+                [key: string]: string;
+            };
+            /** Supervision Type */
+            supervision_type?: string | null;
+            /** Supervisory Authority */
+            supervisory_authority?: string | null;
+            /** Supervisory Organisation */
+            supervisory_organisation?: string | null;
+            /** Tenant Id */
+            tenant_id: string;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Updated By */
+            updated_by?: string | null;
+        };
+        /**
+         * TenantLegalProfileUpdate
+         * @description Teil-Update der rechtlichen Angaben (nur gesetzte Felder). Leerer
+         *     String loescht eine Angabe. Kein Feld hat einen Vorgabewert.
+         */
+        TenantLegalProfileUpdate: {
+            /** Address City */
+            address_city?: string | null;
+            /** Address Country */
+            address_country?: string | null;
+            /** Address Postal Code */
+            address_postal_code?: string | null;
+            /** Address Street */
+            address_street?: string | null;
+            /** Business Activity */
+            business_activity?: string | null;
+            /** Contact Email */
+            contact_email?: string | null;
+            /** Contact Phone */
+            contact_phone?: string | null;
+            /** Contact Website */
+            contact_website?: string | null;
+            /** Legal Name */
+            legal_name?: string | null;
+            /** License Reference */
+            license_reference?: string | null;
+            /** Ombudsman Address */
+            ombudsman_address?: string | null;
+            /** Ombudsman Name */
+            ombudsman_name?: string | null;
+            /** Supervision Type */
+            supervision_type?: ("vermoegensverwalter_finig" | "andere_finma_bewilligung" | "anlageberater_ohne_prudenzielle_aufsicht" | "") | null;
+            /** Supervisory Authority */
+            supervisory_authority?: string | null;
+            /** Supervisory Organisation */
+            supervisory_organisation?: string | null;
+        };
         /**
          * TenantResponse
          * @description Public Tenant-Response fuer API-Endpoints.
@@ -11324,6 +13676,17 @@ export interface components {
             token_type?: string;
             user: components["schemas"]["UserResponse"];
         };
+        /**
+         * UserCompromise
+         * @description N-897-13: ausdruecklicher Widerruf eines Kontos wegen (Verdacht auf)
+         *     Kompromittierung. Freigaben ab ``compromised_since`` gelten nicht mehr.
+         */
+        UserCompromise: {
+            /** Compromised Since */
+            compromised_since: string;
+            /** Reason */
+            reason: string;
+        };
         /** UserCreate */
         UserCreate: {
             /** Email */
@@ -11337,7 +13700,7 @@ export interface components {
              * @default advisor
              * @enum {string}
              */
-            role?: "admin" | "advisor" | "readonly" | "portfolio_management";
+            role?: "admin" | "advisor" | "readonly" | "portfolio_management" | "compliance_reviewer";
             /** Tenant Id */
             tenant_id?: string | null;
             /** Username */
@@ -11350,8 +13713,14 @@ export interface components {
         };
         /** UserResponse */
         UserResponse: {
+            /** Activated At */
+            activated_at?: string | null;
+            /** Compromised Since */
+            compromised_since?: string | null;
             /** Created At */
             created_at: string;
+            /** Credentials Set By */
+            credentials_set_by?: string | null;
             /** Email */
             email: string | null;
             /** Full Name */
@@ -11363,6 +13732,10 @@ export interface components {
              * @default false
              */
             invite_pending?: boolean;
+            /** Invited At */
+            invited_at?: string | null;
+            /** Invited By */
+            invited_by?: string | null;
             /** Is Active */
             is_active: number;
             /** Last Login At */
@@ -11372,6 +13745,10 @@ export interface components {
              * @default 0
              */
             must_change_password?: number;
+            /** Reviewer Organisation */
+            reviewer_organisation?: string | null;
+            /** Reviewer Reference */
+            reviewer_reference?: string | null;
             /** Role */
             role: string;
             /**
@@ -11379,6 +13756,8 @@ export interface components {
              * @default 0
              */
             totp_enabled?: number;
+            /** Totp Set By */
+            totp_set_by?: string | null;
             /** Username */
             username: string;
         };
@@ -11391,7 +13770,7 @@ export interface components {
             /** Is Active */
             is_active?: boolean | null;
             /** Role */
-            role?: ("admin" | "advisor" | "readonly" | "portfolio_management") | null;
+            role?: ("admin" | "advisor" | "readonly" | "portfolio_management" | "compliance_reviewer") | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -12457,6 +14836,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_audit_log_chain_admin_system_audit_log_verify_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditChainVerification"];
                 };
             };
         };
@@ -14398,6 +16797,108 @@ export interface operations {
             };
         };
     };
+    list_kyc_confirmations_clients__client_id__kyc_confirmations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycConfirmationResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_kyc_confirmation_clients__client_id__kyc_confirmations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KycConfirmationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycConfirmationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_kyc_confirmation_clients__client_id__kyc_confirmations__confirmation_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+                confirmation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KycConfirmationApprovalCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycConfirmationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_mandates_clients__client_id__mandates_get: {
         parameters: {
             query?: never;
@@ -14583,6 +17084,108 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OptHistoryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_representations_clients__client_id__representations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientRepresentationResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_representation_clients__client_id__representations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientRepresentationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientRepresentationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_representation_clients__client_id__representations__representation_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                client_id: string;
+                representation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientRepresentationRevoke"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientRepresentationResponse"];
                 };
             };
             /** @description Validation Error */
@@ -15182,6 +17785,213 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CmaPolicyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_pending_kyc_approvals_compliance_kyc_approvals_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycPendingApprovalList"];
+                };
+            };
+        };
+    };
+    decide_kyc_second_approval_compliance_kyc_approvals__confirmation_id__decision_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                confirmation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KycSecondApprovalDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycSecondApprovalDecisionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_kyc_review_policies_compliance_kyc_review_policies_get: {
+        parameters: {
+            query?: {
+                jurisdiction?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycReviewPolicyOverview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_kyc_review_policy_compliance_kyc_review_policies_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KycReviewPolicyCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycReviewPolicyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    activate_kyc_review_policy_compliance_kyc_review_policies__policy_row_id__activate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy_row_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KycReviewPolicyActivate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KycReviewPolicyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_tenant_legal_profile_compliance_legal_profile_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantLegalProfileResponse"];
+                };
+            };
+        };
+    };
+    update_tenant_legal_profile_compliance_legal_profile_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantLegalProfileUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantLegalProfileResponse"];
                 };
             };
             /** @description Validation Error */
@@ -15996,6 +18806,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    record_client_information_delivery_mandates__mandate_id__client_information_deliveries_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientInformationDeliveryCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientInformationDeliveryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_client_onboarding_status_mandates__mandate_id__client_onboarding_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientOnboardingStatusResponse"];
                 };
             };
             /** @description Validation Error */
@@ -17807,7 +20683,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RecommendationRunResponse"];
+                    "application/json": components["schemas"]["RecommendationFinalizeResponse"];
                 };
             };
             /** @description Validation Error */
@@ -18366,6 +21242,37 @@ export interface operations {
             query?: {
                 analysis_snapshot_id?: string | null;
             };
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_kundeninformation_pdf_mandates__mandate_id__reports_kundeninformation_pdf_get: {
+        parameters: {
+            query?: never;
             header?: never;
             path: {
                 mandate_id: string;
@@ -19729,6 +22636,39 @@ export interface operations {
             };
         };
     };
+    propose_retention_baseline_privacy_policies_baseline_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BaselineProposal"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     approve_policy_privacy_policies__policy_id__approve_post: {
         parameters: {
             query?: never;
@@ -20201,6 +23141,26 @@ export interface operations {
             };
         };
     };
+    export_products_csv_products_export_csv_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     import_products_bulk_products_import_post: {
         parameters: {
             query?: never;
@@ -20406,6 +23366,476 @@ export interface operations {
             };
         };
     };
+    list_sustainability_attributes_products_sustainability_attributes_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                category?: string | null;
+                product_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityAttributeResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_sustainability_attributes_batch_products_sustainability_attributes_approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityBatchApprovalRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityApprovalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_sustainability_attributes_products_sustainability_attributes_export_get: {
+        parameters: {
+            query?: {
+                format?: string;
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_sustainability_attributes_products_sustainability_attributes_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityAttributeImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityImportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_import_sustainability_attributes_csv_products_sustainability_attributes_import_csv_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityImportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_sustainability_attribute_draft_products_sustainability_attributes__attribute_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attribute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_sustainability_attribute_products_sustainability_attributes__attribute_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attribute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityAttributeUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityAttributeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_sustainability_attribute_endpoint_products_sustainability_attributes__attribute_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attribute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityApprovalRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityApprovalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retire_sustainability_attribute_endpoint_products_sustainability_attributes__attribute_id__retire_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attribute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityRetireRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityAttributeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_sustainability_catalog_products_sustainability_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityCatalogResponse"];
+                };
+            };
+        };
+    };
+    get_sustainability_standards_products_sustainability_standards_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityStandardsResponse"];
+                };
+            };
+        };
+    };
+    set_sustainability_standard_endpoint_products_sustainability_standards__category__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SustainabilityStandardUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityStandardsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_sustainability_standard_endpoint_products_sustainability_standards__category__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityStandardsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_sustainability_standard_endpoint_products_sustainability_standards__category__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityApprovalRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityStandardsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discard_sustainability_standard_endpoint_products_sustainability_standards__category__pending_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                category: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SustainabilityStandardsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     update_product_products__product_id__put: {
         parameters: {
             query?: never;
@@ -20498,6 +23928,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProductMarketOverrideResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_product_sustainability_attributes_products__product_id__sustainability_attributes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityAttributeResponse"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_product_sustainability_attribute_products__product_id__sustainability_attributes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                product_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductSustainabilityAttributeCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductSustainabilityAttributeResponse"];
                 };
             };
             /** @description Validation Error */
@@ -21071,6 +24567,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdviserRegistrationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    compromise_user_users__user_id__compromise_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserCompromise"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
                 };
             };
             /** @description Validation Error */

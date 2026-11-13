@@ -6,6 +6,7 @@ Berater-Signatur gegen den Sign-Endpoint verdrahtet ist.
 """
 
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 FRONTEND = (
@@ -17,7 +18,7 @@ FRONTEND = (
 
 
 def _html() -> str:
-    return FRONTEND.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def test_risk_profile_card_present_in_summary():

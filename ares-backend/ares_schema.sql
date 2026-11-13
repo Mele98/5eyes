@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS users (
     full_name           TEXT NOT NULL,
     email               TEXT COLLATE NOCASE,
     role                TEXT NOT NULL DEFAULT 'advisor'
-                        CHECK(role IN ('admin', 'advisor', 'readonly', 'super_admin', 'portfolio_management', 'client')),
+                        CHECK(role IN ('admin', 'advisor', 'readonly', 'super_admin', 'portfolio_management', 'client', 'compliance_reviewer')),
     is_active           INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
     last_login_at       TEXT,
     created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -156,7 +156,14 @@ CREATE TABLE IF NOT EXISTS client_opt_history (
                             'Opt-out zu Privatkunde',
                             'Opt-in zu Professionell',
                             'Qualifizierter Anleger bestätigt',
-                            'Klassifizierung überprüft')),
+                            'Klassifizierung überprüft',
+                            -- N-890-13 (H8): Bezeichnungen gemaess FIDLEG; die
+                            -- beiden vertauschten Altwerte oben bleiben nur fuer
+                            -- Bestandszeilen gueltig (API nimmt sie nicht mehr an).
+                            'Opting-out zu Professionell',
+                            'Opting-out zu Institutionell',
+                            'Opting-in zu Privatkunde',
+                            'Opting-in zu Professionell')),
     from_classification TEXT NOT NULL,
     to_classification   TEXT NOT NULL,
     client_requested    INTEGER NOT NULL DEFAULT 1 CHECK(client_requested IN (0,1)),
@@ -1469,7 +1476,10 @@ CREATE TABLE IF NOT EXISTS contract_documents (
                         -- 2026-10-09): Standalone-Kostenausweis wird jetzt
                         -- render-once/archive-once via archive_generated_pdf()
                         -- archiviert, siehe schemas/review.py::ContractDocumentCreate.
-                        'Kostenausweis')),
+                        'Kostenausweis',
+                        -- H8 C-2 (2026-11-07): Kundeninformation Art. 8/9 FIDLEG,
+                        -- archiviert via archive_generated_pdf() (Abgabenachweis).
+                        'Kundeninformation')),
     title           TEXT NOT NULL,
     content_json    TEXT CHECK(content_json IS NULL OR json_valid(content_json)),
     pdf_path        TEXT,
@@ -1702,7 +1712,11 @@ CREATE TABLE IF NOT EXISTS audit_log (
         'INVITE_ACCEPT','INVITE_RESEND','INVITE_REVOKE','MARKET_DATA_PURGE',
         'MARKET_DATA_REFRESH','OPTIMIZER_MODE_CHANGE','PASSWORD_CHANGE',
         'PASSWORD_RESET_CONFIRM','PASSWORD_RESET_REQUEST','REPLACE',
-        'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT'
+        'REPLACE_ALL','SENSITIVITY','SUPPORT_BUNDLE','UPSERT','COMPROMISE','INSERT','lifecycle_decision'
+        -- C-890-01 N-897-15: 'COMPROMISE' (Widerruf wegen Kompromittierung),
+        -- 'INSERT' (Eignungs-Override, routers/eligibility_overrides.py) und
+        -- 'lifecycle_decision' (Zielstatus, services/goal_lifecycle_transitions.py)
+        -- -- beide letzteren scheiterten bisher auf echten Installationen.
         -- DSG Art. 32 (2026-08-15): 'CLIENT_ERASE' hinzugefuegt fuer
         -- POST /clients/{id}/erase (services/client_erasure.py).
     )),
@@ -1762,7 +1776,7 @@ CREATE TABLE IF NOT EXISTS system_config (
 );
 
 INSERT OR IGNORE INTO system_config (key, value, description, updated_at, updated_by) VALUES
-('version',                '4.0.0',    '5Eyes App Version',                                              strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL),
+('version',                '4.0.0',    'Ares App Version',                                               strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL),
 ('schema_version',         '4.0.0',    'Datenbankschema Version',                                        strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL),
 ('default_currency',       'CHF',      'Standard-Währung',                                               strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL),
 ('default_language',       'DE',       'Standard-Sprache',                                               strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL),
