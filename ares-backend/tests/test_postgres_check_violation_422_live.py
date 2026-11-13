@@ -10,6 +10,11 @@ Nachtrag 2: ein Konflikt-Zweig nach Router-Muster (``except IntegrityError``
 -> ``raise_if_check_violation`` -> 409) liefert bei echtem psycopg-CHECK 422
 und bei echtem UNIQUE weiterhin 409.
 
+Nachtrag 3 (N-903-06): psycopg 3 meldet SQLSTATE ueber ``sqlstate``; die
+gemeinsame Erkennung greift, und ``check_constraint_label`` (Log des 500-
+Zweigs in routers/profiling.py) nennt nur ``tabelle.constraint`` -- nie den
+Zeileninhalt aus ``DETAIL``.
+
 Eigenes Schema je Test. Ohne ``POSTGRES_TEST_DATABASE_URL`` uebersprungen
 (CI-Job ``postgres-rls``, eigener Schritt mit ``-v``).
 """
@@ -37,7 +42,11 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from core.db_integrity import is_check_constraint_violation, raise_if_check_violation  # noqa: E402
+from core.db_integrity import (  # noqa: E402
+    check_constraint_label,
+    is_check_constraint_violation,
+    raise_if_check_violation,
+)
 from core.middleware import install_exception_handlers  # noqa: E402
 
 SECRET = "geheimer-zeileninhalt"
@@ -142,3 +151,18 @@ def test_conflict_branch_real_postgres_unique_keeps_409(pg_engine):
     r = _conflict_branch_app(pg_engine).post("/branch/1/b")
     assert r.status_code == 409, r.text
     assert r.json()["detail"] == "Eintrag existiert bereits."
+
+
+def test_psycopg3_check_is_detected_and_logged_without_row_values(pg_engine):
+    with pytest.raises(IntegrityError) as caught:
+        with pg_engine.begin() as conn:
+            conn.execute(
+                text("INSERT INTO probe (id, kind, note) VALUES (6, 'zzz', :note)"), {"note": SECRET},
+            )
+    exc = caught.value
+    assert getattr(exc.orig, "sqlstate", None) == "23514"
+    assert SECRET in str(exc.orig)  # Vorbedingung: DETAIL traegt die Zeile
+    assert is_check_constraint_violation(exc)
+    label = check_constraint_label(exc)
+    assert label == "probe.ck_probe_kind", label
+    assert SECRET not in label and "zzz" not in label

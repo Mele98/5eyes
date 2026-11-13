@@ -18,7 +18,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from sqlalchemy.exc import IntegrityError
 
 from config import settings
-from core.db_integrity import is_check_constraint_violation
+from core.db_integrity import check_constraint_label, is_check_constraint_violation
 from core.reason_codes import DomainError, ReasonCode
 
 
@@ -292,17 +292,6 @@ CHECK_CONSTRAINT_VIOLATION_MESSAGE = (
 )
 
 
-def _check_constraint_hint(exc: IntegrityError) -> str:
-    """Constraint-Name (PG) bzw. CHECK-Ausdruck (SQLite) fuer das Log, ohne Werte."""
-    orig = getattr(exc, "orig", None)
-    diag = getattr(orig, "diag", None)
-    name = getattr(diag, "constraint_name", None)
-    table = getattr(diag, "table_name", None)
-    if name or table:
-        return f"{table or '?'}.{name or '?'}"
-    return str(orig if orig is not None else exc).splitlines()[0][:300]
-
-
 def check_constraint_violation_error() -> DomainError:
     return DomainError(
         ReasonCode.DB_CHECK_CONSTRAINT_VIOLATION,
@@ -316,7 +305,7 @@ async def integrity_error_handler(request: Request, exc: IntegrityError) -> Resp
         raise exc
     logger.warning(
         "CHECK-Verletzung als 422 beantwortet | method=%s path=%s constraint=%s",
-        request.method, request.url.path, _check_constraint_hint(exc),
+        request.method, request.url.path, check_constraint_label(exc),
     )
     return await domain_error_handler(request, check_constraint_violation_error())
 

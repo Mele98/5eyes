@@ -20,6 +20,28 @@ def is_check_constraint_violation(exc: BaseException) -> bool:
     return "CHECK constraint failed" in str(orig if orig is not None else exc)
 
 
+def check_constraint_label(exc: BaseException) -> str:
+    """Log-taugliche Bezeichnung des verletzten CHECK, NIE Zeilenwerte.
+
+    PostgreSQL: ``tabelle.constraint`` aus ``diag`` (das ``DETAIL`` mit
+    "Failing row contains (...)" bleibt aussen vor). SQLite: der Constraint-
+    Ausdruck bzw. -Name aus der Meldung "CHECK constraint failed: <...>" (die
+    Meldung enthaelt keine Zeilenwerte), auf 200 Zeichen gekuerzt.
+    """
+    orig = getattr(exc, "orig", None)
+    diag = getattr(orig, "diag", None)
+    name = getattr(diag, "constraint_name", None)
+    table = getattr(diag, "table_name", None)
+    if name or table:
+        return f"{table or '?'}.{name or '?'}"
+    lines = str(orig if orig is not None else exc).splitlines()
+    text = lines[0] if lines else ""
+    prefix = "CHECK constraint failed:"
+    if prefix in text:
+        return text.split(prefix, 1)[1].strip()[:200]
+    return "?"
+
+
 def raise_if_check_violation(exc: BaseException) -> None:
     """In ``except IntegrityError``-Zweigen, die einen Konflikt melden (409
     usw.), ZUERST aufrufen (nach dem Rollback): eine CHECK-Verletzung ist kein
