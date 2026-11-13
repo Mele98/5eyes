@@ -163,6 +163,54 @@ def test_fresh_instance_banner_then_approval_then_market_data_allowed(backend):
     assert json.loads(_call(base, "GET", "/privacy/egress-status", token=token)[1])["approved"] is True
 
 
+def test_missing_owner_values_button_leads_to_the_field(backend):
+    """N-899-17: fehlende Angaben -> Knopf "Angaben ergänzen" fuehrt direkt zum
+    Feld. Der Status ist fuer diesen Fall vorgegeben, alles andere kommt vom
+    echten Backend (Owner-Felder, Panel)."""
+    sync_api = _sync_api()
+    base, token = backend["base"], backend["token"]
+    html = SHELL % {"token": json.dumps(token), "module": MODULE.read_text(encoding="utf-8")}
+    field = "egress.mail.smtp.guarantee"
+    status_body = json.dumps({
+        "approved": False, "is_admin": True, "plain_summary": [
+            "Für E-Mail fehlen noch Angaben (Land/Garantie des Anbieters)."],
+        "action": {"label": "Angaben ergänzen", "field": field}, "data_as_of": {},
+        "blocked_channels": [{"channel_id": "mail.smtp", "reason_code": "EGRESS_GUARANTEE_MISSING",
+                              "reason": "Staat/Garantie/Verschluesselung fehlt"}]})
+
+    def handle(route):
+        url = route.request.url
+        if url.startswith("http://ares.test/api/privacy/egress-status"):
+            route.fulfill(status=200, body=status_body, headers={"Content-Type": "application/json"})
+        elif url.startswith("http://ares.test/api/"):
+            body = route.request.post_data
+            code, raw = _call(base, route.request.method, url[len("http://ares.test/api"):],
+                              json.loads(body) if body else None, token)
+            route.fulfill(status=code, body=raw, headers={"Content-Type": "application/json"})
+        elif url.startswith("http://ares.test/"):
+            route.fulfill(status=200, body=html, headers={"Content-Type": "text/html; charset=utf-8"})
+        else:
+            route.abort()
+
+    with sync_api.sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.route("**/*", handle)
+            page.goto("http://ares.test/app")
+            banner = page.locator("#pg-egress-banner")
+            banner.wait_for(state="visible", timeout=15000)
+            text_ = banner.inner_text()
+            assert "Für E-Mail fehlen noch Angaben (Land/Garantie des Anbieters)." in text_
+            assert "mail.smtp" not in text_ and "Jetzt freigeben" not in text_
+            banner.get_by_role("button", name="Angaben ergänzen").click()
+            page.wait_for_function(
+                "f => document.activeElement && document.activeElement.closest('[data-owner-field=\"' + f + '\"]')",
+                arg=field, timeout=15000)
+        finally:
+            browser.close()
+
+
 def test_ci_runs_this_test_with_playwright_required():
     workflow = (BACKEND.parent / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
     assert "tests/test_e2e_h10_egress_banner_playwright.py" in workflow

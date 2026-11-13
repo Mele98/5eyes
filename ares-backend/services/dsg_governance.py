@@ -181,6 +181,10 @@ PLAIN_OWNER_GAPS = {
 ADVISOR_HINT = "Bitte Administrator informieren."
 
 
+# Bereichsnamen in Einzahl (alle anderen sind Mehrzahl: "Marktdaten sind").
+PLAIN_SINGULAR = frozenset({"E-Mail", "externe Datensicherung", "Datenbank-Server"})
+
+
 def _plain_label(channel_id: str, channel_class: str) -> str:
     return PLAIN_CHANNEL_LABELS.get(channel_id) or PLAIN_CLASS_LABELS.get(channel_class, channel_class)
 
@@ -190,29 +194,50 @@ def _plain_list(labels: list[str]) -> str:
     return unique[0] if len(unique) == 1 else ", ".join(unique[:-1]) + " und " + unique[-1]
 
 
+def _plain_subject(labels: list[str]) -> str:
+    """Aufzaehlung mit passendem Verb: "E-Mail ist", "Marktdaten sind",
+    "E-Mail und Updates sind"."""
+    unique = list(dict.fromkeys(labels))
+    verb = "ist" if len(unique) == 1 and unique[0] in PLAIN_SINGULAR else "sind"
+    return f"{_plain_list(unique)} {verb}"
+
+
 def plain_summary(blocked: list[dict[str, Any]]) -> list[str]:
-    """Saetze in Alltagssprache: zuerst die fehlende/veraltete Freigabe, dann
-    fehlende Owner-Angaben je Bereich."""
+    """N-899-16/-17: Saetze in Alltagssprache. "Nach dem Update" nur bei
+    echtem Wechsel der Manifest-Version; geaenderte Angaben/Ziele eigener
+    Satz; fehlende Freigabe; fehlende Owner-Angaben je Bereich."""
+    def labels(change):
+        return [_plain_label(b["channel_id"], b["class"]) for b in blocked if b.get("change") == change]
+
     lines = []
-    stale = [_plain_label(b["channel_id"], b["class"]) for b in blocked
-             if b["reason_code"] == ReasonCode.EGRESS_HASH_MISMATCH.value]
-    missing = [_plain_label(b["channel_id"], b["class"]) for b in blocked
-               if b["reason_code"] == ReasonCode.EGRESS_MANIFEST_MISSING.value]
-    if stale:
-        verb = "ist" if len(set(stale)) == 1 else "sind"
+    if labels("manifest_update"):
         lines.append("Nach dem Update muss die Datenübermittlung einmal neu freigegeben werden – "
-                     f"{_plain_list(stale)} {verb} bis dahin pausiert.")
-    if missing:
-        verb = "ist" if len(set(missing)) == 1 else "sind"
+                     f"{_plain_subject(labels('manifest_update'))} bis dahin pausiert.")
+    if labels("changed"):
+        lines.append("Angaben zur Datenübermittlung wurden geändert – bitte einmal neu freigeben "
+                     f"({_plain_subject(labels('changed'))} bis dahin pausiert).")
+    if labels("unapproved"):
         lines.append("Die Datenübermittlung muss einmal freigegeben werden – "
-                     f"{_plain_list(missing)} {verb} bis dahin pausiert.")
+                     f"{_plain_subject(labels('unapproved'))} bis dahin pausiert.")
     gaps: dict[str, list[str]] = {}
     for b in blocked:
-        if b["reason_code"] in PLAIN_OWNER_GAPS:
-            gaps.setdefault(b["reason_code"], []).append(_plain_label(b["channel_id"], b["class"]))
-    for code, labels in gaps.items():
-        lines.append(f"Für {_plain_list(labels)} {PLAIN_OWNER_GAPS[code]}.")
+        gap = b.get("owner_block") or b["reason_code"]
+        if gap in PLAIN_OWNER_GAPS:
+            gaps.setdefault(gap, []).append(_plain_label(b["channel_id"], b["class"]))
+    for code, names in gaps.items():
+        lines.append(f"Für {_plain_list(names)} {PLAIN_OWNER_GAPS[code]}.")
     return lines
+
+
+def banner_action(blocked: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Knopf je Fall: fehlende Angaben zuerst (sie gehen in den Fassungs-Hash
+    ein), sonst Freigabe."""
+    if not blocked:
+        return None
+    gap = next((b for b in blocked if b.get("owner_field")), None)
+    if gap:
+        return {"label": "Angaben ergänzen", "field": gap["owner_field"]}
+    return {"label": "Jetzt freigeben", "field": None}
 
 
 def _channel_configured(channel: dict[str, Any]) -> bool:
@@ -260,10 +285,19 @@ def egress_status(db: Any) -> dict[str, Any]:
                 code = ReasonCode.EGRESS_MANIFEST_MISSING.value
             elif state.get("approved_sha256") != state.get("current_sha256"):
                 code = ReasonCode.EGRESS_HASH_MISMATCH.value
-        code = code or state.get("owner_block")
+        change = None
+        if code == ReasonCode.EGRESS_MANIFEST_MISSING.value:
+            change = "unapproved"
+        elif code == ReasonCode.EGRESS_HASH_MISMATCH.value:
+            approved_version = state.get("approved_manifest_version")
+            change = ("manifest_update" if approved_version and approved_version != manifest["manifest_version"]
+                      else "changed")
+        if state.get("owner_block") and not code:
+            code = state.get("owner_block")
         if code:
             blocked.append({"channel_id": channel["id"], "class": channel["class"], "reason_code": code,
-                            "reason": REASON_LABELS.get(code, code)})
+                            "reason": REASON_LABELS.get(code, code), "change": change,
+                            "owner_block": state.get("owner_block"), "owner_field": state.get("owner_field")})
     market_blocked = any(b["class"] == "market_data" for b in blocked)
     data_as_of = {
         "product_prices": db.execute(text("SELECT MAX(price_date) FROM price_history")).scalar(),
@@ -278,6 +312,7 @@ def egress_status(db: Any) -> dict[str, Any]:
         "message": EGRESS_BLOCKED_MESSAGE if blocked else None,
         "plain_summary": plain_summary(blocked),
         "advisor_hint": ADVISOR_HINT if blocked else None,
+        "action": banner_action(blocked),
         "market_data_status": "NOT_UPDATED_EGRESS_BLOCKED" if market_blocked else "EGRESS_APPROVED",
         "market_data_message": MARKET_DATA_NOT_UPDATED if market_blocked else None,
         "data_as_of": data_as_of,

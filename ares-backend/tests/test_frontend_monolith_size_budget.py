@@ -55,7 +55,7 @@ EXTRACTED_PART_BUDGETS = {
     "intro-sequence.js": (761, 36861),
     "goal-review-runtime.js": (1589, 84633),
     "client-compliance.js": (455, 28353),
-    "privacy-governance.js": (504, 35641),
+    "privacy-governance.js": (503, 35259),
 }
 
 

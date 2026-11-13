@@ -33,9 +33,7 @@
 
   function esc(v){
     if (typeof escapeHtml === 'function') return escapeHtml(String(v == null ? '' : v));
-    return String(v == null ? '' : v).replace(/[&<>"']/g, function(c){
-      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
-    });
+    return String(v == null ? '' : v).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; });
   }
   function errText(e, fallback){ return (typeof parseApiError === 'function') ? parseApiError(e, fallback) : fallback; }
   function notify(level, message){
@@ -54,7 +52,7 @@
       + ';color:' + (ok ? 'var(--pos)' : 'var(--neg)') + '">' + esc(ok ? yes : no) + '</span>';
   }
   var L = '<label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">';
-  var BTN = 'style="font-size:10px;padding:3px 10px"';
+  var BTN = 'style="font-size:10px;padding:3px 10px"', TD = '<td style="padding:3px 6px">', FS = 'style="font-size:10px"';
 
   async function run(action, success){
     try {
@@ -93,11 +91,11 @@
   function renderOwnerFields(){
     var rows = state.fields.map(function(f, i){
       var blocking = f.blocking === 'customer_output' ? 'Pflicht (Auskunft)' : (f.blocking === 'channel' ? 'Pflicht für Kanal' : 'Information');
-      return '<tr data-owner-field="' + esc(f.key) + '"><td style="padding:3px 6px">' + esc(f.label)
+      return '<tr data-owner-field="' + esc(f.key) + '">' + TD + esc(f.label)
         + '<div style="font-size:8px;color:var(--n4)">' + esc(f.key) + ' &middot; ' + esc(blocking) + '</div></td>'
-        + '<td style="padding:3px 6px">' + badge(f.status === 'CONFIRMED', 'bestätigt (Rev. ' + f.revision + ')', 'offen') + '</td>'
-        + '<td style="padding:3px 6px"><input class="fi" id="pg-of-' + i + '" value="' + esc(f.value || '') + '" style="font-size:10px;width:100%"></td>'
-        + '<td style="padding:3px 6px"><button class="btn-s" ' + BTN + ' onclick="savePrivacyOwnerField(' + i + ')">Speichern</button></td></tr>';
+        + TD + badge(f.status === 'CONFIRMED', 'bestätigt (Rev. ' + f.revision + ')', 'offen') + '</td>'
+        + TD + '<input class="fi" id="pg-of-' + i + '" value="' + esc(f.value || '') + '" style="font-size:10px;width:100%"></td>'
+        + TD + '<button class="btn-s" ' + BTN + ' onclick="savePrivacyOwnerField(' + i + ')">Speichern</button></td></tr>';
     }).join('');
     return '<div class="admin-section-title" style="margin-top:12px">Angaben des Verantwortlichen</div>'
       + '<div style="font-size:9px;color:var(--n4);margin-bottom:4px">Je Zeile den Wert der Firma eintragen und speichern. Jede Änderung wird versioniert und im Audit-Log festgehalten.</div>'
@@ -130,7 +128,7 @@
     if (!confirmed) {
       var box = document.getElementById('pg-approve-confirm');
       if (box) {
-        box.innerHTML = '<div class="admin-risk-note" style="font-size:10px">Neue Fassung freigeben: '
+        box.innerHTML = '<div class="admin-risk-note" ' + FS + '>Neue Fassung freigeben: '
           + esc(kind === 'egress-manifest' ? 'Egress-Manifest' : 'Verzeichnis der Bearbeitungen')
           + '. Neuer Hash je Eintrag (aktuell / bisher freigegeben):</div><table style="font-size:9px">' + approvalRows(kind) + '</table>'
           + '<button class="btn-p" ' + BTN + ' onclick="approvePrivacyArtifact(\'' + kind + '\', true)">Freigabe bestätigen</button>';
@@ -143,10 +141,11 @@
   }
 
   // ── Banner: Datenuebermittlung gesperrt (jede Seite) ──
-  async function openPrivacyApproval(){
+  async function openPrivacyApproval(field){
     if (typeof openAdminModal === 'function') await openAdminModal();
     if (typeof adminShowSection === 'function') adminShowSection('sec-privacy-gov');
-    await loadPrivacyGovernance();
+    await loadPrivacyGovernance(); // N-899-17: "Angaben ergaenzen" fuehrt direkt zum Feld
+    var input = field && document.querySelector('[data-owner-field="' + field + '"] input'); if (input) { if (input.scrollIntoView) input.scrollIntoView({block: 'center'}); input.focus(); }
   }
 
   async function refreshEgressBanner(){
@@ -167,11 +166,11 @@
       document.body.insertBefore(el, document.body.firstChild);
     }
     // N-899-16: Alltagssprache vorne; Kanal-IDs/Reason-Codes nur in der aufklappbaren Detailansicht.
-    var asOf = status.data_as_of || {}, lines = (status.plain_summary || []).length ? status.plain_summary : [status.message || 'Datenübermittlung pausiert'];
-    var stand = ' <span style="font-size:10px">Datenstand Kurse: ' + esc(asOf.product_prices || asOf.asset_class_prices || 'unbekannt') + ' (' + esc(status.market_data_message || 'nicht aktualisiert') + ').'
+    var act = status.action || {}, asOf = status.data_as_of || {}, lines = (status.plain_summary || []).length ? status.plain_summary : [status.message || 'Datenübermittlung pausiert'];
+    var stand = ' <span ' + FS + '>Datenstand Kurse: ' + esc(asOf.product_prices || asOf.asset_class_prices || 'unbekannt') + ' (' + esc(status.market_data_message || 'nicht aktualisiert') + ').'
       + (asOf.fx_message ? ' Devisen: ' + esc(asOf.fx_message) + '.' : '') + '</span>';
     var details = (status.blocked_channels || []).map(function(c){ return '<li>' + esc(c.channel_id) + ' – gesperrt: ' + esc(c.reason || c.reason_code) + ' (' + esc(c.reason_code) + ')</li>'; }).join('');
-    el.innerHTML = '<b>' + lines.map(esc).join(' ') + '</b> ' + (status.is_admin ? '<button class="btn-p" ' + BTN + ' onclick="openPrivacyApproval()">Jetzt freigeben</button>' : esc(status.advisor_hint || 'Bitte Administrator informieren.'))
+    el.innerHTML = '<b>' + lines.map(esc).join(' ') + '</b> ' + (status.is_admin ? '<button class="btn-p" ' + BTN + ' onclick="openPrivacyApproval(\'' + esc(act.field || '') + '\')">' + esc(act.label || 'Jetzt freigeben') + '</button>' : esc(status.advisor_hint || 'Bitte Administrator informieren.'))
       + stand + (details ? ' <details style="display:inline-block;font-size:10px"><summary style="cursor:pointer">Details</summary><ul style="margin:2px 0 0 14px;padding:0">' + details + '</ul></details>' : '');
     return status;
   }
@@ -196,16 +195,16 @@
   function nextStepForm(r){
     var id = esc(r.id);
     if (r.status === 'RECEIVED' || r.status === 'IDENTITY_FAILED') {
-      return '<select class="fsel" id="pg-id-method-' + id + '" style="font-size:10px">' + opts(IDENTITY, 'Prüfmethode') + '</select> '
-        + '<input class="fi" id="pg-id-ref-' + id + '" placeholder="Nachweis (z. B. Ausweis geprüft, Ablage)" style="font-size:10px"> '
+      return '<select class="fsel" id="pg-id-method-' + id + '" ' + FS + '>' + opts(IDENTITY, 'Prüfmethode') + '</select> '
+        + '<input class="fi" id="pg-id-ref-' + id + '" placeholder="Nachweis (z. B. Ausweis geprüft, Ablage)" ' + FS + '> '
         + '<button class="btn-s" ' + BTN + ' onclick="verifySubjectRequestIdentity(\'' + id + '\',\'VERIFIED\')">Identität bestätigt</button> '
         + '<button class="btn-s" ' + BTN + ' onclick="verifySubjectRequestIdentity(\'' + id + '\',\'FAILED\')">nicht bestätigt</button>'
-        + (r.status === 'IDENTITY_FAILED' ? '<div style="margin-top:3px"><input class="fi" id="pg-dec-reason-' + id + '" placeholder="Begründung der Ablehnung" style="font-size:10px"> '
+        + (r.status === 'IDENTITY_FAILED' ? '<div style="margin-top:3px"><input class="fi" id="pg-dec-reason-' + id + '" placeholder="Begründung der Ablehnung" ' + FS + '> '
           + '<button class="btn-s" ' + BTN + ' onclick="decideSubjectRequest(\'' + id + '\',\'REFUSE\')">Ablehnen</button></div>' : '');
     }
     if (r.status === 'IDENTITY_VERIFIED') {
-      return '<input class="fi" id="pg-dec-reason-' + id + '" placeholder="Begründung (Pflicht bei Einschränkung/Ablehnung)" style="font-size:10px"> '
-        + '<input class="fi" id="pg-dec-scope-' + id + '" placeholder="Eingeschränkte Sektionen (kommagetrennt)" style="font-size:10px"> '
+      return '<input class="fi" id="pg-dec-reason-' + id + '" placeholder="Begründung (Pflicht bei Einschränkung/Ablehnung)" ' + FS + '> '
+        + '<input class="fi" id="pg-dec-scope-' + id + '" placeholder="Eingeschränkte Sektionen (kommagetrennt)" ' + FS + '> '
         + '<button class="btn-s" ' + BTN + ' onclick="decideSubjectRequest(\'' + id + '\',\'FULFILL\')">Erfüllen</button> '
         + '<button class="btn-s" ' + BTN + ' onclick="decideSubjectRequest(\'' + id + '\',\'RESTRICT\')">Einschränken</button> '
         + '<button class="btn-s" ' + BTN + ' onclick="decideSubjectRequest(\'' + id + '\',\'REFUSE\')">Ablehnen</button>';
@@ -216,12 +215,12 @@
       if (exportable) {
         html += '<button class="btn-s" ' + BTN + ' onclick="exportSubjectRequest(\'' + id + '\')">' + (r.export_sha256 ? 'Export erneut laden' : 'Export erstellen') + '</button> ';
       } else if (r.decision === 'FULFILL' && !r.action_completed_at) {
-        html += '<input class="fi" id="pg-act-' + id + '" placeholder="' + (r.request_type === 'ERASURE' ? 'ID des ausgeführten Löschvorgangs' : 'Was wurde berichtigt?') + '" style="font-size:10px"> '
+        html += '<input class="fi" id="pg-act-' + id + '" placeholder="' + (r.request_type === 'ERASURE' ? 'ID des ausgeführten Löschvorgangs' : 'Was wurde berichtigt?') + '" ' + FS + '> '
           + '<button class="btn-s" ' + BTN + ' onclick="recordSubjectRequestAction(\'' + id + '\')">Umsetzung erfassen</button> ';
       }
-      html += '<div style="margin-top:3px"><input class="fi" type="date" id="pg-del-at-' + id + '" value="' + today() + '" style="font-size:10px"> '
-        + '<select class="fsel" id="pg-del-ch-' + id + '" style="font-size:10px">' + opts(CHANNELS, 'Zustellkanal') + '</select> '
-        + '<input class="fi" id="pg-del-ref-' + id + '" placeholder="Zustellnachweis (z. B. Einschreiben-Nr.)" style="font-size:10px"> '
+      html += '<div style="margin-top:3px"><input class="fi" type="date" id="pg-del-at-' + id + '" value="' + today() + '" ' + FS + '> '
+        + '<select class="fsel" id="pg-del-ch-' + id + '" ' + FS + '>' + opts(CHANNELS, 'Zustellkanal') + '</select> '
+        + '<input class="fi" id="pg-del-ref-' + id + '" placeholder="Zustellnachweis (z. B. Einschreiben-Nr.)" ' + FS + '> '
         + '<button class="btn-p" ' + BTN + ' onclick="deliverSubjectRequest(\'' + id + '\')">Zustellung erfassen</button></div>';
       return html;
     }
@@ -231,12 +230,12 @@
   function renderRequests(){
     var rows = state.requests.map(function(r){
       var due = r.effective_due_at + (r.overdue ? ' <b style="color:var(--neg)">überfällig</b>' : (r.days_remaining != null ? ' (' + r.days_remaining + ' Tage)' : ''));
-      return '<tr data-subject-request="' + esc(r.id) + '"><td style="padding:3px 6px">' + esc(REQUEST_TYPES[r.request_type] || r.request_type)
+      return '<tr data-subject-request="' + esc(r.id) + '">' + TD + esc(REQUEST_TYPES[r.request_type] || r.request_type)
         + '<div style="font-size:8px;color:var(--n4)">' + esc(clientName(r.client_id)) + '</div></td>'
-        + '<td style="padding:3px 6px">' + esc(String(r.received_at || '').slice(0, 10)) + '</td>'
-        + '<td style="padding:3px 6px">' + due + '</td>'
-        + '<td style="padding:3px 6px">' + esc(STATUS[r.status] || r.status) + (r.decision ? ' &middot; ' + esc(r.decision) : '') + '</td>'
-        + '<td style="padding:3px 6px">' + nextStepForm(r) + '</td></tr>';
+        + TD + esc(String(r.received_at || '').slice(0, 10)) + '</td>'
+        + TD + due + '</td>'
+        + TD + esc(STATUS[r.status] || r.status) + (r.decision ? ' &middot; ' + esc(r.decision) : '') + '</td>'
+        + TD + nextStepForm(r) + '</td></tr>';
     }).join('') || '<tr><td style="font-size:10px;color:var(--n4)">Keine Anfragen erfasst.</td></tr>';
     var clientOptions = '<option value="">Kunde wählen</option>' + state.clients.map(function(c){
       return '<option value="' + esc(c.id) + '">' + esc(clientName(c.id)) + '</option>';
@@ -244,10 +243,10 @@
     return '<div class="admin-section-title" style="margin-top:12px">Betroffenenanfragen</div>'
       + '<div style="font-size:9px;color:var(--n4);margin-bottom:4px">Frist: 30 Tage ab Eingang. Der Datenexport entsteht nur über die Anfrage.</div>'
       + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end;margin-bottom:6px">'
-      + '<div>' + L + 'Kunde</label><select class="fsel" id="pg-new-client" style="font-size:10px">' + clientOptions + '</select></div>'
-      + '<div>' + L + 'Art</label><select class="fsel" id="pg-new-type" style="font-size:10px">' + opts(REQUEST_TYPES) + '</select></div>'
-      + '<div>' + L + 'Eingang</label><input class="fi" type="date" id="pg-new-received" value="' + today() + '" style="font-size:10px"></div>'
-      + '<div>' + L + 'Kanal</label><select class="fsel" id="pg-new-channel" style="font-size:10px">' + opts(CHANNELS) + '</select></div>'
+      + '<div>' + L + 'Kunde</label><select class="fsel" id="pg-new-client" ' + FS + '>' + clientOptions + '</select></div>'
+      + '<div>' + L + 'Art</label><select class="fsel" id="pg-new-type" ' + FS + '>' + opts(REQUEST_TYPES) + '</select></div>'
+      + '<div>' + L + 'Eingang</label><input class="fi" type="date" id="pg-new-received" value="' + today() + '" ' + FS + '></div>'
+      + '<div>' + L + 'Kanal</label><select class="fsel" id="pg-new-channel" ' + FS + '>' + opts(CHANNELS) + '</select></div>'
       + '<button class="btn-p" ' + BTN + ' onclick="openSubjectRequest()">Anfrage erfassen</button></div>'
       + '<table id="pg-requests" style="width:100%;border-collapse:collapse;font-size:10px">' + rows + '</table>';
   }
@@ -296,35 +295,35 @@
     var html = '';
     if (i.status === 'CLOSED') return '';
     if (!i.risk_level || i.status === 'ASSESSED' || i.status === 'OPEN') {
-      html += '<select class="fsel" id="pg-inc-risk-' + id + '" style="font-size:10px">' + opts({LOW: 'kein hohes Risiko', HIGH: 'voraussichtlich hohes Risiko', UNKNOWN: 'noch unbekannt'}, 'Risiko') + '</select> '
-        + '<input class="fi" id="pg-inc-rat-' + id + '" placeholder="Begründung" style="font-size:10px"> '
+      html += '<select class="fsel" id="pg-inc-risk-' + id + '" ' + FS + '>' + opts({LOW: 'kein hohes Risiko', HIGH: 'voraussichtlich hohes Risiko', UNKNOWN: 'noch unbekannt'}, 'Risiko') + '</select> '
+        + '<input class="fi" id="pg-inc-rat-' + id + '" placeholder="Begründung" ' + FS + '> '
         + '<button class="btn-s" ' + BTN + ' onclick="assessSecurityIncident(\'' + id + '\')">Bewerten</button> ';
     }
     if (i.risk_level && !i.notification_decision) {
-      html += '<div style="margin-top:3px"><input class="fi" id="pg-inc-dec-' + id + '" placeholder="Begründung (Pflicht bei keine Meldung)" style="font-size:10px"> '
+      html += '<div style="margin-top:3px"><input class="fi" id="pg-inc-dec-' + id + '" placeholder="Begründung (Pflicht bei keine Meldung)" ' + FS + '> '
         + '<button class="btn-p" ' + BTN + ' onclick="decideSecurityIncident(\'' + id + '\',\'NOTIFY\')">An EDÖB melden</button> '
         + (i.risk_level === 'LOW' ? '<button class="btn-s" ' + BTN + ' onclick="decideSecurityIncident(\'' + id + '\',\'NOT_REQUIRED\')">Keine Meldung</button>' : '') + '</div>';
     }
     if (i.notification_decision === 'NOTIFY' && !i.edoeb_notified_at) {
-      html += '<div style="margin-top:3px"><input class="fi" id="pg-inc-ref-' + id + '" placeholder="Referenz/Quittung der Meldung" style="font-size:10px"> '
+      html += '<div style="margin-top:3px"><input class="fi" id="pg-inc-ref-' + id + '" placeholder="Referenz/Quittung der Meldung" ' + FS + '> '
         + '<button class="btn-p" ' + BTN + ' onclick="recordSecurityIncidentNotification(\'' + id + '\')">Meldung erfolgt</button></div>';
     }
     if (i.risk_level && (!i.subject_notification_decision || i.subject_notification_decision === 'DEFERRED')) {
-      html += '<div style="margin-top:3px"><input class="fi" id="pg-inc-sub-' + id + '" placeholder="Begründung (bei keine/aufgeschoben)" style="font-size:10px"> '
+      html += '<div style="margin-top:3px"><input class="fi" id="pg-inc-sub-' + id + '" placeholder="Begründung (bei keine/aufgeschoben)" ' + FS + '> '
         + '<button class="btn-s" ' + BTN + ' onclick="decideSecurityIncidentSubjects(\'' + id + '\',\'NOTIFY\')">Betroffene informieren</button> '
         + '<button class="btn-s" ' + BTN + ' onclick="decideSecurityIncidentSubjects(\'' + id + '\',\'NOT_REQUIRED\')">Nicht nötig</button> '
         + '<button class="btn-s" ' + BTN + ' onclick="decideSecurityIncidentSubjects(\'' + id + '\',\'DEFERRED\')">Aufschieben</button></div>';
     }
     if (i.subject_notification_decision === 'NOTIFY' && !i.subjects_notified_at) {
-      html += '<div style="margin-top:3px"><select class="fsel" id="pg-inc-sch-' + id + '" style="font-size:10px">' + opts(CHANNELS, 'Kanal') + '</select> '
-        + '<input class="fi" id="pg-inc-sref-' + id + '" placeholder="Nachweis der Information" style="font-size:10px"> '
+      html += '<div style="margin-top:3px"><select class="fsel" id="pg-inc-sch-' + id + '" ' + FS + '>' + opts(CHANNELS, 'Kanal') + '</select> '
+        + '<input class="fi" id="pg-inc-sref-' + id + '" placeholder="Nachweis der Information" ' + FS + '> '
         + '<button class="btn-s" ' + BTN + ' onclick="recordSecurityIncidentSubjects(\'' + id + '\')">Information erfolgt</button></div>';
     }
     if (i.remediation_status !== 'DONE') {
-      html += '<div style="margin-top:3px"><input class="fi" id="pg-inc-rem-' + id + '" placeholder="Behebung/Massnahmen" style="font-size:10px"> '
+      html += '<div style="margin-top:3px"><input class="fi" id="pg-inc-rem-' + id + '" placeholder="Behebung/Massnahmen" ' + FS + '> '
         + '<button class="btn-s" ' + BTN + ' onclick="recordSecurityIncidentRemediation(\'' + id + '\')">Behebung erfasst</button></div>';
     }
-    html += '<div style="margin-top:3px"><input class="fi" id="pg-inc-close-' + id + '" placeholder="Abschlussnotiz" style="font-size:10px"> '
+    html += '<div style="margin-top:3px"><input class="fi" id="pg-inc-close-' + id + '" placeholder="Abschlussnotiz" ' + FS + '> '
       + '<button class="btn-s" ' + BTN + ' onclick="closeSecurityIncident(\'' + id + '\')"' + (i.close_problems && i.close_problems.length ? ' title="' + esc(i.close_problems.join('; ')) + '"' : '') + '>Abschliessen</button></div>';
     return html;
   }
@@ -336,21 +335,21 @@
         + ' (' + esc(f.hours_since_discovery) + ' h seit Entdeckung)</li>';
     }).join('');
     var rows = state.incidents.map(function(i){
-      return '<tr data-incident="' + esc(i.id) + '"><td style="padding:3px 6px">' + esc(i.reference)
+      return '<tr data-incident="' + esc(i.id) + '">' + TD + esc(i.reference)
         + '<div style="font-size:8px;color:var(--n4)">' + esc(INCIDENT_TYPES[i.incident_type] || i.incident_type) + ' &middot; ' + esc(String(i.discovered_at || '').slice(0, 16)) + '</div></td>'
-        + '<td style="padding:3px 6px">' + esc(i.description) + '</td>'
-        + '<td style="padding:3px 6px">' + esc(STATUS[i.status] || i.status) + (i.risk_level ? ' &middot; Risiko ' + esc({HIGH: 'hoch', UNKNOWN: 'unbekannt', LOW: 'nicht hoch'}[i.risk_level] || i.risk_level) : '') + '</td>'
-        + '<td style="padding:3px 6px">' + incidentActions(i) + '</td></tr>';
+        + TD + esc(i.description) + '</td>'
+        + TD + esc(STATUS[i.status] || i.status) + (i.risk_level ? ' &middot; Risiko ' + esc({HIGH: 'hoch', UNKNOWN: 'unbekannt', LOW: 'nicht hoch'}[i.risk_level] || i.risk_level) : '') + '</td>'
+        + TD + incidentActions(i) + '</td></tr>';
     }).join('') || '<tr><td style="font-size:10px;color:var(--n4)">Keine Vorfälle erfasst.</td></tr>';
     var contact = gate.escalation_contact || {};
     return '<div class="admin-section-title" style="margin-top:12px">Sicherheitsvorfälle</div>'
-      + '<div id="pg-incident-gate" data-blocked="' + (gate.blocked ? '1' : '0') + '" style="font-size:10px">'
+      + '<div id="pg-incident-gate" data-blocked="' + (gate.blocked ? '1' : '0') + '" ' + FS + '>'
       + (gate.blocked ? '<b style="color:var(--neg)">Meldepflicht offen: bei voraussichtlich hohem Risiko so rasch als möglich an den EDÖB melden.</b>' : 'Keine offene Meldepflicht.')
       + ' Eskalationskontakt: ' + (contact.status === 'CONFIRMED' ? esc(contact.value) : '<span style="color:var(--neg)">offen</span>')
       + (findings ? '<ul style="margin:4px 0 0 14px;padding:0">' + findings + '</ul>' : '') + '</div>'
       + '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:flex-end;margin:6px 0">'
-      + '<div>' + L + 'Entdeckt am</label><input class="fi" type="datetime-local" id="pg-inc-new-at" style="font-size:10px"></div>'
-      + '<div>' + L + 'Art</label><select class="fsel" id="pg-inc-new-type" style="font-size:10px">' + opts(INCIDENT_TYPES) + '</select></div>'
+      + '<div>' + L + 'Entdeckt am</label><input class="fi" type="datetime-local" id="pg-inc-new-at" ' + FS + '></div>'
+      + '<div>' + L + 'Art</label><select class="fsel" id="pg-inc-new-type" ' + FS + '>' + opts(INCIDENT_TYPES) + '</select></div>'
       + '<div style="flex:1;min-width:200px">' + L + 'Beschreibung (ohne Personendaten)</label><input class="fi" id="pg-inc-new-desc" style="font-size:10px;width:100%"></div>'
       + '<button class="btn-p" ' + BTN + ' onclick="recordSecurityIncident()">Vorfall erfassen</button></div>'
       + '<table id="pg-incidents" style="width:100%;border-collapse:collapse;font-size:10px">' + rows + '</table>';
@@ -381,9 +380,9 @@
     var rows = (runtime.channels || []).map(function(c){
       var why = !c.approved ? 'gesperrt: Freigabe fehlt/veraltet' : (c.owner_block ? 'gesperrt: ' + c.owner_block : 'gesperrt');
       var allowed = c.allowed_now ? badge(true, 'erlaubt', '') : (c.configured ? badge(false, '', why) : '<span style="font-size:9px;color:var(--n4)">nicht konfiguriert</span>');
-      return '<tr data-egress-channel="' + esc(c.id) + '"><td style="padding:3px 6px">' + esc(c.id) + '</td><td style="padding:3px 6px">' + esc(c['class'])
-        + '</td><td style="padding:3px 6px">' + esc((c.hosts || []).join(', ')) + '</td><td style="padding:3px 6px">' + (c.personal_data ? 'ja' : 'nein')
-        + '</td><td style="padding:3px 6px">' + allowed + '</td></tr>';
+      return '<tr data-egress-channel="' + esc(c.id) + '">' + TD + esc(c.id) + '</td>' + TD + esc(c['class'])
+        + '</td>' + TD + esc((c.hosts || []).join(', ')) + '</td>' + TD + (c.personal_data ? 'ja' : 'nein')
+        + '</td>' + TD + allowed + '</td></tr>';
     }).join('');
     var blocked = (runtime.recent_blocked || []).slice(-10).map(function(b){
       return '<li>' + esc(b.at) + ' &middot; ' + esc(b.host) + ' &middot; ' + esc(b.reason_code) + '</li>';

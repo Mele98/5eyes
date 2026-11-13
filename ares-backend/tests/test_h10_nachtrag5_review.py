@@ -8,7 +8,6 @@ der echten App: tests/test_e2e_h10_egress_banner_playwright.py).
 """
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,6 +15,7 @@ import pytest
 
 from services import dsg_governance as gov
 from services import egress_manifest as em
+from tests.h10_exec_scan import scan_tree
 from tests.h10_support import all_channel_states, api
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -70,58 +70,35 @@ def test_harmless_powershell_passes():
     em.check_subprocess("powershell.exe", ["powershell.exe", "-Command", "Get-ChildItem C:/data | Measure-Object"])
 
 
-# Shell-Aufrufe im Produktcode nur mit begruendeter Ausnahme (Pfad -> Begruendung).
-SHELL_CALL_EXCEPTIONS: dict[str, str] = {}
+# N-899-15/-18: Shell-Aufrufe und Ausfuehrungen mit nicht-literalem Programm
+# im Produktcode nur mit begruendeter Ausnahme (Schluessel pfad::funktion).
+EXEC_EXCEPTIONS: dict[str, str] = {
+    "ares-backend/services/backup.py::replicate_offsite":
+        "Programm fest 'rsync' (Liste in derselben Funktion); Ziel und Kanal prueft der Laufzeitschutz "
+        "(operator.backup_offsite).",
+    "scripts/packaging_smoke.py::run_restart_smoke":
+        "CI/Release-Werkzeug: startet die eben gebaute Backend-EXE (Pfad aus dem Build), kein Produktlauf.",
+    "scripts/packaging_smoke.py::run_start_smoke":
+        "CI/Release-Werkzeug: startet die eben gebaute Backend-EXE (Pfad aus dem Build), kein Produktlauf.",
+    "scripts/pytest_supervisor.py::run":
+        "CI-Werkzeug: fuehrt die uebergebene Test-Kommandozeile ohne Shell aus, kein Produktlauf.",
+    "scripts/security_gate.py::_run_data_integrity_audit_smoke":
+        "CI-Werkzeug: sys.executable mit festem Repo-Skript, kein Produktlauf.",
+    "scripts/security_gate.py::main":
+        "CI-Werkzeug: sys.executable -m pytest, kein Produktlauf.",
+}
 
-_SHELL_NAMES = {"sh", "bash", "zsh", "dash", "ksh", "cmd", "cmd.exe", "powershell", "powershell.exe", "pwsh",
-                "pwsh.exe", "/bin/sh", "/bin/bash"}
-_SHELL_FUNCS = {("os", "system"), ("os", "popen"), ("asyncio", "create_subprocess_shell")}
-_SPAWN_FUNCS = {"run", "Popen", "call", "check_call", "check_output", "create_subprocess_exec", "spawnl",
-                "spawnv", "execv", "execl", "posix_spawn"}
 
-
-def _dotted(node: ast.AST) -> tuple[str, str] | None:
-    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-        return node.value.id, node.attr
-    return None
-
-
-def shell_call_offenders(root: Path) -> list[str]:
-    """N-899-15: jeder Shell-Aufruf (shell=True, os.system/os.popen,
-    create_subprocess_shell, Argumentliste mit Shell als Programm)."""
-    found = []
-    skip = {"tests", "alembic", "migrations", "venv", ".venv", "node_modules"}
-    for path in root.rglob("*.py"):
-        if path.relative_to(root).parts[0] in skip:
-            continue
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8", errors="ignore"))
-        except SyntaxError:
-            continue
-        rel = path.relative_to(root).as_posix()
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            func = _dotted(node.func)
-            name = func[1] if func else (node.func.id if isinstance(node.func, ast.Name) else "")
-            hit = func in _SHELL_FUNCS
-            hit = hit or any(k.arg == "shell" and not (isinstance(k.value, ast.Constant) and not k.value.value)
-                             for k in node.keywords)
-            if not hit and name in _SPAWN_FUNCS and node.args:
-                first = node.args[0]
-                program = first.elts[0] if isinstance(first, (ast.List, ast.Tuple)) and first.elts else first
-                hit = isinstance(program, ast.Constant) and isinstance(program.value, str) and (
-                    program.value.lower() in _SHELL_NAMES or Path(program.value).name.lower() in _SHELL_NAMES)
-            if hit:
-                found.append(f"{rel}:{node.lineno}")
-    return found
+def _product_exec_findings():
+    return [f for root in (BACKEND, REPO / "scripts") if root.exists() for f in scan_tree(root, REPO)]
 
 
 def test_every_shell_call_in_product_code_needs_a_justified_exception():
-    offenders = [o for root in (BACKEND, REPO / "scripts") if root.exists() for o in shell_call_offenders(root)
-                 if o.split(":")[0] not in SHELL_CALL_EXCEPTIONS]
-    assert offenders == []
-    assert all(reason.strip() for reason in SHELL_CALL_EXCEPTIONS.values())
+    findings = _product_exec_findings()
+    assert [f for f in findings if f[0] not in EXEC_EXCEPTIONS] == []
+    assert not [f for f in findings if f[2] == "shell"]  # Shell-Aufrufe: derzeit keine, auch nicht als Ausnahme
+    assert all(reason.strip() for reason in EXEC_EXCEPTIONS.values())
+    assert set(EXEC_EXCEPTIONS) <= {f[0] for f in findings}, "veraltete Ausnahme"
 
 
 def test_shell_call_scan_finds_every_form(tmp_path):
@@ -136,21 +113,21 @@ def test_shell_call_scan_finds_every_form(tmp_path):
         "subprocess.Popen(['/bin/sh', '-c', 'x'])\n"
         "subprocess.run(['cmd', '/c', 'dir'])\n"
         "subprocess.run(['git', 'status'], shell=False)\n", encoding="utf-8")
-    assert len(shell_call_offenders(tmp_path)) == 7
+    assert [f[2] for f in scan_tree(tmp_path)] == ["shell"] * 7
 
 
 # ── N-899-16 Klartext ─────────────────────────────────────────────────────────
 
-def _blocked(cid, cls, code):
-    return {"channel_id": cid, "class": cls, "reason_code": code}
+def _blocked(cid, cls, code, change=None):
+    return {"channel_id": cid, "class": cls, "reason_code": code, "change": change}
 
 
 def test_plain_summary_after_update_and_owner_gaps():
     lines = gov.plain_summary([
-        _blocked("market_data.stooq", "market_data", "EGRESS_HASH_MISMATCH"),
-        _blocked("market_data.yfinance", "market_data", "EGRESS_HASH_MISMATCH"),
-        _blocked("mail.smtp", "mail", "EGRESS_HASH_MISMATCH"),
-        _blocked("updates.desktop", "updates", "EGRESS_HASH_MISMATCH"),
+        _blocked("market_data.stooq", "market_data", "EGRESS_HASH_MISMATCH", "manifest_update"),
+        _blocked("market_data.yfinance", "market_data", "EGRESS_HASH_MISMATCH", "manifest_update"),
+        _blocked("mail.smtp", "mail", "EGRESS_HASH_MISMATCH", "manifest_update"),
+        _blocked("updates.desktop", "updates", "EGRESS_HASH_MISMATCH", "manifest_update"),
         _blocked("telemetry.error_reporting", "telemetry", "EGRESS_GUARANTEE_MISSING"),
         _blocked("operator.backup_offsite", "operator_infrastructure", "EGRESS_DESTINATION_DENIED"),
     ])
@@ -164,7 +141,7 @@ def test_plain_summary_after_update_and_owner_gaps():
 def test_plain_summary_owner_gap_for_mail():
     assert gov.plain_summary([_blocked("mail.smtp", "mail", "EGRESS_GUARANTEE_MISSING")]) == [
         "Für E-Mail fehlen noch Angaben (Land/Garantie des Anbieters)."]
-    assert gov.plain_summary([_blocked("mail.smtp", "mail", "EGRESS_MANIFEST_MISSING")]) == [
+    assert gov.plain_summary([_blocked("mail.smtp", "mail", "EGRESS_MANIFEST_MISSING", "unapproved")]) == [
         "Die Datenübermittlung muss einmal freigegeben werden – E-Mail ist bis dahin pausiert."]
 
 

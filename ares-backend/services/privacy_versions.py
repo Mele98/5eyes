@@ -155,7 +155,8 @@ def _out(row) -> dict[str, Any] | None:
     if row is None:
         return None
     return {"id": row.id, "version": row.version, "status": row.status, "content_sha256": row.content_sha256,
-            "valid_from": row.valid_from, "approved_by": row.approved_by, "approved_at": row.approved_at}
+            "valid_from": row.valid_from, "approved_by": row.approved_by, "approved_at": row.approved_at,
+            "manifest_version": getattr(row, "manifest_version", None)}
 
 
 def register_gate(db: Session, tenant_id: str, values: dict[str, str], *, now: datetime | None = None) -> list[dict]:
@@ -238,8 +239,9 @@ def approve_manifest(db: Session, tenant_id: str, values: dict[str, str], *, act
                    version_value=manifest["manifest_version"], now=now)
 
 
-def owner_block_for(channel: dict[str, Any], values: dict[str, str], settings_obj: Any = None) -> str | None:
-    """Sperrgrund aus fehlenden/abweichenden Owner-Angaben (N-899-03)."""
+def owner_gap(channel: dict[str, Any], values: dict[str, str], settings_obj: Any = None) -> tuple[str, str] | None:
+    """Erste fehlende/abweichende Owner-Angabe eines Kanals: (Reason-Code,
+    Feldschluessel) -- N-899-03, N-899-17 (Knopf fuehrt direkt zum Feld)."""
     def field(name):
         node = channel.get(name)
         return node.get("owner_field") if isinstance(node, dict) and node.get("blocking") == "channel" else None
@@ -247,16 +249,22 @@ def owner_block_for(channel: dict[str, Any], values: dict[str, str], settings_ob
     for name in ("destination_country", "guarantee", "encryption"):
         key = field(name)
         if key and not values.get(key):
-            return ReasonCode.EGRESS_GUARANTEE_MISSING.value
+            return ReasonCode.EGRESS_GUARANTEE_MISSING.value, key
     key = field("target_host")
     if key:
         confirmed = egress_manifest._host_from_setting(values.get(key) or "")
         if not confirmed or confirmed not in configured_hosts(channel, settings_obj):
-            return ReasonCode.EGRESS_DESTINATION_DENIED.value
+            return ReasonCode.EGRESS_DESTINATION_DENIED.value, key
     key = field("legal_basis")
     if key and not values.get(key):
-        return ReasonCode.EGRESS_CONSENT_OR_BASIS_MISSING.value
+        return ReasonCode.EGRESS_CONSENT_OR_BASIS_MISSING.value, key
     return None
+
+
+def owner_block_for(channel: dict[str, Any], values: dict[str, str], settings_obj: Any = None) -> str | None:
+    """Sperrgrund aus fehlenden/abweichenden Owner-Angaben (N-899-03)."""
+    gap = owner_gap(channel, values, settings_obj)
+    return gap[0] if gap else None
 
 
 def runtime_channel_states(db: Session, tenant_id: str, values: dict[str, str]) -> dict[str, dict[str, Any]]:
@@ -273,9 +281,11 @@ def runtime_channel_states(db: Session, tenant_id: str, values: dict[str, str]) 
         if row["reason_code"] == ReasonCode.EGRESS_HASH_MISMATCH.value and effective is not None:
             # gespeicherter Inhalt manipuliert oder veraltet -> nie gleich dem aktuellen Hash
             approved = approved if approved != row["current_sha256"] else f"!{approved}"
-        owner_block = owner_block_for(channel, values)
+        gap = owner_gap(channel, values)
         states[cid] = {
-            "approved_sha256": approved, "current_sha256": row["current_sha256"], "owner_block": owner_block,
+            "approved_sha256": approved, "current_sha256": row["current_sha256"],
+            "owner_block": gap[0] if gap else None, "owner_field": gap[1] if gap else None,
+            "approved_manifest_version": effective.get("manifest_version") if effective else None,
             "approval_exempt": (channel.get("guarantee") or {}).get("status") == OPERATOR_INFRASTRUCTURE,
         }
     return states
