@@ -14,6 +14,7 @@ from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
 from services.pdf.components.produkte import _make_single_metric
+from core.presentation_rounding import format_bps_as_pct
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_BORDER_DANGER,
@@ -130,10 +131,9 @@ def _make_single_metric_with_sub(label: str, value: str, subtitle: str, border_c
 def _fmt_pct(bps: int | None, *, neg: bool = False) -> str:
     if bps is None or bps == 0:
         return "—"
-    value = bps / 100.0
-    if neg and value > 0:
-        return f"−{value:.2f}%"
-    return f"{value:.2f}%"
+    if neg and bps > 0:
+        return "−" + format_bps_as_pct(bps, decimals=2)
+    return format_bps_as_pct(bps, decimals=2)
 
 
 def _section_title(text: str):

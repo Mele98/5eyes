@@ -35,6 +35,7 @@ function makeMcFan(overrides: Partial<MonteCarloPaths> = {}): MonteCarloPaths {
     seed: 42,
     horizon_years: 24,
     initial_wealth_rappen: 200_000_000,
+    amount_currency: 'CHF', // G7 N4: Server-Waehrung der Pfade
     ...overrides,
   };
 }

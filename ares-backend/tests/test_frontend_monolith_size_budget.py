@@ -32,6 +32,17 @@ und die zugehoerigen Stile nach ``aa-chart.js``/``aa-chart.css`` verlegt
 27639 / 1689802, ``ares.css`` 1143 / 90070 -- beide Budgets entsprechend gesenkt
 (Stand H6-Feinschliff; die neuen Teile sind noch nicht gemergt, ihr Budget ist
 der Stand bei der Einfuehrung durch diesen PR).
+
+G7 (2026-11-11, gemeinsamer Rundungsformatter): Formatter-Logik nach
+``presentation-rounding.js`` (eigenstaendiges Modul, STANDALONE_FRONTEND_MODULES)
+verlegt; fmtNumber/fmtPct/formatRappen u. a. delegieren nur noch. Monolith dadurch
+27619 / 1689693, ``aa-chart.js`` 329 / 20791 -- beide Budgets gesenkt.
+H-153 Nachtrag 1: restliche Anzeige-Rundungen und Mandatswaehrung -> 27613 / 1689320,
+``aa-chart.js`` 318 / 20791.
+H-153 Nachtrag 2 (N-894-01..06): 27598 / 1689133, ``aa-chart.js`` 318 / 20681.
+H-153 Nachtrag 3 (N-894-07..11, CHF-Guard): 27582 / 1688745, ``goal-review-runtime.js`` 1588 / 84613.
+H-153 Nachtrag 4 (Grundregel Waehrung, N-894-12..17): 27447 / 1682837, ``goal-review-runtime.js`` 1564 / 83881,
+``aa-chart.js`` 316 / 20632 (Kommentare gekuerzt, Budgets gesenkt).
 """
 from __future__ import annotations
 
@@ -40,9 +51,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 27639
+MONOLITH_MAX_LINES = 27447
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1689802
+MONOLITH_MAX_BYTES = 1682837
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -50,8 +61,8 @@ EXTRACTED_PART_BUDGETS = {
     "ares.css": (1143, 90070),
     "aa-chart.css": (66, 5978),
     "intro-sequence.js": (761, 36861),
-    "aa-chart.js": (331, 21026),
-    "goal-review-runtime.js": (1589, 84633),
+    "aa-chart.js": (316, 20632),
+    "goal-review-runtime.js": (1564, 83881),
 }
 
 

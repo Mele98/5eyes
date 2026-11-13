@@ -187,14 +187,10 @@ async function adminExportFundsCsv(){
 // N-861-12: Retro-Betraege immer auf Rappen genau (zwei Nachkommastellen),
 // damit Schaetzung und Mandatsbetrag bei Teil-Deckung nie gleich aussehen.
 function _retroAmount(rappen, currency){
-  var unit = String(currency || 'CHF').toUpperCase().trim() || 'CHF';
-  var v = Math.round(Number(rappen || 0));
-  var sign = v < 0 ? '-' : '';
-  v = Math.abs(v);
-  var whole = String(Math.floor(v / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, "'");
-  var cents = String(v % 100);
-  if (cents.length < 2) cents = '0' + cents;
-  return unit + ' ' + sign + whole + '.' + cents;
+  var unit = String(currency || '').toUpperCase().trim();
+  if (!unit) return '—';  // G7 N4: Waehrung unbekannt -> keine geratene Einheit
+  // G7 N-894-13: gemeinsamer Formatter (Half-up, Rappen-genau, hoechstens ISO-Stellen).
+  return AresRounding.formatStoredAmount(Number(rappen || 0), unit, 2, {typography: 'plain'});
 }
 function renderCostRetrocessions(data){
   var box=document.getElementById('cd-retro');
@@ -202,7 +198,7 @@ function renderCostRetrocessions(data){
   var block=data&&data.product_retrocessions;
   var lines=(block&&Array.isArray(block.lines))?block.lines:[];
   if(!lines.length||data.evidence_status==='blocked'){ box.style.display='none'; box.innerHTML=''; return; }
-  var currency=String(data.currency||'CHF').toUpperCase().trim()||'CHF';
+  var currency=String(data.currency||'').toUpperCase().trim();
   var head=block.complete
     ? '<div style="font-weight:600;margin-bottom:6px">Retrozessionen je Produkt</div>'
     : '<div style="font-weight:600;margin-bottom:6px;color:var(--neg)">Retrozessionen je Produkt – Pflichtangaben unvollstaendig</div>';

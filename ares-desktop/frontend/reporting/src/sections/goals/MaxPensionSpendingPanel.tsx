@@ -8,6 +8,7 @@
  * 409-Fälle (kein aktuelles Risikoprofil / Beratungsvermögen ≤ 0 CHF) werden
  * als Hinweis gerendert, nicht als harter Fehler.
  */
+import { useReportCurrency } from '@/lib/reportCurrency';
 import { formatChfFromRappen } from '@/lib/format';
 import { useState } from 'react';
 import { ApiError } from '@/api/client';
@@ -17,8 +18,8 @@ import type {
   MaxPensionSpendingResponse,
 } from '@/api/types';
 
-function formatChf(rappen: number): string {
-  return formatChfFromRappen(rappen);
+function formatChf(rappen: number, currency: string | null): string {
+  return formatChfFromRappen(rappen, currency);
 }
 
 interface MaxPensionSpendingPanelProps {
@@ -31,6 +32,7 @@ export function MaxPensionSpendingPanel({
   mandateId,
   onApply,
 }: MaxPensionSpendingPanelProps) {
+  const currency = useReportCurrency(); // N-894-10
   const [retirementYear, setRetirementYear] = useState<number>(2035);
   const [lifeExpectancyYear, setLifeExpectancyYear] = useState<number>(2060);
   const [safetyMargin, setSafetyMargin] = useState<number>(0);
@@ -140,8 +142,8 @@ export function MaxPensionSpendingPanel({
       {status === 'ready' && result && (
         <div className="mt-block border-t border-rule pt-3">
           <p className="text-body text-ink">
-            Max. monatlich: <strong>{formatChf(result.max_monthly_chf_rappen)}</strong>
-            {' · '}jährlich: <strong>{formatChf(result.max_annual_chf_rappen)}</strong>
+            Max. monatlich: <strong>{formatChf(result.max_monthly_chf_rappen, currency)}</strong>
+            {' · '}jährlich: <strong>{formatChf(result.max_annual_chf_rappen, currency)}</strong>
           </p>
           <p className="mt-1 text-caption text-ink-muted">
             {result.years_in_retirement} Jahre in der Pension · Wertbasis {result.value_mode}

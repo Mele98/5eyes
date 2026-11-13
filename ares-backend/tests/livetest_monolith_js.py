@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 
@@ -82,10 +83,10 @@ def run_js(names, scenario_js: str, *, prelude: str = "", optional: tuple[str, .
     src = html()
     parts = [extract_function(src, n) for n in names]
     parts += [extract_function(src, n) for n in optional if has_function(n, src)]
-    script = (FAKE_DOM + prelude + "\n" + "\n".join(parts)
+    script = (rounding_module_source() + FAKE_DOM + prelude + "\n" + "\n".join(parts)
               + "\nvar __out=(function(){" + scenario_js + "})();\n"
               + "Promise.resolve(__out).then(function(v){process.stdout.write(JSON.stringify(v));})"
               + ".catch(function(e){console.error(e&&e.stack||e);process.exit(3);});")
-    proc = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    proc = subprocess.run(["node", "-"], input=script, capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)

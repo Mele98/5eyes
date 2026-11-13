@@ -23,12 +23,20 @@
  *    Eingaben akzeptieren beide Zeichen: parseNumberInputCH().
  */
 
-export const MINUS = '−';
-const PCT_SUFFIX = ' %';
+import {
+  formatCompactAmount,
+  formatDecimal,
+  formatPercentBps,
+  formatStoredAmount,
+  formatProbabilityPct,
+} from './presentationRounding.ts';
 
-function groupThousands(intPart: string): string {
-  return intPart.replace(/\B(?=(\d{3})+(?!\d))/g, "'");
-}
+// G7: alle Rundungen laufen ueber presentationRounding.ts (Policy
+// ares-rounding/1, Decimal ROUND_HALF_UP; identisch zu Classic und PDF).
+export const MINUS = '−';
+const SCREEN = { typography: 'screen' as const };
+// G7 Nachtrag 4 (Grundregel): Jeder Geldformatter verlangt die Waehrung, in der
+// der Betrag vorliegt; ``null`` = unbekannt -> "—" (keine geratene Einheit).
 
 /**
  * Eingabe -> Zahl. Akzeptiert ' und ' (U+2019/U+02BC) als Tausendertrennung,
@@ -46,44 +54,33 @@ export function parseNumberInputCH(value: string | null | undefined): number | n
 }
 
 /** Ganze CHF aus Rappen: „CHF 12'345" (gerades Apostroph). */
-export function formatChfFromRappen(rappen: number): string {
-  return `CHF ${fmtNumber(Math.round(rappen / 100), 0)}`;
+export function formatChfFromRappen(rappen: number, currency: string | null): string {
+  if (!currency) return '—';
+  return formatStoredAmount(rappen, currency, 0, SCREEN);
 }
 
 /** Zahl mit fester Nachkommastellenzahl, Apostroph-Gruppierung, U+2212. */
 export function fmtNumber(value: number | null | undefined, decimals = 0): string {
   if (value === null || value === undefined) return '—';
-  const n = Number(value);
-  if (!Number.isFinite(n)) return '—';
-  const fixed = Math.abs(n).toFixed(decimals);
-  const [intPart, frac] = fixed.split('.');
-  const body = frac !== undefined ? `${groupThousands(intPart)}.${frac}` : groupThousands(intPart);
-  return n < 0 && Number(fixed) !== 0 ? `${MINUS}${body}` : body;
+  return formatDecimal(value, decimals, SCREEN);
 }
 
 /** bps -> „12.3 %" (feste Nachkommastellen). */
 export function fmtPct(bps: number | null | undefined, decimals = 1): string {
   if (bps === null || bps === undefined) return '—';
-  const n = Number(bps);
-  if (!Number.isFinite(n)) return '—';
-  return `${fmtNumber(n / 100, decimals)}${PCT_SUFFIX}`;
+  return formatPercentBps(bps, decimals, SCREEN);
 }
 
 /** bps -> „+12.3 %" / „−12.3 %" / „0.0 %". */
 export function fmtSignedPct(bps: number | null | undefined, decimals = 1): string {
-  const core = fmtPct(bps, decimals);
-  if (core === '—') return core;
-  const n = Number(bps);
-  const rounded = Number((Math.abs(n) / 100).toFixed(decimals));
-  return n > 0 && rounded !== 0 ? `+${core}` : core;
+  if (bps === null || bps === undefined) return '—';
+  return formatPercentBps(bps, decimals, { ...SCREEN, signed: true });
 }
 
 /** Wahrscheinlichkeit in Prozentpunkten (0..100) -> ganzzahlig „73 %". */
 export function fmtProbPct(pct: number | null | undefined): string {
   if (pct === null || pct === undefined) return '—';
-  const n = Number(pct);
-  if (!Number.isFinite(n)) return '—';
-  return `${fmtNumber(Math.round(n), 0)}${PCT_SUFFIX}`;
+  return formatProbabilityPct(pct, SCREEN);
 }
 
 /** Sharpe-Ratio: 2 Stellen. */
@@ -97,30 +94,28 @@ export function fmtSharpe(value: number | null | undefined): string {
  */
 export function fmtChfCompactAmount(chf: number | null | undefined): string {
   if (chf === null || chf === undefined) return '—';
-  const n = Number(chf);
-  if (!Number.isFinite(n)) return '—';
-  const a = Math.abs(n);
-  const sign = n < 0 && Math.round(a) > 0 ? MINUS : '';
-  if (a >= 1_000_000) return `${sign}${fmtNumber(a / 1_000_000, 2)} Mio.`;
-  return `${sign}${fmtNumber(Math.round(a), 0)}`;
+  return formatCompactAmount(chf, SCREEN);
 }
 
 /** CHF (ganze Franken) kompakt: ab 1 Mio. „CHF 2.85 Mio.", darunter voll. */
-export function fmtChfCompact(chf: number | null | undefined): string {
+export function fmtChfCompact(chf: number | null | undefined, currency: string | null): string {
   const amount = fmtChfCompactAmount(chf);
-  return amount === '—' ? amount : `CHF ${amount}`;
+  return amount === '—' || !currency ? '—' : `${currency} ${amount}`;
 }
 
 export function formatChfRappen(
   rappen: number | null | undefined,
-  options: { withUnit?: boolean } = {},
+  options: { withUnit?: boolean; currency: string | null },
 ): string {
   const withUnit = options.withUnit !== false;
-  if (rappen === null || rappen === undefined) return withUnit ? '—' : '0';
-  const value = Math.round(Number(rappen) / 100);
-  if (!Number.isFinite(value)) return withUnit ? '—' : '0';
-  const formatted = fmtNumber(value, 0);
-  return withUnit ? `CHF ${formatted}` : formatted;
+  const currency = options.currency;
+  if (rappen === null || rappen === undefined || !Number.isFinite(Number(rappen))) return withUnit ? '—' : '0';
+  if (!currency) {
+    // Waehrung unbekannt: mit Einheit "—", ohne Einheit nur die Zahl (Achsen).
+    return withUnit ? '—' : formatStoredAmount(Number(rappen), 'EUR', 0, SCREEN).slice('EUR '.length); // nur Zahl, EUR = Exponent-2-Platzhalter
+  }
+  const text = formatStoredAmount(Number(rappen), currency, 0, SCREEN);
+  return withUnit ? text : text.slice(currency.length + 1);
 }
 
 export function formatBpsAsPct(

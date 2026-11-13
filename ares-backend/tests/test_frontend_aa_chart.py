@@ -5,11 +5,12 @@ Darstellungslogik liegt als ausgelagerter Monolith-Teil in ``aa-chart.js``
 (Bundle, Budget, Verbots-Guards wie die anderen Teile). Fachlich bleibt alles
 gleich: Gewichte/Betraege/Bandbreiten kommen unveraendert aus der Engine.
 
-Rundung (H6-Nachtrag, FIDLEG/Dokumentation): dieselbe Zahl muss in Maske, PDF
-und Portfolio gleich erscheinen. Die PDFs runden jede Zahl einzeln mit Python
-``f"{bps/100:.1f}"``; Maske (aa-chart) und ``fmtPct`` (Portfolio u. a.) werden
-hier gegen genau diese Python-Ausgabe fuer alle ganzen bps geprueft. Ergeben die
-gerundeten Anteile nicht 100.0 % bzw. ihre Klasse, steht ein Hinweis dabei.
+Rundung (G7, Policy ares-rounding/1): dieselbe Zahl muss in Maske, PDF und
+Portfolio gleich erscheinen. Maske (aa-chart), ``fmtPct`` und der PDF-Formatter
+``core.presentation_rounding`` werden hier fuer alle ganzen bps OHNE
+Ausnahme verglichen (vorher: dokumentierte Altabweichung bei |bps| % 100 == 25
+und toFixed-Artefakte). Anteile werden apportioniert (Largest Remainder): Klassen
+ergeben exakt 100.0 %, Unterklassen exakt ihre Klasse -- kein Rundungshinweis.
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ from tests.monolith_source import FRONTEND_DIR, read_monolith_bundle
 
 MODULE_PATH = FRONTEND_DIR / "aa-chart.js"
 CSS_PATH = FRONTEND_DIR / "aa-chart.css"
+ROUNDING_PATH = FRONTEND_DIR / "presentation-rounding.js"
 
 HARNESS = r"""
 var AC={eq:'#1F3A5F',bd:'#B39455',re:'#7A4A2E',alt:'#5E6B45',liq:'#8E97A8',oth:'#6B4E71'};
@@ -40,7 +42,7 @@ var REDUCED=false;
 var window={matchMedia:function(q){return {matches:REDUCED&&q.indexOf('reduce')>=0};}};
 var document={documentElement:{},querySelectorAll:function(){return [];},getElementById:function(){return null;}};
 function getComputedStyle(){return {getPropertyValue:function(){return '#ffffff';}};}
-var strategyState={allocation:{sub_allocations:[{asset_class:'Aktien',sub_asset_class:'Aktien Schweiz',target_weight_bps:3364}]}};
+var strategyState={allocation:{base_currency:'CHF',sub_allocations:[{asset_class:'Aktien',sub_asset_class:'Aktien Schweiz',target_weight_bps:3364}]}};  // G7 N4: Artefakt-Waehrung
 """
 
 
@@ -59,7 +61,7 @@ def _node(code: str):
 
 
 def _run(script: str, prelude: str = ""):
-    return _node(HARNESS + prelude + MODULE_PATH.read_text(encoding="utf-8")
+    return _node(ROUNDING_PATH.read_text(encoding="utf-8") + HARNESS + prelude + MODULE_PATH.read_text(encoding="utf-8")
                  + "\nvar __r=(function(){" + script + "})();\nconsole.log(JSON.stringify(__r));")
 
 
@@ -77,13 +79,14 @@ _RANGE = range(-10000, 10001)
 
 
 def _py_pct(bps: int, d: int = 1) -> str:
-    """Referenz = PDF-Format (services/pdf: f"{bps/100:.1f}%")."""
-    return f"{bps / 100:.{d}f}"
+    """Referenz = PDF-Formatter (services.presentation_rounding, Typografie screen)."""
+    from core.presentation_rounding import format_percent_bps
+    return format_percent_bps(bps, d, typography="screen")
 
 
 def _mask_and_fmtpct():
     src = read_monolith_bundle()
-    code = (HARNESS + MODULE_PATH.read_text(encoding="utf-8") + "\n" + extract_function(src, "fmtNumber")
+    code = (ROUNDING_PATH.read_text(encoding="utf-8") + HARNESS + MODULE_PATH.read_text(encoding="utf-8") + "\n" + extract_function(src, "fmtNumber")
             + "\n" + extract_function(src, "fmtPct")
             + "\nvar o={mask:[],app:[]};for(var b=-10000;b<=10000;b++){o.mask.push(aaChartPctText(b));o.app.push(fmtPct(b,1));}"
             + "console.log(JSON.stringify(o));")
@@ -97,40 +100,40 @@ def test_mask_percent_is_identical_to_fmtpct_for_every_integer_bps():
     assert diffs == [], diffs[:5]
 
 
-def test_mask_percent_equals_pdf_except_documented_exact_ties():
-    """Maske == PDF (f"{bps/100:.1f}") fuer alle ganzen bps ausser der dokumentierten
-    Altabweichung App <-> PDF bei echten Gleichstaenden |bps| % 100 == 25 (App rundet
-    auf, Python auf gerade Ziffer). Angleichung in services/pdf ist Folgepunkt nach H1;
-    aendert sich eine Seite, wird dieser Test rot."""
+def test_mask_percent_equals_pdf_formatter_without_exceptions():
+    """G7 (N-882-03 geschlossen): Maske == PDF-Formatter fuer ALLE ganzen bps, auch
+    |bps| % 100 == 25 (vorher 200 Ausnahmen) und x5-Werte (toFixed-Artefakt)."""
     out = _mask_and_fmtpct()
-    diffs = []
-    for b, got in zip(_RANGE, out["mask"]):
-        num = float(got.replace("\u00a0%", "").replace("\u2212", "-"))
-        if num != float(_py_pct(b)):
-            diffs.append(b)
-    assert diffs == [b for b in _RANGE if abs(b) % 100 == 25]
-    assert len(diffs) == 200
-    # Beispiel Foundation Case: keine Gleichstaende -> Maske, Portfolio und PDF gleich.
-    for bps in (7477, 1091, 869, 300, 263, 3364, 2991, 748, 374, 667, 424, 695, 174):
-        assert abs(bps) % 100 != 25
+    diffs = [(b, got) for b, got in zip(_RANGE, out["mask"]) if got != _py_pct(b)]
+    assert diffs == [], diffs[:5]
+    assert out["mask"][10000 + 1225] == "12.3\u00a0%" and out["mask"][10000 - 1225] == "\u221212.3\u00a0%"
+    assert out["mask"][10000 + 1235] == "12.4\u00a0%"  # toFixed lieferte 12.3
 
 
-def test_rows_sorted_single_rounding_and_rounding_gap_flags():
+def _tenths(pct: str) -> int:
+    return int(round(float(pct.replace("\u00a0%", "").replace("\u2212", "-")) * 10))
+
+
+def test_rows_sorted_and_apportioned_to_exact_sums():
     out = _run(
         "var r=aaChartPrepare(" + ITEMS + ");"
         "var t=aaChartPrepare([{name:'Aktien',bps:3333,color:AC.eq},{name:'Obligationen',bps:3333,color:AC.bd},{name:'Immobilien',bps:3334,color:AC.re}]);"
-        "return {rows:r.map(function(x){return [x.name,x.pct,x.subs.map(function(s){return [s.name,s.pct,s.seg]}),x.subRoundingGap]}),"
-        "gap:r.roundingGap,subGap:r.subRoundingGap,thirds:[t.roundingGap,t.map(function(x){return x.pct})]};"
+        "return {rows:r.map(function(x){return [x.name,x.pct,x.subs.map(function(s){return [s.name,s.pct,s.seg]})]}),"
+        "thirds:t.map(function(x){return [x.name,x.pct]})};"
     )
     rows = out["rows"]
     assert [r[0] for r in rows] == ["Aktien", "Obligationen", "Immobilien", "Alternative", "Liquidität"]
-    assert rows[0][1] == "74.8 %"
-    # Einzelrundung wie PDF/Portfolio: 33.6 (nicht 33.7); Summe 74.7 neben 74.8 -> Hinweis.
-    assert rows[0][2] == [["Aktien Schweiz", "33.6 %", 0], ["Aktien Global", "29.9 %", 1],
+    assert [r[1] for r in rows] == ["74.8 %", "10.9 %", "8.7 %", "3.0 %", "2.6 %"]
+    # Largest Remainder auf den Klassenwert 74.8: Europa (Rest .8) und -- Gleichstand
+    # .4 nach Name -- Schweiz erhalten die fehlenden Zehntel (vorher 74.7 + Hinweis).
+    assert rows[0][2] == [["Aktien Schweiz", "33.7 %", 0], ["Aktien Global", "29.9 %", 1],
                           ["Aktien Europa", "7.5 %", 2], ["Aktien Schwellenlaender", "3.7 %", 3]]
-    assert rows[0][3] is True and out["subGap"] is True
-    assert out["gap"] is False  # 74.8+10.9+8.7+3.0+2.6 = 100.0
-    assert out["thirds"] == [True, ["33.3 %", "33.3 %", "33.3 %"]]
+    assert sum(_tenths(r[1]) for r in rows) == 1000
+    for r in rows:
+        if r[2]:
+            assert sum(_tenths(s[1]) for s in r[2]) == _tenths(r[1]), r[0]
+    # 3333/3333/3334: Einzelrundung ergaebe 99.9 %, apportioniert 100.0 %.
+    assert out["thirds"] == [["Immobilien", "33.4 %"], ["Aktien", "33.3 %"], ["Obligationen", "33.3 %"]]
     # Segment-Indizes laufen ueber alle Klassen (Aussenring-Reihenfolge).
     segs = [s[2] for r in rows for s in r[2]]
     assert segs == list(range(len(segs)))
@@ -165,9 +168,9 @@ def test_donut_rings_cover_100_percent_and_sub_segments_are_named():
     assert out["rings"] == [["sub", 10000, 10], ["class", 10000, 5]]
     assert out["cls"][0] == "#1F3A5F" and out["border"] == "#FFFFFF"
     assert out["tip"] == ["Aktien", "74.8 %", "CHF 1'535'861"]
-    assert out["sub"] == ["Aktien › Aktien Schweiz", "33.6 %", "Liquidität › Geldmarktfonds"]
+    assert out["sub"] == ["Aktien › Aktien Schweiz", "33.7 %", "Liquidität › Geldmarktfonds"]
     assert out["subTitle"] == "Subanlageklasse (Aussenring)"
-    assert out["subLabel"] == "Aktien › Aktien Schweiz · 33.6 %"
+    assert out["subLabel"] == "Aktien › Aktien Schweiz · 33.7 %"
     assert out["pending"] == [1, 0, [100]]
 
 
@@ -175,12 +178,12 @@ def test_incomplete_subclasses_are_not_stretched_to_the_class():
     out = _run(
         "var rows=aaChartPrepare([{name:'Aktien',bps:6000,color:AC.eq,subs:[{name:'Aktien Schweiz',bps:4000}]},"
         "{name:'Obligationen',bps:4000,color:AC.bd}]);var ds=aaChartDonutDatasets(rows,'#FFFFFF');"
-        "return {sub:rows[0].subs[0].pct,ring:ds[0].data,lbl:ds[0]._aaLabels,gap:rows[0].subRoundingGap};"
+        "return {sub:rows[0].subs[0].pct,ring:ds[0].data,lbl:ds[0]._aaLabels,pct:ds[0]._aaPct};"
     )
     assert out["sub"] == "40.0 %"  # nicht auf 60 % hochgerechnet
     assert out["ring"] == [4000, 2000, 4000]
     assert out["lbl"][1] == "Aktien › ohne Unterklasse"
-    assert out["gap"] is False
+    assert out["pct"][:2] == ["40.0 %", "20.0 %"]  # Unterklasse + Rest = Klasse 60.0 %
 
 
 def test_reduced_motion_disables_animation():
@@ -200,10 +203,12 @@ def test_legend_shows_percent_chf_bar_on_100_scale_and_reserve():
     assert 'id="alloc-legend-reserve"' in out and "CHF 645'886" in out
     assert "CHF 2'054'114" in out and "CHF 2'700'000" in out
     assert "Aussenring: Subanlageklassen" in out
-    assert "Rundungsdifferenzen" not in out  # Klassen ergeben hier genau 100.0 %
-    gap = html_lib.unescape(_run(
+    assert "Rundungsdifferenzen" not in out
+    thirds = html_lib.unescape(_run(
         "return aaChartLegendHtml([{name:'Aktien',bps:3333,color:AC.eq},{name:'Obligationen',bps:3333,color:AC.bd},{name:'Immobilien',bps:3334,color:AC.re}],null);"))
-    assert "Rundungsdifferenzen möglich" in gap
+    assert "Rundungsdifferenzen" not in thirds  # G7: apportioniert, Summe exakt 100.0 %
+    shown = re.findall(r'class="aa-leg-pct">([^<]+)<', thirds)
+    assert shown == ["33.4 %", "33.3 %", "33.3 %"]
 
 
 def test_quota_rows_band_marker_ring_swatches_and_rounding_note():
@@ -217,10 +222,10 @@ def test_quota_rows_band_marker_ring_swatches_and_rounding_note():
     assert 'data-allocation-group="table%3AAktien" aria-expanded="true"' in out
     assert "toggleAllocationTableGroup(decodeURIComponent(this.getAttribute(" in out
     # Unterklasse = Segment im Aussenring (gleiche Farbe, gleicher Index).
-    assert '<div class="aa-q-sub" data-aa-seg="0">' in out and "33.6 %" in out
+    assert '<div class="aa-q-sub" data-aa-seg="0">' in out and "33.7 %" in out
     assert "color-mix(in srgb, var(--ac-eq) 50%, var(--surface))" in out
     assert "Aussenring der Torte" in out
-    assert "Rundungsdifferenzen möglich" in out  # 33.6+29.9+7.5+3.7 = 74.7 neben 74.8
+    assert "Rundungsdifferenzen" not in out  # G7: 33.7+29.9+7.5+3.7 = 74.8 = Klasse
 
 
 def test_pending_state_names_reason_and_offers_action_without_auto_run():
@@ -314,12 +319,13 @@ def test_zero_percent_class_with_band_stays_in_quotas_but_not_in_donut_or_legend
                            ["Alternative", "0.0 %", None, []]]
 
 
-def test_canvas_mouseleave_resets_highlight_and_note_has_no_pdf_claim():
+def test_canvas_mouseleave_resets_highlight_and_rounding_note_is_gone():
     js = MODULE_PATH.read_text(encoding="utf-8")
     apply_fn = js.split("function aaChartApplyDonut(", 1)[1].split("\nfunction ", 1)[0]
     assert "addEventListener('mouseleave'" in apply_fn and "aaChartMarkLegend(-1,-1)" in apply_fn
-    note = _run("return aaChartRoundingNote();")
-    assert note.startswith("Rundungsdifferenzen möglich") and "PDF" not in note
+    # G7: Paritaet App/PDF ist garantiert -> kein "Rundungsdifferenzen moeglich" mehr.
+    assert "aaChartRoundingNote" not in js and "Rundungsdifferenzen" not in js
+    assert "toFixed(" not in js
 
 
 def test_small_text_contrast_tokens_and_compact_band_below_760px():

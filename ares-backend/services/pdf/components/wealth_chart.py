@@ -5,6 +5,7 @@ zwei Linien (SOLL + optional Benchmark). Inline-SVG-freier Ansatz, der
 identisch funktioniert wie das Frontend-SVG aber als ReportLab-Drawing.
 """
 from __future__ import annotations
+from core.presentation_rounding import format_amount_minor
 
 from typing import Sequence
 
@@ -25,9 +26,9 @@ SOLL_COLOR = rl_colors.HexColor("#1e4b8f")
 BENCHMARK_COLOR = rl_colors.HexColor("#92400e")
 
 
-def _format_chf(rappen: int) -> str:
-    value = int(rappen) / 100
-    return f"CHF {value:,.0f}".replace(",", "'")
+def _format_chf(rappen: int, currency: str) -> str:
+    # N-894-10: Achsenbeschriftung in Mandatswaehrung (Dokument reicht ctx.base_currency).
+    return format_amount_minor(int(rappen), currency)
 
 
 def make_wealth_chart(
@@ -38,6 +39,7 @@ def make_wealth_chart(
     height_mm: float = 70.0,
     title: str | None = None,
     primary_label: str = "SOLL-Strategie",
+    currency: str = "CHF",
 ) -> Drawing:
     """Wealth-Index-Chart als ReportLab Drawing.
 
@@ -110,7 +112,7 @@ def make_wealth_chart(
         drawing.add(Line(margin_left, y, W - margin_right, y,
                          strokeColor=COLOR_BORDER, strokeWidth=0.4))
         drawing.add(String(margin_left - 3, y - 2.5,
-                           _format_chf(y_val),
+                           _format_chf(y_val, currency),
                            textAnchor="end", fontName=FONT_DEFAULT, fontSize=7,
                            fillColor=COLOR_TEXT_LIGHT))
 

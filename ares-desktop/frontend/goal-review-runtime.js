@@ -73,9 +73,9 @@ function goalDisplayFrequency(value){
 }
 function goalAmountLabel(type){
   if(isReturnGoalType(type))return 'Zielrendite p.a. (%) *';
-  if(isWealthGoalType(type))return 'Zielverm\u00f6gen (CHF) *';
-  if(isRecurringGoalType(type))return 'Betrag pro Periode (CHF) *';
-  if(type==='Einmalige_Ausgabe')return 'Zielbetrag (CHF) *';
+  if(isWealthGoalType(type))return 'Zielverm\u00f6gen ('+(mandateCurrency()||'—')+') *';
+  if(isRecurringGoalType(type))return 'Betrag pro Periode ('+(mandateCurrency()||'—')+') *';
+  if(type==='Einmalige_Ausgabe')return 'Zielbetrag ('+(mandateCurrency()||'—')+') *';
   if(isMaxGoalType(type))return 'Kein fixer Zielbetrag';
   return 'Zielbetrag *';
 }
@@ -170,7 +170,7 @@ function updateGoalDerivedDiagnostics(){
     if(rBps==null||!(rBps>0)){hintEl.textContent='';return;}
     var rate=Number(rBps||0)/10000;
     var impliedWealth=initial*Math.pow(1+rate,horizon);
-    hintEl.innerHTML='<strong>'+escapeHtml(formatRappen(Math.round(impliedWealth*100)))+'</strong> impliziertes Zielverm\u00f6gen in '+horizon.toFixed(1)+' Jahren.';
+    hintEl.innerHTML='<strong>'+escapeHtml(formatRappen(Math.round(impliedWealth*100),mandateCurrency()))+'</strong> impliziertes Zielverm\u00f6gen in '+fmtNumber(horizon,1)+' Jahren.';
   }else if(isWealthGoalType(type)||type==='Einmalige_Ausgabe'){
     var target=Number(parseCHF(getInputValue('nz-amount'))||0)/100;
     if(!(target>0)){hintEl.textContent='';return;}
@@ -180,7 +180,7 @@ function updateGoalDerivedDiagnostics(){
     var streamAmount=Number(parseCHF(getInputValue('nz-amount'))||0)/100;
     var dur=parseFloat(getInputValue('nz-horizon').replace(',','.'))||0;
     if(!(streamAmount>0)||!(dur>0)){hintEl.textContent='';return;}
-    hintEl.innerHTML='Vereinfachter Kapitalbedarf des Stroms: <strong>'+escapeHtml(formatRappen(Math.round(streamAmount*dur*100)))+'</strong>. Die pr\u00e4zise Tragf\u00e4higkeit zeigt der Optimizer.';
+    hintEl.innerHTML='Vereinfachter Kapitalbedarf des Stroms: <strong>'+escapeHtml(formatRappen(Math.round(streamAmount*dur*100),mandateCurrency()))+'</strong>. Die pr\u00e4zise Tragf\u00e4higkeit zeigt der Optimizer.';
   }else{
     hintEl.textContent='';
   }
@@ -191,8 +191,8 @@ function goalAmountSummary(goal){
     return goal&&goal.target_return_bps!=null ? formatBpsPercent(goal.target_return_bps)+' p.a.' : 'Renditeziel';
   }
   if(isMaxGoalType(type))return 'Maximierung';
-  if(isWealthGoalType(type))return formatRappen(goal&&goal.target_wealth_rappen||0)+(goalValueMode(goal&&goal.value_mode)==='real'?' (real)':'');
-  return formatRappen(goal&&goal.target_amount_rappen||0);
+  if(isWealthGoalType(type))return formatRappen(goal&&goal.target_wealth_rappen||0,mandateCurrency())+(goalValueMode(goal&&goal.value_mode)==='real'?' (real)':'');
+  return formatRappen(goal&&goal.target_amount_rappen||0,mandateCurrency());
 }
 function goalTimingLabel(goal){
   var direct=String(goal&&goal.timing_label||'').trim();
@@ -541,22 +541,8 @@ async function saveGoal(options){
   var scope=getInputValue('nz-scope')||'Beratungsverm\u00f6gen';
   var amountRaw=getInputValue('nz-amount').trim();
   var returnRaw=getInputValue('nz-target-return-bps').trim();
-  // GOAL-HORIZON-STALE-001 (Audit-Finding, 2026-10-07): las bisher den
-  // rohen, nie nachgefuehrten Wert aus dem #nz-horizon-Eingabefeld, waehrend
-  // die live angezeigte Zielrendite-Kennzahl (updateGoalDerivedDiagnostics)
-  // bereits goalEditorHorizonYears() nutzt, das bei gesetztem Zieldatum
-  // korrekt daraus rechnet. Ergebnis: ein Ziel mit Zieldatum in z.B. 6 Jahren
-  // speicherte trotzdem horizon_years=10 (unveraenderter Default), obwohl das
-  // Eingabefeld selbst nie sichtbar aktualisiert wird ("der Zeithorizont
-  // wird daraus abgeleitet" stimmte nur fuer die Live-Diagnose, nicht fuers
-  // Speichern). Downstream nutzt services/portfolio_engine_mc_simulation.py
-  // _dated_goal_horizon() max(horizon_years, datums-abgeleitete-Jahre) als
-  // NULL-Sicherheitsnetz -- ein nicht-null-aber-veralteter, zu grosser Wert
-  // blaeht dadurch den Monte-Carlo-Horizont des GESAMTEN Mandats stillschweigend
-  // auf. Fix: dieselbe, bereits in der Live-Diagnose verwendete Funktion
-  // wiederverwenden statt den Rohwert unabhaengig neu zu lesen (Single Source
-  // of Truth -- was angezeigt wird, entspricht jetzt zwingend dem, was
-  // gespeichert wird).
+  // GOAL-HORIZON-STALE-001 (2026-10-07): Horizont aus goalEditorHorizonYears() wie die
+  // Live-Diagnose (Single Source of Truth), nicht der nie nachgefuehrte Rohwert aus #nz-horizon.
   var horizonFloat=goalEditorHorizonYears();
   var horizon=horizonFloat>0?Math.max(1,Math.round(horizonFloat)):null;
   var startDate=normalizeCashflowDateValue(getInputValue('nz-start-date'));
@@ -745,7 +731,7 @@ async function savePlanningAssumptions(){
     if(fbEl){
       fbEl.textContent=pctVal==null
         ? '✓ Mandatsspezifische Inflationsannahme entfernt. Für reale Ziele gilt wieder der CMA-Fallback.'
-        : ('✓ '+pctVal.toFixed(2)+'% = '+bps+' BPS gespeichert.');
+        : ('✓ '+fmtPct(bps,2)+' = '+bps+' BPS gespeichert.');
       fbEl.style.color='var(--pos)';
       fbEl.style.display='block';
       setTimeout(function(){ if(fbEl)fbEl.style.display='none'; },3000);
@@ -774,9 +760,9 @@ function strategyGoalTargetText(goal){
   }
   if(isMaxGoalType(type))return 'Maximierung';
   if(isWealthGoalType(type)&&goal&&goal.target_wealth_rappen!=null){
-    return formatRappen(goal.target_wealth_rappen)+(goalValueMode(goal&&goal.value_mode)==='real'?' (real)':'');
+    return formatRappen(goal.target_wealth_rappen,mandateCurrency())+(goalValueMode(goal&&goal.value_mode)==='real'?' (real)':'');
   }
-  return formatRappen(goal&&goal.target_amount_rappen||0);
+  return formatRappen(goal&&goal.target_amount_rappen||0,mandateCurrency());
 }
 function goalEvaluationNoteHtml(goal,compact){
   var note=String(goal&&goal.evaluation_note||'').trim();
@@ -822,9 +808,10 @@ function currentCashflowCoverageInfo(){
   var oneOffIncomeCurrentYear=Number(parts&&parts.capitalInflowsRappen||0)+Number(parts&&parts.pensionPayoutRappen||0);
   var oneOffExpenseCurrentYear=Number(parts&&parts.capitalOutflowsRappen||0);
   var net=recurringIncome-recurringExpense;
-  var coveragePct=recurringExpense>0?Math.round(recurringIncome/recurringExpense*100):null;
+  var coveragePct=recurringExpense>0?recurringIncome/recurringExpense*100:null;
   return {
     year:String(currentYear),
+    currency:ccyOf(parts?currentCashflowProjection.amount_currency:(currentCashflowSummary&&currentCashflowSummary.amount_currency)),  // G7 N4
     incomeRappen:recurringIncome,
     expenseRappen:recurringExpense,
     netRappen:net,
@@ -854,7 +841,8 @@ function decumulationCapitalBridgeRows(limit){
       return {
         year:String(year),
         label:String(cashflow.label||'Kapitalzufluss'),
-        amountRappen:Number(cashflow.amount_rappen||0)
+        amountRappen:Number(cashflow.amount_rappen||0),
+        currency:cashflow.currency
       };
     });
 }
@@ -976,20 +964,8 @@ function renderAllocationMethodComparison(result){
     }else{
       dBlock.style.display='';
       dBody.innerHTML=drivers.map(function(d){
-        // OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001 (2026-10-13): zeigte
-        // bisher weighted_objective_contribution_milli -- ein *1000-
-        // Fixed-Point, der kleine materiell verschiedene Beitraege auf
-        // denselben Integer kollabiert. Gemessen wurden vier Ziele mit
-        // rohen Beitraegen 0, 4e-12, 4e-5 und 0.00049 alle als "0"
-        // angezeigt: "vollstaendig erfuellt" war von einer echten
-        // Unterdeckung nicht zu unterscheiden.
-        //
-        // Jetzt der verlustfreie Dezimalstring. Die drei Zustaende bleiben
-        // getrennt (Zielvertrag Punkt 4 des Audits): nicht verfuegbar
-        // (nicht endlicher oder fehlender Wert) ist NICHT null, und exakt
-        // null ist nicht dasselbe wie ein kleiner positiver Beitrag.
-        // Bewusst ungerundet -- jede Anzeige-Rundung wuerde genau den
-        // Kollaps wieder einfuehren, den dieser Fix behebt.
+        // OPTIMIZER-OBJECTIVE-EVIDENCE-PRECISION-001 (2026-10-13): verlustfreier Dezimalstring statt
+        // *1000-Fixed-Point; "nicht verfuegbar" != 0 != kleiner Beitrag. Bewusst ungerundet.
         var dec=d.weighted_objective_contribution_decimal;
         var contribText;
         if(dec==null||dec===''){
@@ -1018,7 +994,7 @@ function renderAllocationMethodComparison(result){
       'Status: '+(cmp.shadow_status||'—')
     ];
     if(cmp.objective_delta_pct!=null){
-      bits.push('Differenz Zielfunktion: '+Number(cmp.objective_delta_pct).toFixed(2)+'%');
+      bits.push('Differenz Zielfunktion: '+AresRounding.formatPercent(Number(cmp.objective_delta_pct),2,{typography:'screen'}));
     }
     audit.textContent=bits.join(' | ');
   }
@@ -1149,7 +1125,7 @@ function renderStressTable(stressEvals){
     var rowHighlight=(ddBps!==null&&ddBps>5000)?'background:rgba(220,53,69,0.08);':'';
     var cumTxt=cumBps===null?'—':stressSigned(cumBps,fmtPct(Math.abs(cumBps),1));
     var ddTxt=ddBps===null?'—':fmtPct(-Math.abs(ddBps),1);
-    var impactTxt=impactR===null?'—':stressSigned(Math.round(impactR/100),fmtLocaleCH(Math.abs(Math.round(impactR/100))));
+    var impactTxt=impactR===null?'—':stressSigned(impactR,AresRounding.formatDecimal(Math.abs(impactR)/100,0,{typography:'screen'}));
     var label=nameMap[name]||String(name);
     var tr=document.createElement('tr');
     tr.style.cssText='border-bottom:1px solid var(--b1);'+rowHighlight;
@@ -1220,13 +1196,11 @@ function runSensitivityCall(btn){
     if(amtRappen==null&&body.target_return_bps_new!=null){
       msg='Neues Renditeziel: '+fmtPct(Number(body.target_return_bps_new),2)+' p.a.';
     }else{
-      var newAmt=Math.round(Number(amtRappen||0)/100);
-      msg='Neuer Zielwert: CHF '+fmtLocaleCH(newAmt);
+      msg='Neuer Zielwert: '+formatRappen(Number(amtRappen||0),mandateCurrency());
     }
     if(dPct!=null){
-      var sign=Number(dPct)>=0?'+':'';
       var direction=Number(dPct)<0?' (besser erreichbar)':(Number(dPct)>0?' (schwerer erreichbar)':'');
-      msg+=' | Zielabweichung '+sign+Number(dPct).toFixed(1)+'%'+direction;
+      msg+=' | Zielabweichung '+AresRounding.formatPercent(Number(dPct),1,{typography:'screen',signed:true})+direction;
     }else if(body.delta_objective_unavailable_reason){
       // Ohne diesen Zweig blieb das Feld einfach leer -- von "0 %
       // Veraenderung" nicht zu unterscheiden.
@@ -1242,10 +1216,10 @@ function runSensitivityCall(btn){
 // KNOWLEDGE-GAP-ASSET-CLASS-001: SAA-Anlageklassen ohne dokumentierte
 // Kenntnis/Aufklaerung (Backend: knowledge_asset_class_check). Reiner Hinweis,
 // die Allokation wird dadurch nicht veraendert.
-function aaKnowledgeGapCardBody(check){
+function aaKnowledgeGapCardBody(check,buckets){
   if(!check||check.status!=='gap'||!Array.isArray(check.findings)||!check.findings.length)return '';
   var actions=check.findings.map(function(f){
-    var pct=formatBpsPercent(Number(f&&f.target_weight_bps||0));
+    var cls=f?(f.asset_class||f.label):'',bps=Number(f&&f.target_weight_bps||0),pct=sollPct(cls,bps,buckets);
     return String(f&&f.label||'Anlageklasse')+' ('+pct+'): '+String(f&&f.action||'');
   });
   return 'Fuer folgende Anlageklassen der Strategie sind weder Kenntnisse noch eine Aufklaerung dokumentiert: '+actions.join(' · ')+' Die Allokation wurde dadurch nicht veraendert.';
@@ -1272,14 +1246,14 @@ function renderActionCards(reasoning){
   }
   if(allocation&&allocation.knowledge_asset_class_check){
     // Reason-Code KNOWLEDGE_GAP_ASSET_CLASS (siehe aaKnowledgeGapCardBody).
-    pushCard('Kenntnisse & Anlageklassen','Hinweis','ta',aaKnowledgeGapCardBody(allocation.knowledge_asset_class_check),'warn');
+    pushCard('Kenntnisse & Anlageklassen','Hinweis','ta',aaKnowledgeGapCardBody(allocation.knowledge_asset_class_check,allocation.buckets),'warn');
   }
   if(allocation){
     var annualNet=allocationRecurringNetCashflowRappen(allocation);
     var reserveNeeded=Math.round(Number(allocation.reserve_needed_rappen||0)/100);
     var externalReserve=Math.round(Number(allocation.external_reserve_rappen||0)/100);
     var liqBucket=(allocation.buckets||[]).filter(function(bucket){return String(bucket.asset_class||'')==='Liquiditaet';})[0]||null;
-    var liqTarget=liqBucket?formatBpsPercent(liqBucket.target_weight_bps):'n/a';
+    var liqTarget=liqBucket?sollPct(liqBucket.asset_class,liqBucket.target_weight_bps,allocation.buckets):'n/a';
     var targetRunwayInfo=projectionRunwayInfo(mc&&mc.target_p50_series_rappen,mc&&mc.year_labels);
     var currentRunwayInfo=projectionRunwayInfo(mc&&mc.current_p50_series_rappen,mc&&mc.year_labels);
     var targetRunway=targetRunwayInfo.label;
@@ -1288,12 +1262,12 @@ function renderActionCards(reasoning){
     var cashflowInfo=currentCashflowCoverageInfo();
     var reliefRows=decumulationCapitalBridgeRows(2);
     if(annualNet<0||reserveNeeded>0||externalReserve>0){
-      var reserveBody='Der Fall ist im Vermoegensverzehr: laufende Einkommen '+formatRappen(cashflowInfo.incomeRappen)+' p.a., Ausgaben '+formatRappen(cashflowInfo.expenseRappen)+' p.a., Finanzierungsluecke '+formatSignedRappen(cashflowInfo.netRappen)+' p.a..';
-      if(cashflowInfo.coveragePct!=null)reserveBody+=' Die laufenden Einkommen decken rund '+cashflowInfo.coveragePct+'% der Ausgaben.';
-      if(reliefRows.length)reserveBody+=' Einmalige Kapitalereignisse entlasten temporaer: '+reliefRows.map(function(row){return row.year+' '+row.label+' '+formatRappen(row.amountRappen);}).join(' und ')+'.';
+      var reserveBody='Der Fall ist im Vermoegensverzehr: laufende Einkommen '+formatRappen(cashflowInfo.incomeRappen,cashflowInfo.currency)+' p.a., Ausgaben '+formatRappen(cashflowInfo.expenseRappen,cashflowInfo.currency)+' p.a., Finanzierungsluecke '+formatSignedRappen(cashflowInfo.netRappen,cashflowInfo.currency)+' p.a..';
+      if(cashflowInfo.coveragePct!=null)reserveBody+=' Die laufenden Einkommen decken rund '+AresRounding.formatPercent(cashflowInfo.coveragePct,0,{typography:'screen'})+' der Ausgaben.';
+      if(reliefRows.length)reserveBody+=' Einmalige Kapitalereignisse entlasten temporaer: '+reliefRows.map(function(row){return row.year+' '+row.label+' '+formatRappen(row.amountRappen,row.currency);}).join(' und ')+'.';
       reserveBody+=' Die strategische Liquiditaet im Mandat bleibt bei '+liqTarget+'.';
-      if(externalReserve>0)reserveBody+=' Zusaetzlich werden CHF '+fmtLocaleCH(externalReserve)+' als separate Reserve ausserhalb des Mandats empfohlen.';
-      else if(reserveNeeded>0)reserveBody+=' Der kurzfristige Reservebedarf liegt bei rund CHF '+fmtLocaleCH(reserveNeeded)+'.';
+      if(externalReserve>0)reserveBody+=' Zusaetzlich werden '+formatRappen(allocation.external_reserve_rappen)+' als separate Reserve ausserhalb des Mandats empfohlen.';
+      else if(reserveNeeded>0)reserveBody+=' Der kurzfristige Reservebedarf liegt bei rund '+formatRappen(allocation.reserve_needed_rappen)+'.';
       if(targetRunway!=='-'||currentRunway!=='-')reserveBody+=' Median-Reichweite: IST '+currentRunway+', SOLL '+targetRunway+'.';
       if(runwayDeltaYears!=null&&runwayDeltaYears>0)reserveBody+=' Die Strategie gewinnt im Median rund '+runwayDeltaYears+' Jahre Zeit.';
       else if(runwayDeltaYears!=null&&runwayDeltaYears===0&&targetRunway!=='-')reserveBody+=' Wichtig: Die Strategie puffert den Entnahmepfad, verlaengert die Reichweite in diesem Setup aber nicht wesentlich. Fuer mehr Reichweite braucht es weniger Entnahme, mehr Vermoegen oder zusaetzliche Einkommen.';
@@ -1470,17 +1444,18 @@ function reviewAllocationPortraitHtml(rows){
   function getColor(key){ return assetClassCssVar(key); }
   var totalIst=rows.reduce(function(s,r){return s+Math.max(0,Number(r.currentWeightBps||0));},0)||10000;
   var totalSoll=rows.reduce(function(s,r){return s+Math.max(0,Number(r.targetWeightBps||0));},0)||10000;
+  var pm=function(f){return AresRounding.bucketPctMap(rows.map(function(r){return {asset_class:r.assetKey,target_weight_bps:Math.max(0,Number(r[f]||0))};}),{typography:'screen'});},sollM=pm('targetWeightBps'),istM=pm('currentWeightBps');
   // AA-UX-COLORS-001: Textfarbe je Klassenflaeche (WCAG AA), nicht pauschal Weiss
   // (Weiss auf Gold/Grau waere < 3:1).
-  function seg(bps,total,key,label){
+  function seg(bps,total,key,label,m){
     var pct=Math.max(0,bps/total*100);
     if(pct<0.3)return '';
-    return '<div style="width:'+pct.toFixed(2)+'%;background:'+getColor(key)+';display:flex;align-items:center;justify-content:center;overflow:hidden" title="'+escapeHtml(label)+': '+escapeHtml(formatBpsPercent(bps))+'">'
-      +(pct>=9?'<span style="font-size:8px;color:'+assetClassTextOn(key)+';font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums">'+escapeHtml(formatBpsPercent(bps))+'</span>':'')
+    return '<div style="width:'+pct.toFixed(2)+'%;background:'+getColor(key)+';display:flex;align-items:center;justify-content:center;overflow:hidden" title="'+escapeHtml(label)+': '+escapeHtml(m[key]||formatBpsPercent(bps))+'">'
+      +(pct>=9?'<span style="font-size:8px;color:'+assetClassTextOn(key)+';font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums">'+escapeHtml(m[key]||formatBpsPercent(bps))+'</span>':'')
       +'</div>';
   }
-  var sollBar=rows.map(function(r){return seg(Math.max(0,Number(r.targetWeightBps||0)),totalSoll,r.assetKey,r.assetClass);}).join('');
-  var istBar=rows.map(function(r){return seg(Math.max(0,Number(r.currentWeightBps||0)),totalIst,r.assetKey,r.assetClass);}).join('');
+  var sollBar=rows.map(function(r){return seg(Math.max(0,Number(r.targetWeightBps||0)),totalSoll,r.assetKey,r.assetClass,sollM);}).join('');
+  var istBar=rows.map(function(r){return seg(Math.max(0,Number(r.currentWeightBps||0)),totalIst,r.assetKey,r.assetClass,istM);}).join('');
   var legend=rows.map(function(r){
     var meta=r.meta;
     var hasIssue=meta&&meta.tagClass&&meta.tagClass!=='tg';
@@ -1556,7 +1531,7 @@ renderStrategySummary=function(){
         +'<div style="width:8px;height:8px;border-radius:2px;background:'+color+';flex-shrink:0"></div>'
         +'<span style="font-size:10px;color:var(--n6)">'+escapeHtml(assetDisplayName(bucket.asset_class))+'</span>'
         +'<div style="height:7px;background:var(--bg2);border-radius:3px"><div style="width:'+pct+'%;height:100%;background:'+color+';border-radius:3px;opacity:0.85"></div></div>'
-        +'<span style="font-size:10px;font-weight:600;color:var(--n7);text-align:right">'+formatBpsPercent(bucket.target_weight_bps)+'</span>'
+        +'<span style="font-size:10px;font-weight:600;color:var(--n7);text-align:right">'+sollPct(bucket.asset_class,bucket.target_weight_bps,allocation.buckets)+'</span>'
         +'<span style="font-size:10px;color:var(--n5);text-align:right">'+escapeHtml(targetValue)+'</span>'
         +'</div>';
     }).join('');

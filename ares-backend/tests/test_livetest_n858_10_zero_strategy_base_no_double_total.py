@@ -51,7 +51,7 @@ def test_strategy_pdf_soll_table_with_zero_base_has_no_double_total():
     assert "40'000" not in text, "Beratungsvermoegen doppelt ausgewiesen"
     start = text.index("SOLL-ALLOKATION")
     block = text[start:text.index("Total Beratungsvermögen", start) + 40]
-    assert re.search(r"Total Anlagestrategie \(Strategiebasis\) 100\.0% CHF 0\b", block), block
+    assert re.search(r"Total Anlagestrategie \(Strategiebasis\) 100\.0 % CHF 0\b", block), block
     assert re.search(r"Liquiditätsreserve \(ausserhalb der Anlagestrategie\) – CHF 20'000", block), block
     assert re.search(r"Total Beratungsvermögen CHF 20'000", block), block
     # Klassen 0 (nicht 10'000/8'000/2'000 vom vollen Vermoegen)

@@ -14,6 +14,12 @@ from services.pdf.components.single_report_disclaimer import (
     make_single_report_disclaimer,
 )
 from services.pdf.provisional_notice import make_provisional_notice_flowables
+from core.presentation_rounding import (
+    allocation_pct_texts,
+    format_amount_minor,
+    format_bps_as_pct,
+    sub_allocation_pct_texts,
+)
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -148,10 +154,12 @@ def _make_structure_description(data: AnlagestrategieData):
         text = "Noch keine Zielstruktur dokumentiert."
     else:
         lead_bucket, lead_bps = active[0]
+        # G7: derselbe apportionierte Wert wie in Tabelle/Legende.
+        lead_text = allocation_pct_texts(dict(active))[lead_bucket]
         text = (
             f"Die empfohlene Struktur kombiniert {len(active)} "
             f"Hauptanlageklassen. Den groessten Anteil bildet "
-            f"{asset_class_label(lead_bucket)} mit {lead_bps / 100:.1f}%. "
+            f"{asset_class_label(lead_bucket)} mit {lead_text}. "
             "Die Zielquote markiert den strategischen Mittelpunkt; Min/Max "
             "definieren den vereinbarten Handlungskorridor. Bewegungen innerhalb "
             "dieses Korridors sind kein automatisches Handelssignal."
@@ -203,6 +211,7 @@ def _make_main_allocation_table(
 ) -> Table:
     rows = [["Hauptanlageklasse", "Zielquote", "Band Min", "Band Max", f"Zielbetrag ({base_currency})"]]
     strategy_total = 0
+    shown = allocation_pct_texts({b: int((allocation_bps or {}).get(b, 0) or 0) for b in _ordered_buckets(allocation_bps)})
     for bucket in _ordered_buckets(allocation_bps):
         bps = int((allocation_bps or {}).get(bucket, 0) or 0)
         band = (bands_bps or {}).get(bucket) or (bps, bps)
@@ -210,7 +219,7 @@ def _make_main_allocation_table(
         strategy_total += amount
         rows.append([
             asset_class_label(bucket),
-            _format_percent(bps),
+            shown[bucket],
             _format_percent(int(band[0] or 0)),
             _format_percent(int(band[1] or 0)),
             _format_amount(amount, base_currency) if advisory_wealth_rappen else "-",
@@ -315,6 +324,7 @@ def _make_sub_asset_class_table(
         sub_by_bucket.setdefault(bucket, []).append((sub, values))
 
     strategy_total = 0
+    shown = allocation_pct_texts({b: int((allocation_bps or {}).get(b, 0) or 0) for b in _ordered_buckets(allocation_bps)})
     for bucket in _ordered_buckets(allocation_bps):
         bucket_bps = int((allocation_bps or {}).get(bucket, 0) or 0)
         bucket_amount = (
@@ -325,7 +335,7 @@ def _make_sub_asset_class_table(
         group_row_indexes.append(len(rows))
         rows.append([
             f"{asset_class_label(bucket)} Total",
-            _format_percent(bucket_bps),
+            shown[bucket],
             _format_amount(bucket_amount, base_currency) if (bucket_amount > 0 or bucket in (bucket_amounts_rappen or {})) else "-",
         ])
 
@@ -335,6 +345,9 @@ def _make_sub_asset_class_table(
         )
         if not children and bucket_bps > 0:
             children = [(asset_class_label(bucket), {"bps": bucket_bps, "amount": bucket_amount})]
+        child_shown = sub_allocation_pct_texts(
+            shown[bucket], {sub: int(values["bps"] or 0) for sub, values in children}, bucket_bps,
+        )
         for sub, values in children:
             amount = int(values["amount"] or 0)
             # N-858-10: Rueckfall nur ohne Betragsangabe, nicht bei Basis 0.
@@ -345,7 +358,7 @@ def _make_sub_asset_class_table(
                     f'<font color="#64748b">- {_esc(sub)}</font>',
                     _table_cell_style(),
                 ),
-                _format_percent(int(values["bps"] or 0)),
+                child_shown.get(sub, format_bps_as_pct(int(values["bps"] or 0))),
                 _format_amount(amount, base_currency) if (amount > 0 or bucket_amounts_rappen) else "-",
             ])
 
@@ -417,10 +430,8 @@ def _ordered_buckets(allocation_bps) -> list[str]:
 
 
 def _format_percent(bps: int) -> str:
-    pct = bps / 100.0
-    if bps % 100 == 0:
-        return f"{pct:.0f}%"
-    return f"{pct:.1f}%"
+    # G7: eine Darstellung fuer alle Kanaele (1 Nachkommastelle, Half-up).
+    return format_bps_as_pct(bps)
 
 
 def _table_cell_style():
@@ -438,8 +449,4 @@ def _format_amount(rappen: int, currency: str = "CHF") -> str:
     # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): rappen ist bereits in
     # mandate.base_currency (siehe portfolio_engine._load_allocation_inputs).
     # Kein zweites convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
-    try:
-        value = rappen / 100.0
-        return f"{currency} {value:,.0f}".replace(",", "'")
-    except Exception:
-        return f"CHF {rappen/100.0:,.0f}".replace(",", "'")
+    return format_amount_minor(rappen, currency or "CHF")

@@ -1,5 +1,6 @@
 """SAA-Tortendiagramm via ReportLab-graphics."""
 from __future__ import annotations
+from core.presentation_rounding import format_bps_as_pct
 
 from reportlab.graphics.charts.legends import Legend
 from reportlab.graphics.charts.piecharts import Pie
@@ -58,7 +59,7 @@ def make_saa_pie_chart(
     legend.fontName = FONT_DEFAULT
     legend.fontSize = FONT_SIZE_SMALL
     legend.colorNamePairs = [
-        (colors_list[i] if colors_list[i] else None, f"{labels[i]} ({values[i]/100:.1f}%)")
+        (colors_list[i] if colors_list[i] else None, f"{labels[i]} ({format_bps_as_pct(values[i], decimals=1)})")
         for i in range(len(items))
     ]
     legend.columnMaximum = len(items)

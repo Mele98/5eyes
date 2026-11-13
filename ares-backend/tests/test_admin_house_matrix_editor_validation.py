@@ -32,6 +32,7 @@ from types import SimpleNamespace
 
 import pytest
 from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HTML_PATH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
@@ -92,7 +93,7 @@ def _node(script_body: str, extra_funcs: tuple[str, ...] = (), extra_vars: tuple
     src = read_monolith_bundle()
     parts = [_var(src, v) for v in VALIDATOR_VARS + extra_vars]
     parts += [_function(src, f) for f in VALIDATOR_FUNCS + extra_funcs]
-    script = "\n".join(parts) + "\n" + script_body
+    script = rounding_module_source() + "\n".join(parts) + "\n" + script_body
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as fh:
         fh.write(script)
         path = fh.name
@@ -645,7 +646,7 @@ def _clone(script: str) -> dict:
         "function om(", "function cm(", "function adminPolicyEnsureCloneModal(",
         "function adminPolicyCloneActive(", "async function adminPolicyCloneConfirm(",
     )]
-    body = _CLONE_HARNESS + "\n".join(fns) + "\n(async function(){\n" + script + "\n})().catch(function(e){console.error(e&&e.stack||e);process.exit(1);});"
+    body = rounding_module_source() + _CLONE_HARNESS + "\n".join(fns) + "\n(async function(){\n" + script + "\n})().catch(function(e){console.error(e&&e.stack||e);process.exit(1);});"
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as fh:
         fh.write(body)
         path = fh.name

@@ -365,6 +365,10 @@ class WealthSummaryResponse(BaseModel):
     liabilities_chf: float
     net_worth_chf: float
     advisory_wealth_chf: float
+    # G7 N4 (Grundregel): Die Summen sind Rohsummen der Positionsbetraege (ohne
+    # FX). Ihre Waehrung ist nur eindeutig, wenn alle aktiven Positionen dieselbe
+    # Waehrung haben; sonst None -> Anzeige "—" statt einer geratenen Einheit.
+    amount_currency: Optional[str] = None
 
 
 class CashflowSummaryResponse(BaseModel):
@@ -383,6 +387,8 @@ class CashflowSummaryResponse(BaseModel):
     total_income_chf: float
     total_expense_chf: float
     surplus_chf: float
+    # G7 N4: Waehrung der Summen (totals_for_year(target_currency=...)).
+    amount_currency: str = "CHF"
 
 
 class CashflowYearRow(BaseModel):
@@ -421,3 +427,5 @@ class CashflowProjectionResponse(BaseModel):
     # Ledger-Zeilen im Horizont (auto UND verknuepft) zur Offenlegung.
     pension_transfers: list[CashflowPensionTransfer] = []
     pension_ledger_hash: str | None = None
+    # G7 N4: Waehrung aller *_rappen-Jahreswerte (target_currency der Projektion).
+    amount_currency: str = "CHF"

@@ -128,8 +128,8 @@ def test_asset_allocation_pdf_uses_strategy_base_and_shows_reserve(ctx):
 def test_asset_allocation_pdf_lists_saa_em_subclass_not_product_mix(ctx):
     text = _pdf_text(ReportLabRenderer().render_asset_allocation(ctx, _data()))
     assert "Schwellenl" in text, "EM-Subklasse fehlt im AA-PDF"
-    assert "21.5%" in text
-    assert "23.9%" not in text, "Produkt-Gewicht (EM im CH-Produkt) statt SAA-Subklasse"
+    assert "21.5 %" in text  # G7: gemeinsamer Formatter
+    assert "23.9%" not in text and "23.9 %" not in text, "Produkt-Gewicht (EM im CH-Produkt) statt SAA-Subklasse"
 
 
 def test_asset_allocation_pdf_subclass_amounts_sum_to_class(ctx):

@@ -8,6 +8,28 @@ Texte sind eigenstaendig mit neutralen Formulierungen verfasst
 from __future__ import annotations
 
 
+# G7 N-894-15: Referenzwaehrung = Mandatswaehrung, ausgeschrieben im Nominativ.
+# Unbekannte Codes erscheinen ehrlich als Code (keine geratene Bezeichnung).
+REFERENCE_CURRENCY_NOMINATIVE_DE: dict[str, str] = {
+    "CHF": "der Schweizer Franken",
+    "EUR": "der Euro",
+    "USD": "der US-Dollar",
+    "GBP": "das britische Pfund",
+    "JPY": "der japanische Yen",
+}
+
+
+def reference_currency_phrase(currency: str | None) -> str:
+    code = str(currency or "").upper().strip()
+    if not code:
+        return "die Mandatswährung"
+    return REFERENCE_CURRENCY_NOMINATIVE_DE.get(code, code)
+
+
+def with_reference_currency(text: str, currency: str | None) -> str:
+    return text.replace("{referenzwaehrung}", reference_currency_phrase(currency))
+
+
 INVESTITIONSANSATZ_TITLE = "Investitionsansatz"
 INVESTITIONSANSATZ_TEXT = [
     (
@@ -15,7 +37,7 @@ INVESTITIONSANSATZ_TEXT = [
         "Investierens. Gemeinsam mit Ihnen wird eine individuelle "
         "strategische Asset Allokation (iSAA) festgelegt, die in diesem "
         "Dokument unter «Ihre persönliche Anlagestrategie» dokumentiert ist. "
-        "Referenzwährung ist der Schweizer Franken. Die iSAA wurde unter "
+        "Referenzwährung ist {referenzwaehrung}. Die iSAA wurde unter "
         "Berücksichtigung Ihres Risikoprofils, Ihrer finanziellen Situation, "
         "Ihrer konkreten Ziele sowie Ihrer Präferenzen optimiert. Ziel ist es, "
         "die Wahrscheinlichkeit für die Erreichung Ihrer Lebensziele und den "
@@ -94,7 +116,7 @@ ANLAGEUNIVERSUM_OUTRO = [
     "eingesetzt werden.",
     "Daneben kann ein Teil der Vermögenswerte als Liquidität auf dem Konto "
     "gehalten werden.",
-    "Die Referenzwährung ist der CHF. Anlagen in anderen Währungen sind "
+    "Die Referenzwährung ist {referenzwaehrung}. Anlagen in anderen Währungen sind "
     "zulässig, womit die Vermögenswerte Wechselkursrisiken ausgesetzt sein "
     "können.",
 ]

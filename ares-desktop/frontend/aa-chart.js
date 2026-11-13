@@ -1,18 +1,8 @@
 // H6 Asset-Allocation-Grafik (SOLL-Torte, Legende, SOLL-Quoten mit Bandbreite).
 // Teil des Monolithen (ausgelagert, siehe tests/monolith_source.py): klassisches
 // Skript, globale Funktionen, keine Abhaengigkeit ausser Chart.js (vendor).
-// Fachlich neutral: Gewichte (bps), Betraege und Bandbreiten kommen unveraendert
-// aus der Engine; hier wird nur sortiert, gerundet und gezeichnet.
-//
-// Rundung (H6-Nachtrag, FIDLEG/Dokumentation): jede Zahl wird EINZELN auf 0.1 %
-// gerundet -- wie die PDFs (f"{bps/100:.1f}") und exakt wie fmtPct (Portfolio,
-// Report, Zahlenformat-Vertrag AA-UX-FORMAT-001). Ergeben die gerundeten Anteile
-// nicht genau 100.0 % bzw. ihre Klasse, steht "Rundungsdifferenzen moeglich"
-// dabei (N-882-03: ohne Verweis auf PDF, bis ein gemeinsamer Decimal-
-// ROUND_HALF_UP-Formatter nach H1 auch services/pdf angleicht). Bekannte Altabweichung App <-> PDF: nur echte Gleichstaende |bps| % 100
-// == 25 (App rundet auf, Python auf gerade Ziffer, z. B. 0.25 % -> 0.3 / 0.2);
-// Angleichung in services/pdf nach H1 (Folgepunkt), ebenso eine gemeinsame
-// Rest-Rundung.
+// Gewichte/Betraege/Bandbreiten unveraendert aus der Engine; nur sortieren, runden
+// (G7, apportioniert wie im PDF) und zeichnen.
 
 // Feste Reihenfolge der Anlageklassen -- nur Gleichstands-Regel beim Sortieren.
 function aaChartClassRank(key){
@@ -22,57 +12,57 @@ function aaChartClassRank(key){
 function aaChartKey(label){
   return typeof assetClassKey==='function'?assetClassKey(label):'oth';
 }
-// bps -> Zehntelprozent, Einzelrundung identisch zu fmtPct(bps,1) (toFixed).
-function aaChartTenths(bps){
-  var n=Math.round(Number(bps)||0),q=Math.round(Number((Math.abs(n)/100).toFixed(1))*10);
-  return n<0?-q:q;
-}
+// Einzelwert (Bandbreiten, Ziel-Marker): bps -> "12.3 %" (Half-up, wie fmtPct).
 function aaChartPctText(bps){
-  var q=aaChartTenths(bps),a=Math.abs(q);
-  return (q<0?'−':'')+Math.floor(a/10)+'.'+(a%10)+' %';
+  return AresRounding.formatPercentBps(Math.round(Number(bps)||0),1,{typography:'screen'});
 }
-function aaChartChf(chf){
-  var n=Math.round(Number(chf)||0);
-  return 'CHF '+(typeof fmtLocaleCH==='function'?fmtLocaleCH(n):String(n));
+// G7 N4: Betraege in Artefakt-/Mandatswaehrung; unbekannt -> "—".
+function aaChartCurrency(){var a=typeof strategyState!=='undefined'&&strategyState&&strategyState.allocation,m=typeof currentMandateData!=='undefined'&&currentMandateData;var c=String((a&&a.base_currency)||(m&&m.base_currency)||'').toUpperCase().trim();return c||null;}
+function aaChartMoney(minor,cur){cur=cur||aaChartCurrency();return cur?AresRounding.formatStoredAmount(Number(minor)||0,cur,0,{typography:'screen'}):'—';}
+function aaChartChf(chf,cur){return aaChartMoney(Math.round((Number(chf)||0)*100),cur);}
+// Gruppe gemeinsam apportionieren: list = Objekte mit .bps in kanonischer
+// Reihenfolge; setzt .pct (Anzeige) je Objekt. targetDisplay optional.
+function aaChartApportion(list,targetDisplay){
+  if(!list.length)return;
+  var shown=AresRounding.formatApportionedPercentBps(list.map(function(x){return x.bps;}),1,{typography:'screen',targetDisplay:targetDisplay});
+  list.forEach(function(x,k){x.pct=shown[k];});
 }
-// items: [{name,bps,color,amountChf?,band?:{min,max},subs?:[{name,bps,note}]}]
-// -> neue, nach Gewicht absteigend sortierte Zeilen (pct einzeln gerundet) mit
-// Segment-Indizes des Aussenrings (s.seg, r.restSeg bzw. r.soloSeg) und
-// roundingGap (gerundete Klassen != 100.0 % bzw. Unterklassen != Klasse).
-// 0-%-Klassen (N-882-01): Torte und Legende blenden sie aus (kein Segment, kein
-// Betrag); die SOLL-Quoten behalten sie, wenn eine Bandbreite existiert
-// (keepZeroWithBand), z. B. "Alternative 0.0 %, Bandbreite 0.0-10.0 %". Sie
-// stehen dort am Ende und belegen keinen Segment-Index.
+function aaChartPctNumber(pct){return String(pct||'').replace(/[^0-9.]/g,'');}
+// items [{name,bps,color,amountChf?,currency?,band?,subs?}] -> Zeilen nach Gewicht,
+// pct apportioniert, Segment-Indizes (s.seg, r.restSeg, r.soloSeg). 0-%-Klassen
+// (N-882-01) nur in den SOLL-Quoten mit Band (keepZeroWithBand), ohne Segment.
 function aaChartPrepare(items,keepZeroWithBand){
   var rows=(items||[]).map(function(it,idx){
     var key=it.key||aaChartKey(it.name);
     return {name:String(it.name||''),key:key,bps:Math.max(0,Math.round(Number(it.bps)||0)),color:it.color,
-      cssColor:it.cssColor||(typeof assetClassCssVar==='function'?assetClassCssVar(it.name):it.color),amountChf:it.amountChf,band:it.band||null,groupKey:it.groupKey||null,
+      cssColor:it.cssColor||(typeof assetClassCssVar==='function'?assetClassCssVar(it.name):it.color),amountChf:it.amountChf,currency:it.currency||null,band:it.band||null,groupKey:it.groupKey||null,
       expanded:!!it.expanded,_i:idx,subs:(it.subs||[]).map(function(s,j){
         return {name:String(s.name||''),bps:Math.max(0,Math.round(Number(s.bps)||0)),note:s.note||'',_j:j};
       })};
   }).filter(function(r){return r.bps>0||(keepZeroWithBand&&r.band&&r.band.max>0);});
+  // Klassen: Apportionierung in kanonischer Reihenfolge (Gleichstandsregel).
+  aaChartApportion(rows.slice().sort(function(a,b){return (aaChartClassRank(a.key)-aaChartClassRank(b.key))||(a._i-b._i);}));
   rows.sort(function(a,b){return (b.bps-a.bps)||(aaChartClassRank(a.key)-aaChartClassRank(b.key))||(a._i-b._i);});
-  var seg=0,sumBps=0,sumTenths=0;
+  var seg=0;
   rows.forEach(function(r){
-    r.tenths=aaChartTenths(r.bps);r.pct=aaChartPctText(r.bps);
-    sumBps+=r.bps;sumTenths+=r.tenths;
     r.subs=r.subs.filter(function(s){return s.bps>0;});
+    var subBps=r.subs.reduce(function(a,s){return a+s.bps;},0);
+    // Unterklassen (+ Rest ohne Unterklasse) auf den angezeigten Klassenwert;
+    // Gleichstand nach Name (Codepoint), der Rest zuletzt.
+    var group=r.subs.slice().sort(function(a,b){return a.name<b.name?-1:(a.name>b.name?1:(a._j-b._j));});
+    var rest=(r.subs.length&&subBps<r.bps)?{bps:r.bps-subBps}:null;
+    if(rest)group.push(rest);
+    if(group.length)aaChartApportion(group,subBps<=r.bps?aaChartPctNumber(r.pct):null);
+    r.restPct=rest?rest.pct:'';
     r.subs.sort(function(a,b){return (b.bps-a.bps)||(a._j-b._j);});
-    var subBps=0,subTenths=0;
     r.subs.forEach(function(s,j){
-      s.tenths=aaChartTenths(s.bps);s.pct=aaChartPctText(s.bps);s.shade=aaChartShadeStep(j,r.subs.length);s.seg=seg++;
-      subBps+=s.bps;subTenths+=s.tenths;
+      s.shade=aaChartShadeStep(j,r.subs.length);s.seg=seg++;
     });
-    r.restSeg=(r.subs.length&&subBps<r.bps)?seg++:null;
+    r.restSeg=rest?seg++:null;
     r.soloSeg=(r.subs.length||!r.bps)?null:seg++;
-    r.subRoundingGap=r.subs.length>0&&subBps===r.bps&&subTenths!==r.tenths;
   });
-  rows.roundingGap=rows.length>0&&sumTenths!==aaChartTenths(sumBps);
-  rows.subRoundingGap=rows.some(function(r){return r.subRoundingGap;});
   return rows;
 }
-function aaChartRoundingNote(){return 'Rundungsdifferenzen möglich: Anteile sind einzeln auf 0.1 % gerundet.';}
 // Unterklassen: groesste in der Klassenfarbe, weitere schrittweise heller
 // (Anteil der Flaechenfarbe 0..0.5) -- gleiche Stufe in Canvas und HTML.
 function aaChartShadeStep(idx,count){
@@ -95,9 +85,7 @@ function aaChartSurface(){
 function aaChartReducedMotion(){
   try{return !!(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches);}catch(e){return false;}
 }
-// Datensaetze: innen die Anlageklassen (Hauptring), aussen ein schmaler Ring der
-// Unterklassen, deckungsgleich zur jeweiligen Klasse (Reihenfolge = s.seg).
-// Ohne Strategie ein ruhiger neutraler Ring ohne Fuge.
+// Innen Anlageklassen, aussen Unterklassen (Reihenfolge s.seg); ohne Strategie neutral.
 function aaChartDonutDatasets(rows,surface){
   if(!rows||!rows.length){
     return [{data:[100],backgroundColor:['rgba(122,130,153,0.22)'],borderWidth:0,hoverOffset:0,_aaPending:true}];
@@ -108,10 +96,10 @@ function aaChartDonutDatasets(rows,surface){
   var hasSubs=false;
   rows.forEach(function(r,i){
     cls.data.push(r.bps);cls.backgroundColor.push(r.color);cls._aaLabels.push(r.name);cls._aaPct.push(r.pct);
-    cls._aaAmt.push(r.amountChf>0?aaChartChf(r.amountChf):'');
+    cls._aaAmt.push(r.amountChf>0?aaChartChf(r.amountChf,r.currency):'');
     r.subs.forEach(function(s){hasSubs=true;push(i,s.bps,aaChartMix(r.color,surface,s.shade),r.name+' › '+s.name,s.pct);});
     // Unterklassen decken die Klasse nicht ganz ab: Rest neutral, keine Zuordnung erfinden.
-    if(r.restSeg!=null){var rest=r.bps-r.subs.reduce(function(a,s){return a+s.bps;},0);push(i,rest,aaChartMix(r.color,surface,0.8),r.name+' › ohne Unterklasse',aaChartPctText(rest));}
+    if(r.restSeg!=null){var rest=r.bps-r.subs.reduce(function(a,s){return a+s.bps;},0);push(i,rest,aaChartMix(r.color,surface,0.8),r.name+' › ohne Unterklasse',r.restPct);}
     if(r.soloSeg!=null)push(i,r.bps,r.color,r.name+' (keine Unterklassen)',r.pct);
   });
   return hasSubs?[sub,cls]:[cls];
@@ -160,9 +148,7 @@ function aaChartMarkLegend(rowIdx,segIdx){
 }
 // Legende/SOLL-Quoten -> Torte: Segment hervorheben (Maus und Tastaturfokus).
 // Unterklassenzeilen markieren ihr Segment im Aussenring.
-// N-882-07: Ziel eines Hovers/Fokus pruefen. Nur ein Index, den es im Ring
-// wirklich gibt, aktiviert ein Segment; sonst (z. B. 0-%-Quotenzeile ohne
-// Segment) nichts aktivieren und alle Markierungen zuruecksetzen.
+// N-882-07: nur existierende Ring-Indizes aktivieren, sonst Markierungen zuruecksetzen.
 function aaChartHoverTarget(datasets,rowAttr,segAttr){
   var ci=-1,si=-1,res={active:[],row:-1,seg:-1};
   (datasets||[]).forEach(function(d,k){if(d&&d._aaRing==='class')ci=k;if(d&&d._aaRing==='sub')si=k;});
@@ -216,20 +202,20 @@ function aaChartApplyDonut(chart,hasStrategy){
 function aaChartAllocItems(){
   var list=typeof alloc!=='undefined'&&Array.isArray(alloc)?alloc:[];
   var a=typeof strategyState!=='undefined'&&strategyState&&strategyState.allocation;
-  var buckets=(a&&a.buckets)||[];
-  var base=typeof allocationReserveBreakdown==='function'&&a?allocationReserveBreakdown(a).strategyBaseRappen:0;
+  var buckets=(a&&a.buckets)||[],cur=aaChartCurrency(),dn=function(x){x=String(x||'');return typeof assetDisplayName==='function'?assetDisplayName(x):x;};
+  var rb=a&&typeof allocationReserveBreakdown==='function'?allocationReserveBreakdown(a):{advisoryRappen:0,strategyBaseRappen:0};
+  // G7: Betraege wie im PDF (presentationAmounts: Basis Half-up, Largest Remainder).
+  var pos=buckets.filter(function(b){return Number(b.target_weight_bps)>0;});
+  var pa=AresRounding.presentationAmounts(rb.advisoryRappen,rb.strategyBaseRappen,pos.map(function(b){return b.target_weight_bps;}),pos.map(function(b){return b.asset_class;}),2);
   return list.map(function(r){
-    // Betrag wie in der Legende: Engine-Zielbetrag, sonst Quote x Strategiebasis.
-    var amount=Number(r.chfTarget||0);
-    if(!(amount>0))amount=Math.round((base/100)*Number(r.soll||0)/100);
-    var band=null;
+    var amount=pos.length?0:Math.round((rb.strategyBaseRappen/100)*Number(r.soll||0)/100),band=null;
+    pos.forEach(function(b,i){if(dn(b.asset_class)===r.n)amount=pa.buckets[i];});
     buckets.forEach(function(b){
-      var n=typeof assetDisplayName==='function'?assetDisplayName(String(b.asset_class||'')):String(b.asset_class||'');
-      if(n===r.n&&(Number(b.band_max_bps)>0))band={min:Number(b.band_min_bps||0),max:Number(b.band_max_bps||0)};
+      if(dn(b.asset_class)===r.n&&(Number(b.band_max_bps)>0))band={min:Number(b.band_min_bps||0),max:Number(b.band_max_bps||0)};
     });
     var subs=typeof allocationSubAllocationsForBucket==='function'?allocationSubAllocationsForBucket(r.n):[];
     var gk=typeof allocationTableGroupKey==='function'?allocationTableGroupKey(r.n):String(r.n||'');
-    return {name:r.n,bps:Math.round(Number(r.soll||0)*100),color:r.c,amountChf:amount,
+    return {name:r.n,bps:Math.round(Number(r.soll||0)*100),color:r.c,amountChf:amount,currency:cur,
       band:band,groupKey:gk,
       expanded:typeof allocationSuballocExpanded!=='undefined'&&!!allocationSuballocExpanded[gk],
       subs:(subs||[]).map(function(s){return {name:s.sub_asset_class||'Baustein',bps:s.target_weight_bps,note:s.rationale||''};})};
@@ -244,7 +230,7 @@ function aaChartEsc(v){
   if(typeof escapeHtml==='function')return escapeHtml(t);
   return t.split('').map(function(c){return '&<>\x22\x27'.indexOf(c)>=0?('&#'+c.charCodeAt(0)+';'):c;}).join('');
 }
-// Legende: sortiert, Farbe + Name + Anteilsbalken (Skala 100 %) + % + CHF; Reserve separat.
+// Legende: sortiert, Farbe, Name, Balken, %, Betrag; Reserve separat.
 function aaChartLegendHtml(items,rb){
   var rows=aaChartPrepare(items);
   var html='<div class="aa-leg-head" aria-hidden="true"><span>Anlageklasse</span><span>Anteil</span><span>Betrag</span></div>'+rows.map(function(r,i){
@@ -252,21 +238,20 @@ function aaChartLegendHtml(items,rb){
       +'<span class="aa-leg-sw" aria-hidden="true"></span><span class="aa-leg-name">'+aaChartEsc(r.name)+'</span>'
       +'<span class="aa-leg-bar" aria-hidden="true"><i style="width:'+(r.bps/100)+'%"></i></span>'
       +'<span class="aa-leg-pct">'+aaChartEsc(r.pct)+'</span>'
-      +'<span class="aa-leg-amt">'+(r.amountChf>0?aaChartEsc(aaChartChf(r.amountChf)):'')+'</span></div>';
+      +'<span class="aa-leg-amt">'+(r.amountChf>0?aaChartEsc(aaChartChf(r.amountChf,r.currency)):'')+'</span></div>';
   }).join('');
-  if(rows.roundingGap)html+='<div class="aa-leg-ring">'+aaChartEsc(aaChartRoundingNote())+'</div>';
   if(aaChartHasSubs())html+='<div class="aa-leg-ring">Innenring: Anlageklassen · Aussenring: Subanlageklassen (Farbe wie in «SOLL-Quoten», Name im Tooltip)</div>';
   if(rb&&rb.reserveRappen>0){
-    var fr=typeof formatRappen==='function'?formatRappen:function(x){return aaChartChf(Number(x||0)/100);};
+    var u=AresRounding.presentationAmounts(rb.advisoryRappen,rb.strategyBaseRappen,[],[],2),fr=function(x){return aaChartChf(x);};
     html+='<div class="aa-leg-row aa-leg-reserve" id="alloc-legend-reserve"><span class="aa-leg-sw" aria-hidden="true"></span>'
       +'<span class="aa-leg-name">Liquiditätsreserve (ausserhalb der Anlagestrategie)</span><span class="aa-leg-bar" aria-hidden="true"></span>'
-      +'<span class="aa-leg-pct">–</span><span class="aa-leg-amt">'+aaChartEsc(aaChartChf(rb.reserveRappen/100))+'</span></div>'
-      +'<div class="aa-leg-note">Quoten in % der Strategiebasis '+aaChartEsc(fr(rb.strategyBaseRappen))
-      +'; zusammen mit der Reserve ergibt sich das Beratungsvermögen '+aaChartEsc(fr(rb.advisoryRappen))+'.</div>';
+      +'<span class="aa-leg-pct">–</span><span class="aa-leg-amt">'+aaChartEsc(aaChartChf(u.reserve))+'</span></div>'
+      +'<div class="aa-leg-note">Quoten in % der Strategiebasis '+aaChartEsc(fr(u.base))
+      +'; zusammen mit der Reserve ergibt sich das Beratungsvermögen '+aaChartEsc(fr(u.advisory))+'.</div>';
   }
   return html;
 }
-// Leerzustand der Torte: Grund + Aktion (nur Darstellung; berechnet wird erst auf Klick).
+// Leerzustand: Grund + Aktion (berechnet wird erst auf Klick).
 // o: {notice, riskReady, baseText}
 function aaChartPendingHtml(o){
   o=o||{};
@@ -279,7 +264,7 @@ function aaChartPendingHtml(o){
     +'<div class="aa-pending-x">'+aaChartEsc(text)+' Strategiebasis aktuell: '+aaChartEsc(o.baseText||'Beratungsvermögen noch offen')+'.</div>'
     +'<div class="aa-pending-a">'+btn+'</div></div>';
 }
-// Kennzahlen-Karte unter der Legende (Inhalt wie bisher, als Zeilen statt Fliesstext).
+// Kennzahlen-Karte unter der Legende (Zeilen).
 // o: Rappen-Werte {rein, found, nonPos, uncovered, ber, base, reserve}; f: Formatter.
 function aaChartContextHtml(o,f){
   var row=function(label,value,sub){
@@ -324,8 +309,8 @@ function aaChartQuotaHtml(items){
       return '<div class="aa-q-sub" data-aa-seg="'+s.seg+'"><span class="aa-q-sw aa-q-sw-ring" aria-hidden="true" style="background:'+aaChartEsc(aaChartCssMix(r.cssColor||r.color,s.shade))+'"></span>'
         +'<span class="aa-q-main"><span class="aa-q-name">'+aaChartEsc(s.name)+'</span>'+(s.note?'<span class="aa-q-meta">'+aaChartEsc(s.note)+'</span>':'')+'</span>'
         +'<span class="aa-q-pct">'+aaChartEsc(s.pct)+'</span></div>';
-    }).join('')+(r.subRoundingGap?'<div class="aa-q-note">'+aaChartEsc(aaChartRoundingNote())+'</div>':'')+'</div>':'';
+    }).join('')+'</div>':'';
     return '<div class="aa-q'+(r.expanded?' is-open':'')+'">'+head+subs+'</div>';
   }).join('');
-  return html+(rows.roundingGap?'<div class="aa-q-note">'+aaChartEsc(aaChartRoundingNote())+'</div>':'');
+  return html;
 }

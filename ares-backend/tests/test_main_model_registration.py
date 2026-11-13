@@ -50,7 +50,11 @@ GOLDEN_SORTED_TABLES_SHA256 = "751a13f478745fdb7729d3191e5d5bf93e52f53b5f2a4d41d
 # Integrationsprobe 2026-11-07: Pins aus #856, #862, #868 und #869 zusammen-
 # gefuehrt; api/openapi.json (Git-Merge ohne Konflikt) besteht
 # scripts/export_openapi.py --check.
-GOLDEN_OPENAPI_SHA256 = "8ca5cb99beed3951ac6deb940efd0333bc42273a4da7b746443d7fb7ba50df65"
+# G7 H-153 Nachtrag 4 (Grundregel Waehrung): nur additiv WealthSummaryResponse.amount_currency
+# (Optional[str]), CashflowSummaryResponse.amount_currency und CashflowProjectionResponse.
+# amount_currency (str, Default "CHF"); kein Pfad, kein bestehendes Feld geaendert
+# (Feld-Diff von api/openapi.json, export_openapi.py --check gruen).
+GOLDEN_OPENAPI_SHA256 = "e5cc93966eaba7d200222bc568270b64d4dff8e0379732b1271793d04ff9ad80"
 
 _PROBE = """
 import hashlib, json
