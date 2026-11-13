@@ -188,7 +188,7 @@ def test_upgrade_downgrade_upgrade_on_postgres():
     try:
         cfg = _alembic_cfg(scoped)
         command.upgrade(cfg, "head")
-        command.downgrade(cfg, "d3b7f1a5c9e2")
+        command.downgrade(cfg, "f2a4c6e8b0d1")
         with engine.connect() as conn:
             insp = inspect(conn)
             assert TABLE not in insp.get_table_names(schema=schema)

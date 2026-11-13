@@ -26,7 +26,7 @@ E2a (Codex-Vertrag 2026-11-08): Spalten ``preference_waived`` /
 ``capture_channel`` (Kanal der Erhebung) und ``review_policy_version``.
 
 Revision ID: f3a8c1e5b7d2
-Revises: d3b7f1a5c9e2
+Revises: f2a4c6e8b0d1
 Create Date: 2026-11-07
 """
 from __future__ import annotations
@@ -38,7 +38,7 @@ from alembic import context, op
 
 
 revision: str = "f3a8c1e5b7d2"
-down_revision: Union[str, Sequence[str], None] = "d3b7f1a5c9e2"
+down_revision: Union[str, Sequence[str], None] = "f2a4c6e8b0d1"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

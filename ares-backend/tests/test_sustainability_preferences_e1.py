@@ -351,7 +351,7 @@ def test_alembic_single_head_upgrade_downgrade_upgrade(tmp_path):
     script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
     heads = script.get_heads()
     assert len(heads) == 1
-    assert script.get_revision("f3a8c1e5b7d2").down_revision == "d3b7f1a5c9e2"
+    assert script.get_revision("f3a8c1e5b7d2").down_revision == "f2a4c6e8b0d1"  # RC-CH-1 I-03: hinter H10
     db_url = f"sqlite:///{tmp_path / 'alembic.db'}"
     cfg = _alembic_cfg(db_url)
 
@@ -375,7 +375,7 @@ def test_alembic_single_head_upgrade_downgrade_upgrade(tmp_path):
 
     command.upgrade(cfg, "head")
     _assert_upgraded()
-    command.downgrade(cfg, "d3b7f1a5c9e2")
+    command.downgrade(cfg, "f2a4c6e8b0d1")
     engine = create_engine(db_url)
     insp = inspect(engine)
     assert "investment_preference_decisions" not in insp.get_table_names()
