@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "manifest_version": "2026-11-13.1",
+  "manifest_version": "2026-11-13.2",
   "title": "Egress-Manifest (ausgehende Verbindungen von Ares)",
   "policy": "fail_closed",
   "notice": "Jede ausgehende Verbindung des Backends muss hier einem Kanal zugeordnet sein; alles andere wird zur Laufzeit blockiert (services/egress_manifest.py). Lokale Verbindungen (localhost, 127.0.0.0/8, ::1) sind keine Uebermittlung und immer erlaubt. Kanaele mit personal_data=true laufen erst, wenn der Verantwortliche Staat und Garantie bestaetigt hat. Staaten und Garantien sind Angaben des Verantwortlichen (owner_field), Ares belegt sie nicht vor. Keine Rechtsberatung.",
@@ -731,7 +731,7 @@
         "reason": "Keine Personendaten; Update-Pruefung sendet Version und Plattform"
       },
       "enforcement": "desktop_update_gate",
-      "enforcement_note": "ares-desktop/update-gate.js: Updater nur mit desktopUpdates.enabled=true in der gepackten package.json und gueltiger Feed-URL; heute deaktiviert. Ein Test prueft, dass ein aktivierter Updater einen Host im Manifest braucht.",
+      "enforcement_note": "ares-desktop/update-gate.js: Updater nur mit desktopUpdates.enabled=true in der gepackten Build-Konfiguration, gueltiger Feed-URL und wirksamer Freigabe dieses Kanals; heute deaktiviert. Der Electron-Hauptprozess uebergibt die Feed-URL dem Backend als DESKTOP_UPDATE_FEED_URL (Teil des Fassungs-Hashes).",
       "code_references": [
         "ares-desktop/main.js",
         "ares-desktop/update-gate.js",

@@ -126,13 +126,11 @@ def test_host_change_invalidates_the_approved_version(channel, setting, first, s
     assert pv._content_hash(a) != pv._content_hash(b)
 
 
-def test_desktop_update_url_is_part_of_the_hash(monkeypatch, tmp_path):
-    package = tmp_path / "package.json"
-    package.write_text(json.dumps({"desktopUpdates": {"enabled": True, "feedUrl": "https://updates.a.example/x"}}))
-    monkeypatch.setattr(pv, "DESKTOP_PACKAGE_JSON", package)
-    first = pv.channel_contents({})["updates.desktop"]
-    package.write_text(json.dumps({"desktopUpdates": {"enabled": True, "feedUrl": "https://updates.b.example/x"}}))
-    second = pv.channel_contents({})["updates.desktop"]
+def test_desktop_update_url_is_part_of_the_hash():
+    # N-899-13: Feed-URL kommt vom Electron-Hauptprozess (DESKTOP_UPDATE_FEED_URL), nicht aus package.json.
+    first = pv.channel_contents({}, SimpleNamespace(desktop_update_feed_url="https://updates.a.example/x"))
+    second = pv.channel_contents({}, SimpleNamespace(desktop_update_feed_url="https://updates.b.example/x"))
+    first, second = first["updates.desktop"], second["updates.desktop"]
     assert first["configured_hosts"] == ["updates.a.example"] and pv._content_hash(first) != pv._content_hash(second)
 
 
@@ -241,7 +239,7 @@ def test_name_variants_are_blocked(names, term):
     assert em._client_name_hit(term), term
 
 
-@pytest.mark.parametrize("term", ["iShares Core SPI", "Gold ETF", "Vanguard FTSE All-World", "Erika", "Wu",
+@pytest.mark.parametrize("term", ["iShares Core SPI", "Gold ETF", "Vanguard FTSE All-World", "Erika",
                                   "UBS ETF MSCI World", "Swiss Gold Fund"])
 def test_product_terms_are_not_blocked(names, term):
     assert not em._client_name_hit(term), term

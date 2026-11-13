@@ -241,8 +241,18 @@ test('main.js: gepackte App mit ENABLE_AUTO_UPDATE=1 laedt den Updater nicht, so
     return originalLoad.call(this, request, parent, isMain);
   };
   const previousFlag = process.env.ENABLE_AUTO_UPDATE;
+  const previousTestEnv = { NODE_ENV: process.env.NODE_ENV, ARES_TEST: process.env.ARES_TEST };
   try {
+    // N-899-14 (H10): ohne Testmodus keine Test-Naht fuer den Freigabestatus.
+    delete process.env.NODE_ENV;
+    delete process.env.ARES_TEST;
+    delete require.cache[MAIN_JS_PATH];
+    assert.strictEqual(typeof require(MAIN_JS_PATH)._setEgressStatusFetcherForTest, 'undefined',
+      'Test-Naht darf ausserhalb von Testlaeufen nicht exportiert werden');
+    delete require.cache[MAIN_JS_PATH];
+    process.env.ARES_TEST = '1';
     const mainExports = require(MAIN_JS_PATH);
+    assert.strictEqual(typeof mainExports._setEgressStatusFetcherForTest, 'function');
     assert.strictEqual(updaterCalls.loads, 0, 'electron-updater darf beim Laden von main.js nicht geladen werden');
 
     // Gepackt + Laufzeit-Flag gesetzt, Build-Gate (Repo-Konfiguration) zu.
@@ -282,8 +292,28 @@ test('main.js: gepackte App mit ENABLE_AUTO_UPDATE=1 laedt den Updater nicht, so
     mainExports._setEgressStatusFetcherForTest(async () => ({ approved_channels: ['updates.desktop'], blocked_channels: [] }));
     await mainExports._checkForUpdatesForTest();
     assert.strictEqual(updaterCalls.checks, 1);
+
+    // N-899-13 (H10): gepackter Build uebergibt die Feed-URL ans Backend,
+    // eine geerbte Umgebung kann sie nicht vortaeuschen.
+    const runtime = { host: '127.0.0.1', port: 8123 };
+    assert.strictEqual(mainExports.buildBackendChildEnv(runtime).DESKTOP_UPDATE_FEED_URL,
+      enabledPackageJson().desktopUpdates.feedUrl);
+    packageOverride = null;
+    process.env.DESKTOP_UPDATE_FEED_URL = 'https://fremd.example.org/feed';
+    try {
+      assert.strictEqual(mainExports.buildBackendChildEnv(runtime).DESKTOP_UPDATE_FEED_URL, '');
+    } finally {
+      delete process.env.DESKTOP_UPDATE_FEED_URL;
+    }
+    appStub.isPackaged = false;
+    packageOverride = enabledPackageJson();
+    assert.strictEqual(mainExports.buildBackendChildEnv(runtime).DESKTOP_UPDATE_FEED_URL, '');
   } finally {
     try { require(MAIN_JS_PATH)._setEgressStatusFetcherForTest(null); } catch (_e) { /* ignore */ }
+    for (const [key, value] of Object.entries(previousTestEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
     Module._load = originalLoad;
     if (previousFlag === undefined) delete process.env.ENABLE_AUTO_UPDATE;
     else process.env.ENABLE_AUTO_UPDATE = previousFlag;

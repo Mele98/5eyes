@@ -90,8 +90,10 @@ def _counter_sink(session_factory: Callable[[], Any]) -> Callable[[dict], None]:
     return sink
 
 
-def _client_names(session_factory: Callable[[], Any]) -> Callable[[], list[str]]:
-    def provider() -> list[str]:
+def _client_names(session_factory: Callable[[], Any]) -> Callable[[], list[tuple[str, str]]]:
+    """Erfasste Kundennamen als (Vorname, Nachname) -- Nachnamen-Teile
+    (Doppelnamen) werden einzeln geprueft (N-899-12)."""
+    def provider() -> list[tuple[str, str]]:
         with session_factory() as db:
             rows = db.execute(text(
                 "SELECT first_name, last_name, partner_first_name, partner_last_name FROM clients "
@@ -99,9 +101,9 @@ def _client_names(session_factory: Callable[[], Any]) -> Callable[[], list[str]]
             )).all()
         names = []
         for first, last, partner_first, partner_last in rows:
-            names.append(f"{first or ''} {last or ''}")
+            names.append((first or "", last or ""))
             if partner_first or partner_last:
-                names.append(f"{partner_first or ''} {partner_last or ''}")
+                names.append((partner_first or "", partner_last or ""))
         return names
     return provider
 

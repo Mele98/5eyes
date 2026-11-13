@@ -65,17 +65,18 @@ def activity_contents(values: dict[str, str]) -> dict[str, dict[str, Any]]:
     }
 
 
-DESKTOP_PACKAGE_JSON = register_module.REPO_ROOT / "ares-desktop" / "package.json"
+def desktop_feed_url(settings_obj: Any = None) -> str:
+    """N-899-13: Update-Feed-URL der Desktop-Shell. Der Electron-Hauptprozess
+    uebergibt sie beim Start des Backends als ``DESKTOP_UPDATE_FEED_URL``
+    (aus der gepackten Build-Konfiguration; leer, solange das Build-Gate zu
+    ist). Das Backend liest keine package.json -- im gepackten Build gibt es
+    keine im Pfad."""
+    source = settings_obj if settings_obj is not None else settings
+    return str(getattr(source, "desktop_update_feed_url", "") or "").strip()
 
 
-def _desktop_feed_host() -> str:
-    """Update-URL der Desktop-Shell (falls im Quellbaum vorhanden)."""
-    try:
-        package = json.loads(DESKTOP_PACKAGE_JSON.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return ""
-    updates = package.get("desktopUpdates") or {}
-    return egress_manifest._host_from_setting(updates.get("feedUrl") or updates.get("url") or "")
+def _desktop_feed_host(settings_obj: Any = None) -> str:
+    return egress_manifest._host_from_setting(desktop_feed_url(settings_obj))
 
 
 def configured_hosts(channel: dict[str, Any], settings_obj: Any = None) -> list[str]:
@@ -84,7 +85,7 @@ def configured_hosts(channel: dict[str, Any], settings_obj: Any = None) -> list[
     neue Freigabe."""
     source = settings_obj if settings_obj is not None else settings
     if channel.get("id") == "updates.desktop":
-        host = _desktop_feed_host()
+        host = _desktop_feed_host(source)
         return [host] if host else []
     return egress_manifest.channel_hosts(channel, source)
 
@@ -92,11 +93,15 @@ def configured_hosts(channel: dict[str, Any], settings_obj: Any = None) -> list[
 def channel_contents(values: dict[str, str], settings_obj: Any = None) -> dict[str, dict[str, Any]]:
     manifest = egress_manifest.load_manifest()
     resolved = register_module.resolve_owner_fields(manifest, values)
-    return {
+    contents = {
         channel["id"]: {"manifest_version": manifest["manifest_version"], "channel": channel,
                         "configured_hosts": configured_hosts(channel, settings_obj)}
         for channel in egress_manifest.channels(resolved)
     }
+    if "updates.desktop" in contents:
+        # N-899-13: jeder Wechsel der Feed-URL (auch Pfad) verlangt eine neue Freigabe.
+        contents["updates.desktop"]["configured_feed_url"] = desktop_feed_url(settings_obj)
+    return contents
 
 
 # ── Fassungen ──────────────────────────────────────────────────────────────────

@@ -65,7 +65,16 @@ REQUIRED_CLASSES = ("market_data", "updates", "telemetry")
 ENFORCEMENTS = ("python_runtime_guard", "native_library", "desktop_update_gate", "subprocess_guard")
 # N-899-01: Netzwerkwerkzeuge, deren Aufruf (subprocess) an einen Kanal mit
 # ``subprocess_tools`` gebunden sein muss.
-NETWORK_TOOLS = frozenset({"rsync", "ssh", "scp", "sftp", "ftp", "curl", "wget", "rclone", "aws", "az", "gsutil"})
+NETWORK_TOOLS = frozenset({
+    "rsync", "ssh", "scp", "sftp", "ftp", "tftp", "curl", "wget", "rclone", "aws", "az", "gsutil", "ncat",
+    "telnet", "bitsadmin", "invoke-webrequest", "invoke-restmethod", "start-bitstransfer",
+})
+# N-899-10: Shells und Startwerkzeuge, deren Argumentstring auf
+# Netzwerkwerkzeuge durchsucht wird (shell=True, cmd /c, PowerShell, os.system).
+SHELL_TOOLS = frozenset({"sh", "bash", "zsh", "dash", "ksh", "cmd", "powershell", "pwsh"})
+WRAPPER_TOOLS = frozenset({"env", "nice", "nohup", "timeout", "sudo", "xargs", "stdbuf", "ionice", "start",
+                           "busybox"})
+_SHELL_SEPARATORS = re.compile(r"[;&|()`\n]+|\$\(")
 # Entfernte Ziele user@host:/pfad bzw. host:pfad; Windows-Laufwerke (C:\) zaehlen nicht.
 _REMOTE_TOKEN = re.compile(r"^(?:rsync://)?(?:[^@\s/:\\]+@)?([A-Za-z0-9][A-Za-z0-9.\-]+):(?![\\/]{0,1}\\)")
 NON_BLOCKING_GUARANTEES = ("NOT_REQUIRED", "OPERATOR_INFRASTRUCTURE")
@@ -380,18 +389,61 @@ def _apply_channel_state(channel: dict[str, Any], host: str) -> None:
                host=host, channel=channel["id"])
 
 
+def _tool_name(raw: Any) -> str:
+    name = Path(str(raw or "").strip().strip("\"'")).name.lower()
+    for suffix in (".exe", ".cmd", ".bat", ".ps1"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return name
+
+
+def _split_command(text: str) -> list[str]:
+    return [t.strip("\"'") for t in re.findall(r'"[^"]*"|\'[^\']*\'|\S+', text)]
+
+
+def _network_invocations(executable: Any, args: list[str]) -> list[tuple[str, list[str]]]:
+    """N-899-10: alle Aufrufe von Netzwerkwerkzeugen, auch versteckt in einer
+    Shell-Kommandozeile (``sh -c``, ``cmd /c``, PowerShell, ``os.system``) oder
+    hinter Startwerkzeugen (``env``, ``nice``, ``xargs`` ...)."""
+    tool = _tool_name(executable or (args[0] if args else ""))
+    if tool in NETWORK_TOOLS:
+        return [(tool, args[1:])]
+    first = _tool_name(args[0]) if args else ""
+    if tool not in SHELL_TOOLS | WRAPPER_TOOLS and first not in SHELL_TOOLS | WRAPPER_TOOLS:
+        return []
+    found = []
+    # Anfuehrungszeichen entfernen: cmd /c "curl ..." bzw. sh -c 'curl ...'
+    command = " ".join(args).replace('"', " ").replace("'", " ")
+    for segment in _SHELL_SEPARATORS.split(command):
+        tokens = segment.split()
+        for index, token in enumerate(tokens):
+            name = _tool_name(token)
+            if name in NETWORK_TOOLS:
+                found.append((name, tokens[index + 1:]))
+                break
+    return found
+
+
+def check_shell_command(command: Any) -> None:
+    """N-899-10: ``os.system``/Shell-Kommandozeile."""
+    check_subprocess("sh", ["sh", "-c", str(command or "")])
+
+
 def check_subprocess(executable: Any, argv: Any) -> None:
-    """N-899-01: Netzwerkwerkzeuge (rsync, ssh, curl ...) nur ueber einen
+    """N-899-01/-10: Netzwerkwerkzeuge (rsync, ssh, curl ...) nur ueber einen
     freigegebenen Kanal mit ``subprocess_tools``; jedes entfernte Ziel in den
-    Argumenten muss ein Host dieses Kanals sein."""
+    Argumenten muss ein Host dieses Kanals sein. Shell-Kommandozeilen werden
+    nach Netzwerkwerkzeugen durchsucht."""
     if isinstance(argv, (list, tuple)):
         args = [str(a) for a in argv]
     else:  # Windows: Kommandozeile als Zeichenkette (list2cmdline)
-        args = [t.strip('"') for t in re.findall(r'"[^"]*"|\S+', str(argv or ""))]
-    tool = Path(str(executable or (args[0] if args else ""))).name.lower()
-    tool = tool[:-4] if tool.endswith(".exe") else tool
-    if tool not in NETWORK_TOOLS:
-        return
+        args = _split_command(str(argv or ""))
+    for tool, tool_args in _network_invocations(executable, args):
+        _check_network_tool(tool, tool_args)
+
+
+def _check_network_tool(tool: str, tool_args: list[str]) -> None:
+    args = [tool, *tool_args]
     if _STATE.manifest is None:
         _block(ReasonCode.EGRESS_MANIFEST_MISSING, _STATE.manifest_error or "Manifest fehlt",
                host=tool, channel=None)
@@ -458,9 +510,11 @@ def check_connect(address: Any) -> None:
 
 
 _GERMAN_TRANSLIT = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue", "ß": "ss"})
-# N-899-07: gaengige Produkt-/Firmenbegriffe loesen den Nachnamen-allein-Treffer
-# nicht aus (Falsch-Positiv-Grenze). Ein Nachname, der zugleich ein solcher
-# Begriff ist, wird nur zusammen mit dem Vornamen bzw. der Initiale erkannt.
+# N-899-07/-12: Produkt-/Firmenbegriffe. Ein Nachname, der zugleich ein solcher
+# Begriff ist ("Gold", "Baer"), sperrt -- ausser der Suchbegriff enthaelt
+# mindestens ein weiteres Produktwort, eine ISIN oder ein Ticker-Muster
+# ("Gold ETF", "Julius Baer", "GOLD.SW"). Bewusst in Kauf genommen
+# (Datenschutz vor Komfort): ein Kunde "Roche" sperrt die Suche "Roche".
 PRODUCT_TERMS = frozenset({
     "fund", "fonds", "etf", "index", "core", "global", "world", "swiss", "schweiz", "europe", "europa",
     "gold", "silver", "silber", "bond", "bonds", "equity", "aktien", "obligationen", "immobilien", "real",
@@ -495,22 +549,69 @@ def name_variants(text: Any) -> list[list[str]]:
     return unique
 
 
-def _name_matches(tokens: list[str], parts: list[str]) -> bool:
+CLIENT_NAME_BLOCK_MESSAGE = (
+    "Suche gesperrt: Der Suchbegriff entspricht einem erfassten Kundennamen und wird zum Schutz der "
+    "Kundendaten nicht an externe Anbieter gesendet (auch wenn er zugleich ein Produkt- oder Firmenname ist). "
+    "Bitte mit ISIN oder Ticker suchen."
+)
+_ISIN_RE = re.compile(r"\b[A-Z]{2}[A-Z0-9]{9}[0-9]\b")
+_TICKER_RE = re.compile(r"^(?:\^[A-Z0-9]{2,8}|[A-Z0-9]{1,6}\.[A-Z]{1,4})$")
+
+
+def _product_context(tokens: list[str], raw: str, term: str) -> bool:
+    """Steht der Begriff mit einem weiteren Produktwort, einer ISIN oder einem
+    Ticker-Muster (mit Boersenkuerzel bzw. Index-Caret) im Suchbegriff?"""
+    if any(t in PRODUCT_TERMS and t != term for t in tokens):
+        return True
+    if _ISIN_RE.search(raw):
+        return True
+    return any(_TICKER_RE.match(word) for word in raw.split())
+
+
+def _name_matches(tokens: list[str], first_parts: list[str], last_parts: list[str], raw: str) -> bool:
+    parts = [*first_parts, *last_parts]
     joined, compact = f" {' '.join(tokens)} ", "".join(tokens)
-    last, first = parts[-1], parts[0]
+    if not last_parts:
+        return False
+    last = last_parts[-1]
     if f" {' '.join(parts)} " in joined:
         return True
     if len(parts) >= 2 and all(p in tokens for p in parts):
         return True
-    if len(parts) >= 2 and len("".join(parts)) >= 6 and "".join(parts) in compact:
-        return True  # zusammengeschrieben
-    if len(parts) >= 2:
+    for combo in {"".join(parts), "".join(last_parts)}:
+        if len(combo) >= 6 and combo in compact:
+            return True  # zusammengeschrieben ("HansMueller", "MuellerMeier")
+        if len(combo) >= 4 and combo in tokens and combo != last:
+            return True  # zusammengeschrieben, kurz ("LiWu")
+    if first_parts:
+        initial = first_parts[0][0]
         for i in range(len(tokens) - 1):
-            if tokens[i] == first[0] and tokens[i + 1] == last:
+            if tokens[i] == initial and tokens[i + 1] in last_parts:
                 return True  # Initiale + Nachname
-    if len(last) >= 4 and last not in PRODUCT_TERMS and last in tokens:
-        return True  # Nachname allein
+    for part in dict.fromkeys([*last_parts]):  # Doppelnamen-Teile einzeln
+        if len(part) < 2:
+            continue
+        if len(part) < 4:
+            if tokens == [part]:
+                return True  # Kurzname allein, exakter Treffer ("Wu")
+            continue
+        if part in tokens and (part not in PRODUCT_TERMS or not _product_context(tokens, raw, part)):
+            return True  # Nachname(nteil) allein
     return False
+
+
+def _name_entry(entry: Any) -> tuple[str, str]:
+    """Kundenname als (Vorname, Nachname); eine Zeichenkette wird am letzten
+    Leerzeichen geteilt."""
+    if isinstance(entry, (tuple, list)):
+        first = entry[0] if entry else ""
+        last = entry[1] if len(entry) > 1 else ""
+        return str(first or ""), str(last or "")
+    text = str(entry or "").strip()
+    if " " not in text:
+        return "", text
+    first, last = text.rsplit(" ", 1)
+    return first, last
 
 
 def _client_name_hit(text: str) -> bool:
@@ -520,12 +621,15 @@ def _client_name_hit(text: str) -> bool:
     term_variants = name_variants(text)
     if not term_variants:
         return False
-    for name in provider():
-        for parts in name_variants(name):
-            if all(len(p) < 2 for p in parts):
-                continue
-            if any(_name_matches(tokens, parts) for tokens in term_variants):
-                return True
+    for entry in provider():
+        first, last = _name_entry(entry)
+        # Transliterationen von Vor- und Nachname unabhaengig kombinieren
+        for last_parts in name_variants(last):
+            for first_parts in name_variants(first) or [[]]:
+                if all(len(p) < 2 for p in [*first_parts, *last_parts]):
+                    continue
+                if any(_name_matches(tokens, first_parts, last_parts, text) for tokens in term_variants):
+                    return True
     return False
 
 
@@ -577,7 +681,7 @@ def _screen_values(channel: dict[str, Any], pairs: list[tuple[str, Any]], host: 
                 hit = True
             if hit:
                 _block(ReasonCode.EGRESS_CLIENT_NAME_DENIED,
-                       f"Kanal {channel['id']}: Suchbegriff enthaelt einen erfassten Kundennamen",
+                       f"Kanal {channel['id']}: {CLIENT_NAME_BLOCK_MESSAGE}",
                        host=host, channel=channel["id"])
         pattern = field_patterns.get(field)
         if pattern and not re.fullmatch(pattern, text):
@@ -700,8 +804,9 @@ def check_url_request(full_url: Any, data: Any, method: Any) -> None:
     check_http_payload(parts.hostname, head + bytes(body))
 
 
-_WATCHED_EVENTS = frozenset({"socket.getaddrinfo", "socket.connect", "http.client.send", "urllib.Request",
-                             "subprocess.Popen"})
+_WATCHED_EVENTS = frozenset({"socket.getaddrinfo", "socket.connect", "socket.sendto", "socket.sendmsg",
+                             "http.client.send", "urllib.Request", "subprocess.Popen", "os.system",
+                             "os.posix_spawn", "os.exec", "os.spawn"})
 
 
 def _audit_hook(event: str, args: tuple) -> None:
@@ -714,10 +819,17 @@ def _audit_hook(event: str, args: tuple) -> None:
         if event == "socket.getaddrinfo":
             if check_host(args[0] if args else None) is not None:
                 _remember_resolution(_normalize_host(args[0]), args[1] if len(args) > 1 else None)
-        elif event == "socket.connect":
+        elif event in ("socket.connect", "socket.sendto", "socket.sendmsg"):
+            # N-899-11: UDP (sendto/sendmsg) mit derselben Allowlist wie connect.
             check_connect(args[1] if len(args) > 1 else None)
         elif event == "subprocess.Popen":
             check_subprocess(args[0] if args else None, args[1] if len(args) > 1 else None)
+        elif event == "os.system":
+            check_shell_command(args[0] if args else None)
+        elif event in ("os.posix_spawn", "os.exec"):
+            check_subprocess(args[0] if args else None, args[1] if len(args) > 1 else None)
+        elif event == "os.spawn":
+            check_subprocess(args[1] if len(args) > 1 else None, args[2] if len(args) > 2 else None)
         elif event == "urllib.Request":
             check_url_request(args[0], args[1], args[3] if len(args) > 3 else None)
         else:

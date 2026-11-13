@@ -480,6 +480,13 @@ async function pickBackendRuntime() {
 // KEK selbst kennt Electron nicht und loggt sie folglich nie.
 const TENANT_MASTER_KEK_STORE_FILE = path.join(app.getPath('userData'), 'tenant-master-kek.dpapi');
 
+// N-899-13 (H10): Feed-URL aus der gepackten Build-Konfiguration (asar),
+// leer solange das Build-Gate zu ist. Das Backend liest keine package.json.
+function desktopUpdateFeedUrl() {
+  const gate = evaluateRuntimeUpdateGate({ packageJson: require('./package.json'), isPackaged: app.isPackaged });
+  return gate.enabled ? gate.feedUrl : '';
+}
+
 function buildBackendChildEnv(runtime = backendRuntime) {
   return {
     ...process.env,
@@ -487,6 +494,8 @@ function buildBackendChildEnv(runtime = backendRuntime) {
     APP_HOST: runtime.host,
     APP_PORT: String(runtime.port),
     TENANT_MASTER_KEK_FILE: TENANT_MASTER_KEK_STORE_FILE,
+    // Immer gesetzt (auch leer): eine geerbte Umgebung kann den Kanal nicht vortaeuschen.
+    DESKTOP_UPDATE_FEED_URL: desktopUpdateFeedUrl(),
   };
 }
 
@@ -866,7 +875,10 @@ if (typeof module !== 'undefined' && module.exports) {
   // UPDATE-001: Update-Gate deterministisch pruefbar (tests/update-gate.test.js).
   module.exports._configureAutoUpdatesForTest = configureAutoUpdates;
   module.exports._checkForUpdatesForTest = checkForUpdates;
-  module.exports._setEgressStatusFetcherForTest = (fn) => { egressStatusFetcher = fn || fetchEgressStatus; };
+  // N-899-14 (H10): Test-Naht fuer den Freigabestatus nur in Testlaeufen.
+  if (process.env.NODE_ENV === 'test' || process.env.ARES_TEST === '1') {
+    module.exports._setEgressStatusFetcherForTest = (fn) => { egressStatusFetcher = fn || fetchEgressStatus; };
+  }
   module.exports._getUpdateStateForTest = () => ({ ...updateState });
   module.exports.backendProcessStillAlive = backendProcessStillAlive;
   // DESK-001: erlaubt das deterministische Pruefen, dass eine gepackte App

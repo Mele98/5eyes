@@ -237,7 +237,7 @@ def test_client_name_provider_reads_names_of_the_installation(tmp_path):
 
     with api(tmp_path) as (_client, _current, factory):
         names = _client_names(factory)()
-    assert "Erika Beispiel" in names
+    assert ("Erika", "Beispiel") in names
 
 
 # ── C-DSG-04 Nachweis-Hash, Ereigniskette ─────────────────────────────────────
