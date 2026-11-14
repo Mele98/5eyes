@@ -746,12 +746,17 @@ def mark_envelope_stale(
     return connection.execute(text(
         "INSERT INTO advisory_invalidation_events (id, tenant_id, mandate_id, envelope_id, source_kind, "
         "source_object_id, old_hash, new_hash, reason_code, invalidation_sequence, created_at, created_by) "
-        "SELECT :id, :tenant_id, :mandate_id, :envelope_id, :source_kind, :source_object_id, :old_hash, "
-        ":new_hash, :reason, COALESCE(MAX(i.invalidation_sequence), 0) + 1, :now, :actor "
-        "FROM advisory_invalidation_events i WHERE i.envelope_id = :envelope_id "
+        # Typen explizit (PostgreSQL leitet Parameter in der SELECT-Liste nicht
+        # ab; :envelope_id steht zudem im WHERE -> eigener Parametername).
+        "SELECT CAST(:id AS VARCHAR), CAST(:tenant_id AS VARCHAR), CAST(:mandate_id AS VARCHAR), "
+        "CAST(:envelope_id AS VARCHAR), CAST(:source_kind AS VARCHAR), CAST(:source_object_id AS VARCHAR), "
+        "CAST(:old_hash AS VARCHAR), CAST(:new_hash AS VARCHAR), CAST(:reason AS VARCHAR), "
+        "COALESCE(MAX(i.invalidation_sequence), 0) + 1, CAST(:now AS VARCHAR), CAST(:actor AS VARCHAR) "
+        "FROM advisory_invalidation_events i WHERE i.envelope_id = :sequence_envelope_id "
         "RETURNING invalidation_sequence"
     ), {
         "id": new_uuid(), "tenant_id": tenant_id, "mandate_id": mandate_id, "envelope_id": envelope_id,
+        "sequence_envelope_id": envelope_id,
         "source_kind": source_kind, "source_object_id": source_object_id, "old_hash": old_hash,
         "new_hash": new_hash, "reason": INVALIDATION_REASON_CODE, "now": now,
         "actor": str(actor or SYSTEM_ACTOR),
@@ -885,6 +890,7 @@ def _bulk_orm_write(orm_execute_state) -> None:
         )
     where = getattr(orm_execute_state.statement, "whereclause", None)
     query = select(table) if where is None else select(table).where(where)
+    query = query.order_by(*table.primary_key.columns)  # feste Lesereihenfolge (H-868 D1)
     rows = orm_execute_state.session.connection().execute(query).mappings().all()
     changes = []
     for row in rows:

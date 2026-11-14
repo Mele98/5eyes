@@ -53,6 +53,7 @@ def advisory_envelope_stale_reason(db: Session, mandate: Any, ta: Any) -> Reason
     if not connection.info.get(_FRESHNESS_TABLES_KEY):
         if not sa_inspect(connection).has_table("advisory_invalidation_events"):
             return None  # ohne Envelope-Schema gibt es keinen Entscheid
+        connection.info[_FRESHNESS_TABLES_KEY] = True
     row = db.execute(text(
         "SELECT e.freshness_status FROM advisory_decision_envelopes e "
         "JOIN advisory_envelope_bindings b ON b.envelope_id = e.id AND b.tenant_id = e.tenant_id "
@@ -88,13 +89,15 @@ def allocation_inputs_stale(
     """
     if ta is None or mandate is None:
         return False
-    # CCX-P2: ein invalidierter versiegelter Entscheid, der genau diese
-    # Allokation bindet, ist "Inputs veraltet" -- auch fuer Alt-Allokationen
-    # ohne input_snapshot_hash (Serverstatus, keine neue Herleitung).
-    if advisory_envelope_stale_reason(db, mandate, ta) == ReasonCode.CCX_INPUT_STALE:
-        return True
     if not str(getattr(ta, "input_snapshot_hash", None) or "").strip():
         return False
+    # CCX-P2: ein invalidierter versiegelter Entscheid, der genau diese
+    # Allokation bindet, ist "Inputs veraltet" (Serverstatus, keine neue
+    # Herleitung). Alt-Allokationen ohne input_snapshot_hash bleiben wie
+    # bisher ohne Query unmarkiert; fuer sie sperren das Envelope-Gate und das
+    # Dokumentarchiv einen nicht FRESHen Entscheid weiterhin.
+    if advisory_envelope_stale_reason(db, mandate, ta) == ReasonCode.CCX_INPUT_STALE:
+        return True
 
     from models.allocation import OptimizerPolicy
     from services.portfolio_engine import (
