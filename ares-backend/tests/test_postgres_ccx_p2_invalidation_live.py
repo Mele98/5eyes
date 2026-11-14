@@ -88,6 +88,7 @@ def _mark_stale(conn, envelope_id):
 
 CLIENTS = {
     "c-a": "t-a", "c-b": "t-b", "c-hook": "t-a", "c-r1": "t-a", "c-r2": "t-a", "c-r3": "t-a", "c-trig": "t-a",
+    "c-r4": "t-a",
 }
 
 
@@ -121,6 +122,11 @@ def pg_p2():
             _fresh_envelope(conn, "e-hook", "m-hook", "t-a", "c-hook", "3" * 64)
             _fresh_envelope(conn, "e-r3", "m-r3", "t-a", "c-r3", "6" * 64)
             _fresh_envelope(conn, "e-trig", "m-trig", "t-a", "c-trig", "7" * 64)
+            # Mandanteneigene CMA-Zeile fuer den Wettlauf CMA-Aenderung <-> Siegel.
+            conn.execute(text(
+                "INSERT INTO capital_market_assumptions (id, tenant_id, valid_from, is_current, created_by, "
+                "created_at, updated_at) VALUES ('cma-race', 't-a', '2026-01-01', 1, 'adv', :n, :n)"
+            ), {"n": NOW})
             ensure_postgres_rls_policies(conn)
             conn.execute(text(
                 f"CREATE ROLE {_qi(role)} LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '{password}'"
@@ -441,3 +447,55 @@ def test_upgrade_downgrade_upgrade_on_postgres():
         with admin.begin() as conn:
             conn.execute(text(f"DROP SCHEMA IF EXISTS {_qi(schema)} CASCADE"))
         admin.dispose()
+
+
+def test_cma_change_during_sealing_waits_and_invalidates(pg_p2):
+    """N-908-01 (b): die Versiegelung sperrt die gebundene CMA FOR SHARE. Eine
+    parallele CMA-Aenderung (Massen-Hook liest die Zeile FOR UPDATE) wartet bis
+    zum Siegel-Commit, sieht danach die Kante und invalidiert den neuen
+    Entscheid -- er bleibt nicht mit altem CMA-Hash FRESH."""
+    from types import SimpleNamespace
+
+    from models.allocation import CapitalMarketAssumption
+    from services.advisory_decision_envelope import lock_bound_reference_rows, lock_mandate_row
+
+    sealer = _session(pg_p2, "t-a")
+    mutator = _session(pg_p2, "t-a")
+    outcome: dict = {}
+    try:
+        lock_mandate_row(sealer, "m-r4")
+        lock_bound_reference_rows(
+            sealer, run=SimpleNamespace(capital_market_assumptions_id="cma-race", policy_id=None,
+                                        cma_policy_row_id=None),
+            target_allocation=SimpleNamespace(capital_market_assumptions_id=None, policy_id=None),
+        )
+        conn = sealer.connection()
+        _manifest(conn, "man-r4", "m-r4", tenant_id="t-a")
+        _draft(conn, "e-r4", "m-r4", tenant_id="t-a")
+        _bind(conn, "b-r4", "e-r4", "t-a")
+        _edge(conn, "e-r4", "t-a", "cma", "cma-race")
+        assert _seal(conn, "e-r4", "9" * 64) == 1
+
+        def _change_cma():
+            try:
+                mutator.query(CapitalMarketAssumption).filter(CapitalMarketAssumption.id == "cma-race").update(
+                    {"notes": "neue Annahme"}, synchronize_session=False)
+                mutator.commit()
+                outcome["result"] = "committed"
+            except Exception as exc:  # pragma: no cover - Diagnose
+                mutator.rollback()
+                outcome["result"] = f"error: {exc!r}"
+
+        worker = threading.Thread(target=_change_cma)
+        worker.start()
+        worker.join(timeout=1.5)
+        assert worker.is_alive(), "die CMA-Aenderung haette auf die FOR-SHARE-Sperre der Versiegelung warten muessen"
+        sealer.commit()
+        worker.join(timeout=30)
+        assert not worker.is_alive() and outcome["result"] == "committed", outcome
+    finally:
+        sealer.close()
+        mutator.close()
+    row, seqs = _state(pg_p2, "e-r4")
+    assert (row.status, row.freshness_status) == ("SEALED", "STALE")
+    assert seqs == [1]

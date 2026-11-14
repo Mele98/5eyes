@@ -1,3 +1,4 @@
+import contextvars
 import datetime as _dt
 import hashlib
 import json
@@ -10,7 +11,9 @@ from sqlalchemy import (
 )
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import NoInspectionAvailable
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, relationship
+from sqlalchemy.sql.dml import UpdateBase
 from database import (
     ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS,
     ADVISORY_ENVELOPE_SQLITE_TRIGGERS,
@@ -537,11 +540,11 @@ DEPENDENCY_SOURCES: dict[str, DependencySource] = {
     # Mandats-/Kundendaten
     "clients": DependencySource("client", SCOPE_CLIENT, "id"),
     "mandates": DependencySource("mandate", SCOPE_MANDATE, "id"),
-    "planning_assumptions": DependencySource("mandate", SCOPE_MANDATE, "mandate_id"),
+    "planning_assumptions": DependencySource("planning", SCOPE_MANDATE, "mandate_id"),
     # Ziele
     "goals": DependencySource("goals", SCOPE_MANDATE, "mandate_id"),
-    "goal_revision_decisions": DependencySource("goals", SCOPE_MANDATE, "mandate_id"),
-    "goal_lifecycle_transitions": DependencySource("goals", SCOPE_MANDATE, "mandate_id"),
+    "goal_revision_decisions": DependencySource("goal_revisions", SCOPE_MANDATE, "mandate_id"),
+    "goal_lifecycle_transitions": DependencySource("goal_transitions", SCOPE_MANDATE, "mandate_id"),
     # Cashflows und Vermoegen/Positionen
     "cashflows": DependencySource("cashflows", SCOPE_CLIENT, "client_id"),
     "wealth_inflows": DependencySource("wealth_inflows", SCOPE_CLIENT, "client_id"),
@@ -550,10 +553,10 @@ DEPENDENCY_SOURCES: dict[str, DependencySource] = {
     # Risikoprofil (inkl. Antworten, Override, Freigabe, Plausibilisierung)
     "risk_assessments": DependencySource("risk", SCOPE_MANDATE, "mandate_id"),
     "risk_assessment_answers": DependencySource("risk", SCOPE_ASSESSMENT, "assessment_id"),
-    "risk_override_decisions": DependencySource("risk", SCOPE_MANDATE, "mandate_id"),
-    "risk_profile_signoffs": DependencySource("risk", SCOPE_MANDATE, "mandate_id"),
-    "risk_capacity_plausibility_evaluations": DependencySource("risk", SCOPE_MANDATE, "mandate_id"),
-    "financial_coverage_attestations": DependencySource("risk", SCOPE_MANDATE, "mandate_id"),
+    "risk_override_decisions": DependencySource("risk_overrides", SCOPE_MANDATE, "mandate_id"),
+    "risk_profile_signoffs": DependencySource("risk_signoffs", SCOPE_MANDATE, "mandate_id"),
+    "risk_capacity_plausibility_evaluations": DependencySource("risk_plausibility", SCOPE_MANDATE, "mandate_id"),
+    "financial_coverage_attestations": DependencySource("coverage_attestations", SCOPE_MANDATE, "mandate_id"),
     # ESG-/Nachhaltigkeitspraeferenz
     "investment_preference_decisions": DependencySource("preference", SCOPE_MANDATE, "mandate_id"),
     # Restriktionen/Baender/Praeferenz-Snapshot der Soll-Allokation
@@ -561,10 +564,10 @@ DEPENDENCY_SOURCES: dict[str, DependencySource] = {
     # CMA-/Policy-Version und Benchmark (Hausmatrix der Policy)
     "capital_market_assumptions": DependencySource("cma", SCOPE_EDGE, "id", current_flag="is_current"),
     "optimizer_policies": DependencySource("optimizer_policy", SCOPE_EDGE, "id", current_flag="is_current"),
-    "building_blocks": DependencySource("optimizer_policy", SCOPE_EDGE, "policy_id"),
+    "building_blocks": DependencySource("building_blocks", SCOPE_EDGE, "policy_id"),
     "cma_policies": DependencySource("cma_policy", SCOPE_EDGE, "id"),
-    "cma_policy_components": DependencySource("cma_policy", SCOPE_EDGE, "policy_row_id"),
-    "cma_policy_approvals": DependencySource("cma_policy", SCOPE_EDGE, "policy_row_id"),
+    "cma_policy_components": DependencySource("cma_policy_components", SCOPE_EDGE, "policy_row_id"),
+    "cma_policy_approvals": DependencySource("cma_policy_approvals", SCOPE_EDGE, "policy_row_id"),
     "house_matrix": DependencySource("benchmark", SCOPE_EDGE, "policy_id"),
 }
 
@@ -573,9 +576,35 @@ DEPENDENCY_SOURCES: dict[str, DependencySource] = {
 DEPENDENCY_KINDS = (
     "client", "mandate", "goals", "cashflows", "wealth_inflows", "positions", "run_holdings", "risk",
     "preference", "constraints", "cma", "optimizer_policy", "cma_policy", "benchmark",
+    # N-908-04: Kanten auch fuer die Tabellen, die bisher nur ueber die Reichweite liefen.
+    "goal_revisions", "goal_transitions", "planning", "risk_overrides", "risk_signoffs",
+    "risk_plausibility", "coverage_attestations", "building_blocks", "cma_policy_components",
+    "cma_policy_approvals",
 )
 
 _AUDIT_SINKS: list = []
+# Laufzeitschutz (N-908-02): Core-DML auf Abhaengigkeitstabellen ist nur aus
+# einem Session-Flush oder dem Massen-Hook heraus erlaubt.
+_HOOK_SCOPE: contextvars.ContextVar[bool] = contextvars.ContextVar("ares_ccx_p2_hook_scope", default=False)
+_FLUSH_DEPTH: contextvars.ContextVar[int] = contextvars.ContextVar("ares_ccx_p2_flush_depth", default=0)
+# Referenzdaten-Arten: Hausmeinung (CMA, Policy, CMA-Policy, Benchmark).
+REFERENCE_KINDS = frozenset({
+    "cma", "optimizer_policy", "cma_policy", "benchmark", "building_blocks", "cma_policy_components",
+    "cma_policy_approvals",
+})
+# Entscheid (Owner-Vertretung, N-908, Anlagephilosophie Strategietreue): ein vom
+# Kunden UNTERZEICHNETER Entscheid wird durch eine neue Hausmeinung (CMA/Policy/
+# Benchmark) nicht veraendert und nicht STALE -- kein Rebalancing, keine
+# Ueberwachung. Unterzeichnet = ein kundenseitig signiertes, nicht geloeschtes
+# Dokument, das an die Soll-Allokation des Entscheids gebunden ist.
+# Aenderungen an Kundendaten (Ziele, Vermoegen, Risikoprofil ...) invalidieren
+# weiterhin; STALE sperrt dort nur neue Kanalwirkungen (P5), nie Bestehendes.
+SIGNED_DECISION_SQL = (
+    "EXISTS (SELECT 1 FROM contract_documents cd JOIN advisory_envelope_bindings sb "
+    "ON sb.envelope_id = e.id AND sb.binding_kind = 'target_allocation' "
+    "WHERE cd.mandate_id = e.mandate_id AND cd.bound_target_allocation_id = sb.object_id "
+    "AND cd.signed_by_client = 1 AND cd.deleted_at IS NULL)"
+)
 
 
 def register_invalidation_audit_sink(sink) -> None:
@@ -804,7 +833,8 @@ def _apply_invalidations(session: Session, changes: list[_Change]) -> None:
     if edge_changes:
         edge_rows = connection.execute(_expanding(
             "SELECT d.envelope_id, d.dependency_kind, d.dependency_object_id, e.mandate_id, e.tenant_id, "
-            "e.status FROM advisory_dependency_edges d JOIN advisory_decision_envelopes e "
+            f"e.status, CASE WHEN {SIGNED_DECISION_SQL} THEN 1 ELSE 0 END AS signed "
+            "FROM advisory_dependency_edges d JOIN advisory_decision_envelopes e "
             "ON e.id = d.envelope_id WHERE d.dependency_kind IN :kinds AND e.status IN ('SEALED', 'DRAFT')",
             "kinds"), {"kinds": sorted({c.source.kind for c in edge_changes})}).all()
     edge_hits: list[set[str]] = []
@@ -813,6 +843,8 @@ def _apply_invalidations(session: Session, changes: list[_Change]) -> None:
         for row in edge_rows:
             if row.dependency_kind != change.source.kind:
                 continue
+            if change.source.kind in REFERENCE_KINDS and int(row.signed or 0):
+                continue  # unterzeichneter Entscheid: Hausmeinung wirkt nicht zurueck
             if str(row.dependency_object_id) in change.scope_values or (
                 change.global_current and row.status == "SEALED"
                 and (change.tenant_id is None or str(row.tenant_id) == change.tenant_id)
@@ -872,26 +904,44 @@ def _after_flush(session: Session, _flush_context) -> None:
         _apply_invalidations(session, changes)
 
 
-def _bulk_orm_write(orm_execute_state) -> None:
-    """Massen-UPDATE/-DELETE (``query(...).update()``, ``update(Model)``):
-    betroffene Zeilen VOR der Ausfuehrung lesen und invalidieren (gleiche
-    Transaktion; neue Fassung unbekannt -> konservativ geaendert). ORM-
-    Massen-INSERT auf Abhaengigkeitstabellen ist verboten."""
+def _dml_table(orm_execute_state):
+    """Zieltabelle eines DML-Statements -- ORM-Entitaet (``update(Model)``)
+    ODER Core-Tabelle (``update(Model.__table__)``, N-908-02)."""
+    mapper = orm_execute_state.bind_mapper
+    table = getattr(mapper, "local_table", None)
+    if table is None:
+        candidate = getattr(orm_execute_state.statement, "table", None)
+        table = candidate if getattr(candidate, "name", None) else None
+    return table
+
+
+def _bulk_orm_write(orm_execute_state):
+    """Massen-UPDATE/-DELETE ueber die Session (``query(...).update()``,
+    ``update(Model)``, ``update(Model.__table__)``): betroffene Zeilen VOR der
+    Ausfuehrung lesen (PostgreSQL: ``FOR UPDATE``, damit eine parallele
+    Versiegelung sichtbar committet ist) und invalidieren (gleiche Transaktion;
+    neue Fassung unbekannt -> konservativ geaendert). Massen-INSERT auf
+    Abhaengigkeitstabellen ist verboten. Das Statement selbst laeuft danach im
+    Hook-Kontext (der Laufzeitschutz ``_guard_core_dml`` laesst es durch)."""
     if not (orm_execute_state.is_update or orm_execute_state.is_delete or orm_execute_state.is_insert):
-        return
-    table = getattr(orm_execute_state.bind_mapper, "local_table", None)
+        return None
+    table = _dml_table(orm_execute_state)
     source = DEPENDENCY_SOURCES.get(getattr(table, "name", None))
     if source is None:
-        return
+        return None
     if orm_execute_state.is_insert:
         raise RuntimeError(
-            f"CCX-P2: ORM-Massen-INSERT auf {table.name} umgeht den Invalidation-Hook; "
+            f"CCX-P2: Massen-INSERT auf {table.name} umgeht den Invalidation-Hook; "
             "Objekte einzeln ueber die Session anlegen."
         )
+    session = orm_execute_state.session
+    connection = session.connection()
     where = getattr(orm_execute_state.statement, "whereclause", None)
     query = select(table) if where is None else select(table).where(where)
     query = query.order_by(*table.primary_key.columns)  # feste Lesereihenfolge (H-868 D1)
-    rows = orm_execute_state.session.connection().execute(query).mappings().all()
+    if connection.dialect.name.startswith("postgresql"):
+        query = query.with_for_update()
+    rows = connection.execute(query).mappings().all()
     changes = []
     for row in rows:
         old = {key: value for key, value in row.items() if key not in source.volatile}
@@ -900,7 +950,39 @@ def _bulk_orm_write(orm_execute_state) -> None:
             change.op = "update"
         changes.append(change)
     if changes:
-        _apply_invalidations(orm_execute_state.session, changes)
+        _apply_invalidations(session, changes)
+    token = _HOOK_SCOPE.set(True)
+    try:
+        return orm_execute_state.invoke_statement()
+    finally:
+        _HOOK_SCOPE.reset(token)
+
+
+def _enter_flush(_session, _flush_context, _instances) -> None:
+    _FLUSH_DEPTH.set(_FLUSH_DEPTH.get() + 1)
+
+
+def _leave_flush(_session, *_args) -> None:
+    _FLUSH_DEPTH.set(max(0, _FLUSH_DEPTH.get() - 1))
+
+
+def _guard_core_dml(conn, clauseelement, multiparams, params, execution_options):
+    """N-908-02 Laufzeitschutz: Core-DML (``update/delete/insert``) auf eine
+    Abhaengigkeitstabelle, die weder aus einem Session-Flush (``after_flush``-
+    Hook) noch aus dem Massen-Hook kommt -- z. B. ``db.connection().execute(
+    update(Goal))`` oder ``engine.begin()`` -- umginge die Invalidation und wird
+    verweigert. Rohes SQL (``text``) verbietet der statische Waechter."""
+    if not isinstance(clauseelement, UpdateBase):
+        return
+    table = getattr(clauseelement, "table", None)
+    if getattr(table, "name", None) not in DEPENDENCY_SOURCES:
+        return
+    if _HOOK_SCOPE.get() or _FLUSH_DEPTH.get() > 0:
+        return
+    raise RuntimeError(
+        f"CCX-P2: Core-DML auf {table.name} ausserhalb der ORM-Session umgeht den "
+        "Invalidation-Hook; Aenderungen ueber die Session schreiben."
+    )
 
 
 def _write_pending_audit(session: Session) -> None:
@@ -916,7 +998,11 @@ def _discard_pending_audit(session: Session, *_args) -> None:
     session.info.pop(_PENDING_AUDIT_KEY, None)
 
 
+event.listen(Session, "before_flush", _enter_flush)
 event.listen(Session, "after_flush", _after_flush)
+event.listen(Session, "after_flush_postexec", _leave_flush)
+event.listen(Session, "after_soft_rollback", _leave_flush)
 event.listen(Session, "do_orm_execute", _bulk_orm_write)
+event.listen(Engine, "before_execute", _guard_core_dml)
 event.listen(Session, "before_commit", _write_pending_audit)
 event.listen(Session, "after_rollback", _discard_pending_audit)

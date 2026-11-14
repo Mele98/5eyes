@@ -45,7 +45,8 @@ def advisory_envelope_stale_reason(db: Session, mandate: Any, ta: Any) -> Reason
     ``AdvisoryDependencyEdge`` mit ``dependency_hash``).
     ``CCX_FRESHNESS_UNKNOWN`` -- Bestand ohne Kanten (unknown != fresh).
     ``None`` -- kein versiegelter Entscheid bindet diese Allokation oder er ist
-    FRESH. Reine Lesung (keine Fachwirkung); die Oberflaechen zeigen den
+    FRESH (inkl. Pull-Pruefung der Kanten, N-908-01). Reine Lesung (keine
+    Fachwirkung); die Oberflaechen zeigen den
     Serverstatus ueber den bestehenden Veraltet-Hinweis an."""
     if ta is None or mandate is None or not getattr(ta, "id", None):
         return None
@@ -60,11 +61,21 @@ def advisory_envelope_stale_reason(db: Session, mandate: Any, ta: Any) -> Reason
         "WHERE e.mandate_id = :mandate_id AND e.status = 'SEALED' "
         "AND b.binding_kind = 'target_allocation' AND b.object_id = :ta_id"
     ), {"mandate_id": str(mandate.id), "ta_id": str(ta.id)}).first()
-    if row is None or row[0] == "FRESH":
+    if row is None:
         return None
     if row[0] == "STALE":
         return ReasonCode.CCX_INPUT_STALE
-    return ReasonCode.CCX_FRESHNESS_UNKNOWN
+    if row[0] != "FRESH":
+        return ReasonCode.CCX_FRESHNESS_UNKNOWN
+    # N-908-01: FRESH allein genuegt nicht -- die Kanten gegen die aktuellen
+    # Objekte pruefen (lesend, gezielt nur fuer den Entscheid dieser Allokation;
+    # ohne Entscheid bleibt es bei der einen Statusabfrage oben).
+    from services.advisory_decision_envelope import decision_freshness_for_allocation
+
+    code, _envelope, _drift = decision_freshness_for_allocation(
+        db, mandate=mandate, target_allocation_id=str(ta.id),
+    )
+    return code
 
 
 def allocation_inputs_stale(
@@ -99,8 +110,10 @@ def allocation_inputs_stale(
     if advisory_envelope_stale_reason(db, mandate, ta) == ReasonCode.CCX_INPUT_STALE:
         return True
 
-    from models.allocation import OptimizerPolicy
+    # OptimizerPolicy ueber portfolio_engine (dort ohnehin importiert): haelt
+    # Fan-out/Lazy-Imports dieses Moduls trotz der CCX-P2-Pull-Pruefung stabil.
     from services.portfolio_engine import (
+        OptimizerPolicy,
         StaleAllocationInputError,
         _current_risk_assessment_or_none,
         build_target_payload_from_allocation,

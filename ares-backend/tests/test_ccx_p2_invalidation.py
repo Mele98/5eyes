@@ -841,3 +841,171 @@ def test_no_float_in_new_columns():
     for model in (AdvisoryDependencyEdge, AdvisoryInvalidationEvent):
         for column in model.__table__.columns:
             assert column.type.python_type in (str, int), (model.__tablename__, column.name)
+
+
+# ── Nachtrag 1: N-908-01/02, Entscheid unterzeichnete Entscheide, N-908-04 ───
+
+
+def test_core_table_dml_via_session_triggers_the_hook(session_factory):
+    """N-908-02 Umgehung 1: ``session.execute(update(Goal.__table__))`` lief
+    am Massen-Hook vorbei (bind_mapper None) -- jetzt invalidiert sie."""
+    from sqlalchemy import update
+
+    from models.wealth import Goal
+
+    ids = _ids(session_factory, "core-table")
+    with session_factory() as db:
+        db.execute(update(Goal.__table__).where(Goal.__table__.c.mandate_id == ids["mid"]).values(weight_bps=4100))
+        db.commit()
+    with session_factory() as db:
+        assert _envelope(db, ids["envelope"]).freshness_status == "STALE"
+        assert {e.source_kind for e in _events(db, ids["envelope"])} == {"goals"}
+        assert db.execute(text("SELECT count(*) FROM goals WHERE weight_bps = 4100")).scalar() >= 1
+
+
+def test_connection_level_core_dml_is_refused(session_factory):
+    """N-908-02 Umgehung 2: ``db.connection().execute(update(Goal))`` und
+    ``engine.begin()`` umgingen jeden Session-Hook -- jetzt verweigert der
+    Laufzeitschutz das Statement, nichts wird geaendert."""
+    from sqlalchemy import update
+
+    from models.wealth import Goal
+
+    ids = _ids(session_factory, "core-conn")
+    with session_factory() as db:
+        with pytest.raises(RuntimeError, match="CCX-P2"):
+            db.connection().execute(update(Goal).where(Goal.mandate_id == ids["mid"]).values(weight_bps=4200))
+        db.rollback()
+        engine = db.get_bind()
+    with pytest.raises(RuntimeError, match="CCX-P2"):
+        with engine.begin() as conn:
+            conn.execute(Goal.__table__.delete().where(Goal.__table__.c.mandate_id == ids["mid"]))
+    with session_factory() as db:
+        assert _envelope(db, ids["envelope"]).freshness_status == "FRESH"
+        assert db.execute(text("SELECT count(*) FROM goals WHERE weight_bps = 4200")).scalar() == 0
+        assert db.execute(text("SELECT count(*) FROM goals WHERE mandate_id = :m"), {"m": ids["mid"]}).scalar() == 2
+
+
+def _bypass_cma(db, ids):
+    """Rohes SQL am Hook vorbei (simuliert z. B. eine globale CMA-Aenderung
+    ausserhalb des Mandantenkontexts, N-908-01 (a)); der Status bleibt FRESH."""
+    db.execute(text("UPDATE capital_market_assumptions SET notes = 'ausserhalb' WHERE id = :c"), {"c": ids["cma"]})
+    db.commit()
+
+
+def test_status_only_consumers_now_pull_the_edges(session_factory):
+    """N-908-01: Veraltet-Hinweis, Cache-Scope und Dokumentarchiv lesen nicht
+    nur den gespeicherten Status, sondern pruefen die Kanten."""
+    from models.allocation import TargetAllocation
+    from models.mandates import Mandate
+    from models.users import User
+    from routers.pdf_reports import _archive_final
+    from services.advisory_decision_envelope import advisory_report_cache_scope
+    from services.allocation_input_staleness import advisory_envelope_stale_reason, allocation_inputs_stale
+
+    ids = _ids(session_factory, "pull-consumers")
+    with session_factory() as db:
+        fresh_scope = advisory_report_cache_scope(db, db.get(Mandate, ids["mid"]))
+        _bypass_cma(db, ids)
+    with session_factory() as db:
+        mandate, ta = db.get(Mandate, ids["mid"]), db.get(TargetAllocation, ids["ta"])
+        assert _envelope(db, ids["envelope"]).freshness_status == "FRESH"  # Status allein: "frisch"
+        assert advisory_envelope_stale_reason(db, mandate, ta) == "CCX_INPUT_STALE"
+        assert allocation_inputs_stale(db, mandate, ta) is True
+        assert advisory_report_cache_scope(db, mandate) != fresh_scope
+        assert _events(db, ids["envelope"]) == []  # lesende Konsumenten schreiben nichts
+        ctx = type("Ctx", (), {"watermark_mode": "none"})()
+        with pytest.raises(DomainError) as caught:
+            _archive_final(ctx, db, current_user=db.get(User, ids["advisor"]), mandate_id=ids["mid"],
+                           document_type="Beratungsprotokoll", title="Beratungsprotokoll",
+                           pdf_bytes=b"%PDF-1.4 test", content_hash="d" * 64, ip_address=None,
+                           binding={"target_allocation_id": ids["ta"], "preferences_sha256": None})
+        assert caught.value.reason_code == "CCX_INPUT_STALE"
+    with session_factory() as db:  # das Archiv haelt die Abweichung fest
+        assert _envelope(db, ids["envelope"]).freshness_status == "STALE"
+        assert [(e.invalidation_sequence, e.source_kind) for e in _events(db, ids["envelope"])] == [(1, "cma")]
+
+
+def _sign_decision(db, ids):
+    from database import new_uuid
+    from models.review import ContractDocument
+
+    db.add(ContractDocument(
+        id=new_uuid(), mandate_id=ids["mid"], document_type="Anlagestrategie", title="Vertrag",
+        status="Unterzeichnet", signed_by_advisor=1, signed_by_client=1, signed_at=NOW,
+        bound_target_allocation_id=ids["ta"], created_by=ids["advisor"], created_at=NOW, updated_at=NOW,
+    ))
+    db.commit()
+
+
+def _new_current_cma(db, ids):
+    from sqlalchemy import inspect as sa_inspect
+
+    from database import new_uuid
+    from models.allocation import CapitalMarketAssumption
+
+    bound = db.get(CapitalMarketAssumption, ids["cma"])
+    values = {attr.key: getattr(bound, attr.key) for attr in sa_inspect(CapitalMarketAssumption).column_attrs}
+    values.update(id=new_uuid(), is_current=1, version=(bound.version or 1) + 1, notes="neue Hausmeinung")
+    db.add(CapitalMarketAssumption(**values))
+
+
+@pytest.mark.parametrize("signed", [False, True], ids=["unterzeichnet-nein", "unterzeichnet-ja"])
+def test_new_house_view_stales_only_unsigned_decisions(session_factory, signed):
+    """Entscheid (Owner-Vertretung, N-908): neue aktuelle CMA/Policy setzt nur
+    NICHT unterzeichnete Entscheide STALE. Ein unterzeichneter Entscheid bleibt
+    unveraendert -- weder Hook noch Pull-Pruefung markieren ihn wegen der
+    Hausmeinung (Strategietreue: kein Rebalancing, keine Ueberwachung).
+    Kundendaten-Aenderungen invalidieren ihn weiterhin."""
+    ids = _ids(session_factory, f"house-view-{signed}")
+    if signed:
+        with session_factory() as db:
+            _sign_decision(db, ids)
+    with session_factory() as db:
+        _new_current_cma(db, ids)  # neue aktuelle Version (Insert)
+        db.commit()
+    with session_factory() as db:
+        _mutate_cma(db, ids)  # gebundene Version geaendert (Update)
+        db.commit()
+    with session_factory() as db:
+        row = _envelope(db, ids["envelope"])
+        if signed:
+            assert (row.freshness_status, row.optimistic_version) == ("FRESH", 2)
+            assert _events(db, ids["envelope"]) == []
+            assert _gate(db, ids["mid"], ids["advisor"])["freshness_status"] == "FRESH"  # Pull ebenso
+        else:
+            assert row.freshness_status == "STALE"
+            assert {e.source_kind for e in _events(db, ids["envelope"])} == {"cma"}
+    if signed:
+        with session_factory() as db:
+            _mutate_goal(db, ids)  # Kundendaten wirken weiterhin
+            db.commit()
+        with session_factory() as db:
+            assert _envelope(db, ids["envelope"]).freshness_status == "STALE"
+
+
+def test_former_scope_only_tables_now_have_edges_for_the_pull(session_factory):
+    """N-908-04: auch die zehn Tabellen, die der Hook bisher nur ueber die
+    Reichweite traf, haben eine Kante; eine Aenderung am Hook vorbei faellt
+    der Pull-Pruefung auf (hier: Planungsannahmen per rohem SQL)."""
+    from models.snapshots import DEPENDENCY_SOURCES
+
+    ids = _ids(session_factory, "edge-planning")
+    with session_factory() as db:
+        kinds = {r[0] for r in db.execute(text(
+            "SELECT dependency_kind FROM advisory_dependency_edges WHERE envelope_id = :e"), {"e": ids["envelope"]})}
+        for table in ("goal_revision_decisions", "goal_lifecycle_transitions", "planning_assumptions",
+                      "risk_override_decisions", "risk_profile_signoffs", "risk_capacity_plausibility_evaluations",
+                      "financial_coverage_attestations", "building_blocks", "cma_policy_components",
+                      "cma_policy_approvals"):
+            assert DEPENDENCY_SOURCES[table].kind in kinds, table
+        db.execute(text(
+            "INSERT INTO planning_assumptions (id, mandate_id, client_id, valid_from, version, is_current, created_at, "
+            "updated_at) VALUES ('pa-bypass', :m, :c, '2026-01-01', 99, 0, :now, :now)"),
+            {"m": ids["mid"], "c": ids["cid"], "now": NOW})
+        db.commit()
+        with pytest.raises(DomainError) as caught:
+            _gate(db, ids["mid"], ids["advisor"])
+        assert caught.value.reason_code == "CCX_INPUT_STALE"
+    with session_factory() as db:
+        assert "planning" in {e.source_kind for e in _events(db, ids["envelope"])}

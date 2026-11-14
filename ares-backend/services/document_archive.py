@@ -33,7 +33,6 @@ import hashlib
 import json
 from datetime import datetime, timezone
 
-from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -43,7 +42,6 @@ from models.users import User
 from core.sustainability_preference import document_binding
 from services.audit import log as audit_log
 from core.presentation_rounding import ROUNDING_POLICY_VERSION
-from core.reason_codes import ReasonCode
 
 
 def current_preference_binding(db: Session, mandate_id: str) -> str:
@@ -59,36 +57,6 @@ def current_preference_binding(db: Session, mandate_id: str) -> str:
         {"mandate_id": mandate_id},
     ).scalar()
     return document_binding(decision_hash, mandate_id)
-
-
-# CCX-P2: gleicher Verbindungs-Merker wie models/snapshots.py::freshness_tables_present.
-_FRESHNESS_TABLES_KEY = "ares_ccx_p2_tables_present"
-
-
-def decision_freshness_block(db: Session, *, mandate_id: str, binding: dict | None) -> ReasonCode | None:
-    """CCX-P2 (Dokumentarchiv): ein finales Dokument, das an die Soll-
-    Allokation eines versiegelten Beratungsentscheids gebunden ist, wird nur
-    archiviert (und damit signierbar), solange dieser Entscheid FRESH ist.
-    STALE -> ``CCX_INPUT_STALE``, UNKNOWN -> ``CCX_FRESHNESS_UNKNOWN``; kein
-    Entscheid fuer diese Allokation -> keine Aussage (``None``)."""
-    target_allocation_id = (binding or {}).get("target_allocation_id")
-    if not target_allocation_id:
-        return None
-    connection = db.connection()
-    if not connection.info.get(_FRESHNESS_TABLES_KEY):
-        if not sa_inspect(connection).has_table("advisory_invalidation_events"):
-            return None
-    row = db.execute(text(
-        "SELECT e.freshness_status FROM advisory_decision_envelopes e "
-        "JOIN advisory_envelope_bindings b ON b.envelope_id = e.id AND b.tenant_id = e.tenant_id "
-        "WHERE e.mandate_id = :mandate_id AND e.status = 'SEALED' "
-        "AND b.binding_kind = 'target_allocation' AND b.object_id = :ta_id"
-    ), {"mandate_id": str(mandate_id), "ta_id": str(target_allocation_id)}).first()
-    if row is None or row[0] == "FRESH":
-        return None
-    if row[0] == "STALE":
-        return ReasonCode.CCX_INPUT_STALE
-    return ReasonCode.CCX_FRESHNESS_UNKNOWN
 
 
 def _now() -> str:

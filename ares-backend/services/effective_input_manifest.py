@@ -43,13 +43,28 @@ from core.advisory_envelope_codec import (
     rows_child_hash,
 )
 from core.presentation_rounding import ROUNDING_POLICY_VERSION
-from models.allocation import CapitalMarketAssumption, HouseMatrix, OptimizerPolicy
+from models.allocation import BuildingBlock, CapitalMarketAssumption, HouseMatrix, OptimizerPolicy
 from models.clients import Client
-from models.cma_policy import CmaPolicy
+from models.cma_policy import CmaPolicy, CmaPolicyApproval, CmaPolicyComponent
 from models.mandates import Mandate
-from models.profiling import InvestmentPreferenceDecision, RiskAssessment
+from models.profiling import (
+    InvestmentPreferenceDecision,
+    RiskAssessment,
+    RiskCapacityPlausibilityEvaluation,
+    RiskOverrideDecision,
+    RiskProfileSignoff,
+)
 from models.review import RecommendationHolding
-from models.wealth import Cashflow, Goal, WealthInflow, WealthPosition
+from models.wealth import (
+    Cashflow,
+    FinancialCoverageAttestation,
+    Goal,
+    GoalLifecycleTransition,
+    GoalRevisionDecision,
+    PlanningAssumption,
+    WealthInflow,
+    WealthPosition,
+)
 
 _EXCLUDED_COLUMNS = frozenset({"updated_at"})
 # Kurzname (Adapter CCX-02) -> Manifest-Feld.
@@ -252,6 +267,34 @@ def collect_dependency_parts(
                        _int_or_none(getattr(policy_rows[0], "version", None)) if policy_rows else None,
                        _hash_rows("benchmark", HouseMatrix, house_matrix, ("score_from", "score_to", "id"))),
     ]
+    # N-908-04: auch die Tabellen, die der Hook bisher nur ueber die Reichweite
+    # traf, bekommen eine Kante -- damit greift die Pull-Pruefung auch dort.
+    def mandate_rows(model):
+        return _active(db.query(model).filter(model.mandate_id == mandate_id), model).all()
+
+    def rows_by(model, column, value):
+        if not value:
+            return []
+        return _active(db.query(model).filter(getattr(model, column) == str(value)), model).all()
+
+    for kind, model, rows, object_id in (
+        ("goal_revisions", GoalRevisionDecision, mandate_rows(GoalRevisionDecision), mandate_id),
+        ("goal_transitions", GoalLifecycleTransition, mandate_rows(GoalLifecycleTransition), mandate_id),
+        ("planning", PlanningAssumption, mandate_rows(PlanningAssumption), mandate_id),
+        ("risk_overrides", RiskOverrideDecision, mandate_rows(RiskOverrideDecision), mandate_id),
+        ("risk_signoffs", RiskProfileSignoff, mandate_rows(RiskProfileSignoff), mandate_id),
+        ("risk_plausibility", RiskCapacityPlausibilityEvaluation,
+         mandate_rows(RiskCapacityPlausibilityEvaluation), mandate_id),
+        ("coverage_attestations", FinancialCoverageAttestation,
+         mandate_rows(FinancialCoverageAttestation), mandate_id),
+        ("building_blocks", BuildingBlock, rows_by(BuildingBlock, "policy_id", policy_id), _object_key(policy_id)),
+        ("cma_policy_components", CmaPolicyComponent,
+         rows_by(CmaPolicyComponent, "policy_row_id", cma_policy_id), _object_key(cma_policy_id)),
+        ("cma_policy_approvals", CmaPolicyApproval,
+         rows_by(CmaPolicyApproval, "policy_row_id", cma_policy_id), _object_key(cma_policy_id)),
+    ):
+        parts.append(DependencyPart(kind, object_id, None, _hash_rows(kind.replace("_", "-"), model, rows, ("id",))))
+        counts[kind] = len(rows)
     counts["mandate"] = 1 if _by_id(db, Mandate, mandate_id) else 0
     counts["client"] = 1 if _by_id(db, Client, client_id) else 0
     counts["risk"] = 1 if _by_id(db, RiskAssessment, risk_id) else 0

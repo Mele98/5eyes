@@ -238,3 +238,77 @@ def test_hook_recognises_every_operation(op):
     noop = _change("goals", DEPENDENCY_SOURCES["goals"], "update", {"id": "g", "mandate_id": "m"},
                    {"id": "g", "mandate_id": "m"})
     assert noop is None  # Leermutation -> kein Ereignis
+
+
+# ── N-908-02: Core-DML-Umgehungen (statisch + Laufzeit) ──────────────────────
+
+_DML = {"update", "delete", "insert"}
+_SESSION_NAMES = {"db", "session", "s", "sess"}
+
+
+def _dml_target(node, models: set[str]) -> str | None:
+    """``update(Goal)``/``update(Goal.__table__)``/``Goal.__table__.update()``
+    -> Modellname, sonst None."""
+    if isinstance(node, ast.Call):
+        func = node.func
+        if isinstance(func, ast.Name) and func.id in _DML and node.args:
+            arg = node.args[0]
+            if isinstance(arg, ast.Name) and arg.id in models:
+                return arg.id
+            if (isinstance(arg, ast.Attribute) and arg.attr == "__table__"
+                    and isinstance(arg.value, ast.Name) and arg.value.id in models):
+                return arg.value.id + ".__table__"
+        if (isinstance(func, ast.Attribute) and func.attr in _DML and isinstance(func.value, ast.Attribute)
+                and func.value.attr == "__table__" and isinstance(func.value.value, ast.Name)
+                and func.value.value.id in models):
+            return func.value.value.id + ".__table__"
+    return None
+
+
+def core_dml_bypasses(tree, models: set[str]) -> list[tuple[int, str]]:
+    """Statische Umgehungen: jede Core-Tabellen-DML (``X.__table__``) und jede
+    DML auf ein Abhaengigkeitsmodell, die nicht ueber eine Session
+    (``db/session.execute``) laeuft -- also ``.connection().execute(...)`` oder
+    ``engine.begin()/connect()``-Verbindungen."""
+    found = []
+    for node in ast.walk(tree):
+        target = _dml_target(node, models)
+        if target and target.endswith(".__table__"):
+            found.append((node.lineno, target))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "execute":
+            receiver = node.func.value
+            via_session = isinstance(receiver, ast.Name) and receiver.id in _SESSION_NAMES
+            for arg in node.args[:1]:
+                for inner in ast.walk(arg):
+                    hit = _dml_target(inner, models)
+                    if hit and not via_session:
+                        found.append((node.lineno, f"execute({hit}) ohne Session"))
+    return sorted(set(found))
+
+
+def test_no_core_dml_bypass_on_dependency_tables():
+    models = _model_names(_dependency_tables())
+    offenders = []
+    for rel, tree in _modules():
+        if rel in RAW_SQL_ALLOWLIST:
+            continue
+        offenders.extend(f"{rel}:{line}: {what}" for line, what in core_dml_bypasses(tree, models))
+    assert not offenders, "Core-DML umgeht den CCX-P2-Hook:\n" + "\n".join(offenders)
+
+
+def test_static_guard_detects_both_known_bypasses():
+    """Negativkontrolle: die beiden nachgewiesenen Umgehungen (N-908-02) und
+    engine.begin() werden erkannt; der ORM-Weg ueber die Session nicht."""
+    models = _model_names(_dependency_tables())
+    snippet = (
+        "def bad(db, engine):\n"
+        "    db.execute(update(Goal.__table__).values(weight_bps=1))\n"
+        "    db.connection().execute(update(Goal).values(weight_bps=1))\n"
+        "    with engine.begin() as conn:\n"
+        "        conn.execute(Goal.__table__.delete())\n"
+        "def good(db):\n"
+        "    db.execute(update(Goal).values(weight_bps=1))\n"
+        "    db.query(Goal).update({'weight_bps': 1})\n"
+    )
+    found = core_dml_bypasses(ast.parse(snippet), models)
+    assert {line for line, _ in found} == {2, 3, 5}, found
