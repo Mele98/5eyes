@@ -914,7 +914,7 @@
    "reason": "syncPortfolioHoldingSelection: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
   },
   {
-   "file": "ares-desktop/frontend/ares.html",
+   "file": "ares-desktop/frontend/wealth-inflows.js",
    "source": "setInputValue('awi-amount',formatInputCHF(inflow.amount_rappen));",
    "class": "COMPUTATION_KEEP",
    "status": "",

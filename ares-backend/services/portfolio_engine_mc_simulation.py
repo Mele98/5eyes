@@ -94,6 +94,7 @@ import hashlib
 import json
 import math
 import random
+import sys
 import threading
 from dataclasses import fields, is_dataclass
 from datetime import date
@@ -1655,16 +1656,42 @@ def _mc_fingerprint(value):
     raise TypeError(f"Monte-Carlo-Input ohne kanonischen Fingerabdruck: {type(value).__name__}")
 
 
-def _run_allocation_monte_carlo(**kwargs) -> dict:
-    """Memoisiert ``_compute_allocation_monte_carlo`` (siehe oben)."""
+# Module, deren Namensraum die Simulation liest (Funktionen, Konstanten). Ihr
+# Zustand ist Teil des Schluessels: wird eine Funktion oder Konstante ersetzt
+# (z. B. Modellversion, Drawdown-Verfeinerung, Pfadzahl), entsteht ein neuer
+# Schluessel -- nie ein alter Treffer.
+_MC_ENVIRONMENT_MODULES = (
+    "services.portfolio_engine_mc_simulation", "services.portfolio_engine",
+    "services.portfolio_engine_gesamtvermoegen", "services.portfolio_engine_reserve",
+    "services.drawdown_refinement", "services.return_moments", "services.reserve_funding_ledger",
+    "services.cashflow_timeline", "services.calendar_horizon", "services.mortality.horizon",
+    "services.risk_scoring", "services.valuation_clock",
+)
+
+
+def _mc_environment_fingerprint() -> list:
+    out = []
+    for name in _MC_ENVIRONMENT_MODULES:
+        module = sys.modules.get(name)
+        if module is None:
+            out.append([name, None])
+            continue
+        out.append([name, hashlib.sha256(repr(sorted(
+            (key, id(value)) for key, value in vars(module).items() if not key.startswith("__")
+        )).encode("ascii")).hexdigest()])
+    return out
+
+
+def memoized_allocation_monte_carlo(**kwargs) -> dict:
+    """Memoisiert ``_run_allocation_monte_carlo`` (siehe oben)."""
     try:
         key_payload = json.dumps(
-            [valuation_date().isoformat(), _mc_fingerprint(kwargs)],
+            [valuation_date().isoformat(), _mc_environment_fingerprint(), _mc_fingerprint(kwargs)],
             sort_keys=True, separators=(",", ":"), ensure_ascii=True,
         )
     except TypeError:
         _MC_MEMO_STATS["misses"] += 1
-        return _compute_allocation_monte_carlo(**kwargs)
+        return _run_allocation_monte_carlo(**kwargs)
     key = hashlib.sha256(key_payload.encode("ascii")).hexdigest()
     with _MC_MEMO_LOCK:
         cached = _MC_MEMO.get(key)
@@ -1672,7 +1699,7 @@ def _run_allocation_monte_carlo(**kwargs) -> dict:
         _MC_MEMO_STATS["hits"] += 1
         return copy.deepcopy(cached)
     _MC_MEMO_STATS["misses"] += 1
-    result = _compute_allocation_monte_carlo(**kwargs)
+    result = _run_allocation_monte_carlo(**kwargs)
     with _MC_MEMO_LOCK:
         if len(_MC_MEMO) >= _MC_MEMO_LIMIT:
             _MC_MEMO.pop(next(iter(_MC_MEMO)))
@@ -1680,7 +1707,7 @@ def _run_allocation_monte_carlo(**kwargs) -> dict:
     return result
 
 
-def _compute_allocation_monte_carlo(
+def _run_allocation_monte_carlo(
     *,
     advisory_summary: PortfolioSummary,
     cashflow_projection_series_rappen: list[int],

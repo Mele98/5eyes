@@ -1591,6 +1591,7 @@ from services.portfolio_engine_mc_simulation import (  # noqa: F401,E402
     _rebalance_bucket_values_to_targets,
     _return_bps,
     _run_allocation_monte_carlo,
+    memoized_allocation_monte_carlo,
     _sequence_of_returns_depletion,
     _simulate_bucket_path,
     _simulation_crisis_strength,
@@ -3873,7 +3874,7 @@ def generate_target_allocation(
         ],
         reserve_ledger=reserve_ledger,
     )
-    monte_carlo = _run_allocation_monte_carlo(
+    monte_carlo = memoized_allocation_monte_carlo(  # CCX-P3-FX: ein Lauf je Eingabestand
         advisory_summary=advisory_summary,
         cashflow_projection_series_rappen=cashflow_projection_series_rappen,
         goal_inflation_series_bps=goal_inflation_series_bps,
@@ -5976,7 +5977,7 @@ def build_target_payload_from_allocation(
         ],
         reserve_ledger=reserve_ledger,
     )
-    monte_carlo = _run_allocation_monte_carlo(
+    monte_carlo = memoized_allocation_monte_carlo(  # CCX-P3-FX: ein Lauf je Eingabestand
         advisory_summary=advisory_summary,
         cashflow_projection_series_rappen=cashflow_projection_series_rappen,
         goal_inflation_series_bps=goal_inflation_series_bps,

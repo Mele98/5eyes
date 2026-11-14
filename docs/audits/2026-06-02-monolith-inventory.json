@@ -9593,15 +9593,15 @@
     },
     {
       "kind": "js",
-      "path": "ares-desktop/frontend/sustainability-preferences.js",
-      "sha256": "2fd8a4daf87220ad32683c1f29a41745d103eb451f9f78b6771fe714d7a61e61",
-      "size_bytes": 26082
-    },
-    {
-      "kind": "js",
       "path": "ares-desktop/frontend/wealth-inflows.js",
       "sha256": "29cd225c47f0942d748a7f9cb551fc5d89a39e59139d729e25854a30d5e0f488",
       "size_bytes": 16491
+    },
+    {
+      "kind": "js",
+      "path": "ares-desktop/frontend/sustainability-preferences.js",
+      "sha256": "2fd8a4daf87220ad32683c1f29a41745d103eb451f9f78b6771fe714d7a61e61",
+      "size_bytes": 26082
     }
   ],
   "ids": [
@@ -23298,6 +23298,96 @@
     },
     {
       "declaration": "function",
+      "line": 266,
+      "name": "buildWealthInflowMarkers",
+      "source": "wealth-inflows.js"
+    },
+    {
+      "declaration": "function",
+      "line": 7,
+      "name": "cashflowSummaryQuery",
+      "source": "wealth-inflows.js"
+    },
+    {
+      "declaration": "function",
+      "line": 210,
+      "name": "deleteInflow",
+      "source": "wealth-inflows.js"
+    },
+    {
+      "declaration": "var",
+      "line": 235,
+      "name": "fmtR",
+      "source": "wealth-inflows.js"
+    },
+    {
+      "declaration": "var",
+      "line": 270,
+      "name": "fmtR",
+      "source": "wealth-inflows.js"
+    },
+    {
+      "declaration": "function",
+      "line": 17,
+      "name": "inflowSourceLabel",
+      "source": "wealth-inflows.js"
+    },
+    {
+      "declaration": "function",
+      "line": 82,
+      "name": "openInflowEditor",
+      "source": "wealth-inflows.js"
+    },
+    {
+      "declaration": "function",
+      "line": 77,
+      "name": "openNewInflow",
+      "source": "wealth-inflows.js"
+    },
+    {
+      "declaration": "function",
+      "line": 183,
+      "name": "pensionTransferGuardMessage",
+      "source": "wealth-inflows.js"
+    },
+    {
+      "declaration": "function",
+      "line": 20,
+      "name": "populateInflowLinkedPositionOptions",
+      "source": "wealth-inflows.js"
+    },
+    {
+      "declaration": "function",
+      "line": 222,
+      "name": "refreshInflowsUI",
+      "source": "wealth-inflows.js"
+    },
+    {
+      "declaration": "function",
+      "line": 201,
+      "name": "releaseGateMessage",
+      "source": "wealth-inflows.js"
+    },
+    {
+      "declaration": "function",
+      "line": 36,
+      "name": "resetInflowModal",
+      "source": "wealth-inflows.js"
+    },
+    {
+      "declaration": "function",
+      "line": 106,
+      "name": "saveInflow",
+      "source": "wealth-inflows.js"
+    },
+    {
+      "declaration": "function",
+      "line": 57,
+      "name": "syncInflowModalState",
+      "source": "wealth-inflows.js"
+    },
+    {
+      "declaration": "function",
       "line": 344,
       "name": "sustActiveExclusions",
       "source": "sustainability-preferences.js"
@@ -23487,96 +23577,6 @@
       "line": 152,
       "name": "sustValue",
       "source": "sustainability-preferences.js"
-    },
-    {
-      "declaration": "function",
-      "line": 266,
-      "name": "buildWealthInflowMarkers",
-      "source": "wealth-inflows.js"
-    },
-    {
-      "declaration": "function",
-      "line": 7,
-      "name": "cashflowSummaryQuery",
-      "source": "wealth-inflows.js"
-    },
-    {
-      "declaration": "function",
-      "line": 210,
-      "name": "deleteInflow",
-      "source": "wealth-inflows.js"
-    },
-    {
-      "declaration": "var",
-      "line": 235,
-      "name": "fmtR",
-      "source": "wealth-inflows.js"
-    },
-    {
-      "declaration": "var",
-      "line": 270,
-      "name": "fmtR",
-      "source": "wealth-inflows.js"
-    },
-    {
-      "declaration": "function",
-      "line": 17,
-      "name": "inflowSourceLabel",
-      "source": "wealth-inflows.js"
-    },
-    {
-      "declaration": "function",
-      "line": 82,
-      "name": "openInflowEditor",
-      "source": "wealth-inflows.js"
-    },
-    {
-      "declaration": "function",
-      "line": 77,
-      "name": "openNewInflow",
-      "source": "wealth-inflows.js"
-    },
-    {
-      "declaration": "function",
-      "line": 183,
-      "name": "pensionTransferGuardMessage",
-      "source": "wealth-inflows.js"
-    },
-    {
-      "declaration": "function",
-      "line": 20,
-      "name": "populateInflowLinkedPositionOptions",
-      "source": "wealth-inflows.js"
-    },
-    {
-      "declaration": "function",
-      "line": 222,
-      "name": "refreshInflowsUI",
-      "source": "wealth-inflows.js"
-    },
-    {
-      "declaration": "function",
-      "line": 201,
-      "name": "releaseGateMessage",
-      "source": "wealth-inflows.js"
-    },
-    {
-      "declaration": "function",
-      "line": 36,
-      "name": "resetInflowModal",
-      "source": "wealth-inflows.js"
-    },
-    {
-      "declaration": "function",
-      "line": 106,
-      "name": "saveInflow",
-      "source": "wealth-inflows.js"
-    },
-    {
-      "declaration": "function",
-      "line": 57,
-      "name": "syncInflowModalState",
-      "source": "wealth-inflows.js"
     }
   ],
   "modal_structures": [
@@ -24352,7 +24352,7 @@
     }
   ],
   "source_path": "ares-desktop/frontend/ares.html",
-  "source_sha256": "8b8c163efd2b6e1546efa60a539bb4fc2945984f1956e4b86899c6a53490e41c",
+  "source_sha256": "c5f9cc3f7ab7747bc5dbfc680af9eea0608eb88493e9861b373e1290e7b33b70",
   "source_size_bytes": 1651192,
   "sub_sections": [
     {
