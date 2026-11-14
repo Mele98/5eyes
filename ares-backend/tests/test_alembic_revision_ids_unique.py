@@ -44,7 +44,16 @@ def test_every_file_is_named_after_its_revision():
 
 
 def test_no_revision_id_reserved_on_another_branch_is_reused():
-    assert set(_revisions()) & set(RESERVED_ELSEWHERE) == set()
+    """RC-CH-1 Teil 2b: Ist der reservierende Branch integriert (E2), darf die
+    ID nur mit genau der reservierten Datei vorkommen -- nie mit fremdem
+    Inhalt (die eigentliche Kollisionsgefahr)."""
+    found = _revisions()
+    misused = {
+        rev: found[rev]
+        for rev, owner in RESERVED_ELSEWHERE.items()
+        if rev in found and found[rev] != [owner.split(": ", 1)[1]]
+    }
+    assert misused == {}
 
 
 def test_negative_control_detects_a_duplicate(tmp_path, monkeypatch):
