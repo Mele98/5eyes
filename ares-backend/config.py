@@ -18,6 +18,42 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import core.db_location as _db_location
 
+OwnerDatabaseRefused = _db_location.OwnerDatabaseRefused
+
+
+def owner_db_refusal(path) -> str | None:
+    """H11 N1: Owner-DB (~/ares/ares.db, ~/5eyes/5eyes.db) unter Test/CI nie,
+    sonst nur mit ARES_OWNER_DB_OPT_IN=1 (Regel: core.db_location)."""
+    return _db_location.owner_db_refusal(path, os.environ)
+
+
+def refuse_owner_db_file(path, *, context: str) -> None:
+    reason = owner_db_refusal(path)
+    if reason:
+        raise OwnerDatabaseRefused(f"{context}: {reason}")
+
+
+def refuse_owner_db_settings(cfg, *, context: str) -> None:
+    refuse_owner_db_file(getattr(cfg, "db_path", None), context=context)
+    refuse_owner_db_file(_db_location.sqlite_url_file(getattr(cfg, "database_url", None)), context=context)
+
+
+def _install_owner_db_guard() -> None:
+    """Einmalig: VOR jedem SQLite-DBAPI-Connect jeder Engine (bevor SQLite die Datei anlegt)."""
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    def _guard(dialect, conn_rec, cargs, cparams):  # noqa: ARG001
+        if dialect.name == "sqlite":
+            refuse_owner_db_file(_db_location.connect_target(cargs, cparams), context="Datenbank")
+
+    if not getattr(Engine, "_ares_owner_db_guard", False):
+        event.listen(Engine, "do_connect", _guard)
+        Engine._ares_owner_db_guard = True
+
+
+_install_owner_db_guard()
+
 
 DEFAULT_SECRET_KEY = "CHANGE_ME_IN_PRODUCTION_USE_STRONG_RANDOM_KEY"
 

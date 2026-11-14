@@ -16,6 +16,15 @@ nie geoeffnet).
 Nur Standardbibliothek und keine Import-Seiteneffekte: ``tests/conftest.py``
 importiert dieses Modul, BEVOR ``config`` seine Settings baut.
 
+H11 Nachtrag 1 (Vorfall 2026-11-14, ``~/ares/ares.db`` leer neu angelegt):
+``owner_db_refusal`` ist die (reine) Regel; ``config`` wendet sie an: VOR
+jedem SQLite-Connect (``Engine.do_connect``), im App-Start vor Logging/KEK/DB,
+im Schema-Bootstrap (raw sqlite3) und in ``alembic/env.py``. Owner-Pfade sind
+``~/ares/ares.db`` und ``~/5eyes/5eyes.db``. Verweigert wird
+* immer unter pytest/CI/Testmodus (auch mit Opt-in),
+* sonst ohne ausdrueckliche Freigabe ``ARES_OWNER_DB_OPT_IN=1``. Die setzen
+  die Desktop-Shell beim Backend-Start und der Umstieg (Migrator/Runbook).
+
 Kommandozeile (fuer PowerShell-Deploy-Skripte)::
 
     python core/db_location.py live-path        # gibt den Produktivpfad aus
@@ -85,6 +94,60 @@ def refuse_live_db(candidate: str | os.PathLike[str] | None, *, context: str) ->
             f'{context}: DB_PATH zeigt auf die produktive Datenbank '
             f'({default_db_path()}) -- abgebrochen.'
         )
+
+
+OWNER_DB_OPT_IN_ENV = 'ARES_OWNER_DB_OPT_IN'
+_TRUE = {'1', 'true', 'yes', 'on'}
+
+
+class OwnerDatabaseRefused(RuntimeError):
+    """Start/Anlegen einer DB unter dem Owner-Pfad verweigert (fail-closed)."""
+
+
+def owner_db_paths() -> tuple[Path, ...]:
+    """Owner-Datenbanken: Ares-Produktivpfad und die Alt-Live-DB."""
+    return (default_db_path(), Path.home() / '5eyes' / '5eyes.db')
+
+
+def is_owner_db_path(candidate: str | os.PathLike[str] | None) -> bool:
+    return any(is_live_db_path(candidate, live) for live in owner_db_paths())
+
+
+def test_or_ci_mode(environ) -> str | None:
+    """Kennung des Test-/CI-Kontexts (pytest, CI, Testmodus) oder ``None``.
+    ``environ`` reicht der Aufrufer herein (nur ``config`` liest die Umgebung)."""
+    if 'pytest' in sys.modules or environ.get('PYTEST_CURRENT_TEST') or environ.get('PYTEST_XDIST_WORKER'):
+        return 'pytest'
+    if str(environ.get('CI', '')).strip().lower() in _TRUE or str(environ.get('GITHUB_ACTIONS', '')).strip().lower() in _TRUE:
+        return 'CI'
+    if str(environ.get('ARES_TEST_MODE', '')).strip().lower() in _TRUE:
+        return 'Testmodus'
+    return None
+
+
+def owner_db_refusal(candidate: str | os.PathLike[str] | None, environ) -> str | None:
+    """Begruendung, warum ``candidate`` nicht geoeffnet werden darf, sonst ``None``."""
+    if not is_owner_db_path(candidate):
+        return None
+    mode = test_or_ci_mode(environ)
+    if mode:
+        return (f'{mode}: Die Owner-Datenbank {candidate} wird nie geoeffnet oder angelegt '
+                '(DB_PATH/HOME isolieren).')
+    if str(environ.get(OWNER_DB_OPT_IN_ENV, '')).strip().lower() not in _TRUE:
+        return (f'Start auf der Owner-Datenbank {candidate} ohne Freigabe {OWNER_DB_OPT_IN_ENV}=1 '
+                'verweigert (setzt die Desktop-Shell bzw. der Umstieg; sonst DB_PATH setzen).')
+    return None
+
+
+def connect_target(cargs, cparams) -> str | None:
+    """Dateiname eines SQLite-DBAPI-Connects (``do_connect``-Argumente)."""
+    raw = cparams.get('database') if cparams else None
+    if raw is None and cargs:
+        raw = cargs[0]
+    raw = str(raw or '').strip()
+    if raw.startswith('file:'):
+        raw = raw[5:].split('?', 1)[0]
+    return None if not raw or raw == ':memory:' else raw
 
 
 def _main(argv: list[str]) -> int:

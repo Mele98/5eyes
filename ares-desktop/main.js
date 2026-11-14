@@ -496,6 +496,9 @@ function buildBackendChildEnv(runtime = backendRuntime) {
     TENANT_MASTER_KEK_FILE: TENANT_MASTER_KEK_STORE_FILE,
     // Immer gesetzt (auch leer): eine geerbte Umgebung kann den Kanal nicht vortaeuschen.
     DESKTOP_UPDATE_FEED_URL: desktopUpdateFeedUrl(),
+    // H11 N1: die Desktop-Shell ist der Produktivstart -- ausdruecklicher Opt-in
+    // fuer die Owner-DB (~/ares/ares.db); unter pytest/CI verweigert das Backend trotzdem.
+    ARES_OWNER_DB_OPT_IN: '1',
   };
 }
 
