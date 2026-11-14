@@ -17181,12 +17181,12 @@ function resetAdvisoryLogModal(){
     var advisoryNote=AresRounding.formatPercent(advisoryPct||0,0,{typography:'screen'})+' des Bruttovermögens · '+String(Number(meta&&meta.advisoryCount||0))+' Position(en)';
     var otherNote=AresRounding.formatPercent(otherPct||0,0,{typography:'screen'})+' ausserhalb Beratung · '+String(Number(meta&&meta.otherCount||0))+' Position(en)';
     var liabilityNote=AresRounding.formatPercent(grossChf?wealthSharePercent(liabilitiesChf,grossChf):0,0,{typography:'screen'})+' Abzug · '+String(Number(meta&&meta.liabilityCount||0))+' Verbindlichkeit(en)';
-    var liabilityValue=liabilitiesChf?('−'+fmtCHF(liabilitiesChf,ccy)):fmtCHF(0,ccy);
+    var liabilityValue=fmtCHF(liabilitiesChf||0,ccy);if(liabilitiesChf&&liabilityValue!=='—')liabilityValue='−'+liabilityValue; // H11: Vorzeichen nur bei Zahl
     var summaryHtml='<div data-wealth-split="1" style="margin-bottom:14px;padding:12px;border:1px solid var(--b1);border-radius:var(--r2);background:linear-gradient(135deg,#fbfcff 0%,#f4f6fb 100%)">'
       + '<div style="display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,0.85fr);gap:12px;align-items:stretch">'
         + '<div style="padding:12px 14px;border-radius:var(--r2);background:linear-gradient(135deg,var(--n8) 0%,#273548 100%);color:#fff;display:flex;flex-direction:column;justify-content:space-between">'
           + '<div><div style="font-size:8px;font-weight:700;letter-spacing:0.11em;text-transform:uppercase;color:rgba(255,255,255,0.45);margin-bottom:5px">Reinvermögen Total</div><div style="font-family:var(--f-d);font-size:26px;color:#fff">'+escapeHtml(fmtCHF(netChf,ccy))+'</div></div>'
-          + '<div style="font-size:10px;line-height:1.5;color:rgba(255,255,255,0.74);margin-top:10px">Bruttovermögen '+escapeHtml(fmtCHF(grossChf,ccy))+' · Verbindlichkeiten -'+escapeHtml(fmtCHF(liabilitiesChf,ccy))+' · Nettoquote '+AresRounding.formatPercent(netPct||0,0,{typography:'screen'})+'</div>'
+          + '<div style="font-size:10px;line-height:1.5;color:rgba(255,255,255,0.74);margin-top:10px">Bruttovermögen '+escapeHtml(fmtCHF(grossChf,ccy))+' · Verbindlichkeiten '+escapeHtml(liabilityValue)+' · Nettoquote '+AresRounding.formatPercent(netPct||0,0,{typography:'screen'})+'</div>'
         + '</div>'
         + '<div style="display:grid;grid-template-columns:1fr;gap:8px">'
           + buildStatCard('Beratungsvermögen',advisoryChf,advisoryNote,'accent')

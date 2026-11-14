@@ -149,4 +149,8 @@ def test_currency_word_mutations_turn_red():
     assert _unjustified(scan_text(rel, "var a='Fr. '+1; var b=\"chf \"+2;"))
     assert _unjustified(scan_text(rel, "var c='Referenzwährung ist der Schweizer Franken.';"))
     assert _unjustified(scan_text(rel, "var d='SFr 12';"))
+    # H11 (N-894-19): auch kleingeschrieben bzw. gemischt.
+    assert _unjustified(scan_text(rel, "var e='sfr 12';"))
+    assert _unjustified(scan_text(rel, "var f='Sfr. 12';"))
+    assert not scan_text(rel, "var sfr=Math.abs(x);")  # Bezeichner ist kein Anzeigetext
     assert not scan_text(rel, "var chf=Math.abs(x);")  # Bezeichner ist kein Anzeigetext

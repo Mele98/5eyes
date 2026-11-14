@@ -14,7 +14,8 @@ Treffer:
 * Token ``CHF`` (nicht Teil eines Bezeichners wie ``formatCompactCHF``) im Code
   ausserhalb von Kommentaren (Python: nur String-Literale ohne Docstrings);
 * N-894-15: ausgeschriebene Formen ``Schweizer Franken``, ``Franken``, ``Fr.``,
-  ``SFr`` und kleingeschriebenes ``chf`` (Wortgrenzen) in String-Literalen und
+  ``SFr`` (jede Schreibweise, H11: auch ``sfr``) und kleingeschriebenes ``chf``
+  (Wortgrenzen) in String-Literalen und
   Markup-Text (Bezeichner wie ``var chf`` sind kein Anzeigetext).
 
 Jeder Treffer braucht einen Eintrag mit Einzelbegruendung in
@@ -31,7 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ALLOWLIST_PATH = REPO_ROOT / "docs/audits/2026-11-13-g7-currency-literal-allowlist.json"
 TOKEN = re.compile(r"(?<![A-Za-z0-9_$])CHF(?![A-Za-z0-9_$])")
 WORDS = re.compile(
-    r"(?<![A-Za-z0-9_$\-])(?:Schweizer\s+Franken|Franken|SFr\.?|Fr\.(?=\s*[\d'])|chf)(?![A-Za-z0-9_$\-])"
+    r"(?<![A-Za-z0-9_$\-])(?:Schweizer\s+Franken|Franken|[Ss][Ff][Rr]\.?|Fr\.(?=\s*[\d'])|chf)(?![A-Za-z0-9_$\-])"
 )
 STRING_SEGMENT = re.compile(r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|`(?:\\.|[^`\\])*`")
 
