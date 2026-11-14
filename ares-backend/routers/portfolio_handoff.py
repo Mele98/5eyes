@@ -249,6 +249,7 @@ def create_portfolio_handoff(
         audit=gate_block_audit(
             db, user=current_user, mandate=mandate, ip_address=_extract_client_ip(request),
             table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+            set_tenant_context=set_tenant_context,
         ),
     )
     # E2a (Negativfall 4/6): veraltete/nicht lesbare Nachhaltigkeitspraeferenz
@@ -258,6 +259,7 @@ def create_portfolio_handoff(
         audit=gate_block_audit(
             db, user=current_user, mandate=mandate, ip_address=_extract_client_ip(request),
             table_name="investment_preference_decisions", field_name="sustainability_preference_blocked",
+            set_tenant_context=set_tenant_context,
         ),
     )
     # H7 N-884-04: auch ein bereits finaler Lauf ohne geklaerte Retrozession

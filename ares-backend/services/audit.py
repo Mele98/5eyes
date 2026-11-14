@@ -1777,11 +1777,18 @@ def gate_block_audit(
     ip_address: str | None,
     table_name: str,
     field_name: str,
+    set_tenant_context: Callable[[Session, str | None], None] | None = None,
 ) -> Callable[[str, dict], None]:
     """Router-Callback fuer fail-closed Gates (z. B. Untergrenze der
     Nachhaltigkeitspraeferenz, N-888-01): schreibt den Block in den
     Audit-Trail und committet VOR dem Fehler, damit die Spur die Ablehnung
-    (Rollback des Requests) ueberlebt. ``payload`` ist kanonisches JSON."""
+    (Rollback des Requests) ueberlebt. ``payload`` ist kanonisches JSON.
+
+    RC-CH-1 Teil 2b (wie H7 N-884-09): unter PostgreSQL macht
+    ``db.rollback()`` den in derselben Transaktion gesetzten Tenant-Kontext
+    rueckgaengig; der Audit-Insert scheiterte sonst an RLS WITH CHECK. Der
+    Kontext wird deshalb nach dem Rollback mit ``set_tenant_context`` (von den
+    Routern ueber services.auth uebergeben) wieder gesetzt."""
 
     def _audit(payload: str, result: dict) -> None:
         # N-888-13: der Request scheitert ohnehin; offene fachliche
@@ -1792,7 +1799,7 @@ def gate_block_audit(
         user_name = getattr(user, "full_name", None) or getattr(user, "username", "")
         mandate_id = getattr(mandate, "id", None)
         client_id = getattr(mandate, "client_id", None)
-        db.rollback()
+        restore_tenant_after_rollback(db, set_tenant_context)
         log(
             db,
             user_id=user_id,

@@ -1830,6 +1830,7 @@ def _floor_audit(db: Session, current_user, mandate, request):
         gate_block_audit(
             db, user=current_user, mandate=mandate, ip_address=ip,
             table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+            set_tenant_context=set_tenant_context,
         )(payload, result)
 
     return _audit
@@ -1853,6 +1854,7 @@ def _preference_audit(db: Session, current_user, mandate, request):
         gate_block_audit(
             db, user=current_user, mandate=mandate, ip_address=ip,
             table_name="investment_preference_decisions", field_name="sustainability_preference_blocked",
+            set_tenant_context=set_tenant_context,
         )(payload, result)
 
     return _audit

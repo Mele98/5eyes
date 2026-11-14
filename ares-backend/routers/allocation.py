@@ -843,6 +843,7 @@ def _floor_audit(db: Session, current_user, mandate, request):
             db, user=current_user, mandate=mandate,
             ip_address=_extract_client_ip(request) if request is not None else None,
             table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+            set_tenant_context=set_tenant_context,
         )(payload, result)
 
     return _audit
