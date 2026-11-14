@@ -419,7 +419,12 @@ def test_insert_only_as_draft_and_seal_requires_manifest_binding(session_factory
         with pytest.raises((IntegrityError, DBAPIError)):
             db.execute(text(insert), {**args, "id": "e-sealed", "s": "SEALED"})
         db.rollback()
-        db.execute(text(insert), {**args, "id": "e-draft", "s": "DRAFT"})
+        # N-906-01: auch ein DRAFT mit vorbelegtem Payload/Hash/Siegel ist verboten.
+        with pytest.raises((IntegrityError, DBAPIError), match="insert only as DRAFT"):
+            db.execute(text(insert), {**args, "id": "e-prefilled", "s": "DRAFT"})
+        db.rollback()
+        db.execute(text(insert), {**args, "id": "e-draft", "s": "DRAFT", "p": None, "h": None,
+                                  "sa": None, "sb": None})
         with pytest.raises((IntegrityError, DBAPIError), match="CCX_BINDING_MISSING"):
             db.execute(text(
                 "UPDATE advisory_decision_envelopes SET status = 'SEALED', optimistic_version = 2 "
@@ -790,3 +795,238 @@ def test_no_float_in_any_new_table_column():
         for column in model.__table__.columns:
             assert column.type.python_type in (str, int), (model.__tablename__, column.name)
     assert not math.isnan(0.0)  # Kontrolle: Modul importiert
+
+
+# ── Nachtrag 1 (Pruefrunde 15c6311b, N-906-01..06) ───────────────────────────
+
+# N-906-04 (M2): Golden, bei dem die vertragliche Ordnung (kind, ordinal,
+# object_id) und eine object_id-zuerst-Ordnung VERSCHIEDEN sind: die Manifest-
+# Bindung (kind "effective_input_manifest") hat die groessere object_id.
+GOLDEN2_CANONICAL = (
+    '{"schema_version":"ares/advisory-envelope/1","tenant_id":"t-golden","mandate_id":"m-golden",'
+    '"locale":"DE","base_currency":"CHF","rounding_policy_version":"ares-rounding/1",'
+    '"predecessor_envelope_hash":null,"effective_input_manifest_hash":"' + H_A + '",'
+    '"bindings":[{"binding_kind":"effective_input_manifest","ordinal":0,'
+    '"object_type":"advisory_effective_input_manifests","object_id":"z-man","object_version":null,'
+    '"child_hash":"' + H_A + '"},{"binding_kind":"target_allocation","ordinal":0,'
+    '"object_type":"target_allocations","object_id":"a-ta","object_version":3,'
+    '"child_hash":"' + H_B + '"},{"binding_kind":"target_allocation","ordinal":1,'
+    '"object_type":"target_allocations","object_id":"0-ta","object_version":4,'
+    '"child_hash":"' + H_B + '"}]}'
+)
+GOLDEN2_HASH = hashlib.sha256(b"Ares\x00ares/advisory-envelope/1\x00" + GOLDEN2_CANONICAL.encode()).hexdigest()
+
+
+def test_hash_golden_with_contract_order_differing_from_object_id_order():
+    payload = _payload(bindings=[
+        {"binding_kind": "target_allocation", "ordinal": 1, "object_type": "target_allocations",
+         "object_id": "0-ta", "object_version": 4, "child_hash": H_B},
+        {"binding_kind": "target_allocation", "ordinal": 0, "object_type": "target_allocations",
+         "object_id": "a-ta", "object_version": 3, "child_hash": H_B},
+        {"binding_kind": "effective_input_manifest", "ordinal": 0,
+         "object_type": "advisory_effective_input_manifests", "object_id": "z-man",
+         "object_version": None, "child_hash": H_A},
+    ])
+    canonical, digest = envelope_hash(payload)
+    assert canonical == GOLDEN2_CANONICAL
+    assert digest == GOLDEN2_HASH == "d29720e01602d6bb94bc914cfed8f09ad2678cfb95a14e60d62b0e0e164cca51"
+
+
+def test_goal_rank_sorts_numerically():
+    from core.advisory_envelope_codec import none_sort_key
+
+    ranks = [10, 2, None, 1]
+    assert sorted(ranks, key=none_sort_key) == [None, 1, 2, 10]
+    rows = [{"id": "g10", "rank": 10}, {"id": "g2", "rank": 2}]
+    key = lambda r: (none_sort_key(r["rank"]), none_sort_key(r["id"]))  # noqa: E731
+    numeric = rows_child_hash("goals", ["id", "rank"], rows, key)
+    as_text = rows_child_hash("goals", ["id", "rank"], rows, lambda r: (str(r["rank"]), r["id"]))
+    assert numeric != as_text  # "10" < "2" als Text -- andere Reihenfolge, anderer Hash
+
+
+def _sealed_row(db):
+    return db.execute(text("SELECT * FROM advisory_decision_envelopes WHERE status = 'SEALED'")).mappings().one()
+
+
+def _insert_sql(table, row, verb):
+    cols = ", ".join(row)
+    return f"{verb} INTO {table} ({cols}) VALUES ({', '.join(':' + c for c in row)})"
+
+
+REPLACE_VERBS = ("INSERT OR REPLACE", "REPLACE")
+
+
+@pytest.mark.parametrize("verb", REPLACE_VERBS)
+def test_replace_cannot_reset_sealed_envelope_to_draft(session_factory, verb):
+    """N-906-01: die Konfliktloeschung von REPLACE feuert keinen DELETE-Trigger
+    (recursive_triggers=OFF) -- der No-Replace-Guard bricht vorher ab."""
+    advisor_id, mid, _aid, run_id = _finalizable_run(session_factory, "replace")
+    _finalize(session_factory, advisor_id, mid, run_id)
+    with session_factory() as db:
+        sealed = dict(_sealed_row(db))
+        forged = {**sealed, "status": "DRAFT", "optimistic_version": 1, "canonical_payload_json": None,
+                  "envelope_hash": None, "sealed_at": None, "sealed_by": None}
+        with pytest.raises((IntegrityError, DBAPIError), match="no replace"):
+            db.execute(text(_insert_sql("advisory_decision_envelopes", forged, verb)), forged)
+        db.rollback()
+        # Zweiter Pfad: fremde ID, aber gleicher (tenant_id, envelope_hash) bzw. gleicher Vorgaenger.
+        other = {**sealed, "id": "e-intruder"}
+        with pytest.raises((IntegrityError, DBAPIError)):
+            db.execute(text(_insert_sql("advisory_decision_envelopes", other, verb)), other)
+        db.rollback()
+        assert dict(_sealed_row(db)) == sealed
+
+
+def test_replace_cannot_displace_successor_with_same_predecessor(session_factory):
+    advisor_id, mid, aid, run1 = _finalizable_run(session_factory, "succ")
+    _finalize(session_factory, advisor_id, mid, run1)
+    _a, _m, _x, run2 = _finalizable_run(session_factory, "succ", mandate=(advisor_id, mid, aid))
+    _finalize(session_factory, advisor_id, mid, run2)
+    with session_factory() as db:
+        successor = dict(_sealed_row(db))
+        draft = {**successor, "id": "e-shadow", "status": "DRAFT", "optimistic_version": 1,
+                 "canonical_payload_json": None, "envelope_hash": None, "sealed_at": None, "sealed_by": None}
+        with pytest.raises((IntegrityError, DBAPIError), match="no replace"):
+            db.execute(text(_insert_sql("advisory_decision_envelopes", draft, "INSERT OR REPLACE")), draft)
+        db.rollback()
+        assert dict(_sealed_row(db)) == successor
+
+
+@pytest.mark.parametrize("table", ["advisory_effective_input_manifests", "advisory_envelope_bindings"])
+@pytest.mark.parametrize("verb", REPLACE_VERBS)
+def test_replace_cannot_overwrite_manifest_or_binding(session_factory, table, verb):
+    advisor_id, mid, _aid, run_id = _finalizable_run(session_factory, "replace-child")
+    _finalize(session_factory, advisor_id, mid, run_id)
+    with session_factory() as db:
+        before = [dict(r) for r in db.execute(text(f"SELECT * FROM {table} ORDER BY id")).mappings()]
+        row = dict(before[0])
+        hash_col = "manifest_hash" if table == "advisory_effective_input_manifests" else "child_hash"
+        row[hash_col] = "e" * 64
+        with pytest.raises((IntegrityError, DBAPIError), match="no replace|not DRAFT"):
+            db.execute(text(_insert_sql(table, row, verb)), row)
+        db.rollback()
+        assert [dict(r) for r in db.execute(text(f"SELECT * FROM {table} ORDER BY id")).mappings()] == before
+
+
+@pytest.mark.parametrize("table,conflict,assign", [
+    ("advisory_decision_envelopes", "id", "status = 'DRAFT', optimistic_version = 1"),
+    ("advisory_effective_input_manifests", "id", "goals_hash = 'x'"),
+    ("advisory_envelope_bindings", "id", "child_hash = '" + "e" * 64 + "'"),
+])
+def test_upsert_on_conflict_do_update_is_blocked(session_factory, table, conflict, assign):
+    advisor_id, mid, _aid, run_id = _finalizable_run(session_factory, "upsert")
+    _finalize(session_factory, advisor_id, mid, run_id)
+    with session_factory() as db:
+        row = dict(db.execute(text(f"SELECT * FROM {table} LIMIT 1")).mappings().one())
+        sql = _insert_sql(table, row, "INSERT") + f" ON CONFLICT ({conflict}) DO UPDATE SET {assign}"
+        with pytest.raises((IntegrityError, DBAPIError)):
+            db.execute(text(sql), row)
+        db.rollback()
+        assert dict(db.execute(text(f"SELECT * FROM {table} WHERE id = :i"), {"i": row["id"]}).mappings().one()) == row
+
+
+def test_forgery_probe_reset_rebind_reseal_fails_and_get_stays_integer(session_factory):
+    """Faelschungsprobe der Pruefrunde: SEALED per REPLACE auf DRAFT setzen,
+    Bindung neu, Payload neu rechnen, neu versiegeln -- muss im ersten
+    Schritt scheitern; GET liefert unveraendert den echten Entscheid."""
+    from models.mandates import Mandate
+    from models.users import User
+    from services.advisory_decision_envelope import current_verified_envelope
+
+    advisor_id, mid, _aid, run_id = _finalizable_run(session_factory, "forge")
+    genuine = _finalize(session_factory, advisor_id, mid, run_id).advisory_envelope_hash
+    with session_factory() as db:
+        sealed = dict(_sealed_row(db))
+        reset = {**sealed, "status": "DRAFT", "optimistic_version": 1, "canonical_payload_json": None,
+                 "envelope_hash": None, "sealed_at": None, "sealed_by": None}
+        with pytest.raises((IntegrityError, DBAPIError)):
+            db.execute(text(_insert_sql("advisory_decision_envelopes", reset, "INSERT OR REPLACE")), reset)
+            # Folgeschritte (duerfen nie erreicht werden):
+            db.execute(text("DELETE FROM advisory_envelope_bindings WHERE envelope_id = :e"), {"e": sealed["id"]})
+        db.rollback()
+        with pytest.raises((IntegrityError, DBAPIError)):
+            db.execute(text("DELETE FROM advisory_envelope_bindings WHERE envelope_id = :e"), {"e": sealed["id"]})
+        db.rollback()
+        view = current_verified_envelope(db, mandate=db.get(Mandate, mid), user=db.get(User, advisor_id))
+        assert view["envelope_hash"] == genuine
+        assert view["status"] == "SEALED" and view["optimistic_version"] == 2
+
+
+def test_row_identity_tamper_is_detected(session_factory):
+    """N-906-04 (M1): Zeile (nicht Payload) manipuliert -> Identitaetsabgleich
+    Zeile <-> Payload meldet CCX_ENVELOPE_HASH_MISMATCH (detail identity)."""
+    from models.mandates import Mandate
+    from models.users import User
+    from services.advisory_decision_envelope import current_verified_envelope
+
+    advisor_id, mid, _aid, run_id = _finalizable_run(session_factory, "rowtamper")
+    _finalize(session_factory, advisor_id, mid, run_id)
+    with session_factory() as db:
+        db.execute(text("DROP TRIGGER trg_advisory_decision_envelopes_update_guard"))
+        db.execute(text("UPDATE advisory_decision_envelopes SET locale = 'FR'"))
+        db.commit()
+        with pytest.raises(DomainError) as caught:
+            current_verified_envelope(db, mandate=db.get(Mandate, mid), user=db.get(User, advisor_id))
+        assert caught.value.reason_code == "CCX_ENVELOPE_HASH_MISMATCH"
+        assert "detail=identity" in _audit(db, "ccx.envelope.rejected")[-1].new_value
+
+
+def test_unprojectable_binding_value_is_catalogued_and_audited(session_factory, monkeypatch):
+    """N-906-02: eine CanonicalPayloadError beim Bilden der Bindungen endet
+    als CCX_BINDING_MISSING mit Ablehnungs-Audit, nicht als 500."""
+    import services.advisory_decision_envelope as svc
+
+    def boom(*_a, **_k):
+        raise CanonicalPayloadError("recommendation-positions[0].x: NaN/Infinity nicht erlaubt")
+
+    advisor_id, mid, _aid, run_id = _finalizable_run(session_factory, "nan")
+    monkeypatch.setattr(svc, "_row_hash", boom)
+    with pytest.raises(DomainError) as caught:
+        _finalize(session_factory, advisor_id, mid, run_id)
+    assert caught.value.reason_code == "CCX_BINDING_MISSING"
+    with session_factory() as db:
+        assert db.execute(text("SELECT count(*) FROM advisory_decision_envelopes")).scalar() == 0
+        rejected = _audit(db, "ccx.envelope.rejected")
+        assert len(rejected) == 1 and "stage=bindings" in rejected[0].new_value and rejected[0].tenant_id
+
+
+def test_check_violation_at_seal_is_audited(session_factory, monkeypatch):
+    """N-906-03: CHECK-Verletzung beim Siegel -> 422 CCX_ENVELOPE_UNSEALED mit
+    Ablehnungs-Audit (Stage check), Tenant-Kontext gesetzt."""
+    import services.advisory_decision_envelope as svc
+
+    real = svc.compute_envelope_hash
+    monkeypatch.setattr(svc, "compute_envelope_hash", lambda payload: (real(payload)[0], "short-hash"))
+    advisor_id, mid, _aid, run_id = _finalizable_run(session_factory, "check")
+    with pytest.raises(DomainError) as caught:
+        _finalize(session_factory, advisor_id, mid, run_id)
+    assert caught.value.reason_code == "CCX_ENVELOPE_UNSEALED" and caught.value.http_status == 422
+    with session_factory() as db:
+        rejected = _audit(db, "ccx.envelope.rejected")
+        assert len(rejected) == 1 and "stage=check" in rejected[0].new_value and rejected[0].tenant_id
+        assert db.execute(text("SELECT count(*) FROM advisory_decision_envelopes")).scalar() == 0
+
+
+@pytest.mark.parametrize("group,statement", [
+    ("risk", "UPDATE target_allocations SET based_on_assessment_id = 'gone'"),
+    ("cma", "UPDATE recommendation_runs SET capital_market_assumptions_id = 'gone' WHERE result_status = 'Draft'"),
+])
+def test_missing_required_input_group_is_unknown_not_sealable(session_factory, monkeypatch, group, statement):
+    """N-906-06: eine leere Pflichtgruppe wird nie als Hash ueber null Zeilen
+    gebunden, sondern ist 'unknown' -> CCX_INPUT_MANIFEST_MISMATCH mit Audit."""
+    import services.advisory_decision_envelope as svc
+    from models.mandates import Mandate
+    from models.review import RecommendationRun
+    from models.users import User
+
+    advisor_id, mid, _aid, run_id = _finalizable_run(session_factory, f"unknown-{group}")
+    with session_factory() as db:
+        db.execute(text(statement))
+        db.commit()
+        with pytest.raises(DomainError) as caught:
+            svc.seal_advisory_envelope(db, mandate=db.get(Mandate, mid), run=db.get(RecommendationRun, run_id),
+                                       user=db.get(User, advisor_id))
+        assert caught.value.reason_code == "CCX_INPUT_MANIFEST_MISMATCH"
+        value = _audit(db, "ccx.envelope.rejected")[-1].new_value
+        assert "stage=manifest" in value and f"unknown={group}" in value
+        assert db.execute(text("SELECT count(*) FROM advisory_decision_envelopes")).scalar() == 0

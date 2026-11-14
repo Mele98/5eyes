@@ -12,14 +12,16 @@ Gruppen und Quelle (je Mandat, nur aktive/nicht geloeschte Zeilen):
 
 * ``client``      -- Kundenzeile des Mandats
 * ``mandate``     -- Mandatszeile
-* ``goals``       -- Ziele, sortiert ``(priority=rank, due_date=target_date, id)``
+* ``goals``       -- Ziele, sortiert ``(priority=rank numerisch, due_date=target_date, id)``
 * ``cashflows``   -- Cashflows und Zufluesse des Kunden
 * ``risk``        -- das Risikoprofil, auf dem die Allokation beruht
 * ``preference``  -- alle Nachhaltigkeitspraeferenz-Versionen (append-only)
 * ``cma``         -- die CMA des Laufs
 * ``policy``      -- Optimizer-Policy der Allokation + gebundene CMA-Policy
 * ``constraints`` -- wirkende Restriktionen/Praeferenz-Snapshot der Allokation
-* ``holdings``    -- Bestaende, sortiert ``(custodian_id, depot_id, position_id)``
+* ``holdings``    -- Bestaende, sortiert ``(custodian_id, depot_id, position_id)``, abgebildet
+  auf ``(depot_bank, depot_account_number, id)`` (Positionen) bzw.
+  ``(depot_bank, custody_account_number, id)`` (Lauf-Bestaende)
 
 ``updated_at`` ist bewusst nicht Teil der Projektion: identische Inhalte
 ergeben identische Hashes. Gleitkomma-Spalten werden als exakte
@@ -108,10 +110,29 @@ def _by_id(db: Session, model: Any, row_id: Any) -> list[Any]:
     return [row] if row is not None else []
 
 
+# N-906-06 (unknown != complete): Pflichtgruppen, ohne die kein Entscheid
+# versiegelt wird. Leer zulaessig (fachlich moeglich, als Hash ueber eine leere,
+# typisierte Zeilenmenge gebunden): Ziele, Cashflows/Zufluesse,
+# Nachhaltigkeitspraeferenz (vor der Erfassung), Bestaende, CMA-Policy (nur
+# bei aktivem CMA-Policy-Modell gebunden).
+REQUIRED_GROUPS: tuple[str, ...] = ("client", "mandate", "risk", "cma", "optimizer_policy", "constraints")
+
+
+class ManifestIncomplete(ValueError):
+    """Eine Pflicht-Inputgruppe ist unbekannt (keine Zeile) -- nicht siegelbar."""
+
+    def __init__(self, groups: Sequence[str]) -> None:
+        super().__init__("unknown: " + ", ".join(groups))
+        self.groups = tuple(groups)
+
+
 def collect_effective_input_components(
     db: Session, *, mandate: Any, run: Any, target_allocation: Any,
 ) -> dict[str, str]:
-    """Kind-Hash je Inputgruppe (zehn Manifest-Komponenten), frisch gelesen."""
+    """Kind-Hash je Inputgruppe (zehn Manifest-Komponenten), frisch gelesen.
+
+    Fehlt eine Pflichtgruppe (``REQUIRED_GROUPS``), wirft die Funktion
+    ``ManifestIncomplete`` statt einen Hash ueber null Zeilen zu binden."""
     ta = target_allocation
     mandate_id = str(mandate.id)
     client_id = str(mandate.client_id)
@@ -147,22 +168,33 @@ def collect_effective_input_components(
     constraints_rows = (
         [{name: getattr(ta, name, None) for name in constraint_columns}] if ta is not None else []
     )
+    client_rows = _by_id(db, Client, client_id)
+    mandate_rows = _by_id(db, Mandate, mandate_id)
+    risk_rows = _by_id(db, RiskAssessment, risk_id)
+    cma_rows = _by_id(db, CapitalMarketAssumption, cma_id)
+    policy_rows = _by_id(db, OptimizerPolicy, policy_id)
+    missing = [name for name, rows in (
+        ("client", client_rows), ("mandate", mandate_rows), ("risk", risk_rows), ("cma", cma_rows),
+        ("optimizer_policy", policy_rows), ("constraints", constraints_rows),
+    ) if not rows]
+    if missing:
+        raise ManifestIncomplete(missing)
     return {
-        "client_hash": _hash_rows("client", Client, _by_id(db, Client, client_id), ("id",)),
-        "mandate_hash": _hash_rows("mandate", Mandate, _by_id(db, Mandate, mandate_id), ("id",)),
+        "client_hash": _hash_rows("client", Client, client_rows, ("id",)),
+        "mandate_hash": _hash_rows("mandate", Mandate, mandate_rows, ("id",)),
         "goals_hash": _hash_rows("goals", Goal, goals, ("rank", "target_date", "id")),
         "cashflows_hash": _combine("cashflows", {
             "cashflows": _hash_rows("cashflow-rows", Cashflow, cashflows, ("id",)),
             "inflows": _hash_rows("inflow-rows", WealthInflow, inflows, ("id",)),
         }),
-        "risk_hash": _hash_rows("risk", RiskAssessment, _by_id(db, RiskAssessment, risk_id), ("id",)),
+        "risk_hash": _hash_rows("risk", RiskAssessment, risk_rows, ("id",)),
         "preference_hash": _hash_rows(
             "preference", InvestmentPreferenceDecision, preferences, ("sequence_no", "id"),
         ),
-        "cma_hash": _hash_rows("cma", CapitalMarketAssumption, _by_id(db, CapitalMarketAssumption, cma_id), ("id",)),
+        "cma_hash": _hash_rows("cma", CapitalMarketAssumption, cma_rows, ("id",)),
         "policy_hash": _combine("policy", {
             "optimizer_policy": _hash_rows(
-                "optimizer-policy", OptimizerPolicy, _by_id(db, OptimizerPolicy, policy_id), ("id",),
+                "optimizer-policy", OptimizerPolicy, policy_rows, ("id",),
             ),
             "cma_policy": _hash_rows(
                 "cma-policy", CmaPolicy, _by_id(db, CmaPolicy, getattr(run, "cma_policy_row_id", None)), ("id",),
@@ -215,6 +247,8 @@ def build_manifest_record(
 
 
 __all__ = [
+    "REQUIRED_GROUPS",
+    "ManifestIncomplete",
     "build_effective_input_hash",
     "build_effective_input_record",
     "build_manifest_record",

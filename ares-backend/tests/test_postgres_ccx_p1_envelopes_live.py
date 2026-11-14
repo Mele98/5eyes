@@ -219,6 +219,10 @@ def test_lifecycle_insert_draft_only_and_seal_needs_manifest_binding(pg_ccx):
         with pytest.raises(DBAPIError):
             _draft(db.connection(), "e-s", "m-a2", tenant_id="t-a", status="SEALED")
         _rollback(db)
+        # DRAFT mit vorbelegtem Siegel/Hash (N-906-01, Paritaet zu SQLite).
+        with pytest.raises(DBAPIError):
+            _draft(db.connection(), "e-h", "m-a2", tenant_id="t-a", envelope_hash="6" * 64)
+        _rollback(db)
         _draft(db.connection(), "e-d", "m-a2", tenant_id="t-a")
         with pytest.raises(DBAPIError, match="CCX_BINDING_MISSING"):
             _seal(db.connection(), "e-d", "3" * 64)
@@ -236,6 +240,13 @@ def test_lifecycle_insert_draft_only_and_seal_needs_manifest_binding(pg_ccx):
     f"DELETE FROM {BINDINGS} WHERE envelope_id = 'e-a'",
     f"UPDATE {MANIFESTS} SET goals_hash = 'x' WHERE mandate_id = 'm-a'",
     f"DELETE FROM {MANIFESTS} WHERE mandate_id = 'm-a'",
+    # N-906-01 (PG-Seite): UPSERT feuert den UPDATE-Guard.
+    f"INSERT INTO {ENVELOPES} SELECT * FROM {ENVELOPES} WHERE id = 'e-a' "
+    "ON CONFLICT (id) DO UPDATE SET status = 'DRAFT', optimistic_version = 1",
+    f"INSERT INTO {MANIFESTS} SELECT * FROM {MANIFESTS} WHERE mandate_id = 'm-a' "
+    "ON CONFLICT (id) DO UPDATE SET goals_hash = 'x'",
+    f"INSERT INTO {BINDINGS} SELECT * FROM {BINDINGS} WHERE envelope_id = 'e-a' "
+    "ON CONFLICT (id) DO UPDATE SET child_hash = '" + "9" * 64 + "'",
 ])
 def test_sealed_rows_are_append_only_for_app_and_owner(pg_ccx, statement):
     with _session(pg_ccx, "t-a") as db:
