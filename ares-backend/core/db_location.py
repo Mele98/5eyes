@@ -225,8 +225,30 @@ def test_or_ci_mode(environ) -> str | None:
     return None
 
 
+_DEVICE_HEAD = re.compile(r'^[\\/]{2}[?.][\\/]')
+_KNOWN_DEVICE_TAIL = re.compile(r'^(?:[A-Za-z]:(?:[\\/]|$)|UNC[\\/])', re.IGNORECASE)
+
+
+def is_unresolvable_device_path(candidate) -> bool:
+    """N-907-16: Win32-Geraete-Pfad (``\\\\?\\...``/``\\\\.\\...``), der sich NICHT auf
+    die bekannten Formen (Laufwerk ``C:\\``, ``UNC\\``) zurueckfuehren laesst --
+    z. B. ``\\\\?\\GLOBALROOT\\??\\C:\\``, ``\\\\?\\Volume{...}\\``,
+    ``\\\\.\\HarddiskVolumeN\\``. Solche Ziele sind nicht pruefbar."""
+    if candidate is None:
+        return False
+    raw = str(os.fspath(candidate)).strip()
+    if raw.lower().startswith('file:'):
+        raw = _file_uri_path(raw)
+    if not _DEVICE_HEAD.match(raw):
+        return False
+    return not _KNOWN_DEVICE_TAIL.match(raw[4:])
+
+
 def owner_db_refusal(candidate: str | os.PathLike[str] | None, environ) -> str | None:
     """Begruendung, warum ``candidate`` nicht geoeffnet werden darf, sonst ``None``."""
+    if is_unresolvable_device_path(candidate):
+        return (f'Geraete-Pfad {candidate} ist nicht auf einen pruefbaren Dateipfad '
+                'zurueckfuehrbar -- verweigert (fail-closed).')
     if not is_owner_db_path(candidate):
         return None
     mode = test_or_ci_mode(environ)

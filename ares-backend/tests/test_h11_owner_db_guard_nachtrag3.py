@@ -124,3 +124,48 @@ def test_attach_of_harmless_literal_and_memory_still_works(owner, tmp_path):
 def test_attach_decision_rule():
     assert loc.attach_decision(None, {}) == loc.SQLITE_DENY
     assert loc.attach_decision(":memory:", {}) == loc.SQLITE_OK
+
+
+# --- Nachtrag 4 (N-907-16): unbekannte Geraete-Formen fail-closed ---------------
+
+BS = chr(92)  # ein Backslash (Schreibweisen ohne Escape-Verwechslung)
+
+
+def _unknown_device_variants(target: Path) -> list[str]:
+    plain = str(target)
+    q, d = BS * 2 + "?" + BS, BS * 2 + "." + BS  # \\?\ und \\.\
+    return [
+        q + "GLOBALROOT" + BS + "??" + BS + plain,
+        q + "Volume{0a1b2c3d-0000-4000-8000-000000000000}" + BS + plain[3:],
+        d + "HarddiskVolume3" + BS + plain[3:],
+        d + "GLOBALROOT" + BS + "Device" + BS + "HarddiskVolume3" + BS + plain[3:],
+        "//?/GLOBALROOT/??/" + target.as_posix(),
+    ]
+
+
+def test_unknown_device_forms_refused_at_all_three_checkpoints(tmp_path, monkeypatch):
+    """Nicht auf Laufwerk/UNC zurueckfuehrbare Geraete-Formen (?- und .-Praefix) werden
+    immer verweigert (auch ausserhalb des Owner-Profils); es entsteht keine Datei."""
+    import database
+
+    target = tmp_path / "geraet" / "x.db"
+    target.parent.mkdir()
+    for variant in _unknown_device_variants(target):
+        assert loc.is_unresolvable_device_path(variant), variant
+        assert loc.owner_db_refusal(variant, {"ARES_OWNER_DB_OPT_IN": "1"})
+        with pytest.raises(loc.OwnerDatabaseRefused, match="Geraete-Pfad"):
+            config.guarded_sqlite_connect(variant, context="probe")
+        with pytest.raises(loc.OwnerDatabaseRefused, match="Geraete-Pfad"):
+            database.bootstrap_sqlite_schema(db_path=variant)
+        engine = create_engine(f"sqlite:///{variant}")
+        with pytest.raises((loc.OwnerDatabaseRefused, OperationalError)):
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+        engine.dispose()
+    assert list(target.parent.iterdir()) == []
+
+
+def test_known_device_forms_are_not_blanket_refused(tmp_path):
+    plain = str(tmp_path / "ok.db")
+    for variant in (BS * 2 + "?" + BS + plain, BS * 2 + "." + BS + plain, plain) if WINDOWS else (plain,):
+        assert not loc.is_unresolvable_device_path(variant), variant

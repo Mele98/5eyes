@@ -103,6 +103,48 @@ def test_no_raw_sqlite_connect_outside_the_central_function():
     assert all(reason.strip() for reason in ALLOWED.values())
 
 
+# --- Nachtrag 4: set_authorizer nur im Waechter -------------------------------
+
+AUTHORIZER_ALLOWED = {"ares-backend/config.py::install_attach_authorizer"}
+
+
+def authorizer_sites(source: str, rel: str) -> list[str]:
+    """Jeder Zugriff auf ``set_authorizer`` (Aufruf, Attribut, ``getattr``-Name)."""
+    found: list[str] = []
+
+    def visit(node: ast.AST, scope: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            inner = child.name if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) else scope
+            if isinstance(child, ast.Attribute) and child.attr == "set_authorizer":
+                found.append(f"{rel}::{scope}")
+            elif isinstance(child, ast.Constant) and child.value == "set_authorizer":
+                found.append(f"{rel}::{scope}")
+            visit(child, inner)
+
+    visit(ast.parse(source), "<modul>")
+    return found
+
+
+def test_set_authorizer_only_inside_the_guard():
+    """Ein fremder Authorizer wuerde den ATTACH-Waechter (N-907-12) auf Verbindungen
+    aus guarded_sqlite_connect bzw. der Engine ersetzen."""
+    sites = []
+    for path in _product_files():
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        if "set_authorizer" in text:
+            sites.extend(authorizer_sites(text, path.relative_to(REPO).as_posix()))
+    assert set(sites) == AUTHORIZER_ALLOWED, sites
+
+
+@pytest.mark.parametrize("source", [
+    "def f(conn):\n    conn.set_authorizer(None)\n",
+    "def f(conn):\n    getattr(conn, 'set_authorizer')(None)\n",
+    "def f(engine):\n    engine.raw_connection().driver_connection.set_authorizer(lambda *a: 0)\n",
+])
+def test_authorizer_guard_negative_control(source):
+    assert authorizer_sites(source, "x.py") == ["x.py::f"]
+
+
 @pytest.mark.parametrize("source", [
     "import sqlite3\ndef f(p):\n    return sqlite3.connect(p)\n",
     "import sqlite3 as s3\ndef f(p):\n    return s3.connect(p)\n",
