@@ -15,6 +15,7 @@ from services.pdf.components.depotcheck_soll import (
 from services.pdf.components.header import _esc, make_banner_header
 from services.pdf.components.single_report_disclaimer import make_single_report_cover
 from services.pdf.components.unterschrift import make_unterschrift_section
+from core.presentation_rounding import allocation_pct_texts, format_amount_minor, format_bps_as_pct
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TEXT,
@@ -231,6 +232,8 @@ def _allocation_table(allocation, bands, wealth, currency) -> Table:
     from services.pdf.styles import asset_class_label
 
     rows = [["Hauptanlageklasse", "Zielquote", "Band Min", "Band Max", "Zielbetrag"]]
+    # G7: Zielquoten apportioniert (Summe 100.0 %), wie App und Anlagestrategie-PDF.
+    shown = allocation_pct_texts({b: int(v or 0) for b, v in allocation.items() if int(v or 0) > 0})
     for bucket, value in sorted(
         allocation.items(),
         key=lambda item: -int(item[1] or 0),
@@ -242,9 +245,9 @@ def _allocation_table(allocation, bands, wealth, currency) -> Table:
         amount = int((wealth or 0) * bps / 10000)
         rows.append([
             asset_class_label(bucket),
-            f"{bps / 100:.1f}%",
-            f"{int(band[0] or 0) / 100:.1f}%",
-            f"{int(band[1] or 0) / 100:.1f}%",
+            shown[bucket],
+            f"{format_bps_as_pct(int(band[0] or 0), decimals=1)}",
+            f"{format_bps_as_pct(int(band[1] or 0), decimals=1)}",
             _format_amount(amount, currency),
         ])
     if len(rows) == 1:
@@ -356,4 +359,4 @@ def _limiting_factor_label(value: str | None) -> str:
 
 
 def _format_amount(rappen: int | None, currency: str) -> str:
-    return f"{currency} {int(rappen or 0) / 100:,.0f}".replace(",", "'")
+    return format_amount_minor(int(rappen or 0), currency or "CHF")

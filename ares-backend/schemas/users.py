@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, field_validator, model_validator
 from typing import Optional, Literal
 from schemas.common import BaseResponse
 
@@ -8,7 +8,7 @@ class UserCreate(BaseModel):
     password: str
     full_name: str
     email: Optional[EmailStr] = None
-    role: Literal["admin", "advisor", "readonly", "portfolio_management"] = "advisor"
+    role: Literal["admin", "advisor", "readonly", "portfolio_management", "compliance_reviewer"] = "advisor"
     # 2026-08-09 (Live-Playwright-Fund, FINIG-Gate-Test): nur von super_admin
     # ausgewertet (routers/auth.py::create_user) -- erlaubt dem Operator, einen
     # Mitarbeiter DIREKT in der Ziel-Firma anzulegen (Quota wird dann korrekt
@@ -41,7 +41,7 @@ class UserCreate(BaseModel):
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
-    role: Optional[Literal["admin", "advisor", "readonly", "portfolio_management"]] = None
+    role: Optional[Literal["admin", "advisor", "readonly", "portfolio_management", "compliance_reviewer"]] = None
     is_active: Optional[bool] = None
 
 
@@ -59,6 +59,15 @@ class UserResponse(BaseResponse):
     totp_enabled: int = 0
     # E1 (2026-06-14): offene Einladung (Account noch nicht aktiviert) — Team-UI.
     invite_pending: bool = False
+    # C-890-01 Nachtrag 3 (N-897-02): Herkunft/Identitaet (Freigabenachweis).
+    invited_by: Optional[str] = None
+    invited_at: Optional[str] = None
+    activated_at: Optional[str] = None
+    credentials_set_by: Optional[str] = None
+    totp_set_by: Optional[str] = None
+    reviewer_organisation: Optional[str] = None
+    reviewer_reference: Optional[str] = None
+    compromised_since: Optional[str] = None
 
     @field_validator('must_change_password', 'totp_enabled', mode='before')
     @classmethod
@@ -185,10 +194,29 @@ class InviteCreate(BaseModel):
     username: str
     full_name: str
     email: Optional[EmailStr] = None
-    role: Literal["admin", "advisor", "readonly", "portfolio_management"] = "advisor"
+    role: Literal["admin", "advisor", "readonly", "portfolio_management", "compliance_reviewer"] = "advisor"
     # 2026-08-09: siehe UserCreate.tenant_id -- identischer Grund (Quota-Check
     # muss gegen die Ziel-Firma laufen, nicht die Operator-Firma).
     tenant_id: Optional[str] = None
+    # C-890-01 Nachtrag 3 (N-897-02): Identitaet der externen Compliance-Person
+    # (Name = full_name). Owner-Angabe, Pflicht nur fuer diese Rolle.
+    reviewer_organisation: Optional[str] = None
+    reviewer_reference: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _reviewer_identity(self):
+        if self.role == "compliance_reviewer":
+            for name in ("reviewer_organisation", "reviewer_reference"):
+                value = str(getattr(self, name) or "").strip()
+                if len(value) < 2:
+                    raise ValueError(f"{name} ist fuer die externe Compliance-Freigabe Pflicht")
+                setattr(self, name, value)
+            if not self.email:
+                raise ValueError("email ist fuer die externe Compliance-Freigabe Pflicht")
+        else:
+            self.reviewer_organisation = None
+            self.reviewer_reference = None
+        return self
 
     @field_validator('username', 'full_name')
     @classmethod
@@ -202,14 +230,31 @@ class InviteCreate(BaseModel):
 class InviteResponse(BaseModel):
     user_id: str
     username: str
-    invite_token: str          # nur EINMALIG im Klartext (danach nur Hash gespeichert)
+    # nur EINMALIG im Klartext (danach nur Hash gespeichert). N-897-10: None,
+    # wenn der Link einer externen Compliance-Person nur per E-Mail geht.
+    invite_token: Optional[str] = None
     invite_expires_at: str
     email_sent: bool = False   # True, wenn die Einladung per E-Mail verschickt wurde
+    link_delivery: str = "anzeige"  # "anzeige" | "nur_email"
 
 
 class InvitePreview(BaseModel):
     username: str
     full_name: str
+
+
+class UserCompromise(BaseModel):
+    """N-897-13: ausdruecklicher Widerruf eines Kontos wegen (Verdacht auf)
+    Kompromittierung. Freigaben ab ``compromised_since`` gelten nicht mehr."""
+    reason: str
+    compromised_since: str
+
+    @field_validator('reason')
+    @classmethod
+    def _reason(cls, value: str) -> str:
+        if len(value.strip()) < 10:
+            raise ValueError('Begruendung (mind. 10 Zeichen) ist Pflicht')
+        return value.strip()[:500]
 
 
 class InviteAccept(BaseModel):

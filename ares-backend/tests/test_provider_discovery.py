@@ -11,6 +11,8 @@ Verifiziert:
 """
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from services.market_data.base import Bar, MarketDataProvider, ProductInfo
@@ -96,43 +98,42 @@ def test_bloomberg_provider_is_market_data_provider():
     assert isinstance(p, MarketDataProvider)
 
 
-def test_bloomberg_provider_is_healthy_when_blpapi_missing():
-    """Wenn blpapi nicht installiert ist (Default-Test-Env), liefert
-    is_healthy=False, damit Aggregator den Provider in der Cascade
-    automatisch ueberspringt."""
+def test_bloomberg_provider_is_healthy_when_blpapi_missing(monkeypatch):
+    """BBG-1: Ohne blpapi ist der Provider ungesund (genau False, nicht nur
+    'ein bool'). sys.modules-Eintrag None erzwingt den ImportError auch dann,
+    wenn auf dem Rechner zufaellig ein blpapi installiert ist."""
+    monkeypatch.setitem(sys.modules, "blpapi", None)
     p = BloombergProvider()
-    # In Test-Env ist blpapi nicht installiert -> is_healthy False
-    healthy = p.is_healthy()
-    # Defensiv: ist bool, nicht crashing
-    assert isinstance(healthy, bool)
+    assert p.is_healthy() is False
 
 
-def test_bloomberg_provider_get_eod_is_stub():
-    """Stub liefert SymbolNotFound mit klarer Phase-5b-Hinweismeldung."""
+def _assert_bloomberg_unavailable(call, monkeypatch):
+    """BBG-1: genau ProviderUnavailableError mit Code, nie SymbolNotFound."""
+    from services.market_data.exceptions import ProviderUnavailableError
+    from services.market_data.providers.bloomberg_provider import BLOOMBERG_NOT_INSTALLED
+
+    monkeypatch.setitem(sys.modules, "blpapi", None)
+    with pytest.raises(ProviderUnavailableError) as exc:
+        call(BloombergProvider())
+    assert not isinstance(exc.value, SymbolNotFound)
+    assert exc.value.code == BLOOMBERG_NOT_INSTALLED
+    assert "blpapi" in str(exc.value)
+
+
+def test_bloomberg_provider_get_eod_is_stub(monkeypatch):
     from datetime import date as Date
-    p = BloombergProvider()
-    with pytest.raises((SymbolNotFound, ProviderError)) as exc:
-        p.get_eod("SMI Index", Date(2020, 6, 30))
-    msg = str(exc.value)
-    # Entweder Stub-Hinweis ODER blpapi-Missing-Hinweis
-    assert ("Stub" in msg or "blpapi" in msg or "Phase 5b" in msg)
+    _assert_bloomberg_unavailable(lambda p: p.get_eod("SMI Index", Date(2020, 6, 30)), monkeypatch)
 
 
-def test_bloomberg_provider_get_history_is_stub():
+def test_bloomberg_provider_get_history_is_stub(monkeypatch):
     from datetime import date as Date
-    p = BloombergProvider()
-    with pytest.raises((SymbolNotFound, ProviderError)) as exc:
-        p.get_history("SMI Index", Date(2020, 1, 1), Date(2020, 12, 31))
-    msg = str(exc.value)
-    assert ("Stub" in msg or "blpapi" in msg or "Phase 5b" in msg)
+    _assert_bloomberg_unavailable(
+        lambda p: p.get_history("SMI Index", Date(2020, 1, 1), Date(2020, 12, 31)), monkeypatch,
+    )
 
 
-def test_bloomberg_provider_lookup_isin_is_stub():
-    p = BloombergProvider()
-    with pytest.raises((SymbolNotFound, ProviderError)) as exc:
-        p.lookup_isin("CH0012005267")
-    msg = str(exc.value)
-    assert ("Stub" in msg or "blpapi" in msg or "Phase 5b" in msg)
+def test_bloomberg_provider_lookup_isin_is_stub(monkeypatch):
+    _assert_bloomberg_unavailable(lambda p: p.lookup_isin("CH0012005267"), monkeypatch)
 
 
 def test_blpapi_install_hint_documents_install():

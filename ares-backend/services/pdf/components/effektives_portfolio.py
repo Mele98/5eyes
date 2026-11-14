@@ -17,6 +17,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
+from core.presentation_rounding import format_amount_minor, format_bps_as_pct
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -97,12 +98,12 @@ def make_effektives_portfolio_section(
         rows.append([
             product_para,
             _esc(sub) if sub else "—",
-            f"{current_bps/100:.1f}%" if current_bps > 0 else "—",
+            f"{format_bps_as_pct(current_bps, decimals=1)}" if current_bps > 0 else "—",
             # current_amount_rappen ist CHF (base_currency) — NICHT in die Produkt-
             # Waehrung umrechnen, sonst passt die Zeile weder zum Spaltenkopf
             # "IST-Wert (CHF)" noch zur Total-Zeile. Die Produkt-CCY bleibt separat.
             _format_amount(current_amount, base_currency) if current_amount > 0 else "—",
-            f"{ter/100:.2f}%" if ter > 0 else "—",
+            f"{format_bps_as_pct(ter, decimals=2)}" if ter > 0 else "—",
         ])
 
     # Total-Zeile
@@ -150,11 +151,7 @@ def _format_amount(rappen: int, currency: str = "CHF") -> str:
     # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): rappen ist bereits in
     # mandate.base_currency (siehe portfolio_engine._load_allocation_inputs).
     # Kein zweites convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
-    try:
-        value = rappen / 100.0
-        return f"{currency} {value:,.0f}".replace(",", "'")
-    except Exception:
-        return f"CHF {rappen/100.0:,.0f}".replace(",", "'")
+    return format_amount_minor(rappen, currency or "CHF")
 
 
 def _section_title(text: str):

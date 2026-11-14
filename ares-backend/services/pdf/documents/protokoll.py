@@ -11,6 +11,7 @@ from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 from services.pdf.base import PDFContext
 from services.pdf.components.header import _esc, make_banner_header
 from services.pdf.components.unterschrift import make_unterschrift_section
+from core.presentation_rounding import format_amount_minor
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -168,15 +169,52 @@ def build_protokoll_flowables(ctx: PDFContext, data) -> list:
             styles["small_muted"],
         ))
 
+    # H8 Luecke 10 (ZGB): Vertretung und Verfuegungsberechtigung, dokumentarisch.
+    representation_lines = [
+        str(line).strip() for line in tuple(getattr(data, "representation_lines", ()) or ()) if str(line).strip()
+    ]
+    if representation_lines:
+        flowables.append(Spacer(1, 4 * mm))
+        flowables.append(_section_title("Vertretung und Verfügungsberechtigung"))
+        for line in representation_lines:
+            flowables.append(Paragraph(
+                f'<font name="{FONT_DEFAULT}" size="{FONT_SIZE_BODY}">{_esc(line)}</font>',
+                styles["body"],
+            ))
+            flowables.append(Spacer(1, 1.5 * mm))
+        flowables.append(Paragraph(
+            f'<font name="{FONT_DEFAULT}" size="8" color="#64748b">'
+            'Hinweis: Unterschriften und Weisungen nur durch die berechtigten Personen im '
+            'erfassten Umfang. Bei Vorsorgeauftrag und Beistandschaft gelten zusätzlich die '
+            'Vorgaben der Erwachsenenschutzbehörde und die Anlagevorschriften für '
+            'verwaltetes Vermögen (VBVV).</font>',
+            styles["small_muted"],
+        ))
+
     # RISK-PROFILE-SIGNOFF-001: Signoff-/Decision-Referenz des aktuellen
     # Risikoprofils -- dieselben Zeilen wie im Risikoprofil-PDF.
+    from services.pdf.documents.risikoprofil import signoff_lines_table
+
     signoff_lines = tuple(getattr(data, "risk_signoff_lines", ()) or ())
     if signoff_lines:
-        from services.pdf.documents.risikoprofil import signoff_lines_table
-
         flowables.append(Spacer(1, 4 * mm))
         flowables.append(_section_title("Risikoprofil-Signoff"))
         flowables.append(signoff_lines_table(signoff_lines, styles))
+
+    # E2a (Dok. 106): Nachhaltigkeitspraeferenzen -- Zustand, Antworten, Version,
+    # Bestaetigung, Review-Frist (Hauspolitik) und was im Portfolio heute nicht
+    # beruecksichtigt wird. Neutrale Texte (Claim-Waechter-Test).
+    sustainability_lines = tuple(getattr(data, "sustainability_lines", ()) or ())
+    if sustainability_lines:
+        flowables.append(Spacer(1, 4 * mm))
+        flowables.append(_section_title("Nachhaltigkeitspräferenzen"))
+        flowables.append(signoff_lines_table(sustainability_lines, styles))
+        for note in tuple(getattr(data, "sustainability_notes", ()) or ()):
+            flowables.append(Spacer(1, 1.5 * mm))
+            flowables.append(Paragraph(
+                f'<font name="{FONT_DEFAULT}" size="8.5" color="#475569">{_esc(str(note))}</font>',
+                styles["body"],
+            ))
 
     flowables.append(Spacer(1, 8 * mm))
     flowables.extend(make_unterschrift_section())
@@ -236,11 +274,7 @@ def _format_amount(rappen: int, currency: str = "CHF") -> str:
     # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): rappen ist bereits in
     # mandate.base_currency (siehe portfolio_engine._load_allocation_inputs).
     # Kein zweites convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
-    try:
-        value = rappen / 100.0
-        return f"{currency} {value:,.0f}".replace(",", "'")
-    except Exception:
-        return f"CHF {rappen/100.0:,.0f}".replace(",", "'")
+    return format_amount_minor(rappen, currency or "CHF")
 
 
 def _format_date(raw: str) -> str:

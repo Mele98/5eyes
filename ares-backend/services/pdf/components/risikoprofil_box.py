@@ -68,7 +68,7 @@ def make_risikoprofil_box(
     right_content = []
     if horizon_years:
         right_content.append(Paragraph(
-            f'<font name="{FONT_DEFAULT}" size="7" color="#64748b">ANLAGEHORIZONT</font>',
+            f'<font name="{FONT_DEFAULT}" size="7" color="#64748b">ANLAGEHORIZONT (RISIKOPROFIL)</font>',
             _para_size(7, after=1),
         ))
         right_content.append(Paragraph(

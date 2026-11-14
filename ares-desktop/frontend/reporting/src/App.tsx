@@ -1,3 +1,4 @@
+import { MandateCurrencyProvider, ReportCurrencyContext, reportCurrencyFrom } from '@/lib/reportCurrency';
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useAdvisoryReport } from '@/api/useAdvisoryReport';
@@ -132,7 +133,12 @@ function WealthInflowEditorRoute() {
       />
     );
   }
-  return <WealthInflowEditor clientId={clientId} />;
+  // N-894-16: Waehrungs-Provider auch fuer Editor-Routen (Mandate des Kunden).
+  return (
+    <MandateCurrencyProvider clientId={clientId}>
+      <WealthInflowEditor clientId={clientId} />
+    </MandateCurrencyProvider>
+  );
 }
 
 function GoalsEditorRoute() {
@@ -145,7 +151,11 @@ function GoalsEditorRoute() {
       />
     );
   }
-  return <GoalsEditor mandateId={mandateId} />;
+  return (
+    <MandateCurrencyProvider mandateId={mandateId}>
+      <GoalsEditor mandateId={mandateId} />
+    </MandateCurrencyProvider>
+  );
 }
 
 function AllocationEditorRoute() {
@@ -171,7 +181,11 @@ function CashflowEditorRoute() {
       />
     );
   }
-  return <CashflowEditor clientId={clientId} />;
+  return (
+    <MandateCurrencyProvider clientId={clientId}>
+      <CashflowEditor clientId={clientId} />
+    </MandateCurrencyProvider>
+  );
 }
 
 function MandateEditorRoute() {
@@ -259,7 +273,9 @@ function ReportShell({ sectionId }: { sectionId: ReportSectionId }) {
         aria-label={`Beratungsreport-Hauptinhalt: ${sectionId}`}
       >
         <Suspense fallback={<SectionSkeleton />}>
-          {renderSection(sectionId, data, mandateId, reload)}
+          <ReportCurrencyContext.Provider value={reportCurrencyFrom(data)}>
+            {renderSection(sectionId, data, mandateId, reload)}
+          </ReportCurrencyContext.Provider>
         </Suspense>
       </main>
       <KeyboardShortcuts mandateId={mandateId} activeSection={sectionId} />
@@ -444,9 +460,7 @@ function renderSection(
     return (
       <Risikoprofil
         data={data.risikoprofilierung}
-        capacityPlausibility={data.suitability_summary?.risk_capacity_plausibility ?? null}
         projectionGate={data.projection_gate}
-        mandateId={mandateId}
       />
     );
   }

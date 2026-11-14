@@ -27,6 +27,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -213,7 +214,7 @@ def test_report_reserve_recompute_uses_engine_inflow_series(session_factory, mon
 
 
 def test_monolith_renders_labeled_pension_row_from_api_fields():
-    html = MONOLITH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     assert 'id="pension-payout-rows"' in html
     assert "Vorsorgebezug (automatisch, netto)" in html
     start = html.index("function renderPensionPayoutRows(")

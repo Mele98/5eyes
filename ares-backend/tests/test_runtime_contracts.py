@@ -60,6 +60,7 @@ from routers.wealth import (
 )
 from services.auth import get_client_for_user_or_404, get_mandate_for_user_or_404
 from services.eodhd_client import preview_eodhd_reference
+from services.valuation_clock import bound_valuation_date
 from services.foundation_example import FOUNDATION_CLIENT_NUMBER, FOUNDATION_MANDATE_NUMBER, upsert_foundation_example_case
 from services.openfigi_client import preview_openfigi_mapping
 from services.portfolio_engine import (
@@ -356,10 +357,9 @@ def test_openfigi_mapping_preview_normalizes_space_separated_ticker(monkeypatch)
     erkennt nur '.', ':', '/', '=' als expliziten Market-Suffix -- ein rohes
     Leerzeichen fuehrt dazu, dass beim Preisabruf ein zweiter Suffix
     angehaengt wird ("UBSG SW" + Exchange "SW" -> "UBSG SW.SW", fuer keinen
-    Provider aufloesbar). Der Kandidat muss daher bereits hier auf die
-    Yahoo-Style-Notation ("UBSG.SW") normalisiert werden, identisch zur
-    bereits korrekten Normalisierung in
-    services/market_data/providers/openfigi_provider.py."""
+    Provider aufloesbar). Seit OF-1 (Audit 2026-11/06 O5) wird der
+    Boersenteil abgetrennt und ueber die explizite Tabelle auf den internen
+    Boersencode abgebildet; der Kandidat traegt das blanke Symbol."""
     import services.openfigi_client as openfigi_client
 
     class FakeResponse:
@@ -394,7 +394,16 @@ def test_openfigi_mapping_preview_normalizes_space_separated_ticker(monkeypatch)
 
     result = preview_openfigi_mapping(isin="CH0244767585", currency="CHF")
 
-    assert result["candidates"][0]["ticker"] == "UBSG.SW"
+    # OF-1 / Audit O5: blankes Symbol plus interner Boersencode statt eines
+    # aus dem Bloomberg-Code gebauten Suffixes ("VWRL LN" -> "VWRL.LN" loeste
+    # kein Provider auf). Die Yahoo-Notation entsteht erst im Lookup.
+    candidate = result["candidates"][0]
+    assert candidate["ticker"] == "UBSG"
+    assert candidate["exchange_code"] == "SW"
+    assert candidate["exchange_code_status"] == "mapped"
+    from services.product_market_data import provider_lookup_symbol
+
+    assert provider_lookup_symbol(candidate["ticker"], candidate["exchange_code"], "yfinance") == "UBSG.SW"
 
 
 def test_openfigi_mapping_preview_requires_basis():
@@ -1726,6 +1735,11 @@ def test_update_cashflow_touching_gross_still_enforces_reconciliation(session_fa
     assert "Bruttobetrag" in exc_info.value.detail
 
 
+# Fester Bewertungsstichtag fuer die auf 2026 datierten Cashflow-Fixtures
+# (entspricht ihrem created_at).
+_CASHFLOW_FIXTURE_AS_OF = date(2026, 3, 27)
+
+
 def test_cashflow_summary_counts_only_current_year_cashflows(session_factory, advisor_user):
     client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
     current_year = "2026-01-01"
@@ -1797,7 +1811,12 @@ def test_cashflow_summary_counts_only_current_year_cashflows(session_factory, ad
             ]
         )
         session.commit()
-        summary = cashflow_summary(client_id=client_id, db=session, current_user=advisor_user)
+        # Die Fixture-Daten sind fest auf 2026 datiert (Lohn ab 2026, Altlohn bis
+        # 2025, 3a 2028). Das Summary-Jahr bezieht der Produktcode ueber
+        # ``services.valuation_clock`` (ausserhalb eines Laufs die Wanduhr) --
+        # ohne festen Stichtag waere der Test nur im Kalenderjahr 2026 gruen.
+        with bound_valuation_date(_CASHFLOW_FIXTURE_AS_OF):
+            summary = cashflow_summary(client_id=client_id, db=session, current_user=advisor_user)
 
     assert summary.summary_year == 2026
     assert summary.total_income_rappen == 14400000
@@ -3083,12 +3102,16 @@ def test_generate_target_allocation_uses_dated_cashflow_series(session_factory, 
         )
         session.commit()
         mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
-        result = generate_target_allocation(
-            db=session,
-            mandate=mandate,
-            user_id=advisor_user.id,
-            preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
-        )
+        # Die Cashflow-Serie beginnt beim Kalenderjahr des Bewertungsstichtags;
+        # die Fixture-Daten sind fest auf 2026 datiert (3a-Bezug 2028 = Index 2).
+        # Der Lauf bindet sonst die Wanduhr -> nur im Kalenderjahr 2026 gruen.
+        with bound_valuation_date(_CASHFLOW_FIXTURE_AS_OF):
+            result = generate_target_allocation(
+                db=session,
+                mandate=mandate,
+                user_id=advisor_user.id,
+                preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
+            )
 
     assert result["annual_net_cashflow_rappen"] == 8400000
     assert result["cashflow_projection_series_rappen"][:4] == [8400000, 8400000, 43400000, 8400000]
@@ -3332,12 +3355,17 @@ def test_generate_target_allocation_goal_analysis_exposes_timing_and_return_targ
         )
         session.commit()
         mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
-        result = generate_target_allocation(
-            db=session,
-            mandate=mandate,
-            user_id=advisor_user.id,
-            preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
-        )
+        # Ziel "Eigenmittel" faellt fest am 2028-06-30 an; ab 2028-07-01 waere
+        # es gegen die Wanduhr ueberfaellig und die Ziel-Lifecycle-Pruefung
+        # blockierte den Lauf. Stichtag deshalb fest wie bei den anderen auf
+        # 2026 datierten Fixtures.
+        with bound_valuation_date(_CASHFLOW_FIXTURE_AS_OF):
+            result = generate_target_allocation(
+                db=session,
+                mandate=mandate,
+                user_id=advisor_user.id,
+                preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
+            )
 
     analysis = {item["label"]: item for item in result["goal_analysis"]}
     assert analysis["Eigenmittel"]["timing_label"] == "am 2028-06-30"
@@ -4407,6 +4435,14 @@ _ADVISOR_SIGNATURE_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB
 _CLIENT_SIGNATURE_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 
 
+def _satisfy_onboarding(session, mandate_id):
+    from client_onboarding_fixture import satisfy_client_onboarding
+    from models.mandates import Mandate as _Mandate
+
+    satisfy_client_onboarding(session, session.get(_Mandate, mandate_id))
+    session.commit()
+
+
 def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user, monkeypatch):
     _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 
@@ -4423,6 +4459,9 @@ def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user
         )
         # CERT-SIGNED-PUBLICATION-001: signiert wird nur das archivierte PDF.
         attach_archived_pdf(session, doc)
+        # H8 C-2/C-5: Vertragsunterzeichnung erst nach Kundeninformation und KYC
+        # (Testwerte, tests/client_onboarding_fixture.py).
+        _satisfy_onboarding(session, mandate_id)
         timestamps = iter(
             [
                 "2026-04-19T09:15:00.000Z",
@@ -4500,6 +4539,9 @@ def test_sign_document_rejects_overwriting_an_existing_advisor_signature(session
         )
         # CERT-SIGNED-PUBLICATION-001: signiert wird nur das archivierte PDF.
         attach_archived_pdf(session, doc)
+        # H8 C-2/C-5: Vertragsunterzeichnung erst nach Kundeninformation und KYC
+        # (Testwerte, tests/client_onboarding_fixture.py).
+        _satisfy_onboarding(session, mandate_id)
         monkeypatch.setattr(review_router, "_now", lambda: "2026-04-19T09:15:00.000Z")
 
         sign_document(

@@ -33,7 +33,7 @@ def test_rebalance_to_total_normalizes_remaining_delta_within_bounds():
 
 
 def test_rebalance_to_total_raises_when_bounds_make_normalization_impossible():
-    with pytest.raises(ValueError, match="cannot be normalized to 10000 bps"):
+    with pytest.raises(ValueError, match="Hoechstquoten lassen zusammen nur 50.00 %"):
         _rebalance_to_total(
             targets={
                 "equities": 1000,

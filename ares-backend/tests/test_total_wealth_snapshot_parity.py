@@ -38,20 +38,14 @@ from services.portfolio_engine_gesamtvermoegen import (
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _monolith_path() -> Path:
-    """Locate the desktop monolith by structure (a frontend HTML that defines the projection)."""
-    repo_root = _BACKEND_ROOT.parent
-    for candidate in sorted(repo_root.glob("*/frontend/*.html")):
-        try:
-            text = candidate.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        if "function wealthProjectionInputs(" in text and "function mortgageLiabilityAndPledgedSeriesRappen(" in text:
-            return candidate
-    raise AssertionError(f"monolith with wealthProjectionInputs not found below {repo_root}")
+def _monolith_source() -> str:
+    """N-875-06: Monolith-Bundle (ares.html + ausgelagerte Teile), nicht roh per Glob."""
+    from tests.monolith_source import read_monolith_bundle
 
-
-HTML_PATH = _monolith_path()
+    text = read_monolith_bundle()
+    assert "function wealthProjectionInputs(" in text
+    assert "function mortgageLiabilityAndPledgedSeriesRappen(" in text
+    return text
 
 
 def _extract_js_function(source: str, name: str) -> str:
@@ -90,10 +84,12 @@ def _run_projection(
     years: int = 2,
     with_baseline: bool = False,
 ) -> dict:
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = _monolith_source()
     helpers = [
         _extract_js_function(html, "mortgageLiabilityAndPledgedSeriesRappen"),
         _extract_js_function(html, "wealthProjectionInputs"),
+        # G7 N4: Waehrung der Projektionseingaben (Grundregel) -- echte Helfer aus ares.html.
+        *(_extract_js_function(html, n) for n in ("ccyOf", "sameCcy", "positionsCurrency", "mandateCurrency", "appCurrency")),
     ]
     if with_baseline:
         helpers.append(_extract_js_function(html, "buildBaselineProjectionFromComponentSeries"))
@@ -127,9 +123,14 @@ const liabilities = [
     currency:'CHF'}},
   {json.dumps(other_debt, ensure_ascii=False)}
 ];
-const strategyState = {{allocation:{allocation}}};
-const ADMIN_CMA_DEFAULTS = {{equity_intl_return_bps:690,bonds_fx_hedged_return_bps:220,
-  real_estate_ch_return_bps:450,alternatives_gold_return_bps:300}};
+// H9 Nachtrag 2: die Snapshot-Basis kommt nicht mehr aus der Strategie,
+// sondern aus der strategieunabhaengigen Server-Basis (ist-projection-basis,
+// gleiche Felder wie total_allocation) samt Renditeannahmen der CMA.
+const __alloc = {allocation};
+function istProjectionServerBasisFor() {{
+  return Object.assign({{expected_return_bps:{{equities:690,bonds:220,real_estate:450,alternatives:300,liquidity:0}}}},
+    (__alloc && __alloc.total_allocation) || {{}});
+}}
 function isExternalPensionPosition(pos) {{ return false; }}
 function pensionProjectionRateBps(pos) {{ return null; }}
 function wealthScopePositions(scope) {{ return assets; }}

@@ -1775,3 +1775,29 @@ class TargetAllocationGenerateResponse(BaseModel):
     goal_analysis: list[GoalAnalysisResponse]
     current_goal_analysis: list[GoalAnalysisResponse] = Field(default_factory=list)
     live_rebalancing: Optional[LiveRebalancingResponse] = None
+
+
+class IstProjectionCmaReference(BaseModel):
+    """Wirksame CMA-Version (dieselbe Aufloesung wie der Allokationspfad)."""
+    id: str
+    assumption_set_name: str
+    version: int
+    valid_from: Optional[str] = None
+    valid_until: Optional[str] = None
+    jurisdiction: Optional[str] = None
+
+
+class IstProjectionBasisResponse(BaseModel):
+    """H9 Nachtrag 2: serverseitige Basis der IST-Vermoegensprojektion.
+
+    Unabhaengig vom Strategie-Zustand: Renditeannahmen je Anlageklasse aus der
+    wirksamen CMA (Anlageklassen-Ebene, keine Gewichtung mit einer Soll-
+    Sub-Allokation) und die FX-normalisierte Gesamtvermoegens-Basis
+    (Liability-Kaskade wie ``total_allocation``) aus den aktuellen Positionen.
+    """
+    mandate_id: str
+    cma: IstProjectionCmaReference
+    expected_return_bps: dict[str, int]
+    total_base_rappen: int
+    foundation_in_net_wealth_rappen: int
+    projection_basis: dict

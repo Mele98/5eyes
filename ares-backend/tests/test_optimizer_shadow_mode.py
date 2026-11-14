@@ -79,6 +79,11 @@ def _seed_realistic_mandate(session_factory, suffix: str = ""):
     pension_end = (today + timedelta(days=365 * 30)).isoformat()
     wealth_target_date = (today + timedelta(days=365 * 10)).isoformat()
 
+    # CCX-P1 Nachtrag 1 (N-906): alle Werte erfuellen die Produktions-CHECKs
+    # (goal_family, hardness, question_section) -- die Fixture laeuft damit
+    # auch gegen das echte Bootstrap-/Alembic-Schema; ASCII-Varianten waren
+    # nur im CHECK-losen create_all-Schema moeglich (Engine-neutral, siehe
+    # core/goal_vocabulary.py).
     with session_factory() as s:
         s.add(User(id=advisor_id, username=f"adv-shadow-{suffix}", password_hash="h",
                    full_name="Adv Shadow", role="advisor", is_active=1,
@@ -106,7 +111,7 @@ def _seed_realistic_mandate(session_factory, suffix: str = ""):
         ))
         s.add(Goal(
             id=gid_pension, mandate_id=mid, client_id=cid,
-            goal_family="Lebenshaltung", goal_type="Pensionsausgabe",
+            goal_family="Cashflow", goal_type="Pensionsausgabe",
             label="Pension", rank=1, weight_bps=5000,
             goal_scope="Beratungsvermögen", value_mode="real",
             target_amount_rappen=24_000_00, frequency="jährlich",
@@ -116,12 +121,12 @@ def _seed_realistic_mandate(session_factory, suffix: str = ""):
         ))
         s.add(Goal(
             id=f"goal-shadow-wealth-{suffix}", mandate_id=mid, client_id=cid,
-            goal_family="Vermoegen", goal_type="Vermoegensziel",
+            goal_family="Vermögen", goal_type="Vermögensziel",
             label="Eigenheim Anzahlung", rank=2, weight_bps=3000,
             goal_scope="Beratungsvermögen", value_mode="nominal",
             target_wealth_rappen=300_000_00,
             target_date=wealth_target_date,
-            is_ongoing=0, hardness="Primaer",
+            is_ongoing=0, hardness="Primär",
             is_active=1, created_at=now, updated_at=now,
         ))
         s.add(RiskAssessment(
@@ -158,7 +163,10 @@ def _seed_realistic_mandate(session_factory, suffix: str = ""):
         for q, label, points in answers:
             s.add(RiskAssessmentAnswer(
                 id=str(uuid.uuid4()), assessment_id=aid,
-                question_number=q, question_section="Risikoprofil",
+                question_number=q,
+                # CCX-P1 Nachtrag 1: gueltige Werte des Produktions-CHECKs
+                # (wie routers/profiling.py::_canonical_risk_answer_section).
+                question_section="Risikobereitschaft" if q >= 9 else "Risikofähigkeit",
                 answer_label=label, answer_points=points,
                 created_at=now,
             ))

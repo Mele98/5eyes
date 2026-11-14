@@ -1,6 +1,15 @@
-from sqlalchemy import DDL, BigInteger, Column, String, Integer, ForeignKey, UniqueConstraint, Index, event
+from sqlalchemy import (
+    DDL, BigInteger, CheckConstraint, Column, ForeignKey, ForeignKeyConstraint, Index, Integer,
+    String, UniqueConstraint, event, text,
+)
 from sqlalchemy.orm import relationship
-from database import DEPOT_CHECK_ANALYSIS_SQLITE_TRIGGERS, DEPOT_SNAPSHOT_SQLITE_TRIGGERS, Base
+from database import (
+    ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS,
+    ADVISORY_ENVELOPE_SQLITE_TRIGGERS,
+    DEPOT_CHECK_ANALYSIS_SQLITE_TRIGGERS,
+    DEPOT_SNAPSHOT_SQLITE_TRIGGERS,
+    Base,
+)
 
 
 class StrategySnapshot(Base):
@@ -186,3 +195,184 @@ for _trigger_ddl in DEPOT_CHECK_ANALYSIS_SQLITE_TRIGGERS:
         "after_create",
         DDL(_trigger_ddl).execute_if(dialect="sqlite"),
     )
+
+
+# ── CCX-P1 Snapshot und Hash (Vertrag 2026-11-13 §4) ─────────────────────────
+#
+# Der Beratungsentscheid wird genau einmal als unveraenderlicher Envelope
+# ``ares/advisory-envelope/1`` versiegelt (services/advisory_decision_envelope.py,
+# Serialisierung core/advisory_envelope_codec.py). DDL-Quelle fuer SQLite:
+# database.py (ADVISORY_ENVELOPE_SQLITE_*), textgleich ares_schema.sql;
+# PostgreSQL: Alembic (CCX-P1-Revision). Alle drei Tabellen tragen tenant_id
+# NOT NULL (RLS-Plan, services/postgres_rls.py) und haben keinen FK auf
+# mandates (Purge-fest); der Mandant wird per INSERT-Guard aus dem Mandat
+# abgeleitet.
+
+ADVISORY_ENVELOPE_SCHEMA_VERSION = "ares/advisory-envelope/1"
+ADVISORY_ENVELOPE_STATUSES = ("DRAFT", "SEALED", "SUPERSEDED")
+
+
+class AdvisoryDecisionEnvelope(Base):
+    """Versiegelter Beratungsentscheid (DRAFT -> SEALED -> SUPERSEDED).
+
+    ``canonical_payload_json`` sind die kanonischen Bytes (UTF-8, NFC,
+    Schluessel in Schema-Reihenfolge, nur Integer-Rohwerte, inkl.
+    ``rounding_policy_version``), ``envelope_hash`` = SHA-256 ueber die
+    Root-Domaene ``Ares<NUL>ares/advisory-envelope/1<NUL>`` + kanonische
+    Bytes. SEALED ist append-only (Trigger SQLite + PostgreSQL); einzige
+    erlaubte Aenderung ist SEALED -> SUPERSEDED bei unveraendertem Inhalt.
+    """
+
+    __tablename__ = "advisory_decision_envelopes"
+    __table_args__ = (
+        CheckConstraint(
+            "schema_version = 'ares/advisory-envelope/1'",
+            name="ck_advisory_decision_envelopes_schema_version",
+        ),
+        CheckConstraint(
+            "status IN ('DRAFT','SEALED','SUPERSEDED')",
+            name="ck_advisory_decision_envelopes_status",
+        ),
+        CheckConstraint(
+            "envelope_hash IS NULL OR length(envelope_hash) = 64",
+            name="ck_advisory_decision_envelopes_hash_length",
+        ),
+        CheckConstraint("optimistic_version >= 1", name="ck_advisory_decision_envelopes_version"),
+        CheckConstraint(
+            "status = 'DRAFT' OR (canonical_payload_json IS NOT NULL AND envelope_hash IS NOT NULL "
+            "AND sealed_at IS NOT NULL AND sealed_by IS NOT NULL)",
+            name="ck_advisory_decision_envelopes_sealed_complete",
+        ),
+        UniqueConstraint("tenant_id", "envelope_hash", name="uq_advisory_decision_envelopes_tenant_hash"),
+        UniqueConstraint("tenant_id", "id", name="uq_advisory_decision_envelopes_tenant_id"),
+        ForeignKeyConstraint(
+            ["tenant_id", "predecessor_id"],
+            ["advisory_decision_envelopes.tenant_id", "advisory_decision_envelopes.id"],
+            name="fk_advisory_decision_envelopes_predecessor",
+        ),
+        Index("ix_advisory_decision_envelopes_tenant_id", "tenant_id"),
+        Index("ix_advisory_decision_envelopes_mandate", "tenant_id", "mandate_id", "status"),
+        Index(
+            "ux_advisory_decision_envelopes_one_sealed", "tenant_id", "mandate_id", unique=True,
+            sqlite_where=text("status = 'SEALED'"), postgresql_where=text("status = 'SEALED'"),
+        ),
+        Index(
+            "ux_advisory_decision_envelopes_one_successor", "predecessor_id", unique=True,
+            sqlite_where=text("predecessor_id IS NOT NULL"),
+            postgresql_where=text("predecessor_id IS NOT NULL"),
+        ),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    mandate_id = Column(String, nullable=False)
+    schema_version = Column(String, nullable=False, default=ADVISORY_ENVELOPE_SCHEMA_VERSION)
+    status = Column(String, nullable=False, default="DRAFT")
+    locale = Column(String, nullable=False)
+    base_currency = Column(String, nullable=False)
+    canonical_payload_json = Column(String)
+    envelope_hash = Column(String)
+    predecessor_id = Column(String)
+    created_at = Column(String, nullable=False)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+    sealed_at = Column(String)
+    sealed_by = Column(String, ForeignKey("users.id"))
+    optimistic_version = Column(Integer, nullable=False, default=1)
+
+
+class AdvisoryEnvelopeBinding(Base):
+    """Kind-Bindung eines Envelopes (Merkle-Blatt): Objekt, Version und
+    domaenenseparierter Kind-Hash. Nur solange der Envelope DRAFT ist
+    einfuegbar, danach unveraenderlich; Mandant ueber den zusammengesetzten
+    Fremdschluessel (tenant_id, envelope_id) an den Envelope gebunden."""
+
+    __tablename__ = "advisory_envelope_bindings"
+    __table_args__ = (
+        CheckConstraint("length(child_hash) = 64", name="ck_advisory_envelope_bindings_hash_length"),
+        CheckConstraint("ordinal >= 0", name="ck_advisory_envelope_bindings_ordinal"),
+        UniqueConstraint(
+            "envelope_id", "binding_kind", "ordinal", name="uq_advisory_envelope_bindings_kind_ordinal",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "envelope_id"],
+            ["advisory_decision_envelopes.tenant_id", "advisory_decision_envelopes.id"],
+            name="fk_advisory_envelope_bindings_envelope",
+        ),
+        Index("ix_advisory_envelope_bindings_tenant_id", "tenant_id"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, nullable=False)
+    envelope_id = Column(String, nullable=False)
+    binding_kind = Column(String, nullable=False)
+    object_type = Column(String, nullable=False)
+    object_id = Column(String, nullable=False)
+    object_version = Column(Integer)
+    child_hash = Column(String, nullable=False)
+    ordinal = Column(Integer, nullable=False)
+    created_at = Column(String, nullable=False)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+
+
+class AdvisoryEffectiveInputManifest(Base):
+    """Effective-Input-Manifest: je wirkender Inputgruppe ein Kind-Hash plus
+    Engine-Version, Zufallsstrom und ``rounding_policy_version``;
+    ``manifest_hash`` ist der Kind-Hash ``effective-input-manifest`` darueber.
+    Append-only."""
+
+    __tablename__ = "advisory_effective_input_manifests"
+    __table_args__ = (
+        CheckConstraint("length(manifest_hash) = 64", name="ck_advisory_effective_input_manifests_hash"),
+        UniqueConstraint("tenant_id", "id", name="uq_advisory_effective_input_manifests_tenant_id"),
+        Index("ix_advisory_effective_input_manifests_tenant_id", "tenant_id"),
+        Index("ix_advisory_effective_input_manifests_mandate", "tenant_id", "mandate_id"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    mandate_id = Column(String, nullable=False)
+    client_hash = Column(String, nullable=False)
+    mandate_hash = Column(String, nullable=False)
+    goals_hash = Column(String, nullable=False)
+    cashflows_hash = Column(String, nullable=False)
+    risk_hash = Column(String, nullable=False)
+    preference_hash = Column(String, nullable=False)
+    cma_hash = Column(String, nullable=False)
+    policy_hash = Column(String, nullable=False)
+    constraints_hash = Column(String, nullable=False)
+    holdings_hash = Column(String, nullable=False)
+    engine_version = Column(String, nullable=False)
+    random_stream_id = Column(String, nullable=False)
+    rounding_policy_version = Column(String, nullable=False)
+    manifest_hash = Column(String, nullable=False)
+    created_at = Column(String, nullable=False)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+
+
+ADVISORY_ENVELOPE_TABLES = (
+    AdvisoryDecisionEnvelope.__tablename__,
+    AdvisoryEnvelopeBinding.__tablename__,
+    AdvisoryEffectiveInputManifest.__tablename__,
+)
+
+
+def _create_advisory_envelope_sqlite_triggers(_metadata, connection, **_kw) -> None:
+    """Metadata-Hook (SQLite): Trigger erst, wenn alle drei Tabellen und
+    ``mandates.tenant_id`` existieren (verweisen gegenseitig/auf mandates)."""
+    if connection.dialect.name != "sqlite":
+        return
+    tables = {row[0] for row in connection.exec_driver_sql(
+        "SELECT name FROM sqlite_master WHERE type = 'table'"
+    )}
+    if not set(ADVISORY_ENVELOPE_TABLES) <= tables:
+        return
+    for ddl in ADVISORY_ENVELOPE_SQLITE_TRIGGERS:
+        connection.exec_driver_sql(ddl)
+    if "mandates" in tables and "tenant_id" in {
+        row[1] for row in connection.exec_driver_sql("PRAGMA table_info(mandates)")
+    }:
+        for ddl in ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS:
+            connection.exec_driver_sql(ddl)
+
+
+event.listen(Base.metadata, "after_create", _create_advisory_envelope_sqlite_triggers)
