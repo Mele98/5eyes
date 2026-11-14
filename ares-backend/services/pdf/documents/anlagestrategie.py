@@ -1023,4 +1023,3 @@ def _format_amount(rappen: int, currency: str = "CHF") -> str:
 def _fmt_amount(amount: float, currency: str = "CHF") -> str:
     """Legacy-Name fuer test_currency_integration.py."""
     return _format_amount(int(amount), currency)
-
