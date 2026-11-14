@@ -17,7 +17,18 @@ from __future__ import annotations
 import pytest
 
 # Altbestand, abschliessend. Neue Eintraege nur mit Begruendung im Handoff.
-LEGACY_CHANNEL_TEST_FILES = frozenset()
+LEGACY_CHANNEL_TEST_FILES = frozenset({
+    "test_audit_perm_hardening.py",
+    "test_audit_quick_fixes.py",
+    "test_handoff_new_product_zero_holding.py",
+    "test_handoff_preview_parity_and_cash.py",
+    "test_portfolio_handoff.py",
+    "test_provisional_warning_json_and_client_portal.py",
+    "test_runtime_contracts.py",
+    "test_sustainability_e2a_contract.py",
+    "test_sustainability_e2b_offer_and_floor.py",
+    "test_zero_strategy_base_n858_11.py",
+})
 
 
 def _published_state(db, mandate):

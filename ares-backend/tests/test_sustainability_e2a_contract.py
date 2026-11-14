@@ -28,6 +28,9 @@ from tests.test_e2e_thierry_goessi_walkthrough import (  # noqa: F401 - pytest f
     session_factory,
 )
 from tests.sustainability_test_support import rc_release_preconditions  # noqa: F401 - RC-CH-1 autouse
+# CCX-P4: Altbestands-Kanaltest -- prueft andere Gates; Publikation siehe
+# tests/test_ccx_p4_allocation_publish.py (tests/ccx_p4_publication_support.py).
+from tests.ccx_p4_publication_support import assume_published_allocation  # noqa: E402,F401
 
 VOLATILE_KEYS = frozenset({
     "id", "run_id", "target_allocation_id", "allocation_id", "assessment_id", "based_on_assessment_id",
@@ -408,6 +411,7 @@ def test_onsite_signature_uses_the_same_document_binding(api, scenario, session_
     assert audited == 1
 
 
+@pytest.mark.usefixtures("assume_published_allocation")
 def test_n07c_cost_disclosure_is_reissued_after_a_new_preference(api, scenario, session_factory):
     """Render-once des Kostenausweises darf kein Dokument der alten Erfassung
     wiederverwenden (sonst nur ein nicht signierbares Dokument)."""

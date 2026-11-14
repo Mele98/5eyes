@@ -45,6 +45,10 @@ CATALOG = {m.value for m in ReasonCode}
 # mit Funktion und Anzahl: eine neue dynamische Stelle mit gleichem Text
 # (andere Funktion oder zusaetzliche Zeile) faellt auf (K-2-Review N1).
 KNOWN_UNRESOLVED: dict[tuple[str, str, str], int] = {
+    # CCX-P4: Durchreichungen katalogisierter Codes (Publikationsstatus der
+    # gepruefte Grund bzw. der Code der Ablehnung im Audit).
+    ('routers/allocation.py', 'get_advisory_report', 'state.reason_code'): 1,
+    ('services/allocation_publication_gate.py', '_reject', 'code.value'): 1,
     # H10 Nachtrag 1: Durchreichungen bereits katalogisierter Codes (Gate-Ergebnis
     # PROCESSING_ACTIVITY_* bzw. gespeicherter EGRESS_*-Code im Protokoll).
     ('routers/privacy.py', 'list_egress_events', 'r.reason_code'): 1,

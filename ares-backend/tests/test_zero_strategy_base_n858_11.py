@@ -36,6 +36,10 @@ from tests.test_e2e_thierry_goessi_walkthrough import (  # noqa: F401
     api,
     session_factory,
 )
+import pytest  # noqa: E402
+# CCX-P4: Altbestands-Kanaltest -- prueft andere Gates; Publikation siehe
+# tests/test_ccx_p4_allocation_publish.py (tests/ccx_p4_publication_support.py).
+from tests.ccx_p4_publication_support import assume_published_allocation  # noqa: E402,F401
 
 
 def _scenario(api, advisor_user, *, account_rappen: int, expense_rappen: int):
@@ -60,6 +64,7 @@ def _scenario(api, advisor_user, *, account_rappen: int, expense_rappen: int):
     return mid, alloc.json(), rec.json()
 
 
+@pytest.mark.usefixtures("assume_published_allocation")
 def test_zero_strategy_base_invests_nothing_and_says_so(api, advisor_user):
     mid, alloc, rec = _scenario(api, advisor_user, account_rappen=20_000_00, expense_rappen=40_000_00)
     # Vorbedingung: die Strategie rechnet tatsaechlich auf Basis 0.

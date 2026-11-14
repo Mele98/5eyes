@@ -69,7 +69,9 @@ def test_pdf_reports_have_separate_assetallocation_endpoint():
 def test_asset_allocation_save_flow_uses_rubric_scoped_pdf():
     frontend = read_monolith_bundle()
     start = frontend.index("async function savePortfolioUmsetzen")
-    end = frontend.index("function printCurrentRubricPdf", start)
+    # CCX-P4: savePortfolioUmsetzen liegt jetzt in allocation-publication.js --
+    # der Speicherfluss endet an der naechsten Funktionsdefinition.
+    end = frontend.index("\nfunction ", start + 1)
     save_flow = frontend[start:end]
 
     assert "printCurrentRubricPdf()" in save_flow

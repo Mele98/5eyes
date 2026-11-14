@@ -50,6 +50,10 @@ from schemas.portfolio_handoff import (
     PortfolioHandoffCreate,
     PortfolioHandoffMarkExecuted,
 )
+# CCX-P4: Altbestands-Kanaltest -- prueft andere Gates; Publikation siehe
+# tests/test_ccx_p4_allocation_publish.py (tests/ccx_p4_publication_support.py).
+from tests.ccx_p4_publication_support import assume_published_allocation  # noqa: E402,F401
+pytestmark = pytest.mark.usefixtures("assume_published_allocation")
 
 
 # HANDOFF-DB-INVARIANT-001: neue Zeilen brauchen einen gueltigen Snapshot-Hash.

@@ -54,6 +54,7 @@ from sqlalchemy.orm import Session
 
 from core.evidence import SCHEME_V1, advisory_domain, canonical_json, domain_sha256_hex
 from core.reason_codes import DomainError, ReasonCode
+from core.db_integrity import is_check_constraint_violation
 from database import new_uuid
 from models.allocation import TargetAllocation
 from models.review import RecommendationRun
@@ -233,25 +234,56 @@ def current_target_allocation(db: Session, mandate_id: str) -> TargetAllocation 
     return rows[0] if rows else None
 
 
+FX_DEFAULT_SOURCE = "Default"
+
+
+def _fx_basis_findings(snapshot: Any) -> list[str]:
+    """Strikte FX-Basis (N-909-01): publiziert wird nie auf einem Ersatzkurs
+    (Quelle ``Default``) oder einer unbelegten/abgelaufenen Kursbasis --
+    zusaetzlich zur COMPLETE-Abdeckung des P3-Snapshots."""
+    missing = [_finding(reason_code=ReasonCode.CCX_FX_BASIS_MISSING)]
+    try:
+        basis = json.loads(snapshot.fx_basis_json or "")
+    except (TypeError, ValueError):
+        return missing
+    if not isinstance(basis, dict) or basis.get("fx_basis_hash") != snapshot.fx_basis_hash:
+        return missing
+    quotes = basis.get("quotes")
+    statuses = basis.get("statuses")
+    if not isinstance(quotes, list) or not isinstance(statuses, dict):
+        return missing
+    if any(str(status) != "OK" for status in statuses.values()):
+        return missing
+    for quote in quotes:
+        if not isinstance(quote, dict) or str(quote.get("source") or "") == FX_DEFAULT_SOURCE                 or not isinstance(quote.get("rate_x10000"), int) or quote["rate_x10000"] <= 0:
+            return missing
+    return []
+
+
+def _finding(*, reason_code: ReasonCode) -> str:
+    """Blocker-Code einer Pruefung (katalogisiert, statisch aufloesbar)."""
+    return str(reason_code.value)
+
+
 def _allocation_findings(ta: TargetAllocation) -> list[str]:
     targets = {b: int(getattr(ta, f"target_{b}_bps") or 0) for b in BUCKETS}
     minimums = {b: int(getattr(ta, f"band_{b}_min_bps")) for b in BUCKETS}
     maximums = {b: int(getattr(ta, f"band_{b}_max_bps")) for b in BUCKETS}
     findings: list[str] = []
     if sum(targets.values()) != TOTAL_BPS or any(v < 0 for v in targets.values()):
-        findings.append(ReasonCode.CCX_ALLOCATION_SUM_INVALID.value)
+        findings.append(_finding(reason_code=ReasonCode.CCX_ALLOCATION_SUM_INVALID))
     if any(not (0 <= minimums[b] <= targets[b] <= maximums[b] <= TOTAL_BPS) for b in BUCKETS):
-        findings.append(ReasonCode.CCX_ALLOCATION_BAND_VIOLATED.value)
+        findings.append(_finding(reason_code=ReasonCode.CCX_ALLOCATION_BAND_VIOLATED))
     if findings:
         return findings
     try:
         _verified_persisted_allocation_context(ta, targets=targets, minimums=minimums, maximums=maximums)
     except (ValueError, TypeError) as exc:
         logger.info("CCX-P4: Allocation-Context nicht publizierbar | ta=%s: %s", ta.id, exc)
-        return [ReasonCode.CCX_ALLOCATION_CONTEXT_INVALID.value]
+        return [_finding(reason_code=ReasonCode.CCX_ALLOCATION_CONTEXT_INVALID)]
     report = analysis_integrity_report(ta)
     if any(str(v.get("status") if isinstance(v, dict) else v) == "integrity_mismatch" for v in report.values()):
-        return [ReasonCode.CCX_ALLOCATION_CONTEXT_INVALID.value]
+        return [_finding(reason_code=ReasonCode.CCX_ALLOCATION_CONTEXT_INVALID)]
     return []
 
 
@@ -313,7 +345,7 @@ def evaluate_allocation_publication(
         ta = current_target_allocation(db, mandate_id)
     except ValueError:
         ta = None
-        blockers.append(ReasonCode.CCX_ALLOCATION_CONTEXT_INVALID.value)
+        blockers.append(_finding(reason_code=ReasonCode.CCX_ALLOCATION_CONTEXT_INVALID))
     envelope = current_sealed_envelope(db, tenant_id, mandate_id) if tenant_id else None
     if tenant_id is None:
         blockers.append(ReasonCode.CCX_ALLOCATION_NOT_PUBLISHABLE.value)
@@ -369,6 +401,7 @@ def evaluate_allocation_publication(
             valuation_code = _VALUATION_CODES.get(snapshot.coverage_status, ReasonCode.CCX_VALUATION_INCOMPLETE)
             if valuation_code is not None:
                 blockers.append(valuation_code.value)
+            blockers.extend(_fx_basis_findings(snapshot))
         run = db.query(RecommendationRun).filter(
             RecommendationRun.id == str(bindings.get("recommendation_run") or ""),
             RecommendationRun.mandate_id == mandate_id,
@@ -467,8 +500,11 @@ def _reject(
                 created_at=_now(), created_by=user.id,
             ))
             db.flush()
-        except IntegrityError:
-            # Sequenz parallel vergeben: der Versuch steht dann nur im Audit.
+        except IntegrityError as exc:
+            # Sequenz parallel vergeben (oder F1: CHECK-Verletzung): der Versuch
+            # steht dann nur im Audit -- die Ablehnung selbst bleibt bestehen.
+            logger.info("CCX-P4: abgelehnter Versuch nicht festgehalten (check=%s)",
+                        is_check_constraint_violation(exc))
             restore_tenant_after_rollback(db, set_tenant_context)
             decision_id = None
     _audit(db, user=user, mandate=mandate, tenant_id=tenant_id, ip_address=ip_address,
@@ -568,6 +604,12 @@ def publish_allocation(
         db.commit()
     except IntegrityError as exc:
         logger.info("CCX-P4: Publikation verloren | mandate=%s: %s", evaluation.mandate_id, exc)
+        if is_check_constraint_violation(exc):
+            # F1: eine CHECK-Verletzung ist kein Wettlauf, sondern ein nicht
+            # publizierbarer Datensatz (422, Audit).
+            raise _reject(db, code=ReasonCode.CCX_ALLOCATION_NOT_PUBLISHABLE,
+                          blockers=(ReasonCode.CCX_ALLOCATION_NOT_PUBLISHABLE.value,), http_status=422,
+                          message="Die Publikation verletzt eine Datenbankregel.", **common) from exc
         raise _reject(db, code=ReasonCode.CCX_PUBLICATION_RACE, blockers=(ReasonCode.CCX_PUBLICATION_RACE.value,),
                       message="Die Soll-Allokation wurde parallel publiziert. Bitte neu laden.", **common) from exc
     db.refresh(decision)

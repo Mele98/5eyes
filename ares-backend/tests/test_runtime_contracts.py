@@ -102,6 +102,9 @@ from schemas.snapshots import StrategySnapshotCreate
 from schemas.wealth import CashflowCreate, CashflowUpdate, GoalCreate, WealthPositionCreate, WealthPositionUpdate
 from schemas.wealth import PlanningAssumptionCreate
 from services.risk_scoring import profile_for_score_x10
+# CCX-P4: Altbestands-Kanaltest -- prueft andere Gates; Publikation siehe
+# tests/test_ccx_p4_allocation_publish.py (tests/ccx_p4_publication_support.py).
+from tests.ccx_p4_publication_support import assume_published_allocation  # noqa: E402,F401
 
 
 @pytest.fixture()
@@ -5436,6 +5439,7 @@ def test_get_adviser_registration_only_allows_self_or_admin(session_factory, adv
     assert exc.value.status_code == 403
 
 
+@pytest.mark.usefixtures("assume_published_allocation")
 def test_snapshot_endpoints_block_foreign_mandate_access(session_factory, advisor_user, other_advisor_user):
     seed_client_and_mandate(session_factory, advisor_user)
     _, foreign_mandate_id = seed_foreign_client_and_mandate(session_factory, other_advisor_user)

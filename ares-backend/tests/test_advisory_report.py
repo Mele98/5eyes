@@ -1719,8 +1719,14 @@ def test_endpoint_returns_full_report_structure(session_factory):
         # C-890-01 Nachtrag 4 (N-897-12): Entwurfshinweis ohne KYC-Bestaetigung
         # (nur der React-Bericht/Kundenportal, additiv am Ende).
         "kyc_draft_notice",
+        # CCX-P4: Publikationsstatus der Soll-Allokation und Entwurfshinweis
+        # (React-Bericht, additiv am Ende).
+        "allocation_publication",
+        "allocation_draft_notice",
     ]
     assert list(data.keys()) == expected
+    assert data["allocation_publication"]["status"] == "DRAFT"
+    assert data["allocation_draft_notice"] == "Entwurf – Soll-Allokation nicht publiziert"
     assert data["schema_version"] == 2
     assert data["mandate_id"] == mid
 

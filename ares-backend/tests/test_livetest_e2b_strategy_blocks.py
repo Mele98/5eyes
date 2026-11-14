@@ -178,7 +178,9 @@ def test_strategy_blocks_follow_customer_exclusion_per_real_mandate(server):
              "const n=document.getElementById('sust-floor-tobacco');"
              "return {button: getComputedStyle(u).display, disabled: u.disabled,"
              " banner: getComputedStyle(b).display, tilt: t ? t.value : null, tiltDisabled: t ? t.disabled : null,"
-             " note: n ? n.textContent : null, described: t ? t.getAttribute('aria-describedby') : null};}")
+             " note: n ? n.textContent : null, described: t ? t.getAttribute('aria-describedby') : null,"
+             " pub: (typeof allocationPublicationState!=='undefined'&&allocationPublicationState)"
+             " ? allocationPublicationState.publication_status : null};}")
     with sync_api.sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         errors: list[str] = []
@@ -223,7 +225,10 @@ def test_strategy_blocks_follow_customer_exclusion_per_real_mandate(server):
     assert bad["button"] == "none" and bad["disabled"] is True and bad["banner"] == "flex", bad
     assert bad["tilt"] == "exclude" and bad["tiltDisabled"] is True, bad
     assert "aus Kundenpräferenz" in (bad["note"] or "") and bad["described"] == "sust-floor-tobacco"
-    assert ok["button"] != "none" and ok["disabled"] is False, ok
+    # CCX-P4: "Portfolio umsetzen" erscheint erst fuer eine publizierte
+    # Soll-Allokation; Mandat B ist frei (nicht gesperrt), aber ein Entwurf.
+    assert ok["disabled"] is False and ok["banner"] == "none", ok
+    assert ok["button"] == "none" and ok["pub"] in ("DRAFT", None), ok
     assert ok["tiltDisabled"] is False and not ok["note"], ok
     assert bad_again["button"] == "none" and bad_again["tiltDisabled"] is True, bad_again
     assert not errors, errors

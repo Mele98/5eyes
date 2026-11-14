@@ -36,6 +36,9 @@ from tests.test_e2e_thierry_goessi_walkthrough import (  # noqa: F401 - pytest f
 )
 from tests.sustainability_test_support import rc_release_preconditions  # noqa: F401 - RC-CH-1 autouse
 from tests.test_sustainability_e2a_contract import _capture, _ok_capture, _results
+# CCX-P4: Altbestands-Kanaltest -- prueft andere Gates; Publikation siehe
+# tests/test_ccx_p4_allocation_publish.py (tests/ccx_p4_publication_support.py).
+from tests.ccx_p4_publication_support import assume_published_allocation  # noqa: E402,F401
 
 
 @pytest.fixture()
@@ -272,6 +275,7 @@ def test_restriction_options_follow_the_product_matcher(api, scenario, session_f
     assert option["available"] is False and needed[0] in option["missing_sub_asset_classes"]
 
 
+@pytest.mark.usefixtures("assume_published_allocation")
 def test_protocol_bound_to_a_violating_strategy_stays_unsignable_after_healing(api, scenario, session_factory):
     """N-888-09 (uebernommen): Signatur prueft den GEBUNDENEN Strategie-Inhalt,
     nicht die (geheilte) aktuelle Allokation."""

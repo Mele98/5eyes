@@ -214,7 +214,7 @@
    "reason": "Lokaler Formatter delegiert an den gemeinsamen Formatter"
   },
   {
-   "file": "ares-desktop/frontend/ares.html",
+   "file": "ares-desktop/frontend/allocation-publication.js",
    "source": "?Math.round(Number(risk.override_score_x10!=null?risk.override_score_x10:risk.final_score_x10||0)/10)",
    "class": "COMPUTATION_KEEP",
    "status": "",
@@ -1208,7 +1208,7 @@
    "reason": "renderWealthPositions: Gewicht Immobilien bps -> Prozent (ganzzahlige bps) fuer alloc[].ist/soll der Legacy-Chartreihe; Prozenttexte kommen aus bucketPctMap."
   },
   {
-   "file": "ares-desktop/frontend/ares.html",
+   "file": "ares-desktop/frontend/allocation-publication.js",
    "source": "var advRappen=Math.round(Number(alloc.advisory_wealth_rappen||0));",
    "class": "COMPUTATION_KEEP",
    "status": "",
@@ -1432,7 +1432,7 @@
    "reason": "reviewBandVisualHtml: `(target/100).toFixed(2)` -> setzt targetLeft; Geometrie (CSS-Breite/Position aus bps). Weiterverwendung: `+'<div style=\"position:absolute;left:'+targetLeft+'%;top:4px;width:2px;height:16px;backgro`"
   },
   {
-   "file": "ares-desktop/frontend/ares.html",
+   "file": "ares-desktop/frontend/allocation-publication.js",
    "source": "var targetRappen=Number(b.target_amount_rappen!=null?b.target_amount_rappen:Math.round(totalAdvisoryRappen*Number(b.target_weight_bps||0)/10000));",
    "class": "COMPUTATION_KEEP",
    "status": "",
@@ -1446,7 +1446,7 @@
    "reason": "buildBaselineProjectionFromComponentSeries: `Math.round(Number(startRappen||0))` -> setzt total0; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `: Math.max(0,Math.min(total0,Math.round(Number(sockelOpts&&sockelOpts.sockelRappen||0))));`"
   },
   {
-   "file": "ares-desktop/frontend/ares.html",
+   "file": "ares-desktop/frontend/allocation-publication.js",
    "source": "var totalAdvisoryRappen=Math.round(Number(alloc.advisory_wealth_rappen||0));",
    "class": "COMPUTATION_KEEP",
    "status": "",

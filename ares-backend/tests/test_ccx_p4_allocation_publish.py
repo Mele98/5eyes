@@ -753,3 +753,27 @@ def test_publication_bypass_is_limited_to_the_documented_legacy_files():
         if "assume_published_allocation" in p.read_text(encoding="utf-8") and p.name != Path(__file__).name
     )
     assert users == sorted(LEGACY_CHANNEL_TEST_FILES)
+
+
+def test_publish_never_on_default_fx_rate_or_unbelegted_basis():
+    """N-909-01: COMPLETE allein genuegt nicht -- die gebundene FX-Basis muss
+    strikt sein (kein Ersatzkurs ``Default``, alle Kurse OK, Hash konsistent)."""
+    from types import SimpleNamespace
+
+    from services.allocation_publication_gate import _fx_basis_findings
+
+    def snap(quotes, statuses, h="a" * 64, basis_hash=None):
+        basis = {"schema": "x", "target_currency": "CHF", "as_of": "2026-11-14",
+                 "fx_basis_hash": basis_hash or h, "quotes": quotes, "statuses": statuses}
+        return SimpleNamespace(fx_basis_json=json.dumps(basis), fx_basis_hash=h)
+
+    ok_quote = {"currency": "USD", "rate_x10000": 8000, "source": "Manual", "observed_at": "2026-11-14",
+                "rate_id": "r"}
+    assert _fx_basis_findings(snap([], {})) == []
+    assert _fx_basis_findings(snap([ok_quote], {"USD": "OK"})) == []
+    blocked = ["CCX_FX_BASIS_MISSING"]
+    assert _fx_basis_findings(snap([{**ok_quote, "source": "Default"}], {"USD": "OK"})) == blocked
+    assert _fx_basis_findings(snap([ok_quote], {"USD": "STALE"})) == blocked
+    assert _fx_basis_findings(snap([{**ok_quote, "rate_x10000": 0}], {"USD": "OK"})) == blocked
+    assert _fx_basis_findings(snap([ok_quote], {"USD": "OK"}, basis_hash="b" * 64)) == blocked
+    assert _fx_basis_findings(SimpleNamespace(fx_basis_json="kein json", fx_basis_hash="a" * 64)) == blocked
