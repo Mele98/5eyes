@@ -108,14 +108,88 @@ def test_archive_hash_includes_the_marking_and_draft_never_archives():
     assert _archive_final(draft_ctx, _NoDb(), mandate_id="m-1") is None
 
 
-def test_cost_disclosure_render_once_ignores_archive_for_drafts():
-    import inspect
+class _ArchivedDoc:
+    """Archivierte finale Fassung mit identischem Fachinhalt (Render-once-Kandidat)."""
+    id, version, content_hash, pdf_base64 = "doc-1", 1, "hash-1", base64.b64encode(b"ARCHIVIERT").decode()
+    bound_preference_decision_hash = bound_target_allocation_id = bound_preferences_sha256 = None
+    checksum_sha256 = "sha-1"
 
+
+class _Query:
+    def __init__(self, result):
+        self.result = result
+
+    def filter(self, *_a):
+        return self
+
+    def order_by(self, *_a):
+        return self
+
+    def first(self):
+        return self.result
+
+
+def _cost_pdf(monkeypatch, *, watermark, archived, db_queries):
+    """H11 (N-897-19): Verhaltenstest statt Quelltextvergleich -- die echte
+    Route get_cost_disclosure_pdf, nur Gates/Daten/Renderer ersetzt."""
+    from types import SimpleNamespace
+
+    import services.cost_disclosure as cost_service
     from routers import pdf_reports
 
-    source = inspect.getsource(pdf_reports.get_cost_disclosure_pdf)
-    assert "existing = None if is_draft else (" in source
-    assert "_archive_final(" in source and "archive_generated_pdf(" not in source
+    rendered, archived_calls = [], []
+    for gate in ("_assert_client_pdf_kyc_review", "_assert_client_pdf_signoff", "_assert_client_pdf_cma_hold",
+                 "_assert_client_pdf_sustainability_floor"):
+        monkeypatch.setattr(pdf_reports, gate, lambda *a, **k: None)
+    mandate = SimpleNamespace(id="m-1", mandate_number="M-1")
+    monkeypatch.setattr(pdf_reports, "get_mandate_for_user_or_404", lambda *a: mandate)
+    monkeypatch.setattr(cost_service, "build_cost_disclosure", lambda *a: {"advisory_wealth_rappen": 100})
+    monkeypatch.setattr(pdf_reports, "_build_pdf_context", lambda *a: SimpleNamespace(watermark_mode=watermark))
+    monkeypatch.setattr(pdf_reports, "_attach_provisional_notice", lambda ctx, *a: ctx)
+    monkeypatch.setattr(pdf_reports, "_archive_content_hash", lambda *a: "hash-1")
+    monkeypatch.setattr(pdf_reports, "_document_binding", lambda *a: {})
+    monkeypatch.setattr(pdf_reports, "current_preference_binding", lambda *a: None)
+    monkeypatch.setattr(pdf_reports, "_extract_client_ip", lambda *a: "127.0.0.1")
+    monkeypatch.setattr(pdf_reports, "ReportLabRenderer", lambda: SimpleNamespace(
+        render_cost_disclosure=lambda ctx, data: rendered.append(ctx.watermark_mode) or b"FRISCH"))
+    monkeypatch.setattr(pdf_reports, "archive_generated_pdf",
+                        lambda db, **kw: archived_calls.append(kw["content_hash"]) or _ArchivedDoc())
+
+    class _Db:
+        def query(self, *_a):
+            db_queries.append("query")
+            return _Query(archived)
+
+    response = pdf_reports.get_cost_disclosure_pdf("m-1", request=None, db=_Db(), current_user=None)
+    return response, rendered, archived_calls
+
+
+def test_cost_disclosure_draft_never_reuses_or_creates_an_archive(monkeypatch):
+    """Entwurf (vor KYC-Bestaetigung): auch wenn eine finale Fassung mit
+    identischem Inhalt archiviert ist, wird frisch mit Entwurfsmarkierung
+    gerendert, nichts archiviert und das Archiv nicht einmal gelesen."""
+    queries: list[str] = []
+    response, rendered, archived = _cost_pdf(monkeypatch, watermark="vorvertrag", archived=_ArchivedDoc(),
+                                             db_queries=queries)
+    assert response.body == b"FRISCH" and rendered == ["vorvertrag"]
+    assert archived == [] and queries == []
+    assert response.headers["X-Ares-Draft"] == "vorvertrag"
+    assert "X-Cost-Disclosure-Document-Id" not in response.headers
+
+
+def test_cost_disclosure_final_renders_once_from_the_archive(monkeypatch):
+    queries: list[str] = []
+    response, rendered, archived = _cost_pdf(monkeypatch, watermark="none", archived=_ArchivedDoc(),
+                                             db_queries=queries)
+    assert response.body == b"ARCHIVIERT" and rendered == [] and archived == []
+    assert response.headers["X-Cost-Disclosure-Document-Id"] == "doc-1"
+
+
+def test_cost_disclosure_final_without_archive_renders_and_archives(monkeypatch):
+    queries: list[str] = []
+    response, rendered, archived = _cost_pdf(monkeypatch, watermark="none", archived=None, db_queries=queries)
+    assert response.body == b"FRISCH" and rendered == ["none"] and archived == ["hash-1"]
+    assert "X-Ares-Draft" not in response.headers
 
 
 # ---------------------------------------------------------------------------
