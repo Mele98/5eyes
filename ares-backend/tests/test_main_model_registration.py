@@ -175,7 +175,9 @@ GOLDEN_SORTED_TABLES_SHA256 = "e8b64c981d916528e710241d2f7506e80650ae144a7060f9c
 # CCX-P3: confirm_no_existing_holdings an finalize; mandate_id/target_currency
 # an cashflow-summary/-projection; fx_basis_hash/valuation_as_of/mandate_id in
 # CashflowSummaryResponse; currency an WealthInflowCreate (Pflicht)/Update/Response.
-GOLDEN_OPENAPI_SHA256 = "1d599d68bbd6983ebdb9ae8f3a28e07ffcb3d4e50e3c4123114a08f40d5e40be"
+# CCX-P3 Nachtrag 1: finalize `confirm_valuations_current`; Tenant-Policy
+# `fx_max_age_days`/`manual_valuation_max_age_days` in Tenant*-Schemas.
+GOLDEN_OPENAPI_SHA256 = "0c888982ec3b8a36835f53554ee0b10c0535adc7ea053883b8db8c154188c190"
 
 _PROBE = """
 import hashlib, json

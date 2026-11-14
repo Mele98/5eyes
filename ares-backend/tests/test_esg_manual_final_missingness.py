@@ -186,6 +186,7 @@ def _finalize(SF, mandate_id, run_id, advisor_id):
             answer_question_one_for_all_mandates(s)  # Nachtrag 1: Pflichtfrage
             return finalize_recommendation(
                 mandate_id=mandate_id, run_id=run_id, request=_FakeRequest(), db=s, current_user=user,
+                confirm_valuations_current=True,
             )
         finally:
             s.rollback()

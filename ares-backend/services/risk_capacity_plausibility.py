@@ -1089,7 +1089,7 @@ def load_recorded_financials(db, mandate, *, today: date | None = None) -> Recor
     from services.cashflow_timeline import normalize_frequency, normalize_nature
 
     today = today or date.today()
-    fx_source = FXRateSource.from_db_for_model(db)
+    fx_source = FXRateSource.from_db_strict_for_model(db, tenant_id=getattr(mandate, "tenant_id", None))  # CCX-P3-FX N-909-01
     base_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF")
 
     positions = [

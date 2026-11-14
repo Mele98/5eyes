@@ -62,6 +62,8 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     # cashflowSummaryQuery, aus ares.html ausgelagert (Monolith-Budget). Vor
     # dem E2-Teil: sustainability-preferences.js bleibt der letzte Teil.
     ("wealth-inflows.js", "js"),
+    # CCX-P3 (N-909-07): Finalisierung mit Bestaetigung "Bewertung aktuell".
+    ("finalize-attestation.js", "js"),
     # E2 Nachhaltigkeitspraeferenzen (Dok. 106): Kundenmaske nach dem Risikoprofil.
     ("sustainability-preferences.js", "js"),
 )

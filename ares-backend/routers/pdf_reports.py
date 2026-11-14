@@ -88,16 +88,9 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session, *,
     Mandate-Anzeige: <Client.name> [<mandate_number>] — falls Client
     nicht ladbar (Test-Setup) Fallback auf mandate_number.
     """
-    # FX-Fund 1: Berater-gepflegte DB-FX-Rates fuer ALLE Waehrungsumrechnungen dieses
-    # Reports aktivieren (via ContextVar), statt der hardcodierten DEFAULT_FX_RATES.
-    # Gemeinsamer Einstiegspunkt aller PDF-Endpoints -> eine Stelle statt ~14 Caller.
-    # Fuer CHF-Basis-Reports ist die Umrechnung ohnehin Identity (kein Effekt).
-    from services.currency.converter import set_active_fx_source
-    from services.currency.fx_rates import FXRateSource
-    try:
-        set_active_fx_source(FXRateSource.from_db(db))
-    except Exception:
-        set_active_fx_source(None)  # sicherer Fallback auf DEFAULT_FX_RATES
+    # CCX-P3-FX (N-909-01): keine Request-weite Ersatzkurs-Quelle mehr. PDF-
+    # Datenaufbereitungen rechnen mit der strikten, gebundenen FX-Basis
+    # (services.fx_basis.load_fx_basis) und sperren typisiert vor dem Rendern.
 
     client = db.query(Client).filter(Client.id == mandate.client_id).first()
     client_name = _client_display_name(client) if client else None
@@ -263,7 +256,7 @@ def _target_allocation_bands(ta_obj) -> dict[str, tuple[int, int]]:
 
 def _advisory_wealth_positions(mandate: Mandate, db: Session) -> tuple[list[dict], dict[str, int], int]:
     from models.wealth import WealthPosition
-    from services.currency.converter import convert_rappen
+    from services.fx_basis import load_fx_basis
     from services.wealth_position_semantics import canonical_assignment
 
     # FX-DRIFT-001 (Audit-Finding, 2026-10-07): diese Beratungsvermoegen-Tabelle
@@ -291,6 +284,10 @@ def _advisory_wealth_positions(mandate: Mandate, db: Session) -> tuple[list[dict
     # mit einem fruehen Legacy-Label (z.B. "Beratungsvermoegen" ohne Umlaut)
     # haette hier gefehlt, obwohl die SAA-Engine sie korrekt zuordnet.
     rows = [row for row in rows if canonical_assignment(getattr(row, "assignment", None)) == "Beratungsvermögen"]
+    # CCX-P3-FX (N-909-01): strikte Basis (belegte, frische Kurse; Ersatzkurs =
+    # fehlend) -> FxBasisError CCX_FX_BASIS_* vor dem Rendern/Archivieren.
+    basis = load_fx_basis(db, target_currency, {getattr(r, "currency", None) for r in rows},
+                          tenant_id=getattr(mandate, "tenant_id", None))
     split_fields = {
         "equities": ("alloc_equities_bps", "Aktien"),
         "bonds": ("alloc_bonds_bps", "Obligationen"),
@@ -303,7 +300,7 @@ def _advisory_wealth_positions(mandate: Mandate, db: Session) -> tuple[list[dict
     total = 0
     for row in rows:
         raw_value = int(getattr(row, "current_value_rappen", 0) or 0)
-        value = int(round(convert_rappen(raw_value, str(getattr(row, "currency", "") or "CHF"), target_currency)))
+        value = basis.convert(raw_value, getattr(row, "currency", None)).converted_amount_minor
         if value <= 0:
             continue
         total += value
@@ -490,7 +487,7 @@ def _other_wealth_positions(mandate: Mandate, db: Session) -> list[dict]:
     sie direkt unit-testbar ist, ohne die volle Strategie-Decision-Anchor-
     Pipeline (TargetAllocation/CMA/RiskAssessment) mitzuseeden."""
     from models.wealth import WealthPosition
-    from services.currency.converter import convert_rappen
+    from services.fx_basis import load_fx_basis
     from services.wealth_position_semantics import canonical_assignment, is_liability_assignment
 
     other_wealth_positions: list[dict] = []
@@ -511,11 +508,12 @@ def _other_wealth_positions(mandate: Mandate, db: Session) -> list[dict]:
         wp for wp in rows
         if canonical_assignment(getattr(wp, "assignment", None)) != "Beratungsvermögen"
     ]
+    # CCX-P3-FX (N-909-01): strikte Basis, sonst typisierte Sperre.
+    basis = load_fx_basis(db, target_currency, {getattr(wp, "currency", None) for wp in rows},
+                          tenant_id=getattr(mandate, "tenant_id", None))
     for wp in rows:
         raw_amt = int(getattr(wp, "current_value_rappen", 0) or 0)
-        amt = int(round(convert_rappen(
-            raw_amt, str(getattr(wp, "currency", "") or "CHF"), target_currency,
-        )))
+        amt = basis.convert(raw_amt, getattr(wp, "currency", None)).converted_amount_minor
         if amt == 0:
             continue
         other_wealth_positions.append({

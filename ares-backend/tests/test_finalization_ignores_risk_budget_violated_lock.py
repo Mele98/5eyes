@@ -278,6 +278,7 @@ def test_finalize_recommendation_must_reject_active_risk_budget_violated_lock(se
             finalize_recommendation(
                 mandate_id=mid, run_id=run_id, request=_FakeRequest(),
                 db=db, current_user=advisor,
+                confirm_valuations_current=True,
             )
         assert exc_info.value.status_code == 422
 

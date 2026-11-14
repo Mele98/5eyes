@@ -373,6 +373,7 @@ def test_certified_final_run_cost_totals_must_not_drift_with_later_live_ter_corr
         finalize_recommendation(
             mandate_id=mid, run_id=run_id, request=_FakeRequest(),
             db=db, current_user=advisor,
+            confirm_valuations_current=True,
         )
 
     with session_factory() as db:
@@ -757,4 +758,5 @@ def test_finalize_must_block_when_mandate_has_unresolved_conflict_evidence(sessi
             finalize_recommendation(
                 mandate_id=mid, run_id=run_id, request=_FakeRequest(),
                 db=db, current_user=advisor,
+                confirm_valuations_current=True,
             )

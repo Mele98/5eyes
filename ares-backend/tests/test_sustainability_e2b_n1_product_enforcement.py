@@ -170,7 +170,7 @@ def test_expired_evidence_blocks_finalization_and_new_selection(world, api, sess
     positions = _non_liquid_positions(api, mid, session_factory, run_id)
     for pid in positions:  # alle Nachweise der gewaehlten Produkte zurueckgezogen
         _retire(session_factory, world["advisor_id"], world["evidence"][pid])
-    fin = api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize")
+    fin = api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize?confirm_valuations_current=true")
     assert fin.status_code == 409, fin.text
     detail = fin.json()["detail"]
     assert detail["reason_code"] == "SUSTAINABILITY_EVIDENCE_MISSING"
@@ -190,11 +190,11 @@ def test_finalize_requires_question_one_answered(api, advisor_user, session_fact
     run_id = _run_id(_run(api, mid))
     state = api.get(f"/mandates/{mid}/sustainability-preferences").json()
     assert state["state"] == "unanswered" and sp.REQUIRED_ANSWER_TEXT in state["state_notice"]
-    fin = api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize")
+    fin = api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize?confirm_valuations_current=true")
     assert fin.status_code == 409, fin.text
     assert fin.json()["detail"]["reason_code"] == "SUSTAINABILITY_PREFERENCE_REQUIRED"
     assert sp.REQUIRED_ANSWER_TEXT in fin.json()["detail"]["message"]
     with session_factory() as s:
         assert s.execute(text("SELECT COUNT(*) FROM investment_preference_decisions")).scalar() == 0
     _ok_capture(api, mid, **DECLINED)  # "Keine Angabe" zaehlt als beantwortet
-    assert api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize").status_code == 200
+    assert api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize?confirm_valuations_current=true").status_code == 200

@@ -95,7 +95,7 @@ def test_regenerate_with_unchanged_inputs_keeps_allocation_and_final_run(session
 
         satisfy_client_onboarding(s, mandate)
         answer_question_one_for_all_mandates(s)  # Nachtrag 1: Pflichtfrage
-        finalize_recommendation(mandate.id, run.id, _request(), db=s, current_user=adv)
+        finalize_recommendation(mandate.id, run.id, _request(), db=s, current_user=adv, confirm_valuations_current=True)
         assert s.get(RecommendationRun, run.id).result_status == "Final"
 
         again = pe.generate_target_allocation(db=s, mandate=mandate, user_id=adv.id, preferences=None)

@@ -107,6 +107,7 @@ def _finalize(session_factory, mandate_id, run_id, advisor_id):
         return finalize_recommendation(
             mandate_id=mandate_id, run_id=run_id, request=_FakeRequest(),
             db=db, current_user=advisor,
+            confirm_valuations_current=True,
         )
 
 

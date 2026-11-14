@@ -40,6 +40,7 @@ def test_finalize_returns_saa_deviation_warning_in_the_response(session_factory)
         answer_question_one_for_all_mandates(db)  # Nachtrag 1: Pflichtfrage
         result = finalize_recommendation(
             mandate_id=mid, run_id=run_id, request=_FakeRequest(), db=db, current_user=advisor,
+            confirm_valuations_current=True,
         )
     payload = RecommendationFinalizeResponse.model_validate(result).model_dump()
     assert payload["result_status"] == "Final"
@@ -59,7 +60,7 @@ def test_warning_codes_are_extracted_deduplicated_in_order():
 
 def test_finalize_route_declares_the_warning_fields_in_openapi():
     schema = app.openapi()
-    path = schema["paths"]["/mandates/{mandate_id}/recommendations/{run_id}/finalize"]["put"]
+    path = schema["paths"]["/mandates/{mandate_id}/recommendations/{run_id}/finalize?confirm_valuations_current=true"]["put"]
     ref = path["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
     assert ref.endswith("/RecommendationFinalizeResponse")
     props = schema["components"]["schemas"]["RecommendationFinalizeResponse"]["properties"]

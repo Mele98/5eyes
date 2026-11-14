@@ -49,6 +49,7 @@
       "frontend/privacy-governance.js",
       "frontend/sustainability-preferences.js",
       "frontend/wealth-inflows.js",
+      "frontend/finalize-attestation.js",
       "frontend/eligibility-overrides.js",
       "frontend/desktop-api.js",
       "frontend/trade-list-preview.js",

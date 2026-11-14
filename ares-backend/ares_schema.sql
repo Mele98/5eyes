@@ -2153,6 +2153,8 @@ CREATE TABLE IF NOT EXISTS holdings_valuation_snapshots (
     total_base_minor    INTEGER,
     advisory_base_minor INTEGER,
     blocker_codes_json  TEXT NOT NULL,
+    manual_valuation_attested INTEGER NOT NULL DEFAULT 0 CHECK(manual_valuation_attested IN (0, 1)),
+    manual_valuation_max_age_days INTEGER,
     snapshot_hash       TEXT NOT NULL CHECK(length(snapshot_hash) = 64),
     created_at          TEXT NOT NULL,
     created_by          TEXT NOT NULL REFERENCES users(id),

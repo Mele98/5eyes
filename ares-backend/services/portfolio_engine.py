@@ -2167,7 +2167,7 @@ def _load_allocation_inputs(
     # Empty reference data uses the explicit versioned default; malformed,
     # ambiguous or unreadable DB rates fail closed before allocation starts.
     from services.currency.fx_rates import FXRateSource
-    fx_source = FXRateSource.from_db_for_model(db)
+    fx_source = FXRateSource.from_db_strict_for_model(db, tenant_id=getattr(mandate, "tenant_id", None))  # CCX-P3-FX N-909-01
     target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
 
     all_position_rows = db.query(WealthPosition).filter(
@@ -5473,7 +5473,7 @@ def build_target_payload_from_allocation(
     house_matrix = _house_matrix_or_default(db, policy, score_bucket)
     # Rebuild uses the same fail-closed, versioned FX source as generation.
     from services.currency.fx_rates import FXRateSource
-    fx_source = FXRateSource.from_db_for_model(db)
+    fx_source = FXRateSource.from_db_strict_for_model(db, tenant_id=getattr(mandate, "tenant_id", None))  # CCX-P3-FX N-909-01
     target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
 
     all_position_rows = db.query(WealthPosition).filter(
@@ -6399,7 +6399,7 @@ def build_recommendation_payload_from_run(
         # Diese Funktion hat (anders als build_target_payload_from_allocation)
         # keine eigene fx_source-Herleitung -- frisch aufgesetzt.
         from services.currency.fx_rates import FXRateSource
-        _brpfr_fx_source = FXRateSource.from_db_for_model(db)
+        _brpfr_fx_source = FXRateSource.from_db_strict_for_model(db, tenant_id=getattr(mandate, "tenant_id", None))  # CCX-P3-FX N-909-01
         _brpfr_target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
         live_rebalancing = build_live_rebalancing_payload(
             db=db,
@@ -6994,7 +6994,7 @@ def generate_recommendation_run(
     # Kommentar am generate_target_allocation-Aufruf-Pendant weiter oben in
     # dieser Datei.
     from services.currency.fx_rates import FXRateSource
-    _run_fx_source = FXRateSource.from_db_for_model(db)
+    _run_fx_source = FXRateSource.from_db_strict_for_model(db, tenant_id=getattr(mandate, "tenant_id", None))  # CCX-P3-FX N-909-01
     _run_target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
     live_rebalancing = build_live_rebalancing_payload(
         db=db,

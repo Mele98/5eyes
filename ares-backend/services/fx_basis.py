@@ -37,7 +37,15 @@ from core.advisory_envelope_codec import child_hash
 from core.presentation_rounding import CURRENCY_EXPONENTS
 from core.reason_codes import DomainError, ReasonCode
 from models.fx_rate import FXRate
-from services.currency.fx_rates import FXRateSource, convert_storage_amount, half_up_div
+from services.currency.fx_rates import (
+    DEFAULT_FX_MAX_AGE_DAYS,
+    FxBasisError,
+    FXRateSource,
+    convert_storage_amount,
+    half_up_div,
+    quote_status,
+    tenant_fx_max_age_days,
+)
 
 FX_BASIS_KIND = "fx-basis"
 FX_BASIS_SCHEMA = "ares/fx-basis/1"
@@ -48,7 +56,7 @@ DEFAULT_SOURCE = "Default"
 # Dieselbe Frischeregel wie fuer Marktpreise (price_updater.summarize_price_quality,
 # stale_after_days=5; Handelsliste/Depot-Snapshot): ein Kurs, der mehr als fuenf
 # Kalendertage vor dem Bewertungsstichtag beobachtet wurde, ist abgelaufen.
-MARKET_DATA_STALE_AFTER_DAYS = 5
+MARKET_DATA_STALE_AFTER_DAYS = DEFAULT_FX_MAX_AGE_DAYS  # Tenant-Policy, Default 5
 
 STATUS_OK = "OK"
 STATUS_MISSING = "MISSING"
@@ -66,10 +74,8 @@ def status_reason(status: str) -> ReasonCode:
     return ReasonCode.CCX_FX_BASIS_MISSING
 
 
-class FxBasisError(DomainError):
-    """Keine gueltige, gebundene FX-Basis (``CCX_FX_BASIS_*``)."""
-
-    channel = "fx_basis"
+# FxBasisError lebt in services.currency.fx_rates (auch die strikte
+# Engine-Quelle wirft ihn) und wird hier re-exportiert.
 
 
 def normalize_currency(value: Any) -> str:
@@ -188,9 +194,14 @@ class FxBasis:
         return None
 
     def status(self, currency: str) -> str:
+        """Status des Kurses von ``currency`` (CHF ist die Einheit). Die
+        Zielwaehrung hat einen eigenen Status (N-909-04): ein abgelaufener
+        EUR-Kurs eines EUR-Mandats ist STALE, nicht MISSING."""
         code = normalize_currency(currency)
-        if code in (self.target_currency, FX_BASE_CURRENCY):
+        if code == FX_BASE_CURRENCY:
             return STATUS_OK
+        if code == self.target_currency and code not in self.statuses:
+            return STATUS_OK  # nur Basiswaehrung im Spiel: kein Kurs noetig
         return self.statuses.get(code, STATUS_MISSING)
 
     def _rate_x10000(self, currency: str) -> int:
@@ -229,7 +240,7 @@ class FxBasis:
                 f"Der Kurs {source}/{target} ist nicht verwendbar ({status}).",
                 extra={"currencies": [source], "fx_basis_hash": self.fx_basis_hash},
             )
-        if target != FX_BASE_CURRENCY and self.status(target) != STATUS_OK:
+        if target != FX_BASE_CURRENCY and self.statuses.get(target, STATUS_MISSING) != STATUS_OK:
             pivot = self.statuses.get(target, STATUS_MISSING)
             raise FxBasisError(
                 status_reason(pivot),
@@ -331,17 +342,10 @@ class FxBasis:
         }
 
 
-def _quote_status(quote: FxQuote | None, as_of: date) -> str:
-    if quote is None or quote.source == DEFAULT_SOURCE:
+def _quote_status(quote: FxQuote | None, as_of: date, max_age_days: int = MARKET_DATA_STALE_AFTER_DAYS) -> str:
+    if quote is None:
         return STATUS_MISSING
-    observed = _date_part(quote.observed_at)
-    if observed is None:
-        return STATUS_MISSING
-    if observed > as_of:
-        return STATUS_MISMATCH
-    if observed < as_of - timedelta(days=MARKET_DATA_STALE_AFTER_DAYS):
-        return STATUS_STALE
-    return STATUS_OK
+    return quote_status(quote.source, quote.observed_at, as_of=as_of, max_age_days=max_age_days)
 
 
 def build_fx_basis(
@@ -350,6 +354,7 @@ def build_fx_basis(
     quotes_by_currency: Mapping[str, FxQuote | None],
     *,
     as_of: date,
+    max_age_days: int = MARKET_DATA_STALE_AFTER_DAYS,
 ) -> FxBasis:
     """Basis ueber alle benoetigten Waehrungen. Nicht verwendbare Kurse werden
     nicht verworfen, sondern mit Status gefuehrt -- ``convert`` blockiert dann
@@ -364,7 +369,7 @@ def build_fx_basis(
     usable: list[FxQuote] = []
     for currency in sorted(pivots):
         quote = quotes_by_currency.get(currency)
-        status = _quote_status(quote, as_of)
+        status = _quote_status(quote, as_of, max_age_days)
         statuses[currency] = status
         if status == STATUS_OK and quote is not None:
             usable.append(quote)
@@ -428,11 +433,19 @@ def resolve_as_of(as_of: date | datetime | str | None = None) -> date:
 
 def load_fx_basis(
     db: Any, target_currency: Any, needed_currencies: Iterable[Any], *, as_of: Any = None,
+    tenant_id: Any = None,
 ) -> FxBasis:
+    """Strikte Basis; die Kursfrische folgt der Tenant-Policy (Default 5 Tage).
+    Ohne Fremdwaehrung keine Query."""
     needed = [normalize_currency(c) for c in needed_currencies]
     target = normalize_currency(target_currency)
+    foreign = (set(needed) | {target}) - {"", FX_BASE_CURRENCY}
+    if set(needed) - {""} <= {target}:
+        foreign = set()
+    max_age = tenant_fx_max_age_days(db, tenant_id) if foreign else DEFAULT_FX_MAX_AGE_DAYS
     return build_fx_basis(
         target, needed, load_quotes(db, set(needed) | {target}), as_of=resolve_as_of(as_of),
+        max_age_days=max_age,
     )
 
 
@@ -464,7 +477,7 @@ __all__ = [
     "convert_storage_amount",
     "convert_sum",
     "convert_with_source",
-    "model_fx_source",
+    "strict_model_fx_source",
     "load_fx_basis",
     "load_quotes",
 ]
@@ -479,10 +492,6 @@ def convert_with_source(amount_minor: int, source_currency: Any, target_currency
     )
 
 
-def model_fx_source(db: Any) -> FXRateSource:
-    """Modell-Kursquelle (Entwurf/Engine-Spiegel, Ersatzkurse sichtbar
-    versioniert); kundenwirksame Summen nutzen ``load_fx_basis``."""
-    try:
-        return FXRateSource.from_db(db)
-    except Exception:  # noqa: BLE001 - from_db faengt selbst; letzte Sicherung
-        return FXRateSource()
+def strict_model_fx_source(db: Any, *, tenant_id: Any = None):
+    """Kundenwirksame Kursquelle fuer Engine-Spiegel im Bericht (strikt, typisiert)."""
+    return FXRateSource.from_db_strict_for_model(db, tenant_id=tenant_id)

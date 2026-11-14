@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Iterable
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from core.advisory_envelope_codec import child_hash, utc_now
@@ -82,6 +83,7 @@ Q_MISSING_QUANTITY = "MISSING_QUANTITY"
 Q_MISSING_INSTRUMENT = "MISSING_INSTRUMENT"
 Q_DUPLICATE_DEPOT = "DUPLICATE_DEPOT"
 Q_NOT_CARRIED_OVER = "NOT_CARRIED_OVER"
+Q_STALE_VALUATION = "STALE_VALUATION"
 
 # Qualitaeten mit bekanntem Wert (nur Befund, Wert bleibt sichtbar).
 _VALUE_KNOWN = frozenset({Q_OK, Q_DUPLICATE_DEPOT})
@@ -111,7 +113,7 @@ def quality_reason(quality: str) -> ReasonCode:
         return ReasonCode.CCX_FX_BASIS_STALE
     if quality == Q_FX_MISMATCH:
         return ReasonCode.CCX_FX_BASIS_MISMATCH
-    if quality == Q_STALE_PRICE:
+    if quality in (Q_STALE_PRICE, Q_STALE_VALUATION):
         return ReasonCode.CCX_VALUATION_STALE
     return ReasonCode.CCX_VALUATION_INCOMPLETE
 
@@ -131,6 +133,8 @@ def primary_reason(codes: Iterable[str]) -> ReasonCode:
         return ReasonCode.CCX_FX_BASIS_STALE
     if ReasonCode.CCX_VALUATION_STALE.value in present:
         return ReasonCode.CCX_VALUATION_STALE
+    if ReasonCode.CCX_VALUATION_ATTESTATION_REQUIRED.value in present:
+        return ReasonCode.CCX_VALUATION_ATTESTATION_REQUIRED
     return ReasonCode.CCX_VALUATION_INCOMPLETE
 
 
@@ -236,6 +240,8 @@ class ValuationProjection:
     source_observed_at: str | None = None
     total_base_minor: int | None = None
     advisory_base_minor: int | None = None
+    manual_valuation_attested: bool = False
+    manual_valuation_max_age_days: int | None = None
     snapshot_hash: str = ""
 
     @property
@@ -266,6 +272,8 @@ class ValuationProjection:
             "total_base_minor": self.total_base_minor,
             "advisory_base_minor": self.advisory_base_minor,
             "blocker_codes": sorted(self.blocker_codes),
+            "manual_valuation_attested": bool(self.manual_valuation_attested),
+            "manual_valuation_max_age_days": self.manual_valuation_max_age_days,
             "rows": [r.row_hash for r in sorted(self.rows, key=lambda r: (r.source_kind, r.position_id))],
         }
 
@@ -285,6 +293,8 @@ class ValuationProjection:
             "blocker_codes": sorted(self.blocker_codes),
             "reason_code": str(primary_reason(self.blocker_codes)) if self.blocker_codes else None,
             "flow_blockers": list(self.flow_blockers),
+            "manual_valuation_attested": bool(self.manual_valuation_attested),
+            "manual_valuation_max_age_days": self.manual_valuation_max_age_days,
             "fx_basis_hash": self.fx_basis_hash,
             "fx_basis": self.fx_basis.as_dict(),
             "snapshot_hash": self.snapshot_hash,
@@ -341,6 +351,22 @@ def mandate_has_recorded_depot_holdings(db: Session, mandate_id: str) -> bool:
     )
 
 
+def tenant_manual_valuation_max_age_days(db: Session, tenant_id: Any) -> int | None:
+    """N-909-07: Owner-Frist fuer manuelle Bewertungen; ohne Wert ``None``
+    (kein erfundener Default -> Bestaetigungspflicht des Beraters)."""
+    if not tenant_id:
+        return None
+    try:
+        value = db.execute(
+            text("SELECT manual_valuation_max_age_days FROM tenants WHERE id = :t"), {"t": str(tenant_id)},
+        ).scalar()
+    except Exception:  # noqa: BLE001 - Altschema ohne Spalte: keine Frist
+        return None
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 1:
+        return value
+    return None
+
+
 def _depot_holdings(db: Session, mandate_id: str) -> tuple[Any, list[Any], list[dict[str, Any]]]:
     run, holdings = current_run_holdings(db, mandate_id)
     held = [h for h in holdings if int(h.units_milli or 0) > 0 or int(h.market_value_rappen or 0) > 0]
@@ -393,8 +419,14 @@ def project_holdings_valuation(
     *,
     as_of: Any = None,
     confirm_no_holdings: bool = False,
+    attest_manual_valuations: bool = False,
 ) -> ValuationProjection:
-    """Bewertet den gesamten Bestand des Mandats verlustfrei (ohne Persistenz)."""
+    """Bewertet den gesamten Bestand des Mandats verlustfrei (ohne Persistenz).
+
+    N-909-07: manuelle Bewertungen (Vermoegenspositionen) folgen der Owner-Frist
+    ``tenants.manual_valuation_max_age_days`` (aelter -> STALE_VALUATION). Ohne
+    Owner-Frist ist die Bestaetigung "Bewertung aktuell" des Beraters Pflicht
+    (``attest_manual_valuations``), sonst ``CCX_VALUATION_ATTESTATION_REQUIRED``."""
     as_of_date = resolve_as_of(as_of)
     base_currency = normalize_currency(getattr(mandate, "base_currency", None))
     client_id = str(getattr(mandate, "client_id", "") or "")
@@ -412,7 +444,8 @@ def project_holdings_valuation(
     currencies |= {normalize_currency(getattr(cf, "currency", None)) for cf in cashflows}
     currencies |= {normalize_currency(getattr(i, "currency", None)) for i in inflows}
     try:
-        basis = load_fx_basis(db, base_currency, currencies - {""}, as_of=as_of_date)
+        basis = load_fx_basis(db, base_currency, currencies - {""}, as_of=as_of_date,
+                              tenant_id=getattr(mandate, "tenant_id", None))
     except FxBasisError:
         # Mehrdeutige aktive Kurse: keine Basis -> alles Fremde unbekannt.
         basis = load_fx_basis(db, base_currency, set(), as_of=as_of_date)
@@ -453,6 +486,14 @@ def project_holdings_valuation(
         if bank and account:
             depot_keys.setdefault((bank, account), []).append(row)
         rows.append(row)
+    manual_max_age = tenant_manual_valuation_max_age_days(db, getattr(mandate, "tenant_id", None)) \
+        if positions else None
+    if manual_max_age is not None:
+        manual_limit = as_of_date - timedelta(days=manual_max_age)
+        for row in rows:
+            observed_row = _date(row.price_observed_at)
+            if row.data_quality == Q_OK and observed_row is not None and observed_row < manual_limit:
+                row.data_quality = Q_STALE_VALUATION
     for duplicates in depot_keys.values():
         if len(duplicates) > 1:
             for row in duplicates:
@@ -527,6 +568,8 @@ def project_holdings_valuation(
                                   "data_quality": quality})
             blockers.add(str(quality_reason(quality)))
 
+    if positions and manual_max_age is None and not attest_manual_valuations:
+        blockers.add(str(ReasonCode.CCX_VALUATION_ATTESTATION_REQUIRED))
     holdings_basis = BASIS_RECORDED
     if not rows:
         if confirm_no_holdings and (cashflows or inflows):
@@ -563,6 +606,8 @@ def project_holdings_valuation(
         source_observed_at=min(observed + fx_observed) if (observed or fx_observed) else None,
         total_base_minor=total,
         advisory_base_minor=advisory,
+        manual_valuation_attested=bool(attest_manual_valuations),
+        manual_valuation_max_age_days=manual_max_age,
     )
     projection.snapshot_hash = child_hash(SNAPSHOT_KIND, _canonical(projection.hash_body()))
     return projection
@@ -614,6 +659,8 @@ def persist_valuation_snapshot(db: Session, projection: ValuationProjection, *, 
         position_count=projection.position_count, total_base_minor=projection.total_base_minor,
         advisory_base_minor=projection.advisory_base_minor,
         blocker_codes_json=json.dumps(sorted(projection.blocker_codes), separators=(",", ":")),
+        manual_valuation_attested=1 if projection.manual_valuation_attested else 0,
+        manual_valuation_max_age_days=projection.manual_valuation_max_age_days,
         snapshot_hash=projection.snapshot_hash, created_at=utc_now(), created_by=user_id,
     )
     db.add(snapshot)
@@ -658,6 +705,8 @@ def verify_valuation_snapshot(db: Session, snapshot: HoldingsValuationSnapshot) 
         "total_base_minor": snapshot.total_base_minor,
         "advisory_base_minor": snapshot.advisory_base_minor,
         "blocker_codes": sorted(json.loads(snapshot.blocker_codes_json)),
+        "manual_valuation_attested": bool(snapshot.manual_valuation_attested),
+        "manual_valuation_max_age_days": snapshot.manual_valuation_max_age_days,
         "rows": [r.row_hash for r in sorted(rows, key=lambda r: (r.source_kind, r.position_id))],
     }
     if child_hash(SNAPSHOT_KIND, _canonical(body)) != snapshot.snapshot_hash:
@@ -674,6 +723,7 @@ class ValuationBinding:
     ledger_entries: list[dict[str, Any]]
     ledger_hash: str
     confirm_no_holdings: bool
+    attest_manual_valuations: bool = False
 
     @property
     def publishable(self) -> bool:
@@ -698,6 +748,7 @@ class ValuationBinding:
         try:
             again = project_holdings_valuation(
                 db, mandate, as_of=self.projection.as_of, confirm_no_holdings=self.confirm_no_holdings,
+                attest_manual_valuations=self.attest_manual_valuations,
             )
         except Exception:  # noqa: BLE001 - unbekannt -> nie konsistent
             return False
@@ -706,9 +757,16 @@ class ValuationBinding:
 
 def prepare_valuation_binding(
     db: Session, mandate: Any, run: Any, *, confirm_no_holdings: bool = False,
+    attest_manual_valuations: bool = False,
 ) -> ValuationBinding:
-    """Bewertung + Entscheid je Depotposition (gegen die Zielgewichte des Laufs)."""
-    projection = project_holdings_valuation(db, mandate, confirm_no_holdings=confirm_no_holdings)
+    """Bewertung + Entscheid je verwalteter Depotposition (gegen die Zielgewichte
+    des Laufs). N-909-09: manuelle, nicht verwaltete Positionen (Vorsorge,
+    Immobilie, Police, Konten) bleiben sichtbar und bewertet, erhalten aber nie
+    KEEP/SELL -- nicht verwaltet, nie auf Anlageklassen geschaetzt."""
+    projection = project_holdings_valuation(
+        db, mandate, confirm_no_holdings=confirm_no_holdings,
+        attest_manual_valuations=attest_manual_valuations,
+    )
     weights: dict[str, int] = {}
     for position in db.query(RecommendationPosition).filter(
         RecommendationPosition.run_id == str(getattr(run, "id", "") or ""),
@@ -725,7 +783,38 @@ def prepare_valuation_binding(
         ledger_entries=entries,
         ledger_hash=ledger_child_hash(entries, projection.snapshot_hash),
         confirm_no_holdings=confirm_no_holdings,
+        attest_manual_valuations=attest_manual_valuations,
     )
+
+
+def assert_fx_evidence_current(db: Session, mandate: Any, fx_evidence: Any) -> None:
+    """N-909-02: die gespeicherte Kursevidenz eines Snapshots (Depot-Snapshot)
+    muss heute noch belegt sein -- jede Fremdwaehrung mit belegtem, frischem
+    Kurs (kein Ersatzkurs) und mit genau dem gespeicherten Kurs. Ein Alt- oder
+    Ersatzkurs wird nie gedruckt (``CCX_FX_BASIS_*``)."""
+    evidence = fx_evidence if isinstance(fx_evidence, dict) else {}
+    target = normalize_currency(evidence.get("target_currency") or getattr(mandate, "base_currency", None))
+    rates = evidence.get("effective_rates_x1e8") or []
+    currencies = {normalize_currency(item[0]) for item in rates if isinstance(item, (list, tuple)) and item}
+    foreign = currencies - {target, ""}
+    if not foreign:
+        return
+    basis = load_fx_basis(db, target, foreign, tenant_id=getattr(mandate, "tenant_id", None))
+    for item in rates:
+        currency, stored = normalize_currency(item[0]), int(item[1])
+        if currency in ("", target):
+            continue
+        line = basis.convert(0, currency)  # wirft bei fehlendem/abgelaufenem/Ersatzkurs
+        numerator, denominator = (int(part) for part in line.fx_rate_ratio.split("/"))
+        # Gleiche Darstellung wie FXRateSource.canonical_model_signature.
+        current = int(round(((numerator / 10_000) / (denominator / 10_000)) * 100_000_000))
+        if current != stored:
+            raise ValuationError(
+                ReasonCode.CCX_FX_BASIS_MISMATCH,
+                f"Der gespeicherte Kurs {currency}/{target} entspricht nicht dem heute belegten Kurs; "
+                "bitte den Depot-Check neu speichern.",
+                extra={"currencies": [currency], "fx_basis_hash": basis.fx_basis_hash},
+            )
 
 
 __all__ = [

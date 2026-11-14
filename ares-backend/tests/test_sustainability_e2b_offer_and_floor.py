@@ -202,7 +202,7 @@ def test_strategy_before_capture_becomes_stale_and_blocks_every_channel(api, sce
     assert state["allocation_floor_status"] == "violated"
     assert "Anlagestrategie veraltet" in state["allocation_stale_notice"]
     assert api.post(f"/mandates/{mid}/recommendations/generate", json={}).status_code == 422
-    assert api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize").status_code == 422
+    assert api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize?confirm_valuations_current=true").status_code == 422
     for path in ("anlagestrategie.pdf", "portfolio.pdf", "cost-disclosure.pdf"):
         assert api.get(f"/mandates/{mid}/reports/{path}").status_code == 422, path
     assert api.get(f"/mandates/{mid}/reports/advisory-report.pdf").status_code == 422
@@ -241,7 +241,7 @@ def test_lapsed_coverage_blocks_finalization(api, scenario, session_factory):
                 "retired_at = :now, updated_at = :now WHERE id = :id"
             ), {"u": scenario["advisor_id"], "now": now, "id": evidence_id})
         s.commit()
-    resp = api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize")
+    resp = api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize?confirm_valuations_current=true")
     assert resp.status_code == 409, resp.text
     detail = resp.json()["detail"]
     # Nachtrag 2: zuerst die Positionen des Laufs (heute nicht mehr belegt).

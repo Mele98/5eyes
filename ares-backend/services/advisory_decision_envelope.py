@@ -222,6 +222,8 @@ def _valuation_reason(code: str) -> ReasonCode:
         return ReasonCode.CCX_VALUATION_STALE
     if code == ReasonCode.CCX_VALUATION_MISSING:
         return ReasonCode.CCX_VALUATION_MISSING
+    if code == ReasonCode.CCX_VALUATION_ATTESTATION_REQUIRED:
+        return ReasonCode.CCX_VALUATION_ATTESTATION_REQUIRED
     return ReasonCode.CCX_VALUATION_INCOMPLETE
 
 
@@ -460,7 +462,9 @@ def seal_advisory_envelope(
         new_value=_audit_value(envelope_hash=digest, manifest_hash=manifest_digest, run=run.id,
                                predecessor=predecessor.id if predecessor is not None else None,
                                valuation_hash=snapshot.snapshot_hash, fx_basis_hash=snapshot.fx_basis_hash,
-                               coverage=snapshot.coverage_status, ledger_hash=ledger_digest),
+                               coverage=snapshot.coverage_status, ledger_hash=ledger_digest,
+                               manual_attested=snapshot.manual_valuation_attested,
+                               manual_max_age_days=snapshot.manual_valuation_max_age_days),
         mandate_id=mandate.id, client_id=getattr(mandate, "client_id", None),
         ip_address=ip_address, tenant_id=tenant_id)
     return db.query(AdvisoryDecisionEnvelope).filter(AdvisoryDecisionEnvelope.id == envelope_id).one()

@@ -72,6 +72,7 @@ def _certified_mandate(session_factory, *, suffix: str):
         finalize_recommendation(
             mandate_id=mandate_id, run_id=run_id, request=_FakeRequest(),
             db=db, current_user=advisor,
+            confirm_valuations_current=True,
         )
     return advisor_id, mandate_id, run_id
 

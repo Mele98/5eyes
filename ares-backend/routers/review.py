@@ -4610,6 +4610,7 @@ def finalize_recommendation(
     mandate_id: str, run_id: str,
     request: Request,
     confirm_no_existing_holdings: bool = False,
+    confirm_valuations_current: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -4770,6 +4771,7 @@ def finalize_recommendation(
     envelope = finalize_advisory_decision(
         db, mandate=mandate, run=run, user=current_user, ip_address=_extract_client_ip(request),
         confirm_no_existing_holdings=confirm_no_existing_holdings,
+        confirm_valuations_current=confirm_valuations_current,
     )
     envelope_ref = {"advisory_envelope_id": envelope.id, "advisory_envelope_hash": envelope.envelope_hash}
     log(db, user_id=current_user.id, user_name=current_user.full_name,

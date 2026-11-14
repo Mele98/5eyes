@@ -37,7 +37,7 @@ from core.reason_codes import ReasonCode
 from models.users import User
 from models.allocation import OptimizerPolicy
 from models.wealth import WealthInflow, WealthPosition
-from services.fx_basis import FxBasisError, load_fx_basis, model_fx_source
+from services.fx_basis import FxBasisError, load_fx_basis, strict_model_fx_source
 
 
 # ---------------------------------------------------------------------------
@@ -63,14 +63,16 @@ def _aggregator_cache_get(db: Session, key: Any, factory) -> Any:
     return cache[key]
 
 
-def _cached_fx_source(db: Session) -> Any:
+def _cached_fx_source(db: Session, mandate: Any = None) -> Any:
     """Eine FX-Quelle je Report-Aufruf (Wealth-Summary und Reserve-Sektion
     teilen sie; TOTAL-WEALTH-LIABILITY-001 ohne zusaetzliche Query).
 
     Fallback auf FXRateSource() statt None (Generalaudit 2026-07-24):
     from_db() faengt Fehler selbst ab; None wuerde die Umrechnung abschalten.
     """
-    return _aggregator_cache_get(db, ("fx_source",), lambda: model_fx_source(db))
+    # CCX-P3-FX (N-909-01): auch der Engine-Spiegel (Reserve) nur mit strikter
+    # Quelle; ein Ersatzkurs fuehrt zur typisierten Sperre bzw. zum Ausblenden.
+    return _aggregator_cache_get(db, ("fx_source",), lambda: strict_model_fx_source(db, tenant_id=getattr(mandate, "tenant_id", None)))
 
 
 def _cached_active_positions(db: Session, client_id: str) -> list[Any]:
@@ -125,7 +127,8 @@ def _cached_report_fx_basis(db: Session, mandate: Mandate) -> Any:
     target = str(getattr(mandate, "base_currency", "") or "").upper().strip()
     return _aggregator_cache_get(
         db, ("report_fx_basis", str(mandate.id)),
-        lambda: load_fx_basis(db, target, _report_currencies(db, mandate) - {""}),
+        lambda: load_fx_basis(db, target, _report_currencies(db, mandate) - {""},
+                              tenant_id=getattr(mandate, "tenant_id", None)),
     )
 
 
@@ -4444,7 +4447,7 @@ def _recompute_reserve_reasoning(
     # selbst auf Default-Kurse zurueck; dieser aeussere except greift
     # praktisch nie. fx_source=None wuerde die Konvertierung komplett
     # deaktivieren statt eine Naeherung zu zeigen.
-    fx_source = _cached_fx_source(db)
+    fx_source = _cached_fx_source(db, mandate)
     target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
 
     # FX-DRIFT-001 (Audit-Finding, 2026-10-07): diese Summen fielen bisher aus

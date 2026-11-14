@@ -217,6 +217,8 @@ def upgrade() -> None:
         sa.Column("total_base_minor", sa.BigInteger(), nullable=True),
         sa.Column("advisory_base_minor", sa.BigInteger(), nullable=True),
         sa.Column("blocker_codes_json", sa.String(), nullable=False),
+        sa.Column("manual_valuation_attested", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("manual_valuation_max_age_days", sa.Integer(), nullable=True),
         sa.Column("snapshot_hash", sa.String(), nullable=False),
         sa.Column("created_at", sa.String(), nullable=False),
         sa.Column("created_by", sa.String(), nullable=False),
@@ -235,6 +237,9 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint("position_count >= 0", name="ck_holdings_valuation_snapshots_count"),
         sa.CheckConstraint("length(snapshot_hash) = 64", name="ck_holdings_valuation_snapshots_hash"),
+        sa.CheckConstraint(
+            "manual_valuation_attested IN (0, 1)", name="ck_holdings_valuation_snapshots_attested",
+        ),
         sa.CheckConstraint(
             "coverage_status <> 'COMPLETE' OR (total_base_minor IS NOT NULL AND advisory_base_minor IS NOT NULL "
             "AND blocker_codes_json = '[]')",
@@ -330,6 +335,10 @@ def upgrade() -> None:
     op.create_index("ix_position_decision_ledger_mandate", LEDGER, ["tenant_id", "mandate_id"])
 
     op.add_column("wealth_inflows", sa.Column("currency", sa.String(), nullable=True))
+    # N-909-07: Tenant-Policy Kursfrische (NULL = Default 5) und maximales Alter
+    # manueller Bewertungen (NULL = Bestaetigungspflicht je Finalisierung).
+    op.add_column("tenants", sa.Column("fx_max_age_days", sa.Integer(), nullable=True))
+    op.add_column("tenants", sa.Column("manual_valuation_max_age_days", sa.Integer(), nullable=True))
 
     dialect = _dialect()
     if dialect == "sqlite":
@@ -349,6 +358,8 @@ def downgrade() -> None:
     elif dialect == "sqlite":
         for name in _SQLITE_TRIGGER_NAMES:
             op.execute(f"DROP TRIGGER IF EXISTS {name}")
+    op.drop_column("tenants", "manual_valuation_max_age_days")
+    op.drop_column("tenants", "fx_max_age_days")
     op.drop_column("wealth_inflows", "currency")
     op.drop_index("ix_position_decision_ledger_mandate", table_name=LEDGER)
     op.drop_index("ix_position_decision_ledger_tenant_id", table_name=LEDGER)
