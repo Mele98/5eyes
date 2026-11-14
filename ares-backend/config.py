@@ -38,6 +38,19 @@ def refuse_owner_db_settings(cfg, *, context: str) -> None:
     refuse_owner_db_file(_db_location.sqlite_url_file(getattr(cfg, "database_url", None)), context=context)
 
 
+def guarded_sqlite_connect(target, *, context: str, connector=None, **kwargs):
+    """H11 N2 (C-907-01): EINZIGE Stelle fuer rohe sqlite3-/sqlcipher3-Connects
+    (Schema-Bootstrap, Backup/Restore, Skripte, DDL-Probe). Dieselbe Owner-Pfad-
+    Pruefung wie der Engine-Waechter, VOR dem Oeffnen/Anlegen der Datei.
+    ``connector`` ist z. B. ``sqlcipher3.connect``; Default stdlib ``sqlite3``."""
+    if connector is None:
+        import sqlite3
+
+        connector = sqlite3.connect
+    refuse_owner_db_file(str(target), context=context)
+    return connector(target, **kwargs)
+
+
 def _install_owner_db_guard() -> None:
     """Einmalig: VOR jedem SQLite-DBAPI-Connect jeder Engine (bevor SQLite die Datei anlegt)."""
     from sqlalchemy import event
@@ -47,8 +60,15 @@ def _install_owner_db_guard() -> None:
         if dialect.name == "sqlite":
             refuse_owner_db_file(_db_location.connect_target(cargs, cparams), context="Datenbank")
 
+    def _attach_guard(conn, cursor, statement, parameters, context, executemany):  # noqa: ARG001
+        # N-907-02: ATTACH legt eine Datei ohne do_connect an -- dieselbe Pruefung.
+        if conn.dialect.name == "sqlite":
+            for target in _db_location.attach_targets(statement, parameters):
+                refuse_owner_db_file(target, context="ATTACH")
+
     if not getattr(Engine, "_ares_owner_db_guard", False):
         event.listen(Engine, "do_connect", _guard)
+        event.listen(Engine, "before_cursor_execute", _attach_guard)
         Engine._ares_owner_db_guard = True
 
 

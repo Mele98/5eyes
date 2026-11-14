@@ -45,7 +45,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from config import settings
+from config import guarded_sqlite_connect, settings
 from database import SQLCIPHER_AVAILABLE, _sqlcipher_enabled, apply_sqlcipher_key, sqlcipher3
 
 logger = logging.getLogger(__name__)
@@ -543,14 +543,14 @@ def _open_connection(path_or_uri: str, *, uri: bool, db_key: str | None) -> sqli
                 "installiert -- Backup/Restore einer verschluesselten Datenbank "
                 "ist nicht moeglich. Installiere sqlcipher3-binary oder sqlcipher3."
             )
-        conn = sqlcipher3.connect(path_or_uri, uri=uri)
+        conn = guarded_sqlite_connect(path_or_uri, context='Backup', connector=sqlcipher3.connect, uri=uri)
         try:
             apply_sqlcipher_key(conn, key or "")
         except Exception:
             conn.close()
             raise
         return conn
-    return sqlite3.connect(path_or_uri, uri=uri)
+    return guarded_sqlite_connect(path_or_uri, context='Backup', uri=uri)
 
 
 def _integrity_check_ok(db_path: Path, *, db_key: str | None = None) -> bool:

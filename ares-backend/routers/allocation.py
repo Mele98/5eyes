@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from core.db_integrity import raise_if_check_violation
+import logging
 from datetime import date, datetime, timezone
 from typing import Optional
 import json
@@ -121,6 +122,7 @@ from services.risk_capacity_evaluation_snapshot import (
 from services.solver_admission import admit as _admit_solver_slot
 
 router = APIRouter(tags=["Allokation"])
+_bootstrap_logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -143,8 +145,10 @@ def seed_reference_data_at_bootstrap(db: Session, user_id: str) -> bool:
         ensure_runtime_reference_data(db, user_id, jurisdiction="CH")
         db.commit()
         return True
-    except ValueError:
+    except Exception as exc:  # noqa: BLE001 -- N-907-04: die Ersteinrichtung scheitert nie
         db.rollback()
+        # Nur der Fehlertyp, keine Personen- oder Kontodaten.
+        _bootstrap_logger.warning("Bootstrap: CH-Referenzdaten nicht angelegt (%s)", type(exc).__name__)
         return False
 
 

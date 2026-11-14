@@ -30,7 +30,7 @@ import core.db_location as loc
 
 BACKEND = Path(__file__).resolve().parents[1]
 REPO = BACKEND.parent
-REQUIRED_ENV = {"HOME", "APPDATA", "LOCALAPPDATA", "DB_PATH"}
+REQUIRED_ENV = {"HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "DB_PATH"}  # N-907-08: USERPROFILE
 
 
 # --- 1. Owner-DB-Waechter -------------------------------------------------------
@@ -115,13 +115,16 @@ def test_guards_sit_before_logging_and_raw_schema_bootstrap():
     life = inspect.getsource(main.lifespan)
     assert life.index("refuse_owner_db_settings(settings") < life.index("configure_logging()") < life.index("init_db()")
     boot = inspect.getsource(database.bootstrap_sqlite_schema)
-    assert boot.index("refuse_owner_db_file(db_file") < boot.index("sqlite3.connect")
+    assert boot.index("refuse_owner_db_file(db_file") < boot.index("guarded_sqlite_connect(")
+    assert "sqlite3.connect(" not in boot.replace("connector=sqlcipher3.connect", "")  # N2: nur zentral
 
 
 def test_desktop_shell_and_alembic_wire_the_guard():
     main_js = (REPO / "ares-desktop" / "main.js").read_text(encoding="utf-8")
     env_fn = main_js[main_js.index("function buildBackendChildEnv("):]
-    assert "ARES_OWNER_DB_OPT_IN: '1'" in env_fn[:env_fn.index("\n}\n")]
+    # N-907-03: nur im gepackten Produktivstart (Verhalten: ares-desktop/tests/main.smoke.test.js).
+    assert "if (ownerDbOptInAllowed()) env.ARES_OWNER_DB_OPT_IN = '1';" in env_fn[:env_fn.index("\n}\n")]
+    assert "return Boolean(isPackaged) && env.NODE_ENV !== 'test' && env.ARES_TEST !== '1';" in main_js
     alembic_env = (BACKEND / "alembic" / "env.py").read_text(encoding="utf-8")
     assert 'refuse_owner_db_file(sqlite_url_file(config.get_main_option("sqlalchemy.url")), context="alembic")' in alembic_env
     assert "\n_install_owner_db_guard()\n" in (BACKEND / "config.py").read_text(encoding="utf-8")
@@ -203,7 +206,7 @@ def backend_fixture_violations(source: str, rel: str) -> list[str]:
 
 
 def _backend_fixture_files() -> list[Path]:
-    return sorted(p for p in (BACKEND / "tests").glob("*.py")
+    return sorted(p for p in (BACKEND / "tests").rglob("*.py")  # N-907-08: rekursiv
                   if ("uvicorn" in (t := p.read_text(encoding="utf-8")) or "main:app" in t) and p.name != Path(__file__).name)
 
 
@@ -216,7 +219,7 @@ def test_every_backend_fixture_isolates_home_appdata_and_db_path():
 
 def test_fixture_guard_negative_control():
     bad = ("import subprocess, sys, os\n"
-           "def server():\n    env = {**os.environ, 'HOME': 'x', 'DB_PATH': 'y'}\n"
+           "def server():\n    env = {**os.environ, 'HOME': 'x', 'USERPROFILE': 'x', 'DB_PATH': 'y'}\n"
            "    subprocess.Popen([sys.executable, '-m', 'uvicorn', 'main:app'], env=env)\n"
            "def bare():\n    subprocess.Popen([sys.executable, '-m', 'uvicorn', 'main:app'])\n")
     assert backend_fixture_violations(bad, "x.py") == [

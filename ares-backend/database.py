@@ -13,7 +13,14 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import QueuePool
 
-from config import DB_KEY_FORMAT_MESSAGE, db_key_format_ok, owner_db_refusal, refuse_owner_db_file, settings
+from config import (
+    DB_KEY_FORMAT_MESSAGE,
+    db_key_format_ok,
+    guarded_sqlite_connect,
+    owner_db_refusal,
+    refuse_owner_db_file,
+    settings,
+)
 from core.mandate_evidence_tenant_boundary import (
     MANDATE_BOUND_TENANT_TABLES,
     create_sqlite_guards_after_metadata_create,
@@ -313,7 +320,7 @@ def bootstrap_sqlite_schema(
         key = db_key or settings.db_key or ''
         if not db_key_format_ok(key):
             raise ValueError(DB_KEY_FORMAT_MESSAGE)
-        with sqlcipher3.connect(str(db_file)) as conn:
+        with guarded_sqlite_connect(str(db_file), context='Schema-Bootstrap', connector=sqlcipher3.connect) as conn:
             apply_sqlcipher_key(conn, key)
             conn.execute('PRAGMA foreign_keys = OFF')
             try:
@@ -325,7 +332,7 @@ def bootstrap_sqlite_schema(
             conn.commit()
         return
 
-    with sqlite3.connect(str(db_file)) as conn:
+    with guarded_sqlite_connect(str(db_file), context='Schema-Bootstrap') as conn:
         conn.execute('PRAGMA foreign_keys = OFF')
         try:
             conn.executescript(sql)
