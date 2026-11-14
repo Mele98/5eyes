@@ -1304,6 +1304,7 @@ def create_sustainability_preference(
         db.commit()
     except IntegrityError as exc:
         db.rollback()
+        raise_if_check_violation(exc)
         raise _sustainability_error(
             "Die Nachhaltigkeitspräferenz wurde gleichzeitig geändert. Bitte neu laden.",
             ReasonCode.SUSTAINABILITY_PREFERENCE_CONFLICT, 409,

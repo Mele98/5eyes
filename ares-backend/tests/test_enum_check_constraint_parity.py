@@ -81,6 +81,8 @@ EXPLICIT_TARGETS: dict[str, str] = {
     "schemas.review.ConflictMitigateRequest": "conflict_of_interest_disclosures",
     "schemas.protocol_bausteine.BausteinCreate": "protocol_bausteine",
     "schemas.protocol_bausteine.BausteinUpdate": "protocol_bausteine",
+    # RC-CH-1 Teil 2b (E2 x F1): Erfassung der Nachhaltigkeitspraeferenz.
+    "schemas.profiling.SustainabilityPreferenceCreate": "investment_preference_decisions",
 }
 
 # N-903-01: freie ``str``-Felder, die in eine CHECK-Spalte schreiben. Keine
