@@ -1934,6 +1934,27 @@
    "class": "COMPUTATION_KEEP",
    "status": "",
    "reason": "make_y_tick_formatter: Achsen-Tick (float) -> ganze Rappen; Formatierung ueber format_chf_rappen (Achse)."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "renderCurrentWealthOnlyProjectionSummary({labels:labels,currency:p.currency,projectedRappen:baselineProjection.projectedRappen,expectedReturnBps:Math.round(baselineRate*10000)});  // G7 N4: Waehrung der Quelle",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadPersona (H9-Demo-Persona ohne Strategie): `Math.round(baselineRate*10000)` -> Feld expectedReturnBps; Eingabe -> Integer-bps (Rechenwert, keine Anzeige); Anzeige danach ueber fmtPct (gemeinsamer Formatter) in renderCurrentWealthOnlyProjectionSummary"
+  },
+  {
+   "file": "ares-desktop/frontend/ist-projection-basis.js",
+   "source": "return isFinite(h)?Math.max(1,Math.min(80,Math.round(h))):null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "IST-Projektionsbasis (H9 Nachtrag 2): `Math.round(h)` -> Horizont in ganzen Jahren (1..80) als Rechengroesse der Projektion; Ganzzahlige Skala (Jahre), keine Anzeige"
+  },
+  {
+   "file": "ares-desktop/frontend/ist-projection-gate.js",
+   "source": "return Math.round(Number(totalSeries[i]||0)+(Number(targetSeries[j]||0)-Number(advisoryCurrentSeries[j]||0)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderIstProjectionChart (H9): `Math.round(total + (soll - ist))` -> Datenpunkt der verbesserten Reihe in Rappen; Projektions-/Reihenberechnung (Rappen, keine Anzeige); Achsen/Tooltip formatieren ueber den gemeinsamen Formatter"
   }
  ]
 }

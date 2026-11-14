@@ -865,20 +865,6 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "code": "<div><div style=\"font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px\">Ist Terminal</div><div id=\"ub-ist-terminal\" style=\"font-family:var(--f-d);font-size:15px;color:var(--warn)\">CHF 5.4 Mio</div></div>",
-   "count": 1,
-   "context": "#ub-ist-terminal",
-   "reason": "ares.html #ub-ist-terminal: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "<div><div style=\"font-size:9px;text-transform:uppercase;letter-spacing:0.07em;color:var(--n4);margin-bottom:2px\">Verbessert</div><div id=\"ub-opt-terminal\" style=\"font-family:var(--f-d);font-size:15px;color:var(--pos)\">CHF 6.1 Mio</div></div>",
-   "count": 1,
-   "context": "#ub-opt-terminal",
-   "reason": "ares.html #ub-opt-terminal: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
    "code": "<div><label style=\"font-size:9px;color:var(--n4);display:block;margin-bottom:2px\">CHF IG Rendite</label><input class=\"fi\" id=\"admin-cma-bond-chf-return\" type=\"number\" step=\"0.1\" style=\"font-size:11px\"></div>",
    "count": 1,
    "context": "#admin-cma-bond-chf-return",
