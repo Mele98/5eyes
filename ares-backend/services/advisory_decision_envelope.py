@@ -22,6 +22,18 @@ die Mandatszeile ist bereits gesperrt):
    paralleler Versiegelung gewinnt genau eine Transaktion, die andere endet
    mit ``CCX_ENVELOPE_UNSEALED``.
 
+CCX-P2 (Vertrag 2026-11-13 §5) ergaenzt: die Versiegelung sperrt die
+Mandatszeile selbst (PostgreSQL), schreibt je Abhaengigkeit eine Kante
+(``advisory_dependency_edges``) und setzt den Envelope erst damit FRESH. Ein
+verspaetetes Ergebnis (Manifest beim Start != Manifest beim Commit) endet mit
+``CCX_RESULT_SUPERSEDED``; eine Invalidation des entstehenden DRAFT durch den
+zentralen Mutation Hook (models/snapshots.py) mit ``CCX_INVALIDATION_RACE``
+(Audit ``ccx.envelope.race_rejected``). Ausgeliefert wird nur ein FRESH-
+Entscheid: STALE -> ``CCX_INPUT_STALE``, UNKNOWN -> ``CCX_FRESHNESS_UNKNOWN``;
+vor der Auslieferung werden die Kanten zusaetzlich gegen die aktuellen
+Objekte geprueft (Abweichung -> Ereignis + STALE). Jedes Invalidations-
+ereignis wird im selben Commit als ``ccx.envelope.invalidated`` auditiert.
+
 Jede Ablehnung verwirft die offene Transaktion, setzt den Tenant-Kontext der
 Session wieder (H7-Muster, N-884-09) und schreibt einen tenant- und
 mandatsgebundenen Audit-Eintrag ``ccx.envelope.rejected`` (IDs und Hashes,
@@ -35,6 +47,7 @@ import logging
 from typing import Any
 
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
@@ -56,17 +69,33 @@ from database import new_uuid
 from models.allocation import TargetAllocation
 from models.review import RecommendationPosition, RecommendationRun
 from models.snapshots import (
+    ACTOR_INFO_KEY,
+    FRESHNESS_FRESH,
+    FRESHNESS_STALE,
+    FRESHNESS_UNKNOWN,
+    REFERENCE_KINDS,
     AdvisoryDecisionEnvelope,
+    AdvisoryDependencyEdge,
     AdvisoryEffectiveInputManifest,
     AdvisoryEnvelopeBinding,
+    AdvisoryInvalidationEvent,
     HoldingsValuationSnapshot,
     PositionDecisionLedger,
+    mark_envelope_stale,
+    register_invalidation_audit_sink,
+    signed_decision_sql,
 )
-from services.advisory_cache_scope import advisory_cache_key
+from services.advisory_cache_scope import ADVISORY_REPORT_CONSUMER, advisory_cache_key
 from services.advisory_envelope_integrity import MANIFEST_BINDING_KIND, envelope_integrity_defect
 from services.advisory_snapshot_transaction import RETRY, classify_snapshot_consistency
 from services.audit import log, restore_tenant_after_rollback
-from services.effective_input_manifest import build_manifest_record, collect_effective_input_components
+from services.effective_input_manifest import (
+    build_manifest_record,
+    collect_dependency_parts,
+    collect_effective_input_components,
+    components_from_parts,
+    empty_required_kinds,
+)
 from services.tenant_context import set_tenant_context
 
 logger = logging.getLogger(__name__)
@@ -75,6 +104,8 @@ AUDIT_TABLE = "advisory_decision_envelopes"
 AUDIT_SEALED = "ccx.envelope.sealed"
 AUDIT_REJECTED = "ccx.envelope.rejected"
 AUDIT_SUPERSEDED = "ccx.envelope.superseded"
+AUDIT_INVALIDATED = "ccx.envelope.invalidated"
+AUDIT_RACE_REJECTED = "ccx.envelope.race_rejected"
 
 # Lebenszyklus-Spalten, die NICHT zum Entscheidinhalt gehoeren (aendern sich
 # nach dem Siegel legitim, z. B. Final -> Superseded).
@@ -122,14 +153,39 @@ def current_sealed_envelope(
 
 
 def advisory_report_cache_scope(db: Session, mandate: Any) -> str:
-    """CCX-10: Cache-Scope (tenant, mandate, envelope_hash) des Advisory-Reports."""
+    """CCX-10: Cache-Scope (tenant, mandate, envelope_hash) des Advisory-Reports.
+
+    CCX-P2: ein nicht FRESHer Entscheid traegt Frische und
+    ``optimistic_version`` im Consumer-Vertrag -- jede Invalidation ergibt
+    damit einen neuen Scope, ein vor der Mutation gecachter Report wird nie
+    wiederverwendet."""
     tenant_id = mandate_tenant(mandate) or "unbound"
-    row = db.query(AdvisoryDecisionEnvelope.envelope_hash).filter(
+    row = db.query(
+        AdvisoryDecisionEnvelope.envelope_hash,
+        AdvisoryDecisionEnvelope.freshness_status,
+        AdvisoryDecisionEnvelope.optimistic_version,
+    ).filter(
         AdvisoryDecisionEnvelope.tenant_id == tenant_id,
         AdvisoryDecisionEnvelope.mandate_id == str(mandate.id),
         AdvisoryDecisionEnvelope.status == "SEALED",
     ).first()
-    return advisory_cache_key(tenant_id, str(mandate.id), row[0] if row else None)
+    if row is None:
+        return advisory_cache_key(tenant_id, str(mandate.id), None)
+    if row[1] == FRESHNESS_FRESH:
+        # N-908-01: gespeicherter Status allein genuegt nicht -- Kanten pruefen
+        # (lesend); eine Abweichung ergibt einen eigenen, nicht FRESHen Scope.
+        envelope = current_sealed_envelope(db, tenant_id, str(mandate.id))
+        defect = envelope_freshness_defect(db, envelope, mandate=mandate, persist=False) if envelope else None
+        if defect is None:
+            return advisory_cache_key(tenant_id, str(mandate.id), row[0])
+        return advisory_cache_key(
+            tenant_id, str(mandate.id), row[0],
+            consumer_contract_version=f"{ADVISORY_REPORT_CONSUMER}#PULL:{defect[0]}#{defect[1]}",
+        )
+    return advisory_cache_key(
+        tenant_id, str(mandate.id), row[0],
+        consumer_contract_version=f"{ADVISORY_REPORT_CONSUMER}#{row[1]}#{int(row[2])}",
+    )
 
 
 # ── Audit ────────────────────────────────────────────────────────────────────
@@ -149,15 +205,17 @@ def _reject(
     tenant_id: str | None,
     ip_address: str | None,
     record_id: str | None,
+    audit_field: str = AUDIT_REJECTED,
     **refs: Any,
 ) -> AdvisoryEnvelopeError:
     """Verwirft offene Aenderungen, setzt den Tenant-Kontext wieder, schreibt
-    und committet ``ccx.envelope.rejected`` -- danach wirft der Aufrufer."""
+    und committet ``ccx.envelope.rejected`` (bzw. ``ccx.envelope.
+    race_rejected``) -- danach wirft der Aufrufer."""
     restore_tenant_after_rollback(db, set_tenant_context)
     log(
         db, user_id=user.id, user_name=getattr(user, "full_name", None) or getattr(user, "username", ""),
         table_name=AUDIT_TABLE, record_id=str(record_id or getattr(mandate, "id", "") or "-"),
-        action="CREATE", field_name=AUDIT_REJECTED,
+        action="CREATE", field_name=audit_field,
         new_value=_audit_value(error.reason_code, **refs),
         mandate_id=getattr(mandate, "id", None), client_id=getattr(mandate, "client_id", None),
         ip_address=ip_address, tenant_id=tenant_id,
@@ -233,6 +291,7 @@ def seal_advisory_envelope(
     user: Any,
     ip_address: str | None = None,
     valuation: Any = None,
+    expected_manifest_hash: str | None = None,
 ) -> AdvisoryDecisionEnvelope:
     """Erzeugt, bindet und versiegelt den Envelope der finalisierten Empfehlung
     ``run`` (Transaktion des Aufrufers; der Commit folgt dort).
@@ -241,7 +300,12 @@ def seal_advisory_envelope(
     ein COMPLETE-Snapshot (alle Preise/Kurse belegt und frisch, eine FX-Basis)
     wird gebunden, sonst endet die Finalisierung mit dem typisierten Code
     (CCX_VALUATION_* / CCX_FX_BASIS_*) und Audit. Je bestehender Depotposition
-    wird ein Entscheid KEEP/SELL/REVIEW im Ledger gebunden."""
+    wird ein Entscheid KEEP/SELL/REVIEW im Ledger gebunden.
+
+
+    ``expected_manifest_hash`` (CCX-P2): der beim Start der Berechnung bzw.
+    des Requests gelesene Manifest-Hash; weicht er vom Hash beim Siegel ab,
+    ist das Ergebnis verspaetet -> ``CCX_RESULT_SUPERSEDED``."""
     tenant_id = mandate_tenant(mandate)
     common = {"user": user, "mandate": mandate, "tenant_id": tenant_id, "ip_address": ip_address}
     if tenant_id is None:
@@ -291,6 +355,13 @@ def seal_advisory_envelope(
             fx_basis_hash=projection.fx_basis_hash, **common)
     ledger_entries = valuation.ledger_entries
     ledger_digest = valuation.ledger_hash
+    # CCX-P2: dieselbe Mandatssperre wie der Mutation Hook (PostgreSQL) --
+    # eine parallele Mutation wartet bis zum Commit und invalidiert danach.
+    lock_mandate_row(db, str(mandate.id))
+    # N-908-01 (b): die gebundenen Referenzzeilen (CMA, Optimizer-/CMA-Policy,
+    # Hausmatrix/Bausteine) FOR SHARE -- eine parallele Aenderung wartet bis zum
+    # Siegel-Commit und sieht danach die Kanten (Hook invalidiert).
+    lock_bound_reference_rows(db, run=run, target_allocation=ta)
     try:
         before = collect_effective_input_components(db, mandate=mandate, run=run, target_allocation=ta)
         record = build_manifest_record(
@@ -305,6 +376,13 @@ def seal_advisory_envelope(
             "nicht eindeutig festhalten.",
         ), record_id=run.id, run=run.id, stage="manifest",
             unknown=",".join(getattr(exc, "groups", ())) or None, **common) from exc
+    if expected_manifest_hash is not None and expected_manifest_hash != manifest_digest:
+        raise _reject(db, AdvisoryEnvelopeError(
+            ReasonCode.CCX_RESULT_SUPERSEDED,
+            "Die Beratungsdaten wurden seit dem Start der Berechnung geaendert; das Ergebnis ist "
+            "ueberholt. Bitte neu berechnen.",
+        ), record_id=run.id, run=run.id, stage="result", expected_manifest_hash=expected_manifest_hash,
+            manifest_hash=manifest_digest, audit_field=AUDIT_RACE_REJECTED, **common)
 
     now = utc_now()
     predecessor = current_sealed_envelope(db, tenant_id, str(mandate.id), for_update=True)
@@ -391,8 +469,11 @@ def seal_advisory_envelope(
                 "Nicht jede bestehende Position hat einen Entscheid (Halten/Verkaufen/Pruefen).",
             ), record_id=run.id, stage="ledger", **refs, **common)
         # Snapshot-Fence: dieselben Inputs unmittelbar vor dem Siegel erneut.
+        after_parts: list = []
         try:
-            after = collect_effective_input_components(db, mandate=mandate, run=run, target_allocation=ta)
+            after = collect_effective_input_components(
+                db, mandate=mandate, run=run, target_allocation=ta, parts_out=after_parts,
+            )
         except (CanonicalPayloadError, ValueError):
             after = {}  # unbekannt geworden -> nie konsistent (RETRY)
         # CCX-P3: Marktdaten-/Bestandswechsel waehrend des Laufs -> der gebundene
@@ -404,20 +485,46 @@ def seal_advisory_envelope(
                 "finalisieren.",
             ), record_id=run.id, stage="valuation_fence", valuation_hash=projection.snapshot_hash, **refs,
                 **common)
-        if classify_snapshot_consistency(before, after) == RETRY:
+        # CCX-P2: hat der Mutation Hook den entstehenden DRAFT invalidiert,
+        # ist das ein Wettlauf Mutation <-> Versiegelung -- kein Siegel.
+        if _draft_invalidated(db, envelope_id):
+            raise _reject(db, AdvisoryEnvelopeError(
+                ReasonCode.CCX_INVALIDATION_RACE,
+                "Die Beratungsdaten wurden waehrend der Versiegelung geaendert. Bitte erneut finalisieren.",
+            ), record_id=run.id, stage="invalidated", audit_field=AUDIT_RACE_REJECTED, **refs, **common)
+        if (classify_snapshot_consistency(before, after) == RETRY
+                or components_from_parts(after_parts) != before):
             raise _reject(db, AdvisoryEnvelopeError(
                 ReasonCode.CCX_INPUT_MANIFEST_MISMATCH,
                 "Die Beratungsdaten wurden waehrend der Versiegelung geaendert. Bitte erneut finalisieren.",
             ), record_id=run.id, stage="fence", **refs, **common)
+        # CCX-P2: Abhaengigkeitskanten derselben Lesung (FRESH nur damit).
+        for part in after_parts:
+            db.add(AdvisoryDependencyEdge(
+                id=new_uuid(), tenant_id=tenant_id, envelope_id=envelope_id,
+                dependency_kind=part.kind, dependency_object_id=part.object_id,
+                dependency_version=part.version, dependency_hash=part.dependency_hash,
+                observed_at=now, created_by=user.id,
+            ))
+        db.flush()
         sealed = db.query(AdvisoryDecisionEnvelope).filter(
             AdvisoryDecisionEnvelope.id == envelope_id,
             AdvisoryDecisionEnvelope.status == "DRAFT",
             AdvisoryDecisionEnvelope.optimistic_version == 1,
+            AdvisoryDecisionEnvelope.freshness_status == FRESHNESS_UNKNOWN,
         ).update({
             "status": "SEALED", "canonical_payload_json": canonical, "envelope_hash": digest,
             "sealed_at": now, "sealed_by": user.id, "optimistic_version": 2,
+            # Leere Pflicht-Inputgruppe (z. B. keine Ziele, kein Risikoprofil):
+            # versiegelt, aber UNKNOWN -- nie FRESH (unknown != fresh).
+            "freshness_status": FRESHNESS_UNKNOWN if empty_required_kinds(after_parts) else FRESHNESS_FRESH,
         }, synchronize_session=False)
         if sealed != 1:
+            if _draft_invalidated(db, envelope_id):
+                raise _reject(db, AdvisoryEnvelopeError(
+                    ReasonCode.CCX_INVALIDATION_RACE,
+                    "Die Beratungsdaten wurden waehrend der Versiegelung geaendert. Bitte erneut finalisieren.",
+                ), record_id=run.id, stage="invalidated", audit_field=AUDIT_RACE_REJECTED, **refs, **common)
             raise _reject(db, AdvisoryEnvelopeError(
                 ReasonCode.CCX_ENVELOPE_UNSEALED,
                 "Der Beratungsentscheid konnte nicht versiegelt werden. Bitte neu laden.",
@@ -433,6 +540,11 @@ def seal_advisory_envelope(
                 "Der Beratungsentscheid verletzt eine Datenbankregel und wurde nicht versiegelt.",
                 http_status=422,
             ), record_id=run.id, stage="check", **refs, **common) from exc
+        if "CCX_INVALIDATION_RACE" in str(exc):
+            raise _reject(db, AdvisoryEnvelopeError(
+                ReasonCode.CCX_INVALIDATION_RACE,
+                "Die Beratungsdaten wurden parallel geaendert. Bitte erneut finalisieren.",
+            ), record_id=run.id, stage="race", audit_field=AUDIT_RACE_REJECTED, **refs, **common) from exc
         raise _reject(db, AdvisoryEnvelopeError(
             ReasonCode.CCX_ENVELOPE_UNSEALED,
             "Der Beratungsentscheid wurde parallel versiegelt. Bitte neu laden.",
@@ -442,6 +554,16 @@ def seal_advisory_envelope(
     except DBAPIError as exc:
         db.rollback()
         logger.warning("CCX-P1: Versiegelung von der Datenbank abgelehnt | mandate=%s: %s", mandate.id, exc)
+        if "CCX_INVALIDATION_RACE" in str(exc):
+            raise _reject(db, AdvisoryEnvelopeError(
+                ReasonCode.CCX_INVALIDATION_RACE,
+                "Die Beratungsdaten wurden parallel geaendert. Bitte erneut finalisieren.",
+            ), record_id=run.id, stage="race", audit_field=AUDIT_RACE_REJECTED, **refs, **common) from exc
+        if "CCX_FRESHNESS_UNKNOWN" in str(exc):
+            raise _reject(db, AdvisoryEnvelopeError(
+                ReasonCode.CCX_FRESHNESS_UNKNOWN,
+                "Der Beratungsentscheid kann ohne Abhaengigkeitskanten nicht als aktuell versiegelt werden.",
+            ), record_id=run.id, stage="freshness", **refs, **common) from exc
         raise _reject(db, AdvisoryEnvelopeError(
             ReasonCode.CCX_ENVELOPE_UNSEALED,
             "Der Beratungsentscheid konnte nicht versiegelt werden.",
@@ -486,6 +608,9 @@ def envelope_view(envelope: AdvisoryDecisionEnvelope) -> dict[str, Any]:
         "sealed_at": envelope.sealed_at,
         "sealed_by": envelope.sealed_by,
         "optimistic_version": envelope.optimistic_version,
+        "freshness_status": envelope.freshness_status,
+        "stale_at": envelope.stale_at,
+        "stale_reason_code": envelope.stale_reason_code,
         "bindings": [
             {name: item[name] for name in (
                 "binding_kind", "ordinal", "object_type", "object_id", "object_version", "child_hash",
@@ -552,18 +677,353 @@ def current_verified_envelope(
             extra={"envelope_id": envelope.id},
         ), user=user, mandate=mandate, tenant_id=tenant_id, ip_address=ip_address, record_id=envelope.id,
             envelope_hash=envelope.envelope_hash, detail=detail)
+    assert_envelope_fresh(db, envelope=envelope, mandate=mandate, user=user, ip_address=ip_address)
     return envelope_view(envelope)
 
 
+# ── CCX-P2: Frische, Wettlauf, Gate ──────────────────────────────────────────
+
+
+def lock_mandate_row(db: Session, mandate_id: str) -> None:
+    """PostgreSQL: Mandatszeile fuer die Transaktion sperren (dieselbe Sperre
+    wie Finalisierung und Mutation Hook). SQLite serialisiert Schreiber
+    ohnehin; dort ist das ein No-op."""
+    bind = db.get_bind()
+    if str(getattr(getattr(bind, "dialect", None), "name", "")).startswith("postgresql"):
+        db.execute(text("SELECT id FROM mandates WHERE id = :mandate_id FOR UPDATE"), {"mandate_id": mandate_id})
+
+
+def lock_bound_reference_rows(db: Session, *, run: Any, target_allocation: Any) -> None:
+    """PostgreSQL: Referenzzeilen eines entstehenden Entscheids ``FOR SHARE``
+    sperren (SQLite: Schreiber serialisiert, No-op)."""
+    bind = db.get_bind()
+    if not str(getattr(getattr(bind, "dialect", None), "name", "")).startswith("postgresql"):
+        return
+    cma_id = getattr(run, "capital_market_assumptions_id", None) or getattr(
+        target_allocation, "capital_market_assumptions_id", None,
+    )
+    policy_id = getattr(target_allocation, "policy_id", None) or getattr(run, "policy_id", None)
+    cma_policy_id = getattr(run, "cma_policy_row_id", None)
+    for sql, value in (
+        ("SELECT id FROM capital_market_assumptions WHERE id = :v ORDER BY id FOR SHARE", cma_id),
+        ("SELECT id FROM optimizer_policies WHERE id = :v ORDER BY id FOR SHARE", policy_id),
+        ("SELECT id FROM house_matrix WHERE policy_id = :v ORDER BY id FOR SHARE", policy_id),
+        ("SELECT id FROM building_blocks WHERE policy_id = :v ORDER BY id FOR SHARE", policy_id),
+        ("SELECT id FROM cma_policies WHERE id = :v ORDER BY id FOR SHARE", cma_policy_id),
+    ):
+        if value:
+            db.execute(text(sql), {"v": str(value)})
+
+
+def _draft_invalidated(db: Session, envelope_id: str) -> bool:
+    """True, wenn der Mutation Hook den entstehenden DRAFT invalidiert hat
+    (STALE oder Version != 1) oder er verschwunden ist (fail-closed)."""
+    row = db.execute(text(
+        "SELECT freshness_status, optimistic_version FROM advisory_decision_envelopes WHERE id = :envelope_id"
+    ), {"envelope_id": envelope_id}).first()
+    return row is None or row[0] == FRESHNESS_STALE or int(row[1]) != 1
+
+
+def dependency_is_current(bound: str | None, current: str | None) -> bool:
+    """Eine gebundene Abhaengigkeit ist nur aktuell, wenn beide Seiten bekannt
+    und gleich sind (unknown != current)."""
+    return bool(bound) and bool(current) and str(bound) == str(current)
+
+
+def goal_binding_is_current(envelope: Any, current_goals_hash: str | None) -> bool:
+    """CCX-01: eine Zieländerung macht den bisherigen Entscheid nicht-aktuell.
+
+    ``envelope`` traegt den beim Siegel gebundenen Ziel-Hash
+    (``goal_schedule_hash`` oder ``goals_hash``); fehlt er oder ist der
+    aktuelle Hash unbekannt, ist die Bindung nicht aktuell."""
+    bound = None
+    if isinstance(envelope, dict):
+        bound = envelope.get("goal_schedule_hash") or envelope.get("goals_hash")
+    else:
+        bound = getattr(envelope, "goal_schedule_hash", None) or getattr(envelope, "goals_hash", None)
+    return dependency_is_current(bound, current_goals_hash)
+
+
+def envelope_freshness_status(envelope: Any) -> dict[str, Any]:
+    """Serverstatus der Frische (fuer Anzeige; keine Neuberechnung)."""
+    return {
+        "envelope_id": envelope.id,
+        "envelope_hash": envelope.envelope_hash,
+        "freshness_status": envelope.freshness_status,
+        "stale_at": envelope.stale_at,
+        "stale_reason_code": envelope.stale_reason_code,
+        "optimistic_version": envelope.optimistic_version,
+    }
+
+
+def _invalidate_drift(db: Session, envelope: Any, drift: list[tuple[Any, Any]], user: Any) -> None:
+    """Pull-Pruefung fand Abweichungen: Ereignisse + STALE im eigenen Commit,
+    je Ereignis ``ccx.envelope.invalidated``."""
+    connection = db.connection()
+    actor = getattr(user, "id", None) or db.info.get(ACTOR_INFO_KEY)
+    user_name = getattr(user, "full_name", None) or getattr(user, "username", "") or "system"
+    for edge, part in drift:
+        sequence = mark_envelope_stale(
+            connection, envelope_id=envelope.id, tenant_id=envelope.tenant_id, mandate_id=envelope.mandate_id,
+            source_kind=edge.dependency_kind, source_object_id=edge.dependency_object_id,
+            old_hash=edge.dependency_hash, new_hash=getattr(part, "dependency_hash", None), actor=actor,
+        )
+        if sequence is None:
+            continue
+        log(db, user_id=str(actor or "system"), user_name=user_name, table_name=AUDIT_TABLE,
+            record_id=envelope.id, action="UPDATE", field_name=AUDIT_INVALIDATED,
+            new_value=_audit_value(
+                ReasonCode.CCX_INPUT_STALE, invalidation_sequence=sequence, source_kind=edge.dependency_kind,
+                source_object=edge.dependency_object_id, operation="gate_drift",
+                old_hash=edge.dependency_hash, new_hash=getattr(part, "dependency_hash", None),
+            ),
+            mandate_id=envelope.mandate_id, tenant_id=envelope.tenant_id)
+    db.commit()
+
+
+def decision_signed(db: Session, envelope: Any) -> bool:
+    """Ist der Entscheid vom Kunden unterzeichnet (signiertes, nicht geloeschtes
+    Dokument an seiner Soll-Allokation)? Siehe ``models.snapshots.SIGNED_DECISION_SQL``."""
+    return bool(db.execute(text(
+        f"SELECT CASE WHEN {signed_decision_sql(db.connection())} THEN 1 ELSE 0 END "
+        "FROM advisory_decision_envelopes e WHERE e.id = :envelope_id"
+    ), {"envelope_id": envelope.id}).scalar())
+
+
+def envelope_freshness_defect(
+    db: Session, envelope: AdvisoryDecisionEnvelope, *, mandate: Any, user: Any = None, persist: bool = True,
+) -> tuple[ReasonCode, str] | None:
+    """Wie ``pull_freshness``; mit ``persist`` schreibt eine Abweichung Ereignis
+    + STALE (eigener Commit). Konsumenten im Lesepfad (Bericht, Cache,
+    Veraltet-Hinweis) pruefen ohne zu schreiben."""
+    code, detail, drift = pull_freshness(db, envelope, mandate=mandate)
+    if drift and persist:
+        _invalidate_drift(db, envelope, drift, user)
+    return None if code is None else (code, detail)
+
+
+def persist_freshness_drift(db: Session, envelope: Any, drift: list, user: Any) -> None:
+    """Abweichungen einer zuvor lesenden Pull-Pruefung festschreiben (eigener
+    Commit), z. B. nach einer Archiv-Ablehnung."""
+    if drift:
+        _invalidate_drift(db, envelope, drift, user)
+
+
+def sealed_envelope_for_allocation(db: Session, *, mandate_id: str, target_allocation_id: str):
+    """Versiegelter Entscheid, der genau diese Soll-Allokation bindet."""
+    return db.query(AdvisoryDecisionEnvelope).join(
+        AdvisoryEnvelopeBinding,
+        (AdvisoryEnvelopeBinding.envelope_id == AdvisoryDecisionEnvelope.id)
+        & (AdvisoryEnvelopeBinding.tenant_id == AdvisoryDecisionEnvelope.tenant_id),
+    ).filter(
+        AdvisoryDecisionEnvelope.mandate_id == str(mandate_id),
+        AdvisoryDecisionEnvelope.status == "SEALED",
+        AdvisoryEnvelopeBinding.binding_kind == "target_allocation",
+        AdvisoryEnvelopeBinding.object_id == str(target_allocation_id),
+    ).first()
+
+
+def decision_freshness_for_allocation(
+    db: Session, *, mandate: Any, target_allocation_id: str | None,
+) -> tuple[ReasonCode | None, Any, list]:
+    """N-908-01: Frische des Entscheids zu einer Soll-Allokation inkl. Pull-
+    Pruefung der Kanten, ohne zu schreiben. Rueckgabe ``(code, envelope,
+    drift)``; ``code`` None = kein Entscheid oder FRESH."""
+    if not target_allocation_id:
+        return None, None, []
+    envelope = sealed_envelope_for_allocation(
+        db, mandate_id=str(mandate.id), target_allocation_id=str(target_allocation_id),
+    )
+    if envelope is None:
+        return None, None, []
+    code, _detail, drift = pull_freshness(db, envelope, mandate=mandate)
+    return code, envelope, drift
+
+
+def pull_freshness(
+    db: Session, envelope: AdvisoryDecisionEnvelope, *, mandate: Any,
+) -> tuple[ReasonCode | None, str, list]:
+    """Frische eines versiegelten Entscheids vor der Auslieferung.
+
+    STALE -> ``CCX_INPUT_STALE``; UNKNOWN, fehlende Kanten oder eine neue,
+    ungebundene Abhaengigkeitsart -> ``CCX_FRESHNESS_UNKNOWN``. FRESH wird
+    zusaetzlich gegen die aktuellen Objekte geprueft (zweite Linie hinter dem
+    Mutation Hook, z. B. fuer globale Referenzdaten anderer Mandanten): jede
+    Abweichung liefert ``CCX_INPUT_STALE`` samt Liste ``drift`` (diese
+    Funktion schreibt nichts; ``envelope_freshness_defect``/
+    ``persist_freshness_drift`` halten sie als Ereignis + STALE fest). Bei einem
+    unterzeichneten Entscheid zaehlen Abweichungen der Hausmeinung (CMA/Policy/
+    Benchmark) nicht. Eine Rueckkehr zu A macht einen STALE-Entscheid nie
+    wieder FRESH -- dafuer braucht es eine neue Versiegelung."""
+    if envelope.freshness_status == FRESHNESS_STALE:
+        return ReasonCode.CCX_INPUT_STALE, f"stale_reason={envelope.stale_reason_code}", []
+    if envelope.freshness_status != FRESHNESS_FRESH:
+        return ReasonCode.CCX_FRESHNESS_UNKNOWN, "freshness=unknown", []
+    edges = db.query(AdvisoryDependencyEdge).filter(
+        AdvisoryDependencyEdge.tenant_id == envelope.tenant_id,
+        AdvisoryDependencyEdge.envelope_id == envelope.id,
+    ).all()
+    if not edges:
+        return ReasonCode.CCX_FRESHNESS_UNKNOWN, "edges=none", []
+    bound = {b.binding_kind: b.object_id for b in db.query(AdvisoryEnvelopeBinding).filter(
+        AdvisoryEnvelopeBinding.tenant_id == envelope.tenant_id,
+        AdvisoryEnvelopeBinding.envelope_id == envelope.id,
+    ).all()}
+    run = db.query(RecommendationRun).filter(
+        RecommendationRun.id == str(bound.get("recommendation_run") or ""),
+    ).first()
+    ta = db.query(TargetAllocation).filter(
+        TargetAllocation.id == str(bound.get("target_allocation") or ""),
+    ).first()
+    if run is None or ta is None:
+        return ReasonCode.CCX_FRESHNESS_UNKNOWN, "bound_objects=missing", []
+    current_parts = collect_dependency_parts(db, mandate=mandate, run=run, target_allocation=ta)
+    current = {part.kind: part for part in current_parts}
+    edge_kinds = {edge.dependency_kind for edge in edges}
+    unbound = sorted(set(current) - edge_kinds)
+    drift = [
+        (edge, current.get(edge.dependency_kind)) for edge in edges
+        if current.get(edge.dependency_kind) is None
+        or current[edge.dependency_kind].object_id != edge.dependency_object_id
+        or not dependency_is_current(edge.dependency_hash, current[edge.dependency_kind].dependency_hash)
+    ]
+    if drift and any(edge.dependency_kind in REFERENCE_KINDS for edge, _part in drift) \
+            and decision_signed(db, envelope):
+        # Unterzeichneter Entscheid: die Hausmeinung (CMA/Policy/Benchmark)
+        # wirkt nicht zurueck (Strategietreue, kein Rebalancing).
+        drift = [(edge, part) for edge, part in drift if edge.dependency_kind not in REFERENCE_KINDS]
+    if drift:
+        kinds = ",".join(sorted(edge.dependency_kind for edge, _part in drift))
+        return ReasonCode.CCX_INPUT_STALE, f"drift={kinds}", drift
+    if unbound:
+        return ReasonCode.CCX_FRESHNESS_UNKNOWN, "unbound=" + ",".join(unbound), []
+    empty = empty_required_kinds(current_parts)
+    if empty:
+        return ReasonCode.CCX_FRESHNESS_UNKNOWN, "empty=" + ",".join(empty), []
+    return None, "", []
+
+
+def _freshness_reason(code: str) -> ReasonCode:
+    """Katalogisierter Reason-Code eines Frischebefunds (statisch aufloesbar)."""
+    if code == ReasonCode.CCX_INPUT_STALE:
+        return ReasonCode.CCX_INPUT_STALE
+    return ReasonCode.CCX_FRESHNESS_UNKNOWN
+
+
+def assert_envelope_fresh(
+    db: Session,
+    *,
+    envelope: AdvisoryDecisionEnvelope,
+    mandate: Any,
+    user: Any,
+    ip_address: str | None = None,
+    channel: str = "api",
+) -> None:
+    """Gate: ein nicht FRESHer Entscheid wird nie kundenwirksam ausgeliefert
+    (kein Fallback auf einen aelteren). Ablehnung mit Reason-Code und Audit
+    ``ccx.envelope.rejected`` (Rollback, Tenant-Kontext wieder gesetzt)."""
+    defect = envelope_freshness_defect(db, envelope, mandate=mandate, user=user)
+    if defect is None:
+        return
+    code, detail = defect
+    status = envelope_freshness_status(envelope)
+    reason = _freshness_reason(code)
+    message = (
+        "Der Beratungsentscheid ist veraltet: Beratungsdaten wurden seit der Versiegelung geaendert. "
+        "Bitte neu berechnen und finalisieren."
+        if reason == ReasonCode.CCX_INPUT_STALE
+        else "Die Aktualitaet des Beratungsentscheids ist nicht belegt. Bitte neu berechnen und finalisieren."
+    )
+    raise _reject(db, AdvisoryEnvelopeError(
+        reason, message, http_status=409,
+        extra={"envelope_id": status["envelope_id"], "freshness_status": status["freshness_status"],
+               "stale_at": status["stale_at"], "stale_reason_code": status["stale_reason_code"]},
+    ), user=user, mandate=mandate, tenant_id=envelope.tenant_id, ip_address=ip_address,
+        record_id=status["envelope_id"], envelope_hash=status["envelope_hash"], channel=channel, detail=detail)
+
+
+def current_envelope_freshness(db: Session, *, mandate: Any) -> dict[str, Any]:
+    """Frische-Status des aktuellen versiegelten Entscheids (Anzeige). Kein
+    Fallback; fehlt der Entscheid -> ``CCX_ENVELOPE_MISSING`` (404)."""
+    tenant_id = mandate_tenant(mandate)
+    envelope = current_sealed_envelope(db, tenant_id, str(mandate.id)) if tenant_id else None
+    if envelope is None:
+        raise AdvisoryEnvelopeError(
+            ReasonCode.CCX_ENVELOPE_MISSING,
+            "Fuer dieses Mandat liegt kein versiegelter Beratungsentscheid vor.",
+            http_status=404,
+        )
+    sequences = [row[0] for row in db.query(AdvisoryInvalidationEvent.invalidation_sequence).filter(
+        AdvisoryInvalidationEvent.tenant_id == envelope.tenant_id,
+        AdvisoryInvalidationEvent.envelope_id == envelope.id,
+    ).all()]
+    return {
+        **envelope_freshness_status(envelope),
+        "invalidation_count": len(sequences),
+        "last_invalidation_sequence": max(sequences) if sequences else None,
+    }
+
+
+def current_input_manifest_hash(db: Session, *, mandate: Any, run: Any) -> str:
+    """Manifest-Hash der aktuell wirkenden Inputs eines Laufs -- der beim
+    Start einer Berechnung festzuhaltende Wert fuer ``expected_manifest_hash``
+    (CCX-P2: ein verspaetetes Ergebnis wird nur publiziert, wenn er beim
+    Commit unveraendert ist)."""
+    tenant_id = mandate_tenant(mandate)
+    ta = db.query(TargetAllocation).filter(
+        TargetAllocation.id == str(getattr(run, "target_allocation_id", "") or ""),
+        TargetAllocation.mandate_id == str(mandate.id),
+    ).first()
+    components = collect_effective_input_components(db, mandate=mandate, run=run, target_allocation=ta)
+    return compute_manifest_hash(build_manifest_record(
+        tenant_id=tenant_id or "unbound", mandate_id=str(mandate.id), components=components, run=run,
+        target_allocation=ta,
+    ))
+
+
+def _invalidation_audit_sink(session: Session, pending: list[dict[str, Any]]) -> None:
+    """``ccx.envelope.invalidated`` je Ereignis des Mutation Hooks, im selben
+    Commit (nur IDs, Codes, Hashes)."""
+    for item in pending:
+        log(session, user_id=item["actor"], user_name=item["actor"], table_name=AUDIT_TABLE,
+            record_id=item["envelope_id"], action="UPDATE", field_name=AUDIT_INVALIDATED,
+            new_value=_audit_value(
+                ReasonCode.CCX_INPUT_STALE, invalidation_sequence=item["invalidation_sequence"],
+                source_kind=item["source_kind"], source_table=item["source_table"],
+                source_object=item["source_object_id"], operation=item["operation"],
+                old_hash=item["old_hash"], new_hash=item["new_hash"],
+            ),
+            mandate_id=item["mandate_id"], tenant_id=item["tenant_id"])
+
+
+register_invalidation_audit_sink(_invalidation_audit_sink)
+
+
 __all__ = [
+    "AUDIT_INVALIDATED",
+    "AUDIT_RACE_REJECTED",
     "AUDIT_REJECTED",
     "AUDIT_SEALED",
     "AUDIT_SUPERSEDED",
     "AdvisoryEnvelopeError",
     "advisory_report_cache_scope",
+    "assert_envelope_fresh",
+    "current_envelope_freshness",
+    "current_input_manifest_hash",
     "current_sealed_envelope",
     "current_verified_envelope",
+    "decision_freshness_for_allocation",
+    "decision_signed",
+    "lock_bound_reference_rows",
+    "persist_freshness_drift",
+    "pull_freshness",
+    "sealed_envelope_for_allocation",
+    "dependency_is_current",
+    "envelope_freshness_defect",
+    "envelope_freshness_status",
     "envelope_view",
+    "goal_binding_is_current",
+    "lock_mandate_row",
     "mandate_tenant",
     "seal_advisory_envelope",
     "verify_envelope",

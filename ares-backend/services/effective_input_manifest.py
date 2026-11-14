@@ -29,6 +29,7 @@ Dezimal-Zeichenkette gebunden (core/advisory_envelope_codec.py).
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
 from typing import Any, Mapping, Sequence
 
 from sqlalchemy import inspect as sa_inspect
@@ -42,18 +43,49 @@ from core.advisory_envelope_codec import (
     rows_child_hash,
 )
 from core.presentation_rounding import ROUNDING_POLICY_VERSION
-from models.allocation import CapitalMarketAssumption, OptimizerPolicy
+from models.allocation import BuildingBlock, CapitalMarketAssumption, HouseMatrix, OptimizerPolicy
 from models.clients import Client
-from models.cma_policy import CmaPolicy
+from models.cma_policy import CmaPolicy, CmaPolicyApproval, CmaPolicyComponent
 from models.mandates import Mandate
-from models.profiling import InvestmentPreferenceDecision, RiskAssessment
+from models.profiling import (
+    InvestmentPreferenceDecision,
+    RiskAssessment,
+    RiskCapacityPlausibilityEvaluation,
+    RiskOverrideDecision,
+    RiskProfileSignoff,
+)
 from models.review import RecommendationHolding
-from models.wealth import Cashflow, Goal, WealthInflow, WealthPosition
+from models.wealth import (
+    Cashflow,
+    FinancialCoverageAttestation,
+    Goal,
+    GoalLifecycleTransition,
+    GoalRevisionDecision,
+    PlanningAssumption,
+    WealthInflow,
+    WealthPosition,
+)
 
 _EXCLUDED_COLUMNS = frozenset({"updated_at"})
 # Kurzname (Adapter CCX-02) -> Manifest-Feld.
 _SHORT_NAMES = {name[: -len("_hash")]: name for name in MANIFEST_COMPONENTS}
 _SCALARS = ("tenant_id", "mandate_id", "engine_version", "random_stream_id", "rounding_policy_version")
+# CCX-P2: Pflicht-Abhaengigkeiten fuer FRESH -- die Siegel-Pflichtgruppen
+# (REQUIRED_GROUPS, sonst gar kein Siegel) plus die Benchmark-Lineage
+# (Hausmatrix der Policy, CCX-06): leer heisst "unknown", nie "fresh".
+REQUIRED_DEPENDENCY_KINDS = frozenset({
+    "client", "mandate", "risk", "constraints", "cma", "optimizer_policy", "benchmark",
+})
+# CCX-P2: Marker fuer ein fehlendes Objekt einer Abhaengigkeitskante.
+NO_OBJECT = "none"
+CONSTRAINT_COLUMNS = (
+    "id", "version", "effective_constraints_json", "preferences_json", "allocation_context_hash",
+    "input_snapshot_hash", "reserve_funding_ledger_hash", "pension_transfer_ledger_snapshot_json",
+    "band_equities_min_bps", "band_equities_max_bps", "band_bonds_min_bps", "band_bonds_max_bps",
+    "band_real_estate_min_bps", "band_real_estate_max_bps", "band_alternatives_min_bps",
+    "band_alternatives_max_bps", "band_liquidity_min_bps", "band_liquidity_max_bps",
+    "valuation_date",
+)
 
 
 def build_effective_input_record(components: Mapping[str, Any]) -> dict[str, Any]:
@@ -126,13 +158,40 @@ class ManifestIncomplete(ValueError):
         self.groups = tuple(groups)
 
 
-def collect_effective_input_components(
-    db: Session, *, mandate: Any, run: Any, target_allocation: Any,
-) -> dict[str, str]:
-    """Kind-Hash je Inputgruppe (zehn Manifest-Komponenten), frisch gelesen.
+@dataclass(frozen=True)
+class DependencyPart:
+    """CCX-P2: eine Abhaengigkeitskante -- Art, Objekt, Version, Hash.
 
-    Fehlt eine Pflichtgruppe (``REQUIRED_GROUPS``), wirft die Funktion
-    ``ManifestIncomplete`` statt einen Hash ueber null Zeilen zu binden."""
+    ``dependency_hash`` ist exakt der Kind-Hash, aus dem die Manifest-
+    Komponente gebildet wird (oder die Komponente selbst); ein fehlendes Objekt
+    bleibt als ``none`` sichtbar (Hash ueber die leere Menge)."""
+
+    kind: str
+    object_id: str
+    version: int | None
+    dependency_hash: str
+    # Anzahl gebundener Zeilen (-1 = nicht gezaehlt); eine leere
+    # Pflicht-Inputgruppe ist "unknown", nie "fresh" (REQUIRED_DEPENDENCY_KINDS).
+    row_count: int = -1
+
+
+def _int_or_none(value: Any) -> int | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    return int(value) if isinstance(value, int) else None
+
+
+def _object_key(value: Any) -> str:
+    return str(value) if value not in (None, "") else NO_OBJECT
+
+
+def collect_dependency_parts(
+    db: Session, *, mandate: Any, run: Any, target_allocation: Any,
+) -> list[DependencyPart]:
+    """Alle Abhaengigkeiten eines Beratungsentscheids als Kanten (frisch
+    gelesen). Die Manifest-Komponenten (CCX-02) werden aus genau diesen
+    Kind-Hashes gebildet; ``benchmark`` (Hausmatrix der Policy, CCX-06) ist
+    eine zusaetzliche Kante ausserhalb des Manifests."""
     ta = target_allocation
     mandate_id = str(mandate.id)
     client_id = str(mandate.client_id)
@@ -157,62 +216,137 @@ def collect_effective_input_components(
         ta, "capital_market_assumptions_id", None,
     )
     policy_id = getattr(ta, "policy_id", None) or getattr(run, "policy_id", None)
-    constraint_columns = (
-        "id", "version", "effective_constraints_json", "preferences_json", "allocation_context_hash",
-        "input_snapshot_hash", "reserve_funding_ledger_hash", "pension_transfer_ledger_snapshot_json",
-        "band_equities_min_bps", "band_equities_max_bps", "band_bonds_min_bps", "band_bonds_max_bps",
-        "band_real_estate_min_bps", "band_real_estate_max_bps", "band_alternatives_min_bps",
-        "band_alternatives_max_bps", "band_liquidity_min_bps", "band_liquidity_max_bps",
-        "valuation_date",
-    )
+    cma_policy_id = getattr(run, "cma_policy_row_id", None)
     constraints_rows = (
-        [{name: getattr(ta, name, None) for name in constraint_columns}] if ta is not None else []
+        [{name: getattr(ta, name, None) for name in CONSTRAINT_COLUMNS}] if ta is not None else []
     )
-    client_rows = _by_id(db, Client, client_id)
-    mandate_rows = _by_id(db, Mandate, mandate_id)
-    risk_rows = _by_id(db, RiskAssessment, risk_id)
     cma_rows = _by_id(db, CapitalMarketAssumption, cma_id)
     policy_rows = _by_id(db, OptimizerPolicy, policy_id)
-    missing = [name for name, rows in (
-        ("client", client_rows), ("mandate", mandate_rows), ("risk", risk_rows), ("cma", cma_rows),
-        ("optimizer_policy", policy_rows), ("constraints", constraints_rows),
-    ) if not rows]
-    if missing:
-        raise ManifestIncomplete(missing)
-    return {
-        "client_hash": _hash_rows("client", Client, client_rows, ("id",)),
-        "mandate_hash": _hash_rows("mandate", Mandate, mandate_rows, ("id",)),
-        "goals_hash": _hash_rows("goals", Goal, goals, ("rank", "target_date", "id")),
-        "cashflows_hash": _combine("cashflows", {
-            "cashflows": _hash_rows("cashflow-rows", Cashflow, cashflows, ("id",)),
-            "inflows": _hash_rows("inflow-rows", WealthInflow, inflows, ("id",)),
-        }),
-        "risk_hash": _hash_rows("risk", RiskAssessment, risk_rows, ("id",)),
-        "preference_hash": _hash_rows(
+    house_matrix = (
+        db.query(HouseMatrix).filter(HouseMatrix.policy_id == str(policy_id)).all() if policy_id else []
+    )
+    counts = {
+        "client": 1 if client_id else 0, "goals": len(goals), "cashflows": len(cashflows),
+        "wealth_inflows": len(inflows), "positions": len(positions), "run_holdings": len(run_holdings),
+        "preference": len(preferences), "constraints": len(constraints_rows), "cma": len(cma_rows),
+        "optimizer_policy": len(policy_rows), "benchmark": len(house_matrix),
+    }
+    parts = [
+        DependencyPart("client", client_id, None,
+                       _hash_rows("client", Client, _by_id(db, Client, client_id), ("id",))),
+        DependencyPart("mandate", mandate_id, None,
+                       _hash_rows("mandate", Mandate, _by_id(db, Mandate, mandate_id), ("id",))),
+        DependencyPart("goals", mandate_id, None, _hash_rows("goals", Goal, goals, ("rank", "target_date", "id"))),
+        DependencyPart("cashflows", client_id, None, _hash_rows("cashflow-rows", Cashflow, cashflows, ("id",))),
+        DependencyPart("wealth_inflows", client_id, None,
+                       _hash_rows("inflow-rows", WealthInflow, inflows, ("id",))),
+        DependencyPart("positions", client_id, None, _hash_rows(
+            "position-rows", WealthPosition, positions, ("depot_bank", "depot_account_number", "id"),
+        )),
+        DependencyPart("run_holdings", str(run.id), None, _hash_rows(
+            "run-holding-rows", RecommendationHolding, run_holdings,
+            ("depot_bank", "custody_account_number", "id"),
+        )),
+        DependencyPart("risk", _object_key(risk_id), None,
+                       _hash_rows("risk", RiskAssessment, _by_id(db, RiskAssessment, risk_id), ("id",))),
+        DependencyPart("preference", mandate_id, None, _hash_rows(
             "preference", InvestmentPreferenceDecision, preferences, ("sequence_no", "id"),
-        ),
-        "cma_hash": _hash_rows("cma", CapitalMarketAssumption, cma_rows, ("id",)),
-        "policy_hash": _combine("policy", {
-            "optimizer_policy": _hash_rows(
-                "optimizer-policy", OptimizerPolicy, policy_rows, ("id",),
-            ),
-            "cma_policy": _hash_rows(
-                "cma-policy", CmaPolicy, _by_id(db, CmaPolicy, getattr(run, "cma_policy_row_id", None)), ("id",),
-            ),
+        )),
+        DependencyPart("constraints", _object_key(getattr(ta, "id", None)), _int_or_none(getattr(ta, "version", None)),
+                       rows_child_hash("constraints", list(CONSTRAINT_COLUMNS), constraints_rows,
+                                       lambda row: (str(row["id"]),))),
+        DependencyPart("cma", _object_key(cma_id), _int_or_none(getattr(cma_rows[0], "version", None)) if cma_rows else None,
+                       _hash_rows("cma", CapitalMarketAssumption, cma_rows, ("id",))),
+        DependencyPart("optimizer_policy", _object_key(policy_id),
+                       _int_or_none(getattr(policy_rows[0], "version", None)) if policy_rows else None,
+                       _hash_rows("optimizer-policy", OptimizerPolicy, policy_rows, ("id",))),
+        DependencyPart("cma_policy", _object_key(cma_policy_id), None, _hash_rows(
+            "cma-policy", CmaPolicy, _by_id(db, CmaPolicy, cma_policy_id), ("id",),
+        )),
+        DependencyPart("benchmark", _object_key(policy_id),
+                       _int_or_none(getattr(policy_rows[0], "version", None)) if policy_rows else None,
+                       _hash_rows("benchmark", HouseMatrix, house_matrix, ("score_from", "score_to", "id"))),
+    ]
+    # N-908-04: auch die Tabellen, die der Hook bisher nur ueber die Reichweite
+    # traf, bekommen eine Kante -- damit greift die Pull-Pruefung auch dort.
+    def mandate_rows(model):
+        return _active(db.query(model).filter(model.mandate_id == mandate_id), model).all()
+
+    def rows_by(model, column, value):
+        if not value:
+            return []
+        return _active(db.query(model).filter(getattr(model, column) == str(value)), model).all()
+
+    for kind, model, rows, object_id in (
+        ("goal_revisions", GoalRevisionDecision, mandate_rows(GoalRevisionDecision), mandate_id),
+        ("goal_transitions", GoalLifecycleTransition, mandate_rows(GoalLifecycleTransition), mandate_id),
+        ("planning", PlanningAssumption, mandate_rows(PlanningAssumption), mandate_id),
+        ("risk_overrides", RiskOverrideDecision, mandate_rows(RiskOverrideDecision), mandate_id),
+        ("risk_signoffs", RiskProfileSignoff, mandate_rows(RiskProfileSignoff), mandate_id),
+        ("risk_plausibility", RiskCapacityPlausibilityEvaluation,
+         mandate_rows(RiskCapacityPlausibilityEvaluation), mandate_id),
+        ("coverage_attestations", FinancialCoverageAttestation,
+         mandate_rows(FinancialCoverageAttestation), mandate_id),
+        ("building_blocks", BuildingBlock, rows_by(BuildingBlock, "policy_id", policy_id), _object_key(policy_id)),
+        ("cma_policy_components", CmaPolicyComponent,
+         rows_by(CmaPolicyComponent, "policy_row_id", cma_policy_id), _object_key(cma_policy_id)),
+        ("cma_policy_approvals", CmaPolicyApproval,
+         rows_by(CmaPolicyApproval, "policy_row_id", cma_policy_id), _object_key(cma_policy_id)),
+    ):
+        parts.append(DependencyPart(kind, object_id, None, _hash_rows(kind.replace("_", "-"), model, rows, ("id",))))
+        counts[kind] = len(rows)
+    counts["mandate"] = 1 if _by_id(db, Mandate, mandate_id) else 0
+    counts["client"] = 1 if _by_id(db, Client, client_id) else 0
+    counts["risk"] = 1 if _by_id(db, RiskAssessment, risk_id) else 0
+    counts["cma_policy"] = 1 if _by_id(db, CmaPolicy, cma_policy_id) else 0
+    return [replace(part, row_count=counts.get(part.kind, -1)) for part in parts]
+
+
+def empty_required_kinds(parts: Sequence[DependencyPart]) -> list[str]:
+    """Pflicht-Inputgruppen ohne gebundene Zeile (CCX-P2: unknown != fresh)."""
+    return sorted(part.kind for part in parts if part.kind in REQUIRED_DEPENDENCY_KINDS and part.row_count == 0)
+
+
+def components_from_parts(parts: Sequence[DependencyPart]) -> dict[str, str]:
+    """Zehn Manifest-Komponenten aus den Kanten (byte-gleich zu P1)."""
+    by_kind = {part.kind: part.dependency_hash for part in parts}
+    return {
+        "client_hash": by_kind["client"],
+        "mandate_hash": by_kind["mandate"],
+        "goals_hash": by_kind["goals"],
+        "cashflows_hash": _combine("cashflows", {
+            "cashflows": by_kind["cashflows"], "inflows": by_kind["wealth_inflows"],
         }),
-        "constraints_hash": rows_child_hash(
-            "constraints", list(constraint_columns), constraints_rows, lambda row: (str(row["id"]),),
-        ),
+        "risk_hash": by_kind["risk"],
+        "preference_hash": by_kind["preference"],
+        "cma_hash": by_kind["cma"],
+        "policy_hash": _combine("policy", {
+            "optimizer_policy": by_kind["optimizer_policy"], "cma_policy": by_kind["cma_policy"],
+        }),
+        "constraints_hash": by_kind["constraints"],
         "holdings_hash": _combine("holdings", {
-            "positions": _hash_rows(
-                "position-rows", WealthPosition, positions, ("depot_bank", "depot_account_number", "id"),
-            ),
-            "run_holdings": _hash_rows(
-                "run-holding-rows", RecommendationHolding, run_holdings,
-                ("depot_bank", "custody_account_number", "id"),
-            ),
+            "positions": by_kind["positions"], "run_holdings": by_kind["run_holdings"],
         }),
     }
+
+
+def collect_effective_input_components(
+    db: Session, *, mandate: Any, run: Any, target_allocation: Any,
+    parts_out: list[DependencyPart] | None = None,
+) -> dict[str, str]:
+    """Kind-Hash je Inputgruppe (zehn Manifest-Komponenten), frisch gelesen.
+    ``parts_out`` (CCX-P2) erhaelt die Kanten derselben Lesung.
+
+    Fehlt eine Pflichtgruppe (``REQUIRED_GROUPS``), wirft die Funktion
+    ``ManifestIncomplete`` statt einen Hash ueber null Zeilen zu binden."""
+    parts = collect_dependency_parts(db, mandate=mandate, run=run, target_allocation=target_allocation)
+    counts = {part.kind: part.row_count for part in parts}
+    missing = [name for name in REQUIRED_GROUPS if counts.get(name, 0) <= 0]
+    if missing:
+        raise ManifestIncomplete(missing)
+    if parts_out is not None:
+        parts_out.extend(parts)
+    return components_from_parts(parts)
 
 
 def engine_version_of(run: Any, target_allocation: Any) -> str:
@@ -247,12 +381,19 @@ def build_manifest_record(
 
 
 __all__ = [
+    "CONSTRAINT_COLUMNS",
+    "DependencyPart",
+    "NO_OBJECT",
+    "REQUIRED_DEPENDENCY_KINDS",
     "REQUIRED_GROUPS",
     "ManifestIncomplete",
     "build_effective_input_hash",
     "build_effective_input_record",
     "build_manifest_record",
+    "collect_dependency_parts",
     "collect_effective_input_components",
+    "components_from_parts",
+    "empty_required_kinds",
     "engine_version_of",
     "random_stream_id_of",
 ]

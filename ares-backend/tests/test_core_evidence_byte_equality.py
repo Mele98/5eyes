@@ -609,6 +609,12 @@ SITES: dict[tuple[str, str], tuple[tuple[str, str | None], ...]] = {
     # Reihenfolge (keine Schluessel), kompakt, UTF-8, zeilenweise mit
     # Zeilenumbruch in einen sha256 eingespeist; Zeilen nach id sortiert
     ("services/audit.py", "_legacy_seal_digest"): ((J, None),),
+    # CCX-P2: Projektions-Hash eines Quellobjekts (old_hash/new_hash eines
+    # Invalidationsereignisses) -- byte-gleich SCHEME_V1 (sortiert, kompakt,
+    # UTF-8), Werte vorher typisiert (Float als repr-Text, Decimal/Datum als
+    # Text), domaenensepariert ueber
+    # ``Ares<NUL>ares/advisory-invalidation/1/<tabelle><NUL>``.
+    ("models/snapshots.py", "projection_hash"): ((J, SCHEME_V1),),
 }
 
 _DELEGATABLE = {SCHEME_V1, SCHEME_V1_ASCII, SCHEME_V1_STR_DEFAULT, SCHEME_V1_ASCII_STR_DEFAULT}

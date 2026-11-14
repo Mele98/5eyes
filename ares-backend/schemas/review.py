@@ -2036,7 +2036,24 @@ class AdvisoryEnvelopeResponse(BaseModel):
     sealed_at: str
     sealed_by: str
     optimistic_version: int
+    # CCX-P2: ausgeliefert wird nur ein FRESH-Entscheid.
+    freshness_status: str
+    stale_at: Optional[str] = None
+    stale_reason_code: Optional[str] = None
     bindings: list[AdvisoryEnvelopeBindingResponse]
+
+
+class AdvisoryEnvelopeFreshnessResponse(BaseModel):
+    """CCX-P2: Serverstatus der Frische des aktuellen versiegelten Entscheids
+    (Anzeige; keine Neuberechnung im Client)."""
+    envelope_id: str
+    envelope_hash: str
+    freshness_status: str
+    stale_at: Optional[str] = None
+    stale_reason_code: Optional[str] = None
+    optimistic_version: int
+    invalidation_count: int
+    last_invalidation_sequence: Optional[int] = None
 
 
 class RecommendationPositionCreate(BaseModel):

@@ -24,10 +24,15 @@ from core.http_filenames import content_disposition
 from models.mandates import Mandate
 from models.review import ConflictOfInterestDisclosure, ContractDocument, Product
 from models.users import User
-from routers.auth import _extract_client_ip
 from services.audit import release_block_audit
+from services.auth import extract_client_ip as _extract_client_ip
 from services.auth import get_current_user, get_mandate_for_user_or_404, set_tenant_context
-from services.document_archive import archive_generated_pdf, content_hash_for, current_preference_binding
+from services.advisory_decision_envelope import decision_freshness_for_allocation, persist_freshness_drift
+from services.document_archive import (
+    archive_generated_pdf,
+    content_hash_for,
+    current_preference_binding,
+)
 from services.cost_disclosure import build_cost_disclosure
 from core import sustainability_preference as sustainability
 from core.reason_codes import DomainError, ReasonCode
@@ -1262,6 +1267,39 @@ def _archive_final(ctx: PDFContext, db: Session, **kwargs):
     naechsten Erzeugen eine neue, finale Fassung."""
     if (getattr(ctx, "watermark_mode", "none") or "none") != "none":
         return None
+    # CCX-P2 (Dokumentarchiv) / N-908-01: ein Dokument zur Soll-Allokation eines
+    # versiegelten, aber nicht FRESHen Beratungsentscheids wird nicht als finale
+    # (signierbare) Fassung abgelegt. Geprueft wird nicht nur der gespeicherte
+    # Status, sondern auch die Kanten gegen die aktuellen Objekte (Pull);
+    # Reason-Code, Audit mit Tenant-Kontext nach Rollback, danach wird eine
+    # gefundene Abweichung als Ereignis + STALE festgehalten. Kein Fallback.
+    target_allocation_id = (kwargs.get("binding") or {}).get("target_allocation_id")
+    mandate = db.get(Mandate, kwargs["mandate_id"])
+    blocked, envelope, drift = decision_freshness_for_allocation(
+        db, mandate=mandate, target_allocation_id=target_allocation_id,
+    )
+    if blocked is not None:
+        audit = gate_block_audit(
+            db, user=kwargs["current_user"], mandate=mandate,
+            ip_address=kwargs.get("ip_address"), table_name="advisory_decision_envelopes",
+            field_name="ccx.envelope.rejected", set_tenant_context=set_tenant_context,
+        )
+        audit(json.dumps({
+            "reason_code": str(blocked), "channel": "archive", "document_type": kwargs.get("document_type"),
+            "target_allocation_id": target_allocation_id,
+        }, sort_keys=True), {"decision_id": None})
+        if drift and envelope is not None:
+            persist_freshness_drift(db, db.get(type(envelope), envelope.id), drift, kwargs["current_user"])
+        stale = blocked == ReasonCode.CCX_INPUT_STALE
+        raise DomainError(
+            ReasonCode.CCX_INPUT_STALE if stale else ReasonCode.CCX_FRESHNESS_UNKNOWN,
+            "Der Beratungsentscheid zu dieser Strategie ist veraltet; das Dokument wird nicht als finale "
+            "Fassung abgelegt. Bitte neu berechnen und finalisieren." if stale else
+            "Die Aktualitaet des Beratungsentscheids zu dieser Strategie ist nicht belegt; das Dokument wird "
+            "nicht als finale Fassung abgelegt.",
+            http_status=409,
+            extra={"channel": "archive", "target_allocation_id": target_allocation_id},
+        )
     return archive_generated_pdf(db, **kwargs)
 
 

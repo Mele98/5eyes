@@ -40,8 +40,13 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     # Bindungen, Effective-Input-Manifest -- tenant_id NOT NULL, Mandant aus
     # dem Mandat (INSERT-Guard), Bindungen per (tenant_id, envelope_id)-FK.
     "advisory_decision_envelopes",
+    # CCX-P2 Invalidation und Staleness (2026-11-14): Abhaengigkeitskanten
+    # (Route ueber envelope_id) und Invalidationsereignisse (mandate_id) --
+    # tenant_id NOT NULL, Mandant per (tenant_id, envelope_id)-FK.
+    "advisory_dependency_edges",
     "advisory_effective_input_manifests",
     "advisory_envelope_bindings",
+    "advisory_invalidation_events",
     "audit_log",
     # CCX-P3 Markt- und Depot-Wahrheit (2026-11-14): Bewertungs-Snapshot,
     # Positionszeilen, Entscheid je Position -- tenant_id NOT NULL; Snapshot und
@@ -198,6 +203,7 @@ TENANT_DERIVED_TABLES: dict[str, tuple[str, str]] = {
 # tenant_direct tables without an own client_id/mandate_id column: the route
 # to the client/mandate (for the erasure inventory and the ratchet below).
 TENANT_DIRECT_PARENT_ROUTES: dict[str, tuple[str, str]] = {
+    "advisory_dependency_edges": ("envelope_id", "advisory_decision_envelopes"),
     "advisory_envelope_bindings": ("envelope_id", "advisory_decision_envelopes"),
     "holdings_valuation_rows": ("snapshot_id", "holdings_valuation_snapshots"),
     "product_eligibility_overrides": ("recommendation_run_id", "recommendation_runs"),

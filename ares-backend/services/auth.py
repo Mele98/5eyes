@@ -292,6 +292,9 @@ def get_current_user(
         set_tenant_context(db, None)
     else:
         set_tenant_context(db, token_tid or _resolve_tenant_id_for_user(user))
+    # CCX-P2: Actor fuer Invalidationsereignisse des zentralen Mutation Hooks
+    # (models/snapshots.py::ACTOR_INFO_KEY); ohne Request bleibt er "system".
+    db.info["ares_actor_user_id"] = user.id
     return user
 
 

@@ -645,6 +645,7 @@ def test_engine_inflow_without_currency_fails_closed():
 # ── Migration / Paritaet ─────────────────────────────────────────────────────
 
 CCX_P3_REV = "6814c14575e9"
+CCX_P2_REV = "d868f4eaa028"
 P3_TABLES = ("holdings_valuation_snapshots", "holdings_valuation_rows", "position_decision_ledger")
 
 
@@ -656,8 +657,11 @@ def test_alembic_single_head_p3_and_upgrade_downgrade_upgrade(tmp_path):
     from tests.test_ccx_p1_snapshot_hash import CCX_P1_REV, _alembic_cfg
 
     script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
-    assert script.get_heads() == [CCX_P3_REV]
-    assert script.get_revision(CCX_P3_REV).down_revision == CCX_P1_REV
+    # Lineare Kette P1 -> P2 -> P3 (Integration CCX-P4); genau ein Head, P3 darin.
+    heads = script.get_heads()
+    assert len(heads) == 1
+    assert CCX_P3_REV in {rev.revision for rev in script.walk_revisions("base", heads[0])}
+    assert script.get_revision(CCX_P3_REV).down_revision == CCX_P2_REV
     url = f"sqlite:///{tmp_path / 'p3.db'}"
     cfg = _alembic_cfg(url)
 

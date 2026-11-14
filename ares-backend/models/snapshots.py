@@ -1,16 +1,29 @@
+import contextvars
+import datetime as _dt
+import hashlib
+import json
+from dataclasses import dataclass
+from decimal import Decimal
+
 from sqlalchemy import (
     DDL, BigInteger, CheckConstraint, Column, ForeignKey, ForeignKeyConstraint, Index, Integer,
-    String, UniqueConstraint, event, text,
+    String, UniqueConstraint, bindparam, event, select, text,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.exc import NoInspectionAvailable
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, relationship
+from sqlalchemy.sql.dml import UpdateBase
 from database import (
     ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS,
     ADVISORY_ENVELOPE_SQLITE_TRIGGERS,
+    ADVISORY_FRESHNESS_SQLITE_TRIGGERS,
     DEPOT_CHECK_ANALYSIS_SQLITE_TRIGGERS,
     DEPOT_SNAPSHOT_SQLITE_TRIGGERS,
     HOLDINGS_VALUATION_SQLITE_TENANT_GUARDS,
     HOLDINGS_VALUATION_SQLITE_TRIGGERS,
     Base,
+    new_uuid,
 )
 
 
@@ -280,6 +293,21 @@ class AdvisoryDecisionEnvelope(Base):
     sealed_at = Column(String)
     sealed_by = Column(String, ForeignKey("users.id"))
     optimistic_version = Column(Integer, nullable=False, default=1)
+    # CCX-P2 (Vertrag 2026-11-13 §5): Frische. Einfuegen nur als UNKNOWN,
+    # FRESH nur beim Siegel mit Abhaengigkeitskanten, danach nur noch STALE
+    # (Trigger SQLite + PostgreSQL); jede Aenderung erhoeht optimistic_version.
+    freshness_status = Column(
+        String,
+        CheckConstraint(
+            "freshness_status IN ('FRESH','STALE','UNKNOWN')",
+            name="ck_advisory_decision_envelopes_freshness",
+        ),
+        nullable=False,
+        default="UNKNOWN",
+        server_default=text("'UNKNOWN'"),
+    )
+    stale_at = Column(String)
+    stale_reason_code = Column(String)
 
 
 class AdvisoryEnvelopeBinding(Base):
@@ -351,10 +379,86 @@ class AdvisoryEffectiveInputManifest(Base):
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
 
 
+class AdvisoryDependencyEdge(Base):
+    """CCX-P2: Abhaengigkeitskante eines Envelopes -- welches Objekt in welcher
+    Version mit welchem ``dependency_hash`` beim Siegel wirkte. Nur solange der
+    Envelope DRAFT ist einfuegbar, danach unveraenderlich; Mandant ueber den
+    zusammengesetzten Fremdschluessel (tenant_id, envelope_id)."""
+
+    __tablename__ = "advisory_dependency_edges"
+    __table_args__ = (
+        CheckConstraint("length(dependency_hash) = 64", name="ck_advisory_dependency_edges_hash_length"),
+        UniqueConstraint(
+            "envelope_id", "dependency_kind", "dependency_object_id",
+            name="uq_advisory_dependency_edges_kind_object",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "envelope_id"],
+            ["advisory_decision_envelopes.tenant_id", "advisory_decision_envelopes.id"],
+            name="fk_advisory_dependency_edges_envelope",
+        ),
+        Index("ix_advisory_dependency_edges_tenant_id", "tenant_id"),
+        Index("ix_advisory_dependency_edges_object", "dependency_kind", "dependency_object_id"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, nullable=False)
+    envelope_id = Column(String, nullable=False)
+    dependency_kind = Column(String, nullable=False)
+    dependency_object_id = Column(String, nullable=False)
+    dependency_version = Column(Integer)
+    dependency_hash = Column(String, nullable=False)
+    observed_at = Column(String, nullable=False)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+
+
+class AdvisoryInvalidationEvent(Base):
+    """CCX-P2: append-only Invalidationsereignis. Je Envelope eine lueckenlose
+    ``invalidation_sequence`` (1, 2, 3 ...; Unique + Trigger), geschrieben im
+    selben Commit wie die Mutation; der Envelope ist danach STALE (Reason-Code
+    ``CCX_INPUT_STALE``). ``old_hash``/``new_hash`` sind die Projektions-Hashes
+    des mutierten Quellobjekts (NULL: neu angelegt bzw. geloescht/Massen-
+    aenderung); ``created_by`` ist der Benutzer der Mutation oder ``system``."""
+
+    __tablename__ = "advisory_invalidation_events"
+    __table_args__ = (
+        CheckConstraint("old_hash IS NULL OR length(old_hash) = 64", name="ck_advisory_invalidation_events_old_hash"),
+        CheckConstraint("new_hash IS NULL OR length(new_hash) = 64", name="ck_advisory_invalidation_events_new_hash"),
+        CheckConstraint("reason_code = 'CCX_INPUT_STALE'", name="ck_advisory_invalidation_events_reason"),
+        CheckConstraint("invalidation_sequence >= 1", name="ck_advisory_invalidation_events_sequence"),
+        CheckConstraint("length(created_by) > 0", name="ck_advisory_invalidation_events_actor"),
+        UniqueConstraint("envelope_id", "invalidation_sequence", name="uq_advisory_invalidation_events_sequence"),
+        ForeignKeyConstraint(
+            ["tenant_id", "envelope_id"],
+            ["advisory_decision_envelopes.tenant_id", "advisory_decision_envelopes.id"],
+            name="fk_advisory_invalidation_events_envelope",
+        ),
+        Index("ix_advisory_invalidation_events_tenant_id", "tenant_id"),
+        Index("ix_advisory_invalidation_events_mandate", "tenant_id", "mandate_id"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    mandate_id = Column(String, nullable=False)
+    envelope_id = Column(String, nullable=False)
+    source_kind = Column(String, nullable=False)
+    source_object_id = Column(String, nullable=False)
+    old_hash = Column(String)
+    new_hash = Column(String)
+    reason_code = Column(String, nullable=False)
+    invalidation_sequence = Column(Integer, nullable=False)
+    created_at = Column(String, nullable=False)
+    created_by = Column(String, nullable=False)
+
+
 ADVISORY_ENVELOPE_TABLES = (
     AdvisoryDecisionEnvelope.__tablename__,
     AdvisoryEnvelopeBinding.__tablename__,
     AdvisoryEffectiveInputManifest.__tablename__,
+)
+ADVISORY_FRESHNESS_TABLES = (
+    AdvisoryDependencyEdge.__tablename__,
+    AdvisoryInvalidationEvent.__tablename__,
 )
 
 
@@ -366,9 +470,9 @@ def _create_advisory_envelope_sqlite_triggers(_metadata, connection, **_kw) -> N
     tables = {row[0] for row in connection.exec_driver_sql(
         "SELECT name FROM sqlite_master WHERE type = 'table'"
     )}
-    if not set(ADVISORY_ENVELOPE_TABLES) <= tables:
+    if not set(ADVISORY_ENVELOPE_TABLES + ADVISORY_FRESHNESS_TABLES) <= tables:
         return
-    for ddl in ADVISORY_ENVELOPE_SQLITE_TRIGGERS:
+    for ddl in ADVISORY_ENVELOPE_SQLITE_TRIGGERS + ADVISORY_FRESHNESS_SQLITE_TRIGGERS:
         connection.exec_driver_sql(ddl)
     if "mandates" in tables and "tenant_id" in {
         row[1] for row in connection.exec_driver_sql("PRAGMA table_info(mandates)")
@@ -378,6 +482,584 @@ def _create_advisory_envelope_sqlite_triggers(_metadata, connection, **_kw) -> N
 
 
 event.listen(Base.metadata, "after_create", _create_advisory_envelope_sqlite_triggers)
+
+
+# ── CCX-P2: zentraler Mutation Hook (Vertrag 2026-11-13 §5) ──────────────────
+#
+# Jede Mutation einer Abhaengigkeit eines Beratungsentscheids (Ziele,
+# Cashflows, Vermoegen/Positionen, Risikoprofil, ESG-Praeferenz, CMA/Policy,
+# Benchmark, Restriktionen, Mandats-/Kundendaten) schreibt IM SELBEN
+# DB-Commit ein Invalidationsereignis und setzt die betroffenen Envelopes
+# (SEALED, auch einen gerade entstehenden DRAFT) auf STALE. Der Hook haengt
+# zentral an der ORM-Session (``after_flush`` fuer Einzelobjekte,
+# ``do_orm_execute`` fuer Massen-UPDATE/-DELETE) -- keine Route muss daran
+# denken, ihn aufzurufen. Rohes SQL und ORM-Massen-INSERT auf diese Tabellen
+# sind per Vollstaendigkeits-Waechter (tests/test_ccx_p2_hook_completeness.py)
+# ausserhalb einer begruendeten Allowlist verboten.
+#
+# Nebenlaeufigkeit: unter PostgreSQL sperrt der Hook die betroffenen
+# Mandatszeilen (FOR UPDATE, sortiert) -- dieselbe Sperre wie die
+# Finalisierung. Eine Mutation waehrend der Versiegelung wartet also bis zum
+# Siegel-Commit und markiert danach den neuen Envelope STALE; umgekehrt
+# liest die Versiegelung erst nach dem Mutations-Commit. Die
+# ``invalidation_sequence`` ist damit je Envelope lueckenlos (Trigger +
+# Unique als zweite Linie). Keine Fachwirkung: der Hook liest und schreibt
+# ausschliesslich Envelope-Frische und Ereignisse.
+
+INVALIDATION_REASON_CODE = "CCX_INPUT_STALE"
+SYSTEM_ACTOR = "system"
+ACTOR_INFO_KEY = "ares_actor_user_id"
+FRESHNESS_FRESH = "FRESH"
+FRESHNESS_STALE = "STALE"
+FRESHNESS_UNKNOWN = "UNKNOWN"
+_PENDING_AUDIT_KEY = "ares_ccx_p2_pending_invalidations"
+_TABLES_PRESENT_KEY = "ares_ccx_p2_tables_present"
+_SIGNED_COLUMN_KEY = "ares_ccx_p2_signed_column"
+_INVALIDATION_DOMAIN = "ares/advisory-invalidation/1"
+_UNLOADED = "<unloaded>"
+
+SCOPE_MANDATE = "mandate"
+SCOPE_CLIENT = "client"
+SCOPE_EDGE = "edge"
+SCOPE_ASSESSMENT = "assessment"
+
+
+@dataclass(frozen=True)
+class DependencySource:
+    """Abhaengigkeitsquelle: Tabelle -> ``kind`` (= ``source_kind`` und
+    ``dependency_kind``), Reichweite (Mandat, Kunde, Kante, Risikoprofil) und
+    das Attribut mit dem Reichweitenwert. ``current_flag``: das Einfuegen einer
+    sofort wirksamen globalen Version (z. B. neue aktuelle CMA) trifft alle
+    versiegelten Envelopes mit einer Kante dieser Art (konservativ)."""
+
+    kind: str
+    scope: str
+    key: str
+    current_flag: str | None = None
+    volatile: frozenset[str] = frozenset({"updated_at"})
+
+
+DEPENDENCY_SOURCES: dict[str, DependencySource] = {
+    # Mandats-/Kundendaten
+    "clients": DependencySource("client", SCOPE_CLIENT, "id"),
+    "mandates": DependencySource("mandate", SCOPE_MANDATE, "id"),
+    "planning_assumptions": DependencySource("planning", SCOPE_MANDATE, "mandate_id"),
+    # Ziele
+    "goals": DependencySource("goals", SCOPE_MANDATE, "mandate_id"),
+    "goal_revision_decisions": DependencySource("goal_revisions", SCOPE_MANDATE, "mandate_id"),
+    "goal_lifecycle_transitions": DependencySource("goal_transitions", SCOPE_MANDATE, "mandate_id"),
+    # Cashflows und Vermoegen/Positionen
+    "cashflows": DependencySource("cashflows", SCOPE_CLIENT, "client_id"),
+    "wealth_inflows": DependencySource("wealth_inflows", SCOPE_CLIENT, "client_id"),
+    "wealth_positions": DependencySource("positions", SCOPE_CLIENT, "client_id"),
+    "recommendation_holdings": DependencySource("run_holdings", SCOPE_EDGE, "run_id"),
+    # Risikoprofil (inkl. Antworten, Override, Freigabe, Plausibilisierung)
+    "risk_assessments": DependencySource("risk", SCOPE_MANDATE, "mandate_id"),
+    "risk_assessment_answers": DependencySource("risk", SCOPE_ASSESSMENT, "assessment_id"),
+    "risk_override_decisions": DependencySource("risk_overrides", SCOPE_MANDATE, "mandate_id"),
+    "risk_profile_signoffs": DependencySource("risk_signoffs", SCOPE_MANDATE, "mandate_id"),
+    "risk_capacity_plausibility_evaluations": DependencySource("risk_plausibility", SCOPE_MANDATE, "mandate_id"),
+    "financial_coverage_attestations": DependencySource("coverage_attestations", SCOPE_MANDATE, "mandate_id"),
+    # ESG-/Nachhaltigkeitspraeferenz
+    "investment_preference_decisions": DependencySource("preference", SCOPE_MANDATE, "mandate_id"),
+    # Restriktionen/Baender/Praeferenz-Snapshot der Soll-Allokation
+    "target_allocations": DependencySource("constraints", SCOPE_MANDATE, "mandate_id"),
+    # CMA-/Policy-Version und Benchmark (Hausmatrix der Policy)
+    "capital_market_assumptions": DependencySource("cma", SCOPE_EDGE, "id", current_flag="is_current"),
+    "optimizer_policies": DependencySource("optimizer_policy", SCOPE_EDGE, "id", current_flag="is_current"),
+    "building_blocks": DependencySource("building_blocks", SCOPE_EDGE, "policy_id"),
+    "cma_policies": DependencySource("cma_policy", SCOPE_EDGE, "id"),
+    "cma_policy_components": DependencySource("cma_policy_components", SCOPE_EDGE, "policy_row_id"),
+    "cma_policy_approvals": DependencySource("cma_policy_approvals", SCOPE_EDGE, "policy_row_id"),
+    "house_matrix": DependencySource("benchmark", SCOPE_EDGE, "policy_id"),
+}
+
+# Kanten, die die Versiegelung schreibt (services/effective_input_manifest.py
+# ::collect_dependency_parts); jede Hook-Art muss hier vorkommen.
+DEPENDENCY_KINDS = (
+    "client", "mandate", "goals", "cashflows", "wealth_inflows", "positions", "run_holdings", "risk",
+    "preference", "constraints", "cma", "optimizer_policy", "cma_policy", "benchmark",
+    # N-908-04: Kanten auch fuer die Tabellen, die bisher nur ueber die Reichweite liefen.
+    "goal_revisions", "goal_transitions", "planning", "risk_overrides", "risk_signoffs",
+    "risk_plausibility", "coverage_attestations", "building_blocks", "cma_policy_components",
+    "cma_policy_approvals",
+)
+
+_AUDIT_SINKS: list = []
+# Laufzeitschutz (N-908-02): Core-DML auf Abhaengigkeitstabellen ist nur aus
+# einem Session-Flush oder dem Massen-Hook heraus erlaubt.
+_HOOK_SCOPE: contextvars.ContextVar[bool] = contextvars.ContextVar("ares_ccx_p2_hook_scope", default=False)
+_FLUSH_DEPTH: contextvars.ContextVar[int] = contextvars.ContextVar("ares_ccx_p2_flush_depth", default=0)
+# Referenzdaten-Arten: Hausmeinung (CMA, Policy, CMA-Policy, Benchmark).
+REFERENCE_KINDS = frozenset({
+    "cma", "optimizer_policy", "cma_policy", "benchmark", "building_blocks", "cma_policy_components",
+    "cma_policy_approvals",
+})
+# Entscheid (Owner-Vertretung, N-908, Anlagephilosophie Strategietreue): ein vom
+# Kunden UNTERZEICHNETER Entscheid wird durch eine neue Hausmeinung (CMA/Policy/
+# Benchmark) nicht veraendert und nicht STALE -- kein Rebalancing, keine
+# Ueberwachung. Unterzeichnet = ein kundenseitig signiertes, nicht geloeschtes
+# Dokument, das an die Soll-Allokation des Entscheids gebunden ist.
+# Aenderungen an Kundendaten (Ziele, Vermoegen, Risikoprofil ...) invalidieren
+# weiterhin; STALE sperrt dort nur neue Kanalwirkungen (P5), nie Bestehendes.
+SIGNED_DECISION_SQL = (
+    "EXISTS (SELECT 1 FROM contract_documents cd JOIN advisory_envelope_bindings sb "
+    "ON sb.envelope_id = e.id AND sb.binding_kind = 'target_allocation' "
+    "WHERE cd.mandate_id = e.mandate_id AND cd.bound_target_allocation_id = sb.object_id "
+    "AND cd.signed_by_client = 1 AND cd.deleted_at IS NULL)"
+)
+
+
+def register_invalidation_audit_sink(sink) -> None:
+    """Service-Schicht registriert den Audit-Schreiber (``ccx.envelope.
+    invalidated``); er laeuft vor dem Commit derselben Transaktion."""
+    if sink not in _AUDIT_SINKS:
+        _AUDIT_SINKS.append(sink)
+
+
+def _utc_now() -> str:
+    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def _jsonable(value):
+    if value is None or isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return "f:" + repr(value)
+    if isinstance(value, Decimal):
+        return "d:" + str(value)
+    if isinstance(value, (_dt.datetime, _dt.date, _dt.time)):
+        return value.isoformat()
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return "b:" + bytes(value).hex()
+    return "r:" + repr(value)
+
+
+def projection_hash(table: str, values: dict) -> str:
+    """Domaenenseparierter SHA-256 ueber die Zeilenprojektion eines
+    Quellobjekts (alte bzw. neue Fassung), lowercase 64-hex."""
+    payload = json.dumps(
+        {key: _jsonable(values[key]) for key in sorted(values)},
+        sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    ).encode("utf-8")
+    domain = b"Ares\x00" + f"{_INVALIDATION_DOMAIN}/{table}".encode("utf-8") + b"\x00"
+    return hashlib.sha256(domain + payload).hexdigest()
+
+
+@dataclass
+class _Change:
+    table: str
+    source: DependencySource
+    op: str
+    object_id: str
+    old_hash: str | None
+    new_hash: str | None
+    scope_values: tuple[str, ...]
+    fallback_client: str | None = None
+    global_current: bool = False
+    tenant_id: str | None = None
+
+
+def _old_new(state, volatile: frozenset[str]) -> tuple[dict, dict]:
+    old: dict = {}
+    new: dict = {}
+    for attr in state.mapper.column_attrs:
+        key = attr.key
+        if key in volatile:
+            continue
+        current = state.dict.get(key, _UNLOADED)
+        history = state.attrs[key].history
+        new[key] = current
+        if history.deleted:
+            old[key] = history.deleted[0]
+        elif history.added:
+            old[key] = _UNLOADED  # vorheriger Wert nicht geladen -> konservativ "geaendert"
+        else:
+            old[key] = current
+    return old, new
+
+
+def _scope(values: dict, key: str) -> str | None:
+    value = values.get(key)
+    if value in (None, "", _UNLOADED):
+        return None
+    return str(value)
+
+
+def _change(table: str, source: DependencySource, op: str, old: dict, new: dict) -> _Change | None:
+    old_hash = None if op == "insert" else projection_hash(table, old)
+    new_hash = None if op == "delete" else projection_hash(table, new)
+    if op == "update" and old_hash == new_hash:
+        return None  # Wiederholungs-/Leermutation: idempotent, kein Ereignis
+    views = (new,) if op == "insert" else (old,) if op == "delete" else (old, new)
+    scope_values = tuple(sorted({v for v in (_scope(view, source.key) for view in views) if v}))
+    fallback = next((v for v in (_scope(view, "client_id") for view in views) if v), None)
+    flag = source.current_flag
+    return _Change(
+        table=table, source=source, op=op,
+        object_id=_scope(new, "id") or _scope(old, "id") or "-",
+        old_hash=old_hash, new_hash=new_hash, scope_values=scope_values,
+        fallback_client=fallback if source.scope == SCOPE_MANDATE and not scope_values else None,
+        global_current=bool(op == "insert" and flag and new.get(flag) not in (None, 0, False, "", _UNLOADED)),
+        tenant_id=_scope(new, "tenant_id") or _scope(old, "tenant_id"),
+    )
+
+
+def _session_changes(session: Session) -> list[_Change]:
+    changes: list[_Change] = []
+    for op, objects in (("insert", session.new), ("update", session.dirty), ("delete", session.deleted)):
+        for obj in list(objects):
+            try:
+                state = sa_inspect(obj)
+            except NoInspectionAvailable:
+                continue
+            table = getattr(getattr(state.mapper, "local_table", None), "name", None)
+            source = DEPENDENCY_SOURCES.get(table)
+            if source is None:
+                continue
+            if op == "update" and not session.is_modified(obj, include_collections=False):
+                continue
+            old, new = _old_new(state, source.volatile)
+            change = _change(table, source, op, old, new)
+            if change is not None:
+                changes.append(change)
+    return changes
+
+
+def freshness_tables_present(connection) -> bool:
+    """True, wenn Envelope-, Kanten- und Ereignistabelle existieren (nur ein
+    positives Ergebnis wird je Verbindung gemerkt). Ohne Envelope-Tabelle gibt
+    es nichts zu invalidieren."""
+    if connection.info.get(_TABLES_PRESENT_KEY):
+        return True
+    inspector = sa_inspect(connection)
+    present = all(inspector.has_table(name) for name in (
+        AdvisoryDecisionEnvelope.__tablename__, AdvisoryDependencyEdge.__tablename__,
+        AdvisoryInvalidationEvent.__tablename__,
+    ))
+    if present:
+        connection.info[_TABLES_PRESENT_KEY] = True
+    return present
+
+
+def _expanding(sql: str, *names: str):
+    return text(sql).bindparams(*(bindparam(name, expanding=True) for name in names))
+
+
+def mark_envelope_stale(
+    connection,
+    *,
+    envelope_id: str,
+    tenant_id: str,
+    mandate_id: str,
+    source_kind: str,
+    source_object_id: str,
+    old_hash: str | None,
+    new_hash: str | None,
+    actor: str | None,
+) -> int | None:
+    """Setzt den Envelope STALE (optimistic_version + 1, erster stale_at/
+    Reason bleibt) und haengt das naechste Ereignis an. Rueckgabe: die neue
+    ``invalidation_sequence`` (None, wenn der Envelope nicht mehr SEALED/DRAFT
+    ist)."""
+    now = _utc_now()
+    updated = connection.execute(text(
+        "UPDATE advisory_decision_envelopes SET optimistic_version = optimistic_version + 1, "
+        "freshness_status = 'STALE', stale_at = COALESCE(stale_at, :now), "
+        "stale_reason_code = COALESCE(stale_reason_code, :reason) "
+        "WHERE id = :envelope_id AND status IN ('SEALED', 'DRAFT')"
+    ), {"now": now, "reason": INVALIDATION_REASON_CODE, "envelope_id": envelope_id}).rowcount
+    if updated != 1:
+        return None
+    return connection.execute(text(
+        "INSERT INTO advisory_invalidation_events (id, tenant_id, mandate_id, envelope_id, source_kind, "
+        "source_object_id, old_hash, new_hash, reason_code, invalidation_sequence, created_at, created_by) "
+        # Typen explizit (PostgreSQL leitet Parameter in der SELECT-Liste nicht
+        # ab; :envelope_id steht zudem im WHERE -> eigener Parametername).
+        "SELECT CAST(:id AS VARCHAR), CAST(:tenant_id AS VARCHAR), CAST(:mandate_id AS VARCHAR), "
+        "CAST(:envelope_id AS VARCHAR), CAST(:source_kind AS VARCHAR), CAST(:source_object_id AS VARCHAR), "
+        "CAST(:old_hash AS VARCHAR), CAST(:new_hash AS VARCHAR), CAST(:reason AS VARCHAR), "
+        "COALESCE(MAX(i.invalidation_sequence), 0) + 1, CAST(:now AS VARCHAR), CAST(:actor AS VARCHAR) "
+        "FROM advisory_invalidation_events i WHERE i.envelope_id = :sequence_envelope_id "
+        "RETURNING invalidation_sequence"
+    ), {
+        "id": new_uuid(), "tenant_id": tenant_id, "mandate_id": mandate_id, "envelope_id": envelope_id,
+        "sequence_envelope_id": envelope_id,
+        "source_kind": source_kind, "source_object_id": source_object_id, "old_hash": old_hash,
+        "new_hash": new_hash, "reason": INVALIDATION_REASON_CODE, "now": now,
+        "actor": str(actor or SYSTEM_ACTOR),
+    }).scalar_one()
+
+
+def _mandates_by(connection, sql: str, ids: list[str]) -> dict[str, set[str]]:
+    result: dict[str, set[str]] = {}
+    if ids:
+        for key, mandate_id in connection.execute(_expanding(sql, "ids"), {"ids": ids}):
+            if key is not None and mandate_id is not None:
+                result.setdefault(str(key), set()).add(str(mandate_id))
+    return result
+
+
+def _apply_invalidations(session: Session, changes: list[_Change]) -> None:
+    _apply_invalidations_on(
+        session.connection(), changes, actor=session.info.get(ACTOR_INFO_KEY) or SYSTEM_ACTOR,
+        pending=session.info.setdefault(_PENDING_AUDIT_KEY, []),
+    )
+
+
+def signed_decision_sql(connection) -> str:
+    """``SIGNED_DECISION_SQL`` -- oder ``0``, wenn ``contract_documents`` die
+    Bindungsspalte (noch) nicht hat (aeltere Bootstrap-Schemata ohne
+    Laufzeitpatch: dort kann es keinen gebundenen, unterzeichneten Entscheid
+    geben)."""
+    if connection.info.get(_SIGNED_COLUMN_KEY) is None:
+        columns = {c["name"] for c in sa_inspect(connection).get_columns("contract_documents")} \
+            if sa_inspect(connection).has_table("contract_documents") else set()
+        connection.info[_SIGNED_COLUMN_KEY] = {"bound_target_allocation_id", "signed_by_client"} <= columns
+    return SIGNED_DECISION_SQL if connection.info[_SIGNED_COLUMN_KEY] else "0 = 1"
+
+
+def _apply_invalidations_on(connection, changes: list[_Change], *, actor: str, pending: list | None) -> None:
+    if not freshness_tables_present(connection):
+        return
+    is_pg = connection.dialect.name.startswith("postgresql")
+    mandate_changes = [c for c in changes if c.source.scope != SCOPE_EDGE]
+    edge_changes = [c for c in changes if c.source.scope == SCOPE_EDGE]
+
+    # 1. Reichweite -> Mandate (direkt, ueber den Kunden, ueber das Risikoprofil).
+    client_ids = sorted({v for c in mandate_changes if c.source.scope == SCOPE_CLIENT for v in c.scope_values}
+                        | {c.fallback_client for c in mandate_changes if c.fallback_client})
+    assessment_ids = sorted({v for c in mandate_changes if c.source.scope == SCOPE_ASSESSMENT
+                             for v in c.scope_values})
+    by_client = _mandates_by(connection, "SELECT client_id, id FROM mandates WHERE client_id IN :ids", client_ids)
+    by_assessment = _mandates_by(
+        connection, "SELECT id, mandate_id FROM risk_assessments WHERE id IN :ids", assessment_ids,
+    )
+    mandates_of: list[set[str]] = []
+    for change in mandate_changes:
+        lookup = {SCOPE_CLIENT: by_client, SCOPE_ASSESSMENT: by_assessment}.get(change.source.scope)
+        ids = set(change.scope_values) if lookup is None else {
+            m for value in change.scope_values for m in lookup.get(value, ())
+        }
+        if change.fallback_client:
+            ids |= by_client.get(change.fallback_client, set())
+        mandates_of.append(ids)
+
+    # 2. Kanten-Reichweite (CMA/Policy/Benchmark/Lauf-Bestaende).
+    edge_rows: list = []
+    if edge_changes:
+        edge_rows = connection.execute(_expanding(
+            "SELECT d.envelope_id, d.dependency_kind, d.dependency_object_id, e.mandate_id, e.tenant_id, "
+            f"e.status, CASE WHEN {signed_decision_sql(connection)} THEN 1 ELSE 0 END AS signed "
+            "FROM advisory_dependency_edges d JOIN advisory_decision_envelopes e "
+            "ON e.id = d.envelope_id WHERE d.dependency_kind IN :kinds AND e.status IN ('SEALED', 'DRAFT')",
+            "kinds"), {"kinds": sorted({c.source.kind for c in edge_changes})}).all()
+    edge_hits: list[set[str]] = []
+    for change in edge_changes:
+        hits = set()
+        for row in edge_rows:
+            if row.dependency_kind != change.source.kind:
+                continue
+            if change.source.kind in REFERENCE_KINDS and int(row.signed or 0):
+                continue  # unterzeichneter Entscheid: Hausmeinung wirkt nicht zurueck
+            if str(row.dependency_object_id) in change.scope_values or (
+                change.global_current and row.status == "SEALED"
+                and (change.tenant_id is None or str(row.tenant_id) == change.tenant_id)
+            ):
+                hits.add(str(row.envelope_id))
+        edge_hits.append(hits)
+    hit_ids = set().union(*edge_hits) if edge_hits else set()
+    all_mandates = sorted(
+        set().union(*mandates_of)
+        | {str(row.mandate_id) for row in edge_rows if str(row.envelope_id) in hit_ids}
+    )
+    if not all_mandates:
+        return
+
+    # 3. PostgreSQL: Mandatssperre (dieselbe Sperre wie die Finalisierung).
+    if is_pg:
+        connection.execute(_expanding(
+            "SELECT id FROM mandates WHERE id IN :ids ORDER BY id FOR UPDATE", "ids"), {"ids": all_mandates})
+
+    # 4. Envelopes nach der Sperre frisch lesen und invalidieren.
+    envelopes = {
+        str(row.id): row for row in connection.execute(_expanding(
+            "SELECT id, tenant_id, mandate_id FROM advisory_decision_envelopes "
+            "WHERE mandate_id IN :ids AND status IN ('SEALED', 'DRAFT') ORDER BY id", "ids"),
+            {"ids": all_mandates})
+    }
+    if not envelopes:
+        return
+    targets: list[tuple[_Change, object]] = []
+    for change, ids in zip(mandate_changes, mandates_of):
+        targets.extend((change, row) for row in envelopes.values() if str(row.mandate_id) in ids)
+    for change, hits in zip(edge_changes, edge_hits):
+        targets.extend((change, envelopes[eid]) for eid in sorted(hits) if eid in envelopes)
+    if not targets:
+        return
+    for change, row in targets:
+        sequence = mark_envelope_stale(
+            connection, envelope_id=str(row.id), tenant_id=str(row.tenant_id), mandate_id=str(row.mandate_id),
+            source_kind=change.source.kind, source_object_id=change.object_id,
+            old_hash=change.old_hash, new_hash=change.new_hash, actor=actor,
+        )
+        if sequence is not None and pending is not None:
+            pending.append({
+                "envelope_id": str(row.id), "tenant_id": str(row.tenant_id), "mandate_id": str(row.mandate_id),
+                "source_kind": change.source.kind, "source_table": change.table,
+                "source_object_id": change.object_id, "operation": change.op,
+                "old_hash": change.old_hash, "new_hash": change.new_hash,
+                "invalidation_sequence": int(sequence), "actor": str(actor),
+            })
+
+
+def _after_flush(session: Session, _flush_context) -> None:
+    changes = _session_changes(session)
+    if changes:
+        _apply_invalidations(session, changes)
+
+
+def _dml_table(orm_execute_state):
+    """Zieltabelle eines DML-Statements -- ORM-Entitaet (``update(Model)``)
+    ODER Core-Tabelle (``update(Model.__table__)``, N-908-02)."""
+    mapper = orm_execute_state.bind_mapper
+    table = getattr(mapper, "local_table", None)
+    if table is None:
+        candidate = getattr(orm_execute_state.statement, "table", None)
+        table = candidate if getattr(candidate, "name", None) else None
+    return table
+
+
+def _bulk_orm_write(orm_execute_state):
+    """Massen-UPDATE/-DELETE ueber die Session (``query(...).update()``,
+    ``update(Model)``, ``update(Model.__table__)``): betroffene Zeilen VOR der
+    Ausfuehrung lesen (PostgreSQL: ``FOR UPDATE``, damit eine parallele
+    Versiegelung sichtbar committet ist) und invalidieren (gleiche Transaktion;
+    neue Fassung unbekannt -> konservativ geaendert). Massen-INSERT auf
+    Abhaengigkeitstabellen ist verboten. Das Statement selbst laeuft danach im
+    Hook-Kontext (der Laufzeitschutz ``_guard_core_dml`` laesst es durch)."""
+    if not (orm_execute_state.is_update or orm_execute_state.is_delete or orm_execute_state.is_insert):
+        return None
+    table = _dml_table(orm_execute_state)
+    source = DEPENDENCY_SOURCES.get(getattr(table, "name", None))
+    if source is None:
+        return None
+    if orm_execute_state.is_insert:
+        raise RuntimeError(
+            f"CCX-P2: Massen-INSERT auf {table.name} umgeht den Invalidation-Hook; "
+            "Objekte einzeln ueber die Session anlegen."
+        )
+    session = orm_execute_state.session
+    connection = session.connection()
+    where = getattr(orm_execute_state.statement, "whereclause", None)
+    query = select(table) if where is None else select(table).where(where)
+    query = query.order_by(*table.primary_key.columns)  # feste Lesereihenfolge (H-868 D1)
+    if connection.dialect.name.startswith("postgresql"):
+        query = query.with_for_update()
+    rows = connection.execute(query).mappings().all()
+    changes = []
+    for row in rows:
+        old = {key: value for key, value in row.items() if key not in source.volatile}
+        change = _change(table.name, source, "delete", old, {})
+        if orm_execute_state.is_update:
+            change.op = "update"
+        changes.append(change)
+    if changes:
+        _apply_invalidations(session, changes)
+    token = _HOOK_SCOPE.set(True)
+    try:
+        return orm_execute_state.invoke_statement()
+    finally:
+        _HOOK_SCOPE.reset(token)
+
+
+def _enter_flush(_session, _flush_context, _instances) -> None:
+    _FLUSH_DEPTH.set(_FLUSH_DEPTH.get() + 1)
+
+
+def _leave_flush(_session, *_args) -> None:
+    _FLUSH_DEPTH.set(max(0, _FLUSH_DEPTH.get() - 1))
+
+
+def _insert_rows(clauseelement, multiparams, params) -> list[dict]:
+    compiled = dict(clauseelement.compile().params or {})
+    rows = []
+    batches = multiparams if multiparams else ([params] if params else [{}])
+    for batch in batches:
+        for item in (batch if isinstance(batch, (list, tuple)) else [batch]):
+            if isinstance(item, dict):
+                rows.append({**compiled, **item})
+    return [{key: value for key, value in row.items() if value is not None} for row in rows] or [compiled]
+
+
+def _guard_core_dml(conn, clauseelement, multiparams, params, execution_options):
+    """N-908-02 Laufzeitschutz: Core-DML (``update/delete/insert``) auf eine
+    Abhaengigkeitstabelle, die weder aus einem Session-Flush (``after_flush``-
+    Hook) noch aus dem Massen-Hook kommt -- z. B. ``db.connection().execute(
+    update(Goal))`` oder ``engine.begin()`` -- loest den Hook auf Verbindungs-
+    ebene aus: betroffene Zeilen werden vor der Ausfuehrung gelesen (UPDATE/
+    DELETE; PostgreSQL ``FOR UPDATE``) bzw. die einzufuegenden Werte
+    ausgewertet (INSERT) und invalidiert, im selben Commit. Ohne Session gibt
+    es keinen Benutzerkontext: Actor ``system``; das Ereignis selbst ist der
+    Beleg. Rohes SQL (``text``) verbietet der statische Waechter."""
+    if not isinstance(clauseelement, UpdateBase):
+        return
+    table = getattr(clauseelement, "table", None)
+    source = DEPENDENCY_SOURCES.get(getattr(table, "name", None))
+    if source is None or _HOOK_SCOPE.get() or _FLUSH_DEPTH.get() > 0:
+        return
+    if not freshness_tables_present(conn):
+        return
+    token = _HOOK_SCOPE.set(True)
+    try:
+        changes: list[_Change] = []
+        if clauseelement.is_insert:
+            for row in _insert_rows(clauseelement, multiparams, params):
+                values = {key: value for key, value in row.items() if key not in source.volatile}
+                changes.append(_change(table.name, source, "insert", {}, values))
+        else:
+            where = getattr(clauseelement, "whereclause", None)
+            query = select(table) if where is None else select(table).where(where)
+            query = query.order_by(*table.primary_key.columns)
+            if conn.dialect.name.startswith("postgresql"):
+                query = query.with_for_update()
+            for row in conn.execute(query).mappings().all():
+                old = {key: value for key, value in row.items() if key not in source.volatile}
+                change = _change(table.name, source, "delete", old, {})
+                if clauseelement.is_update:
+                    change.op = "update"
+                changes.append(change)
+        if changes:
+            _apply_invalidations_on(conn, changes, actor=SYSTEM_ACTOR, pending=None)
+    finally:
+        _HOOK_SCOPE.reset(token)
+
+
+def _write_pending_audit(session: Session) -> None:
+    if session.new or session.dirty or session.deleted:
+        session.flush()
+    pending = session.info.pop(_PENDING_AUDIT_KEY, None)
+    if pending:
+        for sink in list(_AUDIT_SINKS):
+            sink(session, pending)
+
+
+def _discard_pending_audit(session: Session, *_args) -> None:
+    session.info.pop(_PENDING_AUDIT_KEY, None)
+
+
+event.listen(Session, "before_flush", _enter_flush)
+event.listen(Session, "after_flush", _after_flush)
+event.listen(Session, "after_flush_postexec", _leave_flush)
+event.listen(Session, "after_soft_rollback", _leave_flush)
+event.listen(Session, "do_orm_execute", _bulk_orm_write)
+event.listen(Engine, "before_execute", _guard_core_dml)
+event.listen(Session, "before_commit", _write_pending_audit)
+event.listen(Session, "after_rollback", _discard_pending_audit)
 
 
 # ── CCX-P3 Markt- und Depot-Wahrheit (Vertrag 2026-11-13 §6 + Nachtrag P3-FX) ──

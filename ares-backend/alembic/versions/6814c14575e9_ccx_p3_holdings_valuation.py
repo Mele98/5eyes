@@ -19,13 +19,12 @@ mandantengebunden (INSERT-Guard aus dem Mandat; RLS ENABLE + FORCE folgen beim
 Boot ueber ``ensure_postgres_rls_policies``). Gleiche DDL wie database.py
 (SQLite-Laufzeitpatch) und ares_schema.sql.
 
-Platz ``CCX_P3_REV``. Diese Revision haengt an ``2c62f9012c73`` (CCX-P1); P2
-(``r5/ccx-p2-invalidation``) entsteht parallel auf derselben Basis. Die
-lineare Ordnung P1 -> P2 -> P3 wird bei der Integration hergestellt
-(``down_revision`` dann auf die P2-Revision).
+Platz ``CCX_P3_REV``. Lineare Ordnung P1 ``2c62f9012c73`` -> P2
+``d868f4eaa028`` -> P3 (diese Revision); bei der Integration (CCX-P4) wurde
+``down_revision`` von der P1- auf die P2-Revision umgestellt.
 
 Revision ID: 6814c14575e9
-Revises: 2c62f9012c73
+Revises: d868f4eaa028
 Create Date: 2026-11-14
 """
 from __future__ import annotations
@@ -37,7 +36,7 @@ from alembic import context, op
 
 
 revision: str = "6814c14575e9"
-down_revision: Union[str, Sequence[str], None] = "2c62f9012c73"
+down_revision: Union[str, Sequence[str], None] = "d868f4eaa028"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

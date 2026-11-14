@@ -2567,6 +2567,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/mandates/{mandate_id}/advisory-envelopes/current/freshness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Current Advisory Envelope Freshness
+         * @description CCX-P2: Serverstatus der Frische des aktuellen versiegelten Entscheids
+         *     (FRESH/STALE/UNKNOWN, stale_at, Reason-Code, Ereignisse) fuer die Anzeige.
+         *     Liefert NIE den Entscheid selbst -- ausgeliefert wird er nur FRESH ueber
+         *     ``/advisory-envelopes/current``. Ohne Entscheid: ``CCX_ENVELOPE_MISSING``.
+         */
+        get: operations["get_current_advisory_envelope_freshness_mandates__mandate_id__advisory_envelopes_current_freshness_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/mandates/{mandate_id}/advisory-log": {
         parameters: {
             query?: never;
@@ -6708,6 +6731,29 @@ export interface components {
             ordinal: number;
         };
         /**
+         * AdvisoryEnvelopeFreshnessResponse
+         * @description CCX-P2: Serverstatus der Frische des aktuellen versiegelten Entscheids
+         *     (Anzeige; keine Neuberechnung im Client).
+         */
+        AdvisoryEnvelopeFreshnessResponse: {
+            /** Envelope Hash */
+            envelope_hash: string;
+            /** Envelope Id */
+            envelope_id: string;
+            /** Freshness Status */
+            freshness_status: string;
+            /** Invalidation Count */
+            invalidation_count: number;
+            /** Last Invalidation Sequence */
+            last_invalidation_sequence?: number | null;
+            /** Optimistic Version */
+            optimistic_version: number;
+            /** Stale At */
+            stale_at?: string | null;
+            /** Stale Reason Code */
+            stale_reason_code?: string | null;
+        };
+        /**
          * AdvisoryEnvelopeResponse
          * @description CCX-P1: aktueller, integritaetsgepruefter Beratungsentscheid
          *     (``ares/advisory-envelope/1``). Rohwerte und Hashes, keine Darstellung.
@@ -6723,6 +6769,8 @@ export interface components {
             envelope_hash: string;
             /** Envelope Id */
             envelope_id: string;
+            /** Freshness Status */
+            freshness_status: string;
             /** Locale */
             locale: string;
             /** Mandate Id */
@@ -6741,6 +6789,10 @@ export interface components {
             sealed_at: string;
             /** Sealed By */
             sealed_by: string;
+            /** Stale At */
+            stale_at?: string | null;
+            /** Stale Reason Code */
+            stale_reason_code?: string | null;
             /** Status */
             status: string;
         };
@@ -20106,6 +20158,37 @@ export interface operations {
             };
         };
     };
+    get_current_advisory_envelope_freshness_mandates__mandate_id__advisory_envelopes_current_freshness_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdvisoryEnvelopeFreshnessResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_advisory_log_mandates__mandate_id__advisory_log_get: {
         parameters: {
             query?: {
@@ -22295,6 +22378,8 @@ export interface operations {
         parameters: {
             query?: {
                 confirm_no_existing_holdings?: boolean;
+                /** @description CCX-P2: beim Start der Berechnung gelesener Manifest-Hash; weicht er beim Siegel ab, ist das Ergebnis ueberholt (CCX_RESULT_SUPERSEDED). */
+                expected_input_manifest_hash?: string | null;
             };
             header?: never;
             path: {

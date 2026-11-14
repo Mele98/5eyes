@@ -128,9 +128,15 @@ _VALID_ROW_VALUES: dict[str, dict[str, object]] = {
         "previous_hash": "",
     },
     # CCX-P1: Einwert-CHECK schema_version und Hash-Laengen (length(...) = 64).
-    "advisory_decision_envelopes": {"schema_version": "ares/advisory-envelope/1"},
+    "advisory_decision_envelopes": {"schema_version": "ares/advisory-envelope/1", "freshness_status": "UNKNOWN"},
     "advisory_envelope_bindings": {"child_hash": "0" * 64, "ordinal": 0},
     "advisory_effective_input_manifests": {"manifest_hash": "0" * 64},
+    # CCX-P2: Einwert-CHECK reason_code, Hash-Laengen, Sequenz >= 1.
+    "advisory_dependency_edges": {"dependency_hash": "0" * 64},
+    "advisory_invalidation_events": {
+        "reason_code": "CCX_INPUT_STALE", "invalidation_sequence": 1, "old_hash": "0" * 64,
+        "new_hash": "0" * 64, "created_by": "seed",
+    },
     # CCX-P3: Einwert-CHECK schema_version, Hash-Laengen und die Mehrspalten-
     # CHECKs (UNKNOWN ohne Summe mit Blocker; Zeile ohne Wert nur bei Befund).
     "holdings_valuation_snapshots": {

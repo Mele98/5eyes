@@ -334,6 +334,8 @@
         "advisory_decision_envelopes",
         "advisory_envelope_bindings",
         "advisory_effective_input_manifests",
+        "advisory_dependency_edges",
+        "advisory_invalidation_events",
         "holdings_valuation_snapshots",
         "holdings_valuation_rows",
         "position_decision_ledger",

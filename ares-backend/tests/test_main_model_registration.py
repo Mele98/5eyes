@@ -61,10 +61,13 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # CCX-P1 Snapshot und Hash (2026-11-14): drei neue Tabellen
 # (advisory_decision_envelopes, advisory_envelope_bindings,
 # advisory_effective_input_manifests), keine bestehende Tabelle umbenannt/entfernt.
+# CCX-P2 Invalidation und Staleness (2026-11-14): zwei neue Tabellen
+# (advisory_dependency_edges, advisory_invalidation_events), 107 Tabellen,
+# keine bestehende Tabelle umbenannt/entfernt.
 # CCX-P3 Markt-/Depot-Wahrheit (2026-11-14): drei neue Tabellen
 # (holdings_valuation_snapshots, holdings_valuation_rows, position_decision_ledger),
-# keine bestehende Tabelle umbenannt/entfernt (108 Tabellen).
-GOLDEN_SORTED_TABLES_SHA256 = "e8b64c981d916528e710241d2f7506e80650ae144a7060f9c6892730f0100ada"
+# keine bestehende Tabelle umbenannt/entfernt (Integration P1->P2->P3: 110 Tabellen).
+GOLDEN_SORTED_TABLES_SHA256 = "ec1c0f762f6c3216e7e368e50582d50c5979f34446f11938b0f11dd9cf1c5e70"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -172,10 +175,13 @@ GOLDEN_SORTED_TABLES_SHA256 = "e8b64c981d916528e710241d2f7506e80650ae144a7060f9c
 # RC-CH-1 (H9-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
 # CCX-P1: GET /mandates/{id}/advisory-envelopes/current (AdvisoryEnvelopeResponse)
 # und advisory_envelope_id/_hash in RecommendationFinalizeResponse.
+# CCX-P2: GET /mandates/{id}/advisory-envelopes/current/freshness
+# (AdvisoryEnvelopeFreshnessResponse), Frische-Felder in AdvisoryEnvelopeResponse,
+# Query expected_input_manifest_hash an finalize, vier neue CCX-Reason-Codes.
 # CCX-P3: confirm_no_existing_holdings an finalize; mandate_id/target_currency
 # an cashflow-summary/-projection; fx_basis_hash/valuation_as_of/mandate_id in
 # CashflowSummaryResponse; currency an WealthInflowCreate (Pflicht)/Update/Response.
-GOLDEN_OPENAPI_SHA256 = "1d599d68bbd6983ebdb9ae8f3a28e07ffcb3d4e50e3c4123114a08f40d5e40be"
+GOLDEN_OPENAPI_SHA256 = "f37a40cefd9a5ce588f9a3fa913a16fbe1604d61c75dcdccd8f47414c93a4abe"
 
 _PROBE = """
 import hashlib, json

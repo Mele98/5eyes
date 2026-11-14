@@ -311,6 +311,13 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
         ("envelope_id", "advisory_decision_envelopes"), _c(RECORD, "recommendation_evidence"),
     ),
     "advisory_effective_input_manifests": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
+    # CCX-P2: Abhaengigkeitskanten und Invalidationsereignisse -- nur IDs,
+    # Arten, Versionen, Hashes und Reason-Code (kein Freitext, keine
+    # Identitaet); Teil der Empfehlungsevidenz, append-only.
+    "advisory_dependency_edges": _t(
+        ("envelope_id", "advisory_decision_envelopes"), _c(RECORD, "recommendation_evidence"),
+    ),
+    "advisory_invalidation_events": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
     # CCX-P3: Bewertungs-Snapshot, Positionszeilen und Entscheid je Position --
     # IDs, Waehrungen, Minor Units, Kurse, Stichtage und Hashes (kein Freitext,
     # keine Identitaet); Teil der Empfehlungsevidenz, append-only.
