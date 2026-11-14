@@ -26,6 +26,7 @@ from services.cost_disclosure import (
     RETRO_UNAVAILABLE,
     retrocession_finalization_block,
 )
+from tests.sustainability_test_support import answer_question_one_for_all_mandates
 from test_finalize_mandate_lock import (  # noqa: F401
     _FakeRequest,
     _add_full_position,
@@ -54,6 +55,9 @@ def _draft_run_with_product(session_factory, suffix: str, *, retro_bps, source="
 
 def _finalize(session_factory, advisor_id, mid, run_id):
     with session_factory() as db:
+        # RC-CH-1 Teil 2b (E2 Nachtrag 1): Pflichtfrage Nachhaltigkeit vor der
+        # Finalisierung -- wie in test_finalize_mandate_lock ("Keine Angabe").
+        answer_question_one_for_all_mandates(db)
         advisor = db.query(User).filter(User.id == advisor_id).first()
         return finalize_recommendation(
             mandate_id=mid, run_id=run_id, request=_FakeRequest(), db=db, current_user=advisor,
