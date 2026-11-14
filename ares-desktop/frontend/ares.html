@@ -3739,7 +3739,7 @@ async function createFoundationExampleCase(){
         +' - MissingPx '+String(result.market_data_missing_price_count||0),
       false
     );
-    await loadClients();
+    await loadClients(false);
     if(result&&result.client_id&&(await loadClientById(result.client_id))==false)return false;
     persistAllocationPreferences(buildDefaultAllocationPreferences());
     syncAllocationPreferences();
@@ -3904,12 +3904,12 @@ async function doBootstrapAdmin() {
   }
 }
 
-async function loadClients() {
+async function loadClients(selectFirst = true) {
   try {
     liveClients = await API.get('/clients');
     rebuildSidebar(liveClients);
     ensureFoundationExampleButton();
-    if (liveClients.length > 0) await loadClientById(liveClients[0].id);
+    if (selectFirst && liveClients.length > 0) await loadClientById(liveClients[0].id);
   } catch(e) {
     // isNet: only true for real network failures (no TCP connection).
     // 4xx/5xx API errors have e.status set — those are not network failures.
@@ -4068,8 +4068,7 @@ async function loadClientById(clientId) {
   currentWealthPositions = [];
   currentPortfolioPositions = [];
   riskHorizonTouched = false;
-  // Mandanten-Trennung (2026-06-12): DOM-Container des VORIGEN Klienten SOFORT
-  // leeren, sonst bleiben dessen Zeilen bis zum Nachladen sichtbar.
+  // Mandanten-Trennung (2026-06-12): DOM des vorigen Klienten sofort leeren.
   try{
     var _ldPlaceholder='<div style="font-size:10px;color:var(--n4);padding:6px 0">Wird geladen …</div>';
     var _ldZf=document.getElementById('zufluss-rows'); if(_ldZf)_ldZf.innerHTML=_ldPlaceholder;

@@ -138,6 +138,38 @@ def test_foundation_example_stops_when_the_switch_is_cancelled(page):
     assert out["f"] == {"persist": 0, "sync": 0, "refresh": 0, "go": []}
 
 
+REAL_LOAD_CLIENTS_STUBS = """
+window.rebuildSidebar=function(){};window.ensureFoundationExampleButton=function(){};
+window.API.get=function(path){calls.get.push(path);
+  if(path==='/clients')return Promise.resolve([{id:'c-X'},{id:'c-F'}]);return new Promise(function(){});};
+"""
+
+
+def _with_real_load_clients(page):
+    page.add_script_tag(content=FOUNDATION_STUBS + REAL_LOAD_CLIENTS_STUBS)
+    page.add_script_tag(content=extract_function(html(), "loadClients"))
+
+
+def test_foundation_example_asks_only_once_with_real_load_clients(page):
+    """N-907-14: createFoundationExampleCase -> loadClients() rief selbst
+    loadClientById(liveClients[0]) auf: bei offenem Entwurf kam die Rueckfrage
+    zweimal, und ein Abbruch der ersten wurde nicht ausgewertet."""
+    _with_real_load_clients(page)
+    page.check("#sust-q1-yes")
+    out = page.evaluate("CONFIRM_ANSWER=false; createFoundationExampleCase().then(r=>({r:r,current:currentClientId,"
+                        "f:fcalls,confirm:calls.confirm.length}))")
+    assert out["confirm"] == 1 and out["r"] is False and out["current"] == "c-A", out
+    assert out["f"] == {"persist": 0, "sync": 0, "refresh": 0, "go": []}
+
+
+def test_foundation_example_confirmed_once_switches_to_the_new_client(page):
+    _with_real_load_clients(page)
+    page.check("#sust-q1-yes")
+    out = page.evaluate("CONFIRM_ANSWER=true; createFoundationExampleCase(); "
+                        "new Promise(r=>setTimeout(r,150)).then(()=>({current:currentClientId,confirm:calls.confirm.length}))")
+    assert out == {"current": "c-F", "confirm": 1}, out
+
+
 def test_foundation_example_switches_after_confirmation(page):
     page.add_script_tag(content=FOUNDATION_STUBS)
     page.check("#sust-q1-yes")

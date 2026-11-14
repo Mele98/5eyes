@@ -119,9 +119,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 27161
+MONOLITH_MAX_LINES = 27160
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1666013
+MONOLITH_MAX_BYTES = 1665980
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
