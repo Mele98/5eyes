@@ -1692,7 +1692,8 @@ def memoized_allocation_monte_carlo(**kwargs) -> dict:
     except TypeError:
         _MC_MEMO_STATS["misses"] += 1
         return _run_allocation_monte_carlo(**kwargs)
-    key = hashlib.sha256(key_payload.encode("ascii")).hexdigest()
+    # Memo-Schluessel ist der kanonische Text selbst (kein Evidenz-Hash).
+    key = key_payload
     with _MC_MEMO_LOCK:
         cached = _MC_MEMO.get(key)
     if cached is not None:
