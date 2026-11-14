@@ -4050,6 +4050,7 @@ function applyRegisterView() {
   if (pb) pb.textContent = registerShowAll ? 'Ausblenden' : 'Alle anzeigen';
 }
 async function loadClientById(clientId) {
+  if (typeof aresClientSwitchAllowed === 'function' && !(await aresClientSwitchAllowed())) return; // H11
   const loadToken = ++liveClientLoadToken;
   const clientRef = liveClients.find(c => c.id === clientId);
   if (clientRef && clientRef._persona) {
@@ -4068,10 +4069,7 @@ async function loadClientById(clientId) {
   currentPortfolioPositions = [];
   riskHorizonTouched = false;
   // Mandanten-Trennung (2026-06-12): DOM-Container des VORIGEN Klienten SOFORT
-  // leeren. Sonst bleiben dessen Cashflow-/Ziel-/Haushalts-Zeilen sichtbar, bis
-  // das async-Nachladen fertig ist — bei einem Klienten ohne eigene (aktive)
-  // Cashflows fiel das als "fremde Zahlen" (z.B. Daniel/Claudia) in der neuen
-  // Ansicht auf. Hartes Leeren stellt sicher: nie fremde Daten in fremder Ansicht.
+  // leeren, sonst bleiben dessen Zeilen bis zum Nachladen sichtbar (fremde Zahlen).
   try{
     var _ldPlaceholder='<div style="font-size:10px;color:var(--n4);padding:6px 0">Wird geladen …</div>';
     var _ldZf=document.getElementById('zufluss-rows'); if(_ldZf)_ldZf.innerHTML=_ldPlaceholder;
