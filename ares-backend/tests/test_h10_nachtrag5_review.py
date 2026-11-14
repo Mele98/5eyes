@@ -71,20 +71,21 @@ def test_harmless_powershell_passes():
 
 
 # N-899-15/-18: Shell-Aufrufe und Ausfuehrungen mit nicht-literalem Programm
-# im Produktcode nur mit begruendeter Ausnahme (Schluessel pfad::funktion).
+# im Produktcode nur mit begruendeter Ausnahme (Schluessel pfad::funktion#n,
+# H11: je Aufrufstelle -- ein weiterer Aufruf in derselben Funktion ist nicht gedeckt).
 EXEC_EXCEPTIONS: dict[str, str] = {
-    "ares-backend/services/backup.py::replicate_offsite":
+    "ares-backend/services/backup.py::replicate_offsite#1":
         "Programm fest 'rsync' (Liste in derselben Funktion); Ziel und Kanal prueft der Laufzeitschutz "
         "(operator.backup_offsite).",
-    "scripts/packaging_smoke.py::run_restart_smoke":
+    "scripts/packaging_smoke.py::run_restart_smoke#1":
         "CI/Release-Werkzeug: startet die eben gebaute Backend-EXE (Pfad aus dem Build), kein Produktlauf.",
-    "scripts/packaging_smoke.py::run_start_smoke":
+    "scripts/packaging_smoke.py::run_start_smoke#1":
         "CI/Release-Werkzeug: startet die eben gebaute Backend-EXE (Pfad aus dem Build), kein Produktlauf.",
-    "scripts/pytest_supervisor.py::run":
+    "scripts/pytest_supervisor.py::run#1":
         "CI-Werkzeug: fuehrt die uebergebene Test-Kommandozeile ohne Shell aus, kein Produktlauf.",
-    "scripts/security_gate.py::_run_data_integrity_audit_smoke":
+    "scripts/security_gate.py::_run_data_integrity_audit_smoke#1":
         "CI-Werkzeug: sys.executable mit festem Repo-Skript, kein Produktlauf.",
-    "scripts/security_gate.py::main":
+    "scripts/security_gate.py::main#1":
         "CI-Werkzeug: sys.executable -m pytest, kein Produktlauf.",
 }
 
