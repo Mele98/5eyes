@@ -512,7 +512,7 @@ FRESHNESS_STALE = "STALE"
 FRESHNESS_UNKNOWN = "UNKNOWN"
 _PENDING_AUDIT_KEY = "ares_ccx_p2_pending_invalidations"
 _TABLES_PRESENT_KEY = "ares_ccx_p2_tables_present"
-_SIGNED_COLUMN_KEY = "ares_ccx_p2_signed_column"
+_SIGNED_COLUMN_KEY = "ares_ccx_p2_signed_sql_v2"
 _INVALIDATION_DOMAIN = "ares/advisory-invalidation/1"
 _UNLOADED = "<unloaded>"
 
@@ -596,16 +596,33 @@ REFERENCE_KINDS = frozenset({
 # Entscheid (Owner-Vertretung, N-908, Anlagephilosophie Strategietreue): ein vom
 # Kunden UNTERZEICHNETER Entscheid wird durch eine neue Hausmeinung (CMA/Policy/
 # Benchmark) nicht veraendert und nicht STALE -- kein Rebalancing, keine
-# Ueberwachung. Unterzeichnet = ein kundenseitig signiertes, nicht geloeschtes
-# Dokument, das an die Soll-Allokation des Entscheids gebunden ist.
+# Ueberwachung. Unterzeichnet (N-908-05) = GENAU DIESER Entscheid wurde vom
+# Kunden unterzeichnet: ein nicht geloeschtes Dokument an seiner Soll-Allokation,
+# das NACH seinem Siegel erzeugt UND nach seinem Siegel vom Kunden signiert wurde
+# -- per E-Signing (signed_by_client + Signaturzeit) oder per Vor-Ort-Signatur
+# (Evidenz mit signer_role = 'client'). Weil je Mandat hoechstens ein SEALED-
+# Entscheid existiert und jede Neuversiegelung den Vorgaenger abloest, ordnet
+# das Zeitfenster [sealed_at, ...) ein Dokument eindeutig dem Entscheid zu: ein
+# neuer Lauf E2 auf derselben Allokation erbt die Unterschrift von E1 nicht
+# (dessen Dokument entstand vor E2s Siegel). Vergleich auf Millisekunden.
 # Aenderungen an Kundendaten (Ziele, Vermoegen, Risikoprofil ...) invalidieren
 # weiterhin; STALE sperrt dort nur neue Kanalwirkungen (P5), nie Bestehendes.
-SIGNED_DECISION_SQL = (
+_SIGNED_DOCUMENT_SQL = (
     "EXISTS (SELECT 1 FROM contract_documents cd JOIN advisory_envelope_bindings sb "
     "ON sb.envelope_id = e.id AND sb.binding_kind = 'target_allocation' "
     "WHERE cd.mandate_id = e.mandate_id AND cd.bound_target_allocation_id = sb.object_id "
-    "AND cd.signed_by_client = 1 AND cd.deleted_at IS NULL)"
+    "AND cd.deleted_at IS NULL AND e.sealed_at IS NOT NULL "
+    "AND substr(cd.created_at, 1, 23) >= substr(e.sealed_at, 1, 23) "
+    "AND ((cd.signed_by_client = 1 "
+    "AND substr(COALESCE(cd.signature_client_signed_at, cd.signed_at), 1, 23) >= substr(e.sealed_at, 1, 23))"
+    "@@ONSITE@@))"
 )
+_ONSITE_SIGNED_SQL = (
+    " OR EXISTS (SELECT 1 FROM onsite_signature_evidence ev WHERE ev.document_id = cd.id "
+    "AND ev.mandate_id = cd.mandate_id AND ev.signer_role = 'client' "
+    "AND substr(ev.signed_at, 1, 23) >= substr(e.sealed_at, 1, 23))"
+)
+SIGNED_DECISION_SQL = _SIGNED_DOCUMENT_SQL.replace("@@ONSITE@@", _ONSITE_SIGNED_SQL)
 
 
 def register_invalidation_audit_sink(sink) -> None:
@@ -810,15 +827,25 @@ def _apply_invalidations(session: Session, changes: list[_Change]) -> None:
 
 
 def signed_decision_sql(connection) -> str:
-    """``SIGNED_DECISION_SQL`` -- oder ``0``, wenn ``contract_documents`` die
-    Bindungsspalte (noch) nicht hat (aeltere Bootstrap-Schemata ohne
-    Laufzeitpatch: dort kann es keinen gebundenen, unterzeichneten Entscheid
-    geben)."""
-    if connection.info.get(_SIGNED_COLUMN_KEY) is None:
-        columns = {c["name"] for c in sa_inspect(connection).get_columns("contract_documents")} \
-            if sa_inspect(connection).has_table("contract_documents") else set()
-        connection.info[_SIGNED_COLUMN_KEY] = {"bound_target_allocation_id", "signed_by_client"} <= columns
-    return SIGNED_DECISION_SQL if connection.info[_SIGNED_COLUMN_KEY] else "0 = 1"
+    """``SIGNED_DECISION_SQL`` passend zum Schema der Verbindung: ohne
+    Bindungs-/Signaturspalten in ``contract_documents`` (aeltere Bootstrap-
+    Schemata ohne Laufzeitpatch) gibt es keinen gebundenen, unterzeichneten
+    Entscheid (``0 = 1``); ohne Vor-Ort-Evidenztabelle zaehlt nur E-Signing."""
+    cached = connection.info.get(_SIGNED_COLUMN_KEY)
+    if cached is None:
+        inspector = sa_inspect(connection)
+        columns = {c["name"] for c in inspector.get_columns("contract_documents")} \
+            if inspector.has_table("contract_documents") else set()
+        required = {"bound_target_allocation_id", "signed_by_client", "signature_client_signed_at", "signed_at",
+                    "created_at", "deleted_at"}
+        if not required <= columns:
+            cached = "0 = 1"
+        elif inspector.has_table("onsite_signature_evidence"):
+            cached = SIGNED_DECISION_SQL
+        else:
+            cached = _SIGNED_DOCUMENT_SQL.replace("@@ONSITE@@", "")
+        connection.info[_SIGNED_COLUMN_KEY] = cached
+    return cached
 
 
 def _apply_invalidations_on(connection, changes: list[_Change], *, actor: str, pending: list | None) -> None:
@@ -983,6 +1010,14 @@ def _leave_flush(_session, *_args) -> None:
     _FLUSH_DEPTH.set(max(0, _FLUSH_DEPTH.get() - 1))
 
 
+def _reset_flush_depth(_session, *_args) -> None:
+    """Transaktionsende: ein Flush ohne Arbeit (``flush_context.has_work``
+    falsch, z. B. ``flush(objects=...)``) kehrt nach ``before_flush`` ohne
+    ``after_flush_postexec`` zurueck -- der Zaehler darf den Laufzeitschutz
+    nicht ueber die Transaktion hinaus abschalten."""
+    _FLUSH_DEPTH.set(0)
+
+
 def _insert_rows(clauseelement, multiparams, params) -> list[dict]:
     compiled = dict(clauseelement.compile().params or {})
     rows = []
@@ -1053,7 +1088,9 @@ def _discard_pending_audit(session: Session, *_args) -> None:
 event.listen(Session, "before_flush", _enter_flush)
 event.listen(Session, "after_flush", _after_flush)
 event.listen(Session, "after_flush_postexec", _leave_flush)
-event.listen(Session, "after_soft_rollback", _leave_flush)
+event.listen(Session, "after_soft_rollback", _reset_flush_depth)
+event.listen(Session, "after_commit", _reset_flush_depth)
+event.listen(Session, "after_rollback", _reset_flush_depth)
 event.listen(Session, "do_orm_execute", _bulk_orm_write)
 event.listen(Engine, "before_execute", _guard_core_dml)
 event.listen(Session, "before_commit", _write_pending_audit)

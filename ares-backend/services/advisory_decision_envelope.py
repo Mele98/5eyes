@@ -296,8 +296,8 @@ def seal_advisory_envelope(
     # CCX-P2: dieselbe Mandatssperre wie der Mutation Hook (PostgreSQL) --
     # eine parallele Mutation wartet bis zum Commit und invalidiert danach.
     lock_mandate_row(db, str(mandate.id))
-    # N-908-01 (b): die gebundenen Referenzzeilen (CMA, Optimizer-/CMA-Policy,
-    # Hausmatrix/Bausteine) FOR SHARE -- eine parallele Aenderung wartet bis zum
+    # N-908-01 (b): die gebundenen Referenzzeilen (CMA, Optimizer-/CMA-Policy
+    # samt Komponenten/Freigaben, Hausmatrix/Bausteine) FOR SHARE -- eine parallele Aenderung wartet bis zum
     # Siegel-Commit und sieht danach die Kanten (Hook invalidiert).
     lock_bound_reference_rows(db, run=run, target_allocation=ta)
     try:
@@ -615,6 +615,8 @@ def lock_bound_reference_rows(db: Session, *, run: Any, target_allocation: Any) 
         ("SELECT id FROM house_matrix WHERE policy_id = :v ORDER BY id FOR SHARE", policy_id),
         ("SELECT id FROM building_blocks WHERE policy_id = :v ORDER BY id FOR SHARE", policy_id),
         ("SELECT id FROM cma_policies WHERE id = :v ORDER BY id FOR SHARE", cma_policy_id),
+        ("SELECT id FROM cma_policy_components WHERE policy_row_id = :v ORDER BY id FOR SHARE", cma_policy_id),
+        ("SELECT id FROM cma_policy_approvals WHERE policy_row_id = :v ORDER BY id FOR SHARE", cma_policy_id),
     ):
         if value:
             db.execute(text(sql), {"v": str(value)})
