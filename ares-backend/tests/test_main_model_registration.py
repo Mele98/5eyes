@@ -61,7 +61,10 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # CCX-P1 Snapshot und Hash (2026-11-14): drei neue Tabellen
 # (advisory_decision_envelopes, advisory_envelope_bindings,
 # advisory_effective_input_manifests), keine bestehende Tabelle umbenannt/entfernt.
-GOLDEN_SORTED_TABLES_SHA256 = "368abf49cfab9456f4d8639c55db4192dd5f2caf70dcb9389b3713f7e3a49392"
+# CCX-P2 Invalidation und Staleness (2026-11-14): zwei neue Tabellen
+# (advisory_dependency_edges, advisory_invalidation_events), 107 Tabellen,
+# keine bestehende Tabelle umbenannt/entfernt.
+GOLDEN_SORTED_TABLES_SHA256 = "37730d41cdb21aefc606dde025c6612ab063e400fc4596c6e2127a9539183688"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -169,7 +172,10 @@ GOLDEN_SORTED_TABLES_SHA256 = "368abf49cfab9456f4d8639c55db4192dd5f2caf70dcb9389
 # RC-CH-1 (H9-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
 # CCX-P1: GET /mandates/{id}/advisory-envelopes/current (AdvisoryEnvelopeResponse)
 # und advisory_envelope_id/_hash in RecommendationFinalizeResponse.
-GOLDEN_OPENAPI_SHA256 = "8fd6c4b0579e22763825270dfe220cbf5a394dbcf163a1e113b760760ff15a02"
+# CCX-P2: GET /mandates/{id}/advisory-envelopes/current/freshness
+# (AdvisoryEnvelopeFreshnessResponse), Frische-Felder in AdvisoryEnvelopeResponse,
+# Query expected_input_manifest_hash an finalize, vier neue CCX-Reason-Codes.
+GOLDEN_OPENAPI_SHA256 = "a159c20167e9a73012d34fe012cf3a7fbb7761068680cdd287ae86646b2818e9"
 
 _PROBE = """
 import hashlib, json

@@ -690,7 +690,10 @@ def test_alembic_single_head_and_upgrade_downgrade_upgrade(tmp_path):
     from sqlalchemy import create_engine, inspect
 
     script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
-    assert script.get_heads() == [CCX_P1_REV]
+    # CCX-P2 (d868f4eaa028) haengt an CCX_P1_REV; genau ein Head, P1 in der Kette.
+    heads = script.get_heads()
+    assert len(heads) == 1
+    assert CCX_P1_REV in {rev.revision for rev in script.walk_revisions("base", heads[0])}
     assert script.get_revision(CCX_P1_REV).down_revision == CCX_P1_PARENT
     url = f"sqlite:///{tmp_path / 'ccx.db'}"
     cfg = _alembic_cfg(url)
@@ -729,6 +732,7 @@ def test_orm_bootstrap_runtime_patch_and_alembic_are_identical(tmp_path, monkeyp
     from database import (
         ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS,
         ADVISORY_ENVELOPE_SQLITE_TRIGGERS,
+        ADVISORY_FRESHNESS_SQLITE_TRIGGERS,
         Base,
     )
 
@@ -760,7 +764,10 @@ def test_orm_bootstrap_runtime_patch_and_alembic_are_identical(tmp_path, monkeyp
 
     assert orm[0] == boot_columns == patched[0] == migrated[0]
     assert orm[1] == patched[1] == migrated[1]
-    assert len(orm[1]) == len(ADVISORY_ENVELOPE_SQLITE_TRIGGERS) + len(ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS)
+    # CCX-P2: zwei weitere Trigger auf advisory_decision_envelopes (Frische).
+    p2_envelope_triggers = [d for d in ADVISORY_FRESHNESS_SQLITE_TRIGGERS if " ON advisory_decision_envelopes " in d]
+    assert len(orm[1]) == (len(ADVISORY_ENVELOPE_SQLITE_TRIGGERS) + len(ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS)
+                           + len(p2_envelope_triggers))
     assert orm[2] == patched[2] == migrated[2]
 
     import importlib.util
@@ -769,8 +776,20 @@ def test_orm_bootstrap_runtime_patch_and_alembic_are_identical(tmp_path, monkeyp
     spec = importlib.util.spec_from_file_location("ccx_p1_migration_under_test", path)
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
-    # Eingefrorene Alembic-Kopie == Laufzeit-Konstanten (gleiche Trigger-Texte).
-    assert migration._SQLITE_TRIGGERS == ADVISORY_ENVELOPE_SQLITE_TRIGGERS + ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS
+    # Eingefrorene Alembic-Kopie == Laufzeit-Konstanten (gleiche Trigger-Texte);
+    # einzige Ausnahme ist der Update-Guard, den CCX-P2 (d868f4eaa028) um die
+    # Frische-Uebergaenge erweitert -- dessen eingefrorene P1-/P2-Texte muessen
+    # exakt dem P1-Stand bzw. der heutigen Konstante entsprechen.
+    p2_path = BACKEND / "alembic" / "versions" / "d868f4eaa028_ccx_p2_invalidation_staleness.py"
+    p2_spec = importlib.util.spec_from_file_location("ccx_p2_migration_under_test", p2_path)
+    p2 = importlib.util.module_from_spec(p2_spec)
+    p2_spec.loader.exec_module(p2)
+    guard_index = 1
+    assert migration._SQLITE_TRIGGERS[guard_index] == p2.P1_SQLITE_UPDATE_GUARD
+    assert ADVISORY_ENVELOPE_SQLITE_TRIGGERS[guard_index] == p2.SQLITE_UPDATE_GUARD
+    expected = list(ADVISORY_ENVELOPE_SQLITE_TRIGGERS + ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS)
+    expected[guard_index] = p2.P1_SQLITE_UPDATE_GUARD
+    assert migration._SQLITE_TRIGGERS == tuple(expected)
     assert migration.revision == CCX_P1_REV and migration.down_revision == CCX_P1_PARENT
 
 

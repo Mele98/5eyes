@@ -53,6 +53,7 @@ from schemas.review import (
     ProductReferenceBatchApplyRequest, ProductReferenceBatchApplyResponse,
     ProductUniverseEntryCreate, ProductUniverseEntryUpdate, ProductUniverseEntryResponse,
     RecommendationRunCreate, RecommendationRunResponse, RecommendationFinalizeResponse, finalize_warning_codes,
+    AdvisoryEnvelopeFreshnessResponse,
     AdvisoryEnvelopeResponse,
     RecommendationPositionCreate, RecommendationPositionResponse,
     RecommendationHoldingUpsert, RecommendationHoldingResponse,
@@ -70,7 +71,11 @@ from services.audit import gate_block_audit, log, release_block_audit, restore_t
 # CCX-P1: direkt aus services.auth (derselbe Helfer, den routers.auth nur
 # weiterreicht) -- Router importieren keine Router (Architektur-Ratsche).
 from services.auth import extract_client_ip as _extract_client_ip
-from services.advisory_decision_envelope import current_verified_envelope, seal_advisory_envelope
+from services.advisory_decision_envelope import (
+    current_envelope_freshness,
+    current_verified_envelope,
+    seal_advisory_envelope,
+)
 from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
 from services.data_classification import enforce_data_classification
 from services.eodhd_client import preview_eodhd_reference
@@ -4610,7 +4615,14 @@ def finalize_recommendation(
     mandate_id: str, run_id: str,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_advisor)
+    current_user: User = Depends(require_advisor),
+    expected_input_manifest_hash: str | None = Query(
+        default=None, min_length=64, max_length=64, pattern="^[0-9a-f]{64}$",
+        description=(
+            "CCX-P2: beim Start der Berechnung gelesener Manifest-Hash; weicht er beim "
+            "Siegel ab, ist das Ergebnis ueberholt (CCX_RESULT_SUPERSEDED)."
+        ),
+    ),
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     # 2026-07-26 (Generalaudit-Nachtrag): sperrt die Mandats-Zeile fuer die
@@ -4765,6 +4777,8 @@ def finalize_recommendation(
     # kein finaler Lauf ohne Envelope, kein Fallback (Audit im Service).
     envelope = seal_advisory_envelope(
         db, mandate=mandate, run=run, user=current_user, ip_address=_extract_client_ip(request),
+        # Direktaufruf (ohne FastAPI) liefert den Query-Default, nie einen Hash.
+        expected_manifest_hash=expected_input_manifest_hash if isinstance(expected_input_manifest_hash, str) else None,
     )
     envelope_ref = {"advisory_envelope_id": envelope.id, "advisory_envelope_hash": envelope.envelope_hash}
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -4797,6 +4811,21 @@ def get_current_advisory_envelope(
     return current_verified_envelope(
         db, mandate=mandate, user=current_user, ip_address=_extract_client_ip(request),
     )
+
+
+@recommendations_router.get("/mandates/{mandate_id}/advisory-envelopes/current/freshness",
+                             response_model=AdvisoryEnvelopeFreshnessResponse)
+def get_current_advisory_envelope_freshness(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """CCX-P2: Serverstatus der Frische des aktuellen versiegelten Entscheids
+    (FRESH/STALE/UNKNOWN, stale_at, Reason-Code, Ereignisse) fuer die Anzeige.
+    Liefert NIE den Entscheid selbst -- ausgeliefert wird er nur FRESH ueber
+    ``/advisory-envelopes/current``. Ohne Entscheid: ``CCX_ENVELOPE_MISSING``."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    return current_envelope_freshness(db, mandate=mandate)
 
 
 @recommendations_router.get("/mandates/{mandate_id}/recommendations/{run_id}/positions",

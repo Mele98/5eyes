@@ -341,8 +341,10 @@ def test_single_alembic_head_is_h8_revision():
     assert "d8e4b2a6c1f9" in {rev.revision for rev in script.walk_revisions("base", heads[0])}
     # RC-CH-1 Teil 2b: E2 (f3a8c1e5b7d2 -> c4e8a2f6b9d1 -> e7b3d9f1a2c4) hinter H10.
     # CCX-P1 (Platz CCX_P1_REV): 2c62f9012c73 haengt an e7b3d9f1a2c4.
-    assert heads == ["2c62f9012c73"]
+    # CCX-P2 (Platz CCX_P2_REV): d868f4eaa028 haengt an 2c62f9012c73.
+    assert heads == ["d868f4eaa028"]
     chain = [
+        ("d868f4eaa028", "2c62f9012c73"),
         ("2c62f9012c73", "e7b3d9f1a2c4"),
         ("e7b3d9f1a2c4", "c4e8a2f6b9d1"), ("c4e8a2f6b9d1", "f3a8c1e5b7d2"),
         ("f3a8c1e5b7d2", "f2a4c6e8b0d1"),

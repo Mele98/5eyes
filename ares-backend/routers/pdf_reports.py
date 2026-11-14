@@ -27,7 +27,12 @@ from models.users import User
 from routers.auth import _extract_client_ip
 from services.audit import release_block_audit
 from services.auth import get_current_user, get_mandate_for_user_or_404, set_tenant_context
-from services.document_archive import archive_generated_pdf, content_hash_for, current_preference_binding
+from services.document_archive import (
+    archive_generated_pdf,
+    content_hash_for,
+    current_preference_binding,
+    decision_freshness_block,
+)
 from services.cost_disclosure import build_cost_disclosure
 from core import sustainability_preference as sustainability
 from core.reason_codes import DomainError, ReasonCode
@@ -1262,6 +1267,32 @@ def _archive_final(ctx: PDFContext, db: Session, **kwargs):
     naechsten Erzeugen eine neue, finale Fassung."""
     if (getattr(ctx, "watermark_mode", "none") or "none") != "none":
         return None
+    # CCX-P2 (Dokumentarchiv): ein Dokument zur Soll-Allokation eines
+    # versiegelten, aber nicht mehr FRESHen Beratungsentscheids wird nicht als
+    # finale (signierbare) Fassung abgelegt -- Reason-Code, Audit mit
+    # Tenant-Kontext nach Rollback, kein Fallback.
+    blocked = decision_freshness_block(db, mandate_id=kwargs["mandate_id"], binding=kwargs.get("binding"))
+    if blocked is not None:
+        target_allocation_id = (kwargs.get("binding") or {}).get("target_allocation_id")
+        audit = gate_block_audit(
+            db, user=kwargs["current_user"], mandate=db.get(Mandate, kwargs["mandate_id"]),
+            ip_address=kwargs.get("ip_address"), table_name="advisory_decision_envelopes",
+            field_name="ccx.envelope.rejected", set_tenant_context=set_tenant_context,
+        )
+        audit(json.dumps({
+            "reason_code": str(blocked), "channel": "archive", "document_type": kwargs.get("document_type"),
+            "target_allocation_id": target_allocation_id,
+        }, sort_keys=True), {"decision_id": None})
+        stale = blocked == ReasonCode.CCX_INPUT_STALE
+        raise DomainError(
+            ReasonCode.CCX_INPUT_STALE if stale else ReasonCode.CCX_FRESHNESS_UNKNOWN,
+            "Der Beratungsentscheid zu dieser Strategie ist veraltet; das Dokument wird nicht als finale "
+            "Fassung abgelegt. Bitte neu berechnen und finalisieren." if stale else
+            "Die Aktualitaet des Beratungsentscheids zu dieser Strategie ist nicht belegt; das Dokument wird "
+            "nicht als finale Fassung abgelegt.",
+            http_status=409,
+            extra={"channel": "archive", "target_allocation_id": target_allocation_id},
+        )
     return archive_generated_pdf(db, **kwargs)
 
 

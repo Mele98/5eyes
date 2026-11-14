@@ -285,6 +285,73 @@
         "title": "AdvisoryEnvelopeBindingResponse",
         "type": "object"
       },
+      "AdvisoryEnvelopeFreshnessResponse": {
+        "description": "CCX-P2: Serverstatus der Frische des aktuellen versiegelten Entscheids\n(Anzeige; keine Neuberechnung im Client).",
+        "properties": {
+          "envelope_hash": {
+            "title": "Envelope Hash",
+            "type": "string"
+          },
+          "envelope_id": {
+            "title": "Envelope Id",
+            "type": "string"
+          },
+          "freshness_status": {
+            "title": "Freshness Status",
+            "type": "string"
+          },
+          "invalidation_count": {
+            "title": "Invalidation Count",
+            "type": "integer"
+          },
+          "last_invalidation_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Invalidation Sequence"
+          },
+          "optimistic_version": {
+            "title": "Optimistic Version",
+            "type": "integer"
+          },
+          "stale_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stale At"
+          },
+          "stale_reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stale Reason Code"
+          }
+        },
+        "required": [
+          "envelope_id",
+          "envelope_hash",
+          "freshness_status",
+          "optimistic_version",
+          "invalidation_count"
+        ],
+        "title": "AdvisoryEnvelopeFreshnessResponse",
+        "type": "object"
+      },
       "AdvisoryEnvelopeResponse": {
         "description": "CCX-P1: aktueller, integritaetsgepruefter Beratungsentscheid\n(``ares/advisory-envelope/1``). Rohwerte und Hashes, keine Darstellung.",
         "properties": {
@@ -309,6 +376,10 @@
           },
           "envelope_id": {
             "title": "Envelope Id",
+            "type": "string"
+          },
+          "freshness_status": {
+            "title": "Freshness Status",
             "type": "string"
           },
           "locale": {
@@ -361,6 +432,28 @@
             "title": "Sealed By",
             "type": "string"
           },
+          "stale_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stale At"
+          },
+          "stale_reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stale Reason Code"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -379,6 +472,7 @@
           "sealed_at",
           "sealed_by",
           "optimistic_version",
+          "freshness_status",
           "bindings"
         ],
         "title": "AdvisoryEnvelopeResponse",
@@ -37456,6 +37550,54 @@
         ]
       }
     },
+    "/mandates/{mandate_id}/advisory-envelopes/current/freshness": {
+      "get": {
+        "description": "CCX-P2: Serverstatus der Frische des aktuellen versiegelten Entscheids\n(FRESH/STALE/UNKNOWN, stale_at, Reason-Code, Ereignisse) fuer die Anzeige.\nLiefert NIE den Entscheid selbst -- ausgeliefert wird er nur FRESH ueber\n``/advisory-envelopes/current``. Ohne Entscheid: ``CCX_ENVELOPE_MISSING``.",
+        "operationId": "get_current_advisory_envelope_freshness_mandates__mandate_id__advisory_envelopes_current_freshness_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdvisoryEnvelopeFreshnessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Current Advisory Envelope Freshness",
+        "tags": [
+          "Empfehlungen"
+        ]
+      }
+    },
     "/mandates/{mandate_id}/advisory-log": {
       "get": {
         "description": "Sprint U-FINMA-2.1: Listet die *aktuellen* (non-superseded) Einträge.\n\nMit `?include_history=true` werden alle Versionen geliefert (für\nCompliance-Audit). Default: nur aktuelle Köpfe der Versions-Ketten.",
@@ -41325,6 +41467,27 @@
             "schema": {
               "title": "Run Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "CCX-P2: beim Start der Berechnung gelesener Manifest-Hash; weicht er beim Siegel ab, ist das Ergebnis ueberholt (CCX_RESULT_SUPERSEDED).",
+            "in": "query",
+            "name": "expected_input_manifest_hash",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "minLength": 64,
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "CCX-P2: beim Start der Berechnung gelesener Manifest-Hash; weicht er beim Siegel ab, ist das Ergebnis ueberholt (CCX_RESULT_SUPERSEDED).",
+              "title": "Expected Input Manifest Hash"
             }
           }
         ],

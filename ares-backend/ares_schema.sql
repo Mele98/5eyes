@@ -2066,6 +2066,9 @@ CREATE TABLE IF NOT EXISTS advisory_decision_envelopes (
     sealed_at               TEXT,
     sealed_by               TEXT REFERENCES users(id),
     optimistic_version      INTEGER NOT NULL DEFAULT 1 CHECK(optimistic_version >= 1),
+    freshness_status        TEXT NOT NULL DEFAULT 'UNKNOWN' CHECK(freshness_status IN ('FRESH','STALE','UNKNOWN')),
+    stale_at                TEXT,
+    stale_reason_code       TEXT,
     CONSTRAINT ck_advisory_decision_envelopes_sealed_complete CHECK(status = 'DRAFT' OR (
         canonical_payload_json IS NOT NULL AND envelope_hash IS NOT NULL
         AND sealed_at IS NOT NULL AND sealed_by IS NOT NULL)),
@@ -2120,7 +2123,7 @@ CREATE TABLE IF NOT EXISTS advisory_effective_input_manifests (
 CREATE INDEX IF NOT EXISTS ix_advisory_effective_input_manifests_tenant_id ON advisory_effective_input_manifests(tenant_id);
 CREATE INDEX IF NOT EXISTS ix_advisory_effective_input_manifests_mandate ON advisory_effective_input_manifests(tenant_id, mandate_id);
 CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_insert_guard BEFORE INSERT ON advisory_decision_envelopes FOR EACH ROW WHEN NEW.status IS NOT 'DRAFT' OR NEW.optimistic_version IS NOT 1 BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes: insert only as DRAFT'); END;
-CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_update_guard BEFORE UPDATE ON advisory_decision_envelopes FOR EACH ROW WHEN NEW.id IS NOT OLD.id OR NEW.tenant_id IS NOT OLD.tenant_id OR NEW.mandate_id IS NOT OLD.mandate_id OR NEW.schema_version IS NOT OLD.schema_version OR NEW.locale IS NOT OLD.locale OR NEW.base_currency IS NOT OLD.base_currency OR NEW.predecessor_id IS NOT OLD.predecessor_id OR NEW.created_at IS NOT OLD.created_at OR NEW.created_by IS NOT OLD.created_by OR NEW.optimistic_version IS NOT OLD.optimistic_version + 1 OR NOT ((OLD.status = 'DRAFT' AND NEW.status IN ('DRAFT', 'SEALED')) OR (OLD.status = 'SEALED' AND NEW.status = 'SUPERSEDED' AND NEW.canonical_payload_json IS OLD.canonical_payload_json AND NEW.envelope_hash IS OLD.envelope_hash AND NEW.sealed_at IS OLD.sealed_at AND NEW.sealed_by IS OLD.sealed_by)) BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes is append-only once sealed'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_update_guard BEFORE UPDATE ON advisory_decision_envelopes FOR EACH ROW WHEN NEW.id IS NOT OLD.id OR NEW.tenant_id IS NOT OLD.tenant_id OR NEW.mandate_id IS NOT OLD.mandate_id OR NEW.schema_version IS NOT OLD.schema_version OR NEW.locale IS NOT OLD.locale OR NEW.base_currency IS NOT OLD.base_currency OR NEW.predecessor_id IS NOT OLD.predecessor_id OR NEW.created_at IS NOT OLD.created_at OR NEW.created_by IS NOT OLD.created_by OR NEW.optimistic_version IS NOT OLD.optimistic_version + 1 OR NOT ((OLD.status = 'DRAFT' AND NEW.status = 'DRAFT' AND OLD.freshness_status IN ('UNKNOWN', 'STALE') AND NEW.freshness_status IN (OLD.freshness_status, 'STALE')) OR (OLD.status = 'DRAFT' AND NEW.status = 'SEALED' AND OLD.freshness_status = 'UNKNOWN' AND NEW.freshness_status IN ('UNKNOWN', 'FRESH')) OR (OLD.status = 'SEALED' AND NEW.status IN ('SEALED', 'SUPERSEDED') AND NEW.canonical_payload_json IS OLD.canonical_payload_json AND NEW.envelope_hash IS OLD.envelope_hash AND NEW.sealed_at IS OLD.sealed_at AND NEW.sealed_by IS OLD.sealed_by AND ((NEW.status = 'SUPERSEDED' AND NEW.freshness_status IS OLD.freshness_status AND NEW.stale_at IS OLD.stale_at AND NEW.stale_reason_code IS OLD.stale_reason_code) OR (NEW.status = 'SEALED' AND NEW.freshness_status = 'STALE' AND (OLD.freshness_status IS NOT 'STALE' OR (NEW.stale_at IS OLD.stale_at AND NEW.stale_reason_code IS OLD.stale_reason_code)))))) OR (NEW.freshness_status = 'STALE' AND (NEW.stale_at IS NULL OR NEW.stale_reason_code IS NULL)) OR (NEW.freshness_status IS NOT 'STALE' AND (NEW.stale_at IS NOT NULL OR NEW.stale_reason_code IS NOT NULL)) BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes is append-only once sealed'); END;
 CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_seal_binding BEFORE UPDATE ON advisory_decision_envelopes FOR EACH ROW WHEN OLD.status = 'DRAFT' AND NEW.status = 'SEALED' AND NOT EXISTS (SELECT 1 FROM advisory_envelope_bindings b WHERE b.envelope_id = NEW.id AND b.binding_kind = 'effective_input_manifest') BEGIN SELECT RAISE(ABORT, 'CCX_BINDING_MISSING'); END;
 CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_no_delete BEFORE DELETE ON advisory_decision_envelopes FOR EACH ROW WHEN OLD.status IS NOT 'DRAFT' BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes is append-only once sealed'); END;
 CREATE TRIGGER IF NOT EXISTS trg_advisory_envelope_bindings_insert_guard BEFORE INSERT ON advisory_envelope_bindings FOR EACH ROW WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) IS NOT 'DRAFT' BEGIN SELECT RAISE(ABORT, 'advisory_envelope_bindings: envelope is not DRAFT'); END;
@@ -2128,3 +2131,54 @@ CREATE TRIGGER IF NOT EXISTS trg_advisory_envelope_bindings_no_update BEFORE UPD
 CREATE TRIGGER IF NOT EXISTS trg_advisory_envelope_bindings_no_delete BEFORE DELETE ON advisory_envelope_bindings FOR EACH ROW WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = OLD.envelope_id) IS NOT 'DRAFT' BEGIN SELECT RAISE(ABORT, 'advisory_envelope_bindings is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS trg_advisory_effective_input_manifests_no_update BEFORE UPDATE ON advisory_effective_input_manifests FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_effective_input_manifests is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS trg_advisory_effective_input_manifests_no_delete BEFORE DELETE ON advisory_effective_input_manifests FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_effective_input_manifests is immutable'); END;
+
+-- CCX-P2 Invalidation und Staleness (Vertrag 2026-11-13 §5): Abhaengigkeitskanten,
+-- Invalidationsereignisse und Frische-Trigger (textgleich database.py
+-- ADVISORY_FRESHNESS_SQLITE_*; PostgreSQL: Alembic CCX-P2-Revision).
+CREATE TABLE IF NOT EXISTS advisory_dependency_edges (
+    id                    TEXT PRIMARY KEY,
+    tenant_id             TEXT NOT NULL,
+    envelope_id           TEXT NOT NULL,
+    dependency_kind       TEXT NOT NULL,
+    dependency_object_id  TEXT NOT NULL,
+    dependency_version    INTEGER,
+    dependency_hash       TEXT NOT NULL CHECK(length(dependency_hash) = 64),
+    observed_at           TEXT NOT NULL,
+    created_by            TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT uq_advisory_dependency_edges_kind_object UNIQUE (envelope_id, dependency_kind, dependency_object_id),
+    CONSTRAINT fk_advisory_dependency_edges_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_advisory_dependency_edges_tenant_id ON advisory_dependency_edges(tenant_id);
+CREATE INDEX IF NOT EXISTS ix_advisory_dependency_edges_object ON advisory_dependency_edges(dependency_kind, dependency_object_id);
+CREATE TABLE IF NOT EXISTS advisory_invalidation_events (
+    id                     TEXT PRIMARY KEY,
+    tenant_id              TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id             TEXT NOT NULL,
+    envelope_id            TEXT NOT NULL,
+    source_kind            TEXT NOT NULL,
+    source_object_id       TEXT NOT NULL,
+    old_hash               TEXT CHECK(old_hash IS NULL OR length(old_hash) = 64),
+    new_hash               TEXT CHECK(new_hash IS NULL OR length(new_hash) = 64),
+    reason_code            TEXT NOT NULL CHECK(reason_code = 'CCX_INPUT_STALE'),
+    invalidation_sequence  INTEGER NOT NULL CHECK(invalidation_sequence >= 1),
+    created_at             TEXT NOT NULL,
+    created_by             TEXT NOT NULL CHECK(length(created_by) > 0),
+    CONSTRAINT uq_advisory_invalidation_events_sequence UNIQUE (envelope_id, invalidation_sequence),
+    CONSTRAINT fk_advisory_invalidation_events_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_advisory_invalidation_events_tenant_id ON advisory_invalidation_events(tenant_id);
+CREATE INDEX IF NOT EXISTS ix_advisory_invalidation_events_mandate ON advisory_invalidation_events(tenant_id, mandate_id);
+CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_freshness_insert BEFORE INSERT ON advisory_decision_envelopes FOR EACH ROW WHEN NEW.freshness_status IS NOT 'UNKNOWN' OR NEW.stale_at IS NOT NULL OR NEW.stale_reason_code IS NOT NULL BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes: insert only as UNKNOWN'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_fresh_edges BEFORE UPDATE ON advisory_decision_envelopes FOR EACH ROW WHEN NEW.freshness_status = 'FRESH' AND OLD.freshness_status IS NOT 'FRESH' AND NOT EXISTS (SELECT 1 FROM advisory_dependency_edges d WHERE d.envelope_id = NEW.id) BEGIN SELECT RAISE(ABORT, 'CCX_FRESHNESS_UNKNOWN'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_dependency_edges_insert_guard BEFORE INSERT ON advisory_dependency_edges FOR EACH ROW WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) IS NOT 'DRAFT' BEGIN SELECT RAISE(ABORT, 'advisory_dependency_edges: envelope is not DRAFT'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_dependency_edges_no_update BEFORE UPDATE ON advisory_dependency_edges FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_dependency_edges is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_dependency_edges_no_delete BEFORE DELETE ON advisory_dependency_edges FOR EACH ROW WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = OLD.envelope_id) IS NOT 'DRAFT' BEGIN SELECT RAISE(ABORT, 'advisory_dependency_edges is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_invalidation_events_insert_mandate BEFORE INSERT ON advisory_invalidation_events FOR EACH ROW WHEN NEW.mandate_id IS NOT (SELECT e.mandate_id FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id AND e.tenant_id = NEW.tenant_id) BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_invalidation_events_insert_stale BEFORE INSERT ON advisory_invalidation_events FOR EACH ROW WHEN (SELECT e.freshness_status FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) IS NOT 'STALE' BEGIN SELECT RAISE(ABORT, 'CCX_INPUT_STALE: envelope must be stale'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_invalidation_events_insert_sequence BEFORE INSERT ON advisory_invalidation_events FOR EACH ROW WHEN NEW.invalidation_sequence IS NOT (SELECT COALESCE(MAX(i.invalidation_sequence), 0) + 1 FROM advisory_invalidation_events i WHERE i.envelope_id = NEW.envelope_id) BEGIN SELECT RAISE(ABORT, 'CCX_INVALIDATION_RACE'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_dependency_edges_no_replace BEFORE INSERT ON advisory_dependency_edges FOR EACH ROW WHEN EXISTS (SELECT 1 FROM advisory_dependency_edges d WHERE d.id = NEW.id OR (d.envelope_id = NEW.envelope_id AND d.dependency_kind = NEW.dependency_kind AND d.dependency_object_id = NEW.dependency_object_id)) BEGIN SELECT RAISE(ABORT, 'advisory_dependency_edges row already exists (no replace)'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_invalidation_events_no_replace BEFORE INSERT ON advisory_invalidation_events FOR EACH ROW WHEN EXISTS (SELECT 1 FROM advisory_invalidation_events i WHERE i.id = NEW.id OR (i.envelope_id = NEW.envelope_id AND i.invalidation_sequence = NEW.invalidation_sequence)) BEGIN SELECT RAISE(ABORT, 'advisory_invalidation_events row already exists (no replace)'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_invalidation_events_no_update BEFORE UPDATE ON advisory_invalidation_events FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_invalidation_events is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_invalidation_events_no_delete BEFORE DELETE ON advisory_invalidation_events FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_invalidation_events is append-only'); END;
