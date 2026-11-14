@@ -10,6 +10,7 @@ from tests.test_e2e_thierry_goessi_walkthrough import (  # noqa: F401
     _create_client_and_mandate, _seed_goals, _seed_products, _seed_risk_profile, _seed_wealth,
     advisor_user, api, session_factory,
 )
+from tests.sustainability_test_support import rc_release_preconditions  # noqa: F401 - RC-CH-1 autouse
 from tests.test_sustainability_e2a_contract import _capture, _ok_capture
 from tests.test_sustainability_e2b_n1_product_enforcement import (  # noqa: F401
     _evidence, _non_liquid_positions, _retire, _run, _run_id, world,

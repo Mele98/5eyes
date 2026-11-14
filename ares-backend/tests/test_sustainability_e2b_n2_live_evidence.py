@@ -17,6 +17,7 @@ import json
 from sqlalchemy import text
 
 from tests.test_e2e_thierry_goessi_walkthrough import advisor_user, api, session_factory  # noqa: F401
+from tests.sustainability_test_support import rc_release_preconditions  # noqa: F401 - RC-CH-1 autouse
 from tests.test_sustainability_e2a_contract import _ok_capture
 from tests.test_sustainability_e2b_n1_product_enforcement import (  # noqa: F401
     _non_liquid_positions, _retire, _run, _run_id, world,

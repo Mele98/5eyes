@@ -54,3 +54,54 @@ def answer_question_one_for_all_mandates(db) -> int:
     db.flush()
     db.commit()
     return count
+
+
+# ---------------------------------------------------------------------------
+# RC-CH-1 Teil 2b (Integration E2 x H7/H8/C-890-01): Freigabe-Vorbedingungen
+# der Testwelt. E2 wurde ohne das Retro-Gate (H7 C-4) und ohne das
+# Kundeninformations-/KYC-Gate (H8, C-890-01) gebaut. Im integrierten Stand
+# greifen diese Gates bei Finalisierung/Signatur/Kunden-PDF/Handoff VOR den
+# E2-Gates. Damit die E2-Tests weiterhin genau die E2-Regeln pruefen, werden
+# die Testdaten vervollstaendigt -- mit denselben Helfern wie die uebrigen
+# RC-Tests (retro_free_fixture, client_onboarding_fixture), unmittelbar vor
+# jeder Freigabeaktion (Katalogprodukte entstehen erst beim Produktlauf).
+# Keine Gate- oder Assertion-Aenderung; die Gates selbst laufen unveraendert.
+# ---------------------------------------------------------------------------
+
+_RELEASE_URL_MARKERS = ("/finalize", "/sign", ".pdf", "/reports/", "handoff", "onsite-signature")
+
+
+def satisfy_release_preconditions(session_factory) -> None:
+    from client_onboarding_fixture import satisfy_client_onboarding_for_all_mandates
+    from retro_free_fixture import declare_all_products_retro_free
+
+    with session_factory() as db:
+        declare_all_products_retro_free(db)
+        satisfy_client_onboarding_for_all_mandates(db)
+        db.commit()
+
+
+import pytest as _pytest  # noqa: E402
+
+
+@_pytest.fixture(autouse=True)
+def rc_release_preconditions(request):
+    """Autouse in den importierenden E2-Modulen: vor Freigabe-Requests der
+    Test-API die Vorbedingungen anderer Pakete erfuellen (siehe oben)."""
+    if "api" not in request.fixturenames or "session_factory" not in request.fixturenames:
+        yield
+        return
+    api = request.getfixturevalue("api")
+    session_factory = request.getfixturevalue("session_factory")
+    original = api.request
+
+    def _request(method, url, *args, **kwargs):
+        if any(marker in str(url) for marker in _RELEASE_URL_MARKERS):
+            satisfy_release_preconditions(session_factory)
+        return original(method, url, *args, **kwargs)
+
+    api.request = _request
+    try:
+        yield
+    finally:
+        api.request = original

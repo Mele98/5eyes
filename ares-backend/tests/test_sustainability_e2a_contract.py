@@ -27,6 +27,7 @@ from tests.test_e2e_thierry_goessi_walkthrough import (  # noqa: F401 - pytest f
     api,
     session_factory,
 )
+from tests.sustainability_test_support import rc_release_preconditions  # noqa: F401 - RC-CH-1 autouse
 
 VOLATILE_KEYS = frozenset({
     "id", "run_id", "target_allocation_id", "allocation_id", "assessment_id", "based_on_assessment_id",
@@ -375,9 +376,12 @@ def test_handoff_blocked_by_stale_preference(api, scenario, session_factory, mon
     assert _block_audits(session_factory)[-1]["channel"] == "handoff"
 
 
-def test_onsite_signature_uses_the_same_document_binding(api, scenario, session_factory):
+def test_onsite_signature_uses_the_same_document_binding(api, scenario, session_factory, advisor_user):
     """Vor-Ort-Signatur (Kanal signature): gleiche Bindung wie die Berater-
-    Signatur. Audit-Eintrag folgt mit H7 (release_block_audit, N-888-13)."""
+    Signatur. Audit-Eintrag folgt mit H7 (release_block_audit, N-888-13).
+
+    RC-CH-1 Teil 2b: _release_gates hat seit H7 die Pflichtargumente
+    current_user/request; die Sperre wird jetzt auch auditiert (geprueft)."""
     from core.reason_codes import DomainError
     from models.mandates import Mandate
     from models.review import ContractDocument
@@ -387,12 +391,21 @@ def test_onsite_signature_uses_the_same_document_binding(api, scenario, session_
     _ok_capture(api, mid)
     doc = _protocol_doc(api, session_factory, mid)
     with session_factory() as s:
-        _release_gates(s, s.get(Mandate, mid), s.get(ContractDocument, doc["id"]))  # gebunden: ok
+        _release_gates(s, s.get(Mandate, mid), s.get(ContractDocument, doc["id"]),
+                       current_user=advisor_user, request=None)  # gebunden: ok
     _ok_capture(api, mid, **NOT_RELEVANT)
     with session_factory() as s:
         with pytest.raises(DomainError) as exc:
-            _release_gates(s, s.get(Mandate, mid), s.get(ContractDocument, doc["id"]))
+            _release_gates(s, s.get(Mandate, mid), s.get(ContractDocument, doc["id"]),
+                           current_user=advisor_user, request=None)
     assert exc.value.reason_code == "SUSTAINABILITY_DOCUMENT_OUTDATED"
+    with session_factory() as s:
+        audited = s.execute(text(
+            "SELECT COUNT(*) FROM audit_log WHERE mandate_id = :mid "
+            "AND field_name = 'onsite_signature_blocked' "
+            "AND new_value = 'SUSTAINABILITY_DOCUMENT_OUTDATED'"
+        ), {"mid": mid}).scalar()
+    assert audited == 1
 
 
 def test_n07c_cost_disclosure_is_reissued_after_a_new_preference(api, scenario, session_factory):

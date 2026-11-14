@@ -29,6 +29,7 @@ from tests.test_e2e_thierry_goessi_walkthrough import (  # noqa: F401 - pytest f
     api,
     session_factory,
 )
+from tests.sustainability_test_support import rc_release_preconditions  # noqa: F401 - RC-CH-1 autouse
 from tests.test_sustainability_e2a_contract import DECLINED, _ok_capture
 
 def _evidence(session_factory, advisor_id, product_ids, theme="tobacco"):
