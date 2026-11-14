@@ -50,6 +50,8 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -83,7 +85,7 @@ HTML_PATH = (
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _now() -> str:
@@ -314,7 +316,8 @@ def test_return_goal_sensitivity_rendering_shows_percent_not_chf(
             j += 1
         fmt_js += html[start:j] + "\n"
     script = (
-        fmt_js
+        rounding_module_source()
+        + fmt_js
         + "var resEl={textContent:null};\n"
         "var body=" + json.dumps(body) + ";\n"
         "(function(){\n"

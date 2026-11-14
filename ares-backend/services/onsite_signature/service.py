@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from core.db_integrity import raise_if_check_violation
 from core.evidence import canonical_json
 from core.reason_codes import DomainError, ReasonCode
 from models.mandates import Mandate
@@ -290,6 +291,8 @@ def _commit(db: Session, *rows: Any) -> None:
         db.commit()
     except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1 (N-903-05): CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise OnsiteSignatureError(
             CONCURRENT_TRANSITION,
             "Der Signaturvorgang wurde gleichzeitig veraendert -- Schritt nicht ausgefuehrt.",
@@ -849,6 +852,40 @@ def abort_transaction(
         reading=reading, payload={}, reason_code=reason_code,
     ))
     return load_transaction(db, transaction_id)
+
+
+def abort_for_release_block(
+    db: Session, *, policy: OnsiteSignaturePolicy, time_source: TimeSource,
+    advisor: AdvisorActor, transaction_id: str, reason_code: str,
+) -> bool:
+    """H7 N-884-07: ein Freigabe-Gate sperrt einen bereits offenen Vorgang
+    (Finalisierung). Der Vorgang wird mit dem Reason-Code des Gates als
+    Ereignis ``EV_ABORTED`` geschlossen, damit die Sperre in der Ereigniskette
+    steht und kein halb bestaetigter Vorgang offen bleibt. Rueckgabe False,
+    wenn der Zustand keinen Abbruch mehr zulaesst (dann bleibt nur das
+    Audit-Log)."""
+    tx = load_transaction(db, transaction_id)
+    _require_owner(tx, advisor)
+    if sm.next_state(tx.state, sm.EV_ABORTED) is None:
+        return False
+    reading = _read_time(policy, time_source, tx.last_occurred_at)
+    _commit(db, _new_event(
+        tx, event_type=sm.EV_ABORTED, actor_id=advisor.user_id, actor_role=advisor.role,
+        reading=reading, payload={"release_gate": reason_code}, reason_code=reason_code,
+    ))
+    return True
+
+
+def transaction_events_and_evidence(
+    db: Session, transaction_id: str,
+) -> tuple[list[OnsiteSignatureEvent], OnsiteSignatureEvidence | None]:
+    """Ereigniskette und Evidenz eines Vorgangs (fuer die Router-Sicht)."""
+    evidence = (
+        db.query(OnsiteSignatureEvidence)
+        .filter(OnsiteSignatureEvidence.transaction_id == transaction_id)
+        .first()
+    )
+    return _events(db, transaction_id), evidence
 
 
 def assert_followup_allowed(db: Session, document_id: str) -> None:

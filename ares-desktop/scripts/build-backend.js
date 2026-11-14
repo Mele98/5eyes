@@ -174,6 +174,15 @@ const collectSubmodules = [
   'jurisdictions',
 ];
 
+// H10 (DSG-Technikaudit 2026-11-11): versionierte Datenschutz-Daten
+// (Bearbeitungsverzeichnis, Egress-Manifest) liegen unter config/ und werden
+// zur Laufzeit gelesen; fehlen sie, bleibt die kundenwirksame Ausgabe bzw.
+// jeder externe Kanal gesperrt (fail-closed).
+const privacyConfigFiles = [
+  'config/processing_activities.json',
+  'config/outbound_processing_manifest.json',
+];
+
 const pyInstallerArgs = [
   '--noconfirm',
   '--clean',
@@ -190,6 +199,10 @@ const pyInstallerArgs = [
 for (const manifest of jurisdictionPackManifests) {
   const targetDir = path.posix.dirname(manifest);
   pyInstallerArgs.push('--add-data', isWindows ? `${manifest};${targetDir}` : `${manifest}:${targetDir}`);
+}
+
+for (const file of privacyConfigFiles) {
+  pyInstallerArgs.push('--add-data', isWindows ? `${file};config` : `${file}:config`);
 }
 
 for (const mod of hiddenImports) {

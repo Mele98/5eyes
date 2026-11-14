@@ -24,6 +24,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 ROOT = Path(__file__).resolve().parents[2]
 HTML_PATH = ROOT / "ares-desktop" / "frontend" / "ares.html"
@@ -42,11 +44,12 @@ _APP_FNS = _TEXT_FNS + (
     "hasVisibleStrategyOutputs", "aaFanAnnotationsHidden", "aaFanGoalMarkers",
     "_aaFanByKey", "renderAaFanRangeSentence", "_aaFanRoundRect",
     "aaDrawFanAnnotations", "syncAaProjectionAxisScales",
+    "projectionEndOfYearText",  # H9 Nachtrag 2: gemeinsame Horizont-Beschriftung
 )
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _extract_function(src: str, name: str) -> str:
@@ -73,9 +76,9 @@ def _node() -> None:
 def _run_js(fns: tuple[str, ...], body: str):
     _node()
     html = _html()
-    script = "\n".join(_extract_function(html, n) for n in fns) + "\n" + body
+    script = rounding_module_source() + "\n".join(_extract_function(html, n) for n in fns) + "\n" + body
     proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60,
+        ["node", "-"], input=script, capture_output=True, text=True, encoding="utf-8", timeout=60,
     )
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
@@ -125,8 +128,8 @@ def test_report_matches_fan_contract_and_monolith(tmp_path):
         "pill: C.goal_pill_cases.map((x: any) => F.fanGoalPillText(x[0], x[1])),"
         "pillEst: C.goal_pill_estimate_cases.map((x: any) => F.fanGoalPillText(x[0], x[1], x[2])),"
         "prob: C.goal_probability_cases.map((x: any) => F.fanGoalProbability(x[0], x[1])),"
-        "above: C.above_scale_cases.map((x: any) => F.fanAboveScaleText(x[0])),"
-        "sentence: C.range_sentence_cases.map((x: any) => F.fanRangeSentence(x[0], x[1], x[2])),"
+        "above: C.above_scale_cases.map((x: any) => F.fanAboveScaleText(x[0], 'CHF')),"
+        "sentence: C.range_sentence_cases.map((x: any) => F.fanRangeSentence(x[0], x[1], x[2], 'CHF')),"
         "spread: C.spread_cases.map((x: any) => F.fanSpreadLabelYs(x[0], x[1], x[2], x[3]))"
         "}));\n",
         encoding="utf-8",
@@ -279,7 +282,8 @@ def test_range_sentence_from_end_year_p10_p90():
         "process.stdout.write(JSON.stringify({s:sentenceEl.textContent,d:sentenceEl.style.display}));"
     )
     assert out == {
-        "s": "In 8 von 10 Verläufen liegt Ihr Vermögen 2050 zwischen CHF 1.60 und 3.40 Mio.",
+        # H9 Nachtrag 2: Label 2050 = "Ende 2049" (wie React-Bericht und Horizont-Anzeige).
+        "s": "In 8 von 10 Verläufen liegt Ihr Vermögen Ende 2049 zwischen CHF 1.60 und 3.40 Mio.",
         "d": "",
     }
 

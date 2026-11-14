@@ -11,6 +11,7 @@ import {
 
 function base(overrides: Partial<CashflowFormInput> = {}): CashflowFormInput {
   return {
+    currency: 'CHF',
     cashflow_type: 'Expense',
     label: 'Lebenshaltung',
     amountChf: '36000',
@@ -47,11 +48,18 @@ describe('validateCashflow', () => {
   });
 });
 
+describe('Cashflow-Waehrung (G7 N4)', () => {
+  it('ohne Waehrung: Validierungsfehler und kein Payload', () => {
+    expect(validateCashflow(base({ currency: null })).some((e) => e.includes('Währung unbekannt'))).toBe(true);
+    expect(() => buildCashflowPayload(base({ currency: null }))).toThrow();
+  });
+});
+
 describe('buildCashflowPayload', () => {
-  it('konvertiert CHF → Rappen und setzt Defaults', () => {
-    const payload = buildCashflowPayload(base({ amountChf: '1234.56' }));
+  it('konvertiert Betrag → Rappen und setzt Defaults', () => {
+    const payload = buildCashflowPayload(base({ amountChf: '1234.56', currency: 'EUR' }));
     expect(payload.amount_rappen).toBe(123456);
-    expect(payload.currency).toBe('CHF');
+    expect(payload.currency).toBe('EUR'); // G7 N4: Waehrung aus dem Formular, kein CHF-Fallback
     expect(payload.nature).toBe('wiederkehrend');
     expect(payload.data_classification).toBe('synthetic');
     expect(payload.is_inflation_linked).toBe(false);

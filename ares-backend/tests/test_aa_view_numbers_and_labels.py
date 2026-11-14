@@ -27,6 +27,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 HTML_PATH = (
     Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
@@ -34,7 +36,7 @@ HTML_PATH = (
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _extract_function(src: str, name: str) -> str:
@@ -81,9 +83,9 @@ def _run(names: tuple[str, ...], scenario_js: str):
         pytest.skip("node not available")
     src = _html()
     fns = "\n".join(_extract_function(src, name) for name in names)
-    script = _FAKE_DOM + fns + "\nvar __out=(function(){" + scenario_js + "})();\nprocess.stdout.write(JSON.stringify(__out));"
+    script = rounding_module_source() + _FAKE_DOM + fns + "\nvar __out=(function(){" + scenario_js + "})();\nprocess.stdout.write(JSON.stringify(__out));"
     proc = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60
+        ["node", "-"], input=script, capture_output=True, text=True, encoding="utf-8", timeout=60
     )
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
@@ -124,7 +126,8 @@ def test_donut_center_has_no_fantasy_placeholder_and_uses_formatter():
     assert '<div class="dcv">—</div>' in html
     out = _run(
         _FMT + ("donutCenterValueHtml",),
-        "return {a:donutCenterValueHtml(2850000),b:donutCenterValueHtml(0),"
+        # G7 N4: TOTAL_CCY = Waehrung von TOTAL (Allokation bzw. Positions-Rohsumme).
+        "TOTAL_CCY='CHF';return {a:donutCenterValueHtml(2850000),b:donutCenterValueHtml(0),"
         "c:donutCenterValueHtml(null),d:donutCenterValueHtml(450000),ref:(450000).toLocaleString('de-CH')};",
     )
     assert out["a"] == "CHF<br>2.85 Mio."
@@ -214,6 +217,8 @@ def test_fan_footnote_present():
 # ---------------------------------------------------------------------------
 
 _TABLE_FNS = (
+    # H9 Nachtrag 2: gemeinsame Horizont-Beschriftung "Ende JJJJ".
+    "projectionEndOfYearText",
     # AA-UX-FORMAT-001: gemeinsamer Zahlenformat-Vertrag.
     "fmtNumber",
     "fmtPct",
@@ -253,9 +258,9 @@ def test_end_values_full_horizon_without_override():
     assert out["curMedian"] == "CHF 1.90 Mio."
     assert out["p90"] == "CHF 3.40 Mio."
     assert out["p10"] == "CHF 1.60 Mio."
-    assert out["lblMedian"] == "Endwert 2056 – Mittleres Szenario (Median)"
-    assert out["lblP90"] == "Endwert 2056 – " + _P90
-    assert out["lblP10"] == "Endwert 2056 – " + _P10
+    assert out["lblMedian"] == "Endwert Ende 2055 – Mittleres Szenario (Median)"  # H9 N2: Label 2056 = Ende 2055
+    assert out["lblP90"] == "Endwert Ende 2055 – " + _P90
+    assert out["lblP10"] == "Endwert Ende 2055 – " + _P10
     assert out["simEnd"] == ""
 
 
@@ -267,9 +272,9 @@ def test_end_values_read_at_display_horizon_override():
     assert out["curMedian"] == "CHF 1.30 Mio."
     assert out["p90"] == "CHF 1.80 Mio."
     assert out["p10"] == "CHF 1.20 Mio."
-    assert out["lblMedian"].startswith("Endwert 2036 ")
-    assert out["lblP90"].startswith("Endwert 2036 ")
-    assert "2056" in out["simEnd"] and "2036" in out["simEnd"]
+    assert out["lblMedian"].startswith("Endwert Ende 2035 ")
+    assert out["lblP90"].startswith("Endwert Ende 2035 ")
+    assert "Ende 2055" in out["simEnd"] and "Ende 2035" in out["simEnd"]
     assert out["delta"] == "+" + out["r200"]
 
 
@@ -324,7 +329,7 @@ def test_median_difference_is_neutral_and_labelled_as_difference_of_medians():
     assert out["delta"] == "+" + out["r600"]
     assert out["deltaColor"] == "var(--n7)", "Median-Differenz darf nicht gruen/rot eingefaerbt sein"
     assert "Differenz der Median-Endwerte" in out["deltaLabel"]
-    assert "2056" in out["deltaLabel"]
+    assert "Ende 2055" in out["deltaLabel"]
     html = _html()
     assert "nicht der Median der Differenz" in html
     # Statische Box nicht mehr gruen.
@@ -351,11 +356,11 @@ def test_no_hardcoded_2033_fallback():
 
 def test_projection_horizon_year_label_derived_from_data():
     out = _run(
-        ("simulationPayload", "projectionHorizonYearLabel"),
+        ("simulationPayload", "projectionEndOfYearText", "projectionHorizonYearLabel"),
         "return {a:projectionHorizonYearLabel({simulation:{target_mix_series_rappen:[1,2],year_labels:[2026,2027,2041]}}),"
         "b:projectionHorizonYearLabel(null),c:projectionHorizonYearLabel({simulation:{target_mix_series_rappen:[],year_labels:[]}})};",
     )
-    assert out == {"a": "2041", "b": "", "c": ""}
+    assert out == {"a": "Ende 2040", "b": "", "c": ""}  # H9 N2
 
 
 def test_two_horizon_controls_are_named_distinctly():

@@ -17,6 +17,7 @@ und dass das Einfrieren den richtigen Lauf trifft.
 """
 from __future__ import annotations
 
+from tests.sustainability_test_support import answer_question_one_for_all_mandates  # noqa: E402
 import json
 import sys
 from pathlib import Path
@@ -29,6 +30,7 @@ for _p in (BACKEND_ROOT, TESTS_ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
+from retro_free_fixture import declare_all_products_retro_free  # noqa: E402
 from models.mandates import Mandate  # noqa: E402
 from models.review import Product, RecommendationPosition, RecommendationRun  # noqa: E402
 from models.users import User  # noqa: E402
@@ -65,6 +67,8 @@ def _certified_mandate(session_factory, *, suffix: str):
     with session_factory() as db:
         mandate = db.query(Mandate).filter(Mandate.id == mandate_id).first()
         advisor = db.query(User).filter(User.id == advisor_id).first()
+        declare_all_products_retro_free(db)
+        answer_question_one_for_all_mandates(db)  # Nachtrag 1: Pflichtfrage
         finalize_recommendation(
             mandate_id=mandate_id, run_id=run_id, request=_FakeRequest(),
             db=db, current_user=advisor,

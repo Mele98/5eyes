@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
@@ -7,7 +8,7 @@ VALID_PAGE_KEYS = {"sd", "vg", "cf", "ub", "rp", "al", "po", "rv", "sr"}
 
 
 def test_all_go_targets_reference_known_pages():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     targets = set(re.findall(r"go\('([a-z]{2})'", html))
 
     assert targets
@@ -22,7 +23,7 @@ def test_event_logging_goals_action_returns_to_combined_cashflow_step():
     # Protokollformular; die Navigation folgt nach dem Speichern im
     # ausgelagerten Modul (afterSave = gewaehlte Massnahme).
     module = ADVISORY_LOG_MODULE.read_text(encoding="utf-8")
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
 
     assert "if(afterSave==='goals')go('cf');" in module
     assert "go('uz')" not in module
@@ -31,7 +32,7 @@ def test_event_logging_goals_action_returns_to_combined_cashflow_step():
 
 
 def test_frontend_navigation_keeps_review_and_summary_combined_sequence():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
 
     assert "const pages={sd:0,vg:1,cf:2,ub:3,rp:4,al:5,po:6,rv:7};" in html
     assert "if(p==='sr')p='rv';" in html
@@ -40,7 +41,7 @@ def test_frontend_navigation_keeps_review_and_summary_combined_sequence():
 
 
 def test_summary_recipe_print_binding_uses_explicit_button_id():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
 
     assert 'id="sr-recipe-print"' in html
     assert "var summaryRecipePrint=document.getElementById('sr-recipe-print');" in html
@@ -54,7 +55,7 @@ def test_summary_recipe_print_binding_uses_explicit_button_id():
 
 
 def test_review_absschluss_keeps_internal_triggers_out_of_customer_surface():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     review_page = html.split('<div id="page-rv" class="page">', 1)[1].split("<!-- Legacy sr route", 1)[0]
 
     assert 'id="trigger-count"' not in html
@@ -66,7 +67,7 @@ def test_review_absschluss_keeps_internal_triggers_out_of_customer_surface():
 
 
 def test_portfolio_header_keeps_secondary_actions_in_more_menu():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     header = html.split('<div id="page-po" class="page">', 1)[1].split('<div class="pad">', 1)[0]
     page = html.split('<div id="page-po" class="page">', 1)[1].split('<div id="page-rv"', 1)[0]
     visible_actions = header.split('<details class="ph-more"', 1)[0]
@@ -91,20 +92,23 @@ def test_portfolio_header_keeps_secondary_actions_in_more_menu():
 
 
 def test_portfolio_refresh_regenerates_missing_current_recommendation():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     refresh_block = html.split("async function refreshPortfolioFromStoredState(){", 1)[1].split(
         "// Sprint U-P11b", 1
     )[0]
 
     assert "function allocationPreferencesFromStoredAllocation(result)" in html
-    assert "if(!recommendation){" in refresh_block
+    # Live-Test 2026-11 H4: nicht nur bei fehlender Empfehlung, sondern bei
+    # jedem nicht freigegebenen Vorschlag wird echt neu generiert
+    # (Verhalten: tests/test_livetest_h4_portfolio_generate_really_regenerates.py).
+    assert "if(!keptReleased){" in refresh_block
     assert "/recommendations/generate" in refresh_block
     assert "target_allocation_id:allocationId" in refresh_block
     assert "applyRecommendationEngineResult(recommendation)" in refresh_block
 
 
 def test_allocation_preference_defaults_keep_gold_enabled():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     defaults_block = html.split("function buildDefaultAllocationPreferences(){", 1)[1].split(
         "function loadAllocationPreferences()", 1
     )[0]
@@ -118,7 +122,7 @@ def test_allocation_preference_defaults_keep_gold_enabled():
 
 
 def test_review_header_focuses_on_closing_actions():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     header = html.split('<div id="page-rv" class="page">', 1)[1].split('<div class="strip"', 1)[0]
     visible_actions = header.split('<details class="ph-more"', 1)[0]
     more_menu = header.split('<details class="ph-more"', 1)[1].split("</details>", 1)[0]
@@ -131,7 +135,7 @@ def test_review_header_focuses_on_closing_actions():
 
 
 def test_combined_cashflow_projection_has_own_root_and_responsive_grid():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
 
     assert 'id="cf-goals-projection"' in html
     assert 'id="cf-risk-context-summary"' in html
@@ -145,7 +149,7 @@ def test_combined_cashflow_projection_has_own_root_and_responsive_grid():
 
 
 def test_cashflow_projection_renders_compact_hud_not_component_wall():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     block = html.split("function renderCashflowProjection(data) {", 1)[1].split("function buildWealthPositionPayload", 1)[0]
 
     assert "Cashflow-HUD" in block
@@ -157,17 +161,22 @@ def test_cashflow_projection_renders_compact_hud_not_component_wall():
 
 
 def test_allocation_donut_legend_uses_bucket_target_amounts():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     apply_block = html.split("function applyAllocationEngineResult(result){", 1)[1].split("function renderAllocationWarnings", 1)[0]
     legend_block = html.split("function buildDLegend(){", 1)[1].split("function syncAllocationDonutFromStrategyState", 1)[0]
 
     assert "chfTarget:Math.round((Number(bucket.target_amount_rappen||0))/100)" in apply_block
-    assert "var targetChf=Number(r.chfTarget||0);" in legend_block
-    assert "if(!(targetChf>0))targetChf=Math.round(TOTAL*Number(r.soll||0)/100)" in legend_block
+    # G7 (H-153 Nachtrag 1): die Legende nutzt aaChartAllocItems -- Betraege wie im
+    # PDF ueber presentationAmounts auf der Strategiebasis (Live-Test 2026-11 H2:
+    # Basis, nicht volles Beratungsvermoegen inkl. Reserve); Rueckfall ebenfalls Basis.
+    assert "aaChartLegendHtml(aaChartAllocItems(),allocationReserveBreakdown(strategyState.allocation))" in legend_block
+    items_fn = html.split("function aaChartAllocItems(){", 1)[1].split("\nfunction ", 1)[0]
+    assert "AresRounding.presentationAmounts(rb.advisoryRappen,rb.strategyBaseRappen," in items_fn
+    assert "Math.round((rb.strategyBaseRappen/100)*Number(r.soll||0)/100)" in items_fn
 
 
 def test_active_combined_step_logic_no_longer_uses_old_ub_runtime_hooks():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
 
     assert "updateCfRiskContextSummary" in html
     assert "updateUbRiskContextSummary" not in html

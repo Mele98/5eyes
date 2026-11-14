@@ -14,6 +14,7 @@ from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
 from services.pdf.components.produkte import _make_single_metric
+from core.presentation_rounding import format_bps_as_pct
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_BORDER_DANGER,
@@ -32,23 +33,29 @@ def make_risiko_metriken_section(
     var_95_bps: int | None,
 ) -> list:
     """5 Metric-Boxes in einer Tabellen-Zeile."""
-    if not any([expected_return_bps, median_cagr_bps, volatility_bps,
-                max_drawdown_bps, var_95_bps]):
+    # N-858-12: Die Monte-Carlo-Kennzahlen sind None, wenn sie fehlen; 0 ist
+    # ein gerechneter Wert. Die CMA-Felder sind int ohne None (0 = fehlt).
+    if not any([expected_return_bps, volatility_bps]) and all(
+        value is None for value in (median_cagr_bps, max_drawdown_bps, var_95_bps)
+    ):
         return []
 
     flowables = [_section_title("Risikoindiktatoren & Prognose (Monte Carlo)")]
 
     boxes = [
         ("Erwartete Rendite", _fmt_pct(expected_return_bps), "p.a. langfristig", COLOR_BORDER),
-        ("Median CAGR", _fmt_pct(median_cagr_bps), "geometrisch", COLOR_BORDER),
-        ("Volatilität", _fmt_pct(volatility_bps), "p.a. annualisiert", COLOR_BORDER),
+        ("Median CAGR", _fmt_mc_pct(median_cagr_bps), "geometrisch", COLOR_BORDER),
+        # Live-Test 2026-11 M8: Modell-Volatilitaet sqrt(w'Sigma w) der SAA --
+        # nicht identisch mit der in der Simulation realisierten 1-Jahres-
+        # Volatilitaet im SOLL/IST-Vergleich; daher eindeutig beschriftet.
+        ("Volatilität (Modell)", _fmt_pct(volatility_bps), "p.a., aus Kapitalmarktannahmen", COLOR_BORDER),
         # DRAWDOWN-TIME-GRID-001: die Quellenangabe lautete "historisch". Der
         # Wert ist aber `target_max_drawdown_p50_bps` -- der Median der
         # simulierten Max-Drawdown-Verteilung, in einem Abschnitt, der selbst
         # "(Monte Carlo)" heisst. Kundensichtbar falsch etikettiert; keine
         # historische Beobachtung fliesst hier ein.
-        ("Max. Drawdown", _fmt_pct(max_drawdown_bps, neg=True), "Median, simuliert", COLOR_BORDER_WARN),
-        ("VaR 95%", _fmt_pct(var_95_bps, neg=True), "1-Jahres-Risiko", COLOR_BORDER_DANGER),
+        ("Max. Drawdown", _fmt_mc_pct(max_drawdown_bps, neg=True), "Median, simuliert", COLOR_BORDER_WARN),
+        ("VaR 95%", _fmt_mc_pct(var_95_bps, neg=True), "1-Jahres-Risiko", COLOR_BORDER_DANGER),
     ]
 
     metric_widgets = []
@@ -127,10 +134,18 @@ def _make_single_metric_with_sub(label: str, value: str, subtitle: str, border_c
 def _fmt_pct(bps: int | None, *, neg: bool = False) -> str:
     if bps is None or bps == 0:
         return "—"
-    value = bps / 100.0
-    if neg and value > 0:
-        return f"−{value:.2f}%"
-    return f"{value:.2f}%"
+    if neg and bps > 0:
+        return "−" + format_bps_as_pct(bps, decimals=2)
+    return format_bps_as_pct(bps, decimals=2)
+
+
+def _fmt_mc_pct(bps: int | None, *, neg: bool = False) -> str:
+    """Wie ``_fmt_pct``, aber 0 bps wird als 0.00% gezeigt (N-858-12)."""
+    if bps is None:
+        return "—"
+    if bps == 0:
+        return "0.00%"
+    return _fmt_pct(bps, neg=neg)
 
 
 def _section_title(text: str):

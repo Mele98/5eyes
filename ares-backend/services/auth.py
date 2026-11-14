@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import bcrypt as _bcrypt
+import re
 # Migration jose -> PyJWT (2026-07-18): python-jose 3.3.0 ist unmaintained und
 # CVE-behaftet (Algorithm-Confusion). PyJWT verlangt algorithms= beim decode
 # (bereits vorhanden) und schliesst damit alg-Confusion. Nur HS256 (symmetrisch),
@@ -8,6 +9,8 @@ import bcrypt as _bcrypt
 import jwt
 from jwt import PyJWTError
 from fastapi import Depends, HTTPException, status, Request
+
+from core.reason_codes import DomainError
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from database import get_db
@@ -16,7 +19,10 @@ from models.mandates import Mandate
 from models.users import User
 import config as _config
 from config import settings
-from services.tenant_context import set_tenant_context
+# operator_bypass: Re-Export fuer routers.system (N-869-4, Kettenpruefung des
+# globalen Audit-Logs im expliziten Operator-Kontext) -- vermeidet eine neue
+# Modulkante routers.system -> services.tenant_context.
+from services.tenant_context import operator_bypass, set_tenant_context  # noqa: F401
 
 bearer_scheme = HTTPBearer()
 
@@ -279,6 +285,7 @@ def get_current_user(
                 detail=("2FA-Einrichtung ist Pflicht (require_2fa), aber noch nicht "
                         "aktiv -- bitte zuerst unter /auth/2fa/setup einrichten."),
             )
+    _enforce_compliance_reviewer_scope(user, request)
     if user.role == "super_admin":
         # Super-admins are unscoped by default: RLS sees no tenant and returns
         # no tenant-owned rows unless an operator path explicitly enables bypass.
@@ -286,6 +293,144 @@ def get_current_user(
     else:
         set_tenant_context(db, token_tid or _resolve_tenant_id_for_user(user))
     return user
+
+
+# C-890-01 Nachtrag 1: externe Compliance-Person einer Ein-Personen-Firma.
+# Die Rolle darf AUSSCHLIESSLICH Wiedervorlage-Policies lesen und freigeben
+# (Vier-Augen-Freigabe ohne volle Admin-Rechte). Jede andere Route wird hier
+# zentral gesperrt -- kein Zugriff auf Kunden, Mandate oder Systemdaten, kein
+# Erfassen einer Policy. Erlaubt sind nur die eigenen Konto-/Anmeldepfade.
+COMPLIANCE_REVIEWER_ROLE = "compliance_reviewer"
+COMPLIANCE_REVIEWER_SCOPE = "COMPLIANCE_REVIEWER_SCOPE"
+# Wer als zweite Person freigeben darf (Policy-Aktivierung, KYC-Zweitfreigabe);
+# gleiche Liste wie services/recommendation_release_gate.py::KYC_APPROVER_ROLES.
+COMPLIANCE_APPROVER_ROLES: tuple[str, ...] = ("admin", "super_admin", "compliance_reviewer")
+_COMPLIANCE_REVIEWER_ALLOWED: tuple[tuple[str, str], ...] = (
+    ("GET", r"/auth/me"),
+    ("POST", r"/auth/logout"),
+    ("POST", r"/auth/refresh"),
+    ("POST", r"/auth/change-password"),
+    ("GET", r"/auth/2fa/status"),
+    ("POST", r"/auth/2fa/(setup|enable)"),
+    ("GET", r"/compliance/kyc-review-policies"),
+    ("POST", r"/compliance/kyc-review-policies/[^/]+/activate"),
+    # C-890-01 Nachtrag 2: offene KYC-Zweitfreigaben (datenminimiert) und
+    # Entscheid (freigeben/ablehnen) -- sonst kein Kunden-/Mandatszugriff.
+    ("GET", r"/compliance/kyc-approvals"),
+    ("POST", r"/compliance/kyc-approvals/[^/]+/decision"),
+)
+
+
+def normalize_email_identity(value) -> str:
+    """N-897-02: Postfach-Identitaet fuer die Vier-Augen-Pruefung -- Gross-/
+    Kleinschreibung und Leerzeichen egal, ``+alias`` im lokalen Teil entfernt
+    (``Max+kyc@Firma.ch`` == ``max@firma.ch``). Gleiche Regel wie
+    services/recommendation_release_gate.py::_email_identity (Test)."""
+    raw = str(value or "").strip().lower()
+    if "@" not in raw:
+        return raw
+    local, _, domain = raw.rpartition("@")
+    return local.split("+", 1)[0] + "@" + domain
+
+
+def same_person(db: Session, first_user_id, second_user_id) -> bool:
+    """Vier-Augen: dieselbe Person, soweit technisch erkennbar -- gleiche
+    Benutzer-ID oder (zweites Konto) dieselbe, normalisierte E-Mail-Adresse."""
+    if not first_user_id or not second_user_id:
+        return False
+    if str(first_user_id) == str(second_user_id):
+        return True
+    rows = db.query(User.email).filter(User.id.in_([str(first_user_id), str(second_user_id)])).all()
+    emails = [normalize_email_identity(r[0]) for r in rows if r[0] and str(r[0]).strip()]
+    return len(emails) == 2 and emails[0] == emails[1]
+
+
+CREDENTIALS_SET_BY_SELF = "self"
+USER_AGENT_AUDIT_MAX = 80
+
+
+def short_user_agent(request) -> str:
+    """N-897-10: gekuerzter User-Agent fuer das Audit (Geraete-Indiz, keine
+    weiteren Personendaten)."""
+    headers = getattr(request, "headers", None) or {}
+    try:
+        value = headers.get("user-agent") or ""
+    except Exception:  # pragma: no cover - defensive gegen Test-Stubs
+        value = ""
+    return str(value)[:USER_AGENT_AUDIT_MAX] or "-"
+COMPLIANCE_REVIEWER_2FA_REQUIRED = "COMPLIANCE_REVIEWER_2FA_REQUIRED"
+COMPLIANCE_REVIEWER_ACCOUNT_UNVERIFIED = "COMPLIANCE_REVIEWER_ACCOUNT_UNVERIFIED"
+
+
+def compliance_reviewer_readiness(user: User) -> str | None:
+    """N-897-02: eine externe Compliance-Person darf erst freigeben, wenn ihr
+    Konto per Einladung aktiviert wurde, sie Passwort UND 2FA selbst gesetzt
+    hat. None = bereit; sonst Reason-Code. Andere Rollen: immer None."""
+    if getattr(user, "role", None) != COMPLIANCE_REVIEWER_ROLE:
+        return None
+    if not getattr(user, "invited_at", None) or not getattr(user, "activated_at", None) or (
+        getattr(user, "credentials_set_by", None) != CREDENTIALS_SET_BY_SELF
+    ):
+        return COMPLIANCE_REVIEWER_ACCOUNT_UNVERIFIED
+    if not int(getattr(user, "totp_enabled", 0) or 0) or getattr(user, "totp_set_by", None) != CREDENTIALS_SET_BY_SELF:
+        return COMPLIANCE_REVIEWER_2FA_REQUIRED
+    return None
+
+
+def assert_compliance_reviewer_ready(user: User) -> None:
+    code = compliance_reviewer_readiness(user)
+    if code == COMPLIANCE_REVIEWER_2FA_REQUIRED:
+        raise DomainError(code, (
+            "Vor der ersten Freigabe muss die externe Compliance-Person die "
+            "Zwei-Faktor-Anmeldung (2FA) selbst einrichten."), http_status=status.HTTP_403_FORBIDDEN)
+    if code is not None:
+        raise DomainError(code, (
+            "Dieses Freigabekonto ist nicht ueber eine Einladung mit selbst gesetztem "
+            "Passwort aktiviert und darf nicht freigeben."), http_status=status.HTTP_403_FORBIDDEN)
+
+
+STAFF_ROLES: tuple[str, ...] = (
+    "admin", "advisor", "readonly", "super_admin", "portfolio_management", COMPLIANCE_REVIEWER_ROLE,
+)
+
+
+def require_staff(current_user: User = Depends(get_current_user)) -> User:
+    """N-897-09: nur Personal-Rollen -- nie Kunden-Logins (Rolle ``client``)."""
+    if current_user.role not in STAFF_ROLES:
+        raise HTTPException(status_code=403, detail="Nur fuer Mitarbeitende")
+    return current_user
+
+
+def compliance_reviewer_may_call(method: str, path: str) -> bool:
+    """True, wenn die Rolle ``compliance_reviewer`` diese Route nutzen darf
+    (exakter Pfadvergleich, ``/api``-Praefix toleriert)."""
+    clean = (path or "").rstrip("/") or "/"
+    if clean.startswith("/api/"):
+        clean = clean[4:]
+    return any(
+        method.upper() == allowed_method and re.fullmatch(pattern, clean)
+        for allowed_method, pattern in _COMPLIANCE_REVIEWER_ALLOWED
+    )
+
+
+def _enforce_compliance_reviewer_scope(user: User, request) -> None:
+    if getattr(user, "role", None) != COMPLIANCE_REVIEWER_ROLE or request is None:
+        return
+    path = getattr(getattr(request, "url", None), "path", "") or ""
+    if not compliance_reviewer_may_call(getattr(request, "method", "GET"), path):
+        raise DomainError(
+            COMPLIANCE_REVIEWER_SCOPE,
+            "Dieses Konto ist nur fuer die Freigabe der KYC-Wiedervorlage-Policy berechtigt.",
+            http_status=status.HTTP_403_FORBIDDEN,
+        )
+
+
+def require_compliance_approver(current_user: User = Depends(get_current_user)) -> User:
+    """Zweite Person fuer Compliance-Freigaben: Firmen-Admin oder die schmale
+    Rolle ``compliance_reviewer`` (externe Compliance-Person)."""
+    if current_user.role not in COMPLIANCE_APPROVER_ROLES:
+        raise HTTPException(status_code=403, detail="Nur fuer Administratoren oder Compliance-Freigabe")
+    return current_user
 
 
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
@@ -401,6 +546,30 @@ def require_admin_or_platform_scope_for_global_reference_data(
         raise HTTPException(
             status_code=403,
             detail="Globale FX-Kurse erfordern Super-Admin oder Portfolio Management.",
+        )
+    raise HTTPException(status_code=403, detail="Nur für Administratoren")
+
+
+def require_audit_chain_verifier(current_user: User = Depends(get_current_user)) -> User:
+    """H-865-2 (Pruefrunde #865): Kettenpruefung des Audit-Logs.
+
+    Es gibt EINE globale Kette ueber alle Tenants (Singleton-Zaehler). Der
+    Bericht enthaelt zwar keine Inhalte, aber Zaehler, Sequenznummern und
+    Zeilen-IDs ueber ALLE Tenants. Darum dieselbe Rollenlogik wie fuer
+    globale Referenzdaten (AUTH-TEN-06): super_admin immer; der firmen-
+    gebundene 'admin' nur, solange die Installation nicht mandantenfaehig
+    ist (Tier 1/3: er ist dort der Betreiber der ganzen Datenbank). In einer
+    Multi-Tenant-Installation (strict_tenant_isolation) bleibt die Pruefung
+    dem Plattformbetreiber vorbehalten. portfolio_management ist bewusst
+    NICHT zugelassen (keine Betriebs-/Revisionsrolle)."""
+    if current_user.role == "super_admin":
+        return current_user
+    if current_user.role == "admin":
+        if not _effective_strict_tenant_isolation(_config.settings):
+            return current_user
+        raise HTTPException(
+            status_code=403,
+            detail="Die Audit-Kettenpruefung umfasst alle Mandanten und erfordert Super-Admin.",
         )
     raise HTTPException(status_code=403, detail="Nur für Administratoren")
 

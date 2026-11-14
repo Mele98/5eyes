@@ -8,6 +8,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
+from core.presentation_rounding import format_bps_as_pct
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -39,11 +40,11 @@ def make_stress_table(scenarios: list) -> Table:
             Paragraph(f'<font name="{FONT_BOLD}">{_esc(label)}</font>', _para_compact()),
             Paragraph(f'<font color="#475569" size="9.5">{_esc(period)}</font>', _para_compact()),
             Paragraph(
-                f'<para align="right"><font color="{cumul_color}"><b>{cumul_sign}{cumul_bps/100:.1f}%</b></font></para>',
+                f'<para align="right"><font color="{cumul_color}"><b>{cumul_sign}{format_bps_as_pct(cumul_bps, decimals=1)}</b></font></para>',
                 _para_compact(),
             ),
             Paragraph(
-                f'<para align="right"><font color="#7f1d1d"><b>-{max_dd_bps/100:.1f}%</b></font></para>',
+                f'<para align="right"><font color="#7f1d1d"><b>-{format_bps_as_pct(max_dd_bps, decimals=1)}</b></font></para>',
                 _para_compact(),
             ),
             Paragraph(

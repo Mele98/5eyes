@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -134,8 +135,13 @@ def test_one_token_expense_row_is_not_completeness_evidence():
     }
 
 
-def test_partial_capacity_coverage_is_visible_in_advisor_channels():
-    """A coverage gap affecting risk capacity needs an actionable warning."""
+def test_partial_capacity_coverage_stays_internal_not_in_strategy_reasoning():
+    """A coverage gap stays machine-readable (evidence, audit, analysis text).
+
+    H9 (Owner-Vorgabe 2026-11-08): Kundenangaben werden respektiert, die
+    Plausibilitaet verantwortet der Berater -- kein Hinweis mehr im
+    kundensichtbaren Strategie-Reasoning bzw. in Maske/PDF.
+    """
     result = assess_plausibility(
         _declared_high_capacity(),
         _recorded(expense_rappen=0, expense_rows=0),
@@ -146,9 +152,10 @@ def test_partial_capacity_coverage_is_visible_in_advisor_channels():
     strategy = attach_to_strategy_payload({"reasoning": []}, result)
     note = pdf_advisor_note(result)
 
-    assert reasoning, "partial coverage is machine-readable but advisor-silent"
-    assert strategy["reasoning"], "strategy payload hides the incomplete evidence"
-    assert note, "advisor PDF omits the partial capacity-coverage warning"
+    assert reasoning, "partial coverage must stay machine-readable"
+    assert strategy["reasoning"] == [], "H9: no plausibility hint in the strategy reasoning"
+    assert strategy["risk_capacity_plausibility"] is result
+    assert note, "analysis text for the internal evidence stays available"
 
 
 # ---------------------------------------------------------------------------
@@ -217,8 +224,7 @@ def test_partial_names_open_checks_and_concrete_resolution_action():
     assert actions[0] in line
 
     payload = attach_to_strategy_payload({"reasoning": ["House Matrix"]}, result)
-    assert payload["reasoning"][0] == line  # zuoberst (UI zeigt die ersten Punkte)
-    assert payload["reasoning"][1:] == ["House Matrix"]
+    assert payload["reasoning"] == ["House Matrix"]  # H9: nicht im Reasoning
 
     note = pdf_advisor_note(result)
     assert "noch nicht" in note and "verifiziert" in note
@@ -546,7 +552,24 @@ def test_partial_outcome_is_audited_on_risk_profile_save(session_factory):
         assert payload["coverage_attestation"]["status"] == STATUS_MISSING
 
 
-def test_attested_consistent_profile_writes_no_plausibility_audit(session_factory):
+class _PinnedToday(date):
+    """``date`` mit ``today() == TODAY`` fuer die Plausibilitaetspruefung."""
+
+    @classmethod
+    def today(cls):
+        return TODAY
+
+
+def test_attested_consistent_profile_writes_no_plausibility_audit(session_factory, monkeypatch):
+    import services.financial_coverage_attestation as attestation
+    import services.risk_capacity_plausibility as plausibility
+
+    # Die Risikoprofil-Erfassung bewertet ohne ``today`` gegen ``date.today()``
+    # (Plausibilitaet und Gueltigkeit der Bestaetigung); die Bestaetigung
+    # (Stichtag TODAY) gilt 365 Tage. Ohne Festhalten der Uhr war sie ab
+    # TODAY + 366 Tagen abgelaufen und es entstand ein Audit-Eintrag.
+    monkeypatch.setattr(plausibility, "date", _PinnedToday)
+    monkeypatch.setattr(attestation, "date", _PinnedToday)
     with session_factory() as session:
         advisor = _seed_budget(session)
         _attest(session, advisor)
@@ -554,7 +577,7 @@ def test_attested_consistent_profile_writes_no_plausibility_audit(session_factor
         assert _plausibility_audit_rows(session) == []
 
 
-def test_generate_endpoint_shows_partial_in_reasoning_and_audits(session_factory, monkeypatch):
+def test_generate_endpoint_audits_partial_without_reasoning(session_factory, monkeypatch):
     from types import SimpleNamespace
 
     import routers.allocation as allocation_router
@@ -577,8 +600,8 @@ def test_generate_endpoint_shows_partial_in_reasoning_and_audits(session_factory
             request=_FakeRequest(), db=session, current_user=advisor,
         )
         assert result["risk_capacity_plausibility"]["status"] == "partial"
-        assert "noch nicht verifiziert" in result["reasoning"][0]
-        assert result["reasoning"][1] == "Ausgangspunkt ist die House Matrix fuer Score 7."
+        # H9: Audit + Datenfeld bleiben, kein Hinweis im Reasoning.
+        assert result["reasoning"] == ["Ausgangspunkt ist die House Matrix fuer Score 7."]
         rows = [r for r in _plausibility_audit_rows(session) if r.table_name == "target_allocations"]
         assert len(rows) == 1 and json.loads(rows[0].new_value)["status"] == "partial"
 
@@ -710,7 +733,7 @@ def test_attestation_table_has_only_actor_fk(tmp_path):
 # Monolith: Banner zeigt partial + Bestaetigungsformular
 # ---------------------------------------------------------------------------
 
-HTML = (BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "ares.html").read_text(encoding="utf-8")
+HTML = read_monolith_bundle()
 
 
 def _js_function(name: str) -> str:
@@ -720,21 +743,10 @@ def _js_function(name: str) -> str:
     return HTML[start:HTML.index("\n}\n", start)]
 
 
-def test_monolith_banner_renders_partial_with_resolution_actions():
-    render = _js_function("renderRiskCapacityPlausibility")
-    assert "'partial'" in render and "'not_evaluable'" in render
-    assert "resolution_actions" in render
-    assert "noch nicht verifiziert" in render
-    assert "escapeHtml(" in render
-
-
-def test_monolith_offers_coverage_attestation_form_posting_to_endpoint():
-    render = _js_function("renderRiskCapacityPlausibility")
-    assert "coverage_attestation_required" in render
-    submit = _js_function("submitFinancialCoverageAttestation")
-    assert "'/mandates/'+mid+'/financial-coverage-attestations'" in submit
-    for field in ("household_persons", "income_complete", "expenses_complete",
-                  "obligations_complete", "irregular_expenses_reviewed", "as_of_date", "source"):
-        assert field in submit, field
-    assert "refreshRiskCapacityPlausibility(mid)" in submit
-    assert "getActiveMandateId()" in submit
+def test_monolith_has_no_plausibility_banner_or_attestation_form():
+    """H9 (Owner-Vorgabe 2026-11-08): Maske clean; die Vollstaendigkeits-
+    Bestaetigung bleibt als API (POST .../financial-coverage-attestations)."""
+    assert "renderRiskCapacityPlausibility" not in HTML
+    assert "submitFinancialCoverageAttestation" not in HTML
+    assert "coverage_attestation_required" not in HTML
+    assert "noch nicht verifiziert" not in HTML

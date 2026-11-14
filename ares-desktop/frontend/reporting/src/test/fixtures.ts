@@ -75,6 +75,7 @@ export function makeAusgangslage(): AusgangslageData {
       risikoprofil: 'Defensiv',
       anlageziel: 'Frühpension mit 60',
       liquiditaetsbedarf_rappen: 6_600_000,
+      liquiditaetsbedarf_currency: 'CHF', // G7 N4: Server liefert die Waehrung der Rohsumme
       steuerdomizil: 'CH',
       referenzwaehrung: 'CHF',
     },
@@ -309,6 +310,7 @@ export function makeGoalsWithPaths(): GoalBasedInvestingData {
       seed: 42,
       horizon_years: 15,
       initial_wealth_rappen: start,
+      amount_currency: 'CHF', // G7 N4: Waehrung der Pfadwerte (Server)
     },
   };
 }

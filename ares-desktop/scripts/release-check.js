@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { evaluateBuildGate } = require('../update-gate.js');
+const { findExternalFrontendReferences } = require('./frontend-external-refs.js');
 
 // W2-804-03: Ares wird nur fuer Windows ausgeliefert. Ausserhalb von Windows
 // sofort abbrechen, statt die uebrigen Pruefungen gegen ein Windows-Bundle
@@ -40,6 +41,7 @@ const errors = [];
   'Inter-Regular.ttf',
   'Inter-SemiBold.ttf',
   'Inter-Medium.ttf',
+  'DMMono-Regular.ttf',
 ].forEach((file) => {
   const fontPath = path.join(backendRoot, 'assets', 'fonts', file);
   if (!fs.existsSync(fontPath)) {
@@ -91,8 +93,11 @@ if (frontendHtml.includes('vendor/chart.min.js') && !exists('frontend/vendor/cha
   }
 }
 
-const externalMarkers = ['fonts.googleapis.com', 'fonts.gstatic.com', 'cdnjs.cloudflare.com', 'cdn.jsdelivr.net'];
-const remainingExternal = externalMarkers.filter((marker) => frontendHtml.includes(marker));
+// N-875-02: ares.html UND alle lokal eingebundenen Dateien (ares.css,
+// ausgelagerte Skripte, Module, vendor/) pruefen, nicht nur ares.html.
+const remainingExternal = findExternalFrontendReferences(path.join(projectRoot, 'frontend')).map(
+  (finding) => `${finding.file}: ${finding.marker}`
+);
 if (remainingExternal.length > 0) {
   warnings.push(`Frontend enthält noch externe CDN-/Font-Referenzen: ${remainingExternal.join(', ')}`);
   if (strict) {

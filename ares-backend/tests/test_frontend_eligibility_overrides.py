@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND = REPO_ROOT / "ares-desktop" / "frontend"
@@ -167,7 +168,7 @@ def test_reset_clears_a_previous_panel():
 
 
 def test_monolith_loads_module_and_calls_hooks_without_native_dialogs():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     assert '<script src="./eligibility-overrides.js"></script>' in html
     start = html.index("async function confirmImplementationRecipe()")
     body = html[start:html.index("function finalizeErrorText(e)", start)]
