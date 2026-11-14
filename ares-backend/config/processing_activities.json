@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "register_version": "2026-11-11.1",
+  "register_version": "2026-11-14.1",
   "title": "Verzeichnis der Bearbeitungstaetigkeiten (Ares)",
   "notice": "Technisches Register der Bearbeitungen, die Ares als Software ausfuehrt. Felder mit owner_field sind Angaben des Verantwortlichen (Firma) und werden in Ares unter Administration > Datenschutz erfasst. Solange ein Pflichtwert offen ist, bleibt die kundenwirksame Ausgabe (z. B. Auskunft an betroffene Personen) gesperrt. Keine Rechtsberatung.",
   "controller": {
@@ -331,6 +331,9 @@
         "target_allocations",
         "optimizer_runs",
         "recommendation_runs",
+        "advisory_decision_envelopes",
+        "advisory_envelope_bindings",
+        "advisory_effective_input_manifests",
         "recommendation_positions",
         "recommendation_holdings",
         "strategy_snapshots",

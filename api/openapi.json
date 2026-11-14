@@ -240,6 +240,150 @@
         "title": "AdviserRegistrationResponse",
         "type": "object"
       },
+      "AdvisoryEnvelopeBindingResponse": {
+        "description": "CCX-P1: eine Kind-Bindung des versiegelten Beratungsentscheids.",
+        "properties": {
+          "binding_kind": {
+            "title": "Binding Kind",
+            "type": "string"
+          },
+          "child_hash": {
+            "title": "Child Hash",
+            "type": "string"
+          },
+          "object_id": {
+            "title": "Object Id",
+            "type": "string"
+          },
+          "object_type": {
+            "title": "Object Type",
+            "type": "string"
+          },
+          "object_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Object Version"
+          },
+          "ordinal": {
+            "title": "Ordinal",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "binding_kind",
+          "ordinal",
+          "object_type",
+          "object_id",
+          "child_hash"
+        ],
+        "title": "AdvisoryEnvelopeBindingResponse",
+        "type": "object"
+      },
+      "AdvisoryEnvelopeResponse": {
+        "description": "CCX-P1: aktueller, integritaetsgepruefter Beratungsentscheid\n(``ares/advisory-envelope/1``). Rohwerte und Hashes, keine Darstellung.",
+        "properties": {
+          "base_currency": {
+            "title": "Base Currency",
+            "type": "string"
+          },
+          "bindings": {
+            "items": {
+              "$ref": "#/components/schemas/AdvisoryEnvelopeBindingResponse"
+            },
+            "title": "Bindings",
+            "type": "array"
+          },
+          "effective_input_manifest_hash": {
+            "title": "Effective Input Manifest Hash",
+            "type": "string"
+          },
+          "envelope_hash": {
+            "title": "Envelope Hash",
+            "type": "string"
+          },
+          "envelope_id": {
+            "title": "Envelope Id",
+            "type": "string"
+          },
+          "locale": {
+            "title": "Locale",
+            "type": "string"
+          },
+          "mandate_id": {
+            "title": "Mandate Id",
+            "type": "string"
+          },
+          "optimistic_version": {
+            "title": "Optimistic Version",
+            "type": "integer"
+          },
+          "predecessor_envelope_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predecessor Envelope Hash"
+          },
+          "predecessor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predecessor Id"
+          },
+          "rounding_policy_version": {
+            "title": "Rounding Policy Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "sealed_at": {
+            "title": "Sealed At",
+            "type": "string"
+          },
+          "sealed_by": {
+            "title": "Sealed By",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "envelope_id",
+          "schema_version",
+          "status",
+          "mandate_id",
+          "envelope_hash",
+          "effective_input_manifest_hash",
+          "rounding_policy_version",
+          "locale",
+          "base_currency",
+          "sealed_at",
+          "sealed_by",
+          "optimistic_version",
+          "bindings"
+        ],
+        "title": "AdvisoryEnvelopeResponse",
+        "type": "object"
+      },
       "AdvisoryLogCreate": {
         "additionalProperties": false,
         "description": "Pflicht-Felder für FINMA-konformes Beratungsprotokoll (Sprint U-FINMA-2.1).\n\nMindestlängen: `description` ≥ 30, `decision` ≥ 10 (außer bei reinem\nDiskussions-Eintrag), `topics` ≥ 1.",
@@ -20767,6 +20911,28 @@
       "RecommendationFinalizeResponse": {
         "description": "N-856-7 (Pruefrunde #856): Finalize-Antwort = Lauf + Warnungen.\n\n``warnings`` ist identisch zum Audit-Log-Eintrag (\"Final; Warnungen:\n...\"), ``warning_codes`` die daraus gelesenen Codes (z. B.\nSAA_BUCKET_DEVIATION, POSITION_LIMIT_EXCEEDED).",
         "properties": {
+          "advisory_envelope_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Advisory Envelope Hash"
+          },
+          "advisory_envelope_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Advisory Envelope Id"
+          },
           "assessment_id": {
             "anyOf": [
               {
@@ -37239,6 +37405,54 @@
         "summary": "Update Mandate",
         "tags": [
           "Mandate"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/advisory-envelopes/current": {
+      "get": {
+        "description": "CCX-P1: aktueller versiegelter Beratungsentscheid des Mandats, vor der\nAuslieferung integritaetsgeprueft (Root-Hash, Bindungen, Manifest).\nFehlt er oder bricht eine Kette: katalogisierter Reason-Code\n(``CCX_ENVELOPE_MISSING`` 404, sonst 409), kein aelterer Entscheid.",
+        "operationId": "get_current_advisory_envelope_mandates__mandate_id__advisory_envelopes_current_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdvisoryEnvelopeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Current Advisory Envelope",
+        "tags": [
+          "Empfehlungen"
         ]
       }
     },

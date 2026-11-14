@@ -977,6 +977,170 @@ INVESTMENT_PREFERENCE_DECISION_SQLITE_TABLE_DDL: tuple[str, ...] = (
 )
 
 
+# CCX-P1 Snapshot und Hash (Vertrag 2026-11-13 §4): Beratungsentscheid als
+# unveraenderlicher Envelope (models/snapshots.py, services/
+# advisory_decision_envelope.py). Drei Tabellen, alle direkt mandanten-
+# gebunden (tenant_id NOT NULL -> tenants), Mandant per INSERT-Guard aus dem
+# Mandat abgeleitet; Bindings ueber den zusammengesetzten Fremdschluessel
+# (tenant_id, envelope_id) -> (tenant_id, id) an denselben Mandanten.
+#
+# Lebenszyklus: Einfuegen NUR als DRAFT; Bindings nur, solange DRAFT; DRAFT ->
+# SEALED (verlangt die Manifest-Bindung, Hash, Payload, Zeit, Actor); danach
+# ist die Zeile append-only -- einzige erlaubte Aenderung ist SEALED ->
+# SUPERSEDED bei unveraendertem Inhalt. optimistic_version steigt bei jeder
+# Aenderung um genau 1. Hoechstens ein SEALED je (tenant, mandate) und
+# hoechstens ein Nachfolger je Vorgaenger (Parallelversiegelung -> ein
+# Sieger). Kein FK auf mandates (Purge-fest, Muster der Mandats-Evidenz).
+# Textgleich in ares_schema.sql; PostgreSQL: Alembic (CCX-P1-Revision).
+ADVISORY_ENVELOPE_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS advisory_decision_envelopes (
+    id                      TEXT PRIMARY KEY,
+    tenant_id               TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id              TEXT NOT NULL,
+    schema_version          TEXT NOT NULL DEFAULT 'ares/advisory-envelope/1'
+                            CHECK(schema_version = 'ares/advisory-envelope/1'),
+    status                  TEXT NOT NULL DEFAULT 'DRAFT'
+                            CHECK(status IN ('DRAFT','SEALED','SUPERSEDED')),
+    locale                  TEXT NOT NULL,
+    base_currency           TEXT NOT NULL,
+    canonical_payload_json  TEXT,
+    envelope_hash           TEXT CHECK(envelope_hash IS NULL OR length(envelope_hash) = 64),
+    predecessor_id          TEXT,
+    created_at              TEXT NOT NULL,
+    created_by              TEXT NOT NULL REFERENCES users(id),
+    sealed_at               TEXT,
+    sealed_by               TEXT REFERENCES users(id),
+    optimistic_version      INTEGER NOT NULL DEFAULT 1 CHECK(optimistic_version >= 1),
+    CONSTRAINT ck_advisory_decision_envelopes_sealed_complete CHECK(status = 'DRAFT' OR (
+        canonical_payload_json IS NOT NULL AND envelope_hash IS NOT NULL
+        AND sealed_at IS NOT NULL AND sealed_by IS NOT NULL)),
+    CONSTRAINT uq_advisory_decision_envelopes_tenant_hash UNIQUE (tenant_id, envelope_hash),
+    CONSTRAINT uq_advisory_decision_envelopes_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT fk_advisory_decision_envelopes_predecessor FOREIGN KEY (tenant_id, predecessor_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_advisory_decision_envelopes_tenant_id "
+    "ON advisory_decision_envelopes(tenant_id)",
+    "CREATE INDEX IF NOT EXISTS ix_advisory_decision_envelopes_mandate "
+    "ON advisory_decision_envelopes(tenant_id, mandate_id, status)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_advisory_decision_envelopes_one_sealed "
+    "ON advisory_decision_envelopes(tenant_id, mandate_id) WHERE status = 'SEALED'",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_advisory_decision_envelopes_one_successor "
+    "ON advisory_decision_envelopes(predecessor_id) WHERE predecessor_id IS NOT NULL",
+    """CREATE TABLE IF NOT EXISTS advisory_envelope_bindings (
+    id              TEXT PRIMARY KEY,
+    tenant_id       TEXT NOT NULL,
+    envelope_id     TEXT NOT NULL,
+    binding_kind    TEXT NOT NULL,
+    object_type     TEXT NOT NULL,
+    object_id       TEXT NOT NULL,
+    object_version  INTEGER,
+    child_hash      TEXT NOT NULL CHECK(length(child_hash) = 64),
+    ordinal         INTEGER NOT NULL CHECK(ordinal >= 0),
+    created_at      TEXT NOT NULL,
+    created_by      TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT uq_advisory_envelope_bindings_kind_ordinal UNIQUE (envelope_id, binding_kind, ordinal),
+    CONSTRAINT fk_advisory_envelope_bindings_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_advisory_envelope_bindings_tenant_id "
+    "ON advisory_envelope_bindings(tenant_id)",
+    """CREATE TABLE IF NOT EXISTS advisory_effective_input_manifests (
+    id                      TEXT PRIMARY KEY,
+    tenant_id               TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id              TEXT NOT NULL,
+    client_hash             TEXT NOT NULL,
+    mandate_hash            TEXT NOT NULL,
+    goals_hash              TEXT NOT NULL,
+    cashflows_hash          TEXT NOT NULL,
+    risk_hash               TEXT NOT NULL,
+    preference_hash         TEXT NOT NULL,
+    cma_hash                TEXT NOT NULL,
+    policy_hash             TEXT NOT NULL,
+    constraints_hash        TEXT NOT NULL,
+    holdings_hash           TEXT NOT NULL,
+    engine_version          TEXT NOT NULL,
+    random_stream_id        TEXT NOT NULL,
+    rounding_policy_version TEXT NOT NULL,
+    manifest_hash           TEXT NOT NULL CHECK(length(manifest_hash) = 64),
+    created_at              TEXT NOT NULL,
+    created_by              TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT uq_advisory_effective_input_manifests_tenant_id UNIQUE (tenant_id, id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_advisory_effective_input_manifests_tenant_id "
+    "ON advisory_effective_input_manifests(tenant_id)",
+    "CREATE INDEX IF NOT EXISTS ix_advisory_effective_input_manifests_mandate "
+    "ON advisory_effective_input_manifests(tenant_id, mandate_id)",
+)
+
+# Trigger erst nach allen drei Tabellen (sie verweisen gegenseitig und auf
+# mandates): ORM ueber den Metadata-Hook in models/snapshots.py, Laufzeitpatch
+# und Bootstrap-Schema in derselben Reihenfolge.
+ADVISORY_ENVELOPE_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_insert_guard "
+    "BEFORE INSERT ON advisory_decision_envelopes FOR EACH ROW "
+    "WHEN NEW.status IS NOT 'DRAFT' OR NEW.optimistic_version IS NOT 1 "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes: insert only as DRAFT'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_update_guard "
+    "BEFORE UPDATE ON advisory_decision_envelopes FOR EACH ROW "
+    "WHEN NEW.id IS NOT OLD.id OR NEW.tenant_id IS NOT OLD.tenant_id "
+    "OR NEW.mandate_id IS NOT OLD.mandate_id OR NEW.schema_version IS NOT OLD.schema_version "
+    "OR NEW.locale IS NOT OLD.locale OR NEW.base_currency IS NOT OLD.base_currency "
+    "OR NEW.predecessor_id IS NOT OLD.predecessor_id OR NEW.created_at IS NOT OLD.created_at "
+    "OR NEW.created_by IS NOT OLD.created_by "
+    "OR NEW.optimistic_version IS NOT OLD.optimistic_version + 1 "
+    "OR NOT ((OLD.status = 'DRAFT' AND NEW.status IN ('DRAFT', 'SEALED')) "
+    "OR (OLD.status = 'SEALED' AND NEW.status = 'SUPERSEDED' "
+    "AND NEW.canonical_payload_json IS OLD.canonical_payload_json "
+    "AND NEW.envelope_hash IS OLD.envelope_hash AND NEW.sealed_at IS OLD.sealed_at "
+    "AND NEW.sealed_by IS OLD.sealed_by)) "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes is append-only once sealed'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_seal_binding "
+    "BEFORE UPDATE ON advisory_decision_envelopes FOR EACH ROW "
+    "WHEN OLD.status = 'DRAFT' AND NEW.status = 'SEALED' AND NOT EXISTS ("
+    "SELECT 1 FROM advisory_envelope_bindings b WHERE b.envelope_id = NEW.id "
+    "AND b.binding_kind = 'effective_input_manifest') "
+    "BEGIN SELECT RAISE(ABORT, 'CCX_BINDING_MISSING'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_no_delete "
+    "BEFORE DELETE ON advisory_decision_envelopes FOR EACH ROW "
+    "WHEN OLD.status IS NOT 'DRAFT' "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes is append-only once sealed'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_envelope_bindings_insert_guard "
+    "BEFORE INSERT ON advisory_envelope_bindings FOR EACH ROW "
+    "WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) IS NOT 'DRAFT' "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_envelope_bindings: envelope is not DRAFT'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_envelope_bindings_no_update "
+    "BEFORE UPDATE ON advisory_envelope_bindings FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_envelope_bindings is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_envelope_bindings_no_delete "
+    "BEFORE DELETE ON advisory_envelope_bindings FOR EACH ROW "
+    "WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = OLD.envelope_id) IS NOT 'DRAFT' "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_envelope_bindings is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_effective_input_manifests_no_update "
+    "BEFORE UPDATE ON advisory_effective_input_manifests FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_effective_input_manifests is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_effective_input_manifests_no_delete "
+    "BEFORE DELETE ON advisory_effective_input_manifests FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_effective_input_manifests is immutable'); END",
+)
+
+# Mandanten-Guards (verweisen auf mandates.tenant_id): NICHT im Bootstrap-
+# Schema -- dort fehlt mandates.tenant_id noch, ein Trigger mit fehlender
+# Spalte braeche spaetere ALTER TABLE (Muster core/mandate_evidence_
+# tenant_boundary.py). Angelegt vom Metadata-Hook (ORM) bzw. vom
+# Laufzeitpatch, sobald mandates.tenant_id existiert.
+ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_tenant_guard "
+    "BEFORE INSERT ON advisory_decision_envelopes FOR EACH ROW "
+    "WHEN NEW.tenant_id IS NOT (SELECT m.tenant_id FROM mandates m WHERE m.id = NEW.mandate_id) "
+    "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_effective_input_manifests_tenant_guard "
+    "BEFORE INSERT ON advisory_effective_input_manifests FOR EACH ROW "
+    "WHEN NEW.tenant_id IS NOT (SELECT m.tenant_id FROM mandates m WHERE m.id = NEW.mandate_id) "
+    "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
+)
+
+
 # N-869-4: einmaliger Nachtrag von audit_log_sequence_counter.last_hash aus der
 # Zeile mit sequence = value (nur solange last_hash noch NULL ist). Gleiche
 # Anweisung in Alembic c8a2f4e6b0d9 (dort unter Operator-Bypass, RLS).
@@ -1789,6 +1953,14 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         # ueber MANDATE_BOUND_TENANT_TABLES.
         for ddl in INVESTMENT_PREFERENCE_DECISION_SQLITE_TABLE_DDL + INVESTMENT_PREFERENCE_DECISION_SQLITE_TRIGGERS:
             conn.execute(text(ddl))
+        # CCX-P1 (2026-11-14): Beratungsentscheid-Envelope, Bindings und
+        # Effective-Input-Manifest (idempotent; neue Tabellen, kein Backfill --
+        # Bestand wird nie als versiegelt/geprueft markiert).
+        for ddl in ADVISORY_ENVELOPE_SQLITE_TABLE_DDL + ADVISORY_ENVELOPE_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
+        if 'tenant_id' in {row[1] for row in conn.execute(text("PRAGMA table_info(mandates)"))}:
+            for ddl in ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS:
+                conn.execute(text(ddl))
         # SIGN-001 (2026-10-27): append-only Vor-Ort-Signatur; DDL einzig aus
         # dem ORM (Indizes + after_create-Trigger), idempotent per checkfirst.
         from models.onsite_signature import APPEND_ONLY_TABLES

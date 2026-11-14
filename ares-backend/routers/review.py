@@ -53,6 +53,7 @@ from schemas.review import (
     ProductReferenceBatchApplyRequest, ProductReferenceBatchApplyResponse,
     ProductUniverseEntryCreate, ProductUniverseEntryUpdate, ProductUniverseEntryResponse,
     RecommendationRunCreate, RecommendationRunResponse, RecommendationFinalizeResponse, finalize_warning_codes,
+    AdvisoryEnvelopeResponse,
     RecommendationPositionCreate, RecommendationPositionResponse,
     RecommendationHoldingUpsert, RecommendationHoldingResponse,
     RecommendationGenerateRequest, RecommendationGenerateResponse,
@@ -66,7 +67,10 @@ from services.auth import get_accessible_client_ids, get_accessible_mandate_ids,
 from services.audit import gate_block_audit, log, release_block_audit, restore_tenant_after_rollback
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
-from routers.auth import _extract_client_ip
+# CCX-P1: direkt aus services.auth (derselbe Helfer, den routers.auth nur
+# weiterreicht) -- Router importieren keine Router (Architektur-Ratsche).
+from services.auth import extract_client_ip as _extract_client_ip
+from services.advisory_decision_envelope import current_verified_envelope, seal_advisory_envelope
 from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
 from services.data_classification import enforce_data_classification
 from services.eodhd_client import preview_eodhd_reference
@@ -4753,6 +4757,14 @@ def finalize_recommendation(
     run.cost_disclosure_snapshot_json = freeze_cost_disclosure_for_run(
         db, mandate, run
     )
+    # CCX-P1 (Vertrag 2026-11-13 §4): der Beratungsentscheid wird hier genau
+    # einmal als unveraenderlicher Envelope versiegelt (Manifest, Bindungen,
+    # Snapshot-Fence). Scheitert das Siegel, scheitert die Finalisierung --
+    # kein finaler Lauf ohne Envelope, kein Fallback (Audit im Service).
+    envelope = seal_advisory_envelope(
+        db, mandate=mandate, run=run, user=current_user, ip_address=_extract_client_ip(request),
+    )
+    envelope_ref = {"advisory_envelope_id": envelope.id, "advisory_envelope_hash": envelope.envelope_hash}
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="recommendation_runs", record_id=run_id, action="UPDATE",
         field_name="result_status",
@@ -4763,7 +4775,25 @@ def finalize_recommendation(
     # N-856-7: Warnungen (u. a. [SAA_BUCKET_DEVIATION]) auch in der Antwort,
     # nicht nur im Audit-Log; Codes strukturiert.
     return RecommendationFinalizeResponse.model_validate(run).model_copy(
-        update={"warnings": list(warnings), "warning_codes": finalize_warning_codes(warnings)},
+        update={"warnings": list(warnings), "warning_codes": finalize_warning_codes(warnings), **envelope_ref},
+    )
+
+
+@recommendations_router.get("/mandates/{mandate_id}/advisory-envelopes/current",
+                             response_model=AdvisoryEnvelopeResponse)
+def get_current_advisory_envelope(
+    mandate_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """CCX-P1: aktueller versiegelter Beratungsentscheid des Mandats, vor der
+    Auslieferung integritaetsgeprueft (Root-Hash, Bindungen, Manifest).
+    Fehlt er oder bricht eine Kette: katalogisierter Reason-Code
+    (``CCX_ENVELOPE_MISSING`` 404, sonst 409), kein aelterer Entscheid."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    return current_verified_envelope(
+        db, mandate=mandate, user=current_user, ip_address=_extract_client_ip(request),
     )
 
 

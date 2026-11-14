@@ -2004,6 +2004,39 @@ class RecommendationFinalizeResponse(RecommendationRunResponse):
     SAA_BUCKET_DEVIATION, POSITION_LIMIT_EXCEEDED)."""
     warnings: list[str] = Field(default_factory=list)
     warning_codes: list[str] = Field(default_factory=list)
+    # CCX-P1: der bei der Finalisierung versiegelte Beratungsentscheid.
+    advisory_envelope_id: Optional[str] = None
+    advisory_envelope_hash: Optional[str] = None
+
+
+class AdvisoryEnvelopeBindingResponse(BaseModel):
+    """CCX-P1: eine Kind-Bindung des versiegelten Beratungsentscheids."""
+    binding_kind: str
+    ordinal: int
+    object_type: str
+    object_id: str
+    object_version: Optional[int] = None
+    child_hash: str
+
+
+class AdvisoryEnvelopeResponse(BaseModel):
+    """CCX-P1: aktueller, integritaetsgepruefter Beratungsentscheid
+    (``ares/advisory-envelope/1``). Rohwerte und Hashes, keine Darstellung."""
+    envelope_id: str
+    schema_version: str
+    status: str
+    mandate_id: str
+    envelope_hash: str
+    predecessor_id: Optional[str] = None
+    predecessor_envelope_hash: Optional[str] = None
+    effective_input_manifest_hash: str
+    rounding_policy_version: str
+    locale: str
+    base_currency: str
+    sealed_at: str
+    sealed_by: str
+    optimistic_version: int
+    bindings: list[AdvisoryEnvelopeBindingResponse]
 
 
 class RecommendationPositionCreate(BaseModel):

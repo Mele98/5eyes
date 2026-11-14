@@ -58,7 +58,10 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # investment_preference_decisions (+ tenants.sustainability_review_months,
 # contract_documents.bound_preference_decision_hash).
 # RC-CH-1 (E2-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
-GOLDEN_SORTED_TABLES_SHA256 = "d81632111a28c5666148749dfd4b619067737b9c619b07043e08dabcbc1aacad"
+# CCX-P1 Snapshot und Hash (2026-11-14): drei neue Tabellen
+# (advisory_decision_envelopes, advisory_envelope_bindings,
+# advisory_effective_input_manifests), keine bestehende Tabelle umbenannt/entfernt.
+GOLDEN_SORTED_TABLES_SHA256 = "368abf49cfab9456f4d8639c55db4192dd5f2caf70dcb9389b3713f7e3a49392"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -164,7 +167,9 @@ GOLDEN_SORTED_TABLES_SHA256 = "d81632111a28c5666148749dfd4b619067737b9c619b07043
 # und die Schemas IstProjectionBasisResponse/IstProjectionCmaReference (nur additiv,
 # kein bestehender Pfad/kein bestehendes Schema geaendert; Feld-Diff api/openapi.json).
 # RC-CH-1 (H9-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
-GOLDEN_OPENAPI_SHA256 = "b868f23f2ef67d722d7c49bb60a236c11d94195c8b5a51e0ccf952a7f9d44533"
+# CCX-P1: GET /mandates/{id}/advisory-envelopes/current (AdvisoryEnvelopeResponse)
+# und advisory_envelope_id/_hash in RecommendationFinalizeResponse.
+GOLDEN_OPENAPI_SHA256 = "8fd6c4b0579e22763825270dfe220cbf5a394dbcf163a1e113b760760ff15a02"
 
 _PROBE = """
 import hashlib, json

@@ -26,7 +26,7 @@ table therefore cannot ship unclassified.
 """
 from __future__ import annotations
 
-INVENTORY_VERSION = "2026-11-11.1"
+INVENTORY_VERSION = "2026-11-14.1"
 
 TENANT_DIRECT = "tenant_direct"
 GLOBAL_REFERENCE = "global_reference"
@@ -36,6 +36,12 @@ SYSTEM_ONLY = "system_only"
 CATEGORIES = (TENANT_DIRECT, GLOBAL_REFERENCE, TENANT_DERIVED, SYSTEM_ONLY)
 
 TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
+    # CCX-P1 Snapshot und Hash (2026-11-14): versiegelter Beratungsentscheid,
+    # Bindungen, Effective-Input-Manifest -- tenant_id NOT NULL, Mandant aus
+    # dem Mandat (INSERT-Guard), Bindungen per (tenant_id, envelope_id)-FK.
+    "advisory_decision_envelopes",
+    "advisory_effective_input_manifests",
+    "advisory_envelope_bindings",
     "audit_log",
     # H8 C-2/C-5/Luecke 10 (Compliance-Audit 2026-11-07): Kundeninformation,
     # KYC-Bestaetigung samt Freigabe, Vertretung, rechtliche Angaben der Firma
@@ -185,6 +191,7 @@ TENANT_DERIVED_TABLES: dict[str, tuple[str, str]] = {
 # tenant_direct tables without an own client_id/mandate_id column: the route
 # to the client/mandate (for the erasure inventory and the ratchet below).
 TENANT_DIRECT_PARENT_ROUTES: dict[str, tuple[str, str]] = {
+    "advisory_envelope_bindings": ("envelope_id", "advisory_decision_envelopes"),
     "product_eligibility_overrides": ("recommendation_run_id", "recommendation_runs"),
 }
 

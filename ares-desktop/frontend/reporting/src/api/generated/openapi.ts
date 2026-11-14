@@ -2533,6 +2533,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/mandates/{mandate_id}/advisory-envelopes/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Current Advisory Envelope
+         * @description CCX-P1: aktueller versiegelter Beratungsentscheid des Mandats, vor der
+         *     Auslieferung integritaetsgeprueft (Root-Hash, Bindungen, Manifest).
+         *     Fehlt er oder bricht eine Kette: katalogisierter Reason-Code
+         *     (``CCX_ENVELOPE_MISSING`` 404, sonst 409), kein aelterer Entscheid.
+         */
+        get: operations["get_current_advisory_envelope_mandates__mandate_id__advisory_envelopes_current_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/mandates/{mandate_id}/advisory-log": {
         parameters: {
             query?: never;
@@ -6654,6 +6677,61 @@ export interface components {
             registered_at: string | null;
             /** User Id */
             user_id: string;
+        };
+        /**
+         * AdvisoryEnvelopeBindingResponse
+         * @description CCX-P1: eine Kind-Bindung des versiegelten Beratungsentscheids.
+         */
+        AdvisoryEnvelopeBindingResponse: {
+            /** Binding Kind */
+            binding_kind: string;
+            /** Child Hash */
+            child_hash: string;
+            /** Object Id */
+            object_id: string;
+            /** Object Type */
+            object_type: string;
+            /** Object Version */
+            object_version?: number | null;
+            /** Ordinal */
+            ordinal: number;
+        };
+        /**
+         * AdvisoryEnvelopeResponse
+         * @description CCX-P1: aktueller, integritaetsgepruefter Beratungsentscheid
+         *     (``ares/advisory-envelope/1``). Rohwerte und Hashes, keine Darstellung.
+         */
+        AdvisoryEnvelopeResponse: {
+            /** Base Currency */
+            base_currency: string;
+            /** Bindings */
+            bindings: components["schemas"]["AdvisoryEnvelopeBindingResponse"][];
+            /** Effective Input Manifest Hash */
+            effective_input_manifest_hash: string;
+            /** Envelope Hash */
+            envelope_hash: string;
+            /** Envelope Id */
+            envelope_id: string;
+            /** Locale */
+            locale: string;
+            /** Mandate Id */
+            mandate_id: string;
+            /** Optimistic Version */
+            optimistic_version: number;
+            /** Predecessor Envelope Hash */
+            predecessor_envelope_hash?: string | null;
+            /** Predecessor Id */
+            predecessor_id?: string | null;
+            /** Rounding Policy Version */
+            rounding_policy_version: string;
+            /** Schema Version */
+            schema_version: string;
+            /** Sealed At */
+            sealed_at: string;
+            /** Sealed By */
+            sealed_by: string;
+            /** Status */
+            status: string;
         };
         /**
          * AdvisoryLogCreate
@@ -12891,6 +12969,10 @@ export interface components {
          *     SAA_BUCKET_DEVIATION, POSITION_LIMIT_EXCEEDED).
          */
         RecommendationFinalizeResponse: {
+            /** Advisory Envelope Hash */
+            advisory_envelope_hash?: string | null;
+            /** Advisory Envelope Id */
+            advisory_envelope_id?: string | null;
             /** Assessment Id */
             assessment_id: string | null;
             /** Client Id */
@@ -19952,6 +20034,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MandateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_current_advisory_envelope_mandates__mandate_id__advisory_envelopes_current_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdvisoryEnvelopeResponse"];
                 };
             };
             /** @description Validation Error */
