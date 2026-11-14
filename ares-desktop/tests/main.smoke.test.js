@@ -403,6 +403,36 @@ function check(name, fn) {
     }
   });
 
+  // H11 N-907-03: Owner-DB-Opt-in nur im gepackten Produktivstart.
+  await check('H11 Opt-in nur gepackt und nicht im Testmodus', () => {
+    assert.strictEqual(mainExports.ownerDbOptInAllowed(true, {}), true);
+    assert.strictEqual(mainExports.ownerDbOptInAllowed(false, {}), false);
+    assert.strictEqual(mainExports.ownerDbOptInAllowed(true, { NODE_ENV: 'test' }), false);
+    assert.strictEqual(mainExports.ownerDbOptInAllowed(true, { ARES_TEST: '1' }), false);
+  });
+
+  await check('H11 Dev-/Teststart setzt keinen Opt-in, gepackter Start schon', () => {
+    const before = { packaged: electronStub.app.isPackaged, node: process.env.NODE_ENV, test: process.env.ARES_TEST,
+      optin: process.env.ARES_OWNER_DB_OPT_IN };
+    delete process.env.ARES_OWNER_DB_OPT_IN;
+    delete process.env.NODE_ENV;
+    delete process.env.ARES_TEST;
+    try {
+      electronStub.app.isPackaged = false;
+      assert.ok(!('ARES_OWNER_DB_OPT_IN' in mainExports.buildBackendChildEnv({ host: '127.0.0.1', port: 8123 })));
+      electronStub.app.isPackaged = true;
+      process.env.NODE_ENV = 'test';
+      assert.ok(!('ARES_OWNER_DB_OPT_IN' in mainExports.buildBackendChildEnv({ host: '127.0.0.1', port: 8123 })));
+      delete process.env.NODE_ENV;
+      assert.strictEqual(mainExports.buildBackendChildEnv({ host: '127.0.0.1', port: 8123 }).ARES_OWNER_DB_OPT_IN, '1');
+    } finally {
+      electronStub.app.isPackaged = before.packaged;
+      for (const [k, v] of [['NODE_ENV', before.node], ['ARES_TEST', before.test], ['ARES_OWNER_DB_OPT_IN', before.optin]]) {
+        if (v === undefined) delete process.env[k]; else process.env[k] = v;
+      }
+    }
+  });
+
   console.log(failed === 0 ? '\nALL GREEN' : `\n${failed} FAILED`);
   process.exit(failed === 0 ? 0 : 1);
 })();
