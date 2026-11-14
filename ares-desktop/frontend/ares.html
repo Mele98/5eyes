@@ -3740,7 +3740,7 @@ async function createFoundationExampleCase(){
       false
     );
     await loadClients();
-    if(result&&result.client_id)await loadClientById(result.client_id);
+    if(result&&result.client_id&&(await loadClientById(result.client_id))==false)return false;
     persistAllocationPreferences(buildDefaultAllocationPreferences());
     syncAllocationPreferences();
     await refreshStrategyData(false,true);
@@ -4050,7 +4050,7 @@ function applyRegisterView() {
   if (pb) pb.textContent = registerShowAll ? 'Ausblenden' : 'Alle anzeigen';
 }
 async function loadClientById(clientId) {
-  if (typeof aresClientSwitchAllowed === 'function' && !(await aresClientSwitchAllowed())) return; // H11
+  if(typeof aresClientSwitchAllowed==='function'&&!(await aresClientSwitchAllowed()))return false;
   const loadToken = ++liveClientLoadToken;
   const clientRef = liveClients.find(c => c.id === clientId);
   if (clientRef && clientRef._persona) {
@@ -4069,7 +4069,7 @@ async function loadClientById(clientId) {
   currentPortfolioPositions = [];
   riskHorizonTouched = false;
   // Mandanten-Trennung (2026-06-12): DOM-Container des VORIGEN Klienten SOFORT
-  // leeren, sonst bleiben dessen Zeilen bis zum Nachladen sichtbar (fremde Zahlen).
+  // leeren, sonst bleiben dessen Zeilen bis zum Nachladen sichtbar.
   try{
     var _ldPlaceholder='<div style="font-size:10px;color:var(--n4);padding:6px 0">Wird geladen …</div>';
     var _ldZf=document.getElementById('zufluss-rows'); if(_ldZf)_ldZf.innerHTML=_ldPlaceholder;

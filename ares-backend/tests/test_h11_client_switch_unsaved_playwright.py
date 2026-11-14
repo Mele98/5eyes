@@ -62,7 +62,7 @@ SWITCH = ("CONFIRM_ANSWER=%s; loadClientById('c-B'); new Promise(r=>setTimeout(r
 def page():
     sync_api = _sync_api()
     src = html()
-    funcs = "\n".join(extract_function(src, n) for n in ("loadClientById", "om"))
+    funcs = "\n".join(extract_function(src, n) for n in ("loadClientById", "om", "createFoundationExampleCase"))
     with sync_api.sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         try:
@@ -113,6 +113,38 @@ def test_confirmed_switch_clears_esg_marker_for_the_next_mandate(page):
 def test_switch_without_unsaved_input_does_not_ask(page):
     out = page.evaluate(SWITCH % "false")
     assert out["confirm"] == [] and out["current"] == "c-B" and out["get"] > 0
+
+
+FOUNDATION_STUBS = """
+window.currentUser={role:'admin'};window.allocationPreferencesCache={};window.allocationPreferenceStoragePrefix='p:';
+window.fcalls={persist:0,sync:0,refresh:0,go:[]};
+window.API.post=function(){return Promise.resolve({client_id:'c-F',mandate_id:'m-F'});};
+window.foundationExampleStatus=function(){};window.formatRappen=function(){return '';};
+window.loadClients=function(){return Promise.resolve();};
+window.buildDefaultAllocationPreferences=function(){return {};};
+window.persistAllocationPreferences=function(){fcalls.persist++;};window.syncAllocationPreferences=function(){fcalls.sync++;};
+window.refreshStrategyData=function(){fcalls.refresh++;return Promise.resolve();};window.go=function(t){fcalls.go.push(t);};
+"""
+
+
+def test_foundation_example_stops_when_the_switch_is_cancelled(page):
+    """N-907-05: "Abbrechen" beim Foundation-Beispiel stoppt die Folgeschritte;
+    die Praeferenzen des alten Mandats bleiben unveraendert."""
+    page.add_script_tag(content=FOUNDATION_STUBS)
+    page.check("#sust-q1-yes")
+    out = page.evaluate("CONFIRM_ANSWER=false; createFoundationExampleCase().then(r=>({r:r,current:currentClientId,"
+                        "f:fcalls,confirm:calls.confirm.length}))")
+    assert out["confirm"] == 1 and out["current"] == "c-A" and out["r"] is False
+    assert out["f"] == {"persist": 0, "sync": 0, "refresh": 0, "go": []}
+
+
+def test_foundation_example_switches_after_confirmation(page):
+    page.add_script_tag(content=FOUNDATION_STUBS)
+    page.check("#sust-q1-yes")
+    out = page.evaluate("CONFIRM_ANSWER=true; createFoundationExampleCase(); "
+                        "new Promise(r=>setTimeout(r,100)).then(()=>({current:currentClientId}))")
+    # loadClientById wartet auf das (gestubbte, haengende) Nachladen; der Wechsel hat begonnen.
+    assert out["current"] == "c-F"
 
 
 def test_guard_is_the_first_step_of_load_client_by_id():
