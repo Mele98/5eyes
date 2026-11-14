@@ -221,3 +221,58 @@ def test_fixture_guard_negative_control():
            "def bare():\n    subprocess.Popen([sys.executable, '-m', 'uvicorn', 'main:app'])\n")
     assert backend_fixture_violations(bad, "x.py") == [
         "x.py::server: fehlt ['APPDATA', 'LOCALAPPDATA']", "x.py::bare: Backend-Start ohne env-Variable"]
+
+
+# --- 4. Aufrufe wie der Codex-Lauf (Repo-Root) und aus fremdem Verzeichnis --------
+
+def _clean_env(home: Path) -> dict[str, str]:
+    """Temp-HOME (nie das echte Profil), ohne DB_PATH/Testvariablen des Elternlaufs."""
+    env = {k: v for k, v in os.environ.items()
+           if k not in {"DB_PATH", "DATABASE_URL", "BACKUP_DIR", "LOG_DIR", "TENANT_MASTER_KEK",
+                        "TENANT_MASTER_KEK_FILE", "ARES_OWNER_DB_OPT_IN"} and not k.startswith("PYTEST")}
+    env.update({"HOME": str(home), "USERPROFILE": str(home), "PYTHONDONTWRITEBYTECODE": "1"})
+    return env
+
+
+def _owner_files(home: Path) -> list[str]:
+    return sorted(str(p) for root in (home / "ares", home / "5eyes") if root.exists() for p in root.rglob("*"))
+
+
+def test_pytest_from_repo_root_with_app_lifespan_leaves_owner_profile_empty(tmp_path):
+    """Wie der Codex-Lauf (Start im Repo-Root, Pfade ares-backend/tests/...):
+    die conftest-Isolation greift (rootdir ueber ares-backend/pyproject.toml),
+    ein TestClient-Lifespan schreibt nichts unter ~/ares oder ~/5eyes."""
+    home = tmp_path / "home"
+    home.mkdir()
+    node = "ares-backend/tests/test_h11_reference_data_get_read_only.py::test_bootstrap_admin_seeds_ch_reference_data"
+    out = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-p", "no:xdist",
+         "--basetemp", str(tmp_path / "bt"), node],
+        cwd=str(REPO), env=_clean_env(home), capture_output=True, text=True, timeout=600)
+    assert out.returncode == 0, out.stdout[-3000:] + out.stderr[-2000:]
+    assert _owner_files(home) == []
+
+
+def test_foreign_directory_test_without_product_conftest_is_refused(tmp_path):
+    """Die eigentliche Luecke: ein Test in einem fremden Verzeichnis (ohne die
+    Produkt-conftest) startet TestClient(app) mit gesetzter KEK (wie ein
+    Pruef-Harness). An der Basis legt der Lifespan HOME/ares/ares.db an (leer,
+    1 Tenant -- das Vorfallbild); jetzt verweigert, Owner-Profil bleibt leer."""
+    from cryptography.fernet import Fernet
+
+    home = tmp_path / "home"
+    home.mkdir()
+    foreign = tmp_path / "foreign"
+    foreign.mkdir()
+    (foreign / "test_foreign_probe.py").write_text(
+        "import sys\nsys.path.insert(0, %r)\n"
+        "def test_app_lifespan():\n"
+        "    from fastapi.testclient import TestClient\n    import main\n"
+        "    with TestClient(main.app):\n        pass\n" % str(BACKEND), encoding="utf-8")
+    out = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-p", "no:xdist",
+         "--rootdir", str(foreign), "--basetemp", str(tmp_path / "bt"), str(foreign / "test_foreign_probe.py")],
+        cwd=str(foreign), env={**_clean_env(home), "TENANT_MASTER_KEK": Fernet.generate_key().decode()},
+        capture_output=True, text=True, timeout=600)
+    assert out.returncode != 0 and "OwnerDatabaseRefused" in out.stdout, out.stdout[-3000:]
+    assert _owner_files(home) == []
