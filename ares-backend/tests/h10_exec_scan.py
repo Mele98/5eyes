@@ -16,7 +16,9 @@ system``, ``from subprocess import run as r``). Jede Meldung braucht eine
 Ausnahme mit Begruendung, Schluessel je Aufrufstelle ``<pfad>::<funktion>#<n>``
 (n = n-te Meldung in der Funktion, H11: Ausnahme pro Aufruf statt pro Funktion).
 Bewusst nicht erkannt (Laufzeit-Audit-Hook deckt sie ab): Modulname aus einer
-Variable (``import_module(name)``), zusammengesetzte Namen.
+Variable (``import_module(name)``), zusammengesetzte Namen, und (N-907-07)
+``sys.modules["os"].system``, ``vars(os)["system"]``, ``os.__dict__[...]``,
+``ctypes.windll.shell32.ShellExecuteW``, ``multiprocessing.Process``.
 """
 from __future__ import annotations
 

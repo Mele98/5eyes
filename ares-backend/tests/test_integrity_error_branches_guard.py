@@ -61,6 +61,9 @@ def _import_aliases(tree: ast.AST) -> tuple[frozenset[str], frozenset[str]]:
             for alias in node.names:
                 if alias.name == "sqlalchemy.exc" and alias.asname:
                     modules.add(alias.asname)
+                elif alias.name == "sqlalchemy" and alias.asname:
+                    # N-907-06: ``import sqlalchemy as sa`` + ``except sa.exc.IntegrityError``
+                    modules.add(f"{alias.asname}.exc")
     return frozenset(names), frozenset(modules)
 
 
@@ -202,6 +205,8 @@ _ALIAS_SOURCES = [
     "def f(db):\n    try:\n        db.commit()\n    except Dup:\n        raise Conflict()\n",
     "from sqlalchemy import exc as sqla\n"
     "def f(db):\n    try:\n        db.commit()\n    except sqla.IntegrityError:\n        raise Conflict()\n",
+    "import sqlalchemy as sa\n"
+    "def f(db):\n    try:\n        db.commit()\n    except sa.exc.IntegrityError:\n        raise Conflict()\n",
     "import sqlalchemy.exc as sx\n"
     "def f(db):\n    try:\n        db.commit()\n    except (ValueError, sx.IntegrityError):\n        raise Conflict()\n",
 ]
