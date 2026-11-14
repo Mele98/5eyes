@@ -8,9 +8,16 @@ echte API erfasst) traegt dieselbe Groesse auf allen Kanaelen dieselbe Waehrung:
   Classic-KPI und Vermoegensseite -- nicht die Mandatswaehrung.
 * Cashflow-Summary: CHF (Server rechnet in ``amount_currency`` um).
 * Allokation (Engine): Mandatswaehrung -- Classic AA und PDF Anlagestrategie.
-* Beratungsbericht Monte-Carlo-Pfade: ``amount_currency`` des Payloads (Rohsumme ohne
-  FX, hier CHF) -- React-Achse und Beratungsbericht-PDF.
-* Liquiditaetsbedarf: ``liquiditaetsbedarf_currency`` (CHF) -- React und PDF.
+* Beratungsbericht Monte-Carlo-Pfade: ``amount_currency`` des Payloads -- seit CCX-P3-FX
+  serverseitig mit gebundener FX-Basis in die MANDATSWAEHRUNG konvertiert (vorher
+  Rohsumme in CHF); React-Achse und Beratungsbericht-PDF.
+* Liquiditaetsbedarf: ``liquiditaetsbedarf_currency`` -- seit CCX-P3-FX ebenfalls in der
+  Mandatswaehrung (vorher CHF-Rohsumme) -- React und PDF.
+
+CCX-P3-FX: die Testkurse (EUR 0.9500, JPY 0.0063 CHF je Einheit) werden als
+synthetische, frische Kurse ueber die echte API gesetzt -- keine Fachwerte. Ohne
+belegten Kurs sperrt der Bericht Prognose und Liquiditaetsbedarf typisiert
+(``test_missing_rate_blocks_report_amounts``).
 """
 from __future__ import annotations
 
@@ -102,6 +109,32 @@ def _pdf(api, mandate_id, report, **params) -> str:
     return re.sub(r"[ \t]+", " ", "\n".join(p.extract_text() or "" for p in PdfReader(io.BytesIO(resp.content)).pages))
 
 
+_SYNTHETIC_FX = {"EUR": 0.95, "JPY": 0.0063}  # Testvektoren, keine Fachwerte
+
+
+def _seed_fx(api, currency):
+    resp = api.put("/fx-rates", json={"rates": [
+        {"currency": currency, "rate": _SYNTHETIC_FX[currency], "source": "Manual", "notes": "Testvektor"}]})
+    assert resp.status_code == 200, resp.text[:400]
+
+
+@pytest.mark.parametrize("currency", ["EUR", "JPY"])
+def test_missing_rate_blocks_report_amounts(api, advisor_user, currency):
+    """CCX-P3-FX: ohne belegten Kurs keine Summe und keine Prognose (nie Ersatzkurs)."""
+    client_id, mandate_id = _create_client_and_mandate(api, advisor_user, currency)
+    _seed_cashflows(api, client_id)
+    _seed_wealth(api, client_id)
+    report = api.get(f"/mandates/{mandate_id}/advisory-report")
+    assert report.status_code == 200, report.text[:400]
+    payload = report.json()
+    sections = payload.get("sections") or payload
+    assert sections["ausgangslage"]["client_info"]["liquiditaetsbedarf_currency"] is None
+    assert sections["ausgangslage"]["client_info"]["liquiditaetsbedarf_rappen"] is None
+    wealth = sections["ausgangslage"]["wealth_summary"]
+    assert wealth["gesamtvermoegen_rappen"] is None
+    assert wealth["fx_status"]["reason_code"] == "CCX_FX_BASIS_MISSING"
+
+
 @pytest.mark.parametrize("currency", ["EUR", "JPY"])
 def test_same_quantity_same_currency_on_every_channel(api, advisor_user, currency, tmp_path):
     client_id, mandate_id = _create_client_and_mandate(api, advisor_user, currency)
@@ -110,6 +143,7 @@ def test_same_quantity_same_currency_on_every_channel(api, advisor_user, currenc
     _seed_goals(api, mandate_id)
     assert _seed_risk_profile(api, mandate_id).get("final_profile")
     _seed_products(api, advisor_user)
+    _seed_fx(api, currency)
     generated = api.post(f"/mandates/{mandate_id}/target-allocation/generate", json={"preferences": {
         "cmaCurrencyMismatchReason": "Kunde lebt in der Schweiz, Mandat in Fremdwaehrung; Waehrungsrisiko besprochen und akzeptiert."}})
     assert generated.status_code in (200, 201), generated.text
@@ -131,8 +165,8 @@ def test_same_quantity_same_currency_on_every_channel(api, advisor_user, currenc
     assert {p["currency"] for p in positions} == {"CHF"}
     assert wealth["amount_currency"] == "CHF"
     assert cashflow["amount_currency"] == "CHF"
-    assert mc["amount_currency"] == "CHF"
-    assert ci["liquiditaetsbedarf_currency"] == "CHF"
+    assert mc["amount_currency"] == currency  # CCX-P3-FX: konvertiert
+    assert ci["liquiditaetsbedarf_currency"] == currency
     assert payload.get("mandate_currency") == currency
 
     classic = _classic(currency, wealth, cashflow, positions, allocation)
@@ -145,18 +179,18 @@ def test_same_quantity_same_currency_on_every_channel(api, advisor_user, currenc
                                                             _plain(classic["wealthTotal"]).split(" ")[0]}, "CHF"),
         "Cashflow-Summary (Classic KPI)": ({_plain(classic["kpiCashflow"]).split(" ")[0]}, "CHF"),
         "Allokation (Classic AA)": ({_plain(classic["allocationAdvisory"]).split(" ")[0]}, currency),
-        "MC-Pfade (React-Achse)": ({react["mcCurrency"]}, "CHF"),
-        "Liquiditaetsbedarf (React)": ({_plain(react["liquidity"]).split(" ")[0]}, "CHF"),
+        "MC-Pfade (React-Achse)": ({react["mcCurrency"]}, currency),
+        "Liquiditaetsbedarf (React)": ({_plain(react["liquidity"]).split(" ")[0]}, currency),
     }
     for name, (seen, expected) in matrix.items():
         assert seen == {expected}, (name, seen, expected)
 
     # PDF-Kanaele: dieselben Groessen in derselben Waehrung.
     liq = re.search(r"Liquiditätsbedarf\s+([A-Z]{3}) [\d']+", advisory_pdf)
-    assert liq and liq.group(1) == "CHF", liq
+    assert liq and liq.group(1) == currency, liq
     ticks = set(re.findall(r"\b([A-Z]{3}) \d+(?:\.\d+)? Mio\.", advisory_pdf))
-    assert ticks <= {"CHF"}, ticks  # MC-Achse/-Saetze nie in Mandatswaehrung beschriftet
+    assert ticks <= {currency}, ticks  # MC-Achse/-Saetze in der Waehrung des Servers
     if mc.get("projection_status") == "current" and not mc.get("data_pending"):
-        assert ticks == {"CHF"}, ("MC-Achse fehlt im Beratungsbericht", ticks)
+        assert ticks == {currency}, ("MC-Achse fehlt im Beratungsbericht", ticks)
     total = re.search(r"Total Beratungsverm(?:ö|oe)gen\s+(?:100\.0 %\s+|–\s+)?([A-Z]{3}) [\d']+", strategy_pdf)
     assert total and total.group(1) == currency, total

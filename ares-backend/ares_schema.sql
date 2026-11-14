@@ -2132,3 +2132,92 @@ CREATE TRIGGER IF NOT EXISTS trg_advisory_envelope_bindings_no_delete BEFORE DEL
 CREATE TRIGGER IF NOT EXISTS trg_advisory_effective_input_manifests_no_replace BEFORE INSERT ON advisory_effective_input_manifests FOR EACH ROW WHEN EXISTS (SELECT 1 FROM advisory_effective_input_manifests m WHERE m.id = NEW.id) BEGIN SELECT RAISE(ABORT, 'advisory_effective_input_manifests row already exists (no replace)'); END;
 CREATE TRIGGER IF NOT EXISTS trg_advisory_effective_input_manifests_no_update BEFORE UPDATE ON advisory_effective_input_manifests FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_effective_input_manifests is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS trg_advisory_effective_input_manifests_no_delete BEFORE DELETE ON advisory_effective_input_manifests FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_effective_input_manifests is immutable'); END;
+
+-- CCX-P3 Markt- und Depot-Wahrheit (Vertrag 2026-11-13 §6): textgleich mit
+-- database.py HOLDINGS_VALUATION_SQLITE_TABLE_DDL / _TRIGGERS.
+CREATE TABLE IF NOT EXISTS holdings_valuation_snapshots (
+    id                  TEXT PRIMARY KEY,
+    tenant_id           TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id          TEXT NOT NULL,
+    schema_version      TEXT NOT NULL DEFAULT 'ares/holdings-valuation/1'
+                        CHECK(schema_version = 'ares/holdings-valuation/1'),
+    as_of               TEXT NOT NULL,
+    source_observed_at  TEXT,
+    source_system       TEXT NOT NULL,
+    base_currency       TEXT NOT NULL,
+    fx_basis_hash       TEXT NOT NULL CHECK(length(fx_basis_hash) = 64),
+    fx_basis_json       TEXT NOT NULL,
+    coverage_status     TEXT NOT NULL CHECK(coverage_status IN ('COMPLETE','PARTIAL','UNKNOWN')),
+    holdings_basis      TEXT NOT NULL CHECK(holdings_basis IN ('recorded','confirmed_no_holdings')),
+    position_count      INTEGER NOT NULL CHECK(position_count >= 0),
+    total_base_minor    INTEGER,
+    advisory_base_minor INTEGER,
+    blocker_codes_json  TEXT NOT NULL,
+    snapshot_hash       TEXT NOT NULL CHECK(length(snapshot_hash) = 64),
+    created_at          TEXT NOT NULL,
+    created_by          TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT ck_holdings_valuation_snapshots_complete_total CHECK(coverage_status <> 'COMPLETE' OR (
+        total_base_minor IS NOT NULL AND advisory_base_minor IS NOT NULL AND blocker_codes_json = '[]')),
+    CONSTRAINT ck_holdings_valuation_snapshots_unknown_total CHECK(coverage_status = 'COMPLETE' OR (
+        total_base_minor IS NULL AND advisory_base_minor IS NULL AND blocker_codes_json <> '[]')),
+    CONSTRAINT ck_holdings_valuation_snapshots_no_holdings CHECK(holdings_basis = 'recorded' OR position_count = 0),
+    CONSTRAINT uq_holdings_valuation_snapshots_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT uq_holdings_valuation_snapshots_hash UNIQUE (tenant_id, mandate_id, snapshot_hash)
+);
+CREATE INDEX IF NOT EXISTS ix_holdings_valuation_snapshots_tenant_id ON holdings_valuation_snapshots(tenant_id);
+CREATE INDEX IF NOT EXISTS ix_holdings_valuation_snapshots_mandate ON holdings_valuation_snapshots(tenant_id, mandate_id, as_of);
+CREATE TABLE IF NOT EXISTS holdings_valuation_rows (
+    id                      TEXT PRIMARY KEY,
+    tenant_id               TEXT NOT NULL,
+    snapshot_id             TEXT NOT NULL,
+    position_id             TEXT NOT NULL,
+    source_kind             TEXT NOT NULL CHECK(source_kind IN ('wealth_position','depot_holding')),
+    instrument_id           TEXT,
+    assignment              TEXT,
+    quantity_decimal_string TEXT,
+    price_minor             INTEGER,
+    price_currency          TEXT,
+    source_amount_minor     INTEGER,
+    fx_rate_ppm             INTEGER,
+    fx_rate_ratio           TEXT,
+    fx_source               TEXT,
+    fx_observed_at          TEXT,
+    base_value_minor        INTEGER,
+    price_observed_at       TEXT,
+    data_quality            TEXT NOT NULL,
+    included_in_total       INTEGER NOT NULL CHECK(included_in_total IN (0, 1)),
+    row_hash                TEXT NOT NULL CHECK(length(row_hash) = 64),
+    CONSTRAINT ck_holdings_valuation_rows_ok_value CHECK(data_quality <> 'OK' OR base_value_minor IS NOT NULL),
+    CONSTRAINT uq_holdings_valuation_rows_position UNIQUE (snapshot_id, position_id),
+    CONSTRAINT fk_holdings_valuation_rows_snapshot FOREIGN KEY (tenant_id, snapshot_id)
+        REFERENCES holdings_valuation_snapshots(tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_holdings_valuation_rows_tenant_id ON holdings_valuation_rows(tenant_id);
+CREATE TABLE IF NOT EXISTS position_decision_ledger (
+    id                    TEXT PRIMARY KEY,
+    tenant_id             TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id            TEXT NOT NULL,
+    envelope_id           TEXT NOT NULL,
+    position_id           TEXT NOT NULL,
+    decision              TEXT NOT NULL CHECK(decision IN ('KEEP','SELL','REVIEW')),
+    reason_code           TEXT NOT NULL,
+    source_snapshot_hash  TEXT NOT NULL CHECK(length(source_snapshot_hash) = 64),
+    created_at            TEXT NOT NULL,
+    created_by            TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT uq_position_decision_ledger_position UNIQUE (envelope_id, position_id),
+    CONSTRAINT fk_position_decision_ledger_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_position_decision_ledger_tenant_id ON position_decision_ledger(tenant_id);
+CREATE INDEX IF NOT EXISTS ix_position_decision_ledger_mandate ON position_decision_ledger(tenant_id, mandate_id);
+CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_snapshots_no_replace BEFORE INSERT ON holdings_valuation_snapshots FOR EACH ROW WHEN EXISTS (SELECT 1 FROM holdings_valuation_snapshots s WHERE s.id = NEW.id) OR EXISTS (SELECT 1 FROM holdings_valuation_snapshots s WHERE s.tenant_id = NEW.tenant_id AND s.mandate_id = NEW.mandate_id AND s.snapshot_hash = NEW.snapshot_hash) BEGIN SELECT RAISE(ABORT, 'holdings_valuation_snapshots row already exists (no replace)'); END;
+CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_snapshots_no_update BEFORE UPDATE ON holdings_valuation_snapshots FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'holdings_valuation_snapshots is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_snapshots_no_delete BEFORE DELETE ON holdings_valuation_snapshots FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'holdings_valuation_snapshots is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_rows_insert_guard BEFORE INSERT ON holdings_valuation_rows FOR EACH ROW WHEN (SELECT s.position_count FROM holdings_valuation_snapshots s WHERE s.id = NEW.snapshot_id AND s.tenant_id = NEW.tenant_id) IS NULL OR (SELECT count(*) FROM holdings_valuation_rows r WHERE r.snapshot_id = NEW.snapshot_id) >= (SELECT s.position_count FROM holdings_valuation_snapshots s WHERE s.id = NEW.snapshot_id) BEGIN SELECT RAISE(ABORT, 'holdings_valuation_rows: snapshot is closed'); END;
+CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_rows_no_replace BEFORE INSERT ON holdings_valuation_rows FOR EACH ROW WHEN EXISTS (SELECT 1 FROM holdings_valuation_rows r WHERE r.id = NEW.id) OR EXISTS (SELECT 1 FROM holdings_valuation_rows r WHERE r.snapshot_id = NEW.snapshot_id AND r.position_id = NEW.position_id) BEGIN SELECT RAISE(ABORT, 'holdings_valuation_rows row already exists (no replace)'); END;
+CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_rows_no_update BEFORE UPDATE ON holdings_valuation_rows FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'holdings_valuation_rows is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_rows_no_delete BEFORE DELETE ON holdings_valuation_rows FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'holdings_valuation_rows is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_insert_guard BEFORE INSERT ON position_decision_ledger FOR EACH ROW WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) IS NOT 'DRAFT' OR (SELECT e.mandate_id FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) IS NOT NEW.mandate_id BEGIN SELECT RAISE(ABORT, 'position_decision_ledger: envelope is not DRAFT'); END;
+CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_no_replace BEFORE INSERT ON position_decision_ledger FOR EACH ROW WHEN EXISTS (SELECT 1 FROM position_decision_ledger d WHERE d.id = NEW.id) OR EXISTS (SELECT 1 FROM position_decision_ledger d WHERE d.envelope_id = NEW.envelope_id AND d.position_id = NEW.position_id) BEGIN SELECT RAISE(ABORT, 'position_decision_ledger row already exists (no replace)'); END;
+CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_no_update BEFORE UPDATE ON position_decision_ledger FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'position_decision_ledger is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_no_delete BEFORE DELETE ON position_decision_ledger FOR EACH ROW WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = OLD.envelope_id) IS NOT 'DRAFT' BEGIN SELECT RAISE(ABORT, 'position_decision_ledger is immutable'); END;

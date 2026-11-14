@@ -682,7 +682,9 @@ def _convert_position_value_to_target_currency(
     if pos_currency == target:
         return raw_amount
     try:
-        rate = fx_source.cross_rate(pos_currency, target)
+        # CCX-P3-FX: exakte Konversion (Kursverhaeltnis x10000, ares-rounding/1,
+        # ISO-Exponent der Zielwaehrung) -- dieselbe Regel wie der Bericht.
+        return fx_source.convert_storage_amount(raw_amount, pos_currency, target)
     except (ValueError, AttributeError) as exc:
         label = str(getattr(pos, "label", "") or "").strip()
         raise ValueError(
@@ -690,7 +692,6 @@ def _convert_position_value_to_target_currency(
             f"({pos_currency}->{target}); eine stille 1:1-Konvertierung ist "
             "nicht zulaessig."
         ) from exc
-    return int(round(raw_amount * float(rate)))
 
 
 def _convert_position_amount_to_target_currency(pos, fx_source, target_currency: str) -> int:
@@ -2341,6 +2342,7 @@ def _load_allocation_inputs(
     # downstream-Konsumer (MC, Goal-Analysis, Reserve) die Erbschaft/Bonus.
     inflow_projection_series_rappen = _wealth_inflow_series_rappen(
         wealth_inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
+        fx_source=fx_source, target_currency=target_currency,
     )
     inflow_projection_series_rappen = _with_pension_payouts(inflow_projection_series_rappen, external_foundation_projection)
     if any(inflow_projection_series_rappen):
@@ -3208,6 +3210,7 @@ def generate_target_allocation(
         reserve_inputs=reserve_inputs, saa_liquidity_ceiling_bps=saa_liquidity_ceiling_bps,
         reserve_needed_rappen=reserve_needed_rappen, external_reserve_rappen=external_reserve_rappen,
         currency=str(inputs.get("cashflow_target_currency") or "CHF"), reasoning=reasoning,
+        fx_source=inputs.get("cashflow_fx_source"),
     )
     investable_advisory_wealth_rappen = _investable_advisory_wealth_rappen(advisory_wealth_rappen, external_reserve_rappen)
 
@@ -4319,7 +4322,7 @@ def generate_target_allocation(
         "asset_class_assumptions": asset_class_assumptions,
         "sub_asset_class_assumptions_reference": sub_asset_class_assumptions_reference,
         "simulation": simulation,
-        "monte_carlo": monte_carlo,
+                "monte_carlo": monte_carlo,
         "goal_analysis": goal_analysis,
         "current_goal_analysis": current_goal_analysis,
         "mandate_score": _build_mandate_score(goal_analysis),
@@ -5583,6 +5586,7 @@ def build_target_payload_from_allocation(
     )
     inflow_projection_series_rappen = _with_pension_payouts(_wealth_inflow_series_rappen(
         rebuild_wealth_inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
+        fx_source=fx_source, target_currency=target_currency,
     ), external_foundation_projection)
     # ebenso wie generate-Pfad: Inflows in cashflow_projection einrechnen
     if any(inflow_projection_series_rappen):
@@ -6205,7 +6209,7 @@ def build_target_payload_from_allocation(
         "asset_class_assumptions": asset_class_assumptions,
         "sub_asset_class_assumptions_reference": sub_asset_class_assumptions_reference,
         "simulation": simulation,
-        "monte_carlo": monte_carlo,
+                "monte_carlo": monte_carlo,
         "goal_analysis": goal_analysis,
         "current_goal_analysis": current_goal_analysis,
         "live_rebalancing": live_rebalancing,

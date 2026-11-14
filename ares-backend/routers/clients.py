@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from core.db_integrity import is_check_constraint_violation, raise_if_check_violation
 from pydantic import ValidationError
-from core.reason_codes import ReasonCode
+from core.reason_codes import DomainError, ReasonCode
+from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -41,6 +42,7 @@ from services.auth import (
     get_client_for_erasure_or_404 as _get_client_for_erasure_or_404,
     get_client_for_user_or_404,
     get_current_user,
+    get_mandate_for_user_or_404,
     has_global_client_access,
     hash_password,
     _resolve_tenant_id_for_user,
@@ -64,6 +66,7 @@ from services.recommendation_release_gate import (
     kyc_review_entry_binding,
     kyc_review_message,
 )
+from services.fx_basis import load_fx_basis, normalize_currency  # CCX-P3-FX
 from services.wealth_cashflows import (
     derive_wealth_cashflows,
     mortgage_amortization_adjustment_series,
@@ -1304,9 +1307,21 @@ def wealth_summary(
 @router.get("/{client_id}/cashflow-summary", response_model=CashflowSummaryResponse)
 def cashflow_summary(
     client_id: str,
+    mandate_id: Optional[str] = None,
+    target_currency: Optional[str] = Query(None, pattern=r"^[A-Z]{3}$"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Cashflow-Kennzahlen des Kunden (CCX-P3-FX).
+
+    Zielwaehrung nie still CHF: im Mandatskontext (``mandate_id``) die
+    Mandatswaehrung, sonst eine explizite ``target_currency``; ohne beides nur,
+    wenn alle Cashflows dieselbe belegte Waehrung tragen (dann ohne Umrechnung).
+    Umgerechnet wird zeilenweise mit EINER gebundenen, strikten FX-Basis (kein
+    Ersatzkurs); fehlt/veraltet ein Kurs oder ist die Waehrung gemischt ohne
+    Ziel, endet der Aufruf typisiert (``CCX_FX_BASIS_*``). Die Antwort traegt
+    Betrag, Waehrung, ``fx_basis_hash`` und Bewertungsstichtag.
+    """
     client = _get_client_or_404(client_id, db, current_user)
     cashflows = db.query(Cashflow).filter(
         Cashflow.client_id == client_id,
@@ -1318,25 +1333,9 @@ def cashflow_summary(
     # Miet-/Zinserträge) zählen MIT in die Summe — sie sind echte Cashflows, nur
     # automatisch aus dem Vermögen abgeleitet statt manuell erfasst.
     cashflows = list(cashflows) + _derived_cashflows_for_client(client_id, db)
-    # CF-2 (2026-07-23): FX-Konvertierung wie im Schwester-Endpoint
-    # cashflow_projection — sonst zeigt das Summary Fremdwaehrungs-Cashflows im
-    # Rohbetrag statt zu CHF konvertiert (Divergenz zwischen den beiden Ansichten).
-    # 2026-07-24 (Generalaudit): FXRateSource.from_db() faengt intern bereits
-    # JEDEN Fehler ab und faellt selbst auf Default-Kurse zurueck (siehe
-    # services/currency/fx_rates.py::from_db) -- dieser aeussere except greift
-    # praktisch nie. Faellt er doch (z.B. Import-Fehler), war der Fallback
-    # bisher fx_source=None -> totals_for_year() KONVERTIERT GAR NICHT MEHR
-    # (Fremdwaehrungs-Betraege im Rohwert), schlechter als der DEFAULT_FX_RATES-
-    # Fallback, den from_db() selbst nutzt. FXRateSource() (= Default-Kurse)
-    # ist die konsistente Wahl.
-    from services.currency.fx_rates import FXRateSource
-    fx_source = None
-    try:
-        fx_source = FXRateSource.from_db(db)
-    except Exception:
-        fx_source = FXRateSource()
-    summary_currency = "CHF"
-    totals = totals_for_year(cashflows, fx_source=fx_source, target_currency=summary_currency)
+    currencies = {normalize_currency(getattr(cf, "currency", None)) for cf in cashflows}
+    basis = _client_amount_basis(db, client_id, mandate_id, target_currency, currencies, current_user)
+    totals = totals_for_year(cashflows, fx_source=basis, target_currency=basis.target_currency)
     client_name = f"{client.first_name or ''} {client.last_name or ''}".strip() or client.client_number or client.id
     return CashflowSummaryResponse(
         client_id=client_id,
@@ -1354,8 +1353,40 @@ def cashflow_summary(
         total_income_chf=totals["income_rappen"] / 100,
         total_expense_chf=totals["expense_rappen"] / 100,
         surplus_chf=totals["net_rappen"] / 100,
-        amount_currency=summary_currency,
+        amount_currency=basis.target_currency,
+        fx_basis_hash=basis.fx_basis_hash,
+        valuation_as_of=basis.as_of,
+        mandate_id=mandate_id,
     )
+
+
+def _client_amount_basis(db, client_id, mandate_id, target_currency, currencies, current_user):
+    """CCX-P3-FX: Zielwaehrung kundenweiter Summen -- nie still CHF.
+
+    Mandatskontext -> Mandatswaehrung; sonst explizite ``target_currency``;
+    ohne beides nur bei einheitlicher, belegter Waehrung (dann ohne Umrechnung),
+    sonst ``CCX_FX_BASIS_MISMATCH``. Strikte, gebundene FX-Basis: fehlende
+    Waehrung oder fehlender/abgelaufener Kurs -> typisierter Blocker."""
+    currencies = set(currencies)
+    if mandate_id:
+        mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+        if str(mandate.client_id) != str(client_id):
+            raise HTTPException(status_code=404, detail="Mandat gehoert nicht zu diesem Kunden.")
+        summary_currency = normalize_currency(mandate.base_currency)
+    elif target_currency:
+        summary_currency = normalize_currency(target_currency)
+    elif len(currencies) <= 1 and "" not in currencies:
+        summary_currency = next(iter(currencies)) if currencies else None
+    else:
+        raise DomainError(
+            ReasonCode.CCX_FX_BASIS_MISMATCH,
+            "Die Betraege liegen in verschiedenen Waehrungen vor; fuer eine Summe ist ein "
+            "Mandatskontext (mandate_id) oder eine Zielwaehrung (target_currency) erforderlich.",
+            extra={"currencies": sorted(currencies)},
+        )
+    basis = load_fx_basis(db, summary_currency or "CHF", currencies - {""})
+    basis.require_convertible(currencies)
+    return basis
 
 
 def _derived_cashflows_for_client(client_id: str, db: Session) -> list:
@@ -1456,6 +1487,8 @@ def cashflow_projection(
     client_id: str,
     horizon_years: int | None = Query(default=None, ge=1, le=60),
     indexation: bool = Query(default=True),
+    mandate_id: Optional[str] = None,
+    target_currency: Optional[str] = Query(None, pattern=r"^[A-Z]{3}$"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -1513,13 +1546,19 @@ def cashflow_projection(
     # und faellt selbst auf Default-Kurse zurueck, dieser aeussere except
     # greift praktisch nie. Faellt er doch, ist fx_source=None schlechter
     # (deaktiviert Konvertierung komplett statt Naeherung zu zeigen).
-    from services.currency.fx_rates import FXRateSource
-    fx_source = None
-    try:
-        fx_source = FXRateSource.from_db(db)
-    except Exception:
-        fx_source = FXRateSource()
-    target_currency = "CHF"
+    # CCX-P3-FX: wie cashflow-summary -- Mandatskontext oder explizite
+    # Zielwaehrung, strikte gebundene FX-Basis (kein Ersatzkurs), nie still CHF.
+    wealth_inflow_rows = db.query(WealthInflow).filter(
+        WealthInflow.client_id == client_id,
+        WealthInflow.deleted_at.is_(None),
+        WealthInflow.is_active == 1,
+    ).all()
+    amount_currencies = {normalize_currency(getattr(cf, "currency", None)) for cf in cashflows}
+    amount_currencies |= {normalize_currency(getattr(i, "currency", None)) for i in wealth_inflow_rows}
+    fx_source = _client_amount_basis(
+        db, client_id, mandate_id, target_currency, amount_currencies, current_user,
+    )
+    target_currency = fx_source.target_currency
 
     # 2026-06-14 (#31 B-2): Hypothek-Amortisation/Refinanzierung jahresabhängig
     # einrechnen — konsistent mit der Strategie-Engine. Positiv = weniger Zinslast
@@ -1597,6 +1636,7 @@ def cashflow_projection(
 
     inflow_series = _wealth_inflow_series_rappen(
         certain_inflows(wealth_inflows), horizon, start_year, inflation_series_bps,
+        fx_source=fx_source, target_currency=target_currency,
     )
     # CASHFLOW-TAB-PENSION-PAYOUTS-001 (2026-10-21): automatische Vorsorge-
     # bezuege (3a/FZ/Police, #642/#651) aus DERSELBEN Ledger-Quelle wie die

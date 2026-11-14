@@ -648,6 +648,9 @@ class WealthInflowCreate(BaseModel):
     source_type: Literal["Erbschaft", "Bonus", "Saeule3b", "Verkaufserloes", "Andere"]
     amount_rappen: int = Field(..., gt=0, le=PERSISTABLE_INT_MAX)
     expected_year: int = Field(..., ge=1900, le=2200)
+    # CCX-P3-FX: Betrag und Waehrung sind untrennbar -- Pflichtfeld ohne
+    # Default (ISO 4217); die Waehrung eines Zuflusses wird nie geraten.
+    currency: str = Field(..., pattern=r"^[A-Z]{3}$")
     is_recurring: int = Field(0, ge=0, le=1)
     frequency: Optional[Literal["einmalig", "jaehrlich", "monatlich"]] = None
     duration_years: Optional[int] = Field(None, ge=1, le=99)
@@ -712,6 +715,7 @@ class WealthInflowUpdate(BaseModel):
     source_type: Optional[Literal["Erbschaft", "Bonus", "Saeule3b", "Verkaufserloes", "Andere"]] = None
     amount_rappen: Optional[int] = Field(None, gt=0, le=PERSISTABLE_INT_MAX)
     expected_year: Optional[int] = Field(None, ge=1900, le=2200)
+    currency: Optional[str] = Field(None, pattern=r"^[A-Z]{3}$")
     is_recurring: Optional[int] = Field(None, ge=0, le=1)
     frequency: Optional[Literal["einmalig", "jaehrlich", "monatlich"]] = None
     duration_years: Optional[int] = Field(None, ge=1, le=99)
@@ -732,6 +736,8 @@ class WealthInflowResponse(BaseResponse):
     source_type: str
     amount_rappen: int
     expected_year: int
+    # CCX-P3-FX: NULL = Bestand ohne erfasste Waehrung (unbekannt, blockiert).
+    currency: Optional[str] = None
     is_recurring: int
     frequency: Optional[str]
     duration_years: Optional[int]

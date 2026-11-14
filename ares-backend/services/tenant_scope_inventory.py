@@ -26,7 +26,7 @@ table therefore cannot ship unclassified.
 """
 from __future__ import annotations
 
-INVENTORY_VERSION = "2026-11-14.1"
+INVENTORY_VERSION = "2026-11-14.2"
 
 TENANT_DIRECT = "tenant_direct"
 GLOBAL_REFERENCE = "global_reference"
@@ -43,6 +43,13 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     "advisory_effective_input_manifests",
     "advisory_envelope_bindings",
     "audit_log",
+    # CCX-P3 Markt- und Depot-Wahrheit (2026-11-14): Bewertungs-Snapshot,
+    # Positionszeilen, Entscheid je Position -- tenant_id NOT NULL; Snapshot und
+    # Ledger per INSERT-Guard aus dem Mandat, Zeilen per (tenant_id,
+    # snapshot_id)-FK, Ledger per (tenant_id, envelope_id)-FK.
+    "holdings_valuation_rows",
+    "holdings_valuation_snapshots",
+    "position_decision_ledger",
     # H8 C-2/C-5/Luecke 10 (Compliance-Audit 2026-11-07): Kundeninformation,
     # KYC-Bestaetigung samt Freigabe, Vertretung, rechtliche Angaben der Firma
     # -- tenant_id direkt bei der Erfassung (aus Kunde bzw. Mandat).
@@ -192,6 +199,7 @@ TENANT_DERIVED_TABLES: dict[str, tuple[str, str]] = {
 # to the client/mandate (for the erasure inventory and the ratchet below).
 TENANT_DIRECT_PARENT_ROUTES: dict[str, tuple[str, str]] = {
     "advisory_envelope_bindings": ("envelope_id", "advisory_decision_envelopes"),
+    "holdings_valuation_rows": ("snapshot_id", "holdings_valuation_snapshots"),
     "product_eligibility_overrides": ("recommendation_run_id", "recommendation_runs"),
 }
 

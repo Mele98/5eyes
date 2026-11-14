@@ -59,6 +59,8 @@ from models.snapshots import (
     AdvisoryDecisionEnvelope,
     AdvisoryEffectiveInputManifest,
     AdvisoryEnvelopeBinding,
+    HoldingsValuationSnapshot,
+    PositionDecisionLedger,
 )
 from services.advisory_cache_scope import advisory_cache_key
 from services.advisory_envelope_integrity import MANIFEST_BINDING_KIND, envelope_integrity_defect
@@ -167,11 +169,27 @@ def _reject(
 # ── Versiegeln ───────────────────────────────────────────────────────────────
 
 
+VALUATION_BINDING_KIND = "holdings_valuation_snapshot"
+LEDGER_BINDING_KIND = "position_decision_ledger"
+
+
 def _bindings(
     db: Session, *, manifest: AdvisoryEffectiveInputManifest, ta: Any, run: Any,
+    valuation: tuple[str, str] | None = None, ledger_hash: str | None = None,
 ) -> list[dict[str, Any]]:
     positions = db.query(RecommendationPosition).filter(RecommendationPosition.run_id == str(run.id)).all()
-    return [
+    # CCX-P3: Bewertungs-Snapshot (Stichtag, Quelle, FX-Basis) und Entscheid je
+    # Position als Kind-Bindungen; Kind-Hashes enthalten keine DB-IDs, die erst
+    # nach dem Hash entstehen.
+    p3 = [] if valuation is None else [
+        {"binding_kind": VALUATION_BINDING_KIND, "ordinal": 0,
+         "object_type": HoldingsValuationSnapshot.__tablename__, "object_id": valuation[0],
+         "object_version": None, "child_hash": valuation[1]},
+        {"binding_kind": LEDGER_BINDING_KIND, "ordinal": 0,
+         "object_type": PositionDecisionLedger.__tablename__, "object_id": str(run.id),
+         "object_version": None, "child_hash": ledger_hash},
+    ]
+    return p3 + [
         {"binding_kind": MANIFEST_BINDING_KIND, "ordinal": 0,
          "object_type": AdvisoryEffectiveInputManifest.__tablename__, "object_id": str(manifest.id),
          "object_version": None, "child_hash": manifest.manifest_hash},
@@ -192,6 +210,21 @@ def _bindings(
     ]
 
 
+def _valuation_reason(code: str) -> ReasonCode:
+    """Katalogisierter Code eines Bewertungsblockers (statisch aufloesbar)."""
+    if code == ReasonCode.CCX_FX_BASIS_MISSING:
+        return ReasonCode.CCX_FX_BASIS_MISSING
+    if code == ReasonCode.CCX_FX_BASIS_MISMATCH:
+        return ReasonCode.CCX_FX_BASIS_MISMATCH
+    if code == ReasonCode.CCX_FX_BASIS_STALE:
+        return ReasonCode.CCX_FX_BASIS_STALE
+    if code == ReasonCode.CCX_VALUATION_STALE:
+        return ReasonCode.CCX_VALUATION_STALE
+    if code == ReasonCode.CCX_VALUATION_MISSING:
+        return ReasonCode.CCX_VALUATION_MISSING
+    return ReasonCode.CCX_VALUATION_INCOMPLETE
+
+
 def seal_advisory_envelope(
     db: Session,
     *,
@@ -199,9 +232,16 @@ def seal_advisory_envelope(
     run: Any,
     user: Any,
     ip_address: str | None = None,
+    valuation: Any = None,
 ) -> AdvisoryDecisionEnvelope:
     """Erzeugt, bindet und versiegelt den Envelope der finalisierten Empfehlung
-    ``run`` (Transaktion des Aufrufers; der Commit folgt dort)."""
+    ``run`` (Transaktion des Aufrufers; der Commit folgt dort).
+
+    CCX-P3: vor dem Siegel wird der gesamte Bestand verlustfrei bewertet; nur
+    ein COMPLETE-Snapshot (alle Preise/Kurse belegt und frisch, eine FX-Basis)
+    wird gebunden, sonst endet die Finalisierung mit dem typisierten Code
+    (CCX_VALUATION_* / CCX_FX_BASIS_*) und Audit. Je bestehender Depotposition
+    wird ein Entscheid KEEP/SELL/REVIEW im Ledger gebunden."""
     tenant_id = mandate_tenant(mandate)
     common = {"user": user, "mandate": mandate, "tenant_id": tenant_id, "ip_address": ip_address}
     if tenant_id is None:
@@ -230,6 +270,27 @@ def seal_advisory_envelope(
             "Referenzwaehrung des Mandats fehlt.",
         ), record_id=run.id, run=run.id, stage="identity", **common)
 
+    if valuation is None:
+        raise _reject(db, AdvisoryEnvelopeError(
+            ReasonCode.CCX_VALUATION_MISSING,
+            "Der Beratungsentscheid kann nicht versiegelt werden: es liegt keine Bewertung des "
+            "Bestands vor.",
+        ), record_id=run.id, run=run.id, stage="valuation", **common)
+    projection = valuation.projection
+    if not valuation.publishable:
+        raise _reject(db, AdvisoryEnvelopeError(
+            _valuation_reason(valuation.primary_code),
+            "Der Beratungsentscheid kann nicht versiegelt werden: die Bewertung des Bestands ist "
+            f"nicht vollstaendig belegt ({projection.coverage_status}). Bitte fehlende Preise, Kurse, "
+            "Stichtage oder Waehrungen ergaenzen.",
+            extra={"coverage_status": projection.coverage_status,
+                   "blocker_codes": list(projection.blocker_codes),
+                   "valuation_snapshot_hash": projection.snapshot_hash},
+        ), record_id=run.id, run=run.id, stage="valuation", coverage=projection.coverage_status,
+            blockers=",".join(projection.blocker_codes), valuation_hash=projection.snapshot_hash,
+            fx_basis_hash=projection.fx_basis_hash, **common)
+    ledger_entries = valuation.ledger_entries
+    ledger_digest = valuation.ledger_hash
     try:
         before = collect_effective_input_components(db, mandate=mandate, run=run, target_allocation=ta)
         record = build_manifest_record(
@@ -255,7 +316,19 @@ def seal_advisory_envelope(
     # N-906-02: Kind-Projektion und Root-Hash sind Teil des Gates -- ein nicht
     # projizierbarer Wert endet als katalogisierter Code mit Audit, nie als 500.
     try:
-        bindings = _bindings(db, manifest=manifest, ta=ta, run=run)
+        snapshot = valuation.persist(db, user_id=user.id)
+    except IntegrityError as exc:
+        db.rollback()
+        # F1: CHECK-Verletzung (z. B. COMPLETE ohne Summe) ist 422, sonst Konflikt.
+        raise _reject(db, AdvisoryEnvelopeError(
+            ReasonCode.CCX_VALUATION_INCOMPLETE,
+            "Der Bewertungs-Snapshot konnte nicht festgehalten werden.",
+            http_status=422 if is_check_constraint_violation(exc) else None,
+        ), record_id=run.id, run=run.id, stage="valuation_persist",
+            valuation_hash=projection.snapshot_hash, **common) from exc
+    try:
+        bindings = _bindings(db, manifest=manifest, ta=ta, run=run,
+                             valuation=(snapshot.id, snapshot.snapshot_hash), ledger_hash=ledger_digest)
         payload = {
             "schema_version": ADVISORY_ENVELOPE_SCHEMA,
             "tenant_id": tenant_id,
@@ -306,12 +379,31 @@ def seal_advisory_envelope(
                 id=new_uuid(), tenant_id=tenant_id, envelope_id=envelope_id, created_at=now,
                 created_by=user.id, **item,
             ))
+        for entry in ledger_entries:
+            db.add(PositionDecisionLedger(
+                id=new_uuid(), tenant_id=tenant_id, mandate_id=str(mandate.id), envelope_id=envelope_id,
+                source_snapshot_hash=snapshot.snapshot_hash, created_at=now, created_by=user.id, **entry,
+            ))
         db.flush()
+        if valuation.missing_decisions():
+            raise _reject(db, AdvisoryEnvelopeError(
+                ReasonCode.CCX_POSITION_DECISION_MISSING,
+                "Nicht jede bestehende Position hat einen Entscheid (Halten/Verkaufen/Pruefen).",
+            ), record_id=run.id, stage="ledger", **refs, **common)
         # Snapshot-Fence: dieselben Inputs unmittelbar vor dem Siegel erneut.
         try:
             after = collect_effective_input_components(db, mandate=mandate, run=run, target_allocation=ta)
         except (CanonicalPayloadError, ValueError):
             after = {}  # unbekannt geworden -> nie konsistent (RETRY)
+        # CCX-P3: Marktdaten-/Bestandswechsel waehrend des Laufs -> der gebundene
+        # Snapshot ist nicht mehr der aktuelle Stand (kein gemischter Stand).
+        if not valuation.unchanged(db, mandate):
+            raise _reject(db, AdvisoryEnvelopeError(
+                ReasonCode.CCX_VALUATION_STALE,
+                "Bestand, Preise oder Kurse wurden waehrend der Versiegelung geaendert. Bitte erneut "
+                "finalisieren.",
+            ), record_id=run.id, stage="valuation_fence", valuation_hash=projection.snapshot_hash, **refs,
+                **common)
         if classify_snapshot_consistency(before, after) == RETRY:
             raise _reject(db, AdvisoryEnvelopeError(
                 ReasonCode.CCX_INPUT_MANIFEST_MISMATCH,
@@ -366,7 +458,9 @@ def seal_advisory_envelope(
     log(db, user_id=user.id, user_name=user_name, table_name=AUDIT_TABLE, record_id=envelope_id,
         action="CREATE", field_name=AUDIT_SEALED,
         new_value=_audit_value(envelope_hash=digest, manifest_hash=manifest_digest, run=run.id,
-                               predecessor=predecessor.id if predecessor is not None else None),
+                               predecessor=predecessor.id if predecessor is not None else None,
+                               valuation_hash=snapshot.snapshot_hash, fx_basis_hash=snapshot.fx_basis_hash,
+                               coverage=snapshot.coverage_status, ledger_hash=ledger_digest),
         mandate_id=mandate.id, client_id=getattr(mandate, "client_id", None),
         ip_address=ip_address, tenant_id=tenant_id)
     return db.query(AdvisoryDecisionEnvelope).filter(AdvisoryDecisionEnvelope.id == envelope_id).one()

@@ -131,6 +131,19 @@ _VALID_ROW_VALUES: dict[str, dict[str, object]] = {
     "advisory_decision_envelopes": {"schema_version": "ares/advisory-envelope/1"},
     "advisory_envelope_bindings": {"child_hash": "0" * 64, "ordinal": 0},
     "advisory_effective_input_manifests": {"manifest_hash": "0" * 64},
+    # CCX-P3: Einwert-CHECK schema_version, Hash-Laengen und die Mehrspalten-
+    # CHECKs (UNKNOWN ohne Summe mit Blocker; Zeile ohne Wert nur bei Befund).
+    "holdings_valuation_snapshots": {
+        "schema_version": "ares/holdings-valuation/1", "fx_basis_hash": "0" * 64,
+        "snapshot_hash": "0" * 64, "coverage_status": "UNKNOWN", "holdings_basis": "recorded",
+        "position_count": 0, "total_base_minor": None, "advisory_base_minor": None,
+        "blocker_codes_json": '["CCX_VALUATION_MISSING"]',
+    },
+    "holdings_valuation_rows": {
+        "row_hash": "0" * 64, "source_kind": "wealth_position", "data_quality": "MISSING_FX",
+        "included_in_total": 1,
+    },
+    "position_decision_ledger": {"decision": "KEEP", "source_snapshot_hash": "0" * 64},
     # H10 Nachtrag 1: Einwert-CHECK (result = 'BLOCKED') erkennt der Regex nicht.
     "privacy_egress_events": {"result": "BLOCKED"},
     "risk_override_decisions": {

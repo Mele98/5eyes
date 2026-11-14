@@ -764,6 +764,11 @@ class CashflowSummaryResponse(BaseModel):
     surplus_chf: float
     # G7 N4: Waehrung der Summen (totals_for_year(target_currency=...)).
     amount_currency: str = "CHF"
+    # CCX-P3-FX: gebundene FX-Basis und Bewertungsstichtag der Summen; die
+    # Zielwaehrung stammt aus dem Mandat (mandate_id) oder ist explizit.
+    fx_basis_hash: Optional[str] = None
+    valuation_as_of: Optional[str] = None
+    mandate_id: Optional[str] = None
 
 
 class CashflowYearRow(BaseModel):

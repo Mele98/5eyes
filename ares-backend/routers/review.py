@@ -70,7 +70,7 @@ from services.audit import gate_block_audit, log, release_block_audit, restore_t
 # CCX-P1: direkt aus services.auth (derselbe Helfer, den routers.auth nur
 # weiterreicht) -- Router importieren keine Router (Architektur-Ratsche).
 from services.auth import extract_client_ip as _extract_client_ip
-from services.advisory_decision_envelope import current_verified_envelope, seal_advisory_envelope
+from services.advisory_finalization import current_advisory_envelope, finalize_advisory_decision
 from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
 from services.data_classification import enforce_data_classification
 from services.eodhd_client import preview_eodhd_reference
@@ -4609,6 +4609,7 @@ def get_recommendation_payload_by_id(
 def finalize_recommendation(
     mandate_id: str, run_id: str,
     request: Request,
+    confirm_no_existing_holdings: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor)
 ):
@@ -4763,8 +4764,12 @@ def finalize_recommendation(
     # einmal als unveraenderlicher Envelope versiegelt (Manifest, Bindungen,
     # Snapshot-Fence). Scheitert das Siegel, scheitert die Finalisierung --
     # kein finaler Lauf ohne Envelope, kein Fallback (Audit im Service).
-    envelope = seal_advisory_envelope(
+    # CCX-P3: ein leerer Bestand gilt nur mit ausdruecklicher Bestaetigung
+    # "kein Bestand / Neugeld" (confirm_no_existing_holdings) -- und auch dann
+    # nur, wenn Cashflows oder Zufluesse erfasst sind.
+    envelope = finalize_advisory_decision(
         db, mandate=mandate, run=run, user=current_user, ip_address=_extract_client_ip(request),
+        confirm_no_existing_holdings=confirm_no_existing_holdings,
     )
     envelope_ref = {"advisory_envelope_id": envelope.id, "advisory_envelope_hash": envelope.envelope_hash}
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -4794,7 +4799,7 @@ def get_current_advisory_envelope(
     Fehlt er oder bricht eine Kette: katalogisierter Reason-Code
     (``CCX_ENVELOPE_MISSING`` 404, sonst 409), kein aelterer Entscheid."""
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    return current_verified_envelope(
+    return current_advisory_envelope(
         db, mandate=mandate, user=current_user, ip_address=_extract_client_ip(request),
     )
 

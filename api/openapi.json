@@ -5141,6 +5141,28 @@
             "title": "Client Name",
             "type": "string"
           },
+          "fx_basis_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fx Basis Hash"
+          },
+          "mandate_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mandate Id"
+          },
           "recurring_expense_rappen": {
             "default": 0,
             "title": "Recurring Expense Rappen",
@@ -5183,6 +5205,17 @@
           "total_income_rappen": {
             "title": "Total Income Rappen",
             "type": "integer"
+          },
+          "valuation_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valuation As Of"
           }
         },
         "required": [
@@ -28550,6 +28583,11 @@
             "default": "sicher",
             "title": "Certainty"
           },
+          "currency": {
+            "pattern": "^[A-Z]{3}$",
+            "title": "Currency",
+            "type": "string"
+          },
           "data_classification": {
             "default": "synthetic",
             "enum": [
@@ -28665,7 +28703,8 @@
           "label",
           "source_type",
           "amount_rappen",
-          "expected_year"
+          "expected_year",
+          "currency"
         ],
         "title": "WealthInflowCreate",
         "type": "object"
@@ -28688,6 +28727,17 @@
           "created_at": {
             "title": "Created At",
             "type": "string"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
           },
           "duration_years": {
             "anyOf": [
@@ -28826,6 +28876,18 @@
               }
             ],
             "title": "Certainty"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Z]{3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
           },
           "data_classification": {
             "anyOf": [
@@ -33981,6 +34043,39 @@
               "title": "Indexation",
               "type": "boolean"
             }
+          },
+          {
+            "in": "query",
+            "name": "mandate_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Mandate Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[A-Z]{3}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Currency"
+            }
           }
         ],
         "responses": {
@@ -34018,6 +34113,7 @@
     },
     "/clients/{client_id}/cashflow-summary": {
       "get": {
+        "description": "Cashflow-Kennzahlen des Kunden (CCX-P3-FX).\n\nZielwaehrung nie still CHF: im Mandatskontext (``mandate_id``) die\nMandatswaehrung, sonst eine explizite ``target_currency``; ohne beides nur,\nwenn alle Cashflows dieselbe belegte Waehrung tragen (dann ohne Umrechnung).\nUmgerechnet wird zeilenweise mit EINER gebundenen, strikten FX-Basis (kein\nErsatzkurs); fehlt/veraltet ein Kurs oder ist die Waehrung gemischt ohne\nZiel, endet der Aufruf typisiert (``CCX_FX_BASIS_*``). Die Antwort traegt\nBetrag, Waehrung, ``fx_basis_hash`` und Bewertungsstichtag.",
         "operationId": "cashflow_summary_clients__client_id__cashflow_summary_get",
         "parameters": [
           {
@@ -34027,6 +34123,39 @@
             "schema": {
               "title": "Client Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "mandate_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Mandate Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[A-Z]{3}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Currency"
             }
           }
         ],
@@ -41325,6 +41454,16 @@
             "schema": {
               "title": "Run Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "confirm_no_existing_holdings",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Confirm No Existing Holdings",
+              "type": "boolean"
             }
           }
         ],

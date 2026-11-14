@@ -33,7 +33,11 @@ from sqlalchemy.orm import Session
 
 from models.clients import Client
 from models.mandates import Mandate
+from core.reason_codes import ReasonCode
 from models.users import User
+from models.allocation import OptimizerPolicy
+from models.wealth import WealthInflow, WealthPosition
+from services.fx_basis import FxBasisError, load_fx_basis, model_fx_source
 
 
 # ---------------------------------------------------------------------------
@@ -66,15 +70,65 @@ def _cached_fx_source(db: Session) -> Any:
     Fallback auf FXRateSource() statt None (Generalaudit 2026-07-24):
     from_db() faengt Fehler selbst ab; None wuerde die Umrechnung abschalten.
     """
-    from services.currency.fx_rates import FXRateSource
+    return _aggregator_cache_get(db, ("fx_source",), lambda: model_fx_source(db))
 
-    def _load():
-        try:
-            return FXRateSource.from_db(db)
-        except Exception:  # noqa: BLE001
-            return FXRateSource()
 
-    return _aggregator_cache_get(db, ("fx_source",), _load)
+def _report_currencies(db: Session, mandate: Mandate) -> set[str]:
+    """Alle Waehrungen, die in eine kundenweite Summe oder die Prognose
+    einfliessen: aktive Vermoegenspositionen, Cashflows, Zufluesse."""
+    client_id = str(getattr(mandate, "client_id", "") or "")
+    currencies = {
+        str(getattr(wp, "currency", "") or "").upper().strip()
+        for wp in db.query(WealthPosition).filter(
+            WealthPosition.client_id == client_id,
+            WealthPosition.is_active == 1,
+            WealthPosition.deleted_at.is_(None),
+        ).all()
+    }
+    currencies |= {
+        str(getattr(cf, "currency", "") or "").upper().strip()
+        for cf in _cached_active_cashflows(db, client_id)
+    }
+    currencies |= {
+        str(getattr(inflow, "currency", "") or "").upper().strip()
+        for inflow in db.query(WealthInflow).filter(
+            WealthInflow.client_id == client_id,
+            WealthInflow.is_active == 1,
+            WealthInflow.deleted_at.is_(None),
+        ).all()
+    }
+    return currencies
+
+
+def _cached_report_fx_basis(db: Session, mandate: Mandate) -> Any:
+    """CCX-P3-FX: genau EINE gebundene FX-Basis je Bericht (Zielwaehrung =
+    Mandatswaehrung). Strikt: nur belegte, frische DB-Kurse; ein Ersatzkurs
+    (DEFAULT_FX_RATES) ist fehlend und wird nie kundenwirksam."""
+    target = str(getattr(mandate, "base_currency", "") or "").upper().strip()
+    return _aggregator_cache_get(
+        db, ("report_fx_basis", str(mandate.id)),
+        lambda: load_fx_basis(db, target, _report_currencies(db, mandate) - {""}),
+    )
+
+
+def _fx_reason(code: Any) -> ReasonCode:
+    """Katalogisierter FX-Blocker (statisch aufloesbar)."""
+    if code == ReasonCode.CCX_FX_BASIS_STALE:
+        return ReasonCode.CCX_FX_BASIS_STALE
+    if code == ReasonCode.CCX_FX_BASIS_MISMATCH:
+        return ReasonCode.CCX_FX_BASIS_MISMATCH
+    return ReasonCode.CCX_FX_BASIS_MISSING
+
+
+def _fx_block_status(exc: Any, basis: Any = None) -> dict[str, Any]:
+    """Typisierter Blocker statt Summe (nie 0, nie Ersatzkurs)."""
+    extra = getattr(exc, "extra", {}) or {}
+    return {
+        "reason_code": str(_fx_reason(getattr(exc, "reason_code", None))),
+        "message": str(getattr(exc, "message", "") or exc),
+        "currencies": list(extra.get("currencies") or []),
+        "fx_basis_hash": extra.get("fx_basis_hash") or getattr(basis, "fx_basis_hash", None),
+    }
 
 
 def _cached_latest_recommendation_run(db: Session, mandate: Mandate) -> Any:
@@ -886,9 +940,10 @@ def _build_ausgangslage(
         "risikoprofil": str(getattr(mandate, "risk_profile_label", "") or "")
             or _resolve_risk_profile_from_assessment(db, mandate),
         "anlageziel": _derive_primary_goal_label(db, mandate),
+        # CCX-P3-FX: zeilenweise in die Mandatswaehrung konvertiert; bei
+        # fehlendem/abgelaufenem Kurs None + Blocker (nie Rohsumme).
         "liquiditaetsbedarf_rappen": _derive_liquidity_need(db, mandate),
-        # G7 N4: Rohsumme der Ausgaben-Cashflows (ohne FX) -> deren Waehrung oder None.
-        "liquiditaetsbedarf_currency": _native_sum_currency(_liquidity_need_rows(db, mandate)),
+        "liquiditaetsbedarf_currency": _liquidity_need_currency(db, mandate),
         "steuerdomizil": str(getattr(client, "country_of_residence", "") or "CH"),
         "referenzwaehrung": str(getattr(mandate, "base_currency", "") or "CHF"),
     }
@@ -972,7 +1027,6 @@ def _build_wealth_summary(
     (`total_allocation.total_base_rappen`) wichen voneinander ab.
     """
     from models.wealth import WealthPosition
-    from services.portfolio_engine import _convert_position_amount_to_target_currency
     from services.wealth_position_semantics import is_liability_assignment
 
     target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
@@ -985,22 +1039,26 @@ def _build_wealth_summary(
         )
         .all()
     )
-    # FX nur laden, wenn eine Position nicht in der Basiswaehrung liegt (keine
-    # Zusatz-Query im Normalfall; Quelle je Report-Aufruf gecacht).
-    needs_fx = any(
-        str(getattr(wp, "currency", "") or "CHF").upper().strip() != target_currency
-        for wp in wp_rows
-    )
-    fx_source = _cached_fx_source(db) if needs_fx else None
+    # CCX-P3-FX: eine gebundene, strikte FX-Basis (kein Ersatzkurs); jede
+    # Zeile wird vor der Addition konvertiert. Fehlt/veraltet ein Kurs, gibt
+    # es keine Summe (None + Blocker), nie eine Rohsumme oder einen Default.
+    basis = _cached_report_fx_basis(db, mandate)
+    fx_status: dict[str, Any] | None = None
+    converted_rows: list[tuple[Any, int]] = []
+    for wp in wp_rows:
+        try:
+            line = basis.convert(_safe_int(getattr(wp, "current_value_rappen", 0)), getattr(wp, "currency", None))
+        except FxBasisError as exc:
+            fx_status = _fx_block_status(exc, basis)
+            break
+        converted_rows.append((wp, line.converted_amount_minor))
     gesamtvermoegen = 0
     beratungsvermoegen = 0
     immobilien = 0
     vorsorge = 0
     kredite = 0
-    for wp in wp_rows:
-        amount = max(0, _safe_int(
-            _convert_position_amount_to_target_currency(wp, fx_source, target_currency)
-        ))
+    for wp, converted in ([] if fx_status else converted_rows):
+        amount = max(0, _safe_int(converted))
         assignment = str(getattr(wp, "assignment", "") or "").strip()
         position_type = str(getattr(wp, "position_type", "") or "").strip().lower()
         if is_liability_assignment(assignment):
@@ -1021,6 +1079,8 @@ def _build_wealth_summary(
             "label": str(getattr(cf, "label", "") or ""),
             "type": str(getattr(cf, "cashflow_type", "") or ""),
             "amount_rappen": _safe_int(getattr(cf, "amount_rappen", 0)),
+            # G7-Grundregel: Originalbetrag in seiner tatsaechlichen Waehrung.
+            "currency": str(getattr(cf, "currency", "") or "").upper().strip() or None,
             "frequency": str(getattr(cf, "frequency", "") or ""),
         }
         for cf in cashflow_rows
@@ -1038,12 +1098,19 @@ def _build_wealth_summary(
         for g in goal_rows
     ]
 
+    blocked = fx_status is not None
     return {
-        "gesamtvermoegen_rappen": gesamtvermoegen,
-        "beratungsvermoegen_rappen": beratungsvermoegen,
-        "immobilien_rappen": immobilien,
-        "vorsorge_rappen": vorsorge,
-        "kredite_rappen": kredite,
+        "gesamtvermoegen_rappen": None if blocked else gesamtvermoegen,
+        "beratungsvermoegen_rappen": None if blocked else beratungsvermoegen,
+        "immobilien_rappen": None if blocked else immobilien,
+        "vorsorge_rappen": None if blocked else vorsorge,
+        "kredite_rappen": None if blocked else kredite,
+        # CCX-P3-FX: Betrag, Waehrung, FX-Basis und Bewertungsstichtag stets
+        # gemeinsam; Browser und PDF rechnen nicht nach.
+        "amount_currency": None if blocked else target_currency,
+        "fx_basis_hash": basis.fx_basis_hash,
+        "valuation_as_of": basis.as_of,
+        "fx_status": fx_status,
         "cashflows": cashflows,
         "ziele": ziele,
     }
@@ -1313,7 +1380,17 @@ def _liquidity_need_rows(db: Session, mandate: Mandate) -> list[Any]:
     ]
 
 
-def _derive_liquidity_need(db: Session, mandate: Mandate) -> int:
+def _liquidity_need_currency(db: Session, mandate: Mandate) -> str | None:
+    try:
+        basis = _cached_report_fx_basis(db, mandate)
+        for cf in _liquidity_need_rows(db, mandate):
+            basis.convert(_safe_int(getattr(cf, "amount_rappen", 0)), getattr(cf, "currency", None))
+    except FxBasisError:
+        return None
+    return basis.target_currency
+
+
+def _derive_liquidity_need(db: Session, mandate: Mandate) -> int | None:
     """Sprint U-P30: Liquiditätsbedarf ≈ 6 Monate Ausgaben aus Cashflows.
 
     Konservative Schweizer-Beratungs-Faustregel (Notgroschen 3-6 Monate;
@@ -1332,10 +1409,16 @@ def _derive_liquidity_need(db: Session, mandate: Mandate) -> int:
     all_cashflows = _cached_active_cashflows(db, str(client_id))
     rows = [cf for cf in all_cashflows if str(getattr(cf, "cashflow_type", "")) == "Expense"]
     annual_expenses_rappen = 0
+    basis = _cached_report_fx_basis(db, mandate)
     for cf in rows:
         amount = _safe_int(getattr(cf, "amount_rappen", 0))
         if amount <= 0:
             continue
+        # CCX-P3-FX: erst konvertieren (Zeile, Basis, Stichtag), dann summieren.
+        try:
+            amount = basis.convert(amount, getattr(cf, "currency", None)).converted_amount_minor
+        except FxBasisError:
+            return None
         freq = str(getattr(cf, "frequency", "") or "").lower()
         if "jährlich" in freq or "jahr" in freq:
             annual_expenses_rappen += amount
@@ -2783,26 +2866,17 @@ def _build_monte_carlo_paths_section(
             return _build_monte_carlo_paths_section(db, mandate)
     from services.monte_carlo_paths import (
         _data_pending_response,
-        compute_quantile_paths,
+        report_fan_from_artifact,
         report_mc_death_year_index,
+        resolve_allocation_cma,
     )
+    from services.portfolio_engine import build_target_payload_from_allocation
     from services.mortality.horizon import resolve_mortality_cutoff
     from services.portfolio_engine_mc_simulation import (
         _simulation_horizon_derivation,
     )
 
     client = _load_client_or_raise(db, mandate)
-    advisory_positions = _beratungsvermoegen_positions(db, client)
-    initial_wealth = sum(_safe_int(getattr(wp, "current_value_rappen", 0)) for wp in advisory_positions)
-    # G7 N4 (Grundregel): Startvermoegen (_compute_beratungsvermoegen_rappen) und
-    # Netto-Cashflow (monte_carlo_paths._annual_cashflow_series) sind Rohsummen
-    # OHNE FX-Umrechnung. Die Pfade liegen daher in der gemeinsamen Waehrung
-    # dieser Datensaetze vor -- nicht automatisch in der Mandatswaehrung.
-    amount_currency = _native_sum_currency(
-        list(advisory_positions)
-        + [cf for cf in _cached_active_cashflows(db, str(getattr(mandate, "client_id", "") or ""))
-           if _safe_int(getattr(cf, "amount_rappen", 0)) != 0]
-    )
     # SIM-HORIZON-FROM-RISK-PROFILE-001: derselbe Prognosehorizont wie Solver
     # und Zielanalyse (Risikoprofil / Ziele / Lebenserwartung) statt des
     # frueheren Pensionierungs-Horizonts.
@@ -2820,8 +2894,28 @@ def _build_monte_carlo_paths_section(
         "mortality_mode": None,
         "mortality_cutoff_year_index": None,
     }
+    # CCX-P3-FX: Startvermoegen, Cashflows und Zufluesse gehen nur ueber EINE
+    # gebundene FX-Basis in die Prognose (zeilenweise konvertiert). Fehlt oder
+    # veraltet ein Kurs, wird keine Prognose publiziert (typisierter Blocker).
+    basis = _cached_report_fx_basis(db, mandate)
+    unavailable["amount_currency"] = basis.target_currency
+    unavailable["fx_basis_hash"] = basis.fx_basis_hash
+    unavailable["valuation_as_of"] = basis.as_of
+    try:
+        initial_wealth = _compute_beratungsvermoegen_rappen(db, client, mandate)
+        _assert_flows_convertible(db, mandate, basis)
+    except FxBasisError as exc:
+        return _data_pending_response(horizon_years, None) | unavailable | {
+            "amount_currency": None,
+            "projection_status": "blocked",
+            "reason_code": str(_fx_reason(exc.reason_code)),
+            "fx_status": _fx_block_status(exc, basis),
+            "note": (
+                "Die Prognose wird nicht ausgewiesen: fuer mindestens eine Waehrung "
+                "fehlt ein belegter, aktueller Wechselkurs (" + exc.reason_code + ")."
+            ),
+        }
     gate = _cached_projection_gate(db, mandate)
-    unavailable["amount_currency"] = amount_currency
     if gate.is_hidden:
         return _data_pending_response(horizon_years, initial_wealth) | unavailable | {
             "note": gate.note,
@@ -2841,30 +2935,97 @@ def _build_monte_carlo_paths_section(
     death_year_index = report_mc_death_year_index(
         offset_years, horizon_years=horizon_years,
     )
-    result = compute_quantile_paths(
-        db,
-        mandate,
-        initial_wealth_rappen=initial_wealth,
-        horizon_years=horizon_years,
-        death_year_index=death_year_index,
-    )
-    if not result.get("data_pending"):
-        result["projection_status"] = "current"
+    # CCX-P3-FX (eine Simulation): der Faecher ist das Monte-Carlo-Artefakt der
+    # Strategie-Payload -- dieselbe Funktion, dieselben (konvertierten) Inputs
+    # und derselbe Seed wie die App (GET .../target-allocation/current/payload).
+    # Keine zweite, stille Neuberechnung im Bericht.
+    try:
+        payload = _strategy_payload_for_report(
+            db, mandate, build=build_target_payload_from_allocation, resolve_cma=resolve_allocation_cma,
+        )
+    except ValueError as exc:
+        return _data_pending_response(horizon_years, initial_wealth) | unavailable | {
+            "projection_status": "blocked",
+            "note": str(exc),
+        }
+    if payload is None or not (payload.get("monte_carlo") or {}).get("target_p50_series_rappen"):
+        return _data_pending_response(horizon_years, initial_wealth) | unavailable | {
+            "note": (
+                "Keine aktuelle Anlagestrategie hinterlegt — bitte zuerst "
+                "die Soll-Allokation berechnen und freigeben."
+            ),
+        }
+    result = report_fan_from_artifact(payload)
+    result["projection_status"] = "current"
     result["horizon_note"] = horizon["sentence"]
-    result["amount_currency"] = amount_currency
+    result["amount_currency"] = basis.target_currency
+    result["fx_basis_hash"] = basis.fx_basis_hash
+    result["valuation_as_of"] = basis.as_of
     result["mortality_mode"] = mortality_mode
     result["mortality_cutoff_year_index"] = death_year_index
     return result
 
 
-def _compute_beratungsvermoegen_rappen(db: Session, client: Client) -> int:
-    """Summiert WealthPositions des Kunden mit assignment="Beratungsvermögen".
+def _assert_flows_convertible(db: Session, mandate: Mandate, basis: Any) -> None:
+    """Jeder Cashflow und jeder erfasste Zufluss ist konvertierbar (Waehrung
+    belegt, Kurs belegt und frisch) -- sonst FxBasisError. Bewusst auch
+    unsichere Zufluesse: ein erfasster Betrag ohne Waehrung ist nie gueltig."""
+    for cf in _cached_active_cashflows(db, str(getattr(mandate, "client_id", "") or "")):
+        basis.convert(_safe_int(getattr(cf, "amount_rappen", 0)), getattr(cf, "currency", None))
+    inflows = db.query(WealthInflow).filter(
+        WealthInflow.client_id == mandate.client_id,
+        WealthInflow.is_active == 1,
+        WealthInflow.deleted_at.is_(None),
+    ).all()
+    for inflow in inflows:
+        if getattr(inflow, "mandate_id", None) and str(inflow.mandate_id) != str(mandate.id):
+            continue
+        basis.convert(_safe_int(getattr(inflow, "amount_rappen", 0)), getattr(inflow, "currency", None))
 
-    V1 Implementation: direkte Query, kein Cache. WealthPositions werden
-    sonst nur in _build_wealth_summary geladen — Drift-Risk gering, da
-    beide Stellen denselben Filter haben.
+
+def _strategy_payload_for_report(
+    db: Session, mandate: Mandate, *, build: Any, resolve_cma: Any,
+) -> dict[str, Any] | None:
+    """Dieselbe Strategie-Payload wie die App (Snapshot-Anker der Soll-Allokation)."""
+    ta = _cached_current_ta(db, mandate)
+    assessment = _cached_current_ra_is_current(db, mandate)
+    if ta is None or assessment is None:
+        return None
+    policy = db.query(OptimizerPolicy).filter(OptimizerPolicy.id == ta.policy_id).first()
+    cma, cma_note = resolve_cma(db, ta)
+    if policy is None or cma is None:
+        raise ValueError(cma_note or "Die Soll-Allokation referenziert keine verfuegbare Optimizer-Policy.")
+    return _aggregator_cache_get(
+        db, ("strategy_payload", str(mandate.id), str(ta.id)),
+        lambda: build(
+            db=db, mandate=mandate, allocation=ta, policy=policy, cma=cma,
+            assessment=assessment, preferences=None,
+        ),
+    )
+
+
+def _compute_beratungsvermoegen_rappen(db: Session, client: Client, mandate: Mandate) -> int:
+    """Beratungsvermoegen in der Mandatswaehrung (CCX-P3-FX).
+
+    Jede Position wird zuerst einzeln mit der gebundenen FX-Basis des Berichts
+    konvertiert (Provenienz je Zeile: source_currency/source_amount_minor,
+    target_currency/converted_amount_minor, fx_rate, fx_source,
+    source_observed_at, fx_basis_hash); erst die konvertierten Minor Units
+    werden summiert. Fehlt/veraltet ein Kurs, wirft ``basis.convert``
+    ``FxBasisError`` (CCX_FX_BASIS_MISSING/_STALE/_MISMATCH) -- keine Summe.
     """
-    return sum(_safe_int(getattr(wp, "current_value_rappen", 0)) for wp in _beratungsvermoegen_positions(db, client))
+    basis = _cached_report_fx_basis(db, mandate)
+    lines = [
+        basis.convert(_safe_int(getattr(wp, "current_value_rappen", 0)), getattr(wp, "currency", None))
+        for wp in _beratungsvermoegen_positions(db, client)
+    ]
+    if any(
+        line.target_currency != basis.target_currency or line.fx_basis_hash != basis.fx_basis_hash
+        or (line.source_currency != line.target_currency and not line.source_observed_at)
+        for line in lines
+    ):
+        raise ValueError("Beratungsvermoegen: gemischte oder unbelegte FX-Basis")
+    return sum(line.converted_amount_minor for line in lines)
 
 
 def _beratungsvermoegen_positions(db: Session, client: Client) -> list[Any]:
@@ -4382,6 +4543,7 @@ def _recompute_reserve_reasoning(
     inflow_projection_series_rappen = pension_payout_view(
         _wealth_inflow_series_rappen(
             inflows, projection_years, cashflow_totals["year"], cf_inflation_series_bps,
+            fx_source=fx_source, target_currency=target_currency,
         ),
         positions,
         inflows,

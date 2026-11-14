@@ -31,13 +31,16 @@ Architektur-Prinzipien
 """
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 from sqlalchemy.orm import Session
 
 from models.mandates import Mandate
+from core.evidence import advisory_domain, domain_sha256_hex  # CCX-P3-FX
+from core.reason_codes import DomainError
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +180,11 @@ def compute_quantile_paths(
             ),
         }
 
-    cashflow_series = _annual_cashflow_series(db, mandate, horizon_years)
+    try:
+        cashflow_series = _annual_cashflow_series(db, mandate, horizon_years)
+    except DomainError as exc:
+        # CCX-P3-FX: ohne belegten Kurs keine Netto-Cashflow-Reihe (nie roh).
+        return fail | {"projection_status": "blocked", "note": exc.message}
     sub_allocations = _sub_allocations_from_ta(ta)
     return _compute_paths_core(
         initial_wealth_rappen=int(initial_wealth_rappen),
@@ -344,18 +351,29 @@ def _annual_cashflow_series(
 
     V1-Annahme: aktuelle Cashflow-Run-Rate. Inflation + Cashflow-Aenderungen
     werden in einem Folge-Sprint dazukommen (heute aus Scope).
-    """
-    try:
-        from services.advisory_report import _cached_active_cashflows
-        cfs = _cached_active_cashflows(db, str(getattr(mandate, "client_id", "") or ""))
-    except ImportError:
-        cfs = []
 
+    CCX-P3-FX: jeder Cashflow wird zuerst einzeln mit EINER gebundenen
+    FX-Basis in die Mandatswaehrung (``target_currency``) konvertiert --
+    Provenienz je Zeile (source_currency/-amount, converted_amount_minor,
+    fx_rate, fx_source, source_observed_at, fx_basis_hash) -- und erst danach
+    netto addiert. Fehlender/abgelaufener Kurs -> ``FxBasisError``.
+    """
+    from services.advisory_report import _cached_active_cashflows, _cached_report_fx_basis
+
+    cfs = _cached_active_cashflows(db, str(getattr(mandate, "client_id", "") or ""))
+    target_currency = str(getattr(mandate, "base_currency", "") or "").upper().strip()
+    basis = _cached_report_fx_basis(db, mandate)
     annual_net = 0
     for cf in cfs:
-        amount = int(getattr(cf, "amount_rappen", 0) or 0)
-        if amount == 0:
+        raw_amount = int(getattr(cf, "amount_rappen", 0) or 0)
+        if raw_amount == 0:
             continue
+        line = basis.convert(raw_amount, getattr(cf, "currency", None))
+        if line.target_currency != target_currency or line.fx_basis_hash != basis.fx_basis_hash or (
+            line.source_currency != target_currency and not line.source_observed_at
+        ):
+            raise ValueError("Cashflow-Reihe: gemischte oder unbelegte FX-Basis")
+        amount = line.converted_amount_minor
         freq = str(getattr(cf, "frequency", "") or "").lower()
         if "monat" in freq:
             amount *= 12
@@ -503,4 +521,67 @@ def _compute_paths_core(
         "horizon_years": int(horizon_years),
         "initial_wealth_rappen": int(initial_wealth_rappen),
         "note": "",
+    }
+
+
+# ---------------------------------------------------------------------------
+# CCX-P3-FX: EIN Monte-Carlo-Artefakt fuer App und Beratungsbericht
+# ---------------------------------------------------------------------------
+# Classic-AA und Beratungsbericht duerfen fuer kundenwirksame Aussagen nicht
+# zwei Simulationen rechnen. Quelle beider Kanaele ist die Monte-Carlo-
+# Simulation der Strategie-Payload (build_target_payload_from_allocation(...)
+# ["monte_carlo"]): gleiche (in die Mandatswaehrung konvertierte) Inputs,
+# gleicher Seed, gleiche Pfade. ``strategy_mc_artifact_hash`` bindet Seed,
+# Pfadzahl, Jahre, SOLL-Quantilreihen und Reserve-Basis domaenensepariert --
+# derselbe Hash fuer App und Bericht belegt Paritaet. ``compute_quantile_paths``
+# oben ist KEIN kundenwirksamer Kanal mehr (eigener Estimand, keine Paritaet).
+
+ARTIFACT_KIND = "strategy-monte-carlo"
+ESTIMAND = "ares/strategy-mc/target-paths-incl-reserve"
+QUANTILES = ("p5", "p10", "p25", "p50", "p75", "p90")
+_SERIES = tuple(f"target_{q}_series_rappen" for q in QUANTILES)
+
+
+def _artifact_ints(values: Any) -> list[int]:
+    return [int(v or 0) for v in (values or [])]
+
+
+def strategy_mc_artifact_hash(monte_carlo: Mapping[str, Any], external_reserve_rappen: int) -> str:
+    body = {
+        "estimand": ESTIMAND,
+        "seed": int(monte_carlo.get("seed") or 0),
+        "simulations": int(monte_carlo.get("simulations") or 0),
+        "year_labels": _artifact_ints(monte_carlo.get("year_labels")),
+        "reserve_accounting_basis": bool(monte_carlo.get("reserve_accounting_basis")),
+        "external_reserve_rappen": int(external_reserve_rappen or 0),
+        "series": {key: _artifact_ints(monte_carlo.get(key)) for key in _SERIES},
+    }
+    return domain_sha256_hex(advisory_domain(ARTIFACT_KIND), json.dumps(body, separators=(",", ":")).encode("utf-8"))
+
+
+def reserve_sockel_rappen(monte_carlo: Mapping[str, Any], external_reserve_rappen: int) -> int:
+    """Wie die App (``aaReserveSockelRappen``): neue Payloads enthalten das
+    Reservekonto bereits im SOLL-Pfad -> 0, sonst die externe Reserve."""
+    return 0 if monte_carlo.get("reserve_accounting_basis") else int(external_reserve_rappen or 0)
+
+
+def report_fan_from_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Faecher des Berichts aus dem Strategie-Artefakt (keine Neuberechnung)."""
+    monte_carlo = payload.get("monte_carlo") or {}
+    reserve = int(payload.get("external_reserve_rappen") or 0)
+    sockel = reserve_sockel_rappen(monte_carlo, reserve)
+    fan = {q: [v + sockel for v in _artifact_ints(monte_carlo.get(f"target_{q}_series_rappen"))] for q in QUANTILES}
+    labels = _artifact_ints(monte_carlo.get("year_labels"))
+    return {
+        "data_pending": False,
+        **fan,
+        "time_axis": [str(label) for label in labels],
+        "n_paths": int(monte_carlo.get("simulations") or 0),
+        "seed": monte_carlo.get("seed"),
+        "horizon_years": int(monte_carlo.get("horizon_years") or max(0, len(labels) - 1)),
+        "initial_wealth_rappen": fan["p50"][0] if fan["p50"] else 0,
+        "note": "",
+        "estimand": ESTIMAND,
+        "artifact_hash": strategy_mc_artifact_hash(monte_carlo, reserve),
+        "source": "allocation_payload.monte_carlo",
     }

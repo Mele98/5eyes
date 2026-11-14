@@ -712,7 +712,14 @@ def _build_client_info_block(client_info: dict, styles: dict, *, currency: str =
 
 
 def _build_wealth_summary_block(wealth: dict, styles: dict, *, currency: str = "CHF"):
-    """Rechte Spalte der Sektion 4 — 5 Vermögens-Kategorien."""
+    """Rechte Spalte der Sektion 4 — 5 Vermögens-Kategorien.
+
+    CCX-P3-FX: Betraege in der Waehrung, in der der Server sie liefert
+    (``amount_currency`` = Mandatswaehrung nach Konversion mit gebundener
+    FX-Basis); dazu Bewertungsstichtag und FX-Basis. Das PDF rechnet nie um;
+    ohne belegten Kurs liefert der Server keine Summe ("—")."""
+    if "amount_currency" in wealth:
+        currency = wealth.get("amount_currency") or ""
     rows = [
         ("Gesamtvermögen", format_chf_rappen(wealth.get("gesamtvermoegen_rappen"), currency=currency)),
         ("Beratungsvermögen", format_chf_rappen(wealth.get("beratungsvermoegen_rappen"), currency=currency)),
@@ -720,6 +727,18 @@ def _build_wealth_summary_block(wealth: dict, styles: dict, *, currency: str = "
         ("Vorsorge", format_chf_rappen(wealth.get("vorsorge_rappen"), currency=currency)),
         ("Kredite", format_chf_rappen(wealth.get("kredite_rappen"), currency=currency)),
     ]
+    if wealth.get("valuation_as_of"):
+        basis = str(wealth.get("fx_basis_hash") or "")
+        rows.append((
+            "Bewertungsstand",
+            _safe_string(f"{wealth.get('valuation_as_of')} · FX-Basis {basis[:12]}" if basis
+                         else wealth.get("valuation_as_of")),
+        ))
+    if isinstance(wealth.get("fx_status"), dict):
+        rows.append(("Hinweis", _safe_string(
+            "Summen gesperrt: Wechselkurs fehlt oder ist nicht aktuell ("
+            + str(wealth["fx_status"].get("reason_code") or "") + ")."
+        )))
     return _label_value_table(rows, styles)
 
 

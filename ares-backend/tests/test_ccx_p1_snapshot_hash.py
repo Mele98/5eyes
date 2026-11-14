@@ -340,8 +340,10 @@ def test_finalize_seals_envelope_bindings_manifest_and_audit(session_factory):
         assert result.advisory_envelope_hash == envelope.envelope_hash
         assert root_hash(envelope.canonical_payload_json.encode()) == envelope.envelope_hash
         kinds = sorted(b.binding_kind for b in db.query(AdvisoryEnvelopeBinding).all())
-        assert kinds == ["effective_input_manifest", "recommendation_positions", "recommendation_run",
-                         "target_allocation"]
+        # CCX-P3 (2026-11-14): Bewertungs-Snapshot und Entscheid je Position
+        # sind zusaetzliche Kind-Bindungen desselben Envelopes.
+        assert kinds == ["effective_input_manifest", "holdings_valuation_snapshot", "position_decision_ledger",
+                         "recommendation_positions", "recommendation_run", "target_allocation"]
         manifest = db.query(AdvisoryEffectiveInputManifest).one()
         assert manifest.rounding_policy_version == "ares-rounding/1"
         assert json.loads(envelope.canonical_payload_json)["effective_input_manifest_hash"] == manifest.manifest_hash
@@ -695,7 +697,10 @@ def test_alembic_single_head_and_upgrade_downgrade_upgrade(tmp_path):
     from sqlalchemy import create_engine, inspect
 
     script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
-    assert script.get_heads() == [CCX_P1_REV]
+    # Genau ein Head; CCX-P3 (6814c14575e9) haengt an CCX_P1_REV.
+    heads = script.get_heads()
+    assert len(heads) == 1
+    assert CCX_P1_REV in {rev.revision for rev in script.walk_revisions(heads[0], CCX_P1_REV)}
     assert script.get_revision(CCX_P1_REV).down_revision == CCX_P1_PARENT
     url = f"sqlite:///{tmp_path / 'ccx.db'}"
     cfg = _alembic_cfg(url)

@@ -30,11 +30,14 @@ import type {
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
 
-function emptyInput(): WealthInflowFormInput {
+export const INFLOW_CURRENCIES = ['CHF', 'EUR', 'USD', 'GBP', 'JPY'] as const;
+
+function emptyInput(currency: string | null = null): WealthInflowFormInput {
   return {
     label: '',
     source_type: 'Erbschaft',
     amountChf: '',
+    currency: currency ?? '',
     expected_year: '2030',
     is_recurring: false,
     frequency: 'jaehrlich',
@@ -49,6 +52,7 @@ function inputFromRecord(rec: WealthInflowRecord): WealthInflowFormInput {
     label: rec.label,
     source_type: (rec.source_type as WealthInflowSourceType) ?? 'Andere',
     amountChf: String(rec.amount_rappen / 100),
+    currency: rec.currency ?? '',
     expected_year: String(rec.expected_year),
     is_recurring: rec.is_recurring === 1,
     frequency: (rec.frequency as WealthInflowFrequency) ?? 'jaehrlich',
@@ -63,7 +67,7 @@ interface WealthInflowEditorProps {
 }
 
 export function WealthInflowEditor({ clientId }: WealthInflowEditorProps) {
-  const currency = useReportCurrency(); // N-894-10: Zufluesse in Mandatswaehrung (kein eigenes Waehrungsfeld)
+  // CCX-P3-FX: jeder Zufluss traegt seine eigene Waehrung (unbekannt -> "—").
   const [state, setState] = useState<LoadState>('idle');
   const [rows, setRows] = useState<WealthInflowRecord[]>([]);
   const [error, setError] = useState('');
@@ -162,7 +166,7 @@ export function WealthInflowEditor({ clientId }: WealthInflowEditorProps) {
               <tr key={rec.id} className="border-b border-rule/50">
                 <td className="py-2">{rec.source_type}</td>
                 <td className="py-2">{rec.label}</td>
-                <td className="py-2 text-right">{rappenToChf(rec.amount_rappen, currency)}</td>
+                <td className="py-2 text-right">{rappenToChf(rec.amount_rappen, rec.currency ?? null)}</td>
                 <td className="py-2 text-right">{rec.expected_year}</td>
                 <td className="py-2">{rec.is_recurring === 1 ? `${rec.frequency} (${rec.duration_years}J)` : '—'}</td>
                 <td className="py-2 text-right">
@@ -222,11 +226,11 @@ function WealthInflowFormDrawer({ open, clientId, editing, onClose, onSaved }: D
 
   useEffect(() => {
     if (open) {
-      setForm(editing ? inputFromRecord(editing) : emptyInput());
+      setForm(editing ? inputFromRecord(editing) : emptyInput(currency));
       setErrors([]);
       setSaving(false);
     }
-  }, [open, editing]);
+  }, [open, editing, currency]);
 
   useEffect(() => {
     if (!open) return;
@@ -308,8 +312,17 @@ function WealthInflowFormDrawer({ open, clientId, editing, onClose, onSaved }: D
           </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="block text-caption text-ink-muted">
-              Betrag ({currency ?? "—"})
+              Betrag ({form.currency || '—'})
               <input type="number" value={form.amountChf} onChange={(e) => set('amountChf', e.target.value)} className={inputClass} />
+            </label>
+            <label className="block text-caption text-ink-muted">
+              Währung
+              <select value={form.currency} onChange={(e) => set('currency', e.target.value)} className={inputClass}>
+                <option value="">– bitte wählen –</option>
+                {INFLOW_CURRENCIES.map((ccy) => (
+                  <option key={ccy} value={ccy}>{ccy}</option>
+                ))}
+              </select>
             </label>
             <label className="block text-caption text-ink-muted">
               Erwartetes Jahr

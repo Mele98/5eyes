@@ -8,6 +8,8 @@ from database import (
     ADVISORY_ENVELOPE_SQLITE_TRIGGERS,
     DEPOT_CHECK_ANALYSIS_SQLITE_TRIGGERS,
     DEPOT_SNAPSHOT_SQLITE_TRIGGERS,
+    HOLDINGS_VALUATION_SQLITE_TENANT_GUARDS,
+    HOLDINGS_VALUATION_SQLITE_TRIGGERS,
     Base,
 )
 
@@ -376,3 +378,192 @@ def _create_advisory_envelope_sqlite_triggers(_metadata, connection, **_kw) -> N
 
 
 event.listen(Base.metadata, "after_create", _create_advisory_envelope_sqlite_triggers)
+
+
+# ── CCX-P3 Markt- und Depot-Wahrheit (Vertrag 2026-11-13 §6 + Nachtrag P3-FX) ──
+#
+# * HoldingsValuationSnapshot: Bewertungs-Snapshot eines Mandats zu einem
+#   Stichtag -- Quelle, Beobachtungszeitpunkt (aeltester Beleg),
+#   Referenzwaehrung, gebundene FX-Basis (fx_basis_hash + Kurse),
+#   coverage_status COMPLETE|PARTIAL|UNKNOWN; nur COMPLETE traegt Gesamt- und
+#   Beratungsvermoegen (Minor Units), sonst sind beide NULL.
+# * HoldingsValuationRow: verlustfreie Positionsprojektion -- jede aktive
+#   Vermoegensposition (inkl. Verbindlichkeit) und jede Depotposition des
+#   massgebenden Laufs genau einmal; unbekannt ist base_value_minor NULL, nie 0.
+# * PositionDecisionLedger: KEEP|SELL|REVIEW je bestehender Depotposition, an
+#   den P1-Envelope gebunden (nur im DRAFT einfuegbar).
+# DDL-Quelle SQLite: database.py (HOLDINGS_VALUATION_SQLITE_*), textgleich
+# ares_schema.sql; PostgreSQL: Alembic (CCX-P3-Revision). Append-only.
+
+HOLDINGS_VALUATION_SCHEMA_VERSION = "ares/holdings-valuation/1"
+COVERAGE_STATUSES = ("COMPLETE", "PARTIAL", "UNKNOWN")
+POSITION_DECISIONS = ("KEEP", "SELL", "REVIEW")
+
+
+class HoldingsValuationSnapshot(Base):
+    """Bewertungs-Snapshot (Stichtag + Quelle + FX-Basis + Abdeckung)."""
+
+    __tablename__ = "holdings_valuation_snapshots"
+    __table_args__ = (
+        CheckConstraint(
+            "schema_version = 'ares/holdings-valuation/1'",
+            name="ck_holdings_valuation_snapshots_schema_version",
+        ),
+        CheckConstraint("length(fx_basis_hash) = 64", name="ck_holdings_valuation_snapshots_fx_hash"),
+        CheckConstraint(
+            "coverage_status IN ('COMPLETE','PARTIAL','UNKNOWN')",
+            name="ck_holdings_valuation_snapshots_coverage",
+        ),
+        CheckConstraint(
+            "holdings_basis IN ('recorded','confirmed_no_holdings')",
+            name="ck_holdings_valuation_snapshots_basis",
+        ),
+        CheckConstraint("position_count >= 0", name="ck_holdings_valuation_snapshots_count"),
+        CheckConstraint("length(snapshot_hash) = 64", name="ck_holdings_valuation_snapshots_hash"),
+        CheckConstraint(
+            "coverage_status <> 'COMPLETE' OR (total_base_minor IS NOT NULL AND advisory_base_minor IS NOT NULL "
+            "AND blocker_codes_json = '[]')",
+            name="ck_holdings_valuation_snapshots_complete_total",
+        ),
+        CheckConstraint(
+            "coverage_status = 'COMPLETE' OR (total_base_minor IS NULL AND advisory_base_minor IS NULL "
+            "AND blocker_codes_json <> '[]')",
+            name="ck_holdings_valuation_snapshots_unknown_total",
+        ),
+        CheckConstraint(
+            "holdings_basis = 'recorded' OR position_count = 0",
+            name="ck_holdings_valuation_snapshots_no_holdings",
+        ),
+        UniqueConstraint("tenant_id", "id", name="uq_holdings_valuation_snapshots_tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "mandate_id", "snapshot_hash", name="uq_holdings_valuation_snapshots_hash",
+        ),
+        Index("ix_holdings_valuation_snapshots_tenant_id", "tenant_id"),
+        Index("ix_holdings_valuation_snapshots_mandate", "tenant_id", "mandate_id", "as_of"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    mandate_id = Column(String, nullable=False)
+    schema_version = Column(String, nullable=False, default=HOLDINGS_VALUATION_SCHEMA_VERSION)
+    as_of = Column(String, nullable=False)
+    source_observed_at = Column(String)
+    source_system = Column(String, nullable=False)
+    base_currency = Column(String, nullable=False)
+    fx_basis_hash = Column(String, nullable=False)
+    fx_basis_json = Column(String, nullable=False)
+    coverage_status = Column(String, nullable=False)
+    holdings_basis = Column(String, nullable=False)
+    position_count = Column(Integer, nullable=False)
+    total_base_minor = Column(BigInteger)
+    advisory_base_minor = Column(BigInteger)
+    blocker_codes_json = Column(String, nullable=False)
+    snapshot_hash = Column(String, nullable=False)
+    created_at = Column(String, nullable=False)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+
+
+class HoldingsValuationRow(Base):
+    """Eine Positionszeile des Snapshots (verlustfrei, nie 0 fuer unbekannt)."""
+
+    __tablename__ = "holdings_valuation_rows"
+    __table_args__ = (
+        CheckConstraint(
+            "source_kind IN ('wealth_position','depot_holding')",
+            name="ck_holdings_valuation_rows_source_kind",
+        ),
+        CheckConstraint("included_in_total IN (0, 1)", name="ck_holdings_valuation_rows_included"),
+        CheckConstraint("length(row_hash) = 64", name="ck_holdings_valuation_rows_hash"),
+        CheckConstraint(
+            "data_quality <> 'OK' OR base_value_minor IS NOT NULL",
+            name="ck_holdings_valuation_rows_ok_value",
+        ),
+        UniqueConstraint("snapshot_id", "position_id", name="uq_holdings_valuation_rows_position"),
+        ForeignKeyConstraint(
+            ["tenant_id", "snapshot_id"],
+            ["holdings_valuation_snapshots.tenant_id", "holdings_valuation_snapshots.id"],
+            name="fk_holdings_valuation_rows_snapshot",
+        ),
+        Index("ix_holdings_valuation_rows_tenant_id", "tenant_id"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, nullable=False)
+    snapshot_id = Column(String, nullable=False)
+    position_id = Column(String, nullable=False)
+    source_kind = Column(String, nullable=False)
+    instrument_id = Column(String)
+    assignment = Column(String)
+    quantity_decimal_string = Column(String)
+    price_minor = Column(BigInteger)
+    price_currency = Column(String)
+    source_amount_minor = Column(BigInteger)
+    fx_rate_ppm = Column(BigInteger)
+    fx_rate_ratio = Column(String)
+    fx_source = Column(String)
+    fx_observed_at = Column(String)
+    base_value_minor = Column(BigInteger)
+    price_observed_at = Column(String)
+    data_quality = Column(String, nullable=False)
+    included_in_total = Column(Integer, nullable=False)
+    row_hash = Column(String, nullable=False)
+
+
+class PositionDecisionLedger(Base):
+    """Entscheid je bestehender Depotposition, gebunden an den Envelope."""
+
+    __tablename__ = "position_decision_ledger"
+    __table_args__ = (
+        CheckConstraint("decision IN ('KEEP','SELL','REVIEW')", name="ck_position_decision_ledger_decision"),
+        CheckConstraint(
+            "length(source_snapshot_hash) = 64", name="ck_position_decision_ledger_snapshot_hash",
+        ),
+        UniqueConstraint("envelope_id", "position_id", name="uq_position_decision_ledger_position"),
+        ForeignKeyConstraint(
+            ["tenant_id", "envelope_id"],
+            ["advisory_decision_envelopes.tenant_id", "advisory_decision_envelopes.id"],
+            name="fk_position_decision_ledger_envelope",
+        ),
+        Index("ix_position_decision_ledger_tenant_id", "tenant_id"),
+        Index("ix_position_decision_ledger_mandate", "tenant_id", "mandate_id"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    mandate_id = Column(String, nullable=False)
+    envelope_id = Column(String, nullable=False)
+    position_id = Column(String, nullable=False)
+    decision = Column(String, nullable=False)
+    reason_code = Column(String, nullable=False)
+    source_snapshot_hash = Column(String, nullable=False)
+    created_at = Column(String, nullable=False)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+
+
+HOLDINGS_VALUATION_TABLES = (
+    HoldingsValuationSnapshot.__tablename__,
+    HoldingsValuationRow.__tablename__,
+    PositionDecisionLedger.__tablename__,
+)
+
+
+def _create_holdings_valuation_sqlite_triggers(_metadata, connection, **_kw) -> None:
+    """Metadata-Hook (SQLite): Trigger erst, wenn alle Tabellen (inkl. P1-Envelope)
+    und ``mandates.tenant_id`` existieren."""
+    if connection.dialect.name != "sqlite":
+        return
+    tables = {row[0] for row in connection.exec_driver_sql(
+        "SELECT name FROM sqlite_master WHERE type = 'table'"
+    )}
+    if not (set(HOLDINGS_VALUATION_TABLES) | {"advisory_decision_envelopes"}) <= tables:
+        return
+    for ddl in HOLDINGS_VALUATION_SQLITE_TRIGGERS:
+        connection.exec_driver_sql(ddl)
+    if "mandates" in tables and "tenant_id" in {
+        row[1] for row in connection.exec_driver_sql("PRAGMA table_info(mandates)")
+    }:
+        for ddl in HOLDINGS_VALUATION_SQLITE_TENANT_GUARDS:
+            connection.exec_driver_sql(ddl)
+
+
+event.listen(Base.metadata, "after_create", _create_holdings_valuation_sqlite_triggers)

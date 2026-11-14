@@ -900,13 +900,6 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "code": "<label class=\"fl\">Betrag (<span class=\"ccy\">CHF</span>) *</label>",
-   "count": 1,
-   "context": "#m-awi",
-   "reason": "ares.html #m-awi: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
    "code": "<label class=\"sbb-lbl\" for=\"aa-liquidity-min-reserve\"><span class=\"sbb-ac sbb-ac-liq\" aria-hidden=\"true\"></span>Mindestreserve (<span class=\"ccy\">CHF</span>)</label>",
    "count": 1,
    "context": "#page-al",
@@ -1163,6 +1156,20 @@
    "count": 1,
    "context": "inputFromRecord",
    "reason": "MandateEditor.tsx inputFromRecord: Vorbelegung/Option eines Waehrungs-Eingabefelds (Produkt- bzw. Mandatswaehrung waehlbar); Eingabe-Default, kein Anzeigeformat eines Betrags."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "code": "<option value=\"CHF\">CHF</option>",
+   "count": 1,
+   "context": "#awi-currency",
+   "reason": "ares.html #awi-currency: Option des Waehrungs-Eingabefelds eines Vermoegenszuflusses (CCX-P3-FX, Pflichtfeld ohne Server-Default); Eingabeauswahl, kein Anzeigeformat eines Betrags."
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/sections/wealthInflow/WealthInflowEditor.tsx",
+   "code": "export const INFLOW_CURRENCIES = ['CHF', 'EUR', 'USD', 'GBP', 'JPY'] as const;",
+   "count": 1,
+   "context": "INFLOW_CURRENCIES",
+   "reason": "WealthInflowEditor.tsx INFLOW_CURRENCIES: Auswahlliste des Waehrungs-Eingabefelds eines Vermoegenszuflusses (CCX-P3-FX, Pflichtfeld, nie geraten); Eingabeoptionen, kein Anzeigeformat eines Betrags."
   }
  ]
 }

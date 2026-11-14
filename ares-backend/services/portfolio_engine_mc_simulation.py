@@ -2131,6 +2131,12 @@ def _run_allocation_monte_carlo(
         "target_p10_series_rappen": [_percentile(values, 0.10) for values in target_by_year],
         "target_p50_series_rappen": [_percentile(values, 0.50) for values in target_by_year],
         "target_p90_series_rappen": [_percentile(values, 0.90) for values in target_by_year],
+        # CCX-P3-FX: weitere Quantile DERSELBEN Pfade fuer den Faecher des
+        # Beratungsberichts (eine Simulation fuer App und Bericht; keine
+        # Methodik-Aenderung, nur zusaetzliche Auswertung).
+        "target_p5_series_rappen": [_percentile(values, 0.05) for values in target_by_year],
+        "target_p25_series_rappen": [_percentile(values, 0.25) for values in target_by_year],
+        "target_p75_series_rappen": [_percentile(values, 0.75) for values in target_by_year],
         # F23: Total-Vermoegen-Pfade (Gesamtvermoegen, Liabilities mit Lebensluecke).
         # Leer wenn der Aufrufer kein total_summary uebergeben hat.
         "total_current_p10_series_rappen": (

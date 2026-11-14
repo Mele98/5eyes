@@ -1583,6 +1583,8 @@ export interface WealthInflowCreatePayload {
   label: string;
   source_type: WealthInflowSourceType;
   amount_rappen: number;
+  /** CCX-P3-FX: Pflicht (ISO 4217) -- die Waehrung wird nie geraten. */
+  currency: string;
   expected_year: number;
   is_recurring?: number;
   frequency?: WealthInflowFrequency | null;
@@ -1610,6 +1612,8 @@ export interface WealthInflowRecord {
   source_type: string;
   amount_rappen: number;
   expected_year: number;
+  /** CCX-P3-FX: null = Bestand ohne erfasste Waehrung (unbekannt). */
+  currency?: string | null;
   is_recurring: number;
   frequency: string | null;
   duration_years: number | null;

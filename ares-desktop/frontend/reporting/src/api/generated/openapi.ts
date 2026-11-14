@@ -1472,7 +1472,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Cashflow Summary */
+        /**
+         * Cashflow Summary
+         * @description Cashflow-Kennzahlen des Kunden (CCX-P3-FX).
+         *
+         *     Zielwaehrung nie still CHF: im Mandatskontext (``mandate_id``) die
+         *     Mandatswaehrung, sonst eine explizite ``target_currency``; ohne beides nur,
+         *     wenn alle Cashflows dieselbe belegte Waehrung tragen (dann ohne Umrechnung).
+         *     Umgerechnet wird zeilenweise mit EINER gebundenen, strikten FX-Basis (kein
+         *     Ersatzkurs); fehlt/veraltet ein Kurs oder ist die Waehrung gemischt ohne
+         *     Ziel, endet der Aufruf typisiert (``CCX_FX_BASIS_*``). Die Antwort traegt
+         *     Betrag, Waehrung, ``fx_basis_hash`` und Bewertungsstichtag.
+         */
         get: operations["cashflow_summary_clients__client_id__cashflow_summary_get"];
         put?: never;
         post?: never;
@@ -8078,6 +8089,10 @@ export interface components {
             client_id: string;
             /** Client Name */
             client_name: string;
+            /** Fx Basis Hash */
+            fx_basis_hash?: string | null;
+            /** Mandate Id */
+            mandate_id?: string | null;
             /**
              * Recurring Expense Rappen
              * @default 0
@@ -8107,6 +8122,8 @@ export interface components {
             total_income_chf: number;
             /** Total Income Rappen */
             total_income_rappen: number;
+            /** Valuation As Of */
+            valuation_as_of?: string | null;
         };
         /** CashflowUpdate */
         CashflowUpdate: {
@@ -15253,6 +15270,8 @@ export interface components {
              * @default sicher
              */
             certainty?: ("sicher" | "unsicher") | null;
+            /** Currency */
+            currency: string;
             /**
              * Data Classification
              * @default synthetic
@@ -15303,6 +15322,8 @@ export interface components {
             client_id: string;
             /** Created At */
             created_at: string;
+            /** Currency */
+            currency?: string | null;
             /** Duration Years */
             duration_years: number | null;
             /** Expected Year */
@@ -15336,6 +15357,8 @@ export interface components {
             amount_rappen?: number | null;
             /** Certainty */
             certainty?: ("sicher" | "unsicher") | null;
+            /** Currency */
+            currency?: string | null;
             /** Data Classification */
             data_classification?: ("synthetic" | "real") | null;
             /** Duration Years */
@@ -17873,6 +17896,8 @@ export interface operations {
             query?: {
                 horizon_years?: number | null;
                 indexation?: boolean;
+                mandate_id?: string | null;
+                target_currency?: string | null;
             };
             header?: never;
             path: {
@@ -17904,7 +17929,10 @@ export interface operations {
     };
     cashflow_summary_clients__client_id__cashflow_summary_get: {
         parameters: {
-            query?: never;
+            query?: {
+                mandate_id?: string | null;
+                target_currency?: string | null;
+            };
             header?: never;
             path: {
                 client_id: string;
@@ -22265,7 +22293,9 @@ export interface operations {
     };
     finalize_recommendation_mandates__mandate_id__recommendations__run_id__finalize_put: {
         parameters: {
-            query?: never;
+            query?: {
+                confirm_no_existing_holdings?: boolean;
+            };
             header?: never;
             path: {
                 mandate_id: string;

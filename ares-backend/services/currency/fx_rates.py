@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Mapping
 
 from core.evidence import SCHEME_V1_ASCII_STR_DEFAULT, evidence_hash
+from core.presentation_rounding import CURRENCY_EXPONENTS, STORAGE_EXPONENT
 
 
 # Default-Wechselkurse zu CHF (Stand 2026, approximative Mittelwerte).
@@ -42,6 +44,53 @@ DEFAULT_FX_RATES: dict[str, float] = {
 # version is exposed to (and therefore can be included in) the model-input
 # hash.  Changing any default rate requires a new version identifier.
 DEFAULT_FX_RATE_SET_VERSION = "default_fx_rates_2026_v1"
+
+
+RATE_SCALE = 10_000
+
+
+def half_up_div(numerator: int, denominator: int) -> int:
+    """``ares-rounding/1``: half-up symmetrisch vom Nullpunkt weg (exakt)."""
+    if denominator <= 0:
+        raise ValueError("denominator must be positive")
+    quotient, remainder = divmod(abs(int(numerator)), int(denominator))
+    if 2 * remainder >= denominator:
+        quotient += 1
+    return -quotient if numerator < 0 and quotient else quotient
+
+
+def currency_exponent(currency: str) -> int:
+    """ISO-4217-Minor-Unit-Exponent (G7-Tabelle); unbekannt -> ValueError."""
+    code = str(currency or "").upper().strip()
+    if code not in CURRENCY_EXPONENTS:
+        raise ValueError(f"Kein Minor-Unit-Exponent fuer Waehrung {code or '(leer)'}")
+    return CURRENCY_EXPONENTS[code]
+
+
+def convert_storage_amount(
+    amount_minor: int, *, rate_from_x10000: int, rate_to_x10000: int, target_currency: str,
+) -> int:
+    """CCX-P3-FX: Speicherbetrag (Faktor 100) -> Speicherbetrag der Zielwaehrung.
+
+    Exakt ueber das ganzzahlige Kursverhaeltnis (x10000 zu CHF); Zielwert in
+    ISO-Minor-Units = amount/100 * rate_from/rate_to * 10^e, gerundet nach
+    ``ares-rounding/1`` (half-up symmetrisch), dann zurueck auf Exponent 2.
+    """
+    if isinstance(amount_minor, bool) or not isinstance(amount_minor, int):
+        raise ValueError("amount_minor must be an int")
+    exponent = currency_exponent(target_currency)
+    numerator = int(amount_minor) * int(rate_from_x10000) * 10 ** exponent
+    denominator = 10 ** STORAGE_EXPONENT * int(rate_to_x10000)
+    return half_up_div(numerator, denominator) * 10 ** (STORAGE_EXPONENT - exponent)
+
+
+def rate_x10000(rate: float, currency: str) -> int:
+    """Kurs (CHF je Einheit) als exakte Ganzzahl x10000; mehr als vier
+    Dezimalen sind kein belegter Kurs dieser Quelle."""
+    from_text = Decimal(repr(float(rate))) * RATE_SCALE
+    if from_text != from_text.to_integral_value() or from_text <= 0:
+        raise ValueError(f"FX-Kurs fuer {currency} ist nicht auf vier Dezimalen belegt: {rate!r}")
+    return int(from_text)
 
 
 class FXRateLoadError(ValueError):
@@ -113,6 +162,21 @@ class FXRateSource:
         from_chf = self.rate_to_chf(from_currency)
         to_chf = self.rate_to_chf(to_currency)
         return from_chf / to_chf
+
+    def convert_storage_amount(self, amount_minor: int, source_currency: str, target_currency: str) -> int:
+        """CCX-P3-FX: exakte Konversion eines Speicherbetrags (gleiche Regel wie
+        ``services.fx_basis.FxBasis.convert``); unbekannte Waehrung -> ValueError."""
+        source = str(source_currency or "").upper().strip()
+        target = str(target_currency or "").upper().strip()
+        amount = int(amount_minor or 0)
+        if amount == 0 or source == target:
+            return amount
+        return convert_storage_amount(
+            amount,
+            rate_from_x10000=rate_x10000(self.rate_to_chf(source), source),
+            rate_to_x10000=rate_x10000(self.rate_to_chf(target), target),
+            target_currency=target,
+        )
 
     def supported_currencies(self) -> tuple[str, ...]:
         return tuple(sorted(self.rates_in_chf.keys()))

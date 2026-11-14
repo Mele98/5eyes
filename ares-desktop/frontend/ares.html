@@ -2965,8 +2965,19 @@ function _wireSollIstHover(){
           </select>
         </div>
         <div class="fg">
-          <label class="fl">Betrag (<span class="ccy">CHF</span>) *</label>
+          <label class="fl">Betrag *</label>
           <input class="fi" id="awi-amount" type="number" min="0" placeholder="250000">
+        </div>
+        <div class="fg">
+          <label class="fl">W&auml;hrung *</label>
+          <select class="fsel" id="awi-currency">
+            <option value="">– bitte w&auml;hlen –</option>
+            <option value="CHF">CHF</option>
+            <option value="EUR">EUR</option>
+            <option value="USD">USD</option>
+            <option value="GBP">GBP</option>
+            <option value="JPY">JPY</option>
+          </select>
         </div>
       </div>
       <div class="frow">
@@ -4095,7 +4106,7 @@ async function loadClientById(clientId) {
     const [clientRes, wealthRes, cashflowRes, cashflowProjectionRes, mandatesRes, positionsRes] = await Promise.allSettled([
       API.get('/clients/'+clientId),
       API.get('/clients/'+clientId+'/wealth-summary'),
-      API.get('/clients/'+clientId+'/cashflow-summary'),
+      API.get('/clients/'+clientId+'/cashflow-summary'+cashflowSummaryQuery(currentMandateId)),
       API.get('/clients/'+clientId+'/cashflow-projection'+(typeof cashflowProjectionQuery==='function'?cashflowProjectionQuery():'')),
       API.get('/clients/'+clientId+'/mandates'),
       API.get('/clients/'+clientId+'/wealth-positions'),
@@ -18486,6 +18497,9 @@ function formatProbabilityPct(value){
 function sollPct(cls,bps,buckets){var m=AresRounding.bucketPctMap(buckets,{typography:'screen'}),k=String(cls||'');return m[k]||m[AresRounding.assetClassKey(k)]||(Number(bps)>0?'—':fmtPct(0,1));}
 function syncCcy(c,root){var r=root||document;if(!r||!r.querySelectorAll)return;c=ccyOf(c)||newRecordCurrency();r.querySelectorAll('.ccy').forEach(function(e){e.textContent=c;});}
 function ccyOf(c){c=String(c==null?'':c).toUpperCase().trim();return c||null;}
+// CCX-P3-FX: Cashflow-Summen im Mandatskontext in der Mandatswaehrung (Server
+// rechnet mit gebundener FX-Basis um; ohne Mandat nur bei einheitlicher Waehrung).
+function cashflowSummaryQuery(mid){return mid?('?mandate_id='+encodeURIComponent(mid)):'';}
 function sameCcy(a,b){return a&&a===b?a:null;}
 function _ccyArg(args,i){return args.length>i?ccyOf(args[i]):appCurrency();}
 function appCurrency(){return typeof aaChartCurrency==='function'?aaChartCurrency():mandateCurrency();}
@@ -21338,7 +21352,7 @@ async function loadSrPage(){
       API.get('/mandates/'+mid+'/risk-assessments/current').catch(function(){return null;}),
       API.get('/mandates/'+mid+'/target-allocation/current/payload').catch(function(){return null;}),
       API.get('/mandates/'+mid+'/recommendations/current/payload').catch(function(){return null;}),
-      API.get('/clients/'+cid+'/cashflow-summary').catch(function(){return null;}),
+      API.get('/clients/'+cid+'/cashflow-summary'+cashflowSummaryQuery(mid)).catch(function(){return null;}),
       API.get('/mandates/'+mid+'/triggers').catch(function(){return [];})
     ]);
     var risk=results[0];
@@ -23458,6 +23472,7 @@ function resetInflowModal(){
   setInputValue('awi-label','');
   setSelectValue('awi-source-type','Erbschaft');
   setInputValue('awi-amount','');
+  setSelectValue('awi-currency',mandateCurrency()||'');
   setInputValue('awi-year','');
   setSelectValue('awi-value-mode','nominal');
   var rec=document.getElementById('awi-recurring');if(rec)rec.checked=false;
@@ -23505,6 +23520,7 @@ function openInflowEditor(inflowId){
   setInputValue('awi-label',inflow.label||'');
   setSelectValue('awi-source-type',inflow.source_type||'Erbschaft');
   setInputValue('awi-amount',formatInputCHF(inflow.amount_rappen));
+  setSelectValue('awi-currency',ccyOf(inflow.currency)||'');
   setInputValue('awi-year',inflow.expected_year!=null?String(inflow.expected_year):'');
   setSelectValue('awi-value-mode',inflow.value_mode||'nominal');
   var rec=document.getElementById('awi-recurring');if(rec)rec.checked=!!(inflow.is_recurring);
@@ -23550,10 +23566,14 @@ async function saveInflow(){
     if(frequency==='einmalig'){showModalFeedback('awi-error',btn,'Wiederkehrender Zufluss benötigt eine Frequenz (jährlich oder monatlich).',true);return;}
     if(!durationYears||durationYears<1||durationYears>99){showModalFeedback('awi-error',btn,'Wiederkehrender Zufluss benötigt eine Dauer (1–99 Jahre).',true);return;}
   }
+  // CCX-P3-FX: Betrag und Waehrung sind untrennbar; die Waehrung wird nie geraten.
+  var inflowCurrency=ccyOf((document.getElementById('awi-currency')||{value:''}).value);
+  if(!inflowCurrency){showModalFeedback('awi-error',btn,'Bitte die Währung des Zuflusses wählen.',true);return;}
   var payload={
     label:label,
     source_type:sourceType,
     amount_rappen:amountRappen,
+    currency:inflowCurrency,
     expected_year:year,
     is_recurring:isRecurring?1:0,
     value_mode:valueMode
@@ -23646,7 +23666,7 @@ async function refreshInflowsUI(cid){
     if(String(cid)!==String(currentClientId||''))return;
     if(!Array.isArray(items))items=(items&&items.items)||[];
     currentInflows=Array.isArray(items)?items.slice():[];
-    var fmtR=function(r){return formatRappen(Number(r||0),mandateCurrency());};  // G7 N4: Zufluesse ohne eigenes Waehrungsfeld -> Mandatswaehrung (Engine-Semantik)
+    var fmtR=function(r,c){return formatRappen(Number(r||0),ccyOf(c));};  // CCX-P3-FX: Zufluss in seiner erfassten Waehrung (unbekannt -> —)
     if(!host)return;
     if(!currentInflows.length){
       host.innerHTML=journeyEmptyHint('Noch keine erwarteten Vermögenszuflüsse. Erfassen Sie z.B. eine Erbschaft, einen Bonus oder einen Verkaufserlös.');
@@ -23656,7 +23676,7 @@ async function refreshInflowsUI(cid){
       var sub=escapeHtml(inflowSourceLabel(inflow.source_type)+' · '+(inflow.expected_year||'')+(inflow.certainty==='unsicher'?' · unsicher, nicht eingerechnet':''));
       return '<div class="cf-row" data-inflowid="'+escapeHtml(inflow.id||'')+'">'+
         '<div class="cfn"><div class="cfna">'+escapeHtml(inflow.label||'Zufluss')+'</div><div class="cfnd">'+sub+'</div></div>'+
-        '<div class="cfa ci">+'+fmtR(inflow.amount_rappen||0)+'</div>'+
+        '<div class="cfa ci">+'+fmtR(inflow.amount_rappen||0,inflow.currency)+'</div>'+
         '<div><button class="btn-ico e" type="button" title="Bearbeiten" aria-label="Vermögenszufluss bearbeiten">&#9998;</button><button class="btn-ico d" type="button" title="Löschen" aria-label="Vermögenszufluss löschen">&#10005;</button></div></div>';
     }).join('');
     Array.prototype.forEach.call(host.querySelectorAll('.cf-row[data-inflowid] .btn-ico'),function(btn){
@@ -23690,7 +23710,7 @@ function buildWealthInflowMarkers(labels){
     if(idx<0)return;
     var nm=String(inflow.label||inflowSourceLabel(inflow.source_type)||'Zufluss');
     if(inflow.certainty==='unsicher')nm+=' – unsicher, nicht eingerechnet';
-    markers.push({index:idx,year:inflow.expected_year,label:nm+' ('+formatRappen(inflow.amount_rappen,mandateCurrency())+')',shortLabel:inflowSourceLabel(inflow.source_type),type:'inflow'});
+    markers.push({index:idx,year:inflow.expected_year,label:nm+' ('+formatRappen(inflow.amount_rappen,ccyOf(inflow.currency))+')',shortLabel:inflowSourceLabel(inflow.source_type),type:'inflow'});
   });
   return markers;
 }
@@ -23776,7 +23796,7 @@ async function refreshCashflowsUI(cid){
   try{
     var results=await Promise.allSettled([
       API.get('/clients/'+cid+'/cashflows'),
-      API.get('/clients/'+cid+'/cashflow-summary'),
+      API.get('/clients/'+cid+'/cashflow-summary'+cashflowSummaryQuery(currentMandateId)),
       API.get('/clients/'+cid+'/cashflow-projection'+(typeof cashflowProjectionQuery==='function'?cashflowProjectionQuery():'')),
       API.get('/clients/'+cid+'/cashflows-derived')
     ]);

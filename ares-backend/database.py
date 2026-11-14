@@ -1161,6 +1161,167 @@ ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS: tuple[str, ...] = (
 )
 
 
+# CCX-P3 Markt- und Depot-Wahrheit (Vertrag 2026-11-13 §6 + Nachtrag P3-FX):
+# Bewertungs-Snapshot (Stichtag, Quelle, gebundene FX-Basis, Abdeckung),
+# verlustfreie Positionszeilen und Entscheid je Position. Alle drei Tabellen
+# tragen tenant_id NOT NULL; Snapshot und Ledger leiten den Mandanten per
+# INSERT-Guard aus dem Mandat ab, Zeilen und Ledger haengen per
+# zusammengesetztem Fremdschluessel am Snapshot bzw. Envelope desselben
+# Mandanten. Snapshot und Zeilen sind ab dem Einfuegen unveraenderlich
+# (no-replace/no-update/no-delete); Zeilen sind nur bis position_count
+# einfuegbar (der Snapshot ist danach geschlossen). Der Ledger ist nur
+# einfuegbar, solange der Envelope DRAFT ist, danach unveraenderlich.
+# COMPLETE verlangt einen Gesamtwert; UNKNOWN/PARTIAL tragen nie eine
+# erfundene Summe. Kein FK auf mandates (Purge-fest, Muster P1).
+# Textgleich in ares_schema.sql; PostgreSQL: Alembic (CCX-P3-Revision).
+HOLDINGS_VALUATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS holdings_valuation_snapshots (
+    id                  TEXT PRIMARY KEY,
+    tenant_id           TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id          TEXT NOT NULL,
+    schema_version      TEXT NOT NULL DEFAULT 'ares/holdings-valuation/1'
+                        CHECK(schema_version = 'ares/holdings-valuation/1'),
+    as_of               TEXT NOT NULL,
+    source_observed_at  TEXT,
+    source_system       TEXT NOT NULL,
+    base_currency       TEXT NOT NULL,
+    fx_basis_hash       TEXT NOT NULL CHECK(length(fx_basis_hash) = 64),
+    fx_basis_json       TEXT NOT NULL,
+    coverage_status     TEXT NOT NULL CHECK(coverage_status IN ('COMPLETE','PARTIAL','UNKNOWN')),
+    holdings_basis      TEXT NOT NULL CHECK(holdings_basis IN ('recorded','confirmed_no_holdings')),
+    position_count      INTEGER NOT NULL CHECK(position_count >= 0),
+    total_base_minor    INTEGER,
+    advisory_base_minor INTEGER,
+    blocker_codes_json  TEXT NOT NULL,
+    snapshot_hash       TEXT NOT NULL CHECK(length(snapshot_hash) = 64),
+    created_at          TEXT NOT NULL,
+    created_by          TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT ck_holdings_valuation_snapshots_complete_total CHECK(coverage_status <> 'COMPLETE' OR (
+        total_base_minor IS NOT NULL AND advisory_base_minor IS NOT NULL AND blocker_codes_json = '[]')),
+    CONSTRAINT ck_holdings_valuation_snapshots_unknown_total CHECK(coverage_status = 'COMPLETE' OR (
+        total_base_minor IS NULL AND advisory_base_minor IS NULL AND blocker_codes_json <> '[]')),
+    CONSTRAINT ck_holdings_valuation_snapshots_no_holdings CHECK(holdings_basis = 'recorded' OR position_count = 0),
+    CONSTRAINT uq_holdings_valuation_snapshots_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT uq_holdings_valuation_snapshots_hash UNIQUE (tenant_id, mandate_id, snapshot_hash)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_holdings_valuation_snapshots_tenant_id "
+    "ON holdings_valuation_snapshots(tenant_id)",
+    "CREATE INDEX IF NOT EXISTS ix_holdings_valuation_snapshots_mandate "
+    "ON holdings_valuation_snapshots(tenant_id, mandate_id, as_of)",
+    """CREATE TABLE IF NOT EXISTS holdings_valuation_rows (
+    id                      TEXT PRIMARY KEY,
+    tenant_id               TEXT NOT NULL,
+    snapshot_id             TEXT NOT NULL,
+    position_id             TEXT NOT NULL,
+    source_kind             TEXT NOT NULL CHECK(source_kind IN ('wealth_position','depot_holding')),
+    instrument_id           TEXT,
+    assignment              TEXT,
+    quantity_decimal_string TEXT,
+    price_minor             INTEGER,
+    price_currency          TEXT,
+    source_amount_minor     INTEGER,
+    fx_rate_ppm             INTEGER,
+    fx_rate_ratio           TEXT,
+    fx_source               TEXT,
+    fx_observed_at          TEXT,
+    base_value_minor        INTEGER,
+    price_observed_at       TEXT,
+    data_quality            TEXT NOT NULL,
+    included_in_total       INTEGER NOT NULL CHECK(included_in_total IN (0, 1)),
+    row_hash                TEXT NOT NULL CHECK(length(row_hash) = 64),
+    CONSTRAINT ck_holdings_valuation_rows_ok_value CHECK(data_quality <> 'OK' OR base_value_minor IS NOT NULL),
+    CONSTRAINT uq_holdings_valuation_rows_position UNIQUE (snapshot_id, position_id),
+    CONSTRAINT fk_holdings_valuation_rows_snapshot FOREIGN KEY (tenant_id, snapshot_id)
+        REFERENCES holdings_valuation_snapshots(tenant_id, id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_holdings_valuation_rows_tenant_id "
+    "ON holdings_valuation_rows(tenant_id)",
+    """CREATE TABLE IF NOT EXISTS position_decision_ledger (
+    id                    TEXT PRIMARY KEY,
+    tenant_id             TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id            TEXT NOT NULL,
+    envelope_id           TEXT NOT NULL,
+    position_id           TEXT NOT NULL,
+    decision              TEXT NOT NULL CHECK(decision IN ('KEEP','SELL','REVIEW')),
+    reason_code           TEXT NOT NULL,
+    source_snapshot_hash  TEXT NOT NULL CHECK(length(source_snapshot_hash) = 64),
+    created_at            TEXT NOT NULL,
+    created_by            TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT uq_position_decision_ledger_position UNIQUE (envelope_id, position_id),
+    CONSTRAINT fk_position_decision_ledger_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_position_decision_ledger_tenant_id "
+    "ON position_decision_ledger(tenant_id)",
+    "CREATE INDEX IF NOT EXISTS ix_position_decision_ledger_mandate "
+    "ON position_decision_ledger(tenant_id, mandate_id)",
+)
+
+HOLDINGS_VALUATION_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_snapshots_no_replace "
+    "BEFORE INSERT ON holdings_valuation_snapshots FOR EACH ROW "
+    "WHEN EXISTS (SELECT 1 FROM holdings_valuation_snapshots s WHERE s.id = NEW.id) "
+    "OR EXISTS (SELECT 1 FROM holdings_valuation_snapshots s WHERE s.tenant_id = NEW.tenant_id "
+    "AND s.mandate_id = NEW.mandate_id AND s.snapshot_hash = NEW.snapshot_hash) "
+    "BEGIN SELECT RAISE(ABORT, 'holdings_valuation_snapshots row already exists (no replace)'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_snapshots_no_update "
+    "BEFORE UPDATE ON holdings_valuation_snapshots FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'holdings_valuation_snapshots is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_snapshots_no_delete "
+    "BEFORE DELETE ON holdings_valuation_snapshots FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'holdings_valuation_snapshots is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_rows_insert_guard "
+    "BEFORE INSERT ON holdings_valuation_rows FOR EACH ROW "
+    "WHEN (SELECT s.position_count FROM holdings_valuation_snapshots s "
+    "WHERE s.id = NEW.snapshot_id AND s.tenant_id = NEW.tenant_id) IS NULL "
+    "OR (SELECT count(*) FROM holdings_valuation_rows r WHERE r.snapshot_id = NEW.snapshot_id) "
+    ">= (SELECT s.position_count FROM holdings_valuation_snapshots s WHERE s.id = NEW.snapshot_id) "
+    "BEGIN SELECT RAISE(ABORT, 'holdings_valuation_rows: snapshot is closed'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_rows_no_replace "
+    "BEFORE INSERT ON holdings_valuation_rows FOR EACH ROW "
+    "WHEN EXISTS (SELECT 1 FROM holdings_valuation_rows r WHERE r.id = NEW.id) "
+    "OR EXISTS (SELECT 1 FROM holdings_valuation_rows r WHERE r.snapshot_id = NEW.snapshot_id "
+    "AND r.position_id = NEW.position_id) "
+    "BEGIN SELECT RAISE(ABORT, 'holdings_valuation_rows row already exists (no replace)'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_rows_no_update "
+    "BEFORE UPDATE ON holdings_valuation_rows FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'holdings_valuation_rows is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_rows_no_delete "
+    "BEFORE DELETE ON holdings_valuation_rows FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'holdings_valuation_rows is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_insert_guard "
+    "BEFORE INSERT ON position_decision_ledger FOR EACH ROW "
+    "WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) IS NOT 'DRAFT' "
+    "OR (SELECT e.mandate_id FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) "
+    "IS NOT NEW.mandate_id "
+    "BEGIN SELECT RAISE(ABORT, 'position_decision_ledger: envelope is not DRAFT'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_no_replace "
+    "BEFORE INSERT ON position_decision_ledger FOR EACH ROW "
+    "WHEN EXISTS (SELECT 1 FROM position_decision_ledger d WHERE d.id = NEW.id) "
+    "OR EXISTS (SELECT 1 FROM position_decision_ledger d WHERE d.envelope_id = NEW.envelope_id "
+    "AND d.position_id = NEW.position_id) "
+    "BEGIN SELECT RAISE(ABORT, 'position_decision_ledger row already exists (no replace)'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_no_update "
+    "BEFORE UPDATE ON position_decision_ledger FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'position_decision_ledger is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_no_delete "
+    "BEFORE DELETE ON position_decision_ledger FOR EACH ROW "
+    "WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = OLD.envelope_id) IS NOT 'DRAFT' "
+    "BEGIN SELECT RAISE(ABORT, 'position_decision_ledger is immutable'); END",
+)
+
+# Mandanten-Guards (mandates.tenant_id): wie P1 nicht im Bootstrap-Schema.
+HOLDINGS_VALUATION_SQLITE_TENANT_GUARDS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_holdings_valuation_snapshots_tenant_guard "
+    "BEFORE INSERT ON holdings_valuation_snapshots FOR EACH ROW "
+    "WHEN NEW.tenant_id IS NOT (SELECT m.tenant_id FROM mandates m WHERE m.id = NEW.mandate_id) "
+    "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_tenant_guard "
+    "BEFORE INSERT ON position_decision_ledger FOR EACH ROW "
+    "WHEN NEW.tenant_id IS NOT (SELECT m.tenant_id FROM mandates m WHERE m.id = NEW.mandate_id) "
+    "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
+)
+
 # N-869-4: einmaliger Nachtrag von audit_log_sequence_counter.last_hash aus der
 # Zeile mit sequence = value (nur solange last_hash noch NULL ist). Gleiche
 # Anweisung in Alembic c8a2f4e6b0d9 (dort unter Operator-Bypass, RLS).
@@ -1524,6 +1685,9 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             ('tenant_id', 'TEXT'),
             # INFLOW-CERTAINTY-001: NULL = 'sicher' (services/wealth_inflow_certainty.py).
             ('certainty', 'TEXT'),
+            # CCX-P3-FX: Waehrung des Zuflusses. NULL = nicht erfasst ->
+            # unbekannt, wird nie geraten (blockiert kundenwirksame Aussagen).
+            ('currency', 'TEXT'),
         ],
         'capital_market_assumptions': [
             ('correlation_matrix_json', 'TEXT'),
@@ -1980,6 +2144,14 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             conn.execute(text(ddl))
         if 'tenant_id' in {row[1] for row in conn.execute(text("PRAGMA table_info(mandates)"))}:
             for ddl in ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS:
+                conn.execute(text(ddl))
+        # CCX-P3 (2026-11-14): Bewertungs-Snapshot, Positionszeilen und
+        # Entscheid je Position (idempotent; neue Tabellen, kein Backfill --
+        # Bestand wird nie als bewertet/entschieden markiert).
+        for ddl in HOLDINGS_VALUATION_SQLITE_TABLE_DDL + HOLDINGS_VALUATION_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
+        if 'tenant_id' in {row[1] for row in conn.execute(text("PRAGMA table_info(mandates)"))}:
+            for ddl in HOLDINGS_VALUATION_SQLITE_TENANT_GUARDS:
                 conn.execute(text(ddl))
         # SIGN-001 (2026-10-27): append-only Vor-Ort-Signatur; DDL einzig aus
         # dem ORM (Indizes + after_create-Trigger), idempotent per checkfirst.

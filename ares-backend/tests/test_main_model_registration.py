@@ -61,7 +61,10 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # CCX-P1 Snapshot und Hash (2026-11-14): drei neue Tabellen
 # (advisory_decision_envelopes, advisory_envelope_bindings,
 # advisory_effective_input_manifests), keine bestehende Tabelle umbenannt/entfernt.
-GOLDEN_SORTED_TABLES_SHA256 = "368abf49cfab9456f4d8639c55db4192dd5f2caf70dcb9389b3713f7e3a49392"
+# CCX-P3 Markt-/Depot-Wahrheit (2026-11-14): drei neue Tabellen
+# (holdings_valuation_snapshots, holdings_valuation_rows, position_decision_ledger),
+# keine bestehende Tabelle umbenannt/entfernt (108 Tabellen).
+GOLDEN_SORTED_TABLES_SHA256 = "e8b64c981d916528e710241d2f7506e80650ae144a7060f9c6892730f0100ada"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -169,7 +172,10 @@ GOLDEN_SORTED_TABLES_SHA256 = "368abf49cfab9456f4d8639c55db4192dd5f2caf70dcb9389
 # RC-CH-1 (H9-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
 # CCX-P1: GET /mandates/{id}/advisory-envelopes/current (AdvisoryEnvelopeResponse)
 # und advisory_envelope_id/_hash in RecommendationFinalizeResponse.
-GOLDEN_OPENAPI_SHA256 = "8fd6c4b0579e22763825270dfe220cbf5a394dbcf163a1e113b760760ff15a02"
+# CCX-P3: confirm_no_existing_holdings an finalize; mandate_id/target_currency
+# an cashflow-summary/-projection; fx_basis_hash/valuation_as_of/mandate_id in
+# CashflowSummaryResponse; currency an WealthInflowCreate (Pflicht)/Update/Response.
+GOLDEN_OPENAPI_SHA256 = "1d599d68bbd6983ebdb9ae8f3a28e07ffcb3d4e50e3c4123114a08f40d5e40be"
 
 _PROBE = """
 import hashlib, json
