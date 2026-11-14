@@ -1274,6 +1274,7 @@ def _assert_client_pdf_sustainability_floor(db: Session, mandate: Mandate, curre
         db, user=current_user, mandate=mandate,
         ip_address=_extract_client_ip(request) if request is not None else None,
         table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+        set_tenant_context=set_tenant_context,
     )
     _assert_floor(db, mandate, allocation=allocation, channel="client_pdf", audit=audit)
     # Nachtrag 1: Produkte im Kundendokument nur mit belegtem Ausschluss.
@@ -3017,6 +3018,7 @@ def get_advisory_report_pdf(
             db, user=current_user, mandate=mandate,
             ip_address=_extract_client_ip(request) if request is not None else None,
             table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+            set_tenant_context=set_tenant_context,
         ),
     )
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
