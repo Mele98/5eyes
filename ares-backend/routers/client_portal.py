@@ -26,7 +26,11 @@ from models.users import User
 from services.advisory_report import compute_advisory_report
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer die Kunden-Unterschrift
 # (rechtlich relevant -- Eignungspruefungs-Nachweis).
-from routers.auth import _extract_client_ip
+# CCX-P4: direkt aus services.auth (derselbe Helfer, den routers.auth nur
+# weiterreicht) -- Router importieren keine Router.
+from services.auth import extract_client_ip as _extract_client_ip
+# CCX-P4: der Kunde sieht nie einen Entwurf -- nur die publizierte Strategie.
+from services.allocation_publication_gate import customer_document_watermark
 from services.auth import get_linked_client_for_user_or_404, require_client
 
 
@@ -151,6 +155,12 @@ def _assert_portal_report_releasable(db: Session, mandate: Mandate, client: Clie
         assert_current_allocation_without_adr12a_hold(
             db, mandate, channel=CHANNEL_CLIENT_PORTAL,
         )
+        # CCX-P4: eine Soll-Allokation erscheint im Kundenportal nur, wenn sie
+        # gueltig publiziert ist (Entwurf oder ungueltige Publikation -> neutral
+        # gesperrt, Code nur in Log/Audit).
+        if customer_document_watermark(db, mandate) is not None:
+            raise DomainError("CCX_ALLOCATION_NOT_PUBLISHABLE",
+                              "Soll-Allokation nicht publiziert.", http_status=409)
     except (HTTPException, DomainError) as exc:
         # K-2b: die Gates werfen DomainError (detail/status_code wie HTTPException).
         detail = exc.detail if isinstance(exc.detail, dict) else {}

@@ -1579,6 +1579,340 @@
         "title": "AllocationPreferencesPayload",
         "type": "object"
       },
+      "AllocationPublicationOverviewResponse": {
+        "description": "CCX-P4: Publikationsstatus der aktuellen Soll-Allokation fuer die\nMasken. ``can_publish`` nur, wenn alle Pruefungen gruen sind;\n``blocker_codes`` sind katalogisierte Reason-Codes.",
+        "properties": {
+          "active_publication": {
+            "$ref": "#/components/schemas/AllocationPublicationStateResponse"
+          },
+          "already_published": {
+            "title": "Already Published",
+            "type": "boolean"
+          },
+          "blocker_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Blocker Codes",
+            "type": "array"
+          },
+          "can_publish": {
+            "title": "Can Publish",
+            "type": "boolean"
+          },
+          "envelope_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Envelope Hash"
+          },
+          "envelope_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Envelope Id"
+          },
+          "mandate_id": {
+            "title": "Mandate Id",
+            "type": "string"
+          },
+          "prepared_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prepared By"
+          },
+          "publication_status": {
+            "title": "Publication Status",
+            "type": "string"
+          },
+          "target_allocation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Allocation Id"
+          },
+          "validation_hash": {
+            "title": "Validation Hash",
+            "type": "string"
+          },
+          "validation_status": {
+            "title": "Validation Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mandate_id",
+          "publication_status",
+          "validation_status",
+          "validation_hash",
+          "can_publish",
+          "already_published",
+          "active_publication"
+        ],
+        "title": "AllocationPublicationOverviewResponse",
+        "type": "object"
+      },
+      "AllocationPublicationResponse": {
+        "description": "CCX-P4: geschriebener Publikationsentscheid.",
+        "properties": {
+          "approval_hash": {
+            "title": "Approval Hash",
+            "type": "string"
+          },
+          "approval_mode": {
+            "title": "Approval Mode",
+            "type": "string"
+          },
+          "approved_at": {
+            "title": "Approved At",
+            "type": "string"
+          },
+          "approved_by": {
+            "title": "Approved By",
+            "type": "string"
+          },
+          "envelope_id": {
+            "title": "Envelope Id",
+            "type": "string"
+          },
+          "mandate_id": {
+            "title": "Mandate Id",
+            "type": "string"
+          },
+          "publication_id": {
+            "title": "Publication Id",
+            "type": "string"
+          },
+          "publication_sequence": {
+            "title": "Publication Sequence",
+            "type": "integer"
+          },
+          "published_envelope_hash": {
+            "title": "Published Envelope Hash",
+            "type": "string"
+          },
+          "target_allocation_id": {
+            "title": "Target Allocation Id",
+            "type": "string"
+          },
+          "validation_hash": {
+            "title": "Validation Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "publication_id",
+          "mandate_id",
+          "target_allocation_id",
+          "envelope_id",
+          "publication_sequence",
+          "validation_hash",
+          "approval_hash",
+          "approval_mode",
+          "approved_at",
+          "approved_by",
+          "published_envelope_hash"
+        ],
+        "title": "AllocationPublicationResponse",
+        "type": "object"
+      },
+      "AllocationPublicationStateResponse": {
+        "description": "Aktive Publikation (vor der Auslieferung neu geprueft).",
+        "properties": {
+          "approval_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Hash"
+          },
+          "approval_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Mode"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "envelope_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Envelope Id"
+          },
+          "publication_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Id"
+          },
+          "publication_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Sequence"
+          },
+          "published_envelope_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published Envelope Hash"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "target_allocation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Allocation Id"
+          },
+          "validation_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Hash"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "AllocationPublicationStateResponse",
+        "type": "object"
+      },
+      "AllocationPublishRequest": {
+        "description": "CCX-P4: Freigabe genau des geprueften Stands (Approval-Binding).",
+        "properties": {
+          "attestation_reason": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attestation Reason"
+          },
+          "single_approver_attestation": {
+            "default": false,
+            "title": "Single Approver Attestation",
+            "type": "boolean"
+          },
+          "target_allocation_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Target Allocation Id",
+            "type": "string"
+          },
+          "validation_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Validation Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_allocation_id",
+          "validation_hash"
+        ],
+        "title": "AllocationPublishRequest",
+        "type": "object"
+      },
       "AllocationSensitivityRequest": {
         "properties": {
           "goal_id": {
@@ -26724,6 +27058,11 @@
             ],
             "title": "Preferences Json"
           },
+          "publication_status": {
+            "default": "DRAFT",
+            "title": "Publication Status",
+            "type": "string"
+          },
           "reserve_funding_ledger_hash": {
             "anyOf": [
               {
@@ -38061,6 +38400,110 @@
         ]
       }
     },
+    "/mandates/{mandate_id}/allocation-publication": {
+      "get": {
+        "description": "CCX-P4: Publikationsstatus der aktuellen Soll-Allokation (Pruefung ohne\nSchreibwirkung). ``can_publish`` nur, wenn alle Gates gruen sind; sonst\nkatalogisierte ``blocker_codes``.",
+        "operationId": "get_allocation_publication_mandates__mandate_id__allocation_publication_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllocationPublicationOverviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Allocation Publication",
+        "tags": [
+          "Allokation"
+        ]
+      },
+      "post": {
+        "description": "CCX-P4: publiziert genau den geprueften Stand (``validation_hash``) der\naktuellen Soll-Allokation -- generiert oder manuell, derselbe Gate.\nAblehnung: ``CCX_ALLOCATION_NOT_PUBLISHABLE`` (Blocker-Codes),\n``CCX_VALIDATION_HASH_MISMATCH`` (Mutation nach Pruefung),\n``CCX_APPROVAL_BINDING_MISSING`` (Vier Augen), ``CCX_PUBLICATION_RACE``\n(paralleler Publisher); jeweils mit Audit, ohne Fallback.",
+        "operationId": "post_allocation_publication_mandates__mandate_id__allocation_publication_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AllocationPublishRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllocationPublicationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Allocation Publication",
+        "tags": [
+          "Allokation"
+        ]
+      }
+    },
     "/mandates/{mandate_id}/backtest/ab": {
       "get": {
         "description": "Sprint U-P15: A/B-HouseMatrix-Backtest.\n\nVergleicht zwei OptimizerPolicy-Versionen auf dem Risikoprofil des\nMandates und liefert Bucket-Gewichtung, Risk-Metriken (Return/Vol/\nSharpe/TER) und Stress-Replays pro Policy + Diff-Strukturen.\n\nRead-only: kein DB-Mutation, kein Audit-Log nötig.\n\nFehler:\n    400: policy_a == policy_b\n    404: eine der Policies nicht gefunden\n    409: Assessment fehlt oder keine aktive CMA",
@@ -44141,6 +44584,54 @@
           }
         ],
         "summary": "Generate Target Allocation Endpoint",
+        "tags": [
+          "Allokation"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/target-allocation/published": {
+      "get": {
+        "description": "CCX-P4: die aktive, gueltig publizierte Soll-Allokation -- der einzige\nLesepfad, der eine Allocation als aktiv liefert. Ohne gueltige\nPublikation ``CCX_ALLOCATION_NOT_PUBLISHABLE`` (409, Audit), nie ein\nEntwurf und nie eine aeltere Publikation.",
+        "operationId": "get_published_allocation_mandates__mandate_id__target_allocation_published_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TargetAllocationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Published Allocation",
         "tags": [
           "Allokation"
         ]

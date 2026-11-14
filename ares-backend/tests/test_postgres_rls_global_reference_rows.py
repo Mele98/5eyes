@@ -150,6 +150,14 @@ _VALID_ROW_VALUES: dict[str, dict[str, object]] = {
         "included_in_total": 1,
     },
     "position_decision_ledger": {"decision": "KEEP", "source_snapshot_hash": "0" * 64},
+    # CCX-P4: Einwert-CHECK schema_version, Hash-Laengen, abgelehnter Versuch
+    # (publishable=0 verlangt Blocker, kein Envelope-Hash, keine Freigabe).
+    "allocation_publication_decisions": {
+        "schema_version": "ares/allocation-publication/1", "publication_sequence": 1,
+        "validation_hash": "0" * 64, "publishable": 0, "blocker_codes_json": '["CCX_ENVELOPE_MISSING"]',
+        "approval_hash": None, "approval_mode": None, "published_envelope_hash": None,
+    },
+    "allocation_active_publications": {"optimistic_version": 1},
     # H10 Nachtrag 1: Einwert-CHECK (result = 'BLOCKED') erkennt der Regex nicht.
     "privacy_egress_events": {"result": "BLOCKED"},
     "risk_override_decisions": {

@@ -272,6 +272,7 @@ function ReportShell({ sectionId }: { sectionId: ReportSectionId }) {
         tabIndex={-1}
         aria-label={`Beratungsreport-Hauptinhalt: ${sectionId}`}
       >
+        <AllocationDraftNotice notice={data.allocation_draft_notice} />
         <Suspense fallback={<SectionSkeleton />}>
           <ReportCurrencyContext.Provider value={reportCurrencyFrom(data)}>
             {renderSection(sectionId, data, mandateId, reload)}
@@ -280,6 +281,21 @@ function ReportShell({ sectionId }: { sectionId: ReportSectionId }) {
       </main>
       <KeyboardShortcuts mandateId={mandateId} activeSection={sectionId} />
     </div>
+  );
+}
+
+/** CCX-P4: ruhiger Hinweis, solange die Soll-Allokation nicht (gueltig)
+ * publiziert ist -- der Bericht ist dann ein Entwurf (Serverstatus). */
+export function AllocationDraftNotice({ notice }: { notice?: string | null }) {
+  if (!notice) return null;
+  return (
+    <p
+      role="status"
+      data-testid="allocation-draft-notice"
+      className="mx-auto mt-block max-w-editorial px-page-x text-caption text-ink-muted"
+    >
+      {notice}
+    </p>
   );
 }
 

@@ -52,12 +52,15 @@ CHANNEL_SIGNATURE = "signature"
 CHANNEL_HANDOFF = "handoff"
 # H8: Finalisierung als eigener Kanal des Kundeninformations-/KYC-Gates.
 CHANNEL_FINALIZATION = "finalization"
+# CCX-P4: Publikation der Soll-Allokation (services/allocation_publication_gate.py).
+CHANNEL_PUBLICATION = "allocation_publication"
 
 _CHANNEL_LABELS = {
     CHANNEL_ADVISORY_PDF: "Der Advisory-Report kann nicht exportiert werden",
     CHANNEL_SIGNATURE: "Das Dokument kann nicht unterzeichnet werden",
     CHANNEL_HANDOFF: "Die Handelsliste kann nicht weitergeleitet werden",
     CHANNEL_FINALIZATION: "Die Empfehlung kann nicht finalisiert werden",
+    CHANNEL_PUBLICATION: "Die Soll-Allokation kann nicht publiziert werden",
 }
 
 # Dokumenttypen, die die Anlageempfehlung/Soll-Allokation verkoerpern. Ein

@@ -1453,6 +1453,123 @@ HOLDINGS_VALUATION_SQLITE_TENANT_GUARDS: tuple[str, ...] = (
 )
 
 
+# CCX-P4 Allocation-Publish (Vertrag 2026-11-13 §7): Publikationsentscheide
+# (append-only, auch abgelehnte Versuche mit Blocker-Codes) und der Active-
+# Pointer (hoechstens eine aktive Publikation je Mandat). Eine Allocation wird
+# nur ueber services/allocation_publication_gate.py::publish_allocation
+# kundenwirksam: Entscheid und Pointer entstehen in derselben Transaktion.
+# Kein Backfill: Bestand ist nicht publiziert, bis ausdruecklich publiziert
+# wird. DDL textgleich ares_schema.sql; PostgreSQL: Alembic CCX-P4-Revision.
+ALLOCATION_PUBLICATION_SCHEMA = "ares/allocation-publication/1"
+ALLOCATION_PUBLICATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS allocation_publication_decisions (
+    id                       TEXT PRIMARY KEY,
+    tenant_id                TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id               TEXT NOT NULL,
+    schema_version           TEXT NOT NULL CHECK(schema_version = 'ares/allocation-publication/1'),
+    envelope_id              TEXT,
+    target_allocation_id     TEXT,
+    publication_sequence     INTEGER NOT NULL CHECK(publication_sequence >= 1),
+    validation_hash          TEXT NOT NULL CHECK(length(validation_hash) = 64),
+    approval_hash            TEXT CHECK(approval_hash IS NULL OR length(approval_hash) = 64),
+    approval_mode            TEXT CHECK(approval_mode IS NULL OR approval_mode IN ('four_eyes','single_approver_attested')),
+    approved_at              TEXT,
+    approved_by              TEXT REFERENCES users(id),
+    publishable              INTEGER NOT NULL CHECK(publishable IN (0, 1)),
+    blocker_codes_json       TEXT NOT NULL,
+    published_envelope_hash  TEXT CHECK(published_envelope_hash IS NULL OR length(published_envelope_hash) = 64),
+    created_at               TEXT NOT NULL,
+    created_by               TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT ck_allocation_publication_decisions_published CHECK(publishable = 0 OR (
+        envelope_id IS NOT NULL AND target_allocation_id IS NOT NULL AND approval_hash IS NOT NULL
+        AND approval_mode IS NOT NULL AND approved_at IS NOT NULL AND approved_by IS NOT NULL
+        AND published_envelope_hash IS NOT NULL AND blocker_codes_json = '[]')),
+    CONSTRAINT ck_allocation_publication_decisions_blocked CHECK(publishable = 1 OR (
+        published_envelope_hash IS NULL AND approval_hash IS NULL AND blocker_codes_json <> '[]')),
+    CONSTRAINT uq_allocation_publication_decisions_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT uq_allocation_publication_decisions_sequence UNIQUE (mandate_id, publication_sequence),
+    CONSTRAINT fk_allocation_publication_decisions_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_allocation_publication_decisions_tenant_id "
+    "ON allocation_publication_decisions(tenant_id)",
+    "CREATE INDEX IF NOT EXISTS ix_allocation_publication_decisions_mandate "
+    "ON allocation_publication_decisions(tenant_id, mandate_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_allocation_publication_decisions_one_per_envelope "
+    "ON allocation_publication_decisions(envelope_id) WHERE publishable = 1",
+    """CREATE TABLE IF NOT EXISTS allocation_active_publications (
+    id                       TEXT PRIMARY KEY,
+    tenant_id                TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id               TEXT NOT NULL,
+    publication_id           TEXT NOT NULL,
+    optimistic_version       INTEGER NOT NULL CHECK(optimistic_version >= 1),
+    updated_at               TEXT NOT NULL,
+    updated_by               TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT uq_allocation_active_publications_mandate UNIQUE (mandate_id),
+    CONSTRAINT fk_allocation_active_publications_publication FOREIGN KEY (tenant_id, publication_id)
+        REFERENCES allocation_publication_decisions(tenant_id, id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_allocation_active_publications_tenant_id "
+    "ON allocation_active_publications(tenant_id)",
+)
+
+ALLOCATION_PUBLICATION_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_no_replace "
+    "BEFORE INSERT ON allocation_publication_decisions FOR EACH ROW "
+    "WHEN EXISTS (SELECT 1 FROM allocation_publication_decisions d WHERE d.id = NEW.id "
+    "OR (d.mandate_id = NEW.mandate_id AND d.publication_sequence = NEW.publication_sequence)) "
+    "BEGIN SELECT RAISE(ABORT, 'allocation_publication_decisions row already exists (no replace)'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_sequence "
+    "BEFORE INSERT ON allocation_publication_decisions FOR EACH ROW "
+    "WHEN NEW.publication_sequence IS NOT (SELECT COALESCE(MAX(d.publication_sequence), 0) + 1 "
+    "FROM allocation_publication_decisions d WHERE d.mandate_id = NEW.mandate_id) "
+    "BEGIN SELECT RAISE(ABORT, 'CCX_PUBLICATION_RACE'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_envelope "
+    "BEFORE INSERT ON allocation_publication_decisions FOR EACH ROW "
+    "WHEN NEW.publishable = 1 AND NOT EXISTS (SELECT 1 FROM advisory_decision_envelopes e "
+    "WHERE e.id = NEW.envelope_id AND e.tenant_id = NEW.tenant_id AND e.mandate_id = NEW.mandate_id "
+    "AND e.status = 'SEALED' AND e.freshness_status = 'FRESH' AND e.envelope_hash = NEW.published_envelope_hash) "
+    "BEGIN SELECT RAISE(ABORT, 'CCX_ALLOCATION_NOT_PUBLISHABLE'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_no_update "
+    "BEFORE UPDATE ON allocation_publication_decisions FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'allocation_publication_decisions is append-only'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_no_delete "
+    "BEFORE DELETE ON allocation_publication_decisions FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'allocation_publication_decisions is append-only'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_insert "
+    "BEFORE INSERT ON allocation_active_publications FOR EACH ROW "
+    "WHEN EXISTS (SELECT 1 FROM allocation_active_publications p WHERE p.id = NEW.id "
+    "OR p.mandate_id = NEW.mandate_id) OR NEW.optimistic_version IS NOT 1 "
+    "OR NOT EXISTS (SELECT 1 FROM allocation_publication_decisions d WHERE d.id = NEW.publication_id "
+    "AND d.tenant_id = NEW.tenant_id AND d.mandate_id = NEW.mandate_id AND d.publishable = 1) "
+    "BEGIN SELECT RAISE(ABORT, 'CCX_PUBLICATION_RACE'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_update "
+    "BEFORE UPDATE ON allocation_active_publications FOR EACH ROW "
+    "WHEN NEW.id IS NOT OLD.id OR NEW.tenant_id IS NOT OLD.tenant_id OR NEW.mandate_id IS NOT OLD.mandate_id "
+    "OR NEW.optimistic_version IS NOT OLD.optimistic_version + 1 "
+    "OR NOT EXISTS (SELECT 1 FROM allocation_publication_decisions d WHERE d.id = NEW.publication_id "
+    "AND d.tenant_id = NEW.tenant_id AND d.mandate_id = NEW.mandate_id AND d.publishable = 1 "
+    "AND d.publication_sequence > (SELECT o.publication_sequence FROM allocation_publication_decisions o "
+    "WHERE o.id = OLD.publication_id)) "
+    "BEGIN SELECT RAISE(ABORT, 'CCX_PUBLICATION_RACE'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_no_delete "
+    "BEFORE DELETE ON allocation_active_publications FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'allocation_active_publications: pointer is never deleted'); END",
+)
+
+# Mandanten-Guards (mandates.tenant_id): wie P1/P3 nicht im Bootstrap-Schema.
+ALLOCATION_PUBLICATION_SQLITE_TENANT_GUARDS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_tenant_guard "
+    "BEFORE INSERT ON allocation_publication_decisions FOR EACH ROW "
+    "WHEN NEW.tenant_id IS NOT (SELECT m.tenant_id FROM mandates m WHERE m.id = NEW.mandate_id) "
+    "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_tenant_guard "
+    "BEFORE INSERT ON allocation_active_publications FOR EACH ROW "
+    "WHEN NEW.tenant_id IS NOT (SELECT m.tenant_id FROM mandates m WHERE m.id = NEW.mandate_id) "
+    "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
+)
+
+
 # N-869-4: einmaliger Nachtrag von audit_log_sequence_counter.last_hash aus der
 # Zeile mit sequence = value (nur solange last_hash noch NULL ist). Gleiche
 # Anweisung in Alembic c8a2f4e6b0d9 (dort unter Operator-Bypass, RLS).
@@ -2304,6 +2421,13 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             conn.execute(text(ddl))
         if 'tenant_id' in {row[1] for row in conn.execute(text("PRAGMA table_info(mandates)"))}:
             for ddl in HOLDINGS_VALUATION_SQLITE_TENANT_GUARDS:
+                conn.execute(text(ddl))
+        # CCX-P4 (2026-11-14): Publikationsentscheide + Active-Pointer
+        # (idempotent; neue Tabellen, kein Backfill -- Bestand ist nicht publiziert).
+        for ddl in ALLOCATION_PUBLICATION_SQLITE_TABLE_DDL + ALLOCATION_PUBLICATION_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
+        if 'tenant_id' in {row[1] for row in conn.execute(text("PRAGMA table_info(mandates)"))}:
+            for ddl in ALLOCATION_PUBLICATION_SQLITE_TENANT_GUARDS:
                 conn.execute(text(ddl))
         # SIGN-001 (2026-10-27): append-only Vor-Ort-Signatur; DDL einzig aus
         # dem ORM (Indizes + after_create-Trigger), idempotent per checkfirst.

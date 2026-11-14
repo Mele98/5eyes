@@ -921,6 +921,11 @@ export interface ProjectionGateData {
 
 export interface AdvisoryReport {
   schema_version: 2;
+  /** CCX-P4: Publikationsstatus der Soll-Allokation (Serverwahrheit, tiefe
+   * Pruefung). Nur PUBLISHED ist kundenwirksam; sonst Entwurf. */
+  allocation_publication?: { status: string; reason_code: string | null } | null;
+  /** CCX-P4: Hinweis "Entwurf – Soll-Allokation nicht publiziert", sonst null. */
+  allocation_draft_notice?: string | null;
   mandate_id: string;
   /** Mandatswaehrung (immer vorhanden; G7 N-894-10: Betragsbeschriftung im Bericht). */
   mandate_currency?: string;

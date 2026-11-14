@@ -42,7 +42,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-INVENTORY_VERSION = "2026-11-14.2"
+INVENTORY_VERSION = "2026-11-14.3"
 
 DELETE = "DELETE"
 ANONYMIZE = "ANONYMIZE"
@@ -326,6 +326,11 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
         ("snapshot_id", "holdings_valuation_snapshots"), _c(RECORD, "recommendation_evidence"),
     ),
     "position_decision_ledger": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
+    # CCX-P4: Publikationsentscheide (IDs, Sequenz, Hashes, Freigeber-ID,
+    # Zeit, Modus, Blocker-Codes) und Active-Pointer -- kein Freitext, keine
+    # Identitaet; Teil der Empfehlungsevidenz, append-only bzw. nie geloescht.
+    "allocation_publication_decisions": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
+    "allocation_active_publications": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
     "recommendation_positions": _t(
         ("run_id", "recommendation_runs"), _c(RECORD, "recommendation_evidence"),
     ),

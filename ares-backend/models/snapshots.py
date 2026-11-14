@@ -15,6 +15,8 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, relationship
 from sqlalchemy.sql.dml import UpdateBase
 from database import (
+    ALLOCATION_PUBLICATION_SQLITE_TENANT_GUARDS,
+    ALLOCATION_PUBLICATION_SQLITE_TRIGGERS,
     ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS,
     ADVISORY_ENVELOPE_SQLITE_TRIGGERS,
     ADVISORY_FRESHNESS_SQLITE_TRIGGERS,
@@ -1249,3 +1251,154 @@ def _create_holdings_valuation_sqlite_triggers(_metadata, connection, **_kw) -> 
 
 
 event.listen(Base.metadata, "after_create", _create_holdings_valuation_sqlite_triggers)
+
+
+# ── CCX-P4 Allocation-Publish (Vertrag 2026-11-13 §7) ──
+#
+# CCX-P4 Allocation-Publish (Vertrag 2026-11-13 §7).
+#
+# * ``AllocationPublicationDecision``: append-only Publikationsentscheid je
+#   Mandat (fortlaufende ``publication_sequence``). ``publishable = 1`` traegt
+#   die Freigabe (``approval_hash``, Freigeber, Zeit, Modus) und den
+#   publizierten ``published_envelope_hash``; ``publishable = 0`` haelt einen
+#   abgelehnten Publikationsversuch samt katalogisierten ``blocker_codes_json``
+#   fest. ``validation_hash`` bindet den geprueften Stand (Envelope, Soll-
+#   Allokation, Bewertung, Gate-Ergebnisse).
+# * ``AllocationActivePublication``: Active-Pointer, hoechstens einer je Mandat
+#   (Unique ``mandate_id``); er zeigt nur auf einen publizierbaren Entscheid
+#   desselben Mandats, wandert nur vorwaerts (hoehere Sequenz) und steigt dabei
+#   in ``optimistic_version`` um genau 1. Nie geloescht.
+#
+# Geschrieben werden beide Tabellen ausschliesslich von
+# ``services/allocation_publication_gate.py::publish_allocation`` (AST-Waechter
+# ``tests/test_ccx_p4_allocation_publish.py``). DDL-Quelle SQLite: database.py
+# (``ALLOCATION_PUBLICATION_SQLITE_*``), textgleich ares_schema.sql;
+# PostgreSQL: Alembic (CCX-P4-Revision). Kein Backfill: Bestand ist nicht
+# publiziert.
+
+ALLOCATION_PUBLICATION_SCHEMA_VERSION = "ares/allocation-publication/1"
+APPROVAL_MODES = ("four_eyes", "single_approver_attested")
+
+
+class AllocationPublicationDecision(Base):
+    """Publikationsentscheid (append-only, auch abgelehnte Versuche)."""
+
+    __tablename__ = "allocation_publication_decisions"
+    __table_args__ = (
+        CheckConstraint(
+            "schema_version = 'ares/allocation-publication/1'",
+            name="ck_allocation_publication_decisions_schema_version",
+        ),
+        CheckConstraint("publication_sequence >= 1", name="ck_allocation_publication_decisions_sequence_min"),
+        CheckConstraint("length(validation_hash) = 64", name="ck_allocation_publication_decisions_validation"),
+        CheckConstraint(
+            "approval_hash IS NULL OR length(approval_hash) = 64",
+            name="ck_allocation_publication_decisions_approval",
+        ),
+        CheckConstraint(
+            "approval_mode IS NULL OR approval_mode IN ('four_eyes','single_approver_attested')",
+            name="ck_allocation_publication_decisions_mode",
+        ),
+        CheckConstraint("publishable IN (0, 1)", name="ck_allocation_publication_decisions_flag"),
+        CheckConstraint(
+            "published_envelope_hash IS NULL OR length(published_envelope_hash) = 64",
+            name="ck_allocation_publication_decisions_envelope_hash",
+        ),
+        CheckConstraint(
+            "publishable = 0 OR (envelope_id IS NOT NULL AND target_allocation_id IS NOT NULL "
+            "AND approval_hash IS NOT NULL AND approval_mode IS NOT NULL AND approved_at IS NOT NULL "
+            "AND approved_by IS NOT NULL AND published_envelope_hash IS NOT NULL "
+            "AND blocker_codes_json = '[]')",
+            name="ck_allocation_publication_decisions_published",
+        ),
+        CheckConstraint(
+            "publishable = 1 OR (published_envelope_hash IS NULL AND approval_hash IS NULL "
+            "AND blocker_codes_json <> '[]')",
+            name="ck_allocation_publication_decisions_blocked",
+        ),
+        UniqueConstraint("tenant_id", "id", name="uq_allocation_publication_decisions_tenant_id"),
+        UniqueConstraint(
+            "mandate_id", "publication_sequence", name="uq_allocation_publication_decisions_sequence",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "envelope_id"],
+            ["advisory_decision_envelopes.tenant_id", "advisory_decision_envelopes.id"],
+            name="fk_allocation_publication_decisions_envelope",
+        ),
+        Index("ix_allocation_publication_decisions_tenant_id", "tenant_id"),
+        Index("ix_allocation_publication_decisions_mandate", "tenant_id", "mandate_id"),
+        Index(
+            "ux_allocation_publication_decisions_one_per_envelope", "envelope_id", unique=True,
+            sqlite_where=text("publishable = 1"), postgresql_where=text("publishable = 1"),
+        ),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    mandate_id = Column(String, nullable=False)
+    schema_version = Column(String, nullable=False)
+    envelope_id = Column(String)
+    target_allocation_id = Column(String)
+    publication_sequence = Column(Integer, nullable=False)
+    validation_hash = Column(String, nullable=False)
+    approval_hash = Column(String)
+    approval_mode = Column(String)
+    approved_at = Column(String)
+    approved_by = Column(String, ForeignKey("users.id"))
+    publishable = Column(Integer, nullable=False)
+    blocker_codes_json = Column(String, nullable=False)
+    published_envelope_hash = Column(String)
+    created_at = Column(String, nullable=False)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+
+
+class AllocationActivePublication(Base):
+    """Active-Pointer: hoechstens eine aktive Publikation je Mandat."""
+
+    __tablename__ = "allocation_active_publications"
+    __table_args__ = (
+        CheckConstraint("optimistic_version >= 1", name="ck_allocation_active_publications_version"),
+        UniqueConstraint("mandate_id", name="uq_allocation_active_publications_mandate"),
+        ForeignKeyConstraint(
+            ["tenant_id", "publication_id"],
+            ["allocation_publication_decisions.tenant_id", "allocation_publication_decisions.id"],
+            name="fk_allocation_active_publications_publication",
+        ),
+        Index("ix_allocation_active_publications_tenant_id", "tenant_id"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    mandate_id = Column(String, nullable=False)
+    publication_id = Column(String, nullable=False)
+    optimistic_version = Column(Integer, nullable=False)
+    updated_at = Column(String, nullable=False)
+    updated_by = Column(String, ForeignKey("users.id"), nullable=False)
+
+
+ALLOCATION_PUBLICATION_TABLES = (
+    AllocationPublicationDecision.__tablename__,
+    AllocationActivePublication.__tablename__,
+)
+
+
+def _create_allocation_publication_sqlite_triggers(_metadata, connection, **_kw) -> None:
+    """Metadata-Hook (SQLite): Trigger erst, wenn beide Tabellen und der
+    P1/P2-Envelope existieren; Mandanten-Guards nur mit ``mandates.tenant_id``."""
+    if connection.dialect.name != "sqlite":
+        return
+    tables = {row[0] for row in connection.exec_driver_sql(
+        "SELECT name FROM sqlite_master WHERE type = 'table'"
+    )}
+    if not (set(ALLOCATION_PUBLICATION_TABLES) | {"advisory_decision_envelopes"}) <= tables:
+        return
+    for ddl in ALLOCATION_PUBLICATION_SQLITE_TRIGGERS:
+        connection.exec_driver_sql(ddl)
+    if "mandates" in tables and "tenant_id" in {
+        row[1] for row in connection.exec_driver_sql("PRAGMA table_info(mandates)")
+    }:
+        for ddl in ALLOCATION_PUBLICATION_SQLITE_TENANT_GUARDS:
+            connection.exec_driver_sql(ddl)
+
+
+event.listen(Base.metadata, "after_create", _create_allocation_publication_sqlite_triggers)

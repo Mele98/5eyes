@@ -26,7 +26,7 @@ table therefore cannot ship unclassified.
 """
 from __future__ import annotations
 
-INVENTORY_VERSION = "2026-11-14.2"
+INVENTORY_VERSION = "2026-11-14.3"
 
 TENANT_DIRECT = "tenant_direct"
 GLOBAL_REFERENCE = "global_reference"
@@ -47,6 +47,12 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     "advisory_effective_input_manifests",
     "advisory_envelope_bindings",
     "advisory_invalidation_events",
+    # CCX-P4 Allocation-Publish (2026-11-14): Publikationsentscheide und
+    # Active-Pointer -- tenant_id NOT NULL, Mandant per INSERT-Guard aus dem
+    # Mandat, Entscheid per (tenant_id, envelope_id)-FK, Pointer per
+    # (tenant_id, publication_id)-FK.
+    "allocation_active_publications",
+    "allocation_publication_decisions",
     "audit_log",
     # CCX-P3 Markt- und Depot-Wahrheit (2026-11-14): Bewertungs-Snapshot,
     # Positionszeilen, Entscheid je Position -- tenant_id NOT NULL; Snapshot und

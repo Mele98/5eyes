@@ -62,6 +62,10 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     # cashflowSummaryQuery, aus ares.html ausgelagert (Monolith-Budget). Vor
     # dem E2-Teil: sustainability-preferences.js bleibt der letzte Teil.
     ("wealth-inflows.js", "js"),
+    # CCX-P4 (2026-11-14): Publikationsstatus der Soll-Allokation + "Portfolio
+    # umsetzen" (syncPortfolioUmsetzenButtonVisibility/openPortfolioUmsetzenModal/
+    # savePortfolioUmsetzen umgezogen, Monolith-Budget).
+    ("allocation-publication.js", "js"),
     # E2 Nachhaltigkeitspraeferenzen (Dok. 106): Kundenmaske nach dem Risikoprofil.
     ("sustainability-preferences.js", "js"),
 )

@@ -2693,6 +2693,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/mandates/{mandate_id}/allocation-publication": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Allocation Publication
+         * @description CCX-P4: Publikationsstatus der aktuellen Soll-Allokation (Pruefung ohne
+         *     Schreibwirkung). ``can_publish`` nur, wenn alle Gates gruen sind; sonst
+         *     katalogisierte ``blocker_codes``.
+         */
+        get: operations["get_allocation_publication_mandates__mandate_id__allocation_publication_get"];
+        put?: never;
+        /**
+         * Post Allocation Publication
+         * @description CCX-P4: publiziert genau den geprueften Stand (``validation_hash``) der
+         *     aktuellen Soll-Allokation -- generiert oder manuell, derselbe Gate.
+         *     Ablehnung: ``CCX_ALLOCATION_NOT_PUBLISHABLE`` (Blocker-Codes),
+         *     ``CCX_VALIDATION_HASH_MISMATCH`` (Mutation nach Pruefung),
+         *     ``CCX_APPROVAL_BINDING_MISSING`` (Vier Augen), ``CCX_PUBLICATION_RACE``
+         *     (paralleler Publisher); jeweils mit Audit, ohne Fallback.
+         */
+        post: operations["post_allocation_publication_mandates__mandate_id__allocation_publication_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/mandates/{mandate_id}/backtest/ab": {
         parameters: {
             query?: never;
@@ -4482,6 +4513,29 @@ export interface paths {
         put?: never;
         /** Generate Target Allocation Endpoint */
         post: operations["generate_target_allocation_endpoint_mandates__mandate_id__target_allocation_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mandates/{mandate_id}/target-allocation/published": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Published Allocation
+         * @description CCX-P4: die aktive, gueltig publizierte Soll-Allokation -- der einzige
+         *     Lesepfad, der eine Allocation als aktiv liefert. Ohne gueltige
+         *     Publikation ``CCX_ALLOCATION_NOT_PUBLISHABLE`` (409, Audit), nie ein
+         *     Entwurf und nie eine aeltere Publikation.
+         */
+        get: operations["get_published_allocation_mandates__mandate_id__target_allocation_published_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7131,6 +7185,112 @@ export interface components {
             tiltReasons?: Record<string, unknown>;
             /** Tilts */
             tilts?: Record<string, unknown>;
+        };
+        /**
+         * AllocationPublicationOverviewResponse
+         * @description CCX-P4: Publikationsstatus der aktuellen Soll-Allokation fuer die
+         *     Masken. ``can_publish`` nur, wenn alle Pruefungen gruen sind;
+         *     ``blocker_codes`` sind katalogisierte Reason-Codes.
+         */
+        AllocationPublicationOverviewResponse: {
+            active_publication: components["schemas"]["AllocationPublicationStateResponse"];
+            /** Already Published */
+            already_published: boolean;
+            /** Blocker Codes */
+            blocker_codes?: string[];
+            /** Can Publish */
+            can_publish: boolean;
+            /** Envelope Hash */
+            envelope_hash?: string | null;
+            /** Envelope Id */
+            envelope_id?: string | null;
+            /** Mandate Id */
+            mandate_id: string;
+            /** Prepared By */
+            prepared_by?: string | null;
+            /** Publication Status */
+            publication_status: string;
+            /** Target Allocation Id */
+            target_allocation_id?: string | null;
+            /** Validation Hash */
+            validation_hash: string;
+            /** Validation Status */
+            validation_status: string;
+        };
+        /**
+         * AllocationPublicationResponse
+         * @description CCX-P4: geschriebener Publikationsentscheid.
+         */
+        AllocationPublicationResponse: {
+            /** Approval Hash */
+            approval_hash: string;
+            /** Approval Mode */
+            approval_mode: string;
+            /** Approved At */
+            approved_at: string;
+            /** Approved By */
+            approved_by: string;
+            /** Envelope Id */
+            envelope_id: string;
+            /** Mandate Id */
+            mandate_id: string;
+            /** Publication Id */
+            publication_id: string;
+            /** Publication Sequence */
+            publication_sequence: number;
+            /** Published Envelope Hash */
+            published_envelope_hash: string;
+            /** Target Allocation Id */
+            target_allocation_id: string;
+            /** Validation Hash */
+            validation_hash: string;
+        };
+        /**
+         * AllocationPublicationStateResponse
+         * @description Aktive Publikation (vor der Auslieferung neu geprueft).
+         */
+        AllocationPublicationStateResponse: {
+            /** Approval Hash */
+            approval_hash?: string | null;
+            /** Approval Mode */
+            approval_mode?: string | null;
+            /** Approved At */
+            approved_at?: string | null;
+            /** Approved By */
+            approved_by?: string | null;
+            /** Envelope Id */
+            envelope_id?: string | null;
+            /** Publication Id */
+            publication_id?: string | null;
+            /** Publication Sequence */
+            publication_sequence?: number | null;
+            /** Published Envelope Hash */
+            published_envelope_hash?: string | null;
+            /** Reason Code */
+            reason_code?: string | null;
+            /** Status */
+            status: string;
+            /** Target Allocation Id */
+            target_allocation_id?: string | null;
+            /** Validation Hash */
+            validation_hash?: string | null;
+        };
+        /**
+         * AllocationPublishRequest
+         * @description CCX-P4: Freigabe genau des geprueften Stands (Approval-Binding).
+         */
+        AllocationPublishRequest: {
+            /** Attestation Reason */
+            attestation_reason?: string | null;
+            /**
+             * Single Approver Attestation
+             * @default false
+             */
+            single_approver_attestation?: boolean;
+            /** Target Allocation Id */
+            target_allocation_id: string;
+            /** Validation Hash */
+            validation_hash: string;
         };
         /** AllocationSensitivityRequest */
         AllocationSensitivityRequest: {
@@ -14695,6 +14855,11 @@ export interface components {
             policy_id: string;
             /** Preferences Json */
             preferences_json?: string | null;
+            /**
+             * Publication Status
+             * @default DRAFT
+             */
+            publication_status?: string;
             /** Reserve Funding Ledger Hash */
             reserve_funding_ledger_hash?: string | null;
             /** Reserve Needed At Generation Rappen */
@@ -20387,6 +20552,72 @@ export interface operations {
             };
         };
     };
+    get_allocation_publication_mandates__mandate_id__allocation_publication_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AllocationPublicationOverviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_allocation_publication_mandates__mandate_id__allocation_publication_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AllocationPublishRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AllocationPublicationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_backtest_ab_mandates__mandate_id__backtest_ab_get: {
         parameters: {
             query: {
@@ -23813,6 +24044,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TargetAllocationGenerateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_published_allocation_mandates__mandate_id__target_allocation_published_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TargetAllocationResponse"];
                 };
             };
             /** @description Validation Error */

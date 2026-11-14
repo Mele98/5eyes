@@ -1622,7 +1622,7 @@ function _wireSollIstHover(){
 
     <!-- PAGE: ALLOKATION -->
     <div id="page-al" class="page">
-      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r aa-actions"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('assetallocation')" title="Asset-Allocation-PDF (Server)">PDF</button><button class="btn-p aa-commit-action" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none">Portfolio umsetzen</button><details class="aa-more"><summary title="Weitere Optionen" aria-label="Weitere Asset-Allocation-Optionen">⋯</summary><div class="aa-more-menu"><button class="btn" id="btn-aa-backtest" onclick="openStrategyBacktest();this.closest('details').removeAttribute('open')" title="Backtest der SOLL-Strategie auf historischen Jahresrenditen (Wealth-Index, Drawdown, CAGR, Sharpe)">Strategie-Backtest</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal();this.closest('details').removeAttribute('open')">Parameter</button><button class="btn" onclick="openMandateSettingsModal();this.closest('details').removeAttribute('open')" title="Mandat-Einstellungen: Mortalität, Rentenalter, Lebenserwartung">Mandat-Einstellungen</button><button class="btn" onclick="openAllocationEngineModal();this.closest('details').removeAttribute('open')">Soll-Quoten</button></div></details></div></div>
+      <div class="ph"><div><div class="ph-t">Asset Allokation</div><div class="ph-s">SOLL-Strategie aus Risikoprofil, Zielen und Beratungsvermögen — stochastisch optimiert</div></div><div class="ph-r aa-actions"><button class="btn" id="btn-aa-pref-open" onclick="openAllocationPreferencesModal()">Anlagepräferenzen</button><button class="btn-g" id="btn-aa-calc" onclick="calculateInvestmentStrategy()">Anlagestrategie berechnen</button><button class="btn" id="btn-aa-pdf" onclick="downloadServerPdf('assetallocation')" title="Asset-Allocation-PDF (Server)">PDF</button><span class="aa-pub-chip" id="aa-publication-status" style="display:none;font-size:11px;color:var(--n5);align-self:center;margin-right:6px"></span><button class="btn" id="btn-aa-publish" onclick="publishAllocation()" style="display:none" disabled>Publizieren</button><button class="btn-p aa-commit-action" id="btn-portfolio-umsetzen" onclick="openPortfolioUmsetzenModal()" style="display:none">Portfolio umsetzen</button><details class="aa-more"><summary title="Weitere Optionen" aria-label="Weitere Asset-Allocation-Optionen">⋯</summary><div class="aa-more-menu"><button class="btn" id="btn-aa-backtest" onclick="openStrategyBacktest();this.closest('details').removeAttribute('open')" title="Backtest der SOLL-Strategie auf historischen Jahresrenditen (Wealth-Index, Drawdown, CAGR, Sharpe)">Strategie-Backtest</button><button class="btn" id="btn-aa-params-open" onclick="openAllocationParametersModal();this.closest('details').removeAttribute('open')">Parameter</button><button class="btn" onclick="openMandateSettingsModal();this.closest('details').removeAttribute('open')" title="Mandat-Einstellungen: Mortalität, Rentenalter, Lebenserwartung">Mandat-Einstellungen</button><button class="btn" onclick="openAllocationEngineModal();this.closest('details').removeAttribute('open')">Soll-Quoten</button></div></details></div></div>
       <div class="pad">
       <div id="al-dirty-banner" class="al-banner-warning al-dirty-banner" role="status" aria-live="polite" style="display:none">
         <div class="al-banner-icon">!</div>
@@ -8028,165 +8028,6 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
 // Kenntnisse-Tabelle die Legacy hatte — Compliance-Issue laut Memory
 // "Risikoprofil ist FINMA-konform, nicht UX-refactorn". Daher inaktiv.
 // Re-Migration der Eignungspruefung-Tabelle in eine zukünftige Spec mit FINMA-Sign-Off.
-function syncPortfolioUmsetzenButtonVisibility(){
-  var btn=document.getElementById('btn-portfolio-umsetzen');
-  if(!btn)return;
-  var visible=!!(strategyState&&strategyState.allocation&&Array.isArray(strategyState.allocation.buckets)&&strategyState.allocation.buckets.length&&!strategyState.dirty);
-  btn.style.display=visible?'':'none';
-}
-
-function openPortfolioUmsetzenModal(){
-  var alloc=strategyState&&strategyState.allocation;
-  if(!alloc||!Array.isArray(alloc.buckets)||!alloc.buckets.length){
-    uiAlert({level:'warn',message:'Bitte zuerst Anlagestrategie berechnen.'});
-    return;
-  }
-  var now=new Date();
-  var todayLocal=[String(now.getFullYear()),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
-  var dateEl=document.getElementById('pu-date');
-  if(dateEl)dateEl.value=todayLocal;
-  var mid=getActiveMandateId();
-  var risk=currentPersistedRiskForMandate(mid)||(strategyState&&strategyState.risk)||null;
-  var riskLabel=risk?(risk.override_profile||risk.final_profile||'Nicht definiert'):'Nicht definiert';
-  var riskScore=risk&&((risk.override_score_x10!=null)||(risk.final_score_x10!=null))
-    ?Math.round(Number(risk.override_score_x10!=null?risk.override_score_x10:risk.final_score_x10||0)/10)
-    :null;
-  var riskDisplay=document.getElementById('pu-risk-display');
-  if(riskDisplay)riskDisplay.textContent=riskLabel+(riskScore!=null?' ('+riskScore+'/10)':'');
-  var sumRows=document.getElementById('pu-summary-rows');
-  if(sumRows){
-    var ENGINE_LABELS={
-      'Aktien':'Aktien',
-      'Obligationen':'Obligationen',
-      'Immobilien':'Immobilien',
-      'Liquiditaet':'Liquidität',
-      'Alternative':'Alternative'
-    };
-    var totalAdvisoryRappen=Math.round(Number(alloc.advisory_wealth_rappen||0));
-    var rowsHtml=(alloc.buckets||[]).map(function(b){
-      var label=ENGINE_LABELS[String(b.asset_class||'')]||String(b.asset_class||'');
-      var pct=sollPct(b.asset_class,b.target_weight_bps,alloc.buckets);
-      var targetRappen=Number(b.target_amount_rappen!=null?b.target_amount_rappen:Math.round(totalAdvisoryRappen*Number(b.target_weight_bps||0)/10000));
-      var bandInfo=(b.band_min_bps!=null&&b.band_max_bps!=null)
-        ?'Band: '+formatBpsPercent(b.band_min_bps)+'–'+formatBpsPercent(b.band_max_bps)
-        :'Band: —';
-      return '<div style="display:grid;grid-template-columns:1.2fr 60px 100px 1fr;gap:6px;align-items:center;padding:6px 12px;border-bottom:1px solid var(--b1)">'
-        +'<div style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(label)+'</div>'
-        +'<div style="text-align:right;font-size:11px;font-weight:600;color:var(--n8)">'+escapeHtml(pct)+'</div>'
-        +'<div style="text-align:right;font-size:10px;color:var(--n5)">'+escapeHtml(formatRappen(targetRappen))+'</div>'
-        +'<div style="font-size:9px;color:var(--n4)">'+escapeHtml(bandInfo)+'</div>'
-        +'</div>';
-    }).join('');
-    var totalHtml='<div style="display:flex;justify-content:space-between;padding:8px 12px;border-top:2px solid var(--b1);font-size:11px;font-weight:600;color:var(--n7)">'
-      +'<span>Beratungsvermögen</span>'
-      +'<span>'+escapeHtml(formatRappen(totalAdvisoryRappen))+'</span>'
-      +'</div>';
-    sumRows.innerHTML=rowsHtml+totalHtml;
-  }
-  var errEl=document.getElementById('pu-error');
-  if(errEl){
-    errEl.textContent='';
-    errEl.style.display='none';
-  }
-  var noteEl=document.getElementById('pu-note');
-  if(noteEl)noteEl.value='';
-  om('m-pu');
-}
-
-async function savePortfolioUmsetzen(){
-  var mid=getActiveMandateId();
-  var errEl=document.getElementById('pu-error');
-  var btn=document.getElementById('btn-pu-save');
-  function showErr(msg){
-    if(errEl){
-      errEl.textContent=msg;
-      errEl.style.display='';
-    }
-  }
-  if(!mid||isDemoMandateId(mid)){
-    cm('m-pu');
-    printCurrentRubricPdf();
-    return;
-  }
-  var alloc=strategyState&&strategyState.allocation;
-  var risk=currentPersistedRiskForMandate(mid)||(strategyState&&strategyState.risk)||null;
-  if(!alloc||!Array.isArray(alloc.buckets)||!alloc.buckets.length){
-    showErr('Keine Strategie geladen. Bitte Anlagestrategie berechnen.');
-    return;
-  }
-  var dateVal=(document.getElementById('pu-date')||{}).value;
-  if(!dateVal){
-    var now=new Date();
-    dateVal=[String(now.getFullYear()),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
-  }
-  var noteVal=((document.getElementById('pu-note')||{}).value||'').trim()||null;
-  function getBucket(engineKey){
-    return (alloc.buckets||[]).find(function(x){return String(x.asset_class||'')===engineKey;})||null;
-  }
-  function getBps(engineKey){
-    var b=getBucket(engineKey);
-    return b?Number(b.target_weight_bps||0):0;
-  }
-  function getBandLo(engineKey){
-    var b=getBucket(engineKey);
-    return b&&b.band_min_bps!=null?Number(b.band_min_bps):null;
-  }
-  function getBandHi(engineKey){
-    var b=getBucket(engineKey);
-    return b&&b.band_max_bps!=null?Number(b.band_max_bps):null;
-  }
-  var bpsSum=getBps('Aktien')+getBps('Obligationen')+getBps('Immobilien')+getBps('Liquiditaet')+getBps('Alternative');
-  if(Math.abs(bpsSum-10000)>50){
-    showErr('BPS-Summe '+bpsSum+' weicht zu stark von 10000 ab. Bitte Strategie neu berechnen.');
-    return;
-  }
-  var advRappen=Math.round(Number(alloc.advisory_wealth_rappen||0));
-  var riskScoreX10=risk?Number(risk.override_score_x10!=null?risk.override_score_x10:risk.final_score_x10||0):0;
-  var riskLabel=risk?(risk.override_profile||risk.final_profile||'Nicht definiert'):'Nicht definiert';
-  var body={
-    snapshot_date:dateVal,
-    advisory_assets_rappen:advRappen,
-    risk_profile_score:riskScoreX10,
-    risk_profile_label:riskLabel,
-    soll_equities_bps:getBps('Aktien'),
-    soll_bonds_bps:getBps('Obligationen'),
-    soll_real_estate_bps:getBps('Immobilien'),
-    soll_liquidity_bps:getBps('Liquiditaet'),
-    soll_alternatives_bps:getBps('Alternative'),
-    band_equities_lo_bps:getBandLo('Aktien'),
-    band_equities_hi_bps:getBandHi('Aktien'),
-    band_bonds_lo_bps:getBandLo('Obligationen'),
-    band_bonds_hi_bps:getBandHi('Obligationen'),
-    band_real_estate_lo_bps:getBandLo('Immobilien'),
-    band_real_estate_hi_bps:getBandHi('Immobilien'),
-    band_liquidity_lo_bps:getBandLo('Liquiditaet'),
-    band_liquidity_hi_bps:getBandHi('Liquiditaet'),
-    band_alternatives_lo_bps:getBandLo('Alternative'),
-    band_alternatives_hi_bps:getBandHi('Alternative'),
-    advisor_note:noteVal
-  };
-  if(btn){
-    btn.disabled=true;
-    btn.textContent='Speichert…';
-  }
-  if(errEl)errEl.style.display='none';
-  try{
-    await API.post('/mandates/'+mid+'/strategy-snapshots',body);
-    cm('m-pu');
-    updateStrategyStatus('Strategie-Snapshot gespeichert. PDF wird geöffnet.',false);
-    syncPortfolioUmsetzenButtonVisibility();
-    if(String(document.body&&document.body.dataset.page||'')==='rv')loadReviewSpiegel(mid);
-    printCurrentRubricPdf();
-  }catch(e){
-    showErr('Speichern fehlgeschlagen: '+(e&&e.detail?e.detail:(e&&e.message?e.message:String(e||'Unbekannter Fehler'))));
-  }finally{
-    if(btn){
-      btn.disabled=false;
-      btn.textContent='Strategie festlegen & PDF';
-    }
-  }
-}
-
 function printCurrentRubricPdf(){
   var pageKey=typeof currentActivePageKey==='function'?currentActivePageKey():String(document.body&&document.body.dataset.page||'');
   var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
@@ -21984,7 +21825,7 @@ async function confirmImplementationRecipe(){
   try{
     if(mid&&runId&&!isDemoMandateId(mid)){
       await API.fetch('/mandates/'+mid+'/recommendations/'+runId+'/finalize',{method:'PUT'});
-      updateStrategyStatus('Aktuelles Rezept wurde finalisiert und für den Druck vorbereitet.',false);
+      updateStrategyStatus('Aktuelles Rezept wurde finalisiert. Kundenwirksam wird es nach der Publikation.',false);refreshAllocationPublication(true);
     }else{
       updateStrategyStatus('Aktuelles Rezept wurde live aufgebaut und kann jetzt gedruckt werden.',false);
     }
@@ -26900,6 +26741,6 @@ function openStammdatenModal(){
 </div>
 <!-- ─────────────────────────────────────────────────────────── -->
 
-<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./sustainability-preferences.js"></script>
+<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./allocation-publication.js"></script><script src="./sustainability-preferences.js"></script>
 </body>
 </html>

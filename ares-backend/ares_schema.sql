@@ -2275,3 +2275,59 @@ CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_insert_guard BEFORE IN
 CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_no_replace BEFORE INSERT ON position_decision_ledger FOR EACH ROW WHEN EXISTS (SELECT 1 FROM position_decision_ledger d WHERE d.id = NEW.id) OR EXISTS (SELECT 1 FROM position_decision_ledger d WHERE d.envelope_id = NEW.envelope_id AND d.position_id = NEW.position_id) BEGIN SELECT RAISE(ABORT, 'position_decision_ledger row already exists (no replace)'); END;
 CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_no_update BEFORE UPDATE ON position_decision_ledger FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'position_decision_ledger is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS trg_position_decision_ledger_no_delete BEFORE DELETE ON position_decision_ledger FOR EACH ROW WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = OLD.envelope_id) IS NOT 'DRAFT' BEGIN SELECT RAISE(ABORT, 'position_decision_ledger is immutable'); END;
+
+-- CCX-P4 Allocation-Publish (Vertrag 2026-11-13 §7): textgleich mit
+-- database.py ALLOCATION_PUBLICATION_SQLITE_TABLE_DDL / _TRIGGERS.
+CREATE TABLE IF NOT EXISTS allocation_publication_decisions (
+    id                       TEXT PRIMARY KEY,
+    tenant_id                TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id               TEXT NOT NULL,
+    schema_version           TEXT NOT NULL CHECK(schema_version = 'ares/allocation-publication/1'),
+    envelope_id              TEXT,
+    target_allocation_id     TEXT,
+    publication_sequence     INTEGER NOT NULL CHECK(publication_sequence >= 1),
+    validation_hash          TEXT NOT NULL CHECK(length(validation_hash) = 64),
+    approval_hash            TEXT CHECK(approval_hash IS NULL OR length(approval_hash) = 64),
+    approval_mode            TEXT CHECK(approval_mode IS NULL OR approval_mode IN ('four_eyes','single_approver_attested')),
+    approved_at              TEXT,
+    approved_by              TEXT REFERENCES users(id),
+    publishable              INTEGER NOT NULL CHECK(publishable IN (0, 1)),
+    blocker_codes_json       TEXT NOT NULL,
+    published_envelope_hash  TEXT CHECK(published_envelope_hash IS NULL OR length(published_envelope_hash) = 64),
+    created_at               TEXT NOT NULL,
+    created_by               TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT ck_allocation_publication_decisions_published CHECK(publishable = 0 OR (
+        envelope_id IS NOT NULL AND target_allocation_id IS NOT NULL AND approval_hash IS NOT NULL
+        AND approval_mode IS NOT NULL AND approved_at IS NOT NULL AND approved_by IS NOT NULL
+        AND published_envelope_hash IS NOT NULL AND blocker_codes_json = '[]')),
+    CONSTRAINT ck_allocation_publication_decisions_blocked CHECK(publishable = 1 OR (
+        published_envelope_hash IS NULL AND approval_hash IS NULL AND blocker_codes_json <> '[]')),
+    CONSTRAINT uq_allocation_publication_decisions_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT uq_allocation_publication_decisions_sequence UNIQUE (mandate_id, publication_sequence),
+    CONSTRAINT fk_allocation_publication_decisions_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_allocation_publication_decisions_tenant_id ON allocation_publication_decisions(tenant_id);
+CREATE INDEX IF NOT EXISTS ix_allocation_publication_decisions_mandate ON allocation_publication_decisions(tenant_id, mandate_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_allocation_publication_decisions_one_per_envelope ON allocation_publication_decisions(envelope_id) WHERE publishable = 1;
+CREATE TABLE IF NOT EXISTS allocation_active_publications (
+    id                       TEXT PRIMARY KEY,
+    tenant_id                TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id               TEXT NOT NULL,
+    publication_id           TEXT NOT NULL,
+    optimistic_version       INTEGER NOT NULL CHECK(optimistic_version >= 1),
+    updated_at               TEXT NOT NULL,
+    updated_by               TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT uq_allocation_active_publications_mandate UNIQUE (mandate_id),
+    CONSTRAINT fk_allocation_active_publications_publication FOREIGN KEY (tenant_id, publication_id)
+        REFERENCES allocation_publication_decisions(tenant_id, id)
+);
+CREATE INDEX IF NOT EXISTS ix_allocation_active_publications_tenant_id ON allocation_active_publications(tenant_id);
+CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_no_replace BEFORE INSERT ON allocation_publication_decisions FOR EACH ROW WHEN EXISTS (SELECT 1 FROM allocation_publication_decisions d WHERE d.id = NEW.id OR (d.mandate_id = NEW.mandate_id AND d.publication_sequence = NEW.publication_sequence)) BEGIN SELECT RAISE(ABORT, 'allocation_publication_decisions row already exists (no replace)'); END;
+CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_sequence BEFORE INSERT ON allocation_publication_decisions FOR EACH ROW WHEN NEW.publication_sequence IS NOT (SELECT COALESCE(MAX(d.publication_sequence), 0) + 1 FROM allocation_publication_decisions d WHERE d.mandate_id = NEW.mandate_id) BEGIN SELECT RAISE(ABORT, 'CCX_PUBLICATION_RACE'); END;
+CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_envelope BEFORE INSERT ON allocation_publication_decisions FOR EACH ROW WHEN NEW.publishable = 1 AND NOT EXISTS (SELECT 1 FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id AND e.tenant_id = NEW.tenant_id AND e.mandate_id = NEW.mandate_id AND e.status = 'SEALED' AND e.freshness_status = 'FRESH' AND e.envelope_hash = NEW.published_envelope_hash) BEGIN SELECT RAISE(ABORT, 'CCX_ALLOCATION_NOT_PUBLISHABLE'); END;
+CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_no_update BEFORE UPDATE ON allocation_publication_decisions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'allocation_publication_decisions is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_no_delete BEFORE DELETE ON allocation_publication_decisions FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'allocation_publication_decisions is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_insert BEFORE INSERT ON allocation_active_publications FOR EACH ROW WHEN EXISTS (SELECT 1 FROM allocation_active_publications p WHERE p.id = NEW.id OR p.mandate_id = NEW.mandate_id) OR NEW.optimistic_version IS NOT 1 OR NOT EXISTS (SELECT 1 FROM allocation_publication_decisions d WHERE d.id = NEW.publication_id AND d.tenant_id = NEW.tenant_id AND d.mandate_id = NEW.mandate_id AND d.publishable = 1) BEGIN SELECT RAISE(ABORT, 'CCX_PUBLICATION_RACE'); END;
+CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_update BEFORE UPDATE ON allocation_active_publications FOR EACH ROW WHEN NEW.id IS NOT OLD.id OR NEW.tenant_id IS NOT OLD.tenant_id OR NEW.mandate_id IS NOT OLD.mandate_id OR NEW.optimistic_version IS NOT OLD.optimistic_version + 1 OR NOT EXISTS (SELECT 1 FROM allocation_publication_decisions d WHERE d.id = NEW.publication_id AND d.tenant_id = NEW.tenant_id AND d.mandate_id = NEW.mandate_id AND d.publishable = 1 AND d.publication_sequence > (SELECT o.publication_sequence FROM allocation_publication_decisions o WHERE o.id = OLD.publication_id)) BEGIN SELECT RAISE(ABORT, 'CCX_PUBLICATION_RACE'); END;
+CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_no_delete BEFORE DELETE ON allocation_active_publications FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'allocation_active_publications: pointer is never deleted'); END;

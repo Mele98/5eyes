@@ -28,6 +28,14 @@ from services.audit import release_block_audit
 from services.auth import extract_client_ip as _extract_client_ip
 from services.auth import get_current_user, get_mandate_for_user_or_404, set_tenant_context
 from services.advisory_decision_envelope import decision_freshness_for_allocation, persist_freshness_drift
+# CCX-P4: Kunden-PDFs lesen nur den publizierten Stand -- ein Entwurf traegt das
+# Wasserzeichen "Entwurf -- Soll-Allokation nicht publiziert" und wird nie als
+# finale (signierbare) Fassung archiviert.
+from services.allocation_publication_gate import (
+    AllocationVersionConflict,
+    assert_report_allocation_matches,
+    customer_document_watermark,
+)
 from services.document_archive import (
     archive_generated_pdf,
     content_hash_for,
@@ -132,6 +140,17 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session, *,
         # N-897-12: ohne jede KYC-Bestaetigung als Entwurf vor Vertragsabschluss.
         watermark_mode="vorvertrag" if draft_check and kyc_release_is_draft(db, mandate) else "none",
     )
+
+
+def _mark_unpublished(ctx: PDFContext, db: Session, mandate: Mandate) -> PDFContext:
+    """CCX-P4: ein Kunden-PDF, das die Soll-Allokation traegt, ist nur final,
+    wenn genau diese Allokation gueltig publiziert ist (tiefe Pruefung inkl.
+    Frische). Sonst Entwurf: Wasserzeichen und nie archiviert (``_archive_final``
+    legt nur ``watermark_mode == "none"`` ab) -- damit auch nicht signierbar."""
+    mode = customer_document_watermark(db, mandate)
+    if mode is None:
+        return ctx
+    return dataclasses.replace(ctx, watermark_mode=mode)
 
 
 def _attach_provisional_notice(ctx: PDFContext, db: Session, mandate: Mandate) -> PDFContext:
@@ -573,11 +592,6 @@ def _assert_report_allocation_context(
     # (FieldInfo) statt None -- nur echte Zeichenketten sind ein Token.
     if not isinstance(expected_allocation_id, str) or not expected_allocation_id.strip():
         return
-    from services.allocation_concurrency import (
-        AllocationVersionConflict,
-        assert_report_allocation_matches,
-    )
-
     try:
         current = _latest_target_allocation(mandate, db)
         assert_report_allocation_matches(current, expected_allocation_id)
@@ -1356,6 +1370,7 @@ def get_anlagestrategie_pdf(
     _assert_report_allocation_context(mandate, db, expected_allocation_id)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
+    ctx = _mark_unpublished(ctx, db, mandate)
     try:
         data = _build_anlagestrategie_data(mandate, db)
     except ValueError as exc:
@@ -1398,6 +1413,7 @@ def get_assetallocation_pdf(
     _assert_report_allocation_context(mandate, db, expected_allocation_id)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
+    ctx = _mark_unpublished(ctx, db, mandate)
     try:
         data = _build_anlagestrategie_data(mandate, db)
     except ValueError as exc:
@@ -1755,6 +1771,7 @@ def get_portfolio_pdf(
     _assert_client_pdf_sustainability_floor(db, mandate, current_user, request)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
+    ctx = _mark_unpublished(ctx, db, mandate)
     data = _build_portfolio_data(mandate, db)
     pdf_bytes = ReportLabRenderer().render_portfolio(ctx, data)
     _archive_final(
@@ -2382,7 +2399,7 @@ def get_protokoll_pdf(
     _assert_client_pdf_kyc_review(db, mandate, current_user, request)
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
-    ctx = _build_pdf_context(mandate, current_user, db)
+    ctx = _mark_unpublished(_build_pdf_context(mandate, current_user, db), db, mandate)
     data = _build_protokoll_data(mandate, db)
     pdf_bytes = ReportLabRenderer().render_protokoll(ctx, data)
     _archive_final(
@@ -2805,7 +2822,7 @@ def get_depotcheck_pdf(
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_kyc_review(db, mandate, current_user, request)
-    ctx = _build_pdf_context(mandate, current_user, db)
+    ctx = _mark_unpublished(_build_pdf_context(mandate, current_user, db), db, mandate)
     try:
         if analysis_snapshot_id is not None:
             analysis = load_depot_check_analysis(db, mandate, analysis_snapshot_id)
@@ -2977,6 +2994,7 @@ def get_backtest_pdf(
     _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
+    ctx = _mark_unpublished(ctx, db, mandate)
     bm_inputs = {
         "equities": benchmark_equities_bps,
         "bonds": benchmark_bonds_bps,
@@ -3066,7 +3084,9 @@ def get_advisory_report_pdf(
     _enforce_cma_currency_release(db, mandate)  # CMA-CURRENCY-GUARD-001
     pdf_bytes = render_advisory_report_pdf(
         db, mandate, current_user,
-        watermark_mode="vorvertrag" if kyc_release_is_draft(db, mandate) else "none",
+        # CCX-P4: nicht publizierte Strategie -> Entwurf (Vorrang vor "vorvertrag").
+        watermark_mode=customer_document_watermark(db, mandate)
+        or ("vorvertrag" if kyc_release_is_draft(db, mandate) else "none"),
     )
     if pdf_bytes is None:
         # CERT-COST-PUBLICATION-001 (COST-PUBLICATION-GATE-001): degraded
@@ -3170,6 +3190,7 @@ def get_cost_disclosure_pdf(
         )
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
+    ctx = _mark_unpublished(ctx, db, mandate)
     data = CostDisclosurePDFData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,
         advisory_wealth_rappen=int(payload.get("advisory_wealth_rappen") or 0),

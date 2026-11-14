@@ -67,7 +67,10 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # CCX-P3 Markt-/Depot-Wahrheit (2026-11-14): drei neue Tabellen
 # (holdings_valuation_snapshots, holdings_valuation_rows, position_decision_ledger),
 # keine bestehende Tabelle umbenannt/entfernt (Integration P1->P2->P3: 110 Tabellen).
-GOLDEN_SORTED_TABLES_SHA256 = "ec1c0f762f6c3216e7e368e50582d50c5979f34446f11938b0f11dd9cf1c5e70"
+# CCX-P4 Allocation-Publish (2026-11-14): zwei neue Tabellen
+# (allocation_publication_decisions, allocation_active_publications), 112 Tabellen,
+# keine bestehende Tabelle umbenannt/entfernt.
+GOLDEN_SORTED_TABLES_SHA256 = "9311fe7a1c805b2c7741ef4853bd2d56793afa4a296ca386fb2cdd8e761255ae"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -181,7 +184,10 @@ GOLDEN_SORTED_TABLES_SHA256 = "ec1c0f762f6c3216e7e368e50582d50c5979f34446f11938b
 # CCX-P3: confirm_no_existing_holdings an finalize; mandate_id/target_currency
 # an cashflow-summary/-projection; fx_basis_hash/valuation_as_of/mandate_id in
 # CashflowSummaryResponse; currency an WealthInflowCreate (Pflicht)/Update/Response.
-GOLDEN_OPENAPI_SHA256 = "f37a40cefd9a5ce588f9a3fa913a16fbe1604d61c75dcdccd8f47414c93a4abe"
+# CCX-P4: GET/POST /mandates/{id}/allocation-publication, GET
+# /mandates/{id}/target-allocation/published, publication_status in
+# TargetAllocationResponse, AllocationPublication*-Schemas.
+GOLDEN_OPENAPI_SHA256 = "85ff8c66747fc3bc7f74392a7521516a237318337756695056aba28ce5a91b8f"
 
 _PROBE = """
 import hashlib, json

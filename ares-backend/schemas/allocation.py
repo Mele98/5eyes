@@ -419,6 +419,12 @@ class TargetAllocationResponse(BaseResponse):
     # gesetzt -- Bandbreiten ausserhalb der Hausmatrix-Zeile (persistiert in
     # effective_constraints_json/optimizer_reasoning_json).
     manual_override_warnings: list[str] = Field(default_factory=list)
+    # CCX-P4: Publikationsstatus (Serverwahrheit, nie im Client berechnet).
+    # PUBLISHED nur fuer die gueltig publizierte Allokation; jede andere --
+    # generiert oder manuell -- ist ein Entwurf (DRAFT), eine publizierte, aber
+    # nicht mehr gueltige PUBLICATION_INVALID. ``approved_by``/``approved_at``
+    # unten sind Altfelder der Tabelle und keine Freigabe.
+    publication_status: str = "DRAFT"
     policy_id: str
     set_by: str
     set_at: str
@@ -1801,3 +1807,63 @@ class IstProjectionBasisResponse(BaseModel):
     total_base_rappen: int
     foundation_in_net_wealth_rappen: int
     projection_basis: dict
+
+
+# ── CCX-P4 Allocation-Publish ────────────────────────────────────────────────
+
+
+class AllocationPublicationStateResponse(BaseModel):
+    """Aktive Publikation (vor der Auslieferung neu geprueft)."""
+    status: str
+    reason_code: Optional[str] = None
+    publication_id: Optional[str] = None
+    publication_sequence: Optional[int] = None
+    target_allocation_id: Optional[str] = None
+    envelope_id: Optional[str] = None
+    published_envelope_hash: Optional[str] = None
+    validation_hash: Optional[str] = None
+    approval_hash: Optional[str] = None
+    approved_at: Optional[str] = None
+    approved_by: Optional[str] = None
+    approval_mode: Optional[str] = None
+
+
+class AllocationPublicationOverviewResponse(BaseModel):
+    """CCX-P4: Publikationsstatus der aktuellen Soll-Allokation fuer die
+    Masken. ``can_publish`` nur, wenn alle Pruefungen gruen sind;
+    ``blocker_codes`` sind katalogisierte Reason-Codes."""
+    mandate_id: str
+    target_allocation_id: Optional[str] = None
+    envelope_id: Optional[str] = None
+    envelope_hash: Optional[str] = None
+    publication_status: str
+    validation_status: str
+    validation_hash: str
+    blocker_codes: list[str] = Field(default_factory=list)
+    can_publish: bool
+    already_published: bool
+    prepared_by: Optional[str] = None
+    active_publication: AllocationPublicationStateResponse
+
+
+class AllocationPublishRequest(BaseModel):
+    """CCX-P4: Freigabe genau des geprueften Stands (Approval-Binding)."""
+    target_allocation_id: str = Field(min_length=1, max_length=64)
+    validation_hash: str = Field(min_length=64, max_length=64, pattern="^[0-9a-f]{64}$")
+    single_approver_attestation: bool = False
+    attestation_reason: Optional[str] = Field(default=None, max_length=1000)
+
+
+class AllocationPublicationResponse(BaseModel):
+    """CCX-P4: geschriebener Publikationsentscheid."""
+    publication_id: str
+    mandate_id: str
+    target_allocation_id: str
+    envelope_id: str
+    publication_sequence: int
+    validation_hash: str
+    approval_hash: str
+    approval_mode: str
+    approved_at: str
+    approved_by: str
+    published_envelope_hash: str

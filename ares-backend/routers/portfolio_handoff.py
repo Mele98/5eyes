@@ -29,7 +29,11 @@ from models.portfolio_handoff import (
 )
 from models.review import RecommendationRun
 from models.users import User
-from routers.auth import _extract_client_ip
+# CCX-P4: direkt aus services.auth (derselbe Helfer, den routers.auth nur
+# weiterreicht) -- Router importieren keine Router.
+from services.auth import extract_client_ip as _extract_client_ip
+# CCX-P4: nur eine publizierte, frische Soll-Allokation geht in den Handoff.
+from services.allocation_publication_gate import require_published_allocation
 from services.data_classification import enforce_data_classification
 from schemas.portfolio_handoff import (
     PortfolioHandoffCancel,
@@ -94,6 +98,21 @@ def _get_handoff_or_404(mandate_id: str, handoff_id: str, db: Session, current_u
     if not handoff:
         raise HTTPException(status_code=404, detail="Weiterleitung nicht gefunden")
     return handoff
+
+
+def _assert_run_is_published(db: Session, mandate: Mandate, run: RecommendationRun, user: User,
+                             ip_address: str | None) -> None:
+    """CCX-P4: Handoff nur fuer die gueltig publizierte Soll-Allokation und
+    einen Lauf genau dieser Allokation (sonst CCX_ALLOCATION_NOT_PUBLISHABLE)."""
+    state = require_published_allocation(
+        db, mandate, channel=CHANNEL_HANDOFF, user=user, ip_address=ip_address,
+    )
+    if str(getattr(run, "target_allocation_id", "") or "") != str(state.target_allocation_id or ""):
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "CCX_ALLOCATION_NOT_PUBLISHABLE",
+            "message": "Diese Empfehlung gehoert nicht zur publizierten Soll-Allokation.",
+            "channel": CHANNEL_HANDOFF,
+        })
 
 
 def _atomically_close_handoff_or_409(
@@ -171,6 +190,9 @@ def preview_portfolio_handoff(
     Grund (z.B. fehlende Neugeld-Bestaetigung) ausweisen kann."""
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
+    # CCX-P4: auch die Vorschau zeigt nur die Handelsliste einer publizierten,
+    # frischen Soll-Allokation (Reason-Code statt Entwurfsliste).
+    _assert_run_is_published(db, mandate, run, current_user, None)
     try:
         trades, total_value_rappen, holdings_basis = snapshot_handoff(
             db, mandate, run, current_user.id,
@@ -282,6 +304,9 @@ def create_portfolio_handoff(
             set_tenant_context=set_tenant_context,
         ),
     )
+    # CCX-P4: nur die publizierte, frische Soll-Allokation (Approval-Binding,
+    # Envelope SEALED+FRESH) und genau ihr Lauf werden weitergeleitet.
+    _assert_run_is_published(db, mandate, run, current_user, _extract_client_ip(request))
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
     from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible
 

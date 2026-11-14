@@ -74,15 +74,18 @@ def _fit_disclaimer_lines(full_text: str, page_width: float) -> tuple[float, lis
 # C-890-01 Nachtrag 4 (N-897-12): gleicher Text wie
 # services/pdf/components/watermark.py::VORVERTRAG_TEXT (Test prueft Gleichheit).
 VORVERTRAG_TEXT = "Entwurf – vor Vertragsabschluss (ohne KYC-Bestätigung)"
+# CCX-P4: gleicher Text wie services/pdf/components/watermark.py::UNPUBLISHED_TEXT.
+UNPUBLISHED_TEXT = "Entwurf – Soll-Allokation nicht publiziert"
 
 
-def _draw_vorvertrag_mark(canvas: Canvas, page_width: float, page_height: float) -> None:
+def _draw_vorvertrag_mark(canvas: Canvas, page_width: float, page_height: float,
+                          headline: str = VORVERTRAG_TEXT) -> None:
     """Kundenwirksamer Bericht ohne jede KYC-Bestaetigung: Zeile oben auf jeder
     Seite und diagonales ENTWURF (gedaempftes Rot, transparent)."""
     canvas.saveState()
     canvas.setFillColorRGB(0.725, 0.11, 0.11)
     canvas.setFont(FONT_DEFAULT, 10)
-    canvas.drawCentredString(page_width / 2, page_height - 8 * mm, VORVERTRAG_TEXT)
+    canvas.drawCentredString(page_width / 2, page_height - 8 * mm, headline)
     try:
         canvas.setFillAlpha(0.15)
     except Exception:  # pragma: no cover - aeltere ReportLab-Versionen
@@ -111,8 +114,11 @@ def make_footer_callback(ctx: PDFContext, disclaimer: str | None = None):
     def _draw_footer(canvas: Canvas, doc):
         page_num = canvas.getPageNumber()
         page_width, _ = PAGE_SIZE
-        if (getattr(ctx, "watermark_mode", "none") or "none") == "vorvertrag":
+        mode = getattr(ctx, "watermark_mode", "none") or "none"
+        if mode == "vorvertrag":
             _draw_vorvertrag_mark(canvas, page_width, PAGE_SIZE[1])
+        elif mode == "unpublished":
+            _draw_vorvertrag_mark(canvas, page_width, PAGE_SIZE[1], UNPUBLISHED_TEXT)
 
         canvas.saveState()
         canvas.setFont(FONT_DEFAULT, FONT_SIZE_FOOTER)

@@ -17,6 +17,7 @@ from models.profiling import RiskAssessment, current_investment_preference
 from models.review import MandateReportNotes
 from schemas.allocation import (
     TargetAllocationCreate, TargetAllocationResponse,
+    AllocationPublicationOverviewResponse, AllocationPublicationResponse, AllocationPublishRequest,
     IstProjectionBasisResponse,
     HouseMatrixResponse,
     CapitalMarketAssumptionCreate, CapitalMarketAssumptionResponse,
@@ -54,8 +55,18 @@ from services.allocation_concurrency import (
 )
 from services.data_classification import enforce_data_classification
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer CMA-/Policy-/Allokations-
-# Aenderungen im Audit-Log.
-from routers.auth import _extract_client_ip
+# Aenderungen im Audit-Log. CCX-P4: direkt aus services.auth (derselbe Helfer,
+# den routers.auth nur weiterreicht) -- Router importieren keine Router.
+from services.auth import extract_client_ip as _extract_client_ip
+# CCX-P4: die eine Publish-Gatefunktion (nur sie macht eine Allocation aktiv).
+from services.allocation_publication_gate import (
+    STATUS_DRAFT as PUBLICATION_STATUS_DRAFT,
+    active_publication_state,
+    allocation_publication_status,
+    publication_overview,
+    publish_allocation,
+    require_published_allocation,
+)
 # C-890-01 Nachtrag 3: die Ausnahmen kommen ueber die Fassade
 # services.jurisdiction.resolve (bereits Abhaengigkeit, importiert sie selbst) --
 # so bleibt der Fan-out konstant, obwohl der React-Bericht das zentrale
@@ -138,13 +149,18 @@ def get_current_allocation(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    _get_mandate_or_404(mandate_id, db, current_user)
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
     try:
         ta = _current_target_allocation_or_none(db, mandate_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if not ta:
         raise HTTPException(status_code=404, detail="Keine Soll-Allokation gefunden")
+    # CCX-P4: Arbeitsstand -- als Entwurf ausgewiesen, solange er nicht genau
+    # die gueltig publizierte Allokation ist (Serverstatus, Anzeige).
+    ta.publication_status = allocation_publication_status(
+        active_publication_state(db, mandate, deep=False), ta.id,
+    )
     return ta
 
 
@@ -242,6 +258,10 @@ def get_current_allocation_payload(
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    # CCX-P4: Publikationsstatus der Strategie (Entwurf, solange nicht publiziert).
+    ta.publication_status = allocation_publication_status(
+        active_publication_state(db, mandate, deep=False), ta.id,
+    )
     # Sprint U-P6 Fix H6: CMA-Reload-Asymmetrie behoben — Metrics/MC werden
     # mit der zum Generate-Zeitpunkt persistierten CMA berechnet, nicht mit
     # der aktuellen. Vorher: Bands aus Snapshot, Returns/Vola aus aktueller CMA
@@ -456,6 +476,9 @@ def create_target_allocation(
     # Editor anzeigen (persistiert sind sie in effective_constraints_json
     # und optimizer_reasoning_json).
     ta.manual_override_warnings = list(candidate.warnings)
+    # CCX-P4: eine manuelle Allokation ist ein Entwurf; kundenwirksam wird sie
+    # nur ueber denselben Publish-Gate (POST /allocation-publication).
+    ta.publication_status = PUBLICATION_STATUS_DRAFT
     return ta
 
 
@@ -955,7 +978,93 @@ def generate_target_allocation_endpoint(
             raise HTTPException(status_code=409, detail=str(exc))
         db.refresh(result["target_allocation"])
         invalidate_advisory_cache(mandate_id)
+        # CCX-P4: eine neu generierte Allokation ist ein Entwurf (nie aktiv).
+        result["target_allocation"].publication_status = PUBLICATION_STATUS_DRAFT
         return result
+
+
+# ---------------------------------------------------------------------------
+# CCX-P4 Allocation-Publish (Vertrag 2026-11-13 §7)
+# ---------------------------------------------------------------------------
+
+ALLOCATION_DRAFT_NOTICE = "Entwurf – Soll-Allokation nicht publiziert"
+
+
+@router.get("/mandates/{mandate_id}/allocation-publication",
+            response_model=AllocationPublicationOverviewResponse)
+def get_allocation_publication(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """CCX-P4: Publikationsstatus der aktuellen Soll-Allokation (Pruefung ohne
+    Schreibwirkung). ``can_publish`` nur, wenn alle Gates gruen sind; sonst
+    katalogisierte ``blocker_codes``."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    return publication_overview(db, mandate)
+
+
+@router.post("/mandates/{mandate_id}/allocation-publication",
+             response_model=AllocationPublicationResponse, status_code=201)
+def post_allocation_publication(
+    mandate_id: str,
+    body: AllocationPublishRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """CCX-P4: publiziert genau den geprueften Stand (``validation_hash``) der
+    aktuellen Soll-Allokation -- generiert oder manuell, derselbe Gate.
+    Ablehnung: ``CCX_ALLOCATION_NOT_PUBLISHABLE`` (Blocker-Codes),
+    ``CCX_VALIDATION_HASH_MISMATCH`` (Mutation nach Pruefung),
+    ``CCX_APPROVAL_BINDING_MISSING`` (Vier Augen), ``CCX_PUBLICATION_RACE``
+    (paralleler Publisher); jeweils mit Audit, ohne Fallback."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    decision = publish_allocation(
+        db, mandate, user=current_user,
+        expected_validation_hash=body.validation_hash,
+        expected_target_allocation_id=body.target_allocation_id,
+        single_approver_attestation=body.single_approver_attestation,
+        attestation_reason=body.attestation_reason,
+        ip_address=_extract_client_ip(request),
+    )
+    invalidate_advisory_cache(mandate_id)
+    return AllocationPublicationResponse(
+        publication_id=decision.id, mandate_id=decision.mandate_id,
+        target_allocation_id=decision.target_allocation_id, envelope_id=decision.envelope_id,
+        publication_sequence=decision.publication_sequence, validation_hash=decision.validation_hash,
+        approval_hash=decision.approval_hash, approval_mode=decision.approval_mode,
+        approved_at=decision.approved_at, approved_by=decision.approved_by,
+        published_envelope_hash=decision.published_envelope_hash,
+    )
+
+
+@router.get("/mandates/{mandate_id}/target-allocation/published",
+            response_model=TargetAllocationResponse)
+def get_published_allocation(
+    mandate_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """CCX-P4: die aktive, gueltig publizierte Soll-Allokation -- der einzige
+    Lesepfad, der eine Allocation als aktiv liefert. Ohne gueltige
+    Publikation ``CCX_ALLOCATION_NOT_PUBLISHABLE`` (409, Audit), nie ein
+    Entwurf und nie eine aeltere Publikation."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    state = require_published_allocation(
+        db, mandate, channel="api_published_allocation", user=current_user,
+        ip_address=_extract_client_ip(request),
+    )
+    ta = db.query(TargetAllocation).filter(
+        TargetAllocation.id == state.target_allocation_id,
+        TargetAllocation.mandate_id == mandate_id,
+    ).first()
+    if ta is None:
+        raise DomainError(ReasonCode.CCX_ALLOCATION_NOT_PUBLISHABLE,
+                          "Die publizierte Soll-Allokation ist nicht mehr vorhanden.", http_status=409)
+    ta.publication_status = state.status
+    return ta
 
 
 @router.post("/mandates/{mandate_id}/target-allocation/sensitivity",
@@ -1083,6 +1192,14 @@ def get_advisory_report(
     # N-897-12: ohne jede KYC-Bestaetigung als Entwurf vor Vertragsabschluss.
     if isinstance(report, dict):
         report = {**report, "kyc_draft_notice": KYC_DRAFT_NOTICE if kyc_release_is_draft(db, mandate) else None}
+        # CCX-P4: der Bericht zeigt die Strategie nur als publiziert, wenn sie
+        # gueltig publiziert ist (tiefe Pruefung); sonst als Entwurf.
+        state = active_publication_state(db, mandate)
+        report = {
+            **report,
+            "allocation_publication": {"status": state.status, "reason_code": state.reason_code},
+            "allocation_draft_notice": None if state.published else ALLOCATION_DRAFT_NOTICE,
+        }
     return report
 
 
