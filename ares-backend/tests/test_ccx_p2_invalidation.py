@@ -863,27 +863,33 @@ def test_core_table_dml_via_session_triggers_the_hook(session_factory):
         assert db.execute(text("SELECT count(*) FROM goals WHERE weight_bps = 4100")).scalar() >= 1
 
 
-def test_connection_level_core_dml_is_refused(session_factory):
+def test_connection_level_core_dml_triggers_the_hook(session_factory):
     """N-908-02 Umgehung 2: ``db.connection().execute(update(Goal))`` und
-    ``engine.begin()`` umgingen jeden Session-Hook -- jetzt verweigert der
-    Laufzeitschutz das Statement, nichts wird geaendert."""
+    ``engine.begin()`` umgingen jeden Session-Hook -- jetzt loest der
+    Laufzeitschutz (Engine ``before_execute``) den Hook auf Verbindungsebene
+    aus: Ereignis + STALE im selben Commit (Actor ``system``)."""
     from sqlalchemy import update
 
     from models.wealth import Goal
 
     ids = _ids(session_factory, "core-conn")
     with session_factory() as db:
-        with pytest.raises(RuntimeError, match="CCX-P2"):
-            db.connection().execute(update(Goal).where(Goal.mandate_id == ids["mid"]).values(weight_bps=4200))
-        db.rollback()
-        engine = db.get_bind()
-    with pytest.raises(RuntimeError, match="CCX-P2"):
-        with engine.begin() as conn:
-            conn.execute(Goal.__table__.delete().where(Goal.__table__.c.mandate_id == ids["mid"]))
-    with session_factory() as db:
+        db.connection().execute(update(Goal).where(Goal.mandate_id == ids["mid"]).values(weight_bps=4200))
+        db.rollback()  # zurueckgerollt -> keine Spur
         assert _envelope(db, ids["envelope"]).freshness_status == "FRESH"
-        assert db.execute(text("SELECT count(*) FROM goals WHERE weight_bps = 4200")).scalar() == 0
-        assert db.execute(text("SELECT count(*) FROM goals WHERE mandate_id = :m"), {"m": ids["mid"]}).scalar() == 2
+        db.connection().execute(update(Goal).where(Goal.mandate_id == ids["mid"]).values(weight_bps=4200))
+        db.commit()
+    with session_factory() as db:
+        assert _envelope(db, ids["envelope"]).freshness_status == "STALE"
+        events = _events(db, ids["envelope"])
+        assert {e.source_kind for e in events} == {"goals"} and {e.created_by for e in events} == {"system"}
+        engine = db.get_bind()
+    other = _ids(session_factory, "core-engine")
+    with engine.begin() as conn:
+        conn.execute(Goal.__table__.delete().where(Goal.__table__.c.mandate_id == other["mid"]))
+    with session_factory() as db:
+        assert _envelope(db, other["envelope"]).freshness_status == "STALE"
+        assert {e.source_kind for e in _events(db, other["envelope"])} == {"goals"}
 
 
 def _bypass_cma(db, ids):

@@ -512,6 +512,7 @@ FRESHNESS_STALE = "STALE"
 FRESHNESS_UNKNOWN = "UNKNOWN"
 _PENDING_AUDIT_KEY = "ares_ccx_p2_pending_invalidations"
 _TABLES_PRESENT_KEY = "ares_ccx_p2_tables_present"
+_SIGNED_COLUMN_KEY = "ares_ccx_p2_signed_column"
 _INVALIDATION_DOMAIN = "ares/advisory-invalidation/1"
 _UNLOADED = "<unloaded>"
 
@@ -802,7 +803,25 @@ def _mandates_by(connection, sql: str, ids: list[str]) -> dict[str, set[str]]:
 
 
 def _apply_invalidations(session: Session, changes: list[_Change]) -> None:
-    connection = session.connection()
+    _apply_invalidations_on(
+        session.connection(), changes, actor=session.info.get(ACTOR_INFO_KEY) or SYSTEM_ACTOR,
+        pending=session.info.setdefault(_PENDING_AUDIT_KEY, []),
+    )
+
+
+def signed_decision_sql(connection) -> str:
+    """``SIGNED_DECISION_SQL`` -- oder ``0``, wenn ``contract_documents`` die
+    Bindungsspalte (noch) nicht hat (aeltere Bootstrap-Schemata ohne
+    Laufzeitpatch: dort kann es keinen gebundenen, unterzeichneten Entscheid
+    geben)."""
+    if connection.info.get(_SIGNED_COLUMN_KEY) is None:
+        columns = {c["name"] for c in sa_inspect(connection).get_columns("contract_documents")} \
+            if sa_inspect(connection).has_table("contract_documents") else set()
+        connection.info[_SIGNED_COLUMN_KEY] = {"bound_target_allocation_id", "signed_by_client"} <= columns
+    return SIGNED_DECISION_SQL if connection.info[_SIGNED_COLUMN_KEY] else "0 = 1"
+
+
+def _apply_invalidations_on(connection, changes: list[_Change], *, actor: str, pending: list | None) -> None:
     if not freshness_tables_present(connection):
         return
     is_pg = connection.dialect.name.startswith("postgresql")
@@ -833,7 +852,7 @@ def _apply_invalidations(session: Session, changes: list[_Change]) -> None:
     if edge_changes:
         edge_rows = connection.execute(_expanding(
             "SELECT d.envelope_id, d.dependency_kind, d.dependency_object_id, e.mandate_id, e.tenant_id, "
-            f"e.status, CASE WHEN {SIGNED_DECISION_SQL} THEN 1 ELSE 0 END AS signed "
+            f"e.status, CASE WHEN {signed_decision_sql(connection)} THEN 1 ELSE 0 END AS signed "
             "FROM advisory_dependency_edges d JOIN advisory_decision_envelopes e "
             "ON e.id = d.envelope_id WHERE d.dependency_kind IN :kinds AND e.status IN ('SEALED', 'DRAFT')",
             "kinds"), {"kinds": sorted({c.source.kind for c in edge_changes})}).all()
@@ -880,15 +899,13 @@ def _apply_invalidations(session: Session, changes: list[_Change]) -> None:
         targets.extend((change, envelopes[eid]) for eid in sorted(hits) if eid in envelopes)
     if not targets:
         return
-    actor = session.info.get(ACTOR_INFO_KEY) or SYSTEM_ACTOR
-    pending = session.info.setdefault(_PENDING_AUDIT_KEY, [])
     for change, row in targets:
         sequence = mark_envelope_stale(
             connection, envelope_id=str(row.id), tenant_id=str(row.tenant_id), mandate_id=str(row.mandate_id),
             source_kind=change.source.kind, source_object_id=change.object_id,
             old_hash=change.old_hash, new_hash=change.new_hash, actor=actor,
         )
-        if sequence is not None:
+        if sequence is not None and pending is not None:
             pending.append({
                 "envelope_id": str(row.id), "tenant_id": str(row.tenant_id), "mandate_id": str(row.mandate_id),
                 "source_kind": change.source.kind, "source_table": change.table,
@@ -966,23 +983,58 @@ def _leave_flush(_session, *_args) -> None:
     _FLUSH_DEPTH.set(max(0, _FLUSH_DEPTH.get() - 1))
 
 
+def _insert_rows(clauseelement, multiparams, params) -> list[dict]:
+    compiled = dict(clauseelement.compile().params or {})
+    rows = []
+    batches = multiparams if multiparams else ([params] if params else [{}])
+    for batch in batches:
+        for item in (batch if isinstance(batch, (list, tuple)) else [batch]):
+            if isinstance(item, dict):
+                rows.append({**compiled, **item})
+    return [{key: value for key, value in row.items() if value is not None} for row in rows] or [compiled]
+
+
 def _guard_core_dml(conn, clauseelement, multiparams, params, execution_options):
     """N-908-02 Laufzeitschutz: Core-DML (``update/delete/insert``) auf eine
     Abhaengigkeitstabelle, die weder aus einem Session-Flush (``after_flush``-
     Hook) noch aus dem Massen-Hook kommt -- z. B. ``db.connection().execute(
-    update(Goal))`` oder ``engine.begin()`` -- umginge die Invalidation und wird
-    verweigert. Rohes SQL (``text``) verbietet der statische Waechter."""
+    update(Goal))`` oder ``engine.begin()`` -- loest den Hook auf Verbindungs-
+    ebene aus: betroffene Zeilen werden vor der Ausfuehrung gelesen (UPDATE/
+    DELETE; PostgreSQL ``FOR UPDATE``) bzw. die einzufuegenden Werte
+    ausgewertet (INSERT) und invalidiert, im selben Commit. Ohne Session gibt
+    es keinen Benutzerkontext: Actor ``system``; das Ereignis selbst ist der
+    Beleg. Rohes SQL (``text``) verbietet der statische Waechter."""
     if not isinstance(clauseelement, UpdateBase):
         return
     table = getattr(clauseelement, "table", None)
-    if getattr(table, "name", None) not in DEPENDENCY_SOURCES:
+    source = DEPENDENCY_SOURCES.get(getattr(table, "name", None))
+    if source is None or _HOOK_SCOPE.get() or _FLUSH_DEPTH.get() > 0:
         return
-    if _HOOK_SCOPE.get() or _FLUSH_DEPTH.get() > 0:
+    if not freshness_tables_present(conn):
         return
-    raise RuntimeError(
-        f"CCX-P2: Core-DML auf {table.name} ausserhalb der ORM-Session umgeht den "
-        "Invalidation-Hook; Aenderungen ueber die Session schreiben."
-    )
+    token = _HOOK_SCOPE.set(True)
+    try:
+        changes: list[_Change] = []
+        if clauseelement.is_insert:
+            for row in _insert_rows(clauseelement, multiparams, params):
+                values = {key: value for key, value in row.items() if key not in source.volatile}
+                changes.append(_change(table.name, source, "insert", {}, values))
+        else:
+            where = getattr(clauseelement, "whereclause", None)
+            query = select(table) if where is None else select(table).where(where)
+            query = query.order_by(*table.primary_key.columns)
+            if conn.dialect.name.startswith("postgresql"):
+                query = query.with_for_update()
+            for row in conn.execute(query).mappings().all():
+                old = {key: value for key, value in row.items() if key not in source.volatile}
+                change = _change(table.name, source, "delete", old, {})
+                if clauseelement.is_update:
+                    change.op = "update"
+                changes.append(change)
+        if changes:
+            _apply_invalidations_on(conn, changes, actor=SYSTEM_ACTOR, pending=None)
+    finally:
+        _HOOK_SCOPE.reset(token)
 
 
 def _write_pending_audit(session: Session) -> None:

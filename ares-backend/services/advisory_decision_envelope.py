@@ -74,7 +74,6 @@ from models.snapshots import (
     FRESHNESS_STALE,
     FRESHNESS_UNKNOWN,
     REFERENCE_KINDS,
-    SIGNED_DECISION_SQL,
     AdvisoryDecisionEnvelope,
     AdvisoryDependencyEdge,
     AdvisoryEffectiveInputManifest,
@@ -82,6 +81,7 @@ from models.snapshots import (
     AdvisoryInvalidationEvent,
     mark_envelope_stale,
     register_invalidation_audit_sink,
+    signed_decision_sql,
 )
 from services.advisory_cache_scope import ADVISORY_REPORT_CONSUMER, advisory_cache_key
 from services.advisory_envelope_integrity import MANIFEST_BINDING_KIND, envelope_integrity_defect
@@ -688,9 +688,9 @@ def _invalidate_drift(db: Session, envelope: Any, drift: list[tuple[Any, Any]], 
 
 def decision_signed(db: Session, envelope: Any) -> bool:
     """Ist der Entscheid vom Kunden unterzeichnet (signiertes, nicht geloeschtes
-    Dokument an seiner Soll-Allokation)? Siehe ``SIGNED_DECISION_SQL``."""
+    Dokument an seiner Soll-Allokation)? Siehe ``models.snapshots.SIGNED_DECISION_SQL``."""
     return bool(db.execute(text(
-        f"SELECT CASE WHEN {SIGNED_DECISION_SQL} THEN 1 ELSE 0 END "
+        f"SELECT CASE WHEN {signed_decision_sql(db.connection())} THEN 1 ELSE 0 END "
         "FROM advisory_decision_envelopes e WHERE e.id = :envelope_id"
     ), {"envelope_id": envelope.id}).scalar())
 

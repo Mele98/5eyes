@@ -124,8 +124,9 @@ def pg_p2():
             _fresh_envelope(conn, "e-trig", "m-trig", "t-a", "c-trig", "7" * 64)
             # Mandanteneigene CMA-Zeile fuer den Wettlauf CMA-Aenderung <-> Siegel.
             conn.execute(text(
-                "INSERT INTO capital_market_assumptions (id, tenant_id, valid_from, is_current, created_by, "
-                "created_at, updated_at) VALUES ('cma-race', 't-a', '2026-01-01', 1, 'adv', :n, :n)"
+                "INSERT INTO capital_market_assumptions (id, tenant_id, assumption_set_name, version, valid_from, "
+                "is_current, created_by, created_at, updated_at) VALUES ('cma-race', 't-a', 'race', 1, "
+                "'2026-01-01', 1, 'adv', :n, :n)"
             ), {"n": NOW})
             ensure_postgres_rls_policies(conn)
             conn.execute(text(
