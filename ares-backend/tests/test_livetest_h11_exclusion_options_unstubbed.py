@@ -190,7 +190,10 @@ def test_unstubbed_exclusion_options_apply_only_the_latest_answer(server):  # no
     assert latest["tc"] is False and latest["a"] is False, latest
     assert after_stale["a"] is False and after_stale["tc"] is False, after_stale  # alte Antwort verworfen
     assert live_combo["tc"] and live_combo["a"] is True and "Tabak" in live_combo["aw"], live_combo
-    assert calls[:2] == [["tobacco"], []] and calls.count(["tobacco"]) == 2, calls
+    # Reihenfolge: zurueckgehaltene Tabak-Anfrage, danach die juengere ohne Auswahl. Ein
+    # vorangestelltes [] (spaetes Neu-Rendern der Karte, E2 H-2) ist zulaessig.
+    first_tobacco = calls.index(["tobacco"])
+    assert [] in calls[first_tobacco + 1:] and calls.count(["tobacco"]) == 2, calls
     assert not errors, errors
 
 
