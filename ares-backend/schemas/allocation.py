@@ -1826,6 +1826,8 @@ class AllocationPublicationStateResponse(BaseModel):
     approved_at: Optional[str] = None
     approved_by: Optional[str] = None
     approval_mode: Optional[str] = None
+    # Sichtbare Kennzeichnung, z. B. "Einzelfreigabe (eine berechtigte Person)".
+    approval_mode_label: Optional[str] = None
 
 
 class AllocationPublicationOverviewResponse(BaseModel):
@@ -1864,6 +1866,7 @@ class AllocationPublicationResponse(BaseModel):
     validation_hash: str
     approval_hash: str
     approval_mode: str
+    approval_mode_label: str
     approved_at: str
     approved_by: str
     published_envelope_hash: str

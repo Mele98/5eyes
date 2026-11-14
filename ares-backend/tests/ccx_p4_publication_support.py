@@ -20,6 +20,8 @@ import pytest
 LEGACY_CHANNEL_TEST_FILES = frozenset({
     "test_audit_perm_hardening.py",
     "test_audit_quick_fixes.py",
+    "test_cert_handoff_execution_001_reproducers.py",
+    "test_data_classification_gate_coverage_2026_09_21.py",
     "test_handoff_new_product_zero_holding.py",
     "test_handoff_preview_parity_and_cash.py",
     "test_portfolio_handoff.py",

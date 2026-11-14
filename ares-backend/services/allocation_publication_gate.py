@@ -130,6 +130,16 @@ AUDIT_REJECTED = "ccx.allocation.publication_rejected"
 AUDIT_CHANNEL_BLOCKED = "ccx.allocation.channel_blocked"
 
 PUBLICATION_APPROVER_ROLES: tuple[str, ...] = ("admin", "advisor")
+# Sichtbare Kennzeichnung der Freigabeart in Nachweis, Audit und Masken.
+SINGLE_APPROVER_LABEL = "Einzelfreigabe (eine berechtigte Person)"
+APPROVAL_MODE_LABELS = {
+    APPROVAL_MODE_FOUR_EYES: "Vier-Augen-Freigabe",
+    APPROVAL_MODE_SINGLE_APPROVER_ATTESTED: SINGLE_APPROVER_LABEL,
+}
+
+
+def approval_mode_label(mode: Any) -> str | None:
+    return APPROVAL_MODE_LABELS.get(str(mode)) if mode else None
 BUCKETS: tuple[str, ...] = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
 TOTAL_BPS = 10_000
 # Wirksame Bindungen, ohne die keine Strategie kundenwirksam wird (P2-Kanten).
@@ -255,7 +265,8 @@ def _fx_basis_findings(snapshot: Any) -> list[str]:
     if any(str(status) != "OK" for status in statuses.values()):
         return missing
     for quote in quotes:
-        if not isinstance(quote, dict) or str(quote.get("source") or "") == FX_DEFAULT_SOURCE                 or not isinstance(quote.get("rate_x10000"), int) or quote["rate_x10000"] <= 0:
+        if not isinstance(quote, dict) or str(quote.get("source") or "") == FX_DEFAULT_SOURCE \
+                or not isinstance(quote.get("rate_x10000"), int) or quote["rate_x10000"] <= 0:
             return missing
     return []
 
@@ -598,7 +609,7 @@ def publish_allocation(
                field_name=AUDIT_PUBLISHED, record_id=decision.id, publication_sequence=sequence,
                target_allocation=evaluation.target_allocation_id, envelope_hash=evaluation.envelope_hash,
                validation_hash=evaluation.validation_hash, approval_hash=decision.approval_hash,
-               approval_mode=mode,
+               approval_mode=mode, approval_label=approval_mode_label(mode),
                attestation_reason=((attestation_reason or "").strip() or None)
                if mode == APPROVAL_MODE_SINGLE_APPROVER_ATTESTED else None)
         db.commit()
@@ -646,6 +657,7 @@ class PublicationState:
             "envelope_id": self.envelope_id, "published_envelope_hash": self.published_envelope_hash,
             "validation_hash": self.validation_hash, "approval_hash": self.approval_hash,
             "approved_at": self.approved_at, "approved_by": self.approved_by, "approval_mode": self.approval_mode,
+            "approval_mode_label": approval_mode_label(self.approval_mode),
         }
 
 

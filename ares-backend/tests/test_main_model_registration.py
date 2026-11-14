@@ -186,8 +186,8 @@ GOLDEN_SORTED_TABLES_SHA256 = "9311fe7a1c805b2c7741ef4853bd2d56793afa4a296ca386f
 # CashflowSummaryResponse; currency an WealthInflowCreate (Pflicht)/Update/Response.
 # CCX-P4: GET/POST /mandates/{id}/allocation-publication, GET
 # /mandates/{id}/target-allocation/published, publication_status in
-# TargetAllocationResponse, AllocationPublication*-Schemas.
-GOLDEN_OPENAPI_SHA256 = "85ff8c66747fc3bc7f74392a7521516a237318337756695056aba28ce5a91b8f"
+# TargetAllocationResponse, AllocationPublication*-Schemas (inkl. approval_mode_label).
+GOLDEN_OPENAPI_SHA256 = "884d81fe986d25e54328bb2d314bdcda88d297759febf4df10bb8b2b17057e69"
 
 _PROBE = """
 import hashlib, json

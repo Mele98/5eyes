@@ -615,6 +615,11 @@ SITES: dict[tuple[str, str], tuple[tuple[str, str | None], ...]] = {
     # Text), domaenensepariert ueber
     # ``Ares<NUL>ares/advisory-invalidation/1/<tabelle><NUL>``.
     ("models/snapshots.py", "projection_hash"): ((J, SCHEME_V1),),
+    # CCX-P4: validation_hash/approval_hash der Allocation-Publikation --
+    # canonical_json SCHEME_V1 (sortiert, kompakt, UTF-8), nur Integer/Strings
+    # (Float verboten), domaenensepariert ueber
+    # ``Ares<NUL>ares/advisory-envelope/1/allocation-publication-{validation,approval}<NUL>``.
+    ("services/allocation_publication_gate.py", "_hash"): ((CJ, SCHEME_V1),),
 }
 
 _DELEGATABLE = {SCHEME_V1, SCHEME_V1_ASCII, SCHEME_V1_STR_DEFAULT, SCHEME_V1_ASCII_STR_DEFAULT}

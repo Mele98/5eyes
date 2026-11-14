@@ -209,7 +209,8 @@ function renderAllocationPublication(){
     else{
       var published=s.publication_status==='PUBLISHED';
       var reason=published?'':allocationPublicationReason((s.blocker_codes||[])[0]||(s.active_publication&&s.active_publication.reason_code));
-      chip.textContent=published?'Publiziert':('Entwurf'+(reason&&!s.can_publish?' · '+reason:''));
+      var single=published&&s.active_publication&&s.active_publication.approval_mode==='single_approver_attested';
+      chip.textContent=published?('Publiziert'+(single?' · '+(s.active_publication.approval_mode_label||'Einzelfreigabe (eine berechtigte Person)'):'')):('Entwurf'+(reason&&!s.can_publish?' · '+reason:''));
       chip.title=published?'Diese Soll-Allokation ist freigegeben und publiziert.':'Diese Soll-Allokation ist ein Entwurf und noch nicht kundenwirksam.';
       chip.style.display='';
     }

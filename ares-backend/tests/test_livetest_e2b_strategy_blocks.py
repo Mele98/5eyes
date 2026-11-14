@@ -11,7 +11,10 @@ der Ausschluss "Tabak" fuer Mandat A belegt erfuellbar und damit waehlbar ist.
   Ausschluss Tabak erfasst -> Banner "veraltet", "Portfolio umsetzen"
   ausgeblendet und deaktiviert; im Block Nachhaltigkeit ist Tabak
   "Ausschliessen", deaktiviert, mit Hinweis "aus Kundenpraeferenz".
-* Mandat B (sauber, keine Erfassung): Button sichtbar und aktiv, Tilt frei.
+* Mandat B (sauber, Frage 1 "keine Angabe"; CCX-P4: finalisiert und ueber den
+  echten Publish-Gate publiziert): Button sichtbar und aktiv, Klick oeffnet
+  m-pu (N-888-16), Tilt frei.
+* Mandat C (sauber, nicht publiziert): Button unsichtbar (CCX-P4).
 * Zurueck auf A: wieder veraltet und read-only.
 
 Pflichtlauf im CI-Job "Frontend Reporting Tests" (``ARES_REQUIRE_PLAYWRIGHT=1``).
@@ -86,7 +89,7 @@ def server():
             time.sleep(0.5)
 
 
-def _seed_mandate(api, advisor_id: str, label: str, tilts: dict) -> tuple[str, str]:
+def _seed_mandate(api, advisor_id: str, label: str, tilts: dict, *, esg_declined: bool = False) -> tuple[str, str]:
     from tests.risk_fixture_helpers import standard_risk_payload
 
     stamp = f"{label}-{int(time.time() * 1000)}"
@@ -104,12 +107,58 @@ def _seed_mandate(api, advisor_id: str, label: str, tilts: dict) -> tuple[str, s
         "current_value_rappen": 50_000_000, "alloc_equities_bps": 4000, "alloc_bonds_bps": 3000,
         "alloc_liquidity_bps": 2000, "alloc_alternatives_bps": 1000})[0] == 201
     assert api("POST", f"/mandates/{mid}/risk-assessments", standard_risk_payload())[0] == 201
+    if esg_declined:
+        # Frage 1 vor der Strategie beantwortet ("keine Angabe"): Pflicht fuer die
+        # Finalisierung, ohne die Strategie nachtraeglich veralten zu lassen.
+        from core import sustainability_preference as sp
+
+        status, body = api("POST", f"/mandates/{mid}/sustainability-preferences", {
+            "questionnaire_version": sp.QUESTIONNAIRE_VERSION, "definition_hash": sp.definition_hash(),
+            "response_status": "declined", "esg_relevance": None, "esg_characteristic": None,
+            "exclusions": [], "information_acknowledged": False, "client_confirmed": True,
+            "capture_channel": "in_person"})
+        assert status == 201, body
     status, body = api("POST", f"/mandates/{mid}/target-allocation/generate", {"preferences": {"tilts": tilts}})
     assert status == 200, body
     # Produktlauf (legt u. a. den Standard-Produktkatalog an).
     status, body = api("POST", f"/mandates/{mid}/recommendations/generate", {})
     assert status == 200, body
     return cid, mid
+
+
+def _finalize_and_publish(api, db_path: Path, mid: str) -> None:
+    """CCX-P4: Mandat B ordnungsgemaess finalisieren und publizieren -- ueber
+    die echte API und den echten Publish-Gate. Vorbedingungen anderer Pakete
+    (Retrozession H7, Kundeninformation/KYC H8/C-890) mit denselben
+    Testhelfern wie die uebrigen Freigabetests in der Wegwerf-DB."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from tests.client_onboarding_fixture import satisfy_client_onboarding_for_all_mandates
+    from tests.retro_free_fixture import declare_all_products_retro_free
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    try:
+        with sessionmaker(bind=engine)() as db:
+            declare_all_products_retro_free(db)
+            satisfy_client_onboarding_for_all_mandates(db)
+            db.commit()
+    finally:
+        engine.dispose()
+    status, runs = api("GET", f"/mandates/{mid}/recommendations")
+    assert status == 200, runs
+    run_id = sorted(runs, key=lambda r: r.get("created_at") or "")[-1]["id"]
+    status, body = api("PUT", f"/mandates/{mid}/recommendations/{run_id}/finalize")
+    assert status == 200, body
+    status, overview = api("GET", f"/mandates/{mid}/allocation-publication")
+    assert status == 200 and overview["can_publish"] is True, overview
+    # Ein-Personen-Firma (nur der Admin ist freigabeberechtigt): Einzelfreigabe mit Begruendung.
+    status, body = api("POST", f"/mandates/{mid}/allocation-publication", {
+        "target_allocation_id": overview["target_allocation_id"], "validation_hash": overview["validation_hash"],
+        "single_approver_attestation": True,
+        "attestation_reason": "Einzige freigabeberechtigte Person der Probe AG."})
+    assert status == 201, body
+    assert body["approval_mode_label"] == "Einzelfreigabe (eine berechtigte Person)", body
 
 
 def _seed_tobacco_evidence(db_path: Path, needed: list[str], advisor_id: str) -> int:
@@ -155,7 +204,9 @@ def test_strategy_blocks_follow_customer_exclusion_per_real_mandate(server):
     api.token = login["access_token"]
     advisor_id = api("GET", "/auth/me")[1]["id"]
     cid_a, mid_a = _seed_mandate(api, advisor_id, "Verletzt", {"tobacco": "overweight"})
-    cid_b, _mid_b = _seed_mandate(api, advisor_id, "Sauber", {})
+    cid_b, mid_b = _seed_mandate(api, advisor_id, "Sauber", {}, esg_declined=True)
+    cid_c, _mid_c = _seed_mandate(api, advisor_id, "Entwurf", {}, esg_declined=True)
+    _finalize_and_publish(api, server["db"], mid_b)
     coverage = api("GET", f"/mandates/{mid_a}/strategy-option-coverage")[1]
     assert not {o["key"]: o for o in coverage["options"]}["exclusion:tobacco"]["available"]
     seeded = _seed_tobacco_evidence(server["db"], coverage["needed_sub_asset_classes"], advisor_id)
@@ -219,16 +270,25 @@ def test_strategy_blocks_follow_customer_exclusion_per_real_mandate(server):
 
             bad = open_mandate(cid_a, "e2b_1_mandat_a_aus_kundenpraeferenz.png")
             ok = open_mandate(cid_b, "e2b_2_mandat_b_frei.png")
+            page.evaluate(close)
+            page.evaluate("document.getElementById('btn-portfolio-umsetzen').click()")
+            page.wait_for_timeout(1500)
+            opened_mpu = page.evaluate(
+                "(() => {const m=document.getElementById('m-pu');return !!(m&&m.classList.contains('open'));})()")
+            page.evaluate(close)
             bad_again = open_mandate(cid_a, "e2b_3_mandat_a_wieder.png")
+            draft = open_mandate(cid_c, "e2b_4_mandat_c_entwurf.png")
         finally:
             browser.close()
     assert bad["button"] == "none" and bad["disabled"] is True and bad["banner"] == "flex", bad
     assert bad["tilt"] == "exclude" and bad["tiltDisabled"] is True, bad
     assert "aus Kundenpräferenz" in (bad["note"] or "") and bad["described"] == "sust-floor-tobacco"
-    # CCX-P4: "Portfolio umsetzen" erscheint erst fuer eine publizierte
-    # Soll-Allokation; Mandat B ist frei (nicht gesperrt), aber ein Entwurf.
-    assert ok["disabled"] is False and ok["banner"] == "none", ok
-    assert ok["button"] == "none" and ok["pub"] in ("DRAFT", None), ok
+    # N-888-16: sauberes Mandat B (finalisiert + publiziert ueber die echte
+    # API) -- Button sichtbar UND aktiv, Klick oeffnet m-pu.
+    assert ok["button"] != "none" and ok["disabled"] is False, ok
+    assert ok["pub"] == "PUBLISHED" and opened_mpu is True, ok
+    # CCX-P4: unpubliziertes, sonst sauberes Mandat C -> Button unsichtbar.
+    assert draft["button"] == "none" and draft["banner"] == "none" and draft["pub"] == "DRAFT", draft
     assert ok["tiltDisabled"] is False and not ok["note"], ok
     assert bad_again["button"] == "none" and bad_again["tiltDisabled"] is True, bad_again
     assert not errors, errors

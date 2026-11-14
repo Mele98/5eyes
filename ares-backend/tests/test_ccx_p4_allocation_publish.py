@@ -777,3 +777,153 @@ def test_publish_never_on_default_fx_rate_or_unbelegted_basis():
     assert _fx_basis_findings(snap([{**ok_quote, "rate_x10000": 0}], {"USD": "OK"})) == blocked
     assert _fx_basis_findings(snap([ok_quote], {"USD": "OK"}, basis_hash="b" * 64)) == blocked
     assert _fx_basis_findings(SimpleNamespace(fx_basis_json="kein json", fx_basis_hash="a" * 64)) == blocked
+
+
+def test_single_approver_attestation_is_visibly_marked_in_evidence_and_audit(session_factory, monkeypatch):
+    """Ein-Personen-Firma: Einzelfreigabe nur mit Begruendung >= 20 Zeichen;
+    im Nachweis (Modus im approval_hash, Status) und im Audit sichtbar als
+    "Einzelfreigabe (eine berechtigte Person)"."""
+    import services.allocation_publication_gate as gate
+
+    advisor_id, mid, _aid, _run = _finalized(session_factory, "single")
+    monkeypatch.setattr(gate, "tenant_approver_ids", lambda db, tenant_id, roles=(): [advisor_id])
+    _blocked(session_factory, mid, advisor_id, "CCX_APPROVAL_BINDING_MISSING",
+             single_approver_attestation=True, attestation_reason="zu kurz")
+    decision = _publish(session_factory, mid, advisor_id, single_approver_attestation=True,
+                        attestation_reason="Einzige freigabeberechtigte Person der Firma.")
+    assert decision.approval_mode == "single_approver_attested"
+    state = _state(session_factory, mid)
+    assert state.published and state.as_dict()["approval_mode_label"] == "Einzelfreigabe (eine berechtigte Person)"
+    with session_factory() as db:
+        audit = _audit(db, "ccx.allocation.published")
+        assert "approval_label=Einzelfreigabe (eine berechtigte Person)" in audit[-1].new_value
+        assert "attestation_reason=Einzige freigabeberechtigte Person der Firma." in audit[-1].new_value
+    overview = _overview(session_factory, mid)
+    assert overview["active_publication"]["approval_mode_label"] == "Einzelfreigabe (eine berechtigte Person)"
+    # Gegenprobe: mit zwei berechtigten Personen ist Einzelfreigabe nie zulaessig.
+    from services.allocation_publication_gate import approval_mode_for
+
+    monkeypatch.setattr(gate, "tenant_approver_ids", lambda db, tenant_id, roles=(): [advisor_id, "zweite"])
+    with session_factory() as db:
+        assert approval_mode_for(db, tenant_id="t", approver_id=advisor_id, preparer_id=advisor_id,
+                                 single_approver_attestation=True,
+                                 attestation_reason="Einzige freigabeberechtigte Person der Firma.") is None
+
+
+# ── Konsumenten ──────────────────────────────────────────────────────────────
+
+
+def test_customer_documents_are_drafts_until_published_and_pdf_right_before_commit(session_factory):
+    """Kunden-PDF: Entwurf (Wasserzeichen, nie archiviert), solange nicht
+    publiziert -- auch direkt vor dem Commit der Publikation (andere Session
+    sieht nur den committeten Stand); danach final."""
+    from models.users import User
+    import services.allocation_publication_gate as gate
+
+    advisor_id, mid, _aid, _run = _finalized(session_factory, "pdf")
+    approver = _second_approver(session_factory, advisor_id)
+    with session_factory() as db:
+        assert gate.customer_document_watermark(db, _mandate(db, mid)) == "unpublished"
+    overview = _overview(session_factory, mid)
+    with session_factory() as publisher:
+        user = publisher.query(User).filter(User.id == approver).one()
+        original_commit = publisher.commit
+        seen = {}
+
+        def commit_after_probe():
+            with session_factory() as reader:  # PDF direkt vor dem Commit
+                seen["before"] = gate.customer_document_watermark(reader, _mandate(reader, mid))
+            original_commit()
+
+        publisher.commit = commit_after_probe
+        gate.publish_allocation(publisher, _mandate(publisher, mid), user=user,
+                                expected_validation_hash=overview["validation_hash"],
+                                expected_target_allocation_id=overview["target_allocation_id"])
+    assert seen["before"] == "unpublished"
+    with session_factory() as db:
+        assert gate.customer_document_watermark(db, _mandate(db, mid)) is None
+
+
+def test_channel_gate_blocks_unpublished_with_code_and_audit_then_allows(session_factory):
+    from models.users import User
+    from services.allocation_publication_gate import require_published_allocation
+
+    advisor_id, mid, _aid, _run = _finalized(session_factory, "chan")
+    with session_factory() as db:
+        user = db.query(User).filter(User.id == advisor_id).one()
+        with pytest.raises(DomainError) as exc:
+            require_published_allocation(db, _mandate(db, mid), channel="handoff", user=user)
+        assert exc.value.reason_code == "CCX_ALLOCATION_NOT_PUBLISHABLE"
+        assert exc.value.extra["publication_status"] == "DRAFT"
+        audit = _audit(db, "ccx.allocation.channel_blocked")
+        assert audit and audit[-1].mandate_id == mid and audit[-1].tenant_id
+    _publish(session_factory, mid, _second_approver(session_factory, advisor_id))
+    with session_factory() as db:
+        user = db.query(User).filter(User.id == advisor_id).one()
+        state = require_published_allocation(db, _mandate(db, mid), channel="handoff", user=user)
+        assert state.published
+
+
+def test_tenant_idor_foreign_mandate_publication_is_invisible(session_factory):
+    from fastapi import HTTPException
+
+    from models.tenant import Tenant
+    from models.users import User
+    from routers.allocation import get_allocation_publication
+
+    advisor_id, approver, mid, *_rest = _published(session_factory, "idor")
+    with session_factory() as db:
+        db.add(Tenant(id="t-idor-p4", display_name="Andere Firma", slug="andere-p4",
+                      created_at="2026-11-14T00:00:00Z", updated_at="2026-11-14T00:00:00Z"))
+        db.add(User(id="adv-idor-p4", username="adv-idor-p4", password_hash="h", full_name="Fremd",
+                    role="advisor", is_active=1, tenant_id="t-idor-p4",
+                    created_at="2026-11-14T00:00:00Z", updated_at="2026-11-14T00:00:00Z"))
+        db.commit()
+        with pytest.raises(HTTPException) as caught:
+            get_allocation_publication(mandate_id=mid, db=db, current_user=db.get(User, "adv-idor-p4"))
+        assert caught.value.status_code == 404
+        assert db.execute(text(
+            "SELECT count(*) FROM allocation_active_publications WHERE tenant_id = 't-idor-p4'")).scalar() == 0
+        own = get_allocation_publication(mandate_id=mid, db=db, current_user=db.get(User, advisor_id))
+        assert own["publication_status"] == "PUBLISHED"
+
+
+def test_pointer_requires_current_allocation_even_if_hooks_were_bypassed(session_factory):
+    """Zweite Linie: wird die aktuelle Soll-Allokation am Mutation Hook vorbei
+    ausgetauscht (rohe Verbindung, Envelope bleibt FRESH), gilt die alte
+    Publikation trotzdem nicht -- der Pointer verlangt genau die aktuelle TA."""
+    import sqlite3
+
+    advisor_id, approver, mid, *_rest, decision = _published(session_factory, "bypass")
+    with session_factory() as db:
+        path = db.get_bind().url.database
+    conn = sqlite3.connect(path)
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(target_allocations)")]
+        conn.execute("UPDATE target_allocations SET is_current = 0 WHERE id = ?", (decision.target_allocation_id,))
+        select = ", ".join("? AS id" if c == "id" else ("1 AS is_current" if c == "is_current" else c) for c in cols)
+        conn.execute(f"INSERT INTO target_allocations ({', '.join(cols)}) SELECT {select} FROM target_allocations "
+                     "WHERE id = ?", ("ta-roh-" + uuid.uuid4().hex[:6], decision.target_allocation_id))
+        conn.commit()
+        assert conn.execute("SELECT freshness_status FROM advisory_decision_envelopes WHERE id = ?",
+                            (decision.envelope_id,)).fetchone()[0] == "FRESH"
+    finally:
+        conn.close()
+    state = _state(session_factory, mid)
+    assert state.status == "PUBLICATION_INVALID" and state.reason_code == "CCX_ALLOCATION_NOT_PUBLISHABLE"
+    assert _state(session_factory, mid, deep=False).status == "PUBLICATION_INVALID"
+
+
+def test_tampered_approval_binding_invalidates_publication(session_factory):
+    """Approval-Binding: ein (am Append-only-Trigger vorbei) veraenderter
+    Freigeber bzw. Zeitpunkt passt nicht mehr zum approval_hash -> die
+    Publikation gilt nicht (CCX_APPROVAL_BINDING_MISSING), kein Fallback."""
+    advisor_id, approver, mid, *_rest, decision = _published(session_factory, "tamper")
+    assert _state(session_factory, mid).published
+    with session_factory() as db:
+        db.execute(text("DROP TRIGGER trg_allocation_publication_decisions_no_update"))
+        db.execute(text("UPDATE allocation_publication_decisions SET approved_at = '2020-01-01T00:00:00.000000Z' "
+                        "WHERE id = :i"), {"i": decision.id})
+        db.commit()
+    state = _state(session_factory, mid)
+    assert state.status == "PUBLICATION_INVALID" and state.reason_code == "CCX_APPROVAL_BINDING_MISSING"

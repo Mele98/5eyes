@@ -111,7 +111,7 @@ cashflowSummaryQuery als neuer Teil ``wealth-inflows.js`` (282/16491)
 ausgelagert; Monolith auf den gemessenen Stand gesenkt: 26905 Z./1651192 B.
 CCX-P4 (2026-11-14): Publikationsstatus der Soll-Allokation und "Portfolio
 umsetzen" (drei Funktionen umgezogen) als neuer Teil
-``allocation-publication.js`` (275/13750); Monolith auf den gemessenen Stand
+``allocation-publication.js`` (276/13973); Monolith auf den gemessenen Stand
 gesenkt: 26746 Z./1644375 B.
 """
 from __future__ import annotations
@@ -142,7 +142,7 @@ EXTRACTED_PART_BUDGETS = {
     "privacy-governance.js": (503, 35259),
     "sustainability-preferences.js": (519, 26082),
     "wealth-inflows.js": (282, 16491),
-    "allocation-publication.js": (275, 13750),
+    "allocation-publication.js": (276, 13973),
 }
 
 

@@ -63,6 +63,7 @@ from services.allocation_publication_gate import (
     STATUS_DRAFT as PUBLICATION_STATUS_DRAFT,
     active_publication_state,
     allocation_publication_status,
+    approval_mode_label,
     publication_overview,
     publish_allocation,
     require_published_allocation,
@@ -1034,6 +1035,7 @@ def post_allocation_publication(
         target_allocation_id=decision.target_allocation_id, envelope_id=decision.envelope_id,
         publication_sequence=decision.publication_sequence, validation_hash=decision.validation_hash,
         approval_hash=decision.approval_hash, approval_mode=decision.approval_mode,
+        approval_mode_label=approval_mode_label(decision.approval_mode),
         approved_at=decision.approved_at, approved_by=decision.approved_by,
         published_envelope_hash=decision.published_envelope_hash,
     )

@@ -1684,6 +1684,10 @@
             "title": "Approval Mode",
             "type": "string"
           },
+          "approval_mode_label": {
+            "title": "Approval Mode Label",
+            "type": "string"
+          },
           "approved_at": {
             "title": "Approved At",
             "type": "string"
@@ -1730,6 +1734,7 @@
           "validation_hash",
           "approval_hash",
           "approval_mode",
+          "approval_mode_label",
           "approved_at",
           "approved_by",
           "published_envelope_hash"
@@ -1761,6 +1766,17 @@
               }
             ],
             "title": "Approval Mode"
+          },
+          "approval_mode_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Mode Label"
           },
           "approved_at": {
             "anyOf": [

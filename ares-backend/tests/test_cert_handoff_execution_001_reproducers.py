@@ -72,6 +72,9 @@ from test_portfolio_handoff import (  # noqa: E402
     advisor_user,
     session_factory,
 )
+# CCX-P4: Altbestands-Kanaltest -- prueft andere Gates; Publikation siehe
+# tests/test_ccx_p4_allocation_publish.py (tests/ccx_p4_publication_support.py).
+from tests.ccx_p4_publication_support import assume_published_allocation  # noqa: E402,F401
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 
@@ -89,6 +92,7 @@ def _html() -> str:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("assume_published_allocation")
 def test_local_insert_must_not_claim_sent_without_transport_evidence(session_factory, advisor_user, monkeypatch):
     _seed_mandate_and_run(session_factory, advisor_user)
     _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])
@@ -245,6 +249,7 @@ def test_snapshot_preserves_executable_instruction_fields_when_source_has_them(s
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("assume_published_allocation")
 def test_identical_create_retry_produces_exactly_one_open_handoff(session_factory, advisor_user, monkeypatch):
     _seed_mandate_and_run(session_factory, advisor_user)
     _patch_engine(monkeypatch, [_drift("prod-1", 50_000)])

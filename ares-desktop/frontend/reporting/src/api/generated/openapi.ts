@@ -7226,6 +7226,8 @@ export interface components {
             approval_hash: string;
             /** Approval Mode */
             approval_mode: string;
+            /** Approval Mode Label */
+            approval_mode_label: string;
             /** Approved At */
             approved_at: string;
             /** Approved By */
@@ -7254,6 +7256,8 @@ export interface components {
             approval_hash?: string | null;
             /** Approval Mode */
             approval_mode?: string | null;
+            /** Approval Mode Label */
+            approval_mode_label?: string | null;
             /** Approved At */
             approved_at?: string | null;
             /** Approved By */

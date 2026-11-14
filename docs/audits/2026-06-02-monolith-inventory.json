@@ -9608,8 +9608,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/allocation-publication.js",
-      "sha256": "981c1dbf5260ed1d359c6e68be3f6c98cd83eb75ccc99618081d79a35c0b0949",
-      "size_bytes": 13750
+      "sha256": "daa4b502f28394a0776fb53cd2ea3a457857d6df53e0d35f3244f13f296301b3",
+      "size_bytes": 13973
     },
     {
       "kind": "js",
@@ -23374,7 +23374,7 @@
     },
     {
       "declaration": "function",
-      "line": 242,
+      "line": 243,
       "name": "allocationPublicationErrorCode",
       "source": "allocation-publication.js"
     },
@@ -23392,7 +23392,7 @@
     },
     {
       "declaration": "function",
-      "line": 269,
+      "line": 270,
       "name": "applyPortfolioUmsetzenVisibility",
       "source": "allocation-publication.js"
     },
@@ -23428,13 +23428,13 @@
     },
     {
       "declaration": "function",
-      "line": 245,
+      "line": 246,
       "name": "publishAllocation",
       "source": "allocation-publication.js"
     },
     {
       "declaration": "function",
-      "line": 224,
+      "line": 225,
       "name": "refreshAllocationPublication",
       "source": "allocation-publication.js"
     },

@@ -63,6 +63,9 @@ from models.allocation import OptimizerPolicy
 
 import routers.portfolio_handoff as portfolio_handoff_router  # noqa: F401
 import services.portfolio_handoff as portfolio_handoff_service
+# CCX-P4: Altbestands-Kanaltest -- prueft andere Gates; Publikation siehe
+# tests/test_ccx_p4_allocation_publish.py (tests/ccx_p4_publication_support.py).
+from tests.ccx_p4_publication_support import assume_published_allocation  # noqa: E402,F401
 
 
 def _now() -> str:
@@ -310,6 +313,7 @@ def test_strategy_snapshot_real_blocked_when_gate_closed(session_factory, monkey
         ).count() == 0
 
 
+@pytest.mark.usefixtures("assume_published_allocation")
 def test_strategy_snapshot_synthetic_allowed_when_gate_closed(session_factory, monkeypatch):
     monkeypatch.setattr(settings, "allow_real_client_data", False)
     mandate_id = _seed_minimal_mandate(session_factory, mandate_id="mandate-snap2")
@@ -418,6 +422,7 @@ def test_portfolio_handoff_real_blocked_when_gate_closed(session_factory, monkey
         _assert_phase_zero_block(exc)
 
 
+@pytest.mark.usefixtures("assume_published_allocation")
 def test_portfolio_handoff_synthetic_allowed_when_gate_closed(session_factory, monkeypatch):
     monkeypatch.setattr(settings, "allow_real_client_data", False)
     mandate_id, run_id = _seed_handoff_prereqs(session_factory, mandate_id="mandate-handoff2", run_id="run-handoff2")
