@@ -131,6 +131,23 @@ def _get_mandate_or_404(mandate_id: str, db: Session, current_user: User) -> Man
     return get_mandate_for_user_or_404(mandate_id, db, current_user)
 
 
+def seed_reference_data_at_bootstrap(db: Session, user_id: str) -> bool:
+    """H11: CH-Referenzdaten (Policy, House-Matrix, Bausteine, CMA) einmalig im
+    Bootstrap anlegen statt als Seiteneffekt der GET-Pfade (die lesen jetzt mit
+    ``seed=False`` und antworten ohne Daten mit 409). Idempotent; in Produktion
+    ist Autoseeding unzulaessig -- dann bleibt es beim fail-closed 409, bis
+    freigegebene Daten importiert sind. Die Ersteinrichtung scheitert nie daran.
+    Registriert als ``app.state.post_bootstrap_hooks`` (main.py), damit
+    routers.auth keine Engine-Abhaengigkeit bekommt."""
+    try:
+        ensure_runtime_reference_data(db, user_id, jurisdiction="CH")
+        db.commit()
+        return True
+    except ValueError:
+        db.rollback()
+        return False
+
+
 @router.get("/mandates/{mandate_id}/target-allocation/current",
             response_model=TargetAllocationResponse)
 def get_current_allocation(
@@ -234,11 +251,13 @@ def get_current_allocation_payload(
     if not assessment:
         raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
     try:
+        # H11: Lesepfad ohne Seeding (Referenzdaten legt der Bootstrap an).
         policy, current_cma = ensure_runtime_reference_data(
             db,
             current_user.id,
             jurisdiction=resolve_pack(mandate).code,
             tenant_id=getattr(mandate, "tenant_id", None),
+            seed=False,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -562,12 +581,14 @@ def get_ist_projection_basis(
     if horizon_years is not None and not 1 <= int(horizon_years) <= 80:
         raise HTTPException(status_code=422, detail="horizon_years muss zwischen 1 und 80 liegen.")
     try:
-        # Dieselbe Aufloesung wie der Allokationspfad (Jurisdiktion + Tenant).
+        # Dieselbe Aufloesung wie der Allokationspfad (Jurisdiktion + Tenant),
+        # H11: rein lesend -- ohne Referenzdaten 409 statt Seeding.
         _policy, cma = ensure_runtime_reference_data(
             db,
             current_user.id,
             jurisdiction=resolve_pack(mandate).code,
             tenant_id=getattr(mandate, "tenant_id", None) or None,
+            seed=False,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail={

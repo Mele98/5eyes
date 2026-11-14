@@ -341,6 +341,10 @@ def bootstrap_admin(body: BootstrapAdminRequest, request: Request, db: Session =
             raise_if_check_violation(exc)
             raise _bootstrap_already_done(guard_key)
         db.refresh(admin)
+    # H11: Nach-Bootstrap-Schritte (main.py: CH-Referenzdaten anlegen statt als
+    # Seiteneffekt in GET-Pfaden); idempotent, die Ersteinrichtung scheitert nie daran.
+    for hook in getattr(request.app.state, 'post_bootstrap_hooks', ()):
+        hook(db, admin.id)
     login_attempt_guard.register_success(guard_key)
     logger.info('Bootstrap admin created | username=%s', admin.username)
     return _issue_token_response(admin, db, request)

@@ -35,7 +35,7 @@ import models.protocol_bausteine  # noqa  Bug-#13a (2026-06-07) — Beratungspro
 import models.tenant  # noqa  Sprint T1 (2026-06-08) — 3-Tier-Foundation
 import models.tax  # noqa
 import models.wealth  # noqa
-from routers.allocation import router as allocation_router
+from routers.allocation import router as allocation_router, seed_reference_data_at_bootstrap
 from routers.auth import router as auth_router, users_router
 from routers.client_portal import router as client_portal_router
 from routers.cost_disclosure import router as cost_disclosure_router  # FIDLEG Art. 8/9 (2026-06-08)
@@ -169,6 +169,8 @@ app = FastAPI(
 # K-2: fachliche Fehler (core.reason_codes.DomainError) zentral -> HTTP,
 # byte-gleich zur bisherigen HTTPException-Antwort.
 install_exception_handlers(app)
+# H11: Referenzdaten-Seeding nach dem Bootstrap-Admin (statt in GET-Pfaden).
+app.state.post_bootstrap_hooks = (seed_reference_data_at_bootstrap,)
 app.add_middleware(RequestContextMiddleware)
 app.add_middleware(
     CORSMiddleware,
