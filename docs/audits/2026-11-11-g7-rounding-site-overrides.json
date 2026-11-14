@@ -1,0 +1,1960 @@
+{
+ "schema_version": 1,
+ "policy_version": "ares-rounding/1",
+ "doc": "G7 Einzelentscheide je Quelltextzeile (Ausnahme-Annotation). COMPUTATION_KEEP gibt es nur hier; Regeln liefern nur Vorschlaege (scripts/classify_rounding_sites.py).",
+ "overrides": [
+  {
+   "file": "ares-backend/routers/pdf_reports.py",
+   "source": "amount = int(round(value * bps / 10000))",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "_advisory_wealth_positions: `round(value * bps / 10000)` -> setzt amount; Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige). Weiterverwendung: `current_amounts[bucket] += amount`"
+  },
+  {
+   "file": "ares-backend/routers/pdf_reports.py",
+   "source": "amount = lambda r: format_amount_minor(r, ccy)  # noqa: E731  (G7: Half-up statt round())",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter"
+  },
+  {
+   "file": "ares-backend/routers/pdf_reports.py",
+   "source": "amt = int(round(convert_rappen(",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "_other_wealth_positions: `round(convert_rappen(` -> setzt amt; Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige). Weiterverwendung: `if amt == 0:`"
+  },
+  {
+   "file": "ares-backend/routers/pdf_reports.py",
+   "source": "bucket: int(round(amount / total * 10000)) if total > 0 else 0",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "_advisory_wealth_positions: `round(amount / total * 10000)` -> Feld bucket; Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+  },
+  {
+   "file": "ares-backend/routers/pdf_reports.py",
+   "source": "int(round(current_amount / current_total * 10000))",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "_build_portfolio_data: `round(current_amount / current_total * 10000)` -> Teilausdruck; Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+  },
+  {
+   "file": "ares-backend/routers/pdf_reports.py",
+   "source": "return int(round(sum((value / total) ** 2 for value in clean) * 10000))",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "_hhi_from_bps: `round(sum((value / total) ** 2 for value in clean) * 10000)` -> Rueckgabewert; Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+  },
+  {
+   "file": "ares-backend/routers/pdf_reports.py",
+   "source": "value = int(round(convert_rappen(raw_value, str(getattr(row, \"currency\", \"\") or \"CHF\"), target_currency)))",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "_advisory_wealth_positions: `round(convert_rappen(raw_value, str(getattr(row, \"currency\", \"\") or \"CHF\"), target_currency))` -> setzt value; Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige). Weiterverwendung: `if value <= 0:`"
+  },
+  {
+   "file": "ares-backend/services/pdf/components/effektives_portfolio.py",
+   "source": "current_bps = int(round(current_amount / total_amount * 10000))",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "make_effektives_portfolio_section: `round(current_amount / total_amount * 10000)` -> setzt current_bps; Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige). Weiterverwendung: `f\"{format_bps_as_pct(current_bps, decimals=1)}\" if current_bps > 0 else \"—\",`"
+  },
+  {
+   "file": "ares-backend/services/pdf/components/goal_achievability.py",
+   "source": "pct_text = format_pct_value(pct, decimals=0) if abs(pct - round(pct)) < 0.05 else format_pct_value(pct, decimals=1)",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter"
+  },
+  {
+   "file": "ares-backend/services/pdf/components/goal_achievability.py",
+   "source": "return format_pct_value(pct, decimals=0) if abs(pct - round(pct)) < 0.05 else format_pct_value(pct, decimals=1)",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Anzeige ueber gemeinsamen Formatter"
+  },
+  {
+   "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
+   "source": "return sorted({round(k * step) for k in range(n_max)})",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "_spaced_indices: `round(k * step)` -> Rueckgabewert; Achsen-/Tick-Raster (Skalenberechnung)"
+  },
+  {
+   "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
+   "source": "while decimals < 3 and abs(step_mio * 10**decimals - round(step_mio * 10**decimals)) > 1e-9:",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "make_y_tick_formatter: `round(step_mio * 10**decimals)` -> Teilausdruck; Achsen-/Tick-Raster (Skalenberechnung)"
+  },
+  {
+   "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
+   "source": "y_tick_values = [k * y_step for k in range(int(round(max_value / y_step)) + 1)]",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "build_mc_paths_drawing: `round(max_value / y_step)` -> setzt y_tick_values; Achsen-/Tick-Raster (Skalenberechnung). Weiterverwendung: `widest_tick = max(stringWidth(format_y_tick(v), FONT_MONO, 7) for v in y_tick_values)`"
+  },
+  {
+   "file": "ares-backend/services/pdf/components/swiss_numbers.py",
+   "source": "ROUND_HALF_UP, identisch zu Classic-App und React). Vorher rundeten sie mit",
+   "class": "FALSE_POSITIVE",
+   "status": "",
+   "reason": "Docstring"
+  },
+  {
+   "file": "ares-backend/services/pdf/documents/portfolio.py",
+   "source": "group_weight = int(round(group_amount / total_amount * 10000))",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "_make_position_group_flowables: `round(group_amount / total_amount * 10000)` -> setzt group_weight; Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige). Weiterverwendung: `flowables.append(_make_group_header(bucket, group_amount, group_weight, currency))`"
+  },
+  {
+   "file": "ares-backend/services/pdf/documents/portfolio.py",
+   "source": "return int(round(amount / total_amount * 10000)) if total_amount > 0 and amount > 0 else 0",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "_position_weight_bps: `round(amount / total_amount * 10000)` -> Rueckgabewert; Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "(rate>0 ? rate.toFixed(4) : '') + '\" style=\"font-size:11px\">';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadAdminFxRates: `rate.toFixed(4)` -> Teilausdruck; Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "+ '<div class=\"admin-stacked-seg\" style=\"width:' + (g / tot * 100).toFixed(1) + '%;background:var(--pos)\" title=\"GREEN ' + g + '\"></div>'",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderShadowAggregate: `(g / tot * 100).toFixed(1)` -> Teilausdruck; CSS-Breite eines Balkensegments; title zeigt Rohzahl, kein gerundeter Kundenwert"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "+ '<div class=\"admin-stacked-seg\" style=\"width:' + (r / tot * 100).toFixed(1) + '%;background:var(--neg)\" title=\"RED ' + r + '\"></div>'",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderShadowAggregate: `(r / tot * 100).toFixed(1)` -> Teilausdruck; CSS-Breite eines Balkensegments; title zeigt Rohzahl"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "+ '<div class=\"admin-stacked-seg\" style=\"width:' + (y / tot * 100).toFixed(1) + '%;background:var(--warn)\" title=\"YELLOW ' + y + '\"></div>'",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderShadowAggregate: `(y / tot * 100).toFixed(1)` -> Teilausdruck; CSS-Breite eines Balkensegments; title zeigt Rohzahl"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "+ '<div class=\"pdetail-item\"><strong>Kosten</strong>TER p.a.: '+escapeHtml(fmtPct((Number(row.ter_bps||0)),2))+'<br>Kosten auf Zielvolumen: '+escapeHtml(formatRappen(Math.round(displayAmountRappen*Number(row.ter_bps||0)/10000)))+' p.a.</div",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderPortfolioSections (Produktdetail Kosten): Math.round(displayAmountRappen*ter_bps/10000) bildet den Kostenbetrag in ganzen Rappen (Umrechnung bps x Betrag); die sichtbare Zahl entsteht erst in formatRappen (Half-up auf ganze Einheiten)."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "+'<div class=\"'+barClass+'\" data-aa-tooltip=\"'+hoverLabel+'\" aria-label=\"'+hoverLabel+'\" tabindex=\"0\" style=\"left:'+left.toFixed(2)+'%;width:'+width.toFixed(2)+'%\">'",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "allocationTimelineBarHtml: `left.toFixed(2)` -> Teilausdruck; CSS-Position/-Breite der Cashflow-Zeitleiste; Beschriftung ueber hoverLabel (Formatter)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "+'<div class=\"aa-flow-timeline-bar '+(isIncome?'aa-flow-timeline-bar-income':'aa-flow-timeline-bar-expense')+'\" style=\"left:'+left.toFixed(2)+'%;width:'+width.toFixed(2)+'%\">'",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "allocationTimelineBarHtmlLegacy: `left.toFixed(2)` -> Teilausdruck; CSS-Position/-Breite der Cashflow-Zeitleiste; Beschriftung ueber hoverLabel (Formatter)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "+'<div style=\"font-size:9px;color:#64748b\">'+escapeHtml(formatRappen(subtotal))+' / '+escapeHtml(formatBpsPercent(totalPortfolioRappen>0?Math.round(subtotal/totalPortfolioRappen*10000):0))+'</div>'",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderPortfolioSections (Gruppenkopf): Math.round(subtotal/total*10000) ist die Umrechnung Betrag -> ganzzahlige bps; angezeigt wird ueber formatBpsPercent (gemeinsamer Formatter)."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": ": Math.max(0,Math.min(total0,Math.round(Number(sockelOpts&&sockelOpts.sockelRappen||0))));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildBaselineProjectionFromComponentSeries: `Math.round(Number(sockelOpts&&sockelOpts.sockelRappen||0))` -> Teilausdruck; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "? 'Teilverkauf ' + assetClass + ' ' + fmtChf(partialSaleChf) + '. Sofortige Normalisierung, Steuerfolgen separat prüfen.'",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Lokaler Formatter delegiert an den gemeinsamen Formatter"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "? Math.max(0,Math.round(Number(pos.mortgage_amortization_rappen||0)))",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "mortgageLiabilityAndPledgedSeriesRappen: `Math.round(Number(pos.mortgage_amortization_rappen||0))` -> Teilausdruck; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "? Math.max(0,Math.round(Number(sockelOpts.sockelGrossRappen||0)))",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildBaselineProjectionFromComponentSeries: `Math.round(Number(sockelOpts.sockelGrossRappen||0))` -> Teilausdruck; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "? Math.round(bucket.rebalance_amount_rappen / 100) : null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Rebalancing-Handlungsoptionen: rebalAmtChf = Rappen -> ganze Einheiten als Zwischenwert fuer die Grobrundung der Vorschlagsbetraege (rebalRoundedChf auf 5'000, partialSaleChf auf 1'000); Anzeige ueber fmtChf -> fmtCHF (gemeinsamer Formatter)."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "? fmtChf(rebalRoundedChf) + ' in defensivere Klassen umlenken. Organische Normalisierung 12–18 Monate.'",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Lokaler Formatter delegiert an den gemeinsamen Formatter"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "?Math.round(Number(risk.override_score_x10!=null?risk.override_score_x10:risk.final_score_x10||0)/10)",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openPortfolioUmsetzenModal: `Math.round(Number(risk.override_score_x10!=null?risk.override_score_x10:risk.final_score_x10||0)/10)` -> Teilausdruck; Risikoscore x10 -> Ganzzahl 1..10 (Score-Logik)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "Array.from({length:10},function(){return Math.round(ann*100);}),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadPersona: `Math.round(ann*100)` -> Teilausdruck; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "Math.round(base*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadPersona: `Math.round(base*100)` -> Teilausdruck; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "Math.round(baselineRate*10000),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadPersona: `Math.round(baselineRate*10000)` -> Teilausdruck; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "TOTAL=Math.round((Number(result.advisory_wealth_rappen||0))/100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "applyAllocationEngineResult: TOTAL = Beratungsvermoegen in ganzen Einheiten fuer die Legacy-Chartreihen (initCharts-Startwert); kein Text -- Betraege werden ueber formatRappen aus den Rappen-Feldern angezeigt."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "TOTAL=Math.round(advisoryProjection.startRappen/100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderWealthPositions: TOTAL = Startvermoegen in ganzen Einheiten fuer alloc[]/Legacy-Charts; kein Anzeigetext (Vermoegensbetraege der Ansicht laufen ueber formatRappen)."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "__istImproved.push(Math.round(Number(totalCurrentSeries[__istI]||0)+(Number(targetSeries[__istI]||0)-Number(advisoryCurrentSeries[__istI]||0))));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "updateProjectionChartsFromSimulation: `Math.round(Number(totalCurrentSeries[__istI]||0)+(Number(targetSeries[__istI]||0)-Number(advisoryCurrentSer...` -> Reihenwert (push); Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "alloc_alternatives_bps:Math.round(alt*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildWealthPositionPayload: `Math.round(alt*100)` -> Feld alloc_alternatives_bps; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "alloc_bonds_bps:Math.round(obl*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildWealthPositionPayload: `Math.round(obl*100)` -> Feld alloc_bonds_bps; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "alloc_equities_bps:Math.round(akt*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildWealthPositionPayload: `Math.round(akt*100)` -> Feld alloc_equities_bps; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "alloc_liquidity_bps:Math.round(liq*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildWealthPositionPayload: `Math.round(liq*100)` -> Feld alloc_liquidity_bps; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "alloc_real_estate_bps:Math.round(imm*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildWealthPositionPayload: `Math.round(imm*100)` -> Feld alloc_real_estate_bps; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "alternatives:totalRappen>0?Math.round(bucketRappen.alternatives/totalRappen*10000):0",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthProjectionInputs: `Math.round(bucketRappen.alternatives/totalRappen*10000)` -> Feld alternatives; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "bonds:totalRappen>0?Math.round(bucketRappen.bonds/totalRappen*10000):0,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthProjectionInputs: `Math.round(bucketRappen.bonds/totalRappen*10000)` -> Feld bonds; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "bucketRappen.alternatives+=Math.round(value*Number(mix.alternatives||0)/10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthProjectionInputs: `Math.round(value*Number(mix.alternatives||0)/10000)` -> setzt bucketRappen.alternatives; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "bucketRappen.bonds+=Math.round(value*Number(mix.bonds||0)/10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthProjectionInputs: `Math.round(value*Number(mix.bonds||0)/10000)` -> setzt bucketRappen.bonds; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "bucketRappen.equities+=Math.round(value*Number(mix.equities||0)/10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthProjectionInputs: `Math.round(value*Number(mix.equities||0)/10000)` -> setzt bucketRappen.equities; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "bucketRappen.liquidity+=Math.round(value*Number(mix.liquidity||0)/10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthProjectionInputs: `Math.round(value*Number(mix.liquidity||0)/10000)` -> setzt bucketRappen.liquidity; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "bucketRappen.realEstate+=Math.round(value*Number(mix.realEstate||0)/10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthProjectionInputs: `Math.round(value*Number(mix.realEstate||0)/10000)` -> setzt bucketRappen.realEstate; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "callbacks:{label:function(ctx){var l=ctx&&ctx.dataset&&ctx.dataset.label?ctx.dataset.label+': ':'';return l+formatRappen(Math.round(Number(ctx&&ctx.raw||0)*100000));}}}",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "_sollistOptions Tooltip: Chartwert (Mio., float) -> ganze Rappen (Umrechnung); sichtbare Zahl formatiert formatRappen."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "const opt=Array.from({length:11},function(_,idx){return Math.round(startK*Math.pow(1.045,idx));});",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "initCharts Demo-Reihe: Platzhalter-Chartpunkte (Tausend) ohne Mandatsdaten; Chartgeometrie, kein Text."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "const pct=Math.min(90,Math.round((p.netWorth/Math.max(1,g.target||1))*35+15));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadPersona: `Math.round((p.netWorth/Math.max(1,g.target||1))*35+15)` -> setzt pct; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `const gcl=pct>=70?'fg':pct>=45?'fa':'fr';`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "const startK=Math.max(1200,Math.round((Number(TOTAL||2848000))/1000));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "initCharts Demo-Reihe (nur ohne Mandatsdaten): Startwert in Tausend fuer die Platzhalter-Chartreihe; keine Kundenzahl, kein Text."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "const startRappen=Math.max(120000000,Math.round(Number(TOTAL||2848000)*100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "initCharts Demo-Reihe (nur ohne Mandatsdaten): Startwert in Rappen fuer die Platzhalter-Projektion; keine Kundenzahl, kein Text."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "consumable=Math.max(0,Math.round(consumable+recurringNet+capitalNet));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildBaselineProjectionFromComponentSeries: `Math.round(consumable+recurringNet+capitalNet)` -> setzt consumable; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `if(depletionIndex<0&&consumableStart0>0&&consumable<=0){depletionIndex=idx+1;}`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "consumable=Math.round(Math.max(0,consumable)*(1+rate));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildBaselineProjectionFromComponentSeries: `Math.round(Math.max(0,consumable)*(1+rate))` -> setzt consumable; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `consumable=Math.max(0,Math.round(consumable+recurringNet+capitalNet));`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "consumableReturnRappenBps+=Math.round(value*posReturnBps);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthProjectionInputs: `Math.round(value*posReturnBps)` -> setzt consumableReturnRappenBps; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `var consumableReturnBps=consumableRappen>0?Math.round(consumableReturnRappenBps/consumable`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "currentAnnualNetCashflowRappen:Math.round(ann*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadPersona: `Math.round(ann*100)` -> Feld currentAnnualNetCashflowRappen; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "currentMixReturnBps:Math.round(baselineRate*10000),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadPersona: `Math.round(baselineRate*10000)` -> Feld currentMixReturnBps; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "equities:totalRappen>0?Math.round(bucketRappen.equities/totalRappen*10000):0,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthProjectionInputs: `Math.round(bucketRappen.equities/totalRappen*10000)` -> Feld equities; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "expectedReturnBps:totalRappen>0?Math.round(weightedReturnRappenBps/totalRappen):0,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthProjectionInputs: `Math.round(weightedReturnRappenBps/totalRappen)` -> Feld expectedReturnBps; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "expected_return_bps: Number.isFinite(Number(raw.expected_return_bps)) ? Math.round(Number(raw.expected_return_bps)) : 0,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "adminNormalizeSubAssetPayload: `Math.round(Number(raw.expected_return_bps))` -> Feld expected_return_bps; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "expected_return_bps: Number.isFinite(expectedReturn) ? Math.round(expectedReturn * 100) : 0,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "adminCollectSubAssetJsonFromGrid: `Math.round(expectedReturn * 100)` -> Feld expected_return_bps; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "expected_volatility_bps: Number.isFinite(Number(raw.expected_volatility_bps)) ? Math.round(Number(raw.expected_volatility_bps)) : 0",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "adminNormalizeSubAssetPayload: `Math.round(Number(raw.expected_volatility_bps))` -> Feld expected_volatility_bps; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "expected_volatility_bps: Number.isFinite(expectedVolatility) ? Math.round(expectedVolatility * 100) : 0",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "adminCollectSubAssetJsonFromGrid: `Math.round(expectedVolatility * 100)` -> Feld expected_volatility_bps; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "function strategyMedianProjectionRappen(result){var mc=monteCarloPayload(result);var series=mc&&Array.isArray(mc.target_p50_series_rappen)?mc.target_p50_series_rappen:null;if(series&&series.length){var last=Number(series[series.length-1]||0",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Skriptebene: `Rundung` -> Teilausdruck; Projektions-/Reihenberechnung (Rappen, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "horizonInput.value=years>0?String(Math.max(1,Math.round(years))):'';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "onGoalDateGroupChange: `Math.round(years)` -> setzt horizonInput.value; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz). Weiterverwendung: `function normalizeCashflowMonthValue(value){`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "html += '<td style=\"padding:1px\"><input class=\"fi\" id=\"corr-' + i + '-' + j + '\" data-i=\"' + i + '\" data-j=\"' + j + '\" type=\"number\" step=\"0.05\" min=\"-1\" max=\"1\" value=\"' + String(Number(v.toFixed(4))) + '\" style=\"font-size:10px;width:54px;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderAdminCorrelationGrid: `v.toFixed(4)` -> setzt html; Eingabefeld-Wert (Korrelationsmatrix-Editor, type=number); Anzeige-Senke geprueft: value-Attribut, kein Kundentext. Weiterverwendung: `html += '</tr>';`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "if (Number.isFinite(year) && Number.isFinite(value)) normalized[String(Math.round(year))] = Math.round(value);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "adminNormalizeInflationPath: `Math.round(year)` -> Teilausdruck; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "if (mirror) mirror.value = String(Number(n.toFixed(4)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "adminCorrelationGridInput: `n.toFixed(4)` -> Wert eines Eingabefelds; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "if(_fanFinite(canonical.probability))return {pct:Math.round(canonical.probability*10000)/100,estimate:false};",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "fanGoalProbability: `Math.round(canonical.probability*10000)` -> Teilausdruck; Wahrscheinlichkeit -> Prozentpunkte auf 0.01 normiert (Fan-Vertrag pinnt pct); Anzeige ueber fmtProbPct"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "if(start>0)return Math.round((((next-firstCashflow)-start)/start)*10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "currentMixExpectedReturnBps: `Math.round((((next-firstCashflow)-start)/start)*10000)` -> Teilausdruck; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "if(target>0)return Math.round(target);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "reportPositionAmountRappen: `Math.round(target)` -> Teilausdruck; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "if(total>0)return Math.round(portfolioMarketValueRappen(row)/total*10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "portfolioCurrentWeightBps: `Math.round(portfolioMarketValueRappen(row)/total*10000)` -> Teilausdruck; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "if(totalWeight>0)return Math.round(weighted/totalWeight);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "currentMixExpectedReturnBps: `Math.round(weighted/totalWeight)` -> Teilausdruck; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "if(typeof portfolioMarketValueRappen==='function')return Math.round(portfolioMarketValueRappen(row)||0);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "reportPositionAmountRappen: `Math.round(portfolioMarketValueRappen(row)||0)` -> Teilausdruck; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "if(typeof value==='number'&&isFinite(value))return Math.round(Math.abs(value)>100?value:value*100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "parseBandPercentInput: `Math.round(Math.abs(value)>100?value:value*100)` -> Teilausdruck; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "improvedSeries.push(Math.max(0,Math.round(totalValue+(advisoryTarget-advisoryCurrent))));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildImprovedTotalProjectionFromStrategy: `Math.round(totalValue+(advisoryTarget-advisoryCurrent))` -> Reihenwert (push); Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "invested=Math.round(Math.max(0,invested)*(1+rate));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildBaselineProjectionFromInputs: `Math.round(Math.max(0,invested)*(1+rate))` -> setzt invested; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `invested=Math.round(invested+flow*(1+rate/2));`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "invested=Math.round(invested+flow*(1+rate/2));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildBaselineProjectionFromInputs: `Math.round(invested+flow*(1+rate/2))` -> setzt invested; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `invested=Math.max(0,invested+cashReserve);`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "liquidity:totalRappen>0?Math.round(bucketRappen.liquidity/totalRappen*10000):0,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthProjectionInputs: `Math.round(bucketRappen.liquidity/totalRappen*10000)` -> Feld liquidity; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "n = Math.round(n);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "adminPolicyFormatPercentInput: `Math.round(n)` -> setzt n; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `var neg = n < 0; n = Math.abs(n);`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "parts.push(k + ':' + Math.round(subPcts[k] * 100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "btRunBacktest: `Math.round(subPcts[k] * 100)` -> Reihenwert (push); Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "partsPdf.push(k + ':' + Math.round(subPctsPdf[k] * 100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "downloadBacktestPdf: `Math.round(subPctsPdf[k] * 100)` -> Reihenwert (push); Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "payload.esg_score_x10 = Math.round(esgScore * 10);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "adminCreateFund: `Math.round(esgScore * 10)` -> setzt payload.esg_score_x10; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "payload.threshold_bps=isFinite(pct)?Math.round(Math.abs(pct)*100):500;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildTriggerPayload: `Math.round(Math.abs(pct)*100)` -> setzt payload.threshold_bps; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "realEstate:totalRappen>0?Math.round(bucketRappen.realEstate/totalRappen*10000):0,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthProjectionInputs: `Math.round(bucketRappen.realEstate/totalRappen*10000)` -> Feld realEstate; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return (Math.abs(pct-Math.round(pct))<0.05?String(Math.round(pct)):pct.toFixed(1))+'%';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "formatBandPercent: `Math.round(pct)` -> Rueckgabewert; formatBandPercent: nur Wert/data-initial der Band-Editor-Eingabefelder (Roundtrip mit parseBandPercentInput); Anzeigen nutzen fmtPct"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return (Number(bps)/100).toFixed(2).replace(/\\.00$/,'').replace(/(\\.\\d)0$/,'$1');",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "formatInputPercent: `(Number(bps)/100).toFixed(2)` -> Rueckgabewert; Eingabefeld-Wert bzw. Eingabe -> Integer (keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return (Number(value) / 100).toFixed(2).replace(/\\.00$/, '').replace(/(\\.\\d)0$/, '$1');",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "adminBpsToPercentValue: `(Number(value) / 100).toFixed(2)` -> Rueckgabewert; Eingabefeld-Wert bzw. Eingabe -> Integer (keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.abs(normalized - Math.round(normalized)) < 0.001 ? String(Math.round(normalized)) : normalized.toFixed(1);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "formatRiskScoreTen (Risikoprofil-Score x/10): normalized = score_x10/10 hat genau eine Nachkommastelle, toFixed(1)/Math.round runden daher nie einen Grenzfall; reine Darstellung einer ganzzahligen Skala."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.max(0, Math.min(5, Math.round((Number(scoreX10 || 0) / 10) / 2)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "riskScoreDots: `Math.round((Number(scoreX10 || 0) / 10) / 2)` -> Rueckgabewert; Ganzzahlige Skala (Risikoscore x10, Jahre, Inflationsmittel) -- kein Policy-Grenzfall"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round((Math.pow(end/start,1/years)-1)*10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "projectionSeriesCagrBps: `Math.round((Math.pow(end/start,1/years)-1)*10000)` -> Rueckgabewert; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round((Number(rappen)||0)/100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "chfFromRappen: `Math.round((Number(rappen)||0)/100)` -> Rueckgabewert; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round((base*Math.pow(1+improvedRate,i)+ann*((Math.pow(1+improvedRate,i)-1)/improvedRate))/1000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadPersona: `Math.round((base*Math.pow(1+improvedRate,i)+ann*((Math.pow(1+improvedRate,i)-1)/improvedRate))/1000)` -> Rueckgabewert; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round((date.getTime()-today.getTime())/86400000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "reviewDaysUntil: `Math.round((date.getTime()-today.getTime())/86400000)` -> Rueckgabewert; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round((parseFloat(c)||0)*100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "parseCHF: `Math.round((parseFloat(c)||0)*100)` -> Rueckgabewert; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round((unitsMilli/1000)*(currentPrice-avgCost));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "portfolioEstimatedPnlRappen: `Math.round((unitsMilli/1000)*(currentPrice-avgCost))` -> Rueckgabewert; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round(Math.abs(numeric)>100?numeric:numeric*100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "parseBandPercentInput: `Math.round(Math.abs(numeric)>100?numeric:numeric*100)` -> Rueckgabewert; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round(Number(contributionInput||0)*factor);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "scaleProjectionContribution: `Math.round(Number(contributionInput||0)*factor)` -> Rueckgabewert; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round(Number(row.market_value_rappen||row.current_market_value_rappen||0));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "reportPositionAmountRappen: `Math.round(Number(row.market_value_rappen||row.current_market_value_rappen||0))` -> Rueckgabewert; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round(Number(value||0)/100000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "simulationSeriesK: `Math.round(Number(value||0)/100000)` -> Rueckgabewert; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round(future);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "projectionValueRappen: `Math.round(future)` -> Rueckgabewert; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round(n * 100); // 0.50% -> 50bps",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "pctToBps: `Math.round(n * 100)` -> Rueckgabewert; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round(num * multiplier);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "adminFloatInputTimes: `Math.round(num * multiplier)` -> Rueckgabewert; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round(numeric*100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "parseBandPercentUserInput: `Math.round(numeric*100)` -> Rueckgabewert; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Math.round(units*1000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "parseUnitsMilli: `Math.round(units*1000)` -> Rueckgabewert; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Number.isFinite(n)?Math.round(n):null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "riskAnswerPoints: `Math.round(n)` -> Rueckgabewert; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Number.isFinite(num) ? Math.round(num * 100) : null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "adminPercentInputToBps: `Math.round(num * 100)` -> Rueckgabewert; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return Number.isFinite(num) ? Number(num.toFixed(4)) : 0;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "adminCorrelationMatrixPayload: `num.toFixed(4)` -> Rueckgabewert; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return String(Math.round(Number(rappen)/100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "formatInputCHF: `Math.round(Number(rappen)/100)` -> Rueckgabewert; formatInputCHF: Wert fuer ein editierbares Zahlenfeld (type=number, ohne Gruppierung) -- Eingabe-Roundtrip, keine Anzeige"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return contributionInput.map(function(value){return Math.round(Number(value||0)*factor);});",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "scaleProjectionContribution: `Math.round(Number(value||0)*factor)` -> Rueckgabewert; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return fmtPct(Math.round(n*100),Math.round(n)===n?0:1);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "sbbFormatPctInput: `Math.round(n*100)` -> Rueckgabewert; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return fmtProbPct(Math.max(0,Math.round(Number(value||0))));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "formatProbabilityPct: Wahrscheinlichkeit in ganzen Prozent; Wert per max(0,..) >= 0, dort ist Math.round identisch mit Half-up; Text formatiert fmtProbPct (gemeinsamer Formatter)."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return fmtSignedPct(Math.round(Number(bps||0)),1);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "formatSignedBpsPercent: Server liefert ganzzahlige bps, Math.round normalisiert nur (kein .5-Fall); die Prozentrundung macht fmtSignedPct (gemeinsamer Formatter)."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return isFinite(n)?Math.max(0,Math.min(100,Math.round(n))):null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "goalSuccessPct: Zielerreichungs-Wahrscheinlichkeit auf ganze Prozent 0..100 (Werte >= 0, Math.round = Half-up); Anzeige ueber fmtProbPct."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return isFinite(n)?Math.round(n*100):null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "parsePercentToBps: `Math.round(n*100)` -> Rueckgabewert; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return new Date(value).toLocaleString('de-CH',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "formatIsoLocal: `toLocaleString('de-CH',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})` -> Rueckgabewert; Datum/Zeit-Formatierung (keine Zahl der Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return totalRappen>0?Math.round(amount/totalRappen*10000):0;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "reportPositionWeightBps (Dossier-Positionsliste): Betrag -> ganzzahlige bps (Umrechnung); Prozent im Dossier ueber formatBpsPercent."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return {n:assetDisplayName(key),c:assetClassColor(key),ist:Number(bucket.current_weight_bps||0)/100,soll:Number(bucket.target_weight_bps||0)/100,chf:Math.round((Number(bucket.current_amount_rappen||0))/100),chfTarget:Math.round((Number(buck",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "applyAllocationEngineResult: alloc[].chf (Rappen -> ganze Einheiten) wird im Bundle nie gelesen -- totes Datenfeld; ist/soll speisen nur die Legacy-Chartreihe."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "row.push(Number(n.toFixed(4)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "adminCollectCorrelationJsonFromGrid: `n.toFixed(4)` -> Reihenwert (push); Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "seriesK:improvedSeries.map(function(value){return Math.round(Number(value||0)/100000);}),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildImprovedTotalProjectionFromStrategy: `Math.round(Number(value||0)/100000)` -> Feld seriesK; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "seriesK:seriesRappen.map(function(value){return Math.round(value/100000);}),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildBaselineProjectionFromInputs: `Math.round(value/100000)` -> Feld seriesK; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "seriesRappen.push(Math.max(0,Math.round(consumable+sockel)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildBaselineProjectionFromComponentSeries: `Math.round(consumable+sockel)` -> Reihenwert (push); Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "seriesRappen.push(Math.max(0,Math.round(invested)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildBaselineProjectionFromInputs: `Math.round(invested)` -> Reihenwert (push); Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('acf-amount',formatInputCHF(cashflow.amount_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openCashflowRowEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('acf-gross-amount',formatInputCHF(cashflow.gross_amount_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openCashflowRowEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('acf-tax-amount',formatInputCHF(cashflow.tax_amount_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openCashflowRowEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('ap-cost-price',formatInputCHF(position.holding_avg_cost_price_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "syncPortfolioHoldingSelection: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('ap-market-value',formatInputCHF(position.holding_market_value_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "syncPortfolioHoldingSelection: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('awi-amount',formatInputCHF(inflow.amount_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openInflowEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-alt-return',formatInputPercent(pos.asset_expected_return_bps));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-alt-value',formatInputCHF(pos.current_value_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-depot-value',formatInputCHF(pos.current_value_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-immo-appreciation',formatInputPercent(pos.asset_expected_return_bps));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-immo-rent',formatInputCHF(pos.property_rental_income_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-immo-value',formatInputCHF(pos.current_value_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-liq-rate',formatInputPercent(pos.liquidity_interest_rate_bps));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-liq-value',formatInputCHF(pos.current_value_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-mortgage-amortization',formatInputCHF(pos.mortgage_amortization_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-mortgage-rate',formatInputPercent(pos.mortgage_interest_rate_bps));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-mortgage-value',formatInputCHF(pos.current_value_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-pension-interest',formatInputPercent(pos.pension_interest_rate_bps));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-pension-maturity-value',formatInputCHF(pos.pension_maturity_value_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-pension-rate',formatInputPercent(pos.pension_technical_rate_bps));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-pension-tax-chf',formatInputCHF(pos.pension_lumpsum_tax_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-pension-tax-pct',formatInputPercent(pos.pension_lumpsum_tax_bps));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('maw-pension-value',formatInputCHF(pos.current_value_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Rundung` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('sc-akt',Math.round(Number(pos.alloc_equities_bps||0)/100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Math.round(Number(pos.alloc_equities_bps||0)/100)` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('sc-alt',Math.round(Number(pos.alloc_alternatives_bps||0)/100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Math.round(Number(pos.alloc_alternatives_bps||0)/100)` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('sc-imm',Math.round(Number(pos.alloc_real_estate_bps||0)/100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Math.round(Number(pos.alloc_real_estate_bps||0)/100)` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('sc-liq',Math.round(Number(pos.alloc_liquidity_bps||0)/100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Math.round(Number(pos.alloc_liquidity_bps||0)/100)` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "setInputValue('sc-obl',Math.round(Number(pos.alloc_bonds_bps||0)/100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openWealthPositionEditor: `Math.round(Number(pos.alloc_bonds_bps||0)/100)` -> Teilausdruck; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "sockel=Math.max(0,Math.round(sockel*(1+sockelRate)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildBaselineProjectionFromComponentSeries: `Math.round(sockel*(1+sockelRate))` -> setzt sockel; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `seriesRappen.push(Math.max(0,Math.round(consumable+sockel)));`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "sockelGross=Math.max(0,Math.round(sockelGross*(1+sockelRate)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildBaselineProjectionFromComponentSeries: `Math.round(sockelGross*(1+sockelRate))` -> setzt sockelGross; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `sockel=Math.max(0,sockelGross-liabilityThisYear+pledgedThisYear);`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "sockelRappen=Math.max(0,Math.min(startRappen,Math.round(Number(_ta.foundation_in_net_wealth_rappen))));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthProjectionInputs: `Math.round(Number(_ta.foundation_in_net_wealth_rappen))` -> setzt sockelRappen; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `var _off=sockelGrossRappen+Number(_P[0]||0)-sockelRappen-Number(_L[0]||0);`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "startRappen=Math.max(0,Math.round(Number(_ta.total_base_rappen)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthProjectionInputs: `Math.round(Number(_ta.total_base_rappen))` -> setzt startRappen; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `sockelRappen=Math.max(0,Math.min(startRappen,Math.round(Number(_ta.foundation_in_net_wealt`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "surplus_rappen:Math.round(Number(p.surplus||0)*100)",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadPersona: `Math.round(Number(p.surplus||0)*100)` -> Feld surplus_rappen; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "svg += '<text x=\"' + (marginLeft - 6) + '\" y=\"' + (y + 3) + '\" font-size=\"9\" fill=\"#64748b\" text-anchor=\"end\" font-family=\"system-ui\">' + (opts.yFormat ? opts.yFormat(yVal) : String(Math.round(yVal))) + '</text>';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "btRenderLineChart: `Math.round(yVal)` -> setzt svg; Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe). Weiterverwendung: `svg += '<line x1=\"' + marginLeft + '\" y1=\"' + y0 + '\" x2=\"' + (W - marginRight) + '\" y2=\"'`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "targetCagrBps:Math.round(improvedRate*10000),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadPersona: `Math.round(improvedRate*10000)` -> Feld targetCagrBps; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "targetProjectedRappen:Math.round(improvedSeries[improvedSeries.length-1]*100000),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadPersona: `Math.round(improvedSeries[improvedSeries.length-1]*100000)` -> Feld targetProjectedRappen; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "target_amount_rappen:isWealthGoal?null:Math.round(Number(g.target||0)*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadPersona: `Math.round(Number(g.target||0)*100)` -> Feld target_amount_rappen; Eingabefeld-Wert bzw. Eingabe -> Integer (keine Kundenevidenz)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "target_wealth_rappen:isWealthGoal?Math.round(Number(g.target||0)*100):null,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadPersona: `Math.round(Number(g.target||0)*100)` -> Feld target_wealth_rappen; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "total_expense_rappen:Math.round((p.cashflows||[]).filter(function(c){return c.type==='Expense';}).reduce(function(sum,c){return sum+Number(c.amount||0);},0)*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadPersona: `Math.round((p.cashflows||[]).filter(function(c){return c.type==='Expense';}).reduce(function(sum,c){return ...` -> Feld total_expense_rappen; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "total_income_rappen:Math.round((p.cashflows||[]).filter(function(c){return c.type==='Income';}).reduce(function(sum,c){return sum+Number(c.amount||0);},0)*100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadPersona: `Math.round((p.cashflows||[]).filter(function(c){return c.type==='Income';}).reduce(function(sum,c){return s...` -> Feld total_income_rappen; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "values.push(Math.round(val/100000));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildProjectionSeriesK: `Math.round(val/100000)` -> Reihenwert (push); Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var _fmtEndK=function(k){return k==null?null:formatRappen(Math.round(k*100000));};",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderAaProjectionEndValues: Endwert der Chartreihe (Mio.) -> ganze Rappen (Umrechnung); Anzeige ueber formatRappen."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var _pAl=Math.round(Number(advisoryProjection.bucketWeightsBps.alternatives||0))/100;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderWealthPositions: Gewicht Alternative bps -> Prozent (ganzzahlige bps) fuer alloc[].ist/soll der Legacy-Chartreihe; Prozenttexte kommen aus bucketPctMap."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var _pBo=Math.round(Number(advisoryProjection.bucketWeightsBps.bonds||0))/100;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderWealthPositions: Gewicht Obligationen bps -> Prozent (ganzzahlige bps) fuer alloc[].ist/soll der Legacy-Chartreihe; Prozenttexte kommen aus bucketPctMap."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var _pEq=Math.round(Number(advisoryProjection.bucketWeightsBps.equities||0))/100;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderWealthPositions: Gewicht Aktien bps -> Prozent (bps sind ganzzahlig, Math.round normalisiert nur) fuer alloc[].ist/soll der Legacy-Chartreihe; Prozenttexte der Ansicht kommen aus bucketPctMap (apportioniert)."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var _pLi=Math.round(Number(advisoryProjection.bucketWeightsBps.liquidity||0))/100;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderWealthPositions: Gewicht Liquiditaet bps -> Prozent (ganzzahlige bps) fuer alloc[].ist/soll der Legacy-Chartreihe; Prozenttexte kommen aus bucketPctMap."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var _pRe=Math.round(Number(advisoryProjection.bucketWeightsBps.realEstate||0))/100;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderWealthPositions: Gewicht Immobilien bps -> Prozent (ganzzahlige bps) fuer alloc[].ist/soll der Legacy-Chartreihe; Prozenttexte kommen aus bucketPctMap."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var advRappen=Math.round(Number(alloc.advisory_wealth_rappen||0));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "savePortfolioUmsetzen: `Math.round(Number(alloc.advisory_wealth_rappen||0))` -> setzt advRappen; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `advisory_assets_rappen:advRappen,`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var avgInflation = inflationKeys.length ? Math.round(inflationKeys.reduce(function(sum, year){ return sum + Number(parsedInflation[year] || 0); }, 0) / inflationKeys.length) : null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderAdminCapitalMarketAssumptionsSummary: `Math.round(inflationKeys.reduce(function(sum, year){ return sum + Number(parsedInflation[year] || 0); }, 0)...` -> setzt avgInflation; Ganzzahlige Skala (Risikoscore x10, Jahre, Inflationsmittel) -- kein Policy-Grenzfall. Weiterverwendung: `{ label: 'Inflation', value: avgInflation != null ? adminPercentLabelFromBps(avgInflation)`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var barPct=(Number(bucket.target_weight_bps||0)/totalTargetBps*100).toFixed(1);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildAnlagestrategieDocHtml: `(Number(bucket.target_weight_bps||0)/totalTargetBps*100).toFixed(1)` -> setzt barPct; Geometrie (CSS-Breite/Position aus bps). Weiterverwendung: `+'<td style=\"padding:8px 12px;\"><div style=\"height:8px;background:#e2e8f0;border-radius:4p`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var baseline={min_bps:Math.round(Number(r.min||0)*100),target_bps:Math.round(Number(r.ziel||0)*100),max_bps:Math.round(Number(r.max||0)*100)};",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildQT: `Math.round(Number(r.min||0)*100)` -> setzt baseline; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige). Weiterverwendung: `allocationBandBaseline[bucket]=baseline;`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var bps=(typeof value==='number')?Math.round(value):parseBandPercentInput(value);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "normalizeStoredBandOverride: `Math.round(value)` -> setzt bps; Eingabefeld-Wert (Roundtrip eines Editierfelds, keine Kundenevidenz). Weiterverwendung: `if(bps!=null&&isFinite(bps))out[field]=bps;`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var cells=(dss||[]).map(function(d){var v=(d&&d.data&&d.data[i]!=null)?Number(d.data[i]):null;return '<td>'+(v!=null&&isFinite(v)?escapeHtml(formatRappen(Math.round(v*100000))):'–')+'</td>';}).join('');",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "_fillSollIstTable (Tabellenalternative zum Chart): Chartwert (Mio., float) -> ganze Rappen (Umrechnung); Zelle formatiert formatRappen."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var consumableReturnBps=consumableRappen>0?Math.round(consumableReturnRappenBps/consumableRappen):0;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthProjectionInputs: `Math.round(consumableReturnRappenBps/consumableRappen)` -> setzt consumableReturnBps; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `consumableReturnBps:consumableReturnBps,`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var currentLeft=(current/100).toFixed(2);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "reviewBandVisualHtml: `(current/100).toFixed(2)` -> setzt currentLeft; Geometrie (CSS-Breite/Position aus bps). Weiterverwendung: `+'<div style=\"position:absolute;left:'+currentLeft+'%;top:5px;width:12px;height:12px;borde`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var debt=Math.max(0,Math.round(Number(pos.current_value_rappen||0)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "mortgageLiabilityAndPledgedSeriesRappen: `Math.round(Number(pos.current_value_rappen||0))` -> setzt debt; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `liability[year]+=isDirect?Math.max(0,debt-amortization*year):debt;`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var deltaRappen=Math.round((sMain-iMain)*100000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "_renderSollIstCompare: Differenz der Median-Endwerte (Mio.) -> ganze Rappen (Umrechnung); Text 'Differenz ... SOLL − IST' formatiert formatRappen."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var fmtChf = function(v) {",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Lokaler Formatter delegiert an den gemeinsamen Formatter"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var groupWeightBps=totalPortfolio>0?Math.round(subtotal/Math.max(1,totalPortfolio)*10000):0;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderPortfolioSections: Gruppengewicht Betrag -> ganzzahlige bps (Umrechnung); Anzeige ueber formatBpsPercent."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var invested=Math.max(0,Math.round(Number(startRappen||0)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildBaselineProjectionFromInputs: `Math.round(Number(startRappen||0))` -> setzt invested; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `var seriesRappen=[invested];`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var keep=Math.round(Number(years))+1;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "_truncateProjectionChartsTo: `Math.round(Number(years))` -> setzt keep; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `if(Array.isArray(ch.data.labels)&&ch.data.labels.length>keep){ ch.data.labels=ch.data.labe`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var loss=Math.max(0,Math.round(Number(bps||0)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "formatRiskLossBps: Verlust-bps sind ganzzahlig und >= 0 (Math.round = Half-up); Prozenttext ueber fmtPct (gemeinsamer Formatter)."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var n = Math.max(3, Math.min(60, Math.round(Number(years))));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "saveIstHorizonOverride: `Math.round(Number(years))` -> setzt n; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `localStorage.setItem(key, String(n));`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var normalized = Math.round((Math.max(0, Number(rawPoints || 0)) / Math.max(1, Number(rawMax || 1))) * Math.max(0, Number(scaledMax || 0)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "normalizeRiskPoints: `Math.round((Math.max(0, Number(rawPoints || 0)) / Math.max(1, Number(rawMax || 1))) * Math.max(0, Number(sc...` -> setzt normalized; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `return Math.max(0, Math.min(Number(scaledMax || 0), normalized));`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var partialSaleChf = rebalAmtChf ? Math.round(rebalAmtChf * 0.8 / 1000) * 1000 : null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Rebalancing-Handlungsoption 'Teilverkauf': fachliche Grobrundung des Vorschlags auf volle 1'000 (Richtgroesse, keine Evidenzzahl); Anzeige ueber fmtChf -> fmtCHF."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var pct=Math.max(0,Math.min(100,Math.round(Number(bucket.target_weight_bps||0)/100)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderStrategySummary: `Math.round(Number(bucket.target_weight_bps||0)/100)` -> setzt pct; Geometrie (CSS-Breite/Position aus bps). Weiterverwendung: `return '<div style=\"display:flex;align-items:center;gap:6px\"><span style=\"font-size:10px;w`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var pct=Math.round(doneCount/Math.max(1,totalCount)*100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderReadinessChecklist: pct ist nur die CSS-Breite des Fortschrittsbalkens (width:pct%); kein Prozenttext."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var qPct=Math.min(100,Math.round(qCur/qLim*100));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "teamRender (Admin, Lizenz-Kontingent): qPct ist nur die CSS-Breite des Kontingentbalkens (width:qPct%); Zahlen zeigt der Text qCur/qLim."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var rawWillScore=Math.round(((willingnessTotal-3)/9)*90+10);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildRiskAssessmentPayloadFromUI: `Math.round(((willingnessTotal-3)/9)*90+10)` -> setzt rawWillScore; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `var willScore=Math.max(10,Math.min(100,rawWillScore));`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var rebalRoundedChf = rebalAmtChf ? Math.round(rebalAmtChf / 5000) * 5000 : null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Rebalancing-Handlungsoption 'umlenken': fachliche Grobrundung des Vorschlags auf volle 5'000 (Richtgroesse, keine Evidenzzahl); Anzeige ueber fmtChf -> fmtCHF."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var res=Math.round(aaReserveSockelRappen(result,mc));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "AA-Chartreihen: Reserve-Sockel in ganzen Rappen (Zwischenwert), wird auf jede Reihe addiert; Anzeige der Reihen ueber formatRappen/Achse."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var riskScore=risk?Math.round(Number(risk.final_score_x10||0)/10):null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Risikoprofil-Score x10 -> Stufe 1..10 (Score-Logik, Werte >= 0, Math.round = Half-up); bestimmt Profilstufe, kein Prozent-/Betragstext."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var safePercent=Math.max(8,Math.min(100,percent!=null?Number(percent||0):Math.round(((safeStep+1)/strategyCalcJourney.length)*100)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderStrategyCalcOverlay: `Math.round(((safeStep+1)/strategyCalcJourney.length)*100)` -> setzt safePercent; Achsen-/Tick-Raster (Skalenberechnung). Weiterverwendung: `fill.style.width=String(safePercent)+'%';`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var score=Math.max(1,Math.min(10,Math.round(Number(scoreX10||10)/10)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "riskOverrideProfileBand: `Math.round(Number(scoreX10||10)/10)` -> setzt score; Ganzzahlige Skala (Risikoscore x10, Jahre, Inflationsmittel) -- kein Policy-Grenzfall. Weiterverwendung: `if(score<=2)return 0;`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var score=risk?Math.round(Number(risk.override_score_x10!=null?risk.override_score_x10:risk.final_score_x10||0)/10):7;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openOverrideModal: `Math.round(Number(risk.override_score_x10!=null?risk.override_score_x10:risk.final_score_x10||0)/10)` -> setzt score; Risikoscore x10 -> Ganzzahl 1..10 (Score-Logik). Weiterverwendung: `if(el)el.textContent=score+'/10 – '+profile+(risk&&Number(risk.is_overridden||0)?' (Overri`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var seriesRappen=[Math.max(0,Math.round(consumable+sockel))];",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildBaselineProjectionFromComponentSeries: `Math.round(consumable+sockel)` -> setzt seriesRappen; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `seriesRappen.push(Math.max(0,Math.round(consumable+sockel)));`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var sockelIndexBps=sockelGrossRappen>0?Math.round(sockelIndexRappenBps/sockelGrossRappen):0;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthProjectionInputs: `Math.round(sockelIndexRappenBps/sockelGrossRappen)` -> setzt sockelIndexBps; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `sockelIndexBps:sockelIndexBps,`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var targetBarPct=targetWeightBps?Math.max(4,Math.round(Math.abs(targetWeightBps)/Math.max(targetWeightBps,100)*100)):0;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderPortfolioSections: `Math.round(Math.abs(targetWeightBps)/Math.max(targetWeightBps,100)*100)` -> setzt targetBarPct; Geometrie (CSS-Breite/Position aus bps). Weiterverwendung: `+ '<div class=\"pdetail-item\"><strong>Soll-Anteil</strong><div class=\"pdetail-bars\"><div cl`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var targetLeft=(target/100).toFixed(2);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "reviewBandVisualHtml: `(target/100).toFixed(2)` -> setzt targetLeft; Geometrie (CSS-Breite/Position aus bps). Weiterverwendung: `+'<div style=\"position:absolute;left:'+targetLeft+'%;top:4px;width:2px;height:16px;backgro`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var targetRappen=Number(b.target_amount_rappen!=null?b.target_amount_rappen:Math.round(totalAdvisoryRappen*Number(b.target_weight_bps||0)/10000));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openPortfolioUmsetzenModal: `Math.round(totalAdvisoryRappen*Number(b.target_weight_bps||0)/10000)` -> setzt targetRappen; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige). Weiterverwendung: `+'<div style=\"text-align:right;font-size:10px;color:var(--n5)\">'+escapeHtml(formatRappen(t`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var total0=Math.max(0,Math.round(Number(startRappen||0)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildBaselineProjectionFromComponentSeries: `Math.round(Number(startRappen||0))` -> setzt total0; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `: Math.max(0,Math.min(total0,Math.round(Number(sockelOpts&&sockelOpts.sockelRappen||0))));`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var totalAdvisoryRappen=Math.round(Number(alloc.advisory_wealth_rappen||0));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openPortfolioUmsetzenModal: `Math.round(Number(alloc.advisory_wealth_rappen||0))` -> setzt totalAdvisoryRappen; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `var targetRappen=Number(b.target_amount_rappen!=null?b.target_amount_rappen:Math.round(tot`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var value=Math.max(0,Math.round(Number(pos&&pos.current_value_rappen||0)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthProjectionInputs: `Math.round(Number(pos&&pos.current_value_rappen||0))` -> setzt value; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `if(!value)return;`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var weighted=weightedBps===null?null:Math.round(weightedBps/100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "goalSuccessSummary: weighted (ganze Prozent) steuert nur Ampel/Farbe (summary.weighted!=null), der Text nutzt weightedBps ueber fmtNumber."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var weightedBps=weightTotal>0?Math.round(weightedSum/weightTotal*10000):null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "goalSuccessSummary: gewichtete Zielerreichung -> ganzzahlige bps (Umrechnung, Werte >= 0); Text ueber fmtNumber(weightedBps/100,0) (gemeinsamer Formatter)."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var zoneLeft=(min/100).toFixed(2);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "reviewBandVisualHtml: `(min/100).toFixed(2)` -> setzt zoneLeft; Geometrie (CSS-Breite/Position aus bps). Weiterverwendung: `+'<div style=\"position:absolute;left:'+zoneLeft+'%;width:'+zoneWidth+'%;top:7px;height:10p`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var zoneWidth=Math.max(1,(max-min)/100).toFixed(2);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "reviewBandVisualHtml: `Math.max(1,(max-min)/100).toFixed(2)` -> setzt zoneWidth; Geometrie (CSS-Breite/Position aus bps). Weiterverwendung: `+'<div style=\"position:absolute;left:'+zoneLeft+'%;width:'+zoneWidth+'%;top:7px;height:10p`"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "weightedReturnRappenBps+=pensionRateBps!=null?Math.round(value*pensionRateBps):Math.round(value*(",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthProjectionInputs: `Math.round(value*pensionRateBps)` -> setzt weightedReturnRappenBps; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "y:{grid:{color:chartGridColor()},ticks:{font:{size:10},color:chartAxisColor(),callback:function(v){var n=Number(v)||0;if(n===0)return '0';var a=Math.abs(n),sg=n<0?'\\u2212':'';if(a>=1000){var m=a/1000;return sg+(m===Math.round(m)?String(Math",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "_sollistOptions: `Math.round(m)` -> Feld y; Achsenbeschriftung (Tick-Raster, keine Kennzahl)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "y:{grid:{color:chartGridColor()},ticks:{font:{size:9},color:chartAxisColor(),callback:function(v){var n=Number(v)||0;if(n===0)return '0';var a=Math.abs(n),sg=n<0?'\\u2212':'';if(a>=1000){var m=a/1000;return sg+(m===Math.round(m)?String(Math.",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthLineOptions: `Math.round(m)` -> Feld y; Achsenbeschriftung (Tick-Raster, keine Kennzahl)"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "{n:'Aktien (global+CH)',c:assetClassColor('eq'),ist:_pEq,soll:_pEq,chf:Math.round(TOTAL*_pEq/100)},",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderWealthPositions: alloc[].chf wird im gesamten Bundle nie gelesen (kein '.chf'-Zugriff) -- totes Datenfeld, keine Anzeige."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "{n:'Alternative / Gold',c:assetClassColor('alt'),ist:_pAl,soll:_pAl,chf:Math.round(TOTAL*_pAl/100)},",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderWealthPositions: alloc[].chf wird im gesamten Bundle nie gelesen (kein '.chf'-Zugriff) -- totes Datenfeld, keine Anzeige."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "{n:'Anleihen / Defensiv',c:assetClassColor('bd'),ist:_pBo,soll:_pBo,chf:Math.round(TOTAL*_pBo/100)},",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderWealthPositions: alloc[].chf wird im gesamten Bundle nie gelesen (kein '.chf'-Zugriff) -- totes Datenfeld, keine Anzeige."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "{n:'Immobilien (ind.)',c:assetClassColor('re'),ist:_pRe,soll:_pRe,chf:Math.round(TOTAL*_pRe/100)},",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderWealthPositions: alloc[].chf wird im gesamten Bundle nie gelesen (kein '.chf'-Zugriff) -- totes Datenfeld, keine Anzeige."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "{n:'Liquiditätsreserve',c:assetClassColor('liq'),ist:_pLi,soll:_pLi,chf:Math.round(TOTAL*_pLi/100)},",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderWealthPositions: alloc[].chf wird im gesamten Bundle nie gelesen (kein '.chf'-Zugriff) -- totes Datenfeld, keine Anzeige."
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/components/Logo.tsx",
+   "source": "const height = Math.round((width * VIEWBOX_HEIGHT) / VIEWBOX_WIDTH);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Logo: `Math.round((width * VIEWBOX_HEIGHT) / VIEWBOX_WIDTH)` -> setzt height; Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe). Weiterverwendung: `height={height}`"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
+   "source": "Math.abs(stepMio * 10 ** decimals - Math.round(stepMio * 10 ** decimals)) > 1e-9",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Skriptebene: `Math.round(stepMio * 10 ** decimals)` -> Teilausdruck; Achsen-/Tick-Raster (Skalenberechnung)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
+   "source": "const pillW = Math.round(pillText.length * 5.6 + 14);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "MonteCarloPathsChart: `Math.round(pillText.length * 5.6 + 14)` -> setzt pillW; Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe). Weiterverwendung: `const pillX = nearRightEdge ? x - 8 - pillW : x + 8;`"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
+   "source": "out.add(Math.round(k * step));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Skriptebene: `Math.round(k * step)` -> Teilausdruck; Achsen-/Tick-Raster (Skalenberechnung)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
+   "source": "{ length: Math.round(maxValue / yStep) + 1 },",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "MonteCarloPathsChart: `Math.round(maxValue / yStep)` -> Teilausdruck; Achsen-/Tick-Raster (Skalenberechnung)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/lib/allocationForm.ts",
+   "source": "return Number.isFinite(value) ? Math.round(value * 100) : Number.NaN;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Skriptebene: `Math.round(value * 100)` -> Rueckgabewert; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/lib/cashflowForm.ts",
+   "source": "amount_rappen: Math.round(amount * 100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildCashflowPayload: `Math.round(amount * 100)` -> Feld amount_rappen; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/lib/fanAnnotations.ts",
+   "source": "return { pct: Math.round(canonical.probability * 10000) / 100, estimate: false };",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Skriptebene: `Math.round(canonical.probability * 10000)` -> Rueckgabewert; Wahrscheinlichkeit -> Prozentpunkte auf 0.01 normiert (Fan-Vertrag pinnt pct); Anzeige ueber fmtProbPct"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/lib/format.ts",
+   "source": "const n = Math.round(Number(age));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Skriptebene: `Math.round(Number(age))` -> setzt n; formatAge: ganze Jahre (Alter >= 0, Half-up gleich). Weiterverwendung: `if (!Number.isFinite(n) || n <= 0) return '—';`"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/lib/format.ts",
+   "source": "const n = Math.round(Number(value));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Skriptebene: `Math.round(Number(value))` -> setzt n; formatInteger: Ganzzahl-Anzeige (Zaehler) ohne Gruppierung; Math.round = Half-up fuer Werte >= 0. Weiterverwendung: `if (!Number.isFinite(n)) return '—';`"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/lib/format.ts",
+   "source": "const n = Math.round(Number(years));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Skriptebene: `Math.round(Number(years))` -> setzt n; formatHorizon: ganze Jahre (Horizont >= 0, Half-up gleich). Weiterverwendung: `if (!Number.isFinite(n) || n <= 0) return '—';`"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/lib/wealthInflowForm.ts",
+   "source": "amount_rappen: Math.round(amount * 100),",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "buildWealthInflowPayload: `Math.round(amount * 100)` -> Feld amount_rappen; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/sections/goals/GoalWizard.tsx",
+   "source": "return n == null ? null : Math.round(n * 100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "toFormInput: `Math.round(n * 100)` -> Rueckgabewert; Eingabe -> Integer-bps/Rappen (Persistenzwert, keine Anzeige)"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/sections/goals/GoalsEditor.tsx",
+   "source": "if (goal.target_amount_rappen != null) return formatChf(goal.target_amount_rappen, currency);",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Lokaler Formatter delegiert an den gemeinsamen Formatter"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/sections/goals/GoalsEditor.tsx",
+   "source": "if (goal.target_wealth_rappen != null) return formatChf(goal.target_wealth_rappen, currency);",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Lokaler Formatter delegiert an den gemeinsamen Formatter"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/sections/goals/MaxPensionSpendingPanel.tsx",
+   "source": "Max. monatlich: <strong>{formatChf(result.max_monthly_chf_rappen, currency)}</strong>",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Lokaler Formatter delegiert an den gemeinsamen Formatter"
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/sections/goals/MaxPensionSpendingPanel.tsx",
+   "source": "{' · '}jährlich: <strong>{formatChf(result.max_annual_chf_rappen, currency)}</strong>",
+   "class": "MIGRATE",
+   "status": "done",
+   "reason": "Lokaler Formatter delegiert an den gemeinsamen Formatter"
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "return label+(ds&&ds.aresCurrency!==undefined?formatRappen(Math.round(Number(ctx&&ctx.raw||0)*100000),ds.aresCurrency):formatRappen(Math.round(Number(ctx&&ctx.raw||0)*100000)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "wealthLineOptions-Tooltip: Math.round(raw*100000) ist die Umrechnung Chartwert (Mio., float) -> ganze Rappen; die sichtbare Zahl formatiert formatRappen in der Waehrung der Reihe (dataset.aresCurrency)."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "var groupPct=AresRounding.bucketPctMap(Object.keys(groups).map(function(g){var st=groups[g].reduce(function(a,r){return a+portfolioMarketValueRappen(r);},0);return {asset_class:g,target_weight_bps:totalPortfolio>0?Math.round(st/totalPortfol",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderPortfolioSections: Math.round(st/total*10000) ist die Umrechnung Gruppenbetrag -> ganzzahlige bps als Eingabe der gemeinsamen Apportionierung (bucketPctMap); angezeigt wird das apportionierte Ergebnis."
+  },
+  {
+   "file": "ares-desktop/frontend/aa-chart.js",
+   "source": "return AresRounding.formatPercentBps(Math.round(Number(bps)||0),1,{typography:'screen'});",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aaChartPctText: Normalisierung auf ganzzahlige bps (Serverwerte sind ganzzahlig, kein .5-Fall); die Prozentrundung macht formatPercentBps (gemeinsamer Formatter)."
+  },
+  {
+   "file": "ares-desktop/frontend/aa-chart.js",
+   "source": "function aaChartChf(chf,cur){return aaChartMoney(Math.round((Number(chf)||0)*100),cur);}",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aaChartChf (Modulebene, Einzeiler): Umrechnung ganze Einheiten -> Rappen (x100, ganzzahlig); Anzeige ueber aaChartMoney/formatStoredAmount."
+  },
+  {
+   "file": "ares-desktop/frontend/aa-chart.js",
+   "source": "return {name:String(it.name||''),key:key,bps:Math.max(0,Math.round(Number(it.bps)||0)),color:it.color,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aaChartPrepare: Normalisierung der Legenden-Eingabe auf ganzzahlige bps (Zwischenwert); Prozenttexte kommen aus bucketPctMap."
+  },
+  {
+   "file": "ares-desktop/frontend/aa-chart.js",
+   "source": "return {name:String(s.name||''),bps:Math.max(0,Math.round(Number(s.bps)||0)),note:s.note||'',_j:j};",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aaChartPrepare (Unterklassen): ganzzahlige bps als Eingabe von subPctMap (Zwischenwert); Anzeige apportioniert."
+  },
+  {
+   "file": "ares-desktop/frontend/aa-chart.js",
+   "source": "return count>1?Math.round(idx/(count-1)*50)/100:0;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aaChartShadeStep: Farbmischanteil (Geometrie/Farbe), kein Kundentext."
+  },
+  {
+   "file": "ares-desktop/frontend/aa-chart.js",
+   "source": "return '#'+a.map(function(v,i){var m=Math.round(v+(b[i]-v)*t);return (m<16?'0':'')+m.toString(16);}).join('').toUpperCase();",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aaChartMix: RGB-Kanal auf ganze Zahl (Farbwert, CSS-Geometrie/Farbe), kein Kundentext."
+  },
+  {
+   "file": "ares-desktop/frontend/aa-chart.js",
+   "source": "return 'color-mix(in srgb, '+cssColor+' '+Math.round((1-t)*100)+'%, var(--surface))';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aaChartCssMix: CSS-Farbmischanteil in Prozent (color-mix), keine Kennzahl."
+  },
+  {
+   "file": "ares-desktop/frontend/aa-chart.js",
+   "source": "var amount=pos.length?0:Math.round((rb.strategyBaseRappen/100)*Number(r.soll||0)/100),band=null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aaChartAllocItems: Fallback-Betrag ganze Einheiten nur ohne Positionen; in der Legende ueberschrieben durch presentationAmounts (Largest Remainder) -- Zwischenwert."
+  },
+  {
+   "file": "ares-desktop/frontend/aa-chart.js",
+   "source": "return {name:r.n,bps:Math.round(Number(r.soll||0)*100),color:r.c,amountChf:amount,currency:cur,",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aaChartAllocItems: Soll-Prozent (2 Stellen) -> ganzzahlige bps (Umrechnung); Anzeige ueber bucketPctMap."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "return Math.max(0,Math.round(rappen||0));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "goalEditorInitialRappen: Startvermoegen in ganzen Rappen fuer die Live-Diagnose (Zwischenwert); Anzeige ueber formatRappen."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "hintEl.innerHTML='<strong>'+escapeHtml(formatRappen(Math.round(impliedWealth*100),mandateCurrency()))+'</strong> impliziertes Zielverm\\u00f6gen in '+fmtNumber(horizon,1)+' Jahren.';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "updateGoalDerivedDiagnostics: Umrechnung implizites Zielvermoegen (Einheiten, float) -> ganze Rappen; sichtbare Zahl formatiert formatRappen, Jahre ueber fmtNumber."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "hintEl.innerHTML='Vereinfachter Kapitalbedarf des Stroms: <strong>'+escapeHtml(formatRappen(Math.round(streamAmount*dur*100),mandateCurrency()))+'</strong>. Die pr\\u00e4zise Tragf\\u00e4higkeit zeigt der Optimizer.';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "updateGoalDerivedDiagnostics: Umrechnung Kapitalbedarf (Einheiten x Jahre) -> ganze Rappen; sichtbare Zahl formatiert formatRappen."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "else if(isWealthGoalType(goalType))setInputValue('nz-amount',formatInputCHF(goal.target_wealth_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openGoalEditor: Eingabefeld-Wert (type=number, Roundtrip mit parseCHF), keine Kundenevidenz."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "else setInputValue('nz-amount',formatInputCHF(goal.target_amount_rappen));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openGoalEditor: Eingabefeld-Wert (type=number, Roundtrip mit parseCHF), keine Kundenevidenz."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "setInputValue('nz-target-return-bps',isReturnGoalType(goalType)?formatInputPercent(goal.target_return_bps):'');",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openGoalEditor: Eingabefeld-Wert Renditeziel (Roundtrip mit parsePercentToBps), keine Kundenevidenz."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "setInputValue('nz-success-prob-min',goal.success_probability_min_x100==null?'':String(Math.round(Number(goal.success_probability_min_x100||0)/100)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "openGoalEditor: Eingabefeld-Wert Mindestwahrscheinlichkeit (x100 -> ganze Prozent, Roundtrip), keine Kundenevidenz."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "'<div class=\"gbw\"><div class=\"gp\" title=\"'+escapeHtml(scored?('Erfolgswahrscheinlichkeit: '+GOAL_SUCCESS_PROBABILITY_TOOLTIP+(goalSuccessIsEstimate(successRow)?(' \\u2013 '+GOAL_SUCCESS_ESTIMATE_HINT):'')):'Noch keine aktuelle Strategie bere",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderGoalList: Math.round(pct) nur in der CSS-Breite des Fortschrittsbalkens (width:x%); der Text nutzt fmtProbPct (gemeinsamer Formatter)."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "var horizon=horizonFloat>0?Math.max(1,Math.round(horizonFloat)):null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "saveGoal: Horizont in ganzen Jahren als Persistenzwert (horizon_years INTEGER), Werte >= 1 -> Half-up identisch; keine Anzeige."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "if(pctEl)pctEl.value=bps!=null?(Number(bps)/100).toFixed(2):'';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadPlanningAssumptions: Eingabefeld-Wert Inflationsannahme (bps/100 hat hoechstens 2 Stellen, toFixed(2) rundet nie), Roundtrip mit parse."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "var bps=pctVal==null?null:Math.round(pctVal*100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "savePlanningAssumptions: Eingabe Prozent -> ganzzahlige bps (Persistenzwert); die Bestaetigung zeigt den gespeicherten Wert ueber fmtPct."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "var scoreText=risk&&risk.final_score_x10!=null?('Score '+Math.round(Number(risk.final_score_x10||0)/10)+' / 10'):'';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderActionCards: Risikoscore x10 -> Stufe 1..10 (ganzzahlige Skala, Werte >= 0, Math.round = Half-up), keine Prozent-/Betragsangabe."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "var reserveNeeded=Math.round(Number(allocation.reserve_needed_rappen||0)/100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderActionCards: nur Zwischenwert fuer den Vergleich > 0; der Text formatiert allocation.reserve_needed_rappen direkt mit formatRappen."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "var externalReserve=Math.round(Number(allocation.external_reserve_rappen||0)/100);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderActionCards: nur Zwischenwert fuer den Vergleich > 0; der Text formatiert allocation.external_reserve_rappen direkt mit formatRappen."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "var edgeBuffer=Math.max(100,Math.round(bandSpan*0.2));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "reviewBandStateMeta: Skalenrand in bps fuer die Bandgrafik (Geometrie/Zwischenwert), kein Kundentext."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "item.currentWeightBps=Math.round(item.currentRappen/denominator*10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "reviewImplementationHotspots: Umrechnung Betrag -> ganzzahlige bps fuer Schwelle (>= 200 bps) und Apportionierung; Texte ueber bucketPctMap/sollPct."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "item.targetWeightBps=Math.round(item.targetRappen/denominator*10000);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "reviewImplementationHotspots: Umrechnung Betrag -> ganzzahlige bps fuer Schwelle und Apportionierung; Texte ueber bucketPctMap/sollPct."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "return '<div style=\"width:'+pct.toFixed(2)+'%;background:'+getColor(key)+';display:flex;align-items:center;justify-content:center;overflow:hidden\" title=\"'+escapeHtml(label)+': '+escapeHtml(m[key]||formatBpsPercent(bps))+'\">'",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "reviewAllocationPortraitHtml/seg: toFixed(2) nur in der CSS-Breite des Segments; title und Beschriftung kommen aus den apportionierten Maps (bucketPctMap IST/SOLL)."
+  },
+  {
+   "file": "ares-desktop/frontend/goal-review-runtime.js",
+   "source": "var pct=Math.max(0,Math.min(100,Math.round(Number(bucket.target_weight_bps||0)/100)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderStrategySummary (Modul): pct nur CSS-Breite des Balkens; der Prozenttext kommt aus sollPct (apportioniert, = PDF)."
+  },
+  {
+   "file": "ares-desktop/frontend/intro-sequence.js",
+   "source": "var tileSeed=Math.abs(Math.round(tileLon*13+tileLat*29));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Intro-Animation (Modulebene): Zufalls-Seed fuer Kacheln (Geometrie), kein Kundentext."
+  },
+  {
+   "file": "ares-desktop/frontend/intro-sequence.js",
+   "source": "canvas.width=Math.round(innerWidth*dpr);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Intro-Animation resize(): Canvas-Pixelbreite (Geometrie)."
+  },
+  {
+   "file": "ares-desktop/frontend/intro-sequence.js",
+   "source": "canvas.height=Math.round(innerHeight*dpr);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Intro-Animation resize(): Canvas-Pixelhoehe (Geometrie)."
+  },
+  {
+   "file": "ares-desktop/frontend/intro-sequence.js",
+   "source": "if(bar)bar.style.width=Math.round((i+1)/steps.length*96)+'%';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "Intro-Animation tick(): CSS-Breite des Ladebalkens, keine Kennzahl."
+  },
+  {
+   "file": "ares-desktop/frontend/product-master-data.js",
+   "source": "if (Math.abs(minor - Math.round(minor)) > 1e-6) return 'Mindestanlage: hoechstens ' + digits + ' Nachkommastellen fuer ' + (val('pf-currency').toUpperCase() || 'CHF') + '.';",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "adminCollectFundMasterData: Ganzzahlpruefung der Eingabe (Zwischenwert/Vergleich), die Meldung nennt nur die erlaubte Stellenzahl."
+  },
+  {
+   "file": "ares-desktop/frontend/product-master-data.js",
+   "source": "payload.minimum_investment_minor_units = Math.round(minor);",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "adminCollectFundMasterData: Eingabe -> ganzzahlige Minor-Units (Persistenzwert), keine Anzeige."
+  },
+  {
+   "file": "ares-desktop/frontend/reporting/src/components/MonteCarloPathsChart.tsx",
+   "source": "return `${unit}${(rappen / MIO_RAPPEN).toFixed(decimals)} Mio.`;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "makeYTickFormatter: Achsenbeschriftung; Ticks sind exakte Vielfache des Schritts, toFixed(decimals) mit Stellen aus dem Schritt rundet daher nie (Achse)."
+  },
+  {
+   "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
+   "source": "f\"{_tick_amount(int(round(float(target_amount))), currency)} (über Skala)\"",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "build_mc_paths_drawing: Umrechnung Zielbetrag (float) -> ganze Rappen vor format_chf_rappen (Half-up in ganze Einheiten); Achsen-Annotation."
+  },
+  {
+   "file": "ares-backend/services/pdf/components/mc_paths_chart.py",
+   "source": "return lambda rappen: _tick_amount(int(round(rappen)), currency)",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "make_y_tick_formatter: Achsen-Tick (float) -> ganze Rappen; Formatierung ueber format_chf_rappen (Achse)."
+  },
+  {
+   "file": "ares-desktop/frontend/ares.html",
+   "source": "renderCurrentWealthOnlyProjectionSummary({labels:labels,currency:p.currency,projectedRappen:baselineProjection.projectedRappen,expectedReturnBps:Math.round(baselineRate*10000)});  // G7 N4: Waehrung der Quelle",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "loadPersona (H9-Demo-Persona ohne Strategie): `Math.round(baselineRate*10000)` -> Feld expectedReturnBps; Eingabe -> Integer-bps (Rechenwert, keine Anzeige); Anzeige danach ueber fmtPct (gemeinsamer Formatter) in renderCurrentWealthOnlyProjectionSummary"
+  },
+  {
+   "file": "ares-desktop/frontend/ist-projection-basis.js",
+   "source": "return isFinite(h)?Math.max(1,Math.min(80,Math.round(h))):null;",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "IST-Projektionsbasis (H9 Nachtrag 2): `Math.round(h)` -> Horizont in ganzen Jahren (1..80) als Rechengroesse der Projektion; Ganzzahlige Skala (Jahre), keine Anzeige"
+  },
+  {
+   "file": "ares-desktop/frontend/ist-projection-gate.js",
+   "source": "return Math.round(Number(totalSeries[i]||0)+(Number(targetSeries[j]||0)-Number(advisoryCurrentSeries[j]||0)));",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "renderIstProjectionChart (H9): `Math.round(total + (soll - ist))` -> Datenpunkt der verbesserten Reihe in Rappen; Projektions-/Reihenberechnung (Rappen, keine Anzeige); Achsen/Tooltip formatieren ueber den gemeinsamen Formatter"
+  }
+ ]
+}

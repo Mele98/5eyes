@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
+from core.db_integrity import raise_if_check_violation
 from datetime import date, datetime, timezone
 from typing import Optional
 import json
@@ -12,10 +13,11 @@ from database import get_db, new_uuid
 from models.users import User
 from models.mandates import Mandate
 from models.allocation import TargetAllocation, OptimizerPolicy, OptimizerRun, CapitalMarketAssumption, HouseMatrix, BuildingBlock
-from models.profiling import RiskAssessment
+from models.profiling import RiskAssessment, current_investment_preference
 from models.review import MandateReportNotes
 from schemas.allocation import (
     TargetAllocationCreate, TargetAllocationResponse,
+    IstProjectionBasisResponse,
     HouseMatrixResponse,
     CapitalMarketAssumptionCreate, CapitalMarketAssumptionResponse,
     TargetAllocationGenerateRequest, TargetAllocationGenerateResponse,
@@ -26,12 +28,17 @@ from schemas.allocation import (
     OptimizerPolicyDetailResponse, HouseMatrixRowsReplace,
 )
 from schemas.review import ReportNotesResponse, ReportNotesUpdate
+from core import sustainability_preference as sustainability
+from core.reason_codes import DomainError, ReasonCode
 from services.auth import (
     get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin,
     require_portfolio_management, require_reference_data_reader,
-    enforce_cma_cross_tenant_read_scope,
+    enforce_cma_cross_tenant_read_scope, set_tenant_context,
 )
-from services.audit import log
+from services.audit import gate_block_audit, log, release_block_audit
+from services.recommendation_release_gate import (
+    CHANNEL_CLIENT_PDF, KYC_DRAFT_NOTICE, assert_kyc_review_release_eligible, kyc_release_is_draft,
+)
 from services.optimizer_policy_lifecycle import (
     REASON_CODE_HOUSE_MATRIX_INCOMPLETE,
     copy_policy_children,
@@ -49,11 +56,13 @@ from services.data_classification import enforce_data_classification
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer CMA-/Policy-/Allokations-
 # Aenderungen im Audit-Log.
 from routers.auth import _extract_client_ip
-from services.jurisdiction.exceptions import (
+# C-890-01 Nachtrag 3: die Ausnahmen kommen ueber die Fassade
+# services.jurisdiction.resolve (bereits Abhaengigkeit, importiert sie selbst) --
+# so bleibt der Fan-out konstant, obwohl der React-Bericht das zentrale
+# Wiedervorlage-Gate braucht.
+from services.jurisdiction.resolve import (
     CMAValidityWindowError,
     JurisdictionReferenceDataMissingError,
-)
-from services.jurisdiction.resolve import (
     assert_cma_activatable_on,
     resolve_cma_for_jurisdiction,
 )
@@ -61,6 +70,10 @@ from jurisdictions.resolve import resolve_pack
 from services.cma_currency_guard import attach_to_strategy_payload as attach_cma_currency_guard
 from services.portfolio_engine import (
     BUCKET_FIELDS,
+    _allocation_snapshot_preferences,
+    _asset_class_expected_metrics,
+    _build_total_wealth_allocation,
+    _load_allocation_inputs,
     _current_risk_assessment_or_none,
     _current_target_allocation_or_none,
     build_target_payload_from_allocation,
@@ -70,6 +83,7 @@ from services.portfolio_engine import (
     require_strategy_ready_assessment,
 )
 from services.portfolio_engine_house_matrix import (
+    AllocationInputError,
     _building_block_rows_for_policy,
 )
 from services.manual_target_allocation import (
@@ -115,6 +129,23 @@ def _now() -> str:
 
 def _get_mandate_or_404(mandate_id: str, db: Session, current_user: User) -> Mandate:
     return get_mandate_for_user_or_404(mandate_id, db, current_user)
+
+
+def seed_reference_data_at_bootstrap(db: Session, user_id: str) -> bool:
+    """H11: CH-Referenzdaten (Policy, House-Matrix, Bausteine, CMA) einmalig im
+    Bootstrap anlegen statt als Seiteneffekt der GET-Pfade (die lesen jetzt mit
+    ``seed=False`` und antworten ohne Daten mit 409). Idempotent; in Produktion
+    ist Autoseeding unzulaessig -- dann bleibt es beim fail-closed 409, bis
+    freigegebene Daten importiert sind. Die Ersteinrichtung scheitert nie daran.
+    Registriert als ``app.state.post_bootstrap_hooks`` (main.py), damit
+    routers.auth keine Engine-Abhaengigkeit bekommt."""
+    try:
+        ensure_runtime_reference_data(db, user_id, jurisdiction="CH")
+        db.commit()
+        return True
+    except ValueError:
+        db.rollback()
+        return False
 
 
 @router.get("/mandates/{mandate_id}/target-allocation/current",
@@ -220,11 +251,13 @@ def get_current_allocation_payload(
     if not assessment:
         raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
     try:
+        # H11: Lesepfad ohne Seeding (Referenzdaten legt der Bootstrap an).
         policy, current_cma = ensure_runtime_reference_data(
             db,
             current_user.id,
             jurisdiction=resolve_pack(mandate).code,
             tenant_id=getattr(mandate, "tenant_id", None),
+            seed=False,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -396,6 +429,12 @@ def create_target_allocation(
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     ta = candidate.allocation
+    # N-888-01: der manuelle Datensatz uebernimmt die Praeferenzen der
+    # bisherigen Allokation -- dieselbe Untergrenze wie Generate.
+    assert_sustainability_preference_floor(
+        db, mandate, json.loads(ta.preferences_json or "{}"), channel="manual_allocation",
+        audit=_floor_audit(db, current_user, mandate, request),
+    )
     if prev:
         prev.is_current = 0
         # Release the existing partial-unique anchor before inserting the new
@@ -422,8 +461,10 @@ def create_target_allocation(
             mandate_id=mandate_id, client_id=mandate.client_id,
             ip_address=_extract_client_ip(request))
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(
             status_code=409,
             detail="Eine andere Soll-Allokation wurde gleichzeitig gespeichert -- bitte Seite neu laden und erneut versuchen.",
@@ -516,6 +557,90 @@ def get_current_building_blocks(
     except JurisdictionReferenceDataMissingError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return sorted(rows, key=lambda row: (row.asset_class, row.sub_asset_class))
+
+
+# H9 Nachtrag 2 (2026-11-12, Entscheid Owner-Vertretung): EINE CMA-Quelle fuer
+# die IST-Vermoegensprojektion. Der Browser rechnete ohne Strategie mit Client-
+# Konstanten, mit Strategie mit der Soll-gewichteten Server-CMA und dem Snapshot
+# der Strategie -- derselbe Kunde hatte je nach Zustand eine andere IST-Kurve.
+# Dieser Lesepfad liefert die Basis unabhaengig vom Strategie-Zustand mit der
+# wirksamen CMA des Allokationspfads; fehlt sie, gibt es keine Projektion
+# (fail-closed, Reason-Code IST_PROJECTION_BASIS_UNAVAILABLE).
+
+
+@router.get("/mandates/{mandate_id}/ist-projection-basis",
+            response_model=IstProjectionBasisResponse)
+def get_ist_projection_basis(
+    mandate_id: str,
+    horizon_years: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Tenant-/Besitz-Pruefung (IDOR): fremdes Mandat -> 404.
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    if horizon_years is not None and not 1 <= int(horizon_years) <= 80:
+        raise HTTPException(status_code=422, detail="horizon_years muss zwischen 1 und 80 liegen.")
+    try:
+        # Dieselbe Aufloesung wie der Allokationspfad (Jurisdiktion + Tenant),
+        # H11: rein lesend -- ohne Referenzdaten 409 statt Seeding.
+        _policy, cma = ensure_runtime_reference_data(
+            db,
+            current_user.id,
+            jurisdiction=resolve_pack(mandate).code,
+            tenant_id=getattr(mandate, "tenant_id", None) or None,
+            seed=False,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "IST_PROJECTION_BASIS_UNAVAILABLE",
+            "message": "Keine wirksamen Kapitalmarktannahmen fuer dieses Mandat; "
+                       "die Ist-Projektion wird nicht berechnet.",
+        }) from exc
+    try:
+        inputs = _load_allocation_inputs(
+            db, mandate, simulation_prefs={}, cma=cma,
+            horizon_years_override=int(horizon_years) if horizon_years else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "IST_PROJECTION_BASIS_UNAVAILABLE",
+            "message": "Die erfassten Vermoegensdaten sind fuer die Ist-Projektion "
+                       "nicht lesbar: " + str(exc),
+        }) from exc
+    try:
+        returns, _vols = _asset_class_expected_metrics(cma)
+        total = _build_total_wealth_allocation(
+            inputs["total_summary"],
+            inputs["mortgage_liabilities_rappen"],
+            inputs["total_wealth_rappen"],
+            {key: 0 for key in BUCKET_FIELDS},
+            foundation_projection=inputs["external_foundation_projection"],
+            other_liabilities_rappen=max(
+                0, int(inputs["total_liabilities_rappen"]) - int(inputs["mortgage_liabilities_rappen"])
+            ),
+        )
+    except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+        # N-892-08: auch die Basis-Berechnung ist fail-closed (409 statt 500).
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "IST_PROJECTION_BASIS_UNAVAILABLE",
+            "message": "Die Gesamtvermoegens-Basis der Ist-Projektion ist nicht "
+                       "berechenbar: " + str(exc),
+        }) from exc
+    return {
+        "mandate_id": mandate.id,
+        "cma": {
+            "id": cma.id,
+            "assumption_set_name": cma.assumption_set_name,
+            "version": int(cma.version or 1),
+            "valid_from": cma.valid_from,
+            "valid_until": cma.valid_until,
+            "jurisdiction": getattr(cma, "jurisdiction", None),
+        },
+        "expected_return_bps": {key: int(returns.get(key, 0) or 0) for key in BUCKET_FIELDS},
+        "total_base_rappen": int(total.get("total_base_rappen") or 0),
+        "foundation_in_net_wealth_rappen": int(total.get("foundation_in_net_wealth_rappen") or 0),
+        "projection_basis": dict(total.get("projection_basis") or {}),
+    }
 
 
 @router.get("/capital-market-assumptions/current",
@@ -685,6 +810,66 @@ def update_cma(
     return cma
 
 
+_FLOOR_UNSET = object()
+
+
+def assert_sustainability_preference_floor(
+    db: Session,
+    mandate,
+    preferences=_FLOOR_UNSET,
+    *,
+    channel: str = "generate",
+    audit=None,
+) -> dict:
+    """E2b / N-888-01 (Dok. 106): Ausschlusswuensche der aktuellen
+    Nachhaltigkeitspraeferenz sind die Untergrenze der Strategiebausteine.
+
+    Gleiche Entscheidung wie services/recommendation_release_gate.py::
+    assert_sustainability_preference_floor (Produktlauf, Finalize, Signatur,
+    PDF, Handoff): ausschliesslich core/sustainability_preference.py::
+    evaluate_floor. ``preferences``: wirksame Praeferenzen (dict/JSON);
+    ``None`` = die der aktuellen Soll-Allokation (wie Generate). Gelockert ->
+    422 SUSTAINABILITY_PREFERENCE_FLOOR_VIOLATED (kurze Meldung, Detail),
+    unlesbar -> 409, beides mit Audit-Eintrag (``audit``). Wirkung nur ueber
+    den bestehenden Restriktionsmechanismus (Validierung, keine neue
+    Engine-Logik)."""
+    row = current_investment_preference(db, mandate.id)
+    decision = None if row is None else {"id": row.id, "exclusions_json": row.exclusions_json}
+    if preferences is None or preferences is _FLOOR_UNSET:
+        preferences = _allocation_snapshot_preferences(
+            _current_target_allocation_or_none(db, mandate.id)
+        ) or {}
+    result = sustainability.evaluate_floor(decision, preferences)
+    if not sustainability.floor_blocks(result):
+        return result
+    if audit is not None:
+        audit(sustainability.floor_audit_payload(result, channel), result)
+    unreadable = result["status"] == sustainability.FLOOR_UNREADABLE
+    extra = {"channel": channel, "themes": list(result.get("themes") or ())}
+    if not unreadable:
+        extra["detail"] = sustainability.floor_detail(result)
+    raise DomainError(
+        ReasonCode.SUSTAINABILITY_PREFERENCE_UNREADABLE if unreadable
+        else ReasonCode.SUSTAINABILITY_PREFERENCE_FLOOR_VIOLATED,
+        sustainability.floor_message(result, channel),
+        http_status=409 if unreadable else 422,
+        extra=extra,
+    )
+
+
+def _floor_audit(db: Session, current_user, mandate, request):
+    """Audit-Callback; Request/IP werden erst beim Block gelesen."""
+    def _audit(payload: str, result: dict) -> None:
+        gate_block_audit(
+            db, user=current_user, mandate=mandate,
+            ip_address=_extract_client_ip(request) if request is not None else None,
+            table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+            set_tenant_context=set_tenant_context,
+        )(payload, result)
+
+    return _audit
+
+
 @router.post("/mandates/{mandate_id}/target-allocation/generate",
              response_model=TargetAllocationGenerateResponse)
 def generate_target_allocation_endpoint(
@@ -717,13 +902,25 @@ def generate_target_allocation_endpoint(
                         "(require_suitability_before_recommendation=True)."
                     ),
                 )
+        preferences = body.preferences.model_dump() if body.preferences else None
         try:
+            # E2b: Kunden-Ausschluesse als Untergrenze (vor jeder Berechnung).
+            assert_sustainability_preference_floor(
+                db, mandate, preferences, channel="generate",
+                audit=_floor_audit(db, current_user, mandate, request),
+            )
             result = generate_target_allocation(
                 db=db,
                 mandate=mandate,
                 user_id=current_user.id,
-                preferences=body.preferences.model_dump() if body.preferences else None,
+                preferences=preferences,
             )
+        except AllocationInputError as exc:
+            # AUDIT-2026-11 A5 / H-859-5: unerfuellbare oder widerspruechliche
+            # Bandbreiten/Ziele sind ein Eingabefehler (422) mit deutscher
+            # Meldung, kein Zustandskonflikt -- einheitlich fuer Ziel ausserhalb
+            # der Bandbreite, Min > Max, Minima ueber 100 % und Maxima unter 100 %.
+            raise HTTPException(status_code=422, detail=str(exc))
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
         # CON-001 (Codex-Audit 2026-08-25): siehe create_target_allocation oben --
@@ -737,8 +934,9 @@ def generate_target_allocation_endpoint(
                 table_name="target_allocations", record_id=result["target_allocation"].id, action="CREATE",
                 mandate_id=mandate_id, client_id=mandate.client_id,
                 ip_address=_extract_client_ip(request))
-            # RISK-CAPACITY-PLAUSIBILITY-001: Hinweis im Reasoning + Audit,
-            # keine Profilaenderung, kein Blockieren.
+            # RISK-CAPACITY-PLAUSIBILITY-001: Datenfeld + Evidenz + Audit,
+            # keine Profilaenderung, kein Blockieren. H9 (Owner 2026-11-08):
+            # kein Hinweis mehr im Reasoning (attach_to_strategy_payload).
             # KNOWLEDGE-GAP-ASSET-CLASS-001: Hinweis, keine Allokationsaenderung.
             attach_knowledge_gap_check(result, mandate, result.get("risk_assessment"))
             captured: dict = {}
@@ -754,7 +952,7 @@ def generate_target_allocation_endpoint(
             )
             attach_to_strategy_payload(result, plausibility)
             # CMA-CURRENCY-GUARD-001: berechenbar, aber "nicht freigegeben"
-            # (nach der Plausibilitaet = zuoberst im Reasoning).
+            # (zuoberst im Reasoning).
             attach_cma_currency_guard(db, mandate, result)
             audit_if_inconsistent(
                 db, plausibility, user=current_user, table_name="target_allocations",
@@ -762,8 +960,10 @@ def generate_target_allocation_endpoint(
                 ip_address=_extract_client_ip(request),
             )
             db.commit()
-        except IntegrityError:
+        except IntegrityError as exc:
             db.rollback()
+            # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+            raise_if_check_violation(exc)
             raise HTTPException(
                 status_code=409,
                 detail="Eine andere Soll-Allokation wurde gleichzeitig generiert -- bitte Seite neu laden und erneut versuchen.",
@@ -803,6 +1003,12 @@ def goal_target_sensitivity(
     # Solver sogar zweimal (Baseline + Counterfactual) auf.
     with _admit_solver_slot():
         mandate = _get_mandate_or_404(mandate_id, db, current_user)
+        # N-888-01: Sensitivity rechnet auf der aktuellen Allokation; deren
+        # Praeferenzen muessen die Kundenausschluesse einhalten.
+        assert_sustainability_preference_floor(
+            db, mandate, None, channel="sensitivity",
+            audit=_floor_audit(db, current_user, mandate, request),
+        )
         try:
             result = evaluate_goal_sensitivity(
                 db=db,
@@ -886,7 +1092,19 @@ def get_advisory_report(
     get_current_user, gleiche Pattern wie Depot-Check-Endpoint.
     """
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    return cached_compute_advisory_report(db, mandate, advisor=current_user)
+    # C-890-01 N-897-01: kundenwirksamer Bericht -> zentrales Wiedervorlage-Gate.
+    assert_kyc_review_release_eligible(
+        db, mandate, channel=CHANNEL_CLIENT_PDF,
+        on_block=release_block_audit(
+            db, user=current_user, ip_address=None, mandate_id=mandate.id,
+            field_name="client_report_blocked", set_tenant_context=set_tenant_context,
+        ),
+    )
+    report = cached_compute_advisory_report(db, mandate, advisor=current_user)
+    # N-897-12: ohne jede KYC-Bestaetigung als Entwurf vor Vertragsabschluss.
+    if isinstance(report, dict):
+        report = {**report, "kyc_draft_notice": KYC_DRAFT_NOTICE if kyc_release_is_draft(db, mandate) else None}
+    return report
 
 
 # ---------------------------------------------------------------------------
@@ -1462,8 +1680,10 @@ def create_optimizer_policy(
             table_name="optimizer_policies", record_id=policy.id, action="CREATE",
             new_value=body.policy_name, ip_address=_extract_client_ip(request))
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(
             status_code=409,
             detail="Eine andere Policy wurde gleichzeitig aktiviert -- bitte Seite neu laden und erneut versuchen.",
@@ -1613,8 +1833,10 @@ def activate_optimizer_policy(
             table_name="optimizer_policies", record_id=policy_id, action="ACTIVATE",
             ip_address=_extract_client_ip(request))
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(
             status_code=409,
             detail="Eine andere Policy wurde gleichzeitig aktiviert -- bitte Seite neu laden und erneut versuchen.",

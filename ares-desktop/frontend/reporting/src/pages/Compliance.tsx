@@ -18,6 +18,7 @@
  * Editorial-Stil: kompakte Status-Cards, keine Verkaufsargumente,
  * keine Garantieversprechen. FINMA-bewusst.
  */
+import { useReportCurrency } from '@/lib/reportCurrency';
 import { AmpelPill } from '@/components/AmpelPill';
 import { ReportPage } from '@/components/ReportPage';
 import { formatBpsAsPct, formatChfRappen } from '@/lib/format';
@@ -330,6 +331,7 @@ function LiquidityCascadeCard({ data }: { data: LiquidityCascadeData }) {
 // ---------------------------------------------------------------------------
 
 function ReserveExplainabilityCard({ data }: { data: ReserveExplainabilityData }) {
+  const currency = useReportCurrency(); // N-894-10
   if (!data.available) {
     return (
       <ComplianceCard
@@ -348,7 +350,7 @@ function ReserveExplainabilityCard({ data }: { data: ReserveExplainabilityData }
   const status = !hasReserve ? 'gruen' : data.composition_available ? 'gruen' : 'gelb';
   const summary = !hasReserve
     ? 'Kein zusaetzlicher Liquiditaetsreserve-Bedarf'
-    : `${formatChfRappen(data.reserve_needed_rappen)} Reservebedarf`;
+    : `${formatChfRappen(data.reserve_needed_rappen, { currency })} Reservebedarf`;
 
   return (
     <ComplianceCard
@@ -360,19 +362,19 @@ function ReserveExplainabilityCard({ data }: { data: ReserveExplainabilityData }
       {hasReserve ? (
         <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-caption">
           <dt className="text-ink-subtle">Reservebedarf</dt>
-          <dd className="font-mono text-ink">{formatChfRappen(data.reserve_needed_rappen)}</dd>
+          <dd className="font-mono text-ink">{formatChfRappen(data.reserve_needed_rappen, { currency })}</dd>
           <dt className="text-ink-subtle">SAA-Liquiditaets-Obergrenze</dt>
           <dd className="font-mono text-ink">{formatBpsAsPct(data.saa_liquidity_ceiling_bps)}</dd>
           {data.external_reserve_recommended ? (
             <>
               <dt className="text-ink-subtle">Externe Reserve empfohlen</dt>
-              <dd className="font-mono text-ink">{formatChfRappen(data.external_reserve_rappen)}</dd>
+              <dd className="font-mono text-ink">{formatChfRappen(data.external_reserve_rappen, { currency })}</dd>
             </>
           ) : null}
           {data.other_assets_absorption_rappen ? (
             <>
               <dt className="text-ink-subtle">Absorbiert durch anderes Vermoegen</dt>
-              <dd className="font-mono text-ink">{formatChfRappen(data.other_assets_absorption_rappen)}</dd>
+              <dd className="font-mono text-ink">{formatChfRappen(data.other_assets_absorption_rappen, { currency })}</dd>
             </>
           ) : null}
         </dl>

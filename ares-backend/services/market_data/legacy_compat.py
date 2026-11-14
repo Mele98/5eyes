@@ -36,9 +36,17 @@ from decimal import Decimal
 from typing import Any
 
 from .aggregator import MarketDataAggregator
-from .exceptions import ProviderError, RateLimitError, SymbolNotFound
+from .exceptions import AuthoritativeSymbolNotFound, ProviderError, RateLimitError, SymbolNotFound
 
 logger = logging.getLogger(__name__)
+
+# N-862-4 (Audit 2026-11/06): Markiert Fehler, bei denen die massgebliche
+# Quelle (authoritative, z. B. Bloomberg) bzw. eine ungueltige explizite
+# Aggregator-Konfiguration die Ursache ist. Der Preis-Updater faellt fuer
+# so markierte Symbole NICHT auf seinen eigenen Fallback (stooq) zurueck.
+AUTHORITATIVE_FAILURE_MARKER = "[AUTHORITATIVE_SOURCE_FAILED]"
+# Fehlercode (provider_code) fuer eine ungueltige explizite Konfiguration.
+AGGREGATOR_CONFIGURATION_INVALID = "AGGREGATOR_CONFIGURATION_INVALID"
 
 
 def _to_rappen(amount: Decimal) -> int:
@@ -74,8 +82,14 @@ def fetch_latest_prices_via_aggregator(
     fetcher = cached if cached is not None else aggregator
     if fetcher is None:
         # Lazy default-Aggregator (ohne Cache; Cache braucht DB-Session-Factory)
-        from .factory import build_default_aggregator
-        fetcher = build_default_aggregator()
+        from .factory import ProviderConfigurationError, build_default_aggregator
+        try:
+            fetcher = build_default_aggregator()
+        except ProviderConfigurationError as exc:
+            # Explizite Konfiguration nicht erfuellbar (W2-804-02, N-862-3):
+            # fail-closed, auch kein Fallback im Preis-Updater.
+            message = f"{AUTHORITATIVE_FAILURE_MARKER} [{AGGREGATOR_CONFIGURATION_INVALID}] {exc}"
+            return {}, {symbol: message for symbol in cleaned}
 
     resolved: dict[str, dict[str, Any]] = {}
     failures: dict[str, str] = {}
@@ -83,6 +97,9 @@ def fetch_latest_prices_via_aggregator(
     for symbol in cleaned:
         try:
             bar = fetcher.get_eod(symbol, target_date)
+        except AuthoritativeSymbolNotFound as exc:
+            failures[symbol] = f"{AUTHORITATIVE_FAILURE_MARKER} symbol-not-found: {exc}"
+            continue
         except SymbolNotFound as exc:
             failures[symbol] = f"symbol-not-found: {exc}"
             continue
@@ -90,7 +107,8 @@ def fetch_latest_prices_via_aggregator(
             failures[symbol] = f"rate-limited: {exc}"
             continue
         except ProviderError as exc:
-            failures[symbol] = f"provider-error: {exc}"
+            marker = f"{AUTHORITATIVE_FAILURE_MARKER} " if getattr(exc, "authoritative_failure", False) else ""
+            failures[symbol] = f"{marker}provider-error: {exc}"
             continue
         except Exception as exc:  # noqa: BLE001
             logger.warning("aggregator unexpected error for %s: %s", symbol, exc)

@@ -4,6 +4,7 @@ Vermoegenssteuer in der Cashflow-Projektion (Mandat-Einstellungen-Modal).
 from __future__ import annotations
 
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 FRONTEND_HTML = (
     Path(__file__).resolve().parents[2]
@@ -12,7 +13,7 @@ FRONTEND_HTML = (
 
 
 def _html() -> str:
-    return FRONTEND_HTML.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def test_checkbox_exists_in_mandate_settings_modal():

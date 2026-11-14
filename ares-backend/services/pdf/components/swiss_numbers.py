@@ -3,50 +3,48 @@
 Im Ares-PDF nutzen wir konsequent das Schweizer Tausenderzeichen
 (Apostroph), nicht Komma oder Punkt. Plus: Rappen → CHF mit 0 Nachkomma
 fuer Anzeige in Beratungs-PDFs.
+
+G7 (2026-11-11): Alle Helfer delegieren an den gemeinsamen Rundungsformatter
+``core.presentation_rounding`` (Policy ``ares-rounding/1``, Decimal
+ROUND_HALF_UP, identisch zu Classic-App und React). Vorher rundeten sie mit
+Float-``format`` (Banker's Rounding auf der Binaerexpansion: 2.5 -> "2",
+12.25 -> "12.2", 12.35 -> "12.3").
 """
 from __future__ import annotations
 
+from typing import Mapping
+
+from core.presentation_rounding import (  # noqa: F401  (Re-Export fuer bestehende Aufrufer)
+    CURRENCY_EXPONENTS,
+    NO_VALUE,
+    STORAGE_EXPONENT,
+    allocation_pct_texts,
+    format_amount_minor,
+    format_bps_as_pct,
+    format_bps_signed_pct,
+    format_minor_number,
+    format_money_minor,
+    format_number,
+    format_pct_value,
+    sub_allocation_pct_texts,
+    to_decimal,
+)
+
 
 def format_chf_rappen(rappen: int | None, *, with_unit: bool = True, currency: str = "CHF") -> str:
-    """`1234500` → `CHF 12'345`. None / 0 → '—' falls with_unit, sonst '0'.
+    """`1234500` → `CHF 12'345`. None → '—' falls with_unit, sonst '0'.
 
     `currency` (2026-08-07, CEO/CFO/CIO-Audit): Beträge sind intern immer
     Rappen/Cents der Mandats-Waehrung (nicht zwingend CHF) -- der Aufrufer
     muss `mandate.base_currency` durchreichen, sonst zeigt ein EUR-/USD-
     Mandat im FIDLEG-Pflichtdokument faelschlich "CHF" an.
     """
-    if rappen is None:
-        return "—" if with_unit else "0"
-    try:
-        value = int(rappen) / 100
-    except (TypeError, ValueError):
-        return "—" if with_unit else "0"
-    formatted = f"{value:,.0f}".replace(",", "'")
+    if to_decimal(rappen) is None:
+        return NO_VALUE if with_unit else "0"
     unit = str(currency or "CHF").upper().strip() or "CHF"
-    return f"{unit} {formatted}" if with_unit else formatted
-
-
-def format_bps_as_pct(bps: int | None, *, decimals: int = 1) -> str:
-    """`4250` → `42.5 %`. None → '—'."""
-    if bps is None:
-        return "—"
-    try:
-        pct = int(bps) / 100
-    except (TypeError, ValueError):
-        return "—"
-    return f"{pct:.{decimals}f} %"
-
-
-def format_bps_signed_pct(bps: int | None, *, decimals: int = 1) -> str:
-    """`+450` → `+4.5 %`. Mit Vorzeichen, fuer Drift-Anzeigen."""
-    if bps is None:
-        return "—"
-    try:
-        pct = int(bps) / 100
-    except (TypeError, ValueError):
-        return "—"
-    sign = "+" if pct >= 0 else ""
-    return f"{sign}{pct:.{decimals}f} %"
+    # N-894-01: Rappen-Felder immer Exponent 2 (auch JPY), Anzeige ganze Einheiten.
+    text = format_money_minor(rappen, unit, STORAGE_EXPONENT, 0)
+    return text if with_unit else text[len(unit) + 1:]
 
 
 def format_integer(value: int | float | None) -> str:
@@ -57,3 +55,24 @@ def format_integer(value: int | float | None) -> str:
         return f"{int(value):d}"
     except (TypeError, ValueError):
         return "—"
+
+
+def format_end_of_year(label: object) -> str:
+    """H9 Nachtrag 3: Horizont-Beschriftung "Ende JJJJ" -- dieselbe Konvention
+    wie die App (``projectionEndOfYearText`` in ``ist-projection-gate.js``) und
+    der React-Bericht (``formatEndOfYear``).
+
+    Projektionslabels markieren den Stand zu Jahresbeginn; der letzte Punkt ist
+    der Stand nach dem letzten inklusiven Jahr: Label 2041 -> ``"Ende 2040"``.
+    Nicht als Jahr lesbare Labels bleiben unveraendert, ``None`` -> ``""``.
+    """
+    text = "" if label is None else str(label).strip()
+    digits = ""
+    for ch in text:
+        if ch.isdigit():
+            digits += ch
+        else:
+            break
+    if not digits:
+        return text
+    return f"Ende {int(digits) - 1}"

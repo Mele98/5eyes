@@ -129,7 +129,7 @@ def test_partial_or_broken_fan_quantiles_render_no_chart(broken):
 
 def test_goal_far_above_scale_gets_edge_marker_with_exact_value():
     goals = [_goal("hard", 50_000_000_00, label="Stiftung")]
-    drawing = build_mc_paths_drawing(_fan_paths(), goals)
+    drawing = build_mc_paths_drawing(_fan_paths(), goals, currency="CHF")
     assert drawing is not None
     texts = _texts(drawing)
     assert "Stiftung · Ziel CHF 50'000'000 (über Skala)" in texts
@@ -163,11 +163,11 @@ def test_scale_helpers_match_report_frontend():
     assert compute_y_scale(100, [201]) == compute_y_scale(100, [])
 
     mio = lambda chf: chf * 100  # noqa: E731
-    f1 = make_y_tick_formatter(mio(1_000_000), mio(250_000))
+    f1 = make_y_tick_formatter(mio(1_000_000), mio(250_000), "CHF")
     assert f1(0) == "CHF 0"
     assert f1(mio(500_000)) == "CHF 0.50 Mio."
-    assert make_y_tick_formatter(mio(6_000_000), mio(2_000_000))(mio(4_000_000)) == "CHF 4 Mio."
-    assert make_y_tick_formatter(mio(750_000), mio(250_000))(mio(250_000)) == "CHF 250'000"
+    assert make_y_tick_formatter(mio(6_000_000), mio(2_000_000), "CHF")(mio(4_000_000)) == "CHF 4 Mio."
+    assert make_y_tick_formatter(mio(750_000), mio(250_000), "CHF")(mio(250_000)) == "CHF 250'000"
 
 
 def test_y_axis_ticks_share_one_decimal_count():

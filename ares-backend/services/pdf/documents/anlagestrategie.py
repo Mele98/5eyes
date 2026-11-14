@@ -30,6 +30,7 @@ from services.pdf.components.sollist_vergleich import (
     make_sollist_section_title,
 )
 from services.pdf.components.saa_bar_table import make_saa_bar_table
+from core.presentation_rounding import format_amount_minor, format_bps_as_pct
 from services.pdf.components.saa_donut import (
     make_saa_donut_with_legend,
     make_two_donuts_comparison,
@@ -48,6 +49,15 @@ from services.pdf.components.text_sections import (
 )
 from services.pdf.components.unterschrift import make_unterschrift_section
 from services.pdf.components.ziele_table import make_ziele_section
+
+
+def _has_risk_metrics(data) -> bool:
+    """N-873-04: gleiche Regel wie ``make_risiko_metriken_section`` -- die
+    CMA-Felder sind int (0 = nicht berechnet), die MC-Kennzahlen None, wenn
+    sie fehlen; eine gerechnete 0 ist ein Wert."""
+    return bool(data.cma_expected_return_bps or data.cma_expected_vol_bps) or any(
+        value is not None for value in (data.median_cagr_bps, data.max_drawdown_bps, data.var_95_bps)
+    )
 
 
 def build_anlagestrategie_flowables(
@@ -214,6 +224,8 @@ def build_anlagestrategie_flowables(
             base_currency=ctx.base_currency,
             advisory_wealth_rappen=data.advisory_wealth_rappen,
             show_bands=_has_band_overrides(data.allocation_preferences),
+            external_reserve_rappen=data.external_reserve_rappen,
+            basis_note=getattr(data, "strategy_basis_note", None),
         ))
         flowables.append(PageBreak())
         flowables.extend(make_banner_header(
@@ -235,13 +247,13 @@ def build_anlagestrategie_flowables(
                 data.current_allocation_bps,
                 data.target_allocation_bps,
                 current_products=data.advisory_positions,
-                target_products=data.products,
+                target_products=_saa_sub_products(data),
                 diameter_mm=42.0,
             )
             flowables.append(KeepTogether([title_para, *two_donuts]))
         else:
             donut_widget = make_saa_donut_with_legend(
-                data.target_allocation_bps, products=data.products,
+                data.target_allocation_bps, products=_saa_sub_products(data),
                 diameter_mm=48.0,
             )
             flowables.append(KeepTogether([title_para, donut_widget]))
@@ -268,11 +280,7 @@ def build_anlagestrategie_flowables(
         ctx, mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
     ))
-    has_metrics = (
-        data.cma_expected_return_bps or data.median_cagr_bps
-        or data.cma_expected_vol_bps or data.max_drawdown_bps
-        or data.var_95_bps
-    )
+    has_metrics = _has_risk_metrics(data)
     if has_metrics:
         flowables.extend(make_risiko_metriken_section(
             expected_return_bps=data.cma_expected_return_bps,
@@ -310,10 +318,10 @@ def build_anlagestrategie_flowables(
     # ============================================================
     # TEIL C — METHODIK
     # ============================================================
-    flowables.extend(make_investitionsansatz_section())
+    flowables.extend(make_investitionsansatz_section(ctx.base_currency))
     flowables.append(PageBreak())
 
-    flowables.extend(make_anlageuniversum_section())
+    flowables.extend(make_anlageuniversum_section(ctx.base_currency))
     flowables.append(PageBreak())
 
     # ============================================================
@@ -330,7 +338,9 @@ def build_anlagestrategie_flowables(
     flowables.extend(make_kennzahlen_erlaeuterungen_section())
     flowables.append(PageBreak())
 
-    flowables.extend(make_disclaimer_section())
+    flowables.extend(make_disclaimer_section(
+        ctx.mandate_type or data.mandate_type, ctx.jurisdiction,
+    ))
 
     return flowables
 
@@ -408,6 +418,8 @@ def _build_anlagestrategie_flowables_template_order(
             base_currency=ctx.base_currency,
             advisory_wealth_rappen=data.advisory_wealth_rappen,
             show_bands=_has_band_overrides(data.allocation_preferences),
+            external_reserve_rappen=data.external_reserve_rappen,
+            basis_note=getattr(data, "strategy_basis_note", None),
         ))
     else:
         empty_section("Vermoegensstruktur", "Noch keine Soll-Allokation berechnet.")
@@ -437,7 +449,7 @@ def _build_anlagestrategie_flowables_template_order(
                 data.current_allocation_bps,
                 data.target_allocation_bps,
                 current_products=data.advisory_positions,
-                target_products=data.products,
+                target_products=_saa_sub_products(data),
                 diameter_mm=42.0,
             )
             flowables.append(KeepTogether([title_para, *donuts]))
@@ -446,7 +458,7 @@ def _build_anlagestrategie_flowables_template_order(
                 title_para,
                 make_saa_donut_with_legend(
                     data.target_allocation_bps,
-                    products=data.products,
+                    products=_saa_sub_products(data),
                     diameter_mm=48.0,
                 ),
             ]))
@@ -455,11 +467,11 @@ def _build_anlagestrategie_flowables_template_order(
     flowables.append(PageBreak())
 
     # 7 Investitionsansatz
-    flowables.extend(make_investitionsansatz_section())
+    flowables.extend(make_investitionsansatz_section(ctx.base_currency))
     flowables.append(PageBreak())
 
     # 8 Anlageuniversum
-    flowables.extend(make_anlageuniversum_section())
+    flowables.extend(make_anlageuniversum_section(ctx.base_currency))
     flowables.append(PageBreak())
 
     # 9 Zusammenfassung + Unterschrift
@@ -514,6 +526,8 @@ def _build_anlagestrategie_flowables_template_order(
             base_currency=ctx.base_currency,
             advisory_wealth_rappen=data.advisory_wealth_rappen,
             show_bands=_has_band_overrides(data.allocation_preferences),
+            external_reserve_rappen=data.external_reserve_rappen,
+            basis_note=getattr(data, "strategy_basis_note", None),
         ))
     else:
         empty_section("Vermoegensstruktur Gesamtvermoegen", "Noch keine Soll-Allokation berechnet.")
@@ -532,7 +546,7 @@ def _build_anlagestrategie_flowables_template_order(
                 data.current_allocation_bps,
                 data.target_allocation_bps,
                 current_products=data.advisory_positions + data.other_wealth_positions,
-                target_products=data.products,
+                target_products=_saa_sub_products(data),
                 diameter_mm=42.0,
             )
             flowables.append(KeepTogether([title_para, *total_donuts]))
@@ -541,7 +555,7 @@ def _build_anlagestrategie_flowables_template_order(
                 title_para,
                 make_saa_donut_with_legend(
                     data.target_allocation_bps,
-                    products=data.products,
+                    products=_saa_sub_products(data),
                     diameter_mm=48.0,
                 ),
             ]))
@@ -551,11 +565,7 @@ def _build_anlagestrategie_flowables_template_order(
 
     # 15 Empfehlung
     header("Unsere Empfehlung")
-    has_metrics = (
-        data.cma_expected_return_bps or data.median_cagr_bps
-        or data.cma_expected_vol_bps or data.max_drawdown_bps
-        or data.var_95_bps
-    )
+    has_metrics = _has_risk_metrics(data)
     if has_metrics:
         flowables.extend(make_risiko_metriken_section(
             expected_return_bps=data.cma_expected_return_bps,
@@ -585,6 +595,7 @@ def _build_anlagestrategie_flowables_template_order(
         current_volatility_1y_bps=data.current_volatility_1y_bps,
         risk_free_bps=data.risk_free_bps,
         currency=ctx.base_currency,
+        end_year_label=getattr(data, "projection_end_year_label", None),
     )
     if sollist_kennzahlen:
         flowables.append(Spacer(1, 6 * mm))
@@ -623,7 +634,9 @@ def _build_anlagestrategie_flowables_template_order(
     flowables.append(PageBreak())
 
     # 19 Disclaimer
-    flowables.extend(make_disclaimer_section())
+    flowables.extend(make_disclaimer_section(
+        ctx.mandate_type or data.mandate_type, ctx.jurisdiction,
+    ))
 
     return flowables
 
@@ -814,7 +827,7 @@ def _make_preferences_section(preferences, styles, products=None) -> list:
         for field, label in (("min_bps", "Min"), ("target_bps", "Praeferenz"), ("max_bps", "Max")):
             value = override.get(field)
             if value is not None:
-                parts.append(f"{label} {int(value) / 100:.1f}%")
+                parts.append(f"{label} {format_bps_as_pct(int(value))}")
         if parts:
             band_labels.append(f"{key}: " + " / ".join(parts))
     if band_labels:
@@ -927,6 +940,13 @@ def _make_kennzahlen_hinweise_section(styles) -> list:
     return flowables
 
 
+def _saa_sub_products(data):
+    """Live-Test 2026-11 H3: Sub-Klassen-Legende der SOLL-Allokation aus der
+    SAA-Sub-Allokation (Strategie), nicht aus dem Produktmix der Empfehlung.
+    Rueckfall auf die Produkte nur, wenn keine Sub-Allokation vorliegt."""
+    return list(getattr(data, "sub_allocations", None) or []) or list(data.products or [])
+
+
 def _has_band_overrides(preferences) -> bool:
     prefs = preferences if isinstance(preferences, dict) else {}
     bands = prefs.get("bands") if isinstance(prefs.get("bands"), dict) else {}
@@ -996,19 +1016,10 @@ def _format_amount(rappen: int, currency: str = "CHF") -> str:
     currency) konvertierte einen EUR-/USD-Betrag ein zweites Mal und zeigte
     im FIDLEG-Pflichtdokument einen falschen (verzerrten) Betrag.
     """
-    try:
-        value = rappen / 100.0
-        return f"{currency} {value:,.0f}".replace(",", "'")
-    except Exception:
-        return f"CHF {rappen/100.0:,.0f}".replace(",", "'")
+    return format_amount_minor(rappen, currency or "CHF")
 
 
 # Backwards-Compat: Helper-Funktion fuer Sprint 5 Risikoprofil-PDF
 def _fmt_amount(amount: float, currency: str = "CHF") -> str:
     """Legacy-Name fuer test_currency_integration.py."""
     return _format_amount(int(amount), currency)
-
-
-def _fmt_chf(amount: float) -> str:
-    """Backwards-Compat fuer Sprint 5 Tests."""
-    return _format_amount(int(amount), "CHF")

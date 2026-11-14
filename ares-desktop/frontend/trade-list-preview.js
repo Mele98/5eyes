@@ -88,11 +88,12 @@ function renderTradeListPreview(body,preview){
     return 'var(--n5)';
   };
   var fmtDelta=function(rappen){
-    var chf=Math.round(Math.abs(rappen||0)/100);
+    var chf=Math.abs(rappen||0)/100,ccy=typeof appCurrency==='function'?appCurrency():null;
+    if(!ccy)return '—';  // G7 N4: Waehrung unbekannt -> keine geratene Einheit
     var sign=(rappen||0)<0?'−':'+';
-    if(chf>=1000000)return sign+'CHF '+formatCompactCHFAmount(chf);
-    if(chf>=1000)return sign+'CHF '+Math.round(chf/1000)+'k';
-    return sign+'CHF '+chf;
+    if(chf>=1000000)return sign+ccy+' '+formatCompactCHFAmount(chf);
+    if(chf>=1000)return sign+ccy+' '+fmtNumber(chf/1000,0)+'k';
+    return sign+ccy+' '+fmtNumber(chf,0);
   };
   var rows=trades.map(function(p){
     var color=actionColor(p.rebalance_action_code);

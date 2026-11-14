@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from core.db_integrity import raise_if_check_violation
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from database import get_db, new_uuid
@@ -9,10 +10,16 @@ from models.clients import Client
 from models.mandates import Mandate
 from models.tenant import DEFAULT_TENANT_ID, Tenant
 from schemas.mandates import MandateCreate, MandateUpdate, MandateResponse
-from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
+from services.auth import (
+    # Quell-IP fuer Mandat-Aenderungen (Bugfix 2026-08-07, CEO/CFO/CIO-Audit).
+    extract_client_ip as _extract_client_ip,
+    get_client_for_user_or_404,
+    get_current_user,
+    get_mandate_for_user_or_404,
+    require_advisor,
+)
+from services.advisory_log_service import apply_mandate_end_retention
 from services.audit import log
-# Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Mandat-Aenderungen.
-from routers.auth import _extract_client_ip
 from services.data_classification import enforce_data_classification
 from services.quota import assert_within_quota
 from services.tenant_licensing import enforce_discretionary_management_license
@@ -127,7 +134,7 @@ def create_mandate(
         client_id=client_id, ip_address=_extract_client_ip(request))
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         # RACE-01 (Audit-Finding, 2026-10-07): der Pre-Check oben ist TOCTOU-
         # racy -- zwei parallele Requests (z.B. Doppelklick) koennen beide den
         # Check passieren, bevor einer committet. Der UNIQUE-Constraint auf
@@ -137,6 +144,8 @@ def create_mandate(
         # persistiert), nur eine falsche HTTP-Statuscode-Antwort. Identisches
         # Muster wie routers/clients.py::create_client (2026-07-24).
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(status_code=409, detail="Mandatsnummer bereits vergeben")
     db.refresh(mandate)
     return mandate
@@ -202,6 +211,10 @@ def update_mandate(
     for field, value in updates.items():
         setattr(mandate, field, value)
     mandate.updated_at = _now()
+    if "closed_at" in updates:
+        # H7 C-6: Aufbewahrungsfrist der Beratungsprotokolle laeuft ab
+        # Mandatsende (nie verkuerzend), siehe advisory_log_service.
+        apply_mandate_end_retention(db, mandate)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="mandates", record_id=mandate_id, action="UPDATE",
         client_id=mandate.client_id, ip_address=_extract_client_ip(request))

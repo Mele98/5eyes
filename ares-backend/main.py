@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from config import KekStoreError, ensure_tenant_master_kek, settings
+from config import KekStoreError, ensure_tenant_master_kek, require_tenant_master_kek, settings
 from core.logging_setup import configure_logging
 from core.middleware import (
     MaxBodySizeMiddleware,
@@ -35,14 +35,18 @@ import models.protocol_bausteine  # noqa  Bug-#13a (2026-06-07) — Beratungspro
 import models.tenant  # noqa  Sprint T1 (2026-06-08) — 3-Tier-Foundation
 import models.tax  # noqa
 import models.wealth  # noqa
-from routers.allocation import router as allocation_router
+from routers.allocation import router as allocation_router, seed_reference_data_at_bootstrap
 from routers.auth import router as auth_router, users_router
 from routers.client_portal import router as client_portal_router
 from routers.cost_disclosure import router as cost_disclosure_router  # FIDLEG Art. 8/9 (2026-06-08)
-from routers.privacy import router as privacy_router  # PRIVACY-001 (2026-10-27)
+from routers.privacy import (  # PRIVACY-001 (2026-10-27); H10 C-DSG-03 Egress-Schutz
+    install_egress_guard,
+    router as privacy_router,
+    uninstall_egress_guard,
+)
 from routers.eligibility_overrides import router as eligibility_overrides_router  # ELIG-OVERRIDE-CAPTURE-001
 from routers.cma_policy import router as cma_policy_router  # CMA-001
-from routers.clients import router as clients_router
+from routers.clients import kyc_approvals_router, router as clients_router
 from routers.health import router as health_router
 from routers.jurisdiction import (  # WP3 (2026-07-31) — Jurisdiktions-Verwaltung + CMA-Freigabe
     cma_approval_router,
@@ -64,7 +68,10 @@ from routers.review import (
 from routers.fx_rates import router as fx_rates_router
 from routers.pdf_reports import router as pdf_reports_router
 from routers.snapshots import router as snapshots_router
-from routers.system import router as system_router
+# H-865-2/N-869-4: Startpruefung der Audit-Kette ueber routers.system (das
+# services.audit bereits importiert; dort im Operator-Bypass fuer PG-RLS) --
+# keine neue Modulkante fuer main.
+from routers.system import backup_snapshot_anchor, router as system_router, run_startup_audit_chain_check
 from routers.tenants import router as tenants_router  # Sprint T4 (2026-06-08)
 from routers.tax import router as tax_router
 from routers.wealth import router as wealth_router
@@ -97,14 +104,23 @@ async def lifespan(app: FastAPI):
     except KekStoreError as exc:
         logger.critical('Start abgebrochen: %s', exc)
         raise
-    if kek_outcome == 'legacy-existing-db':
-        logger.warning(
-            'Master-KEK: vorhandene Datenbank ohne KEK-Ablage -- keine KEK erzeugt '
-            '(Vorgaengervertrag; mit der KEK-Pflicht bricht dieser Start ab)'
-        )
-    else:
-        logger.info('Master-KEK: %s', kek_outcome)
+    # Eine vorhandene Datenbank ohne KEK bricht schon in ensure_tenant_master_kek
+    # ab (KEK_REQUIRED_FOR_EXISTING_DATA, A2b B-2) -- mit dem Hinweis auf
+    # Migrator bzw. Ablage aus Sicherung/Treuhand, ohne eine KEK zu erzeugen.
+    logger.info('Master-KEK: %s', kek_outcome)
+    # W4-c / AF-4: ohne eigene Master-KEK startet Ares nicht (fail-closed;
+    # kein Rueckfall auf SECRET_KEY oder einen Platzhalter). Pruefung aus config
+    # (dieselbe, die services.tenant_crypto beim Entpacken anwendet).
+    try:
+        require_tenant_master_kek(settings)
+    except KekStoreError as exc:
+        logger.critical('Start abgebrochen: %s', exc)
+        raise
     init_db()
+    # H10 C-DSG-03 (DSG-Technikaudit 2026-11-11): ab hier laeuft jede
+    # ausgehende Verbindung durch das Egress-Manifest (fail-closed); vor den
+    # Schedulern, die Marktdaten holen.
+    install_egress_guard()
     # U-32 / W2-804-01: Discover externe Tax-Regime-Plugins (Entry-Point
     # group 'ares.tax_regime', SDK 2.x). Ohne Erwartungs-Manifest bricht der
     # Boot NICHT ab wenn ein Plugin kaputt/inkompatibel ist (failed_plugins
@@ -127,13 +143,20 @@ async def lifespan(app: FastAPI):
             db.commit()
     except Exception as exc:  # noqa: BLE001 - reference seed must not stop boot
         logger.warning('Tax-Parameter-Seed skipped due to error: %s', exc)
+    # H-865-2 (Pruefrunde #865): leichte Startpruefung der Audit-Kette.
+    # Blockiert den Start bewusst NICHT (Verfuegbarkeit, Begruendung in
+    # services/audit.py::run_startup_audit_chain_check); ein Bruch wird als
+    # CRITICAL geloggt, Details ueber GET /admin/system/audit-log/verify.
+    run_startup_audit_chain_check()
     start_price_scheduler()
-    start_backup_scheduler()
+    # F4: jedes geplante Backup-Manifest traegt Kettenkopf + Bestandssiegel.
+    start_backup_scheduler(snapshot_anchor=backup_snapshot_anchor)
     try:
         yield
     finally:
         stop_backup_scheduler()
         stop_price_scheduler()
+        uninstall_egress_guard()
         logger.info('Application shutdown completed')
 
 
@@ -146,6 +169,8 @@ app = FastAPI(
 # K-2: fachliche Fehler (core.reason_codes.DomainError) zentral -> HTTP,
 # byte-gleich zur bisherigen HTTPException-Antwort.
 install_exception_handlers(app)
+# H11: Referenzdaten-Seeding nach dem Bootstrap-Admin (statt in GET-Pfaden).
+app.state.post_bootstrap_hooks = (seed_reference_data_at_bootstrap,)
 app.add_middleware(RequestContextMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -167,6 +192,7 @@ app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(clients_router)
+app.include_router(kyc_approvals_router)
 app.include_router(mandates_router)
 app.include_router(profiling_router)
 app.include_router(wealth_router)

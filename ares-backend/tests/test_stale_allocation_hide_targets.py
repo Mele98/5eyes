@@ -21,6 +21,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -338,7 +340,7 @@ def _monolith_render_bucket_drift(data: dict) -> str:
     if shutil.which("node") is None:
         pytest.skip("node nicht verfuegbar")
     html_path = BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "ares.html"
-    html = html_path.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     sig = "function dcRenderBucketDrift("
     start = html.index(sig)
     i = html.index("{", start)
@@ -357,13 +359,14 @@ def _monolith_render_bucket_drift(data: dict) -> str:
             m += 1
         fn_src = html[s0:m] + "\n" + fn_src
     script = (
-        "var out={innerHTML:''};var document={getElementById:function(){return out;}};"
+        rounding_module_source()
+        + "var out={innerHTML:''};var document={getElementById:function(){return out;}};"
         "var DC_BUCKET_COLORS={};function escapeHtml(s){return String(s);}\n"
         + fn_src
         + f"\nvar d={json.dumps(data)};dcRenderBucketDrift(d.buckets,d);"
         "process.stdout.write(out.innerHTML);"
     )
-    res = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=10)
+    res = subprocess.run(["node", "-"], input=script, capture_output=True, text=True, encoding="utf-8", timeout=10)
     assert res.returncode == 0, res.stderr
     return res.stdout
 

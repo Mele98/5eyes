@@ -5,6 +5,7 @@ Hintergrund). Dieser Test prueft den funktionalen Normalfall End-to-End:
 die neue Sperre darf den bestehenden Finalisierungs-Ablauf NICHT veraendern.
 """
 from __future__ import annotations
+from tests.sustainability_test_support import answer_question_one_for_all_mandates  # noqa: E402
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -122,10 +123,14 @@ def _allocation_policy_and_cma(session_factory, allocation_id):
         return allocation.policy_id, allocation.capital_market_assumptions_id
 
 
-def _add_full_position(session_factory, run_id) -> None:
+def _add_full_position(session_factory, run_id, *, client_onboarding: bool = True) -> None:
     """Fuegt genau eine Position mit 10000 bps hinzu, referenziert auf ein
     aktives Produkt -- erfuellt die Positions-/Gewichts-Checks in
-    _validate_recommendation_for_finalization."""
+    _validate_recommendation_for_finalization.
+
+    H8 C-2/C-5: ``client_onboarding`` erfuellt zusaetzlich das Kunden-
+    informations-/KYC-Gate mit offen gekennzeichneten Testwerten
+    (tests/client_onboarding_fixture.py); Tests des Gates selbst setzen False."""
     now = _iso(datetime.now(timezone.utc))
     pid = new_uuid()
     with session_factory() as s:
@@ -134,6 +139,8 @@ def _add_full_position(session_factory, run_id) -> None:
             product_type="ETF", asset_class="Aktien", sub_asset_class="Aktien Welt",
             currency="CHF", ter_bps=20, sfdr_class="6",
             is_active=1, created_at=now, updated_at=now,
+            # H7 C-4: Retro-Gate -- Fixture ausdruecklich retrozessionsfrei.
+            retrocession_bps=0, retrocession_source="Testfixture: retrozessionsfrei (H7 C-4)",
         ))
         s.flush()
         # ELIG-FINAL-001: Finalize prueft die Produkteignung jeder Position
@@ -157,6 +164,11 @@ def _add_full_position(session_factory, run_id) -> None:
             target_weight_bps=10000, target_amount_rappen=500_000_00,
             created_at=now, updated_at=now,
         ))
+        if client_onboarding:
+            from client_onboarding_fixture import satisfy_client_onboarding
+
+            run = s.get(RecommendationRun, run_id)
+            satisfy_client_onboarding(s, s.get(Mandate, run.mandate_id))
         s.commit()
 
 
@@ -171,6 +183,7 @@ def test_finalize_succeeds_and_supersedes_prior_final_run(session_factory):
 
     with session_factory() as db:
         advisor = db.query(User).filter(User.id == advisor_id).first()
+        answer_question_one_for_all_mandates(db)  # Nachtrag 1: Pflichtfrage
         result = finalize_recommendation(
             mandate_id=mid, run_id=second_run_id, request=_FakeRequest(), db=db, current_user=advisor,
         )
@@ -194,6 +207,7 @@ def test_finalize_first_run_for_mandate_with_no_prior_final(session_factory):
 
     with session_factory() as db:
         advisor = db.query(User).filter(User.id == advisor_id).first()
+        answer_question_one_for_all_mandates(db)  # Nachtrag 1: Pflichtfrage
         result = finalize_recommendation(
             mandate_id=mid, run_id=run_id, request=_FakeRequest(), db=db, current_user=advisor,
         )

@@ -1,7 +1,7 @@
 const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require('electron');
 // UPDATE-001: electron-updater wird erst geladen, wenn das Build-Gate in der
 // gepackten package.json offen ist (siehe update-gate.js); sonst nie.
-const { evaluateRuntimeUpdateGate } = require('./update-gate');
+const { evaluateEgressApproval, evaluateRuntimeUpdateGate } = require('./update-gate');
 let autoUpdater = null;
 const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
@@ -180,10 +180,36 @@ function configureAutoUpdates() {
   });
 }
 
+// N-899-09 (H10): Freigabestatus des Egress-Manifests beim lokalen Backend
+// abfragen. Ohne Token, ohne Backend oder bei Fehler -> null (gesperrt).
+async function fetchEgressStatus() {
+  try {
+    const token = readStoredToken();
+    if (!token) return null;
+    const response = await fetch(`${backendRuntime.baseUrl}/privacy/egress-status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (_error) {
+    return null;
+  }
+}
+
+let egressStatusFetcher = fetchEgressStatus;
+
 async function checkForUpdates() {
   if (!updateState.enabled || !autoUpdater) {
     return { ...updateState, message: 'Auto-update disabled' };
   }
+  const egress = evaluateEgressApproval(await egressStatusFetcher());
+  if (!egress.allowed) {
+    updateState = { ...updateState, checking: false, blockedReason: egress.reason };
+    logLine(`Update check blocked by egress manifest | reason=${egress.reason}`);
+    notifyRendererUpdateState();
+    return { ...updateState, message: `Update-Pruefung gesperrt (${egress.reason})` };
+  }
+  updateState = { ...updateState, blockedReason: null };
   try {
     const result = await autoUpdater.checkForUpdates();
     return { ...updateState, checkResult: result?.updateInfo || null };
@@ -454,6 +480,13 @@ async function pickBackendRuntime() {
 // KEK selbst kennt Electron nicht und loggt sie folglich nie.
 const TENANT_MASTER_KEK_STORE_FILE = path.join(app.getPath('userData'), 'tenant-master-kek.dpapi');
 
+// N-899-13 (H10): Feed-URL aus der gepackten Build-Konfiguration (asar),
+// leer solange das Build-Gate zu ist. Das Backend liest keine package.json.
+function desktopUpdateFeedUrl() {
+  const gate = evaluateRuntimeUpdateGate({ packageJson: require('./package.json'), isPackaged: app.isPackaged });
+  return gate.enabled ? gate.feedUrl : '';
+}
+
 function buildBackendChildEnv(runtime = backendRuntime) {
   return {
     ...process.env,
@@ -461,6 +494,8 @@ function buildBackendChildEnv(runtime = backendRuntime) {
     APP_HOST: runtime.host,
     APP_PORT: String(runtime.port),
     TENANT_MASTER_KEK_FILE: TENANT_MASTER_KEK_STORE_FILE,
+    // Immer gesetzt (auch leer): eine geerbte Umgebung kann den Kanal nicht vortaeuschen.
+    DESKTOP_UPDATE_FEED_URL: desktopUpdateFeedUrl(),
   };
 }
 
@@ -840,6 +875,10 @@ if (typeof module !== 'undefined' && module.exports) {
   // UPDATE-001: Update-Gate deterministisch pruefbar (tests/update-gate.test.js).
   module.exports._configureAutoUpdatesForTest = configureAutoUpdates;
   module.exports._checkForUpdatesForTest = checkForUpdates;
+  // N-899-14 (H10): Test-Naht fuer den Freigabestatus nur in Testlaeufen.
+  if (process.env.NODE_ENV === 'test' || process.env.ARES_TEST === '1') {
+    module.exports._setEgressStatusFetcherForTest = (fn) => { egressStatusFetcher = fn || fetchEgressStatus; };
+  }
   module.exports._getUpdateStateForTest = () => ({ ...updateState });
   module.exports.backendProcessStillAlive = backendProcessStillAlive;
   // DESK-001: erlaubt das deterministische Pruefen, dass eine gepackte App

@@ -171,7 +171,7 @@ def _pdf_text(pdf_bytes: bytes) -> str:
 
 
 @pytest.mark.parametrize("has_check", [True, False])
-def test_advisory_report_pdf_shows_note_in_suitability_section(has_check):
+def test_advisory_report_pdf_has_no_note_in_suitability_section(has_check):
     from services.pdf.documents.advisory_report import (
         render_advisory_report_pdf_from_payload,
     )
@@ -183,8 +183,10 @@ def test_advisory_report_pdf_shows_note_in_suitability_section(has_check):
     ss["risk_capacity_plausibility"] = compact_view(PARTIAL)
     payload["suitability_summary"] = ss
     text = _pdf_text(render_advisory_report_pdf_from_payload(payload))
-    assert "Plausibilitätsprüfung Risikofähigkeit (Beraterhinweis)" in text
-    assert "Frage 5 Verpflichtungen" in text
+    # H9 (Owner-Vorgabe 2026-11-08): kein Plausibilitaets-/Widerspruchshinweis
+    # im Beratungsbericht-PDF; der Block bleibt im Payload (intern).
+    assert "Plausibilitätsprüfung Risikofähigkeit" not in text
+    assert "Frage 5 Verpflichtungen" not in text
 
 
 def test_advisory_report_pdf_without_note_has_no_plausibility_text():
@@ -251,7 +253,7 @@ def test_advisory_report_payload_without_current_assessment_is_not_evaluable(ses
 # Advisory-Report: not_evaluable sichtbar, Aggregator-Cache, keine Zusatz-Queries
 # ---------------------------------------------------------------------------
 
-def test_advisory_report_pdf_shows_not_evaluable_note():
+def test_advisory_report_pdf_has_no_not_evaluable_note():
     from services.pdf.documents.advisory_report import (
         render_advisory_report_pdf_from_payload,
     )
@@ -262,7 +264,9 @@ def test_advisory_report_pdf_shows_not_evaluable_note():
     ss["risk_capacity_plausibility"] = compact_view(NOT_EVALUABLE)
     payload["suitability_summary"] = ss
     text = _pdf_text(render_advisory_report_pdf_from_payload(payload))
-    assert "mangels Daten nicht prüfbar" in text
+    # H9 (Owner-Vorgabe 2026-11-08): kein Plausibilitaets-/Widerspruchshinweis
+    # im Beratungsbericht-PDF; der Block bleibt im Payload (intern).
+    assert "mangels Daten nicht prüfbar" not in text
 
 
 def test_report_evaluation_uses_cached_rows_and_matches_db_result(session_factory):

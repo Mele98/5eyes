@@ -198,19 +198,23 @@ def _render_with_block(block) -> str:
     return _pdf_text(render_advisory_report_pdf_from_payload(payload))
 
 
-def test_internal_pdf_shows_missing_assessment_capture_request() -> None:
+def test_pdf_has_no_missing_assessment_capture_request() -> None:
     block = compact_view(evaluate_for_assessment(
         SimpleNamespace(info={}), SimpleNamespace(id="m", client_id="c"), None,
     ))
     text = _render_with_block(block)
-    assert "Kein aktuelles Risikoprofil vorhanden" in text
-    assert "Risikoprofil erfassen" in text
+    # H9 (Owner-Vorgabe 2026-11-08): kein Plausibilitaets-/Widerspruchshinweis
+    # im Beratungsbericht-PDF; der Block bleibt im Payload (intern).
+    assert "Kein aktuelles Risikoprofil vorhanden" not in text
+    assert "Risikoprofil erfassen" not in text
 
 
-def test_internal_pdf_labels_reference_mismatch() -> None:
+def test_pdf_has_no_reference_mismatch_label() -> None:
     block = bind_to_suitability_reference(compact_view(_partial_result()), "ra-old")
     text = _render_with_block(block)
-    assert "nicht auf das in der Eignungsprüfung referenzierte Profil" in text
+    # H9 (Owner-Vorgabe 2026-11-08): kein Plausibilitaets-/Widerspruchshinweis
+    # im Beratungsbericht-PDF; der Block bleibt im Payload (intern).
+    assert "nicht auf das in der Eignungsprüfung referenzierte Profil" not in text
     same = bind_to_suitability_reference(compact_view(_partial_result()), "ra-current-v3")
     assert "referenzierte Profil" not in _render_with_block(same)
     assert REFERENCE_MISMATCH_NOTE.startswith("Plausibilitätsprüfung")
