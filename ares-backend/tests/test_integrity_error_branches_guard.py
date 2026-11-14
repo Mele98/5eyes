@@ -39,16 +39,42 @@ ALLOWED: dict[tuple[str, str], str] = {
 }
 
 
-def _is_sqlalchemy_integrity_error(node: ast.expr | None) -> bool:
+_EXC_MODULES = frozenset({"exc", "sqlalchemy.exc", "sa_exc"})
+
+
+def _import_aliases(tree: ast.AST) -> tuple[frozenset[str], frozenset[str]]:
+    """F1-Hinweis (H11): Import-Aliase der SQLAlchemy-Ausnahme aufloesen.
+
+    Liefert (Namen fuer ``IntegrityError``, Namen fuer das Modul ``sqlalchemy.exc``):
+    ``from sqlalchemy.exc import IntegrityError as Dup``, ``from sqlalchemy import exc as e``,
+    ``import sqlalchemy.exc as sqla_exc``. ``sqlite3.IntegrityError`` bleibt aussen vor.
+    """
+    names, modules = {"IntegrityError"}, set(_EXC_MODULES)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module in ("sqlalchemy.exc", "sqlalchemy"):
+            for alias in node.names:
+                if node.module == "sqlalchemy.exc" and alias.name == "IntegrityError":
+                    names.add(alias.asname or alias.name)
+                elif node.module == "sqlalchemy" and alias.name == "exc":
+                    modules.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "sqlalchemy.exc" and alias.asname:
+                    modules.add(alias.asname)
+    return frozenset(names), frozenset(modules)
+
+
+def _is_sqlalchemy_integrity_error(node: ast.expr | None, names: frozenset[str] = frozenset({"IntegrityError"}),
+                                   modules: frozenset[str] = _EXC_MODULES) -> bool:
     if node is None:
         return False
     if isinstance(node, ast.Tuple):
-        return any(_is_sqlalchemy_integrity_error(e) for e in node.elts)
+        return any(_is_sqlalchemy_integrity_error(e, names, modules) for e in node.elts)
     if isinstance(node, ast.Name):
-        return node.id == "IntegrityError"
+        return node.id in names
     if isinstance(node, ast.Attribute) and node.attr == "IntegrityError":
-        # sqlalchemy.exc.IntegrityError / exc.IntegrityError, nicht sqlite3.*
-        return ast.unparse(node.value) in {"exc", "sqlalchemy.exc", "sa_exc"}
+        # sqlalchemy.exc.IntegrityError / exc.IntegrityError (auch per Alias), nicht sqlite3.*
+        return ast.unparse(node.value) in modules
     return False
 
 
@@ -65,12 +91,13 @@ def _calls_helper(handler: ast.ExceptHandler) -> bool:
 def scan_source(rel: str, source: str) -> list[tuple[str, str, int, bool]]:
     """[(Datei, Funktion, Zeile, ruft_Helfer)] fuer alle IntegrityError-Zweige."""
     tree = ast.parse(source)
+    names, modules = _import_aliases(tree)
     found: list[tuple[str, str, int, bool]] = []
 
     def visit(node: ast.AST, func: str) -> None:
         for child in ast.iter_child_nodes(node):
             name = child.name if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) else func
-            if isinstance(child, ast.ExceptHandler) and _is_sqlalchemy_integrity_error(child.type):
+            if isinstance(child, ast.ExceptHandler) and _is_sqlalchemy_integrity_error(child.type, names, modules):
                 found.append((rel, func, child.lineno, _calls_helper(child)))
             visit(child, name)
 
@@ -128,10 +155,11 @@ def test_allowed_entries_are_current_and_reraise():
     # Jeder erlaubte Zweig endet in einem bare ``raise`` (Weitergabe an den Handler).
     for rel, func in ALLOWED:
         tree = ast.parse((BACKEND_ROOT / rel).read_text(encoding="utf-8"))
+        names, modules = _import_aliases(tree)
         fn = next(n for n in ast.walk(tree)
                   if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == func)
         handlers = [h for h in ast.walk(fn)
-                    if isinstance(h, ast.ExceptHandler) and _is_sqlalchemy_integrity_error(h.type)]
+                    if isinstance(h, ast.ExceptHandler) and _is_sqlalchemy_integrity_error(h.type, names, modules)]
         assert handlers, (rel, func)
         for handler in handlers:
             assert any(isinstance(s, ast.Raise) and s.exc is None for s in handler.body), (rel, func)
@@ -165,3 +193,32 @@ def test_profiling_uses_the_shared_detection():
     source = inspect.getsource(profiling.create_risk_assessment)
     assert "is_check_constraint_violation(exc)" in source
     assert "check_constraint_label(exc)" in source and "exc.orig" not in source
+
+
+# ── H11 (F1-Hinweis): Import-Alias von IntegrityError ────────────────────────
+
+_ALIAS_SOURCES = [
+    "from sqlalchemy.exc import IntegrityError as Dup\n"
+    "def f(db):\n    try:\n        db.commit()\n    except Dup:\n        raise Conflict()\n",
+    "from sqlalchemy import exc as sqla\n"
+    "def f(db):\n    try:\n        db.commit()\n    except sqla.IntegrityError:\n        raise Conflict()\n",
+    "import sqlalchemy.exc as sx\n"
+    "def f(db):\n    try:\n        db.commit()\n    except (ValueError, sx.IntegrityError):\n        raise Conflict()\n",
+]
+
+
+@pytest.mark.parametrize("source", _ALIAS_SOURCES)
+def test_import_alias_of_integrity_error_is_detected(source):
+    assert scan_source("routers/x.py", source) == [("routers/x.py", "f", 5, False)]
+
+
+def test_alias_branch_with_helper_counts_as_handled():
+    source = _ALIAS_SOURCES[0].replace("raise Conflict()", "raise_if_check_violation(exc)\n        raise Conflict()")
+    assert scan_source("routers/x.py", source) == [("routers/x.py", "f", 5, True)]
+
+
+def test_sqlite3_alias_is_not_sqlalchemy():
+    source = ("from sqlite3 import IntegrityError as SqliteDup\nimport sqlite3 as sq\n"
+              "def f(db):\n    try:\n        db.commit()\n    except SqliteDup:\n        pass\n"
+              "    try:\n        db.commit()\n    except sq.IntegrityError:\n        pass\n")
+    assert scan_source("routers/x.py", source) == []
