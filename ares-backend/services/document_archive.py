@@ -33,12 +33,30 @@ import hashlib
 import json
 from datetime import datetime, timezone
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import new_uuid
 from models.review import ContractDocument
 from models.users import User
+from core.sustainability_preference import document_binding
 from services.audit import log as audit_log
+from core.presentation_rounding import ROUNDING_POLICY_VERSION
+
+
+def current_preference_binding(db: Session, mandate_id: str) -> str:
+    """E2a (Codex-Vertrag E2, Negativfall 7): Bindungswert der bei der
+    Erzeugung aktuellen Nachhaltigkeitspraeferenz (decision_hash bzw.
+    'keine-erfassung:<mandat>'). Signatur/Vor-Ort-Signatur vergleichen ihn mit
+    der dann aktuellen Erfassung (services/recommendation_release_gate.py::preference_state)."""
+    decision_hash = db.execute(
+        text(
+            "SELECT decision_hash FROM investment_preference_decisions "
+            "WHERE mandate_id = :mandate_id ORDER BY sequence_no DESC LIMIT 1"
+        ),
+        {"mandate_id": mandate_id},
+    ).scalar()
+    return document_binding(decision_hash, mandate_id)
 
 
 def _now() -> str:
@@ -52,7 +70,13 @@ def content_hash_for(data) -> str:
     den PDF-Bytes) und uebergeben das Ergebnis an archive_generated_pdf()
     -- siehe Modul-Docstring fuer den Grund.
     """
-    payload = json.dumps(dataclasses.asdict(data), sort_keys=True, default=str)
+    # G7 N-894-04: Die Rundungs-Policy gehoert zur Evidenz -- dieselben Fachdaten
+    # unter einer anderen Darstellungs-Policy ergeben eine neue Archivversion.
+    # Bestehende Archivdokumente bleiben gueltig (pdf_base64/checksum unberuehrt).
+    payload = json.dumps(
+        {"data": dataclasses.asdict(data), "rounding_policy": ROUNDING_POLICY_VERSION},
+        sort_keys=True, default=str,
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -66,6 +90,8 @@ def archive_generated_pdf(
     content_hash: str,
     current_user: User,
     ip_address: str | None = None,
+    content_json: str | None = None,
+    binding: dict | None = None,
 ) -> ContractDocument:
     latest = (
         db.query(ContractDocument)
@@ -77,7 +103,19 @@ def archive_generated_pdf(
         .order_by(ContractDocument.version.desc())
         .first()
     )
-    if latest is not None and latest.content_hash == content_hash:
+    preference_binding = current_preference_binding(db, mandate_id)
+    # E2b / N-888-09: zusaetzlich an die Soll-Allokation gebunden (Aufrufer).
+    binding = binding or {}
+    bound_ta = binding.get("target_allocation_id")
+    bound_prefs = binding.get("preferences_sha256")
+    # Inhaltsgleiche Dokumente werden nur wiederverwendet, wenn sie an dieselbe
+    # Nachhaltigkeitspraeferenz (E2a) und Allokation (E2b) gebunden sind.
+    if (
+        latest is not None and latest.content_hash == content_hash
+        and getattr(latest, "bound_preference_decision_hash", None) == preference_binding
+        and getattr(latest, "bound_target_allocation_id", None) == bound_ta
+        and getattr(latest, "bound_preferences_sha256", None) == bound_prefs
+    ):
         return latest
 
     now = _now()
@@ -86,9 +124,15 @@ def archive_generated_pdf(
         mandate_id=mandate_id,
         document_type=document_type,
         title=title,
+        # H8 C-2: optionale Metadaten der Fassung (z.B. Kundeninformation:
+        # Vorlagenversion, Revision/Hash der rechtlichen Angaben).
+        content_json=content_json,
         pdf_base64=base64.b64encode(pdf_bytes).decode("ascii"),
         checksum_sha256=hashlib.sha256(pdf_bytes).hexdigest(),
         content_hash=content_hash,
+        bound_preference_decision_hash=preference_binding,
+        bound_target_allocation_id=bound_ta,
+        bound_preferences_sha256=bound_prefs,
         pdf_generated_at=now,
         # "Archiviert" ist ein vorbestehender, bisher ungenutzter Status-Wert
         # (CHECK-Constraint in ares_schema.sql) -- passt exakt:

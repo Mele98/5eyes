@@ -12,7 +12,8 @@ Registrierung still verliert, prueft dieser Test in einem frischen Interpreter:
    ``app.openapi()`` (kanonisches JSON) haben exakt den Stand vor K-2
    (Golden-Hashes, berechnet auf ``origin/develop`` 1730911e und auf dem
    K-2-Head identisch; ``sorted_tables`` unveraendert seit 9e6b7dd9, der
-   OpenAPI-Hash wurde beim Rebase auf 1730911e nachgefuehrt). Aendert eine legitime Schema-/API-Aenderung einen
+   OpenAPI-Hash wurde beim Rebase auf 1730911e und mit OF-1 (Audit 2026-11/06,
+   neue Felder exchange_code/exchange_code_status/candidates) nachgefuehrt). Aendert eine legitime Schema-/API-Aenderung einen
    Hash, wird der Golden-Wert bewusst im selben Commit nachgefuehrt.
 
 Negativkontrolle: ``database`` allein registriert ``users`` nicht -- die
@@ -32,8 +33,143 @@ from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
-GOLDEN_SORTED_TABLES_SHA256 = "3489953a3923c0b020c0d41901d8bc2a9df7556270c387caf7523653a10377b3"
-GOLDEN_OPENAPI_SHA256 = "8aebdaead713b4af5daadda6380f0fb3ef33a3d878a7e39b5f8873e611ddbbb5"
+# H-144 (F6): + audit_chain_verification_status (einzige Abweichung der
+# Tabellenliste gegenueber 2e5dfcc3, per Diff der sorted_tables geprueft).
+# H8 (2026-11-07): fuenf neue Tabellen (tenant_legal_profiles,
+# client_information_deliveries, kyc_confirmations, kyc_confirmation_approvals,
+# client_representations), keine bestehende Tabelle umbenannt/entfernt.
+# RC-CH-1 (H8-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
+# C-890-01 (2026-11-11): zwei neue Tabellen (kyc_review_policies,
+# kyc_review_policy_activations) und acht nullable Bindungsspalten an
+# kyc_confirmations; keine bestehende Tabelle umbenannt/entfernt.
+# C-890-01 Nachtrag 2: neue Tabelle kyc_confirmation_rejections.
+# C-890-01 Nachtrag 3: neue Tabelle kyc_confirmation_decisions, neun Spalten an users.
+# RC-CH-1 (C-890-01-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
+# H10 (2026-11-11): drei neue Tabellen (privacy_owner_values,
+# privacy_subject_requests, privacy_security_incidents), keine bestehende
+# Tabelle umbenannt/entfernt.
+# H10 Nachtrag 1: fuenf neue Tabellen (processing_activity_versions,
+# outbound_processing_manifest_versions, privacy_egress_events,
+# privacy_subject_request_events, privacy_security_incident_events).
+# H10 Nachtrag 2: neue Tabelle privacy_security_incident_artifacts.
+# H10 Nachtrag 3: neue Tabelle privacy_egress_daily_counts.
+# RC-CH-1 (H10-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
+# E2a Nachhaltigkeitspraeferenzen (Dok. 106): neue append-only Tabelle
+# investment_preference_decisions (+ tenants.sustainability_review_months,
+# contract_documents.bound_preference_decision_hash).
+# RC-CH-1 (E2-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
+# CCX-P1 Snapshot und Hash (2026-11-14): drei neue Tabellen
+# (advisory_decision_envelopes, advisory_envelope_bindings,
+# advisory_effective_input_manifests), keine bestehende Tabelle umbenannt/entfernt.
+GOLDEN_SORTED_TABLES_SHA256 = "368abf49cfab9456f4d8639c55db4192dd5f2caf70dcb9389b3713f7e3a49392"
+# N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
+# und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
+# AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
+# geaendert (Feld-Diff von api/openapi.json, vom Pruefer bestaetigt).
+# N-869-2: AuditLegacySection + ambiguous/ambiguous_ids/unexpected_unhashed/
+# unexpected_unhashed_ids (nur dieses Schema, Feld-Diff geprueft).
+# N-869-4: nur die description von GET /admin/system/audit-log/verify
+# (Docstring: Operator-Bypass unter PG-RLS), Feld-Diff geprueft.
+# N-869-6: AuditChainSection + ambiguous/ambiguous_count, AuditLegacySection
+# + field_shift/field_shift_ids (nur additiv, Feld-Diff geprueft).
+# Bestandssiegel: AuditLegacySection + seal_present/seal_ok/seal_sequence/
+# seal_count (nur additiv, Feld-Diff geprueft).
+# N-869-8: AuditLegacySection + seal_missing (nur additiv, Feld-Diff geprueft).
+# Integrationsprobe 2026-11-07: Pins aus #856, #862, #868 und #869 zusammen-
+# gefuehrt; api/openapi.json (Git-Merge ohne Konflikt) besteht
+# scripts/export_openapi.py --check.
+# H7 C-1: nur description von POST /clients/{client_id}/erase (Direktpfad stillgelegt, 409), Feld-Diff geprueft.
+# H7 C-6: neu POST /privacy/policies/baseline (+BaselineProposal); description GET/POST /clients/{client_id}/due-diligence (GwV-FINMA statt RS 2016/7), Feld-Diff geprueft.
+# H-144 (F4/F6): neue Pfade GET /admin/system/audit-log/verification-status,
+# POST .../anchor/export und .../anchor/verify, neue Schemas AuditAnchor*,
+# AuditChainVerificationStatusOut, AuditVerificationFindings. Kein bestehender
+# Pfad, kein bestehendes Schema geaendert (Diff gegen 2e5dfcc3 geprueft).
+# Pruefrunde H4: AuditAnchorVerifyRequest + allow_unsigned, AuditAnchorVerification
+# + unsigned_accepted/signature "missing" (nur die neuen Schemas).
+# RC-CH-1 (H4-Merge): api/openapi.json vollstaendig regeneriert (export_openapi.py),
+# Pin aus dem Tree neu berechnet, keine Seite gewaehlt.
+# H8 (2026-11-07): neu GET/PUT /compliance/legal-profile, GET
+# /mandates/{mandate_id}/client-onboarding/status, POST
+# /mandates/{mandate_id}/client-information/deliveries, GET
+# /mandates/{mandate_id}/reports/kundeninformation.pdf, GET/POST
+# /clients/{client_id}/kyc-confirmations (+ /approve), GET/POST
+# /clients/{client_id}/representations (+ /revoke) samt Schemas; geaendert nur
+# ClientDueDiligenceUpdate/-Response (acting_for_own_account ohne Default, neu
+# acting_for_own_account_answered) und OptHistoryCreate/-Response
+# (opt_out_criteria, document_id, opt_out_criteria_json). Feld-Diff geprueft.
+# H8 nach Merge H7 (N-890-07): Pins gemeinsam neu. N-890-02/03/12/13: Delivery
+# (delivery_timing, backdating_reason), KYC (identification_*, requires_second_approval),
+# OptHistoryCreate.event_type als FIDLEG-Werteliste. Feld-Diff geprueft.
+# RC-CH-1 (H8-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
+# C-890-01: neu GET/POST /compliance/kyc-review-policies, POST
+# /compliance/kyc-review-policies/{policy_row_id}/activate (+ KycReviewPolicy*-
+# Schemas); Request-Body von POST /clients/{client_id}/kyc-confirmations heisst
+# KycConfirmationRequest (Felder unveraendert; KycConfirmationCreate ist das
+# policy-gebundene Fachobjekt); additiv: KycConfirmationResponse.review_*,
+# ClientOnboardingFinding (kyc_review_status, policy_ref, binding_defect,
+# bound_next_review_due, current_max_due), ClientOnboardingStatusResponse.
+# kyc_review_policy. Feld-Diff geprueft.
+# C-890-01 Nachtrag 1: Rolle "compliance_reviewer" in UserCreate/UserUpdate/
+# Einladung (Literal erweitert) und description von POST
+# /compliance/kyc-review-policies/{policy_row_id}/activate. Feld-Diff geprueft.
+# C-890-01 Nachtrag 2: neu GET /compliance/kyc-approvals, POST
+# /compliance/kyc-approvals/{confirmation_id}/decision (+ KycPendingApproval*,
+# KycSecondApproval*-Schemas); kein bestehender Pfad, kein bestehendes Schema
+# geaendert. Feld-Diff geprueft.
+# C-890-01 Nachtrag 3: nur additive Felder -- InviteCreate (reviewer_organisation,
+# reviewer_reference), UserResponse (Konto-Herkunft), approver_account an
+# KycConfirmationApprovalResponse/KycReviewPolicyResponse/
+# KycSecondApprovalDecisionResponse, KycConfirmationResponse.
+# personal_data_warnings, ClientOnboardingFinding.shortened_by_policy_version.
+# Kein Pfad, kein bestehendes Feld geaendert. Feld-Diff geprueft.
+# C-890-01 Nachtrag 4: neu POST /users/{user_id}/compromise (+ UserCompromise),
+# UserResponse.compromised_since, InviteResponse.link_delivery; einzige
+# Aenderung an Bestehendem: InviteResponse.invite_token optional (None, wenn
+# der Link einer externen Compliance-Person nur per Mail geht). Feld-Diff geprueft.
+# RC-CH-1 (C-890-01-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
+# H10 (2026-11-11): neu /privacy/processing-register (+ /export),
+# /privacy/owner-fields (+ /{field_key}), /privacy/subject-requests (+ /{id},
+# /identity, /extension, /decision, /export, /action, /delivery, /withdraw),
+# /privacy/egress-manifest, /privacy/incidents (+ /gate, /{id}, /assessment,
+# /notification-decision, /edoeb-notification, /subject-notification-decision,
+# /subject-notification, /evidence, /close) samt 15 neuen Schemas; geaendert
+# nur die description von GET /clients/{client_id}/data-export (stillgelegt,
+# 409). Kein bestehendes Schema geaendert (Feld-Diff geprueft).
+# H10 Codex-Vertrag 2026-11-12: neu POST /privacy/incidents/{incident_id}/remediation (Schema IncidentClosure wiederverwendet), sonst unveraendert.
+# H10 Nachtrag 1: neu POST /privacy/processing-register/approve, POST
+# /privacy/egress-manifest/approve, GET /privacy/egress-events (Schema
+# VersionApproval); IncidentEvidence + sha256 (Pflicht). Feld-Diff geprueft.
+# H10 Nachtrag 2: neu GET /privacy/egress-status (Banner), sonst unveraendert.
+# H10 Nachtrag 2 (Codex C-900-03): IncidentEvidence + media_type/size_bytes (Pflicht), neu
+# POST /privacy/incidents/{incident_id}/artifacts/{artifact_id}/verify (ArtifactVerification).
+# H10 Nachtrag 3: neu POST /privacy/incidents/{incident_id}/notification-note, GET
+# /privacy/egress-counts; Feld-Diff geprueft.
+# RC-CH-1 (H10-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
+# G7 H-153 Nachtrag 4 (Grundregel Waehrung): nur additiv WealthSummaryResponse.amount_currency
+# (Optional[str]), CashflowSummaryResponse.amount_currency und CashflowProjectionResponse.
+# amount_currency (str, Default "CHF"); kein Pfad, kein bestehendes Feld geaendert
+# (Feld-Diff von api/openapi.json, export_openapi.py --check gruen).
+# RC-CH-1 (G7-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
+# E2a Nachhaltigkeitspraeferenzen (Dok. 106, Codex-Vertrag E2): GET
+# /sustainability-preferences/definition, GET/POST /mandates/{id}/
+# sustainability-preferences, Schemas SustainabilityPreference*/
+# SustainabilityExclusionOption, ContractDocumentResponse.
+# bound_preference_decision_hash und Tenant*.sustainability_review_months
+# (nur additiv, alle optional bzw. neue Pfade).
+# E2b: GET /mandates/{id}/strategy-option-coverage (StrategyOption*),
+# SustainabilityPreferenceState.allocation_floor_* /allocation_stale_notice,
+# SustainabilityExclusionOption.missing_sub_asset_classes/evidence,
+# ContractDocumentResponse.bound_target_allocation_id (nur additiv).
+# E2 Nachtrag 3 (N-901-06): GET /mandates/{id}/sustainability-preferences/
+# exclusion-options?selected=... (nur additiv).
+# RC-CH-1 (E2-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
+# H9 Nachtrag 2 (H-150): nachgefuehrt fuer GET /mandates/{mandate_id}/ist-projection-basis
+# und die Schemas IstProjectionBasisResponse/IstProjectionCmaReference (nur additiv,
+# kein bestehender Pfad/kein bestehendes Schema geaendert; Feld-Diff api/openapi.json).
+# RC-CH-1 (H9-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
+# CCX-P1: GET /mandates/{id}/advisory-envelopes/current (AdvisoryEnvelopeResponse)
+# und advisory_envelope_id/_hash in RecommendationFinalizeResponse.
+GOLDEN_OPENAPI_SHA256 = "8fd6c4b0579e22763825270dfe220cbf5a394dbcf163a1e113b760760ff15a02"
 
 _PROBE = """
 import hashlib, json

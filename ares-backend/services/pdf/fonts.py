@@ -4,6 +4,14 @@ U-15 embeds the same editorial families used by the reporting sub-app:
 Cormorant Garamond for serif headings and Inter for body text.
 The module is intentionally defensive: missing TTF files downgrade to
 ReportLab stock fonts instead of breaking PDF generation.
+
+H1 / N-853-8 (2026-11-07): Ares-PDFs embed ONLY these fonts. Monospace uses
+the embedded DM Mono (SIL OFL 1.1, see assets/fonts/FONT-LICENSES.txt)
+instead of the non-embedded standard font Courier, and after a successful
+registration the ReportLab defaults (graphics strings, chart labels and
+legends, table cells without FONTNAME, paragraph styles, the canvas initial
+font) point to the embedded Inter -- one central switch instead of a
+fontName at every chart/table call site.
 """
 from __future__ import annotations
 
@@ -27,6 +35,7 @@ FONT_FILES = {
     "Inter": "Inter-Regular.ttf",
     "Inter-Medium": "Inter-Medium.ttf",
     "Inter-SemiBold": "Inter-SemiBold.ttf",
+    "DMMono": "DMMono-Regular.ttf",
 }
 
 
@@ -48,6 +57,7 @@ _EDITORIAL_NAMES = EditorialFontNames(
     sans="Inter",
     sans_medium="Inter-Medium",
     sans_bold="Inter-SemiBold",
+    mono="DMMono",
 )
 
 _FALLBACK_NAMES = EditorialFontNames(
@@ -150,7 +160,34 @@ def register_editorial_fonts(font_dir: str | Path | None = None) -> bool:
     if font_dir is None:
         _REGISTERED = True
         _AVAILABLE = True
+        apply_reportlab_font_defaults(_EDITORIAL_NAMES)
     return True
+
+
+def apply_reportlab_font_defaults(names: EditorialFontNames) -> None:
+    """Point every ReportLab font default to an embedded editorial font.
+
+    N-853-8: text drawn without an explicit fontName otherwise falls back to
+    the non-embedded standard fonts -- ``reportlab.graphics`` strings, pie and
+    legend labels (Times-Roman), table cells without ``FONTNAME`` and the
+    canvas initial font (Helvetica). The defaults are module-level state in
+    ReportLab; they are changed in place so objects created later (and the
+    renderers, which read the shared dicts at draw time) pick them up.
+    Only called after the editorial fonts are registered; the degraded
+    stock-font mode keeps ReportLab's own defaults.
+    """
+    from reportlab import rl_config
+    from reportlab.graphics import shapes
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import tables
+
+    sans = names.sans
+    shapes.STATE_DEFAULTS["fontName"] = sans
+    rl_config.canvas_basefontname = sans
+    rl_config.defaultGraphicsFontName = sans
+    ParagraphStyle.defaults["fontName"] = sans
+    ParagraphStyle.defaults["bulletFontName"] = sans
+    tables.CellStyle.fontname = sans
 
 
 def _register_ttf(font_name: str, path: Path) -> None:

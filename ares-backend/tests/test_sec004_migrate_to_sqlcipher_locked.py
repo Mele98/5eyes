@@ -1,50 +1,57 @@
-"""SEC-004 (Codex-Audit 2026-08-26, docs/audits/2026-08-26-data-lifecycle-
-crypto-browser-followup-audit.md): migrate_to_sqlcipher.py hat nachgewiesene
-Sicherheits-/Korrektheitsluecken (Key sichtbar in argv/stdout, hinterlaesst
-ein Klartext-Backup neben der DB, kann Trigger wie die Audit-Log-
-Unveraenderlichkeit lautlos durch falsche Schema-Erstellungsreihenfolge
-verlieren, unzureichende Erfolgspruefung). Das Tool muss bis zu einem
-sicheren Ersatz gesperrt sein.
+"""SEC-004 (Codex-Audit 2026-08-26) + Pruefrunde #864 S-3: migrate_to_sqlcipher.py
+ist stillgelegt.
+
+Vorher gab es einen Bypass (``--i-understand-this-tool-is-broken-and-unsafe``):
+mit ihm legte das Skript zuerst per ``shutil.copy2`` eine vollstaendige
+Klartext-Kopie (``*.pre-sqlcipher-backup``) neben der DB an und scheiterte
+danach an ``PRAGMA key = ?``. Jetzt endet es mit und ohne Flag immer mit Exit 1,
+verweist auf den Migrator und beruehrt keine Datei.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = BACKEND_ROOT / "migrate_to_sqlcipher.py"
+BYPASS = "--i-understand-this-tool-is-broken-and-unsafe"
 
 
-def _run(args: list[str]) -> subprocess.CompletedProcess:
+def _run(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(SCRIPT), *args],
         capture_output=True,
         text=True,
-        cwd=str(BACKEND_ROOT),
-        env={**__import__("os").environ, "PYTHONIOENCODING": "utf-8"},
+        cwd=str(cwd),
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        timeout=120,
     )
 
 
-def test_running_without_acknowledgement_flag_refuses_and_exits_nonzero():
-    result = _run(["--key", "some-key", "--db-path", "does-not-exist.db"])
-    assert result.returncode != 0
-    assert "gesperrt" in result.stdout.lower()
-    # Darf NICHT bis zum eigentlichen Migrationscode vordringen (kein
-    # sqlcipher3-Importversuch, keine Backup-/DB-Operation).
-    assert "sqlcipher3" not in result.stdout.lower()
-
-
-def test_running_without_acknowledgement_flag_never_touches_the_db_file(tmp_path):
+@pytest.mark.parametrize(
+    "extra",
+    [[], [BYPASS], ["--help"], [BYPASS, "--help"]],
+    ids=["plain", "bypass", "help", "bypass-help"],
+)
+def test_always_exits_1_and_never_touches_files(tmp_path, extra):
     db_file = tmp_path / "real.db"
-    db_file.write_text("not touched", encoding="utf-8")
-    result = _run(["--key", "some-key", "--db-path", str(db_file)])
-    assert result.returncode != 0
-    assert db_file.read_text(encoding="utf-8") == "not touched"
-    assert not (tmp_path / "real.db.pre-sqlcipher-backup").exists()
+    db_file.write_bytes(b"SQLite format 3\x00not touched")
+    before = sorted(p.name for p in tmp_path.iterdir())
+    result = _run(["--key", "k" * 64, "--db-path", str(db_file), *extra], cwd=tmp_path)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "stillgelegt" in result.stdout
+    assert "ares-migrator" in result.stdout
+    assert db_file.read_bytes() == b"SQLite format 3\x00not touched"
+    assert sorted(p.name for p in tmp_path.iterdir()) == before, "keine Kopie, keine .encrypted-Datei"
+    assert "k" * 64 not in result.stdout + result.stderr
 
 
-def test_acknowledgement_flag_is_documented_in_help():
-    result = _run(["--help"])
-    assert result.returncode == 0
-    assert "--i-understand-this-tool-is-broken-and-unsafe" in result.stdout
+def test_script_has_no_bypass_and_no_migration_code():
+    source = SCRIPT.read_text(encoding="utf-8")
+    code = source.split('"""', 2)[2]  # ohne Modul-Docstring
+    for forbidden in ("argparse", "shutil", "sqlcipher3", "import sqlite3", "from config", BYPASS):
+        assert forbidden not in code, forbidden

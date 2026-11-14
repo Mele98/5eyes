@@ -311,14 +311,19 @@ def test_runtime_migration_allows_password_reset_action_on_bootstrap_schema(tmp_
     temp_engine = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
     try:
         ensure_audit_log_actions(temp_engine)
+        # N-869-3: seit dem Ketten-Pflicht-Trigger braucht jede neue Zeile
+        # sequence/integrity_hash/previous_hash; geprueft wird hier nur der
+        # action-CHECK.
         with temp_engine.begin() as conn:
             conn.execute(
                 text(
                     """
                     INSERT INTO audit_log (
-                        id, user_id, user_name, table_name, record_id, action, created_at
+                        id, user_id, user_name, table_name, record_id, action, created_at,
+                        sequence, integrity_hash, previous_hash
                     ) VALUES (
-                        'audit-1', 'admin-1', 'Admin User', 'users', 'user-1', 'PASSWORD_RESET', '2026-04-01T00:00:00.000Z'
+                        'audit-1', 'admin-1', 'Admin User', 'users', 'user-1', 'PASSWORD_RESET', '2026-04-01T00:00:00.000Z',
+                        1, 'h', ''
                     )
                     """
                 )

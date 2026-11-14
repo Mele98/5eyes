@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 # Produktwurzel = dieses Repo (tests/ -> ares-backend/ -> Repo-Wurzel); die
@@ -55,11 +56,13 @@ def test_total_wealth_projection_subtracts_non_mortgage_liabilities(tmp_path: Pa
     canonical net basis is CHF 400k.  The current browser helper only sends
     mortgages through its liability series, so it starts at CHF 600k.
     """
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     mortgage_helper = _extract_js_function(
         html, "mortgageLiabilityAndPledgedSeriesRappen"
     )
-    projection_helper = _extract_js_function(html, "wealthProjectionInputs")
+    projection_helper = _extract_js_function(html, "wealthProjectionInputs") + "\n" + "\n".join(
+        # G7 N4: Waehrung der Projektionseingaben (Grundregel) -- echte Helfer aus ares.html.
+        _extract_js_function(html, n) for n in ("ccyOf", "sameCcy", "positionsCurrency", "mandateCurrency", "appCurrency"))
     script = f"""
 const assets = [
   {{position_type:'Depot', assignment:'Beratungsvermögen', current_value_rappen:10000000}},
@@ -107,7 +110,7 @@ process.stdout.write(JSON.stringify(wealthProjectionInputs('total', 2)));
 
 def test_classic_context_uses_net_foundation_and_surfaces_uncovered_debt() -> None:
     """Classic UI must not claim a foundation larger than net wealth."""
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     block = html.split(
         "function syncAllocationDonutFromStrategyState()", 1
     )[1].split("\nlet charts=", 1)[0]

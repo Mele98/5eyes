@@ -133,7 +133,7 @@ export function CrmEditor({ initialClientId }: CrmEditorProps) {
     setClassificationError('');
     try {
       await postOptHistory(selected.id, {
-        event_type: 'reclassification',
+        // N-890-13: event_type leitet der Server aus dem Uebergang ab (FIDLEG).
         from_classification: selected.client_classification as ClientClassification,
         to_classification: targetClassification,
         client_requested: true,

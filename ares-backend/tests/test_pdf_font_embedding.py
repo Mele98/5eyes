@@ -26,7 +26,12 @@ FONT_HASHES = {
     "Inter-Medium.ttf": "97ad806f526e41546d46365bb3a393145f75b7b1568913db74549ad8b8dba872",
     "Inter-Regular.ttf": "40d692fce188e4471e2b3cba937be967878f631ad3ebbbdcd587687c7ebe0c82",
     "Inter-SemiBold.ttf": "78a843fade9d4612a5567302fb595b56976eb5fcebf4fea5a5912d638bafcde3",
+    # H1 / N-853-8: eingebetteter Monospace statt Standard-14-Courier.
+    "DMMono-Regular.ttf": "55b4c98f123daebb3ed27947ba47b2af00554fc6284d639a540bcef5e6258ad2",
 }
+# DM Mono ist ein schmaler Font (~49 kB); die Groessenpruefung faengt nur
+# abgeschnittene Dateien bzw. Git-LFS-Zeiger ab.
+MIN_FONT_BYTES = {"DMMono-Regular.ttf": 40_000}
 
 
 def test_editorial_ttf_files_exist():
@@ -34,7 +39,7 @@ def test_editorial_ttf_files_exist():
     for filename in FONT_HASHES:
         path = FONT_DIR / filename
         assert path.exists(), filename
-        assert path.stat().st_size > 100_000
+        assert path.stat().st_size > MIN_FONT_BYTES.get(filename, 100_000)
 
 
 def test_editorial_ttf_hashes_are_stable():
@@ -58,6 +63,7 @@ def test_reportlab_registered_font_names_include_editorial_faces():
     assert "Inter" in names
     assert "Inter-Medium" in names
     assert "Inter-SemiBold" in names
+    assert "DMMono" in names
 
 
 def test_editorial_font_names_return_registered_names():
@@ -68,6 +74,7 @@ def test_editorial_font_names_return_registered_names():
     assert names.serif_italic == "CormorantGaramond-Italic"
     assert names.sans == "Inter"
     assert names.sans_bold == "Inter-SemiBold"
+    assert names.mono == "DMMono"
 
 
 def test_missing_ttf_files_degrade_without_crash(tmp_path, caplog):
@@ -106,3 +113,36 @@ def test_release_scripts_include_pdf_font_assets():
         assert filename in release_check
     assert "assets/fonts;assets/fonts" in build_backend
     assert "assets/fonts:assets/fonts" in build_backend
+
+
+def test_font_licenses_are_documented_next_to_the_binaries():
+    """H1 / N-853-8: jede gebuendelte Fontdatei ist mit Copyright und Lizenz
+    im Repo dokumentiert, der OFL-Text liegt bei."""
+    register = (FONT_DIR / "FONT-LICENSES.txt").read_text(encoding="utf-8")
+    for filename in FONT_HASHES:
+        assert filename in register
+    assert FONT_HASHES["DMMono-Regular.ttf"] in register
+    ofl = (FONT_DIR / "OFL-DMMono.txt").read_text(encoding="utf-8")
+    assert "SIL OPEN FONT LICENSE Version 1.1" in ofl
+    assert "Copyright 2020 The DM Mono Project Authors" in ofl
+
+
+def test_reportlab_defaults_point_to_embedded_fonts():
+    """H1 / N-853-8: Diagramm-Strings, Tabellenzellen ohne FONTNAME, Absatz-
+    Defaults und der Canvas-Startfont zeigen auf das eingebettete Inter."""
+    from reportlab import rl_config
+    from reportlab.graphics.charts.legends import Legend
+    from reportlab.graphics.charts.piecharts import Pie
+    from reportlab.graphics.charts.textlabels import Label
+    from reportlab.graphics.shapes import String
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus.tables import CellStyle
+
+    assert register_editorial_fonts() is True
+    assert String(0, 0, "x").fontName == "Inter"
+    assert Label().fontName == "Inter"
+    assert Legend().fontName == "Inter"
+    assert Pie().slices.fontName == "Inter"
+    assert CellStyle("x").fontname == "Inter"
+    assert ParagraphStyle("x").fontName == "Inter"
+    assert rl_config.canvas_basefontname == "Inter"

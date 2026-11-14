@@ -109,7 +109,35 @@ def evidence_hash(payload: Any, *, scheme: str = SCHEME_V1) -> str:
     return sha256_hex(canonical_json(payload, scheme=scheme))
 
 
+# CCX-P1 (Vertrag 2026-11-13 §3): domaenensepariertes Hashschema fuer den
+# Beratungsentscheid. Anders als die JSON-Schemata oben ist das kein
+# ``json.dumps``-Argumentsatz: die kanonischen Bytes erzeugt
+# ``core/advisory_envelope_codec.py`` (Schluesselreihenfolge laut Schema,
+# Integer-Rohwerte, NFC). Hier steht nur die Domaene als einzige Quelle; sie
+# ist Teil jeder Hash-Eingabe, damit ein Envelope-Hash nie mit einem anderen
+# Beleg (oder einem Kind-Hash) kollidieren kann.
+ADVISORY_ENVELOPE_SCHEMA = "ares/advisory-envelope/1"
+ADVISORY_ENVELOPE_DOMAIN = b"Ares\x00ares/advisory-envelope/1\x00"
+
+
+def advisory_domain(kind: str | None = None) -> bytes:
+    """Hash-Domaene: Root ``Ares<NUL>ares/advisory-envelope/1<NUL>``, Kind-Hashes
+    ``Ares<NUL>ares/advisory-envelope/1/<kind><NUL>`` (gleichartig separiert)."""
+    if kind is None:
+        return ADVISORY_ENVELOPE_DOMAIN
+    if not kind or "\x00" in kind or "/" in kind:
+        raise ValueError(f"Ungueltige Kind-Domaene: {kind!r}")
+    return b"Ares\x00" + (ADVISORY_ENVELOPE_SCHEMA + "/" + kind).encode("utf-8") + b"\x00"
+
+
+def domain_sha256_hex(domain: bytes, canonical: bytes) -> str:
+    """SHA-256 (lowercase Hex) ueber ``domain + canonical``."""
+    return hashlib.sha256(domain + canonical).hexdigest()
+
+
 __all__ = [
+    "ADVISORY_ENVELOPE_DOMAIN",
+    "ADVISORY_ENVELOPE_SCHEMA",
     "SCHEMES",
     "SCHEME_LEGACY_SPACED",
     "SCHEME_LEGACY_SPACED_STR_DEFAULT",
@@ -118,7 +146,9 @@ __all__ = [
     "SCHEME_V1_ASCII",
     "SCHEME_V1_ASCII_STR_DEFAULT",
     "SCHEME_V1_STR_DEFAULT",
+    "advisory_domain",
     "canonical_json",
+    "domain_sha256_hex",
     "evidence_hash",
     "scheme_dumps_kwargs",
     "sha256_hex",

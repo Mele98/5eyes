@@ -42,6 +42,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import configure_mappers, sessionmaker
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -275,7 +276,7 @@ def test_e2e_screening_discloses_missing_look_through(session_factory):
 
 
 def _option_label(select_id: str, value: str) -> str:
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     select = re.search(r'id="%s"[^>]*>(.*?)</select>' % select_id, html)
     assert select, select_id
     option = re.search(r'<option value="%s"[^>]*>([^<]*)</option>' % value, select.group(1))
@@ -310,7 +311,7 @@ def test_ui_universe_label_matches_the_single_universe_control(value):
     label = _option_label("aa-policy-universe", value)
     assert "inkl. Alternative" not in label, label
     assert "kein Zusatzfilter" in label, label
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     collect = re.search(r"function collectAllocationPreferencesFromUI\(\)\{(.*?)\n\}", html, re.S).group(1)
     assert "fundsOnly:universeUi==='funds_only'" in collect
     assert "listedOnly:universeUi==='listed_only'" in collect
@@ -322,7 +323,7 @@ def test_ui_universe_label_matches_the_single_universe_control(value):
 
 
 def test_ui_documents_underweight_semantics_and_missing_look_through():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     assert 'id="aa-tilt-screening-note"' in html
     note = re.search(r'id="aa-tilt-screening-note"[^>]*>(.*?)</div>', html, re.S).group(1)
     assert "Untergewichten" in note and "Ersatz" in note

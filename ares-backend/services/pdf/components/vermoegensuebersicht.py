@@ -11,6 +11,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import KeepTogether, Paragraph, Spacer, Table, TableStyle
 
 from services.pdf.components.header import _esc
+from core.presentation_rounding import format_minor_number, format_pct_value
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -50,7 +51,7 @@ def make_vermoegensuebersicht_section(
     flowables: list = []
     styles = make_paragraph_styles()
 
-    flowables.append(_section_title("💰  Vermögensübersicht"))
+    flowables.append(_section_title("Vermögensübersicht"))
 
     pos_list = list(advisory_positions or [])
     other_list = list(other_wealth_positions or [])
@@ -110,7 +111,7 @@ def _make_advisory_table(positions: list, currency: str):
                     _para_cell(),
                 ),
                 _format_amount(amt, currency),
-                f"{pct:.2f} %",
+                format_pct_value(pct, decimals=2),
             ])
         # Subtotal-Zeile
         bucket_pct = (bucket_total / grand_total * 100) if grand_total > 0 else 0
@@ -119,15 +120,15 @@ def _make_advisory_table(positions: list, currency: str):
                 f'<font name="{FONT_BOLD}">{_esc(BUCKET_TOTAL_LABELS.get(bucket, asset_class_label(bucket)))}</font>',
                 _para_cell(),
             ),
-            Paragraph(f'<b>{_format_amount(bucket_total, currency)}</b>', _para_cell()),
-            Paragraph(f'<b>{bucket_pct:.2f} %</b>', _para_cell()),
+            Paragraph(f'<b>{_format_amount(bucket_total, currency)}</b>', _para_cell_right()),
+            Paragraph(f'<b>{format_pct_value(bucket_pct, decimals=2)}</b>', _para_cell_right()),
         ])
 
     # Grand Total
     rows.append([
         Paragraph(f'<font name="{FONT_BOLD}">Total Beratungsvermögen</font>', _para_cell()),
-        Paragraph(f'<b>{_format_amount(grand_total, currency)}</b>', _para_cell()),
-        Paragraph('<b>100.00 %</b>', _para_cell()),
+        Paragraph(f'<b>{_format_amount(grand_total, currency)}</b>', _para_cell_right()),
+        Paragraph('<b>100.00 %</b>', _para_cell_right()),
     ])
 
     page_width, _ = PAGE_SIZE
@@ -153,18 +154,26 @@ def _make_advisory_table(positions: list, currency: str):
 
 
 def _make_other_wealth_table(positions: list, currency: str):
+    """Anderes Vermoegen NETTO: Verbindlichkeiten (``is_liability``) werden
+    mit Minuszeichen gelistet und vom Total abgezogen -- dieselbe Rechnung wie
+    die App ("Total Anderes (netto)" = Aktiven - Verbindlichkeiten).
+
+    Live-Test 2026-11 H1: vorher wurde jede Zeile positiv summiert und eine
+    Hypothek erhoehte das ausgewiesene Vermoegen.
+    """
     rows = [["Anderes Vermögen", f"Betrag ({currency})"]]
     total = 0
     for p in positions:
         label = str(p.get("label", "—") or "—")
-        amt = int(p.get("amount_rappen", 0) or 0)
+        amt = abs(int(p.get("amount_rappen", 0) or 0))
         if amt == 0:
             continue
-        total += amt
-        rows.append([_esc(label), _format_amount(amt, currency)])
+        signed = -amt if p.get("is_liability") else amt
+        total += signed
+        rows.append([_esc(label), _format_signed_amount(signed, currency)])
     rows.append([
-        Paragraph(f'<font name="{FONT_BOLD}">Total Anderes Vermögen</font>', _para_cell()),
-        Paragraph(f'<b>{_format_amount(total, currency)}</b>', _para_cell()),
+        Paragraph(f'<font name="{FONT_BOLD}">Total Anderes Vermögen (netto)</font>', _para_cell()),
+        Paragraph(f'<b>{_format_signed_amount(total, currency)}</b>', _para_cell_right()),
     ])
 
     page_width, _ = PAGE_SIZE
@@ -190,11 +199,14 @@ def _format_amount(rappen: int, currency: str = "CHF") -> str:
     # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): rappen ist bereits in
     # mandate.base_currency (siehe portfolio_engine._load_allocation_inputs).
     # Kein zweites convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
-    try:
-        value = rappen / 100.0
-        return f"{value:,.0f}".replace(",", "'")
-    except Exception:
-        return f"{rappen/100.0:,.0f}".replace(",", "'")
+    return format_minor_number(rappen)
+
+
+def _format_signed_amount(rappen: int, currency: str = "CHF") -> str:
+    """Wie ``_format_amount``, negative Betraege mit typografischem Minus."""
+    if rappen < 0:
+        return "−" + _format_amount(-rappen, currency)
+    return _format_amount(rappen, currency)
 
 
 def _section_title(text: str):
@@ -203,6 +215,15 @@ def _section_title(text: str):
         f'<font name="{FONT_BOLD}" size="12" color="#0f172a">{_esc(text)}</font>',
         style,
     )
+
+
+def _para_cell_right():
+    """N-858-5: Betragszellen der Total-Zeilen rechtsbuendig wie die Spalte
+    (Paragraph-Zellen ignorieren das ALIGN der Tabelle)."""
+    from reportlab.lib.enums import TA_RIGHT
+    style = _para_cell()
+    style.alignment = TA_RIGHT
+    return style
 
 
 def _para_cell():

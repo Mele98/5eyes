@@ -22,6 +22,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 ROOT = Path(__file__).resolve().parents[2]
 HTML_PATH = ROOT / "ares-desktop" / "frontend" / "ares.html"
@@ -39,7 +41,7 @@ _MONO_FNS = (
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _extract_function(src: str, name: str) -> str:
@@ -78,7 +80,8 @@ def _run_monolith(extra_js: str = ""):
     html = _html()
     fns = "\n".join(_extract_function(html, n) for n in _MONO_FNS)
     body = (
-        fns
+        rounding_module_source()
+        + fns
         + "\nvar __fns={fmtPct:fmtPct,fmtSignedPct:fmtSignedPct,fmtProbPct:fmtProbPct,fmtSharpe:fmtSharpe,fmtNumber:fmtNumber};"
         + "\nvar __compact=formatCompactCHF;\n"
     )
@@ -86,7 +89,7 @@ def _run_monolith(extra_js: str = ""):
         script = body + "process.stdout.write(JSON.stringify((function(){" + extra_js + "})()));"
     else:
         script = body + _RUNNER.replace("__CONTRACT__", json.dumps(_contract()))
-    proc = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    proc = subprocess.run(["node", "-"], input=script, capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
 
@@ -99,8 +102,8 @@ def _run_report(tmp_path: Path):
         "const C = " + json.dumps(_contract()) + ";\n"
         "const fns: Record<string, (...a: unknown[]) => string> = F as never;\n"
         "const out = {cases: C.cases.map((c: [string, unknown[], string]) => fns[c[0]](...c[1])),"
-        " compact: C.compact_chf_cases.map((c: [number, string]) => F.fmtChfCompact(c[0])),"
-        " chf: C.chf_rappen_cases.map((c: [number, string]) => F.formatChfRappen(c[0])),"
+        " compact: C.compact_chf_cases.map((c: [number, string]) => F.fmtChfCompact(c[0], 'CHF')),"
+        " chf: C.chf_rappen_cases.map((c: [number, string]) => F.formatChfRappen(c[0], { currency: 'CHF' })),"
         " parse: C.parse_cases.map((c: [string, number]) => F.parseNumberInputCH(c[0]))};\n"
         "process.stdout.write(JSON.stringify(out));\n",
         encoding="utf-8",
@@ -218,8 +221,10 @@ def test_all_number_tolocalestring_goes_through_central_helper():
     assert rest == [], rest
     code_lines = [ln for ln in html.splitlines()
                   if "toLocaleString('de-CH'" in ln and not ln.lstrip().startswith("//")]
-    assert len(code_lines) == 2, code_lines  # fmtLocaleCH + Datum
-    assert "fmtLocaleCH(" in html
+    # G7 (H-153 Nachtrag 1): fmtLocaleCH rundet ueber AresRounding (Half-up),
+    # toLocaleString bleibt nur fuer die Datumsanzeige.
+    assert len(code_lines) == 1 and "new Date(" in code_lines[0], code_lines
+    assert "fmtLocaleCH(" in html and "AresRounding.formatDecimal(isFinite(n)?n:0,mx" in html
 
 
 def test_monolith_never_emits_typographic_apostrophe():

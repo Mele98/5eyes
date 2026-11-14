@@ -1,29 +1,37 @@
 import csv
 import io
+import json
 import logging
 from collections.abc import Callable
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 from sqlalchemy import bindparam, or_, text, update
 from sqlalchemy.exc import IntegrityError
+from core.db_integrity import is_check_constraint_violation, raise_if_check_violation
 from datetime import date, datetime, timezone
 from config import settings
 from database import get_db, new_uuid
 from models.users import User
 from core.http_filenames import content_disposition
+from core import sustainability_preference
+from core.reason_codes import DomainError, ReasonCode
 from models.mandates import Mandate
 from models.review import (
     ReviewTrigger, AdvisoryLog, ContractDocument,
     ConflictOfInterestDisclosure, Product, ProductSuitability,
     ProductUniverseEntry,
-    RecommendationRun, RecommendationPosition, RecommendationHolding, AuditLog
+    RecommendationRun, RecommendationPosition, RecommendationHolding, AuditLog,
+    ClientInformationDelivery,
 )
 from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
 from models.profiling import RiskAssessment, SuitabilityCheck
-from models.tenant import Tenant
+from models.tenant import KYC_REVIEW_GENESIS, KycReviewPolicy, KycReviewPolicyActivation, Tenant, TenantLegalProfile
 from schemas.review import (
+    StrategyOptionCoverageResponse,
+    master_data_consistency_errors,
     ReviewTriggerCreate, ReviewTriggerResolve, ReviewTriggerResponse,
     ReviewTriggerFrequencyUpdate, CalendarFeedTokenResponse,
     normalize_trigger_frequency, trigger_frequency_months,
@@ -44,22 +52,30 @@ from schemas.review import (
     ProductReferenceApplyRequest, ProductReferenceApplyResponse,
     ProductReferenceBatchApplyRequest, ProductReferenceBatchApplyResponse,
     ProductUniverseEntryCreate, ProductUniverseEntryUpdate, ProductUniverseEntryResponse,
-    RecommendationRunCreate, RecommendationRunResponse,
+    RecommendationRunCreate, RecommendationRunResponse, RecommendationFinalizeResponse, finalize_warning_codes,
+    AdvisoryEnvelopeResponse,
     RecommendationPositionCreate, RecommendationPositionResponse,
     RecommendationHoldingUpsert, RecommendationHoldingResponse,
     RecommendationGenerateRequest, RecommendationGenerateResponse,
+    TenantLegalProfileUpdate, TenantLegalProfileResponse,
+    ClientInformationDeliveryCreate, ClientInformationDeliveryResponse,
+    ClientOnboardingStatusResponse,
+    KycReviewPolicyActivate, KycReviewPolicyCreate, KycReviewPolicyOverview, KycReviewPolicyResponse,
 )
 from price_updater import summarize_price_quality
-from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation
-from services.audit import log
+from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, require_staff, same_person, assert_compliance_reviewer_ready, short_user_agent, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
+from services.audit import gate_block_audit, log, release_block_audit, restore_tenant_after_rollback
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
-from routers.auth import _extract_client_ip
+# CCX-P1: direkt aus services.auth (derselbe Helfer, den routers.auth nur
+# weiterreicht) -- Router importieren keine Router (Architektur-Ratsche).
+from services.auth import extract_client_ip as _extract_client_ip
+from services.advisory_decision_envelope import current_verified_envelope, seal_advisory_envelope
 from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
 from services.data_classification import enforce_data_classification
 from services.eodhd_client import preview_eodhd_reference
 from services.market_data.exceptions import RateLimitError
-from services.openfigi_client import preview_openfigi_mapping
+from services.openfigi_client import map_openfigi_exchange_code, preview_openfigi_mapping
 from services.preference_snapshot import (
     ReasonCodedConflictError,
     enforce_products_against_allocation_snapshot,
@@ -67,7 +83,11 @@ from services.preference_snapshot import (
 from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible
 from services.portfolio_engine import (
     _current_target_allocation_or_none,
+    _norm_text,
+    _normalize_preferences,
+    _resolve_jurisdiction_context,
     _risk_score_bucket,
+    strategy_option_coverage,
     build_recommendation_payload_from_run,
     build_run_context,
     build_target_payload_from_allocation,
@@ -75,13 +95,44 @@ from services.portfolio_engine import (
     require_strategy_ready_assessment,
     ensure_runtime_reference_data,
 )
-from services.product_market_data import currency_mismatch_warning, resolve_market_profile
+from services.product_market_data import (
+    currency_mismatch_warning,
+    normalize_exchange_code,
+    resolve_market_profile,
+)
 from services.recommendation_release_gate import (
+    CHANNEL_FINALIZATION,
     CHANNEL_SIGNATURE,
+    CLIENT_INFORMATION_DOCUMENT_TYPE,
+    CLIENT_INFORMATION_TEMPLATE_VERSION,
+    CLIENT_INFORMATION_TENANT_DATA_MISSING,
+    CONTRACT_CONCLUSION_DOCUMENT_TYPES,
+    LEGAL_PROFILE_FIELDS,
     RECOMMENDATION_DOCUMENT_TYPES,
     SIGNOFF_BOUND_DOCUMENT_TYPES,
+    SUPERVISION_LABELS,
+    assert_client_onboarding_release_eligible,
+    assert_document_sustainability_floor,
+    assert_preference_document_bound,
+    assert_preference_release_ready,
     assert_recommendation_release_eligible,
+    assert_retrocession_release_eligible,
+    assert_sustainability_preference_floor,
+    preference_state,
     assert_risk_signoff_release_eligible,
+    client_onboarding_status,
+    kyc_approver_account,
+    kyc_review_effective_from,
+    kyc_review_jurisdiction,
+    kyc_review_policy_chain,
+    kyc_review_policy_defect,
+    resolve_kyc_review_policy,
+    legal_profile_hash,
+    legal_profile_missing_fields,
+    load_tenant_legal_profile,
+    mandate_tenant_id,
+    row_seal,
+    contract_concluded_at,
     risk_budget_release_errors,
 )
 from services.review_engine import (
@@ -91,7 +142,17 @@ from services.review_engine import (
 )
 from services.signature_artifact import CLIENT_SIGNATURE_REQUIRES_CLIENT_PRINCIPAL
 from services.suitability_audit import audit_mandate_suitability, suitability_gate_blocks
-from services.product_eligibility_finalization import finalization_eligibility_findings
+from services.product_eligibility_finalization import finalization_eligibility_findings, saa_bucket_reconciliation_warnings
+from services.product_eligibility_governance import parse_utc_timestamp
+from services.product_eligibility import (
+    assert_product_evidenced,
+    assert_run_positions_evidenced,
+    derive_service_mode,
+    is_eligible_candidate,
+    # RC-CH-1 Teil 2b: Alias -- gleichnamige Funktion (db, mandate) aus
+    # recommendation_release_gate (H8) wird oben importiert.
+    mandate_tenant_id as eligibility_mandate_tenant_id,
+)
 from services.review_calendar_feed import (
     build_ics_feed,
     issue_calendar_feed_token,
@@ -186,6 +247,46 @@ def _get_product_or_404(product_id: str, db: Session, current_user: User | None 
             if product_tid != str(user_tid).strip():
                 raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
     return product
+
+
+GLOBAL_CATALOG_WRITE_FORBIDDEN_DETAIL = (
+    "Globale Katalogfonds gelten fuer alle Verwaltungen und koennen hier nicht "
+    "geaendert oder deaktiviert werden. Nutzen Sie fuer Ihre Verwaltung die "
+    "Positivliste (Fonds-Universum) oder erfassen Sie einen eigenen Fonds."
+)
+
+
+def _may_write_global_catalog(current_user: User) -> bool:
+    """AUDIT-FIX Fondsuniversum R3/F1 (2026-11): globale Katalogfonds
+    (Product.tenant_id IS NULL) wirken fuer JEDEN Tenant. In einer echten
+    Multi-Tenant-Installation (strict_tenant_isolation) darf sie nur die
+    bestehende Plattform-Rolle super_admin aendern -- ein firmengebundener
+    admin bekam bisher 200 und konnte fremden Firmen Fonds deaktivieren oder
+    die TER verfaelschen. Tier-1 (ein Betreiber, kein Tenant-Konzept) bleibt
+    unveraendert, gleiches Muster wie CMA/FX in services/auth.py
+    (require_portfolio_management / *_for_global_reference_data)."""
+    if getattr(current_user, "role", None) == "super_admin":
+        return True
+    return not _effective_strict_tenant_isolation(settings)
+
+
+def _get_product_for_write_or_404(product_id: str, db: Session, current_user: User) -> Product:
+    """Wie _get_product_or_404, plus 403 (fail-closed) fuer Schreibzugriffe
+    auf globale Katalogfonds ohne Plattform-Recht (R3/F1)."""
+    product = _get_product_or_404(product_id, db, current_user)
+    if product.tenant_id is None and not _may_write_global_catalog(current_user):
+        raise HTTPException(status_code=403, detail=GLOBAL_CATALOG_WRITE_FORBIDDEN_DETAIL)
+    return product
+
+
+def _writable_products_query(db: Session, current_user: User):
+    """Kandidaten fuer die Batch-Schreibpfade (OpenFIGI/EODHD auto-apply):
+    ohne Plattform-Recht nur die eigenen Fonds, nie der globale Katalog."""
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    q = _active_products_query(db, tenant_id=tenant_id)
+    if not _may_write_global_catalog(current_user):
+        q = q.filter(Product.tenant_id == tenant_id)
+    return q
 
 
 def _enforce_run_preferences(
@@ -503,6 +604,9 @@ def _validate_recommendation_for_finalization(db: Session, mandate: Mandate, run
         profile = resolve_market_profile(product)
         if not (profile.get("lookup_symbol") or profile.get("isin")):
             warnings.append(f"Marktdaten-Mapping fehlt fuer {product.product_name}.")
+    # PO-16 (Audit 2026-11): Anlageklassen-Quoten der Positionen gegen die SAA
+    # -- nur Warnung (Blockieren ist Owner-Entscheid Q2).
+    warnings.extend(saa_bucket_reconciliation_warnings(allocation, positions, products))
     if assessment is not None:
         # ELIG-FINAL-001: Produkteignung jeder aggregierten Position mit
         # demselben Kern wie Generate (inkl. Angemessenheit/Override).
@@ -653,25 +757,133 @@ def _apply_reference_candidate(
     product.updated_at = now
 
 
+class OpenFigiExchangeCodeUnmapped(ValueError):
+    """OF-1 / Audit O5: Der Bloomberg-Boersencode des Kandidaten steht nicht in
+    der expliziten Tabelle (services.product_market_data.
+    OPENFIGI_EXCHANGE_CODE_MAP). Es wird KEIN Suffix geraten und nichts
+    uebernommen; das Produkt braucht eine manuelle Zuordnung."""
+
+
+def _openfigi_internal_exchange_code(candidate: dict) -> str | None:
+    """Interner Boersencode des Kandidaten oder OpenFigiExchangeCodeUnmapped."""
+    raw = str(candidate.get("exch_code") or "").strip().upper() or None
+    mapped = candidate.get("exchange_code") or map_openfigi_exchange_code(raw)
+    if raw and not mapped:
+        raise OpenFigiExchangeCodeUnmapped(
+            f"OpenFIGI-Boersencode {raw!r} ist keiner Boerse zugeordnet; kein Symbol-Suffix geraten. "
+            "Bitte Boerse bzw. Symbol manuell pflegen."
+        )
+    return mapped
+
+
+FieldChange = tuple[str, Any, Any]
+
+# OF-1 / Audit OF-b: Felder, die ein OpenFIGI-Kandidat setzen darf
+# (Produktfeld, Kandidatenfeld). Leere Kandidatenwerte ueberschreiben nie.
+_OPENFIGI_FIELD_MAP: tuple[tuple[str, str], ...] = (
+    ("figi", "figi"),
+    ("composite_figi", "composite_figi"),
+    ("share_class_figi", "share_class_figi"),
+    ("market_sector", "market_sector"),
+    ("security_type", "security_type"),
+    ("security_type2", "security_type2"),
+)
+
+
 def _apply_openfigi_candidate(
     *,
     product: Product,
     candidate: dict,
     now: str,
     overwrite_symbol: bool,
-) -> None:
-    product.figi = candidate.get("figi")
-    product.composite_figi = candidate.get("composite_figi")
-    product.share_class_figi = candidate.get("share_class_figi")
-    product.exchange_code = candidate.get("exch_code")
-    product.market_sector = candidate.get("market_sector")
-    product.security_type = candidate.get("security_type")
-    product.security_type2 = candidate.get("security_type2")
+) -> list[FieldChange]:
+    """Kandidat uebernehmen; liefert (Feld, alt, neu) je echter Aenderung.
+
+    OF-1 / Audit OF-b: Ein leerer (None/"") Kandidatenwert ueberschreibt nie
+    einen gepflegten Wert. ``mapping_provider`` wird immer protokolliert,
+    damit jede Uebernahme im Audit-Log steht.
+    """
+    exchange_code = _openfigi_internal_exchange_code(candidate)
+    changes: list[FieldChange] = []
+
+    def _set(field: str, value: Any) -> None:
+        if _is_blank(value):
+            return
+        old = getattr(product, field, None)
+        if old == value:
+            return
+        setattr(product, field, value)
+        changes.append((field, old, value))
+
+    for product_field, candidate_field in _OPENFIGI_FIELD_MAP:
+        _set(product_field, candidate.get(candidate_field))
+    _set("exchange_code", exchange_code)
+    if (_is_blank(product.symbol) or overwrite_symbol) and candidate.get("ticker"):
+        _set("symbol", candidate.get("ticker"))
+    changes.append(("mapping_provider", product.mapping_provider, "openfigi"))
     product.mapping_provider = "openfigi"
     product.mapping_resolved_at = now
-    if (not product.symbol or overwrite_symbol) and candidate.get("ticker"):
-        product.symbol = candidate.get("ticker")
     product.updated_at = now
+    return changes
+
+
+def _log_field_changes(db: Session, *, product: Product, current_user: User, changes: list[FieldChange]) -> None:
+    """OF-1 / Audit OF-a: je geaendertem Feld ein Audit-Eintrag mit Altwert."""
+    for field_name, old_value, new_value in changes:
+        log(
+            db,
+            user_id=current_user.id,
+            user_name=current_user.full_name,
+            table_name="products",
+            record_id=product.id,
+            action="UPDATE",
+            field_name=field_name,
+            old_value=None if old_value is None else str(old_value),
+            new_value=None if new_value is None else str(new_value),
+        )
+
+
+def _openfigi_candidate_key(candidate: dict) -> tuple:
+    figi = str(candidate.get("figi") or "").strip()
+    if figi:
+        return ("figi", figi)
+    return ("listing", str(candidate.get("ticker") or "").strip(), str(candidate.get("exch_code") or "").strip().upper())
+
+
+def _distinct_openfigi_candidates(candidates: list[dict]) -> list[dict]:
+    seen: set[tuple] = set()
+    result: list[dict] = []
+    for candidate in candidates:
+        key = _openfigi_candidate_key(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(candidate)
+    return result
+
+
+def _unique_openfigi_candidate(candidates: list[dict], product: Product) -> tuple[dict | None, list[dict]]:
+    """OF-1 / Audit OF-a: eindeutigen Kandidaten bestimmen, nie candidates[0] raten.
+
+    Eindeutig ist ein Kandidat, wenn genau ein Listing (FIGI) geliefert wurde
+    oder genau eines zur bereits gepflegten Boerse des Produkts passt.
+    Rueckgabe: (Kandidat oder None, unterscheidbare Kandidaten).
+    """
+    distinct = _distinct_openfigi_candidates(candidates)
+    product_exchange = normalize_exchange_code(getattr(product, "exchange_code", None))
+    if product_exchange:
+        matching = [
+            c for c in distinct
+            if (c.get("exchange_code") or map_openfigi_exchange_code(c.get("exch_code"))) == product_exchange
+        ]
+        if len(matching) == 1:
+            return matching[0], distinct
+        if matching:
+            return None, matching
+        return None, distinct
+    if len(distinct) == 1:
+        return distinct[0], distinct
+    return None, distinct
 
 
 def _commit_product_batch_update(
@@ -681,21 +893,25 @@ def _commit_product_batch_update(
     current_user: User,
     field_name: str,
     new_value: str,
-    apply_change: Callable[[], None],
+    apply_change: Callable[[], Any],
 ) -> str | None:
     try:
         with db.begin_nested():
-            apply_change()
-            log(
-                db,
-                user_id=current_user.id,
-                user_name=current_user.full_name,
-                table_name="products",
-                record_id=product.id,
-                action="UPDATE",
-                field_name=field_name,
-                new_value=new_value,
-            )
+            changes = apply_change()
+            if isinstance(changes, list):
+                # OF-1: Aenderungen je Feld mit Altwert protokollieren.
+                _log_field_changes(db, product=product, current_user=current_user, changes=changes)
+            else:
+                log(
+                    db,
+                    user_id=current_user.id,
+                    user_name=current_user.full_name,
+                    table_name="products",
+                    record_id=product.id,
+                    action="UPDATE",
+                    field_name=field_name,
+                    new_value=new_value,
+                )
             db.flush()
         db.commit()
     except Exception as exc:
@@ -1179,7 +1395,7 @@ def get_my_review_calendar_feed(
     user = resolve_user_by_calendar_feed_token(db, token)
     if not user:
         raise HTTPException(status_code=404, detail="Ungültiger oder abgelaufener Kalender-Token")
-    ics_text = build_ics_feed(db, user)
+    ics_text = build_ics_feed(db, user, domain=settings.ares_domain)
     return Response(
         content=ics_text,
         media_type="text/calendar; charset=utf-8",
@@ -1558,11 +1774,19 @@ def get_document_pdf(
     if not doc.pdf_base64:
         raise HTTPException(status_code=404, detail="Fuer dieses Dokument liegt kein PDF vor.")
     safe_title = str(doc.title or "dokument")[:40]
-    filename = f"{safe_title}_v{doc.version}.pdf"
+    # N-897-12: als Archivexemplar gekennzeichnet (Dateiname + Header). Die
+    # Bytes bleiben unveraendert -- ein Wasserzeichen wuerde die gesiegelte
+    # Pruefsumme des Archivs brechen (Nachweis "was wurde dem Kunden gezeigt").
+    archived_on = str(doc.pdf_generated_at or doc.created_at or "")[:10] or "unbekannt"
+    filename = f"Archivexemplar_{archived_on}_{safe_title}_v{doc.version}.pdf"
     return Response(
         content=base64.b64decode(doc.pdf_base64),
         media_type="application/pdf",
-        headers={"Content-Disposition": content_disposition(filename)},
+        headers={
+            "Content-Disposition": content_disposition(filename),
+            "X-Ares-Archive-Copy": "true",
+            "X-Ares-Archived-On": archived_on,
+        },
     )
 
 
@@ -1597,6 +1821,43 @@ def create_document(
     db.commit()
     db.refresh(doc)
     return doc
+
+
+def _floor_audit(db: Session, current_user, mandate, request):
+    """E2b: Audit-Callback der Untergrenze (N-888-01); IP erst beim Block lesen."""
+    def _audit(payload: str, result: dict) -> None:
+        ip = _extract_client_ip(request) if request is not None else None
+        gate_block_audit(
+            db, user=current_user, mandate=mandate, ip_address=ip,
+            table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+            set_tenant_context=set_tenant_context,
+        )(payload, result)
+
+    return _audit
+
+
+def _floor_target_allocation(db: Session, mandate, target_allocation_id=None):
+    """Allokation, deren Praeferenz-Snapshot Produktlauf/Finalize nutzen:
+    die explizit genannte (Mandat, nicht geloescht) bzw. die aktuelle."""
+    query = db.query(TargetAllocation).filter(
+        TargetAllocation.mandate_id == mandate.id, TargetAllocation.deleted_at.is_(None),
+    )
+    if target_allocation_id:
+        return query.filter(TargetAllocation.id == target_allocation_id).first()
+    return query.filter(TargetAllocation.is_current == 1).first()
+
+
+def _preference_audit(db: Session, current_user, mandate, request):
+    """E2a: Audit-Callback der Praeferenz-Gates; IP erst beim Block lesen."""
+    def _audit(payload: str, result: dict) -> None:
+        ip = _extract_client_ip(request) if request is not None else None
+        gate_block_audit(
+            db, user=current_user, mandate=mandate, ip_address=ip,
+            table_name="investment_preference_decisions", field_name="sustainability_preference_blocked",
+            set_tenant_context=set_tenant_context,
+        )(payload, result)
+
+    return _audit
 
 
 @router.post("/mandates/{mandate_id}/documents/{doc_id}/sign",
@@ -1647,12 +1908,48 @@ def sign_document(
     if str(doc.document_type or "") in RECOMMENDATION_DOCUMENT_TYPES:
         assert_recommendation_release_eligible(
             db, mandate, channel=CHANNEL_SIGNATURE,
+            audit=_floor_audit(db, current_user, mandate, request),
+        )
+        # H7 N-884-04: keine Signatur, solange die finale Empfehlung keinen
+        # geklaerten Retrozessions-Ausweis traegt (fail-closed, Audit).
+        assert_retrocession_release_eligible(
+            db, mandate, channel=CHANNEL_SIGNATURE,
+            on_block=release_block_audit(
+                db, user=current_user, ip_address=_extract_client_ip(request),
+                mandate_id=mandate.id, field_name="signature_blocked",
+                set_tenant_context=set_tenant_context,
+            ),
         )
         # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
         assert_portfolio_data_release_eligible(db, mandate, action="signature")
+    # H8 C-2/C-5 (Compliance-Audit 2026-11-07): kein Vertragsabschluss ohne
+    # vorher abgegebene Kundeninformation (Art. 8/9 FIDLEG), vollstaendige
+    # rechtliche Angaben der Firma und GwG-Bestaetigung -- VOR jeder Mutation.
+    if str(doc.document_type or "") in CONTRACT_CONCLUSION_DOCUMENT_TYPES:
+        assert_client_onboarding_release_eligible(
+            db, mandate, channel=CHANNEL_SIGNATURE,
+            on_block=release_block_audit(
+                db, user=current_user, ip_address=_extract_client_ip(request),
+                mandate_id=mandate.id, field_name="signature_blocked",
+                set_tenant_context=set_tenant_context,
+            ),
+        )
     # CERT-SIGNED-PUBLICATION-001: signiert wird nur ein archiviertes,
     # pruefsummengesichertes PDF -- nie ein leerer Entwurf (VOR jeder
     # Mutation, nach den fachlichen Freigabe-Gates).
+    # E2a (Codex-Vertrag E2, Negativfaelle 4/6/7): nur ein an die AKTUELLE
+    # Nachhaltigkeitspraeferenz gebundenes Kundendokument ist signierbar;
+    # veraltete/nicht lesbare Erfassung sperrt (mit Audit-Eintrag).
+    assert_preference_document_bound(
+        db, mandate, doc, channel=CHANNEL_SIGNATURE,
+        audit=_preference_audit(db, current_user, mandate, request),
+    )
+    # E2b / N-888-09: genau den gebundenen Strategie-Inhalt des Dokuments
+    # gegen die Kundenausschluesse pruefen (nicht die aktuelle Allokation).
+    assert_document_sustainability_floor(
+        db, mandate, doc, channel=CHANNEL_SIGNATURE,
+        audit=_floor_audit(db, current_user, mandate, request),
+    )
     from services.signature_artifact import assert_signable_artifact
 
     assert_signable_artifact(doc)
@@ -1704,6 +2001,481 @@ def sign_document(
     return doc
 
 
+# ── H8 C-2: Rechtliche Angaben + Kundeninformation (Art. 8/9 FIDLEG) ──────────
+
+def _legal_profile_response(tenant_id: str, profile: dict | None) -> TenantLegalProfileResponse:
+    missing = legal_profile_missing_fields(profile)
+    labels = dict(LEGAL_PROFILE_FIELDS)
+    data = {name: (profile or {}).get(name) for name in labels}
+    return TenantLegalProfileResponse(
+        tenant_id=tenant_id,
+        present=profile is not None,
+        **data,
+        revision=int((profile or {}).get("revision") or 0),
+        profile_hash=(profile or {}).get("profile_hash"),
+        updated_by=(profile or {}).get("updated_by"),
+        updated_at=(profile or {}).get("updated_at"),
+        missing_fields=missing,
+        missing_labels=[labels.get(name, name) for name in missing],
+        field_labels=labels,
+        supervision_labels=dict(SUPERVISION_LABELS),
+        complete=not missing,
+    )
+
+
+@router.get("/compliance/legal-profile", response_model=TenantLegalProfileResponse)
+def get_tenant_legal_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Rechtliche Angaben der eigenen Firma fuer die Kundeninformation nach
+    Art. 8 Abs. 1 FIDLEG, samt Liste der fehlenden Pflichtangaben."""
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    return _legal_profile_response(tenant_id, load_tenant_legal_profile(db, tenant_id))
+
+
+@router.put("/compliance/legal-profile", response_model=TenantLegalProfileResponse)
+def update_tenant_legal_profile(
+    body: TenantLegalProfileUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Pflege durch einen Firmen-Admin. Jede geaenderte Angabe wird feldweise
+    (alt/neu) im Audit-Log festgehalten; Revision und Inhalts-Hash werden
+    nachgefuehrt. Ares belegt keinen Wert vor."""
+    # N-890-08: im Strict-Modus (Multi-Tenant) schreibt ein Admin ohne eigene
+    # Firma nie die Angaben des Standard-Mandanten (Kundendokument einer
+    # anderen Firma).
+    if not getattr(current_user, "tenant_id", None) and _effective_strict_tenant_isolation(settings):
+        raise HTTPException(status_code=403, detail={
+            "reason_code": "LEGAL_PROFILE_TENANT_REQUIRED",
+            "message": "Im Mehrmandanten-Betrieb braucht der Admin eine eigene Firma.",
+        })
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id, Tenant.deleted_at.is_(None)).first()
+    if tenant is None:
+        raise HTTPException(status_code=404, detail="Eigene Firma nicht gefunden")
+    now = _now()
+    profile = db.query(TenantLegalProfile).filter(TenantLegalProfile.tenant_id == tenant_id).first()
+    created = profile is None
+    if created:
+        profile = TenantLegalProfile(
+            id=new_uuid(), tenant_id=tenant_id, revision=0, created_at=now, updated_at=now,
+        )
+        db.add(profile)
+    changes: list[tuple[str, str | None, str | None]] = []
+    for name, value in body.model_dump(exclude_unset=True).items():
+        new_value = (str(value).strip() or None) if value is not None else None
+        old_value = getattr(profile, name)
+        if (old_value or None) != new_value:
+            setattr(profile, name, new_value)
+            changes.append((name, old_value, new_value))
+    if changes or created:
+        profile.revision = int(profile.revision or 0) + (1 if changes else 0)
+        profile.profile_hash = legal_profile_hash(
+            {name: getattr(profile, name) for name, _label in LEGAL_PROFILE_FIELDS}
+        )
+        profile.updated_by = current_user.id
+        profile.updated_at = now
+        ip_address = _extract_client_ip(request)
+        for name, old_value, new_value in changes:
+            log(db, user_id=current_user.id, user_name=current_user.full_name,
+                table_name="tenant_legal_profiles", record_id=tenant_id, action="UPDATE",
+                field_name=name, old_value=old_value, new_value=new_value,
+                ip_address=ip_address, tenant_id=tenant_id)
+        db.commit()
+    return _legal_profile_response(tenant_id, load_tenant_legal_profile(db, tenant_id))
+
+
+# ── C-890-01: Wiedervorlage-Policy der KYC-Bestaetigung ────────────────────────
+#
+# Ares erfindet keine Frist: der Owner erfasst je Jurisdiktion eine Policy-
+# Version (Normalfrist, optional strengere PEP-/Hochrisiko-Frist, Gueltigkeit,
+# Quelle), eine ZWEITE Person mit Admin-Rolle aktiviert sie mit dem gesehenen
+# Inhalts-Hash und der Freigabereferenz. Beide Tabellen sind append-only; eine
+# Aenderung ist eine neue Version. Ohne wirksame Policy sperrt das Gate
+# (services/recommendation_release_gate.py::kyc_review_findings).
+
+def _kyc_review_tenant(current_user: User) -> str:
+    # Wie die rechtlichen Angaben (N-890-08): im Strict-Modus nie die Policy
+    # des Standard-Mandanten fuer einen Admin ohne eigene Firma.
+    if not getattr(current_user, "tenant_id", None) and _effective_strict_tenant_isolation(settings):
+        raise HTTPException(status_code=403, detail={
+            "reason_code": "KYC_REVIEW_POLICY_TENANT_REQUIRED",
+            "message": "Im Mehrmandanten-Betrieb braucht der Admin eine eigene Firma.",
+        })
+    return _resolve_tenant_id_for_user(current_user)
+
+
+def _kyc_review_defect_or_422(policy: dict) -> None:
+    defect = kyc_review_policy_defect(policy)
+    if defect is None:
+        return
+    if defect == "elevated_looser_than_normal":
+        detail = {"reason_code": "KYC_REVIEW_POLICY_ELEVATED_LOOSER", "message": (
+            "Die Frist fuer PEP/erhoehtes Risiko darf nicht laenger sein als die Normalfrist.")}
+    elif defect in ("valid_from", "valid_until"):
+        detail = {"reason_code": "KYC_REVIEW_POLICY_VALIDITY_INVALID", "message": (
+            "Das Gueltigkeitsende liegt vor dem Gueltigkeitsbeginn.")}
+    else:
+        detail = {"reason_code": "KYC_REVIEW_POLICY_INTERVAL_INVALID", "message": (
+            "Der Abstand muss eine positive Zahl ganzer Monate sein.")}
+    raise HTTPException(status_code=422, detail={**detail, "defect": defect})
+
+
+def _kyc_review_policy_status(policy: dict, activation: dict | None, current: dict, today: str) -> str:
+    if activation is None:
+        return "entwurf"
+    effective = current.get("policy") or {}
+    if str(effective.get("id")) == str(policy["id"]):
+        if current["reason_code"] == "KYC_REVIEW_POLICY_EXPIRED":
+            return "abgelaufen"
+        if current["reason_code"] == "KYC_REVIEW_POLICY_NOT_YET_EFFECTIVE":
+            return "freigegeben_noch_nicht_wirksam"
+        return "wirksam" if not current["reason_code"] else "gesperrt"
+    if kyc_review_effective_from(policy, activation) > today:
+        return "freigegeben_noch_nicht_wirksam"
+    return "abgeloest"
+
+
+def _kyc_review_policy_response(policy: dict, activation: dict | None, current: dict,
+                                today: str, approver_account: dict | None = None) -> KycReviewPolicyResponse:
+    return KycReviewPolicyResponse(
+        **{key: policy.get(key) for key in (
+            "id", "tenant_id", "jurisdiction", "policy_id", "version", "normal_max_months",
+            "elevated_max_months", "valid_from", "valid_until", "source_reference",
+            "created_by", "created_at", "policy_hash",
+        )},
+        status=_kyc_review_policy_status(policy, activation, current, today),
+        activation_id=(activation or {}).get("id"),
+        predecessor_activation_id=(activation or {}).get("predecessor_activation_id"),
+        approved_by=(activation or {}).get("approved_by"),
+        approved_at=(activation or {}).get("approved_at"),
+        approval_reference=(activation or {}).get("approval_reference"),
+        effective_from=kyc_review_effective_from(policy, activation) if activation else None,
+        approver_account=approver_account,
+    )
+
+
+def _kyc_review_row_response(db: Session, tenant_id: str, jurisdiction: str,
+                             policy_row_id: str) -> KycReviewPolicyResponse:
+    today = _now()[:10]
+    policies, activations = kyc_review_policy_chain(db, tenant_id, jurisdiction)
+    current = resolve_kyc_review_policy(db, tenant_id, jurisdiction, today)
+    activation = next((a for a in activations if str(a["policy_row_id"]) == str(policy_row_id)), None)
+    return _kyc_review_policy_response(
+        policies[str(policy_row_id)], activation, current, today,
+        kyc_approver_account(db, activation["approved_by"]) if activation else None,
+    )
+
+
+@router.get("/compliance/kyc-review-policies", response_model=KycReviewPolicyOverview)
+def list_kyc_review_policies(
+    jurisdiction: str | None = Query(default=None, min_length=2, max_length=2),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff),
+):
+    """Wiedervorlage-Policies der eigenen Firma (alle Versionen samt Status)
+    und die heute wirksame Version. Ohne Angabe gilt das Sitzland der Firma
+    aus den rechtlichen Angaben."""
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    jur = (jurisdiction or "").upper() or kyc_review_jurisdiction(db, tenant_id)
+    today = _now()[:10]
+    current = resolve_kyc_review_policy(db, tenant_id, jur, today)
+    rows: list[KycReviewPolicyResponse] = []
+    if jur:
+        policies, activations = kyc_review_policy_chain(db, tenant_id, jur)
+        by_policy = {str(a["policy_row_id"]): a for a in activations}
+        for policy in sorted(policies.values(), key=lambda p: int(p.get("version") or 0), reverse=True):
+            act = by_policy.get(str(policy["id"]))
+            rows.append(_kyc_review_policy_response(
+                policy, act, current, today, kyc_approver_account(db, act["approved_by"]) if act else None,
+            ))
+    return KycReviewPolicyOverview(
+        tenant_id=tenant_id, jurisdiction=jur, status=current["status"],
+        reason_code=current["reason_code"], effective_policy=current["policy"], policies=rows,
+    )
+
+
+@router.post("/compliance/kyc-review-policies", response_model=KycReviewPolicyResponse, status_code=201)
+def create_kyc_review_policy(
+    body: KycReviewPolicyCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Neue Version der Wiedervorlage-Policy erfassen (Firmen-Admin). Wirksam
+    erst nach Freigabe durch eine zweite Person (``/activate``). Ares belegt
+    keinen Wert vor; die Version vergibt der Server fortlaufend."""
+    tenant_id = _kyc_review_tenant(current_user)
+    data = body.model_dump()
+    _kyc_review_defect_or_422(data)
+    policies, _activations = kyc_review_policy_chain(db, tenant_id, body.jurisdiction)
+    version = max((int(p.get("version") or 0) for p in policies.values()), default=0) + 1
+    now = _now()
+    record = KycReviewPolicy(
+        id=new_uuid(), tenant_id=tenant_id, jurisdiction=body.jurisdiction, policy_id=body.policy_id,
+        version=version, normal_max_months=int(body.normal_max_months),
+        elevated_max_months=(int(body.elevated_max_months) if body.elevated_max_months is not None else None),
+        valid_from=body.valid_from, valid_until=body.valid_until, source_reference=body.source_reference,
+        created_by=current_user.id, created_at=now,
+    )
+    record.policy_hash = row_seal(
+        {c.name: getattr(record, c.name) for c in record.__table__.columns}, "policy_hash",
+    )
+    db.add(record)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise_if_check_violation(exc)
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_REVIEW_POLICY_VERSION_CONFLICT",
+            "message": "Gleichzeitig wurde eine andere Version erfasst; bitte neu laden.",
+        }) from exc
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="kyc_review_policies", record_id=record.id, action="CREATE",
+        field_name="kyc_review_policy_proposed",
+        new_value=(f"{record.policy_id} v{record.version} ({record.jurisdiction}); normal "
+                   f"{record.normal_max_months} Monate; PEP/erhoeht "
+                   f"{record.elevated_max_months if record.elevated_max_months is not None else 'wie normal'}; "
+                   f"gueltig ab {record.valid_from}; hash {record.policy_hash}"),
+        ip_address=_extract_client_ip(request), tenant_id=tenant_id)
+    db.commit()
+    return _kyc_review_row_response(db, tenant_id, record.jurisdiction, record.id)
+
+
+@router.post("/compliance/kyc-review-policies/{policy_row_id}/activate", response_model=KycReviewPolicyResponse)
+def activate_kyc_review_policy(
+    policy_row_id: str,
+    body: KycReviewPolicyActivate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_compliance_approver),
+):
+    """Vier-Augen-Freigabe und Aktivierung einer Policy-Version: nur eine
+    ZWEITE Person -- Firmen-Admin oder externe Compliance-Person (Rolle
+    ``compliance_reviewer``, nur Freigabe/Lesen) --, mit dem gesehenen Inhalts-Hash und der
+    Freigabereferenz. Die Aktivierungen bilden eine lineare Kette; zwei
+    gleichzeitige Aktivierungen auf denselben Stand koennen nie beide gelingen
+    (UNIQUE auf den Vorgaenger, 409)."""
+    tenant_id = _kyc_review_tenant(current_user)
+    policy_obj = db.query(KycReviewPolicy).filter(
+        KycReviewPolicy.id == policy_row_id, KycReviewPolicy.tenant_id == tenant_id,
+    ).first()
+    if policy_obj is None:
+        raise HTTPException(status_code=404, detail="Policy-Version nicht gefunden")
+    policy = {c.name: getattr(policy_obj, c.name) for c in policy_obj.__table__.columns}
+    existing = db.query(KycReviewPolicyActivation).filter(
+        KycReviewPolicyActivation.policy_row_id == policy_obj.id,
+    ).first()
+    if existing is not None:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_REVIEW_POLICY_ALREADY_ACTIVATED",
+            "message": "Diese Policy-Version ist bereits freigegeben.",
+        })
+    if same_person(db, policy_obj.created_by, current_user.id):
+        raise HTTPException(status_code=403, detail={
+            "reason_code": "KYC_REVIEW_POLICY_SAME_PERSON",
+            "message": "Die Freigabe muss durch eine zweite Person erfolgen.",
+        })
+    # N-897-02: externe Compliance-Person nur mit selbst aktiviertem Konto + 2FA.
+    assert_compliance_reviewer_ready(current_user)
+    if row_seal(policy, "policy_hash") != policy_obj.policy_hash or body.policy_hash != policy_obj.policy_hash:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_REVIEW_POLICY_HASH_MISMATCH",
+            "message": "Der bestaetigte Inhalts-Hash stimmt nicht mit der Policy-Version ueberein.",
+        })
+    _kyc_review_defect_or_422(policy)
+    now = _now()
+    if policy_obj.valid_until and str(policy_obj.valid_until) < now[:10]:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "KYC_REVIEW_POLICY_VALIDITY_INVALID",
+            "message": "Eine bereits abgelaufene Policy-Version kann nicht freigegeben werden.",
+        })
+    # Kopf der bestehenden Kette (Stichtag weit in der Zukunft = juengste
+    # Aktivierung); eine defekte oder mehrdeutige Kette wird nicht verlaengert.
+    head = resolve_kyc_review_policy(db, tenant_id, policy_obj.jurisdiction, "9999-12-31")
+    if head["activation_row"] is None:
+        if head["reason_code"] not in ("KYC_REVIEW_POLICY_MISSING", "KYC_REVIEW_POLICY_UNAPPROVED"):
+            raise HTTPException(status_code=409, detail={
+                "reason_code": head["reason_code"], "message": "Die bestehende Policy-Kette ist nicht eindeutig.",
+            })
+        predecessor = KYC_REVIEW_GENESIS
+    else:
+        if head["reason_code"] not in (None, "KYC_REVIEW_POLICY_EXPIRED"):
+            raise HTTPException(status_code=409, detail={
+                "reason_code": head["reason_code"], "message": "Die bestehende Policy-Kette ist ungueltig.",
+            })
+        if int(policy_obj.version) <= int(head["policy_row"]["version"]):
+            raise HTTPException(status_code=409, detail={
+                "reason_code": "KYC_REVIEW_POLICY_VERSION_STALE",
+                "message": "Es ist bereits eine neuere Version freigegeben; bitte eine neue Version erfassen.",
+            })
+        predecessor = str(head["activation_row"]["id"])
+    activation = KycReviewPolicyActivation(
+        id=new_uuid(), tenant_id=tenant_id, jurisdiction=policy_obj.jurisdiction,
+        policy_row_id=policy_obj.id, predecessor_activation_id=predecessor,
+        approved_by=current_user.id, approved_at=now,
+        approval_reference=body.approval_reference.strip(), policy_hash=policy_obj.policy_hash,
+        # N-897-13: Bereitschaft (oben geprueft) im Aktivierungssiegel eingefroren.
+        approver_ready=1,
+    )
+    activation.activation_hash = row_seal(
+        {c.name: getattr(activation, c.name) for c in activation.__table__.columns}, "activation_hash",
+    )
+    db.add(activation)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise_if_check_violation(exc)
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "KYC_REVIEW_POLICY_ACTIVATION_CONFLICT",
+            "message": "Gleichzeitig wurde eine andere Version freigegeben; bitte neu laden.",
+        }) from exc
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="kyc_review_policy_activations", record_id=activation.id, action="CREATE",
+        field_name="kyc_review_policy_activated",
+        new_value=(f"{policy_obj.policy_id} v{policy_obj.version} ({policy_obj.jurisdiction}); "
+                   f"Vorgaenger {predecessor}; hash {policy_obj.policy_hash}; "
+                   f"ua={short_user_agent(request)}; Freigeberkonto "
+                   f"{(kyc_approver_account(db, current_user.id) or {}).get('role')}, eingeladen "
+                   f"{(kyc_approver_account(db, current_user.id) or {}).get('invited_at') or '-'}, aktiviert "
+                   f"{(kyc_approver_account(db, current_user.id) or {}).get('activated_at') or '-'}"),
+        ip_address=_extract_client_ip(request), tenant_id=tenant_id)
+    db.commit()
+    return _kyc_review_row_response(db, tenant_id, policy_obj.jurisdiction, policy_obj.id)
+
+
+@router.get("/mandates/{mandate_id}/client-onboarding/status",
+            response_model=ClientOnboardingStatusResponse)
+def get_client_onboarding_status(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Stand von Kundeninformation (Art. 8/9 FIDLEG) und GwG-Bestaetigung --
+    dieselbe Quelle wie das Gate vor Finalisierung und Vertragsunterzeichnung."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    return client_onboarding_status(db, mandate)
+
+
+def _utc_storage_timestamp(value: datetime) -> str:
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+@router.post("/mandates/{mandate_id}/client-information/deliveries",
+             response_model=ClientInformationDeliveryResponse, status_code=201)
+def record_client_information_delivery(
+    mandate_id: str,
+    body: ClientInformationDeliveryCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """Abgabenachweis der Kundeninformation: archivierte Fassung (Byte-Hash),
+    Vorlagenversion, Revision/Hash der rechtlichen Angaben, Zeitpunkt und Kanal.
+    Append-only. Nur die zu den aktuellen rechtlichen Angaben passende Fassung
+    ist abgebbar; der Zeitpunkt darf nicht in der Zukunft liegen."""
+    enforce_data_classification(body.data_classification)
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    doc = _get_document_or_404(mandate_id, body.contract_document_id, db)
+    if doc.document_type != CLIENT_INFORMATION_DOCUMENT_TYPE or not doc.checksum_sha256:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "CLIENT_INFORMATION_DOCUMENT_INVALID",
+            "message": "Das Dokument ist keine archivierte Kundeninformation (PDF mit Pruefsumme).",
+        })
+    tenant_id = mandate_tenant_id(db, mandate)
+    profile = load_tenant_legal_profile(db, tenant_id)
+    missing = legal_profile_missing_fields(profile)
+    if missing:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": CLIENT_INFORMATION_TENANT_DATA_MISSING,
+            "message": "Rechtliche Angaben der Firma unvollstaendig: " + ", ".join(missing),
+            "missing_fields": missing,
+        })
+    try:
+        meta = json.loads(doc.content_json or "{}")
+    except (TypeError, ValueError):
+        meta = {}
+    current_hash = legal_profile_hash(profile)
+    if (
+        not isinstance(meta, dict)
+        or meta.get("legal_profile_hash") != current_hash
+        or meta.get("template_version") != CLIENT_INFORMATION_TEMPLATE_VERSION
+    ):
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "CLIENT_INFORMATION_OUTDATED",
+            "message": (
+                "Diese Fassung der Kundeninformation entspricht nicht den aktuellen "
+                "rechtlichen Angaben bzw. der aktuellen Vorlage. Bitte das PDF neu "
+                "erstellen und die neue Fassung uebergeben."
+            ),
+        })
+    delivered = datetime.fromisoformat(body.delivered_at)
+    now_dt = datetime.now(timezone.utc)
+    if delivered > now_dt:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "CLIENT_INFORMATION_DELIVERY_IN_FUTURE",
+            "message": "Der Uebergabezeitpunkt darf nicht in der Zukunft liegen.",
+        })
+    delivered_at = _utc_storage_timestamp(delivered)
+    # N-890-02: eine Fassung kann nicht vor ihrer Erstellung uebergeben worden sein.
+    document_created = str(doc.pdf_generated_at or doc.created_at or "")
+    if not document_created or delivered_at < document_created:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "CLIENT_INFORMATION_DELIVERY_BEFORE_DOCUMENT",
+            "message": (
+                "Der Uebergabezeitpunkt liegt vor der Erstellung dieser Fassung "
+                f"({document_created or 'unbekannt'})."
+            ),
+        })
+    # N-890-02: Rueckdatierung ueber 24 h nur mit Begruendung (auditiert).
+    backdating_reason = (body.backdating_reason or "").strip() or None
+    if (now_dt - delivered).total_seconds() > 24 * 3600 and (
+        backdating_reason is None or len(backdating_reason) < 10
+    ):
+        raise HTTPException(status_code=422, detail={
+            "reason_code": "CLIENT_INFORMATION_BACKDATING_REASON_REQUIRED",
+            "message": (
+                "Die Uebergabe liegt mehr als 24 Stunden zurueck; bitte begruenden "
+                "(mind. 10 Zeichen), warum sie erst jetzt erfasst wird."
+            ),
+        })
+    now = _now()
+    # N-890-02: ist bereits ein Vertrag unterzeichnet, gilt die Abgabe als
+    # "nachtraeglich" -- sie zaehlt nie als vorvertragliche Abgabe.
+    concluded = contract_concluded_at(db, mandate.id)
+    record = ClientInformationDelivery(
+        id=new_uuid(), tenant_id=tenant_id, mandate_id=mandate.id,
+        client_id=mandate.client_id, contract_document_id=doc.id,
+        template_version=CLIENT_INFORMATION_TEMPLATE_VERSION,
+        legal_profile_revision=int(profile.get("revision") or 0),
+        legal_profile_hash=current_hash, pdf_sha256=doc.checksum_sha256,
+        delivered_at=delivered_at, delivery_channel=body.delivery_channel,
+        delivery_timing="nachtraeglich" if concluded else "vor_vertragsabschluss",
+        backdating_reason=backdating_reason,
+        recorded_by=current_user.id, recorded_at=now,
+    )
+    record.delivery_hash = row_seal(
+        {column.name: getattr(record, column.name) for column in record.__table__.columns},
+        "delivery_hash",
+    )
+    db.add(record)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="client_information_deliveries", record_id=record.id, action="CREATE",
+        field_name="delivered_at",
+        new_value=f"{delivered_at} ({body.delivery_channel}; {record.delivery_timing})"
+        + (f"; Begruendung Nachtrag: {backdating_reason}" if backdating_reason else ""),
+        mandate_id=mandate.id, client_id=mandate.client_id,
+        ip_address=_extract_client_ip(request))
+    db.commit()
+    db.refresh(record)
+    return record
+
+
 # ── Conflicts of Interest ──────────────────────────────────────────────────────
 
 @router.get("/mandates/{mandate_id}/conflict-disclosures",
@@ -1733,6 +2505,17 @@ def create_conflict(
 ):
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     fields = body.model_dump()
+    # N-861-1: eine Produktbindung muss auf ein fuer diesen Tenant sichtbares
+    # Produkt zeigen (fremde private Produkte -> 404, kein Existenz-Leck).
+    # Unabhaengig von strict_tenant_isolation: global oder eigener Tenant.
+    if fields.get("product_id"):
+        bound = db.query(Product).filter(
+            Product.id == str(fields["product_id"]), Product.deleted_at.is_(None),
+        ).first()
+        bound_tid = str(getattr(bound, "tenant_id", None) or "").strip() if bound else ""
+        if bound is None or (bound_tid and bound_tid != str(_resolve_tenant_id_for_user(current_user)).strip()):
+            raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
+        fields["product_id"] = bound.id
     # 2026-07-25 (Generalaudit): siehe create_document -- kein DB-Spalten-
     # Aequivalent auf ConflictOfInterestDisclosure, nur Enforcement.
     enforce_data_classification(fields.pop("data_classification", None))
@@ -1796,7 +2579,8 @@ def _get_conflict_or_404(
 
 
 def _validated_event_timestamp(
-    raw, *, conflict, field_label: str,
+    raw, *, conflict, field_label: str, not_before: str | None = None,
+    not_before_label: str | None = None,
 ) -> str:
     """Ein nachgetragener Zeitpunkt, in plausible Grenzen gezwungen.
 
@@ -1810,18 +2594,23 @@ def _validated_event_timestamp(
     if not raw:
         return now
     candidate = str(raw).strip()
-    if len(candidate) < 10:
+    # C-860-01-Folgebefund: Grenzen auf echten UTC-Zeitpunkten pruefen, nicht
+    # als Text. Ein erfasster Zeitpunkt mit Offset (z. B. '+01:00') oder in
+    # anderer Schreibweise als '...Z' wurde als Text falsch eingeordnet.
+    candidate_at = parse_utc_timestamp(candidate) if len(candidate) >= 10 else None
+    if candidate_at is None:
         raise HTTPException(
             status_code=422,
             detail=f"{field_label} ist kein gueltiger Zeitpunkt: {candidate!r}",
         )
-    if candidate > now:
+    if candidate_at > parse_utc_timestamp(now):
         raise HTTPException(
             status_code=422,
             detail=f"{field_label} darf nicht in der Zukunft liegen.",
         )
     created_at = str(getattr(conflict, "created_at", "") or "")
-    if created_at and candidate < created_at:
+    created_at_utc = parse_utc_timestamp(created_at) if created_at else None
+    if created_at_utc is not None and candidate_at < created_at_utc:
         raise HTTPException(
             status_code=422,
             detail=(
@@ -1829,6 +2618,18 @@ def _validated_event_timestamp(
                 f"({created_at}) -- bitte den tatsaechlichen Zeitpunkt erfassen."
             ),
         )
+    # C-867-01: zusaetzliche Untergrenze (Kenntnisnahme nie vor der
+    # Offenlegung). Der Aufrufer stellt sicher, dass sie lesbar ist.
+    if not_before is not None:
+        not_before_utc = parse_utc_timestamp(not_before)
+        if not_before_utc is None or candidate_at < not_before_utc:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"{field_label} liegt vor der {not_before_label or 'Untergrenze'} "
+                    f"({not_before}) -- bitte den tatsaechlichen Zeitpunkt erfassen."
+                ),
+            )
     return candidate
 
 
@@ -1935,8 +2736,25 @@ def acknowledge_conflict(
                 "urspruengliche Zeitpunkt wird nicht ueberschrieben."
             ),
         )
+    # C-867-01: Die Kenntnisnahme kann nicht vor der Offenlegung liegen.
+    # Ohne lesbaren Offenlegungszeitpunkt ist der Zustand nicht belegbar ->
+    # fail-closed (409), statt eine zeitlich unpruefbare Kenntnisnahme zu
+    # protokollieren.
+    disclosed_at = str(getattr(conflict, "disclosed_at", "") or "").strip()
+    if not disclosed_at or parse_utc_timestamp(disclosed_at) is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Der Offenlegungszeitpunkt fehlt oder ist nicht lesbar. Eine "
+                "Kenntnisnahme laesst sich zeitlich nicht gegen die Offenlegung "
+                "pruefen und wird nicht erfasst."
+            ),
+        )
+    # Ohne Angabe gilt die Serverzeit -- auch sie wird gegen die Untergrenzen
+    # geprueft.
     acknowledged_at = _validated_event_timestamp(
-        body.acknowledged_at, conflict=conflict, field_label="acknowledged_at",
+        body.acknowledged_at or _now(), conflict=conflict, field_label="acknowledged_at",
+        not_before=disclosed_at, not_before_label="Offenlegung",
     )
     conflict.client_acknowledged = 1
     conflict.client_acknowledged_at = acknowledged_at
@@ -2140,6 +2958,11 @@ def create_product(
                 status_code=409,
                 detail=f"ISIN {body.isin} ist bereits einem Fonds zugeordnet.",
             )
+    if _internal_product_id_taken(db, _resolve_tenant_id_for_user(current_user), body.internal_product_id):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Interne Produkt-ID {body.internal_product_id} ist in Ihrer Verwaltung bereits vergeben.",
+        )
     now = _now()
     product_fields = body.model_dump(exclude={
         "suitability_profile_from", "suitability_profile_to",
@@ -2151,7 +2974,7 @@ def create_product(
         id=new_uuid(), is_active=1,
         tenant_id=_resolve_tenant_id_for_user(current_user),
         created_at=now, updated_at=now,
-        **product_fields
+        **_product_master_data_columns(product_fields)
     )
     db.add(product)
     db.flush()
@@ -2164,7 +2987,7 @@ def create_product(
         db,
         product=product,
         created_by_user_id=current_user.id,
-        jurisdiction=product.jurisdiction or "CH",
+        jurisdiction=_product_rule_jurisdiction(product),
         profile_from=body.suitability_profile_from,
         profile_to=body.suitability_profile_to,
         service_modes=[] if body.suitability_prohibited else list(body.suitability_service_modes),
@@ -2178,6 +3001,46 @@ def create_product(
     db.commit()
     db.refresh(product)
     return product
+
+
+def _product_rule_jurisdiction(product: Product) -> str:
+    """Jurisdiktion der Eignungsregel eines Tenant-Produkts (NULL = CH,
+    Altsemantik); eine Stelle fuer Erfassen, Import und Re-Import."""
+    return product.jurisdiction or "CH"
+
+
+# AUDIT-2026-11 P1 (PO-6): Ja/Nein-Stammdaten liegen als 0/1-Integer in der
+# DB (gleiches Muster wie is_active). Ein Python-bool direkt an eine
+# INTEGER-Spalte zu binden funktioniert unter SQLite, nicht aber unter
+# Postgres -- deshalb hier an EINER Stelle fuer Erfassen, Import und
+# Bearbeiten umgewandelt.
+_PRODUCT_FLAG_FIELDS = ("is_hedged", "is_house_product", "has_gating")
+
+
+def _internal_product_id_taken(
+    db: Session, tenant_id, internal_product_id, *, exclude_product_id: str | None = None,
+) -> bool:
+    """Owner-Anforderung P1: interne Produkt-ID eindeutig je Tenant (aktive
+    Zeilen). Nur der eigene Tenant wird geprueft -- die Antwort verraet nie,
+    ob ein fremder Tenant dieselbe ID fuehrt (vgl. FU-F7)."""
+    if not internal_product_id:
+        return False
+    query = db.query(Product.id).filter(
+        Product.internal_product_id == internal_product_id,
+        Product.deleted_at.is_(None),
+        Product.tenant_id.is_(None) if tenant_id is None else Product.tenant_id == tenant_id,
+    )
+    if exclude_product_id is not None:
+        query = query.filter(Product.id != exclude_product_id)
+    return query.first() is not None
+
+
+def _product_master_data_columns(fields: dict) -> dict:
+    converted = dict(fields)
+    for field in _PRODUCT_FLAG_FIELDS:
+        if field in converted and converted[field] is not None:
+            converted[field] = 1 if converted[field] else 0
+    return converted
 
 
 _PRODUCT_IMPORT_CSV_FIELDS = (
@@ -2195,6 +3058,15 @@ _PRODUCT_IMPORT_CSV_FIELDS = (
     # und die Themen-Zuordnung (theme_tags, Semikolon-getrennt). Am Ende
     # angehaengt, damit bestehende Dateien spaltengleich bleiben.
     "esg_score_x10", "climate_benchmark", "theme_tags",
+    # AUDIT-2026-11 P1 (PO-6, L1): Produkt-Stammdaten und Retrozession. Am
+    # Ende angehaengt, damit bestehende Dateien spaltengleich bleiben.
+    # Leere Zellen = nicht erfasst (beim Re-Import: unveraendert).
+    "domicile", "is_hedged", "hedge_currency", "ter_source", "ter_as_of",
+    "retrocession_bps", "retrocession_source", "is_house_product",
+    "distribution_policy", "valor", "minimum_investment_minor_units",
+    # Owner-Anforderung P1: eigene Fonds, Bewertung, Liquiditaetsrhythmus.
+    "listing_status", "internal_product_id", "price_source", "nav_frequency", "nav_as_of",
+    "redemption_period_days", "notice_period_days", "has_gating", "gating_terms",
 )
 _PRODUCT_IMPORT_SUITABILITY_FIELDS = (
     "suitability_profile_from", "suitability_profile_to", "suitability_service_modes",
@@ -2230,7 +3102,7 @@ def _normalize_csv_import_row(raw: dict) -> dict:
         if field not in _PRODUCT_IMPORT_CSV_FIELDS:
             continue
         if isinstance(value, str):
-            value = value.strip()
+            value = _csv_unescape_cell(value.strip())
         if field == "suitability_service_modes" and isinstance(value, str) and value:
             # CSV-Zelle kann nur eine Liste nicht direkt abbilden -- Semikolon
             # ODER Komma als Trenner zulassen (Komma ist bereits das
@@ -2266,6 +3138,10 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
       damit ein Asset Manager mit 300 Fonds nicht wegen einer einzigen
       Tippfehler-Zeile neu anfangen muss.
     """
+    # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): siehe create_product();
+    # R7/F3: reauthor_tenant_product_rule_on_import fuer den Upsert-Pfad.
+    from services.product_eligibility import author_tenant_product_rule, reauthor_tenant_product_rule_on_import
+
     tenant_id = _resolve_tenant_id_for_user(current_user)
     now = _now()
     items: list[ProductImportResultItem] = []
@@ -2294,6 +3170,14 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
                 Product.tenant_id == tenant_id, Product.symbol == payload["symbol"],
                 Product.deleted_at.is_(None),
             ).first()
+        elif payload.get("internal_product_id"):
+            # Owner-Anforderung P1: eigener (nicht kotierter) Fonds ohne
+            # ISIN/Symbol -- Abgleich ueber die tenant-eindeutige interne ID.
+            existing = db.query(Product).filter(
+                Product.tenant_id == tenant_id,
+                Product.internal_product_id == payload["internal_product_id"],
+                Product.deleted_at.is_(None),
+            ).first()
         else:
             # 2026-08-05 (Live-Smoketest-Fund): ein nicht-kotierter Fonds hat
             # weder ISIN noch Symbol als Abgleichs-Schluessel -- ohne diesen
@@ -2310,11 +3194,55 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
                 Product.deleted_at.is_(None),
             ).first()
         if existing is not None:
-            for field, value in payload.items():
-                setattr(existing, field, value)
+            # AUDIT-FIX Fondsuniversum R7/F3 (2026-11): nur explizit gelieferte,
+            # nicht leere Felder ueberschreiben. Vorher setzte der Upsert JEDES
+            # Feld aus model_dump() -- auch nicht gelieferte (None) --, und ein
+            # Re-Upload loeschte gepflegte Exposures, Liquiditaet, Rating usw.
+            # Leere Importfelder bedeuten "unveraendert".
+            if payload.get("internal_product_id") and _internal_product_id_taken(
+                db, tenant_id, payload["internal_product_id"], exclude_product_id=existing.id,
+            ):
+                items.append(ProductImportResultItem(
+                    row=idx, status="failed", product_name=name_hint,
+                    error=f"Interne Produkt-ID {payload['internal_product_id']} ist bereits vergeben.",
+                ))
+                continue
+            merged_errors = _merged_master_data_errors(existing, {
+                field: value for field, value in payload.items()
+                if field in body.model_fields_set and value is not None
+            })
+            if merged_errors:
+                items.append(ProductImportResultItem(
+                    row=idx, status="failed", product_name=name_hint,
+                    error="; ".join(merged_errors),
+                ))
+                continue
+            for field, value in _product_master_data_columns(payload).items():
+                if field in body.model_fields_set and value is not None:
+                    setattr(existing, field, value)
             existing.updated_at = now
+            eligibility_draft, retired_draft_ids = reauthor_tenant_product_rule_on_import(
+                db, product=existing, jurisdiction=_product_rule_jurisdiction(existing),
+                created_by_user_id=current_user.id,
+                row={**payload, **suitability}, explicit_fields=set(body.model_fields_set), now=now,
+            )
+            # N-855-4: Zurueckziehen und neuer Entwurf je eigener Audit-Eintrag.
+            for retired_id in retired_draft_ids:
+                log(db, user_id=current_user.id, user_name=current_user.full_name,
+                    table_name="product_eligibility_rules", record_id=retired_id, action="UPDATE",
+                    field_name="status", old_value="draft",
+                    new_value=f"retired;reason=reimport_superseded_draft;product={existing.id}")
+            if eligibility_draft is not None:
+                log(db, user_id=current_user.id, user_name=current_user.full_name,
+                    table_name="product_eligibility_rules", record_id=eligibility_draft.id, action="CREATE",
+                    new_value=(f"draft;reason=reimport_eligibility_change;product={existing.id};"
+                               f"supersedes={eligibility_draft.supersedes_id or ''}"))
             items.append(ProductImportResultItem(
                 row=idx, status="updated", product_id=existing.id, product_name=existing.product_name,
+                eligibility_note=(
+                    "Geaenderte Eignung als Entwurf angelegt; die bisherige Regel gilt bis zur "
+                    "Vier-Augen-Freigabe weiter." if eligibility_draft is not None else None
+                ),
             ))
             updated += 1
         else:
@@ -2326,6 +3254,12 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
             # rohen IntegrityError abbrechen und (weil der Commit erst am
             # Ende des gesamten Batches passiert) den KOMPLETTEN Import
             # ruinieren statt nur diese eine Zeile als Fehler zu melden.
+            if _internal_product_id_taken(db, tenant_id, payload.get("internal_product_id")):
+                items.append(ProductImportResultItem(
+                    row=idx, status="failed", product_name=name_hint,
+                    error=f"Interne Produkt-ID {payload['internal_product_id']} ist bereits vergeben.",
+                ))
+                continue
             if payload.get("isin"):
                 global_conflict = db.query(Product).filter(
                     Product.isin == payload["isin"], Product.deleted_at.is_(None),
@@ -2338,17 +3272,16 @@ def _import_products(rows: list[dict], db: Session, current_user: User) -> Produ
                     continue
             product = Product(
                 id=new_uuid(), is_active=1, tenant_id=tenant_id,
-                created_at=now, updated_at=now, **payload,
+                created_at=now, updated_at=now, **_product_master_data_columns(payload),
             )
             db.add(product)
             db.flush()
             # CERT-PRODUCT-ELIGIBILITY-001 (2026-10-09): siehe create_product()
-            from services.product_eligibility import author_tenant_product_rule
             author_tenant_product_rule(
                 db,
                 product=product,
                 created_by_user_id=current_user.id,
-                jurisdiction=product.jurisdiction or "CH",
+                jurisdiction=_product_rule_jurisdiction(product),
                 profile_from=suitability["suitability_profile_from"],
                 profile_to=suitability["suitability_profile_to"],
                 service_modes=(
@@ -2386,7 +3319,9 @@ def import_products_bulk(
     Tenant-User-Account, meldet sich ueber POST /auth/login an und ruft
     diesen Endpoint mit dem erhaltenen Token auf. Siehe _import_products
     fuer die Upsert-/Isolationslogik."""
-    rows = [p.model_dump() for p in body.products]
+    # R7/F3: exclude_unset, damit _import_products nicht gelieferte Felder
+    # von gelieferten unterscheiden kann (Upsert ueberschreibt nur diese).
+    rows = [p.model_dump(exclude_unset=True) for p in body.products]
     return _import_products(rows, db, current_user)
 
 
@@ -2453,17 +3388,29 @@ def download_products_csv_template(
     Beispiel fuer einen kotierten (mit ISIN/Symbol) und einen
     nicht-kotierten Fonds (ISIN/Symbol leer)."""
     header = ",".join(_PRODUCT_IMPORT_CSV_FIELDS)
+    # AUDIT-2026-11 P1: Beispiel-ISIN mit gueltiger Pruefziffer (ISO 6166),
+    # aber dem nicht vergebenen Praefix "ZZ" -- kann keinem echten
+    # Wertpapier gehoeren. Die vorherige Beispiel-ISIN war 13 Zeichen lang
+    # und waere am eigenen Import gescheitert. Die Stammdaten-Spalten zeigen
+    # beide Faelle: Retrozession erfasst (0 = frei, mit Quelle) und leer
+    # (= unbekannt; das Produkt gilt dann NICHT als retrozessionsfrei).
     example_listed = (
         "Global Equity UCITS ETF,Beispiel Asset Management,Fonds,Aktien,"
-        "Global,CHF,IE00BEXAMPLE1,GEQC,25,8,AA,daily,"
+        "Global,CHF,ZZEXAMPLE019,GEQC,25,8,AA,daily,"
         "4,10,investment_advice;portfolio_management,false,false,false,2500,"
-        "720,PAB,"
+        "720,PAB,,"
+        "IE,ja,CHF,Basisinformationsblatt,2026-01-31,0,Bestaetigung Anbieter,nein,"
+        "accumulating,,,"
+        "listed,,market,daily,,,,,"
     )
     example_unlisted = (
         "Privatmarkt-Anlagestiftung,Beispiel Asset Management,Fonds,Alternative,"
         "Private Equity,CHF,,,150,,,illiquid,"
         "7,10,investment_advice;portfolio_management,false,true,false,4000,"
-        ",,"
+        ",,,"
+        "CH,nein,,Factsheet,2026-01-31,,,ja,"
+        "accumulating,,10000000,"
+        "unlisted,PM-ANST-01,manual_nav,quarterly,2026-09-30,30,90,ja,Ruecknahmen je Quartal begrenzbar"
     )
     csv_content = "\n".join([header, example_listed, example_unlisted]) + "\n"
     return Response(
@@ -2473,7 +3420,114 @@ def download_products_csv_template(
     )
 
 
+# N-861-4 (Pruefrunde #861): CSV-/Formel-Injection. Eine Zelle, die mit
+# = + - @ Tab oder CR beginnt, wird von Tabellenprogrammen als Formel
+# ausgewertet. Export: mit ' praefixen (OWASP-Empfehlung). Import: ein so
+# praefixierter Wert wird wieder ohne ' gelesen (Export -> Import verlustfrei).
+_CSV_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_needs_escape(value: str) -> bool:
+    """Trigger am Anfang -- oder bereits ein ' vor einem (rekursiv) zu
+    schuetzenden Wert. N-861-10: so bleibt auch ein Originalwert wie
+    "'=x" beim Export -> Import verlustfrei ("''=x" -> "'=x")."""
+    if value.startswith(_CSV_FORMULA_TRIGGERS):
+        return True
+    return value.startswith("'") and _csv_needs_escape(value[1:])
+
+
+def _csv_safe_cell(value: str) -> str:
+    return "'" + value if _csv_needs_escape(value) else value
+
+
+def _csv_unescape_cell(value: str) -> str:
+    if value.startswith("'") and _csv_needs_escape(value[1:]):
+        return value[1:]
+    return value
+
+
+@products_router.get("/export/csv")
+def export_products_csv(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """AUDIT-2026-11 P1 (PO-6): Export der fuer diesen Tenant sichtbaren,
+    aktiven Fonds im Spaltenformat des CSV-Imports (globaler Katalog plus
+    eigene Fonds, nie die eines anderen Tenants -- dieselbe Abfrage wie
+    GET /products).
+
+    Zweck: Stammdaten (ISIN, Domizil, TER-Quelle, Retrozession ...) extern
+    ergaenzen und wieder einspielen. Die Eignungsspalten bleiben leer: die
+    Eignung wird ueber die Vier-Augen-Regeln gepflegt und ist kein
+    Stammdatum. Fuer einen Re-Import muessen sie ergaenzt werden (eine
+    geaenderte Eignung wird dabei als Regel-Entwurf angelegt). Leere Zellen
+    bedeuten "nicht erfasst" -- es wird nichts vorbelegt.
+    """
+    products = (
+        _active_products_query(db, tenant_id=_resolve_tenant_id_for_user(current_user))
+        .order_by(Product.asset_class, Product.product_name)
+        .all()
+    )
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(_PRODUCT_IMPORT_CSV_FIELDS)
+    for product in products:
+        row = []
+        for field in _PRODUCT_IMPORT_CSV_FIELDS:
+            if field in _PRODUCT_IMPORT_SUITABILITY_FIELDS:
+                row.append("")
+                continue
+            value = getattr(product, field, None)
+            if field in _PRODUCT_FLAG_FIELDS and value is not None:
+                value = "ja" if int(value) else "nein"
+            elif field == "theme_tags" and value:
+                try:
+                    parsed = json.loads(str(value))
+                except (TypeError, ValueError):
+                    parsed = None
+                value = ";".join(str(tag) for tag in parsed) if isinstance(parsed, list) else ""
+            row.append(_csv_safe_cell("" if value is None else str(value)))
+        writer.writerow(row)
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=fondsuniversum-export.csv"},
+    )
+
+
 _PRODUCT_CLEARABLE_ESG_FIELDS = ("sfdr_class", "esg_rating", "esg_score_x10", "climate_benchmark")
+# AUDIT-2026-11 P1 (PO-6, L1): Stammdaten lassen sich per explizitem null
+# wieder auf "nicht erfasst" setzen (z.B. ein falsch erfasster Retro-Satz:
+# zurueck auf unbekannt statt auf eine erfundene 0).
+_PRODUCT_CLEARABLE_MASTER_DATA_FIELDS = (
+    "domicile", "is_hedged", "hedge_currency", "ter_source", "ter_as_of",
+    "retrocession_bps", "retrocession_source", "is_house_product",
+    "distribution_policy", "valor", "minimum_investment_minor_units",
+    "listing_status", "internal_product_id", "price_source", "nav_frequency", "nav_as_of",
+    "redemption_period_days", "notice_period_days", "has_gating", "gating_terms",
+)
+
+
+def _merged_master_data_errors(product: Product, changes: dict) -> list[str]:
+    """Querpruefung der Stammdaten auf dem Stand NACH der Aenderung
+    (Bearbeiten und Re-Import liefern nur Teilmengen der Felder)."""
+    merged = {
+        field: getattr(product, field, None)
+        for field in ("ter_bps", "isin", *_PRODUCT_CLEARABLE_MASTER_DATA_FIELDS)
+    }
+    for field in _PRODUCT_FLAG_FIELDS:
+        if merged.get(field) is not None:
+            merged[field] = bool(merged[field])
+    merged.update(changes)
+    return master_data_consistency_errors(merged)
+# AUDIT-FIX Fondsuniversum R6/F6 (2026-11): Identifikation und Produkttyp sind
+# nach dem Erfassen fix (ISIN global eindeutig, Marktdaten-Mapping haengt daran).
+_PRODUCT_IMMUTABLE_FIELDS = ("isin", "symbol", "product_type")
+
+
+def _normalized_identifier(value) -> str | None:
+    text_value = str(value).strip() if value is not None else ""
+    return text_value or None
 
 
 @products_router.put("/{product_id}", response_model=ProductResponse)
@@ -2492,19 +3546,42 @@ def update_product(
     services/product_exposures.py::_parse_or_proxy bleibt zusaetzlich
     fault-tolerant fuer bereits vor dem Fix gespeicherte Legacy-Daten.
     """
-    product = _get_product_or_404(product_id, db, current_user)
-    payload = body.model_dump(exclude_none=True)
+    product = _get_product_for_write_or_404(product_id, db, current_user)
+    changed_immutable = [
+        field for field in _PRODUCT_IMMUTABLE_FIELDS
+        if field in body.model_fields_set
+        and _normalized_identifier(getattr(body, field)) != _normalized_identifier(getattr(product, field))
+    ]
+    if changed_immutable:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Nicht editierbar: {', '.join(changed_immutable)}. ISIN, Symbol und Produkttyp "
+                "koennen nach dem Erfassen nicht geaendert werden; die Aenderung wurde nicht gespeichert."
+            ),
+        )
+    payload = body.model_dump(exclude_none=True, exclude=set(_PRODUCT_IMMUTABLE_FIELDS))
     # ESG-PREMIUM-CRITERIA-001 (Self-Review 2026-10-18): ESG-Nachweisfelder
     # lassen sich per explizitem null wieder entfernen. Sonst blieb z.B. ein
     # einmal gesetztes climate_benchmark='PAB' fuer immer und das Produkt
     # galt weiter als net_zero-zulaessig, obwohl der Nachweis entfallen ist.
     # Nicht gesendete Felder bleiben unveraendert (model_fields_set).
-    for field in _PRODUCT_CLEARABLE_ESG_FIELDS:
+    for field in (*_PRODUCT_CLEARABLE_ESG_FIELDS, *_PRODUCT_CLEARABLE_MASTER_DATA_FIELDS):
         if field in body.model_fields_set and getattr(body, field) is None:
             payload[field] = None
     if not payload:
         return product
-    for field, value in payload.items():
+    merged_errors = _merged_master_data_errors(product, payload)
+    if merged_errors:
+        raise HTTPException(status_code=422, detail="; ".join(merged_errors))
+    if payload.get("internal_product_id") and _internal_product_id_taken(
+        db, product.tenant_id, payload["internal_product_id"], exclude_product_id=product.id,
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Interne Produkt-ID {payload['internal_product_id']} ist in Ihrer Verwaltung bereits vergeben.",
+        )
+    for field, value in _product_master_data_columns(payload).items():
         setattr(product, field, value)
     product.updated_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -2575,7 +3652,7 @@ def approve_product_eligibility_rule(
     from services.product_eligibility_governance import RuleApprovalConflict, approve_rule
 
     body = body or ProductEligibilityApprovalRequest()
-    product = _get_product_or_404(product_id, db, current_user)
+    product = _get_product_for_write_or_404(product_id, db, current_user)
     tenant_id = _resolve_tenant_id_for_user(current_user)
     draft_ids = [
         row[0] for row in db.query(ProductEligibilityRule.id).filter(
@@ -2586,6 +3663,7 @@ def approve_product_eligibility_rule(
     if not draft_ids:
         raise HTTPException(status_code=409, detail="Keine offene Entwurfs-Eignungsregel fuer dieses Produkt.")
     approved: list[str] = []
+    superseded: list[str] = []
     modes: set[str] = set()
     try:
         for rule_id in draft_ids:
@@ -2596,6 +3674,15 @@ def approve_product_eligibility_rule(
             )
             approved.append(rule_id)
             modes.add(rule.approval_mode)
+            if rule.supersedes_id:
+                previous = db.get(ProductEligibilityRule, rule.supersedes_id)
+                if previous is not None and previous.status == "retired":
+                    superseded.append(previous.id)
+                    # N-855-4: Abloesung der bisher geltenden Regel als eigener Eintrag.
+                    log(db, user_id=current_user.id, user_name=current_user.full_name,
+                        table_name="product_eligibility_rules", record_id=previous.id, action="UPDATE",
+                        field_name="status", old_value="approved",
+                        new_value=f"retired;superseded_by={rule.id};valid_to={previous.valid_to}")
     except LookupError:
         db.rollback()
         raise HTTPException(status_code=404, detail="Eignungsregel nicht gefunden.")
@@ -2604,6 +3691,8 @@ def approve_product_eligibility_rule(
         raise HTTPException(status_code=409, detail=str(exc))
     approval_mode = ",".join(sorted(modes))
     audit_value = f"approved:{','.join(approved)};approval_mode={approval_mode}"
+    if superseded:
+        audit_value += f";superseded:{','.join(superseded)}"
     if "single_approver_attested" in modes:
         audit_value += f";attestation_reason={(body.attestation_reason or '').strip()}"
     log(db, user_id=current_user.id, user_name=current_user.full_name,
@@ -2622,7 +3711,7 @@ def set_product_market_override(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = _get_product_or_404(product_id, db, current_user)
+    product = _get_product_for_write_or_404(product_id, db, current_user)
     product.lookup_mode_override = body.lookup_mode_override or None
     product.lookup_symbol_override = body.lookup_symbol_override.strip() if body.lookup_symbol_override else None
     product.updated_at = _now()
@@ -2678,7 +3767,7 @@ def apply_product_id_mapping(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = _get_product_or_404(body.product_id, db, current_user)
+    product = _get_product_for_write_or_404(body.product_id, db, current_user)
     preview = _preview_openfigi_or_raise(
         product=product,
         isin=body.isin,
@@ -2687,6 +3776,19 @@ def apply_product_id_mapping(
         mic_code=body.mic_code,
         currency=body.currency,
     )
+    distinct = _distinct_openfigi_candidates(list(preview.get("candidates") or []))
+    explicit_choice = bool(body.preferred_figi) or "candidate_index" in body.model_fields_set
+    if len(distinct) > 1 and not explicit_choice:
+        # OF-1 / Audit OF-a: bei mehreren Listings nie stillschweigend den
+        # ersten Kandidaten nehmen; der Aufrufer muss waehlen.
+        figis = ", ".join(str(c.get("figi") or "?") for c in distinct)
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"OpenFIGI lieferte {len(distinct)} Listings ({figis}). "
+                "Bitte Kandidat per preferred_figi oder candidate_index waehlen."
+            ),
+        )
     selected = _select_preview_candidate(
         preview=preview,
         candidate_index=body.candidate_index,
@@ -2694,22 +3796,17 @@ def apply_product_id_mapping(
         empty_detail="Kein Mapping-Kandidat gefunden",
     )
     now = _now()
-    _apply_openfigi_candidate(
-        product=product,
-        candidate=selected,
-        now=now,
-        overwrite_symbol=body.overwrite_symbol,
-    )
-    log(
-        db,
-        user_id=current_user.id,
-        user_name=current_user.full_name,
-        table_name="products",
-        record_id=product.id,
-        action="UPDATE",
-        field_name="mapping_provider",
-        new_value="openfigi",
-    )
+    try:
+        changes = _apply_openfigi_candidate(
+            product=product,
+            candidate=selected,
+            now=now,
+            overwrite_symbol=body.overwrite_symbol,
+        )
+    except OpenFigiExchangeCodeUnmapped as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    _log_field_changes(db, product=product, current_user=current_user, changes=changes)
     db.commit()
     db.refresh(product)
     return {
@@ -2726,7 +3823,7 @@ def auto_apply_product_id_mappings(
     current_user: User = Depends(require_admin),
 ):
     products = (
-        _active_products_query(db, tenant_id=_resolve_tenant_id_for_user(current_user))
+        _writable_products_query(db, current_user)
         .filter(
             Product.isin.is_not(None),
             (Product.symbol.is_(None) | (Product.symbol == "")),
@@ -2778,7 +3875,47 @@ def auto_apply_product_id_mappings(
             )
             continue
 
-        selected = candidates[0]
+        selected, distinct = _unique_openfigi_candidate(candidates, product)
+        if selected is None:
+            # OF-1 / Audit OF-a: mehrdeutig -> kein Auto-Apply, Auswahl anbieten.
+            skipped_count += 1
+            items.append(
+                {
+                    "product_id": product.id,
+                    "product_name": product.product_name,
+                    "isin": product.isin,
+                    "status": "ambiguous",
+                    "detail": (
+                        f"{len(distinct)} Listings gefunden, kein eindeutiger Kandidat. "
+                        "Bitte ueber /products/openfigi/apply mit preferred_figi auswaehlen."
+                    ),
+                    "applied_candidate": None,
+                    "candidates": distinct,
+                }
+            )
+            continue
+        try:
+            _openfigi_internal_exchange_code(selected)
+            if not str(selected.get("exch_code") or "").strip():
+                # N-862-5: ohne Boersencode ergaebe das blanke Symbol ein
+                # US-Listing (O5-Klasse). Nie automatisch uebernehmen.
+                raise OpenFigiExchangeCodeUnmapped(
+                    "OpenFIGI-Kandidat ohne Boersencode; das blanke Symbol waere ein geratenes Listing. "
+                    "Bitte Boerse bzw. Symbol manuell pflegen."
+                )
+        except OpenFigiExchangeCodeUnmapped as exc:
+            skipped_count += 1
+            items.append(
+                {
+                    "product_id": product.id,
+                    "product_name": product.product_name,
+                    "isin": product.isin,
+                    "status": "needs_review",
+                    "detail": str(exc),
+                    "applied_candidate": None,
+                }
+            )
+            continue
         if body.dry_run:
             skipped_count += 1
             items.append(
@@ -2787,7 +3924,7 @@ def auto_apply_product_id_mappings(
                     "product_name": product.product_name,
                     "isin": product.isin,
                     "status": "preview",
-                    "detail": "Erster Kandidat ermittelt, dry_run aktiv",
+                    "detail": "Eindeutiger Kandidat ermittelt, dry_run aktiv",
                     "applied_candidate": selected,
                 }
             )
@@ -2855,7 +3992,7 @@ def apply_product_reference_data(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    product = _get_product_or_404(body.product_id, db, current_user)
+    product = _get_product_for_write_or_404(body.product_id, db, current_user)
     preview = _preview_eodhd_or_raise(
         product=product,
         isin=body.isin,
@@ -2904,7 +4041,7 @@ def auto_apply_product_reference_data(
     current_user: User = Depends(require_admin),
 ):
     products = (
-        _active_products_query(db, tenant_id=_resolve_tenant_id_for_user(current_user))
+        _writable_products_query(db, current_user)
         .filter(
             (Product.reference_data_provider.is_(None) | (Product.reference_data_provider == "")),
         )
@@ -3058,7 +4195,8 @@ def list_product_universe_entries(
         ProductUniverseEntry.deleted_at.is_(None),
     )
     if jurisdiction is not None:
-        q = q.filter(ProductUniverseEntry.jurisdiction == jurisdiction)
+        # R5/F5: gleiche Normalisierung wie beim Anlegen (trim, Grossschreibung).
+        q = q.filter(ProductUniverseEntry.jurisdiction == jurisdiction.strip().upper())
     return q.order_by(ProductUniverseEntry.jurisdiction, ProductUniverseEntry.created_at).all()
 
 
@@ -3105,8 +4243,10 @@ def create_product_universe_entry(
     # faellt hier als sauberer 409 statt als 500/IntegrityError durch.
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(
             status_code=409,
             detail=f"Eintrag fuer Produkt {body.product_id} in Jurisdiktion {body.jurisdiction!r} existiert bereits.",
@@ -3143,6 +4283,21 @@ def delete_product_universe_entry(
     entry.deleted_at = _now()
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="product_universe_entries", record_id=entry.id, action="DELETE")
+    # AUDIT-FIX Fondsuniversum R5/F5 (2026-11): war das der letzte Eintrag der
+    # Jurisdiktion, gilt ab jetzt wieder der volle Katalog -- nicht still,
+    # sondern als eigener Audit-Eintrag (und als Warnung in jeder Generierung,
+    # services/portfolio_engine_payload.py::universe_emptied_warning).
+    db.flush()
+    remaining = db.query(ProductUniverseEntry.id).filter(
+        ProductUniverseEntry.tenant_id == entry.tenant_id,
+        ProductUniverseEntry.jurisdiction == entry.jurisdiction,
+        ProductUniverseEntry.deleted_at.is_(None),
+    ).first()
+    if remaining is None:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="product_universe_entries", record_id=entry.id, action="UPDATE",
+            field_name="universe_scope",
+            new_value=f"Positivliste {entry.jurisdiction} leer: Empfehlungen nutzen den vollen Katalog")
     db.commit()
     return None
 
@@ -3326,6 +4481,13 @@ def generate_recommendation_run_endpoint(
                     "(require_suitability_before_recommendation=True)."
                 ),
             )
+    # E2b / N-888-01: der Produktlauf waehlt Produkte aus dem Praeferenz-
+    # Snapshot der (aktuellen bzw. angeforderten) Soll-Allokation; dieser muss
+    # die Kundenausschluesse einhalten -- vor jeder Berechnung.
+    assert_sustainability_preference_floor(
+        db, mandate, allocation=_floor_target_allocation(db, mandate, body.target_allocation_id),
+        channel="recommendation", audit=_floor_audit(db, current_user, mandate, request),
+    )
     try:
         result = generate_recommendation_run(
             db=db,
@@ -3363,6 +4525,10 @@ def generate_recommendation_run_endpoint(
         ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(result["run"])
+    # N-888-04: Praeferenz-Zustand als Hinweis (nicht erfasst / veraltet).
+    _notice = preference_state(db, mandate).get("notice")
+    if _notice:
+        result["warnings"] = list(result.get("warnings") or []) + [_notice]
     return result
 
 
@@ -3439,7 +4605,7 @@ def get_recommendation_payload_by_id(
 
 
 @recommendations_router.put("/mandates/{mandate_id}/recommendations/{run_id}/finalize",
-                             response_model=RecommendationRunResponse)
+                             response_model=RecommendationFinalizeResponse)
 def finalize_recommendation(
     mandate_id: str, run_id: str,
     request: Request,
@@ -3494,8 +4660,74 @@ def finalize_recommendation(
                 "errors": errors,
             })
         raise HTTPException(status_code=422, detail="; ".join(errors))
+    # H7 C-4 (Compliance-Audit 2026-11-07): Retro-Gate. Der Kostenausweis
+    # kennt seit L1 unbekannte/ungeregelte Retrozessionen (is_complete=False),
+    # die Finalisierung fror ihn trotzdem ein. Jetzt fail-closed, ohne
+    # Override (Dok. 10 L1); die Sperre wird im Audit-Log festgehalten.
+    from services.cost_disclosure import (
+        freeze_cost_disclosure_for_run,
+        retrocession_finalization_block,
+    )
+
+    retro_block = retrocession_finalization_block(db, mandate, run)
+    if retro_block is not None:
+        # N-884-09: Tenant-Kontext nach dem Rollback wieder setzen (PG/RLS).
+        restore_tenant_after_rollback(db, set_tenant_context)
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="recommendation_runs", record_id=run_id, action="UPDATE",
+            field_name="finalization_blocked",
+            new_value=json.dumps({
+                "reason_code": retro_block["reason_code"],
+                "unknown": retro_block["unknown"],
+                "unresolved": retro_block["unresolved"],
+                "unresolved_items": retro_block["unresolved_items"],
+            }, ensure_ascii=False, sort_keys=True),
+            mandate_id=mandate_id, ip_address=_extract_client_ip(request))
+        db.commit()
+        raise HTTPException(status_code=422, detail={
+            "reason_code": retro_block["reason_code"],
+            "message": retro_block["message"],
+            "errors": [retro_block["message"]],
+        })
+    # H8 C-2/C-5 (Compliance-Audit 2026-11-07): Finalisierung nur mit vor
+    # Vertragsabschluss abgegebener Kundeninformation (Art. 8/9 FIDLEG),
+    # vollstaendigen rechtlichen Angaben der Firma und GwG-Bestaetigung
+    # (fail-closed, kein Override; Reason-Code je offenem Punkt in findings).
+    # N-890-07: die Sperre wird wie H7 im Audit-Log festgehalten.
+    assert_client_onboarding_release_eligible(
+        db, mandate, channel=CHANNEL_FINALIZATION, http_status=422,
+        on_block=release_block_audit(
+            db, user=current_user, ip_address=_extract_client_ip(request),
+            mandate_id=mandate.id, field_name="finalization_blocked",
+            set_tenant_context=set_tenant_context,
+        ),
+    )
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
     assert_portfolio_data_release_eligible(db, mandate, action="finalize")
+    # E2a (Negativfall 4): veraltete Text-/Policy-Version der
+    # Nachhaltigkeitspraeferenz blockiert die Finalisierung (mit Audit).
+    assert_preference_release_ready(
+        db, mandate, channel="finalize",
+        audit=_preference_audit(db, current_user, mandate, request),
+    )
+    # E2b / N-888-01: Finalize nur, wenn die Allokation des Laufs die
+    # Kundenausschluesse einhaelt (auch fuer Laeufe von VOR der Erfassung) und
+    # die Ausschluesse im Produktuniversum noch belegt erfuellbar sind.
+    _floor_ta = _floor_target_allocation(db, mandate, getattr(run, "target_allocation_id", None))
+    assert_sustainability_preference_floor(
+        db, mandate, allocation=_floor_ta, preferences=getattr(_floor_ta, "preferences_json", None),
+        channel="finalize", audit=_floor_audit(db, current_user, mandate, request),
+    )
+    # Nachtrag 1/2: jede Position muss den Ausschluss HEUTE belegt erfuellen
+    # (abgelaufener/zurueckgezogener Nachweis -> 409, kurze Meldung, Audit).
+    try:
+        assert_run_positions_evidenced(db, mandate, run, label="Die Empfehlung kann nicht finalisiert werden")
+    except DomainError as exc:
+        _floor_audit(db, current_user, mandate, request)(json.dumps({
+            "event": "sustainability_evidence_missing", "channel": "finalize", "run_id": run.id,
+        }, sort_keys=True), {"decision_id": None})
+        raise exc
+    assert_customer_exclusions_offerable(db, mandate, channel="finalize")
     if cma_currency_warning:
         warnings.append(cma_currency_warning)
     # PREF-FINAL-001 (ESG-P0-3): jede Position wird mit demselben Matcher wie
@@ -3524,10 +4756,17 @@ def finalize_recommendation(
     # bleibt die Spalte NULL und der Leser legt das offen
     # (`evidence_frozen=False`) -- die Finalisierung daran scheitern zu
     # lassen waere eine Blockade, die dieser Befund nicht verlangt.
-    from services.cost_disclosure import freeze_cost_disclosure_for_run
     run.cost_disclosure_snapshot_json = freeze_cost_disclosure_for_run(
         db, mandate, run
     )
+    # CCX-P1 (Vertrag 2026-11-13 §4): der Beratungsentscheid wird hier genau
+    # einmal als unveraenderlicher Envelope versiegelt (Manifest, Bindungen,
+    # Snapshot-Fence). Scheitert das Siegel, scheitert die Finalisierung --
+    # kein finaler Lauf ohne Envelope, kein Fallback (Audit im Service).
+    envelope = seal_advisory_envelope(
+        db, mandate=mandate, run=run, user=current_user, ip_address=_extract_client_ip(request),
+    )
+    envelope_ref = {"advisory_envelope_id": envelope.id, "advisory_envelope_hash": envelope.envelope_hash}
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="recommendation_runs", record_id=run_id, action="UPDATE",
         field_name="result_status",
@@ -3535,7 +4774,29 @@ def finalize_recommendation(
         mandate_id=mandate_id, ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(run)
-    return run
+    # N-856-7: Warnungen (u. a. [SAA_BUCKET_DEVIATION]) auch in der Antwort,
+    # nicht nur im Audit-Log; Codes strukturiert.
+    return RecommendationFinalizeResponse.model_validate(run).model_copy(
+        update={"warnings": list(warnings), "warning_codes": finalize_warning_codes(warnings), **envelope_ref},
+    )
+
+
+@recommendations_router.get("/mandates/{mandate_id}/advisory-envelopes/current",
+                             response_model=AdvisoryEnvelopeResponse)
+def get_current_advisory_envelope(
+    mandate_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """CCX-P1: aktueller versiegelter Beratungsentscheid des Mandats, vor der
+    Auslieferung integritaetsgeprueft (Root-Hash, Bindungen, Manifest).
+    Fehlt er oder bricht eine Kette: katalogisierter Reason-Code
+    (``CCX_ENVELOPE_MISSING`` 404, sonst 409), kein aelterer Entscheid."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    return current_verified_envelope(
+        db, mandate=mandate, user=current_user, ip_address=_extract_client_ip(request),
+    )
 
 
 @recommendations_router.get("/mandates/{mandate_id}/recommendations/{run_id}/positions",
@@ -3573,6 +4834,8 @@ def add_position(
     legacy_warning = _enforce_run_preferences(
         db, mandate, run, context="manual_position", products=[(None, product)],
     )
+    # N-901-02: bei aktivem Kundenausschluss nur belegte Produkte (409).
+    assert_product_evidenced(db, mandate, product)
     now = _now()
     pos = RecommendationPosition(
         id=new_uuid(), run_id=run_id,
@@ -3764,3 +5027,932 @@ def active_triggers(
     ).bindparams(bindparam("mandate_ids", expanding=True))
     rows = db.execute(stmt, {"mandate_ids": mandate_ids}).fetchall()
     return [dict(r._mapping) for r in rows]
+
+
+# ===========================================================================
+# AUDIT-2026-11 T1 (Audit 05 §4.1/§4.2, Entscheide T-E1..T-E3):
+# Nachhaltigkeits- und Ausschlussnachweise je Produkt, Hausstandard je Tenant.
+#
+# - Jeder Nachweis entsteht als Entwurf (Erfassen oder Import) und zaehlt erst
+#   nach der Vier-Augen-Freigabe durch eine andere Person (sonst 409).
+# - Plattform-Nachweise (tenant_id NULL, nur fuer globale Katalogfonds) darf
+#   in Multi-Tenant nur super_admin anlegen, aendern, freigeben oder
+#   zurueckziehen (R3, gleiche Regel wie _may_write_global_catalog); ein
+#   Tenant-Admin bekommt 403. Tenant-Nachweise sind ein Overlay und nur fuer
+#   den eigenen Tenant sichtbar.
+# - Keine Engine-Wirkung in T1: die Auswertung
+#   services/product_eligibility_governance.py::is_criterion_satisfied wird
+#   erst in T3 verdrahtet.
+# Eigener, am Dateiende abgegrenzter Abschnitt (Konfliktflaeche zu #855/#861
+# klein halten); Importe auf Modulebene, keine neuen Module (Ratschen).
+# ===========================================================================
+
+from models.product_eligibility import (  # noqa: E402
+    SFDR_CLASSIFICATION_VALUES,
+    SUSTAINABILITY_CATEGORIES,
+    SUSTAINABILITY_CLIENT_SOURCE_LABELS,
+    SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS,
+    SUSTAINABILITY_EVIDENCE_VALIDITY_MONTHS,
+    SUSTAINABILITY_KINDS_BY_CATEGORY,
+    SUSTAINABILITY_SOURCE_TYPES,
+    SUSTAINABILITY_STATUSES,
+    ProductSustainabilityAttribute,
+)
+from schemas.review import (  # noqa: E402
+    ProductSustainabilityApprovalRequest,
+    ProductSustainabilityApprovalResponse,
+    ProductSustainabilityAttributeCreate,
+    ProductSustainabilityAttributeImportItem,
+    ProductSustainabilityAttributeImportRequest,
+    ProductSustainabilityAttributeResponse,
+    ProductSustainabilityAttributeUpdate,
+    ProductSustainabilityBatchApprovalRequest,
+    ProductSustainabilityImportResponse,
+    ProductSustainabilityImportResultItem,
+    ProductSustainabilityRetireRequest,
+    SustainabilityCatalogResponse,
+    SustainabilityStandardsResponse,
+    SustainabilityStandardUpdate,
+)
+from services.product_eligibility_governance import (  # noqa: E402
+    RuleApprovalConflict,
+    SustainabilityAttributeConflict,
+    approve_sustainability_attribute,
+    approve_sustainability_standard,
+    criterion_type as sustainability_criterion_type,
+    effective_sustainability_threshold,
+    evaluate_criterion,
+    client_source_label_text,
+    default_client_source_label,
+    default_evidence_valid_until,
+    discard_pending_sustainability_standard,
+    effective_sustainability_standard,
+    effective_sustainability_standards,
+    reset_sustainability_standard,
+    set_sustainability_standard,
+    evidence_status as sustainability_evidence_status,
+    retire_sustainability_attribute,
+    sustainability_attribute_errors,
+    sustainability_attribute_visible_to_tenant,
+    sustainability_standard_categories,
+)
+
+GLOBAL_SUSTAINABILITY_WRITE_FORBIDDEN_DETAIL = (
+    "Plattform-Nachweise globaler Katalogfonds gelten fuer alle Verwaltungen und koennen hier "
+    "nicht geaendert werden. Erfassen Sie fuer Ihre Verwaltung einen eigenen Nachweis (Scope 'tenant')."
+)
+
+_SUSTAINABILITY_CSV_FIELDS = (
+    "product_id", "isin", "scope", "category", "kind",
+    "revenue_threshold_bps", "measured_exposure_bps", "value",
+    "source_type", "source_reference", "source_provider", "source_retrieved_on",
+    "source_document_title", "source_document_version", "source_document_date", "source_document_sha256",
+    "client_source_label",
+    "as_of", "valid_until", "note",
+)
+_SUSTAINABILITY_EXPORT_EXTRA_FIELDS = (
+    "id", "status", "evidence_status", "created_by", "created_at", "approved_by", "approved_at",
+    "approval_mode", "retired_at", "supersedes_id",
+)
+_SUSTAINABILITY_EDITABLE_FIELDS = (
+    "revenue_threshold_bps", "measured_exposure_bps", "value", "source_type", "source_reference",
+    "source_provider", "source_retrieved_on", "source_document_title", "source_document_version",
+    "source_document_date", "source_document_sha256", "client_source_label", "as_of", "valid_until", "note",
+)
+
+
+def _sustainability_csv_cell(value) -> str:
+    """CSV-Zelle gegen Formel-Injection schuetzen (gemeinsame Regel N-861-4)."""
+    return "" if value is None else _csv_safe_cell(str(value))
+
+
+def _sustainability_response(attribute: ProductSustainabilityAttribute) -> ProductSustainabilityAttributeResponse:
+    data = {column.name: getattr(attribute, column.name) for column in ProductSustainabilityAttribute.__table__.columns}
+    data["scope"] = "global" if attribute.tenant_id is None else "tenant"
+    data["evidence_status"] = sustainability_evidence_status(attribute)
+    data["client_source_label_text"] = client_source_label_text(attribute.client_source_label)
+    return ProductSustainabilityAttributeResponse(**data)
+
+
+def _visible_sustainability_query(db: Session, tenant_id: str):
+    return db.query(ProductSustainabilityAttribute).filter(or_(
+        ProductSustainabilityAttribute.tenant_id.is_(None),
+        ProductSustainabilityAttribute.tenant_id == tenant_id,
+    ))
+
+
+def _get_sustainability_attribute_or_404(
+    attribute_id: str, db: Session, current_user: User, *, for_write: bool,
+) -> ProductSustainabilityAttribute:
+    attribute = db.get(ProductSustainabilityAttribute, attribute_id)
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    if attribute is None or not sustainability_attribute_visible_to_tenant(attribute, tenant_id):
+        raise HTTPException(status_code=404, detail="Nachhaltigkeitsnachweis nicht gefunden")
+    if for_write and attribute.tenant_id is None and not _may_write_global_catalog(current_user):
+        raise HTTPException(status_code=403, detail=GLOBAL_SUSTAINABILITY_WRITE_FORBIDDEN_DETAIL)
+    return attribute
+
+
+def _sustainability_values(body) -> dict:
+    values = body.model_dump()
+    for name in ("as_of", "valid_until", "source_retrieved_on", "source_document_date"):
+        if values.get(name) is not None:
+            values[name] = values[name].isoformat()
+    return values
+
+
+def _create_sustainability_attribute(
+    db: Session, current_user: User, product: Product, body: ProductSustainabilityAttributeCreate, now: str,
+) -> ProductSustainabilityAttribute:
+    """Gemeinsamer Pfad fuer Erfassen und Import (HTTPException bei Fehlern)."""
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    if body.scope == "global":
+        if product.tenant_id is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="Plattform-Nachweise gibt es nur fuer globale Katalogfonds; eigene Fonds tragen Tenant-Nachweise.",
+            )
+        if not _may_write_global_catalog(current_user):
+            raise HTTPException(status_code=403, detail=GLOBAL_SUSTAINABILITY_WRITE_FORBIDDEN_DETAIL)
+        attribute_tenant_id = None
+    else:
+        if product.tenant_id is not None and str(product.tenant_id) != str(tenant_id):
+            raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
+        attribute_tenant_id = tenant_id
+    values = _sustainability_values(body)
+    if values.get("valid_until") is None:
+        values["valid_until"] = default_evidence_valid_until(body.as_of).isoformat()
+    errors = sustainability_attribute_errors(values)
+    # N-863-8: immer aus dem Quellentyp abgeleitet (eine abweichende Angabe ist oben 422).
+    values["client_source_label"] = default_client_source_label(values.get("source_type"))
+    if errors:
+        raise HTTPException(status_code=422, detail=" ".join(errors))
+    duplicate = db.query(ProductSustainabilityAttribute.id).filter(
+        ProductSustainabilityAttribute.product_id == product.id,
+        ProductSustainabilityAttribute.category == values["category"],
+        ProductSustainabilityAttribute.kind == values["kind"],
+        ProductSustainabilityAttribute.as_of == values["as_of"],
+        ProductSustainabilityAttribute.status != "retired",
+        (ProductSustainabilityAttribute.tenant_id.is_(None) if attribute_tenant_id is None
+         else ProductSustainabilityAttribute.tenant_id == attribute_tenant_id),
+    ).first()
+    if duplicate is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(f"Fuer dieses Produkt besteht bereits ein Nachweis {values['category']}/{values['kind']} "
+                    f"mit Stichtag {values['as_of']} (Entwurf bearbeiten oder Nachweis zurueckziehen)."),
+        )
+    attribute = ProductSustainabilityAttribute(
+        id=new_uuid(), product_id=product.id, tenant_id=attribute_tenant_id,
+        category=values["category"], kind=values["kind"],
+        revenue_threshold_bps=values.get("revenue_threshold_bps"),
+        measured_exposure_bps=values.get("measured_exposure_bps"),
+        value=values.get("value"), source_type=values["source_type"],
+        source_reference=values["source_reference"], source_provider=values.get("source_provider"),
+        source_retrieved_on=values.get("source_retrieved_on"),
+        source_document_title=values.get("source_document_title"),
+        source_document_version=values.get("source_document_version"),
+        source_document_date=values.get("source_document_date"),
+        source_document_sha256=values.get("source_document_sha256"),
+        client_source_label=values.get("client_source_label"), as_of=values["as_of"],
+        valid_until=values["valid_until"], status="draft", note=values.get("note"),
+        created_by=current_user.id, created_at=now, updated_at=now,
+    )
+    db.add(attribute)
+    db.flush()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="product_sustainability_attributes", record_id=attribute.id, action="CREATE",
+        new_value=(f"product={product.id};scope={body.scope};category={attribute.category};kind={attribute.kind};"
+                   f"source_type={attribute.source_type};as_of={attribute.as_of};valid_until={attribute.valid_until}"))
+    return attribute
+
+
+@products_router.get("/sustainability/catalog", response_model=SustainabilityCatalogResponse)
+def get_sustainability_catalog(current_user: User = Depends(get_current_user)):
+    """Kategorien, zulaessige Arten, Quellentypen und Haus-Defaults (T-E1)."""
+    standard_categories = set(sustainability_standard_categories())
+    return SustainabilityCatalogResponse(
+        categories=[
+            {
+                "category": category,
+                "criterion_type": sustainability_criterion_type(category),
+                "kinds": list(SUSTAINABILITY_KINDS_BY_CATEGORY[category]),
+                "default_threshold_bps": SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS.get(category),
+                "has_house_standard": category in standard_categories,
+            }
+            for category in SUSTAINABILITY_CATEGORIES
+        ],
+        source_types=list(SUSTAINABILITY_SOURCE_TYPES),
+        statuses=list(SUSTAINABILITY_STATUSES),
+        sfdr_values=list(SFDR_CLASSIFICATION_VALUES),
+        evidence_validity_months=SUSTAINABILITY_EVIDENCE_VALIDITY_MONTHS,
+        client_source_labels=dict(SUSTAINABILITY_CLIENT_SOURCE_LABELS),
+    )
+
+
+@products_router.get("/sustainability/standards", response_model=SustainabilityStandardsResponse)
+def get_sustainability_standards(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Hausstandard der eigenen Verwaltung: Default (T-E1), Tenant-Wert, wirksam."""
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    return SustainabilityStandardsResponse(tenant_id=tenant_id, items=effective_sustainability_standards(db, tenant_id))
+
+
+def _get_standard_category_or_422(category: str) -> str:
+    if category not in sustainability_standard_categories():
+        raise HTTPException(
+            status_code=422,
+            detail=f"Fuer {category!r} gibt es keinen Hausstandard (nur Umsatz- und Verhaltenskriterien).",
+        )
+    return category
+
+
+def _standard_label(item: dict) -> str:
+    if item["is_disabled"]:
+        return "tenant:disabled"
+    prefix = "tenant" if item["is_overridden"] else "default"
+    return f"{prefix}:{item['effective_threshold_bps']}"
+
+
+def _log_standard_change(db: Session, current_user: User, tenant_id: str, category: str, record_id: str,
+                         before: dict, requested: str, change: str) -> None:
+    """N-863-5: Modus wahrheitsgemaess im Audit (tightening | relaxation_draft)."""
+    mode = "tightening" if change == "tightening" else "relaxation_draft"
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="sustainability_exclusion_standards", record_id=record_id, action="UPDATE",
+        field_name=f"{category}.max_revenue_threshold_bps", old_value=_standard_label(before),
+        new_value=f"{requested};mode={mode}" if mode == "tightening"
+        else f"pending:{requested};mode={mode};vier_augen_erforderlich", tenant_id=tenant_id)
+
+
+def _standards_response(db: Session, tenant_id: str) -> SustainabilityStandardsResponse:
+    return SustainabilityStandardsResponse(tenant_id=tenant_id, items=effective_sustainability_standards(db, tenant_id))
+
+
+@products_router.put("/sustainability/standards/{category}", response_model=SustainabilityStandardsResponse)
+def set_sustainability_standard_endpoint(
+    category: str,
+    body: SustainabilityStandardUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Hausschwelle der eigenen Verwaltung setzen (neue Version, auditiert).
+
+    H-1/N-863-5: Richtung relativ zur GELTENDEN Version. Verschaerfung wirkt
+    sofort; Lockerung (hoehere Schwelle als die geltende oder Kategorie
+    deaktiviert) entsteht als Entwurf (``pending``) und wirkt erst nach der
+    Vier-Augen-Freigabe (POST .../approve). Unveraendert -> keine neue
+    Version. UN Global Compact kennt keine Umsatzschwelle (null)."""
+    _get_standard_category_or_422(category)
+    ctype = sustainability_criterion_type(category)
+    if ctype == "conduct" and body.max_revenue_threshold_bps is not None:
+        raise HTTPException(status_code=422, detail="UN Global Compact hat keine Umsatzschwelle (null setzen).")
+    if ctype == "revenue_threshold" and body.max_revenue_threshold_bps is None and not body.is_disabled:
+        raise HTTPException(status_code=422, detail="Schwelle (max_revenue_threshold_bps) fehlt.")
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    before = effective_sustainability_standard(db, tenant_id, category)
+    row, change = set_sustainability_standard(
+        db, tenant_id=tenant_id, category=category,
+        threshold=None if body.is_disabled and ctype == "conduct" else body.max_revenue_threshold_bps,
+        disabled=body.is_disabled, note=(body.note or "").strip() or None,
+        actor_id=current_user.id, now=_now(),
+    )
+    if row is None:
+        return _standards_response(db, tenant_id)  # unveraendert, keine neue Version
+    requested = "tenant:disabled" if body.is_disabled else f"tenant:{body.max_revenue_threshold_bps}"
+    _log_standard_change(db, current_user, tenant_id, category, row.id, before, requested, change)
+    db.commit()
+    return _standards_response(db, tenant_id)
+
+
+@products_router.post("/sustainability/standards/{category}/approve", response_model=SustainabilityStandardsResponse)
+def approve_sustainability_standard_endpoint(
+    category: str,
+    body: ProductSustainabilityApprovalRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Vier-Augen-Freigabe einer offenen Lockerung: 409, wenn die Person, die
+    sie beantragt hat, selbst freigibt (Einzelberater-Ausnahme wie bei den
+    Eignungsregeln); 409 auch ohne offenen Entwurf."""
+    _get_standard_category_or_422(category)
+    body = body or ProductSustainabilityApprovalRequest()
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    before = effective_sustainability_standard(db, tenant_id, category)
+    try:
+        row, previous = approve_sustainability_standard(
+            db, tenant_id=tenant_id, category=category, approver_id=current_user.id, now=_now(),
+            single_approver_attestation=body.single_approver_attestation,
+            attestation_reason=body.attestation_reason,
+        )
+    except LookupError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
+    except RuleApprovalConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
+    after = effective_sustainability_standard(db, tenant_id, category)
+    audit_value = f"{_standard_label(after)};mode=relaxation_approved;approval_mode={row.approval_mode}"
+    if previous is not None:
+        audit_value += f";superseded={previous.id}"
+    if row.approval_mode == "single_approver_attested":
+        audit_value += f";attestation_reason={(body.attestation_reason or '').strip()}"
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="sustainability_exclusion_standards", record_id=row.id, action="UPDATE",
+        field_name=f"{category}.max_revenue_threshold_bps", old_value=_standard_label(before),
+        new_value=audit_value, tenant_id=tenant_id)
+    db.commit()
+    return _standards_response(db, tenant_id)
+
+
+@products_router.delete("/sustainability/standards/{category}/pending", response_model=SustainabilityStandardsResponse)
+def discard_sustainability_standard_endpoint(
+    category: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Offene Lockerung verwerfen (auditiert)."""
+    _get_standard_category_or_422(category)
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    draft = discard_pending_sustainability_standard(
+        db, tenant_id=tenant_id, category=category, actor_id=current_user.id, now=_now(),
+    )
+    if draft is not None:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="sustainability_exclusion_standards", record_id=draft.id, action="UPDATE",
+            field_name=f"{category}.pending", old_value="draft", new_value="retired;verworfen", tenant_id=tenant_id)
+        db.commit()
+    return _standards_response(db, tenant_id)
+
+
+@products_router.delete("/sustainability/standards/{category}", response_model=SustainabilityStandardsResponse)
+def reset_sustainability_standard_endpoint(
+    category: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Zurueck auf den Haus-Default (T-E1), auditiert. N-863-5: ist die
+    geltende Version strenger als der Default, entsteht ein Entwurf
+    (Vier-Augen-Freigabe); sonst wirkt der Reset sofort."""
+    _get_standard_category_or_422(category)
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    before = effective_sustainability_standard(db, tenant_id, category)
+    row, change = reset_sustainability_standard(
+        db, tenant_id=tenant_id, category=category, actor_id=current_user.id, now=_now(),
+    )
+    default_label = f"default:{SUSTAINABILITY_DEFAULT_THRESHOLDS_BPS[category]}"
+    if row is not None and change == "draft_withdrawn":
+        # E-2: ohne geltende Version zieht der Reset die offene Lockerung zurueck.
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="sustainability_exclusion_standards", record_id=row.id, action="UPDATE",
+            field_name=f"{category}.pending", old_value="draft", new_value="retired;mode=relaxation_withdrawn",
+            tenant_id=tenant_id)
+        db.commit()
+    elif row is not None and change != "unchanged":
+        _log_standard_change(db, current_user, tenant_id, category, row.id, before, default_label, change)
+        db.commit()
+    elif row is not None:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="sustainability_exclusion_standards", record_id=row.id, action="UPDATE",
+            field_name=f"{category}.max_revenue_threshold_bps", old_value=_standard_label(before),
+            new_value=f"{default_label};mode=unchanged", tenant_id=tenant_id)
+        db.commit()
+    return _standards_response(db, tenant_id)
+
+
+@products_router.get("/sustainability/attributes", response_model=list[ProductSustainabilityAttributeResponse])
+def list_sustainability_attributes(
+    status: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    product_id: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Alle fuer die eigene Verwaltung sichtbaren Nachweise (Plattform +
+    eigener Tenant), z. B. ``status=draft`` als Freigabe-Warteschlange."""
+    query = _visible_sustainability_query(db, _resolve_tenant_id_for_user(current_user))
+    if status:
+        query = query.filter(ProductSustainabilityAttribute.status == status)
+    if category:
+        query = query.filter(ProductSustainabilityAttribute.category == category)
+    if product_id:
+        query = query.filter(ProductSustainabilityAttribute.product_id == product_id)
+    rows = query.order_by(
+        ProductSustainabilityAttribute.product_id, ProductSustainabilityAttribute.category,
+        ProductSustainabilityAttribute.as_of.desc(), ProductSustainabilityAttribute.id,
+    ).all()
+    return [_sustainability_response(row) for row in rows]
+
+
+def _sustainability_import_item(
+    db: Session, current_user: User, row_number: int, item: ProductSustainabilityAttributeImportItem, now: str,
+) -> ProductSustainabilityImportResultItem:
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    product = None
+    if item.product_id:
+        try:
+            product = _get_product_or_404(item.product_id, db, current_user)
+        except HTTPException:
+            product = None
+    elif item.isin:
+        product = _active_products_query(db, tenant_id=tenant_id).filter(Product.isin == item.isin.upper()).first()
+    if product is None or (item.isin and product.isin and product.isin != item.isin.upper()):
+        return ProductSustainabilityImportResultItem(
+            row=row_number, status="failed", product_id=item.product_id, error="Produkt nicht gefunden",
+        )
+    savepoint = db.begin_nested()
+    try:
+        body = ProductSustainabilityAttributeCreate(**item.model_dump(exclude={"product_id", "isin"}))
+        attribute = _create_sustainability_attribute(db, current_user, product, body, now)
+    except HTTPException as exc:
+        savepoint.rollback()
+        return ProductSustainabilityImportResultItem(
+            row=row_number, status="failed", product_id=product.id, error=str(exc.detail),
+        )
+    except IntegrityError as exc:
+        savepoint.rollback()
+        # RC-CH-1-F1: eine CHECK-Verletzung ist kein Duplikat; die Zeile scheitert
+        # mit eigenem Grund (ohne Werte), der Import der uebrigen Zeilen laeuft weiter.
+        if is_check_constraint_violation(exc):
+            return ProductSustainabilityImportResultItem(
+                row=row_number, status="failed", product_id=product.id,
+                error="Wert ausserhalb des zulaessigen Wertebereichs",
+            )
+        return ProductSustainabilityImportResultItem(
+            row=row_number, status="failed", product_id=product.id, error="Nachweis existiert bereits",
+        )
+    savepoint.commit()
+    return ProductSustainabilityImportResultItem(
+        row=row_number, status="created", attribute_id=attribute.id, product_id=product.id,
+    )
+
+
+def _sustainability_import_response(items: list[ProductSustainabilityImportResultItem]) -> ProductSustainabilityImportResponse:
+    created = sum(1 for item in items if item.status == "created")
+    return ProductSustainabilityImportResponse(
+        processed=len(items), created=created, failed=len(items) - created, items=items,
+    )
+
+
+@products_router.post(
+    "/sustainability/attributes/import", response_model=ProductSustainabilityImportResponse, status_code=201,
+)
+def import_sustainability_attributes(
+    body: ProductSustainabilityAttributeImportRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """JSON-Import. Jede Zeile wird als ENTWURF angelegt (nie direkt
+    freigegeben); die Freigabe erfolgt danach durch eine andere Person
+    (Vier-Augen, POST .../approve). Fehlerhafte Zeilen werden einzeln
+    gemeldet, gueltige trotzdem angelegt."""
+    now = _now()
+    items = [
+        _sustainability_import_item(db, current_user, index, item, now)
+        for index, item in enumerate(body.attributes, start=1)
+    ]
+    db.commit()
+    return _sustainability_import_response(items)
+
+
+@products_router.post(
+    "/sustainability/attributes/import/csv", response_model=ProductSustainabilityImportResponse, status_code=201,
+)
+def import_sustainability_attributes_csv(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """CSV-Import (Komma/Semikolon/Tab, UTF-8, Kopfzeile = Spaltennamen des
+    Exports). Wie der JSON-Import: nur Entwuerfe, Fehler je Zeile."""
+    raw_bytes = file.file.read(_PRODUCT_IMPORT_MAX_FILE_BYTES + 1)
+    if len(raw_bytes) > _PRODUCT_IMPORT_MAX_FILE_BYTES:
+        raise HTTPException(
+            status_code=413, detail=f"CSV-Datei zu gross (max. {_PRODUCT_IMPORT_MAX_FILE_BYTES // 1024} KB)",
+        )
+    try:
+        text_content = raw_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=422, detail="CSV-Datei muss UTF-8-kodiert sein")
+    try:
+        dialect = csv.Sniffer().sniff(text_content[:2048], delimiters=",;\t")
+    except csv.Error:
+        dialect = csv.excel
+    reader = csv.DictReader(io.StringIO(text_content), dialect=dialect)
+    if not reader.fieldnames:
+        raise HTTPException(status_code=422, detail="CSV-Datei hat keine Kopfzeile")
+    rows = []
+    for raw in reader:
+        normalized = {}
+        for key, value in raw.items():
+            field = str(key or "").strip().lower()
+            if field in _SUSTAINABILITY_CSV_FIELDS:
+                # Schutz-Apostroph eines eigenen Exports wieder entfernen
+                # (Export -> Import verlustfrei, gleiche Regel wie N-861-4).
+                value = _csv_unescape_cell(value.strip()) if isinstance(value, str) else value
+                normalized[field] = value if value else None
+        rows.append(normalized)
+    if not rows:
+        raise HTTPException(status_code=422, detail="CSV-Datei enthaelt keine Datenzeilen")
+    if len(rows) > _PRODUCT_IMPORT_MAX_ROWS:
+        raise HTTPException(status_code=422, detail=f"Maximal {_PRODUCT_IMPORT_MAX_ROWS} Zeilen pro Import")
+    now = _now()
+    items = []
+    for index, row in enumerate(rows, start=1):
+        if row.get("scope") is None:
+            row.pop("scope", None)
+        try:
+            item = ProductSustainabilityAttributeImportItem.model_validate(row)
+        except ValidationError as exc:
+            items.append(ProductSustainabilityImportResultItem(
+                row=index, status="failed", product_id=row.get("product_id"), error=_format_validation_error(exc),
+            ))
+            continue
+        items.append(_sustainability_import_item(db, current_user, index, item, now))
+    db.commit()
+    return _sustainability_import_response(items)
+
+
+@products_router.get("/sustainability/attributes/export")
+def export_sustainability_attributes(
+    format: str = Query(default="csv", pattern="^(csv|json)$"),
+    status: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Export der sichtbaren Nachweise (Plattform + eigener Tenant). Die
+    ersten Spalten entsprechen dem Import; leerer Export = CSV-Vorlage."""
+    query = _visible_sustainability_query(db, _resolve_tenant_id_for_user(current_user))
+    if status:
+        query = query.filter(ProductSustainabilityAttribute.status == status)
+    rows = query.order_by(
+        ProductSustainabilityAttribute.product_id, ProductSustainabilityAttribute.category,
+        ProductSustainabilityAttribute.as_of.desc(), ProductSustainabilityAttribute.id,
+    ).all()
+    isins = {
+        product.id: product.isin
+        for product in db.query(Product).filter(Product.id.in_({row.product_id for row in rows})).all()
+    } if rows else {}
+    records = []
+    for row in rows:
+        data = _sustainability_response(row).model_dump()
+        data["isin"] = isins.get(row.product_id)
+        records.append(data)
+    if format == "json":
+        return {"attributes": records}
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    header = _SUSTAINABILITY_CSV_FIELDS + _SUSTAINABILITY_EXPORT_EXTRA_FIELDS
+    writer.writerow(header)
+    for record in records:
+        writer.writerow([_sustainability_csv_cell(record.get(name)) for name in header])
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=nachhaltigkeitsnachweise.csv"},
+    )
+
+
+@products_router.post(
+    "/sustainability/attributes/approve", response_model=ProductSustainabilityApprovalResponse,
+)
+def approve_sustainability_attributes_batch(
+    body: ProductSustainabilityBatchApprovalRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Sammelfreigabe (z. B. nach einem Import). Alles oder nichts: ein
+    Vier-Augen-Verstoss oder ein ungueltiger Entwurf -> 409, nichts wird
+    freigegeben."""
+    return _approve_sustainability(db, current_user, list(dict.fromkeys(body.attribute_ids)), body)
+
+
+@products_router.post(
+    "/sustainability/attributes/{attribute_id}/approve", response_model=ProductSustainabilityApprovalResponse,
+)
+def approve_sustainability_attribute_endpoint(
+    attribute_id: str,
+    body: ProductSustainabilityApprovalRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Vier-Augen-Freigabe eines Entwurfs: 409, wenn die erfassende Person
+    selbst freigibt (Einzelberater-Ausnahme wie bei den Eignungsregeln);
+    403 fuer Plattform-Nachweise ohne Plattform-Recht."""
+    return _approve_sustainability(db, current_user, [attribute_id], body or ProductSustainabilityApprovalRequest())
+
+
+def _approve_sustainability(db: Session, current_user: User, attribute_ids: list[str], body) -> ProductSustainabilityApprovalResponse:
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    approved: list[str] = []
+    retired: list[str] = []
+    modes: set[str] = set()
+    now = _now()
+    try:
+        for attribute_id in attribute_ids:
+            _get_sustainability_attribute_or_404(attribute_id, db, current_user, for_write=True)
+            attribute, previous = approve_sustainability_attribute(
+                db, attribute_id=attribute_id, approver_id=current_user.id, tenant_id=tenant_id, now=now,
+                single_approver_attestation=body.single_approver_attestation,
+                attestation_reason=body.attestation_reason,
+            )
+            approved.append(attribute.id)
+            modes.add(attribute.approval_mode)
+            for old in previous:
+                retired.append(old.id)
+                log(db, user_id=current_user.id, user_name=current_user.full_name,
+                    table_name="product_sustainability_attributes", record_id=old.id, action="UPDATE",
+                    field_name="status", old_value="approved", new_value=f"retired;superseded_by={attribute.id}")
+            audit_value = f"approved;approval_mode={attribute.approval_mode}"
+            if attribute.approval_mode == "single_approver_attested":
+                audit_value += f";attestation_reason={(body.attestation_reason or '').strip()}"
+            log(db, user_id=current_user.id, user_name=current_user.full_name,
+                table_name="product_sustainability_attributes", record_id=attribute.id, action="UPDATE",
+                field_name="status", old_value="draft", new_value=audit_value)
+    except HTTPException:
+        db.rollback()
+        raise
+    except LookupError:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="Nachhaltigkeitsnachweis nicht gefunden")
+    except RuleApprovalConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
+    db.commit()
+    return ProductSustainabilityApprovalResponse(
+        approved_ids=approved, retired_ids=retired, approval_mode=",".join(sorted(modes)),
+    )
+
+
+@products_router.post(
+    "/sustainability/attributes/{attribute_id}/retire", response_model=ProductSustainabilityAttributeResponse,
+)
+def retire_sustainability_attribute_endpoint(
+    attribute_id: str,
+    body: ProductSustainabilityRetireRequest | None = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Freigegebenen Nachweis zurueckziehen; er zaehlt danach nie mehr."""
+    _get_sustainability_attribute_or_404(attribute_id, db, current_user, for_write=True)
+    try:
+        attribute = retire_sustainability_attribute(
+            db, attribute_id=attribute_id, actor_id=current_user.id,
+            tenant_id=_resolve_tenant_id_for_user(current_user), now=_now(),
+        )
+    except SustainabilityAttributeConflict as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
+    reason = ((body.reason if body else None) or "").strip()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="product_sustainability_attributes", record_id=attribute.id, action="UPDATE",
+        field_name="status", old_value="approved", new_value=f"retired;reason={reason}" if reason else "retired")
+    db.commit()
+    return _sustainability_response(attribute)
+
+
+@products_router.patch(
+    "/sustainability/attributes/{attribute_id}", response_model=ProductSustainabilityAttributeResponse,
+)
+def update_sustainability_attribute(
+    attribute_id: str,
+    body: ProductSustainabilityAttributeUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Entwurf bearbeiten -- nur durch die erfassende Person, damit die
+    freigebende Person nie Inhalte freigibt, die sie selbst geschrieben hat.
+    Freigegebene Nachweise sind unveraenderlich (Korrektur = neuer Entwurf)."""
+    attribute = _get_sustainability_attribute_or_404(attribute_id, db, current_user, for_write=True)
+    if attribute.status != "draft":
+        raise HTTPException(
+            status_code=409,
+            detail="Nur Entwuerfe koennen bearbeitet werden; fuer eine Korrektur einen neuen Nachweis erfassen.",
+        )
+    if attribute.created_by != current_user.id:
+        raise HTTPException(
+            status_code=409,
+            detail="Einen Entwurf bearbeitet nur die Person, die ihn erfasst hat (Vier-Augen-Prinzip).",
+        )
+    changes = body.model_dump(exclude_unset=True)
+    for name in ("as_of", "valid_until", "source_retrieved_on", "source_document_date"):
+        if changes.get(name) is not None:
+            changes[name] = changes[name].isoformat()
+    if "as_of" in changes and "valid_until" not in changes:
+        changes["valid_until"] = default_evidence_valid_until(body.as_of).isoformat()
+    merged = {name: getattr(attribute, name) for name in ("category", "kind", *_SUSTAINABILITY_EDITABLE_FIELDS)}
+    merged.update(changes)
+    if "client_source_label" not in changes:
+        # N-863-8: abgeleitet, folgt einem geaenderten Quellentyp
+        merged["client_source_label"] = default_client_source_label(merged.get("source_type"))
+    if merged.get("valid_until") is None and merged.get("as_of"):
+        merged["valid_until"] = default_evidence_valid_until(date.fromisoformat(str(merged["as_of"])[:10])).isoformat()
+    errors = sustainability_attribute_errors(merged)
+    if errors:
+        raise HTTPException(status_code=422, detail=" ".join(errors))
+    merged["client_source_label"] = default_client_source_label(merged.get("source_type"))
+    for name in _SUSTAINABILITY_EDITABLE_FIELDS:
+        setattr(attribute, name, merged.get(name))
+    attribute.updated_at = _now()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
+        raise HTTPException(status_code=409, detail="Nachweis mit diesem Stichtag existiert bereits.")
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="product_sustainability_attributes", record_id=attribute.id, action="UPDATE",
+        new_value=", ".join(sorted(changes)))
+    db.commit()
+    return _sustainability_response(attribute)
+
+
+@products_router.delete("/sustainability/attributes/{attribute_id}", status_code=204)
+def delete_sustainability_attribute_draft(
+    attribute_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Nur Entwuerfe loeschen (sie waren nie Nachweis). Freigegebene
+    Nachweise werden zurueckgezogen, nicht geloescht (Audit-Spur)."""
+    attribute = _get_sustainability_attribute_or_404(attribute_id, db, current_user, for_write=True)
+    if attribute.status != "draft":
+        raise HTTPException(status_code=409, detail="Nur Entwuerfe koennen geloescht werden; freigegebene Nachweise zurueckziehen.")
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="product_sustainability_attributes", record_id=attribute.id, action="DELETE",
+        old_value=f"draft;category={attribute.category};kind={attribute.kind};as_of={attribute.as_of}")
+    db.delete(attribute)
+    db.commit()
+    return Response(status_code=204)
+
+
+@products_router.get(
+    "/{product_id}/sustainability-attributes", response_model=list[ProductSustainabilityAttributeResponse],
+)
+def list_product_sustainability_attributes(
+    product_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    product = _get_product_or_404(product_id, db, current_user)
+    rows = _visible_sustainability_query(db, _resolve_tenant_id_for_user(current_user)).filter(
+        ProductSustainabilityAttribute.product_id == product.id,
+    ).order_by(
+        ProductSustainabilityAttribute.category, ProductSustainabilityAttribute.as_of.desc(),
+        ProductSustainabilityAttribute.id,
+    ).all()
+    return [_sustainability_response(row) for row in rows]
+
+
+@products_router.post(
+    "/{product_id}/sustainability-attributes", response_model=ProductSustainabilityAttributeResponse, status_code=201,
+)
+def create_product_sustainability_attribute(
+    product_id: str,
+    body: ProductSustainabilityAttributeCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Nachweis als Entwurf erfassen (Quelle und Stichtag Pflicht; gueltig
+    bis leer = Stichtag + 12 Monate). Zaehlt erst nach Vier-Augen-Freigabe."""
+    product = _get_product_or_404(product_id, db, current_user)
+    try:
+        attribute = _create_sustainability_attribute(db, current_user, product, body, _now())
+    except IntegrityError as exc:
+        db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
+        raise HTTPException(status_code=409, detail="Nachweis existiert bereits.")
+    db.commit()
+    return _sustainability_response(attribute)
+
+
+
+# ── E2b: Erfuellbarkeit der Strategie-Optionen (nur Erfuellbares anbieten) ────
+# Komposition aus dem Produktuniversum + Matcher des Produktlaufs (services/
+# portfolio_engine_payload.py::strategy_option_coverage) und den Ausschluss-
+# nachweisen (services/product_eligibility_governance.py::evaluate_criterion,
+# einzige Stelle fuer "erfuellt": nur freigegebene, gueltige, sichtbare
+# Nachweise mit Quelle und Stichtag; Seed-/Katalogfelder zaehlen nie).
+def strategy_option_coverage_for_mandate(db: Session, mandate, base_exclusions=None, *, only_exclusions=False) -> dict:
+    """``base_exclusions``: Ausschluesse, mit denen jede Option KOMBINIERT
+    geprueft wird (Default: die aktuell erfassten)."""
+    as_of = date.today().isoformat()
+    tenant_id = getattr(mandate, "tenant_id", None)
+    categories = sustainability_preference.EXCLUSION_EVIDENCE_CATEGORIES
+    thresholds = {
+        theme: effective_sustainability_threshold(db, tenant_id, category, as_of)
+        for theme, category in categories.items()
+    }
+    by_product: dict[str, list] = {}
+    for attribute in db.query(ProductSustainabilityAttribute).filter(
+        ProductSustainabilityAttribute.status == "approved",
+    ).all():
+        by_product.setdefault(attribute.product_id, []).append(attribute)
+
+    cache: dict[tuple, bool] = {}
+
+    def _evidence(product, themes):
+        """Alle Themen am SELBEN Produkt belegt (N-901-03)."""
+        rows = by_product.get(product.id)
+        if not rows:
+            return False
+        for theme in themes:
+            key = (product.id, theme)
+            if key not in cache:
+                cache[key] = evaluate_criterion(
+                    db, product, categories[theme], thresholds[theme], as_of, tenant_id=tenant_id, attributes=rows,
+                ).satisfied
+            if not cache[key]:
+                return False
+        return True
+
+    assessment = (
+        db.query(RiskAssessment).filter(RiskAssessment.mandate_id == mandate.id)
+        .order_by(RiskAssessment.created_at.desc()).first()
+    )
+    service_mode, run_tenant = derive_service_mode(mandate), eligibility_mandate_tenant_id(mandate)
+    jurisdiction = build_run_context(mandate).jurisdiction  # X2b: eine Aufloesung
+    bucket = _risk_score_bucket(assessment) if assessment else 0
+
+    def _eligible(product):
+        return is_eligible_candidate(
+            db, product, service_mode=service_mode, score_bucket=bucket, jurisdiction=jurisdiction,
+            tenant_id=run_tenant,
+        )
+
+    if base_exclusions is None:
+        try:
+            base_exclusions = sustainability_preference.effective_exclusions(preference_state(db, mandate).get("decision"))
+        except (TypeError, ValueError):
+            base_exclusions = []
+    current_ta = _current_target_allocation_or_none(db, mandate.id)
+    try:
+        base_preferences = json.loads(current_ta.preferences_json) if current_ta is not None and current_ta.preferences_json else None
+    except (TypeError, ValueError):
+        base_preferences = None
+    return strategy_option_coverage(
+        db, mandate, exclusion_evidence=_evidence, as_of=as_of, eligible=_eligible,
+        normalize_preferences=_normalize_preferences, norm=_norm_text,
+        jurisdiction_ctx=_resolve_jurisdiction_context(db, mandate, jurisdiction),
+        base_preferences=base_preferences if isinstance(base_preferences, dict) else None,
+        base_exclusions=base_exclusions, only_exclusions=only_exclusions,
+    )
+
+
+def customer_exclusion_options(db: Session, mandate, base_exclusions=None) -> list[dict]:
+    """Ausschlusswuensche der Erhebung mit Abdeckung (exclusion:<thema>),
+    jeweils kombiniert mit ``base_exclusions`` geprueft (N-901-03)."""
+    coverage = strategy_option_coverage_for_mandate(db, mandate, base_exclusions, only_exclusions=True)
+    by_key = {option["key"]: option for option in coverage["options"]}
+    return [
+        {**by_key["exclusion:" + theme], "key": theme}
+        for theme in sustainability_preference.EXCLUSION_KEYS
+    ]
+
+
+def assert_customer_exclusions_offerable(db: Session, mandate, *, channel: str) -> None:
+    """Fail-closed: ein erfasster Ausschluss, dessen Abdeckung im Produkt-
+    universum nicht (mehr) belegt ist, sperrt den Kanal (kurze Meldung +
+    Detail)."""
+    decision = preference_state(db, mandate).get("decision")
+    try:
+        exclusions = sustainability_preference.effective_exclusions(decision)
+    except (TypeError, ValueError):
+        exclusions = []
+    if not exclusions:
+        return
+    options = {o["key"]: o for o in customer_exclusion_options(db, mandate, exclusions)}
+    blocked = [key for key in exclusions if not options.get(key, {}).get("available")]
+    if blocked:
+        label = sustainability_preference.FLOOR_CHANNEL_LABELS.get(channel, "Freigabe nicht möglich")
+        raise DomainError(
+            ReasonCode.SUSTAINABILITY_OPTION_NOT_OFFERABLE,
+            f"{label}: Ausschluss ({', '.join(sustainability_preference.exclusion_labels(blocked))}) "
+            "nicht mehr belegt erfüllbar. Einstellung: Nachhaltigkeitspräferenz. "
+            "Bitte neu erheben oder belegte Produkte aufnehmen.",
+            http_status=409,
+            extra={"channel": channel, "detail": "; ".join(
+                f"{sustainability_preference.EXCLUSION_LABELS[k]}: {options.get(k, {}).get('reason') or ''}"
+                for k in blocked
+            )},
+        )
+
+
+@recommendations_router.get(
+    "/mandates/{mandate_id}/strategy-option-coverage",
+    response_model=StrategyOptionCoverageResponse,
+)
+def get_strategy_option_coverage(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """E2b: welche Strategie-Optionen (Restriktionen, Themen, Kunden-
+    ausschluesse) das aktive Produktuniversum des Mandats belegt erfuellen
+    kann. Nicht erfuellbare Optionen tragen einen kurzen Grund."""
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    return strategy_option_coverage_for_mandate(db, mandate)

@@ -30,6 +30,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 BUCKETS = ["equities", "bonds", "real_estate", "alternatives", "liquidity"]
@@ -48,7 +50,7 @@ def _function(src: str, signature: str) -> str:
 def _run(scenario_js: str) -> dict:
     if shutil.which("node") is None:
         pytest.skip("node binary not available to execute extracted JS")
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     names = [
         "function normalizeBandKey(", "function parseBandPercentInput(",
         "function formatBandPercent(", "function normalizeBandOverrideEntry(",
@@ -114,7 +116,7 @@ function engineResult(overrides){
     return {key:k,band_min_bps:b[0],target_weight_bps:b[1],band_max_bps:b[2]};})};
 }
 """
-    script = "\n".join(fns) + harness + scenario_js
+    script = rounding_module_source() + "\n".join(fns) + harness + scenario_js
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as fh:
         fh.write(script)
         path = fh.name

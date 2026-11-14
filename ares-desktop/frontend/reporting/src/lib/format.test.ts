@@ -19,28 +19,28 @@ import contract from './format.contract.json';
 
 describe('formatChfRappen', () => {
   it('formatiert Rappen mit Apostroph als Tausender', () => {
-    expect(formatChfRappen(6_600_000)).toBe("CHF 66'000");
-    expect(formatChfRappen(250_000_000)).toBe("CHF 2'500'000");
+    expect(formatChfRappen(6_600_000, { currency: 'CHF' })).toBe("CHF 66'000");
+    expect(formatChfRappen(250_000_000, { currency: 'CHF' })).toBe("CHF 2'500'000");
   });
 
   it('rendert null/undefined als em-dash', () => {
-    expect(formatChfRappen(null)).toBe('—');
-    expect(formatChfRappen(undefined)).toBe('—');
+    expect(formatChfRappen(null, { currency: 'CHF' })).toBe('—');
+    expect(formatChfRappen(undefined, { currency: 'CHF' })).toBe('—');
   });
 
   it('respektiert withUnit=false (gibt nur Zahl)', () => {
-    expect(formatChfRappen(1_000_000, { withUnit: false })).toBe("10'000");
-    expect(formatChfRappen(null, { withUnit: false })).toBe('0');
+    expect(formatChfRappen(1_000_000, { withUnit: false , currency: 'CHF' })).toBe("10'000");
+    expect(formatChfRappen(null, { withUnit: false , currency: 'CHF' })).toBe('0');
   });
 
   it('rundet auf ganze CHF (keine Rappen-Anzeige)', () => {
     // 99'999 Rappen = 999.99 CHF → gerundet 1'000
-    expect(formatChfRappen(99_999)).toBe("CHF 1'000");
+    expect(formatChfRappen(99_999, { currency: 'CHF' })).toBe("CHF 1'000");
   });
 
   it('robust gegen NaN/Infinity', () => {
-    expect(formatChfRappen(Number.NaN)).toBe('—');
-    expect(formatChfRappen(Number.POSITIVE_INFINITY)).toBe('—');
+    expect(formatChfRappen(Number.NaN, { currency: 'CHF' })).toBe('—');
+    expect(formatChfRappen(Number.POSITIVE_INFINITY, { currency: 'CHF' })).toBe('—');
   });
 });
 
@@ -90,13 +90,13 @@ describe('AA-UX-FORMAT-001: gemeinsamer Vertrag (format.contract.json)', () => {
     });
   }
   for (const [rappenChf, expected] of contract.compact_chf_cases as Array<[number, string]>) {
-    it(`fmtChfCompact(${rappenChf})`, () => {
-      expect(fmtChfCompact(rappenChf)).toBe(expected);
+    it(`fmtChfCompact(${rappenChf}, 'CHF')`, () => {
+      expect(fmtChfCompact(rappenChf, 'CHF')).toBe(expected);
     });
   }
   for (const [rappen, expected] of contract.chf_rappen_cases as Array<[number, string]>) {
-    it(`formatChfRappen(${rappen}) -> gerades Apostroph`, () => {
-      expect(formatChfRappen(rappen)).toBe(expected);
+    it(`formatChfRappen(${rappen}, { currency: 'CHF' }) -> gerades Apostroph`, () => {
+      expect(formatChfRappen(rappen, { currency: 'CHF' })).toBe(expected);
     });
   }
   for (const [input, expected] of contract.parse_cases as Array<[string, number]>) {
@@ -105,11 +105,11 @@ describe('AA-UX-FORMAT-001: gemeinsamer Vertrag (format.contract.json)', () => {
     });
   }
   it('kein typografisches Apostroph (U+2019) in CHF-Ausgaben', () => {
-    expect(formatChfFromRappen(125_000_000)).toBe("CHF 1'250'000");
-    expect(fmtChfCompact(850_000)).not.toContain('’');
+    expect(formatChfFromRappen(125_000_000, 'CHF')).toBe("CHF 1'250'000");
+    expect(fmtChfCompact(850_000, 'CHF')).not.toContain('’');
   });
   it('negative CHF mit U+2212', () => {
-    expect(formatChfRappen(-123_400)).toBe("CHF \u22121'234");
+    expect(formatChfRappen(-123_400, { currency: 'CHF' })).toBe("CHF \u22121'234");
   });
 });
 

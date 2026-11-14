@@ -37,14 +37,14 @@ describe('fanAnnotations — gemeinsamer Vertrag App/Report', () => {
   it.each((contract as C).above_scale_cases as Array<[number | null, string]>)(
     'Ziel ueber Skala %s -> %s',
     (chf, expected) => {
-      expect(fanAboveScaleText(chf)).toBe(expected);
+      expect(fanAboveScaleText(chf, 'CHF')).toBe(expected);
     },
   );
 
   it.each(
     (contract as C).range_sentence_cases as Array<[string | number, number | null, number | null, string]>,
   )('Satz %s / %s / %s', (year, p10, p90, expected) => {
-    expect(fanRangeSentence(year, p10, p90)).toBe(expected);
+    expect(fanRangeSentence(year, p10, p90, 'CHF')).toBe(expected);
   });
 
   it.each(
@@ -54,7 +54,7 @@ describe('fanAnnotations — gemeinsamer Vertrag App/Report', () => {
   });
 
   it('keine Garantie-/Zusicherungsformulierung im Klartext-Satz', () => {
-    const s = fanRangeSentence('2050', 1_600_000, 3_400_000);
+    const s = fanRangeSentence('2050', 1_600_000, 3_400_000, 'CHF');
     expect(s).not.toMatch(/garant|sicher|gewiss|wird .* erreich/i);
     expect(s).toMatch(/^In 8 von 10 Verläufen/);
   });

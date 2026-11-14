@@ -300,8 +300,9 @@ def test_assetallocation_pdf_prints_target_bands_in_single_extract(ctx):
 
     assert "Band Min" in text
     assert "Band Max" in text
-    assert "55%" in text
-    assert "65%" in text
+    # G7: Baender ueber den gemeinsamen Formatter (1 Nachkommastelle, "55.0 %").
+    assert "55.0 %" in text
+    assert "65.0 %" in text
 
 
 def test_anlagestrategie_risk_questionnaire_formats_knowledge_answers(ctx):

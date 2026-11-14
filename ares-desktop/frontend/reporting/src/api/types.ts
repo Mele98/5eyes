@@ -192,6 +192,8 @@ export interface ClientInfo {
   risikoprofil: string;
   anlageziel: string;
   liquiditaetsbedarf_rappen: number;
+  /** G7 N4: Waehrung der Rohsumme (Ausgaben-Cashflows ohne FX); null = gemischt/unbekannt. */
+  liquiditaetsbedarf_currency?: string | null;
   steuerdomizil: string;
   referenzwaehrung: string;
 }
@@ -525,6 +527,11 @@ export interface MonteCarloPaths {
   projection_status?: 'current' | 'stale' | 'blocked' | 'data_pending';
   /** SIM-HORIZON-FROM-RISK-PROFILE-001: bestimmende Groesse des Horizonts. */
   horizon_note?: string;
+  /**
+   * G7 N4: Waehrung der Pfadwerte. Startvermoegen und Netto-Cashflow sind
+   * Rohsummen ohne FX; nur bei einheitlicher Datensatzwaehrung gesetzt, sonst null.
+   */
+  amount_currency?: string | null;
   /** MORT-CHANNEL-001: `disabled` = kein Mortalitaets-Cutoff (wie Solver). */
   mortality_mode?: 'disabled' | 'fixed_override' | 'planning_quantile' | null;
   mortality_cutoff_year_index?: number | null;
@@ -915,6 +922,8 @@ export interface ProjectionGateData {
 export interface AdvisoryReport {
   schema_version: 2;
   mandate_id: string;
+  /** Mandatswaehrung (immer vorhanden; G7 N-894-10: Betragsbeschriftung im Bericht). */
+  mandate_currency?: string;
   /** ISO-Timestamp YYYY-MM-DDTHH:MM:SS.SSSZ */
   generated_at: string;
   /** TAX-01 (Audit-Finding, 2026-10-07): Hinweistext bei Steuerdomizil-Mismatch
@@ -1523,7 +1532,16 @@ export type NationalityRecord = ApiResponse<'NationalityResponse'>;
 // ---------------------------------------------------------------------------
 
 export interface OptHistoryCreatePayload {
-  event_type: string;
+  // N-890-13: optional; der Server leitet es aus dem Uebergang ab
+  // (FIDLEG-Werteliste wie OptHistoryCreate.event_type).
+  event_type?:
+    | 'Opting-out zu Professionell'
+    | 'Opting-out zu Institutionell'
+    | 'Opting-in zu Privatkunde'
+    | 'Opting-in zu Professionell'
+    | 'Qualifizierter Anleger bestätigt'
+    | 'Klassifizierung überprüft'
+    | null;
   from_classification: ClientClassification;
   to_classification: ClientClassification;
   client_requested?: boolean;
