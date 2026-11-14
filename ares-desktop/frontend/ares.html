@@ -23436,10 +23436,10 @@ async function saveCashflow(){
     setTimeout(function(){cm('m-acf');},1200);
   }
 }
-// ---------------------------------------------------------------------------
-// Roadmap #54: Dedizierte Vermoegenszufluesse (einmalige Wealth-Inflows).
-// ADDITIV — die bestehenden Cashflow-Funktionen bleiben unberuehrt. Eigenes
-// State (currentInflowsW_LIFE_AREAS=[
+// 2026-06-15 (#99): Holistische Gruppierung der Cashflows nach Lebensbereich,
+// wie ein Berater denkt (Erwerb → Vorsorge → Wohnen → Kapital → Lebenshaltung).
+// Reihenfolge fix; innerhalb einer Gruppe bleibt die manuelle Sortierung erhalten.
+var CASHFLOW_LIFE_AREAS=[
   {key:'erwerb',label:'Erwerb',re:/(lohn|gehalt|sal(ä|ae)r|erwerb|bonus|honorar|selbst|gesch(ä|ae)ft|einkommen|nebenerwerb)/i},
   {key:'vorsorge',label:'Vorsorge',re:/(ahv|\biv\b|rente|pension|pensionskasse|\bpk\b|bvg|s(ä|ae)ule|\b3a\b|\b3b\b|leibrente|vorsorge|freiz(ü|ue)g|ergänzungsleist)/i},
   {key:'wohnen',label:'Wohnen',re:/(hypothek|miete|mietzins|wohn|nebenkosten|liegenschaft|immobil|eigenheim|unterhalt liegensch)/i},
