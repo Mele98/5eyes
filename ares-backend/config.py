@@ -48,7 +48,24 @@ def guarded_sqlite_connect(target, *, context: str, connector=None, **kwargs):
 
         connector = sqlite3.connect
     refuse_owner_db_file(str(target), context=context)
-    return connector(target, **kwargs)
+    conn = connector(target, **kwargs)
+    install_attach_authorizer(conn)
+    return conn
+
+
+def _attach_authorizer(action, arg1, arg2, dbname, source):  # noqa: ARG001
+    """N-907-12: SQLite-Authorizer -- nur ``SQLITE_ATTACH`` wird bewertet, mit
+    derselben Owner-Pfad-Pruefung (Ziel von SQLite selbst, kein Textparsing)."""
+    if action != _db_location.SQLITE_ATTACH:
+        return _db_location.SQLITE_OK
+    return _db_location.attach_decision(arg1, os.environ)
+
+
+def install_attach_authorizer(dbapi_connection) -> None:
+    """Setzt den ATTACH-Authorizer auf einer DBAPI-Verbindung (sqlite3/sqlcipher3)."""
+    setter = getattr(dbapi_connection, "set_authorizer", None)
+    if callable(setter):
+        setter(_attach_authorizer)
 
 
 def _install_owner_db_guard() -> None:
@@ -60,15 +77,13 @@ def _install_owner_db_guard() -> None:
         if dialect.name == "sqlite":
             refuse_owner_db_file(_db_location.connect_target(cargs, cparams), context="Datenbank")
 
-    def _attach_guard(conn, cursor, statement, parameters, context, executemany):  # noqa: ARG001
-        # N-907-02: ATTACH legt eine Datei ohne do_connect an -- dieselbe Pruefung.
-        if conn.dialect.name == "sqlite":
-            for target in _db_location.attach_targets(statement, parameters):
-                refuse_owner_db_file(target, context="ATTACH")
+    def _authorize(dbapi_connection, connection_record):  # noqa: ARG001
+        # N-907-12: ATTACH legt eine Datei ohne do_connect an -- Authorizer je Verbindung.
+        install_attach_authorizer(dbapi_connection)
 
     if not getattr(Engine, "_ares_owner_db_guard", False):
         event.listen(Engine, "do_connect", _guard)
-        event.listen(Engine, "before_cursor_execute", _attach_guard)
+        event.listen(Engine, "connect", _authorize)
         Engine._ares_owner_db_guard = True
 
 

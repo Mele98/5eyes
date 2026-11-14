@@ -79,20 +79,71 @@ def _windows_clean(path: str) -> str:
     return head + ''.join(parts)
 
 
+_DEVICE_PREFIXES = ('\\\\?\\UNC\\', '\\\\?\\', '\\\\.\\', '//?/UNC/', '//?/', '//./')
+_LOCAL_HOSTS = {'localhost', '127.0.0.1', '::1', '[::1]', '.'}
+
+
+def _local_host_names() -> set[str]:
+    names = set(_LOCAL_HOSTS)
+    try:
+        import socket
+
+        host = socket.gethostname()
+        names |= {host.casefold(), host.split('.')[0].casefold(), socket.getfqdn().casefold()}
+    except OSError:
+        pass
+    return names
+
+
+def _strip_device_and_admin_share(raw: str) -> str:
+    """N-907-11: Win32-Geraete-Namensraum (``\\\\?\\``, ``\\\\.\\``,
+    ``\\\\?\\UNC\\``) abschneiden und UNC-Admin-Freigaben des eigenen
+    Rechners (``\\\\localhost\\C$\\...``, ``127.0.0.1``, Rechnername) auf den
+    lokalen Laufwerkspfad zurueckfuehren."""
+    for prefix in _DEVICE_PREFIXES:
+        if raw[:len(prefix)].upper() == prefix.upper():
+            raw = ('\\\\' + raw[len(prefix):]) if 'UNC' in prefix.upper() else raw[len(prefix):]
+            break
+    m = re.match(r'^[\\/]{2}([^\\/]+)[\\/]([A-Za-z])\$(?:[\\/](.*))?$', raw)
+    if m and m.group(1).casefold() in _local_host_names():
+        raw = f'{m.group(2)}:\\' + (m.group(3) or '')
+    return raw
+
+
 def normalize_db_target(path: str | os.PathLike[str]) -> Path:
-    """EINE Normalisierung fuer alle Owner-/Live-DB-Pruefpunkte (H11 N-907-01):
-    ``file:``-URI aufloesen, ``~``, Datenstroeme und Punkt/Leerzeichen am Ende,
-    dann ``os.path.abspath`` + ``realpath`` (Junctions/Symlinks)."""
+    """EINE Normalisierung fuer alle Owner-/Live-DB-Pruefpunkte (H11 N-907-01/-11):
+    Geraete-Praefixe und lokale Admin-Freigaben, ``file:``-URI, ``~``,
+    Datenstroeme und Punkt/Leerzeichen am Ende, dann ``os.path.abspath`` +
+    ``realpath`` (Junctions/Symlinks/8.3)."""
     raw = os.fspath(path)
     raw = str(raw).strip() if isinstance(raw, str) else os.fsdecode(raw)
+    raw = _strip_device_and_admin_share(raw)
     if raw.lower().startswith('file:'):
-        raw = _file_uri_path(raw)
+        raw = _strip_device_and_admin_share(_file_uri_path(raw))
     raw = _windows_clean(os.path.expanduser(raw))
     absolute = os.path.abspath(raw)
     try:
         return Path(os.path.realpath(absolute))
     except (OSError, RuntimeError, ValueError):
         return Path(absolute)
+
+
+def _same_identity(cand: Path, live: Path) -> bool:
+    """N-907-11: Identitaet statt Pfadtext -- dieselbe Datei (``samefile``)
+    oder derselbe EXISTIERENDE Elternordner (st_dev + st_ino; unter Windows
+    Volume-Seriennummer + File-ID) und derselbe Dateiname (casefold)."""
+    try:
+        if os.path.samefile(cand, live):
+            return True
+    except OSError:
+        pass
+    if cand.name.casefold() != live.name.casefold():
+        return False
+    try:
+        a, b = os.stat(cand.parent), os.stat(live.parent)
+    except OSError:
+        return False
+    return (a.st_dev, a.st_ino) == (b.st_dev, b.st_ino) and a.st_ino != 0
 
 
 def _normalize(path: str | os.PathLike[str]) -> Path:
@@ -130,12 +181,7 @@ def is_live_db_path(
     cand_path = _normalize(candidate)
     if os.path.normcase(str(cand_path)) == os.path.normcase(str(live_path)):
         return True
-    try:
-        return os.path.samefile(cand_path, live_path)
-    except OSError:
-        # Mindestens eine Seite existiert nicht: dann kann es auch kein
-        # Alias derselben Datei sein (der Namensvergleich oben greift).
-        return False
+    return _same_identity(cand_path, live_path)
 
 
 def refuse_live_db(candidate: str | os.PathLike[str] | None, *, context: str) -> None:
@@ -205,18 +251,20 @@ def connect_target(cargs, cparams) -> str | None:
     return raw
 
 
-_ATTACH = re.compile(r"\bATTACH\s+(?:DATABASE\s+)?(?:'((?:[^']|'')*)'|\"([^\"]*)\")", re.IGNORECASE)
+SQLITE_ATTACH = 24
+SQLITE_OK = 0
+SQLITE_DENY = 1
 
 
-def attach_targets(statement: str, parameters=None) -> list[str]:
-    """Dateiziele eines ``ATTACH``-Statements (Literal oder gebundener Parameter)."""
-    if not statement or 'attach' not in statement.lower():
-        return []
-    out = [(m.group(1) or '').replace("''", "'") or m.group(2) for m in _ATTACH.finditer(statement)]
-    if re.search(r'\bATTACH\s+(?:DATABASE\s+)?[?:]', statement, re.IGNORECASE) and parameters:
-        values = parameters.values() if isinstance(parameters, dict) else parameters
-        out += [v for v in values if isinstance(v, str)]
-    return [t for t in out if t]
+def attach_decision(target: str | None, environ) -> int:
+    """N-907-12: Entscheid des SQLite-Authorizers fuer ``SQLITE_ATTACH``.
+    SQLite meldet das Ziel nur bei einem Literal; ist es nicht aufloesbar
+    (Ausdruck, ``||``, Parameter) wird verweigert -- Ares nutzt ATTACH nicht."""
+    if target is None:
+        return SQLITE_DENY
+    if target in ('', ':memory:') or str(target).lower().startswith('file::memory:'):
+        return SQLITE_OK
+    return SQLITE_DENY if owner_db_refusal(target, environ) else SQLITE_OK
 
 
 def _main(argv: list[str]) -> int:

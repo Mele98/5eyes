@@ -100,11 +100,14 @@ def test_lifespan_check_and_raw_schema_bootstrap_refuse_before_creating(owner, s
 
 
 def test_attach_of_the_owner_db_is_refused(owner, tmp_path):
+    """N-907-12: SQLite-Authorizer (SQLITE_ATTACH) statt Textparsing."""
+    from sqlalchemy.exc import DatabaseError
+
     engine = create_engine(f"sqlite:///{tmp_path / 'harmless.db'}")
     with engine.connect() as conn:
-        with pytest.raises(loc.OwnerDatabaseRefused, match="ATTACH"):
+        with pytest.raises(DatabaseError, match="not authorized"):
             conn.execute(text(f"ATTACH DATABASE '{owner}.' AS o"))
-        with pytest.raises(loc.OwnerDatabaseRefused, match="ATTACH"):
+        with pytest.raises(DatabaseError, match="not authorized"):
             conn.exec_driver_sql("ATTACH DATABASE ? AS o", (str(owner),))
         conn.execute(text(f"ATTACH DATABASE '{tmp_path / 'other.db'}' AS ok"))  # Positivkontrolle
     assert list(owner.parent.iterdir()) == []
