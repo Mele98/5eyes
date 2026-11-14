@@ -48,7 +48,17 @@ _SQLITE_TRIGGERS = (
     "CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_insert_guard "
     "BEFORE INSERT ON advisory_decision_envelopes FOR EACH ROW "
     "WHEN NEW.status IS NOT 'DRAFT' OR NEW.optimistic_version IS NOT 1 "
+    "OR NEW.canonical_payload_json IS NOT NULL OR NEW.envelope_hash IS NOT NULL "
+    "OR NEW.sealed_at IS NOT NULL OR NEW.sealed_by IS NOT NULL "
     "BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes: insert only as DRAFT'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_no_replace "
+    "BEFORE INSERT ON advisory_decision_envelopes FOR EACH ROW "
+    "WHEN EXISTS (SELECT 1 FROM advisory_decision_envelopes e WHERE e.id = NEW.id) "
+    "OR (NEW.predecessor_id IS NOT NULL AND EXISTS (SELECT 1 FROM advisory_decision_envelopes e "
+    "WHERE e.predecessor_id = NEW.predecessor_id)) "
+    "OR (NEW.envelope_hash IS NOT NULL AND EXISTS (SELECT 1 FROM advisory_decision_envelopes e "
+    "WHERE e.tenant_id = NEW.tenant_id AND e.envelope_hash = NEW.envelope_hash)) "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_decision_envelopes row already exists (no replace)'); END",
     "CREATE TRIGGER IF NOT EXISTS trg_advisory_decision_envelopes_update_guard "
     "BEFORE UPDATE ON advisory_decision_envelopes FOR EACH ROW "
     "WHEN NEW.id IS NOT OLD.id OR NEW.tenant_id IS NOT OLD.tenant_id "
@@ -77,6 +87,12 @@ _SQLITE_TRIGGERS = (
     "BEFORE INSERT ON advisory_envelope_bindings FOR EACH ROW "
     "WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id) IS NOT 'DRAFT' "
     "BEGIN SELECT RAISE(ABORT, 'advisory_envelope_bindings: envelope is not DRAFT'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_envelope_bindings_no_replace "
+    "BEFORE INSERT ON advisory_envelope_bindings FOR EACH ROW "
+    "WHEN EXISTS (SELECT 1 FROM advisory_envelope_bindings b WHERE b.id = NEW.id) "
+    "OR EXISTS (SELECT 1 FROM advisory_envelope_bindings b WHERE b.envelope_id = NEW.envelope_id "
+    "AND b.binding_kind = NEW.binding_kind AND b.ordinal = NEW.ordinal) "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_envelope_bindings row already exists (no replace)'); END",
     "CREATE TRIGGER IF NOT EXISTS trg_advisory_envelope_bindings_no_update "
     "BEFORE UPDATE ON advisory_envelope_bindings FOR EACH ROW "
     "BEGIN SELECT RAISE(ABORT, 'advisory_envelope_bindings is immutable'); END",
@@ -84,6 +100,10 @@ _SQLITE_TRIGGERS = (
     "BEFORE DELETE ON advisory_envelope_bindings FOR EACH ROW "
     "WHEN (SELECT e.status FROM advisory_decision_envelopes e WHERE e.id = OLD.envelope_id) IS NOT 'DRAFT' "
     "BEGIN SELECT RAISE(ABORT, 'advisory_envelope_bindings is immutable'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_effective_input_manifests_no_replace "
+    "BEFORE INSERT ON advisory_effective_input_manifests FOR EACH ROW "
+    "WHEN EXISTS (SELECT 1 FROM advisory_effective_input_manifests m WHERE m.id = NEW.id) "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_effective_input_manifests row already exists (no replace)'); END",
     "CREATE TRIGGER IF NOT EXISTS trg_advisory_effective_input_manifests_no_update "
     "BEFORE UPDATE ON advisory_effective_input_manifests FOR EACH ROW "
     "BEGIN SELECT RAISE(ABORT, 'advisory_effective_input_manifests is immutable'); END",
@@ -101,6 +121,9 @@ _SQLITE_TRIGGERS = (
 )
 _SQLITE_TRIGGER_NAMES = (
     "trg_advisory_decision_envelopes_insert_guard",
+    "trg_advisory_decision_envelopes_no_replace",
+    "trg_advisory_envelope_bindings_no_replace",
+    "trg_advisory_effective_input_manifests_no_replace",
     "trg_advisory_decision_envelopes_update_guard",
     "trg_advisory_decision_envelopes_seal_binding",
     "trg_advisory_decision_envelopes_no_delete",
@@ -121,7 +144,9 @@ LANGUAGE plpgsql AS $$
 DECLARE derived text;
 BEGIN
   IF TG_OP = 'INSERT' THEN
-    IF NEW.status IS DISTINCT FROM 'DRAFT' OR NEW.optimistic_version IS DISTINCT FROM 1 THEN
+    IF NEW.status IS DISTINCT FROM 'DRAFT' OR NEW.optimistic_version IS DISTINCT FROM 1
+       OR NEW.canonical_payload_json IS NOT NULL OR NEW.envelope_hash IS NOT NULL
+       OR NEW.sealed_at IS NOT NULL OR NEW.sealed_by IS NOT NULL THEN
       RAISE EXCEPTION '{ENVELOPES}: insert only as DRAFT' USING ERRCODE = '23514';
     END IF;
     SELECT m.tenant_id INTO derived FROM mandates m WHERE m.id = NEW.mandate_id;

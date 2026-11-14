@@ -374,9 +374,16 @@ def rows_child_hash(kind: str, columns: Sequence[str], rows: Sequence[Any],
     return child_hash(kind, body.encode("utf-8"))
 
 
-def none_sort_key(value: Any) -> tuple[int, Any]:
-    """Sortierschluessel-Baustein: ``None`` vor jedem Wert, sonst als String."""
-    return (0, "") if value is None else (1, str(value))
+def none_sort_key(value: Any) -> tuple[int, int, int, str]:
+    """Sortierschluessel-Baustein, typgerecht (N-906-05): ``None`` vor jedem
+    Wert, Integer numerisch (Rang 2 vor 10), alles andere als NFC-Text."""
+    if value is None:
+        return (0, 0, 0, "")
+    if type(value) is int:
+        return (1, 0, canonical_int(value, "sort_key"), "")
+    if type(value) is bool:
+        return (1, 0, int(value), "")
+    return (1, 1, 0, unicodedata.normalize("NFC", str(value)))
 
 
 # ── Schemata ``ares/advisory-envelope/1`` ────────────────────────────────────

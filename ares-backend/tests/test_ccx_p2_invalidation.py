@@ -98,22 +98,22 @@ def test_seal_writes_one_edge_per_dependency_and_is_fresh(session_factory):
 
 def test_empty_required_input_group_seals_unknown_never_fresh(session_factory, monkeypatch):
     """Leere Pflicht-Inputgruppe -> UNKNOWN. Ohne Ziele/Risikoprofil/Policy
-    blockt bereits die Finalisierungsvalidierung (P0); hier wird deshalb eine
-    leere Gruppe in der Kantenlesung simuliert (alle anderen Teile echt)."""
+    blockt bereits die Finalisierungsvalidierung (P0) bzw. das P1-Manifest
+    (ManifestIncomplete); hier wird deshalb eine leere Benchmark-Gruppe in der
+    Kantenlesung simuliert (alle anderen Teile echt)."""
     from dataclasses import replace
 
     import services.effective_input_manifest as manifest
     from services.effective_input_manifest import REQUIRED_DEPENDENCY_KINDS, empty_required_kinds
 
-    assert REQUIRED_DEPENDENCY_KINDS >= {"goals", "risk", "cma", "optimizer_policy", "constraints", "benchmark"}
+    assert REQUIRED_DEPENDENCY_KINDS >= {"risk", "cma", "optimizer_policy", "constraints", "benchmark"}
     advisor_id, mid, _aid, run_id = _finalizable_run(session_factory, "emptyreq")
     real = manifest.collect_dependency_parts
 
-    def without_goals(db, **kw):
-        return [replace(p, row_count=0) if p.kind == "goals" else p for p in real(db, **kw)]
+    def without_benchmark(db, **kw):  # Policy ohne Hausmatrix-Zeilen
+        return [replace(p, row_count=0) if p.kind == "benchmark" else p for p in real(db, **kw)]
 
-    monkeypatch.setattr(manifest, "collect_dependency_parts", without_goals)
-    assert empty_required_kinds([p for p in []]) == []
+    monkeypatch.setattr(manifest, "collect_dependency_parts", without_benchmark)
     result = _finalize(session_factory, advisor_id, mid, run_id)
     with session_factory() as db:
         assert _envelope(db, result.advisory_envelope_id).freshness_status == "UNKNOWN"
@@ -822,7 +822,7 @@ def test_orm_bootstrap_runtime_patch_and_alembic_are_identical(tmp_path, monkeyp
     for other in (orm[1], patched[1], upgraded[1]):
         assert {name: " ".join(sql.split()) for name, sql in other.items()} == norm
     migration = _migration()
-    assert migration.SQLITE_UPDATE_GUARD == ADVISORY_ENVELOPE_SQLITE_TRIGGERS[1]
+    assert migration.SQLITE_UPDATE_GUARD in ADVISORY_ENVELOPE_SQLITE_TRIGGERS
     assert migration.SQLITE_TRIGGERS == ADVISORY_FRESHNESS_SQLITE_TRIGGERS
     assert migration.revision == CCX_P2_REV and migration.down_revision == CCX_P1_REV
 

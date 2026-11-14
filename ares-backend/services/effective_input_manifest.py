@@ -12,14 +12,16 @@ Gruppen und Quelle (je Mandat, nur aktive/nicht geloeschte Zeilen):
 
 * ``client``      -- Kundenzeile des Mandats
 * ``mandate``     -- Mandatszeile
-* ``goals``       -- Ziele, sortiert ``(priority=rank, due_date=target_date, id)``
+* ``goals``       -- Ziele, sortiert ``(priority=rank numerisch, due_date=target_date, id)``
 * ``cashflows``   -- Cashflows und Zufluesse des Kunden
 * ``risk``        -- das Risikoprofil, auf dem die Allokation beruht
 * ``preference``  -- alle Nachhaltigkeitspraeferenz-Versionen (append-only)
 * ``cma``         -- die CMA des Laufs
 * ``policy``      -- Optimizer-Policy der Allokation + gebundene CMA-Policy
 * ``constraints`` -- wirkende Restriktionen/Praeferenz-Snapshot der Allokation
-* ``holdings``    -- Bestaende, sortiert ``(custodian_id, depot_id, position_id)``
+* ``holdings``    -- Bestaende, sortiert ``(custodian_id, depot_id, position_id)``, abgebildet
+  auf ``(depot_bank, depot_account_number, id)`` (Positionen) bzw.
+  ``(depot_bank, custody_account_number, id)`` (Lauf-Bestaende)
 
 ``updated_at`` ist bewusst nicht Teil der Projektion: identische Inhalte
 ergeben identische Hashes. Gleitkomma-Spalten werden als exakte
@@ -53,9 +55,11 @@ _EXCLUDED_COLUMNS = frozenset({"updated_at"})
 # Kurzname (Adapter CCX-02) -> Manifest-Feld.
 _SHORT_NAMES = {name[: -len("_hash")]: name for name in MANIFEST_COMPONENTS}
 _SCALARS = ("tenant_id", "mandate_id", "engine_version", "random_stream_id", "rounding_policy_version")
-# CCX-P2: Pflicht-Inputgruppen -- leer heisst "unknown", nie "fresh".
+# CCX-P2: Pflicht-Abhaengigkeiten fuer FRESH -- die Siegel-Pflichtgruppen
+# (REQUIRED_GROUPS, sonst gar kein Siegel) plus die Benchmark-Lineage
+# (Hausmatrix der Policy, CCX-06): leer heisst "unknown", nie "fresh".
 REQUIRED_DEPENDENCY_KINDS = frozenset({
-    "client", "mandate", "goals", "risk", "constraints", "cma", "optimizer_policy", "benchmark",
+    "client", "mandate", "risk", "constraints", "cma", "optimizer_policy", "benchmark",
 })
 # CCX-P2: Marker fuer ein fehlendes Objekt einer Abhaengigkeitskante.
 NO_OBJECT = "none"
@@ -121,6 +125,22 @@ def _by_id(db: Session, model: Any, row_id: Any) -> list[Any]:
         return []
     row = db.query(model).filter(model.id == str(row_id)).first()
     return [row] if row is not None else []
+
+
+# N-906-06 (unknown != complete): Pflichtgruppen, ohne die kein Entscheid
+# versiegelt wird. Leer zulaessig (fachlich moeglich, als Hash ueber eine leere,
+# typisierte Zeilenmenge gebunden): Ziele, Cashflows/Zufluesse,
+# Nachhaltigkeitspraeferenz (vor der Erfassung), Bestaende, CMA-Policy (nur
+# bei aktivem CMA-Policy-Modell gebunden).
+REQUIRED_GROUPS: tuple[str, ...] = ("client", "mandate", "risk", "cma", "optimizer_policy", "constraints")
+
+
+class ManifestIncomplete(ValueError):
+    """Eine Pflicht-Inputgruppe ist unbekannt (keine Zeile) -- nicht siegelbar."""
+
+    def __init__(self, groups: Sequence[str]) -> None:
+        super().__init__("unknown: " + ", ".join(groups))
+        self.groups = tuple(groups)
 
 
 @dataclass(frozen=True)
@@ -272,8 +292,15 @@ def collect_effective_input_components(
     parts_out: list[DependencyPart] | None = None,
 ) -> dict[str, str]:
     """Kind-Hash je Inputgruppe (zehn Manifest-Komponenten), frisch gelesen.
-    ``parts_out`` (CCX-P2) erhaelt die Kanten derselben Lesung."""
+    ``parts_out`` (CCX-P2) erhaelt die Kanten derselben Lesung.
+
+    Fehlt eine Pflichtgruppe (``REQUIRED_GROUPS``), wirft die Funktion
+    ``ManifestIncomplete`` statt einen Hash ueber null Zeilen zu binden."""
     parts = collect_dependency_parts(db, mandate=mandate, run=run, target_allocation=target_allocation)
+    counts = {part.kind: part.row_count for part in parts}
+    missing = [name for name in REQUIRED_GROUPS if counts.get(name, 0) <= 0]
+    if missing:
+        raise ManifestIncomplete(missing)
     if parts_out is not None:
         parts_out.extend(parts)
     return components_from_parts(parts)
@@ -315,6 +342,8 @@ __all__ = [
     "DependencyPart",
     "NO_OBJECT",
     "REQUIRED_DEPENDENCY_KINDS",
+    "REQUIRED_GROUPS",
+    "ManifestIncomplete",
     "build_effective_input_hash",
     "build_effective_input_record",
     "build_manifest_record",

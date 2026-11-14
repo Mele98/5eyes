@@ -159,7 +159,9 @@ SQLITE_TRIGGER_NAMES = tuple(ddl.split()[5] for ddl in SQLITE_TRIGGERS)
 # ── PostgreSQL ───────────────────────────────────────────────────────────────
 
 _PG_ENVELOPE_COMMON_INSERT_DELETE = f"""  IF TG_OP = 'INSERT' THEN
-    IF NEW.status IS DISTINCT FROM 'DRAFT' OR NEW.optimistic_version IS DISTINCT FROM 1 THEN
+    IF NEW.status IS DISTINCT FROM 'DRAFT' OR NEW.optimistic_version IS DISTINCT FROM 1
+       OR NEW.canonical_payload_json IS NOT NULL OR NEW.envelope_hash IS NOT NULL
+       OR NEW.sealed_at IS NOT NULL OR NEW.sealed_by IS NOT NULL THEN
       RAISE EXCEPTION '{ENVELOPES}: insert only as DRAFT' USING ERRCODE = '23514';
     END IF;
 @@FRESH_INSERT@@    SELECT m.tenant_id INTO derived FROM mandates m WHERE m.id = NEW.mandate_id;
@@ -184,7 +186,7 @@ _PG_ENVELOPE_COMMON_INSERT_DELETE = f"""  IF TG_OP = 'INSERT' THEN
      OR NEW.optimistic_version IS DISTINCT FROM OLD.optimistic_version + 1
 """
 
-# P1-Fassung (2c62f9012c73), eingefroren fuer den Downgrade.
+# P1-Fassung (2c62f9012c73 inkl. Nachtrag 1 / N-906-01), eingefroren fuer den Downgrade.
 P1_PG_ENVELOPE_FUNCTION = (
     f"""CREATE OR REPLACE FUNCTION {ENVELOPES}_guard() RETURNS trigger
 LANGUAGE plpgsql AS $$

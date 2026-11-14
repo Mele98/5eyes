@@ -61,7 +61,7 @@ from core.advisory_envelope_codec import (
     rows_child_hash,
     utc_now,
 )
-from core.db_integrity import raise_if_check_violation
+from core.db_integrity import is_check_constraint_violation
 from core.evidence import ADVISORY_ENVELOPE_SCHEMA
 from core.presentation_rounding import ROUNDING_POLICY_VERSION
 from core.reason_codes import DomainError, ReasonCode
@@ -297,7 +297,8 @@ def seal_advisory_envelope(
             ReasonCode.CCX_INPUT_MANIFEST_MISMATCH,
             "Der Beratungsentscheid kann nicht versiegelt werden: die wirkenden Inputs lassen sich "
             "nicht eindeutig festhalten.",
-        ), record_id=run.id, run=run.id, stage="manifest", **common) from exc
+        ), record_id=run.id, run=run.id, stage="manifest",
+            unknown=",".join(getattr(exc, "groups", ())) or None, **common) from exc
     if expected_manifest_hash is not None and expected_manifest_hash != manifest_digest:
         raise _reject(db, AdvisoryEnvelopeError(
             ReasonCode.CCX_RESULT_SUPERSEDED,
@@ -313,19 +314,29 @@ def seal_advisory_envelope(
         **{name: value for name, value in record.items() if name not in ("schema_version", "tenant_id", "mandate_id")},
         manifest_hash=manifest_digest, created_at=now, created_by=user.id,
     )
-    bindings = _bindings(db, manifest=manifest, ta=ta, run=run)
-    payload = {
-        "schema_version": ADVISORY_ENVELOPE_SCHEMA,
-        "tenant_id": tenant_id,
-        "mandate_id": str(mandate.id),
-        "locale": locale,
-        "base_currency": base_currency,
-        "rounding_policy_version": ROUNDING_POLICY_VERSION,
-        "predecessor_envelope_hash": predecessor.envelope_hash if predecessor is not None else None,
-        "effective_input_manifest_hash": manifest_digest,
-        "bindings": bindings,
-    }
-    canonical, digest = compute_envelope_hash(payload)
+    # N-906-02: Kind-Projektion und Root-Hash sind Teil des Gates -- ein nicht
+    # projizierbarer Wert endet als katalogisierter Code mit Audit, nie als 500.
+    try:
+        bindings = _bindings(db, manifest=manifest, ta=ta, run=run)
+        payload = {
+            "schema_version": ADVISORY_ENVELOPE_SCHEMA,
+            "tenant_id": tenant_id,
+            "mandate_id": str(mandate.id),
+            "locale": locale,
+            "base_currency": base_currency,
+            "rounding_policy_version": ROUNDING_POLICY_VERSION,
+            "predecessor_envelope_hash": predecessor.envelope_hash if predecessor is not None else None,
+            "effective_input_manifest_hash": manifest_digest,
+            "bindings": bindings,
+        }
+        canonical, digest = compute_envelope_hash(payload)
+    except (CanonicalPayloadError, ValueError) as exc:
+        logger.warning("CCX-P1: Bindungen nicht bildbar | mandate=%s run=%s: %s", mandate.id, run.id, exc)
+        raise _reject(db, AdvisoryEnvelopeError(
+            ReasonCode.CCX_BINDING_MISSING,
+            "Der Beratungsentscheid kann nicht versiegelt werden: die gebundenen Objekte lassen sich "
+            "nicht eindeutig festhalten.",
+        ), record_id=run.id, run=run.id, stage="bindings", manifest_hash=manifest_digest, **common) from exc
     envelope_id = new_uuid()
     refs = {"run": run.id, "envelope_hash": digest, "manifest_hash": manifest_digest,
             "predecessor": predecessor.id if predecessor is not None else None}
@@ -360,9 +371,12 @@ def seal_advisory_envelope(
         db.flush()
         # Snapshot-Fence: dieselben Inputs unmittelbar vor dem Siegel erneut.
         after_parts: list = []
-        after = collect_effective_input_components(
-            db, mandate=mandate, run=run, target_allocation=ta, parts_out=after_parts,
-        )
+        try:
+            after = collect_effective_input_components(
+                db, mandate=mandate, run=run, target_allocation=ta, parts_out=after_parts,
+            )
+        except (CanonicalPayloadError, ValueError):
+            after = {}  # unbekannt geworden -> nie konsistent (RETRY)
         # CCX-P2: hat der Mutation Hook den entstehenden DRAFT invalidiert,
         # ist das ein Wettlauf Mutation <-> Versiegelung -- kein Siegel.
         if _draft_invalidated(db, envelope_id):
@@ -410,7 +424,14 @@ def seal_advisory_envelope(
         db.flush()
     except IntegrityError as exc:
         db.rollback()
-        raise_if_check_violation(exc)
+        # N-906-03: auch eine CHECK-Verletzung ist ein auditierter Gate-Fehler
+        # (F1: CHECK von UNIQUE unterschieden, kein Konflikt-Text fuer CHECK).
+        if is_check_constraint_violation(exc):
+            raise _reject(db, AdvisoryEnvelopeError(
+                ReasonCode.CCX_ENVELOPE_UNSEALED,
+                "Der Beratungsentscheid verletzt eine Datenbankregel und wurde nicht versiegelt.",
+                http_status=422,
+            ), record_id=run.id, stage="check", **refs, **common) from exc
         if "CCX_INVALIDATION_RACE" in str(exc):
             raise _reject(db, AdvisoryEnvelopeError(
                 ReasonCode.CCX_INVALIDATION_RACE,
