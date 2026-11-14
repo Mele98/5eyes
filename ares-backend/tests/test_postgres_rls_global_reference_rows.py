@@ -127,6 +127,10 @@ _VALID_ROW_VALUES: dict[str, dict[str, object]] = {
         "integrity_hash": "0" * 64,
         "previous_hash": "",
     },
+    # CCX-P1: Einwert-CHECK schema_version und Hash-Laengen (length(...) = 64).
+    "advisory_decision_envelopes": {"schema_version": "ares/advisory-envelope/1"},
+    "advisory_envelope_bindings": {"child_hash": "0" * 64, "ordinal": 0},
+    "advisory_effective_input_manifests": {"manifest_hash": "0" * 64},
     # H10 Nachtrag 1: Einwert-CHECK (result = 'BLOCKED') erkennt der Regex nicht.
     "privacy_egress_events": {"result": "BLOCKED"},
     "risk_override_decisions": {

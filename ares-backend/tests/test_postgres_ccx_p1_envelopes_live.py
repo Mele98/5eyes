@@ -146,6 +146,15 @@ def pg_ccx():
         admin.dispose()
 
 
+def _rollback(db):
+    """Rollback und Tenant-Kontext wieder setzen (H7-Muster, N-884-09) --
+    sonst prueft der naechste Schritt nur den verlorenen Kontext."""
+    from services.audit import restore_tenant_after_rollback
+    from services.tenant_context import set_tenant_context
+
+    restore_tenant_after_rollback(db, set_tenant_context)
+
+
 def _session(ctx, tenant):
     from services.tenant_context import set_tenant_context
 
@@ -186,10 +195,10 @@ def test_foreign_tenant_cannot_write_envelope_or_manifest(pg_ccx, variant):
     with _session(pg_ccx, "t-a") as db:
         with pytest.raises(DBAPIError):
             _draft(db.connection(), "e-x", **variant)
-        db.rollback()
+        _rollback(db)
         with pytest.raises(DBAPIError):
             _manifest(db.connection(), "man-x", **variant)
-        db.rollback()
+        _rollback(db)
 
 
 def test_binding_with_foreign_tenant_fails_on_composite_fk(pg_ccx):
@@ -209,11 +218,11 @@ def test_lifecycle_insert_draft_only_and_seal_needs_manifest_binding(pg_ccx):
     with _session(pg_ccx, "t-a") as db:
         with pytest.raises(DBAPIError):
             _draft(db.connection(), "e-s", "m-a2", tenant_id="t-a", status="SEALED")
-        db.rollback()
+        _rollback(db)
         _draft(db.connection(), "e-d", "m-a2", tenant_id="t-a")
         with pytest.raises(DBAPIError, match="CCX_BINDING_MISSING"):
             _seal(db.connection(), "e-d", "3" * 64)
-        db.rollback()
+        _rollback(db)
 
 
 @pytest.mark.parametrize("statement", [
