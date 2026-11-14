@@ -94,7 +94,7 @@ def test_revision_ids_unique_in_whole_tree_and_graph_closed():
 def test_negative_control_duplicate_stray_copy_and_second_head(tmp_path):
     versions = tmp_path / "ares-backend" / "alembic" / "versions"
     versions.mkdir(parents=True)
-    other = tmp_path / "docs" / "alt"
+    other = tmp_path / "ablage" / "alt"
     other.mkdir(parents=True)
     (versions / "aaaaaaaaaaaa_eins.py").write_text('"""revision = "zzz" im Docstring"""\nrevision = "aaaaaaaaaaaa"\n'
                                                   "down_revision = None\n", encoding="utf-8")
