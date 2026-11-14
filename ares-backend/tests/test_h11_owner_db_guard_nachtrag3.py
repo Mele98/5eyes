@@ -165,6 +165,15 @@ def test_unknown_device_forms_refused_at_all_three_checkpoints(tmp_path, monkeyp
     assert list(target.parent.iterdir()) == []
 
 
+def test_embedded_device_form_after_abspath_is_refused():
+    """CI (Linux): pysqlite macht aus dem relativen Geraete-Pfad per abspath
+    ``/cwd/<\\\\?\\...>`` -- auch eingebettet nie pruefbar, also verweigert."""
+    variant = BS * 2 + "?" + BS + "GLOBALROOT" + BS + "??" + BS + "/tmp/x/x.db"
+    assert loc.is_unresolvable_device_path("/home/runner/work/" + variant)
+    assert loc.is_unresolvable_device_path("C:" + BS + "work" + BS + variant)
+    assert not loc.is_unresolvable_device_path("/home/runner/work/ok.db")
+
+
 def test_known_device_forms_are_not_blanket_refused(tmp_path):
     plain = str(tmp_path / "ok.db")
     for variant in (BS * 2 + "?" + BS + plain, BS * 2 + "." + BS + plain, plain) if WINDOWS else (plain,):

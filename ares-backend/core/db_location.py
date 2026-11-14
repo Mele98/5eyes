@@ -226,6 +226,7 @@ def test_or_ci_mode(environ) -> str | None:
 
 
 _DEVICE_HEAD = re.compile(r'^[\\/]{2}[?.][\\/]')
+_DEVICE_EMBEDDED = re.compile(r'[\\/][\\/]{2}[?.][\\/]')
 _KNOWN_DEVICE_TAIL = re.compile(r'^(?:[A-Za-z]:(?:[\\/]|$)|UNC[\\/])', re.IGNORECASE)
 
 
@@ -239,9 +240,11 @@ def is_unresolvable_device_path(candidate) -> bool:
     raw = str(os.fspath(candidate)).strip()
     if raw.lower().startswith('file:'):
         raw = _file_uri_path(raw)
-    if not _DEVICE_HEAD.match(raw):
-        return False
-    return not _KNOWN_DEVICE_TAIL.match(raw[4:])
+    if _DEVICE_HEAD.match(raw):
+        return not _KNOWN_DEVICE_TAIL.match(raw[4:])
+    # Eingebettet (z. B. nach os.path.abspath eines relativen Geraete-Pfads unter
+    # POSIX: ``/cwd/\\\\?\\GLOBALROOT...``): nie pruefbar -> fail-closed.
+    return _DEVICE_EMBEDDED.search(raw) is not None
 
 
 def owner_db_refusal(candidate: str | os.PathLike[str] | None, environ) -> str | None:
