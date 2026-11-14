@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from core.db_integrity import is_check_constraint_violation, raise_if_check_violation
 from pydantic import ValidationError
 from core.reason_codes import DomainError, ReasonCode
-from typing import Optional
+from typing import Annotated, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -1308,7 +1308,7 @@ def wealth_summary(
 def cashflow_summary(
     client_id: str,
     mandate_id: Optional[str] = None,
-    target_currency: Optional[str] = Query(None, pattern=r"^[A-Z]{3}$"),
+    target_currency: Annotated[Optional[str], Query(pattern=r"^[A-Z]{3}$")] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -1488,7 +1488,7 @@ def cashflow_projection(
     horizon_years: int | None = Query(default=None, ge=1, le=60),
     indexation: bool = Query(default=True),
     mandate_id: Optional[str] = None,
-    target_currency: Optional[str] = Query(None, pattern=r"^[A-Z]{3}$"),
+    target_currency: Annotated[Optional[str], Query(pattern=r"^[A-Z]{3}$")] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

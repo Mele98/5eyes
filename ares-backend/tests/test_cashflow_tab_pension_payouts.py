@@ -75,14 +75,14 @@ def _seed(session_factory, *, orphan_link: bool = False):  # noqa: F811
             liquidity_available_from=f"{start + 2}-06-30",
             is_active=1, created_at=_now(), updated_at=_now(),
         ))
-        s.add(WealthInflow(
+        s.add(WealthInflow(currency="CHF",
             id=f"inf-fz-{uuid.uuid4().hex[:8]}", client_id=client_id, label="Kapitalbezug FZ",
             source_type="Andere", amount_rappen=LINKED_AMOUNT, expected_year=start + 2,
             is_recurring=0, frequency="einmalig", value_mode="nominal",
             linked_position_id=("pos-gibt-es-nicht" if orphan_link else fz_id),
             is_active=1, created_at=_now(), updated_at=_now(),
         ))
-        s.add(WealthInflow(
+        s.add(WealthInflow(currency="CHF",
             id=f"inf-erb-{uuid.uuid4().hex[:8]}", client_id=client_id, label="Erbschaft",
             source_type="Erbschaft", amount_rappen=OTHER_INFLOW, expected_year=start + 4,
             is_recurring=0, frequency="einmalig", value_mode="nominal",

@@ -29,7 +29,7 @@ MONOLITH = BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "ares.html"
 def _inflow_body(**overrides) -> dict:
     body = {
         "label": "Erbschaft", "source_type": "Erbschaft",
-        "amount_rappen": 25_000_000, "expected_year": 2030,
+        "amount_rappen": 25_000_000, "currency": "CHF", "expected_year": 2030,
     }
     body.update(overrides)
     return body

@@ -60,6 +60,9 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     ("privacy-governance.js", "js"),
     # E2 Nachhaltigkeitspraeferenzen (Dok. 106): Kundenmaske nach dem Risikoprofil.
     ("sustainability-preferences.js", "js"),
+    # CCX-P3-FX (2026-11-14): Vermoegenszufluesse (Waehrung je Zufluss) und
+    # cashflowSummaryQuery, aus ares.html ausgelagert (Monolith-Budget).
+    ("wealth-inflows.js", "js"),
 )
 
 # N-875-05: Bewusste, dokumentierte Liste der VOR H3 bereits eigen-

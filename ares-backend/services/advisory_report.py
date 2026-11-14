@@ -73,17 +73,39 @@ def _cached_fx_source(db: Session) -> Any:
     return _aggregator_cache_get(db, ("fx_source",), lambda: model_fx_source(db))
 
 
+def _cached_active_positions(db: Session, client_id: str) -> list[Any]:
+    """Aktive Vermoegenspositionen je Bericht (eine Query fuer Summen und FX-Basis)."""
+    return _aggregator_cache_get(db, ("active_positions", client_id), lambda: (
+        db.query(WealthPosition)
+        .filter(
+            WealthPosition.client_id == client_id,
+            WealthPosition.is_active == 1,
+            WealthPosition.deleted_at.is_(None),
+        )
+        .all()
+    ))
+
+
+def _cached_active_inflows(db: Session, client_id: str) -> list[Any]:
+    """Aktive Vermoegenszufluesse je Bericht (eine Query fuer Reserve, Prognose, FX-Basis)."""
+    return _aggregator_cache_get(db, ("active_inflows", client_id), lambda: (
+        db.query(WealthInflow)
+        .filter(
+            WealthInflow.client_id == client_id,
+            WealthInflow.deleted_at.is_(None),
+            WealthInflow.is_active == 1,
+        )
+        .all()
+    ))
+
+
 def _report_currencies(db: Session, mandate: Mandate) -> set[str]:
     """Alle Waehrungen, die in eine kundenweite Summe oder die Prognose
     einfliessen: aktive Vermoegenspositionen, Cashflows, Zufluesse."""
     client_id = str(getattr(mandate, "client_id", "") or "")
     currencies = {
         str(getattr(wp, "currency", "") or "").upper().strip()
-        for wp in db.query(WealthPosition).filter(
-            WealthPosition.client_id == client_id,
-            WealthPosition.is_active == 1,
-            WealthPosition.deleted_at.is_(None),
-        ).all()
+        for wp in _cached_active_positions(db, client_id)
     }
     currencies |= {
         str(getattr(cf, "currency", "") or "").upper().strip()
@@ -91,11 +113,7 @@ def _report_currencies(db: Session, mandate: Mandate) -> set[str]:
     }
     currencies |= {
         str(getattr(inflow, "currency", "") or "").upper().strip()
-        for inflow in db.query(WealthInflow).filter(
-            WealthInflow.client_id == client_id,
-            WealthInflow.is_active == 1,
-            WealthInflow.deleted_at.is_(None),
-        ).all()
+        for inflow in _cached_active_inflows(db, client_id)
     }
     return currencies
 
@@ -1030,15 +1048,7 @@ def _build_wealth_summary(
     from services.wealth_position_semantics import is_liability_assignment
 
     target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
-    wp_rows = (
-        db.query(WealthPosition)
-        .filter(
-            WealthPosition.client_id == client.id,
-            WealthPosition.is_active == 1,
-            WealthPosition.deleted_at.is_(None),
-        )
-        .all()
-    )
+    wp_rows = _cached_active_positions(db, str(client.id))
     # CCX-P3-FX: eine gebundene, strikte FX-Basis (kein Ersatzkurs); jede
     # Zeile wird vor der Addition konvertiert. Fehlt/veraltet ein Kurs, gibt
     # es keine Summe (None + Blocker), nie eine Rohsumme oder einen Default.
@@ -2972,12 +2982,7 @@ def _assert_flows_convertible(db: Session, mandate: Mandate, basis: Any) -> None
     unsichere Zufluesse: ein erfasster Betrag ohne Waehrung ist nie gueltig."""
     for cf in _cached_active_cashflows(db, str(getattr(mandate, "client_id", "") or "")):
         basis.convert(_safe_int(getattr(cf, "amount_rappen", 0)), getattr(cf, "currency", None))
-    inflows = db.query(WealthInflow).filter(
-        WealthInflow.client_id == mandate.client_id,
-        WealthInflow.is_active == 1,
-        WealthInflow.deleted_at.is_(None),
-    ).all()
-    for inflow in inflows:
+    for inflow in _cached_active_inflows(db, str(mandate.client_id)):
         if getattr(inflow, "mandate_id", None) and str(inflow.mandate_id) != str(mandate.id):
             continue
         basis.convert(_safe_int(getattr(inflow, "amount_rappen", 0)), getattr(inflow, "currency", None))
@@ -2991,10 +2996,14 @@ def _strategy_payload_for_report(
     assessment = _cached_current_ra_is_current(db, mandate)
     if ta is None or assessment is None:
         return None
-    policy = db.query(OptimizerPolicy).filter(OptimizerPolicy.id == ta.policy_id).first()
+    # MC-CONTEXT-001: zuerst der CMA-Anker (Altbestand ohne Anker -> blockiert,
+    # ohne weitere Query); danach die Policy (Identity-Map, meist schon geladen).
     cma, cma_note = resolve_cma(db, ta)
-    if policy is None or cma is None:
-        raise ValueError(cma_note or "Die Soll-Allokation referenziert keine verfuegbare Optimizer-Policy.")
+    if cma is None:
+        raise ValueError(cma_note)
+    policy = db.get(OptimizerPolicy, ta.policy_id) if ta.policy_id else None
+    if policy is None:
+        raise ValueError("Die Soll-Allokation referenziert keine verfuegbare Optimizer-Policy.")
     return _aggregator_cache_get(
         db, ("strategy_payload", str(mandate.id), str(ta.id)),
         lambda: build(
@@ -3029,18 +3038,12 @@ def _compute_beratungsvermoegen_rappen(db: Session, client: Client, mandate: Man
 
 
 def _beratungsvermoegen_positions(db: Session, client: Client) -> list[Any]:
-    from models.wealth import WealthPosition
-
-    return (
-        db.query(WealthPosition)
-        .filter(
-            WealthPosition.client_id == client.id,
-            WealthPosition.is_active == 1,
-            WealthPosition.deleted_at.is_(None),
-            WealthPosition.assignment == "Beratungsvermögen",
-        )
-        .all()
-    )
+    # Dieselbe Filterung wie bisher (aktiv, nicht geloescht, Beratungsvermoegen),
+    # aus der call-scoped Positionsliste (eine Query je Bericht).
+    return [
+        wp for wp in _cached_active_positions(db, str(client.id))
+        if getattr(wp, "assignment", None) == "Beratungsvermögen"
+    ]
 
 
 def _build_risikoprofilierung(db: Session, mandate: Mandate) -> dict[str, Any]:
@@ -4519,15 +4522,7 @@ def _recompute_reserve_reasoning(
         target_currency=target_currency,
     )
 
-    inflows = (
-        db.query(WealthInflow)
-        .filter(
-            WealthInflow.client_id == mandate.client_id,
-            WealthInflow.deleted_at.is_(None),
-            WealthInflow.is_active == 1,
-        )
-        .all()
-    )
+    inflows = list(_cached_active_inflows(db, str(mandate.client_id)))
     # CASHFLOW-TAB-PENSION-PAYOUTS-001 (2026-10-21): Zufluss-Scope wie die
     # Engine (mandatslose + dieses Mandat) und automatische Vorsorgebezuege aus
     # DERSELBEN Ledger-Quelle (PensionTransferLedgerV1 via pension_payout_view).

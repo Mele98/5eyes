@@ -106,6 +106,9 @@ nachgezogen (toter KPI-Zweig entfernt), die ESG-Erkennung in
 unsaved-changes.js zeigt auf die E2-Karte. Budget auf den gemessenen Stand
 gesenkt: 27163 Z./1666083 B; ist-projection-gate.js 288/15951,
 unsaved-changes.js 86/4604.
+CCX-P3-FX (2026-11-14): Vermoegenszufluesse (Waehrung je Zufluss) samt
+cashflowSummaryQuery als neuer Teil ``wealth-inflows.js`` (282/16491)
+ausgelagert; Monolith auf den gemessenen Stand gesenkt: 26905 Z./1651186 B.
 """
 from __future__ import annotations
 
@@ -114,9 +117,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 27163
+MONOLITH_MAX_LINES = 26905
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1666083
+MONOLITH_MAX_BYTES = 1651186
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -134,6 +137,7 @@ EXTRACTED_PART_BUDGETS = {
     "kyc-review-policy.js": (427, 25832),
     "privacy-governance.js": (503, 35259),
     "sustainability-preferences.js": (519, 26082),
+    "wealth-inflows.js": (282, 16491),
 }
 
 

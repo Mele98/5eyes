@@ -124,7 +124,7 @@ def _create_position(auth_client, client_id: str, **overrides) -> str:
 def _inflow_payload(position_id, **overrides) -> dict:
     payload = {
         "label": "Kapitalbezug 3a", "source_type": "Saeule3b", "amount_rappen": 10_000_000,
-        "expected_year": 2028, "linked_position_id": position_id,
+        "currency": "CHF", "expected_year": 2028, "linked_position_id": position_id,
     }
     payload.update(overrides)
     return payload
@@ -284,7 +284,7 @@ def test_resaving_the_same_linked_inflow_is_not_a_self_conflict(auth_client, adv
     _client_id, position_id, inflow_id = _linked_pair(auth_client, advisor_user, "SELF")
     response = auth_client.put(
         f"/wealth-inflows/{inflow_id}",
-        json={"label": "Kapitalbezug 3a (neu)", "linked_position_id": position_id, "expected_year": 2029},
+        json={"label": "Kapitalbezug 3a (neu)", "linked_position_id": position_id, "currency": "CHF", "expected_year": 2029},
     )
     assert response.status_code == 200, response.text
 
@@ -332,7 +332,7 @@ def test_orm_insert_of_second_active_link_violates_unique_index(session_factory)
             is_active=1, created_at=_now(), updated_at=_now(),
         )
         values.update(overrides)
-        return WealthInflow(**values)
+        return WealthInflow(currency="CHF", **values)
 
     from tests._wealth_link_legacy import legacy_link_guards_disabled
 

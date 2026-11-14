@@ -700,7 +700,7 @@ def test_alembic_single_head_and_upgrade_downgrade_upgrade(tmp_path):
     # Genau ein Head; CCX-P3 (6814c14575e9) haengt an CCX_P1_REV.
     heads = script.get_heads()
     assert len(heads) == 1
-    assert CCX_P1_REV in {rev.revision for rev in script.walk_revisions(heads[0], CCX_P1_REV)}
+    assert CCX_P1_REV in {rev.revision for rev in script.walk_revisions()}
     assert script.get_revision(CCX_P1_REV).down_revision == CCX_P1_PARENT
     url = f"sqlite:///{tmp_path / 'ccx.db'}"
     cfg = _alembic_cfg(url)
@@ -1023,14 +1023,17 @@ def test_missing_required_input_group_is_unknown_not_sealable(session_factory, m
     from models.mandates import Mandate
     from models.review import RecommendationRun
     from models.users import User
+    from services.holdings_valuation import prepare_valuation_binding
 
     advisor_id, mid, _aid, run_id = _finalizable_run(session_factory, f"unknown-{group}")
     with session_factory() as db:
         db.execute(text(statement))
         db.commit()
+        mandate, run = db.get(Mandate, mid), db.get(RecommendationRun, run_id)
         with pytest.raises(DomainError) as caught:
-            svc.seal_advisory_envelope(db, mandate=db.get(Mandate, mid), run=db.get(RecommendationRun, run_id),
-                                       user=db.get(User, advisor_id))
+            # CCX-P3: das Siegel verlangt die (vollstaendige) Bewertungsbindung.
+            svc.seal_advisory_envelope(db, mandate=mandate, run=run, user=db.get(User, advisor_id),
+                                       valuation=prepare_valuation_binding(db, mandate, run))
         assert caught.value.reason_code == "CCX_INPUT_MANIFEST_MISMATCH"
         value = _audit(db, "ccx.envelope.rejected")[-1].new_value
         assert "stage=manifest" in value and f"unknown={group}" in value

@@ -537,9 +537,8 @@ def _compute_paths_core(
 # oben ist KEIN kundenwirksamer Kanal mehr (eigener Estimand, keine Paritaet).
 
 ARTIFACT_KIND = "strategy-monte-carlo"
-ESTIMAND = "ares/strategy-mc/target-paths-incl-reserve"
-QUANTILES = ("p5", "p10", "p25", "p50", "p75", "p90")
-_SERIES = tuple(f"target_{q}_series_rappen" for q in QUANTILES)
+ARTIFACT_ESTIMAND = "ares/strategy-mc/target-paths-incl-reserve"
+_ARTIFACT_SERIES = tuple(f"target_{key}_series_rappen" for key in _QUANTILE_KEYS)
 
 
 def _artifact_ints(values: Any) -> list[int]:
@@ -548,13 +547,13 @@ def _artifact_ints(values: Any) -> list[int]:
 
 def strategy_mc_artifact_hash(monte_carlo: Mapping[str, Any], external_reserve_rappen: int) -> str:
     body = {
-        "estimand": ESTIMAND,
+        "estimand": ARTIFACT_ESTIMAND,
         "seed": int(monte_carlo.get("seed") or 0),
         "simulations": int(monte_carlo.get("simulations") or 0),
         "year_labels": _artifact_ints(monte_carlo.get("year_labels")),
         "reserve_accounting_basis": bool(monte_carlo.get("reserve_accounting_basis")),
         "external_reserve_rappen": int(external_reserve_rappen or 0),
-        "series": {key: _artifact_ints(monte_carlo.get(key)) for key in _SERIES},
+        "series": {key: _artifact_ints(monte_carlo.get(key)) for key in _ARTIFACT_SERIES},
     }
     return domain_sha256_hex(advisory_domain(ARTIFACT_KIND), json.dumps(body, separators=(",", ":")).encode("utf-8"))
 
@@ -570,7 +569,7 @@ def report_fan_from_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
     monte_carlo = payload.get("monte_carlo") or {}
     reserve = int(payload.get("external_reserve_rappen") or 0)
     sockel = reserve_sockel_rappen(monte_carlo, reserve)
-    fan = {q: [v + sockel for v in _artifact_ints(monte_carlo.get(f"target_{q}_series_rappen"))] for q in QUANTILES}
+    fan = {q: [v + sockel for v in _artifact_ints(monte_carlo.get(f"target_{q}_series_rappen"))] for q in _QUANTILE_KEYS}
     labels = _artifact_ints(monte_carlo.get("year_labels"))
     return {
         "data_pending": False,
@@ -581,7 +580,7 @@ def report_fan_from_artifact(payload: Mapping[str, Any]) -> dict[str, Any]:
         "horizon_years": int(monte_carlo.get("horizon_years") or max(0, len(labels) - 1)),
         "initial_wealth_rappen": fan["p50"][0] if fan["p50"] else 0,
         "note": "",
-        "estimand": ESTIMAND,
+        "estimand": ARTIFACT_ESTIMAND,
         "artifact_hash": strategy_mc_artifact_hash(monte_carlo, reserve),
         "source": "allocation_payload.monte_carlo",
     }

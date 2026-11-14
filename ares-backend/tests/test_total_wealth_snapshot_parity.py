@@ -328,12 +328,13 @@ def test_report_wealth_summary_uses_engine_fx_conversion(tmp_path, monkeypatch):
     from models.wealth import WealthPosition
     from services.advisory_report import _build_wealth_summary
 
-    class _Fx:
-        def cross_rate(self, from_currency: str, to_currency: str) -> float:
-            assert (from_currency, to_currency) == ("USD", "CHF")
-            return 0.8
+    from datetime import datetime, timezone
 
-    monkeypatch.setattr(fx_rates.FXRateSource, "from_db", classmethod(lambda cls, db: _Fx()))
+    from models.fx_rate import FXRate
+
+    # CCX-P3-FX: der Bericht rechnet nur mit einer belegten, frischen FX-Basis
+    # (kein Ersatzkurs, kein Mock der Modellquelle); synthetischer Testvektor.
+    assert fx_rates is not None
     engine = create_engine(f"sqlite:///{tmp_path / 'report_fx.db'}")
     Base.metadata.create_all(bind=engine)
     now = "2026-10-24T00:00:00.000Z"
@@ -347,6 +348,9 @@ def test_report_wealth_summary_uses_engine_fx_conversion(tmp_path, monkeypatch):
                               mandate_type="Anlageberatung", opened_at=now, created_at=now, updated_at=now,
                               base_currency="CHF")
             s.add_all([advisor, client, mandate])
+            stamp = datetime.now(timezone.utc).isoformat()
+            s.add(FXRate(id="fx-usd", currency="USD", rate_x10000=8_000, valid_from=stamp, is_current=1,
+                         source="Manual", created_at=stamp, updated_at=stamp))
             s.flush()
             for label, ptype, assignment, value, currency in (
                 ("Depot", "Depot", "Beratungsvermögen", 10_000_000, "CHF"),
@@ -365,3 +369,4 @@ def test_report_wealth_summary_uses_engine_fx_conversion(tmp_path, monkeypatch):
     # engine's FX-normalized total_base_rappen), not raw 400k.
     assert summary["kredite_rappen"] == 46_000_000
     assert summary["gesamtvermoegen_rappen"] == 44_000_000
+    assert summary["amount_currency"] == "CHF" and summary["fx_status"] is None

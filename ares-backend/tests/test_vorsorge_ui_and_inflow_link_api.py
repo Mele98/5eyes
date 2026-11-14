@@ -101,7 +101,7 @@ def _position(auth_client, client_id, **body):
 def _inflow_payload(**body):
     payload = {
         "label": "Kapitalbezug PK", "source_type": "Andere",
-        "amount_rappen": 300_000_00, "expected_year": 2035,
+        "amount_rappen": 300_000_00, "currency": "CHF", "expected_year": 2035,
     }
     payload.update(body)
     return payload

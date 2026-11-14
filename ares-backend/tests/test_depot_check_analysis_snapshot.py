@@ -252,9 +252,22 @@ def test_latest_analysis_is_loaded_and_none_without_snapshot(session_factory):
     assert loaded["analysis_snapshot_id"] == created["analysis_snapshot_id"]
 
 
+def _fresh_usd_rate(s):
+    """CCX-P3: belegter, frischer USD-Kurs (synthetischer Testvektor 0.8800)."""
+    from datetime import datetime, timezone
+
+    from models.fx_rate import FXRate
+
+    now = datetime.now(timezone.utc).isoformat()
+    s.add(FXRate(id="fx-usd-test", currency="USD", rate_x10000=8_800, valid_from=now, is_current=1,
+                 source="Manual", created_at=now, updated_at=now))
+    s.flush()
+
+
 def test_pdf_binding_rejects_analysis_for_a_replaced_target_allocation(session_factory):
     with session_factory() as s:
         _advisor, mandate = _seed(s)
+        _fresh_usd_rate(s)
         analysis = dca.build_depot_check_analysis(s, mandate, _snapshot(s, mandate))
         dca.assert_analysis_matches_current_allocation(s, mandate, analysis)
         s.query(TargetAllocation).filter(TargetAllocation.id == "ta-a").update({"is_current": 0})

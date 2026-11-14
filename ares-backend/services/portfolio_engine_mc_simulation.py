@@ -89,10 +89,13 @@ normaler Modul-Top-Level-Import -- das Modul haengt nicht von
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import math
 import random
+import threading
+from dataclasses import fields, is_dataclass
 from datetime import date
 from typing import TYPE_CHECKING
 
@@ -1620,7 +1623,64 @@ def _sequence_of_returns_depletion(
     return probability_pct, median_year
 
 
-def _run_allocation_monte_carlo(
+# CCX-P3-FX (eine Simulation fuer App und Bericht): reine Memoisierung der
+# deterministischen Monte-Carlo-Funktion. Der Schluessel ist ein kanonischer
+# Fingerabdruck ALLER Eingaben (ORM-Spalten, Dataclasses, Listen/Dicts, exakte
+# Float-Darstellung) plus Bewertungsstichtag und Modellversion -- identische
+# Eingaben ergeben per Definition identische Pfade (fester Seed), jede Aenderung
+# eines Inputs ergibt einen neuen Schluessel. Keine Fachaenderung: Laeufe,
+# Seed, Horizont und Estimand bleiben unveraendert; der persistente,
+# invalidierbare Artefakt-Speicher ist PERF-RC-01.
+_MC_MEMO_LIMIT = 32
+_MC_MEMO: "dict[str, dict]" = {}
+_MC_MEMO_LOCK = threading.Lock()
+_MC_MEMO_STATS = {"hits": 0, "misses": 0}
+
+
+def _mc_fingerprint(value):
+    """Kanonische, typtreue Darstellung fuer den Memo-Schluessel."""
+    if value is None or isinstance(value, (bool, int, str)):
+        return [type(value).__name__, value]
+    if isinstance(value, float):
+        return ["float", repr(value)]
+    if isinstance(value, dict):
+        return ["dict", sorted([str(k), _mc_fingerprint(v)] for k, v in value.items())]
+    if isinstance(value, (list, tuple)):
+        return [type(value).__name__, [_mc_fingerprint(v) for v in value]]
+    if is_dataclass(value):
+        return [type(value).__name__, [[f.name, _mc_fingerprint(getattr(value, f.name))] for f in fields(value)]]
+    table = getattr(value, "__table__", None)
+    if table is not None:
+        return [table.name, [[c.name, _mc_fingerprint(getattr(value, c.key, None))] for c in table.columns]]
+    raise TypeError(f"Monte-Carlo-Input ohne kanonischen Fingerabdruck: {type(value).__name__}")
+
+
+def _run_allocation_monte_carlo(**kwargs) -> dict:
+    """Memoisiert ``_compute_allocation_monte_carlo`` (siehe oben)."""
+    try:
+        key_payload = json.dumps(
+            [valuation_date().isoformat(), _mc_fingerprint(kwargs)],
+            sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+        )
+    except TypeError:
+        _MC_MEMO_STATS["misses"] += 1
+        return _compute_allocation_monte_carlo(**kwargs)
+    key = hashlib.sha256(key_payload.encode("ascii")).hexdigest()
+    with _MC_MEMO_LOCK:
+        cached = _MC_MEMO.get(key)
+    if cached is not None:
+        _MC_MEMO_STATS["hits"] += 1
+        return copy.deepcopy(cached)
+    _MC_MEMO_STATS["misses"] += 1
+    result = _compute_allocation_monte_carlo(**kwargs)
+    with _MC_MEMO_LOCK:
+        if len(_MC_MEMO) >= _MC_MEMO_LIMIT:
+            _MC_MEMO.pop(next(iter(_MC_MEMO)))
+        _MC_MEMO[key] = copy.deepcopy(result)
+    return result
+
+
+def _compute_allocation_monte_carlo(
     *,
     advisory_summary: PortfolioSummary,
     cashflow_projection_series_rappen: list[int],
