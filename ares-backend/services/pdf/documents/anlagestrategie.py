@@ -595,6 +595,7 @@ def _build_anlagestrategie_flowables_template_order(
         current_volatility_1y_bps=data.current_volatility_1y_bps,
         risk_free_bps=data.risk_free_bps,
         currency=ctx.base_currency,
+        end_year_label=getattr(data, "projection_end_year_label", None),
     )
     if sollist_kennzahlen:
         flowables.append(Spacer(1, 6 * mm))

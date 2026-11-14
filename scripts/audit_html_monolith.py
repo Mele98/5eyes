@@ -29,11 +29,23 @@ DEFAULT_OUTPUT = REPO_ROOT / "docs" / "audits" / "2026-06-02-monolith-inventory.
 # Torte, Legende, SOLL-Quoten mit Bandbreite). Neue Darstellungslogik, die zum
 # Monolithen gehoert; als Teil (statt eigenstaendiges Modul) gefuehrt, damit
 # Bundle, Budget und die Verbots-Guards sie automatisch abdecken.
+# H9 (2026-11-08): ist-projection-gate.js -- Vermoegensentwicklung (#ch-ist)
+# zeigt die verbesserte Kurve nur mit gueltiger, nicht veralteter Strategie.
+# H9 Nachtrag (2026-11-11): session-boundary.js -- frischer Start beim Logout
+# bzw. Benutzerwechsel (N-892-02, kein Mandatszustand ueber die Sitzungsgrenze).
+# H9 Nachtrag 2 (2026-11-12): ist-projection-basis.js -- eine CMA-Quelle fuer die
+# IST-Vermoegensprojektion (Server-Basis, fail-closed ohne wirksame CMA).
+# H9 Nachtrag 4 (N-892-06): unsaved-changes.js -- ungesicherte Eingaben der
+# Kundenmasken (Logout-Rueckfrage, beforeunload, Hinweis nach Benutzerwechsel).
 EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     ("ares.css", "css"),
     ("aa-chart.css", "css"),
     ("intro-sequence.js", "js"),
     ("aa-chart.js", "js"),
+    ("ist-projection-gate.js", "js"),
+    ("session-boundary.js", "js"),
+    ("ist-projection-basis.js", "js"),
+    ("unsaved-changes.js", "js"),
     ("goal-review-runtime.js", "js"),
     # H8 (Compliance-Audit 2026-11-07): Kundeninformation, KYC-Bestaetigung,
     # Vertretung + Audit-Tabelle (renderAuditLogTable umgezogen, N-873-09).
@@ -64,7 +76,6 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
 STANDALONE_FRONTEND_MODULES: dict[str, str] = {
     "eligibility-overrides.js": "eigenes Modul, test_frontend_eligibility_overrides.py",
     "desktop-api.js": "Desktop-Bridge, test_desktop_bridge_contract.py",
-    "risk-capacity-recheck.js": "eigenes Modul, test_frontend_risk_capacity_recheck.py",
     "trade-list-preview.js": "eigenes Modul, test_frontend_trade_list_preview.py",
     "goal-analysis-integrity.js": "eigenes Modul, test_frontend_goal_analysis_integrity.py",
     "advisory-log-finma.js": "eigenes Modul, test_monolith_advisory_log_finma_fields.py",

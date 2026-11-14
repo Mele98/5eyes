@@ -42,7 +42,7 @@ import {
   fanSpreadLabelYs,
   type FanEndKey,
 } from '@/lib/fanAnnotations';
-import { formatChfRappen } from '@/lib/format';
+import { formatChfRappen, formatEndOfYear } from '@/lib/format';
 import { classifyGoals, type GoalAchievabilityStatus } from '@/lib/goalClassification';
 
 interface MonteCarloPathsChartProps {
@@ -197,7 +197,7 @@ export function MonteCarloPathsChart({
     HEIGHT - PADDING_BOTTOM,
   );
   const rangeSentence = fan.symmetric
-    ? fanRangeSentence(time_axis[last], fan.outerLo[last] / 100, fan.outerHi[last] / 100, currency)
+    ? fanRangeSentence(formatEndOfYear(time_axis[last]), fan.outerLo[last] / 100, fan.outerHi[last] / 100, currency)
     : '';
 
   return (

@@ -83,6 +83,29 @@ Einbindung; Platz dafuer durch eine gemeinsame Themen-Namensliste
 (AA_THEME_NAMES statt dreier gleicher Literale), er schrumpft dabei.
 RC-CH-1 Teil 2b (Merge E2 nach G7): Budget auf den gemessenen Stand des
 Integrationsbaums gesenkt: 27389 Z./1679248 B.
+
+H9 (2026-11-08, Owner-UX): Gate der verbesserten Kurve in der
+Vermoegensentwicklung nach ``ist-projection-gate.js`` (neuer Teil, Budget =
+Stand bei Einfuehrung); erfundene Demo-/Platzhalterpfade entfernt. Monolith
+27613 / 1687921 -- Budget entsprechend gesenkt. Danach Warnbox/Badge der
+Risikofaehigkeits-Plausibilitaet aus der Maske entfernt: 27504 / 1681449.
+H9 Nachtrag 1 (2026-11-11, Pruefrunde 61d8d69d): IST-Grafik-Aufbau in
+``ist-projection-gate.js`` verschoben (IST-Horizont, Server-Pruefung),
+Sitzungsgrenze als neuer Teil ``session-boundary.js``, Demo-IST-Pfad in
+initCharts entfernt. Monolith 27460 / 1679579 -- gesenkt.
+H9 Nachtrag 2 (2026-11-12): IST-Projektion aus EINER Server-Basis
+(``ist-projection-basis.js``, neuer Teil), Kennzahlen-Renderer der
+Vermoegensentwicklung nach ``ist-projection-gate.js`` verschoben. Monolith
+27413 / 1676448 -- gesenkt.
+H9 Nachtrag 4 (N-892-05..08): ungesicherte Eingaben als neuer Teil
+``unsaved-changes.js``, ``doLogout`` nach ``session-boundary.js`` verschoben.
+Monolith 27401 / 1676042 -- gesenkt.
+RC-CH-1 Teil 2b (Merge H9 nach G7/E2): H9-Auslagerungen gelten; die G7-
+Waehrungslogik der verschobenen Renderer ist in ist-projection-gate.js
+nachgezogen (toter KPI-Zweig entfernt), die ESG-Erkennung in
+unsaved-changes.js zeigt auf die E2-Karte. Budget auf den gemessenen Stand
+gesenkt: 27163 Z./1666083 B; ist-projection-gate.js 288/15951,
+unsaved-changes.js 86/4604.
 """
 from __future__ import annotations
 
@@ -91,9 +114,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 27389
+MONOLITH_MAX_LINES = 27163
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1679248
+MONOLITH_MAX_BYTES = 1666083
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -102,6 +125,10 @@ EXTRACTED_PART_BUDGETS = {
     "aa-chart.css": (66, 5978),
     "intro-sequence.js": (761, 36861),
     "aa-chart.js": (316, 20632),
+    "ist-projection-gate.js": (288, 15951),
+    "session-boundary.js": (53, 2763),
+    "ist-projection-basis.js": (87, 4649),
+    "unsaved-changes.js": (86, 4604),
     "goal-review-runtime.js": (1564, 83881),
     "client-compliance.js": (465, 29504),
     "kyc-review-policy.js": (427, 25832),

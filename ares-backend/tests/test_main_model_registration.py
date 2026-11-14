@@ -160,7 +160,11 @@ GOLDEN_SORTED_TABLES_SHA256 = "d81632111a28c5666148749dfd4b619067737b9c619b07043
 # E2 Nachtrag 3 (N-901-06): GET /mandates/{id}/sustainability-preferences/
 # exclusion-options?selected=... (nur additiv).
 # RC-CH-1 (E2-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
-GOLDEN_OPENAPI_SHA256 = "a19b69faa4c96e556e0efa0b0c98a9dff8cb0c32c939080c5b3dbb47d66caad5"
+# H9 Nachtrag 2 (H-150): nachgefuehrt fuer GET /mandates/{mandate_id}/ist-projection-basis
+# und die Schemas IstProjectionBasisResponse/IstProjectionCmaReference (nur additiv,
+# kein bestehender Pfad/kein bestehendes Schema geaendert; Feld-Diff api/openapi.json).
+# RC-CH-1 (H9-Merge): Pin(s) aus dem Tree neu berechnet, keine Seite gewaehlt.
+GOLDEN_OPENAPI_SHA256 = "b868f23f2ef67d722d7c49bb60a236c11d94195c8b5a51e0ccf952a7f9d44533"
 
 _PROBE = """
 import hashlib, json

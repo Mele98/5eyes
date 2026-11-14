@@ -61,5 +61,8 @@ def test_frontend_listed_real_estate_defaults_match_backend_450_bps():
         subasset_defaults,
         flags=re.DOTALL,
     )
-    assert "ADMIN_CMA_DEFAULTS.real_estate_ch_return_bps||450" in projection_inputs
-    assert "ADMIN_CMA_DEFAULTS.real_estate_ch_return_bps||330" not in projection_inputs
+    # H9 Nachtrag 2: die IST-Projektion rechnet nicht mehr mit Client-
+    # Konstanten, sondern mit der Server-CMA (real_estate aus der wirksamen
+    # CMA-Version, gleiche Quelle wie das Backend). Kein Fallback auf 330/450.
+    assert "ADMIN_CMA_DEFAULTS" not in projection_inputs
+    assert "realEstate:Number(_srvRet&&_srvRet.real_estate||0)" in projection_inputs

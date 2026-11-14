@@ -117,26 +117,16 @@ describe('RiskCapacityRecheck (Container)', () => {
   });
 });
 
-describe('Risikoprofil (Sektion 12) zeigt den Hinweis dort, wo die Plausibilitaet steht', () => {
-  it('loads and shows "neu zu prüfen" for advisors', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ bound_evaluation: stale }));
-    vi.stubGlobal('fetch', fetchMock);
-    render(
-      <MemoryRouter>
-        <Risikoprofil data={makeRisikoprofil()} mandateId="m-1" />
-      </MemoryRouter>,
-    );
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('neu zu prüfen'));
-    expect(fetchMock.mock.calls[0][0]).toBe('/mandates/m-1/risk-capacity-plausibility');
-  });
-
-  it('does not load anything in the read-only view', () => {
-    role.canEdit = false;
+// H9 (Owner-Vorgabe 2026-11-08): Sektion 12 zeigt keinen "neu zu prüfen"-
+// Hinweis mehr und laedt die Plausibilitaetspruefung nicht.
+describe('Risikoprofil (Sektion 12) ohne Plausibilitaetshinweis', () => {
+  it.each([true, false])('loads and shows nothing (canEdit=%s)', (canEdit) => {
+    role.canEdit = canEdit;
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     render(
       <MemoryRouter>
-        <Risikoprofil data={makeRisikoprofil()} mandateId="m-1" />
+        <Risikoprofil data={makeRisikoprofil()} />
       </MemoryRouter>,
     );
     expect(fetchMock).not.toHaveBeenCalled();

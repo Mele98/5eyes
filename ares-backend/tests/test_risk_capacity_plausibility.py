@@ -306,18 +306,19 @@ def _inconsistent_result() -> dict:
     )
 
 
-def test_strategy_payload_gets_summary_first_and_details_last():
-    payload = {"reasoning": ["Ausgangspunkt ist die House Matrix fuer Score 7.", "Zweiter Punkt."]}
+def test_strategy_payload_carries_field_but_no_reasoning_lines():
+    """H9 (Owner-Vorgabe 2026-11-08): Kundenangaben werden respektiert; der
+    Widerspruch bleibt als Datenfeld/Evidenz intern, aber nicht im Reasoning
+    der Strategie (kundensichtbar). Die Zeilen selbst bleiben berechenbar."""
+    reasoning = ["Ausgangspunkt ist die House Matrix fuer Score 7.", "Zweiter Punkt."]
+    payload = {"reasoning": list(reasoning)}
     result = _inconsistent_result()
     attach_to_strategy_payload(payload, result)
     assert payload["risk_capacity_plausibility"] is result
-    assert REASON_CODE in payload["reasoning"][0]
-    assert "Frage 3 Einkommen" in payload["reasoning"][0]
-    assert payload["reasoning"][1] == "Ausgangspunkt ist die House Matrix fuer Score 7."
-    assert payload["reasoning"][-1].startswith("Frage 3 (Einkommen)")
-    # Idempotent: zweimal anhaengen dupliziert nichts.
-    attach_to_strategy_payload(payload, result)
-    assert sum(REASON_CODE in line for line in payload["reasoning"]) == 1
+    assert payload["reasoning"] == reasoning
+    lines = strategy_reasoning_lines(result)
+    assert REASON_CODE in lines[0] and "Frage 3 Einkommen" in lines[0]
+    assert lines[-1].startswith("Frage 3 (Einkommen)")
 
 
 def test_strategy_payload_unchanged_when_consistent():
@@ -572,7 +573,7 @@ def test_consistent_profile_writes_no_plausibility_audit(session_factory):
         assert _plausibility_audit_rows(session) == []
 
 
-def test_generate_endpoint_adds_reasoning_and_audit_but_does_not_block(session_factory, monkeypatch):
+def test_generate_endpoint_audits_without_reasoning_and_does_not_block(session_factory, monkeypatch):
     import routers.allocation as allocation_router
     from routers.profiling import create_risk_assessment
 
@@ -606,8 +607,8 @@ def test_generate_endpoint_adds_reasoning_and_audit_but_does_not_block(session_f
             current_user=advisor,
         )
         assert result["risk_capacity_plausibility"]["reason_code"] == REASON_CODE
-        assert REASON_CODE in result["reasoning"][0]
-        assert result["reasoning"][1] == "Ausgangspunkt ist die House Matrix fuer Score 7."
+        # H9: kein Widerspruchshinweis im (kundensichtbaren) Reasoning.
+        assert result["reasoning"] == ["Ausgangspunkt ist die House Matrix fuer Score 7."]
         rows = [r for r in _plausibility_audit_rows(session) if r.table_name == "target_allocations"]
         assert len(rows) == 1 and rows[0].record_id == "ta-rcp"
 
@@ -627,33 +628,18 @@ def _js_function(name: str) -> str:
     return HTML[start:HTML.index("\n}\n", start)]
 
 
-def test_monolith_risk_view_has_plausibility_banner_reusing_warning_component():
-    assert 'id="rp-capacity-plausibility" class="al-banner-warning"' in HTML
-    banner = HTML.split('id="rp-capacity-plausibility"', 1)[1][:600]
-    assert "al-banner-title" in banner and "al-banner-body" in banner
-    # Steht in der Auswertung vor der Strategie-Box.
-    assert HTML.index('id="rp-capacity-plausibility"') < HTML.index('<div class="resbox">')
-
-
-def test_monolith_renders_findings_escaped_and_open_states_visible():
-    render = _js_function("renderRiskCapacityPlausibility")
-    assert "result.status==='inconsistent'" in render
-    assert "escapeHtml(" in render
-    assert "reason_code" in render
-    # RISK-CAPACITY-RECHECK-UI-001: Laden liegt im Skriptmodul neben dem Monolithen.
-    module = (HTML_MODULE_DIR / "risk-capacity-recheck.js").read_text(encoding="utf-8")
-    start = module.index("async function refreshRiskCapacityPlausibility(")
-    refresh = module[start:module.index("\n}\n", start)]
-    assert "'/mandates/'+requested+'/risk-capacity-plausibility'" in refresh
-    assert "getActiveMandateId()" in refresh  # Mandatswechsel-Guard
-
-
-def test_monolith_refreshes_after_load_save_and_override():
-    assert "refreshRiskCapacityPlausibility(" in _js_function("saveRiskProfile")
-    assert "refreshRiskCapacityPlausibility(" in _js_function("loadCurrentRiskAssessment")
-    assert "renderRiskCapacityPlausibility(null)" in _js_function("loadCurrentRiskAssessment")
-    override_block = HTML.split("/risk-assessments/'+raId+'/override'", 1)[1][:900]
-    assert "refreshRiskCapacityPlausibility(mid)" in override_block
+def test_monolith_risk_view_has_no_plausibility_banner():
+    """H9 (Owner-Vorgabe 2026-11-08): Maske clean -- keine Widerspruchs-
+    Warnbox, kein "neu zu pruefen"-Badge, kein Laden der Pruefung."""
+    assert 'id="rp-capacity-plausibility"' not in HTML
+    assert 'id="rp-capacity-recheck"' not in HTML
+    assert "widersprechen den erfassten Finanzdaten" not in HTML
+    assert "renderRiskCapacityPlausibility" not in HTML
+    assert "refreshRiskCapacityPlausibility" not in HTML
+    assert "/risk-capacity-plausibility" not in HTML
+    assert not (HTML_MODULE_DIR / "risk-capacity-recheck.js").exists()
+    for name in ("saveRiskProfile", "loadCurrentRiskAssessment"):
+        assert "Plausibility" not in _js_function(name)
 
 
 # ---------------------------------------------------------------------------

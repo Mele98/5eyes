@@ -19,7 +19,7 @@ var result={advisory_wealth_rappen:15000000,expected_return_bps:423,external_res
 """
 
 FUNCS = ("_rvHeroCommonChips", "simulationPayload", "monteCarloPayload", "simulationTerminalRappen",
-         "projectionHorizonYearLabel", "aaReserveSockelRappen")
+         "projectionHorizonYearLabel", "projectionEndOfYearText", "aaReserveSockelRappen")
 
 
 def test_review_chip_uses_monte_carlo_median_like_chart_and_pdf():
@@ -28,7 +28,7 @@ def test_review_chip_uses_monte_carlo_median_like_chart_and_pdf():
                  optional=("strategyMedianProjectionRappen",))
     chip = next(c for c in out if c.startswith("Prognose"))
     assert "170'504" in chip, chip  # MC-Median (wie PDF), nicht 160'944
-    assert "2041" in chip and "Median" in chip
+    assert "Ende 2040" in chip and "Median" in chip  # H9 N2: Label 2041 = Ende 2040
 
 
 def test_review_chip_does_not_add_reserve_twice_for_economic_basis():
