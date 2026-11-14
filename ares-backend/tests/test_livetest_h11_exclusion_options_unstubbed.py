@@ -83,6 +83,17 @@ def _wait_until(page, js: str, timeout_ms: int = 20000) -> None:
     raise AssertionError(f"Zustand nicht erreicht: {js}")
 
 
+APPLY_PROBE = """() => {
+  window.__h11Applied = [];
+  const original = window.sustApplyExclusionOptions;
+  window.sustApplyExclusionOptions = function (options) {
+    window.__h11Applied.push((options || []).filter(o => !o.available).map(o => o.key)
+      .filter(k => k === 'tobacco' || k === 'alcohol').sort());
+    return original.apply(this, arguments);
+  };
+}"""
+
+
 STATE = ("() => ({q: document.getElementById('sust-q1-yes').checked,"
          " t: document.getElementById('sust-excl-tobacco').disabled,"
          " tc: document.getElementById('sust-excl-tobacco').checked,"
@@ -167,17 +178,24 @@ def test_unstubbed_exclusion_options_apply_only_the_latest_answer(server):  # no
             page.check("#sust-q1-yes")
             _wait_until(page, "() => !document.getElementById('sust-excl-alcohol').disabled")
             start = page.evaluate(STATE)
+            # N-907-13: jede tatsaechliche Anwendung einer Antwort protokollieren
+            # (gesperrte Optionen der angewendeten Antwort), statt Aufrufreihenfolge.
+            page.evaluate(APPLY_PROBE)
             # 1) Tabak an -> Antwort zurueckgehalten; 2) Tabak ab -> juengste Antwort (beide frei).
             page.check("#sust-excl-tobacco")
             page.wait_for_timeout(300)
             assert held, calls
             page.uncheck("#sust-excl-tobacco")
-            page.wait_for_timeout(2500)
+            # Erst wenn die juengere Antwort (ohne Auswahl) tatsaechlich angewendet ist,
+            # wird die aeltere freigegeben -- unabhaengig von der Serverlatenz.
+            _wait_until(page, "() => window.__h11Applied.some(a => a.length === 0)", 30000)
             latest = page.evaluate(STATE)
+            applied_before_release = page.evaluate("() => window.__h11Applied.slice()")
             # 3) Die aeltere echte Antwort kommt jetzt (Alkohol waere damit gesperrt).
             held[0].continue_()
             page.wait_for_timeout(2500)
             after_stale = page.evaluate(STATE)
+            applied_after_release = page.evaluate("() => window.__h11Applied.slice()")
             # 4) Positivkontrolle ohne Verzoegerung: Tabak an -> Alkohol gesperrt mit Grund.
             assert after_stale["q"], after_stale  # Karte nicht zwischendurch neu aufgebaut
             page.check("#sust-excl-tobacco")
@@ -190,10 +208,12 @@ def test_unstubbed_exclusion_options_apply_only_the_latest_answer(server):  # no
     assert latest["tc"] is False and latest["a"] is False, latest
     assert after_stale["a"] is False and after_stale["tc"] is False, after_stale  # alte Antwort verworfen
     assert live_combo["tc"] and live_combo["a"] is True and "Tabak" in live_combo["aw"], live_combo
-    # Reihenfolge: zurueckgehaltene Tabak-Anfrage, danach die juengere ohne Auswahl. Ein
-    # vorangestelltes [] (spaetes Neu-Rendern der Karte, E2 H-2) ist zulaessig.
-    first_tobacco = calls.index(["tobacco"])
-    assert [] in calls[first_tobacco + 1:] and calls.count(["tobacco"]) == 2, calls
+    # N-907-13: Nach der Freigabe der alten Antwort wurde KEINE Antwort mehr angewendet
+    # (insbesondere keine mit gesperrtem Alkohol); vorher genau die juengste (nichts gesperrt).
+    assert applied_after_release == applied_before_release, (applied_before_release, applied_after_release)
+    assert applied_before_release and applied_before_release[-1] == [], applied_before_release
+    assert ["alcohol"] not in applied_before_release, applied_before_release
+    assert ["tobacco"] in calls and [] in calls, calls
     assert not errors, errors
 
 
