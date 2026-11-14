@@ -13,7 +13,7 @@
 // / Praeferenz / Verzicht / veraltet) kommt vom Server. E2b (unten):
 // Uebernahme der Ausschluesse in die Strategiebausteine (read-only),
 // Ausgrauen nicht erfuellbarer Optionen, Veraltet-Banner je Mandat.
-var SUST={definition:null,defRequested:false,state:null,mandateId:null,busy:false,loadSeq:0};
+var SUST={definition:null,defRequested:false,state:null,mandateId:null,busy:false,loadSeq:0,exclReq:0};
 
 function sustEsc(v){
   return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -136,14 +136,12 @@ function sustApplyExclusionOptions(options){
 function sustRefreshExclusions(){
   var mid=SUST.mandateId;
   if(!sustIsRealMandate(mid)||typeof API==='undefined'||!API)return Promise.resolve(null);
-  var seq=SUST.loadSeq;
-  var sel=[];
-  document.querySelectorAll('#sust-card .sust-excl').forEach(function(cb){if(cb.checked)sel.push(cb.value);});
-  var qs=sel.map(function(k){return 'selected='+encodeURIComponent(k);}).join('&');
+  var seq=SUST.loadSeq,req=++SUST.exclReq; // H11: nur die juengste Antwort gilt
+  var qs=sustSelectedExclusions().map(function(k){return 'selected='+encodeURIComponent(k);}).join('&');
   return Promise.resolve().then(function(){
     return API.get('/mandates/'+encodeURIComponent(mid)+'/sustainability-preferences/exclusion-options'+(qs?'?'+qs:''));
   }).then(function(options){
-    if(seq!==SUST.loadSeq||String(SUST.mandateId||'')!==String(mid))return null;
+    if(req!==SUST.exclReq||seq!==SUST.loadSeq||String(SUST.mandateId||'')!==String(mid))return null;
     sustApplyExclusionOptions(options);
     return options;
   }).catch(function(e){console.warn('Ausschluss-Optionen:',e);return null;});
