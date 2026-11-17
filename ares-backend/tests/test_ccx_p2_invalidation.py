@@ -936,15 +936,9 @@ def test_status_only_consumers_now_pull_the_edges(session_factory):
 
 
 def _sign_decision(db, ids):
-    from database import new_uuid
-    from models.review import ContractDocument
-
-    db.add(ContractDocument(
-        id=new_uuid(), mandate_id=ids["mid"], document_type="Anlagestrategie", title="Vertrag",
-        status="Unterzeichnet", signed_by_advisor=1, signed_by_client=1, signed_at=NOW,
-        bound_target_allocation_id=ids["ta"], created_by=ids["advisor"], created_at=NOW, updated_at=NOW,
-    ))
-    db.commit()
+    """Kunde unterzeichnet GENAU diesen Entscheid (Dokument nach dem Siegel
+    erzeugt und signiert, N-908-05)."""
+    _document(db, ids, at=_ms_now())
 
 
 def _new_current_cma(db, ids):
@@ -1018,3 +1012,130 @@ def test_former_scope_only_tables_now_have_edges_for_the_pull(session_factory):
         assert caught.value.reason_code == "CCX_INPUT_STALE"
     with session_factory() as db:
         assert "planning" in {e.source_kind for e in _events(db, ids["envelope"])}
+
+
+# ── Nachtrag 2: N-908-05 (Unterschrift am Entscheid), Flush-Zaehler ──────────
+
+
+def _ms_now() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _document(db, ids, *, at: str, signed_by_client: int = 1) -> str:
+    from database import new_uuid
+    from models.review import ContractDocument
+
+    doc_id = new_uuid()
+    db.add(ContractDocument(
+        id=doc_id, mandate_id=ids["mid"], document_type="Anlagestrategie", title="Vertrag",
+        status="Unterzeichnet" if signed_by_client else "Entwurf", signed_by_advisor=signed_by_client,
+        signed_by_client=signed_by_client, signed_at=at if signed_by_client else None,
+        signature_client_signed_at=at if signed_by_client else None,
+        bound_target_allocation_id=ids["ta"], created_by=ids["advisor"], created_at=at, updated_at=at,
+    ))
+    db.commit()
+    return doc_id
+
+
+def _onsite_evidence(db, ids, doc_id: str, *, at: str) -> None:
+    from database import Base, new_uuid
+
+    table = Base.metadata.tables["onsite_signature_evidence"]
+    values = {}
+    for column in table.columns:
+        if column.nullable or column.default is not None or column.server_default is not None:
+            continue
+        python_type = column.type.python_type
+        length = getattr(column.type, "length", None)
+        values[column.name] = 1 if python_type is int else ("e" * length if length else "x")
+    values.update(id=new_uuid(), mandate_id=ids["mid"], client_id=ids["cid"], document_id=doc_id,
+                  signer_role="client", signed_at=at, advisor_id=ids["advisor"], created_at=at,
+                  schema_version="OnsiteSignatureEvidenceV1",
+                  tenant_id=db.execute(text("SELECT tenant_id FROM mandates WHERE id = :m"),
+                                       {"m": ids["mid"]}).scalar())
+    db.execute(table.insert(), values)
+    db.commit()
+
+
+def _house_view_change(session_factory, ids):
+    with session_factory() as db:
+        _new_current_cma(db, ids)
+        db.commit()
+    with session_factory() as db:
+        _mutate_cma(db, ids)
+        db.commit()
+
+
+def test_signature_of_e1_does_not_exempt_e2_on_the_same_allocation(session_factory):
+    """N-908-05: E1 unterzeichnet, E2 auf derselben Soll-Allokation neu
+    finalisiert, neue Hausmeinung -> E2 STALE; E1 (abgeloest) unveraendert."""
+    ids = _ids(session_factory, "sig-e1-e2")
+    with session_factory() as db:
+        _document(db, ids, at=_ms_now())  # E1 unterzeichnet (nach dessen Siegel)
+    _a, _m, _x, run2 = _finalizable_run(session_factory, "sig-e1-e2", mandate=(ids["advisor"], ids["mid"], ids["aid"]))
+    e2 = _finalize(session_factory, ids["advisor"], ids["mid"], run2).advisory_envelope_id
+    with session_factory() as db:
+        assert db.execute(text("SELECT target_allocation_id FROM recommendation_runs WHERE id = :r"),
+                          {"r": run2}).scalar() == ids["ta"]  # wirklich dieselbe Allokation
+    _house_view_change(session_factory, ids)
+    with session_factory() as db:
+        e1_row, e2_row = _envelope(db, ids["envelope"]), _envelope(db, e2)
+        assert (e1_row.status, e1_row.freshness_status) == ("SUPERSEDED", "FRESH")
+        assert e2_row.freshness_status == "STALE"
+        assert {e.source_kind for e in _events(db, e2)} == {"cma"}
+
+
+def test_signature_before_seal_does_not_count(session_factory):
+    """Ein vor dem Siegel erzeugtes/signiertes Dokument gehoert nicht zu diesem
+    Entscheid -> die neue Hausmeinung setzt ihn STALE."""
+    ids = _ids(session_factory, "sig-before")
+    with session_factory() as db:
+        _document(db, ids, at="2026-01-01T00:00:00.000Z")
+    _house_view_change(session_factory, ids)
+    with session_factory() as db:
+        assert _envelope(db, ids["envelope"]).freshness_status == "STALE"
+
+
+def test_onsite_signature_counts_like_e_signing(session_factory):
+    """Vor-Ort-Signatur (Evidenz signer_role = client) zaehlt gleichwertig,
+    obwohl sie signed_by_client nicht setzt."""
+    ids = _ids(session_factory, "sig-onsite")
+    with session_factory() as db:
+        now = _ms_now()
+        doc_id = _document(db, ids, at=now, signed_by_client=0)
+        _onsite_evidence(db, ids, doc_id, at=now)
+    _house_view_change(session_factory, ids)
+    with session_factory() as db:
+        assert _envelope(db, ids["envelope"]).freshness_status == "FRESH"
+        assert _events(db, ids["envelope"]) == []
+        assert _gate(db, ids["mid"], ids["advisor"])["freshness_status"] == "FRESH"
+
+
+def test_flush_counter_is_reset_at_transaction_end(session_factory):
+    """Ein Flush ohne Arbeit (``flush(objects=...)`` auf ein unveraendertes
+    Objekt bei sonstigen offenen Aenderungen) kehrt ohne after_flush_postexec
+    zurueck; spaetestens am Transaktionsende ist der Laufzeitschutz wieder
+    scharf (naechste Core-DML am Hook vorbei loest den Hook aus)."""
+    from sqlalchemy import update
+
+    import models.snapshots as snapshots
+    from models.clients import Client
+    from models.wealth import Goal
+
+    ids = _ids(session_factory, "flush-reset")
+    with session_factory() as db:
+        goal = db.query(Goal).filter(Goal.mandate_id == ids["mid"], Goal.rank == 1).one()
+        db.get(Client, ids["cid"]).notes = "offen"  # sonstige offene Aenderung
+        db.flush(objects=[goal])                    # keine Arbeit fuer goal
+        db.rollback()
+        assert snapshots._FLUSH_DEPTH.get() == 0
+    with session_factory() as db:
+        db.flush(objects=[])
+        db.commit()
+        assert snapshots._FLUSH_DEPTH.get() == 0
+        db.connection().execute(update(Goal).where(Goal.mandate_id == ids["mid"]).values(weight_bps=4300))
+        db.commit()
+    with session_factory() as db:
+        assert _envelope(db, ids["envelope"]).freshness_status == "STALE"
