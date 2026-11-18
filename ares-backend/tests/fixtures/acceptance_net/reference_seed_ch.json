@@ -1,5 +1,5 @@
 {
- "dump_sha256": "d5cdee3b6fa7ce64ab512b878a7b5e3c95cac48d7cb5bbe5ed10c76f0bdbf3c5",
+ "dump_sha256": "f59aadea25aaf897ca64747c695d7a9d57fc883a4852a79242e790882f96adcb",
  "tables": {
   "asset_class_annual_returns": {
    "columns": [
@@ -642,6 +642,7 @@
     "display_name",
     "encrypted_dek",
     "finma_outsourcing_notified_at",
+    "fx_max_age_days",
     "home_jurisdiction",
     "hosting_tier",
     "id",
@@ -649,6 +650,7 @@
     "kek_version",
     "license_status",
     "license_valid_until",
+    "manual_valuation_max_age_days",
     "max_mandates",
     "max_users",
     "slug",
@@ -658,7 +660,7 @@
    ],
    "row_count": 1,
    "row_sha256": [
-    "467204ebdcfa5f9eb153e2b3b2b37eff"
+    "f993a198bacf5a015e3bc67c3f093968"
    ]
   },
   "users": {

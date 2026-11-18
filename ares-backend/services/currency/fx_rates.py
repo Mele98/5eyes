@@ -179,6 +179,20 @@ class StrictFXRateSource:
         self._as_of = as_of
         self._statuses: dict[str, str] | None = None
 
+    def __deepcopy__(self, memo):
+        """Wertkopie wie bei ``FXRateSource``: Modell und Kursstatus werden
+        kopiert, die DB-Session ist eine Ressource und wird geteilt (eine
+        Session ist nicht kopierbar)."""
+        import copy as _copy
+
+        clone = StrictFXRateSource(
+            _copy.deepcopy(self.model, memo), self._db,
+            tenant_id=self._tenant_id, as_of=self._as_of,
+        )
+        clone._statuses = dict(self._statuses) if self._statuses is not None else None
+        memo[id(self)] = clone
+        return clone
+
     @property
     def basis_id(self) -> str:
         return self.model.basis_id
@@ -211,6 +225,10 @@ class StrictFXRateSource:
         code = str(currency or "").upper().strip()
         if code == "CHF":
             return
+        if code and code not in self.model.rates_in_chf:
+            # Unbekannter Code: wie die Modellquelle ein Eingabefehler (ValueError),
+            # nie ein Kurs -- bestehende fail-closed-Pfade bleiben unveraendert.
+            raise ValueError(f"Unbekannte Waehrung: {code}")
         status = self.statuses().get(code, FX_STATUS_MISSING) if code else FX_STATUS_MISSING
         if status != FX_STATUS_OK:
             raise FxBasisError(
@@ -225,9 +243,16 @@ class StrictFXRateSource:
         return self.model.rate_to_chf(currency)
 
     def cross_rate(self, from_currency: str, to_currency: str) -> float:
-        self.require(from_currency)
-        self.require(to_currency)
-        return self.model.cross_rate(from_currency, to_currency)
+        source = str(from_currency or "").upper().strip()
+        target = str(to_currency or "").upper().strip()
+        if source and source == target:
+            # Identitaet: keine Umrechnung, also kein Kurs noetig (ein reines
+            # EUR-Mandat braucht keinen EUR/CHF-Kurs). Die Modellquelle prueft
+            # weiterhin, dass der Code bekannt ist, und liefert exakt 1.0.
+            return self.model.cross_rate(source, target)
+        self.require(source)
+        self.require(target)
+        return self.model.cross_rate(source, target)
 
     def convert_storage_amount(self, amount_minor: int, source_currency: str, target_currency: str) -> int:
         source = str(source_currency or "").upper().strip()

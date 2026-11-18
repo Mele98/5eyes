@@ -127,7 +127,7 @@ def assess_mandate_portfolio_data(
     policy_state=None,
 ) -> dict:
     """Frische, Abgleich und Gate je Aktion fuer ein Mandat (immer sichtbar)."""
-    from services.currency.fx_rates import FXRateLoadError
+    from services.currency.fx_rates import FxBasisError, FXRateLoadError
     from services.depot_snapshot import build_depot_snapshot
 
     policy, policy_error = policy_state or load_policy_state()
@@ -140,7 +140,9 @@ def assess_mandate_portfolio_data(
         if policy is not None:
             components = freshness_components(db, mandate, snapshot)
             freshness = assess_freshness(components, advice_at=advice_at, policy=policy)
-    except (FXRateLoadError, FreshnessInputError, ValueError) as exc:
+    except (FXRateLoadError, FreshnessInputError, ValueError, FxBasisError) as exc:
+        # CCX-P3-FX (N-909-01): ohne belegten, frischen Kurs kein bewerteter
+        # IST-Bestand -> sichtbar als freshness_error, Gates "freshness_not_evaluated".
         freshness_error = str(exc)
 
     gates = {

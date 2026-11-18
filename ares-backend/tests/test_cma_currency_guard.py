@@ -40,6 +40,7 @@ from services.cma_currency_guard import (  # noqa: E402
 )
 from test_band_override_house_matrix_disclosure import _draft_run_with_position  # noqa: E402
 from test_optimizer_integration import _seed_realistic_mandate, session_factory  # noqa: F401,E402
+from tests.fx_test_support import seed_attested_fx  # noqa: E402
 
 MESSAGE_EUR = "Kapitalmarktannahmen in CHF – für Basiswährung EUR nicht freigegeben."
 GOOD_REASON = (
@@ -53,6 +54,9 @@ def _seed(SF, suffix: str, base_currency: str):
     with SF() as s:
         s.query(Mandate).filter(Mandate.id == mid).one().base_currency = base_currency
         s.commit()
+        # CCX-P3-FX (N-909-01): die CHF-Positionen eines EUR-Mandats brauchen
+        # einen belegten Kurs (Gegenstand hier ist der CMA-Waehrungsguard).
+        seed_attested_fx(s, [base_currency])
     return adv, mid, aid
 
 

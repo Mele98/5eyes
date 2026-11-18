@@ -60,7 +60,7 @@ def test_warning_codes_are_extracted_deduplicated_in_order():
 
 def test_finalize_route_declares_the_warning_fields_in_openapi():
     schema = app.openapi()
-    path = schema["paths"]["/mandates/{mandate_id}/recommendations/{run_id}/finalize?confirm_valuations_current=true"]["put"]
+    path = schema["paths"]["/mandates/{mandate_id}/recommendations/{run_id}/finalize"]["put"]
     ref = path["responses"]["200"]["content"]["application/json"]["schema"]["$ref"]
     assert ref.endswith("/RecommendationFinalizeResponse")
     props = schema["components"]["schemas"]["RecommendationFinalizeResponse"]["properties"]
