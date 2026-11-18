@@ -1945,7 +1945,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Wealth Summary */
+        /**
+         * Wealth Summary
+         * @description Vermoegenssummen des Kunden (K1 / CK-01).
+         *
+         *     Nie eine Nominalsumme ueber Waehrungen: jede aktive Position wird mit EINER
+         *     gebundenen, strikten FX-Basis (P3) in die Zielwaehrung konvertiert, erst
+         *     danach summiert. Zielwaehrung: ``mandate_id`` -> Mandatswaehrung, sonst
+         *     ``target_currency``, sonst die einheitliche Positionswaehrung (ohne
+         *     Umrechnung), sonst die eindeutige Mandatswaehrung des Kunden. Fehlender,
+         *     abgelaufener oder ersetzter Kurs -> 409 ``CCX_FX_BASIS_*``. Die Felder
+         *     ``*_chf`` tragen den Betrag in ``amount_currency`` (historischer Name).
+         */
         get: operations["wealth_summary_clients__client_id__wealth_summary_get"];
         put?: never;
         post?: never;
@@ -13490,6 +13501,8 @@ export interface components {
             target_weight_bps: number;
             /** Ter Bps */
             ter_bps: number | null;
+            /** Ter Status */
+            ter_status?: string | null;
             /** Valuation Basis */
             valuation_basis?: string | null;
         };
@@ -15883,6 +15896,8 @@ export interface components {
             position_type: string;
             /** Property Address */
             property_address: string | null;
+            /** Property Gate Review Json */
+            property_gate_review_json?: string | null;
             /** Property Rental Income Rappen */
             property_rental_income_rappen: number;
             /**
@@ -16014,6 +16029,8 @@ export interface components {
             client_id: string;
             /** Client Name */
             client_name: string;
+            /** Fx Basis Hash */
+            fx_basis_hash?: string | null;
             /** Gross Wealth Chf */
             gross_wealth_chf: number;
             /** Gross Wealth Rappen */
@@ -16022,10 +16039,14 @@ export interface components {
             liabilities_chf: number;
             /** Liabilities Rappen */
             liabilities_rappen: number;
+            /** Mandate Id */
+            mandate_id?: string | null;
             /** Net Worth Chf */
             net_worth_chf: number;
             /** Net Worth Rappen */
             net_worth_rappen: number;
+            /** Valuation As Of */
+            valuation_as_of?: string | null;
         };
         /** WitnessRequest */
         WitnessRequest: {
@@ -19288,7 +19309,10 @@ export interface operations {
     };
     wealth_summary_clients__client_id__wealth_summary_get: {
         parameters: {
-            query?: never;
+            query?: {
+                mandate_id?: string | null;
+                target_currency?: string | null;
+            };
             header?: never;
             path: {
                 client_id: string;

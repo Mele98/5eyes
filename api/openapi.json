@@ -22544,6 +22544,17 @@
             ],
             "title": "Ter Bps"
           },
+          "ter_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ter Status"
+          },
           "valuation_basis": {
             "anyOf": [
               {
@@ -30600,6 +30611,17 @@
             ],
             "title": "Property Address"
           },
+          "property_gate_review_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Property Gate Review Json"
+          },
           "property_rental_income_rappen": {
             "title": "Property Rental Income Rappen",
             "type": "integer"
@@ -31368,6 +31390,17 @@
             "title": "Client Name",
             "type": "string"
           },
+          "fx_basis_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fx Basis Hash"
+          },
           "gross_wealth_chf": {
             "title": "Gross Wealth Chf",
             "type": "number"
@@ -31384,6 +31417,17 @@
             "title": "Liabilities Rappen",
             "type": "integer"
           },
+          "mandate_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mandate Id"
+          },
           "net_worth_chf": {
             "title": "Net Worth Chf",
             "type": "number"
@@ -31391,6 +31435,17 @@
           "net_worth_rappen": {
             "title": "Net Worth Rappen",
             "type": "integer"
+          },
+          "valuation_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valuation As Of"
           }
         },
         "required": [
@@ -36559,6 +36614,7 @@
     },
     "/clients/{client_id}/wealth-summary": {
       "get": {
+        "description": "Vermoegenssummen des Kunden (K1 / CK-01).\n\nNie eine Nominalsumme ueber Waehrungen: jede aktive Position wird mit EINER\ngebundenen, strikten FX-Basis (P3) in die Zielwaehrung konvertiert, erst\ndanach summiert. Zielwaehrung: ``mandate_id`` -> Mandatswaehrung, sonst\n``target_currency``, sonst die einheitliche Positionswaehrung (ohne\nUmrechnung), sonst die eindeutige Mandatswaehrung des Kunden. Fehlender,\nabgelaufener oder ersetzter Kurs -> 409 ``CCX_FX_BASIS_*``. Die Felder\n``*_chf`` tragen den Betrag in ``amount_currency`` (historischer Name).",
         "operationId": "wealth_summary_clients__client_id__wealth_summary_get",
         "parameters": [
           {
@@ -36568,6 +36624,39 @@
             "schema": {
               "title": "Client Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "mandate_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Mandate Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[A-Z]{3}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Currency"
             }
           }
         ],
