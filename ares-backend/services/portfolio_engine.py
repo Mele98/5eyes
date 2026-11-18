@@ -66,6 +66,11 @@ from services.cashflow_timeline import (
     recurring_net_cashflow_series,
     totals_for_year,
 )
+from services.property_advanced_gate import (  # K1 Property-Gate
+    effective_property_growth_bps,
+    goal_funding_flag_counts,
+    mortgage_projection_enabled,
+)
 from services.wealth_cashflows import (
     derive_tax_cashflow,
     derive_wealth_cashflows,
@@ -659,6 +664,7 @@ from services.portfolio_engine_pension_positions import (  # noqa: E402 -- VORSO
     pension_foundation_keys, pension_series_for_horizon, with_pension_notes,
 )
 from services.pension_transfer_ledger_snapshot import (  # noqa: E402 -- PENSION-TRANSFER-LEDGER-001
+    FOUNDATION_SNAPSHOT_KEY as PENSION_LEDGER_FOUNDATION_SNAPSHOT_KEY,
     bind_pension_transfer_ledger_snapshot, canonical_foundation_projection, stored_pension_transfer_ledger_snapshot,
 )
 from services.allocation_evidence_replay import allocation_evidence_payload, build_goal_driver_evidence_json  # noqa: E402
@@ -759,6 +765,11 @@ def _position_is_currently_unlocked_for_goal_funding(pos, *, as_of: "date | None
       automatische Deckung ohne Nachweis).
     """
     if int(getattr(pos, "is_available_for_goal_funding", 0) or 0) != 1:
+        return False
+    # K1 Property-Gate (Codex-Entscheid 2026-11-19): keine Collateral-/
+    # Verwertungsanrechnung von Direktimmobilien und illiquiden Werten bis zur
+    # P1-Schliessung -- nur heute liquide Positionen speisen den Pool.
+    if not goal_funding_flag_counts(pos):
         return False
     if _norm_text(getattr(pos, "assignment", "")) != "Anderes Vermoegen":
         return False
@@ -984,9 +995,9 @@ def _build_external_foundation_projection(
             is_direct_real_estate_position(position_type)
             and is_external_wealth_assignment(assignment)
         ):
-            rate_bps = int(
-                getattr(position, "asset_expected_return_bps", 0) or 0
-            )
+            # K1 Property-Gate: keine angenommene Wertsteigerung als
+            # Prognose-/Optimizer-Input (nominal flach bis P1-Schliessung).
+            rate_bps = effective_property_growth_bps(position)
             current = value
             property_series[0] += current
             growth_factor = 1.0 + rate_bps / 10000.0
@@ -1005,8 +1016,8 @@ def _build_external_foundation_projection(
         )
         amortization_mode = (
             mortgage_amortization_mode(amortization_type)
-            if is_mortgage
-            else "none"
+            if is_mortgage and mortgage_projection_enabled()
+            else "none"  # K1 Property-Gate: keine Amortisationsprojektion
         )
         amortization = 0
         if is_mortgage and amortization_mode in {"direct", "indirect"}:
@@ -2623,6 +2634,60 @@ def _projection_context_snapshot(
     }
 
 
+INPUT_SNAPSHOT_VERSION_FX_EFFECTIVE = "strategy_inputs_v5_fx_effective_rates"
+
+
+def _fx_signature_freshness_view(signature):
+    """K1 / E2E-03: FX-Signatur fuer den Freshness-Vergleich -- Zielwaehrung,
+    ``uses_versioned_defaults`` und die effektiven Kurse der tatsaechlich
+    verwendeten Waehrungen (``effective_rates_x1e8``). ``basis_id`` (Fingerabdruck
+    der GANZEN Kurstabelle) ist Provenienz, kein Rechen-Input: eine GBP-Aenderung
+    darf ein reines CHF-Mandat nicht veralten lassen."""
+    if not isinstance(signature, dict):
+        return signature
+    return {key: value for key, value in signature.items() if key != "basis_id"}
+
+
+def fx_freshness_projection_context(projection_context):
+    """Projektionskontext ohne tabellenweite FX-Provenienz (siehe oben); gilt
+    auch fuer die FX-Evidence des Vorsorge-Transfer-Snapshots in der Foundation
+    (dort zusaetzlich ohne die daraus abgeleiteten snapshot_hash/-id)."""
+    if not isinstance(projection_context, dict):
+        return projection_context
+    view = dict(projection_context)
+    if "fx_basis" in view:
+        view["fx_basis"] = _fx_signature_freshness_view(view["fx_basis"])
+    foundation = view.get("external_foundation_projection")
+    key = PENSION_LEDGER_FOUNDATION_SNAPSHOT_KEY
+    if isinstance(foundation, dict) and isinstance(foundation.get(key), dict):
+        snapshot = {
+            name: value for name, value in foundation[key].items()
+            if name not in {"snapshot_hash", "snapshot_id"}
+        }
+        snapshot["fx_evidence"] = _fx_signature_freshness_view(snapshot.get("fx_evidence"))
+        view["external_foundation_projection"] = {**foundation, key: snapshot}
+    return view
+
+
+def relevant_fx_changes_since(db, *, projection_context, since) -> list[str]:
+    """Wahre Ursache einer Veraltung benennen: verwendete Fremdwaehrungen, deren
+    aktuelle Kurszeile nach der Berechnung erfasst/bestaetigt wurde."""
+    from models.fx_rate import FXRate
+
+    signature = (projection_context or {}).get("fx_basis") or {}
+    used = {
+        str(item[0]).upper() for item in signature.get("effective_rates_x1e8") or []
+        if isinstance(item, (list, tuple)) and item
+    } - {"CHF"}
+    if not used or not since:
+        return []
+    rows = db.query(FXRate).filter(FXRate.currency.in_(sorted(used)), FXRate.is_current == 1).all()
+    return sorted({
+        str(row.currency).upper() for row in rows
+        if str(row.created_at or row.valid_from or "") > str(since)
+    })
+
+
 def _compute_input_snapshot_hash(
     *,
     advisory_positions: list,
@@ -2806,19 +2871,27 @@ def _compute_input_snapshot_hash(
     has_projection_context = use_v2 and projection_context is not None
     effective_snapshot_version = snapshot_version
     if has_projection_context and effective_snapshot_version is None:
-        effective_snapshot_version = "strategy_inputs_v4_complete_goals"
+        # K1 / E2E-03: Standard ist v5 -- FX nur ueber die effektiven Kurse der
+        # verwendeten Waehrungen (fx_freshness_projection_context), nicht ueber
+        # den Fingerabdruck der ganzen Kurstabelle.
+        effective_snapshot_version = INPUT_SNAPSHOT_VERSION_FX_EFFECTIVE
     if effective_snapshot_version is not None and (
         not has_projection_context
         or effective_snapshot_version
         not in {
             "strategy_inputs_v3_projection_context",
             "strategy_inputs_v4_complete_goals",
+            INPUT_SNAPSHOT_VERSION_FX_EFFECTIVE,
         }
     ):
         raise ValueError("Unbekannte oder unvollstaendige Snapshot-Version.")
+    if effective_snapshot_version == INPUT_SNAPSHOT_VERSION_FX_EFFECTIVE:
+        projection_context = fx_freshness_projection_context(projection_context)
     goal_encoder = (
         _goal_v4
-        if effective_snapshot_version == "strategy_inputs_v4_complete_goals"
+        if effective_snapshot_version in {
+            "strategy_inputs_v4_complete_goals", INPUT_SNAPSHOT_VERSION_FX_EFFECTIVE,
+        }
         else (_goal_v2 if use_v2 else _goal_v1)
     )
 
@@ -5876,6 +5949,20 @@ def build_target_payload_from_allocation(
             "external_reserve_rappen": int(external_reserve_rappen), "reserve_funding_ledger": reserve_ledger, "reserve_split": live_reserve_breakdown["reserve_split"],
             "external_foundation_projection": external_foundation_projection,
         }
+    # K1 / E2E-03: vor K1 gespeicherte Allokationen tragen den v4-Hash ueber den
+    # vollen Kontext (inkl. tabellenweiter basis_id); er bleibt akzeptiert,
+    # solange sich die Kurstabelle nicht geaendert hat.
+    current_v4_snapshot_hash = _compute_input_snapshot_hash(
+        advisory_positions=advisory_positions,
+        all_positions=all_positions,
+        cashflows=cashflows,
+        goals=goals,
+        advisory_wealth_rappen=advisory_wealth_rappen,
+        total_wealth_rappen=total_wealth_rappen,
+        wealth_inflows=rebuild_wealth_inflows,
+        projection_context=current_projection_context,
+        snapshot_version="strategy_inputs_v4_complete_goals",
+    )
     legacy_projection_context = dict(current_projection_context)
     legacy_projection_context.pop("fx_basis", None)
     current_projection_v3_snapshot_hash = _compute_input_snapshot_hash(
@@ -5906,6 +5993,7 @@ def build_target_payload_from_allocation(
     )
     accepted_current_snapshot_hashes = (
         current_snapshot_hash,
+        current_v4_snapshot_hash,
         current_projection_v3_snapshot_hash,
         current_foundation_snapshot_hash,
         current_legacy_snapshot_hash,
@@ -5917,6 +6005,18 @@ def build_target_payload_from_allocation(
         stored_input_snapshot_hash
         and stored_input_snapshot_hash not in accepted_current_snapshot_hashes
     ):
+        fx_changed = relevant_fx_changes_since(
+            db, projection_context=current_projection_context,
+            since=getattr(allocation, "created_at", None),
+        )
+        if fx_changed:
+            raise StaleAllocationInputError(
+                "Die gespeicherte Soll-Allokation ist veraltet: Wechselkurs "
+                + ", ".join(fx_changed)
+                + " seit der Berechnung geaendert. Bitte Strategie neu "
+                "berechnen; alte Targets werden nicht mit einer aktuellen "
+                "Analyse kombiniert."
+            )
         raise StaleAllocationInputError(
             "Die gespeicherte Soll-Allokation ist veraltet: Vermoegen, "
             "Cashflows oder Ziele haben sich seit der Berechnung geaendert. "

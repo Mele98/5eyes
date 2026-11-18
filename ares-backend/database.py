@@ -1737,6 +1737,8 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             ('pension_maturity_date', 'TEXT'),
             ('pension_lumpsum_tax_rappen', 'INTEGER'),
             ('pension_lumpsum_tax_bps', 'INTEGER'),
+            # K1 Property-Gate (2026-11-19): siehe models/wealth.py.
+            ('property_gate_review_json', 'TEXT'),
         ],
         # A2-Smoke-Test-Fund (2026-07-22): 'target_allocations' hatte einen
         # DOPPELTEN Dict-Key in diesem Literal (hier + weiter unten). In Python
@@ -3619,6 +3621,21 @@ def migrate_house_matrix_real_estate_cap_20(engine_to_use=None) -> int:
     return updated
 
 
+def migrate_property_advanced_gate(engine_to_use=None) -> int:
+    """K1 Property-Gate, SQLite-Startpfad (gleiche Logik wie Alembic
+    ``63332bb56098``): aktive Altwerte deaktivierter Property-/Collateral-
+    Funktionen neutralisieren und als Owner-Review-Fall festhalten. Idempotent."""
+    eng = engine_to_use if engine_to_use is not None else engine
+    try:
+        from services.property_advanced_gate import neutralize_legacy_property_values
+
+        with eng.begin() as conn:
+            return len(neutralize_legacy_property_values(conn))
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        _handle_startup_step_error("migrate_property_advanced_gate", exc)
+        return 0
+
+
 def _create_or_migrate_schema(active_url: str, target_engine: Engine | None = None) -> None:
     """Roadmap #90: Baseline-Migration + init_db-Switch create_all<->alembic.
 
@@ -3792,6 +3809,7 @@ def _run_sqlite_legacy_schema_maintenance(target_engine: Engine | None = None) -
     # Override-Umbau (ein Tabellen-Neuaufbau verwirft alle Trigger).
     ensure_sqlite_mandate_evidence_tenant_boundary(eng)
     migrate_house_matrix_real_estate_cap_20(eng)
+    migrate_property_advanced_gate(eng)
     ensure_snapshot_tables(eng)
     from services.market_data.provider_health_registry import ensure_provider_health_table
 

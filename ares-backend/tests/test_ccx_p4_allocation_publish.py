@@ -623,7 +623,10 @@ def test_alembic_single_head_p4_and_upgrade_downgrade_upgrade(tmp_path):
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
-    assert script.get_heads() == [CCX_P4_REV]
+    # K1 (63332bb56098, Property-Gate) haengt hinter P4: genau ein Head, P4 in der Kette.
+    heads = script.get_heads()
+    assert len(heads) == 1, heads
+    assert CCX_P4_REV in {rev.revision for rev in script.walk_revisions("base", heads[0])}
     assert script.get_revision(CCX_P4_REV).down_revision == CCX_P3_REV
     chain = [rev.revision for rev in script.walk_revisions("base", CCX_P4_REV)][:4]
     assert chain == [CCX_P4_REV, CCX_P3_REV, "d868f4eaa028", "2c62f9012c73"]

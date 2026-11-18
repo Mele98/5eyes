@@ -453,6 +453,7 @@ def _plausibility_audit_rows(session):
     ).all()
 
 
+@pytest.mark.usefixtures("property_advanced_mechanics_enabled")  # K1: dormante Mechanik
 def test_load_recorded_financials_reads_cashflows_positions_goals(session_factory):
     with session_factory() as session:
         _seed(session)
@@ -944,3 +945,6 @@ def test_all_income_ending_in_window_is_a_finding_not_a_skip(session_factory):
     assert not ({CHECK_INCOME, CHECK_SAVINGS} & _skipped(result))
     income = next(f for f in result["findings"] if f["check"] == CHECK_INCOME)
     assert "ab 02.2027 sinkt das erfasste Einkommen auf CHF 0" in income["message"]
+
+
+from tests.property_gate_support import property_advanced_mechanics_enabled  # noqa: E402,F401  (K1)

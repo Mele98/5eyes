@@ -155,3 +155,25 @@ def test_mixed_currency_without_unique_client_currency_requires_context():
     # Aktive Mandate gehen vor beendeten.
     mixed = mandates[:1] + [SimpleNamespace(base_currency="EUR", status="Beendet", deleted_at=None)]
     assert resolve_summary_currency(positions, mixed) == "CHF"
+
+
+def test_e2e05_wealth_mask_sum_endpoints_inventory(api, advisor_user):
+    """E2E-05: alle Summen-Endpunkte der Vermoegensmaske rechnen in der
+    Basiswaehrung ueber die strikte FX-Basis (oder sperren typisiert)."""
+    client_id, mandate_id = _create_client_and_mandate(api, advisor_user, "CHF")
+    _set_usd(api, "Manual")
+    _post(api, client_id, CHF_DEPOT)
+    _post(api, client_id, USD_DEPOT)
+    for path in (f"/clients/{client_id}/wealth-summary",
+                 f"/clients/{client_id}/cashflow-summary?mandate_id={mandate_id}",
+                 f"/clients/{client_id}/cashflow-projection?mandate_id={mandate_id}"):
+        resp = api.get(path)
+        assert resp.status_code == 200, (path, resp.status_code, resp.text[:300])
+    # Ersatzkurs: die Positionssumme sperrt typisiert. (cashflow-projection
+    # summiert keine Positionen -- Jahreszeilen aus Cashflows/Vorsorge -- und
+    # bleibt bei einer reinen CHF-Cashflow-Lage lieferbar.)
+    _set_usd(api, "Default")
+    resp = api.get(f"/clients/{client_id}/wealth-summary")
+    assert resp.status_code == 409 and _code(resp) == "CCX_FX_BASIS_MISSING", resp.text[:300]
+    row = next(c for c in api.get("/dashboard/summary").json()["clients"] if c["client_id"] == client_id)
+    assert row["amount_block_reason_code"] == "CCX_FX_BASIS_MISSING"

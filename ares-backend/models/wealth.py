@@ -75,6 +75,10 @@ class WealthPosition(Base):
     liquidity_available_from = Column(String)
     is_available_for_goal_funding = Column(Integer, nullable=False, default=0)
     goal_funding_method = Column(String)
+    # K1 Property-Gate (2026-11-19): Owner-Review-Fall, wenn die Migration aktive
+    # Werte deaktivierter Property-/Collateral-Funktionen neutralisiert hat (alter
+    # Wert + Aktion, services/property_advanced_gate.py). NULL = kein Fall.
+    property_gate_review_json = Column(String)
     notes = Column(String)
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)

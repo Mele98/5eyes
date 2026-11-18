@@ -35,7 +35,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 NOW = "2026-11-11T10:00:00.000Z"
 # C-890-01 Nachtrag 2: a7d3c9e1f5b2 (Ablehnungen) folgt auf f4c2e8a6d1b3.
-HEAD = "24e7606245d3"  # Migrationskopf; RC-CH-1: H10 hinter C-890-01 (Nachtrag 3 d66fbf0588e3), E2 hinter H10, CCX-P1 hinter E2, CCX-P2 hinter CCX-P1, CCX-P3 hinter CCX-P2, CCX-P4 hinter CCX-P3
+HEAD = "63332bb56098"  # Migrationskopf; RC-CH-1: H10 hinter C-890-01 (Nachtrag 3 d66fbf0588e3), E2 hinter H10, CCX-P1 hinter E2, CCX-P2 hinter CCX-P1, CCX-P3 hinter CCX-P2, CCX-P4 hinter CCX-P3, K1 hinter CCX-P4
 
 
 def _qi(identifier: str) -> str:

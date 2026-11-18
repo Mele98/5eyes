@@ -1105,6 +1105,7 @@ CREATE TABLE IF NOT EXISTS wealth_positions (
     is_available_for_goal_funding INTEGER NOT NULL DEFAULT 0 CHECK(is_available_for_goal_funding IN (0,1)),
     goal_funding_method         TEXT CHECK(goal_funding_method IN (
                                 'Verkauf','Belehnung','Ignorieren','Automatisch')),
+    property_gate_review_json   TEXT,
     notes                       TEXT,
     is_active                   INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0,1)),
     created_at                  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),

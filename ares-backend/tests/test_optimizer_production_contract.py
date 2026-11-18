@@ -707,17 +707,21 @@ def test_generate_and_reload_label_decision_and_implementation_model_bases(
         assert reporting["total_scope_goal_basis"] == (
             "exact_total_projection_path_v2"
         )
+        # K1 Property-Gate: keine angenommene Wertsteigerung der Direktimmobilie.
         assert reporting["direct_real_estate_return_basis"] == (
-            "position_price_appreciation_plus_explicit_rent_v2"
+            "nominal_flat_plus_explicit_rent_v1"
         )
 
         for model_view in (optimization, reporting):
             assert model_view["real_estate_return_basis"] == (
                 "listed_real_estate_total_return_including_distributions_v1"
             )
+            # K1 Property-Gate: Amortisationsprojektion bis P1-Schliessung aus.
             assert model_view["indirect_amortization_treatment"] == (
-                "pledged_asset_transfer_v1"
+                "disabled_until_p1_closure_v1"
             )
+            assert model_view["property_advanced_features"] == "disabled_until_p1_closure_v1"
+            assert model_view["mortgage_cashflow_treatment"] == "manual_cashflow_only_v1"
             assert model_view["direct_real_estate_scope"] == (
                 "external_total_wealth"
             )

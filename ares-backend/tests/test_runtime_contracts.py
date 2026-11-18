@@ -2452,6 +2452,7 @@ def test_create_wealth_position_accepts_valid_mortgage_property_link(session_fac
     assert result.mortgage_linked_property_id == "property-1"
 
 
+@pytest.mark.usefixtures("property_advanced_mechanics_enabled")  # K1: dormante Mechanik
 def test_update_wealth_position_rejects_extreme_property_return_using_db_position_type(
     session_factory, advisor_user,
 ):
@@ -5596,3 +5597,6 @@ def test_fzk_risk_assessment_override_rejects_scores_above_cap(session_factory, 
     assert "FZK" in exc.value.detail
     assert assessment.is_overridden == 0
     assert assessment.override_score_x10 is None
+
+
+from tests.property_gate_support import property_advanced_mechanics_enabled  # noqa: E402,F401  (K1)

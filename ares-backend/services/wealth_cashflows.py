@@ -27,6 +27,7 @@ import math
 from dataclasses import dataclass, asdict
 from typing import Optional
 
+from services.property_advanced_gate import mortgage_projection_enabled
 from services.wealth_position_semantics import (
     is_direct_real_estate_position,
     is_liquidity_position,
@@ -214,7 +215,8 @@ def mortgage_interest_adjustment_series(
     Altsatz stehen, obwohl die Schedule korrekt den Refi-Satz auswies."""
     n = max(0, int(horizon_years or 0))
     adj = [0] * n
-    if n == 0:
+    if n == 0 or not mortgage_projection_enabled():
+        # K1 Property-Gate: keine Refinanzierungs-/Amortisationsprojektion.
         return adj
     for pos in positions or []:
         if getattr(pos, "deleted_at", None):
@@ -269,6 +271,8 @@ def mortgage_amortization_adjustment_series(
     """
     n = max(0, int(horizon_years or 0))
     adjustment = [0] * n
+    if not mortgage_projection_enabled():
+        return adjustment  # K1 Property-Gate: keine Amortisationsprojektion
     for pos in positions or []:
         if getattr(pos, "deleted_at", None):
             continue
@@ -350,6 +354,12 @@ def derive_wealth_cashflows(positions: list) -> list[DerivedCashflow]:
             ))
 
         if is_mortgage_position(ptype):
+            if not mortgage_projection_enabled():
+                # K1 Property-Gate (Codex-Entscheid 2026-11-19): Hypothekarzins
+                # und Amortisation erfasst der Berater als Ausgaben-Cashflow
+                # (Hinweis in der Maske). Die Automatik liefert nichts -- so
+                # gibt es genau EINE Abbildung und keine Doppelzaehlung.
+                continue
             _mk("mortgage_interest", "Expense",
                 _rate_amount(value, getattr(pos, "mortgage_interest_rate_bps", 0)),
                 f"Hypothekarzins: {label}")
