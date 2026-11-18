@@ -1456,6 +1456,7 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _product_matches_constraints,
     _product_score,
     _product_selection_key,
+    product_ter_status,
     theme_screening_disclosure,
     esg_policy_gap_hint,
     default_catalog_theme_tags,
@@ -6465,6 +6466,7 @@ def build_recommendation_payload_from_run(
                 "source_sub_asset_classes": [],
                 "currency": product.currency,
                 "ter_bps": product.ter_bps,
+                "ter_status": product_ter_status(product),  # K1 / PE-S
                 "target_weight_bps": int(position.target_weight_bps or 0),
                 "target_amount_rappen": int(position.target_amount_rappen or 0),
                 "rationale": position.rationale,
@@ -6953,6 +6955,7 @@ def generate_recommendation_run(
                 "source_sub_asset_classes": source_subs,
                 "currency": best.currency,
                 "ter_bps": best.ter_bps,
+                "ter_status": product_ter_status(best),  # K1 / PE-S
                 "target_weight_bps": position.target_weight_bps,
                 "target_amount_rappen": position.target_amount_rappen,
                 "rationale": position.rationale,

@@ -2159,6 +2159,9 @@ class RecommendationPositionDetailResponse(BaseModel):
     sub_asset_class: Optional[str]
     currency: str
     ter_bps: Optional[int]
+    # K1 / PE-S: "known" | "missing" (TER fehlt, nachrangig gewaehlt) |
+    # "not_applicable" (product_type Cash).
+    ter_status: Optional[str] = None
     target_weight_bps: int
     target_amount_rappen: Optional[int]
     rationale: Optional[str]
