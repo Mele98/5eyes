@@ -1122,20 +1122,32 @@ def test_flush_counter_is_reset_at_transaction_end(session_factory):
 
     import models.snapshots as snapshots
     from models.clients import Client
+    from models.users import User
     from models.wealth import Goal
 
     ids = _ids(session_factory, "flush-reset")
+    # Rollback-Pfad.
     with session_factory() as db:
         goal = db.query(Goal).filter(Goal.mandate_id == ids["mid"], Goal.rank == 1).one()
         db.get(Client, ids["cid"]).notes = "offen"  # sonstige offene Aenderung
         db.flush(objects=[goal])                    # keine Arbeit fuer goal
         db.rollback()
         assert snapshots._FLUSH_DEPTH.get() == 0
+    # Commit-Pfad (Nachtrag 2, Gegenprobe): Flush ohne Arbeit, danach Commit
+    # mit sonstiger Arbeit an einer Nicht-Abhaengigkeit (users). Ohne Reset am
+    # Transaktionsende bliebe der Zaehler auf 1 und die folgende Core-DML am Hook
+    # vorbei wuerde nicht erkannt (Entscheid bliebe FRESH).
     with session_factory() as db:
-        db.flush(objects=[])
+        goal = db.query(Goal).filter(Goal.mandate_id == ids["mid"], Goal.rank == 1).one()
+        db.get(User, ids["advisor"]).email = "flush-reset@example.invalid"
+        db.flush(objects=[goal])
+        assert snapshots._FLUSH_DEPTH.get() == 1  # Vorbedingung: das Leck tritt wirklich auf
         db.commit()
         assert snapshots._FLUSH_DEPTH.get() == 0
+    with session_factory() as db:
+        assert _envelope(db, ids["envelope"]).freshness_status == "FRESH"  # users ist keine Kante
         db.connection().execute(update(Goal).where(Goal.mandate_id == ids["mid"]).values(weight_bps=4300))
         db.commit()
     with session_factory() as db:
         assert _envelope(db, ids["envelope"]).freshness_status == "STALE"
+        assert {e.source_kind for e in _events(db, ids["envelope"])} == {"goals"}
