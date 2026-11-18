@@ -23617,7 +23617,7 @@ async function refreshWealthUI(cid){
     if(summaryRes.status==='fulfilled'&&summaryRes.value){
       var d=summaryRes.value;
       currentWealthSummary=clientScopedSummary((d||{}),cid);
-      var fmt=function(v){return d.amount_currency||!v?fmtCHF(v,d.amount_currency):'Umrechnung offen';};  // G7 N4: Rohsummen der Positionen -> amount_currency des Servers
+      var fmt=function(v){return d.amount_block_reason_code?'Umrechnung offen':(d.amount_currency||!v?fmtCHF(v,d.amount_currency):'Umrechnung offen');};  // G7 N4: Rohsummen der Positionen -> amount_currency des Servers
       var k=document.getElementById('kpi-reinvermoegen');
       if(k)k.textContent=fmt(d.net_worth_chf||0);
       var k2=document.getElementById('kpi-beratungsvermoegen');
@@ -23627,7 +23627,7 @@ async function refreshWealthUI(cid){
       if(k2Sub){
         var share=wealthSharePercent(d.advisory_wealth_chf||0,d.gross_wealth_chf||0);
         k2Sub.textContent=AresRounding.formatPercent(share,0,{typography:'screen'})+' des Bruttovermögens';
-        if(!d.amount_currency&&d.gross_wealth_chf)k2Sub.textContent='Anteil nach Umrechnung';
+        if(!d.amount_currency&&(d.gross_wealth_chf||d.amount_block_reason_code))k2Sub.textContent='Anteil nach Umrechnung';
       }
     }else if(summaryRes.reason&&summaryRes.reason.status===409){var kr=document.getElementById('kpi-reinvermoegen');if(kr)kr.textContent='Umrechnung offen';}
     if(positionsRes.status==='fulfilled'){

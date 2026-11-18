@@ -9410,8 +9410,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/advisor-guidance.js",
-      "sha256": "9ac73d060432754f376f6ba3ef083813251f981218a451d3f90a55695c624eb6",
-      "size_bytes": 36322
+      "sha256": "5b05adad524c5785c9b4c4b7bf257389eefc81b86b818943537f4b259320319f",
+      "size_bytes": 36797
     },
     {
       "kind": "js",
@@ -23228,7 +23228,7 @@
     },
     {
       "declaration": "function",
-      "line": 438,
+      "line": 443,
       "name": "add",
       "source": "advisor-guidance.js"
     },
@@ -23252,7 +23252,7 @@
     },
     {
       "declaration": "function",
-      "line": 476,
+      "line": 481,
       "name": "depletionYear",
       "source": "advisor-guidance.js"
     },
@@ -23288,7 +23288,7 @@
     },
     {
       "declaration": "function",
-      "line": 481,
+      "line": 486,
       "name": "fanDepletionSentence",
       "source": "advisor-guidance.js"
     },
@@ -23318,13 +23318,13 @@
     },
     {
       "declaration": "function",
-      "line": 406,
+      "line": 411,
       "name": "goFinalize",
       "source": "advisor-guidance.js"
     },
     {
       "declaration": "function",
-      "line": 556,
+      "line": 561,
       "name": "hookGo",
       "source": "advisor-guidance.js"
     },
@@ -23336,7 +23336,7 @@
     },
     {
       "declaration": "function",
-      "line": 448,
+      "line": 453,
       "name": "isSampleProduct",
       "source": "advisor-guidance.js"
     },
@@ -23348,7 +23348,7 @@
     },
     {
       "declaration": "function",
-      "line": 491,
+      "line": 496,
       "name": "markProjectionDepletion",
       "source": "advisor-guidance.js"
     },
@@ -23360,19 +23360,19 @@
     },
     {
       "declaration": "function",
-      "line": 569,
+      "line": 574,
       "name": "mountAll",
       "source": "advisor-guidance.js"
     },
     {
       "declaration": "function",
-      "line": 394,
+      "line": 399,
       "name": "mountFinalizeButton",
       "source": "advisor-guidance.js"
     },
     {
       "declaration": "function",
-      "line": 505,
+      "line": 510,
       "name": "mountRetirementCard",
       "source": "advisor-guidance.js"
     },
@@ -23402,7 +23402,7 @@
     },
     {
       "declaration": "function",
-      "line": 433,
+      "line": 438,
       "name": "populateRecipeDepotBanks",
       "source": "advisor-guidance.js"
     },
@@ -23420,13 +23420,13 @@
     },
     {
       "declaration": "function",
-      "line": 519,
+      "line": 524,
       "name": "renderRetirementCard",
       "source": "advisor-guidance.js"
     },
     {
       "declaration": "function",
-      "line": 456,
+      "line": 461,
       "name": "renderSampleProductWarning",
       "source": "advisor-guidance.js"
     },
@@ -23438,7 +23438,7 @@
     },
     {
       "declaration": "function",
-      "line": 449,
+      "line": 454,
       "name": "sampleProductText",
       "source": "advisor-guidance.js"
     },
@@ -23456,7 +23456,7 @@
     },
     {
       "declaration": "function",
-      "line": 537,
+      "line": 542,
       "name": "saveRetirementYear",
       "source": "advisor-guidance.js"
     },
@@ -23474,7 +23474,7 @@
     },
     {
       "declaration": "function",
-      "line": 411,
+      "line": 416,
       "name": "syncFinalizeShortcut",
       "source": "advisor-guidance.js"
     },
@@ -23498,7 +23498,7 @@
     },
     {
       "declaration": "function",
-      "line": 378,
+      "line": 383,
       "name": "wealthMixedNotice",
       "source": "advisor-guidance.js"
     },
@@ -23516,7 +23516,7 @@
     },
     {
       "declaration": "var",
-      "line": 559,
+      "line": 564,
       "name": "wrapped",
       "source": "advisor-guidance.js"
     },
@@ -24430,8 +24430,8 @@
     }
   ],
   "source_path": "ares-desktop/frontend/ares.html",
-  "source_sha256": "69afdbe73908e5b28337744ee2b1bd6d08e228edb00229af059d2b9953dc241f",
-  "source_size_bytes": 1625656,
+  "source_sha256": "780af738241fbdd07e183e8f8d57cd1ed6b83a9f693a809813df85891beff7d6",
+  "source_size_bytes": 1625734,
   "sub_sections": [
     {
       "class": "sbb",

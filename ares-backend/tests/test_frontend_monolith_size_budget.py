@@ -143,7 +143,7 @@ MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
 MONOLITH_MAX_LINES = 26499
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1625656
+MONOLITH_MAX_BYTES = 1625734
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -165,7 +165,7 @@ EXTRACTED_PART_BUDGETS = {
     "allocation-publication.js": (272, 13780),
     "finalize-attestation.js": (27, 1750),
     "fx-rates-editor.js": (99, 5202),
-    "advisor-guidance.js": (605, 36322),
+    "advisor-guidance.js": (610, 36797),
 }
 
 

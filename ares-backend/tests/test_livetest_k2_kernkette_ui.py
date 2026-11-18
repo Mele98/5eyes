@@ -453,6 +453,18 @@ def test_k2_wealth_currency_fx_blocker_and_sums(server):
             page.wait_for_function("() => document.querySelector('[data-wealth-fx-notice]')&&/Kurs nicht belegt/.test(document.querySelector('[data-wealth-fx-notice]').textContent)", timeout=15000)
             blocked_text = page.evaluate("document.querySelector('[data-wealth-fx-notice]').textContent")
             page.unroute("**/wealth-summary*")
+            # Vertrag K1 Stand 47bb7f5f: 200 ohne Betrag mit typisierter Sperre (abgelaufener Kurs).
+            k1_blocked = {**converted, "amount_currency": None, "gross_wealth_rappen": None, "liabilities_rappen": None,
+                          "net_worth_rappen": None, "advisory_wealth_rappen": None, "gross_wealth_chf": None,
+                          "liabilities_chf": None, "net_worth_chf": None, "advisory_wealth_chf": None, "fx_basis_hash": None,
+                          "amount_block_reason_code": "CCX_FX_BASIS_STALE", "amount_block_message": "Kurs abgelaufen",
+                          "amount_block_currencies": ["USD"]}
+            page.route("**/wealth-summary*", lambda route: route.fulfill(status=200, content_type="application/json",
+                                                                           body=json.dumps(k1_blocked)))
+            page.evaluate("resetWealthSummaryCache();renderWealthPositions(currentWealthPositions)")
+            page.wait_for_function("() => document.querySelector('[data-wealth-fx-notice]')&&/abgelaufen/.test(document.querySelector('[data-wealth-fx-notice]').textContent)", timeout=15000)
+            k1_text = page.evaluate("document.getElementById('asset-view').innerText")
+            page.unroute("**/wealth-summary*")
             # Gegenprobe: reiner CHF-Kunde zeigt Summen und Anteile wie bisher.
             _load(page, cid_chf, "vg")
             chf_text = page.evaluate("document.getElementById('asset-view').innerText")
@@ -497,6 +509,8 @@ def test_k2_wealth_currency_fx_blocker_and_sums(server):
     assert seen_urls and all(f"mandate_id={mid}" in u for u in seen_urls)
     assert "CHF 278'000" in conv_text and "des Bruttovermögens" in conv_text and "Umrechnung offen" not in conv_text
     assert "Kurs nicht belegt: USD" in blocked_text
+    assert "Kurs nicht belegt: USD (abgelaufen)" in k1_text and "Umrechnung offen" in k1_text
+    assert "des Bruttovermögens" not in k1_text and "—" not in k1_text
     assert "Umrechnung offen" not in chf_text and "des Bruttovermögens" in chf_text and "mehreren Währungen" not in chf_text
     assert blocker["page"] and blocker["code"] == "CCX_FX_BASIS_MISSING"
     assert "Wechselkurs nicht belegt" in blocker["text"] and "USD (Ersatzkurs – nicht bestätigt)" in blocker["text"]

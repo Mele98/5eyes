@@ -368,7 +368,12 @@
       API.get(wealthSummaryUrl(cid)).then(function(d){ s.data = d; }, function(e){ s.error = detailOf(e) || {message: errorText(e, '?')}; })
         .then(function(){ s.loading = false; if (s.key === key && String(currentClientId) === String(cid) && typeof renderWealthPositions === 'function') renderWealthPositions(currentWealthPositions); });
     }
-    if (!s.loading && s.data && s.data.amount_currency) {
+    // K1/CK-01 (Stand 47bb7f5f): fehlender Kurs = 200 ohne Betrag mit amount_block_*; aelter: 409 CCX_FX_BASIS_*.
+    if (!s.loading && s.data && s.data.amount_block_reason_code) {
+      return {blocked: true, currencies: ccys, error: {reason_code: s.data.amount_block_reason_code,
+        currencies: s.data.amount_block_currencies || [], message: s.data.amount_block_message || ''}};
+    }
+    if (!s.loading && s.data && s.data.amount_currency && s.data.gross_wealth_rappen != null) {
       var d = s.data;
       return {currency: up(d.amount_currency), advisory: d.advisory_wealth_rappen / 100, gross: d.gross_wealth_rappen / 100,
         liabilities: d.liabilities_rappen / 100, net: d.net_worth_rappen / 100, other: (d.gross_wealth_rappen - d.advisory_wealth_rappen) / 100};
@@ -381,7 +386,7 @@
     var err = mix.error || {};
     var why = mix.pending ? 'Umrechnung wird geprüft …'
       : (String(err.reason_code || '').indexOf('CCX_FX_BASIS') === 0
-        ? 'Kurs nicht belegt: ' + ((err.currencies || foreign).map(up).join(', ')) + (up(err.fx_status) === 'STALE' ? ' (abgelaufen)' : ' (fehlt oder nur Ersatzkurs)') + '.'
+        ? 'Kurs nicht belegt: ' + ((err.currencies || foreign).map(up).join(', ')) + (up(err.fx_status) === 'STALE' || err.reason_code === 'CCX_FX_BASIS_STALE' ? ' (abgelaufen)' : ' (fehlt oder nur Ersatzkurs)') + '.'
         : 'Eine umgerechnete Summe liegt nicht vor.');
     return '<div data-wealth-fx-notice="1" role="status" style="margin-bottom:10px;padding:9px 11px;border:1px solid rgba(194,65,12,0.25);background:#fff7ed;border-radius:var(--r2);font-size:11px;line-height:1.5;color:var(--n7)">'
       + '<b>Positionen in mehreren Währungen (' + esc((mix.currencies || []).filter(function(c){ return c !== '?'; }).join(', ')) + ').</b> '
