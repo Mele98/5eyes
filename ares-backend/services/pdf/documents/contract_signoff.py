@@ -147,6 +147,11 @@ def build_contract_signoff_flowables(
         make_paragraph_styles()["body"],
     ))
     flowables.append(Spacer(1, 6 * mm))
+    if (getattr(ctx, "watermark_mode", "none") or "none") == UNPUBLISHED_MODE:
+        # N-910-01: Soll-Allokation nicht (gueltig) publiziert -> kein
+        # Unterschriftsblock, nur der Hinweis (Entwurf, nie archiviert).
+        flowables.append(_not_for_signature_box())
+        return flowables
     flowables.extend(make_unterschrift_section(
         client_confirm_text=(
             "Ich bestaetige, dass mir Risikoprofil, Zielallokation, "
@@ -162,6 +167,29 @@ def build_contract_signoff_flowables(
         signature_space_mm=18,
     ))
     return flowables
+
+
+UNPUBLISHED_MODE = "unpublished"
+NOT_FOR_SIGNATURE_TEXT = "Nicht zur Unterzeichnung"
+
+
+def _not_for_signature_box() -> Table:
+    """Ersatz des Unterschriftsblocks fuer einen Entwurf (N-910-01)."""
+    text = (
+        f'<font name="{FONT_BOLD}" size="12" color="#B91C1C">{NOT_FOR_SIGNATURE_TEXT}</font><br/>'
+        f'<font name="{FONT_DEFAULT}" size="9" color="#334155">'
+        "Entwurf – die Soll-Allokation ist nicht publiziert. Dieses Dokument dient "
+        "der Besprechung; unterzeichnet wird erst die Fassung nach der Publikation.</font>"
+    )
+    box = Table([[Paragraph(text, make_paragraph_styles()["body"])]], colWidths=[PAGE_SIZE[0] - 24 * mm])
+    box.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 1.0, colors.HexColor("#B91C1C")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    return box
 
 
 def _start_page(

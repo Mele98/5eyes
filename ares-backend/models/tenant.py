@@ -151,6 +151,11 @@ class Tenant(Base):
     # Owner-Frist -> der Berater bestaetigt bei jeder Finalisierung "Bewertung
     # aktuell" (auditiert, im Bewertungs-Snapshot gebunden).
     manual_valuation_max_age_days = Column(Integer)
+    # CCX-P4 N-910-02 (CTO-Entscheid): ausdruecklich als Ein-Personen-Firma
+    # konfiguriert (Admin-Einstellung, auditiert). Nur dann -- und nur wenn zum
+    # Zeitpunkt genau ein aktiver Benutzer mit Publish-Recht existiert -- ist
+    # eine Einzelfreigabe der Allokations-Publikation zulaessig.
+    single_person_firm = Column(Integer, nullable=False, default=0)
 
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)

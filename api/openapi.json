@@ -1696,6 +1696,10 @@
             "title": "Approved By",
             "type": "string"
           },
+          "eligible_approver_count": {
+            "title": "Eligible Approver Count",
+            "type": "integer"
+          },
           "envelope_id": {
             "title": "Envelope Id",
             "type": "string"
@@ -1715,6 +1719,10 @@
           "published_envelope_hash": {
             "title": "Published Envelope Hash",
             "type": "string"
+          },
+          "single_person_firm": {
+            "title": "Single Person Firm",
+            "type": "integer"
           },
           "target_allocation_id": {
             "title": "Target Allocation Id",
@@ -1737,7 +1745,9 @@
           "approval_mode_label",
           "approved_at",
           "approved_by",
-          "published_envelope_hash"
+          "published_envelope_hash",
+          "eligible_approver_count",
+          "single_person_firm"
         ],
         "title": "AllocationPublicationResponse",
         "type": "object"
@@ -1800,6 +1810,17 @@
             ],
             "title": "Approved By"
           },
+          "eligible_approver_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eligible Approver Count"
+          },
           "envelope_id": {
             "anyOf": [
               {
@@ -1854,6 +1875,17 @@
               }
             ],
             "title": "Reason Code"
+          },
+          "single_person_firm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Single Person Firm"
           },
           "status": {
             "title": "Status",
@@ -28171,6 +28203,11 @@
             ],
             "title": "Max Users"
           },
+          "single_person_firm": {
+            "default": 0,
+            "title": "Single Person Firm",
+            "type": "integer"
+          },
           "slug": {
             "title": "Slug",
             "type": "string"
@@ -28361,6 +28398,11 @@
             ],
             "title": "Max Users"
           },
+          "single_person_firm": {
+            "default": 0,
+            "title": "Single Person Firm",
+            "type": "integer"
+          },
           "slug": {
             "title": "Slug",
             "type": "string"
@@ -28468,6 +28510,17 @@
               }
             ],
             "title": "Manual Valuation Max Age Days"
+          },
+          "single_person_firm": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Single Person Firm"
           },
           "sustainability_review_months": {
             "anyOf": [
@@ -28663,6 +28716,17 @@
               }
             ],
             "title": "Max Users"
+          },
+          "single_person_firm": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Single Person Firm"
           },
           "storage_quota_mb": {
             "anyOf": [

@@ -1446,6 +1446,9 @@ def get_risikoprofil_pdf(
     _assert_client_pdf_kyc_review(db, mandate, current_user, request)
     _assert_client_pdf_signoff(db, mandate)
     ctx = _build_pdf_context(mandate, current_user, db)
+    # N-910-01: liest das Beratungsvermoegen aus der Soll-Allokation -> Gate
+    # (Aufrufgraph-Waechter test_allocation_free_routes_read_no_allocation).
+    ctx = _mark_unpublished(ctx, db, mandate)
 
     # Risikoprofil-Daten aus dem juengsten RiskAssessment laden (defensiv)
     risk_label = "Nicht definiert"
@@ -1883,6 +1886,8 @@ def get_vertrag_pdf(
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     ctx = _build_pdf_context(mandate, current_user, db)
+    # N-910-01: liest das Beratungsvermoegen aus der Soll-Allokation -> Gate.
+    ctx = _mark_unpublished(ctx, db, mandate)
     data = _build_vertrag_data(mandate, document_id, db)
     pdf_bytes = ReportLabRenderer().render_vertrag(ctx, data)
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
@@ -2002,6 +2007,11 @@ def get_contract_signoff_pdf(
     _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     _assert_client_pdf_signoff(db, mandate)
     ctx = _build_pdf_context(mandate, current_user, db)
+    # N-910-01 (CTO-Entscheid): der Beratungsentscheid traegt Zielallokation und
+    # Baender. Ohne gueltige Publikation: Entwurf mit Wasserzeichen und statt des
+    # Unterschriftsblocks "Nicht zur Unterzeichnung"; erst nach gueltiger
+    # Publikation gibt es den Unterschriftsblock.
+    ctx = _mark_unpublished(ctx, db, mandate)
     try:
         data = _build_contract_signoff_data(mandate, db)
     except ValueError as exc:

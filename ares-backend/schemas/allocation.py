@@ -1828,6 +1828,10 @@ class AllocationPublicationStateResponse(BaseModel):
     approval_mode: Optional[str] = None
     # Sichtbare Kennzeichnung, z. B. "Einzelfreigabe (eine berechtigte Person)".
     approval_mode_label: Optional[str] = None
+    # N-910-02: Basis der Freigabe -- aktive Publish-Berechtigte und die
+    # Tenant-Konfiguration "Ein-Personen-Firma" zum Zeitpunkt (im approval_hash).
+    eligible_approver_count: Optional[int] = None
+    single_person_firm: Optional[int] = None
 
 
 class AllocationPublicationOverviewResponse(BaseModel):
@@ -1870,3 +1874,5 @@ class AllocationPublicationResponse(BaseModel):
     approved_at: str
     approved_by: str
     published_envelope_hash: str
+    eligible_approver_count: int
+    single_person_firm: int

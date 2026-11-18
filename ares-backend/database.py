@@ -1470,7 +1470,7 @@ ALLOCATION_PUBLICATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
     mandate_id               TEXT NOT NULL,
     schema_version           TEXT NOT NULL CHECK(schema_version = 'ares/allocation-publication/1'),
     envelope_id              TEXT,
-    target_allocation_id     TEXT,
+    target_allocation_id     TEXT REFERENCES target_allocations(id),
     publication_sequence     INTEGER NOT NULL CHECK(publication_sequence >= 1),
     validation_hash          TEXT NOT NULL CHECK(length(validation_hash) = 64),
     approval_hash            TEXT CHECK(approval_hash IS NULL OR length(approval_hash) = 64),
@@ -1482,10 +1482,16 @@ ALLOCATION_PUBLICATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
     published_envelope_hash  TEXT CHECK(published_envelope_hash IS NULL OR length(published_envelope_hash) = 64),
     created_at               TEXT NOT NULL,
     created_by               TEXT NOT NULL REFERENCES users(id),
+    eligible_approver_count  INTEGER CHECK(eligible_approver_count IS NULL OR eligible_approver_count >= 0),
+    single_person_firm       INTEGER CHECK(single_person_firm IS NULL OR single_person_firm IN (0, 1)),
     CONSTRAINT ck_allocation_publication_decisions_published CHECK(publishable = 0 OR (
         envelope_id IS NOT NULL AND target_allocation_id IS NOT NULL AND approval_hash IS NOT NULL
         AND approval_mode IS NOT NULL AND approved_at IS NOT NULL AND approved_by IS NOT NULL
-        AND published_envelope_hash IS NOT NULL AND blocker_codes_json = '[]')),
+        AND published_envelope_hash IS NOT NULL AND blocker_codes_json = '[]'
+        AND eligible_approver_count IS NOT NULL AND single_person_firm IS NOT NULL)),
+    CONSTRAINT ck_allocation_publication_decisions_single CHECK(approval_mode IS NULL
+        OR approval_mode <> 'single_approver_attested'
+        OR (single_person_firm = 1 AND eligible_approver_count = 1)),
     CONSTRAINT ck_allocation_publication_decisions_blocked CHECK(publishable = 1 OR (
         published_envelope_hash IS NULL AND approval_hash IS NULL AND blocker_codes_json <> '[]')),
     CONSTRAINT uq_allocation_publication_decisions_tenant_id UNIQUE (tenant_id, id),
@@ -1568,6 +1574,20 @@ ALLOCATION_PUBLICATION_SQLITE_TENANT_GUARDS: tuple[str, ...] = (
     "CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_tenant_guard "
     "BEFORE INSERT ON allocation_active_publications FOR EACH ROW "
     "WHEN NEW.tenant_id IS NOT (SELECT m.tenant_id FROM mandates m WHERE m.id = NEW.mandate_id) "
+    "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
+    # N-910-06: Soll-Allokation desselben Mandats; Freigeber und Ersteller aus
+    # demselben Mandanten (users ohne tenant_id gehoeren zu 'main', wie
+    # services.auth). N-910-02: Einzelfreigabe nur fuer einen ausdruecklich als
+    # Ein-Personen-Firma konfigurierten Mandanten.
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_binding_guard "
+    "BEFORE INSERT ON allocation_publication_decisions FOR EACH ROW "
+    "WHEN (NEW.target_allocation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM target_allocations t "
+    "WHERE t.id = NEW.target_allocation_id AND t.mandate_id = NEW.mandate_id)) "
+    "OR NEW.tenant_id IS NOT (SELECT COALESCE(NULLIF(u.tenant_id, ''), 'main') FROM users u WHERE u.id = NEW.created_by) "
+    "OR (NEW.approved_by IS NOT NULL AND NEW.tenant_id IS NOT (SELECT COALESCE(NULLIF(u.tenant_id, ''), 'main') "
+    "FROM users u WHERE u.id = NEW.approved_by)) "
+    "OR (NEW.approval_mode = 'single_approver_attested' AND NOT EXISTS (SELECT 1 FROM tenants tn "
+    "WHERE tn.id = NEW.tenant_id AND tn.single_person_firm = 1)) "
     "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
 )
 
@@ -1674,6 +1694,10 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # maximales Alter manueller Bewertungen (NULL = Bestaetigungspflicht).
             ('fx_max_age_days', 'INTEGER'),
             ('manual_valuation_max_age_days', 'INTEGER'),
+            # CCX-P4 N-910-02: ausdruecklich als Ein-Personen-Firma konfiguriert
+            # (Admin-Einstellung mit Audit); nur dann ist eine Einzelfreigabe
+            # der Allokations-Publikation zulaessig. Default 0.
+            ('single_person_firm', 'INTEGER', 0),
         ],
         # CERT-HANDOFF-EXECUTION-001 (2026-10-25): siehe models/portfolio_handoff.py
         # und Alembic c7e4a19b3d52. Nullable, kein Backfill.

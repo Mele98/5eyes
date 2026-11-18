@@ -95,6 +95,16 @@ _SQLITE_TRIGGERS = (
     "BEFORE INSERT ON allocation_active_publications FOR EACH ROW "
     "WHEN NEW.tenant_id IS NOT (SELECT m.tenant_id FROM mandates m WHERE m.id = NEW.mandate_id) "
     "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_binding_guard "
+    "BEFORE INSERT ON allocation_publication_decisions FOR EACH ROW "
+    "WHEN (NEW.target_allocation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM target_allocations t "
+    "WHERE t.id = NEW.target_allocation_id AND t.mandate_id = NEW.mandate_id)) "
+    "OR NEW.tenant_id IS NOT (SELECT COALESCE(NULLIF(u.tenant_id, ''), 'main') FROM users u WHERE u.id = NEW.created_by) "
+    "OR (NEW.approved_by IS NOT NULL AND NEW.tenant_id IS NOT (SELECT COALESCE(NULLIF(u.tenant_id, ''), 'main') "
+    "FROM users u WHERE u.id = NEW.approved_by)) "
+    "OR (NEW.approval_mode = 'single_approver_attested' AND NOT EXISTS (SELECT 1 FROM tenants tn "
+    "WHERE tn.id = NEW.tenant_id AND tn.single_person_firm = 1)) "
+    "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
 )
 _SQLITE_TRIGGER_NAMES = (
     "trg_allocation_publication_decisions_no_replace",
@@ -107,6 +117,7 @@ _SQLITE_TRIGGER_NAMES = (
     "trg_allocation_active_publications_no_delete",
     "trg_allocation_publication_decisions_tenant_guard",
     "trg_allocation_active_publications_tenant_guard",
+    "trg_allocation_publication_decisions_binding_guard",
 )
 
 # PostgreSQL: dieselben Regeln als plpgsql (ein Guard je Tabelle). Unter RLS
@@ -128,6 +139,16 @@ BEGIN
     FROM {DECISIONS} d WHERE d.mandate_id = NEW.mandate_id;
   IF NEW.publication_sequence IS DISTINCT FROM expected THEN
     RAISE EXCEPTION 'CCX_PUBLICATION_RACE';
+  END IF;
+  IF (NEW.target_allocation_id IS NOT NULL AND NOT EXISTS (
+       SELECT 1 FROM target_allocations t WHERE t.id = NEW.target_allocation_id AND t.mandate_id = NEW.mandate_id))
+     OR NEW.tenant_id IS DISTINCT FROM (SELECT COALESCE(NULLIF(u.tenant_id, ''), 'main') FROM users u
+       WHERE u.id = NEW.created_by)
+     OR (NEW.approved_by IS NOT NULL AND NEW.tenant_id IS DISTINCT FROM (
+       SELECT COALESCE(NULLIF(u.tenant_id, ''), 'main') FROM users u WHERE u.id = NEW.approved_by))
+     OR (NEW.approval_mode = 'single_approver_attested' AND NOT EXISTS (
+       SELECT 1 FROM tenants tn WHERE tn.id = NEW.tenant_id AND tn.single_person_firm = 1)) THEN
+    RAISE EXCEPTION '{TENANT_ERROR}' USING ERRCODE = '23514';
   END IF;
   IF NEW.publishable = 1 AND NOT EXISTS (
     SELECT 1 FROM {ENVELOPES} e WHERE e.id = NEW.envelope_id AND e.tenant_id = NEW.tenant_id
@@ -186,6 +207,8 @@ def _dialect() -> str:
 
 
 def upgrade() -> None:
+    # N-910-02: Ein-Personen-Firma als ausdrueckliche Tenant-Einstellung.
+    op.add_column("tenants", sa.Column("single_person_firm", sa.Integer(), nullable=False, server_default="0"))
     op.create_table(
         DECISIONS,
         sa.Column("id", sa.String(), nullable=False),
@@ -205,6 +228,8 @@ def upgrade() -> None:
         sa.Column("published_envelope_hash", sa.String(), nullable=True),
         sa.Column("created_at", sa.String(), nullable=False),
         sa.Column("created_by", sa.String(), nullable=False),
+        sa.Column("eligible_approver_count", sa.Integer(), nullable=True),
+        sa.Column("single_person_firm", sa.Integer(), nullable=True),
         sa.CheckConstraint(
             "schema_version = 'ares/allocation-publication/1'",
             name="ck_allocation_publication_decisions_schema_version",
@@ -228,8 +253,22 @@ def upgrade() -> None:
             "publishable = 0 OR (envelope_id IS NOT NULL AND target_allocation_id IS NOT NULL "
             "AND approval_hash IS NOT NULL AND approval_mode IS NOT NULL AND approved_at IS NOT NULL "
             "AND approved_by IS NOT NULL AND published_envelope_hash IS NOT NULL "
-            "AND blocker_codes_json = '[]')",
+            "AND blocker_codes_json = '[]' "
+            "AND eligible_approver_count IS NOT NULL AND single_person_firm IS NOT NULL)",
             name="ck_allocation_publication_decisions_published",
+        ),
+        sa.CheckConstraint(
+            "eligible_approver_count IS NULL OR eligible_approver_count >= 0",
+            name="ck_allocation_publication_decisions_approver_count",
+        ),
+        sa.CheckConstraint(
+            "single_person_firm IS NULL OR single_person_firm IN (0, 1)",
+            name="ck_allocation_publication_decisions_single_flag",
+        ),
+        sa.CheckConstraint(
+            "approval_mode IS NULL OR approval_mode <> 'single_approver_attested' "
+            "OR (single_person_firm = 1 AND eligible_approver_count = 1)",
+            name="ck_allocation_publication_decisions_single",
         ),
         sa.CheckConstraint(
             "publishable = 1 OR (published_envelope_hash IS NULL AND approval_hash IS NULL "
@@ -239,6 +278,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"]),
         sa.ForeignKeyConstraint(["approved_by"], ["users.id"]),
         sa.ForeignKeyConstraint(["created_by"], ["users.id"]),
+        sa.ForeignKeyConstraint(["target_allocation_id"], ["target_allocations.id"]),
         sa.ForeignKeyConstraint(
             ["tenant_id", "envelope_id"], [f"{ENVELOPES}.tenant_id", f"{ENVELOPES}.id"],
             name="fk_allocation_publication_decisions_envelope",
@@ -301,3 +341,4 @@ def downgrade() -> None:
     op.drop_index("ix_allocation_publication_decisions_mandate", table_name=DECISIONS)
     op.drop_index("ix_allocation_publication_decisions_tenant_id", table_name=DECISIONS)
     op.drop_table(DECISIONS)
+    op.drop_column("tenants", "single_person_firm")

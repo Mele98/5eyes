@@ -1038,6 +1038,8 @@ def post_allocation_publication(
         approval_mode_label=approval_mode_label(decision.approval_mode),
         approved_at=decision.approved_at, approved_by=decision.approved_by,
         published_envelope_hash=decision.published_envelope_hash,
+        eligible_approver_count=decision.eligible_approver_count,
+        single_person_firm=decision.single_person_firm,
     )
 
 
@@ -1199,7 +1201,11 @@ def get_advisory_report(
         state = active_publication_state(db, mandate)
         report = {
             **report,
-            "allocation_publication": {"status": state.status, "reason_code": state.reason_code},
+            # N-910-02: Kennzeichnung der Freigabeart in der Berater-Ansicht
+            # (nicht in Kunden-PDFs -- interne Governance).
+            "allocation_publication": {"status": state.status, "reason_code": state.reason_code,
+                                       "approval_mode_label": approval_mode_label(state.approval_mode)
+                                       if state.published else None},
             "allocation_draft_notice": None if state.published else ALLOCATION_DRAFT_NOTICE,
         }
     return report

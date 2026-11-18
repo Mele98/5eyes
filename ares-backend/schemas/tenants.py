@@ -105,6 +105,9 @@ class TenantUpdate(BaseModel):
     # maximales Alter manueller Bewertungen (NULL = Bestaetigungspflicht).
     fx_max_age_days: Optional[int] = Field(default=None, ge=1, le=31)
     manual_valuation_max_age_days: Optional[int] = Field(default=None, ge=1, le=3650)
+    # CCX-P4 N-910-02: ausdrueckliche Konfiguration "Ein-Personen-Firma"
+    # (auditiert); Voraussetzung jeder Einzelfreigabe der Allokations-Publikation.
+    single_person_firm: Optional[bool] = None
 
     @field_validator("hosting_tier")
     @classmethod
@@ -157,6 +160,7 @@ class TenantResponse(BaseModel):
     sustainability_review_months: Optional[int] = None
     fx_max_age_days: Optional[int] = None
     manual_valuation_max_age_days: Optional[int] = None
+    single_person_firm: int = 0
     is_active: int
     created_at: str
     updated_at: str
@@ -201,6 +205,9 @@ class TenantSelfServiceUpdate(BaseModel):
     # maximales Alter manueller Bewertungen (NULL = Bestaetigungspflicht).
     fx_max_age_days: Optional[int] = Field(default=None, ge=1, le=31)
     manual_valuation_max_age_days: Optional[int] = Field(default=None, ge=1, le=3650)
+    # CCX-P4 N-910-02: ausdrueckliche Konfiguration "Ein-Personen-Firma"
+    # (auditiert); Voraussetzung jeder Einzelfreigabe der Allokations-Publikation.
+    single_person_firm: Optional[bool] = None
 
     @field_validator("default_presentation_mode")
     @classmethod

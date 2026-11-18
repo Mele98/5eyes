@@ -7232,6 +7232,8 @@ export interface components {
             approved_at: string;
             /** Approved By */
             approved_by: string;
+            /** Eligible Approver Count */
+            eligible_approver_count: number;
             /** Envelope Id */
             envelope_id: string;
             /** Mandate Id */
@@ -7242,6 +7244,8 @@ export interface components {
             publication_sequence: number;
             /** Published Envelope Hash */
             published_envelope_hash: string;
+            /** Single Person Firm */
+            single_person_firm: number;
             /** Target Allocation Id */
             target_allocation_id: string;
             /** Validation Hash */
@@ -7262,6 +7266,8 @@ export interface components {
             approved_at?: string | null;
             /** Approved By */
             approved_by?: string | null;
+            /** Eligible Approver Count */
+            eligible_approver_count?: number | null;
             /** Envelope Id */
             envelope_id?: string | null;
             /** Publication Id */
@@ -7272,6 +7278,8 @@ export interface components {
             published_envelope_hash?: string | null;
             /** Reason Code */
             reason_code?: string | null;
+            /** Single Person Firm */
+            single_person_firm?: number | null;
             /** Status */
             status: string;
             /** Target Allocation Id */
@@ -15222,6 +15230,11 @@ export interface components {
             max_mandates?: number | null;
             /** Max Users */
             max_users?: number | null;
+            /**
+             * Single Person Firm
+             * @default 0
+             */
+            single_person_firm?: number;
             /** Slug */
             slug: string;
             /** Storage Quota Mb */
@@ -15292,6 +15305,11 @@ export interface components {
             max_mandates?: number | null;
             /** Max Users */
             max_users?: number | null;
+            /**
+             * Single Person Firm
+             * @default 0
+             */
+            single_person_firm?: number;
             /** Slug */
             slug: string;
             /** Storage Quota Mb */
@@ -15323,6 +15341,8 @@ export interface components {
             home_jurisdiction?: string | null;
             /** Manual Valuation Max Age Days */
             manual_valuation_max_age_days?: number | null;
+            /** Single Person Firm */
+            single_person_firm?: boolean | null;
             /** Sustainability Review Months */
             sustainability_review_months?: number | null;
         };
@@ -15361,6 +15381,8 @@ export interface components {
             max_mandates?: number | null;
             /** Max Users */
             max_users?: number | null;
+            /** Single Person Firm */
+            single_person_firm?: boolean | null;
             /** Storage Quota Mb */
             storage_quota_mb?: number | null;
             /** Sustainability Review Months */

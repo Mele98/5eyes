@@ -70,7 +70,9 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # CCX-P4 Allocation-Publish (2026-11-14): zwei neue Tabellen
 # (allocation_publication_decisions, allocation_active_publications), 112 Tabellen,
 # keine bestehende Tabelle umbenannt/entfernt.
-GOLDEN_SORTED_TABLES_SHA256 = "9311fe7a1c805b2c7741ef4853bd2d56793afa4a296ca386fb2cdd8e761255ae"
+# CCX-P4 Nachtrag 1 (N-910-06): FK allocation_publication_decisions.target_allocation_id
+# -> target_allocations aendert nur die Abhaengigkeitsreihenfolge (112 Tabellen).
+GOLDEN_SORTED_TABLES_SHA256 = "618e8a807ae327ccb92d47cc4e5aefae67ac5d8e664a8806df556fc397053f4c"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -190,7 +192,9 @@ GOLDEN_SORTED_TABLES_SHA256 = "9311fe7a1c805b2c7741ef4853bd2d56793afa4a296ca386f
 # CCX-P3 Nachtrag 1: finalize `confirm_valuations_current`; Tenant-Policy
 # `fx_max_age_days`/`manual_valuation_max_age_days` in Tenant*-Schemas.
 # Merge P3 Nachtrag 1 in CCX-P4 (2026-11-18): beide Schema-Erweiterungen.
-GOLDEN_OPENAPI_SHA256 = "c76b1192705a27e38174d38417687345fd1343351f47ddea0b273f01c0ca3f1b"
+# CCX-P4 Nachtrag 1 (N-910-02): eligible_approver_count/single_person_firm in den
+# Publikations-Schemas, Tenant single_person_firm.
+GOLDEN_OPENAPI_SHA256 = "a0d1f36fe258d248483cf0b9dbc404291ad747dd46e5c9e316662a4c5f19cf68"
 
 _PROBE = """
 import hashlib, json

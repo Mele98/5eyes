@@ -2286,7 +2286,7 @@ CREATE TABLE IF NOT EXISTS allocation_publication_decisions (
     mandate_id               TEXT NOT NULL,
     schema_version           TEXT NOT NULL CHECK(schema_version = 'ares/allocation-publication/1'),
     envelope_id              TEXT,
-    target_allocation_id     TEXT,
+    target_allocation_id     TEXT REFERENCES target_allocations(id),
     publication_sequence     INTEGER NOT NULL CHECK(publication_sequence >= 1),
     validation_hash          TEXT NOT NULL CHECK(length(validation_hash) = 64),
     approval_hash            TEXT CHECK(approval_hash IS NULL OR length(approval_hash) = 64),
@@ -2298,10 +2298,16 @@ CREATE TABLE IF NOT EXISTS allocation_publication_decisions (
     published_envelope_hash  TEXT CHECK(published_envelope_hash IS NULL OR length(published_envelope_hash) = 64),
     created_at               TEXT NOT NULL,
     created_by               TEXT NOT NULL REFERENCES users(id),
+    eligible_approver_count  INTEGER CHECK(eligible_approver_count IS NULL OR eligible_approver_count >= 0),
+    single_person_firm       INTEGER CHECK(single_person_firm IS NULL OR single_person_firm IN (0, 1)),
     CONSTRAINT ck_allocation_publication_decisions_published CHECK(publishable = 0 OR (
         envelope_id IS NOT NULL AND target_allocation_id IS NOT NULL AND approval_hash IS NOT NULL
         AND approval_mode IS NOT NULL AND approved_at IS NOT NULL AND approved_by IS NOT NULL
-        AND published_envelope_hash IS NOT NULL AND blocker_codes_json = '[]')),
+        AND published_envelope_hash IS NOT NULL AND blocker_codes_json = '[]'
+        AND eligible_approver_count IS NOT NULL AND single_person_firm IS NOT NULL)),
+    CONSTRAINT ck_allocation_publication_decisions_single CHECK(approval_mode IS NULL
+        OR approval_mode <> 'single_approver_attested'
+        OR (single_person_firm = 1 AND eligible_approver_count = 1)),
     CONSTRAINT ck_allocation_publication_decisions_blocked CHECK(publishable = 1 OR (
         published_envelope_hash IS NULL AND approval_hash IS NULL AND blocker_codes_json <> '[]')),
     CONSTRAINT uq_allocation_publication_decisions_tenant_id UNIQUE (tenant_id, id),

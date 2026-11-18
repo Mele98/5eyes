@@ -620,6 +620,10 @@ SITES: dict[tuple[str, str], tuple[tuple[str, str | None], ...]] = {
     # (Float verboten), domaenensepariert ueber
     # ``Ares<NUL>ares/advisory-envelope/1/allocation-publication-{validation,approval}<NUL>``.
     ("services/allocation_publication_gate.py", "_hash"): ((CJ, SCHEME_V1),),
+    # CCX-P4 Nachtrag 1 (N-910-05): approval_hash als HMAC-SHA256 (Schluessel aus
+    # dem Tenant-DEK) ueber dieselbe kanonische Form (SCHEME_V1, Domaene
+    # ``.../allocation-publication-approval``).
+    ("services/allocation_publication_approval.py", "approval_hash_for"): ((CJ, SCHEME_V1),),
 }
 
 _DELEGATABLE = {SCHEME_V1, SCHEME_V1_ASCII, SCHEME_V1_STR_DEFAULT, SCHEME_V1_ASCII_STR_DEFAULT}

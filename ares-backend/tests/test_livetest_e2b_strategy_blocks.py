@@ -153,7 +153,10 @@ def _finalize_and_publish(api, db_path: Path, mid: str) -> None:
     assert status == 200, body
     status, overview = api("GET", f"/mandates/{mid}/allocation-publication")
     assert status == 200 and overview["can_publish"] is True, overview
-    # Ein-Personen-Firma (nur der Admin ist freigabeberechtigt): Einzelfreigabe mit Begruendung.
+    # Ein-Personen-Firma (nur der Admin ist freigabeberechtigt): seit N-910-02 nur mit
+    # ausdruecklicher, auditierter Tenant-Konfiguration; dann Einzelfreigabe mit Begruendung.
+    status, body = api("PUT", "/tenants/me", {"single_person_firm": True})
+    assert status == 200 and body["single_person_firm"] == 1, body
     status, body = api("POST", f"/mandates/{mid}/allocation-publication", {
         "target_allocation_id": overview["target_allocation_id"], "validation_hash": overview["validation_hash"],
         "single_approver_attestation": True,

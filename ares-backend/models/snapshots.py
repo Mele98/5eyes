@@ -1352,13 +1352,27 @@ class AllocationPublicationDecision(Base):
             "publishable = 0 OR (envelope_id IS NOT NULL AND target_allocation_id IS NOT NULL "
             "AND approval_hash IS NOT NULL AND approval_mode IS NOT NULL AND approved_at IS NOT NULL "
             "AND approved_by IS NOT NULL AND published_envelope_hash IS NOT NULL "
-            "AND blocker_codes_json = '[]')",
+            "AND blocker_codes_json = '[]' "
+            "AND eligible_approver_count IS NOT NULL AND single_person_firm IS NOT NULL)",
             name="ck_allocation_publication_decisions_published",
         ),
         CheckConstraint(
             "publishable = 1 OR (published_envelope_hash IS NULL AND approval_hash IS NULL "
             "AND blocker_codes_json <> '[]')",
             name="ck_allocation_publication_decisions_blocked",
+        ),
+        CheckConstraint(
+            "eligible_approver_count IS NULL OR eligible_approver_count >= 0",
+            name="ck_allocation_publication_decisions_approver_count",
+        ),
+        CheckConstraint(
+            "single_person_firm IS NULL OR single_person_firm IN (0, 1)",
+            name="ck_allocation_publication_decisions_single_flag",
+        ),
+        CheckConstraint(
+            "approval_mode IS NULL OR approval_mode <> 'single_approver_attested' "
+            "OR (single_person_firm = 1 AND eligible_approver_count = 1)",
+            name="ck_allocation_publication_decisions_single",
         ),
         UniqueConstraint("tenant_id", "id", name="uq_allocation_publication_decisions_tenant_id"),
         UniqueConstraint(
@@ -1382,7 +1396,8 @@ class AllocationPublicationDecision(Base):
     mandate_id = Column(String, nullable=False)
     schema_version = Column(String, nullable=False)
     envelope_id = Column(String)
-    target_allocation_id = Column(String)
+    # N-910-06: FK auf die Soll-Allokation (Mandatsgleichheit prueft der Guard).
+    target_allocation_id = Column(String, ForeignKey("target_allocations.id"))
     publication_sequence = Column(Integer, nullable=False)
     validation_hash = Column(String, nullable=False)
     approval_hash = Column(String)
@@ -1394,6 +1409,10 @@ class AllocationPublicationDecision(Base):
     published_envelope_hash = Column(String)
     created_at = Column(String, nullable=False)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
+    # N-910-02: Basis der Freigabe -- Zahl der aktiven Publish-Berechtigten und
+    # die Tenant-Konfiguration "Ein-Personen-Firma" zum Zeitpunkt (im approval_hash).
+    eligible_approver_count = Column(Integer)
+    single_person_firm = Column(Integer)
 
 
 class AllocationActivePublication(Base):

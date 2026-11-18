@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
 from core.evidence import SCHEME_V1, advisory_domain, canonical_json, domain_sha256_hex
@@ -82,16 +82,24 @@ from services.advisory_decision_envelope import (
 from services.allocation_concurrency import AllocationVersionConflict, assert_report_allocation_matches
 from services.audit import log
 from services.fx_basis import STATUS_MISMATCH, STATUS_OK, STATUS_STALE, load_fx_basis
-from services.auth import same_person
 from services.portfolio_engine_allocation_integrity import (
     _verified_persisted_allocation_context,
     analysis_integrity_report,
 )
-from services.product_eligibility_governance import (
+# N-910-02/-05: Freigabemodus (Ein-Personen-Firma nur per Konfiguration) und
+# HMAC-Approval-Binding leben im eigenen Modul.
+from services.allocation_publication_approval import (
     APPROVAL_MODE_FOUR_EYES,
+    APPROVAL_MODE_LABELS,
     APPROVAL_MODE_SINGLE_APPROVER_ATTESTED,
     MIN_ATTESTATION_REASON_LENGTH,
-    tenant_approver_ids,
+    PUBLICATION_APPROVER_ROLES,
+    SINGLE_APPROVER_LABEL,
+    ApprovalBasis,
+    ApprovalKeyUnavailable,
+    approval_basis,
+    approval_hash_for,
+    approval_mode_label,
 )
 from services.recommendation_release_gate import (
     CHANNEL_PUBLICATION,
@@ -129,25 +137,16 @@ AUDIT_TABLE = "allocation_publication_decisions"
 AUDIT_PUBLISHED = "ccx.allocation.published"
 AUDIT_REJECTED = "ccx.allocation.publication_rejected"
 AUDIT_CHANNEL_BLOCKED = "ccx.allocation.channel_blocked"
+# Meldung des Insert-Triggers (SQLite RAISE / PG RAISE EXCEPTION), wenn der
+# Envelope beim Insert nicht mehr SEALED + FRESH ist.
+INSERT_STALE_MARKER = "CCX_ALLOCATION_NOT_PUBLISHABLE"
 
-PUBLICATION_APPROVER_ROLES: tuple[str, ...] = ("admin", "advisor")
-# Sichtbare Kennzeichnung der Freigabeart in Nachweis, Audit und Masken.
-SINGLE_APPROVER_LABEL = "Einzelfreigabe (eine berechtigte Person)"
-APPROVAL_MODE_LABELS = {
-    APPROVAL_MODE_FOUR_EYES: "Vier-Augen-Freigabe",
-    APPROVAL_MODE_SINGLE_APPROVER_ATTESTED: SINGLE_APPROVER_LABEL,
-}
-
-
-def approval_mode_label(mode: Any) -> str | None:
-    return APPROVAL_MODE_LABELS.get(str(mode)) if mode else None
 BUCKETS: tuple[str, ...] = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
 TOTAL_BPS = 10_000
 # Wirksame Bindungen, ohne die keine Strategie kundenwirksam wird (P2-Kanten).
 REQUIRED_EDGE_KINDS: tuple[str, ...] = ("risk", "cma", "optimizer_policy", "constraints")
 
 _VALIDATION_DOMAIN = advisory_domain("allocation-publication-validation")
-_APPROVAL_DOMAIN = advisory_domain("allocation-publication-approval")
 
 _VALUATION_CODES = {
     "COMPLETE": None,
@@ -180,36 +179,6 @@ def _assert_integer_only(value: Any, path: str) -> None:
 def validation_hash_for(record: dict[str, Any]) -> str:
     """Domaenenseparierter Hash des geprueften Stands."""
     return _hash(_VALIDATION_DOMAIN, record)
-
-
-def approval_hash_for(
-    *,
-    tenant_id: str,
-    mandate_id: str,
-    publication_sequence: int,
-    validation_hash: str,
-    envelope_id: str,
-    envelope_hash: str,
-    target_allocation_id: str,
-    approved_by: str,
-    approved_at: str,
-    approval_mode: str,
-) -> str:
-    """Approval-Binding: Freigeber, Zeit und Modus an genau diesen
-    geprueften Stand (Validation, Envelope, Soll-Allokation, Sequenz)."""
-    return _hash(_APPROVAL_DOMAIN, {
-        "schema_version": ALLOCATION_PUBLICATION_SCHEMA_VERSION,
-        "tenant_id": tenant_id,
-        "mandate_id": mandate_id,
-        "publication_sequence": int(publication_sequence),
-        "validation_hash": validation_hash,
-        "envelope_id": envelope_id,
-        "envelope_hash": envelope_hash,
-        "target_allocation_id": target_allocation_id,
-        "approved_by": approved_by,
-        "approved_at": approved_at,
-        "approval_mode": approval_mode,
-    })
 
 
 # ── Pruefung ──────────────────────────────────────────────────────────────────
@@ -485,18 +454,12 @@ def approval_mode_for(
     db: Session, *, tenant_id: str, approver_id: str, preparer_id: str | None,
     single_approver_attestation: bool, attestation_reason: str | None,
 ) -> str | None:
-    """Vier-Augen: Freigeber != Finalisierer. Einzelfreigabe nur, wenn genau
-    eine Person freigabeberechtigt ist und eine Begruendung vorliegt.
-    ``None`` = nicht freigegeben."""
-    if preparer_id and not same_person(db, approver_id, preparer_id):
-        return APPROVAL_MODE_FOUR_EYES
-    if not single_approver_attestation:
-        return None
-    if len((attestation_reason or "").strip()) < MIN_ATTESTATION_REASON_LENGTH:
-        return None
-    if tenant_approver_ids(db, tenant_id, roles=PUBLICATION_APPROVER_ROLES) != [str(approver_id)]:
-        return None
-    return APPROVAL_MODE_SINGLE_APPROVER_ATTESTED
+    """Freigabemodus (``None`` = nicht freigegeben); Regeln siehe
+    ``services.allocation_publication_approval.approval_basis``."""
+    return approval_basis(
+        db, tenant_id=tenant_id, approver_id=approver_id, preparer_id=preparer_id,
+        single_approver_attestation=single_approver_attestation, attestation_reason=attestation_reason,
+    ).mode
 
 
 # ── Publizieren ───────────────────────────────────────────────────────────────
@@ -590,10 +553,11 @@ def publish_allocation(
         raise _reject(db, code=ReasonCode.CCX_VALIDATION_HASH_MISMATCH,
                       blockers=(ReasonCode.CCX_VALIDATION_HASH_MISMATCH.value,),
                       message="Die Daten haben sich seit der Pruefung geaendert. Bitte neu laden.", **common)
-    mode = approval_mode_for(
+    basis: ApprovalBasis = approval_basis(
         db, tenant_id=evaluation.tenant_id, approver_id=str(user.id), preparer_id=evaluation.sealed_by,
         single_approver_attestation=single_approver_attestation, attestation_reason=attestation_reason,
     )
+    mode = basis.mode
     approval = APPROVAL_APPROVED if mode is not None else "PENDING"
     if not is_publishable(evaluation.validation_status, approval):
         raise _reject(db, code=ReasonCode.CCX_APPROVAL_BINDING_MISSING,
@@ -601,20 +565,28 @@ def publish_allocation(
                       message="Vier-Augen-Prinzip: die Freigabe muss eine zweite Person erteilen.", **common)
     now = _now()
     sequence = _next_sequence(db, evaluation.mandate_id)
+    try:
+        approval_hash = approval_hash_for(
+            db, tenant_id=evaluation.tenant_id, mandate_id=evaluation.mandate_id, publication_sequence=sequence,
+            validation_hash=evaluation.validation_hash, envelope_id=evaluation.envelope_id,
+            envelope_hash=evaluation.envelope_hash, target_allocation_id=evaluation.target_allocation_id,
+            approved_by=str(user.id), approved_at=now, approval_mode=mode,
+            eligible_approver_count=basis.eligible_approver_count, single_person_firm=basis.single_person_firm,
+        )
+    except ApprovalKeyUnavailable as exc:
+        raise _reject(db, code=ReasonCode.CCX_APPROVAL_BINDING_MISSING,
+                      blockers=(ReasonCode.CCX_APPROVAL_BINDING_MISSING.value,),
+                      message="Die Freigabe kann ohne Mandantenschluessel nicht gebunden werden.",
+                      **common) from exc
     decision = AllocationPublicationDecision(
         id=new_uuid(), tenant_id=evaluation.tenant_id, mandate_id=evaluation.mandate_id,
         schema_version=ALLOCATION_PUBLICATION_SCHEMA_VERSION, envelope_id=evaluation.envelope_id,
         target_allocation_id=evaluation.target_allocation_id, publication_sequence=sequence,
-        validation_hash=evaluation.validation_hash,
-        approval_hash=approval_hash_for(
-            tenant_id=evaluation.tenant_id, mandate_id=evaluation.mandate_id, publication_sequence=sequence,
-            validation_hash=evaluation.validation_hash, envelope_id=evaluation.envelope_id,
-            envelope_hash=evaluation.envelope_hash, target_allocation_id=evaluation.target_allocation_id,
-            approved_by=str(user.id), approved_at=now, approval_mode=mode,
-        ),
+        validation_hash=evaluation.validation_hash, approval_hash=approval_hash,
         approval_mode=mode, approved_at=now, approved_by=str(user.id), publishable=1,
         blocker_codes_json="[]", published_envelope_hash=evaluation.envelope_hash,
         created_at=now, created_by=str(user.id),
+        eligible_approver_count=basis.eligible_approver_count, single_person_firm=basis.single_person_firm,
     )
     try:
         db.add(decision)
@@ -644,11 +616,20 @@ def publish_allocation(
                target_allocation=evaluation.target_allocation_id, envelope_hash=evaluation.envelope_hash,
                validation_hash=evaluation.validation_hash, approval_hash=decision.approval_hash,
                approval_mode=mode, approval_label=approval_mode_label(mode),
+               eligible_approver_count=basis.eligible_approver_count,
+               single_person_firm=basis.single_person_firm,
                attestation_reason=((attestation_reason or "").strip() or None)
                if mode == APPROVAL_MODE_SINGLE_APPROVER_ATTESTED else None)
         db.commit()
-    except IntegrityError as exc:
+    except (IntegrityError, DBAPIError) as exc:
         logger.info("CCX-P4: Publikation verloren | mandate=%s: %s", evaluation.mandate_id, exc)
+        if INSERT_STALE_MARKER in str(getattr(exc, "orig", None) or exc):
+            # N-910-04: der Insert-Trigger fand den Envelope nicht mehr SEALED
+            # + FRESH -- eine parallele Invalidierung hat gewonnen (kein
+            # paralleler Publisher). Fail-closed mit dem praezisen Code.
+            raise _reject(db, code=ReasonCode.CCX_INPUT_STALE, blockers=(ReasonCode.CCX_INPUT_STALE.value,),
+                          message="Die Beratungsdaten wurden parallel geaendert. Bitte neu finalisieren.",
+                          **common) from exc
         if is_check_constraint_violation(exc):
             # F1: eine CHECK-Verletzung ist kein Wettlauf, sondern ein nicht
             # publizierbarer Datensatz (422, Audit).
@@ -678,6 +659,9 @@ class PublicationState:
     approved_at: str | None = None
     approved_by: str | None = None
     approval_mode: str | None = None
+    # N-910-02: Basis der Freigabe (Nachweis).
+    eligible_approver_count: int | None = None
+    single_person_firm: int | None = None
     drift: tuple = field(default=(), repr=False, compare=False)
 
     @property
@@ -692,6 +676,8 @@ class PublicationState:
             "validation_hash": self.validation_hash, "approval_hash": self.approval_hash,
             "approved_at": self.approved_at, "approved_by": self.approved_by, "approval_mode": self.approval_mode,
             "approval_mode_label": approval_mode_label(self.approval_mode),
+            "eligible_approver_count": self.eligible_approver_count,
+            "single_person_firm": self.single_person_firm,
         }
 
 
@@ -702,6 +688,7 @@ def _decision_state(decision: AllocationPublicationDecision, status: str, code: 
         envelope_id=decision.envelope_id, published_envelope_hash=decision.published_envelope_hash,
         validation_hash=decision.validation_hash, approval_hash=decision.approval_hash,
         approved_at=decision.approved_at, approved_by=decision.approved_by, approval_mode=decision.approval_mode,
+        eligible_approver_count=decision.eligible_approver_count, single_person_firm=decision.single_person_firm,
         drift=tuple(drift),
     )
 
@@ -722,13 +709,21 @@ def active_publication_state(db: Session, mandate: Any, *, deep: bool = True) ->
     decision = _decision(db, tenant_id, pointer.publication_id)
     if decision is None or int(decision.publishable or 0) != 1:
         return PublicationState(STATUS_PUBLICATION_INVALID, ReasonCode.CCX_APPROVAL_BINDING_MISSING.value)
-    expected_approval = approval_hash_for(
-        tenant_id=decision.tenant_id, mandate_id=decision.mandate_id,
-        publication_sequence=int(decision.publication_sequence), validation_hash=decision.validation_hash,
-        envelope_id=str(decision.envelope_id), envelope_hash=str(decision.published_envelope_hash),
-        target_allocation_id=str(decision.target_allocation_id), approved_by=str(decision.approved_by),
-        approved_at=str(decision.approved_at), approval_mode=str(decision.approval_mode),
-    ) if decision.approved_by and decision.approved_at and decision.approval_mode else None
+    expected_approval = None
+    if decision.approved_by and decision.approved_at and decision.approval_mode \
+            and decision.eligible_approver_count is not None and decision.single_person_firm is not None:
+        try:
+            expected_approval = approval_hash_for(
+                db, tenant_id=decision.tenant_id, mandate_id=decision.mandate_id,
+                publication_sequence=int(decision.publication_sequence), validation_hash=decision.validation_hash,
+                envelope_id=str(decision.envelope_id), envelope_hash=str(decision.published_envelope_hash),
+                target_allocation_id=str(decision.target_allocation_id), approved_by=str(decision.approved_by),
+                approved_at=str(decision.approved_at), approval_mode=str(decision.approval_mode),
+                eligible_approver_count=int(decision.eligible_approver_count),
+                single_person_firm=int(decision.single_person_firm),
+            )
+        except ApprovalKeyUnavailable:
+            expected_approval = None  # fail-closed: ohne Schluessel keine gueltige Freigabe
     if expected_approval is None or expected_approval != decision.approval_hash \
             or not is_publishable(VALIDATION_PASS, APPROVAL_APPROVED if expected_approval else None):
         return _decision_state(decision, STATUS_PUBLICATION_INVALID, ReasonCode.CCX_APPROVAL_BINDING_MISSING)

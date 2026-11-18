@@ -273,6 +273,7 @@ function ReportShell({ sectionId }: { sectionId: ReportSectionId }) {
         aria-label={`Beratungsreport-Hauptinhalt: ${sectionId}`}
       >
         <AllocationDraftNotice notice={data.allocation_draft_notice} />
+        <AllocationApprovalNotice publication={data.allocation_publication} />
         <Suspense fallback={<SectionSkeleton />}>
           <ReportCurrencyContext.Provider value={reportCurrencyFrom(data)}>
             {renderSection(sectionId, data, mandateId, reload)}
@@ -295,6 +296,28 @@ export function AllocationDraftNotice({ notice }: { notice?: string | null }) {
       className="mx-auto mt-block max-w-editorial px-page-x text-caption text-ink-muted"
     >
       {notice}
+    </p>
+  );
+}
+
+/** CCX-P4 N-910-02: Berater-Ansicht kennzeichnet eine Einzelfreigabe
+ * ("Einzelfreigabe (eine berechtigte Person)"); Vier-Augen bleibt ruhig. */
+export function AllocationApprovalNotice({
+  publication,
+}: {
+  publication?: { status: string; approval_mode_label?: string | null } | null;
+}) {
+  const label = publication?.approval_mode_label;
+  if (!publication || publication.status !== 'PUBLISHED' || !label || !label.startsWith('Einzelfreigabe')) {
+    return null;
+  }
+  return (
+    <p
+      role="status"
+      data-testid="allocation-approval-notice"
+      className="mx-auto mt-block max-w-editorial px-page-x text-caption text-ink-muted"
+    >
+      Publiziert · {label}
     </p>
   );
 }
