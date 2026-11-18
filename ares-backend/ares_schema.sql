@@ -2300,6 +2300,7 @@ CREATE TABLE IF NOT EXISTS allocation_publication_decisions (
     created_by               TEXT NOT NULL REFERENCES users(id),
     eligible_approver_count  INTEGER CHECK(eligible_approver_count IS NULL OR eligible_approver_count >= 0),
     single_person_firm       INTEGER CHECK(single_person_firm IS NULL OR single_person_firm IN (0, 1)),
+    approval_key_version     INTEGER,
     CONSTRAINT ck_allocation_publication_decisions_published CHECK(publishable = 0 OR (
         envelope_id IS NOT NULL AND target_allocation_id IS NOT NULL AND approval_hash IS NOT NULL
         AND approval_mode IS NOT NULL AND approved_at IS NOT NULL AND approved_by IS NOT NULL

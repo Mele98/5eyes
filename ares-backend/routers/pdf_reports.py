@@ -357,6 +357,18 @@ def _advisory_wealth_positions(mandate: Mandate, db: Session) -> tuple[list[dict
     return positions, current_bps, total
 
 
+def _advisory_wealth_from_capture(mandate: Mandate, db: Session) -> int | None:
+    """H12 N-910-11 (CTO-/Codex-Entscheid): Beratungsvermoegen fuer Risikoprofil
+    und allgemeinen Vertrag aus der Vermoegenserfassung -- aktive Positionen mit
+    Zuordnung Beratungsvermoegen, in Mandats-Basiswaehrung ueber die strikte
+    FX-Basis (P3; Ersatzkurs/veraltet -> ``CCX_FX_BASIS_*`` vor dem Rendern).
+    Dieselbe Summe wie ``advisory_wealth_at_generation_rappen`` der Engine
+    (positive Werte, auch externe Vorsorge), aber zum Druckzeitpunkt statt zum
+    Generierungszeitpunkt. Ohne Positionen: ``None`` (keine Zeile)."""
+    _positions, _bps, total = _advisory_wealth_positions(mandate, db)
+    return total or None
+
+
 def _largest_remainder_split(total: int, weights: list[int], labels: list[str]) -> list[int]:
     """Ganzzahlige Aufteilung nach Largest Remainder (Hamilton), Tie-Break
     groesseres Gewicht, dann Label -- dieselbe Regel wie
@@ -1322,6 +1334,19 @@ def _archive_final(ctx: PDFContext, db: Session, **kwargs):
     return archive_generated_pdf(db, **kwargs)
 
 
+def _archive_final_unbound(ctx: PDFContext, db: Session, **kwargs):
+    """H12 N-910-11: Archiv einer allokationsfreien finalen Fassung (Risikoprofil).
+    Ohne Bindung an eine Soll-Allokation gibt es keinen Beratungsentscheid, dessen
+    Frische zu pruefen waere (``_archive_final`` prueft sie nur mit
+    ``binding.target_allocation_id``); dieser Pfad liest deshalb nichts aus der
+    Allokation. Eine Bindung ist hier unzulaessig."""
+    if kwargs.get("binding"):
+        raise ValueError("_archive_final_unbound: Dokumente mit Allokationsbindung ueber _archive_final")
+    if (getattr(ctx, "watermark_mode", "none") or "none") != "none":
+        return None
+    return archive_generated_pdf(db, **kwargs)
+
+
 def _assert_client_pdf_sustainability_floor(db: Session, mandate: Mandate, current_user, request) -> None:
     """E2b / N-888-10: Kunden-PDFs mit Strategie/Produkten (Anlagestrategie,
     Anlagerezept, Kostenausweis) nur, wenn die aktuelle Soll-Allokation die
@@ -1451,12 +1476,13 @@ def get_risikoprofil_pdf(
     """Generiert Risikoprofil-PDF fuer das Mandat (FINMA W305-konform)."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_kyc_review(db, mandate, current_user, request)
-    _assert_client_pdf_fx_basis(db, mandate)  # CCX-P3-FX N-909-13 (Vermoegensangabe)
     _assert_client_pdf_signoff(db, mandate)
+    # H12 N-910-11 / N-909-20: allokationsfrei. Das Beratungsvermoegen kommt aus
+    # der Vermoegenserfassung (strikte FX-Basis genau der gedruckten Positionen,
+    # sperrt typisiert CCX_FX_BASIS_* vor dem Rendern); keine Soll-Allokation,
+    # daher kein Publish-Gate (Aufrufgraph-Waechter ALLOCATION_FREE_PDF_ROUTES).
+    advisory_wealth_rappen = _advisory_wealth_from_capture(mandate, db)
     ctx = _build_pdf_context(mandate, current_user, db)
-    # N-910-01: liest das Beratungsvermoegen aus der Soll-Allokation -> Gate
-    # (Aufrufgraph-Waechter test_allocation_free_routes_read_no_allocation).
-    ctx = _mark_unpublished(ctx, db, mandate)
 
     # Risikoprofil-Daten aus dem juengsten RiskAssessment laden (defensiv)
     risk_label = "Nicht definiert"
@@ -1475,15 +1501,6 @@ def get_risikoprofil_pdf(
     knowledge_services: dict[str, bool] = {}
     knowledge_instruments: dict[str, bool] = {}
     risk_answers: list = []
-    advisory_wealth_rappen = None
-    try:
-        ta = _latest_target_allocation(mandate, db)
-        if ta is not None:
-            advisory_wealth_rappen = int(
-                getattr(ta, "advisory_wealth_at_generation_rappen", 0) or 0
-            ) or None
-    except Exception as exc:
-        logger.warning("Risikoprofil PDF advisory wealth load failed: %s", exc)
     ra = None
     try:
         from models.profiling import RiskAssessment, RiskAssessmentAnswer
@@ -1610,7 +1627,7 @@ def get_risikoprofil_pdf(
     )
 
     pdf_bytes = ReportLabRenderer().render_risikoprofil(ctx, risk_data)
-    _archive_final(
+    _archive_final_unbound(
         ctx, db, mandate_id=mandate.id, document_type="Risikoprofilierung",
         title="Risikoprofil", pdf_bytes=pdf_bytes,
         content_hash=_archive_content_hash(risk_data, ctx),
@@ -1857,15 +1874,9 @@ def _build_vertrag_data(mandate: Mandate, doc_id: str | None, db: Session) -> Ve
     except Exception as exc:
         logger.warning("Vertrag data: ContractDocument load failed: %s", exc)
 
-    advisory_wealth = None
-    try:
-        ta = _latest_target_allocation(mandate, db)
-        if ta is not None:
-            advisory_wealth = int(
-                getattr(ta, "advisory_wealth_at_generation_rappen", 0) or 0
-            ) or None
-    except Exception as exc:
-        logger.warning("Vertrag data: TA load failed: %s", exc)
+    # H12 N-910-11: allgemeiner Vertrag ohne Strategie -- Beratungsvermoegen aus
+    # der Vermoegenserfassung (strikt, nicht still abgefangen).
+    advisory_wealth = _advisory_wealth_from_capture(mandate, db)
 
     return VertragData(
         document_title=document_title,
@@ -1894,11 +1905,10 @@ def get_vertrag_pdf(
     """Sprint 12: Vertrags-PDF (ContractDocument). Optional ?document_id=..."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_kyc_review(db, mandate, current_user, None)
-    _assert_client_pdf_fx_basis(db, mandate)  # CCX-P3-FX N-909-13
-    ctx = _build_pdf_context(mandate, current_user, db)
-    # N-910-01: liest das Beratungsvermoegen aus der Soll-Allokation -> Gate.
-    ctx = _mark_unpublished(ctx, db, mandate)
+    # H12 N-910-11 / N-909-20: allokationsfrei; die FX-Pruefung steckt in der
+    # Vermoegensangabe (_advisory_wealth_from_capture), vor dem Rendern.
     data = _build_vertrag_data(mandate, document_id, db)
+    ctx = _build_pdf_context(mandate, current_user, db)
     pdf_bytes = ReportLabRenderer().render_vertrag(ctx, data)
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
     # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,

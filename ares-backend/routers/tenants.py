@@ -37,12 +37,15 @@ from schemas.tenants import (
     TenantUpdate,
     UserAssignTenantRequest,
 )
+from core.reason_codes import DomainError, ReasonCode
+from services.allocation_publication_approval import publication_approver_ids
 from services.audit import log
-from services.auth import require_admin, require_super_admin
+# H12: IP-Helfer aus dem Service statt aus routers.auth (Router importieren keine
+# Router; haelt den Fan-out trotz der neuen Kante zur Approval-Zaehlung konstant).
+from services.auth import extract_client_ip as _extract_client_ip, require_admin, require_super_admin
 from services.quota import compute_tenant_usage
 from services.refresh_tokens import revoke_all_for_user
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Tenant-Admin-Aktionen.
-from routers.auth import _extract_client_ip
 
 router = APIRouter(prefix="/tenants", tags=["Tenants"])
 
@@ -95,13 +98,28 @@ def get_my_tenant(
     return TenantSelfResponse(**payload)
 
 
-def _single_person_firm_change(tenant: Tenant, updates: dict) -> tuple[int, int] | None:
+def _single_person_firm_change(db: Session, tenant: Tenant, updates: dict) -> tuple[int, int] | None:
     """CCX-P4 N-910-02: (alt, neu) der Konfiguration "Ein-Personen-Firma",
-    falls sie sich aendert."""
+    falls sie sich aendert.
+
+    H12 N-910-15: Das Setzen auf 1 ist nur plausibel, wenn der Mandant genau
+    EINEN aktiven Publish-Berechtigten hat (dieselbe Zaehlung wie die
+    Einzelfreigabe); sonst 409 ``CCX_SINGLE_PERSON_FIRM_IMPLAUSIBLE`` -- vor
+    jeder Aenderung und ohne Audit-Eintrag einer Aenderung. Das Zuruecksetzen
+    auf 0 ist immer zulaessig (konservative Richtung)."""
     if updates.get("single_person_firm") is None:
         updates.pop("single_person_firm", None)
         return None
     old, new = int(getattr(tenant, "single_person_firm", 0) or 0), int(bool(updates["single_person_firm"]))
+    if new == 1 and old != 1:
+        approvers = publication_approver_ids(db, tenant.id)
+        if len(approvers) != 1:
+            raise DomainError(
+                ReasonCode.CCX_SINGLE_PERSON_FIRM_IMPLAUSIBLE,
+                "Ein-Personen-Firma kann nur gesetzt werden, wenn genau eine aktive Person "
+                f"Soll-Allokationen publizieren darf (heute: {len(approvers)}).",
+                http_status=409, extra={"eligible_approver_count": len(approvers)},
+            )
     return (old, new) if old != new else None
 
 
@@ -136,7 +154,7 @@ def update_my_tenant(
     if tenant is None:
         raise HTTPException(status_code=404, detail="Eigene Firma nicht gefunden")
     updates = body.model_dump(exclude_unset=True)
-    single_person_change = _single_person_firm_change(tenant, updates)
+    single_person_change = _single_person_firm_change(db, tenant, updates)
     for field, value in updates.items():
         setattr(tenant, field, int(value) if field == "single_person_firm" else value)
     tenant.updated_at = _now_iso()
@@ -278,7 +296,7 @@ def update_tenant(
             detail="Tenant nicht gefunden",
         )
     updates = body.model_dump(exclude_unset=True)
-    single_person_change = _single_person_firm_change(tenant, updates)
+    single_person_change = _single_person_firm_change(db, tenant, updates)
     for field, value in updates.items():
         setattr(tenant, field, int(value) if field == "single_person_firm" else value)
     tenant.updated_at = _now_iso()

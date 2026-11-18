@@ -1497,6 +1497,7 @@ ALLOCATION_PUBLICATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
     created_by               TEXT NOT NULL REFERENCES users(id),
     eligible_approver_count  INTEGER CHECK(eligible_approver_count IS NULL OR eligible_approver_count >= 0),
     single_person_firm       INTEGER CHECK(single_person_firm IS NULL OR single_person_firm IN (0, 1)),
+    approval_key_version     INTEGER,
     CONSTRAINT ck_allocation_publication_decisions_published CHECK(publishable = 0 OR (
         envelope_id IS NOT NULL AND target_allocation_id IS NOT NULL AND approval_hash IS NOT NULL
         AND approval_mode IS NOT NULL AND approved_at IS NOT NULL AND approved_by IS NOT NULL
@@ -1711,6 +1712,12 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # (Admin-Einstellung mit Audit); nur dann ist eine Einzelfreigabe
             # der Allokations-Publikation zulaessig. Default 0.
             ('single_person_firm', 'INTEGER', 0),
+        ],
+        # H12 N-910-14: Schluesselversion des Approval-Bindings (Alembic
+        # b3f1c9d2e4a7). Nullable, kein Backfill: Altpublikationen gelten als
+        # ungueltig (CCX_APPROVAL_KEY_VERSION_MISSING).
+        'allocation_publication_decisions': [
+            ('approval_key_version', 'INTEGER'),
         ],
         # CERT-HANDOFF-EXECUTION-001 (2026-10-25): siehe models/portfolio_handoff.py
         # und Alembic c7e4a19b3d52. Nullable, kein Backfill.

@@ -10,7 +10,15 @@ Mandats heute strikt konvertierbar sein (belegt, frisch nach Tenant-Frist,
 kein Ersatzkurs) -- sonst ``CCX_FX_BASIS_*``.
 
 Ein versiegelter Lauf traegt seine FX-Basis im Envelope (Bewertungs-Snapshot
-mit ``fx_basis_hash``); er wird hier nicht erneut gegen heute geprueft.
+mit ``fx_basis_hash``); er wird hier nicht erneut gegen heute geprueft --
+H12: nur solange der Entscheid FRESH ist (P2 setzt bei einer Invalidierung
+``freshness_status`` auf STALE/UNKNOWN, ``status`` bleibt SEALED). Die
+endgueltige Ausnahme gilt kuenftig nur fuer das gespeicherte, hashgebundene
+P5-Artefakt (Codex N-909-22); H12 schaerft nur die bestehende Ausnahme nach.
+
+H12 (N-909-20, Codex: route-spezifisches FX-Quelleninventar): welche Route
+welche FX-abhaengigen Betraege druckt und welche Pruefung deshalb gilt, steht
+in ``ROUTE_FX_SOURCES`` (Waechter ``tests/test_h12_ccx_hygiene.py``).
 
 Das Modul ist zugleich die Druck-Fassade der Router fuer die strikte FX-Basis
 (``load_fx_basis``) und den Kostenausweis (``build_client_cost_disclosure``).
@@ -27,6 +35,39 @@ from models.wealth import Cashflow, WealthInflow, WealthPosition
 from services.advisory_decision_envelope import VALUATION_BINDING_KIND, mandate_tenant
 from services.cost_disclosure import build_cost_disclosure
 from services.fx_basis import load_fx_basis, normalize_currency
+
+
+# Klassen des FX-Quelleninventars.
+FX_RUN_AMOUNTS = "run_amounts"
+FX_ADVISORY_POSITIONS_LIVE = "advisory_positions_live"
+FX_LIVE_STRICT_BUILDER = "live_strict_builder"
+
+# H12: je Kunden-PDF-Route (Funktion in routers/pdf_reports.py) die gedruckten
+# FX-abhaengigen Betraege und die daraus folgende Pruefung.
+#   FX_RUN_AMOUNTS: eingefrorene Betraege eines Laufs (Engine rechnet mit allen
+#     Betragsquellen: Vermoegen, einbezogene Cashflows, Zufluesse) -> Druck-
+#     pruefung ``assert_print_fx_basis_current`` ueber alle Quellen, Ausnahme
+#     nur fuer einen SEALED+FRESH-Lauf mit Bewertungsbindung.
+#   FX_ADVISORY_POSITIONS_LIVE: nur das Beratungsvermoegen aus der Vermoegens-
+#     erfassung, live und strikt umgerechnet (``_advisory_wealth_from_capture``)
+#     -> genau die gedruckten Positionen werden geprueft; keine Ausnahme (live).
+#     Ohne Fremdwaehrungs-Position keine Kursabfrage, keine Sperre (N-909-20).
+#   FX_LIVE_STRICT_BUILDER: der Daten-Builder rechnet live mit der strikten
+#     Basis (``load_fx_basis``/``from_db_strict_for_model``) und sperrt dort.
+ROUTE_FX_SOURCES: dict[str, tuple[str, str]] = {
+    "get_risikoprofil_pdf": (FX_ADVISORY_POSITIONS_LIVE, "Beratungsvermoegen (Kopfzeile)"),
+    "get_vertrag_pdf": (FX_ADVISORY_POSITIONS_LIVE, "Beratungsvermoegen (Vertragsgegenstand)"),
+    "get_portfolio_pdf": (FX_RUN_AMOUNTS, "Beratungsvermoegen und Bucket-Betraege der Soll-Allokation"),
+    "get_protokoll_pdf": (FX_RUN_AMOUNTS, "Beratungsvermoegen der Soll-Allokation, Strategiebetraege"),
+    "get_backtest_pdf": (FX_RUN_AMOUNTS, "Startwert und Pfadbetraege"),
+    "get_cost_disclosure_pdf": (FX_RUN_AMOUNTS, "Anlagebasis und Kostenbetraege"),
+    "get_kundeninformation_pdf": (FX_RUN_AMOUNTS, "Ex-ante-Kostenzeilen (Anlagebasis des Laufs)"),
+    "get_anlagestrategie_pdf": (FX_LIVE_STRICT_BUILDER, "Positionen/Strategiebetraege live strikt"),
+    "get_assetallocation_pdf": (FX_LIVE_STRICT_BUILDER, "IST-Positionen live strikt"),
+    "get_contract_signoff_pdf": (FX_LIVE_STRICT_BUILDER, "Strategiebetraege live strikt"),
+    "get_depotcheck_pdf": (FX_LIVE_STRICT_BUILDER, "Depotpositionen live strikt"),
+    "get_advisory_report_pdf": (FX_LIVE_STRICT_BUILDER, "Bericht live strikt"),
+}
 
 
 def mandate_amount_currencies(db: Session, mandate: Any) -> set[str]:
@@ -65,8 +106,9 @@ def current_run_id(db: Session, mandate_id: str) -> str | None:
 
 
 def run_is_sealed(db: Session, mandate: Any, run_id: str | None) -> bool:
-    """Ist ``run_id`` der Lauf des aktuellen SEALED-Envelopes mit gebundenem
-    Bewertungs-Snapshot (FX-Basis)?"""
+    """Ist ``run_id`` der Lauf des aktuellen SEALED-Envelopes, der FRESH ist
+    (P2: eine Invalidierung laesst ``status`` SEALED und setzt nur
+    ``freshness_status``), mit gebundenem Bewertungs-Snapshot (FX-Basis)?"""
     if not run_id:
         return False
     tenant_id = mandate_tenant(mandate)
@@ -77,7 +119,7 @@ def run_is_sealed(db: Session, mandate: Any, run_id: str | None) -> bool:
         AdvisoryDecisionEnvelope.mandate_id == str(mandate.id),
         AdvisoryDecisionEnvelope.status == "SEALED",
     ).first()
-    if envelope is None:
+    if envelope is None or envelope.freshness_status != "FRESH":
         return False
     kinds = {
         (b.binding_kind, str(b.object_id))
@@ -117,6 +159,10 @@ def build_client_cost_disclosure(db: Session, mandate: Any) -> dict:
 __all__ = [
     "assert_print_fx_basis_current",
     "build_client_cost_disclosure",
+    "FX_ADVISORY_POSITIONS_LIVE",
+    "FX_LIVE_STRICT_BUILDER",
+    "FX_RUN_AMOUNTS",
+    "ROUTE_FX_SOURCES",
     "current_run_id",
     "load_fx_basis",
     "mandate_amount_currencies",

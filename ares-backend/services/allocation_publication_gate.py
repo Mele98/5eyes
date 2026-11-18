@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from sqlalchemy.exc import DBAPIError, IntegrityError
+from sqlalchemy.exc import IntegrityError, InternalError, OperationalError
 from sqlalchemy.orm import Session
 
 from core.evidence import SCHEME_V1, advisory_domain, canonical_json, domain_sha256_hex
@@ -101,6 +101,7 @@ from services.allocation_publication_approval import (
     approval_basis,
     approval_hash_for,
     approval_mode_label,
+    current_approval_key_version,
 )
 from services.recommendation_release_gate import (
     CHANNEL_PUBLICATION,
@@ -141,6 +142,16 @@ AUDIT_CHANNEL_BLOCKED = "ccx.allocation.channel_blocked"
 # Meldung des Insert-Triggers (SQLite RAISE / PG RAISE EXCEPTION), wenn der
 # Envelope beim Insert nicht mehr SEALED + FRESH ist.
 INSERT_STALE_MARKER = "CCX_ALLOCATION_NOT_PUBLISHABLE"
+# H12 N-910-16: erkennbare Meldungen der Publikations-Guards (SQLite RAISE /
+# PG RAISE EXCEPTION). Nur ein InternalError mit einer dieser Meldungen ist ein
+# Domaenenfehler; jeder andere InternalError bleibt ein technischer Fehler.
+PUBLICATION_GUARD_MARKERS: tuple[str, ...] = (
+    INSERT_STALE_MARKER,
+    "CCX_PUBLICATION_RACE",
+    "is append-only",
+    "pointer is never deleted",
+    "MANDATE_EVIDENCE_TENANT_MISMATCH",
+)
 
 BUCKETS: tuple[str, ...] = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
 TOTAL_BPS = 10_000
@@ -527,6 +538,29 @@ def _reject(
     })
 
 
+def _retryable_reject(db: Session, common: dict) -> DomainError:
+    """H12 N-910-16: ``CCX_PUBLICATION_RETRYABLE`` (503, ``retryable``). Der
+    abgelehnte Versuch wird wie jeder andere festgehalten, soweit die DB das
+    zulaesst; scheitert auch das technisch, bleibt es beim Fehler ohne Spur in
+    der DB (Log beim Aufrufer)."""
+    code = ReasonCode.CCX_PUBLICATION_RETRYABLE
+    message = ("Die Publikation wurde technisch unterbrochen (Datenbank voruebergehend nicht "
+               "verfuegbar). Bitte erneut versuchen.")
+    try:
+        err = _reject(db, code=code, blockers=(code.value,), message=message, http_status=503, **common)
+    except OperationalError:
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001 - Verbindung bereits verloren
+            pass
+        err = DomainError(code, message, http_status=503, extra={
+            "channel": CHANNEL_PUBLICATION, "blocker_codes": [code.value],
+            "validation_hash": common["evaluation"].validation_hash,
+        })
+    err.extra["retryable"] = True
+    return err
+
+
 def publish_allocation(
     db: Session,
     mandate: Any,
@@ -567,12 +601,14 @@ def publish_allocation(
     now = _now()
     sequence = _next_sequence(db, evaluation.mandate_id)
     try:
+        key_version = current_approval_key_version(db, evaluation.tenant_id)  # H12 N-910-14
         approval_hash = approval_hash_for(
             db, tenant_id=evaluation.tenant_id, mandate_id=evaluation.mandate_id, publication_sequence=sequence,
             validation_hash=evaluation.validation_hash, envelope_id=evaluation.envelope_id,
             envelope_hash=evaluation.envelope_hash, target_allocation_id=evaluation.target_allocation_id,
             approved_by=str(user.id), approved_at=now, approval_mode=mode,
             eligible_approver_count=basis.eligible_approver_count, single_person_firm=basis.single_person_firm,
+            approval_key_version=key_version,
         )
     except ApprovalKeyUnavailable as exc:
         raise _reject(db, code=ReasonCode.CCX_APPROVAL_BINDING_MISSING,
@@ -588,6 +624,7 @@ def publish_allocation(
         blocker_codes_json="[]", published_envelope_hash=evaluation.envelope_hash,
         created_at=now, created_by=str(user.id),
         eligible_approver_count=basis.eligible_approver_count, single_person_firm=basis.single_person_firm,
+        approval_key_version=key_version,
     )
     try:
         db.add(decision)
@@ -620,11 +657,22 @@ def publish_allocation(
                eligible_approver_count=basis.eligible_approver_count,
                single_person_firm=basis.single_person_firm,
                attestation_reason=((attestation_reason or "").strip() or None)
-               if mode == APPROVAL_MODE_SINGLE_APPROVER_ATTESTED else None)
+               if mode == APPROVAL_MODE_SINGLE_APPROVER_ATTESTED else None,
+               approval_key_version=key_version)
         db.commit()
-    except (IntegrityError, DBAPIError) as exc:
+    except OperationalError as exc:
+        # H12 N-910-16: Lock-Timeout, Verbindungsabbruch, "database is locked" --
+        # kein Wettlauf und kein Datenfehler, sondern ein voruebergehender
+        # technischer Fehler: eigener, wiederholbarer Code (nichts publiziert).
+        logger.warning("CCX-P4: Publikation technisch abgebrochen (retryable) | mandate=%s: %s",
+                       evaluation.mandate_id, type(getattr(exc, "orig", None) or exc).__name__)
+        raise _retryable_reject(db, common) from exc
+    except (IntegrityError, InternalError) as exc:
+        message = str(getattr(exc, "orig", None) or exc)
+        if isinstance(exc, InternalError) and not any(marker in message for marker in PUBLICATION_GUARD_MARKERS):
+            raise  # H12 N-910-16: kein Guard-Text -> technischer Fehler, nicht als Wettlauf maskieren
         logger.info("CCX-P4: Publikation verloren | mandate=%s: %s", evaluation.mandate_id, exc)
-        if INSERT_STALE_MARKER in str(getattr(exc, "orig", None) or exc):
+        if INSERT_STALE_MARKER in message:
             # N-910-04: der Insert-Trigger fand den Envelope nicht mehr SEALED
             # + FRESH -- eine parallele Invalidierung hat gewonnen (kein
             # paralleler Publisher). Fail-closed mit dem praezisen Code.
@@ -714,6 +762,17 @@ def active_publication_state(db: Session, mandate: Any, *, deep: bool = True) ->
     decision = _decision(db, tenant_id, pointer.publication_id)
     if decision is None or int(decision.publishable or 0) != 1:
         return PublicationState(STATUS_PUBLICATION_INVALID, ReasonCode.CCX_APPROVAL_BINDING_MISSING.value)
+    # H12 N-910-14: Schluesselversion VOR der Hash-Pruefung (erkennbare Ursache
+    # statt eines stummen Hash-Fehlers nach einer DEK-Rotation).
+    stored_key_version = getattr(decision, "approval_key_version", None)
+    if stored_key_version is None:
+        return _decision_state(decision, STATUS_PUBLICATION_INVALID, ReasonCode.CCX_APPROVAL_KEY_VERSION_MISSING)
+    try:
+        key_version = current_approval_key_version(db, decision.tenant_id)
+    except ApprovalKeyUnavailable:
+        return _decision_state(decision, STATUS_PUBLICATION_INVALID, ReasonCode.CCX_APPROVAL_BINDING_MISSING)
+    if int(stored_key_version) != key_version:
+        return _decision_state(decision, STATUS_PUBLICATION_INVALID, ReasonCode.CCX_APPROVAL_KEY_ROTATED)
     expected_approval = None
     if decision.approved_by and decision.approved_at and decision.approval_mode \
             and decision.eligible_approver_count is not None and decision.single_person_firm is not None:
@@ -726,6 +785,7 @@ def active_publication_state(db: Session, mandate: Any, *, deep: bool = True) ->
                 approved_at=str(decision.approved_at), approval_mode=str(decision.approval_mode),
                 eligible_approver_count=int(decision.eligible_approver_count),
                 single_person_firm=int(decision.single_person_firm),
+                approval_key_version=int(stored_key_version),
             )
         except ApprovalKeyUnavailable:
             expected_approval = None  # fail-closed: ohne Schluessel keine gueltige Freigabe

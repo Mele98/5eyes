@@ -14,7 +14,16 @@ Hilfe nicht verwenden, um den Gate zu umgehen (Waechter:
 """
 from __future__ import annotations
 
-import pytest
+import sys
+
+# H12 (Codex CTO-Entscheid c): nur im Testlauf importierbar. Der Produktivpfad
+# importiert das Paket ``tests`` nie (Waechter in tests/test_h12_ccx_hygiene.py),
+# PyInstaller sammelt es nicht ein; diese Sperre greift zusaetzlich, falls die
+# Datei doch neben dem Backend liegt.
+if "pytest" not in sys.modules:  # pragma: no cover - im Testlauf immer geladen
+    raise ImportError("tests.ccx_p4_publication_support ist eine reine Testhilfe (nur unter pytest).")
+
+import pytest  # noqa: E402
 
 # Altbestand, abschliessend. Neue Eintraege nur mit Begruendung im Handoff.
 LEGACY_CHANNEL_TEST_FILES = frozenset({

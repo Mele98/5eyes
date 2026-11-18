@@ -2,6 +2,7 @@ import contextvars
 import datetime as _dt
 import hashlib
 import json
+import weakref
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -592,6 +593,14 @@ _AUDIT_SINKS: list = []
 # einem Session-Flush oder dem Massen-Hook heraus erlaubt.
 _HOOK_SCOPE: contextvars.ContextVar[bool] = contextvars.ContextVar("ares_ccx_p2_hook_scope", default=False)
 _FLUSH_DEPTH: contextvars.ContextVar[int] = contextvars.ContextVar("ares_ccx_p2_flush_depth", default=0)
+# H12 N-908-07: Sessions, die in diesem Kontext einen Flush begonnen haben. Der
+# Laufzeitschutz fragt nicht den Zaehler, sondern ob eine davon JETZT flusht
+# (``Session._flushing``): ein Flush ohne Arbeit (``flush(objects=...)``) laesst
+# den Zaehler bis zum Transaktionsende stehen, ``_flushing`` ist danach sofort
+# wieder falsch -- Core-DML in derselben Transaktion bleibt damit geschuetzt.
+_FLUSHING_SESSIONS: contextvars.ContextVar["weakref.WeakSet | None"] = contextvars.ContextVar(
+    "ares_ccx_p2_flushing_sessions", default=None,
+)
 # Referenzdaten-Arten: Hausmeinung (CMA, Policy, CMA-Policy, Benchmark).
 REFERENCE_KINDS = frozenset({
     "cma", "optimizer_policy", "cma_policy", "benchmark", "building_blocks", "cma_policy_components",
@@ -1006,8 +1015,24 @@ def _bulk_orm_write(orm_execute_state):
         _HOOK_SCOPE.reset(token)
 
 
-def _enter_flush(_session, _flush_context, _instances) -> None:
+def _enter_flush(session, _flush_context, _instances) -> None:
     _FLUSH_DEPTH.set(_FLUSH_DEPTH.get() + 1)
+    sessions = _FLUSHING_SESSIONS.get()
+    if sessions is None:
+        sessions = weakref.WeakSet()
+        _FLUSHING_SESSIONS.set(sessions)
+    sessions.add(session)
+
+
+def _flush_in_progress() -> bool:
+    """H12 N-908-07: flusht in diesem Kontext gerade eine Session (der
+    after_flush-Hook deckt deren DML ab)? Zaehler UND ``_flushing`` muessen
+    zustimmen; ein haengender Zaehler nach einem Flush ohne Arbeit schaltet
+    den Schutz nicht mehr ab."""
+    if _FLUSH_DEPTH.get() <= 0:
+        return False
+    sessions = _FLUSHING_SESSIONS.get()
+    return bool(sessions) and any(getattr(s, "_flushing", False) for s in list(sessions))
 
 
 def _leave_flush(_session, *_args) -> None:
@@ -1047,7 +1072,7 @@ def _guard_core_dml(conn, clauseelement, multiparams, params, execution_options)
         return
     table = getattr(clauseelement, "table", None)
     source = DEPENDENCY_SOURCES.get(getattr(table, "name", None))
-    if source is None or _HOOK_SCOPE.get() or _FLUSH_DEPTH.get() > 0:
+    if source is None or _HOOK_SCOPE.get() or _flush_in_progress():
         return
     if not freshness_tables_present(conn):
         return
@@ -1413,6 +1438,12 @@ class AllocationPublicationDecision(Base):
     # die Tenant-Konfiguration "Ein-Personen-Firma" zum Zeitpunkt (im approval_hash).
     eligible_approver_count = Column(Integer)
     single_person_firm = Column(Integer)
+    # H12 N-910-14: Version des Approval-Schluessels (= tenants.dek_version beim
+    # Binden), auch im approval_hash. NULL nur bei Altpublikationen vor H12 bzw.
+    # abgelehnten Versuchen; eine publizierte Zeile ohne Version ist ungueltig
+    # (CCX_APPROVAL_KEY_VERSION_MISSING, im Lesepfad; kein CHECK, weil SQLite den
+    # bestehenden CHECK nicht ohne Tabellen-Neuaufbau samt Triggern aendern kann).
+    approval_key_version = Column(Integer)
 
 
 class AllocationActivePublication(Base):

@@ -15,6 +15,16 @@
   Envelope-Verschluesselung unter der Master-KEK) mit eigener Domaene. Wer den
   Append-only-Trigger umgeht, kann den Hash ohne den Schluessel nicht
   nachrechnen. Ohne verfuegbaren Schluessel gilt keine Freigabe (fail-closed).
+* **Schluesselversion** (H12 N-910-14, Codex-Pflicht): ``approval_key_version``
+  = ``tenants.dek_version`` des Schluessels, mit dem gebunden wurde. Sie steht
+  als eigene Spalte im Entscheid UND im HMAC-Record (eine manipulierte Spalte
+  bricht den Hash). Beim Lesen wird sie VOR der Hash-Pruefung mit der heutigen
+  DEK-Version verglichen: abweichend -> ``CCX_APPROVAL_KEY_ROTATED`` (die
+  Freigabe muss nach einer DEK-Rotation bewusst neu publiziert werden), fehlend
+  (Altpublikation vor H12) -> ``CCX_APPROVAL_KEY_VERSION_MISSING``; beides
+  fail-closed. Die KEK-Generation gehoert NICHT zur Schluesselversion: ein
+  Rewrap auf eine neue KEK behaelt den DEK, die Hashes bleiben gueltig
+  (``get_tenant_dek`` verlangt ohnehin die aktuelle KEK-Generation).
 """
 from __future__ import annotations
 
@@ -79,12 +89,19 @@ def tenant_is_single_person_firm(db: Session, tenant_id: str | None) -> bool:
     return value == 1
 
 
+def publication_approver_ids(db: Session, tenant_id: str | None) -> list[str]:
+    """Aktive Publish-Berechtigte des Mandanten -- dieselbe Zaehlung wie die
+    Einzelfreigabe (``approval_basis``) und die Plausibilisierung der
+    Ein-Personen-Firma (H12 N-910-15, ``routers/tenants.py``)."""
+    return tenant_approver_ids(db, tenant_id, roles=PUBLICATION_APPROVER_ROLES)
+
+
 def approval_basis(
     db: Session, *, tenant_id: str | None, approver_id: str, preparer_id: str | None,
     single_approver_attestation: bool, attestation_reason: str | None,
 ) -> ApprovalBasis:
     """Vier-Augen oder (nur unter den Bedingungen oben) Einzelfreigabe."""
-    approvers = tenant_approver_ids(db, tenant_id, roles=PUBLICATION_APPROVER_ROLES)
+    approvers = publication_approver_ids(db, tenant_id)
     configured = 1 if tenant_is_single_person_firm(db, tenant_id) else 0
     count = len(approvers)
     mode: str | None = None
@@ -105,6 +122,22 @@ def _approval_key(db: Session, tenant_id: str) -> bytes:
     return hmac.new(dek, _APPROVAL_KEY_LABEL, hashlib.sha256).digest()
 
 
+def current_approval_key_version(db: Session, tenant_id: str) -> int:
+    """H12 N-910-14: Version des heutigen Approval-Schluessels (= DEK-Generation
+    ``tenants.dek_version``). Stellt den DEK bei Bedarf bereit (wie
+    ``_approval_key``); ohne lesbare Version keine Freigabe (fail-closed)."""
+    _approval_key(db, tenant_id)
+    try:
+        version = db.execute(
+            text("SELECT dek_version FROM tenants WHERE id = :t"), {"t": str(tenant_id)},
+        ).scalar()
+    except Exception as exc:  # noqa: BLE001 - Altschema/DB-Fehler: fail-closed
+        raise ApprovalKeyUnavailable(f"DEK-Version nicht lesbar: {exc}") from exc
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+        raise ApprovalKeyUnavailable(f"DEK-Version des Mandanten unbekannt ({version!r}).")
+    return version
+
+
 def approval_hash_for(
     db: Session,
     *,
@@ -120,6 +153,7 @@ def approval_hash_for(
     approval_mode: str,
     eligible_approver_count: int,
     single_person_firm: int,
+    approval_key_version: int,
 ) -> str:
     """Approval-Binding (HMAC): Freigeber, Zeit, Modus und Basis der Freigabe
     an genau diesen geprueften Stand (Validation, Envelope, Soll-Allokation,
@@ -138,6 +172,7 @@ def approval_hash_for(
         "approval_mode": approval_mode,
         "eligible_approver_count": int(eligible_approver_count),
         "single_person_firm": int(single_person_firm),
+        "approval_key_version": int(approval_key_version),
     }
     payload = _APPROVAL_DOMAIN + canonical_json(record, scheme=SCHEME_V1).encode("utf-8")
     return hmac.new(_approval_key(db, tenant_id), payload, hashlib.sha256).hexdigest()
@@ -156,5 +191,7 @@ __all__ = [
     "approval_basis",
     "approval_hash_for",
     "approval_mode_label",
+    "current_approval_key_version",
+    "publication_approver_ids",
     "tenant_is_single_person_firm",
 ]

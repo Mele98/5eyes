@@ -45,6 +45,8 @@ from tests.test_ccx_p1_snapshot_hash import (  # noqa: F401
 )
 
 CCX_P4_REV = "24e7606245d3"
+# H12 N-910-14: neue Revision hinter P4 (P4 eingefroren, nicht in place geaendert).
+H12_REV = "b3f1c9d2e4a7"
 CCX_P3_REV = "6814c14575e9"
 P4_TABLES = ("allocation_publication_decisions", "allocation_active_publications")
 
@@ -180,7 +182,11 @@ def test_finalized_allocation_publishes_with_approval_binding(session_factory):
             envelope_hash=decision.published_envelope_hash, target_allocation_id=decision.target_allocation_id,
             approved_by=approver, approved_at=decision.approved_at, approval_mode="four_eyes",
             eligible_approver_count=decision.eligible_approver_count, single_person_firm=0,
+            approval_key_version=decision.approval_key_version,
         )
+        # H12 N-910-14: die Schluesselversion ist die heutige DEK-Generation.
+        assert decision.approval_key_version == db.execute(
+            text("SELECT dek_version FROM tenants WHERE id = :t"), {"t": decision.tenant_id}).scalar() >= 1
     state = _state(session_factory, mid)
     assert state.published and state.publication_id == decision.id
     assert state.target_allocation_id == decision.target_allocation_id
@@ -623,7 +629,8 @@ def test_alembic_single_head_p4_and_upgrade_downgrade_upgrade(tmp_path):
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
-    assert script.get_heads() == [CCX_P4_REV]
+    assert script.get_heads() == [H12_REV]
+    assert script.get_revision(H12_REV).down_revision == CCX_P4_REV
     assert script.get_revision(CCX_P4_REV).down_revision == CCX_P3_REV
     chain = [rev.revision for rev in script.walk_revisions("base", CCX_P4_REV)][:4]
     assert chain == [CCX_P4_REV, CCX_P3_REV, "d868f4eaa028", "2c62f9012c73"]
@@ -795,8 +802,10 @@ CUSTOMER_ENDPOINTS = {
     "routers/pdf_reports.py": ("get_anlagestrategie_pdf", "get_assetallocation_pdf", "get_portfolio_pdf",
                                "get_protokoll_pdf", "get_depotcheck_pdf", "get_backtest_pdf",
                                "get_cost_disclosure_pdf", "get_advisory_report_pdf",
-                               # N-910-01: lesen die Soll-Allokation (Aufrufgraph-Waechter unten).
-                               "get_contract_signoff_pdf", "get_vertrag_pdf", "get_risikoprofil_pdf"),
+                               # N-910-01: liest die Soll-Allokation (Aufrufgraph-Waechter unten).
+                               # H12 N-910-11: Vertrag und Risikoprofil sind allokationsfrei
+                               # (ALLOCATION_FREE_PDF_ROUTES) und tragen keinen Gate mehr.
+                               "get_contract_signoff_pdf"),
     "routers/portfolio_handoff.py": ("preview_portfolio_handoff", "create_portfolio_handoff"),
     "routers/snapshots.py": ("create_snapshot",),
 }
@@ -905,6 +914,16 @@ def _client_facing_pdf_routes():
     return pdf_functions, routes
 
 
+# H12 N-910-11 (CTO-/Codex-Entscheid): Risikoprofil und allgemeiner Vertrag sind
+# allokationsfrei (Beratungsvermoegen aus der Vermoegenserfassung). Der
+# Aufrufgraph-Waechter belegt das; liest eine der Routen wieder Allokationsdaten,
+# wird test_customer_pdf_routes_are_all_classified rot.
+ALLOCATION_FREE_PDF_ROUTES = {
+    "GET /mandates/{mandate_id}/reports/risikoprofil.pdf": "get_risikoprofil_pdf",
+    "GET /mandates/{mandate_id}/reports/vertrag.pdf": "get_vertrag_pdf",
+}
+
+
 def test_customer_pdf_routes_are_all_classified():
     """Jede kundenwirksame PDF-Route traegt einen Publish-Gate, sobald ihr
     Aufrufgraph Allokationsdaten liest; allokationsfrei ist nur, wer belegbar
@@ -919,22 +938,31 @@ def test_customer_pdf_routes_are_all_classified():
             continue
         assert not hits, f"{route} ({name}) liest Allokationsdaten ohne Gate: {sorted(hits.items())}"
         allocation_free.append(route)
-    # Heute liest jede kundenwirksame PDF-Route Allokationsdaten (mindestens das
-    # Beratungsvermoegen aus der Soll-Allokation); eine kuenftige allokationsfreie
-    # Route ist erlaubt, wenn der Aufrufgraph sauber ist.
-    assert allocation_free == [], allocation_free
+    # Genau die entschiedenen Routen sind allokationsfrei (Aufrufgraph sauber);
+    # eine weitere allokationsfreie Route muss hier bewusst eingetragen werden.
+    assert sorted(allocation_free) == sorted(ALLOCATION_FREE_PDF_ROUTES), allocation_free
+    for route, name in ALLOCATION_FREE_PDF_ROUTES.items():
+        assert routes[route] == name
+        assert not (_calls(pdf_functions[name]) & set(CUSTOMER_GATES)), f"{route}: Gate ohne Allokationszugriff"
 
 
 def test_allocation_free_routes_read_no_allocation():
-    """Gegenprobe des Aufrufgraph-Waechters: die drei frueher per Label als
-    allokationsfrei gefuehrten Routen lesen tatsaechlich Allokationsdaten
-    (Beratungsentscheid: Zielallokation/Baender; Vertrag/Risikoprofil: das
-    Beratungsvermoegen der Soll-Allokation) -- der Waechter erkennt das."""
+    """Gegenprobe des Aufrufgraph-Waechters: der Beratungsentscheid liest
+    Zielallokation/Baender -- der Waechter erkennt das. H12 N-910-11: Vertrag
+    und Risikoprofil lesen nichts mehr aus der Allokation (leere Huelle); ein
+    wieder eingefuegter Zugriff (hier synthetisch in den Daten-Builder bzw. den
+    Archiv-Helfer) wird erkannt."""
     pdf_functions, _routes = _client_facing_pdf_routes()
     signoff = _allocation_reads(pdf_functions, "get_contract_signoff_pdf")
     assert {"_build_anlagestrategie_data", "target_allocation_bps", "_latest_target_allocation"} <= set(signoff)
-    assert "_latest_target_allocation" in _allocation_reads(pdf_functions, "get_vertrag_pdf")
-    assert "_latest_target_allocation" in _allocation_reads(pdf_functions, "get_risikoprofil_pdf")
+    assert _allocation_reads(pdf_functions, "get_vertrag_pdf") == {}
+    assert _allocation_reads(pdf_functions, "get_risikoprofil_pdf") == {}
+    for helper in ("_build_vertrag_data", "_archive_final_unbound", "_advisory_wealth_from_capture"):
+        mutated = dict(pdf_functions)
+        source = f"def {helper}(m, db):\n    return _latest_target_allocation(m, db)"
+        mutated[helper] = ast.parse(source).body[0]
+        entry = "get_vertrag_pdf" if helper == "_build_vertrag_data" else "get_risikoprofil_pdf"
+        assert "_latest_target_allocation" in _allocation_reads(mutated, entry), helper
     # Eine Route ohne Allokationszugriff bleibt leer (der Waechter meldet nicht alles).
     functions = {"route": ast.parse("def route():\n    return helper()").body[0],
                  "helper": ast.parse("def helper():\n    return 1").body[0]}
