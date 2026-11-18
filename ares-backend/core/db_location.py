@@ -357,8 +357,8 @@ def fs_identity_check(candidate) -> tuple[str | None, tuple[Path, ...]]:
     """Wie ``fs_identity_owner``, plus die Owner-Ziele, deren Identitaet nicht
     lesbar war (fuer eine verstaendliche Meldung).
 
-    H12 N-907-23: Ein unlesbares Owner-Ziel (z. B. ``PermissionError`` auf
-    ``~/5eyes/5eyes.db``) sperrt nicht mehr JEDE Datenbank, sondern nur
+    H12 N-907-23: Ein unlesbares Owner-Ziel (z. B. ``PermissionError`` auf der
+    Legacy-Owner-DB im Home) sperrt nicht mehr JEDE Datenbank, sondern nur
     Kandidaten, die dieses Ziel sein KOENNTEN -- weiterhin fail-closed:
 
     * fehlt der Kandidat, kann er keine bestehende Datei sein (der Textabgleich
