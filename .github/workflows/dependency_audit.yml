@@ -19,6 +19,7 @@ on:
   pull_request:
     paths:
       - 'ares-backend/requirements.txt'
+      - 'ares-backend/requirements-sqlcipher.txt'
       - 'ares-desktop/package.json'
       - 'ares-desktop/package-lock.json'
       - 'ares-desktop/frontend/reporting/package.json'
@@ -52,6 +53,14 @@ jobs:
           {
             echo '## pip-audit ares-backend/requirements.txt'
             pip-audit -r ares-backend/requirements.txt -f markdown --desc off || true
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: pip-audit requirements-sqlcipher.txt
+        continue-on-error: true
+        run: |
+          {
+            echo '## pip-audit ares-backend/requirements-sqlcipher.txt'
+            pip-audit -r ares-backend/requirements-sqlcipher.txt -f markdown --desc off || true
           } >> "$GITHUB_STEP_SUMMARY"
 
   npm-audit:

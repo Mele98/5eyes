@@ -44,7 +44,10 @@ Import-Graph aller Backend-Module (ohne ``tests``, ``alembic``, ``scripts``,
      Regel; Dekoratoren nur aus ``LEAF_PURE_DECORATORS``; Aufrufe und
      Dekoratoren werden ueber ihre Import-Herkunft aufgeloest (Alias ->
      Original, z. B. ``from enum import property as unique`` ist
-     ``enum.property`` und damit rot; lokal neu gebundene Namen sind rot);
+     ``enum.property`` und damit rot; lokal neu gebundene Namen sind rot,
+     im Klassenkoerper auch jede Bindung -- Zuweisung, ``def``/``class``,
+     Import --, die einen reinen Dekorator oder Konstruktor ueberdeckt,
+     N-844-5);
      Defaults und
      Annotationen nur reine Ausdruecke. Alles andere (z. B. ``open(...)``,
      Zuweisung an Attribut/Subscript, ``for``/``with``/``try``/sonstiges
@@ -167,7 +170,21 @@ ENV_ATTRS = frozenset({"environ", "getenv", "putenv", "unsetenv"})
 #   core.evidence -- K-1 (A2 M4): kanonische Serialisierung/Evidence-Hash.
 #   core.reason_codes -- K-2/K-2b (A2 M5/M17): Reason-Code-Katalog + DomainError;
 #     Ziel jedes Service-Imports der DomainError-Migration (nur enum/typing).
-FAN_OUT_EXEMPT_LEAVES = frozenset({"core.evidence", "core.reason_codes"})
+#   core.db_integrity -- RC-CH-1-F1: Erkennung von CHECK-Verletzungen (Duck-
+#     Typing auf exc.orig, keine Importe); Middleware und Router.
+#   core.goal_vocabulary -- RC-CH-1-F1 (N-903-02/-03): Ziel-Vokabular und
+#     Kanonisierung (nur typing); API-Schemas und Seed-Fingerabdruck.
+#   core.presentation_rounding -- G7 (2026-11-11): gemeinsamer Rundungsformatter
+#     (Policy ares-rounding/1) fuer alle PDF-Komponenten; reine Darstellung, nur
+#     json/typing (Ganzzahl-Dezimalarithmetik) -- ohne Projektkopplung.
+#   core.sustainability_preference -- E2 (Dok. 106): Definition, Ableitung,
+#     Zustandsmodell, Kundentexte und Pruefregeln der Nachhaltigkeitspraeferenz
+#     (nur hashlib/json); Router, Gates, PDF und Tests lesen dieselbe Quelle
+#     ohne neue Kopplung.
+FAN_OUT_EXEMPT_LEAVES = frozenset(
+    {"core.evidence", "core.reason_codes", "core.db_integrity", "core.goal_vocabulary",
+     "core.presentation_rounding", "core.sustainability_preference"}
+)
 _STDLIB = frozenset(sys.stdlib_module_names) | {"__future__"}
 _DYNAMIC_IMPORT_CALLS = frozenset({"__import__", "import_module"})
 # Regel 6, Blattvertrag (Positivliste der Modulebene, siehe Docstring).
@@ -656,6 +673,24 @@ def _class_head_violations(
     return out, is_enum
 
 
+def _class_body_shadowed_names(st: ast.stmt, ctx: _LeafCtx) -> list[str]:
+    """Namen, die ``st`` im Klassenkoerper bindet und die (ueber die Modulebene
+    aufgeloest) ein reiner Dekorator oder Konstruktor waeren (N-844-5)."""
+    names: list[str] = []
+    if isinstance(st, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        names.append(st.name)
+    elif isinstance(st, (ast.Import, ast.ImportFrom)):
+        names.extend(a.asname or a.name.split(".", 1)[0] for a in st.names)
+    else:
+        names.extend(
+            sub.id
+            for sub in ast.walk(st)
+            if isinstance(sub, ast.Name) and isinstance(sub.ctx, (ast.Store, ast.Del))
+        )
+    pure = LEAF_PURE_DECORATORS | LEAF_PURE_CALL_ORIGINS
+    return sorted({n for n in names if _origin(ast.Name(id=n, ctx=ast.Load()), ctx) in pure})
+
+
 def _leaf_body_violations(
     body: list[ast.stmt], where: str, ctx: _LeafCtx, kind: str = "module"
 ) -> list[tuple[int, str]]:
@@ -665,6 +700,21 @@ def _leaf_body_violations(
         LEAF_ALLOWED_MODULE_HOOK_NAMES if kind == "module" else LEAF_ALLOWED_CLASS_HOOK_NAMES
     )
     for st in body:
+        if kind != "module":
+            # N-844-5: ``_origin`` kennt nur Bindungen der Modulebene. Ein im
+            # Klassenkoerper neu gebundener Name (Zuweisung, ``def``/``class``,
+            # Import) ueberdeckt fuer die folgenden Dekoratoren und Aufrufe
+            # desselben Koerpers den reinen Namen (``staticmethod = eprop``).
+            shadowed = _class_body_shadowed_names(st, ctx)
+            if shadowed:
+                out.append(
+                    (
+                        st.lineno,
+                        f"<Klassenbindung {where} ueberdeckt reinen Namen (N-844-5): "
+                        f"{', '.join(shadowed)}>",
+                    )
+                )
+                continue
         if isinstance(st, (ast.Import, ast.ImportFrom, ast.Pass)):
             continue
         if (

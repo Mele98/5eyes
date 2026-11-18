@@ -14,6 +14,11 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
+from core.presentation_rounding import (
+    allocation_pct_texts,
+    format_amount_minor,
+    format_bps_as_pct,
+)
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -40,6 +45,8 @@ def make_saa_bar_table(
     base_currency: str = "CHF",
     advisory_wealth_rappen: int | None = None,
     show_bands: bool = False,
+    external_reserve_rappen: int = 0,
+    basis_note: str | None = None,
 ) -> list:
     """Returns Flowables: Section-Title + Allokations-Tabelle."""
     title = "Soll-Allokation & individuelle Bandbreiten" if show_bands else "Soll-Allokation"
@@ -55,6 +62,8 @@ def make_saa_bar_table(
 
     total_bps = 0
     total_amount = 0
+    # G7: Soll-Anteile gemeinsam apportioniert (Summe exakt 100.0 %), wie die App.
+    shown = allocation_pct_texts({b: int(allocation_bps.get(b, 0) or 0) for b in _ordered_buckets(allocation_bps)})
 
     for bucket in _ordered_buckets(allocation_bps):
         bps = int(allocation_bps.get(bucket, 0) or 0)
@@ -74,7 +83,9 @@ def make_saa_bar_table(
         )
         bar_drawing = _make_bar(bps, max_bps_max=10000, color=asset_class_color(bucket))
 
-        if amt > 0:
+        # N-858-10: ein gelieferter Betrag 0 (Strategiebasis 0) ist ein Wert,
+        # kein fehlender -- Rueckfall auf advisory*bps nur ohne Betragsangabe.
+        if amt > 0 or bucket in amounts:
             amount_text = _format_amount(amt, base_currency)
         elif advisory_wealth_rappen:
             derived = int(advisory_wealth_rappen * bps / 10000)
@@ -82,26 +93,51 @@ def make_saa_bar_table(
         else:
             amount_text = "-"
 
-        row = [asset_cell, f"{bps/100:.1f}%", bar_drawing, amount_text]
+        row = [asset_cell, shown[bucket], bar_drawing, amount_text]
         if show_bands:
             if min_bps is not None and max_bps is not None:
-                band_text = f"{min_bps/100:.0f}% - {max_bps/100:.0f}%"
+                band_text = f"{format_bps_as_pct(min_bps, decimals=0)} - {format_bps_as_pct(max_bps, decimals=0)}"
             else:
                 band_text = "-"
             row.insert(3, band_text)
         rows.append(row)
 
-    if advisory_wealth_rappen and total_amount == 0:
+    if advisory_wealth_rappen and total_amount == 0 and not amounts:
         total_amount = advisory_wealth_rappen
+    reserve = max(0, int(external_reserve_rappen or 0))
+    # Live-Test 2026-11 H2: Die SAA-Gewichte beziehen sich auf die
+    # Strategiebasis (Beratungsvermoegen minus externe Reserve). Ist eine
+    # Reserve abgezogen, wird sie als eigene Zeile ausgewiesen, damit die
+    # Betraege auf das Beratungsvermoegen summieren.
+    total_label = "Total Anlagestrategie (Strategiebasis)" if reserve else "Total Beratungsvermoegen"
     total_row = [
-        Paragraph("<b>Total Beratungsvermoegen</b>", _para_style_table()),
-        f"{total_bps/100:.1f}%",
+        Paragraph(f"<b>{total_label}</b>", _para_style_table()),
+        format_bps_as_pct(total_bps),
         "",
-        _format_amount(total_amount, base_currency) if total_amount > 0 else "-",
+        _format_amount(total_amount, base_currency) if (total_amount > 0 or amounts) else "-",
     ]
     if show_bands:
         total_row.insert(3, "")
     rows.append(total_row)
+    extra_rows = 0
+    if reserve and (total_amount > 0 or amounts):
+        reserve_row = [
+            Paragraph("Liquiditätsreserve (ausserhalb der Anlagestrategie)", _para_style_table()),
+            "\u2013",
+            "",
+            _format_amount(reserve, base_currency),
+        ]
+        advisory_row = [
+            Paragraph("<b>Total Beratungsvermögen</b>", _para_style_table()),
+            "",
+            "",
+            _format_amount(total_amount + reserve, base_currency),
+        ]
+        if show_bands:
+            reserve_row.insert(3, "")
+            advisory_row.insert(3, "")
+        rows.extend([reserve_row, advisory_row])
+        extra_rows = 2
 
     page_width, _ = PAGE_SIZE
     table_width = page_width - 24 * mm
@@ -133,6 +169,8 @@ def make_saa_bar_table(
         ("TEXTCOLOR", (0, 0), (-1, 0), COLOR_TEXT_LIGHT),
         ("TEXTCOLOR", (0, 1), (-1, -1), COLOR_TEXT),
         ("LINEBELOW", (0, 0), (-1, 0), 0.8, COLOR_BORDER),
+        ("LINEABOVE", (0, -1 - extra_rows), (-1, -1 - extra_rows), 1.0, COLOR_BORDER),
+        ("FONTNAME", (0, -1 - extra_rows), (-1, -1 - extra_rows), FONT_BOLD),
         ("LINEABOVE", (0, -1), (-1, -1), 1.0, COLOR_BORDER),
         ("FONTNAME", (0, -1), (-1, -1), FONT_BOLD),
         ("ALIGN", (1, 0), (1, -1), "RIGHT"),
@@ -147,6 +185,11 @@ def make_saa_bar_table(
         style_cmds.append(("ALIGN", (3, 0), (3, -1), "RIGHT"))
     table.setStyle(TableStyle(style_cmds))
     flowables.append(table)
+    if basis_note:
+        flowables.append(Paragraph(
+            f'<font name="{FONT_DEFAULT}" size="8" color="#7a5200">{_esc(basis_note)}</font>',
+            make_paragraph_styles()["body"],
+        ))
     return flowables
 
 
@@ -198,11 +241,7 @@ def _format_amount(rappen: int, currency: str = "CHF") -> str:
     mandate.base_currency (siehe portfolio_engine._load_allocation_inputs).
     Kein zweites convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
     """
-    try:
-        value = rappen / 100.0
-        return f"{currency} {value:,.0f}".replace(",", "'")
-    except Exception:
-        return f"CHF {rappen/100.0:,.0f}".replace(",", "'")
+    return format_amount_minor(rappen, currency or "CHF")
 
 
 def _section_title(text: str):

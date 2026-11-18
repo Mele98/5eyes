@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 ROOT = Path(__file__).resolve().parents[2]
 HTML_PATH = ROOT / "ares-desktop" / "frontend" / "ares.html"
@@ -29,7 +30,7 @@ EXPECTED = {
 
 
 def _snippet() -> str:
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     labels = re.search(r"var SUB_ASSET_SOURCE_LABELS=\{[^\n]*\};", html)
     fn = re.search(r"function subAssetSourceLabel\(source\)\{[^\n]*\}", html)
     assert labels and fn
@@ -37,7 +38,7 @@ def _snippet() -> str:
 
 
 def test_renderer_uses_label_function_not_raw_source() -> None:
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     start = html.index("function buildSubAssetClassAssumptionHtml(items){")
     body = html[start:html.index("\nfunction ", start + 10)]
     assert "subAssetSourceLabel(item.source)" in body

@@ -977,11 +977,17 @@ def test_erkenntnisse_risikoprofil_rot_without_assessment(session_factory):
 
 
 def test_erkenntnisse_risikoprofil_gruen_with_recent_assessment(session_factory):
+    # "Aktuell" misst der Produktcode als Alter gegen ``date.today()``
+    # (Grenze 365 Tage). Mit dem festen ``_NOW`` (2026-05-24) kippte der Test
+    # ab 2027-05-25 auf "gelb" -- das Profil muss relativ zu heute frisch sein.
+    from datetime import date, timedelta
+
+    recent = (date.today() - timedelta(days=30)).isoformat() + "T15:00:00.000Z"
     with session_factory() as s:
         mandate, _c, advisor = _seed_minimal_mandate(s)
         s.add(RiskAssessment(
             id=str(uuid.uuid4()), mandate_id=mandate.id,
-            version=1, is_current=1, valid_from=_NOW,
+            version=1, is_current=1, valid_from=recent,
             q_income_points=3, q_obligations_points=3,
             q_savings_points=3, q_wealth_points=3,
             risk_capacity_total=12,
@@ -997,8 +1003,8 @@ def test_erkenntnisse_risikoprofil_gruen_with_recent_assessment(session_factory)
             risk_willingness_score_x10=60,
             final_score_x10=70,
             final_profile="Ausgewogen",
-            assessed_at=_NOW, assessed_by=advisor.id,
-            created_at=_NOW, updated_at=_NOW,
+            assessed_at=recent, assessed_by=advisor.id,
+            created_at=recent, updated_at=recent,
         ))
         s.commit()
         report = compute_advisory_report(s, mandate, advisor=advisor)
@@ -1710,6 +1716,9 @@ def test_endpoint_returns_full_report_structure(session_factory):
         "ab_backtest",
         # U-FINMA-3: additive Sektion 27 (re-architektiert 2026-06-09 von Sektion 17)
         "suitability_summary",
+        # C-890-01 Nachtrag 4 (N-897-12): Entwurfshinweis ohne KYC-Bestaetigung
+        # (nur der React-Bericht/Kundenportal, additiv am Ende).
+        "kyc_draft_notice",
     ]
     assert list(data.keys()) == expected
     assert data["schema_version"] == 2

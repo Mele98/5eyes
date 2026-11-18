@@ -22,6 +22,12 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+# Name, unter dem diese Revision die Immutability-Funktion von audit_log
+# anlegt. Die Folgerevision f6a2c8e4b1d7 benennt sie per ALTER FUNCTION ...
+# RENAME um und liest diese Konstante fuer ihren Downgrade.
+AUDIT_LOG_IMMUTABLE_FUNCTION = "fn_5eyes_audit_log_immutable"
+
+
 AUDIT_ACTIONS: tuple[str, ...] = (
     "CREATE",
     "UPDATE",
@@ -116,8 +122,8 @@ def upgrade() -> None:
             f"action IN ({allowed_actions})",
         )
         op.execute(
-            """
-            CREATE FUNCTION fn_5eyes_audit_log_immutable()
+            f"""
+            CREATE FUNCTION {AUDIT_LOG_IMMUTABLE_FUNCTION}()
             RETURNS trigger AS $$
             BEGIN
                 RAISE EXCEPTION 'audit_log is immutable';
@@ -127,17 +133,17 @@ def upgrade() -> None:
             """
         )
         op.execute(
-            """
+            f"""
             CREATE TRIGGER trg_audit_log_no_update
             BEFORE UPDATE ON audit_log
-            FOR EACH ROW EXECUTE FUNCTION fn_5eyes_audit_log_immutable()
+            FOR EACH ROW EXECUTE FUNCTION {AUDIT_LOG_IMMUTABLE_FUNCTION}()
             """
         )
         op.execute(
-            """
+            f"""
             CREATE TRIGGER trg_audit_log_no_delete
             BEFORE DELETE ON audit_log
-            FOR EACH ROW EXECUTE FUNCTION fn_5eyes_audit_log_immutable()
+            FOR EACH ROW EXECUTE FUNCTION {AUDIT_LOG_IMMUTABLE_FUNCTION}()
             """
         )
 
@@ -219,7 +225,7 @@ def downgrade() -> None:
     if _is_postgres():
         op.execute("DROP TRIGGER trg_audit_log_no_delete ON audit_log")
         op.execute("DROP TRIGGER trg_audit_log_no_update ON audit_log")
-        op.execute("DROP FUNCTION fn_5eyes_audit_log_immutable()")
+        op.execute(f"DROP FUNCTION {AUDIT_LOG_IMMUTABLE_FUNCTION}()")
         op.drop_constraint(
             "ck_audit_log_action_allowed",
             "audit_log",

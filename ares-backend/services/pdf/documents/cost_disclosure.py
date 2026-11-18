@@ -23,6 +23,7 @@ from services.pdf.components.single_report_disclaimer import make_single_report_
 from services.pdf.components.advisory_palette import make_advisory_styles
 from services.pdf.provisional_notice import make_provisional_notice_flowables
 from services.pdf.styles import PAGE_SIZE
+from core.presentation_rounding import format_amount_minor
 
 if TYPE_CHECKING:  # nur Typannotationen; zur Laufzeit nicht benoetigt
     from services.pdf.base import CostDisclosurePDFData, PDFContext
@@ -77,5 +78,4 @@ def _format_amount(rappen: int, currency: str) -> str:
     # convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
     if not rappen:
         return ""
-    value = rappen / 100.0
-    return f"{currency} {value:,.0f}".replace(",", "'")
+    return format_amount_minor(rappen, currency or "CHF")
