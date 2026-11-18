@@ -415,6 +415,7 @@ def test_publish_vs_invalidation_publish_wins_then_invalidation_follows(pg_p4, m
 
     gate = _patched_gate(monkeypatch, "m-t", "e-t", "5" * 64, after_lock=after_lock)
     order = []
+    seen = {}
 
     def publish():
         with _session(pg_p4, "t-a") as db:
@@ -425,7 +426,9 @@ def test_publish_vs_invalidation_publish_wins_then_invalidation_follows(pg_p4, m
     def invalidate():
         with _session(pg_p4, "t-a") as db:
             db.execute(text("SELECT id FROM mandates WHERE id = 'm-t' FOR UPDATE"))
-            order.append("invalidation-locked")
+            # Beim Erhalt der Sperre ist die Publikation bereits committet.
+            seen["published_rows_at_lock"] = db.execute(text(
+                f"SELECT count(*) FROM {DECISIONS} WHERE mandate_id = 'm-t' AND publishable = 1")).scalar()
             _mark_stale(db.connection(), "e-t")
             db.commit()
 
@@ -439,7 +442,8 @@ def test_publish_vs_invalidation_publish_wins_then_invalidation_follows(pg_p4, m
     release.set()
     publisher.join(timeout=60)
     invalidator.join(timeout=60)
-    assert order == ["published", "invalidation-locked"]
+    assert order == ["published"]
+    assert seen["published_rows_at_lock"] == 1
     with _session(pg_p4, "t-a") as db:
         assert db.execute(text(f"SELECT count(*) FROM {POINTER} WHERE mandate_id = 'm-t'")).scalar() == 1
         assert db.execute(text(
