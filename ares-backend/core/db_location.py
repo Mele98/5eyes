@@ -338,37 +338,70 @@ def fs_identity_owner(candidate) -> str | None:
     Ziels -- folgt Symlinks/Junctions, deckt Hardlinks und 8.3-Namen ab.
     ``'owner'`` bei Treffer, ``'error'`` wenn die Pruefung scheitert
     (fail-closed), sonst ``None``. Fehlende Dateien sind kein Fehler."""
+    return fs_identity_check(candidate)[0]
+
+
+def _display_path(path) -> str:
+    """Pfadangabe fuer Meldungen: unter dem Home-Verzeichnis als ``~/...``."""
+    text = str(path)
+    try:
+        home = str(Path.home())
+    except (OSError, RuntimeError):
+        return text
+    if home and text.lower().startswith(home.lower()):
+        return '~' + text[len(home):]
+    return text
+
+
+def fs_identity_check(candidate) -> tuple[str | None, tuple[Path, ...]]:
+    """Wie ``fs_identity_owner``, plus die Owner-Ziele, deren Identitaet nicht
+    lesbar war (fuer eine verstaendliche Meldung).
+
+    H12 N-907-23: Ein unlesbares Owner-Ziel (z. B. ``PermissionError`` auf
+    ``~/5eyes/5eyes.db``) sperrt nicht mehr JEDE Datenbank, sondern nur
+    Kandidaten, die dieses Ziel sein KOENNTEN -- weiterhin fail-closed:
+
+    * fehlt der Kandidat, kann er keine bestehende Datei sein (der Textabgleich
+      nach ``realpath`` in ``is_owner_db_path`` deckt Symlinks/Junctions/8.3);
+    * existiert er mit genau einem Namen (``st_nlink == 1``, ``st_ino != 0``),
+      ist er kein Hardlink -- dieselbe Datei waere nur unter dem Owner-Namen
+      erreichbar, den der Textabgleich erkennt;
+    * sonst (Hardlink moeglich, Identitaet unbekannt) -> ``'error'``."""
     if candidate is None or not str(os.fspath(candidate)).strip():
-        return None
+        return None, ()
     raw = str(os.fspath(candidate)).strip()
     if raw == ':memory:' or raw.lower().startswith('file::memory:'):
-        return None
+        return None, ()
     probes ={_file_uri_path(raw) if raw.lower().startswith('file:') else raw}
     try:
         probes.add(str(normalize_db_target(candidate)))
     except (OSError, ValueError):
-        return 'error'
+        return 'error', ()
     owners = set()
+    unverifiable: list[Path] = []
     for target in _owner_targets():
         try:
             st = os.stat(target)
         except _MISSING:
             continue
         except (OSError, ValueError):
-            return 'error'
+            unverifiable.append(target)
+            continue
         owners.add((st.st_dev, st.st_ino))
-    if not owners:
-        return None
+    if not owners and not unverifiable:
+        return None, ()
     for probe in probes:
         try:
             st = os.stat(probe)
         except _MISSING:
             continue
         except (OSError, ValueError):
-            return 'error'
+            return 'error', ()
         if st.st_ino != 0 and (st.st_dev, st.st_ino) in owners:
-            return 'owner'
-    return None
+            return 'owner', ()
+        if unverifiable and (st.st_ino == 0 or getattr(st, 'st_nlink', 0) != 1):
+            return 'error', tuple(unverifiable)
+    return None, ()
 
 
 def owner_db_refusal(candidate: str | os.PathLike[str] | None, environ) -> str | None:
@@ -380,10 +413,15 @@ def owner_db_refusal(candidate: str | os.PathLike[str] | None, environ) -> str |
     if form:
         return (f'Geraete-Pfad {candidate} ist fuer Ares nie zulaessig (Geraete-Namensraum, '
                 'nicht pruefbar) -- verweigert (fail-closed, auch mit Freigabe).')
-    identity = fs_identity_owner(candidate)
+    identity, unverifiable = fs_identity_check(candidate)
     if identity == 'error':
-        return (f'Identitaetspruefung fuer {candidate} gegen die Owner-Datenbank nicht moeglich '
-                '-- verweigert (fail-closed).')
+        detail = ''
+        if unverifiable:
+            # H12 N-907-23: das betroffene Owner-Ziel benennen (Home als ~).
+            detail = (' (Owner-Ziel nicht lesbar: ' + ', '.join(_display_path(p) for p in unverifiable)
+                      + '; Zugriffsrechte pruefen oder DB_PATH auf einen anderen Datentraeger/Ordner setzen)')
+        return (f'Identitaetspruefung fuer {candidate} gegen die Owner-Datenbank nicht moeglich'
+                f'{detail} -- verweigert (fail-closed).')
     if identity is None and not is_owner_db_path(candidate):
         return None
     mode = test_or_ci_mode(environ)

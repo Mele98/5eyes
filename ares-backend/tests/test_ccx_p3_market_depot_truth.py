@@ -889,6 +889,19 @@ def _lenient_fx_hits(rel: str, source: str) -> list[tuple]:
             return expr.id in source_names
         return isinstance(expr, ast.Attribute) and expr.attr == "FXRateSource"
 
+    # H12 N-909-23: Zuweisungs-Aliase (``Src = FXRateSource``, auch Ketten
+    # ``A = FXRateSource; B = A`` und Annotationen) bis zum Fixpunkt.
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None and is_source(node.value):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                for target in targets:
+                    if isinstance(target, ast.Name) and target.id not in source_names:
+                        source_names.add(target.id)
+                        changed = True
+
     hits = []
     for node in ast.walk(tree):
         name = node.attr if isinstance(node, ast.Attribute) else node.id if isinstance(node, ast.Name) else None
@@ -945,6 +958,10 @@ def test_lenient_fx_paths_are_confined_to_non_customer_modules():
     ("getattr", "getattr(FXRateSource, 'from_db')(db)\n"),
     ("model", "strict._model.cross_rate('USD', 'CHF')\n"),
     ("rates", "strict.rates_in_chf['USD']\n"),
+    # H12 N-909-23: Zuweisungs-Aliase.
+    ("assign_alias", "from services.currency.fx_rates import FXRateSource\nSrc = FXRateSource\nSrc()\n"),
+    ("assign_chain", "from services.currency import fx_rates\nA = fx_rates.FXRateSource\nB = A\nB.from_db(db)\n"),
+    ("assign_annotated", "from services.currency.fx_rates import FXRateSource\nS: type = FXRateSource\nS()\n"),
 ])
 def test_lenient_fx_guard_detects_evasions(label, code):
     """N-909-15 Gegenprobe: derselbe Scanner wie der Waechter erkennt die Umgehungen."""

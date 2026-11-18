@@ -253,6 +253,41 @@ def test_identity_check_error_is_fail_closed(owner, tmp_path, monkeypatch):
     assert reason and "Identitaetspruefung" in reason
 
 
+def _owner_unreadable(monkeypatch, owner):
+    real_stat = os.stat
+
+    def broken(path, *a, **kw):
+        if os.path.normcase(os.fspath(path)) == os.path.normcase(str(owner)):
+            raise PermissionError("simuliert")
+        return real_stat(path, *a, **kw)
+
+    monkeypatch.setattr(loc.os, "stat", broken)
+
+
+def test_unreadable_owner_target_blocks_only_possibly_affected_candidates(owner, tmp_path, monkeypatch):
+    """H12 N-907-23: ein unlesbares Owner-Ziel sperrt nicht mehr jede DB. Eine
+    isolierte Datei mit genau einem Namen und eine noch fehlende Datei bleiben
+    offen; ein Hardlink-Kandidat (Identitaet unbekannt) bleibt gesperrt, mit
+    dem betroffenen Owner-Ziel in der Meldung (Home als ``~``)."""
+    single = tmp_path / "isoliert.db"
+    sqlite3.connect(single).close()
+    missing = tmp_path / "neu" / "neu.db"
+    linked_src = tmp_path / "quelle.db"
+    sqlite3.connect(linked_src).close()
+    linked = tmp_path / "hardlink.db"
+    os.link(linked_src, linked)
+    _owner_unreadable(monkeypatch, owner)
+    assert loc.fs_identity_owner(single) is None
+    assert loc.fs_identity_owner(missing) is None
+    assert loc.owner_db_refusal(str(single), {}) is None
+    assert loc.fs_identity_owner(linked) == "error"
+    reason = loc.owner_db_refusal(str(linked), {})
+    assert reason and "Owner-Ziel nicht lesbar" in reason and "verweigert (fail-closed)" in reason
+    assert "~" in reason and str(owner.parent.parent) not in reason
+    # Der Owner-Pfad selbst bleibt per Textabgleich gesperrt.
+    assert loc.owner_db_refusal(str(owner), {})
+
+
 # --- N-907-18: Restore-Ziel ------------------------------------------------------
 
 def _backup_source(tmp_path: Path) -> Path:
@@ -366,6 +401,11 @@ def test_explicit_factory_is_kept(tmp_path):
 
     conn = config.guarded_sqlite_connect(str(tmp_path / "f.db"), context="probe", factory=Own)
     try:
-        assert type(conn) is Own
+        # H12 N-907-21 (bewusste Vertragsaenderung): die eigene Klasse bleibt
+        # wirksam (Unterklasse), wird aber abgeleitet, damit die Authorizer-
+        # Sperre auch hier greift -- vorher blieb sie unveraendert ungeschuetzt.
+        assert isinstance(conn, Own) and type(conn) is not Own
+        with pytest.raises(config.AuthorizerLocked):
+            conn.set_authorizer(None)
     finally:
         conn.close()

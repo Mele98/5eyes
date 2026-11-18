@@ -12,6 +12,7 @@ import re
 import secrets
 import sys
 import tempfile
+import weakref
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -52,12 +53,19 @@ def guarded_sqlite_connect(target, *, context: str, connector=None, **kwargs):
         factory = _guarded_factory_for(sys.modules.get(getattr(connector, "__module__", "") or ""))
         if factory is not None:
             kwargs["factory"] = factory
+    else:
+        # H12 N-907-21: eine uebergebene ``factory`` wird abgeleitet (Sperre
+        # bleibt), statt unveraendert eine ungeschuetzte Klasse zu oeffnen.
+        kwargs["factory"] = _guarded_subclass(kwargs["factory"])
     conn = connector(target, **kwargs)
     install_attach_authorizer(conn)
     return conn
 
 
 _GUARDED_FACTORIES: dict = {}
+# H12 N-907-21: Sperrzustand modulintern statt als frei schreibbares Attribut
+# (``conn._ares_authorizer_locked = False`` hebt die Sperre nicht mehr auf).
+_LOCKED_CONNECTIONS: "weakref.WeakSet" = weakref.WeakSet()
 
 
 class AuthorizerLocked(RuntimeError):
@@ -71,10 +79,19 @@ def _guarded_factory_for(dbapi_module):
     base = getattr(dbapi_module, "Connection", None) if dbapi_module is not None else None
     if not isinstance(base, type):
         return None
+    return _guarded_subclass(base)
+
+
+def _guarded_subclass(base):
+    """Geschuetzte Unterklasse von ``base`` (eine Verbindungsklasse); bereits
+    geschuetzte Klassen bleiben unveraendert. Nicht ableitbar -> ``base``
+    unveraendert (dort bleibt nur der AST-Waechter)."""
+    if not isinstance(base, type) or getattr(base, "_ares_guarded_class", False):
+        return base
     cls = _GUARDED_FACTORIES.get(base)
     if cls is None:
         def set_authorizer(self, *args, **kwargs):
-            if getattr(self, "_ares_authorizer_locked", False):
+            if self in _LOCKED_CONNECTIONS:
                 raise AuthorizerLocked(
                     "set_authorizer ist auf dieser Verbindung gesperrt: der ATTACH-Authorizer "
                     "des Owner-DB-Waechters darf nicht ersetzt werden (H11 N-907-19)."
@@ -82,9 +99,10 @@ def _guarded_factory_for(dbapi_module):
             return base.set_authorizer(self, *args, **kwargs)
 
         try:
-            cls = type("AresGuardedConnection", (base,), {"set_authorizer": set_authorizer})
+            cls = type("AresGuardedConnection", (base,), {"set_authorizer": set_authorizer,
+                                                          "_ares_guarded_class": True})
         except TypeError:  # Basisklasse nicht ableitbar -> kein Laufzeitschutz moeglich
-            return None
+            return base
         _GUARDED_FACTORIES[base] = cls
     return cls
 
@@ -102,11 +120,12 @@ def install_attach_authorizer(dbapi_connection) -> None:
     setter = getattr(dbapi_connection, "set_authorizer", None)
     if callable(setter):
         setter(_attach_authorizer)
-        # N-907-19: danach gesperrt (nur auf AresGuardedConnection; die reine
-        # C-Klasse hat kein __dict__ -- dort bleibt der AST-Waechter).
+        # N-907-19 / H12 N-907-21: danach gesperrt (nur AresGuardedConnection;
+        # die reine C-Klasse ist nicht schwach referenzierbar -- dort bleibt
+        # der AST-Waechter). Der Zustand liegt modulintern, nicht am Objekt.
         try:
-            dbapi_connection._ares_authorizer_locked = True
-        except AttributeError:
+            _LOCKED_CONNECTIONS.add(dbapi_connection)
+        except TypeError:
             pass
 
 
@@ -123,6 +142,8 @@ def _install_owner_db_guard() -> None:
                 factory = _guarded_factory_for(dbapi)
                 if factory is not None:
                     cparams["factory"] = factory
+            else:  # H12 N-907-21: fremde factory ableiten statt ungeschuetzt durchreichen
+                cparams["factory"] = _guarded_subclass(cparams["factory"])
 
     def _authorize(dbapi_connection, connection_record):  # noqa: ARG001
         # N-907-12: ATTACH legt eine Datei ohne do_connect an -- Authorizer je Verbindung.
