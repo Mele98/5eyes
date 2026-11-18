@@ -50,6 +50,19 @@ def _set_usd(api, source: str, rate: float = 0.88) -> None:
     assert resp.status_code == 200, resp.text[:300]
 
 
+def _blocked(resp, code="CCX_FX_BASIS_MISSING"):
+    """Typisierte Sperre: 200, aber ohne jeden Betrag und mit Grund."""
+    assert resp.status_code == 200, resp.text[:300]
+    data = resp.json()
+    assert data["amount_block_reason_code"] == code, data
+    for key in ("gross_wealth_rappen", "liabilities_rappen", "net_worth_rappen", "advisory_wealth_rappen",
+                "gross_wealth_chf", "liabilities_chf", "net_worth_chf", "advisory_wealth_chf",
+                "amount_currency"):
+        assert data[key] is None, (key, data)
+    assert "USD" in data["amount_block_currencies"]
+    return data
+
+
 def _code(resp):
     body = resp.json()
     detail = body.get("detail") if isinstance(body, dict) else None
@@ -97,13 +110,11 @@ def test_substitute_or_missing_rate_blocks_typed(api, advisor_user):
     _post(api, client_id, USD_DEPOT)
 
     missing = api.get(f"/clients/{client_id}/wealth-summary")
-    assert missing.status_code == 409, missing.text[:300]
-    assert _code(missing) == "CCX_FX_BASIS_MISSING"
+    _blocked(missing)
 
     _set_usd(api, "Default")  # Ersatzkurs wird nie kundenwirksam
     substitute = api.get(f"/clients/{client_id}/wealth-summary")
-    assert substitute.status_code == 409, substitute.text[:300]
-    assert _code(substitute) == "CCX_FX_BASIS_MISSING"
+    _blocked(substitute)
     assert b"500000" not in substitute.content
 
     dashboard = api.get("/dashboard/summary")
@@ -174,6 +185,6 @@ def test_e2e05_wealth_mask_sum_endpoints_inventory(api, advisor_user):
     # bleibt bei einer reinen CHF-Cashflow-Lage lieferbar.)
     _set_usd(api, "Default")
     resp = api.get(f"/clients/{client_id}/wealth-summary")
-    assert resp.status_code == 409 and _code(resp) == "CCX_FX_BASIS_MISSING", resp.text[:300]
+    _blocked(resp)
     row = next(c for c in api.get("/dashboard/summary").json()["clients"] if c["client_id"] == client_id)
     assert row["amount_block_reason_code"] == "CCX_FX_BASIS_MISSING"

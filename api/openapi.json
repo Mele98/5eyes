@@ -31353,12 +31353,56 @@
       "WealthSummaryResponse": {
         "properties": {
           "advisory_wealth_chf": {
-            "title": "Advisory Wealth Chf",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Advisory Wealth Chf"
           },
           "advisory_wealth_rappen": {
-            "title": "Advisory Wealth Rappen",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Advisory Wealth Rappen"
+          },
+          "amount_block_currencies": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Amount Block Currencies",
+            "type": "array"
+          },
+          "amount_block_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Block Message"
+          },
+          "amount_block_reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Block Reason Code"
           },
           "amount_currency": {
             "anyOf": [
@@ -31402,20 +31446,48 @@
             "title": "Fx Basis Hash"
           },
           "gross_wealth_chf": {
-            "title": "Gross Wealth Chf",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gross Wealth Chf"
           },
           "gross_wealth_rappen": {
-            "title": "Gross Wealth Rappen",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gross Wealth Rappen"
           },
           "liabilities_chf": {
-            "title": "Liabilities Chf",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Liabilities Chf"
           },
           "liabilities_rappen": {
-            "title": "Liabilities Rappen",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Liabilities Rappen"
           },
           "mandate_id": {
             "anyOf": [
@@ -31429,12 +31501,26 @@
             "title": "Mandate Id"
           },
           "net_worth_chf": {
-            "title": "Net Worth Chf",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Worth Chf"
           },
           "net_worth_rappen": {
-            "title": "Net Worth Rappen",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Worth Rappen"
           },
           "valuation_as_of": {
             "anyOf": [
@@ -31451,15 +31537,7 @@
         "required": [
           "client_id",
           "client_name",
-          "client_classification",
-          "gross_wealth_rappen",
-          "liabilities_rappen",
-          "net_worth_rappen",
-          "advisory_wealth_rappen",
-          "gross_wealth_chf",
-          "liabilities_chf",
-          "net_worth_chf",
-          "advisory_wealth_chf"
+          "client_classification"
         ],
         "title": "WealthSummaryResponse",
         "type": "object"
@@ -36614,7 +36692,7 @@
     },
     "/clients/{client_id}/wealth-summary": {
       "get": {
-        "description": "Vermoegenssummen des Kunden (K1 / CK-01).\n\nNie eine Nominalsumme ueber Waehrungen: jede aktive Position wird mit EINER\ngebundenen, strikten FX-Basis (P3) in die Zielwaehrung konvertiert, erst\ndanach summiert. Zielwaehrung: ``mandate_id`` -> Mandatswaehrung, sonst\n``target_currency``, sonst die einheitliche Positionswaehrung (ohne\nUmrechnung), sonst die eindeutige Mandatswaehrung des Kunden. Fehlender,\nabgelaufener oder ersetzter Kurs -> 409 ``CCX_FX_BASIS_*``. Die Felder\n``*_chf`` tragen den Betrag in ``amount_currency`` (historischer Name).",
+        "description": "Vermoegenssummen des Kunden (K1 / CK-01).\n\nNie eine Nominalsumme ueber Waehrungen: jede aktive Position wird mit EINER\ngebundenen, strikten FX-Basis (P3) in die Zielwaehrung konvertiert, erst\ndanach summiert. Zielwaehrung: ``mandate_id`` -> Mandatswaehrung, sonst\n``target_currency``, sonst die einheitliche Positionswaehrung (ohne\nUmrechnung), sonst die eindeutige Mandatswaehrung des Kunden. Fehlender,\nabgelaufener oder ersetzter Kurs (bzw. keine eindeutige Zielwaehrung) ->\ndie Maske bleibt lesbar (200), aber ohne jeden Betrag: alle Summen ``None``,\n``amount_currency`` ``None`` und ``amount_block_reason_code``\n(``CCX_FX_BASIS_*``) samt blockierten Waehrungen -- nie eine Rohsumme.\nDie Felder ``*_chf`` tragen den Betrag in ``amount_currency`` (historischer\nName).",
         "operationId": "wealth_summary_clients__client_id__wealth_summary_get",
         "parameters": [
           {

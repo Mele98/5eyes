@@ -1954,8 +1954,12 @@ export interface paths {
          *     danach summiert. Zielwaehrung: ``mandate_id`` -> Mandatswaehrung, sonst
          *     ``target_currency``, sonst die einheitliche Positionswaehrung (ohne
          *     Umrechnung), sonst die eindeutige Mandatswaehrung des Kunden. Fehlender,
-         *     abgelaufener oder ersetzter Kurs -> 409 ``CCX_FX_BASIS_*``. Die Felder
-         *     ``*_chf`` tragen den Betrag in ``amount_currency`` (historischer Name).
+         *     abgelaufener oder ersetzter Kurs (bzw. keine eindeutige Zielwaehrung) ->
+         *     die Maske bleibt lesbar (200), aber ohne jeden Betrag: alle Summen ``None``,
+         *     ``amount_currency`` ``None`` und ``amount_block_reason_code``
+         *     (``CCX_FX_BASIS_*``) samt blockierten Waehrungen -- nie eine Rohsumme.
+         *     Die Felder ``*_chf`` tragen den Betrag in ``amount_currency`` (historischer
+         *     Name).
          */
         get: operations["wealth_summary_clients__client_id__wealth_summary_get"];
         put?: never;
@@ -16018,9 +16022,18 @@ export interface components {
         /** WealthSummaryResponse */
         WealthSummaryResponse: {
             /** Advisory Wealth Chf */
-            advisory_wealth_chf: number;
+            advisory_wealth_chf?: number | null;
             /** Advisory Wealth Rappen */
-            advisory_wealth_rappen: number;
+            advisory_wealth_rappen?: number | null;
+            /**
+             * Amount Block Currencies
+             * @default []
+             */
+            amount_block_currencies?: string[];
+            /** Amount Block Message */
+            amount_block_message?: string | null;
+            /** Amount Block Reason Code */
+            amount_block_reason_code?: string | null;
             /** Amount Currency */
             amount_currency?: string | null;
             /** Client Classification */
@@ -16032,19 +16045,19 @@ export interface components {
             /** Fx Basis Hash */
             fx_basis_hash?: string | null;
             /** Gross Wealth Chf */
-            gross_wealth_chf: number;
+            gross_wealth_chf?: number | null;
             /** Gross Wealth Rappen */
-            gross_wealth_rappen: number;
+            gross_wealth_rappen?: number | null;
             /** Liabilities Chf */
-            liabilities_chf: number;
+            liabilities_chf?: number | null;
             /** Liabilities Rappen */
-            liabilities_rappen: number;
+            liabilities_rappen?: number | null;
             /** Mandate Id */
             mandate_id?: string | null;
             /** Net Worth Chf */
-            net_worth_chf: number;
+            net_worth_chf?: number | null;
             /** Net Worth Rappen */
-            net_worth_rappen: number;
+            net_worth_rappen?: number | null;
             /** Valuation As Of */
             valuation_as_of?: string | null;
         };

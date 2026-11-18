@@ -731,16 +731,17 @@ class WealthSummaryResponse(BaseModel):
     client_id: str
     client_name: str
     client_classification: Optional[str]
-    gross_wealth_rappen: int
-    liabilities_rappen: int
-    net_worth_rappen: int
-    advisory_wealth_rappen: int
+    # K1 / CK-01: None, wenn die Summe FX-gesperrt ist (amount_block_reason_code).
+    gross_wealth_rappen: Optional[int] = None
+    liabilities_rappen: Optional[int] = None
+    net_worth_rappen: Optional[int] = None
+    advisory_wealth_rappen: Optional[int] = None
     # Anzeigewerte (Hauptwaehrungseinheiten) in ``amount_currency``; der Name
     # ``*_chf`` ist historisch. K1 / CK-01: nie Fremdwaehrung nominal addiert.
-    gross_wealth_chf: float
-    liabilities_chf: float
-    net_worth_chf: float
-    advisory_wealth_chf: float
+    gross_wealth_chf: Optional[float] = None
+    liabilities_chf: Optional[float] = None
+    net_worth_chf: Optional[float] = None
+    advisory_wealth_chf: Optional[float] = None
     # K1 / CK-01: Die Summen sind zeilenweise ueber EINE strikte FX-Basis (P3) in
     # ``amount_currency`` konvertiert (einheitliche Positionswaehrung ohne
     # Umrechnung; gemischt -> Mandats-/Kunden-Basiswaehrung). Ohne Positionen None.
@@ -748,6 +749,10 @@ class WealthSummaryResponse(BaseModel):
     fx_basis_hash: Optional[str] = None
     valuation_as_of: Optional[str] = None
     mandate_id: Optional[str] = None
+    # Typisierte Sperre statt Rohsumme (CCX_FX_BASIS_MISSING|STALE|MISMATCH).
+    amount_block_reason_code: Optional[str] = None
+    amount_block_message: Optional[str] = None
+    amount_block_currencies: list[str] = []
 
 
 class CashflowSummaryResponse(BaseModel):

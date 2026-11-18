@@ -1287,11 +1287,27 @@ def wealth_summary(
     danach summiert. Zielwaehrung: ``mandate_id`` -> Mandatswaehrung, sonst
     ``target_currency``, sonst die einheitliche Positionswaehrung (ohne
     Umrechnung), sonst die eindeutige Mandatswaehrung des Kunden. Fehlender,
-    abgelaufener oder ersetzter Kurs -> 409 ``CCX_FX_BASIS_*``. Die Felder
-    ``*_chf`` tragen den Betrag in ``amount_currency`` (historischer Name)."""
+    abgelaufener oder ersetzter Kurs (bzw. keine eindeutige Zielwaehrung) ->
+    die Maske bleibt lesbar (200), aber ohne jeden Betrag: alle Summen ``None``,
+    ``amount_currency`` ``None`` und ``amount_block_reason_code``
+    (``CCX_FX_BASIS_*``) samt blockierten Waehrungen -- nie eine Rohsumme.
+    Die Felder ``*_chf`` tragen den Betrag in ``amount_currency`` (historischer
+    Name)."""
     client = _get_client_or_404(client_id, db, current_user)
-    totals = _client_wealth_totals(db, client_id, mandate_id, target_currency, current_user)
     client_name = f"{client.first_name or ''} {client.last_name or ''}".strip()
+    try:
+        totals = _client_wealth_totals(db, client_id, mandate_id, target_currency, current_user)
+    except DomainError as exc:
+        detail = exc.as_detail()
+        return WealthSummaryResponse(
+            client_id=client_id,
+            client_name=client_name,
+            client_classification=client.client_classification,
+            mandate_id=mandate_id,
+            amount_block_reason_code=detail["reason_code"],
+            amount_block_message=detail["message"],
+            amount_block_currencies=list(detail.get("currencies") or []),
+        )
     return WealthSummaryResponse(
         client_id=client_id,
         client_name=client_name,
