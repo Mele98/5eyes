@@ -1577,8 +1577,10 @@ ALLOCATION_PUBLICATION_SQLITE_TENANT_GUARDS: tuple[str, ...] = (
     "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
     # N-910-06: Soll-Allokation desselben Mandats; Freigeber und Ersteller aus
     # demselben Mandanten (users ohne tenant_id gehoeren zu 'main', wie
-    # services.auth). N-910-02: Einzelfreigabe nur fuer einen ausdruecklich als
-    # Ein-Personen-Firma konfigurierten Mandanten.
+    # services.auth). N-910-02 (Einzelfreigabe nur fuer eine konfigurierte
+    # Ein-Personen-Firma) prueft auf SQLite die CHECK-Regel + das Gate; der
+    # PG-Guard prueft zusaetzlich tenants.single_person_firm (ein SQLite-Trigger
+    # darf keine Tabelle referenzieren, die in Altschemata fehlen kann).
     "CREATE TRIGGER IF NOT EXISTS trg_allocation_publication_decisions_binding_guard "
     "BEFORE INSERT ON allocation_publication_decisions FOR EACH ROW "
     "WHEN (NEW.target_allocation_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM target_allocations t "
@@ -1586,8 +1588,6 @@ ALLOCATION_PUBLICATION_SQLITE_TENANT_GUARDS: tuple[str, ...] = (
     "OR NEW.tenant_id IS NOT (SELECT COALESCE(NULLIF(u.tenant_id, ''), 'main') FROM users u WHERE u.id = NEW.created_by) "
     "OR (NEW.approved_by IS NOT NULL AND NEW.tenant_id IS NOT (SELECT COALESCE(NULLIF(u.tenant_id, ''), 'main') "
     "FROM users u WHERE u.id = NEW.approved_by)) "
-    "OR (NEW.approval_mode = 'single_approver_attested' AND NOT EXISTS (SELECT 1 FROM tenants tn "
-    "WHERE tn.id = NEW.tenant_id AND tn.single_person_firm = 1)) "
     "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
 )
 

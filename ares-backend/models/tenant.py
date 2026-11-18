@@ -155,7 +155,7 @@ class Tenant(Base):
     # konfiguriert (Admin-Einstellung, auditiert). Nur dann -- und nur wenn zum
     # Zeitpunkt genau ein aktiver Benutzer mit Publish-Recht existiert -- ist
     # eine Einzelfreigabe der Allokations-Publikation zulaessig.
-    single_person_firm = Column(Integer, nullable=False, default=0)
+    single_person_firm = Column(Integer, nullable=False, default=0, server_default=text("0"))
 
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)

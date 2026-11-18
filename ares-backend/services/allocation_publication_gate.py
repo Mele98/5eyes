@@ -74,6 +74,7 @@ from services.advisory_decision_envelope import (
     mandate_tenant,
     persist_freshness_drift,
     pull_freshness,
+    reapply_tenant_context,
     rollback_keeping_tenant,
     verify_envelope,
 )
@@ -638,6 +639,10 @@ def publish_allocation(
                           message="Die Publikation verletzt eine Datenbankregel.", **common) from exc
         raise _reject(db, code=ReasonCode.CCX_PUBLICATION_RACE, blockers=(ReasonCode.CCX_PUBLICATION_RACE.value,),
                       message="Die Soll-Allokation wurde parallel publiziert. Bitte neu laden.", **common) from exc
+    # PostgreSQL: nach dem Commit kehrt die Verbindung in den Pool zurueck und
+    # verliert den Mandantenkontext (attach_tenant_context_reset); ohne ihn
+    # saehe das Nachladen unter FORCE RLS die eigene Zeile nicht.
+    reapply_tenant_context(db)
     db.refresh(decision)
     return decision
 

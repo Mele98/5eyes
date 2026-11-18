@@ -1012,7 +1012,14 @@ def rollback_keeping_tenant(db: Session) -> None:
     restore_tenant_after_rollback(db, set_tenant_context)
 
 
+def reapply_tenant_context(db: Session) -> None:
+    """Den Mandantenkontext der Session erneut setzen (z. B. nach einem
+    Commit, wenn die PostgreSQL-Verbindung zurueckgesetzt wurde)."""
+    set_tenant_context(db, db.info.get("tenant_id"))
+
+
 __all__ = [
+    "reapply_tenant_context",
     "rollback_keeping_tenant",
     "AUDIT_INVALIDATED",
     "AUDIT_RACE_REJECTED",

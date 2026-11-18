@@ -228,6 +228,9 @@ def test_contract_signoff_endpoint_maps_missing_run_to_409(session_factory, monk
         # Rendern selbst ist nicht Gegenstand: vorher lief der Endpoint mit
         # leerer Tabelle bis hierher durch.
         monkeypatch.setattr(pdf.ReportLabRenderer, "render_contract_signoff", lambda *_a, **_k: b"%PDF")
+        # CCX-P4 N-910-01: der Publish-Gate (Entwurfsmarke) ist hier nicht
+        # Gegenstand und braucht einen echten PDFContext; der Stub-Kontext bleibt.
+        monkeypatch.setattr(pdf, "_mark_unpublished", lambda ctx, *_a, **_k: ctx)
 
         with pytest.raises(HTTPException) as exc:
             pdf.get_contract_signoff_pdf(str(mandate.id), db=s, current_user=object())

@@ -102,8 +102,6 @@ _SQLITE_TRIGGERS = (
     "OR NEW.tenant_id IS NOT (SELECT COALESCE(NULLIF(u.tenant_id, ''), 'main') FROM users u WHERE u.id = NEW.created_by) "
     "OR (NEW.approved_by IS NOT NULL AND NEW.tenant_id IS NOT (SELECT COALESCE(NULLIF(u.tenant_id, ''), 'main') "
     "FROM users u WHERE u.id = NEW.approved_by)) "
-    "OR (NEW.approval_mode = 'single_approver_attested' AND NOT EXISTS (SELECT 1 FROM tenants tn "
-    "WHERE tn.id = NEW.tenant_id AND tn.single_person_firm = 1)) "
     "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
 )
 _SQLITE_TRIGGER_NAMES = (
