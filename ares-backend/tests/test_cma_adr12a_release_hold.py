@@ -295,6 +295,7 @@ def test_finalization_blocked_with_reason_code(session_factory):
             finalize_recommendation(
                 mandate_id=mid, run_id=run_id, request=_FakeRequest(),
                 db=db, current_user=advisor,
+                confirm_valuations_current=True,
             )
     assert exc.value.status_code == 422
     assert exc.value.detail["reason_code"] == CMA_ADR12A_HOLD

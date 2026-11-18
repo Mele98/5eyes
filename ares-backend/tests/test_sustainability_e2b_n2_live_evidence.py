@@ -72,7 +72,7 @@ def test_finalize_with_unevidenced_position_is_409_with_audit(world, api, sessio
     assert add.status_code == 201, add.text
     _retire(session_factory, world["advisor_id"], world["evidence"][extra])
     assert CLAIM not in _protocol_line(session_factory, mid)
-    fin = api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize")
+    fin = api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize?confirm_valuations_current=true")
     assert fin.status_code == 409, fin.text
     detail = fin.json()["detail"]
     assert detail["reason_code"] == "SUSTAINABILITY_EVIDENCE_MISSING"
@@ -92,7 +92,7 @@ def test_withdrawn_after_finalize_removes_claim_and_blocks_channels(world, api, 
     mid = world["mid"]
     _ok_capture(api, mid, exclusions=["tobacco"])
     run_id = _run_id(_run(api, mid))
-    assert api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize").status_code == 200
+    assert api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize?confirm_valuations_current=true").status_code == 200
     assert CLAIM in _protocol_line(session_factory, mid)
     for pid in _non_liquid_positions(api, mid, session_factory, run_id):
         _retire(session_factory, world["advisor_id"], world["evidence"][pid])
@@ -128,7 +128,7 @@ def test_gate_and_pdf_use_the_same_run_resolver(world, api, session_factory):
     with session_factory() as s:  # nur Drafts: juengster Draft, beide gleich
         ta = _current_target_allocation_or_none(s, mid)
         assert current_run_id(s, s.get(Mandate, mid), ta) == resolve_current_recommendation_run(s, mid, ta.id).id == final_id
-    assert api.put(f"/mandates/{mid}/recommendations/{final_id}/finalize").status_code == 200
+    assert api.put(f"/mandates/{mid}/recommendations/{final_id}/finalize?confirm_valuations_current=true").status_code == 200
     assert _run(api, mid).status_code == 200  # neuer Draft
     with session_factory() as s:
         m = s.get(Mandate, mid)
@@ -199,7 +199,7 @@ def test_finalized_run_losing_evidence_says_so(world, api, session_factory):
     mid = world["mid"]
     _ok_capture(api, mid, exclusions=["tobacco"])
     run_id = _run_id(_run(api, mid))
-    assert api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize").status_code == 200
+    assert api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize?confirm_valuations_current=true").status_code == 200
     for pid in _non_liquid_positions(api, mid, session_factory, run_id):
         _retire(session_factory, world["advisor_id"], world["evidence"][pid])
     expected = sp.FINAL_RUN_UNEVIDENCED_TEXT.format(labels="Tabak")

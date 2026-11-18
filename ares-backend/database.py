@@ -1323,6 +1323,8 @@ HOLDINGS_VALUATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
     total_base_minor    INTEGER,
     advisory_base_minor INTEGER,
     blocker_codes_json  TEXT NOT NULL,
+    manual_valuation_attested INTEGER NOT NULL DEFAULT 0 CHECK(manual_valuation_attested IN (0, 1)),
+    manual_valuation_max_age_days INTEGER,
     snapshot_hash       TEXT NOT NULL CHECK(length(snapshot_hash) = 64),
     created_at          TEXT NOT NULL,
     created_by          TEXT NOT NULL REFERENCES users(id),
@@ -1668,6 +1670,10 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             # Hauspolitik je Tenant. NULL = Default 36 Monate
             # (core/sustainability_preference.py), keine gesetzliche Frist.
             ('sustainability_review_months', 'INTEGER'),
+            # CCX-P3-FX (N-909-07): Kursfrische (NULL = Default 5) und
+            # maximales Alter manueller Bewertungen (NULL = Bestaetigungspflicht).
+            ('fx_max_age_days', 'INTEGER'),
+            ('manual_valuation_max_age_days', 'INTEGER'),
         ],
         # CERT-HANDOFF-EXECUTION-001 (2026-10-25): siehe models/portfolio_handoff.py
         # und Alembic c7e4a19b3d52. Nullable, kein Backfill.

@@ -40,6 +40,7 @@ def test_finalize_returns_saa_deviation_warning_in_the_response(session_factory)
         answer_question_one_for_all_mandates(db)  # Nachtrag 1: Pflichtfrage
         result = finalize_recommendation(
             mandate_id=mid, run_id=run_id, request=_FakeRequest(), db=db, current_user=advisor,
+            confirm_valuations_current=True,
         )
     payload = RecommendationFinalizeResponse.model_validate(result).model_dump()
     assert payload["result_status"] == "Final"

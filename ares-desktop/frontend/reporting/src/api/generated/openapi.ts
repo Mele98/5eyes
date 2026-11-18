@@ -15202,6 +15202,8 @@ export interface components {
             display_name: string;
             /** Finma Outsourcing Notified At */
             finma_outsourcing_notified_at?: string | null;
+            /** Fx Max Age Days */
+            fx_max_age_days?: number | null;
             /** Home Jurisdiction */
             home_jurisdiction?: string | null;
             /** Hosting Tier */
@@ -15214,6 +15216,8 @@ export interface components {
             license_status: string;
             /** License Valid Until */
             license_valid_until?: string | null;
+            /** Manual Valuation Max Age Days */
+            manual_valuation_max_age_days?: number | null;
             /** Max Mandates */
             max_mandates?: number | null;
             /** Max Users */
@@ -15268,6 +15272,8 @@ export interface components {
             display_name: string;
             /** Finma Outsourcing Notified At */
             finma_outsourcing_notified_at?: string | null;
+            /** Fx Max Age Days */
+            fx_max_age_days?: number | null;
             /** Home Jurisdiction */
             home_jurisdiction?: string | null;
             /** Hosting Tier */
@@ -15280,6 +15286,8 @@ export interface components {
             license_status: string;
             /** License Valid Until */
             license_valid_until?: string | null;
+            /** Manual Valuation Max Age Days */
+            manual_valuation_max_age_days?: number | null;
             /** Max Mandates */
             max_mandates?: number | null;
             /** Max Users */
@@ -15309,8 +15317,12 @@ export interface components {
             default_presentation_mode?: string | null;
             /** Display Name */
             display_name?: string | null;
+            /** Fx Max Age Days */
+            fx_max_age_days?: number | null;
             /** Home Jurisdiction */
             home_jurisdiction?: string | null;
+            /** Manual Valuation Max Age Days */
+            manual_valuation_max_age_days?: number | null;
             /** Sustainability Review Months */
             sustainability_review_months?: number | null;
         };
@@ -15331,6 +15343,8 @@ export interface components {
             display_name?: string | null;
             /** Finma Outsourcing Notified At */
             finma_outsourcing_notified_at?: string | null;
+            /** Fx Max Age Days */
+            fx_max_age_days?: number | null;
             /** Home Jurisdiction */
             home_jurisdiction?: string | null;
             /** Hosting Tier */
@@ -15341,6 +15355,8 @@ export interface components {
             license_status?: string | null;
             /** License Valid Until */
             license_valid_until?: string | null;
+            /** Manual Valuation Max Age Days */
+            manual_valuation_max_age_days?: number | null;
             /** Max Mandates */
             max_mandates?: number | null;
             /** Max Users */
@@ -22613,6 +22629,7 @@ export interface operations {
         parameters: {
             query?: {
                 confirm_no_existing_holdings?: boolean;
+                confirm_valuations_current?: boolean;
                 /** @description CCX-P2: beim Start der Berechnung gelesener Manifest-Hash; weicht er beim Siegel ab, ist das Ergebnis ueberholt (CCX_RESULT_SUPERSEDED). */
                 expected_input_manifest_hash?: string | null;
             };

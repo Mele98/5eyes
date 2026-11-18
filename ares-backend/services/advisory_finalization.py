@@ -31,13 +31,17 @@ def finalize_advisory_decision(
     ip_address: str | None = None,
     confirm_no_existing_holdings: bool = False,
     expected_manifest_hash: str | None = None,
+    confirm_valuations_current: bool = False,
 ) -> Any:
     """Bewertet, bindet und versiegelt (Transaktion des Aufrufers).
 
     ``expected_manifest_hash`` (CCX-P2): beim Start gelesener Manifest-Hash;
-    weicht er beim Siegel ab -> ``CCX_RESULT_SUPERSEDED``."""
+    weicht er beim Siegel ab -> ``CCX_RESULT_SUPERSEDED``.
+    ``confirm_valuations_current``: Bestaetigung "Bewertung aktuell" des
+    Beraters (N-909-07, Pflicht ohne Owner-Frist; im Snapshot gebunden)."""
     valuation = prepare_valuation_binding(
         db, mandate, run, confirm_no_holdings=confirm_no_existing_holdings,
+        attest_manual_valuations=confirm_valuations_current,
     )
     return seal_advisory_envelope(
         db, mandate=mandate, run=run, user=user, ip_address=ip_address, valuation=valuation,

@@ -126,6 +126,12 @@ def test_full_api_path_app_and_pdfs_show_identical_numbers(api, advisor_user, cu
     _seed_goals(api, mandate_id)
     assert _seed_risk_profile(api, mandate_id).get("final_profile")
     _seed_products(api, advisor_user)
+    if currency != "CHF":
+        # CCX-P3-FX (N-909-01): die CHF-Positionen brauchen einen belegten Kurs
+        # der Mandatswaehrung, erfasst wie vom Berater (Testvektor, kein Fachwert).
+        fx = api.put("/fx-rates", json={"rates": [{"currency": currency, "rate": {"EUR": 0.95, "JPY": 0.0063}[currency],
+                                                   "source": "Manual", "notes": "Testvektor"}]})
+        assert fx.status_code == 200, fx.text[:400]
 
     # EUR/JPY: CMA in CHF -> dokumentierte Beraterbestaetigung (CMA-CURRENCY-GUARD-001).
     body = {} if currency == "CHF" else {"preferences": {"cmaCurrencyMismatchReason": (

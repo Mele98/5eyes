@@ -28089,6 +28089,17 @@
             ],
             "title": "Finma Outsourcing Notified At"
           },
+          "fx_max_age_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fx Max Age Days"
+          },
           "home_jurisdiction": {
             "anyOf": [
               {
@@ -28126,6 +28137,17 @@
               }
             ],
             "title": "License Valid Until"
+          },
+          "manual_valuation_max_age_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manual Valuation Max Age Days"
           },
           "max_mandates": {
             "anyOf": [
@@ -28257,6 +28279,17 @@
             ],
             "title": "Finma Outsourcing Notified At"
           },
+          "fx_max_age_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fx Max Age Days"
+          },
           "home_jurisdiction": {
             "anyOf": [
               {
@@ -28294,6 +28327,17 @@
               }
             ],
             "title": "License Valid Until"
+          },
+          "manual_valuation_max_age_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manual Valuation Max Age Days"
           },
           "max_mandates": {
             "anyOf": [
@@ -28388,6 +28432,19 @@
             ],
             "title": "Display Name"
           },
+          "fx_max_age_days": {
+            "anyOf": [
+              {
+                "maximum": 31.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fx Max Age Days"
+          },
           "home_jurisdiction": {
             "anyOf": [
               {
@@ -28398,6 +28455,19 @@
               }
             ],
             "title": "Home Jurisdiction"
+          },
+          "manual_valuation_max_age_days": {
+            "anyOf": [
+              {
+                "maximum": 3650.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manual Valuation Max Age Days"
           },
           "sustainability_review_months": {
             "anyOf": [
@@ -28487,6 +28557,19 @@
             ],
             "title": "Finma Outsourcing Notified At"
           },
+          "fx_max_age_days": {
+            "anyOf": [
+              {
+                "maximum": 31.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fx Max Age Days"
+          },
           "home_jurisdiction": {
             "anyOf": [
               {
@@ -28543,6 +28626,19 @@
               }
             ],
             "title": "License Valid Until"
+          },
+          "manual_valuation_max_age_days": {
+            "anyOf": [
+              {
+                "maximum": 3650.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manual Valuation Max Age Days"
           },
           "max_mandates": {
             "anyOf": [
@@ -42064,6 +42160,16 @@
             "schema": {
               "default": false,
               "title": "Confirm No Existing Holdings",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "confirm_valuations_current",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Confirm Valuations Current",
               "type": "boolean"
             }
           },

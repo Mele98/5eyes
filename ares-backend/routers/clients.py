@@ -1368,11 +1368,13 @@ def _client_amount_basis(db, client_id, mandate_id, target_currency, currencies,
     sonst ``CCX_FX_BASIS_MISMATCH``. Strikte, gebundene FX-Basis: fehlende
     Waehrung oder fehlender/abgelaufener Kurs -> typisierter Blocker."""
     currencies = set(currencies)
+    tenant_id = getattr(current_user, "tenant_id", None)
     if mandate_id:
         mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
         if str(mandate.client_id) != str(client_id):
             raise HTTPException(status_code=404, detail="Mandat gehoert nicht zu diesem Kunden.")
         summary_currency = normalize_currency(mandate.base_currency)
+        tenant_id = getattr(mandate, "tenant_id", None) or tenant_id
     elif target_currency:
         summary_currency = normalize_currency(target_currency)
     elif len(currencies) <= 1 and "" not in currencies:
@@ -1384,7 +1386,7 @@ def _client_amount_basis(db, client_id, mandate_id, target_currency, currencies,
             "Mandatskontext (mandate_id) oder eine Zielwaehrung (target_currency) erforderlich.",
             extra={"currencies": sorted(currencies)},
         )
-    basis = load_fx_basis(db, summary_currency or "CHF", currencies - {""})
+    basis = load_fx_basis(db, summary_currency or "CHF", currencies - {""}, tenant_id=tenant_id)
     basis.require_convertible(currencies)
     return basis
 
@@ -1553,6 +1555,21 @@ def cashflow_projection(
         WealthInflow.deleted_at.is_(None),
         WealthInflow.is_active == 1,
     ).all()
+    # N-909-10: ein Zufluss ohne Waehrung wird benannt (Bezeichnung/Jahr, keine
+    # Betraege) statt einer anonymen Sperre; die Waehrung wird nie geraten.
+    missing_ccy = [i for i in wealth_inflow_rows if not normalize_currency(getattr(i, "currency", None))]
+    if missing_ccy:
+        names = ", ".join(
+            f"«{getattr(i, 'label', '') or 'Zufluss'}» ({getattr(i, 'expected_year', '—')})" for i in missing_ccy
+        )
+        raise DomainError(
+            ReasonCode.CCX_FX_BASIS_MISSING,
+            f"Vermoegenszufluss ohne Waehrung: {names}. Bitte die Waehrung erfassen -- sie wird nie geraten.",
+            extra={"inflows": [
+                {"id": str(i.id), "label": getattr(i, "label", None), "expected_year": getattr(i, "expected_year", None)}
+                for i in missing_ccy
+            ]},
+        )
     amount_currencies = {normalize_currency(getattr(cf, "currency", None)) for cf in cashflows}
     amount_currencies |= {normalize_currency(getattr(i, "currency", None)) for i in wealth_inflow_rows}
     fx_source = _client_amount_basis(

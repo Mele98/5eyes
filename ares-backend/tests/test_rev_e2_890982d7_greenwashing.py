@@ -55,7 +55,7 @@ def test_n901_01_02_manual_unevidenced_position(world, api, session_factory):
             s.commit()
         assert CLAIM not in _line(session_factory, mid)
     assert api.get(f"/mandates/{mid}/reports/portfolio.pdf").status_code == 409  # am Head: 200
-    fin = api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize")
+    fin = api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize?confirm_valuations_current=true")
     assert fin.status_code == 409, fin.text  # am Head: 500 AttributeError Product.name
 
 
@@ -66,7 +66,7 @@ def test_n901_02_withdrawn_evidence_after_finalize(world, api, session_factory):
     mid = world["mid"]
     _ok_capture(api, mid, exclusions=["tobacco"])
     run_id = _run_id(_run(api, mid))
-    assert api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize").status_code == 200
+    assert api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize?confirm_valuations_current=true").status_code == 200
     for pid in _non_liquid_positions(api, mid, session_factory, run_id):
         _retire(session_factory, world["advisor_id"], world["evidence"][pid])
     assert CLAIM not in _line(session_factory, mid)  # am Head: Claim bleibt

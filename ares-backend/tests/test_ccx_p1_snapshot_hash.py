@@ -318,6 +318,7 @@ def _finalize(session_factory, advisor_id, mid, run_id):
         answer_question_one_for_all_mandates(db)
         return finalize_recommendation(
             mandate_id=mid, run_id=run_id, request=_FakeRequest(), db=db, current_user=advisor,
+            confirm_valuations_current=True,
         )
 
 
@@ -1057,7 +1058,8 @@ def test_missing_required_input_group_is_unknown_not_sealable(session_factory, m
         with pytest.raises(DomainError) as caught:
             # CCX-P3: das Siegel verlangt die (vollstaendige) Bewertungsbindung.
             svc.seal_advisory_envelope(db, mandate=mandate, run=run, user=db.get(User, advisor_id),
-                                       valuation=prepare_valuation_binding(db, mandate, run))
+                                       valuation=prepare_valuation_binding(
+                                           db, mandate, run, attest_manual_valuations=True))
         assert caught.value.reason_code == "CCX_INPUT_MANIFEST_MISMATCH"
         value = _audit(db, "ccx.envelope.rejected")[-1].new_value
         assert "stage=manifest" in value and f"unknown={group}" in value

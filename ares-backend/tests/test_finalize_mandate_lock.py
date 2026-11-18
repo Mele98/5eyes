@@ -186,6 +186,7 @@ def test_finalize_succeeds_and_supersedes_prior_final_run(session_factory):
         answer_question_one_for_all_mandates(db)  # Nachtrag 1: Pflichtfrage
         result = finalize_recommendation(
             mandate_id=mid, run_id=second_run_id, request=_FakeRequest(), db=db, current_user=advisor,
+            confirm_valuations_current=True,
         )
         assert result.result_status == "Final"
 
@@ -210,5 +211,6 @@ def test_finalize_first_run_for_mandate_with_no_prior_final(session_factory):
         answer_question_one_for_all_mandates(db)  # Nachtrag 1: Pflichtfrage
         result = finalize_recommendation(
             mandate_id=mid, run_id=run_id, request=_FakeRequest(), db=db, current_user=advisor,
+            confirm_valuations_current=True,
         )
         assert result.result_status == "Final"

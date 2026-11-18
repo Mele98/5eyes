@@ -171,7 +171,9 @@ def test_monolith_loads_module_and_calls_hooks_without_native_dialogs():
     html = read_monolith_bundle()
     assert '<script src="./eligibility-overrides.js"></script>' in html
     start = html.index("async function confirmImplementationRecipe()")
-    body = html[start:html.index("function finalizeErrorText(e)", start)]
+    # CCX-P3 (N-909-07): der Handler liegt im ausgelagerten Teil
+    # finalize-attestation.js (am Bundle-Ende eingesetzt); Koerper bis Funktionsende.
+    body = html[start:html.index("\n}\n", start)]
     assert "eligOverrideOnFinalizeBlocked(mid,runId,e)" in body
     start = html.index("async function openImplementationRecipe()")
     assert "eligOverrideReset()" in html[start:start + 300]

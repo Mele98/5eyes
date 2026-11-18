@@ -30,6 +30,7 @@ from models.review import AuditLog  # noqa: E402
 from models.tenant import Tenant  # noqa: E402,F401  (FK-Aufloesung)
 from models.users import User  # noqa: E402
 from models.wealth import Cashflow, Goal, WealthPosition  # noqa: E402
+from tests.fx_test_support import seed_attested_fx  # noqa: E402
 from services.risk_capacity_plausibility import (  # noqa: E402
     CHECK_FREE_WEALTH,
     CHECK_INCOME,
@@ -480,6 +481,8 @@ def test_load_recorded_financials_reads_cashflows_positions_goals(session_factor
                  hardness="Primär", created_at=NOW, updated_at=NOW),
         ])
         session.commit()
+        # CCX-P3-FX (N-909-01): die USD-Liquiditaet zaehlt nur zum belegten Kurs.
+        seed_attested_fx(session, ["USD"])
         mandate = session.get(Mandate, "m-rcp")
         recorded = load_recorded_financials(session, mandate, today=TODAY)
 

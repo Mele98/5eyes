@@ -20,7 +20,8 @@ from models.users import User
 from services.audit import log
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer FX-Rate-Aenderungen
 # (wirken global auf ALLE Tenants).
-from routers.auth import _extract_client_ip
+from services.advisory_report_cache import clear_all as clear_advisory_report_cache
+from services.auth import extract_client_ip as _extract_client_ip
 from services.auth import get_current_user, require_advisor_or_platform_scope_for_global_reference_data
 from services.currency.fx_rates import DEFAULT_FX_RATES, FXRateSource
 
@@ -293,4 +294,7 @@ async def upsert_fx_rates(
                 "requested currencies; please retry."
             ),
         )
+    # CCX-P3-FX (N-909-05): Kurse sind global; jeder gecachte Bericht traegt
+    # eine FX-Basis -> nach einem Kurswechsel alle Berichte neu berechnen.
+    clear_advisory_report_cache()
     return list_current_fx_rates(db=db, current_user=current_user)

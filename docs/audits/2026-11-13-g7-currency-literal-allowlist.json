@@ -46,13 +46,6 @@
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
-   "code": "raw_amt, str(getattr(wp, \"currency\", \"\") or \"CHF\"), target_currency,",
-   "count": 1,
-   "context": "_other_wealth_positions",
-   "reason": "pdf_reports.py _other_wealth_positions: Datensatzwaehrung (WealthPosition/Product.currency NOT NULL, Modell-Default 'CHF'); ein leerer Wert entspricht dem Modell-Default. Quelle der Umrechnung bzw. Produktwaehrungsangabe, nicht geraten."
-  },
-  {
-   "file": "ares-backend/routers/pdf_reports.py",
    "code": "ta_obj, engine_payload: dict | None, current_advisory_wealth_rappen: int | None, currency: str = \"CHF\",",
    "count": 1,
    "context": "_strategy_basis_from_allocation",
@@ -62,13 +55,6 @@
    "file": "ares-backend/routers/pdf_reports.py",
    "code": "target_currency = str(getattr(mandate, \"base_currency\", \"CHF\") or \"CHF\").upper()",
    "count": 2,
-   "context": "_advisory_wealth_positions",
-   "reason": "pdf_reports.py _advisory_wealth_positions: mandates.base_currency ist NOT NULL; der getattr-Default dient nur der Typsicherheit fuer Attrappen-Objekte in Tests."
-  },
-  {
-   "file": "ares-backend/routers/pdf_reports.py",
-   "code": "value = int(round(convert_rappen(raw_value, str(getattr(row, \"currency\", \"\") or \"CHF\"), target_currency)))",
-   "count": 1,
    "context": "_advisory_wealth_positions",
    "reason": "pdf_reports.py _advisory_wealth_positions: Datensatzwaehrung (WealthPosition/Product.currency NOT NULL, Modell-Default 'CHF'); ein leerer Wert entspricht dem Modell-Default. Quelle der Umrechnung bzw. Produktwaehrungsangabe, nicht geraten."
   },

@@ -329,6 +329,7 @@ def test_finalization_blocked_once_model_is_enforced(tmp_path):
             finalize_recommendation(
                 mandate_id=mid, run_id=run_id, request=_FakeRequest(),
                 db=s, current_user=advisor,
+                confirm_valuations_current=True,
             )
     assert exc.value.status_code == 422
     assert exc.value.detail["reason_code"] == svc.CMA_POLICY_MISSING

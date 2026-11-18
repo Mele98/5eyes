@@ -120,6 +120,7 @@ def _finalize_detail(session_factory, advisor_id, mid, run_id):
             answer_question_one_for_all_mandates(db)  # Nachtrag 1: Pflichtfrage
             finalize_recommendation(
                 mandate_id=mid, run_id=run_id, request=_FakeRequest(), db=db, current_user=advisor,
+                confirm_valuations_current=True,
             )
     assert exc_info.value.status_code == 422
     return exc_info.value.detail

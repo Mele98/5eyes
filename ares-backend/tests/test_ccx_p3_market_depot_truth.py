@@ -202,6 +202,7 @@ def _mandate(db, mid):
 def _project(session_factory, mid, **kw):
     from services.holdings_valuation import project_holdings_valuation
 
+    kw.setdefault("attest_manual_valuations", True)  # N-909-07: Berater bestaetigt
     with session_factory() as db:
         return project_holdings_valuation(db, _mandate(db, mid), **kw)
 
@@ -385,25 +386,42 @@ def test_finalize_binds_snapshot_and_ledger_into_envelope(session_factory):
 
 
 def test_finalize_blocks_unknown_fx_with_code_audit_and_no_envelope(session_factory):
+    """Belegter Kurs bei der Strategie, danach nur noch Ersatzkurs: die
+    Finalisierung sperrt typisiert (kein Envelope, kein Snapshot, Lauf Draft);
+    das Siegel selbst lehnt die Bewertung mit Audit stage=valuation ab."""
+    from models.mandates import Mandate
     from models.review import RecommendationRun
-    from models.snapshots import AdvisoryDecisionEnvelope
-    from models.snapshots import HoldingsValuationSnapshot
+    from models.snapshots import AdvisoryDecisionEnvelope, HoldingsValuationSnapshot
+    from models.users import User
+    import services.advisory_decision_envelope as svc
+    from services.holdings_valuation import prepare_valuation_binding
 
-    advisor_id, mid, _aid, run_id = _prepared_run(
-        session_factory, "p3-block",
-        lambda db, mid: _add_position(db, mid, label="usd", currency="USD", value=10_000_00))
+    def setup(db, mandate_id):
+        _add_fx(db, "USD", 8_800)
+        _add_position(db, mandate_id, label="usd", currency="USD", value=10_000_00)
+
+    advisor_id, mid, _aid, run_id = _prepared_run(session_factory, "p3-block", setup)
+    with session_factory() as db:
+        _add_fx(db, "USD", 8_800, source="Default")
+        db.commit()
     with pytest.raises(DomainError) as exc:
         _finalize(session_factory, advisor_id, mid, run_id)
     assert exc.value.reason_code == "CCX_FX_BASIS_MISSING"
-    assert exc.value.extra["coverage_status"] == "UNKNOWN"
     with session_factory() as db:
         assert db.query(AdvisoryDecisionEnvelope).count() == 0
         assert db.query(HoldingsValuationSnapshot).count() == 0
         assert db.query(RecommendationRun).filter(RecommendationRun.id == run_id).one().result_status == "Draft"
+        mandate, run = db.get(Mandate, mid), db.get(RecommendationRun, run_id)
+        binding = prepare_valuation_binding(db, mandate, run, attest_manual_valuations=True)
+        assert binding.projection.coverage_status == "UNKNOWN"
+        with pytest.raises(DomainError) as sealed:
+            svc.seal_advisory_envelope(db, mandate=mandate, run=run, user=db.get(User, advisor_id),
+                                       valuation=binding)
+        assert sealed.value.reason_code == "CCX_FX_BASIS_MISSING"
         rejected = _audit(db, "ccx.envelope.rejected")
-        assert len(rejected) == 1 and "stage=valuation" in rejected[0].new_value
-        assert "CCX_FX_BASIS_MISSING" in rejected[0].new_value and rejected[0].tenant_id
-        assert rejected[0].mandate_id == mid
+        assert rejected and "stage=valuation" in rejected[-1].new_value
+        assert "CCX_FX_BASIS_MISSING" in rejected[-1].new_value and rejected[-1].tenant_id
+        assert rejected[-1].mandate_id == mid
 
 
 @pytest.mark.parametrize("days_old,code", [(None, "CCX_VALUATION_INCOMPLETE"), (6, "CCX_VALUATION_STALE")])
@@ -789,3 +807,330 @@ def test_pdf_shows_server_converted_amounts_with_currency_and_basis(session_fact
     assert expected in text
     assert "Bewertungsstand" in text and wealth["valuation_as_of"] in text
     assert wealth["fx_basis_hash"][:12] in text.replace(" ", "")
+
+
+# ── Nachtrag 1 (Pruefrunde 4a4a6fce, N-909-01..10) ───────────────────────────
+
+
+def test_strict_engine_source_blocks_substitute_missing_and_stale_rates(session_factory):
+    """N-909-01: kundenwirksame Engine-Laeufe nutzen die strikte Quelle -- ein
+    Ersatzkurs (Quelle Default bzw. DEFAULT_FX_RATES ohne Zeile), ein
+    abgelaufener oder zukuenftiger Kurs wirft CCX_FX_BASIS_*."""
+    from services.currency.fx_rates import FXRateSource, FxBasisError as StrictError
+
+    _advisor, mid, _aid, _run = _finalizable_run(session_factory, "n1-strict")
+    with session_factory() as db:
+        _add_fx(db, "USD", 8_000)
+        _add_fx(db, "EUR", 12_000, source="Default")
+        _add_fx(db, "GBP", 11_000, days_old=6)
+        db.commit()
+        tenant = _mandate(db, mid).tenant_id
+        strict = FXRateSource.from_db_strict_for_model(db, tenant_id=tenant)
+        assert strict.convert_storage_amount(10_000, "USD", "CHF") == 8_000
+        assert strict.convert_storage_amount(10_000, "CHF", "CHF") == 10_000
+        for currency, code in (("EUR", "CCX_FX_BASIS_MISSING"), ("GBP", "CCX_FX_BASIS_STALE"),
+                               ("JPY", "CCX_FX_BASIS_MISSING")):
+            with pytest.raises(StrictError) as exc:
+                strict.convert_storage_amount(10_000, currency, "CHF")
+            assert exc.value.reason_code == code, currency
+        with pytest.raises(StrictError):
+            strict.canonical_model_signature(["JPY"], target_currency="CHF")
+        # Signatur fuer belegte Waehrungen = Modellsignatur (Kontext-Hashes stabil).
+        assert strict.canonical_model_signature(["USD"], target_currency="CHF") == \
+            FXRateSource.from_db_for_model(db).canonical_model_signature(["USD"], target_currency="CHF")
+
+
+def test_engine_generation_and_pdf_tables_block_substitute_rate(session_factory):
+    """N-909-01 (Pruefer-Fall): CHF-Mandat mit USD-Depot, USD nur als Ersatzkurs
+    -> Strategie, App-Payload und PDF-Datenaufbereitung sperren typisiert."""
+    from models.users import User
+    from routers.allocation import get_current_allocation_payload
+    from routers.pdf_reports import _advisory_wealth_positions, _other_wealth_positions
+    from services.portfolio_engine import generate_target_allocation
+
+    def setup(db, mandate_id):
+        _add_fx(db, "USD", 8_800)
+        _add_position(db, mandate_id, label="usd", currency="USD", value=100_000_05)
+
+    advisor_id, mid, _aid, _run = _prepared_run(session_factory, "n1-gen", setup)
+    with session_factory() as db:
+        mandate = _mandate(db, mid)
+        assert _advisory_wealth_positions(mandate, db)[2] > 0  # Kontrolle: belegter Kurs
+        _add_fx(db, "USD", 8_800, source="Default")
+        db.commit()
+        advisor = db.query(User).filter(User.id == advisor_id).one()
+        for call in (
+            lambda: generate_target_allocation(db, mandate, advisor_id, preferences=None),
+            lambda: get_current_allocation_payload(mandate_id=mid, db=db, current_user=advisor),
+            lambda: _advisory_wealth_positions(mandate, db),
+        ):
+            with pytest.raises(DomainError) as exc:
+                call()
+            assert exc.value.reason_code == "CCX_FX_BASIS_MISSING"
+            db.rollback()
+        _add_position(db, mid, label="usd-kredit", currency="USD", value=1_00, assignment="Verbindlichkeit",
+                      ptype="Custom")
+        db.commit()
+        with pytest.raises(DomainError):
+            _other_wealth_positions(mandate, db)
+
+
+def test_lenient_fx_paths_are_confined_to_non_customer_modules():
+    """N-909-01 Waechter: DEFAULT_FX_RATES, from_db_for_model, FXRateSource.from_db,
+    FXRateSource() und convert_rappen nur in erlaubten, nicht kundenwirksamen Pfaden."""
+    import ast
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[1]
+    allowed = {
+        "services/currency/fx_rates.py",      # Definition (strikte Quelle baut darauf auf)
+        "services/currency/converter.py",     # Altkonverter, von keinem Kundenkanal genutzt
+        "services/currency/__init__.py",      # Re-Export
+        "routers/fx_rates.py",                # Kurspflege: Ersatzkurse sichtbar als "Default"
+        "services/dsg_governance.py",         # Banner "Ersatzkurs - nicht aktuell"
+    }
+    names = {"DEFAULT_FX_RATES", "from_db_for_model", "convert_rappen", "set_active_fx_source"}
+    hits = []
+    for path in sorted(backend.rglob("*.py")):
+        rel = path.relative_to(backend).as_posix()
+        if rel.split("/")[0] in {"tests", "scripts", "alembic", "migrations"} or rel in allowed:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        for node in ast.walk(tree):
+            name = node.attr if isinstance(node, ast.Attribute) else node.id if isinstance(node, ast.Name) else None
+            if name in names:
+                hits.append((rel, name, node.lineno))
+            if isinstance(node, ast.Attribute) and node.attr == "from_db" and \
+                    getattr(node.value, "id", None) == "FXRateSource":
+                hits.append((rel, "FXRateSource.from_db", node.lineno))
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "FXRateSource":
+                hits.append((rel, "FXRateSource()", node.lineno))
+            if isinstance(node, ast.ImportFrom) and any(a.name in names for a in node.names):
+                hits.append((rel, "import", node.lineno))
+    assert hits == [], hits
+
+
+def test_target_currency_stale_is_reported_as_stale_everywhere():
+    """N-909-04: abgelaufener Kurs der Zielwaehrung -> STALE (nicht MISSING),
+    nach dem Stichtag -> MISMATCH."""
+    basis = build_fx_basis("EUR", ["USD", "CHF"], {"EUR": _q("EUR", 12_000, days_old=9),
+                                                   "USD": _q("USD", 8_000)}, as_of=TODAY)
+    for currency in ("USD", "CHF"):
+        with pytest.raises(FxBasisError) as exc:
+            basis.convert(1_00, currency)
+        assert exc.value.reason_code == "CCX_FX_BASIS_STALE"
+    future = build_fx_basis("EUR", ["CHF"], {"EUR": _q("EUR", 12_000, days_old=-1)}, as_of=TODAY)
+    with pytest.raises(FxBasisError) as exc:
+        future.convert(1_00, "CHF")
+    assert exc.value.reason_code == "CCX_FX_BASIS_MISMATCH"
+    assert basis.convert(5_00, "EUR").converted_amount_minor == 5_00  # Identitaet bleibt
+
+
+def test_valuation_marks_rows_when_target_currency_rate_is_stale(session_factory):
+    """N-909-03 R8: EUR-Mandat, EUR-Kurs abgelaufen -> Fremdzeilen STALE_FX."""
+    from models.mandates import Mandate
+
+    _advisor, mid, _aid, _run = _finalizable_run(session_factory, "n1-r8")
+    with session_factory() as db:
+        db.query(Mandate).filter(Mandate.id == mid).update({"base_currency": "EUR"})
+        _add_fx(db, "EUR", 12_000, days_old=7)
+        db.commit()
+    projection = _project(session_factory, mid)
+    chf_rows = [r for r in projection.rows if r.price_currency == "CHF"]
+    assert chf_rows and all(r.data_quality == "STALE_FX" and r.base_value_minor is None for r in chf_rows)
+    assert "CCX_FX_BASIS_STALE" in projection.blocker_codes
+
+
+def test_depot_price_after_cutoff_is_never_used(session_factory):
+    """N-909-03 R7: ein Preis nach dem Stichtag zaehlt nicht (Stichtagsgrenze)."""
+    from models.review import PriceHistory
+
+    _advisor, mid, _aid, run_id = _finalizable_run(session_factory, "n1-r7")
+    hid, pid = _seed_depot_holding(session_factory, run_id)
+    with session_factory() as db:
+        db.query(PriceHistory).filter(PriceHistory.product_id == pid).update(
+            {"price_date": (TODAY + timedelta(days=1)).isoformat()})
+        db.commit()
+    row = next(r for r in _project(session_factory, mid).rows if r.position_id == hid)
+    assert row.data_quality == "MISSING_PRICE" and row.base_value_minor is None
+
+
+def test_report_projection_blocks_when_a_cashflow_rate_is_only_substitute(session_factory):
+    """N-909-03 R3: Bestand belegt, aber ein Cashflow nur mit Ersatzkurs -> der
+    Bericht zeigt keinen Faecher (blocked, CCX_FX_BASIS_MISSING)."""
+    from models.wealth import Cashflow
+    from services.advisory_report import _build_monte_carlo_paths_section
+
+    advisor_id, mid, _aid, _run = _multicurrency_mandate(session_factory, "n1-r3")
+    _regenerate(session_factory, mid, advisor_id)
+    with session_factory() as db:
+        now = _now()
+        db.add(Cashflow(id="cf-gbp", client_id=_client_id(db, mid), label="GBP Rente", cashflow_type="Income",
+                        amount_rappen=1_000_00, currency="GBP", frequency="jährlich", nature="wiederkehrend",
+                        is_active=1, created_at=now, updated_at=now))
+        db.commit()
+        report = _build_monte_carlo_paths_section(db, _mandate(db, mid))
+    assert report["projection_status"] == "blocked" and report["reason_code"] == "CCX_FX_BASIS_MISSING"
+    assert report["fx_status"]["currencies"] == ["GBP"]
+
+
+def test_mc_memo_key_covers_orm_columns_and_is_lru(monkeypatch):
+    """N-909-03 R2 / N-909-06: der Memo-Schluessel umfasst ORM-Spalten (CMA-,
+    Ziel-Wechsel -> neuer Lauf), Dict-Schluessel sind typtreu, Verdraengung LRU."""
+    import services.portfolio_engine_mc_simulation as sim
+    from models.allocation import CapitalMarketAssumption
+    from models.wealth import Goal
+
+    calls = []
+
+    def fake(**_kw):
+        calls.append(1)
+        return {"n": len(calls)}
+
+    monkeypatch.setattr(sim, "_run_allocation_monte_carlo", fake)
+    monkeypatch.setattr(sim, "_MC_MEMO", sim.OrderedDict())
+    cma = CapitalMarketAssumption(id="cma-1", correlation_matrix_json="[[1]]")
+    goal = Goal(id="g-1", target_amount_rappen=100_00)
+    base = {"cma": cma, "goals": [goal], "targets": {"equities": 6000}}
+    assert sim.memoized_allocation_monte_carlo(**base) == sim.memoized_allocation_monte_carlo(**base)
+    assert len(calls) == 1
+    cma.correlation_matrix_json = "[[0.9]]"
+    sim.memoized_allocation_monte_carlo(**base)
+    goal.target_amount_rappen = 200_00
+    sim.memoized_allocation_monte_carlo(**base)
+    assert len(calls) == 3
+    assert sim._mc_fingerprint({1: "x"}) != sim._mc_fingerprint({"1": "x"})
+    monkeypatch.setattr(sim, "_MC_MEMO_LIMIT", 2)
+    monkeypatch.setattr(sim, "_MC_MEMO", sim.OrderedDict())
+    calls.clear()
+    a, b, c = ({"targets": {"x": i}} for i in range(3))
+    sim.memoized_allocation_monte_carlo(**a)
+    sim.memoized_allocation_monte_carlo(**b)
+    sim.memoized_allocation_monte_carlo(**a)        # a zuletzt genutzt
+    sim.memoized_allocation_monte_carlo(**c)        # verdraengt b (LRU), nicht a
+    sim.memoized_allocation_monte_carlo(**a)
+    assert len(calls) == 3
+    sim.memoized_allocation_monte_carlo(**b)
+    assert len(calls) == 4
+
+
+def test_fx_upsert_clears_the_report_cache(monkeypatch):
+    """N-909-05: ein Kurswechsel leert den Berichts-Cache (Kurse sind global)."""
+    import asyncio
+    from types import SimpleNamespace
+
+    import routers.fx_rates as fx_router
+
+    cleared = []
+    monkeypatch.setattr(fx_router, "clear_advisory_report_cache", lambda: cleared.append(1) or 0)
+    monkeypatch.setattr(fx_router, "list_current_fx_rates", lambda **_kw: [])
+    monkeypatch.setattr(fx_router, "log", lambda *a, **k: None)
+
+    class _Query:
+        def filter(self, *a, **k):
+            return self
+
+        def with_for_update(self):
+            return self
+
+        def all(self):
+            return []
+
+    class _Db:
+        def query(self, *_a):
+            return _Query()
+
+        def add(self, _row):
+            pass
+
+        def commit(self):
+            pass
+
+    async def body():
+        return b'{"rates":[{"currency":"USD","rate":0.88,"source":"Manual"}]}'
+
+    request = SimpleNamespace(body=body, headers={}, client=SimpleNamespace(host="127.0.0.1"))
+    user = SimpleNamespace(id="u", full_name="U")
+    asyncio.run(fx_router.upsert_fx_rates(request=request, db=_Db(), current_user=user))
+    assert cleared == [1]
+
+
+def test_manual_valuation_requires_attestation_without_owner_policy(session_factory):
+    """N-909-07: ohne Owner-Frist ist die Bestaetigung "Bewertung aktuell" Pflicht;
+    mit Owner-Frist wird eine aeltere manuelle Bewertung STALE."""
+    from models.tenant import Tenant
+    from models.wealth import WealthPosition
+
+    _advisor, mid, _aid, _run = _finalizable_run(session_factory, "n1-attest")
+    blocked = _project(session_factory, mid, attest_manual_valuations=False)
+    assert blocked.blocker_codes == ["CCX_VALUATION_ATTESTATION_REQUIRED"] and blocked.coverage_status == "PARTIAL"
+    attested = _project(session_factory, mid)
+    assert attested.publishable and attested.manual_valuation_attested is True
+    assert attested.snapshot_hash != blocked.snapshot_hash
+    with session_factory() as db:
+        tenant_id = _mandate(db, mid).tenant_id
+        db.query(Tenant).filter(Tenant.id == tenant_id).update({"manual_valuation_max_age_days": 30})
+        db.query(WealthPosition).update({"valuation_date": (TODAY - timedelta(days=31)).isoformat()})
+        db.commit()
+    policy = _project(session_factory, mid, attest_manual_valuations=False)
+    assert policy.manual_valuation_max_age_days == 30
+    assert "CCX_VALUATION_ATTESTATION_REQUIRED" not in policy.blocker_codes
+    assert "CCX_VALUATION_STALE" in policy.blocker_codes
+    assert all(r.data_quality == "STALE_VALUATION" for r in policy.rows if r.source_kind == "wealth_position")
+
+
+def test_finalize_without_attestation_is_blocked_and_audited(session_factory):
+    from models.users import User
+    from routers.review import finalize_recommendation
+    from tests.sustainability_test_support import answer_question_one_for_all_mandates
+    from tests.test_finalize_mandate_lock import _FakeRequest as Req
+
+    advisor_id, mid, _aid, run_id = _finalizable_run(session_factory, "n1-final")
+    with session_factory() as db:
+        answer_question_one_for_all_mandates(db)
+        with pytest.raises(DomainError) as exc:
+            finalize_recommendation(mandate_id=mid, run_id=run_id, request=Req(), db=db,
+                                    current_user=db.get(User, advisor_id))
+        assert exc.value.reason_code == "CCX_VALUATION_ATTESTATION_REQUIRED"
+    _finalize(session_factory, advisor_id, mid, run_id)  # mit Bestaetigung
+    with session_factory() as db:
+        sealed = _audit(db, "ccx.envelope.sealed")[0].new_value
+        assert "manual_attested=1" in sealed
+
+
+def test_ledger_covers_only_managed_depot_holdings(session_factory):
+    """N-909-09: manuelle, nicht verwaltete Positionen bleiben sichtbar und
+    bewertet, erhalten aber keinen KEEP/SELL-Entscheid."""
+    from models.snapshots import HoldingsValuationRow, PositionDecisionLedger
+
+    advisor_id, mid, _aid, run_id = _finalizable_run(session_factory, "n1-ledger")
+    hid, _pid = _seed_depot_holding(session_factory, run_id)
+    _finalize(session_factory, advisor_id, mid, run_id)
+    with session_factory() as db:
+        ledger_ids = {e.position_id for e in db.query(PositionDecisionLedger).all()}
+        wealth_rows = db.query(HoldingsValuationRow).filter(
+            HoldingsValuationRow.source_kind == "wealth_position").all()
+    assert ledger_ids == {hid}
+    assert wealth_rows and all(r.base_value_minor is not None for r in wealth_rows)
+
+
+def test_cashflow_projection_names_the_inflow_without_currency(session_factory):
+    """N-909-10: die Sperre nennt den Zufluss (Bezeichnung/Jahr, kein Betrag)."""
+    from models.users import User
+    from models.wealth import WealthInflow
+    from routers.clients import cashflow_projection
+
+    advisor_id, mid, _aid, _run = _finalizable_run(session_factory, "n1-proj")
+    with session_factory() as db:
+        now = _now()
+        cid = _client_id(db, mid)
+        db.add(WealthInflow(id="inf-x", client_id=cid, label="Erbe Tante", source_type="Erbschaft",
+                            amount_rappen=987_654_00, expected_year=2031, is_recurring=0, value_mode="nominal",
+                            is_active=1, created_at=now, updated_at=now))
+        db.commit()
+        with pytest.raises(DomainError) as exc:
+            cashflow_projection(client_id=cid, horizon_years=5, indexation=True, mandate_id=mid,
+                                target_currency=None, db=db, current_user=db.get(User, advisor_id))
+    assert exc.value.reason_code == "CCX_FX_BASIS_MISSING"
+    assert "Erbe Tante" in exc.value.message and "2031" in exc.value.message
+    assert "987" not in exc.value.message

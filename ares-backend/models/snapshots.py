@@ -1142,6 +1142,9 @@ class HoldingsValuationSnapshot(Base):
         CheckConstraint("position_count >= 0", name="ck_holdings_valuation_snapshots_count"),
         CheckConstraint("length(snapshot_hash) = 64", name="ck_holdings_valuation_snapshots_hash"),
         CheckConstraint(
+            "manual_valuation_attested IN (0, 1)", name="ck_holdings_valuation_snapshots_attested",
+        ),
+        CheckConstraint(
             "coverage_status <> 'COMPLETE' OR (total_base_minor IS NOT NULL AND advisory_base_minor IS NOT NULL "
             "AND blocker_codes_json = '[]')",
             name="ck_holdings_valuation_snapshots_complete_total",
@@ -1179,6 +1182,10 @@ class HoldingsValuationSnapshot(Base):
     total_base_minor = Column(BigInteger)
     advisory_base_minor = Column(BigInteger)
     blocker_codes_json = Column(String, nullable=False)
+    # N-909-07: Bestaetigung "Bewertung aktuell" durch den Berater (ohne
+    # Owner-Frist Pflicht) und die wirksame Owner-Frist; beides im Hash.
+    manual_valuation_attested = Column(Integer, nullable=False, default=0)
+    manual_valuation_max_age_days = Column(Integer)
     snapshot_hash = Column(String, nullable=False)
     created_at = Column(String, nullable=False)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)

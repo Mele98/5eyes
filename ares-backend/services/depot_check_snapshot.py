@@ -32,10 +32,12 @@ from sqlalchemy.orm import Session
 
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
+from models.snapshots import DepotSnapshot
 from services.depot_check import _select_latest_run, compute_depot_check
 from services.holdings_valuation import (
     ValuationError,
     ValuationProjection,
+    assert_fx_evidence_current,
     mandate_has_recorded_depot_holdings,
     primary_reason,
     project_holdings_valuation,
@@ -380,6 +382,23 @@ def assert_analysis_matches_current_allocation(db: Session, mandate: Mandate, an
             "Depot-Snapshot neu speichern."
         )
     assert_depot_rows_complete(project_holdings_valuation(db, mandate))
+    # N-909-02: die Kursevidenz des GESPEICHERTEN Depot-Snapshots muss heute
+    # belegt sein (kein Alt-/Ersatzkurs im gedruckten Depot-Check).
+    stored = _stored_snapshot_fx_evidence(db, mandate, analysis)
+    if stored is not None:
+        assert_fx_evidence_current(db, mandate, stored)
+
+
+def _stored_snapshot_fx_evidence(db: Session, mandate: Mandate, analysis: dict):
+    snapshot_id = analysis.get("snapshot_id")
+    if not snapshot_id:
+        return None
+    row = db.query(DepotSnapshot).filter(
+        DepotSnapshot.id == str(snapshot_id), DepotSnapshot.mandate_id == str(mandate.id),
+    ).first()
+    if row is None:
+        return None
+    return verify_persisted_depot_snapshot(row, mandate_id=str(mandate.id)).get("fx_evidence")
 
 
 def assert_depot_rows_complete(projection: ValuationProjection) -> None:

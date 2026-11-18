@@ -21817,24 +21817,6 @@ async function openImplementationRecipe(){
   if(typeof eligOverrideReset==='function')eligOverrideReset();await refreshStrategyData(true,true);
   om('m-ums');
 }
-async function confirmImplementationRecipe(){
-  var ok=await refreshStrategyData(true,true);
-  if(!ok)return;
-  var mid=getActiveMandateId();
-  var runId=strategyState&&strategyState.recommendation&&strategyState.recommendation.run?strategyState.recommendation.run.id:null;
-  try{
-    if(mid&&runId&&!isDemoMandateId(mid)){
-      await API.fetch('/mandates/'+mid+'/recommendations/'+runId+'/finalize',{method:'PUT'});
-      updateStrategyStatus('Aktuelles Rezept wurde finalisiert. Kundenwirksam wird es nach der Publikation.',false);refreshAllocationPublication(true);
-    }else{
-      updateStrategyStatus('Aktuelles Rezept wurde live aufgebaut und kann jetzt gedruckt werden.',false);
-    }
-    cm('m-ums');
-    printPortfolioPlan();
-  }catch(e){
-    updateStrategyStatus('Rezept konnte nicht finalisiert werden: '+finalizeErrorText(e),true);if(typeof eligOverrideOnFinalizeBlocked==='function')eligOverrideOnFinalizeBlocked(mid,runId,e);
-  }
-}
 // RESERVE-LEDGER-SNAPSHOT-001: strukturierte Finalisierungs-Sperre
 // ({reason_code,message}) zeigt nur den Klartext mit Handlungsanweisung,
 // nie den technischen reason_code.
@@ -26741,6 +26723,6 @@ function openStammdatenModal(){
 </div>
 <!-- ─────────────────────────────────────────────────────────── -->
 
-<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./allocation-publication.js"></script><script src="./sustainability-preferences.js"></script>
+<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./finalize-attestation.js"></script><script src="./allocation-publication.js"></script><script src="./sustainability-preferences.js"></script>
 </body>
 </html>

@@ -61,6 +61,7 @@ def _finalize(session_factory, advisor_id, mid, run_id):
         advisor = db.query(User).filter(User.id == advisor_id).first()
         return finalize_recommendation(
             mandate_id=mid, run_id=run_id, request=_FakeRequest(), db=db, current_user=advisor,
+            confirm_valuations_current=True,
         )
 
 

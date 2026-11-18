@@ -218,7 +218,7 @@ def test_n04_outdated_text_or_policy_version_blocks_finalization(api, scenario, 
     monkeypatch.setitem(sp.PROFILE_TEXTS, sp.PROFILE_ESG_FACTORS, sp.PROFILE_TEXTS[sp.PROFILE_ESG_FACTORS] + " (neu)")
     state = api.get(f"/mandates/{mid}/sustainability-preferences").json()
     assert state["state"] == "stale" and state["stale_reasons"] == ["definition_outdated"]
-    resp = api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize")
+    resp = api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize?confirm_valuations_current=true")
     assert resp.status_code == 409, resp.text
     assert resp.json()["detail"]["reason_code"] == "SUSTAINABILITY_PREFERENCE_STALE"
     audits = _block_audits(session_factory)
@@ -226,7 +226,7 @@ def test_n04_outdated_text_or_policy_version_blocks_finalization(api, scenario, 
     monkeypatch.undo()
     # Erneut erfasst -> Finalisierung moeglich.
     assert api.get(f"/mandates/{mid}/sustainability-preferences").json()["state"] == "preference_stated"
-    resp = api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize")
+    resp = api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize?confirm_valuations_current=true")
     assert resp.status_code == 200, resp.text
 
 
@@ -275,7 +275,7 @@ def test_n06_hash_or_time_manipulation_blocks(api, scenario, session_factory):
         conn.close()
     state = api.get(f"/mandates/{mid}/sustainability-preferences").json()
     assert state["state"] == "unreadable"
-    resp = api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize")
+    resp = api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize?confirm_valuations_current=true")
     assert resp.status_code == 409
     assert resp.json()["detail"]["reason_code"] == "SUSTAINABILITY_PREFERENCE_UNREADABLE"
     assert _block_audits(session_factory)[-1]["state"] == "unreadable"
@@ -366,7 +366,7 @@ def test_handoff_blocked_by_stale_preference(api, scenario, session_factory, mon
     mid = scenario["mandate_id"]
     _ok_capture(api, mid)
     run_id = _finalize_flow(api, mid)
-    assert api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize").status_code == 200
+    assert api.put(f"/mandates/{mid}/recommendations/{run_id}/finalize?confirm_valuations_current=true").status_code == 200
     import services.recommendation_release_gate as release_gate
 
     monkeypatch.setattr(release_gate, "_today", lambda: "2999-01-01")

@@ -91,6 +91,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+from collections import OrderedDict
 import json
 import math
 import random
@@ -1633,7 +1634,7 @@ def _sequence_of_returns_depletion(
 # Seed, Horizont und Estimand bleiben unveraendert; der persistente,
 # invalidierbare Artefakt-Speicher ist PERF-RC-01.
 _MC_MEMO_LIMIT = 32
-_MC_MEMO: "dict[str, dict]" = {}
+_MC_MEMO: "OrderedDict[str, dict]" = OrderedDict()
 _MC_MEMO_LOCK = threading.Lock()
 _MC_MEMO_STATS = {"hits": 0, "misses": 0}
 
@@ -1645,7 +1646,9 @@ def _mc_fingerprint(value):
     if isinstance(value, float):
         return ["float", repr(value)]
     if isinstance(value, dict):
-        return ["dict", sorted([str(k), _mc_fingerprint(v)] for k, v in value.items())]
+        # Schluessel typtreu ({1: x} != {"1": x}); Ordnung ueber die kanonische Form.
+        items = [[_mc_fingerprint(k), _mc_fingerprint(v)] for k, v in value.items()]
+        return ["dict", sorted(items, key=lambda item: json.dumps(item[0], sort_keys=True))]
     if isinstance(value, (list, tuple)):
         return [type(value).__name__, [_mc_fingerprint(v) for v in value]]
     if is_dataclass(value):
@@ -1696,15 +1699,18 @@ def memoized_allocation_monte_carlo(**kwargs) -> dict:
     key = key_payload
     with _MC_MEMO_LOCK:
         cached = _MC_MEMO.get(key)
+        if cached is not None:
+            _MC_MEMO.move_to_end(key)  # LRU: zuletzt genutzt bleibt
     if cached is not None:
         _MC_MEMO_STATS["hits"] += 1
         return copy.deepcopy(cached)
     _MC_MEMO_STATS["misses"] += 1
     result = _run_allocation_monte_carlo(**kwargs)
     with _MC_MEMO_LOCK:
-        if len(_MC_MEMO) >= _MC_MEMO_LIMIT:
-            _MC_MEMO.pop(next(iter(_MC_MEMO)))
         _MC_MEMO[key] = copy.deepcopy(result)
+        _MC_MEMO.move_to_end(key)
+        while len(_MC_MEMO) > _MC_MEMO_LIMIT:
+            _MC_MEMO.popitem(last=False)  # am laengsten ungenutzter Eintrag
     return result
 
 

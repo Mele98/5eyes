@@ -142,6 +142,15 @@ class Tenant(Base):
     # Nachhaltigkeitspraeferenz in Monaten als HAUSPOLITIK des Tenants (keine
     # gesetzliche Frist). NULL = Default 36 (core/sustainability_preference.py).
     sustainability_review_months = Column(Integer)
+    # CCX-P3-FX (N-909-07, Entscheid Claude als Owner-Vertretung): Frische eines
+    # Wechselkurses in Kalendertagen (1..31). NULL = dokumentierter Default 5
+    # (gleiche Regel wie Marktpreise, stale_after_days=5).
+    fx_max_age_days = Column(Integer)
+    # Maximales Alter einer manuellen Bewertung (nicht kotierte Fonds, manuelle
+    # NAV, erfasste Kontostaende) in Tagen. Bewusst OHNE Default: NULL = keine
+    # Owner-Frist -> der Berater bestaetigt bei jeder Finalisierung "Bewertung
+    # aktuell" (auditiert, im Bewertungs-Snapshot gebunden).
+    manual_valuation_max_age_days = Column(Integer)
 
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)

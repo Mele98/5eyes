@@ -187,7 +187,10 @@ GOLDEN_SORTED_TABLES_SHA256 = "9311fe7a1c805b2c7741ef4853bd2d56793afa4a296ca386f
 # CCX-P4: GET/POST /mandates/{id}/allocation-publication, GET
 # /mandates/{id}/target-allocation/published, publication_status in
 # TargetAllocationResponse, AllocationPublication*-Schemas (inkl. approval_mode_label).
-GOLDEN_OPENAPI_SHA256 = "884d81fe986d25e54328bb2d314bdcda88d297759febf4df10bb8b2b17057e69"
+# CCX-P3 Nachtrag 1: finalize `confirm_valuations_current`; Tenant-Policy
+# `fx_max_age_days`/`manual_valuation_max_age_days` in Tenant*-Schemas.
+# Merge P3 Nachtrag 1 in CCX-P4 (2026-11-18): beide Schema-Erweiterungen.
+GOLDEN_OPENAPI_SHA256 = "c76b1192705a27e38174d38417687345fd1343351f47ddea0b273f01c0ca3f1b"
 
 _PROBE = """
 import hashlib, json

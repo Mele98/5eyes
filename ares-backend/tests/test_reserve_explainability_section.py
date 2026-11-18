@@ -42,6 +42,7 @@ from models.mandates import Mandate
 from models.profiling import RiskAssessment
 from models.users import User
 from models.wealth import Cashflow, WealthPosition
+from tests.fx_test_support import seed_attested_fx  # noqa: E402
 from services.advisory_report import _build_reserve_explainability, compute_advisory_report
 from services.portfolio_engine import ensure_runtime_reference_data, generate_target_allocation
 from tests.risk_fixture_helpers import (
@@ -310,6 +311,8 @@ def test_reserve_explainability_no_spurious_drift_for_non_base_currency_position
         s.commit()
         ensure_runtime_reference_data(s, advisor_id)
         s.commit()
+        # CCX-P3-FX (N-909-01): CHF-Position im EUR-Mandat nur zum belegten Kurs.
+        seed_attested_fx(s, ["EUR"])
 
     with session_factory() as s:
         mandate = s.query(Mandate).filter(Mandate.id == mid).first()

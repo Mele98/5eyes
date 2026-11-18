@@ -113,6 +113,13 @@ CCX-P4 (2026-11-14): Publikationsstatus der Soll-Allokation und "Portfolio
 umsetzen" (drei Funktionen umgezogen) als neuer Teil
 ``allocation-publication.js`` (276/13973); Monolith auf den gemessenen Stand
 gesenkt: 26746 Z./1644375 B.
+CCX-P3 Nachtrag 1 (N-909-07): Finalisierung mit Bestaetigung "Bewertung
+aktuell" als Teil ``finalize-attestation.js`` (27/1705); Monolith 26887 Z./
+1650341 B.
+Merge P3 Nachtrag 1 in CCX-P4 (2026-11-18): beide Teile gelten; die P4-Statusmeldung
+nach dem Finalisieren ("Kundenwirksam wird es nach der Publikation" +
+refreshAllocationPublication) sitzt jetzt in ``finalize-attestation.js``
+(27/1753); Monolith auf den gemessenen Stand gesenkt: 26728 Z./1643476 B.
 """
 from __future__ import annotations
 
@@ -121,9 +128,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26746
+MONOLITH_MAX_LINES = 26728
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1644375
+MONOLITH_MAX_BYTES = 1643476
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -143,6 +150,7 @@ EXTRACTED_PART_BUDGETS = {
     "sustainability-preferences.js": (519, 26082),
     "wealth-inflows.js": (282, 16491),
     "allocation-publication.js": (276, 13973),
+    "finalize-attestation.js": (27, 1753),
 }
 
 

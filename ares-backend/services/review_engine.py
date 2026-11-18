@@ -68,7 +68,7 @@ def _build_current_drift_buckets(
         if _norm_text(getattr(position, "assignment", None))
         == "Beratungsvermoegen"
     ]
-    fx_source = FXRateSource.from_db_for_model(db)
+    fx_source = FXRateSource.from_db_strict_for_model(db, tenant_id=getattr(mandate, "tenant_id", None))  # CCX-P3-FX N-909-01
     target_currency = str(
         getattr(mandate, "base_currency", "CHF") or "CHF"
     ).upper().strip()

@@ -4615,6 +4615,7 @@ def finalize_recommendation(
     mandate_id: str, run_id: str,
     request: Request,
     confirm_no_existing_holdings: bool = False,
+    confirm_valuations_current: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_advisor),
     expected_input_manifest_hash: str | None = Query(
@@ -4782,6 +4783,7 @@ def finalize_recommendation(
     envelope = finalize_advisory_decision(
         db, mandate=mandate, run=run, user=current_user, ip_address=_extract_client_ip(request),
         confirm_no_existing_holdings=confirm_no_existing_holdings,
+        confirm_valuations_current=confirm_valuations_current,
         # Direktaufruf (ohne FastAPI) liefert den Query-Default, nie einen Hash.
         expected_manifest_hash=expected_input_manifest_hash if isinstance(expected_input_manifest_hash, str) else None,
     )
