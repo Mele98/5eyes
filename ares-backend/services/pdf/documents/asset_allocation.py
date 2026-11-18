@@ -14,6 +14,12 @@ from services.pdf.components.single_report_disclaimer import (
     make_single_report_disclaimer,
 )
 from services.pdf.provisional_notice import make_provisional_notice_flowables
+from core.presentation_rounding import (
+    allocation_pct_texts,
+    format_amount_minor,
+    format_bps_as_pct,
+    sub_allocation_pct_texts,
+)
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -92,7 +98,14 @@ def build_asset_allocation_flowables(
             data.bucket_bands_bps,
             base_currency=ctx.base_currency,
             advisory_wealth_rappen=data.advisory_wealth_rappen,
+            bucket_amounts_rappen=data.bucket_amounts_rappen,
+            external_reserve_rappen=data.external_reserve_rappen,
         ))
+        if getattr(data, "strategy_basis_note", None):
+            flowables.append(Paragraph(
+                f'<font name="{FONT_DEFAULT}" size="8" color="#7a5200">{_esc(data.strategy_basis_note)}</font>',
+                styles["body"],
+            ))
         flowables.append(PageBreak())
         flowables.extend(make_banner_header(
             ctx,
@@ -109,11 +122,16 @@ def build_asset_allocation_flowables(
             styles["body"],
         ))
         flowables.append(Spacer(1, 3 * mm))
+        # Live-Test 2026-11 H3: Subklassen der STRATEGIE (SAA-Sub-Allokation),
+        # nicht der Produktmix der Empfehlung -- dort ist z.B. eine nicht
+        # umsetzbare EM-Quote im CH-Produkt enthalten.
         flowables.append(_make_sub_asset_class_table(
-            data.products,
+            data.sub_allocations or data.products,
             data.target_allocation_bps,
             base_currency=ctx.base_currency,
             advisory_wealth_rappen=data.advisory_wealth_rappen,
+            bucket_amounts_rappen=data.bucket_amounts_rappen,
+            external_reserve_rappen=data.external_reserve_rappen,
         ))
     else:
         flowables.append(Paragraph(
@@ -136,10 +154,12 @@ def _make_structure_description(data: AnlagestrategieData):
         text = "Noch keine Zielstruktur dokumentiert."
     else:
         lead_bucket, lead_bps = active[0]
+        # G7: derselbe apportionierte Wert wie in Tabelle/Legende.
+        lead_text = allocation_pct_texts(dict(active))[lead_bucket]
         text = (
             f"Die empfohlene Struktur kombiniert {len(active)} "
             f"Hauptanlageklassen. Den groessten Anteil bildet "
-            f"{asset_class_label(lead_bucket)} mit {lead_bps / 100:.1f}%. "
+            f"{asset_class_label(lead_bucket)} mit {lead_text}. "
             "Die Zielquote markiert den strategischen Mittelpunkt; Min/Max "
             "definieren den vereinbarten Handlungskorridor. Bewegungen innerhalb "
             "dieses Korridors sind kein automatisches Handelssignal."
@@ -163,25 +183,51 @@ def _make_structure_description(data: AnlagestrategieData):
     return block
 
 
+RESERVE_ROW_LABEL = "Liquiditätsreserve (ausserhalb der Anlagestrategie)"
+STRATEGY_TOTAL_LABEL = "Total Anlagestrategie (Strategiebasis)"
+ADVISORY_TOTAL_LABEL = "Total Beratungsvermögen"
+
+
+def _bucket_amount(bucket, bps, advisory_wealth_rappen, bucket_amounts_rappen) -> int:
+    """Zielbetrag einer Hauptklasse auf der Strategiebasis (Live-Test H2/H3).
+
+    Bevorzugt die vom Router auf der Strategiebasis berechneten Betraege;
+    Rueckfall (aeltere Aufrufer ohne Betraege) auf Gewicht x Beratungsvermoegen.
+    """
+    amounts = bucket_amounts_rappen or {}
+    if bucket in amounts:
+        return int(amounts.get(bucket) or 0)
+    return int((advisory_wealth_rappen or 0) * bps / 10000)
+
+
 def _make_main_allocation_table(
     allocation_bps,
     bands_bps,
     *,
     base_currency: str,
     advisory_wealth_rappen: int | None,
+    bucket_amounts_rappen=None,
+    external_reserve_rappen: int = 0,
 ) -> Table:
     rows = [["Hauptanlageklasse", "Zielquote", "Band Min", "Band Max", f"Zielbetrag ({base_currency})"]]
+    strategy_total = 0
+    shown = allocation_pct_texts({b: int((allocation_bps or {}).get(b, 0) or 0) for b in _ordered_buckets(allocation_bps)})
     for bucket in _ordered_buckets(allocation_bps):
         bps = int((allocation_bps or {}).get(bucket, 0) or 0)
         band = (bands_bps or {}).get(bucket) or (bps, bps)
-        amount = int((advisory_wealth_rappen or 0) * bps / 10000)
+        amount = _bucket_amount(bucket, bps, advisory_wealth_rappen, bucket_amounts_rappen)
+        strategy_total += amount
         rows.append([
             asset_class_label(bucket),
-            _format_percent(bps),
+            shown[bucket],
             _format_percent(int(band[0] or 0)),
             _format_percent(int(band[1] or 0)),
             _format_amount(amount, base_currency) if advisory_wealth_rappen else "-",
         ])
+    summary_rows = _reserve_summary_rows(
+        strategy_total, external_reserve_rappen, base_currency, width=5,
+    ) if advisory_wealth_rappen else []
+    rows.extend(summary_rows)
     page_width, _ = PAGE_SIZE
     table_width = page_width - 24 * mm
     table = Table(
@@ -211,8 +257,42 @@ def _make_main_allocation_table(
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
         ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-    ]))
+    ] + _summary_row_styles(len(rows), len(summary_rows))))
     return table
+
+
+def _reserve_summary_rows(strategy_total: int, reserve: int, base_currency: str, *, width: int) -> list:
+    """Live-Test 2026-11 H2: Reserve sichtbar, Betraege summieren auf das
+    ausgewiesene Total. Ohne Reserve unveraendert (keine Zusatzzeilen)."""
+    reserve = max(0, int(reserve or 0))
+    if reserve <= 0:
+        return []
+    pad = [""] * (width - 3)
+
+    def _row(label, pct, amount):
+        return [label, pct, *pad, _format_amount(amount, base_currency)]
+
+    return [
+        _row(STRATEGY_TOTAL_LABEL, "100%", strategy_total),
+        _row(RESERVE_ROW_LABEL, "\u2013", reserve),
+        _row(ADVISORY_TOTAL_LABEL, "", strategy_total + reserve),
+    ]
+
+
+def _summary_row_styles(n_rows: int, n_summary: int) -> list:
+    if not n_summary:
+        return []
+    first = n_rows - n_summary
+    # N-858-5: Summenzeilen nie allein auf die Folgeseite -- mit der letzten
+    # Klassen-/Subklassenzeile zusammenhalten.
+    return [
+        ("NOSPLIT", (0, max(1, first - 1)), (-1, n_rows - 1)),
+        ("FONTNAME", (0, first), (-1, first), FONT_BOLD),
+        ("LINEABOVE", (0, first), (-1, first), 0.8, COLOR_BORDER),
+        ("FONTNAME", (0, n_rows - 1), (-1, n_rows - 1), FONT_BOLD),
+        ("LINEABOVE", (0, n_rows - 1), (-1, n_rows - 1), 0.8, COLOR_BORDER),
+        ("BACKGROUND", (0, n_rows - 1), (-1, n_rows - 1), COLOR_TABLE_HEADER_BG),
+    ]
 
 
 def _make_sub_asset_class_table(
@@ -221,6 +301,8 @@ def _make_sub_asset_class_table(
     *,
     base_currency: str,
     advisory_wealth_rappen: int | None,
+    bucket_amounts_rappen=None,
+    external_reserve_rappen: int = 0,
 ) -> Table:
     rows = [["Anlageklasse / Subanlageklasse", "Gewicht", f"Betrag ({base_currency})"]]
     group_row_indexes: list[int] = []
@@ -241,14 +323,20 @@ def _make_sub_asset_class_table(
     for (bucket, sub), values in sub_rows.items():
         sub_by_bucket.setdefault(bucket, []).append((sub, values))
 
+    strategy_total = 0
+    shown = allocation_pct_texts({b: int((allocation_bps or {}).get(b, 0) or 0) for b in _ordered_buckets(allocation_bps)})
     for bucket in _ordered_buckets(allocation_bps):
         bucket_bps = int((allocation_bps or {}).get(bucket, 0) or 0)
-        bucket_amount = int(advisory_wealth_rappen * bucket_bps / 10000) if advisory_wealth_rappen else 0
+        bucket_amount = (
+            _bucket_amount(bucket, bucket_bps, advisory_wealth_rappen, bucket_amounts_rappen)
+            if advisory_wealth_rappen else 0
+        )
+        strategy_total += bucket_amount
         group_row_indexes.append(len(rows))
         rows.append([
             f"{asset_class_label(bucket)} Total",
-            _format_percent(bucket_bps),
-            _format_amount(bucket_amount, base_currency) if bucket_amount > 0 else "-",
+            shown[bucket],
+            _format_amount(bucket_amount, base_currency) if (bucket_amount > 0 or bucket in (bucket_amounts_rappen or {})) else "-",
         ])
 
         children = sorted(
@@ -257,18 +345,27 @@ def _make_sub_asset_class_table(
         )
         if not children and bucket_bps > 0:
             children = [(asset_class_label(bucket), {"bps": bucket_bps, "amount": bucket_amount})]
+        child_shown = sub_allocation_pct_texts(
+            shown[bucket], {sub: int(values["bps"] or 0) for sub, values in children}, bucket_bps,
+        )
         for sub, values in children:
             amount = int(values["amount"] or 0)
-            if amount <= 0 and advisory_wealth_rappen:
+            # N-858-10: Rueckfall nur ohne Betragsangabe, nicht bei Basis 0.
+            if amount <= 0 and advisory_wealth_rappen and not bucket_amounts_rappen:
                 amount = int(advisory_wealth_rappen * int(values["bps"] or 0) / 10000)
             rows.append([
                 Paragraph(
                     f'<font color="#64748b">- {_esc(sub)}</font>',
                     _table_cell_style(),
                 ),
-                _format_percent(int(values["bps"] or 0)),
-                _format_amount(amount, base_currency) if amount > 0 else "-",
+                child_shown.get(sub, format_bps_as_pct(int(values["bps"] or 0))),
+                _format_amount(amount, base_currency) if (amount > 0 or bucket_amounts_rappen) else "-",
             ])
+
+    summary_rows = _reserve_summary_rows(
+        strategy_total, external_reserve_rappen, base_currency, width=3,
+    ) if advisory_wealth_rappen else []
+    rows.extend(summary_rows)
 
     page_width, _ = PAGE_SIZE
     table_width = page_width - 24 * mm
@@ -304,6 +401,7 @@ def _make_sub_asset_class_table(
             ("LINEABOVE", (0, row_index), (-1, row_index), 0.45, COLOR_BORDER),
             ("TEXTCOLOR", (0, row_index), (-1, row_index), colors.HexColor("#0f172a")),
         ])
+    style_commands.extend(_summary_row_styles(len(rows), len(summary_rows)))
     table.setStyle(TableStyle(style_commands))
     return table
 
@@ -332,10 +430,8 @@ def _ordered_buckets(allocation_bps) -> list[str]:
 
 
 def _format_percent(bps: int) -> str:
-    pct = bps / 100.0
-    if bps % 100 == 0:
-        return f"{pct:.0f}%"
-    return f"{pct:.1f}%"
+    # G7: eine Darstellung fuer alle Kanaele (1 Nachkommastelle, Half-up).
+    return format_bps_as_pct(bps)
 
 
 def _table_cell_style():
@@ -353,8 +449,4 @@ def _format_amount(rappen: int, currency: str = "CHF") -> str:
     # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): rappen ist bereits in
     # mandate.base_currency (siehe portfolio_engine._load_allocation_inputs).
     # Kein zweites convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
-    try:
-        value = rappen / 100.0
-        return f"{currency} {value:,.0f}".replace(",", "'")
-    except Exception:
-        return f"CHF {rappen/100.0:,.0f}".replace(",", "'")
+    return format_amount_minor(rappen, currency or "CHF")

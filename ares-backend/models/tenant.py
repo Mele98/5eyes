@@ -23,9 +23,13 @@ Tenant-Name + hosting_tier + license_status leben hier. Auth-Layer
 """
 from __future__ import annotations
 
-from sqlalchemy import Column, Integer, String, text
+from sqlalchemy import DDL, CheckConstraint, Column, ForeignKey, Integer, String, UniqueConstraint, event, text
 
-from database import Base
+from database import (
+    KYC_REVIEW_POLICY_ACTIVATION_SQLITE_TRIGGERS,
+    KYC_REVIEW_POLICY_SQLITE_TRIGGERS,
+    Base,
+)
 
 
 # Tier-Konstanten (Single-Source-of-Truth, referenziert in config.py + Tests)
@@ -134,8 +138,168 @@ class Tenant(Base):
     # bewusst mit False (explizites Opt-in fuer die hoehere Bewilligungsstufe,
     # kein Opt-out).
     discretionary_management_licensed = Column(Integer, nullable=False, default=1)
+    # E2a Nachhaltigkeitspraeferenzen (Dok. 106, 2026-11-11): Review-Frist der
+    # Nachhaltigkeitspraeferenz in Monaten als HAUSPOLITIK des Tenants (keine
+    # gesetzliche Frist). NULL = Default 36 (core/sustainability_preference.py).
+    sustainability_review_months = Column(Integer)
 
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
+
+
+# ---------------------------------------------------------------------------
+# H8 C-2 (Compliance-Audit 2026-11-07, Luecke 2): Rechtliche Angaben der Firma
+# fuer die Kundeninformation nach Art. 8 Abs. 1 FIDLEG (lit. a Name und
+# Adresse, lit. b Taetigkeitsfeld und Aufsichtsstatus, lit. c Ombudsverfahren;
+# lit. d allgemeine Risiken liefert die Vorlage selbst) und Art. 9 FIDLEG
+# (Abgabe vor Vertragsabschluss).
+#
+# Eine Zeile je Tenant. Ares belegt KEINEN Wert vor: keine Firma, keine
+# Adresse, keine Ombudsstelle, keine Aufsichtsorganisation. Fehlt eine
+# Pflichtangabe, sperren Kundeninformations-PDF, Finalisierung und
+# Vertragsunterzeichnung fail-closed (services/recommendation_release_gate.py::
+# client_onboarding_findings) und nennen die fehlende Angabe.
+#
+# Jede Aenderung wird feldweise im Audit-Log festgehalten; ``revision`` steigt
+# mit jeder inhaltlichen Aenderung, ``profile_hash`` ist der SHA-256 ueber die
+# kanonischen Inhaltsfelder. Eine abgegebene Kundeninformation haelt Revision
+# und Hash fest (models/review.py::ClientInformationDelivery).
+# ---------------------------------------------------------------------------
+
+# Aufsichtsstatus (Art. 8 Abs. 1 lit. b FIDLEG). Bewusst grob und neutral; den
+# Wortlaut der Aufsicht (Behoerde, Aufsichtsorganisation, Register) erfasst der
+# Owner selbst.
+SUPERVISION_PORTFOLIO_MANAGER = "vermoegensverwalter_finig"
+SUPERVISION_OTHER_LICENSE = "andere_finma_bewilligung"
+SUPERVISION_ADVISER_REGISTER = "anlageberater_ohne_prudenzielle_aufsicht"
+
+ALLOWED_SUPERVISION_TYPES = (
+    SUPERVISION_PORTFOLIO_MANAGER,
+    SUPERVISION_OTHER_LICENSE,
+    SUPERVISION_ADVISER_REGISTER,
+)
+
+
+class TenantLegalProfile(Base):
+    __tablename__ = "tenant_legal_profiles"
+
+    # Eigene ``id`` wie jede Tenant-Tabelle (RLS-/Inventar-Konvention);
+    # ``tenant_id`` ist eindeutig -- eine Zeile je Tenant.
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, nullable=False, unique=True)
+    legal_name = Column(String)
+    address_street = Column(String)
+    address_postal_code = Column(String)
+    address_city = Column(String)
+    # ISO-3166-Alpha-2 des Sitzes. Bestimmt das Informationsregime (heute nur
+    # Sitz Schweiz = FIDLEG abgebildet; alles andere sperrt fail-closed).
+    address_country = Column(String)
+    business_activity = Column(String)
+    supervision_type = Column(String)
+    supervisory_authority = Column(String)
+    supervisory_organisation = Column(String)
+    license_reference = Column(String)
+    ombudsman_name = Column(String)
+    ombudsman_address = Column(String)
+    contact_phone = Column(String)
+    contact_email = Column(String)
+    contact_website = Column(String)
+    revision = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    profile_hash = Column(String)
+    updated_by = Column(String)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+
+# ---------------------------------------------------------------------------
+# C-890-01: Wiedervorlage-Policy der KYC-Bestaetigung (je Tenant/Jurisdiktion).
+#
+# Ares erfindet KEINE Frist. Der maximale Abstand zwischen Abschluss der
+# GwG-Abklaerung und naechster Aktualisierung kommt ausschliesslich aus einer
+# vom Owner erfassten und von einer zweiten Person (Admin) freigegebenen
+# Policy. Ohne wirksame Policy blockieren Erfassung und Kundenfreigabe
+# (services/recommendation_release_gate.py, fail-closed).
+#
+# Beide Tabellen sind append-only (Trigger SQLite/PostgreSQL): eine Aenderung
+# ist eine neue Version, die erneut freigegeben wird. Die Aktivierungen bilden
+# je Tenant/Jurisdiktion eine lineare Kette (UNIQUE auf den Vorgaenger, erste
+# Aktivierung mit dem Vorgaenger "GENESIS"): zwei parallele Aktivierungen auf
+# denselben Stand koennen nie beide gelingen.
+# ---------------------------------------------------------------------------
+
+KYC_REVIEW_RISK_NORMAL = "normal"
+KYC_REVIEW_RISK_ELEVATED = "erhoeht"
+KYC_REVIEW_GENESIS = "GENESIS"
+
+
+class KycReviewPolicy(Base):
+    __tablename__ = "kyc_review_policies"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "jurisdiction", "version", name="uq_kyc_review_policies_version"),
+        CheckConstraint("version > 0", name="ck_kyc_review_policies_version"),
+        CheckConstraint("normal_max_months > 0", name="ck_kyc_review_policies_normal"),
+        CheckConstraint(
+            "elevated_max_months IS NULL OR "
+            "(elevated_max_months > 0 AND elevated_max_months <= normal_max_months)",
+            name="ck_kyc_review_policies_elevated",
+        ),
+        CheckConstraint(
+            "valid_until IS NULL OR valid_until >= valid_from",
+            name="ck_kyc_review_policies_validity",
+        ),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, nullable=False)
+    jurisdiction = Column(String, nullable=False)
+    policy_id = Column(String, nullable=False)
+    version = Column(Integer, nullable=False)
+    normal_max_months = Column(Integer, nullable=False)
+    elevated_max_months = Column(Integer)
+    valid_from = Column(String, nullable=False)
+    valid_until = Column(String)
+    source_reference = Column(String, nullable=False)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(String, nullable=False)
+    policy_hash = Column(String, nullable=False)
+
+
+class KycReviewPolicyActivation(Base):
+    """Vier-Augen-Freigabe = Aktivierung einer Policy-Version. Bindet den
+    gesehenen ``policy_hash`` und die unveraenderliche Freigabereferenz."""
+
+    __tablename__ = "kyc_review_policy_activations"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "jurisdiction", "predecessor_activation_id",
+            name="uq_kyc_review_policy_activations_chain",
+        ),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, nullable=False)
+    jurisdiction = Column(String, nullable=False)
+    policy_row_id = Column(String, nullable=False, unique=True)
+    predecessor_activation_id = Column(String, nullable=False)
+    approved_by = Column(String, ForeignKey("users.id"), nullable=False)
+    approved_at = Column(String, nullable=False)
+    approval_reference = Column(String, nullable=False)
+    policy_hash = Column(String, nullable=False)
+    activation_hash = Column(String, nullable=False)
+    # Nachtrag 4 (N-897-13): Bereitschaft des Freigebers zum Freigabezeitpunkt
+    # (1 = geprueft; NULL = Bestand, dann zaehlt der heutige Kontostand).
+    approver_ready = Column(Integer)
+
+
+for _model, _ddls in (
+    (KycReviewPolicy, KYC_REVIEW_POLICY_SQLITE_TRIGGERS),
+    (KycReviewPolicyActivation, KYC_REVIEW_POLICY_ACTIVATION_SQLITE_TRIGGERS),
+):
+    for _trigger_ddl in _ddls:
+        event.listen(
+            _model.__table__,
+            "after_create",
+            DDL(_trigger_ddl).execute_if(dialect="sqlite"),
+        )

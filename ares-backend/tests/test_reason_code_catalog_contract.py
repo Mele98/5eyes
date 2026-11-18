@@ -45,11 +45,25 @@ CATALOG = {m.value for m in ReasonCode}
 # mit Funktion und Anzahl: eine neue dynamische Stelle mit gleichem Text
 # (andere Funktion oder zusaetzliche Zeile) faellt auf (K-2-Review N1).
 KNOWN_UNRESOLVED: dict[tuple[str, str, str], int] = {
+    # H10 Nachtrag 1: Durchreichungen bereits katalogisierter Codes (Gate-Ergebnis
+    # PROCESSING_ACTIVITY_* bzw. gespeicherter EGRESS_*-Code im Protokoll).
+    ('routers/privacy.py', 'list_egress_events', 'r.reason_code'): 1,
+    ('services/dsg_governance.py', 'sink', "str(item['reason_code'])"): 1,
+    ('services/privacy_subject_requests.py', 'build_export', "open_rows[0]['reason_code']"): 1,
+    ('services/privacy_subject_requests.py', 'build_export', "r['reason_code']"): 1,
+    # H10 Nachtrag 3: Sperrgrund je Kanal (EGRESS_* aus Freigabe bzw. Owner-Sperre).
+    ('services/dsg_governance.py', 'egress_status', 'code'): 1,
     ('core/reason_codes.py', 'DomainError.__init__',
      'reason_code.value if isinstance(reason_code, ReasonCode) else reason_code'): 1,
     ('core/reason_codes.py', 'DomainError.as_detail',
      'self.reason_code'): 1,
     ('routers/client_portal.py', '_assert_portal_report_releasable',
+     "str(detail.get('reason_code') or 'RELEASE_BLOCKED')"): 1,
+    ('routers/review.py', 'finalize_recommendation',
+     "retro_block['reason_code']"): 2,
+    ('services/recommendation_release_gate.py', 'assert_retrocession_release_eligible',
+     'reason_code'): 1,
+    ('routers/onsite_signature.py', '_release_gates',
      "str(detail.get('reason_code') or 'RELEASE_BLOCKED')"): 1,
     ('routers/eligibility_overrides.py', '_conflict',
      'exc.code'): 1,
@@ -85,6 +99,11 @@ KNOWN_UNRESOLVED: dict[tuple[str, str, str], int] = {
      'event.reason_code'): 1,
     ('services/product_eligibility_override.py', 'override_evidence_hash',
      'row.reason_code'): 1,
+    # E2a: Durchreichung der Literale aus core/sustainability_preference.py::
+    # release_violation/document_violation (SUSTAINABILITY_PREFERENCE_STALE/
+    # _UNREADABLE, SUSTAINABILITY_DOCUMENT_OUTDATED/_UNBOUND, alle im Katalog).
+    ('services/recommendation_release_gate.py', '_preference_block',
+     'code'): 1,
     ('services/risk_capacity_evaluation_snapshot.py', 'replay_snapshot',
      "stored_result.get('reason_code')"): 1,
     ('services/risk_capacity_evaluation_snapshot.py', 'structured_result',
@@ -97,6 +116,21 @@ KNOWN_UNRESOLVED: dict[tuple[str, str, str], int] = {
      'reason_code'): 1,
     ('services/suitability_cap_check.py', 'evaluate_house_matrix_cap',
      'resolution.reason_code'): 1,
+    # C-890-01: Durchreichungen des Wiedervorlage-Codes aus der Policy-
+    # Aufloesung (resolve_kyc_review_policy). Der Wertebereich ist geschlossen:
+    # genau die Schluessel von recommendation_release_gate._REVIEW_MESSAGES,
+    # jeder davon im Katalog (tests/test_c890_01_kyc_review_policy.py::
+    # test_reason_codes_are_in_the_catalog).
+    ('routers/clients.py', '_kyc_review_detail', 'code'): 2,
+    ('routers/review.py', 'activate_kyc_review_policy', "head['reason_code']"): 2,
+    ('routers/review.py', 'list_kyc_review_policies', "current['reason_code']"): 1,
+    ('services/recommendation_release_gate.py', '_finding', 'reason_code'): 1,
+    ('services/recommendation_release_gate.py', '_review_finding', 'reason_code'): 1,
+    ('services/recommendation_release_gate.py', 'kyc_review_findings', "current['reason_code']"): 2,
+    ('services/recommendation_release_gate.py', 'kyc_review_status', 'first'): 1,
+    # C-890-01 Nachtrag 3: Kundenportal protokolliert den ersten Finding-Code
+    # der Wiedervorlage-Sperre (Wertebereich wie oben, geschlossen).
+    ('routers/client_portal.py', '_assert_portal_report_releasable', "str(detail['finding_codes'][0])"): 1,
 }
 
 

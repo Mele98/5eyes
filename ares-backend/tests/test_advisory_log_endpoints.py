@@ -2,7 +2,7 @@
 
 Deckt:
 - POST: Pflichtfeld-Validation (description >= 30, topics >= 1, channel-enum, …)
-- POST: Hash + retain_until werden korrekt gesetzt
+- POST: Hash + retain_until werden korrekt gesetzt (H7 C-6: offenes Mandat = NULL)
 - PUT: Update erzeugt neue Version, altes superseded
 - PUT: Doppel-Update auf superseded → 409
 - GET single: setzt last_read_at + last_read_by
@@ -255,7 +255,8 @@ def test_post_with_valid_payload_creates_entry(http_client):
     assert body["description"].startswith("SAA besprochen")
     assert body["integrity_hash"] is not None
     assert len(body["integrity_hash"]) == 64
-    assert body["retain_until"] == "2036-05-28"
+    # H7 C-6: Mandat offen -> Frist laeuft ab Mandatsende (NULL bis dahin).
+    assert body["retain_until"] is None
     assert body["version"] == 1
     assert body["topics"] == ["Strategic Asset Allocation", "Risikoprofil"]
     assert body["risk_warnings_given"] == ["Marktrisiko", "Fremdwährungsrisiko"]
@@ -363,7 +364,7 @@ def test_post_accepts_entry_datetime_without_milliseconds(http_client):
         f"/mandates/{mandate.id}/advisory-log", json=payload,
     )
     assert resp.status_code == 201, resp.text
-    assert resp.json()["retain_until"] == "2036-05-28"
+    assert resp.json()["retain_until"] is None  # H7 C-6: Mandat offen
 
 
 def test_post_requires_decision_when_status_advanced(http_client):

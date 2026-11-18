@@ -67,10 +67,17 @@ def test_verify_at_timestamp_zero_does_not_crash():
 
 
 def test_provisioning_uri_format():
-    uri = totp.provisioning_uri("ABC234", "advisor@firma.ch", issuer="5eyes")
-    assert uri.startswith("otpauth://totp/")
+    uri = totp.provisioning_uri("ABC234", "advisor@firma.ch", issuer="Ares")
+    assert uri.startswith("otpauth://totp/Ares%3Aadvisor%40firma.ch?")
     assert "secret=ABC234" in uri
-    assert "issuer=5eyes" in uri
+    assert "&issuer=Ares&" in uri
+
+
+def test_provisioning_uri_default_issuer_is_ares():
+    """W4-d: neue Provisionierungen tragen den Issuer ``Ares`` (Label und Parameter)."""
+    uri = totp.provisioning_uri("ABC234", "advisor@firma.ch")
+    assert uri.startswith("otpauth://totp/Ares%3Aadvisor%40firma.ch?")
+    assert "&issuer=Ares&" in uri
 
 
 def test_match_counter_returns_code_step_not_server_step():

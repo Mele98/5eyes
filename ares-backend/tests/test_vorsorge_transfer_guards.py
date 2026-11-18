@@ -35,6 +35,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -620,7 +621,7 @@ def _fn(html: str, name: str) -> str:
 
 
 def test_monolith_inflow_modal_mirrors_one_time_nominal_link_rule():
-    html = MONOLITH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     sync = _fn(html, "syncInflowModalState")
     assert "awi-linked-position" in sync and "awi-recurring" in sync and "awi-value-mode" in sync
     save = html[html.index("async function saveInflow("):html.index("async function deleteInflow(")]
@@ -628,7 +629,7 @@ def test_monolith_inflow_modal_mirrors_one_time_nominal_link_rule():
 
 
 def test_monolith_maps_pension_guard_reason_codes_to_readable_text():
-    html = MONOLITH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     hints = html[html.index("var PENSION_TRANSFER_GUARD_HINTS"):]
     helper = _fn(html, "pensionTransferGuardMessage")
     for code in ("PENSION_SOURCE_LINKED", "PENSION_SOURCE_ALREADY_LINKED"):

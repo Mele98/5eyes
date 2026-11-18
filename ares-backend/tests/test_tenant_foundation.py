@@ -242,8 +242,14 @@ def test_ensure_default_tenant_legt_main_an(monkeypatch, tmp_path):
     fresh_engine.dispose()
 
 
-def test_ensure_default_tenant_defensive_bei_db_error(monkeypatch):
-    """Bei DB-Crash darf der Boot NICHT abbrechen."""
+def test_ensure_default_tenant_fail_closed_bei_db_error(monkeypatch, caplog):
+    """SEED-FK-HYGIENE (2026-11-05): frueher verschluckte ensure_default_tenant
+    jeden Fehler (``except Exception: pass``), dieser Test pinnte das. Ohne
+    Default-Tenant scheitern Tenant-Backfill und Lizenzpruefung -- ein
+    DB-Fehler, der kein fehlendes Schema ist, bricht den Start jetzt ab und
+    wird mit ERROR geloggt (siehe tests/test_startup_step_error_handling.py)."""
+    import logging
+
     import database as db_mod
 
     class BrokenSessionLocal:
@@ -251,8 +257,9 @@ def test_ensure_default_tenant_defensive_bei_db_error(monkeypatch):
             raise RuntimeError("DB unavailable")
 
     monkeypatch.setattr(db_mod, "SessionLocal", BrokenSessionLocal(), raising=False)
-    # Sollte NICHT raisen
-    db_mod.ensure_default_tenant()
+    with caplog.at_level(logging.ERROR, logger="database"), pytest.raises(RuntimeError):
+        db_mod.ensure_default_tenant()
+    assert any("ensure_default_tenant" in m and "RuntimeError" in m for m in caplog.messages)
 
 
 # ===========================================================================

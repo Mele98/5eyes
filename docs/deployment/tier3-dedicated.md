@@ -15,7 +15,7 @@
 | (Init7 / Quickline / Infomaniak)     |
 |                                      |
 |  +-----------------+                 |
-|  | 5eyes Backend   |                 |
+|  | Ares Backend    |                 |
 |  | (FastAPI Docker)|                 |
 |  +--------+--------+                 |
 |           |                          |
@@ -58,7 +58,7 @@ Folge dem [Tier 2 Setup](tier2-shared-cloud.md) mit diesen Aenderungen:
 6. **SOC 2 Type 2 Audit-Vorbereitung** auf Wunsch
 
 ```dotenv
-# /home/fivE/5eyes/.env
+# /opt/ares/.env
 DEPLOYMENT_TIER=tier3
 APP_ENV=production
 APP_HOST=0.0.0.0
@@ -68,7 +68,7 @@ APP_PORT=8000
 # +psycopg (nicht bare postgresql://) ist Pflicht: requirements.txt installiert
 # psycopg[binary] v3, kein psycopg2. SQLAlchemy versucht bei bare postgresql://
 # per Default psycopg2 zu laden -> Verbindung schlaegt beim ersten Deploy fehl.
-DATABASE_URL=postgresql+psycopg://postgres:<PASSWORD>@localhost:5432/fiveyes
+DATABASE_URL=postgresql+psycopg://postgres:<PASSWORD>@localhost:5432/ares
 
 # Tier 3 = single-tenant, kein Admin-UI
 TENANCY_MODE=single
