@@ -1076,25 +1076,13 @@ function _wireSollIstHover(){
 <div class="layout">
   <aside class="sidebar">
     <div class="sb-hd">
-      <span class="sb-lbl">Mandate <span id="alert-count" style="background:var(--neg);color:#fff;border-radius:2px;padding:1px 5px;font-size:8px;margin-left:4px">2</span></span>
+      <span class="sb-lbl">Mandate</span>
       <button class="sb-btn" id="pb" onclick="toggleP()">Alle anzeigen</button>
       <button class="sb-btn" id="btn-crm-react-editor" onclick="openCrmEditor()" title="Kunden-CRM (React, Beta)">CRM (Beta)</button>
     </div>
     <div class="sb-search"><input type="text" id="client-search" placeholder="Kunde suchen…" oninput="filterClientRegister(this.value)" aria-label="Kunde suchen"></div>
     <div class="sb-az" id="sb-az"></div>
     <div class="sb-scroll" id="sbl">
-      <div class="client active" data-pid="HH-001" onclick="selC(this);loadPersona('HH-001')" style="border-left:2px solid var(--g4)">
-        <div class="client-n">Lukas Meier</div><div class="client-m">HH-001 &middot; Young Accumulator</div>
-        <div class="client-tags"><span class="ctag ct-g">Moderat</span></div>
-      </div>
-      <div class="client" data-pid="HH-002" onclick="selC(this);loadPersona('HH-002')">
-        <div class="client-n">Sarah Keller</div><div class="client-m">HH-002 &middot; Single High Earner</div>
-        <div class="client-tags"><span class="ctag ct-g">Moderat</span></div>
-      </div>
-      <div class="client" data-pid="HH-003" onclick="selC(this);loadPersona('HH-003')">
-        <div class="client-n">Daniel &amp; Laura Baumann</div><div class="client-m">HH-003 &middot; Family with Mortgage</div>
-        <div class="client-tags"><span class="ctag ct-a">Moderat</span></div>
-      </div>
     <button class="sb-add" onclick="om('m-nc')">+ Neues Mandat</button>
   </aside>
 
@@ -1102,31 +1090,11 @@ function _wireSollIstHover(){
 
     <!-- PAGE: STAMMDATEN -->
     <div id="page-sd" class="page">
-      <div class="ph"><div><div class="ph-t">Stammdaten</div><div class="ph-s">Familie Mueller-Weber · Advisory · aktiv seit 15.03.2021</div></div><div class="ph-r"><button class="btn" onclick="openStammdatenModal()">Bearbeiten</button><button class="btn-p" onclick="go('vg')">Verm&ouml;gen &rarr;</button><details class="ph-more"><summary title="Weitere Stammdaten-Optionen" aria-label="Weitere Stammdaten-Optionen">&#8943;</summary><div class="ph-more-menu"><button class="btn" id="btn-sd-mandate-react-editor" onclick="openMandateEditor();this.closest('details').removeAttribute('open')" title="Mandat-Editor (React, Beta)">Editor (Beta)</button><button class="btn" id="btn-sd-crm-react-editor" onclick="openCrmEditorForClient();this.closest('details').removeAttribute('open')" title="Kunden-CRM (React, Beta)">CRM (Beta)</button></div></details></div></div>
+      <div class="ph"><div><div class="ph-t">Stammdaten</div><div class="ph-s"></div></div><div class="ph-r"><button class="btn" onclick="openStammdatenModal()">Bearbeiten</button><button class="btn-p" onclick="go('vg')">Verm&ouml;gen &rarr;</button><details class="ph-more"><summary title="Weitere Stammdaten-Optionen" aria-label="Weitere Stammdaten-Optionen">&#8943;</summary><div class="ph-more-menu"><button class="btn" id="btn-sd-mandate-react-editor" onclick="openMandateEditor();this.closest('details').removeAttribute('open')" title="Mandat-Editor (React, Beta)">Editor (Beta)</button><button class="btn" id="btn-sd-crm-react-editor" onclick="openCrmEditorForClient();this.closest('details').removeAttribute('open')" title="Kunden-CRM (React, Beta)">CRM (Beta)</button></div></details></div></div>
       <div class="pad">
         <div class="card mb">
           <div class="chd"><span class="cht">Ihr Gesamtvermögen</span><span style="font-size:9px;color:var(--n4);margin-left:8px">Beratungsbasis + holistischer Überblick</span><div class="chr"><button class="btn btn-sm" onclick="om('m-aw')">+ Position</button></div></div>
-          <div class="cbody"><div id="asset-view">
-            <div style="margin-bottom:10px">
-              <div style="font-size:9px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--n6);margin-bottom:5px;padding-bottom:3px;border-bottom:1px solid var(--b1)">Beratungsvermögen <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--n4);font-size:9px;margin-left:6px">— was wir zielgerichtet investieren</span></div>
-              <div class="wr"><div class="wn"><div class="wna">Depot UBS AG Zürich</div><div class="wnd">Kto. 12-345678-9</div></div><div class="wa">CHF 1'850'000</div><div class="wt"><span class="tag tb">Beratung</span></div><button class="btn-ico e" onclick="om('m-edit-depot')" title="Bearbeiten">✎</button></div>
-              <div class="wr"><div class="wn"><div class="wna">Depot ZKB</div><div class="wnd">Kto. 87-654321-0</div></div><div class="wa">CHF 620'000</div><div class="wt"><span class="tag tb">Beratung</span></div></div>
-              <div class="wr"><div class="wn"><div class="wna">Cash / Liquidität</div><div class="wnd">Sichtguthaben UBS</div></div><div class="wa">CHF 210'000</div><div class="wt"><span class="tag tb">Beratung</span></div></div>
-              <div class="wr"><div class="wn"><div class="wna">Private-Equity-Fonds A</div><div class="wnd">Illiquid · 8 J.</div></div><div class="wa">CHF 168'000</div><div class="wt"><span class="tag tb">Beratung</span></div></div>
-              <div style="display:flex;justify-content:space-between;padding:6px 0 0;border-top:1px solid var(--b1);margin-top:2px"><span style="font-size:11px;font-weight:600">Total Beratungsvermögen</span><span style="font-family:var(--f-d);font-size:15px;color:var(--pos)">CHF 2'848'000</span></div>
-            </div>
-            <div>
-              <div style="font-size:9px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--n4);margin-bottom:5px;padding-bottom:3px;border-bottom:1px solid var(--b1)">Anderes Vermögen (holistischer Überblick)</div>
-              <div class="wr"><div class="wn"><div class="wna">Eigenheim Zürich-Seefeld</div><div class="wnd">Marktwert</div></div><div class="wa">CHF 1'450'000</div><div class="wt"><span class="tag tn">Andere</span></div><button class="btn-ico e" onclick="om('m-edit-custom')" title="Bearbeiten">✎</button></div>
-              <div class="wr"><div class="wn"><div class="wna">BVG / Pensionskasse</div><div class="wnd">Gesperrt bis 2033</div></div><div class="wa">CHF 340'000</div><div class="wt"><span class="tag tn">Andere</span></div></div>
-              <div class="wr"><div class="wn"><div class="wna">Säule 3a (2 Konten BEKB)</div><div class="wnd">Bezug ab 2027</div></div><div class="wa">CHF 112'000</div><div class="wt"><span class="tag tn">Andere</span></div></div>
-              <div class="wr"><div class="wn"><div class="wna">Hypothek Eigenheim</div><div class="wnd">1.2% bis 2027</div></div><div class="wa" style="color:var(--neg)">−CHF 856'000</div><div class="wt"><span class="tag tr2">Verbindl.</span></div><button class="btn-ico e" onclick="om('m-edit-hypo')" title="Bearbeiten">✎</button></div>
-              <div style="display:flex;justify-content:space-between;padding:6px 0 0;border-top:1px solid var(--b1);margin-top:2px"><span style="font-size:11px;font-weight:600">Total Anderes (netto)</span><span style="font-family:var(--f-d);font-size:15px;color:var(--n8)">CHF 1'046'000</span></div>
-            </div>
-            <div style="display:flex;justify-content:space-between;padding:9px 0 0;border-top:2px solid var(--n8);margin-top:7px">
-              <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Reinvermögen Total</span>
-              <span style="font-family:var(--f-d);font-size:20px;color:var(--n8)">CHF 3'894'000</span>
-            </div>
+          <div class="cbody"><div id="asset-view"><div style="font-size:10px;color:var(--n4)">Wird geladen …</div>
           </div></div>
         </div>
         <div class="g2">
@@ -1160,7 +1128,7 @@ function _wireSollIstHover(){
           </div>
           </div>
         </div>
-      </div><div class="cnav"><span class="cni" id="sd-completeness-label">Stammdaten vollständig</span><button class="btn-p" onclick="go('vg')">Verm&ouml;gen &rarr;</button></div>
+      </div><div class="cnav"><span class="cni" id="sd-completeness-label"></span><button class="btn-p" onclick="go('vg')">Verm&ouml;gen &rarr;</button></div>
     </div>
 
     <!-- PAGE: VERMOEGEN -->
@@ -1494,9 +1462,9 @@ function _wireSollIstHover(){
       <div class="ph"><div><div class="ph-t">Ziele &amp; Prognose</div><div class="ph-s">Zielarchitektur / Vermögensentwicklung / Zielpfad</div></div><div class="ph-r"><button class="btn" onclick="om('m-rep')">Report</button><button class="btn-p" onclick="go('rp')">Risikoprofil</button></div></div>
       <div class="pad">
         <div class="kpir">
-          <div class="kpi" onclick="go('vg')" title="Zu Vermögen" style="cursor:pointer"><div class="kl">Reinvermögen</div><div class="kv" id="kpi-reinvermoegen">CHF 3.9 Mio</div><div class="ks"><span class="g">+340k</span> seit Review</div></div>
-          <div class="kpi" onclick="go('cf')" title="Zu Cashflows &amp; Ziele" style="cursor:pointer"><div class="kl">Nächstes Ziel</div><div class="kv" id="kpi-goal-progress">2030</div><div class="ks"><span class="a">Fälligkeit prüfen</span></div></div>
-          <div class="kpi" onclick="go('cf')" title="Zu Cashflows" style="cursor:pointer"><div class="kl">Laufender Netto-Cashflow p.a.</div><div class="kv" id="kpi-cashflow">+155k</div><div class="ks"><span class="g">Planmässig</span></div></div>
+          <div class="kpi" onclick="go('vg')" title="Zu Vermögen" style="cursor:pointer"><div class="kl">Reinvermögen</div><div class="kv" id="kpi-reinvermoegen">—</div><div class="ks"></div></div>
+          <div class="kpi" onclick="go('cf')" title="Zu Cashflows &amp; Ziele" style="cursor:pointer"><div class="kl">Nächstes Ziel</div><div class="kv" id="kpi-goal-progress">—</div><div class="ks"></div></div>
+          <div class="kpi" onclick="go('cf')" title="Zu Cashflows" style="cursor:pointer"><div class="kl">Laufender Netto-Cashflow p.a.</div><div class="kv" id="kpi-cashflow">—</div><div class="ks"></div></div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 340px;gap:12px">
           <div>
@@ -1815,7 +1783,7 @@ function _wireSollIstHover(){
               <div id="aa-horizon-bar" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px;padding:7px 10px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r2);font-size:10px">
                 <span style="font-weight:600;color:var(--n6)" title="Steuert nur, bis zu welchem Jahr Grafik und Endwerte der Kennzahlen angezeigt werden. Wie weit die Simulation rechnet, wird aus Risikoprofil, Zielen und Lebenserwartung hergeleitet.">Grafik-Ausschnitt</span>
                 <select id="aa-horizon-mode" onchange="setAaHorizonMode(this.value)" style="font-size:10px">
-                  <option value="auto">Auto (bis Lebensende)</option>
+                  <option value="auto">Auto (ganzer Simulationshorizont)</option>
                   <option value="age">bis Alter</option>
                   <option value="date">bis Jahr</option>
                   <option value="years">Anzahl Jahre</option>
@@ -2078,7 +2046,7 @@ function _wireSollIstHover(){
 
     <!-- PAGE: PORTFOLIO -->
     <div id="page-po" class="page">
-      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio generieren</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF erstellen">PDF</button><button class="btn btn-report" id="btn-po-advisory-report" onclick="openReportingApp()" title="Institutioneller Advisory-Report in neuem Browser-Tab">Advisory-Report</button><details class="ph-more"><summary title="Weitere Portfolio-Optionen" aria-label="Weitere Portfolio-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-po-add-position" onclick="openPortfolioPositionHelper();this.closest('details').removeAttribute('open')">+ Bestand</button><button class="btn" id="btn-po-live-prices" data-wm-only="1" onclick="refreshLivePricesForMandate();this.closest('details').removeAttribute('open')" title="Live-EOD-Preise via Marktdaten-Aggregator (yfinance/stooq) holen und Portfolio neu laden">Live-Preise</button><button class="btn" onclick="openImplementationRecipe();this.closest('details').removeAttribute('open')">Anlagerezept drucken</button><button class="btn" id="btn-po-depot-check" data-wm-only="1" onclick="openDepotCheck();this.closest('details').removeAttribute('open')" title="Depot-Check: Diversifikation, Konzentration, Drift, Stress-Replays">Depot-Check</button><button class="btn" id="btn-po-cost-disclosure" onclick="openCostDisclosureModal();this.closest('details').removeAttribute('open')" title="FIDLEG Art. 8/9 Ex-ante Kostenausweis vor Auftragsausfuehrung">Kostenausweis</button></div></details></div></div>
+      <div class="ph"><div><div class="ph-t">Portfolio &mdash; ETFs &amp; Fonds</div><div class="ph-s">Umsetzung Ihrer Asset Allokation in konkrete Produkte (ISIN)</div></div><div class="ph-r"><button class="btn-g" id="btn-po-refresh" onclick="refreshPortfolioFromStoredState()">Portfolio generieren</button><button class="btn" id="btn-po-pdf" onclick="downloadServerPdf('portfolio')" title="Portfolio-PDF erstellen">PDF</button><button class="btn btn-report" id="btn-po-advisory-report" onclick="openReportingApp()" title="Institutioneller Advisory-Report in neuem Browser-Tab">Advisory-Report</button><details class="ph-more"><summary title="Weitere Portfolio-Optionen" aria-label="Weitere Portfolio-Optionen">⋯</summary><div class="ph-more-menu"><button class="btn" id="btn-po-add-position" onclick="openPortfolioPositionHelper();this.closest('details').removeAttribute('open')">+ Bestand</button><button class="btn" id="btn-po-live-prices" data-wm-only="1" onclick="refreshLivePricesForMandate();this.closest('details').removeAttribute('open')" title="Live-EOD-Preise via Marktdaten-Aggregator (yfinance/stooq) holen und Portfolio neu laden">Live-Preise</button><button class="btn" onclick="openImplementationRecipe();this.closest('details').removeAttribute('open')">Empfehlung finalisieren</button><button class="btn" id="btn-po-depot-check" data-wm-only="1" onclick="openDepotCheck();this.closest('details').removeAttribute('open')" title="Depot-Check: Diversifikation, Konzentration, Drift, Stress-Replays">Depot-Check</button><button class="btn" id="btn-po-cost-disclosure" onclick="openCostDisclosureModal();this.closest('details').removeAttribute('open')" title="FIDLEG Art. 8/9 Ex-ante Kostenausweis vor Auftragsausfuehrung">Kostenausweis</button></div></details></div></div>
       <div class="pad">
         <div style="background:var(--chrome-n8);border-radius:var(--r2);padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
           <div><div style="font-size:9px;font-weight:500;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.4);margin-bottom:2px">Beratungsvermögen total</div><div id="po-advisory-wealth" style="font-family:var(--f-d);font-size:19px;color:#fff">—</div><div id="po-reserve-note" style="display:none;font-size:9px;color:rgba(255,255,255,0.6);margin-top:2px"></div></div>
@@ -3238,8 +3206,8 @@ function _wireSollIstHover(){
 <!-- DEPOT -->
 <div id="aw-Depot">
   <div class="frow">
-    <div class="fg"><label class="fl">Bezeichnung</label><input class="fi" id="maw-depot-label" placeholder="z.B. Depot UBS AG Zürich"></div>
-    <div class="fg"><label class="fl">Depotbank</label><input class="fi" id="maw-depot-bank" placeholder="z.B. UBS, ZKB, Swissquote"></div>
+    <div class="fg"><label class="fl">Bezeichnung</label><input class="fi" id="maw-depot-label" placeholder="z.B. Depot Hausbank"></div>
+    <div class="fg"><label class="fl">Depotbank</label><input class="fi" id="maw-depot-bank" placeholder="Name der Depotbank"></div>
   </div>
   <div class="frow">
     <div class="fg"><label class="fl">Konto-/Depotnummer</label><input class="fi" id="maw-depot-account" placeholder="z.B. Kto. 12-345678-9"></div>
@@ -3261,8 +3229,8 @@ function _wireSollIstHover(){
 <!-- LIQUIDITÄT -->
 <div id="aw-Liquiditaet" style="display:none">
   <div class="frow">
-    <div class="fg"><label class="fl">Bezeichnung</label><input class="fi" id="maw-liq-label" placeholder="z.B. Sichtguthaben UBS, Kassenobligationen"></div>
-    <div class="fg"><label class="fl">Institut / Bank</label><input class="fi" id="maw-liq-bank" placeholder="z.B. UBS, PostFinance"></div>
+    <div class="fg"><label class="fl">Bezeichnung</label><input class="fi" id="maw-liq-label" placeholder="z.B. Sichtguthaben, Kassenobligationen"></div>
+    <div class="fg"><label class="fl">Institut / Bank</label><input class="fi" id="maw-liq-bank" placeholder="Name des Instituts"></div>
   </div>
   <div class="frow">
     <div class="fg"><label class="fl">Instrument</label>
@@ -3312,7 +3280,7 @@ function _wireSollIstHover(){
 <!-- VORSORGE -->
 <div id="aw-Vorsorge" style="display:none">
   <div class="frow">
-    <div class="fg"><label class="fl">Bezeichnung</label><input class="fi" id="maw-pension-label" placeholder="z.B. PK Arbeitgeber AG, Säule 3a ZKB"></div>
+    <div class="fg"><label class="fl">Bezeichnung</label><input class="fi" id="maw-pension-label" placeholder="z.B. PK Arbeitgeber AG, Säule 3a"></div>
     <div class="fg"><label class="fl">Vorsorgetyp</label>
         <select class="fsel" id="maw-pension-type" onchange="syncPensionVehicleFields()">
           <option value="BVG">Pensionskasse (BVG)</option>
@@ -3412,7 +3380,7 @@ function _wireSollIstHover(){
 <div id="aw-Hypothek" style="display:none">
   <div class="frow">
     <div class="fg"><label class="fl">Bezeichnung</label><input class="fi" id="maw-mortgage-label" placeholder="z.B. Hypothek Eigentumswohnung Zürich"></div>
-    <div class="fg"><label class="fl">Kreditgeberin</label><input class="fi" id="maw-mortgage-bank" placeholder="z.B. ZKB, UBS, Raiffeisen"></div>
+    <div class="fg"><label class="fl">Kreditgeberin</label><input class="fi" id="maw-mortgage-bank" placeholder="Name der Kreditgeberin"></div>
   </div>
   <div class="frow">
     <div class="fg"><label class="fl">Ausstehender Betrag (<span class="ccy">CHF</span>)</label><input class="fi" id="maw-mortgage-value" type="number" placeholder="780000"></div>
@@ -3446,8 +3414,8 @@ function _wireSollIstHover(){
 <div id="es-error" style="display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px"></div>
 <div class="mfooter"><button class="btn" onclick="cm('m-es')">Abbrechen</button><button class="btn-p" id="btn-es-save" onclick="saveClientData()">Speichern</button></div></div></div><div class="overlay" id="m-ne"><div class="modal"><div class="mhd"><div class="mtitle">Protokolleintrag</div><button class="mx" onclick="cm('m-ne')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Datum des Gesprächs</label><input class="fi" type="date" value="2026-03-15"></div><div class="fg"><label class="fl">Entscheid</label><select class="fsel"><option>Keine Transaktion</option><option>Kauf</option><option>Verkauf</option><option>Umschichtung</option><option value="">Noch offen – kein Entscheid</option></select></div></div><div class="frow"><div class="fg"><label class="fl">Anlass</label><input class="fi" placeholder="Jahres-Review / Drift / ..."></div></div><div class="frow"><div class="fg"><label class="fl">Gesprächsinhalt / Begründung (Pflicht, min. 30 Zeichen)</label><textarea class="fta" rows="3"></textarea></div></div><div class="frow"><div class="fg"><label class="fl">Uhrzeit des Gesprächs</label><input class="fi" type="time" id="ne-time"></div><div class="fg"><label class="fl">Dauer (Minuten, Pflicht)</label><input class="fi" type="number" min="1" max="600" step="1" id="ne-duration" placeholder="1–600"></div><div class="fg"><label class="fl">Kanal (Pflicht)</label><select class="fsel" id="ne-channel"><option value="">– bitte wählen –</option><option value="persoenlich">Persönlich</option><option value="video">Video</option><option value="telefon">Telefon</option><option value="schriftlich">Schriftlich</option><option value="hybrid">Hybrid</option></select></div></div><div class="frow"><div class="fg"><label class="fl">Themen (Pflicht, ein Thema pro Zeile, je min. 3 Zeichen)</label><textarea class="fta" rows="2" id="ne-topics" placeholder="z. B. Strategic Asset Allocation"></textarea></div></div><div class="frow"><div class="fg"><label style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--n6);cursor:pointer"><input type="checkbox" id="ne-cost">Ex-ante Kosten dem Kunden kommuniziert (FIDLEG-Pflicht).</label></div></div><div id="ne-context" style="display:none;background:var(--warn-lt);border:1px solid var(--b2);border-radius:var(--r);padding:8px;font-size:11px;line-height:1.5;margin-top:4px"></div><input type="hidden" id="ne-entry-type"></div><div class="mfooter"><button class="btn" onclick="cm('m-ne')">Abbrechen</button><button class="btn-p" onclick="cm('m-ne')">Speichern</button></div></div></div><div class="overlay" id="m-esign"><div class="modal"><div class="mhd"><div class="mtitle">Dokument signieren</div><button class="mx" onclick="cm('m-esign')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Unterzeichner</label><div id="esign-signer-role-label" style="font-size:13px;font-weight:600;color:var(--n7)">—</div></div></div><div class="frow"><div class="fg"><label class="fl">Name</label><input class="fi" id="esign-signer-name" placeholder="Vor- und Nachname"></div></div><div class="frow"><div class="fg" style="width:100%"><label class="fl">Unterschrift (mit Maus oder Finger zeichnen)</label><div style="border:1px solid var(--b1);border-radius:var(--r);background:#fff"><canvas id="esign-canvas" width="480" height="160" style="width:100%;height:160px;display:block;cursor:crosshair;touch-action:none"></canvas></div><div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:10px"><span style="font-size:9px;color:var(--n4);line-height:1.5">Elektronische Unterschrift zur Dokumentation im Beratungsdossier — kein qualifiziertes elektronisches Signaturzertifikat.</span><button type="button" class="btn btn-sm" onclick="clearEsignCanvas()">Löschen</button></div></div></div><div id="esign-error" style="display:none;color:var(--neg);font-size:10px;margin-top:6px"></div></div><div class="mfooter"><button class="btn" onclick="cm('m-esign')">Abbrechen</button><button class="btn-p" id="btn-esign-save" onclick="submitEsignSignature()">Signieren</button></div></div></div>
 <div class="overlay" id="m-nt"><div class="modal"><div class="mhd"><div class="mtitle">Trigger definieren</div><button class="mx" onclick="cm('m-nt')">✕</button></div><div class="mbody"><div class="frow"><div class="fg"><label class="fl">Trigger-Typ</label><select class="fsel"><option>Zeitbasiert</option><option>Bandbreite / Drift</option><option>Event-basiert</option></select></div></div><div class="frow"><div class="fg"><label class="fl">Bezeichnung</label><input class="fi" placeholder="Jahres-Review"></div><div class="fg"><label class="fl">Schwellenwert</label><input class="fi" placeholder="±5% oder 12 Monate"></div></div></div><div class="mfooter"><button class="btn" onclick="cm('m-nt')">Abbrechen</button><button class="btn-p" onclick="cm('m-nt')">Aktivieren</button></div></div></div>
-<div class="overlay" id="m-ap"><div class="modal"><div class="mhd"><div class="mtitle">Bestand zu Empfehlungstitel</div><button class="mx" onclick="cm('m-ap')">✕</button></div><div class="mbody"><div id="ap-empty-state" style="display:none;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px;font-size:11px;color:var(--n6);line-height:1.6">Portfolio-Bestände bauen auf einem vorhandenen Rezept auf. Bitte zuerst die Strategie berechnen und ein aktuelles Anlagerezept laden.</div><div id="ap-form-wrap"><div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;margin-bottom:10px;font-size:10px;line-height:1.6;color:var(--n6)">Hier wird der effektive Depotbestand zum Empfehlungstitel hinterlegt. Wenn ein Bestand vorhanden ist, basiert Live-Drift auf diesem Holding statt auf einer Rekonstruktion aus dem Zielbetrag.</div><div class="frow"><div class="fg"><label class="fl">Empfehlungstitel</label><select class="fsel" id="ap-position-id" onchange="syncPortfolioHoldingSelection()"></select></div></div><div id="ap-product-meta" style="font-size:10px;color:var(--n5);margin:-2px 0 10px"></div><div class="frow"><div class="fg"><label class="fl">Depotbank / Institut</label><input class="fi" id="ap-depot-bank" placeholder="z.B. UBS AG Zürich"></div><div class="fg"><label class="fl">Konto / Depotnummer</label><input class="fi" id="ap-custody-account" placeholder="optional"></div></div><div class="frow"><div class="fg"><label class="fl">Bestand (Stück)</label><input class="fi" id="ap-units" placeholder="z.B. 128.750"></div><div class="fg"><label class="fl">Bestandsmarktwert (<span class="ccy">CHF</span>)</label><input class="fi" id="ap-market-value" placeholder="optional, z.B. 415'600"></div></div><div class="frow"><div class="fg"><label class="fl">Einstand / Durchschnittskurs (<span class="ccy">CHF</span>)</label><input class="fi" id="ap-cost-price" placeholder="optional"></div><div class="fg"><label class="fl">Standdatum</label><input class="fi" id="ap-as-of" type="date"></div></div><div class="frow"><div class="fg"><label class="fl">Quelle</label><select class="fsel" id="ap-source"><option value="manual">Manuell</option><option value="custody_import">Custody-Import</option></select></div><div class="fg"><label class="fl">Bewertungsbasis</label><div id="ap-basis-note" style="font-size:10px;color:var(--n5);padding:9px 0">Noch kein Bestand hinterlegt.</div></div></div><div class="frow"><div class="fg"><label class="fl">Notizen</label><textarea class="fta" id="ap-notes" rows="3" placeholder="optional"></textarea></div></div></div><div id="ap-error" style="display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px"></div></div><div class="mfooter"><button class="btn" onclick="cm('m-ap')">Abbrechen</button><button class="btn" id="btn-ap-delete" style="display:none" onclick="deletePortfolioHolding()">Bestand löschen</button><button class="btn-p" id="btn-ap-save" onclick="savePortfolioHolding()">Speichern</button></div></div></div>
-<div class="overlay" id="m-ums"><div class="modal"><div class="mhd"><div class="mtitle">Anlagerezept für Kunde</div><button class="mx" onclick="cm('m-ums')">✕</button></div><div class="mbody"><div style="background:var(--n0);border:1px solid rgba(29,78,216,0.2);border-radius:var(--r);padding:10px;margin-bottom:10px;font-size:11px;line-height:1.6">Basierend auf Soll-Allokation: Anlageprodukte werden aus dem Anlageuniversum gesucht und ein Bericht erstellt. Erst nach Bestätigung wird der Bericht an die Depotbank übermittelt.</div><div class="frow"><div class="fg"><label class="fl">Depotbank für Umsetzung</label><select class="fsel" id="recipe-depot-bank"><option>UBS AG Zürich</option><option>ZKB</option></select></div></div><div id="recipe-status" style="font-size:10px;color:var(--n4);margin-top:4px">Vor dem Druck wird das aktuelle Rezept live neu aufgebaut.</div></div><div class="mfooter"><button class="btn" onclick="cm('m-ums')">Abbrechen</button><button class="btn-p" onclick="confirmImplementationRecipe()">Umsetzung bestätigen</button></div></div></div>
+<div class="overlay" id="m-ap"><div class="modal"><div class="mhd"><div class="mtitle">Bestand zu Empfehlungstitel</div><button class="mx" onclick="cm('m-ap')">✕</button></div><div class="mbody"><div id="ap-empty-state" style="display:none;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px;font-size:11px;color:var(--n6);line-height:1.6">Portfolio-Bestände bauen auf einem vorhandenen Rezept auf. Bitte zuerst die Strategie berechnen und ein aktuelles Anlagerezept laden.</div><div id="ap-form-wrap"><div style="background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;margin-bottom:10px;font-size:10px;line-height:1.6;color:var(--n6)">Hier wird der effektive Depotbestand zum Empfehlungstitel hinterlegt. Wenn ein Bestand vorhanden ist, basiert Live-Drift auf diesem Holding statt auf einer Rekonstruktion aus dem Zielbetrag.</div><div class="frow"><div class="fg"><label class="fl">Empfehlungstitel</label><select class="fsel" id="ap-position-id" onchange="syncPortfolioHoldingSelection()"></select></div></div><div id="ap-product-meta" style="font-size:10px;color:var(--n5);margin:-2px 0 10px"></div><div class="frow"><div class="fg"><label class="fl">Depotbank / Institut</label><input class="fi" id="ap-depot-bank" placeholder="Name der Depotbank"></div><div class="fg"><label class="fl">Konto / Depotnummer</label><input class="fi" id="ap-custody-account" placeholder="optional"></div></div><div class="frow"><div class="fg"><label class="fl">Bestand (Stück)</label><input class="fi" id="ap-units" placeholder="z.B. 128.750"></div><div class="fg"><label class="fl">Bestandsmarktwert (<span class="ccy">CHF</span>)</label><input class="fi" id="ap-market-value" placeholder="optional, z.B. 415'600"></div></div><div class="frow"><div class="fg"><label class="fl">Einstand / Durchschnittskurs (<span class="ccy">CHF</span>)</label><input class="fi" id="ap-cost-price" placeholder="optional"></div><div class="fg"><label class="fl">Standdatum</label><input class="fi" id="ap-as-of" type="date"></div></div><div class="frow"><div class="fg"><label class="fl">Quelle</label><select class="fsel" id="ap-source"><option value="manual">Manuell</option><option value="custody_import">Custody-Import</option></select></div><div class="fg"><label class="fl">Bewertungsbasis</label><div id="ap-basis-note" style="font-size:10px;color:var(--n5);padding:9px 0">Noch kein Bestand hinterlegt.</div></div></div><div class="frow"><div class="fg"><label class="fl">Notizen</label><textarea class="fta" id="ap-notes" rows="3" placeholder="optional"></textarea></div></div></div><div id="ap-error" style="display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px"></div></div><div class="mfooter"><button class="btn" onclick="cm('m-ap')">Abbrechen</button><button class="btn" id="btn-ap-delete" style="display:none" onclick="deletePortfolioHolding()">Bestand löschen</button><button class="btn-p" id="btn-ap-save" onclick="savePortfolioHolding()">Speichern</button></div></div></div>
+<div class="overlay" id="m-ums"><div class="modal"><div class="mhd"><div class="mtitle">Empfehlung finalisieren</div><button class="mx" onclick="cm('m-ums')">✕</button></div><div class="mbody"><div style="background:var(--n0);border:1px solid rgba(29,78,216,0.2);border-radius:var(--r);padding:10px;margin-bottom:10px;font-size:11px;line-height:1.6">Die Empfehlung wird aus der Soll-Allokation neu aufgebaut, geprüft und festgehalten. Danach publizieren Sie die Soll-Allokation (Asset Allokation › Publizieren).</div><div id="recipe-sample-warning" role="alert" style="display:none;background:#fff7ed;border:1px solid rgba(194,65,12,0.3);border-radius:var(--r);padding:8px 10px;margin-bottom:10px;font-size:11px;color:#7c2d12"></div><div class="frow"><div class="fg"><label class="fl" for="recipe-depot-bank">Depotbank für Umsetzung (optional)</label><select class="fsel" id="recipe-depot-bank"><option value="">Ohne Angabe (neutral)</option></select></div></div><div id="recipe-status" style="font-size:10px;color:var(--n4);margin-top:4px">Vor dem Druck wird das aktuelle Rezept live neu aufgebaut.</div></div><div class="mfooter"><button class="btn" onclick="cm('m-ums')">Abbrechen</button><button class="btn-p" onclick="confirmImplementationRecipe()">Empfehlung finalisieren</button></div></div></div>
 <div class="overlay" id="m-rp-print"><div class="modal"><div class="mhd"><div class="mtitle">Risikoprofil PDF</div><button class="mx" onclick="cm('m-rp-print')">✕</button></div><div class="mbody"><div style="font-size:11px;color:var(--n6);line-height:1.7">Das Risikoprofil-Dokument (FINMA Eignungspruefung) wird als PDF generiert und enthält alle Antworten, die Auswertung sowie die Unterschriftszeile für Kunde und Berater.</div></div><div class="mfooter"><button class="btn" onclick="cm('m-rp-print')">Abbrechen</button><button class="btn-p" onclick="cm('m-rp-print');downloadServerPdf('risikoprofil')" title="FINMA-konformes PDF erstellen">PDF erstellen</button></div></div></div>
 
 <script>
@@ -3902,6 +3870,7 @@ async function doBootstrapAdmin() {
     if (typeof markAresSessionPrincipal === 'function') markAresSessionPrincipal(data.user);
     currentTenantDefaultPresentationMode = data.tenant_default_presentation_mode || null;
     hideLogin();
+    if (typeof askSinglePersonFirmAfterBootstrap === 'function') await askSinglePersonFirmAfterBootstrap();
     await initApp();
   } catch(e) {
     if (e.status === 409) {
@@ -4502,8 +4471,8 @@ async function go(p,b){
     var stepKey=s.dataset.page||Object.keys(pages)[i];
     var stepIdx=pages[stepKey];
     if(stepIdx<idx){s.classList.add('done');if(sn)sn.textContent='OK';}
-    else if(stepIdx===idx){s.classList.add('active');if(sn)sn.textContent=stepIdx+1;}
-    else if(sn){sn.textContent=stepIdx+1;}
+    else if(stepIdx===idx){s.classList.add('active');if(sn)sn.textContent=i+1;}
+    else if(sn){sn.textContent=i+1;}
     // A11Y-GP-001: aria-selected muss dem sichtbaren aktiven Schritt folgen,
     // sonst behauptet der Tab-Status gegenueber Screenreadern weiterhin
     // Schritt 1, egal wohin tatsaechlich navigiert wurde.
@@ -8553,7 +8522,7 @@ protokolliereEreignis=runtimeProtokolliereEreignis;
       </div></div>
       <div class="frow"><div class="fg">
         <label class="fl">Anbieter / Gegenpartei (optional)</label>
-        <input type="text" class="fi" id="nco-provider" placeholder="z.B. UBS AG, Swisscanto...">
+        <input type="text" class="fi" id="nco-provider" placeholder="Name des Anbieters">
       </div></div>
       <div class="frow"><div class="fg">
         <label class="fl">Mitigation / Massnahme</label>
@@ -8861,97 +8830,7 @@ async function applyOv(){
     <div class="mfooter"><button class="btn" onclick="cm('m-ev')">Abbrechen</button><button class="btn-p" onclick="protokolliereEreignis()">Protokollieren</button></div>
   </div>
 </div>
-<div class="overlay" id="m-edit-depot">
-  <div class="modal" style="width:500px">
-    <div class="mhd"><div class="mtitle">Position bearbeiten</div><button class="mx" onclick="cm('m-edit-depot')">✕</button></div>
-    <div class="mbody">
-      <div class="frow">
-        <div class="fg"><label class="fl">Bezeichnung</label><input class="fi" value="Depot UBS AG Zürich"></div>
-        <div class="fg"><label class="fl">Typ</label><select class="fsel"><option selected>Beratungsvermögen</option><option>Anderes Vermögen</option><option>Verbindlichkeit</option></select></div>
-      </div>
-      <div class="frow">
-        <div class="fg"><label class="fl">Marktwert (CHF)</label><input class="fi" value="1'850'000"></div>
-        <div class="fg"><label class="fl">Depotbank / Institut</label><input class="fi" value="UBS AG Zürich"></div>
-      </div>
-      <div class="frow"><div class="fg"><label class="fl">Konto-/Depotnummer</label><input class="fi" value="Kto. 12-345678-9"></div></div>
-      
-      <div style="margin:8px 0;padding:10px;background:var(--bg);border-radius:var(--r2);border:1px solid var(--b1)">
-        <div style="font-size:9px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--n5);margin-bottom:8px">Anlageklassen-Aufschlüsselung (%)</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:6px">
-          <div><label class="fl" style="font-size:9px">Aktien</label><input class="fi" type="number" value="60" id="ed-akt" oninput="calcEDTotal()"></div>
-          <div><label class="fl" style="font-size:9px">Obligationen</label><input class="fi" type="number" value="25" id="ed-obl" oninput="calcEDTotal()"></div>
-          <div><label class="fl" style="font-size:9px">Immobilien</label><input class="fi" type="number" value="0" id="ed-imm" oninput="calcEDTotal()"></div>
-          <div><label class="fl" style="font-size:9px">Liquidität</label><input class="fi" type="number" value="10" id="ed-liq" oninput="calcEDTotal()"></div>
-          <div><label class="fl" style="font-size:9px">Alternative</label><input class="fi" type="number" value="5" id="ed-alt" oninput="calcEDTotal()"></div>
-          <div style="display:flex;align-items:flex-end"><div id="ed-tot" style="padding:6px 10px;border:1px solid var(--b1);border-radius:var(--r);font-size:11px;font-weight:600;width:100%;text-align:center;color:var(--pos)">Total: 100%</div></div>
-        </div>
-        <div style="font-size:9px;color:var(--n4)">Diese Aufteilung wird für die holistische Allokationsansicht verwendet.</div>
-      </div>
-      <div class="frow">
-      <div class="fg"><label class="fl">Bemerkung</label><input class="fi" placeholder="Optional: Notiz, Strategie-Hinweis..."></div>
-      <div class="fg"><label class="fl">Erw. Rendite p.a. (%)</label><input class="fi" type="number" step="0.1" placeholder="z.B. 4.5" title="Für Simulation und Prognose"></div>
-    </div>
-    </div>
-    <div class="mfooter">
-      <button class="btn" onclick="cm('m-edit-depot')">Abbrechen</button>
-      <button style="background:var(--neg);color:#fff;border:none;border-radius:var(--r);font-family:var(--f-s);font-size:11px;padding:6px 13px;cursor:pointer;margin-right:auto" onclick="cm('m-edit-depot')">Position löschen</button>
-      <button class="btn-p" onclick="cm('m-edit-depot')">Speichern</button>
-    </div>
-  </div>
-</div>
-
-<div class="overlay" id="m-edit-immo">
-  <div class="modal" style="width:500px">
-    <div class="mhd"><div class="mtitle">Immobilie bearbeiten</div><button class="mx" onclick="cm('m-edit-immo')">✕</button></div>
-    <div class="mbody">
-      <div class="frow">
-        <div class="fg"><label class="fl">Bezeichnung</label><input class="fi" value="Eigentumswohnung Zürich" placeholder="z.B. Eigentumswohnung Zürich"></div>
-        <div class="fg"><label class="fl">Typ</label><select class="fsel"><option>Anderes Vermögen</option><option>Beratungsvermögen</option></select></div>
-      </div>
-      <div class="frow">
-        <div class="fg"><label class="fl">Adresse / Strasse</label><input class="fi" placeholder="Musterstrasse 12"></div>
-        <div class="fg"><label class="fl">PLZ / Ort</label><input class="fi" placeholder="8001 Zürich"></div>
-      </div>
-      <div class="frow">
-        <div class="fg"><label class="fl">Aktueller Schätzwert (CHF)</label><input class="fi" value="1'200'000"></div>
-        <div class="fg"><label class="fl">Schätzung per</label><input class="fi" type="date" value="2025-01-01"></div>
-      </div>
-      <div class="frow">
-        <div class="fg"><label class="fl">Nutzung</label><select class="fsel"><option>Selbstgenutzt</option><option>Renditeobjekt</option><option>Ferienimmobilie</option><option>Gemischt</option></select></div>
-        <div class="fg"><label class="fl">Jährlicher Mietertrag (CHF)</label><input class="fi" placeholder="0" type="number"></div>
-      </div>
-      <div class="frow">
-        <div class="fg"><label class="fl">Hypothek (CHF)</label><input class="fi" placeholder="0" type="number"></div>
-        <div class="fg"><label class="fl">Hypothekar-Institut</label><input class="fi" placeholder="z.B. ZKB"></div>
-      </div>
-      <div class="frow"><div class="fg"><label class="fl">Bemerkung</label><input class="fi" placeholder="Optional: Baujahr, Zustand, geplante Renovationen..."></div></div>
-    </div>
-    <div class="mfooter">
-      <button class="btn" onclick="cm('m-edit-immo')">Abbrechen</button>
-      <button style="background:var(--neg);color:#fff;border:none;border-radius:var(--r);font-family:var(--f-s);font-size:11px;padding:6px 13px;cursor:pointer;margin-right:auto" onclick="cm('m-edit-immo')">Position löschen</button>
-      <button class="btn-p" onclick="cm('m-edit-immo')">Speichern</button>
-    </div>
-  </div>
-</div><script>
-function addCustomRestr(){
-  // Hinweis: #custom-restr-input existiert aktuell nicht im DOM. Null-Guard schützt vor Fehler.
-  var inp=document.getElementById('custom-restr-input');
-  if(!inp||!inp.value.trim())return;
-  var container=inp.parentElement.previousElementSibling;
-  var span=document.createElement('span');
-  span.className='rtag rtag-on';
-  span.textContent='✓ '+inp.value.trim();
-  span.onclick=function(){this.classList.toggle('rtag-on');};
-  container.appendChild(span);
-  inp.value='';
-}
-function calcEDTotal(){
-  var ids=['ed-akt','ed-obl','ed-imm','ed-liq','ed-alt'];
-  var t=0; ids.forEach(function(id){var el=document.getElementById(id);if(el)t+=parseFloat(el.value||0);});
-  var d=document.getElementById('ed-tot');
-  if(d){d.textContent='Total: '+AresRounding.formatPercent(t,0,{typography:'screen'});d.style.color=Math.abs(t-100)<0.5?'var(--pos)':t>100?'var(--neg)':'var(--n6)';}
-}
-</script><script>
+<script>
 function switchSbTab(t){
   var tabs=['m','r'];
   tabs.forEach(function(x){
@@ -8982,68 +8861,6 @@ function protokolliereEreignis(){
   console.log('Ereignis protokolliert. Kalender-Export (.ics) heruntergeladen – in Outlook öffnen zum Importieren.');
 }
 </script>
-<div class="overlay" id="m-edit-hypo">
-  <div class="modal" style="width:480px">
-    <div class="mhd"><div class="mtitle">Hypothek / Kredit bearbeiten</div><button class="mx" onclick="cm('m-edit-hypo')">✕</button></div>
-    <div class="mbody">
-      <div class="frow">
-        <div class="fg"><label class="fl">Bezeichnung</label><input class="fi" value="Hypothek Eigentumswohnung" placeholder="z.B. Hypothek EFH Zürich"></div>
-        <div class="fg"><label class="fl">Kreditgeberin (Bank)</label><input class="fi" value="ZKB" placeholder="z.B. UBS, ZKB, Raiffeisen"></div>
-      </div>
-      <div class="frow">
-        <div class="fg"><label class="fl">Ausstehender Betrag (CHF)</label><input class="fi" value="780000" type="number"></div>
-        <div class="fg"><label class="fl">Hypothekartyp</label><select class="fsel"><option selected>Festhypothek</option><option>SARON/Variable</option><option>Libor-Nachfolger</option><option>Gemischt</option></select></div>
-      </div>
-      <div class="frow">
-        <div class="fg"><label class="fl">Zinssatz (%)</label><input class="fi" type="number" step="0.01" value="1.85" placeholder="z.B. 1.85"></div>
-        <div class="fg"><label class="fl">Laufzeit bis</label><input class="fi" type="date" value="2028-03-31"></div>
-      </div>
-      <div class="frow">
-        <div class="fg"><label class="fl">Amortisation p.a. (CHF)</label><input class="fi" type="number" value="20000" placeholder="0 = keine"></div>
-        <div class="fg"><label class="fl">Amortisationstyp</label><select class="fsel"><option selected>Indirekt (3a)</option><option>Direkt</option><option>Keine</option></select></div>
-      </div>
-      <div class="frow">
-        <div class="fg"><label class="fl">Verknüpfte Immobilie</label><input class="fi" value="Eigentumswohnung Zürich" placeholder="Verweis auf Immobilien-Position"></div>
-        <div class="fg"><label class="fl">Belehnungswert (%)</label><input class="fi" type="number" value="65" placeholder="z.B. 65%"></div>
-      </div>
-      <div class="frow"><div class="fg"><label class="fl">Bemerkung</label><input class="fi" placeholder="Erneuerung geplant, Sondertilgung möglich..."></div></div>
-    </div>
-    <div class="mfooter">
-      <button class="btn" onclick="cm('m-edit-hypo')">Abbrechen</button>
-      <button style="background:var(--neg);color:#fff;border:none;border-radius:var(--r);font-family:var(--f-s);font-size:11px;padding:6px 13px;cursor:pointer;margin-right:auto" onclick="cm('m-edit-hypo')">Löschen</button>
-      <button class="btn-p" onclick="cm('m-edit-hypo')">Speichern</button>
-    </div>
-  </div>
-</div>
-<div class="overlay" id="m-edit-custom">
-  <div class="modal" style="width:480px">
-    <div class="mhd"><div class="mtitle">Custom Asset / Vorsorge bearbeiten</div><button class="mx" onclick="cm('m-edit-custom')">✕</button></div>
-    <div class="mbody">
-      <div class="frow">
-        <div class="fg"><label class="fl">Bezeichnung</label><input class="fi" placeholder="z.B. Weinsammlung, PK-Guthaben, Oldtimer"></div>
-        <div class="fg"><label class="fl">Hauptkategorie</label><select class="fsel"><option>Vorsorge (PK/3a/FZ)</option><option>Physisches Gold/Edelmetall</option><option>Kryptowährung</option><option>Kunstwerk</option><option>Oldtimer / Fahrzeug</option><option>Uhren / Schmuck</option><option>Weinsammlung / Sammlerstücke</option><option>Private Equity / Beteiligung</option><option>Anderes Custom Asset</option></select></div>
-      </div>
-      <div class="frow">
-        <div class="fg"><label class="fl">Aktueller Wert (CHF)</label><input class="fi" type="number" placeholder="500000"></div>
-        <div class="fg"><label class="fl">Bewertung per</label><input class="fi" type="date"></div>
-      </div>
-      <div class="frow">
-        <div class="fg"><label class="fl">Bewertungsmethode</label><select class="fsel"><option>Selbstschätzung</option><option>Fachgutachten</option><option>Versicherungswert</option><option>Marktpreis (kotiert)</option><option>PK-Ausweis</option></select></div>
-        <div class="fg"><label class="fl">Liquidierbar?</label><select class="fsel"><option>Ja (innerhalb 30 Tage)</option><option>Eingeschränkt (30-180 Tage)</option><option>Illiquid (> 180 Tage)</option><option>Gebunden (PK/3a)</option></select></div>
-      </div>
-      <div class="frow">
-        <div class="fg"><label class="fl">Erw. Rendite p.a. (%)</label><input class="fi" type="number" step="0.1" placeholder="z.B. 3.5" title="Für Simulation und Prognose verwendet"></div>
-        <div class="fg"><label class="fl">Typ</label><select class="fsel"><option>Anderes Vermögen</option><option>Beratungsvermögen</option></select></div>
-      </div>
-      <div class="frow"><div class="fg"><label class="fl">Bemerkung / Standort / Details</label><textarea class="fi" rows="2" placeholder="z.B. Gelagert bei X, Zertifikat Nr. Y, Verfügbar ab Z..." style="resize:none;min-height:50px"></textarea></div></div>
-    </div>
-    <div class="mfooter">
-      <button class="btn" onclick="cm('m-edit-custom')">Abbrechen</button>
-      <button style="background:var(--neg);color:#fff;border:none;border-radius:var(--r);font-family:var(--f-s);font-size:11px;padding:6px 13px;cursor:pointer;margin-right:auto" onclick="cm('m-edit-custom')">Löschen</button>
-      <button class="btn-p" onclick="cm('m-edit-custom')">Speichern</button>
-    </div>
-  </div>
-</div>
 <div class="overlay" id="m-contract-edit">
   <div class="modal" style="width:600px;max-height:80vh;overflow-y:auto">
     <div class="mhd"><div class="mtitle">Dokument bearbeiten – Anlagestrategie</div><button class="mx" onclick="cm('m-contract-edit')">✕</button></div>
@@ -15307,7 +15124,8 @@ function buildRiskAssessmentPayloadFromUI(){
       prefIdx:state.prefIdx,          behavIdx:state.behavIdx,
       incomePoints:incomePoints,      obligationPoints:obligationPoints,
       wealthPoints:wealthPoints,      savingsPoints:savingsPoints,
-      capacityTotal:capacityTotal,    horizonLabel:horizon.label
+      capacityTotal:capacityTotal,    horizonLabel:horizon.label,
+      willingnessTotal:willingnessTotal
     }
   };
 }
@@ -16475,6 +16293,7 @@ var liveClientLoadToken=0;
   function resetWealthEditor(defaultCategory){
     currentWealthEditId=null;
     if(typeof syncCcy==="function")syncCcy();
+    if(typeof setWealthCurrency==='function')setWealthCurrency(newRecordCurrency());
     var cat=defaultCategory||'Depot';
     [
       'maw-depot-label','maw-depot-bank','maw-depot-account','maw-depot-value',
@@ -16519,6 +16338,7 @@ var liveClientLoadToken=0;
     currentWealthEditId=pos.id;
     var cat=pos.position_type==='Liquidität'?'Liquiditaet':(pos.position_type==='Custom'?'Alternative':pos.position_type);
     resetWealthEditor(cat);
+    if(typeof setWealthCurrency==='function')setWealthCurrency(pos.currency);
     currentWealthEditId=pos.id;
     var catSelect=document.getElementById('maw-cat');
     if(catSelect)catSelect.disabled=true;
@@ -17007,6 +16827,7 @@ function resetAdvisoryLogModal(){
         + '</div>'
       + '</div>'
     + '</div>';
+    if(meta&&meta.blocked)summaryHtml='<div data-wealth-split="1">'+(meta.notice||'')+'</div>';
     var existing=av.querySelector('[data-wealth-split="1"]');
     if(existing)existing.remove();
     av.insertAdjacentHTML('afterbegin',summaryHtml);
@@ -17099,27 +16920,31 @@ function resetAdvisoryLogModal(){
   var netWorth=advisoryTotal+otherTotal;
   var grossWealth=advisoryTotal+totalChf(other);
   var liabilitiesTotal=totalChf(liabilities);
+  var mixFx=!wealthCcy&&items.length&&typeof wealthMixedTotals==='function'?wealthMixedTotals(items):null;
+  if(mixFx&&mixFx.currency){wealthCcy=mixFx.currency;advisoryTotal=mixFx.advisory;otherTotal=mixFx.other-mixFx.liabilities;netWorth=mixFx.net;grossWealth=mixFx.gross;liabilitiesTotal=mixFx.liabilities;}
+  var fmtT=function(v){return mixFx&&mixFx.blocked?'Umrechnung offen':fmtCHF(v,wealthCcy);};
   av.innerHTML=
     '<div style="margin-bottom:10px">'+
       '<div style="font-size:9px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--n6);margin-bottom:5px;padding-bottom:3px;border-bottom:1px solid var(--b1)">Beratungsvermögen</div>'+
       renderRowsSafe(advisory,'tb','Beratung',false)+
-      '<div style="display:flex;justify-content:space-between;padding:6px 0 0;border-top:1px solid var(--b1);margin-top:2px"><span style="font-size:11px;font-weight:600">Total Beratungsvermögen</span><span style="font-family:var(--f-d);font-size:15px;color:var(--pos)">'+fmtCHF(advisoryTotal,wealthCcy)+'</span></div>'+
+      '<div style="display:flex;justify-content:space-between;padding:6px 0 0;border-top:1px solid var(--b1);margin-top:2px"><span style="font-size:11px;font-weight:600">Total Beratungsvermögen</span><span style="font-family:var(--f-d);font-size:15px;color:var(--pos)">'+fmtT(advisoryTotal)+'</span></div>'+
     '</div>'+
     '<div>'+
       '<div style="font-size:9px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--n4);margin-bottom:5px;padding-bottom:3px;border-bottom:1px solid var(--b1)">Anderes Vermögen (holistischer Überblick)</div>'+
       renderRowsSafe(other,'tn','Andere',false)+
       renderRowsSafe(liabilities,'tr2','Verbindl.',true)+
-      '<div style="display:flex;justify-content:space-between;padding:6px 0 0;border-top:1px solid var(--b1);margin-top:2px"><span style="font-size:11px;font-weight:600">Total Anderes (netto)</span><span style="font-family:var(--f-d);font-size:15px;color:var(--n8)">'+fmtCHF(otherTotal,wealthCcy)+'</span></div>'+
+      '<div style="display:flex;justify-content:space-between;padding:6px 0 0;border-top:1px solid var(--b1);margin-top:2px"><span style="font-size:11px;font-weight:600">Total Anderes (netto)</span><span style="font-family:var(--f-d);font-size:15px;color:var(--n8)">'+fmtT(otherTotal)+'</span></div>'+
     '</div>'+
     '<div style="display:flex;justify-content:space-between;padding:9px 0 0;border-top:2px solid var(--n8);margin-top:7px">'+
       '<span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.04em">Reinvermögen Total</span>'+
-      '<span style="font-family:var(--f-d);font-size:20px;color:var(--n8)">'+fmtCHF(netWorth,wealthCcy)+'</span></div>';
+      '<span style="font-family:var(--f-d);font-size:20px;color:var(--n8)">'+fmtT(netWorth)+'</span></div>';
   prependWealthSplitSummary({
     netChf:netWorth,
     grossChf:grossWealth,
     advisoryChf:advisoryTotal,
-    otherGrossChf:totalChf(other),
+    otherGrossChf:mixFx&&mixFx.currency?mixFx.other:totalChf(other),
     liabilitiesChf:liabilitiesTotal,
+    blocked:!!(mixFx&&mixFx.blocked),notice:typeof wealthMixedNotice==='function'?wealthMixedNotice(mixFx):'',
     advisoryCount:advisory.length,
     otherCount:other.length,
     liabilityCount:liabilities.length,
@@ -18681,8 +18506,9 @@ function syncAaHorizonControl(){
       var ageTxt=(endY&&by)?(' · Alter '+(endY-by)):'';
       effEl.textContent='= bis '+endY+ageTxt+' ('+ov+' J.)';
     } else {
+      var simEnd=typeof hasVisibleStrategyOutputs==='function'&&hasVisibleStrategyOutputs()&&charts&&charts.opt&&charts.opt.data&&(charts.opt.data.labels||[]).slice(-1)[0];
       var life=_lifeExpectancyEndYear();
-      effEl.textContent=life?('= auto bis '+life+' (Lebensende)'):'= auto';
+      effEl.textContent=simEnd?('= auto bis '+String(simEnd).slice(0,4)+' (Simulationshorizont)'):(life?('= auto bis '+life+' (Lebensende)'):'= auto');
     }
   }
 }
@@ -19569,8 +19395,11 @@ function renderAaFanRangeSentence(){
       var last=Math.min(byKey.p10.data.length,byKey.p90.data.length)-1;
       var labels=(charts.opt.data&&charts.opt.data.labels)||[];
       if(last>=0)txt=fanRangeSentence(projectionEndOfYearText(labels[last]),Number(byKey.p10.data[last])*1000,Number(byKey.p90.data[last])*1000);
+      var dep=typeof fanDepletionSentence==='function'?fanDepletionSentence(labels,byKey.p10.data,byKey.p50.data,byKey.p90.data):'';
+      if(dep)txt=dep+' '+txt;
     }
   }
+  if(typeof syncAaHorizonControl==='function')syncAaHorizonControl();
   el.textContent=txt;
   el.style.display=txt?'':'none';
 }
@@ -20580,7 +20409,7 @@ async function refreshPortfolioFromStoredState(){
       if(!allocationId){updateStrategyStatus('Soll-Allokation geladen, aber ohne technische ID. Portfolio kann nicht generiert werden.',true);return false;}
       updateStrategyStatus('Portfolio wird mit dem aktuellen Fonds-Universum neu generiert...',false);
       var recommendationPrefs=recommendationPreferencesForStoredAllocation(allocation);
-      var recommendationDepotBank=getInputValue('recipe-depot-bank')||'UBS AG Zurich';
+      var recommendationDepotBank=getInputValue('recipe-depot-bank')||null;
       recommendation=await API.post('/mandates/'+mid+'/recommendations/generate',{preferences:recommendationPrefs,target_allocation_id:allocationId,run_type:'Optimizer',depot_bank:recommendationDepotBank});
       if(String(mid)!==String(getActiveMandateId()||'')){
         console.warn('stale portfolio recommendation result ignored', {requested:mid, active:getActiveMandateId()});
@@ -20782,6 +20611,7 @@ function renderPortfolioSections(positions){
   if(!wrap)return;
   var items=Array.isArray(positions)?positions.slice():[];
   currentPortfolioPositions=items.slice();
+  if(typeof renderSampleProductWarning==='function')renderSampleProductWarning(items);
   if(!items.length){
     portfolioExpandedRows={};
     portfolioTechnicalExpandedRows={};
@@ -20813,6 +20643,7 @@ function renderPortfolioSections(positions){
       if(row.sub_asset_class)metaBits.push(String(row.sub_asset_class));
       if(row.currency)metaBits.push(String(row.currency));
       metaBits.push('TER '+fmtPct((Number(row.ter_bps||0)),2));
+      if(typeof isSampleProduct==='function'&&isSampleProduct(row))metaBits.push('Musterprodukt – nicht zur Umsetzung');
       var symbolLabel=row.symbol?String(row.symbol)+(row.exchange_code?(' / '+String(row.exchange_code)):''):'n/a';
       var lookupLabel=row.lookup_mode==='proxy'
         ? 'Proxy '+String(row.lookup_symbol||'')
@@ -20938,6 +20769,7 @@ function renderStrategySummary(){
   if(srProjValue&&srProjValue.previousElementSibling){
     srProjValue.previousElementSibling.textContent=(projectionHorizonYearLabel(sim)?('Prognose '+projectionHorizonYearLabel(sim)):'Prognose');
   }
+  if(typeof markProjectionDepletion==='function')markProjectionDepletion('sr-proj-wealth',projectedRappen,allocation);
   setText('sr-strategy-name',risk&&risk.final_profile?risk.final_profile:'Nicht definiert');
   setText('sr-horizon',risk&&risk.investment_horizon_years?(risk.investment_horizon_years+' Jahre'):'Langfristig');
   var bars=document.getElementById('sr-allocation-bars');
@@ -21056,6 +20888,7 @@ if(cashflow&&cashflow.recurring_net_rappen!=null)goalSubParts.push('Laufend '+fo
   if(srProjValue&&srProjValue.previousElementSibling){
     srProjValue.previousElementSibling.textContent=(projectionHorizonYearLabel(sim)?('Prognose '+projectionHorizonYearLabel(sim)):'Prognose');
   }
+  if(typeof markProjectionDepletion==='function')markProjectionDepletion('sr-proj-wealth',projectedRappen,activeAllocation);
   setText('sr-strategy-name',activeRisk&&activeRisk.final_profile?activeRisk.final_profile:'Nicht definiert');
   setText('sr-horizon',activeRisk&&activeRisk.investment_horizon_years?(activeRisk.investment_horizon_years+' Jahre'):(sim&&sim.horizon_years?(sim.horizon_years+' Jahre'):'Langfristig'));
   var bars=document.getElementById('sr-allocation-bars');
@@ -21227,6 +21060,7 @@ function applyAllocationEngineResult(result){
   if(aaProjValue&&aaProjValue.previousElementSibling){
     aaProjValue.previousElementSibling.textContent=(projectionHorizonYearLabel(sim)?('Prognose '+projectionHorizonYearLabel(sim)):'Prognose');
   }
+  if(typeof markProjectionDepletion==='function')markProjectionDepletion('aa-proj-wealth',advisoryProjectedRappen,result);
   updateAllocationProjectionComparison({
     currentCurrency:advisoryBaselineProjection.currency,
     targetCurrency:appCurrency(),
@@ -21643,7 +21477,7 @@ async function refreshStrategyData(force,includeRecommendation,retriedAfterBandR
           return true;
         }
         var currentPrefs=recommendationPreferencesForStoredAllocation(currentAllocation);
-        var currentDepotBank=getInputValue('recipe-depot-bank')||'UBS AG Zürich';
+        var currentDepotBank=getInputValue('recipe-depot-bank')||null;
         var hydratedRecommendation=await API.post('/mandates/'+mid+'/recommendations/generate',{preferences:currentPrefs,target_allocation_id:currentAllocation.target_allocation.id,run_type:'Optimizer',depot_bank:currentDepotBank});
         finalizeStrategyOutputs(currentAllocation,hydratedRecommendation,true,'Aktuelle Soll-Allokation geladen, Empfehlung aktualisiert: '+new Date().toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'}));
         return true;
@@ -21665,6 +21499,7 @@ async function refreshStrategyData(force,includeRecommendation,retriedAfterBandR
     syncStrategyCalcProgress(2,'Risikoprofil, House-Matrix und Leitplanken werden angewendet...','Das Risikoprofil setzt die Obergrenze. Danach legen wir House-Matrix, Tilts und Bandbreiten sauber über das Beratungsvermögen.','Leitplanken anwenden',56);
     var prefs=collectAllocationPreferencesFromUI();
     syncStrategyCalcProgress(3,'Monte-Carlo, Zielanalyse und Soll-Allokation werden berechnet...','Jetzt läuft der eigentliche Strategielauf. Dabei entstehen Projektion, Zielerreichung und die neue Soll-Allokation sichtbar aus denselben Daten.','Engine rechnet',78);
+    if(typeof showStrategyBlocker==='function')showStrategyBlocker(null);
     var allocationPromise=API.post('/mandates/'+mid+'/target-allocation/generate',{preferences:prefs});
     var riskPromise=loadCurrentRiskAssessment(mid,false);
     var metaPromise=Promise.allSettled([
@@ -21687,7 +21522,7 @@ async function refreshStrategyData(force,includeRecommendation,retriedAfterBandR
     syncStrategyCalcProgress(3,'Neue Soll-Allokation ist berechnet und steht zur Übernahme bereit...','Die Engine ist fertig. Donut, Tabellen und Soll-Prognose bleiben noch sichtbar im alten Stand und wechseln erst nach Abschluss des Ladebildschirms gemeinsam auf die neue Strategie.','Ergebnis bereit',92);
     var recommendationResult=null;
     if(wantsRecommendation){
-      var depotBank=getInputValue('recipe-depot-bank')||'UBS AG Zürich';
+      var depotBank=getInputValue('recipe-depot-bank')||null;
       recommendationResult=await API.post('/mandates/'+mid+'/recommendations/generate',{preferences:prefs,target_allocation_id:allocationResult.target_allocation.id,run_type:'Optimizer',depot_bank:depotBank});
       if(String(mid)!==String(getActiveMandateId()||'')){
         console.warn('stale recommendation result ignored', {requested:mid, active:getActiveMandateId()});
@@ -21738,6 +21573,7 @@ async function refreshStrategyData(force,includeRecommendation,retriedAfterBandR
     if((String(e&&e.status||'')==='404'||String(e&&e.status||'')==='409')&&!hasVisibleStrategyOutputs()){
       invalidateStrategyOutputs();
     }
+    if(typeof showStrategyBlocker==='function')showStrategyBlocker(e);
     updateStrategyStatus('Strategie konnte nicht berechnet werden: '+(e.detail||e.message||'?'),true);
     return false;
   }finally{
@@ -21754,6 +21590,7 @@ async function openAllocationEngineModal(){
   om('m-eq');
 }
 async function openImplementationRecipe(){
+  if(typeof populateRecipeDepotBanks==='function')populateRecipeDepotBanks();
   if(typeof eligOverrideReset==='function')eligOverrideReset();await refreshStrategyData(true,true);
   om('m-ums');
 }
@@ -23638,18 +23475,11 @@ function buildWealthPositionPayload(cat,typ,note){
   if(posType==='Vorsorge'&&tot>0&&Math.abs(tot-100)>0.5){
     throw new Error('Vorsorge-Aufteilung muss 100% ergeben (aktuell: '+AresRounding.formatPercent(tot,0,{typography:'screen'})+') oder ganz leer bleiben (dann zählt die Vorsorge nicht ins Anlage-Exposure).');
   }
-  // CURRENCY-CLOBBER-001 (Audit-Finding, 2026-10-07): war fest auf 'CHF'
-  // verdrahtet und ueberschrieb damit bei JEDEM Speichern (auch beim
-  // Bearbeiten!) die currency einer bestehenden Position -- seit
-  // BASE-CURRENCY-HARDCODED-001 (2026-09-27) kann mandate.base_currency frei
-  // gewaehlt werden, wodurch dieser Fall real vorkommt. Es gibt (noch) kein
-  // UI-Feld zur Waehrungswahl in dieser Maske -- Minimalfix: neue Positionen
-  // erhalten die Mandats-Basiswaehrung statt hart CHF, bestehende Positionen
-  // behalten beim Bearbeiten ihre eigene currency statt sie zu verlieren.
+  // CURRENCY-CLOBBER-001 + K2/E2E-01: Waehrungsfeld der Maske; sonst bestehende Waehrung bzw. Mandatswaehrung.
   var existingWealthPos=currentWealthEditId
     ?currentWealthPositions.find(function(item){return item&&String(item.id||'')===String(currentWealthEditId);})
     :null;
-  var payloadCurrency=(existingWealthPos&&existingWealthPos.currency)||newRecordCurrency();
+  var payloadCurrency=getInputValue('maw-currency')||(existingWealthPos&&existingWealthPos.currency)||newRecordCurrency();
   var payload={
     label:'',
     position_type:posType,
@@ -23779,7 +23609,7 @@ async function saveWealthPosition(){
 async function refreshWealthUI(cid){
   try{
     var results=await Promise.allSettled([
-      API.get('/clients/'+cid+'/wealth-summary'),
+      API.get(typeof wealthSummaryUrl==='function'?wealthSummaryUrl(cid):'/clients/'+cid+'/wealth-summary'),
       API.get('/clients/'+cid+'/wealth-positions'),
     ]);
     var summaryRes=results[0];
@@ -23787,7 +23617,7 @@ async function refreshWealthUI(cid){
     if(summaryRes.status==='fulfilled'&&summaryRes.value){
       var d=summaryRes.value;
       currentWealthSummary=clientScopedSummary((d||{}),cid);
-      var fmt=function(v){return fmtCHF(v,d.amount_currency);};  // G7 N4: Rohsummen der Positionen -> amount_currency des Servers
+      var fmt=function(v){return d.amount_currency||!v?fmtCHF(v,d.amount_currency):'Umrechnung offen';};  // G7 N4: Rohsummen der Positionen -> amount_currency des Servers
       var k=document.getElementById('kpi-reinvermoegen');
       if(k)k.textContent=fmt(d.net_worth_chf||0);
       var k2=document.getElementById('kpi-beratungsvermoegen');
@@ -23797,8 +23627,9 @@ async function refreshWealthUI(cid){
       if(k2Sub){
         var share=wealthSharePercent(d.advisory_wealth_chf||0,d.gross_wealth_chf||0);
         k2Sub.textContent=AresRounding.formatPercent(share,0,{typography:'screen'})+' des Bruttovermögens';
+        if(!d.amount_currency&&d.gross_wealth_chf)k2Sub.textContent='Anteil nach Umrechnung';
       }
-    }
+    }else if(summaryRes.reason&&summaryRes.reason.status===409){var kr=document.getElementById('kpi-reinvermoegen');if(kr)kr.textContent='Umrechnung offen';}
     if(positionsRes.status==='fulfilled'){
       renderWealthPositions(positionsRes.value);
     }
@@ -26663,6 +26494,6 @@ function openStammdatenModal(){
 </div>
 <!-- ─────────────────────────────────────────────────────────── -->
 
-<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./allocation-publication.js"></script><script src="./finalize-attestation.js"></script><script src="./fx-rates-editor.js"></script><script src="./sustainability-preferences.js"></script>
+<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./allocation-publication.js"></script><script src="./finalize-attestation.js"></script><script src="./fx-rates-editor.js"></script><script src="./advisor-guidance.js"></script><script src="./sustainability-preferences.js"></script>
 </body>
 </html>

@@ -15,7 +15,7 @@ async function confirmImplementationRecipe(){
       var attested=await uiConfirm({title:'Bewertungen bestätigen',message:'Ich bestätige, dass die erfassten Bewertungen (Wert und Stichtag je Vermögensposition) aktuell sind.'});
       if(!attested)return;
       await API.fetch('/mandates/'+mid+'/recommendations/'+runId+'/finalize?confirm_valuations_current=true',{method:'PUT'});
-      updateStrategyStatus('Aktuelles Rezept wurde finalisiert. Kundenwirksam wird es nach der Publikation.',false);refreshAllocationPublication(true);
+      updateStrategyStatus('Empfehlung finalisiert. Nächster Schritt: Asset Allokation › Publizieren.',false);refreshAllocationPublication(true);
     }else{
       updateStrategyStatus('Aktuelles Rezept wurde live aufgebaut und kann jetzt gedruckt werden.',false);
     }

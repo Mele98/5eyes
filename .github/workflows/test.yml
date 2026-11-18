@@ -857,6 +857,13 @@ jobs:
         run: |
           python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/e2a-flow             --startup-timeout 300 --test-timeout 300 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_e2a_sustainability_flow.py tests/test_livetest_e2b_strategy_blocks.py -p no:xdist -rs --tb=short
 
+      - name: Kernkette CH Berater-Oberflaeche (K2, Playwright Pflicht)
+        working-directory: ares-backend
+        env:
+          ARES_REQUIRE_PLAYWRIGHT: "1"
+        run: |
+          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/k2-kernkette             --startup-timeout 300 --test-timeout 600 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_k2_kernkette_ui.py -p no:xdist -rs --tb=short
+
       - name: Upload vitest log on failure
         if: failure()
         uses: actions/upload-artifact@v6

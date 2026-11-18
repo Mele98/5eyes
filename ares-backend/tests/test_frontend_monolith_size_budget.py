@@ -125,6 +125,14 @@ CCX-P3 Nachtrag 2 (N-909-11): Wechselkurs-Editor als Teil
 Merge P3 Nachtrag 2 in CCX-P4 (2026-11-18): alle drei Teile gelten
 (allocation-publication.js, finalize-attestation.js 27/1753 mit P4-Meldung,
 fx-rates-editor.js 99/5202); Monolith auf den gemessenen Stand: 26668 Z./1640535 B.
+K2 Kernkette CH (Dok. 115, 2026-11-19): Berater-Fuehrung als neuer Teil
+``advisor-guidance.js`` (Budget = Stand bei Einfuehrung). Im Monolithen nur
+Einbindung und Hooks; vier nie geoeffnete Legacy-Masken (m-edit-depot/-immo/
+-hypo/-custom, mit Drittbank-Namen) und statische Platzhalterdaten entfernt --
+der Monolith schrumpft (Budget gesenkt). allocation-publication.js schrumpft
+(Einzelfreigabe-Ablauf nach advisor-guidance.js), finalize-attestation.js
+ebenso; client-compliance.js +4 Z./+474 B fuer E2E-18 (Zeitpunkt der Uebergabe
+sekundengenau, lokale Zeit und Kanal-Label).
 """
 from __future__ import annotations
 
@@ -133,9 +141,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26668
+MONOLITH_MAX_LINES = 26499
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1640535
+MONOLITH_MAX_BYTES = 1625656
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -149,14 +157,15 @@ EXTRACTED_PART_BUDGETS = {
     "ist-projection-basis.js": (87, 4649),
     "unsaved-changes.js": (86, 4604),
     "goal-review-runtime.js": (1564, 83881),
-    "client-compliance.js": (465, 29504),
+    "client-compliance.js": (469, 29978),
     "kyc-review-policy.js": (427, 25832),
     "privacy-governance.js": (503, 35259),
     "sustainability-preferences.js": (519, 26082),
     "wealth-inflows.js": (282, 16491),
-    "allocation-publication.js": (276, 13973),
-    "finalize-attestation.js": (27, 1753),
+    "allocation-publication.js": (272, 13780),
+    "finalize-attestation.js": (27, 1750),
     "fx-rates-editor.js": (99, 5202),
+    "advisor-guidance.js": (605, 36322),
 }
 
 

@@ -144,6 +144,8 @@
   // -------------------------------------------------------------------------
   // Mandat: Kundeninformation, KYC-Bestaetigung, Vertretung
   // -------------------------------------------------------------------------
+  var CHANNEL_LABELS = {persoenlich_papier: 'persönlich, Papier', post: 'Post', email: 'E-Mail', kundenportal: 'Kundenportal'};
+  function localTs(v){ return v && typeof formatIsoLocal === 'function' ? formatIsoLocal(String(v)) : String(v || ''); }
   var REP_LABELS = {vollmacht: 'Vollmacht', vorsorgeauftrag: 'Vorsorgeauftrag', beistandschaft: 'Beistandschaft', gemeinschaftsdepot: 'Gemeinschaftsdepot'};
 
   function findingsHtml(status){
@@ -169,7 +171,7 @@
     }
     html += '</div>';
     (status.deliveries || []).forEach(function(d){
-      html += '<div style="font-size:9px;color:var(--n5)">Übergeben ' + esc(d.delivered_at) + ' (' + esc(d.delivery_channel) + ') · erfasst ' + esc(d.recorded_at) + ' · Fassung ' + esc(String(d.pdf_sha256 || '').slice(0, 12)) + '…'
+      html += '<div style="font-size:9px;color:var(--n5)">Übergeben ' + esc(localTs(d.delivered_at)) + ' (' + esc(CHANNEL_LABELS[d.delivery_channel] || d.delivery_channel) + ') · erfasst ' + esc(localTs(d.recorded_at)) + ' · Fassung ' + esc(String(d.pdf_sha256 || '').slice(0, 12)) + '…'
         + (d.delivery_timing === 'nachtraeglich' ? ' · <span style="color:var(--neg)">nachträglich übergeben (nach Vertragsabschluss)</span>' : '')
         + (d.archive_verified && d.seal_verified ? '' : ' · <span style="color:var(--neg)">Nachweis ungültig</span>') + '</div>';
     });
@@ -277,7 +279,9 @@
   function recordClientInformationDelivery(docId){
     var local = val('ci-delivered-at'), channel = val('ci-channel');
     if (!local || !channel) { notify('error', 'Zeitpunkt und Kanal der Übergabe angeben.'); return; }
-    var at = new Date(local);
+    // K2/E2E-18: datetime-local kennt nur Minuten -- Eingabe "diese Minute" = jetzt (mit Sekunden).
+    var at = new Date(local), now = new Date();
+    if (at <= now && now - at < 60000) at = now;
     return run(function(){
       return API.post('/mandates/' + encodeURIComponent(currentMandateId) + '/client-information/deliveries', {
         contract_document_id: docId, delivered_at: at.toISOString(), delivery_channel: channel,
