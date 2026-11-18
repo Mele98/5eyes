@@ -23,7 +23,8 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import DatabaseError, OperationalError
+from sqlalchemy.engine import URL
+from sqlalchemy.exc import DatabaseError
 
 import config
 import core.db_location as loc
@@ -70,8 +71,11 @@ def test_all_three_checkpoints_refuse_device_and_unc_spellings_before_creating(o
             config.guarded_sqlite_connect(variant, context="probe")
         with pytest.raises(loc.OwnerDatabaseRefused):
             database.bootstrap_sqlite_schema(db_path=variant)
-        engine = create_engine(f"sqlite:///{variant}")
-        with pytest.raises((loc.OwnerDatabaseRefused, OperationalError)):
+        # URL.create statt f"sqlite:///{variant}": im URL-String waere das "?" der
+        # Query-Trenner, die Engine saehe nur den Teil davor (Linux "/": Verzeichnis,
+        # SELECT 1 gruen; Windows: OperationalError) und der Waechter nie das Ziel.
+        engine = create_engine(URL.create("sqlite", database=variant))
+        with pytest.raises(loc.OwnerDatabaseRefused):
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
         engine.dispose()
@@ -157,8 +161,8 @@ def test_unknown_device_forms_refused_at_all_three_checkpoints(tmp_path, monkeyp
             config.guarded_sqlite_connect(variant, context="probe")
         with pytest.raises(loc.OwnerDatabaseRefused, match="Geraete-Pfad"):
             database.bootstrap_sqlite_schema(db_path=variant)
-        engine = create_engine(f"sqlite:///{variant}")
-        with pytest.raises((loc.OwnerDatabaseRefused, OperationalError)):
+        engine = create_engine(URL.create("sqlite", database=variant))  # s. oben
+        with pytest.raises(loc.OwnerDatabaseRefused, match="Geraete-Pfad"):
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
         engine.dispose()
