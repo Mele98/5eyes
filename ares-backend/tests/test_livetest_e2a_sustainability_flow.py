@@ -226,9 +226,18 @@ def test_sustainability_flow_a11y_and_real_mandate_switch(server):
             page.evaluate("document.getElementById('btn-login-submit').click()")
             page.wait_for_timeout(3000)
 
-            def open_rp(cid: str) -> dict:
+            switch_prompts: list[str] = []
+
+            def open_rp(cid: str, discard: bool = False) -> dict:
                 page.evaluate(close)
-                page.evaluate(f"loadClientById('{cid}')")
+                if discard:
+                    # H11: Entwurf offen -> Rueckfrage der echten App, "Trotzdem wechseln".
+                    page.evaluate(f"void loadClientById('{cid}')")
+                    page.wait_for_selector("#m-ui-dialog.open #m-ui-dialog-ok", timeout=10000)
+                    switch_prompts.append(page.inner_text("#m-ui-dialog-msg"))
+                    page.click("#m-ui-dialog-ok")
+                else:
+                    page.evaluate(f"loadClientById('{cid}')")
                 page.wait_for_timeout(3000)
                 page.evaluate(close)
                 page.evaluate("go('rp')")
@@ -251,7 +260,7 @@ def test_sustainability_flow_a11y_and_real_mandate_switch(server):
             page.check("#sust-q2-esg_factors")  # Entwurf, nicht gespeichert
             shot("e2a_2_mandat_a_ja_entwurf.png")
             a11y = page.evaluate(_A11Y)
-            b_state = open_rp(cid_b)
+            b_state = open_rp(cid_b, discard=True)
             shot("e2a_3_mandat_b_nicht_erfasst.png")
             # Fehlerzusammenfassung: Speichern ohne Antwort ist nur ueber
             # Frage 1 erreichbar -> Frage 1 waehlen, Rest leer lassen.
@@ -290,6 +299,9 @@ def test_sustainability_flow_a11y_and_real_mandate_switch(server):
     assert a11y["unlabeled"] == [] and a11y["low"] == [], a11y
     assert a11y["heading"] and a11y["legends"] >= 3
     # Wechsel auf B: nichts von A (Antwort, Entwurf, Verzicht, Ergebnis).
+    # H11: der Wechsel mit offenem Entwurf fragt erst nach (echte App).
+    assert len(switch_prompts) == 1 and "trotzdem Mandat wechseln?" in switch_prompts[0], switch_prompts
+    assert "Nachhaltigkeit" in switch_prompts[0]
     assert b_state["visible"] and b_state["state"] == "unanswered", b_state
     assert b_state["checked"] == [] and b_state["waiver"] is False and b_state["result"] == "none"
     assert b_state["yesHidden"] is True and b_state["finishHidden"] is True

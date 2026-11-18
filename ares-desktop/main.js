@@ -487,8 +487,14 @@ function desktopUpdateFeedUrl() {
   return gate.enabled ? gate.feedUrl : '';
 }
 
+// H11 N-907-03: Opt-in fuer die Owner-DB nur im gepackten Produktivstart --
+// nie im Test- oder Dev-Modus (dort nur eine ausdruecklich gesetzte Variable).
+function ownerDbOptInAllowed(isPackaged = app.isPackaged, env = process.env) {
+  return Boolean(isPackaged) && env.NODE_ENV !== 'test' && env.ARES_TEST !== '1';
+}
+
 function buildBackendChildEnv(runtime = backendRuntime) {
-  return {
+  const env = {
     ...process.env,
     PYTHONUNBUFFERED: '1',
     APP_HOST: runtime.host,
@@ -497,6 +503,10 @@ function buildBackendChildEnv(runtime = backendRuntime) {
     // Immer gesetzt (auch leer): eine geerbte Umgebung kann den Kanal nicht vortaeuschen.
     DESKTOP_UPDATE_FEED_URL: desktopUpdateFeedUrl(),
   };
+  // H11 N1: der gepackte Produktivstart gibt die Owner-DB (~/ares/ares.db) frei;
+  // unter pytest/CI/Testmodus verweigert das Backend trotzdem.
+  if (ownerDbOptInAllowed()) env.ARES_OWNER_DB_OPT_IN = '1';
+  return env;
 }
 
 function spawnBackendProcess() {
@@ -895,6 +905,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports.resolvePackagedBackendExe = resolvePackagedBackendExe;
   // RB-1: Kind-Umgebung des Backends (KEK-Ablageort) deterministisch testbar.
   module.exports.buildBackendChildEnv = buildBackendChildEnv;
+  module.exports.ownerDbOptInAllowed = ownerDbOptInAllowed;
   module.exports.TENANT_MASTER_KEK_STORE_FILE = TENANT_MASTER_KEK_STORE_FILE;
   module.exports.notifyRendererUpdateState = notifyRendererUpdateState;
   module.exports._setMainWindowForTest = (win) => { mainWindow = win; };

@@ -13,7 +13,14 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import QueuePool
 
-from config import DB_KEY_FORMAT_MESSAGE, db_key_format_ok, settings
+from config import (
+    DB_KEY_FORMAT_MESSAGE,
+    db_key_format_ok,
+    guarded_sqlite_connect,
+    owner_db_refusal,
+    refuse_owner_db_file,
+    settings,
+)
 from core.mandate_evidence_tenant_boundary import (
     MANDATE_BOUND_TENANT_TABLES,
     create_sqlite_guards_after_metadata_create,
@@ -31,8 +38,12 @@ SQLCIPHER_AVAILABLE = sqlcipher3 is not None
 
 
 def resolve_db_file(db_path: str | Path | None = None) -> Path:
-    db_file = Path(db_path or settings.db_path).expanduser().resolve()
-    db_file.parent.mkdir(parents=True, exist_ok=True)
+    raw = db_path or settings.db_path
+    db_file = Path(raw).expanduser().resolve()
+    # H11 N1/N-907-16: kein Ordner im Owner-Profil bzw. fuer einen nicht pruefbaren
+    # Geraete-Pfad (Rohwert vor resolve() pruefen); der Connect verweigert ohnehin.
+    if not owner_db_refusal(raw) and not owner_db_refusal(db_file):
+        db_file.parent.mkdir(parents=True, exist_ok=True)
     return db_file
 
 
@@ -299,7 +310,9 @@ def bootstrap_sqlite_schema(
     if not schema_file or not schema_file.exists():
         return
 
+    refuse_owner_db_file(str(db_path or settings.db_path), context='Schema-Bootstrap')  # N-907-16: Rohwert
     db_file = resolve_db_file(db_path)
+    refuse_owner_db_file(db_file, context='Schema-Bootstrap')  # H11 N1: raw sqlite3 legt sonst die Datei an
     sql = schema_file.read_text(encoding='utf-8')
 
     if _sqlcipher_enabled(db_key=db_key):
@@ -311,7 +324,7 @@ def bootstrap_sqlite_schema(
         key = db_key or settings.db_key or ''
         if not db_key_format_ok(key):
             raise ValueError(DB_KEY_FORMAT_MESSAGE)
-        with sqlcipher3.connect(str(db_file)) as conn:
+        with guarded_sqlite_connect(str(db_file), context='Schema-Bootstrap', connector=sqlcipher3.connect) as conn:
             apply_sqlcipher_key(conn, key)
             conn.execute('PRAGMA foreign_keys = OFF')
             try:
@@ -323,7 +336,7 @@ def bootstrap_sqlite_schema(
             conn.commit()
         return
 
-    with sqlite3.connect(str(db_file)) as conn:
+    with guarded_sqlite_connect(str(db_file), context='Schema-Bootstrap') as conn:
         conn.execute('PRAGMA foreign_keys = OFF')
         try:
             conn.executescript(sql)

@@ -1,24 +1,15 @@
-// H9 Nachtrag 4 (N-892-06, Entscheid Owner-Vertretung): zentrale Erkennung
-// ungesicherter Eingaben in den Kundenmasken: vor dem Logout-Neustart fragt
-// Ares nach, beforeunload warnt; bei Sitzungsablauf mit Benutzerwechsel KEIN
-// Dialog (Datenschutz), nach dem Neustart ein Hinweis auf verworfene Eingaben.
-// Ausgelagerter Monolith-Teil (Bundle, Budget, Verbots-Guards).
-//
-// Erkennung (ein dirty-Flag je Quelle):
-//  - Risikoprofil-Fragebogen: bestehendes riskAssessmentUiDirty.
-//  - Formular-Dialoge der Kundenmasken (Stammdaten, Mandat, Vermoegen,
-//    Cashflow, Zufluss, Ziele, Ereignisse, Risiko-Override, Mandats-
-//    einstellungen): Eingabe markiert, schliessen/neu oeffnen setzt zurueck.
-//  - ESG (E2): Karte #sust-card (kein Dialog); Neuaufbau setzt zurueck.
+// H9 Nachtrag 4 (N-892-06): zentrale Erkennung ungesicherter Eingaben in den
+// Kundenmasken. Vor Logout und Mandatswechsel (H11) fragt Ares nach, dazu
+// beforeunload; bei Sitzungsablauf mit Benutzerwechsel KEIN Dialog, danach ein
+// Hinweis. Quellen: Fragebogen (riskAssessmentUiDirty), Formular-Dialoge der
+// Kundenmasken (schliessen/neu oeffnen setzt zurueck), ESG-Karte #sust-card.
 var ARES_CUSTOMER_FORM_MODALS={
   'm-es':'Stammdaten','m-nc':'Mandat','m-mandate-settings':'Mandat-Einstellungen',
   'm-aw':'Vermögensposition','m-edit-depot':'Vermögensposition','m-edit-hypo':'Hypothek/Kredit',
   'm-edit-custom':'Vermögensposition','m-edit-immo':'Immobilie','m-awi':'Vermögenszufluss',
   'm-acf':'Cashflow','m-nz':'Ziel','m-goalrev':'Ziel','m-ev':'Lebensereignis',
-  'm-overr':'Risikoprofil-Override'
-};
-var aresUnsavedModals={},aresUnsavedEsgEl=null;
-var ARES_DISCARD_NOTICE_KEY='ares.unsavedDiscarded';
+  'm-overr':'Risikoprofil-Override'};
+var aresUnsavedModals={},aresUnsavedEsgEl=null,ARES_DISCARD_NOTICE_KEY='ares.unsavedDiscarded';
 function aresModalIsOpen(id){
   var el=(typeof document!=='undefined'&&document.getElementById)?document.getElementById(id):null;
   return !!(el&&el.classList&&el.classList.contains('open'));
@@ -44,16 +35,22 @@ function aresUnsavedSources(){
   return out;
 }
 function hasAresUnsavedChanges(){return aresUnsavedSources().length>0;}
-// Logout: nachfragen, wenn ungesicherte Eingaben offen sind. true = abmelden.
-async function aresConfirmDiscardBeforeLogout(){
+async function aresConfirmDiscard(verb,ok){
   var sources=aresUnsavedSources();
   if(!sources.length)return true;
-  var msg='Ungespeicherte Änderungen gehen verloren – trotzdem abmelden? (Betroffen: '+sources.join(', ')+')';
+  var msg='Ungespeicherte Änderungen gehen verloren – trotzdem '+verb+'? (Betroffen: '+sources.join(', ')+')';
   if(typeof uiConfirm==='function'){
-    try{return !!(await uiConfirm({title:'Ungespeicherte Änderungen',message:msg,okLabel:'Trotzdem abmelden',cancelLabel:'Abbrechen'}));}
+    try{return !!(await uiConfirm({title:'Ungespeicherte Änderungen',message:msg,okLabel:ok,cancelLabel:'Abbrechen'}));}
     catch(e){return false;}
   }
   return false; // ohne Dialog-Service nicht stillschweigend verwerfen
+}
+function aresConfirmDiscardBeforeLogout(){return aresConfirmDiscard('abmelden','Trotzdem abmelden');}
+// H11: Mandatswechsel (loadClientById) wie Logout; bestaetigt = verworfen.
+async function aresClientSwitchAllowed(){
+  if(!(await aresConfirmDiscard('Mandat wechseln','Trotzdem wechseln')))return false;
+  aresUnsavedModals={};aresUnsavedEsgEl=null;
+  return true;
 }
 // Sitzungsablauf mit Benutzerwechsel: kein Dialog, nur Merker fuer den Hinweis.
 function aresRememberDiscardedForNotice(){

@@ -77,6 +77,11 @@ def _seed(session):
         created_at=NOW, updated_at=NOW,
     ))
     session.commit()
+    # H11: Referenzdaten legt der Bootstrap an (der Lesepfad seedet nicht mehr).
+    from services.portfolio_engine import ensure_runtime_reference_data
+
+    ensure_runtime_reference_data(session, owner.id, jurisdiction="CH")
+    session.commit()
     return owner
 
 
@@ -117,7 +122,7 @@ def test_basis_is_independent_of_the_strategy_state():
                    "sub_allocations", "require_strategy_ready_assessment", "risk_assessment"):
         assert needle not in src, needle
     assert "_asset_class_expected_metrics(cma)" in src
-    assert "ensure_runtime_reference_data(" in src
+    assert "ensure_runtime_reference_data(" in src and "seed=False" in src  # H11: rein lesend
 
 
 def test_other_advisor_cannot_read_foreign_mandate_basis(session_factory):

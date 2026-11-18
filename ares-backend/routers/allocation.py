@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from core.db_integrity import raise_if_check_violation
+import logging
 from datetime import date, datetime, timezone
 from typing import Optional
 import json
@@ -133,6 +134,7 @@ from services.risk_capacity_evaluation_snapshot import (
 from services.solver_admission import admit as _admit_solver_slot
 
 router = APIRouter(tags=["Allokation"])
+_bootstrap_logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -141,6 +143,25 @@ def _now() -> str:
 
 def _get_mandate_or_404(mandate_id: str, db: Session, current_user: User) -> Mandate:
     return get_mandate_for_user_or_404(mandate_id, db, current_user)
+
+
+def seed_reference_data_at_bootstrap(db: Session, user_id: str) -> bool:
+    """H11: CH-Referenzdaten (Policy, House-Matrix, Bausteine, CMA) einmalig im
+    Bootstrap anlegen statt als Seiteneffekt der GET-Pfade (die lesen jetzt mit
+    ``seed=False`` und antworten ohne Daten mit 409). Idempotent; in Produktion
+    ist Autoseeding unzulaessig -- dann bleibt es beim fail-closed 409, bis
+    freigegebene Daten importiert sind. Die Ersteinrichtung scheitert nie daran.
+    Registriert als ``app.state.post_bootstrap_hooks`` (main.py), damit
+    routers.auth keine Engine-Abhaengigkeit bekommt."""
+    try:
+        ensure_runtime_reference_data(db, user_id, jurisdiction="CH")
+        db.commit()
+        return True
+    except Exception as exc:  # noqa: BLE001 -- N-907-04: die Ersteinrichtung scheitert nie
+        db.rollback()
+        # Nur der Fehlertyp, keine Personen- oder Kontodaten.
+        _bootstrap_logger.warning("Bootstrap: CH-Referenzdaten nicht angelegt (%s)", type(exc).__name__)
+        return False
 
 
 @router.get("/mandates/{mandate_id}/target-allocation/current",
@@ -251,11 +272,13 @@ def get_current_allocation_payload(
     if not assessment:
         raise HTTPException(status_code=409, detail="Bitte zuerst ein aktuelles Risikoprofil speichern.")
     try:
+        # H11: Lesepfad ohne Seeding (Referenzdaten legt der Bootstrap an).
         policy, current_cma = ensure_runtime_reference_data(
             db,
             current_user.id,
             jurisdiction=resolve_pack(mandate).code,
             tenant_id=getattr(mandate, "tenant_id", None),
+            seed=False,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -586,12 +609,14 @@ def get_ist_projection_basis(
     if horizon_years is not None and not 1 <= int(horizon_years) <= 80:
         raise HTTPException(status_code=422, detail="horizon_years muss zwischen 1 und 80 liegen.")
     try:
-        # Dieselbe Aufloesung wie der Allokationspfad (Jurisdiktion + Tenant).
+        # Dieselbe Aufloesung wie der Allokationspfad (Jurisdiktion + Tenant),
+        # H11: rein lesend -- ohne Referenzdaten 409 statt Seeding.
         _policy, cma = ensure_runtime_reference_data(
             db,
             current_user.id,
             jurisdiction=resolve_pack(mandate).code,
             tenant_id=getattr(mandate, "tenant_id", None) or None,
+            seed=False,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail={

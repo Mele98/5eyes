@@ -1,21 +1,14 @@
 /**
- * Datenschutz-Governance (DSG-Technikaudit 2026-11-11, Paket H10):
- * Bearbeitungsverzeichnis und Angaben des Verantwortlichen (C-DSG-01),
- * Betroffenenanfragen (C-DSG-02), ausgehende Kanaele (C-DSG-03) und
- * Sicherheitsvorfaelle (C-DSG-04).
+ * Datenschutz-Governance (DSG-Technikaudit 2026-11-11, H10): Verzeichnis und
+ * Angaben des Verantwortlichen (C-DSG-01), Betroffenenanfragen (C-DSG-02),
+ * ausgehende Kanaele (C-DSG-03), Sicherheitsvorfaelle (C-DSG-04).
  *
- * Ausgelagerter Monolith-Teil (EXTRACTED_MONOLITH_PARTS, eigenes Budget),
- * eingebunden am Ende von ares.html. Haengt sich selbst ein:
+ * Ausgelagerter Monolith-Teil (eigenes Budget), am Ende von ares.html; haengt sich ein:
  * Administration > Compliance > "Datenschutz" (Button #asec-privacy-gov,
  * Panel #sec-privacy-gov, Laden ueber loadPrivacyGovernance()).
  *
- * Grundsaetze: keine Vorbelegung, Sperren und Gruende kommen 1:1 vom
- * Backend, keine erfundenen Werte.
- *
- * Monolith-Budget: renderAuditLogPagination() (Protokoll-Ansicht der
- * Administration, Teil der Nachvollziehbarkeit) ist unveraendert aus
- * ares.html hierher umgezogen, damit die Einbindung den Monolithen nicht
- * vergroessert.
+ * Keine Vorbelegung, Sperren/Gruende 1:1 vom Backend. renderAuditLogPagination()
+ * ist unveraendert aus ares.html umgezogen (Monolith-Budget).
  */
 (function(){
   'use strict';
@@ -142,10 +135,14 @@
 
   // ── Banner: Datenuebermittlung gesperrt (jede Seite) ──
   async function openPrivacyApproval(field){
-    if (typeof openAdminModal === 'function') await openAdminModal();
-    if (typeof adminShowSection === 'function') adminShowSection('sec-privacy-gov');
-    await loadPrivacyGovernance(); // N-899-17: "Angaben ergaenzen" fuehrt direkt zum Feld
-    var input = field && document.querySelector('[data-owner-field="' + field + '"] input'); if (input) { if (input.scrollIntoView) input.scrollIntoView({block: 'center'}); input.focus(); }
+    var btn = document.querySelector('#pg-egress-banner button'), label = btn && btn.textContent; // H11: Ladehinweis
+    if (btn) { btn.disabled = true; btn.textContent = 'Wird geladen …'; }
+    try {
+      if (typeof openAdminModal === 'function') await openAdminModal();
+      if (typeof adminShowSection === 'function') adminShowSection('sec-privacy-gov');
+      await loadPrivacyGovernance(); // N-899-17: "Angaben ergaenzen" fuehrt direkt zum Feld
+      var input = field && document.querySelector('[data-owner-field="' + field + '"] input'); if (input) { if (input.scrollIntoView) input.scrollIntoView({block: 'center'}); input.focus(); }
+    } finally { if (btn) { btn.disabled = false; btn.textContent = label; } }
   }
 
   async function refreshEgressBanner(){
@@ -165,7 +162,7 @@
       el.style.cssText = 'position:sticky;top:0;z-index:9999;background:var(--neg-bg,#fdecec);color:var(--neg,#a00);padding:6px 12px;font-size:11px;border-bottom:1px solid var(--neg,#a00)';
       document.body.insertBefore(el, document.body.firstChild);
     }
-    // N-899-16: Alltagssprache vorne; Kanal-IDs/Reason-Codes nur in der aufklappbaren Detailansicht.
+    // N-899-16: Klartext vorne; Kanal-IDs/Reason-Codes nur in den Details.
     var act = status.action || {}, asOf = status.data_as_of || {}, lines = (status.plain_summary || []).length ? status.plain_summary : [status.message || 'Datenübermittlung pausiert'];
     var stand = ' <span ' + FS + '>Datenstand Kurse: ' + esc(asOf.product_prices || asOf.asset_class_prices || 'unbekannt') + ' (' + esc(status.market_data_message || 'nicht aktualisiert') + ').'
       + (asOf.fx_message ? ' Devisen: ' + esc(asOf.fx_message) + '.' : '') + '</span>';

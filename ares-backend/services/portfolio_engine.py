@@ -1656,8 +1656,12 @@ def ensure_runtime_reference_data(
     user_id: str,
     jurisdiction: str = "CH",
     tenant_id: str | None = None,
+    seed: bool = True,
 ) -> tuple[OptimizerPolicy, CapitalMarketAssumption]:
     """Stellt Policy/House-Matrix/BuildingBlocks/CMA fuer die Engine bereit.
+
+    H11: ``seed=False`` fuer GET-Pfade -- gleiche Aufloesung, aber fehlende
+    CH-Defaults werden nicht angelegt (JurisdictionReferenceDataMissingError).
 
     WP2 (Engine-Wiring Jurisdiktion, 2026-07-31):
     - jurisdiction in (None, "CH"): EXAKT das heutige Verhalten (siehe
@@ -1698,7 +1702,7 @@ def ensure_runtime_reference_data(
       riskanter als die (bewusste, harmlose) Doppelvalidierung.
     """
     if jurisdiction in (None, "CH"):
-        return _ensure_runtime_reference_data_ch(db, user_id)
+        return _ensure_runtime_reference_data_ch(db, user_id, seed=seed)
 
     policy_candidates = db.query(OptimizerPolicy).filter(
         OptimizerPolicy.is_current == 1
@@ -1723,7 +1727,9 @@ def ensure_runtime_reference_data(
     return policy, cma
 
 
-def _ensure_runtime_reference_data_ch(db: Session, user_id: str) -> tuple[OptimizerPolicy, CapitalMarketAssumption]:
+def _ensure_runtime_reference_data_ch(
+    db: Session, user_id: str, seed: bool = True,
+) -> tuple[OptimizerPolicy, CapitalMarketAssumption]:
     now = _now()
     today = _today()
     # max_risky_fraction_bps pro Profil (ASIP-Konvention, U-P23.2/3, 2026-05-26):
@@ -1798,6 +1804,8 @@ def _ensure_runtime_reference_data_ch(db: Session, user_id: str) -> tuple[Optimi
         )
     policy = policy_candidates[0] if policy_candidates else None
     if not policy:
+        if not seed:
+            raise JurisdictionReferenceDataMissingError("Keine aktuelle OptimizerPolicy (Lesepfad seedet nicht).")
         if settings.app_env == "production":
             raise JurisdictionReferenceDataMissingError(
                 "In Produktion fehlen freigegebene OptimizerPolicy-"
@@ -1831,6 +1839,8 @@ def _ensure_runtime_reference_data_ch(db: Session, user_id: str) -> tuple[Optimi
     except JurisdictionReferenceDataMissingError:
         cma = None
     if not cma:
+        if not seed:
+            raise JurisdictionReferenceDataMissingError("Keine aktuelle CMA (Lesepfad seedet nicht).")
         if settings.app_env == "production":
             raise JurisdictionReferenceDataMissingError(
                 "In Produktion fehlt eine aktuelle CH-CMA. Runtime-"
@@ -6290,8 +6300,8 @@ def build_recommendation_payload_from_run(
     preferences: dict | None,
 ) -> dict:
     jurisdiction = resolve_pack(mandate).code
-    current_policy, current_cma = ensure_runtime_reference_data(
-        db, user_id, jurisdiction=jurisdiction, tenant_id=getattr(mandate, "tenant_id", None) or None,
+    current_policy, current_cma = ensure_runtime_reference_data(  # H11: Lesepfad ohne Seeding
+        db, user_id, jurisdiction=jurisdiction, tenant_id=getattr(mandate, "tenant_id", None) or None, seed=False,
     )
 
     allocation = None

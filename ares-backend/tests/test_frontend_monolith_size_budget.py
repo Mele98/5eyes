@@ -125,6 +125,14 @@ CCX-P3 Nachtrag 2 (N-909-11): Wechselkurs-Editor als Teil
 Merge P3 Nachtrag 2 in CCX-P4 (2026-11-18): alle drei Teile gelten
 (allocation-publication.js, finalize-attestation.js 27/1753 mit P4-Meldung,
 fx-rates-editor.js 99/5202); Monolith auf den gemessenen Stand: 26668 Z./1640535 B.
+H11 Hygiene-Welle: Rueckfrage beim Mandatswechsel (unsaved-changes.js),
+Anfragezaehler (sustainability-preferences.js), Ladehinweis
+(privacy-governance.js), Vorzeichen-Fix -- je Datei ohne Wachstum; Budget auf
+den gemessenen Stand gesenkt: 27161 Z./1666013 B; unsaved-changes.js 83/4476,
+sustainability-preferences.js 517/26065, privacy-governance.js 500/35256.
+Merge H11 in H12 (2026-11-18): alle Teile beider Seiten gelten; Monolith und
+Teilbudgets auf den gemessenen Stand nach dem Merge: 26665 Z./1640432 B; privacy-governance.js
+500/35256, sustainability-preferences.js 517/26065 (H11-Stand).
 """
 from __future__ import annotations
 
@@ -133,9 +141,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26668
+MONOLITH_MAX_LINES = 26665
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1640535
+MONOLITH_MAX_BYTES = 1640432
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -147,12 +155,12 @@ EXTRACTED_PART_BUDGETS = {
     "ist-projection-gate.js": (288, 15951),
     "session-boundary.js": (53, 2763),
     "ist-projection-basis.js": (87, 4649),
-    "unsaved-changes.js": (86, 4604),
+    "unsaved-changes.js": (83, 4476),
     "goal-review-runtime.js": (1564, 83881),
     "client-compliance.js": (465, 29504),
     "kyc-review-policy.js": (427, 25832),
-    "privacy-governance.js": (503, 35259),
-    "sustainability-preferences.js": (519, 26082),
+    "privacy-governance.js": (500, 35256),
+    "sustainability-preferences.js": (517, 26065),
     "wealth-inflows.js": (282, 16491),
     "allocation-publication.js": (276, 13973),
     "finalize-attestation.js": (27, 1753),

@@ -89,7 +89,9 @@ Ziel-DB waehrend des Restores wuerde die Konsistenz verletzen.
 # Backend stoppen (Strg+C im uvicorn-Terminal, oder Electron-App schliessen)
 
 cd ares-backend
-python scripts/backup_now.py \
+# Owner-DB als Ziel nur mit ausdruecklicher Freigabe (H11); unter Tests/CI
+# wird sie auch damit nie ueberschrieben.
+ARES_OWNER_DB_OPT_IN=1 python scripts/backup_now.py \
     --restore ~/ares/backups/ares-backup-20260530-081920.db \
     --target  ~/ares/ares.db
 # -> RESTORE ok -> ~/ares/ares.db (1638400 bytes, hash_verified=True)

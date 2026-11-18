@@ -178,12 +178,12 @@ def test_mutated_product_file_is_caught(tmp_path):
     (target / "backup.py").write_text(mutated, encoding="utf-8")
     findings = scan_tree(tmp_path / "ares-backend", tmp_path)
     new = [f for f in findings if f[0] not in EXEC_EXCEPTIONS]
-    assert new == [("ares-backend/services/backup.py::_mutant", new[0][1], "shell")]
+    assert new == [("ares-backend/services/backup.py::_mutant#1", new[0][1], "shell")]
 
 
 def test_exception_is_scoped_to_its_function(tmp_path):
     source = "import subprocess\n\ndef replicate_offsite(cmd):\n    subprocess.run(cmd)\n\n" \
              "def other(cmd):\n    subprocess.run(cmd)\n"
     keys = {f[0] for f in scan_source(source, "ares-backend/services/backup.py")}
-    assert keys == {"ares-backend/services/backup.py::replicate_offsite", "ares-backend/services/backup.py::other"}
-    assert "ares-backend/services/backup.py::other" not in EXEC_EXCEPTIONS
+    assert keys == {"ares-backend/services/backup.py::replicate_offsite#1", "ares-backend/services/backup.py::other#1"}
+    assert "ares-backend/services/backup.py::other#1" not in EXEC_EXCEPTIONS

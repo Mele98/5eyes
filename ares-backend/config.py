@@ -18,6 +18,124 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import core.db_location as _db_location
 
+OwnerDatabaseRefused = _db_location.OwnerDatabaseRefused
+
+
+def owner_db_refusal(path) -> str | None:
+    """H11 N1: Owner-DB (~/ares/ares.db, ~/5eyes/5eyes.db) unter Test/CI nie,
+    sonst nur mit ARES_OWNER_DB_OPT_IN=1 (Regel: core.db_location)."""
+    return _db_location.owner_db_refusal(path, os.environ)
+
+
+def refuse_owner_db_file(path, *, context: str) -> None:
+    reason = owner_db_refusal(path)
+    if reason:
+        raise OwnerDatabaseRefused(f"{context}: {reason}")
+
+
+def refuse_owner_db_settings(cfg, *, context: str) -> None:
+    refuse_owner_db_file(getattr(cfg, "db_path", None), context=context)
+    refuse_owner_db_file(_db_location.sqlite_url_file(getattr(cfg, "database_url", None)), context=context)
+
+
+def guarded_sqlite_connect(target, *, context: str, connector=None, **kwargs):
+    """H11 N2 (C-907-01): EINZIGE Stelle fuer rohe sqlite3-/sqlcipher3-Connects
+    (Schema-Bootstrap, Backup/Restore, Skripte, DDL-Probe). Dieselbe Owner-Pfad-
+    Pruefung wie der Engine-Waechter, VOR dem Oeffnen/Anlegen der Datei.
+    ``connector`` ist z. B. ``sqlcipher3.connect``; Default stdlib ``sqlite3``."""
+    if connector is None:
+        import sqlite3
+
+        connector = sqlite3.connect
+    refuse_owner_db_file(str(target), context=context)
+    if "factory" not in kwargs:
+        factory = _guarded_factory_for(sys.modules.get(getattr(connector, "__module__", "") or ""))
+        if factory is not None:
+            kwargs["factory"] = factory
+    conn = connector(target, **kwargs)
+    install_attach_authorizer(conn)
+    return conn
+
+
+_GUARDED_FACTORIES: dict = {}
+
+
+class AuthorizerLocked(RuntimeError):
+    """N-907-19: ``set_authorizer`` auf einer geschuetzten Verbindung (der
+    ATTACH-Authorizer ist gesetzt und darf nicht ersetzt werden)."""
+
+
+def _guarded_factory_for(dbapi_module):
+    """N-907-19: Verbindungsklasse (Unterklasse von ``<dbapi>.Connection``), deren
+    ``set_authorizer`` nach dem Setzen des ATTACH-Authorizers gesperrt ist."""
+    base = getattr(dbapi_module, "Connection", None) if dbapi_module is not None else None
+    if not isinstance(base, type):
+        return None
+    cls = _GUARDED_FACTORIES.get(base)
+    if cls is None:
+        def set_authorizer(self, *args, **kwargs):
+            if getattr(self, "_ares_authorizer_locked", False):
+                raise AuthorizerLocked(
+                    "set_authorizer ist auf dieser Verbindung gesperrt: der ATTACH-Authorizer "
+                    "des Owner-DB-Waechters darf nicht ersetzt werden (H11 N-907-19)."
+                )
+            return base.set_authorizer(self, *args, **kwargs)
+
+        try:
+            cls = type("AresGuardedConnection", (base,), {"set_authorizer": set_authorizer})
+        except TypeError:  # Basisklasse nicht ableitbar -> kein Laufzeitschutz moeglich
+            return None
+        _GUARDED_FACTORIES[base] = cls
+    return cls
+
+
+def _attach_authorizer(action, arg1, arg2, dbname, source):  # noqa: ARG001
+    """N-907-12: SQLite-Authorizer -- nur ``SQLITE_ATTACH`` wird bewertet, mit
+    derselben Owner-Pfad-Pruefung (Ziel von SQLite selbst, kein Textparsing)."""
+    if action != _db_location.SQLITE_ATTACH:
+        return _db_location.SQLITE_OK
+    return _db_location.attach_decision(arg1, os.environ)
+
+
+def install_attach_authorizer(dbapi_connection) -> None:
+    """Setzt den ATTACH-Authorizer auf einer DBAPI-Verbindung (sqlite3/sqlcipher3)."""
+    setter = getattr(dbapi_connection, "set_authorizer", None)
+    if callable(setter):
+        setter(_attach_authorizer)
+        # N-907-19: danach gesperrt (nur auf AresGuardedConnection; die reine
+        # C-Klasse hat kein __dict__ -- dort bleibt der AST-Waechter).
+        try:
+            dbapi_connection._ares_authorizer_locked = True
+        except AttributeError:
+            pass
+
+
+def _install_owner_db_guard() -> None:
+    """Einmalig: VOR jedem SQLite-DBAPI-Connect jeder Engine (bevor SQLite die Datei anlegt)."""
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    def _guard(dialect, conn_rec, cargs, cparams):  # noqa: ARG001
+        if dialect.name == "sqlite":
+            refuse_owner_db_file(_db_location.connect_target(cargs, cparams), context="Datenbank")
+            if "factory" not in cparams:
+                dbapi = getattr(dialect, "loaded_dbapi", None) or getattr(dialect, "dbapi", None)
+                factory = _guarded_factory_for(dbapi)
+                if factory is not None:
+                    cparams["factory"] = factory
+
+    def _authorize(dbapi_connection, connection_record):  # noqa: ARG001
+        # N-907-12: ATTACH legt eine Datei ohne do_connect an -- Authorizer je Verbindung.
+        install_attach_authorizer(dbapi_connection)
+
+    if not getattr(Engine, "_ares_owner_db_guard", False):
+        event.listen(Engine, "do_connect", _guard)
+        event.listen(Engine, "connect", _authorize)
+        Engine._ares_owner_db_guard = True
+
+
+_install_owner_db_guard()
+
 
 DEFAULT_SECRET_KEY = "CHANGE_ME_IN_PRODUCTION_USE_STRONG_RANDOM_KEY"
 

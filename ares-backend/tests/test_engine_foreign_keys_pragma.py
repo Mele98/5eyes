@@ -133,12 +133,9 @@ _DOCUMENTED_WINDOWS: dict[tuple[str, str, str], str] = {
         "Backup/Restore: kopiert bzw. prueft die Datei byteweise, schreibt keine App-Zeilen.",
     ("alembic/env.py", "run_migrations_online", "engine"):
         "Alembic-Migrationslauf (Postgres erzwingt FKs immer; SQLite nutzt create_all).",
-    ("scripts/restore_drill.py", "_create_sandbox_source_db", "raw"):
-        "Werkzeug: Wiederherstellungsuebung in einer Sandbox-Kopie.",
-    ("scripts/restore_drill.py", "_read_marker", "raw"):
-        "Werkzeug: Wiederherstellungsuebung, nur lesend.",
-    ("scripts/restore_drill.py", "_integrity_check", "raw"):
-        "Werkzeug: Wiederherstellungsuebung, nur PRAGMA integrity_check.",
+    ("scripts/restore_drill.py", "_connect", "raw"):
+        "Werkzeug: Wiederherstellungsuebung in einer Sandbox-Kopie (Marker anlegen/lesen, "
+        "PRAGMA integrity_check); H11 N2: ein Connect-Helfer ueber guarded_sqlite_connect.",
 }
 
 _FK_OFF = re.compile(r"foreign_keys\s*=\s*(off|0|false|no)\b", re.IGNORECASE)
@@ -164,6 +161,10 @@ def _scan_sites() -> set[tuple[str, str, str]]:
                 if name in _ENGINE_FACTORIES:
                     sites.add((rel, func, "engine"))
                 elif name == "connect" and base in _RAW_MODULES:
+                    sites.add((rel, func, "raw"))
+                elif name == "guarded_sqlite_connect" and not (rel == "config.py" and func == "guarded_sqlite_connect"):
+                    # H11 N2: rohe Connects laufen ueber config.guarded_sqlite_connect
+                    # (Owner-DB-Waechter) -- fuer die FK-Doku weiterhin eine rohe Verbindung.
                     sites.add((rel, func, "raw"))
             if isinstance(node, ast.Constant) and isinstance(node.value, str) and _FK_OFF.search(node.value):
                 sites.add((rel, func, "fk_off"))

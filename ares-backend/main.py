@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from config import KekStoreError, ensure_tenant_master_kek, require_tenant_master_kek, settings
+from config import KekStoreError, ensure_tenant_master_kek, refuse_owner_db_settings, require_tenant_master_kek, settings
 from core.logging_setup import configure_logging
 from core.middleware import (
     MaxBodySizeMiddleware,
@@ -35,7 +35,7 @@ import models.protocol_bausteine  # noqa  Bug-#13a (2026-06-07) — Beratungspro
 import models.tenant  # noqa  Sprint T1 (2026-06-08) — 3-Tier-Foundation
 import models.tax  # noqa
 import models.wealth  # noqa
-from routers.allocation import router as allocation_router
+from routers.allocation import router as allocation_router, seed_reference_data_at_bootstrap
 from routers.auth import router as auth_router, users_router
 from routers.client_portal import router as client_portal_router
 from routers.cost_disclosure import router as cost_disclosure_router  # FIDLEG Art. 8/9 (2026-06-08)
@@ -84,6 +84,8 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize database and background services on startup."""
+    # H11 N1: vor Logging/KEK/DB -- nie still auf die Owner-DB (Test/CI immer, sonst Opt-in).
+    refuse_owner_db_settings(settings, context='Start')
     configure_logging()
     logger.info(
         'Starting application | app=%s version=%s env=%s host=%s port=%s scheduler_enabled=%s sqlcipher_enabled=%s',
@@ -169,6 +171,8 @@ app = FastAPI(
 # K-2: fachliche Fehler (core.reason_codes.DomainError) zentral -> HTTP,
 # byte-gleich zur bisherigen HTTPException-Antwort.
 install_exception_handlers(app)
+# H11: Referenzdaten-Seeding nach dem Bootstrap-Admin (statt in GET-Pfaden).
+app.state.post_bootstrap_hooks = (seed_reference_data_at_bootstrap,)
 app.add_middleware(RequestContextMiddleware)
 app.add_middleware(
     CORSMiddleware,
