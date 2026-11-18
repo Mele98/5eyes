@@ -1005,7 +1005,15 @@ def _invalidation_audit_sink(session: Session, pending: list[dict[str, Any]]) ->
 register_invalidation_audit_sink(_invalidation_audit_sink)
 
 
+def rollback_keeping_tenant(db: Session) -> None:
+    """Rollback und Tenant-Kontext wieder setzen (N-884-09) -- dieselbe Regel
+    wie im Siegel; Fassade fuer den P4-Publish-Gate (ohne eigene Kante auf
+    ``services.tenant_context``)."""
+    restore_tenant_after_rollback(db, set_tenant_context)
+
+
 __all__ = [
+    "rollback_keeping_tenant",
     "AUDIT_INVALIDATED",
     "AUDIT_RACE_REJECTED",
     "AUDIT_REJECTED",

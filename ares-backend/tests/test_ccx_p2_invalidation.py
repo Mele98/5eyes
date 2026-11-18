@@ -444,7 +444,9 @@ def test_late_result_a_after_switch_to_b_is_superseded(session_factory):
         answer_question_one_for_all_mandates(db)
         with pytest.raises(DomainError) as caught:
             finalize_recommendation(mandate_id=mid, run_id=run_id, request=_FakeRequest(), db=db,
-                                    current_user=db.get(User, advisor_id), expected_input_manifest_hash=started_a)
+                                    current_user=db.get(User, advisor_id), expected_input_manifest_hash=started_a,
+                                    # Integration P3 N1 (N-909-07): Bestaetigung "Bewertung aktuell".
+                                    confirm_valuations_current=True)
     assert caught.value.reason_code == "CCX_RESULT_SUPERSEDED"
     with session_factory() as db:
         assert db.execute(text("SELECT count(*) FROM advisory_decision_envelopes")).scalar() == 0
@@ -455,7 +457,8 @@ def test_late_result_a_after_switch_to_b_is_superseded(session_factory):
         answer_question_one_for_all_mandates(db)
         result = finalize_recommendation(mandate_id=mid, run_id=run_id, request=_FakeRequest(), db=db,
                                          current_user=db.get(User, advisor_id),
-                                         expected_input_manifest_hash=started_a)
+                                         expected_input_manifest_hash=started_a,
+                                         confirm_valuations_current=True)
     with session_factory() as db:
         assert _envelope(db, result.advisory_envelope_id).freshness_status == "FRESH"
 

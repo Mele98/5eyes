@@ -241,7 +241,7 @@
     "services.allocation_evidence_replay": ["models.allocation", "schemas.allocation", "services.optimizer.objective_contract", "services.portfolio_engine_optimizer_integration"],
     "services.allocation_input_staleness": ["services.advisory_decision_envelope", "services.jurisdiction.resolve", "services.portfolio_engine"],
     "services.allocation_messages": ["services.optimizer.goal_attribution", "services.risk_override_decision", "services.risk_profile_signoff"],
-    "services.allocation_publication_gate": ["database", "models.allocation", "models.review", "models.snapshots", "services.advisory_decision_envelope", "services.allocation_concurrency", "services.audit", "services.auth", "services.portfolio_engine_allocation_integrity", "services.product_eligibility_governance", "services.recommendation_release_gate", "services.tenant_context"],
+    "services.allocation_publication_gate": ["database", "models.allocation", "models.review", "models.snapshots", "services.advisory_decision_envelope", "services.allocation_concurrency", "services.audit", "services.auth", "services.fx_basis", "services.portfolio_engine_allocation_integrity", "services.product_eligibility_governance", "services.recommendation_release_gate"],
     "services.audit": ["database", "models.review", "models.users"],
     "services.auth": ["config", "database", "models.client_login", "models.clients", "models.mandates", "models.tenant", "models.users", "services.session_revocation", "services.tenant_context"],
     "services.backtest_ab": ["models.allocation", "models.mandates", "services.backtest_stress", "services.jurisdiction.resolve", "services.portfolio_engine"],

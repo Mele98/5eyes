@@ -74,12 +74,14 @@ from services.advisory_decision_envelope import (
     mandate_tenant,
     persist_freshness_drift,
     pull_freshness,
+    rollback_keeping_tenant,
     verify_envelope,
 )
 # ALLOC-EDITOR-STALE-001: der Browser-Kontext-Abgleich der Strategie-PDFs
 # (Vertrags-Consumer) laeuft ueber diese Fassade mit (pdf_reports ohne neue Kante).
 from services.allocation_concurrency import AllocationVersionConflict, assert_report_allocation_matches
-from services.audit import log, restore_tenant_after_rollback
+from services.audit import log
+from services.fx_basis import STATUS_MISMATCH, STATUS_OK, STATUS_STALE, load_fx_basis
 from services.auth import same_person
 from services.portfolio_engine_allocation_integrity import (
     _verified_persisted_allocation_context,
@@ -100,7 +102,6 @@ from services.recommendation_release_gate import (
     assert_retrocession_release_eligible,
     assert_risk_signoff_release_eligible,
 )
-from services.tenant_context import set_tenant_context
 
 logger = logging.getLogger(__name__)
 
@@ -271,6 +272,38 @@ def _fx_basis_findings(snapshot: Any) -> list[str]:
     return []
 
 
+def _current_fx_findings(db: Session, snapshot: Any, tenant_id: str | None) -> list[str]:
+    """Strikte FX-Basis ZUM PUBLIKATIONSZEITPUNKT (Integration P3 N1): die im
+    Snapshot gebundene Basis war bei der Finalisierung belegt; kundenwirksam
+    wird die Allokation aber erst jetzt. Fuer jede dort benoetigte Waehrung
+    muss auch jetzt ein belegter, frischer DB-Kurs bestehen (Tenant-Frist,
+    Default 5 Tage) -- fehlt er oder gibt es nur einen Ersatzkurs (Quelle
+    ``Default``), sperrt ``CCX_FX_BASIS_MISSING``; abgelaufen
+    ``CCX_FX_BASIS_STALE``, nach dem Stichtag ``CCX_FX_BASIS_MISMATCH``. Die
+    gebundene Basis selbst bleibt unveraendert (kein Nachrechnen)."""
+    try:
+        basis = json.loads(snapshot.fx_basis_json or "")
+    except (TypeError, ValueError):
+        return []  # bereits von _fx_basis_findings gesperrt
+    statuses = basis.get("statuses") if isinstance(basis, dict) else None
+    if not isinstance(statuses, dict) or not statuses:
+        return []  # nur Basiswaehrung im Spiel: kein Kurs noetig
+    currencies = sorted(str(c) for c in statuses)
+    current = load_fx_basis(db, basis.get("target_currency") or "CHF", currencies, tenant_id=tenant_id)
+    findings: list[str] = []
+    for currency in currencies:
+        status = current.statuses.get(currency)
+        if status == STATUS_OK:
+            continue
+        if status == STATUS_STALE:
+            findings.append(_finding(reason_code=ReasonCode.CCX_FX_BASIS_STALE))
+        elif status == STATUS_MISMATCH:
+            findings.append(_finding(reason_code=ReasonCode.CCX_FX_BASIS_MISMATCH))
+        else:
+            findings.append(_finding(reason_code=ReasonCode.CCX_FX_BASIS_MISSING))
+    return list(dict.fromkeys(findings))
+
+
 def _finding(*, reason_code: ReasonCode) -> str:
     """Blocker-Code einer Pruefung (katalogisiert, statisch aufloesbar)."""
     return str(reason_code.value)
@@ -413,6 +446,7 @@ def evaluate_allocation_publication(
             if valuation_code is not None:
                 blockers.append(valuation_code.value)
             blockers.extend(_fx_basis_findings(snapshot))
+            blockers.extend(_current_fx_findings(db, snapshot, envelope.tenant_id))
         run = db.query(RecommendationRun).filter(
             RecommendationRun.id == str(bindings.get("recommendation_run") or ""),
             RecommendationRun.mandate_id == mandate_id,
@@ -491,7 +525,7 @@ def _reject(
 ) -> DomainError:
     """Rollback, Tenant-Kontext, abgelehnter Versuch als Entscheid
     ``publishable = 0`` (soweit die Sequenz frei ist), Audit, Commit."""
-    restore_tenant_after_rollback(db, set_tenant_context)
+    rollback_keeping_tenant(db)
     if drift and evaluation.envelope_id:
         envelope = db.get(AdvisoryDecisionEnvelope, evaluation.envelope_id)
         if envelope is not None:
@@ -516,7 +550,7 @@ def _reject(
             # steht dann nur im Audit -- die Ablehnung selbst bleibt bestehen.
             logger.info("CCX-P4: abgelehnter Versuch nicht festgehalten (check=%s)",
                         is_check_constraint_violation(exc))
-            restore_tenant_after_rollback(db, set_tenant_context)
+            rollback_keeping_tenant(db)
             decision_id = None
     _audit(db, user=user, mandate=mandate, tenant_id=tenant_id, ip_address=ip_address,
            field_name=AUDIT_REJECTED, record_id=decision_id or evaluation.mandate_id,
@@ -790,7 +824,7 @@ def require_published_allocation(
     if state.published:
         return state
     tenant_id = mandate_tenant(mandate)
-    restore_tenant_after_rollback(db, set_tenant_context)
+    rollback_keeping_tenant(db)
     if state.drift and state.envelope_id:
         envelope = db.get(AdvisoryDecisionEnvelope, state.envelope_id)
         if envelope is not None:

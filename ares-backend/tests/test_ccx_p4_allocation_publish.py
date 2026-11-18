@@ -779,6 +779,73 @@ def test_publish_never_on_default_fx_rate_or_unbelegted_basis():
     assert _fx_basis_findings(SimpleNamespace(fx_basis_json="kein json", fx_basis_hash="a" * 64)) == blocked
 
 
+def _set_fx(db, currency, rate=None, *, source="Manual"):
+    """Aktiven Kurs ersetzen (``rate=None``: kein aktiver Kurs mehr)."""
+    from datetime import datetime, timezone
+
+    from models.fx_rate import FXRate
+
+    stamp = datetime.now(timezone.utc).isoformat()
+    db.query(FXRate).filter(FXRate.currency == currency, FXRate.is_current == 1).update(
+        {"is_current": 0, "valid_until": stamp})
+    if rate is not None:
+        db.add(FXRate(id=str(uuid.uuid4()), currency=currency, rate_x10000=rate, valid_from=stamp,
+                      is_current=1, source=source, created_at=stamp, updated_at=stamp))
+    db.commit()
+
+
+def test_publish_uses_strict_p3_fx_basis_end_to_end(session_factory):
+    """Integration P3 N1 (N-909-01) mit echter P3-Basis statt synthetischem
+    JSON: eine USD-Position mit belegtem Kurs ist publizierbar. Fehlt der Kurs
+    zum Publikationszeitpunkt oder gibt es nur noch einen Ersatzkurs (Quelle
+    ``Default``), blockiert die Publikation mit ``CCX_FX_BASIS_MISSING`` --
+    kundenwirksam wird nie auf einem Ersatzkurs. Ohne belegten Kurs bei der
+    Finalisierung entsteht gar kein Envelope (P3), die Publikation bleibt
+    gesperrt."""
+    from models.snapshots import HoldingsValuationSnapshot
+    from services.allocation_publication_gate import _fx_basis_findings
+    from tests.test_ccx_p3_market_depot_truth import _add_position, _prepared_run
+
+    def setup(db, mandate_id):
+        _set_fx(db, "USD", 8_800)
+        _add_position(db, mandate_id, label="usd", currency="USD", value=10_000_00)
+
+    advisor_id, mid, _aid, run_id = _prepared_run(session_factory, "p4-fx", setup)
+    _finalize(session_factory, advisor_id, mid, run_id)
+    with session_factory() as db:
+        snapshot = db.query(HoldingsValuationSnapshot).filter(HoldingsValuationSnapshot.mandate_id == mid).one()
+        basis = json.loads(snapshot.fx_basis_json)
+        assert basis["statuses"] == {"USD": "OK"} and basis["quotes"][0]["source"] == "Manual"
+        assert _fx_basis_findings(snapshot) == []  # echte P3-Serialisierung passt zum Gate
+    approver = _second_approver(session_factory, advisor_id)
+    assert _overview(session_factory, mid)["can_publish"] is True
+
+    for label, rate, source in (("Ersatzkurs", 8_800, "Default"), ("kein Kurs", None, "Manual")):
+        with session_factory() as db:
+            _set_fx(db, "USD", rate, source=source)
+        overview = _overview(session_factory, mid)
+        assert overview["can_publish"] is False, label
+        assert "CCX_FX_BASIS_MISSING" in overview["blocker_codes"], label
+        err = _blocked(session_factory, mid, approver, "CCX_ALLOCATION_NOT_PUBLISHABLE", overview=overview)
+        assert "CCX_FX_BASIS_MISSING" in err.extra["blocker_codes"], label
+        assert _state(session_factory, mid).published is False
+
+    with session_factory() as db:
+        _set_fx(db, "USD", 8_800)
+    decision = _publish(session_factory, mid, approver)
+    assert decision.publishable == 1
+
+    # Ohne belegten Kurs bei der Finalisierung: P3 sperrt das Siegel, kein Envelope.
+    advisor_b, mid_b, _aid_b, run_b = _prepared_run(session_factory, "p4-fx-b", setup)
+    with session_factory() as db:
+        _set_fx(db, "USD", 8_800, source="Default")
+    with pytest.raises(DomainError) as exc:
+        _finalize(session_factory, advisor_b, mid_b, run_b)
+    assert exc.value.reason_code == "CCX_FX_BASIS_MISSING"
+    overview_b = _overview(session_factory, mid_b)
+    assert overview_b["can_publish"] is False and "CCX_ENVELOPE_MISSING" in overview_b["blocker_codes"]
+
+
 def test_single_approver_attestation_is_visibly_marked_in_evidence_and_audit(session_factory, monkeypatch):
     """Ein-Personen-Firma: Einzelfreigabe nur mit Begruendung >= 20 Zeichen;
     im Nachweis (Modus im approval_hash, Status) und im Audit sichtbar als
