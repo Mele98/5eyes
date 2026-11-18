@@ -125,6 +125,9 @@ CCX-P3 Nachtrag 2 (N-909-11): Wechselkurs-Editor als Teil
 Merge P3 Nachtrag 2 in CCX-P4 (2026-11-18): alle drei Teile gelten
 (allocation-publication.js, finalize-attestation.js 27/1753 mit P4-Meldung,
 fx-rates-editor.js 99/5202); Monolith auf den gemessenen Stand: 26668 Z./1640535 B.
+K1 Property-Gate (2026-11-19): Wertsteigerungs- und Amortisationsfeld aus der
+Vermoegensmaske entfernt (Hinweis "Zins und Amortisation als Ausgaben-Cashflow
+erfassen"), "Gemischt" nur noch als Altbestand waehlbar; Monolith 26662 Z./1639661 B.
 """
 from __future__ import annotations
 
@@ -133,9 +136,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26668
+MONOLITH_MAX_LINES = 26662
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1640535
+MONOLITH_MAX_BYTES = 1639661
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).

@@ -3303,10 +3303,8 @@ function _wireSollIstHover(){
     <div class="fg"><label class="fl">Schätzung per</label><input class="fi" id="maw-immo-valuation-date" type="date"></div>
     <div class="fg"><label class="fl">Jährl. Mietertrag (<span class="ccy">CHF</span>)</label><input class="fi" id="maw-immo-rent" type="number" placeholder="0"></div>
     <div class="fg"><label class="fl">Miete teuerungsindexiert</label><label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer;padding-top:7px"><input type="checkbox" id="maw-immo-rent-inflation"> Mietertrag wächst mit der Teuerung</label></div>
-    <div class="fg"><label class="fl">Wertsteigerung p.a. (%)</label><input class="fi" id="maw-immo-appreciation" type="number" min="0" max="10" step="0.1" placeholder="0"
-      title="Wie sich der Immobilienwert in der Vermögensprojektion entwickelt. 0 = bleibt flach (linear im Vermögen, Sockel). >0 = indexiert (steigt jährlich im Wert)."></div>
   </div>
-  <div style="font-size:10px;color:var(--n5);line-height:1.4;margin:-2px 0 6px">Die Immobilie bleibt als Sockel im Vermögen (wird nicht verzehrt). <strong>0% = flach</strong> (linear drin), <strong>&gt;0% = indexiert</strong> (Wertsteigerung pro Jahr).</div>
+  <div style="font-size:10px;color:var(--n5);line-height:1.4;margin:-2px 0 6px">Die Immobilie bleibt als Sockel im Vermögen (nominal, ohne angenommene Wertsteigerung).</div>
 </div>
 
 <!-- VORSORGE -->
@@ -3418,7 +3416,7 @@ function _wireSollIstHover(){
     <div class="fg"><label class="fl">Ausstehender Betrag (<span class="ccy">CHF</span>)</label><input class="fi" id="maw-mortgage-value" type="number" placeholder="780000"></div>
     <div class="fg"><label class="fl">Hypothekartyp</label>
         <select class="fsel" id="maw-mortgage-type">
-          <option value="Festhypothek">Festhypothek</option><option value="SARON">SARON / variabel</option><option value="Gemischt">Gemischt</option>
+          <option value="Festhypothek">Festhypothek</option><option value="SARON">SARON / variabel</option><option value="Gemischt" disabled>Gemischt (als zwei Hypotheken erfassen)</option>
         </select>
     </div>
   </div>
@@ -3427,7 +3425,7 @@ function _wireSollIstHover(){
     <div class="fg"><label class="fl">Laufzeit bis</label><input class="fi" id="maw-mortgage-maturity" type="date"></div>
   </div>
   <div class="frow">
-    <div class="fg"><label class="fl">Amortisation p.a. (<span class="ccy">CHF</span>)</label><input class="fi" id="maw-mortgage-amortization" type="number" placeholder="20000"></div>
+    <div class="fg" style="font-size:10px;color:var(--n5);line-height:1.4">Zins und Amortisation fliessen nicht automatisch in die Prognose: bitte als Ausgaben-Cashflow erfassen.</div>
     <div class="fg"><label class="fl">Amortisationstyp</label>
       <select class="fsel" id="maw-mortgage-amortization-type"><option>Indirekt (Säule 3a)</option><option>Direkt</option><option>Keine</option></select>
     </div>
@@ -16479,11 +16477,11 @@ var liveClientLoadToken=0;
     [
       'maw-depot-label','maw-depot-bank','maw-depot-account','maw-depot-value',
       'maw-liq-label','maw-liq-bank','maw-liq-value','maw-liq-rate','maw-liq-available',
-      'maw-immo-label','maw-immo-address','maw-immo-value','maw-immo-valuation-date','maw-immo-rent','maw-immo-appreciation',
+      'maw-immo-label','maw-immo-address','maw-immo-value','maw-immo-valuation-date','maw-immo-rent',
       'maw-pension-label','maw-pension-institution','maw-pension-value','maw-pension-rate','maw-pension-age','maw-pension-available',
       'maw-pension-interest','maw-pension-maturity-value','maw-pension-maturity-date','maw-pension-tax-chf','maw-pension-tax-pct',
       'maw-alt-label','maw-alt-value','maw-alt-valuation-date','maw-alt-return','maw-alt-location',
-      'maw-mortgage-label','maw-mortgage-bank','maw-mortgage-value','maw-mortgage-rate','maw-mortgage-maturity','maw-mortgage-amortization',
+      'maw-mortgage-label','maw-mortgage-bank','maw-mortgage-value','maw-mortgage-rate','maw-mortgage-maturity',
       'maw-note'
     ].forEach(function(id){ setInputValue(id,''); });
     ['sc-akt','sc-obl','sc-imm','sc-liq','sc-alt'].forEach(function(id){ setInputValue(id,'0'); });
@@ -16550,7 +16548,6 @@ var liveClientLoadToken=0;
       setInputValue('maw-immo-valuation-date',pos.valuation_date||'');
       setInputValue('maw-immo-rent',formatInputCHF(pos.property_rental_income_rappen));
       setCheckboxValue('maw-immo-rent-inflation',!!pos.property_rental_inflation_linked);
-      setInputValue('maw-immo-appreciation',formatInputPercent(pos.asset_expected_return_bps));
     } else if(pos.position_type==='Vorsorge'){
       setInputValue('maw-pension-label',pos.label||'');
       setSelectValue('maw-pension-type',pos.pension_type||'BVG');
@@ -16591,7 +16588,6 @@ var liveClientLoadToken=0;
       setSelectValue('maw-mortgage-type',pos.mortgage_type||'Festhypothek');
       setInputValue('maw-mortgage-rate',formatInputPercent(pos.mortgage_interest_rate_bps));
       setInputValue('maw-mortgage-maturity',pos.mortgage_maturity_date||'');
-      setInputValue('maw-mortgage-amortization',formatInputCHF(pos.mortgage_amortization_rappen));
       setSelectValue('maw-mortgage-amortization-type',pos.mortgage_amortization_type||'Indirekt (Säule 3a)');
       updateMortgageLinkedPropertyOptions(pos.mortgage_linked_property_id||'');
     }
@@ -23686,7 +23682,6 @@ function buildWealthPositionPayload(cat,typ,note){
     payload.property_usage=getInputValue('maw-immo-usage')||null;
     payload.property_rental_income_rappen=parseCHF(getInputValue('maw-immo-rent'));
     payload.property_rental_inflation_linked=getCheckboxValue('maw-immo-rent-inflation')?1:0;
-    payload.asset_expected_return_bps=parsePercentToBps(getInputValue('maw-immo-appreciation'));  // Wertsteigerung p.a. (Sockel-Index)
   } else if(posType==='Vorsorge'){
     payload.label=getInputValue('maw-pension-label').trim();
     payload.current_value_rappen=parseCHF(getInputValue('maw-pension-value'));
@@ -23724,7 +23719,6 @@ function buildWealthPositionPayload(cat,typ,note){
     payload.mortgage_type=getInputValue('maw-mortgage-type')||null;
     payload.mortgage_interest_rate_bps=parsePercentToBps(getInputValue('maw-mortgage-rate'));
     payload.mortgage_maturity_date=getInputValue('maw-mortgage-maturity')||null;
-    payload.mortgage_amortization_rappen=parseCHF(getInputValue('maw-mortgage-amortization'));
     payload.mortgage_amortization_type=getInputValue('maw-mortgage-amortization-type')||null;
     payload.mortgage_linked_property_id=getInputValue('maw-mortgage-linked-property').trim()||null;
   }
