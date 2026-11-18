@@ -387,14 +387,12 @@ def test_finalize_binds_snapshot_and_ledger_into_envelope(session_factory):
 
 def test_finalize_blocks_unknown_fx_with_code_audit_and_no_envelope(session_factory):
     """Belegter Kurs bei der Strategie, danach nur noch Ersatzkurs: die
-    Finalisierung sperrt typisiert (kein Envelope, kein Snapshot, Lauf Draft);
-    das Siegel selbst lehnt die Bewertung mit Audit stage=valuation ab."""
-    from models.mandates import Mandate
+    Finalisierung ueber die Route sperrt typisiert (Abdeckung UNKNOWN, kein
+    Envelope, kein Snapshot, Lauf Draft) und schreibt genau ein Audit
+    ccx.envelope.rejected mit stage=valuation (N-909-12, auch fuer die fruehe
+    Sperre der strikten Payload-Neuberechnung)."""
     from models.review import RecommendationRun
     from models.snapshots import AdvisoryDecisionEnvelope, HoldingsValuationSnapshot
-    from models.users import User
-    import services.advisory_decision_envelope as svc
-    from services.holdings_valuation import prepare_valuation_binding
 
     def setup(db, mandate_id):
         _add_fx(db, "USD", 8_800)
@@ -407,21 +405,15 @@ def test_finalize_blocks_unknown_fx_with_code_audit_and_no_envelope(session_fact
     with pytest.raises(DomainError) as exc:
         _finalize(session_factory, advisor_id, mid, run_id)
     assert exc.value.reason_code == "CCX_FX_BASIS_MISSING"
+    assert exc.value.extra["coverage_status"] == "UNKNOWN"
     with session_factory() as db:
         assert db.query(AdvisoryDecisionEnvelope).count() == 0
         assert db.query(HoldingsValuationSnapshot).count() == 0
         assert db.query(RecommendationRun).filter(RecommendationRun.id == run_id).one().result_status == "Draft"
-        mandate, run = db.get(Mandate, mid), db.get(RecommendationRun, run_id)
-        binding = prepare_valuation_binding(db, mandate, run, attest_manual_valuations=True)
-        assert binding.projection.coverage_status == "UNKNOWN"
-        with pytest.raises(DomainError) as sealed:
-            svc.seal_advisory_envelope(db, mandate=mandate, run=run, user=db.get(User, advisor_id),
-                                       valuation=binding)
-        assert sealed.value.reason_code == "CCX_FX_BASIS_MISSING"
         rejected = _audit(db, "ccx.envelope.rejected")
-        assert rejected and "stage=valuation" in rejected[-1].new_value
-        assert "CCX_FX_BASIS_MISSING" in rejected[-1].new_value and rejected[-1].tenant_id
-        assert rejected[-1].mandate_id == mid
+        assert len(rejected) == 1 and "stage=valuation" in rejected[0].new_value
+        assert "CCX_FX_BASIS_MISSING" in rejected[0].new_value and rejected[0].tenant_id
+        assert rejected[0].mandate_id == mid
 
 
 @pytest.mark.parametrize("days_old,code", [(None, "CCX_VALUATION_INCOMPLETE"), (6, "CCX_VALUATION_STALE")])
@@ -875,10 +867,58 @@ def test_engine_generation_and_pdf_tables_block_substitute_rate(session_factory)
             _other_wealth_positions(mandate, db)
 
 
+_LENIENT_NAMES = {"DEFAULT_FX_RATES", "from_db_for_model", "convert_rappen", "set_active_fx_source"}
+_LENIENT_ATTRS = _LENIENT_NAMES | {"from_db"}
+_STRICT_PRIVATE_ATTRS = {"_model", "rates_in_chf"}
+
+
+def _lenient_fx_hits(rel: str, source: str) -> list[tuple]:
+    """Statischer Scan einer Quelldatei auf nachsichtige FX-Pfade (N-909-01/-15)."""
+    import ast
+
+    tree = ast.parse(source)
+    source_names = {"FXRateSource"}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.ImportFrom, ast.Import)):
+            for alias in node.names:
+                if alias.name.split(".")[-1] == "FXRateSource" and alias.asname:
+                    source_names.add(alias.asname)
+
+    def is_source(expr) -> bool:
+        if isinstance(expr, ast.Name):
+            return expr.id in source_names
+        return isinstance(expr, ast.Attribute) and expr.attr == "FXRateSource"
+
+    hits = []
+    for node in ast.walk(tree):
+        name = node.attr if isinstance(node, ast.Attribute) else node.id if isinstance(node, ast.Name) else None
+        if name in _LENIENT_NAMES:
+            hits.append((rel, name, node.lineno))
+        if isinstance(node, ast.Attribute) and node.attr == "from_db" and is_source(node.value):
+            hits.append((rel, "FXRateSource.from_db", node.lineno))
+        if isinstance(node, ast.Attribute) and node.attr in _STRICT_PRIVATE_ATTRS:
+            hits.append((rel, "." + node.attr, node.lineno))
+        if isinstance(node, ast.Call) and is_source(node.func):
+            hits.append((rel, "FXRateSource()", node.lineno))
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr"
+                and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant)
+                and node.args[1].value in _LENIENT_ATTRS | _STRICT_PRIVATE_ATTRS):
+            hits.append((rel, "getattr(" + str(node.args[1].value) + ")", node.lineno))
+        if isinstance(node, ast.ImportFrom) and any(a.name in _LENIENT_NAMES for a in node.names):
+            hits.append((rel, "import", node.lineno))
+    return hits
+
+
 def test_lenient_fx_paths_are_confined_to_non_customer_modules():
     """N-909-01 Waechter: DEFAULT_FX_RATES, from_db_for_model, FXRateSource.from_db,
-    FXRateSource() und convert_rappen nur in erlaubten, nicht kundenwirksamen Pfaden."""
-    import ast
+    FXRateSource() und convert_rappen nur in erlaubten, nicht kundenwirksamen Pfaden.
+
+    N-909-15: auch ueber Attributketten (``fx_rates.FXRateSource.from_db``),
+    Import-Aliase (``import FXRateSource as Src``), ``getattr(..., "from_db")``
+    und die privaten Innereien der strikten Quelle (``._model``,
+    ``.rates_in_chf``). Restrisiko (dokumentiert): dynamische Aufloesung ueber
+    Strings ausserhalb von ``getattr`` (``importlib``, ``__dict__``, ``eval``)
+    erkennt ein statischer Waechter nicht."""
     from pathlib import Path
 
     backend = Path(__file__).resolve().parents[1]
@@ -889,25 +929,26 @@ def test_lenient_fx_paths_are_confined_to_non_customer_modules():
         "routers/fx_rates.py",                # Kurspflege: Ersatzkurse sichtbar als "Default"
         "services/dsg_governance.py",         # Banner "Ersatzkurs - nicht aktuell"
     }
-    names = {"DEFAULT_FX_RATES", "from_db_for_model", "convert_rappen", "set_active_fx_source"}
     hits = []
     for path in sorted(backend.rglob("*.py")):
         rel = path.relative_to(backend).as_posix()
         if rel.split("/")[0] in {"tests", "scripts", "alembic", "migrations"} or rel in allowed:
             continue
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
-        for node in ast.walk(tree):
-            name = node.attr if isinstance(node, ast.Attribute) else node.id if isinstance(node, ast.Name) else None
-            if name in names:
-                hits.append((rel, name, node.lineno))
-            if isinstance(node, ast.Attribute) and node.attr == "from_db" and \
-                    getattr(node.value, "id", None) == "FXRateSource":
-                hits.append((rel, "FXRateSource.from_db", node.lineno))
-            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "FXRateSource":
-                hits.append((rel, "FXRateSource()", node.lineno))
-            if isinstance(node, ast.ImportFrom) and any(a.name in names for a in node.names):
-                hits.append((rel, "import", node.lineno))
+        hits += _lenient_fx_hits(rel, path.read_text(encoding="utf-8-sig"))
     assert hits == [], hits
+
+
+@pytest.mark.parametrize("label,code", [
+    ("chain", "from services.currency import fx_rates\nfx_rates.FXRateSource.from_db(db)\n"),
+    ("chain_call", "import services.currency.fx_rates as m\nm.FXRateSource()\n"),
+    ("alias", "from services.currency.fx_rates import FXRateSource as Src\nSrc()\nSrc.from_db(db)\n"),
+    ("getattr", "getattr(FXRateSource, 'from_db')(db)\n"),
+    ("model", "strict._model.cross_rate('USD', 'CHF')\n"),
+    ("rates", "strict.rates_in_chf['USD']\n"),
+])
+def test_lenient_fx_guard_detects_evasions(label, code):
+    """N-909-15 Gegenprobe: derselbe Scanner wie der Waechter erkennt die Umgehungen."""
+    assert _lenient_fx_hits("probe.py", code), label
 
 
 def test_target_currency_stale_is_reported_as_stale_everywhere():
@@ -1047,7 +1088,7 @@ def test_fx_upsert_clears_the_report_cache(monkeypatch):
             pass
 
     async def body():
-        return b'{"rates":[{"currency":"USD","rate":0.88,"source":"Manual"}]}'
+        return b'{"rates":[{"currency":"USD","rate":0.8812,"source":"Manual"}]}'
 
     request = SimpleNamespace(body=body, headers={}, client=SimpleNamespace(host="127.0.0.1"))
     user = SimpleNamespace(id="u", full_name="U")
@@ -1134,3 +1175,33 @@ def test_cashflow_projection_names_the_inflow_without_currency(session_factory):
     assert exc.value.reason_code == "CCX_FX_BASIS_MISSING"
     assert "Erbe Tante" in exc.value.message and "2031" in exc.value.message
     assert "987" not in exc.value.message
+
+
+def test_print_fx_gate_blocks_unsealed_run_and_exempts_the_sealed_run(session_factory):
+    """N-909-13: eingefrorene Kundendokumente pruefen beim Druck die heutige
+    strikte FX-Basis, solange der Lauf nicht versiegelt ist. Der versiegelte Lauf
+    traegt seine FX-Basis im Envelope und wird nicht erneut gegen heute geprueft."""
+    from models.mandates import Mandate
+    from services.print_fx_gate import assert_print_fx_basis_current, run_is_sealed
+
+    def setup(db, mandate_id):
+        _add_fx(db, "USD", 8_800)
+        _add_position(db, mandate_id, label="usd", currency="USD", value=10_000_00)
+
+    advisor_id, mid, _aid, run_id = _prepared_run(session_factory, "n2-print", setup)
+    with session_factory() as db:
+        mandate = db.get(Mandate, mid)
+        assert not run_is_sealed(db, mandate, run_id)
+        assert_print_fx_basis_current(db, mandate)  # belegt: liefert
+    _finalize(session_factory, advisor_id, mid, run_id)  # versiegeln
+    with session_factory() as db:
+        mandate = db.get(Mandate, mid)
+        assert run_is_sealed(db, mandate, run_id)
+        _add_fx(db, "USD", 8_800, source="Default")
+        db.commit()
+        assert_print_fx_basis_current(db, mandate)  # versiegelt: Basis im Envelope
+        assert_print_fx_basis_current(db, mandate, run_id=run_id)
+        # Ein nicht versiegelter Lauf (jeder andere) sperrt mit dem Ersatzkurs.
+        with pytest.raises(DomainError) as exc:
+            assert_print_fx_basis_current(db, mandate, run_id="ein-anderer-lauf")
+        assert exc.value.reason_code == "CCX_FX_BASIS_MISSING"

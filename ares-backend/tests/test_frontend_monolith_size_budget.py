@@ -120,6 +120,11 @@ Merge P3 Nachtrag 1 in CCX-P4 (2026-11-18): beide Teile gelten; die P4-Statusmel
 nach dem Finalisieren ("Kundenwirksam wird es nach der Publikation" +
 refreshAllocationPublication) sitzt jetzt in ``finalize-attestation.js``
 (27/1753); Monolith auf den gemessenen Stand gesenkt: 26728 Z./1643476 B.
+CCX-P3 Nachtrag 2 (N-909-11): Wechselkurs-Editor als Teil
+``fx-rates-editor.js`` (99/5202) ausgelagert; Monolith 26827 Z./1647400 B.
+Merge P3 Nachtrag 2 in CCX-P4 (2026-11-18): alle drei Teile gelten
+(allocation-publication.js, finalize-attestation.js 27/1753 mit P4-Meldung,
+fx-rates-editor.js 99/5202); Monolith auf den gemessenen Stand: 26668 Z./1640535 B.
 """
 from __future__ import annotations
 
@@ -128,9 +133,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26728
+MONOLITH_MAX_LINES = 26668
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1643476
+MONOLITH_MAX_BYTES = 1640535
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -151,6 +156,7 @@ EXTRACTED_PART_BUDGETS = {
     "wealth-inflows.js": (282, 16491),
     "allocation-publication.js": (276, 13973),
     "finalize-attestation.js": (27, 1753),
+    "fx-rates-editor.js": (99, 5202),
 }
 
 

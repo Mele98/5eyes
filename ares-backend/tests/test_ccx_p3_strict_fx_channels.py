@@ -33,8 +33,10 @@ USD_DEPOT = {
 
 
 def _set_usd(api, source):
-    resp = api.put("/fx-rates", json={"rates": [
-        {"currency": "USD", "rate": 0.88, "source": source, "notes": "Testvektor"}]})
+    rate = {"currency": "USD", "rate": 0.88, "source": source, "notes": "Testvektor"}
+    if source != "Default":
+        rate["confirm_current"] = True  # N-909-11: 0.88 = Ersatzkurs -> ausdruecklich geprueft
+    resp = api.put("/fx-rates", json={"rates": [rate]})
     assert resp.status_code == 200, resp.text[:300]
 
 

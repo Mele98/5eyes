@@ -114,7 +114,8 @@ _SYNTHETIC_FX = {"EUR": 0.95, "JPY": 0.0063}  # Testvektoren, keine Fachwerte
 
 def _seed_fx(api, currency):
     resp = api.put("/fx-rates", json={"rates": [
-        {"currency": currency, "rate": _SYNTHETIC_FX[currency], "source": "Manual", "notes": "Testvektor"}]})
+        {"currency": currency, "rate": _SYNTHETIC_FX[currency], "source": "Manual", "notes": "Testvektor",
+         "confirm_current": True}]})  # N-909-11: Testvektor = Ersatzkurswert -> ausdruecklich geprueft
     assert resp.status_code == 200, resp.text[:400]
 
 

@@ -51,6 +51,7 @@
       "frontend/wealth-inflows.js",
       "frontend/allocation-publication.js",
       "frontend/finalize-attestation.js",
+      "frontend/fx-rates-editor.js",
       "frontend/eligibility-overrides.js",
       "frontend/desktop-api.js",
       "frontend/trade-list-preview.js",

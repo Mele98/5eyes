@@ -224,6 +224,34 @@ def _reject(
     return error
 
 
+def reject_fx_basis_before_seal(
+    db: Session, error: DomainError, *, mandate: Any, run: Any, user: Any, ip_address: str | None = None,
+) -> DomainError:
+    """CCX-P3-FX (N-909-12): eine FX-Sperre VOR dem Siegel (Payload-Neuberechnung
+    der Finalisierung mit strikter Quelle) wird wie die Bewertungssperre im
+    Siegel behandelt: Bewertungsabdeckung UNKNOWN, Audit ``ccx.envelope.rejected``
+    mit Stage ``valuation``, Code, Mandat und Tenant. Der Aufrufer wirft danach."""
+    error.extra.setdefault("coverage_status", "UNKNOWN")
+    return _reject(
+        db, error, user=user, mandate=mandate, tenant_id=mandate_tenant(mandate), ip_address=ip_address,
+        record_id=run.id, run=run.id, stage="valuation", coverage="UNKNOWN", origin="target_payload",
+    )
+
+
+def call_with_fx_basis_audit(fn: Any, db: Session, *, mandate: Any, run: Any, user: Any,
+                             ip_address: str | None = None) -> Any:
+    """Fuehrt ``fn()`` aus; eine FX-Sperre (Kanal ``fx_basis``) wird vor dem
+    Weiterwerfen wie die Bewertungssperre im Siegel auditiert (N-909-12)."""
+    try:
+        return fn()
+    except DomainError as exc:
+        if getattr(exc, "channel", None) != "fx_basis":
+            raise
+        raise reject_fx_basis_before_seal(
+            db, exc, mandate=mandate, run=run, user=user, ip_address=ip_address,
+        ) from exc
+
+
 # ── Versiegeln ───────────────────────────────────────────────────────────────
 
 

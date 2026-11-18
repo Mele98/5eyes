@@ -284,8 +284,9 @@ def test_endpoint_loop_fx_upsert_several_currencies(api):
     before = _audit_count(session_local)
     r = client.put("/fx-rates", json={"rates": [
         {"currency": "usd", "rate": 0.9, "source": "Manual"},
-        {"currency": "eur", "rate": 0.95, "source": "Manual"},
-        {"currency": "gbp", "rate": 1.1, "source": "Manual"},
+        # N-909-11: Werte = Ersatzkurse -> ausdruecklich geprueft.
+        {"currency": "eur", "rate": 0.95, "source": "Manual", "confirm_current": True},
+        {"currency": "gbp", "rate": 1.1, "source": "Manual", "confirm_current": True},
     ]})
     assert r.status_code == 200, r.text
     assert _audit_count(session_local) - before == 3

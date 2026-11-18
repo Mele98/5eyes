@@ -72,6 +72,7 @@ from services.audit import gate_block_audit, log, release_block_audit, restore_t
 # weiterreicht) -- Router importieren keine Router (Architektur-Ratsche).
 from services.auth import extract_client_ip as _extract_client_ip
 from services.advisory_finalization import (
+    call_with_fx_basis_audit,
     current_advisory_envelope,
     current_envelope_freshness,
     finalize_advisory_decision,
@@ -4655,7 +4656,12 @@ def finalize_recommendation(
             "message": cma_policy_block[1],
             "errors": [cma_policy_block[1]],
         })
-    errors, warnings = _validate_recommendation_for_finalization(db, mandate, run)
+    # CCX-P3-FX (N-909-12): die fruehe FX-Sperre (strikte Payload-Neuberechnung)
+    # wird typisiert auditiert wie die Bewertungssperre im Siegel.
+    errors, warnings = call_with_fx_basis_audit(
+        lambda: _validate_recommendation_for_finalization(db, mandate, run),
+        db, mandate=mandate, run=run, user=current_user, ip_address=_extract_client_ip(request),
+    )
     if errors:
         # RESERVE-LEDGER-SNAPSHOT-001: die Ledger-Sperre ist eine Handlungs-
         # anweisung (neu berechnen) -> strukturierte 422 mit reason_code; alle

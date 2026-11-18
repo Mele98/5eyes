@@ -130,7 +130,8 @@ def test_full_api_path_app_and_pdfs_show_identical_numbers(api, advisor_user, cu
         # CCX-P3-FX (N-909-01): die CHF-Positionen brauchen einen belegten Kurs
         # der Mandatswaehrung, erfasst wie vom Berater (Testvektor, kein Fachwert).
         fx = api.put("/fx-rates", json={"rates": [{"currency": currency, "rate": {"EUR": 0.95, "JPY": 0.0063}[currency],
-                                                   "source": "Manual", "notes": "Testvektor"}]})
+                                                   "source": "Manual", "notes": "Testvektor",
+                                                   "confirm_current": True}]})  # N-909-11
         assert fx.status_code == 200, fx.text[:400]
 
     # EUR/JPY: CMA in CHF -> dokumentierte Beraterbestaetigung (CMA-CURRENCY-GUARD-001).

@@ -14,7 +14,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from services.advisory_decision_envelope import (
+from services.advisory_decision_envelope import (  # noqa: F401 - call_with_fx_basis_audit: Re-Export (N-909-12)
+    call_with_fx_basis_audit,
     current_envelope_freshness,
     current_verified_envelope,
     seal_advisory_envelope,
