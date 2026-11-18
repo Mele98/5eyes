@@ -64,6 +64,9 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     ("wealth-inflows.js", "js"),
     # CCX-P3 (N-909-07): Finalisierung mit Bestaetigung "Bewertung aktuell".
     ("finalize-attestation.js", "js"),
+    # CCX-P3-FX (N-909-11): Wechselkurs-Editor (nur geaenderte bzw. als
+    # geprueft bestaetigte Kurse werden gesendet; Ersatzkurse nur Platzhalter).
+    ("fx-rates-editor.js", "js"),
     # E2 Nachhaltigkeitspraeferenzen (Dok. 106): Kundenmaske nach dem Risikoprofil.
     ("sustainability-preferences.js", "js"),
 )

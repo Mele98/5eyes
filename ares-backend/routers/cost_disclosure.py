@@ -43,4 +43,9 @@ def get_ex_ante_cost_disclosure(
     keine 404-Sonderbehandlung.
     """
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    # CCX-P3-FX (N-909-13): Betraege des Laufs nur auf heute belegter FX-Basis
+    # (bzw. aus dem versiegelten Lauf) -- sonst CCX_FX_BASIS_* (409).
+    from services.print_fx_gate import assert_print_fx_basis_current
+
+    assert_print_fx_basis_current(db, mandate)
     return build_cost_disclosure(db, mandate)

@@ -4643,7 +4643,18 @@ def finalize_recommendation(
             "message": cma_policy_block[1],
             "errors": [cma_policy_block[1]],
         })
-    errors, warnings = _validate_recommendation_for_finalization(db, mandate, run)
+    from services.currency.fx_rates import FxBasisError
+
+    try:
+        errors, warnings = _validate_recommendation_for_finalization(db, mandate, run)
+    except FxBasisError as exc:
+        # CCX-P3-FX (N-909-12): die fruehe FX-Sperre (strikte Payload-Neu-
+        # berechnung) wird typisiert auditiert wie die Bewertungssperre im Siegel.
+        from services.advisory_decision_envelope import reject_fx_basis_before_seal
+
+        raise reject_fx_basis_before_seal(
+            db, exc, mandate=mandate, run=run, user=current_user, ip_address=_extract_client_ip(request),
+        ) from exc
     if errors:
         # RESERVE-LEDGER-SNAPSHOT-001: die Ledger-Sperre ist eine Handlungs-
         # anweisung (neu berechnen) -> strukturierte 422 mit reason_code; alle

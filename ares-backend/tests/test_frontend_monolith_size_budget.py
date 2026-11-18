@@ -112,6 +112,8 @@ ausgelagert; Monolith auf den gemessenen Stand gesenkt: 26905 Z./1651192 B.
 CCX-P3 Nachtrag 1 (N-909-07): Finalisierung mit Bestaetigung "Bewertung
 aktuell" als Teil ``finalize-attestation.js`` (27/1705); Monolith 26887 Z./
 1650341 B.
+CCX-P3 Nachtrag 2 (N-909-11): Wechselkurs-Editor als Teil
+``fx-rates-editor.js`` (99/5202) ausgelagert; Monolith 26827 Z./1647407 B.
 """
 from __future__ import annotations
 
@@ -120,9 +122,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26887
+MONOLITH_MAX_LINES = 26827
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1650341
+MONOLITH_MAX_BYTES = 1647407
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -142,6 +144,7 @@ EXTRACTED_PART_BUDGETS = {
     "sustainability-preferences.js": (519, 26082),
     "wealth-inflows.js": (282, 16491),
     "finalize-attestation.js": (27, 1705),
+    "fx-rates-editor.js": (99, 5202),
 }
 
 

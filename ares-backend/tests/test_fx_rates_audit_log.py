@@ -86,7 +86,9 @@ def test_upsert_writes_audit_log_entry(auth_client, session_factory, advisor_use
 
 
 def test_second_upsert_logs_old_and_new_value(auth_client, session_factory, advisor_user):
-    auth_client.put("/fx-rates", json={"rates": [{"currency": "eur", "rate": 0.95}]})
+    # N-909-11: 0.95 = Ersatzkurs -> nur mit ausdruecklicher Bestaetigung belegt.
+    first = auth_client.put("/fx-rates", json={"rates": [{"currency": "eur", "rate": 0.95, "confirm_current": True}]})
+    assert first.status_code == 200, first.text
     resp = auth_client.put("/fx-rates", json={"rates": [{"currency": "eur", "rate": 0.97}]})
     assert resp.status_code == 200, resp.text
 

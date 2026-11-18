@@ -3,6 +3,20 @@
  "rule": "Grundregel (Nachtrag 4): Ein Betrag traegt die Waehrung, in der er vorliegt. Jedes CHF/Franken/Fr./SFr/chf in Anzeige-/Formatierpfaden braucht eine Einzelbegruendung.",
  "entries": [
   {
+   "file": "ares-desktop/frontend/fx-rates-editor.js",
+   "code": "if(!ccy||ccy==='CHF')return;",
+   "count": 1,
+   "context": "fxRatesSavePayload",
+   "reason": "fx-rates-editor.js fxRatesSavePayload: CHF ist die Einheit der Kurstabelle (Kurs je Einheit in CHF, immer 1.0); keine Kurszeile, keine Betragswaehrung."
+  },
+  {
+   "file": "ares-desktop/frontend/fx-rates-editor.js",
+   "code": "if(ccy==='CHF')return;",
+   "count": 1,
+   "context": "loadAdminFxRates",
+   "reason": "fx-rates-editor.js loadAdminFxRates: CHF ist die Einheit der Kurstabelle (Kurs je Einheit in CHF, immer 1.0); keine Kurszeile, keine Betragswaehrung."
+  },
+  {
    "file": "ares-backend/routers/pdf_reports.py",
    "code": "\"currency\": item.get(\"currency\") or \"CHF\",",
    "count": 1,
@@ -960,13 +974,6 @@
    "count": 1,
    "context": "newRecordCurrency",
    "reason": "ares.html newRecordCurrency: Waehrung NEUER Datensaetze ohne Mandat = Server-Default (schemas/wealth.py currency='CHF'); das Formularlabel (syncCcy) zeigt exakt diese Waehrung, also keine geratene Beschriftung."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "if (ccy === 'CHF') return;",
-   "count": 1,
-   "context": "loadAdminFxRates",
-   "reason": "ares.html loadAdminFxRates: Admin-FX-Tabelle -- CHF ist die technische Pivotwaehrung der gepflegten Kurse (convert_rappen rechnet ueber CHF)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",

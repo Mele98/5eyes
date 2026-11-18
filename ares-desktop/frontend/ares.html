@@ -10546,67 +10546,7 @@ function collectAdminCapitalMarketAssumptionsPayload() {
   };
 }
 
-// Sprint 9 Phase 2 (2026-05-17): FX-Rates-Editor.
-async function loadAdminFxRates(){
-  var grid = document.getElementById('admin-fx-rates-grid');
-  var status = document.getElementById('admin-fx-rates-status');
-  if (!grid) return;
-  grid.innerHTML = '<div style="grid-column:span 4;font-size:10px;color:var(--n5);text-align:center;padding:8px">Laedt...</div>';
-  if (status) status.textContent = '';
-  try {
-    var rates = await API.get('/fx-rates/current');
-    if (!Array.isArray(rates)) { rates = []; }
-    grid.innerHTML = '';
-    rates.forEach(function(entry){
-      var ccy = String(entry.currency || '').toUpperCase();
-      if (ccy === 'CHF') return; // CHF nicht editierbar (immer 1.0)
-      var rate = Number(entry.rate || 0);
-      var source = String(entry.source || 'Default');
-      var cell = document.createElement('div');
-      cell.innerHTML = '<label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">' +
-        escapeHtml(ccy) + ' <span style="color:var(--n3);font-weight:400">(' + escapeHtml(source) + ')</span></label>' +
-        '<input class="fi admin-fx-rate-input" data-currency="' + escapeHtml(ccy) + '" type="number" step="0.0001" min="0.0001" value="' +
-        (rate>0 ? rate.toFixed(4) : '') + '" style="font-size:11px">';
-      grid.appendChild(cell);
-    });
-    if (status) status.textContent = 'Geladen: ' + rates.length + ' Wechselkurse.';
-  } catch(e) {
-    grid.innerHTML = '<div style="grid-column:span 4;color:var(--neg);font-size:10px">Fehler beim Laden: ' + escapeHtml(String(e && (e.detail || e.message) || '?')) + '</div>';
-  }
-}
-async function saveAdminFxRates(){
-  var status = document.getElementById('admin-fx-rates-status');
-  var inputs = document.querySelectorAll('.admin-fx-rate-input');
-  if (!inputs.length){
-    if (status){ status.textContent = 'Keine Rates zu speichern.'; status.style.color='var(--neg)'; }
-    return;
-  }
-  var payload = { rates: [] };
-  for (var i=0; i<inputs.length; i++){
-    var el = inputs[i];
-    var ccy = el.getAttribute('data-currency');
-    var rate = parseFloat(el.value || '0');
-    if (!ccy || !isFinite(rate) || rate <= 0) continue;
-    payload.rates.push({ currency: ccy, rate: rate, source: 'Manual' });
-  }
-  if (!payload.rates.length){
-    if (status){ status.textContent = 'Keine gueltigen Rates eingegeben.'; status.style.color='var(--neg)'; }
-    return;
-  }
-  if (status){ status.textContent = 'Speichert...'; status.style.color='var(--n5)'; }
-  try {
-    var saved = await API.put('/fx-rates', payload);
-    if (status){
-      status.textContent = 'Gespeichert: ' + (Array.isArray(saved) ? saved.length : 0) + ' Rates.';
-      status.style.color='var(--pos)';
-    }
-    try { if(window.showAppSuccess) showAppSuccess('Wechselkurse gespeichert', {title:'FX-Rates'}); } catch(noticeErr){}
-  } catch(e){
-    var msg = parseApiError(e, 'FX-Rates konnten nicht gespeichert werden.');
-    if (status){ status.textContent = msg; status.style.color='var(--neg)'; }
-    try { if(window.showAppError) showAppError(msg); } catch(noticeErr){}
-  }
-}
+// CCX-P3-FX (N-909-11): FX-Rates-Editor in fx-rates-editor.js (Monolith-Budget).
 
 // Sprint 6+7 Helper: Float-Input → skaliertes Integer oder null
 function adminFloatInputTimes(elementId, multiplier){
@@ -26882,6 +26822,6 @@ function openStammdatenModal(){
 </div>
 <!-- ─────────────────────────────────────────────────────────── -->
 
-<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./finalize-attestation.js"></script><script src="./sustainability-preferences.js"></script>
+<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./finalize-attestation.js"></script><script src="./fx-rates-editor.js"></script><script src="./sustainability-preferences.js"></script>
 </body>
 </html>

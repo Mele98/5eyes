@@ -140,10 +140,16 @@ def tenant_fx_max_age_days(db, tenant_id) -> int:
     return DEFAULT_FX_MAX_AGE_DAYS
 
 
+def is_substitute_source(source) -> bool:
+    """Ersatzkurs-Quelle (N-909-14): ``Default`` in jeder Schreibweise
+    (Gross-/Kleinschreibung, Leerraum) bzw. leer -- nie ein belegter Kurs."""
+    return str(source or "").strip().casefold() in ("", DEFAULT_RATE_SOURCE.casefold())
+
+
 def quote_status(source, observed_at, *, as_of: date, max_age_days: int) -> str:
     """Status eines beobachteten Kurses: Ersatzkurs/ohne Datum MISSING, nach dem
     Stichtag MISMATCH, aelter als die Frist STALE."""
-    if str(source or DEFAULT_RATE_SOURCE) == DEFAULT_RATE_SOURCE:
+    if is_substitute_source(source):
         return FX_STATUS_MISSING
     raw = str(observed_at or "").strip()
     try:
@@ -166,28 +172,36 @@ class StrictFXRateSource:
     oder nach dem Stichtag beobachteter Kurs wirft ``FxBasisError`` mit
     ``CCX_FX_BASIS_*`` -- vor jeder Umrechnung, also vor Rendern/Archivieren.
 
-    Die Kursstatus werden erst bei der ersten echten Fremdwaehrung geladen; ein
-    reines Basiswaehrungsmandat loest keine zusaetzliche Query aus. Die
-    Modell-Signatur (``canonical_model_signature``) bleibt die der Modellquelle,
-    damit bestehende Kontext-Hashes stabil bleiben -- sie wird nur fuer strikt
+    N-909-16: Kurs und Status stammen aus denselben DB-Zeilen (eine Abfrage in
+    ``FXRateSource.from_db_strict_for_model``); ein paralleler Upsert kann
+    keinen alten Kurs mit dem Status einer neuen Zeile kombinieren. Die
+    Tenant-Frist wird erst bei der ersten echten Fremdwaehrung gelesen.
+
+    N-909-15: die nachsichtige Modellquelle ist privat (``_model``); nach
+    aussen gibt es keine Kurse ohne ``require``. Die Modell-Signatur
+    (``canonical_model_signature``) bleibt die der Modellquelle, damit
+    bestehende Kontext-Hashes stabil bleiben -- sie wird nur fuer strikt
     belegte Waehrungen ausgestellt."""
 
-    def __init__(self, model: "FXRateSource", db, *, tenant_id=None, as_of: date | None = None) -> None:
-        self.model = model
+    def __init__(self, model: "FXRateSource", db, *, tenant_id=None, as_of: date | None = None,
+                 observations: Mapping[str, tuple] | None = None) -> None:
+        self._model = model
         self._db = db
         self._tenant_id = tenant_id
         self._as_of = as_of
+        # currency -> (source, valid_from) bzw. None bei mehrdeutiger Zeile.
+        self._observations = dict(observations or {})
         self._statuses: dict[str, str] | None = None
 
     def __deepcopy__(self, memo):
-        """Wertkopie wie bei ``FXRateSource``: Modell und Kursstatus werden
-        kopiert, die DB-Session ist eine Ressource und wird geteilt (eine
-        Session ist nicht kopierbar)."""
+        """Wertkopie wie bei ``FXRateSource``: Modell, Beobachtungen und Status
+        werden kopiert, die DB-Session ist eine Ressource und wird geteilt
+        (eine Session ist nicht kopierbar)."""
         import copy as _copy
 
         clone = StrictFXRateSource(
-            _copy.deepcopy(self.model, memo), self._db,
-            tenant_id=self._tenant_id, as_of=self._as_of,
+            _copy.deepcopy(self._model, memo), self._db,
+            tenant_id=self._tenant_id, as_of=self._as_of, observations=self._observations,
         )
         clone._statuses = dict(self._statuses) if self._statuses is not None else None
         memo[id(self)] = clone
@@ -195,74 +209,87 @@ class StrictFXRateSource:
 
     @property
     def basis_id(self) -> str:
-        return self.model.basis_id
+        return self._model.basis_id
 
     @property
     def uses_versioned_defaults(self) -> bool:
-        return self.model.uses_versioned_defaults
-
-    @property
-    def rates_in_chf(self):
-        return self.model.rates_in_chf
+        return self._model.uses_versioned_defaults
 
     def statuses(self) -> dict[str, str]:
         if self._statuses is None:
             as_of = self._as_of or date.today()
             max_age = tenant_fx_max_age_days(self._db, self._tenant_id)
-            rows = self._db.execute(text(
-                "SELECT currency, source, valid_from FROM fx_rates "
-                "WHERE is_current = 1 AND valid_until IS NULL"
-            )).all()
             statuses: dict[str, str] = {}
-            for currency, source, valid_from in rows:
-                code = str(currency or "").upper().strip()
-                status = quote_status(source, valid_from, as_of=as_of, max_age_days=max_age)
-                statuses[code] = FX_STATUS_MISMATCH if code in statuses else status
+            for code, observed in self._observations.items():
+                if observed is None:
+                    statuses[code] = FX_STATUS_MISMATCH  # mehrere aktive Zeilen
+                    continue
+                source, valid_from = observed
+                statuses[code] = quote_status(source, valid_from, as_of=as_of, max_age_days=max_age)
             self._statuses = statuses
         return self._statuses
+
+    def _known(self, code: str) -> bool:
+        return code in self._model.rates_in_chf
 
     def require(self, currency: str) -> None:
         code = str(currency or "").upper().strip()
         if code == "CHF":
             return
-        if code and code not in self.model.rates_in_chf:
+        if code and not self._known(code):
             # Unbekannter Code: wie die Modellquelle ein Eingabefehler (ValueError),
             # nie ein Kurs -- bestehende fail-closed-Pfade bleiben unveraendert.
             raise ValueError(f"Unbekannte Waehrung: {code}")
         status = self.statuses().get(code, FX_STATUS_MISSING) if code else FX_STATUS_MISSING
         if status != FX_STATUS_OK:
+            label = code or "(ohne Waehrung)"
             raise FxBasisError(
                 fx_status_reason(status),
-                f"Fuer {code or '(ohne Waehrung)'} liegt kein belegter, aktueller Kurs vor ({status}); "
+                f"Fuer {label} liegt kein belegter, aktueller Kurs vor ({status}); "
                 "Ersatzkurse werden nie kundenwirksam.",
                 extra={"currencies": [code], "fx_status": status},
             )
 
+    def _require_identity_code(self, code: str) -> None:
+        """N-909-17: auch eine Identitaet braucht einen bekannten, nicht leeren
+        Code (keine geratene Waehrung)."""
+        if not code:
+            raise FxBasisError(
+                fx_status_reason(FX_STATUS_MISSING),
+                "Ein Betrag ohne Waehrung kann nicht bewertet werden; Ersatzwerte werden nie kundenwirksam.",
+                extra={"currencies": [code], "fx_status": FX_STATUS_MISSING},
+            )
+        if not self._known(code):
+            raise ValueError(f"Unbekannte Waehrung: {code}")
+
     def rate_to_chf(self, currency: str) -> float:
         self.require(currency)
-        return self.model.rate_to_chf(currency)
+        return self._model.rate_to_chf(currency)
 
     def cross_rate(self, from_currency: str, to_currency: str) -> float:
         source = str(from_currency or "").upper().strip()
         target = str(to_currency or "").upper().strip()
-        if source and source == target:
+        if source == target:
             # Identitaet: keine Umrechnung, also kein Kurs noetig (ein reines
-            # EUR-Mandat braucht keinen EUR/CHF-Kurs). Die Modellquelle prueft
-            # weiterhin, dass der Code bekannt ist, und liefert exakt 1.0.
-            return self.model.cross_rate(source, target)
+            # EUR-Mandat braucht keinen EUR/CHF-Kurs); der Code muss bekannt sein.
+            self._require_identity_code(source)
+            return self._model.cross_rate(source, target)
         self.require(source)
         self.require(target)
-        return self.model.cross_rate(source, target)
+        return self._model.cross_rate(source, target)
 
     def convert_storage_amount(self, amount_minor: int, source_currency: str, target_currency: str) -> int:
         source = str(source_currency or "").upper().strip()
         target = str(target_currency or "").upper().strip()
         amount = int(amount_minor or 0)
-        if source == target or amount == 0:
+        if source == target:
+            self._require_identity_code(source)
+            return amount
+        if amount == 0:
             return amount
         self.require(source)
         self.require(target)
-        return self.model.convert_storage_amount(amount, source, target)
+        return self._model.convert_storage_amount(amount, source, target)
 
     def supported_currencies(self) -> tuple[str, ...]:
         return tuple(sorted(c for c, s in self.statuses().items() if s == FX_STATUS_OK) + ["CHF"])
@@ -273,7 +300,7 @@ class StrictFXRateSource:
         if needed - {target}:
             for currency in sorted(needed):
                 self.require(currency)
-        return self.model.canonical_model_signature(currencies, target_currency=target_currency)
+        return self._model.canonical_model_signature(currencies, target_currency=target_currency)
 
 
 class FXRateLoadError(ValueError):
@@ -408,10 +435,14 @@ class FXRateSource:
         error, malformed active row, duplicate active currency, or invalid
         rate is a model-input error and is never replaced silently.
         """
+        return cls._from_current_rows(cls._load_current_rows(db))
+
+    @staticmethod
+    def _load_current_rows(db) -> list:
         try:
             from models.fx_rate import FXRate
 
-            rows = (
+            return (
                 db.query(FXRate)
                 .filter(FXRate.is_current == 1, FXRate.valid_until.is_(None))
                 .all()
@@ -422,6 +453,8 @@ class FXRateSource:
                 "geladen werden."
             ) from exc
 
+    @classmethod
+    def _from_current_rows(cls, rows) -> "FXRateSource":
         if not rows:
             return cls(
                 basis_id=DEFAULT_FX_RATE_SET_VERSION,
@@ -482,8 +515,17 @@ class FXRateSource:
 
     @classmethod
     def from_db_strict_for_model(cls, db, *, tenant_id=None, as_of: date | None = None) -> StrictFXRateSource:
-        """Kundenwirksame Modellquelle (siehe ``StrictFXRateSource``)."""
-        return StrictFXRateSource(cls.from_db_for_model(db), db, tenant_id=tenant_id, as_of=as_of)
+        """Kundenwirksame Modellquelle (siehe ``StrictFXRateSource``). Kurs und
+        Status kommen aus denselben Zeilen einer Abfrage (N-909-16)."""
+        rows = cls._load_current_rows(db)
+        observations: dict[str, tuple | None] = {}
+        for row in rows:
+            code = str(getattr(row, "currency", "") or "").upper().strip()
+            observed = (getattr(row, "source", None), getattr(row, "valid_from", None))
+            observations[code] = None if code in observations else observed
+        return StrictFXRateSource(
+            cls._from_current_rows(rows), db, tenant_id=tenant_id, as_of=as_of, observations=observations,
+        )
 
     @classmethod
     def from_db(cls, db) -> "FXRateSource":

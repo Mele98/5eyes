@@ -23,7 +23,7 @@ from services.audit import log
 from services.advisory_report_cache import clear_all as clear_advisory_report_cache
 from services.auth import extract_client_ip as _extract_client_ip
 from services.auth import get_current_user, require_advisor_or_platform_scope_for_global_reference_data
-from services.currency.fx_rates import DEFAULT_FX_RATES, FXRateSource
+from services.currency.fx_rates import DEFAULT_FX_RATES, FXRateSource, is_substitute_source, rate_x10000
 
 router = APIRouter(tags=["FX Rates"])
 
@@ -37,6 +37,17 @@ class FXRateEntry(BaseModel):
     rate: float  # rate-to-CHF (1 unit currency = rate CHF)
     source: Optional[str] = "Manual"
     notes: Optional[str] = None
+    # CCX-P3-FX (N-909-11): ausdrueckliche Bestaetigung "Kurs geprueft" je
+    # Zeile. Noetig, um einen unveraenderten Kurs neu zu beobachten (Frist)
+    # oder einen Kurs anzunehmen, der exakt dem Ersatzkurs entspricht.
+    confirm_current: bool = False
+
+    @field_validator("confirm_current", mode="before")
+    @classmethod
+    def _strict_confirm_flag(cls, value: object) -> object:
+        if not isinstance(value, bool):
+            raise ValueError("confirm_current must be a boolean")
+        return value
 
     # FX-REF-001 (2026-09-04, Marktpreis-/FX-Referenzintegritaetsaudit):
     # Pydantics laxe float-Koerzion akzeptiert `rate: true` unbemerkt als
@@ -75,13 +86,22 @@ class FXRateEntry(BaseModel):
         # annaehernd in dieser Groessenordnung).
         if value > 1000:
             raise ValueError("rate unplausibel hoch (>1000)")
-        rate_x10000 = int(round(value * 10000))
-        if rate_x10000 < 1 or rate_x10000 > 10_000_000:
+        rate_scaled = int(round(value * 10000))
+        if rate_scaled < 1 or rate_scaled > 10_000_000:
             raise ValueError(
                 "rate quantizes out of the valid domain "
-                f"(rate_x10000={rate_x10000}); must resolve to 1..10000000 "
+                f"(rate_x10000={rate_scaled}); must resolve to 1..10000000 "
                 "after *10000 rounding"
             )
+        # CCX-P3-FX (N-909-08): kein stilles Runden. Mehr als vier Dezimalen
+        # sind in diesem Speicherformat kein belegter Kurs (wie rate_x10000()).
+        try:
+            rate_x10000(value, "FX")
+        except ValueError as exc:
+            raise ValueError(
+                "rate hat mehr als vier Dezimalen; das Speicherformat (x10000) "
+                "wuerde still runden"
+            ) from exc
         return value
 
     @model_validator(mode="after")
@@ -215,28 +235,54 @@ async def upsert_fx_rates(
 
     now = _now_iso()
     affected_currencies: set[str] = set()
+    actor = str(getattr(current_user, "id", None) or "")
 
-    # FX-REF-001: rate-Domain (Bool/NaN/Infinity/Bounds/Quantisierung) und
-    # CHF-Identitaet werden jetzt vollstaendig in FXRateEntry validiert
-    # (siehe Pydantic-Validatoren oben) -- bevor dieser Endpoint-Body je
-    # ausgefuehrt wird. Nur die Currency-Code-Form bleibt hier, weil sie
-    # reine String-Hygiene ist, keine Kurs-Domain.
+    # CCX-P3-FX (N-909-11): ein Kurs gilt nur als belegt, wenn ihn jemand
+    # bewusst erfasst oder bestaetigt hat. Pass 1 entscheidet je Zeile und
+    # prueft den ganzen Batch, BEVOR irgendetwas geschrieben wird.
+    plan: list[tuple] = []
     for entry in payload.rates:
         ccy = entry.currency.upper().strip()
         if len(ccy) != 3:
             raise HTTPException(
                 status_code=422, detail=f"Invalid currency '{entry.currency}'"
             )
-
-        # Alte is_current=1 invalidieren
-        # 2026-07-25 (Generalaudit, Wave 13): with_for_update() ergaenzt --
-        # gleiches Race-Condition-Muster wie der in Wave 11 gefixte
-        # update_cma-Fund. Zwei nahezu gleichzeitige Upserts fuer dieselbe
-        # Waehrung haetten zwei is_current=1-Zeilen erzeugen koennen.
+        source = str(entry.source or "").strip() or "Manual"
+        substitute = is_substitute_source(source)
+        scaled = rate_x10000(float(entry.rate), ccy)
+        # 2026-07-25 (Generalaudit, Wave 13): with_for_update() -- zwei nahezu
+        # gleichzeitige Upserts fuer dieselbe Waehrung duerfen keine zwei
+        # is_current=1-Zeilen erzeugen.
         old_rows = db.query(FXRate).filter(
             FXRate.currency == ccy,
             FXRate.is_current == 1,
         ).with_for_update().all()
+        current = old_rows[0] if len(old_rows) == 1 else None
+        unchanged = (
+            current is not None
+            and int(current.rate_x10000) == scaled
+            and str(current.source or "").strip().casefold() == source.casefold()
+        )
+        if entry.confirm_current and substitute:
+            raise HTTPException(status_code=422, detail=(
+                f"{ccy}: ein Ersatzkurs (Quelle Default) kann nicht als geprueft "
+                "bestaetigt werden."
+            ))
+        if unchanged and not entry.confirm_current:
+            continue  # No-op: kein neuer Beobachtungszeitpunkt ohne Bestaetigung
+        default_rate = DEFAULT_FX_RATES.get(ccy)
+        if (
+            ccy != "CHF" and not substitute and not entry.confirm_current and default_rate is not None
+            and rate_x10000(default_rate, ccy) == scaled
+        ):
+            raise HTTPException(status_code=422, detail=(
+                f"{ccy}: der Kurs entspricht exakt dem Ersatzkurs. Er wird nur "
+                "mit ausdruecklicher Bestaetigung 'Kurs geprueft' "
+                "(confirm_current) als belegt angenommen."
+            ))
+        plan.append((entry, ccy, source, scaled, old_rows, unchanged))
+
+    for entry, ccy, source, scaled, old_rows, unchanged in plan:
         old_rate_display = None
         for old in old_rows:
             old_rate_display = f"{float(old.rate_x10000) / 10000.0:.4f}"
@@ -244,32 +290,35 @@ async def upsert_fx_rates(
             old.valid_until = now
             old.updated_at = now
 
-        # Neue Zeile
         row = FXRate(
             id=new_uuid(),
             currency=ccy,
-            rate_x10000=int(round(float(entry.rate) * 10000)),
+            rate_x10000=scaled,
             valid_from=now,
             valid_until=None,
             is_current=1,
-            source=str(entry.source or "Manual"),
+            source=source,
             notes=entry.notes,
             created_at=now,
             updated_at=now,
-            created_by=str(getattr(current_user, "id", None) or ""),
+            created_by=actor,
         )
         db.add(row)
         affected_currencies.add(ccy)
         # 2026-07-24 (Generalaudit): FX-Rate-Aenderungen wirken global auf
-        # ALLE Tenants (kein tenant_id auf FXRate) und verzerren sonst
-        # unbemerkt Fremdwaehrungs-Betraege in Beratungsdokumenten -- bisher
-        # nicht im zentralen AuditLog nachvollziehbar (nur die versionierte
-        # FXRate-Tabelle selbst zeigt den neuen Wert, kein "wer/wann").
+        # ALLE Tenants (kein tenant_id auf FXRate) -> zentraler AuditLog.
+        # CCX-P3-FX (N-909-11): eine Bestaetigung ohne Kursaenderung ist ein
+        # eigener, auditierter Vorgang (APPROVE), keine stille Neubeobachtung.
+        confirmed_only = unchanged and entry.confirm_current
         log(
             db, user_id=current_user.id, user_name=current_user.full_name,
-            table_name="fx_rates", record_id=row.id, action="UPSERT",
+            table_name="fx_rates", record_id=row.id,
+            action="APPROVE" if confirmed_only else "UPSERT",
             field_name=ccy, old_value=old_rate_display,
-            new_value=f"{float(entry.rate):.4f}",
+            new_value=(
+                f"{scaled / 10000.0:.4f} geprueft ({source}, {now[:10]})"
+                if entry.confirm_current else f"{scaled / 10000.0:.4f}"
+            ),
             ip_address=_extract_client_ip(request),
         )
 

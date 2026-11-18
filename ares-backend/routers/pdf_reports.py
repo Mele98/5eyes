@@ -1212,6 +1212,15 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     )
 
 
+def _assert_client_pdf_fx_basis(db: Session, mandate: Mandate) -> None:
+    """CCX-P3-FX (N-909-13): Kundendokumente mit eingefrorenen Betraegen
+    pruefen beim Druck die heutige strikte FX-Basis, solange der Lauf nicht
+    versiegelt ist (wie der gespeicherte Depot-Check, N-909-02)."""
+    from services.print_fx_gate import assert_print_fx_basis_current
+
+    assert_print_fx_basis_current(db, mandate)
+
+
 def _assert_client_pdf_signoff(db: Session, mandate: Mandate) -> None:
     """Kunden-PDF fail-closed sperren, wenn die Risikoprofil-Signatur nicht
     mehr zum gespeicherten Profil passt (zentrales Release-Gate, VOR jedem
@@ -1390,6 +1399,7 @@ def get_risikoprofil_pdf(
     """Generiert Risikoprofil-PDF fuer das Mandat (FINMA W305-konform)."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_kyc_review(db, mandate, current_user, request)
+    _assert_client_pdf_fx_basis(db, mandate)  # CCX-P3-FX N-909-13 (Vermoegensangabe)
     _assert_client_pdf_signoff(db, mandate)
     ctx = _build_pdf_context(mandate, current_user, db)
 
@@ -1710,6 +1720,7 @@ def get_portfolio_pdf(
     """Sprint 11 Phase 6: Portfolio-PDF mit Positionen + Soll-vs-IST + Drift."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_kyc_review(db, mandate, current_user, request)
+    _assert_client_pdf_fx_basis(db, mandate)  # CCX-P3-FX N-909-13
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
     _assert_client_pdf_sustainability_floor(db, mandate, current_user, request)
@@ -1827,6 +1838,7 @@ def get_vertrag_pdf(
     """Sprint 12: Vertrags-PDF (ContractDocument). Optional ?document_id=..."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_kyc_review(db, mandate, current_user, None)
+    _assert_client_pdf_fx_basis(db, mandate)  # CCX-P3-FX N-909-13
     ctx = _build_pdf_context(mandate, current_user, db)
     data = _build_vertrag_data(mandate, document_id, db)
     pdf_bytes = ReportLabRenderer().render_vertrag(ctx, data)
@@ -2340,6 +2352,7 @@ def get_protokoll_pdf(
     """Beratungsprotokoll-PDF mit AdvisoryLog und Unterschrift."""
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_kyc_review(db, mandate, current_user, request)
+    _assert_client_pdf_fx_basis(db, mandate)  # CCX-P3-FX N-909-13
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
     ctx = _build_pdf_context(mandate, current_user, db)
@@ -2935,6 +2948,7 @@ def get_backtest_pdf(
     """
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_kyc_review(db, mandate, current_user, None)
+    _assert_client_pdf_fx_basis(db, mandate)  # CCX-P3-FX N-909-13
     ctx = _build_pdf_context(mandate, current_user, db)
     ctx = _attach_provisional_notice(ctx, db, mandate)
     bm_inputs = {
@@ -3092,6 +3106,7 @@ def get_cost_disclosure_pdf(
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_kyc_review(db, mandate, current_user, request)
+    _assert_client_pdf_fx_basis(db, mandate)  # CCX-P3-FX N-909-13
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
     _assert_client_pdf_sustainability_floor(db, mandate, current_user, request)
@@ -3412,6 +3427,9 @@ def get_kundeninformation_pdf(
             "reason_code": CLIENT_INFORMATION_REGIME_UNSUPPORTED,
             "message": "Fuer den Sitz der Firma bildet Ares keine Kundeninformation ab (nur Schweiz/FIDLEG).",
         })
+    # CCX-P3-FX (N-909-13): die Kundeninformation druckt die Kostenzeilen des
+    # Ex-ante-Kostenausweises (Betraege des Laufs) -> dieselbe Druckpruefung.
+    _assert_client_pdf_fx_basis(db, mandate)
     # N-890-07: eigene Fusszeile der Kundeninformation (H7-Footer je
     # Dokument-/Mandatstyp), nicht "Dokumentation der Anlageberatung".
     ctx = dataclasses.replace(
