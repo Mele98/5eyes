@@ -206,8 +206,15 @@ def owner_db_paths() -> tuple[Path, ...]:
     return (default_db_path(), Path.home() / '5eyes' / '5eyes.db')
 
 
+def _owner_targets() -> tuple[Path, ...]:
+    """Owner-Datenbanken samt Begleitdateien (``-wal``/``-shm``/``-journal``)."""
+    return tuple(Path(str(base) + sfx) for base in owner_db_paths()
+                 for sfx in ('', '-wal', '-shm', '-journal'))
+
+
 def is_owner_db_path(candidate: str | os.PathLike[str] | None) -> bool:
-    return any(is_live_db_path(candidate, live) for live in owner_db_paths())
+    """Owner-Pfad per Text/Identitaet -- inkl. ``-wal``/``-shm``/``-journal``."""
+    return any(is_live_db_path(candidate, live) for live in _owner_targets())
 
 
 def test_or_ci_mode(environ) -> str | None:
@@ -225,34 +232,157 @@ def test_or_ci_mode(environ) -> str | None:
     return None
 
 
-_DEVICE_HEAD = re.compile(r'^[\\/]{2}[?.][\\/]')
-_DEVICE_EMBEDDED = re.compile(r'[\\/][\\/]{2}[?.][\\/]')
-_KNOWN_DEVICE_TAIL = re.compile(r'^(?:[A-Za-z]:(?:[\\/]|$)|UNC[\\/])', re.IGNORECASE)
+# --- H11 N5 (N-907-17): Allowlist statt Nachbilden einzelner Schreibweisen -----
+#
+# Ares oeffnet seine Datenbank nur ueber normale Laufwerks- bzw. POSIX-Pfade.
+# Win32-Geraete-Namensraum (``\\?\``, ``\\.\`` in JEDER Mischung aus ``\`` und
+# ``/``, auch ``\\.\UNC\``), NT-Praefix ``\??\`` und UNC-Admin-Freigaben
+# (``\\host\C$\``) haben keinen legitimen Anwendungsfall und werden IMMER
+# verweigert -- auch mit Opt-in, auch im Produkt. Geprueft werden der Rohwert,
+# jede URL-Dekodierungsstufe (bis stabil), der ``file:``-Rumpf mit und ohne
+# leere bzw. ``localhost``-Autoritaet und jeweils ``os.path.abspath`` davon.
+
+_MAX_DECODE_ROUNDS = 8
+_FORBIDDEN_DEVICE = re.compile(r'^[\\/]{2,}[?.](?:[\\/]|$)')
+_NT_PREFIX = re.compile(r'^[\\/]\?\?(?:[\\/]|$)')
+_ADMIN_SHARE = re.compile(r'^[\\/]{2,}[^\\/]+[\\/]+[A-Za-z]\$(?:[\\/]|$)')
+# Eingebettet, an JEDER Stelle (POSIX: ``os.path.abspath`` eines relativen
+# Geraete-Pfads ergibt ``/cwd/\\?\...``; ohne ``uri=true`` macht pysqlite aus
+# ``file:\\?\...`` den Namen ``<cwd>\file:\\?\...``): mindestens ein Backslash
+# im Trennerpaar, damit harmlose POSIX-Pfade wie ``/data///./x.db`` nicht
+# getroffen werden (N-907-20).
+_DEVICE_EMBEDDED = re.compile(r'(?:\\[\\/]|/\\)[?.](?:[\\/]|$)')
+_FILE_AUTHORITY = re.compile(r'^[\\/]{2}([^\\/]*)(?=[\\/]|$)')
+
+FORM_DEVICE = 'device'
+FORM_ADMIN_SHARE = 'admin_share'
+FORM_UNDECODABLE = 'undecodable'
+
+
+def _decoded_forms(raw: str) -> list[str] | None:
+    """Rohwert und jede URL-Dekodierungsstufe; ``None``, wenn nie stabil."""
+    forms = [raw]
+    current = raw
+    for _ in range(_MAX_DECODE_ROUNDS):
+        decoded = unquote(current)
+        if decoded == current:
+            return forms
+        forms.append(decoded)
+        current = decoded
+    return None
+
+
+def _candidate_bodies(form: str) -> list[str] | None:
+    """Pruefformen eines (dekodierten) Werts; ``None`` = nicht aufloesbar."""
+    bodies = [form]
+    if form[:5].lower() == 'file:':
+        body = form[5:]
+        bodies.append(body)
+        m = _FILE_AUTHORITY.match(body)
+        if m and m.group(1).casefold() in ('', 'localhost'):
+            bodies.append(body[m.end():])
+    out: list[str] = []
+    for body in bodies:
+        out.append(body)
+        if body:
+            try:
+                out.append(os.path.abspath(body))
+            except (OSError, ValueError):
+                return None
+    return out
+
+
+def forbidden_path_form(candidate) -> str | None:
+    """Art der nie zulaessigen Pfadform (``device``/``admin_share``/
+    ``undecodable``) oder ``None``. Reine Textregel, kein Dateizugriff."""
+    if candidate is None:
+        return None
+    raw = os.fspath(candidate)
+    raw = (raw if isinstance(raw, str) else os.fsdecode(raw)).strip()
+    if not raw:
+        return None
+    forms = _decoded_forms(raw)
+    if forms is None:
+        return FORM_UNDECODABLE
+    for form in forms:
+        # Ein ``?`` ausserhalb einer ``file:``-URI ist nie ein Ares-Dateiname
+        # (unter Windows unzulaessig, nur im Geraete-Praefix; z. B. bleibt nach
+        # ``abspath`` von ``\??\C:\`` der Rest ``C:\cwd\??\C:\`` stehen).
+        if '?' in form and form.strip()[:5].lower() != 'file:':
+            return FORM_DEVICE
+        bodies = _candidate_bodies(form.strip())
+        if bodies is None:
+            return FORM_UNDECODABLE
+        for body in bodies:
+            if _FORBIDDEN_DEVICE.match(body) or _NT_PREFIX.match(body) or _DEVICE_EMBEDDED.search(body):
+                return FORM_DEVICE
+            if _ADMIN_SHARE.match(body):
+                return FORM_ADMIN_SHARE
+    return None
 
 
 def is_unresolvable_device_path(candidate) -> bool:
-    """N-907-16: Win32-Geraete-Pfad (``\\\\?\\...``/``\\\\.\\...``), der sich NICHT auf
-    die bekannten Formen (Laufwerk ``C:\\``, ``UNC\\``) zurueckfuehren laesst --
-    z. B. ``\\\\?\\GLOBALROOT\\??\\C:\\``, ``\\\\?\\Volume{...}\\``,
-    ``\\\\.\\HarddiskVolumeN\\``. Solche Ziele sind nicht pruefbar."""
-    if candidate is None:
-        return False
+    """Kompatibilitaet (N-907-16): jede verbotene Pfadform (``forbidden_path_form``)
+    -- seit N5 eine Allowlist statt einer Liste "bekannter" Formen."""
+    return forbidden_path_form(candidate) is not None
+
+
+_MISSING = (FileNotFoundError, NotADirectoryError)
+
+
+def fs_identity_owner(candidate) -> str | None:
+    """N-907-17 (b): Identitaet auf Dateisystemebene gegen ALLE Owner-Ziele
+    (inkl. ``-wal``/``-shm``/``-journal``): (st_dev, st_ino) des existierenden
+    Ziels -- folgt Symlinks/Junctions, deckt Hardlinks und 8.3-Namen ab.
+    ``'owner'`` bei Treffer, ``'error'`` wenn die Pruefung scheitert
+    (fail-closed), sonst ``None``. Fehlende Dateien sind kein Fehler."""
+    if candidate is None or not str(os.fspath(candidate)).strip():
+        return None
     raw = str(os.fspath(candidate)).strip()
-    if raw.lower().startswith('file:'):
-        raw = _file_uri_path(raw)
-    if _DEVICE_HEAD.match(raw):
-        return not _KNOWN_DEVICE_TAIL.match(raw[4:])
-    # Eingebettet (z. B. nach os.path.abspath eines relativen Geraete-Pfads unter
-    # POSIX: ``/cwd/\\\\?\\GLOBALROOT...``): nie pruefbar -> fail-closed.
-    return _DEVICE_EMBEDDED.search(raw) is not None
+    if raw == ':memory:' or raw.lower().startswith('file::memory:'):
+        return None
+    probes ={_file_uri_path(raw) if raw.lower().startswith('file:') else raw}
+    try:
+        probes.add(str(normalize_db_target(candidate)))
+    except (OSError, ValueError):
+        return 'error'
+    owners = set()
+    for target in _owner_targets():
+        try:
+            st = os.stat(target)
+        except _MISSING:
+            continue
+        except (OSError, ValueError):
+            return 'error'
+        owners.add((st.st_dev, st.st_ino))
+    if not owners:
+        return None
+    for probe in probes:
+        try:
+            st = os.stat(probe)
+        except _MISSING:
+            continue
+        except (OSError, ValueError):
+            return 'error'
+        if st.st_ino != 0 and (st.st_dev, st.st_ino) in owners:
+            return 'owner'
+    return None
 
 
 def owner_db_refusal(candidate: str | os.PathLike[str] | None, environ) -> str | None:
     """Begruendung, warum ``candidate`` nicht geoeffnet werden darf, sonst ``None``."""
-    if is_unresolvable_device_path(candidate):
-        return (f'Geraete-Pfad {candidate} ist nicht auf einen pruefbaren Dateipfad '
-                'zurueckfuehrbar -- verweigert (fail-closed).')
-    if not is_owner_db_path(candidate):
+    form = forbidden_path_form(candidate)
+    if form == FORM_ADMIN_SHARE:
+        return (f'UNC-Admin-Freigabe {candidate} ist fuer Ares nie zulaessig -- verweigert '
+                '(fail-closed, auch mit Freigabe).')
+    if form:
+        return (f'Geraete-Pfad {candidate} ist fuer Ares nie zulaessig (Geraete-Namensraum, '
+                'nicht pruefbar) -- verweigert (fail-closed, auch mit Freigabe).')
+    identity = fs_identity_owner(candidate)
+    if identity == 'error':
+        return (f'Identitaetspruefung fuer {candidate} gegen die Owner-Datenbank nicht moeglich '
+                '-- verweigert (fail-closed).')
+    if identity is None and not is_owner_db_path(candidate):
         return None
     mode = test_or_ci_mode(environ)
     if mode:

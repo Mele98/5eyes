@@ -48,9 +48,45 @@ def guarded_sqlite_connect(target, *, context: str, connector=None, **kwargs):
 
         connector = sqlite3.connect
     refuse_owner_db_file(str(target), context=context)
+    if "factory" not in kwargs:
+        factory = _guarded_factory_for(sys.modules.get(getattr(connector, "__module__", "") or ""))
+        if factory is not None:
+            kwargs["factory"] = factory
     conn = connector(target, **kwargs)
     install_attach_authorizer(conn)
     return conn
+
+
+_GUARDED_FACTORIES: dict = {}
+
+
+class AuthorizerLocked(RuntimeError):
+    """N-907-19: ``set_authorizer`` auf einer geschuetzten Verbindung (der
+    ATTACH-Authorizer ist gesetzt und darf nicht ersetzt werden)."""
+
+
+def _guarded_factory_for(dbapi_module):
+    """N-907-19: Verbindungsklasse (Unterklasse von ``<dbapi>.Connection``), deren
+    ``set_authorizer`` nach dem Setzen des ATTACH-Authorizers gesperrt ist."""
+    base = getattr(dbapi_module, "Connection", None) if dbapi_module is not None else None
+    if not isinstance(base, type):
+        return None
+    cls = _GUARDED_FACTORIES.get(base)
+    if cls is None:
+        def set_authorizer(self, *args, **kwargs):
+            if getattr(self, "_ares_authorizer_locked", False):
+                raise AuthorizerLocked(
+                    "set_authorizer ist auf dieser Verbindung gesperrt: der ATTACH-Authorizer "
+                    "des Owner-DB-Waechters darf nicht ersetzt werden (H11 N-907-19)."
+                )
+            return base.set_authorizer(self, *args, **kwargs)
+
+        try:
+            cls = type("AresGuardedConnection", (base,), {"set_authorizer": set_authorizer})
+        except TypeError:  # Basisklasse nicht ableitbar -> kein Laufzeitschutz moeglich
+            return None
+        _GUARDED_FACTORIES[base] = cls
+    return cls
 
 
 def _attach_authorizer(action, arg1, arg2, dbname, source):  # noqa: ARG001
@@ -66,6 +102,12 @@ def install_attach_authorizer(dbapi_connection) -> None:
     setter = getattr(dbapi_connection, "set_authorizer", None)
     if callable(setter):
         setter(_attach_authorizer)
+        # N-907-19: danach gesperrt (nur auf AresGuardedConnection; die reine
+        # C-Klasse hat kein __dict__ -- dort bleibt der AST-Waechter).
+        try:
+            dbapi_connection._ares_authorizer_locked = True
+        except AttributeError:
+            pass
 
 
 def _install_owner_db_guard() -> None:
@@ -76,6 +118,11 @@ def _install_owner_db_guard() -> None:
     def _guard(dialect, conn_rec, cargs, cparams):  # noqa: ARG001
         if dialect.name == "sqlite":
             refuse_owner_db_file(_db_location.connect_target(cargs, cparams), context="Datenbank")
+            if "factory" not in cparams:
+                dbapi = getattr(dialect, "loaded_dbapi", None) or getattr(dialect, "dbapi", None)
+                factory = _guarded_factory_for(dbapi)
+                if factory is not None:
+                    cparams["factory"] = factory
 
     def _authorize(dbapi_connection, connection_record):  # noqa: ARG001
         # N-907-12: ATTACH legt eine Datei ohne do_connect an -- Authorizer je Verbindung.

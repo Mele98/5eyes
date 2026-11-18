@@ -6,6 +6,7 @@ Aufruf
     python scripts/backup_now.py --target /pfad/zu/backups
     python scripts/backup_now.py --source ~/ares/ares.db --target /mnt/backup
     python scripts/backup_now.py --restore /pfad/zu/backup.db --target ~/ares/ares.db
+      (Owner-DB als Ziel nur mit ARES_OWNER_DB_OPT_IN=1; unter Tests/CI nie -- H11 N-907-18)
 
 Standardmaessig liest das Script Settings aus `.env` / Umgebungs-
 variablen via `config.settings` — selbe Quelle wie der laufende Server.

@@ -45,7 +45,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
-from config import guarded_sqlite_connect, settings
+from config import guarded_sqlite_connect, refuse_owner_db_file, settings
 from database import SQLCIPHER_AVAILABLE, _sqlcipher_enabled, apply_sqlcipher_key, sqlcipher3
 
 logger = logging.getLogger(__name__)
@@ -438,7 +438,12 @@ def restore_database(
             )
         hmac_verified = True
 
+    # H11 N5 (N-907-18): Das Restore-Ziel wird per os.replace ersetzt -- ohne
+    # SQLite-Connect, also ohne Engine-/Roh-Waechter. Owner-Pruefung deshalb
+    # hier, VOR mkdir/Temp-Datei/os.replace (Rohwert und aufgeloestes Ziel).
+    refuse_owner_db_file(str(target_db_path), context="Restore")
     target = Path(target_db_path).expanduser().resolve()
+    refuse_owner_db_file(target, context="Restore")
     target.parent.mkdir(parents=True, exist_ok=True)
     # Einspielen in die produktive DB ebenfalls via Temp+os.replace
     # (inkl. integrity_check der Kopie) — abgebrochener Restore hinterlaesst
@@ -583,6 +588,8 @@ def _perform_atomic_copy(source: Path, target: Path, *, db_key: str | None = Non
     geoeffnet. Funktioniert mit normalem SQLite und SQLCipher (Bytes 1:1,
     ueber `_open_connection` -- siehe dort).
     """
+    # H11 N5 (N-907-18): zentral fuer jedes Ziel (Backup und Restore), VOR mkdir.
+    refuse_owner_db_file(target, context="Backup/Restore-Ziel")
     target_dir = target.parent
     target_dir.mkdir(parents=True, exist_ok=True)
 

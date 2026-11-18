@@ -105,7 +105,15 @@ def test_no_raw_sqlite_connect_outside_the_central_function():
 
 # --- Nachtrag 4: set_authorizer nur im Waechter -------------------------------
 
-AUTHORIZER_ALLOWED = {"ares-backend/config.py::install_attach_authorizer"}
+# N5 (N-907-19): zusaetzlich die Sperre selbst (AresGuardedConnection.set_authorizer
+# ruft die Basisklasse; _guarded_factory_for baut die Klasse). Der Laufzeitschutz
+# ist der primaere Schutz; dieses AST-Verbot bleibt als Stolperfalle fuer den
+# Basisklassen-Aufruf ``sqlite3.Connection.set_authorizer(conn, ...)``.
+AUTHORIZER_ALLOWED = {
+    "ares-backend/config.py::install_attach_authorizer",
+    "ares-backend/config.py::set_authorizer",
+    "ares-backend/config.py::_guarded_factory_for",
+}
 
 
 def authorizer_sites(source: str, rel: str) -> list[str]:

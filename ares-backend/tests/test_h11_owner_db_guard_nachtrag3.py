@@ -178,7 +178,10 @@ def test_embedded_device_form_after_abspath_is_refused():
     assert not loc.is_unresolvable_device_path("/home/runner/work/ok.db")
 
 
-def test_known_device_forms_are_not_blanket_refused(tmp_path):
+def test_known_device_forms_are_blanket_refused_since_n5(tmp_path):
+    """N5 (CTO-Entscheid zu N-907-17): auch die frueher "bekannten" Geraete-Formen
+    werden pauschal verweigert (Allowlist); normale Pfade bleiben erlaubt."""
     plain = str(tmp_path / "ok.db")
-    for variant in (BS * 2 + "?" + BS + plain, BS * 2 + "." + BS + plain, plain) if WINDOWS else (plain,):
-        assert not loc.is_unresolvable_device_path(variant), variant
+    for variant in (BS * 2 + "?" + BS + plain, BS * 2 + "." + BS + plain):
+        assert loc.is_unresolvable_device_path(variant), variant
+    assert not loc.is_unresolvable_device_path(plain)
