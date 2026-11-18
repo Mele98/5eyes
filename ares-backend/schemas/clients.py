@@ -735,15 +735,19 @@ class WealthSummaryResponse(BaseModel):
     liabilities_rappen: int
     net_worth_rappen: int
     advisory_wealth_rappen: int
-    # Derived display values (CHF)
+    # Anzeigewerte (Hauptwaehrungseinheiten) in ``amount_currency``; der Name
+    # ``*_chf`` ist historisch. K1 / CK-01: nie Fremdwaehrung nominal addiert.
     gross_wealth_chf: float
     liabilities_chf: float
     net_worth_chf: float
     advisory_wealth_chf: float
-    # G7 N4 (Grundregel): Die Summen sind Rohsummen der Positionsbetraege (ohne
-    # FX). Ihre Waehrung ist nur eindeutig, wenn alle aktiven Positionen dieselbe
-    # Waehrung haben; sonst None -> Anzeige "—" statt einer geratenen Einheit.
+    # K1 / CK-01: Die Summen sind zeilenweise ueber EINE strikte FX-Basis (P3) in
+    # ``amount_currency`` konvertiert (einheitliche Positionswaehrung ohne
+    # Umrechnung; gemischt -> Mandats-/Kunden-Basiswaehrung). Ohne Positionen None.
     amount_currency: Optional[str] = None
+    fx_basis_hash: Optional[str] = None
+    valuation_as_of: Optional[str] = None
+    mandate_id: Optional[str] = None
 
 
 class CashflowSummaryResponse(BaseModel):

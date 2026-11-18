@@ -67,6 +67,7 @@ from services.recommendation_release_gate import (
     kyc_review_message,
 )
 from services.fx_basis import load_fx_basis, normalize_currency  # CCX-P3-FX
+from services.client_wealth_summary import compute_wealth_totals  # K1 / CK-01
 from services.wealth_cashflows import (
     derive_wealth_cashflows,
     mortgage_amortization_adjustment_series,
@@ -1274,33 +1275,63 @@ def add_tax_residency(
 @router.get("/{client_id}/wealth-summary", response_model=WealthSummaryResponse)
 def wealth_summary(
     client_id: str,
+    mandate_id: Optional[str] = None,
+    target_currency: Annotated[Optional[str], Query(pattern=r"^[A-Z]{3}$")] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    _get_client_or_404(client_id, db, current_user)
-    row = db.execute(
-        text("SELECT * FROM v_client_wealth_summary WHERE client_id = :id"),
-        {"id": client_id}
-    ).fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Keine Vermögensdaten")
-    d = dict(row._mapping)
-    # G7 N4: Waehrung der Rohsummen -- nur eindeutig bei einheitlicher Positionswaehrung.
-    currencies = {
-        str(c or "").upper().strip()
-        for (c,) in db.execute(
-            text("SELECT DISTINCT currency FROM wealth_positions WHERE client_id = :id "
-                 "AND deleted_at IS NULL AND is_active = 1"),
-            {"id": client_id},
-        ).fetchall()
-    }
+    """Vermoegenssummen des Kunden (K1 / CK-01).
+
+    Nie eine Nominalsumme ueber Waehrungen: jede aktive Position wird mit EINER
+    gebundenen, strikten FX-Basis (P3) in die Zielwaehrung konvertiert, erst
+    danach summiert. Zielwaehrung: ``mandate_id`` -> Mandatswaehrung, sonst
+    ``target_currency``, sonst die einheitliche Positionswaehrung (ohne
+    Umrechnung), sonst die eindeutige Mandatswaehrung des Kunden. Fehlender,
+    abgelaufener oder ersetzter Kurs -> 409 ``CCX_FX_BASIS_*``. Die Felder
+    ``*_chf`` tragen den Betrag in ``amount_currency`` (historischer Name)."""
+    client = _get_client_or_404(client_id, db, current_user)
+    totals = _client_wealth_totals(db, client_id, mandate_id, target_currency, current_user)
+    client_name = f"{client.first_name or ''} {client.last_name or ''}".strip()
     return WealthSummaryResponse(
-        **d,
-        amount_currency=next(iter(currencies)) if len(currencies) == 1 and "" not in currencies else None,
-        gross_wealth_chf=d["gross_wealth_rappen"] / 100,
-        liabilities_chf=d["liabilities_rappen"] / 100,
-        net_worth_chf=d["net_worth_rappen"] / 100,
-        advisory_wealth_chf=d["advisory_wealth_rappen"] / 100,
+        client_id=client_id,
+        client_name=client_name,
+        client_classification=client.client_classification,
+        gross_wealth_rappen=totals.gross_wealth_rappen,
+        liabilities_rappen=totals.liabilities_rappen,
+        net_worth_rappen=totals.net_worth_rappen,
+        advisory_wealth_rappen=totals.advisory_wealth_rappen,
+        amount_currency=totals.amount_currency,
+        gross_wealth_chf=totals.gross_wealth_rappen / 100,
+        liabilities_chf=totals.liabilities_rappen / 100,
+        net_worth_chf=totals.net_worth_rappen / 100,
+        advisory_wealth_chf=totals.advisory_wealth_rappen / 100,
+        fx_basis_hash=totals.fx_basis_hash,
+        valuation_as_of=totals.valuation_as_of,
+        mandate_id=mandate_id,
+    )
+
+
+def _client_wealth_totals(db, client_id, mandate_id, target_currency, current_user):
+    """CK-01: Kundensummen ueber die strikte FX-Basis (services.client_wealth_summary)."""
+    positions = db.query(WealthPosition).filter(
+        WealthPosition.client_id == client_id,
+        WealthPosition.deleted_at.is_(None),
+        WealthPosition.is_active == 1,
+    ).all()
+    tenant_id = getattr(current_user, "tenant_id", None)
+    mandate_currency = None
+    if mandate_id:
+        mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+        if str(mandate.client_id) != str(client_id):
+            raise HTTPException(status_code=404, detail="Mandat gehoert nicht zu diesem Kunden.")
+        mandate_currency = normalize_currency(mandate.base_currency)
+        tenant_id = getattr(mandate, "tenant_id", None) or tenant_id
+    mandates = db.query(Mandate).filter(
+        Mandate.client_id == client_id, Mandate.deleted_at.is_(None),
+    ).all()
+    return compute_wealth_totals(
+        db, positions, mandates, mandate_currency=mandate_currency,
+        target_currency=target_currency, tenant_id=tenant_id,
     )
 
 
