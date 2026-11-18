@@ -27,6 +27,7 @@ from urllib.parse import quote
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
+from sqlalchemy.exc import OperationalError
 
 import config
 import core.db_location as loc
@@ -136,10 +137,24 @@ def test_forbidden_forms_refused_at_all_three_checkpoints(owner):
         # siehe test_file_forms_without_uri_never_open_anything.
         engine = create_engine(URL.create("sqlite", database=variant,
                                           query={"uri": "true"} if is_uri else {}))
-        with pytest.raises(loc.OwnerDatabaseRefused):
+        # POSIX: pysqlite oeffnet os.path.abspath(variant); normpath streicht dabei
+        # das "."-Segment ("//./C:/x" -> "//C:/x"). Der Engine-Waechter sieht dann
+        # einen normalen, nicht existierenden Nicht-Owner-Pfad -- SQLite scheitert
+        # ("unable to open"), es entsteht nichts. Nur dort ist OperationalError
+        # zulaessig, und nur wenn das tatsaechliche Ziel nachweislich kein Owner ist.
+        opened = os.path.abspath(variant)
+        collapsed = (not WINDOWS and not is_uri and loc.forbidden_path_form(opened) is None)
+        if collapsed:
+            assert not loc.is_owner_db_path(opened) and loc.fs_identity_owner(opened) is None, opened
+        with pytest.raises((loc.OwnerDatabaseRefused, OperationalError) if collapsed
+                           else loc.OwnerDatabaseRefused) as info:
             with engine.connect() as conn:
                 conn.execute(text("SELECT x FROM marker"))
         engine.dispose()
+        if collapsed and not isinstance(info.value, loc.OwnerDatabaseRefused):
+            # nichts geoeffnet/angelegt -- "no such table" hiesse: fremde Datei erzeugt
+            assert "unable to open" in str(info.value), (variant, info.value)
+            assert not os.path.exists(opened), opened
     assert _owner_state(owner) == before
 
 

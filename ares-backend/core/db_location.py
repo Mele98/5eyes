@@ -252,6 +252,8 @@ _ADMIN_SHARE = re.compile(r'^[\\/]{2,}[^\\/]+[\\/]+[A-Za-z]\$(?:[\\/]|$)')
 # im Trennerpaar, damit harmlose POSIX-Pfade wie ``/data///./x.db`` nicht
 # getroffen werden (N-907-20).
 _DEVICE_EMBEDDED = re.compile(r'(?:\\[\\/]|/\\)[?.](?:[\\/]|$)')
+# Ebenso eine eingebettete Admin-Freigabe (POSIX: ``/cwd/\\host\C$\...``).
+_ADMIN_SHARE_EMBEDDED = re.compile(r'(?:\\[\\/]|/\\)[^\\/]+[\\/]+[A-Za-z]\$(?:[\\/]|$)')
 _FILE_AUTHORITY = re.compile(r'^[\\/]{2}([^\\/]*)(?=[\\/]|$)')
 
 FORM_DEVICE = 'device'
@@ -316,7 +318,7 @@ def forbidden_path_form(candidate) -> str | None:
         for body in bodies:
             if _FORBIDDEN_DEVICE.match(body) or _NT_PREFIX.match(body) or _DEVICE_EMBEDDED.search(body):
                 return FORM_DEVICE
-            if _ADMIN_SHARE.match(body):
+            if _ADMIN_SHARE.match(body) or _ADMIN_SHARE_EMBEDDED.search(body):
                 return FORM_ADMIN_SHARE
     return None
 
