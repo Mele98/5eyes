@@ -148,7 +148,8 @@ def _finalize_and_publish(api, db_path: Path, mid: str) -> None:
     status, runs = api("GET", f"/mandates/{mid}/recommendations")
     assert status == 200, runs
     run_id = sorted(runs, key=lambda r: r.get("created_at") or "")[-1]["id"]
-    status, body = api("PUT", f"/mandates/{mid}/recommendations/{run_id}/finalize")
+    # Integration P3 N1 (N-909-07): Bestaetigung "Bewertung aktuell".
+    status, body = api("PUT", f"/mandates/{mid}/recommendations/{run_id}/finalize?confirm_valuations_current=true")
     assert status == 200, body
     status, overview = api("GET", f"/mandates/{mid}/allocation-publication")
     assert status == 200 and overview["can_publish"] is True, overview
