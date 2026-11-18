@@ -42,6 +42,7 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import configure_mappers, sessionmaker
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -631,7 +632,7 @@ def test_csv_import_accepts_new_fields(tmp_path):
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _option_label(select_id: str, value: str) -> str:

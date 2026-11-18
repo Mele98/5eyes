@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tests.brand_digest_support import LB_A_CORE_DIGEST, contains_digest  # noqa: E402
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GLOSSAR_PATH = REPO_ROOT / "docs" / "GLOSSAR.md"
 
@@ -187,14 +185,11 @@ def test_glossar_documents_forbidden_third_party_brands():
     lowered = text.lower()
     # Verbots-Sektion muss existieren
     assert "nicht auftauchen" in lowered or "verboten" in lowered
-    # Die verbotenen Begriffe muessen im Verbot gelistet sein
+    # Die verbotenen Begriffe muessen im Verbot gelistet sein. Fruehere
+    # Produkt- und Vorlagennamen nennt das Glossar nicht mehr; sie prueft das
+    # externe Zero-Trace-Gate.
     for brand in ("swiss life",):
         assert brand in lowered, f"Verbotsregel fuer {brand!r} fehlt"
-    # LB-A-Kernform nur als Digest (kein Klartext im Test), gleiche Semantik
-    # wie der fruehere Teilstring-Vergleich auf dem kleingeschriebenen Text.
-    assert contains_digest(lowered, LB_A_CORE_DIGEST, 5, normalize=False), (
-        "Verbotsregel fuer LB-A fehlt"
-    )
 
 
 def test_glossar_warns_about_guarantee_language():

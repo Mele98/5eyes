@@ -11,7 +11,8 @@ und triggert 17x den vollen 17-Sektionen-Aggregator.
 Loesung
 -------
 Thin TTL+LRU-Cache zwischen HTTP-Endpoint und Aggregator. Cache-Key
-ist `(mandate_id, advisor_id)` (verschiedene Berater koennten auf
+ist `(mandate_id, advisor_id, scope)` (CCX-P1: scope = Hash ueber Mandant,
+Mandat und versiegelten Entscheid) (verschiedene Berater koennten auf
 demselben Mandat anders gerendert werden — Cover.advisor_name). Default
 TTL 60s — auch ohne explizite Invalidation ist das Drift-Risiko klein.
 
@@ -40,10 +41,15 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from typing import TYPE_CHECKING
+
 from config import settings
-from models.mandates import Mandate
-from models.users import User
+from services.advisory_decision_envelope import advisory_report_cache_scope
 from services.advisory_report import compute_advisory_report
+
+if TYPE_CHECKING:  # nur Annotationen
+    from models.mandates import Mandate
+    from models.users import User
 
 logger = logging.getLogger(__name__)
 
@@ -160,9 +166,14 @@ def _get_cache() -> _TTLCache:
     return _cache_instance
 
 
-def _cache_key(mandate_id: str, advisor: User | None) -> tuple[str, str]:
+def _cache_key(mandate_id: str, advisor: User | None, scope: str = "") -> tuple[str, str, str]:
+    """``(mandate_id, advisor_id, scope)``. CCX-P1 (CCX-10): ``scope`` ist der
+    Cache-Scope-Hash ueber (tenant_id, mandate_id, envelope_hash) -- ein
+    anderer Mandant, ein Mandatswechsel A -> B -> A oder ein neu versiegelter
+    Entscheid trifft nie denselben Eintrag. ``mandate_id`` bleibt erstes
+    Element fuer ``invalidate_mandate``."""
     advisor_id = str(getattr(advisor, "id", "") or "anonymous")
-    return (str(mandate_id), advisor_id)
+    return (str(mandate_id), advisor_id, scope)
 
 
 def cached_compute_advisory_report(
@@ -196,7 +207,7 @@ def cached_compute_advisory_report(
         return compute_advisory_report(db, mandate, advisor=advisor)
 
     mandate_id = str(mandate.id)
-    key = _cache_key(mandate_id, advisor)
+    key = _cache_key(mandate_id, advisor, advisory_report_cache_scope(db, mandate))
     cache = _get_cache()
     cached = cache.get(key)
     if cached is not None:

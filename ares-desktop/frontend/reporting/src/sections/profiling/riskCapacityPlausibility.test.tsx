@@ -92,31 +92,17 @@ describe('Einbindung', () => {
     roleState.canEdit = true;
   });
 
-  const partialCompact: RiskCapacityPlausibilityCompact = {
-    status: 'partial',
-    reason_code: null,
-    finding_checks: [],
-    open_checks: ['OBLIGATIONS_BELOW_RECORDED'],
-    note: 'Plausibilitätsprüfung Risikofähigkeit (Beraterhinweis): …',
-  };
-
-  it('report section 12 shows the notice for advisors', () => {
-    roleState.canEdit = true;
+  // H9 (Owner-Vorgabe 2026-11-08): Sektion 12 zeigt keinen Plausibilitaets-/
+  // Widerspruchshinweis mehr -- weder Beratern noch Lesern.
+  it.each([true, false])('report section 12 shows no plausibility notice (canEdit=%s)', (canEdit) => {
+    roleState.canEdit = canEdit;
     render(
       <MemoryRouter>
-        <Risikoprofil data={makeRisikoprofil()} capacityPlausibility={partialCompact} />
-      </MemoryRouter>,
-    );
-    expect(screen.getByText('Teilweise geprüft')).toBeInTheDocument();
-  });
-
-  it('report section 12 hides the notice for read-only viewers', () => {
-    roleState.canEdit = false;
-    render(
-      <MemoryRouter>
-        <Risikoprofil data={makeRisikoprofil()} capacityPlausibility={partialCompact} />
+        <Risikoprofil data={makeRisikoprofil()} />
       </MemoryRouter>,
     );
     expect(screen.queryByText('Teilweise geprüft')).toBeNull();
+    expect(screen.queryByText('Widerspruch')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Plausibilitätsprüfung Risikofähigkeit' })).toBeNull();
   });
 });

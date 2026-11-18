@@ -18,6 +18,7 @@ import json
 import re
 import subprocess
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 
@@ -28,7 +29,7 @@ GOAL_MODULE_PATH = HTML_PATH.parent / "goal-analysis-integrity.js"
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8") + chr(10) + GOAL_MODULE_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle() + chr(10) + GOAL_MODULE_PATH.read_text(encoding="utf-8")
 
 
 def _function_source(html: str, name: str) -> str:

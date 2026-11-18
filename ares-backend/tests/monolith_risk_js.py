@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from tests.risk_fixture_helpers import MONOLITH_PATH
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 NODE = shutil.which("node")
 
@@ -39,7 +39,7 @@ def _function(src: str, signature: str) -> str:
 
 
 def monolith_js() -> str:
-    src = MONOLITH_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     start = src.index("var RISK_HORIZON_OPTIONS = [")
     end = src.index("var RISK_RHYTHM_POINTS = [10, 5, 0];") + len("var RISK_RHYTHM_POINTS = [10, 5, 0];")
     return src[start:end] + "\n" + "\n".join(_function(src, sig) for sig in FUNCTIONS)

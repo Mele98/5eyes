@@ -180,7 +180,8 @@ def test_setup_and_enable_flow(session_factory):
         db.add(u)
         db.commit()
         res = twofa_setup(db=db, current_user=u)
-        assert res["otpauth_uri"].startswith("otpauth://totp/")
+        assert res["otpauth_uri"].startswith("otpauth://totp/Ares%3As1?")
+        assert "&issuer=Ares&" in res["otpauth_uri"]  # W4-d: Issuer fuer Neu-Provisionierung
         assert u.totp_enabled in (0, None)  # noch nicht aktiv
         code = totp.totp_at(res["secret"], time.time())
         out = twofa_enable(_TwoFACodeRequest(code=code), db=db, current_user=u)
