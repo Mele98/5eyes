@@ -25,6 +25,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -100,7 +101,7 @@ def _position(auth_client, client_id, **body):
 def _inflow_payload(**body):
     payload = {
         "label": "Kapitalbezug PK", "source_type": "Andere",
-        "amount_rappen": 300_000_00, "expected_year": 2035,
+        "amount_rappen": 300_000_00, "currency": "CHF", "expected_year": 2035,
     }
     payload.update(body)
     return payload
@@ -215,7 +216,7 @@ def test_inflow_put_link_is_validated(auth_client, advisor_user):
 
 
 def _html() -> str:
-    return MONOLITH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _function_source(html: str, name: str) -> str:

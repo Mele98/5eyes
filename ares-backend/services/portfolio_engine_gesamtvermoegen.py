@@ -373,8 +373,16 @@ def _wealth_inflow_series_rappen(
     projection_years: int,
     start_year: int,
     inflation_series_bps: list[int] | None,
+    *,
+    fx_source=None,
+    target_currency: str | None = None,
 ) -> list[int]:
     """Sprint A1: konvertiert WealthInflow-Records in eine Year-Series.
+
+    CCX-P3-FX: mit ``target_currency`` wird jeder Zufluss zuerst aus seiner
+    erfassten Waehrung in die Mandatswaehrung konvertiert (exakt, je Zeile,
+    vor jeder Addition). Ein Zufluss ohne Waehrung ist unbekannt und wird
+    nie geraten -> ValueError (Aufrufer: 409 / fail-closed).
 
     - is_recurring=0: Einmaliger Beitrag im expected_year
     - is_recurring=1 + frequency='jaehrlich': annual Beitrag ab expected_year
@@ -400,6 +408,26 @@ def _wealth_inflow_series_rappen(
         duration_raw = getattr(infl, "duration_years", None)
         if isinstance(base_amount, bool) or not isinstance(base_amount, int) or base_amount <= 0:
             raise ValueError("Vermoegenszufluss: amount_rappen muss eine positive Ganzzahl sein.")
+        if target_currency is not None:
+            inflow_currency = str(getattr(infl, "currency", "") or "").upper().strip()
+            if not inflow_currency:
+                raise ValueError(
+                    "Vermoegenszufluss: Waehrung fehlt. Bitte die Waehrung des Zuflusses "
+                    "erfassen -- sie wird nie geraten (CCX_FX_BASIS_MISSING)."
+                )
+            if inflow_currency != str(target_currency).upper().strip():
+                if fx_source is None:
+                    raise ValueError(
+                        f"Vermoegenszufluss in {inflow_currency}: keine FX-Quelle fuer die "
+                        f"Umrechnung nach {target_currency}."
+                    )
+                try:
+                    base_amount = fx_source.convert_storage_amount(base_amount, inflow_currency, target_currency)
+                except (ValueError, AttributeError) as exc:
+                    raise ValueError(
+                        f"Vermoegenszufluss: keine gueltige FX-Rate {inflow_currency}->{target_currency}; "
+                        "eine stille 1:1-Konvertierung ist nicht zulaessig."
+                    ) from exc
         if isinstance(year, bool) or not isinstance(year, int) or not 1900 <= year <= 2200:
             raise ValueError("Vermoegenszufluss: expected_year muss zwischen 1900 und 2200 liegen.")
         if (

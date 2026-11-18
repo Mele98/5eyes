@@ -12,6 +12,7 @@ implementiert ist.
 """
 from pathlib import Path
 import re
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
@@ -19,7 +20,7 @@ HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / 
 
 def _ensure_function_block() -> str:
     """Extrahiert den Body von ensureStrategyReadyRiskForMandate."""
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     start = html.find("async function ensureStrategyReadyRiskForMandate")
     assert start >= 0, "ensureStrategyReadyRiskForMandate nicht gefunden"
     # Bis zum naechsten 'async function' oder 'function ' am Zeilenanfang
@@ -113,14 +114,14 @@ def test_message_propagation_uses_backend_message_when_available():
 
 
 def test_point_scoring_willingness_questions_have_no_default_selection():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     for question_key in ("q9", "q10", "q11"):
         selected = re.findall(rf'<div class="qopt sel" onclick="sq\(this,\'{question_key}\'\)"', html)
         assert selected == [], f"{question_key} darf keine Default-Auswahl haben"
 
 
 def test_frontend_strategy_gate_requires_current_questionnaire_contract():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     assert "riskAssessmentHasCurrentSchemaMarkers" in html
     assert "var required={1:true,2:true,3:true,4:true,5:true,6:true,7:true,8:true,9:true,10:true,11:true}" in html
     assert "Bitte alle bewerteten Fragen anklicken" in html

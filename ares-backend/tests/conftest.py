@@ -2,7 +2,7 @@
 
 Many tests start the FastAPI app via ``TestClient(app)``; its lifespan calls
 ``init_db()`` on ``settings.db_path``, whose default is the LIVE desktop
-database ``~/5eyes/5eyes.db``. Parallel test runs therefore executed startup
+database ``~/ares/ares.db``. Parallel test runs therefore executed startup
 migrations against real client data and left an interrupted table rebuild
 (ANSWERS-MIGRATION-IDEMPOTENT-001).
 
@@ -59,10 +59,31 @@ elif not os.environ.get("DB_PATH") or is_live_db_path(os.environ["DB_PATH"]):
     _session_dir = tempfile.mkdtemp(prefix="ares-tests-")
     os.environ["DB_PATH"] = str(Path(_session_dir) / "ares_test.db")
 
+# A2b B-1: Auch Backup- und Log-Verzeichnis liegen neben der Test-DB, nie im
+# Datenordner des Benutzerprofils. Der ``config``-Default fuer ``backup_dir``
+# zeigt auf das Profil, und ``services.maintenance.ensure_backup_dir()`` legt
+# ihn an (etwa ueber den Maintenance-Status) -- eine Test-Session hinterliess
+# so ein leeres Backup-Verzeichnis im echten Profil. Immer gesetzt (wie
+# TENANT_MASTER_KEK_FILE unten), damit auch eine .env-Angabe nicht greift;
+# Tests mit eigenem Verzeichnis setzen ``settings.backup_dir`` auf tmp_path.
+_test_data_dir = Path(os.environ["DB_PATH"]).parent
+os.environ["BACKUP_DIR"] = str(_test_data_dir / "backups")
+os.environ["LOG_DIR"] = str(_test_data_dir / "logs")
+
 # RB-1: Keine Test-Session legt eine echte KEK-Ablage an (etwa im userData-
 # Ordner der Desktop-Shell). Leer gesetzt statt entfernt, damit auch eine
 # .env-Angabe nicht greift; Tests der Ablage arbeiten nur auf tmp_path.
 os.environ["TENANT_MASTER_KEK_FILE"] = ""
+
+
+# W4-c: Die Master-KEK ist Pflicht (kein Rueckfall auf SECRET_KEY). Jede
+# Test-Session bekommt eine eigene, zufaellige Test-KEK, bevor ``config`` seine
+# Settings baut; eine explizit gesetzte KEK bleibt unberuehrt. xdist-Worker
+# erben sie vom Controller.
+if not os.environ.get("TENANT_MASTER_KEK", "").strip():
+    from cryptography.fernet import Fernet
+
+    os.environ["TENANT_MASTER_KEK"] = Fernet.generate_key().decode("ascii")
 
 
 def live_db_violation(db_path, database_url=None):
@@ -221,3 +242,19 @@ def pytest_unconfigure(config):  # noqa: D103
         supervision.emit("exit_watchdog_fired", after_s=seconds, exit_code=code)
 
     guard.arm_exit_watchdog(exit_status=exit_status, on_fire=_on_fire)
+
+
+@_pytest.fixture(autouse=True)
+def _pdf_missing_glyph_guard(request):
+    """N-877-07/09: JEDER Test laeuft unter dem Glyphen-Guard -- ein Zeichen
+    ohne Glyphe im eingebetteten Font (.notdef-Kasten) ist rot. Ohne PDF-Text
+    ist der Hook wirkungslos (nur Patch/Restore von TTFont.splitString), es
+    gibt deshalb kein Dateinamen-Muster mehr. Opt-out nur per
+    ``@pytest.mark.allow_missing_glyphs`` (Positivkontrollen)."""
+    import _pdf_glyph_guard as guard
+
+    if request.node.get_closest_marker("allow_missing_glyphs"):
+        yield
+        return
+    with guard.glyph_guard(request.node.nodeid):
+        yield

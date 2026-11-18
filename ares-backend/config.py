@@ -4,8 +4,11 @@ from pathlib import Path
 from typing import Any
 import base64
 import ctypes
+import functools
+import hashlib
 import hmac
 import os
+import re
 import secrets
 import sys
 import tempfile
@@ -132,11 +135,34 @@ def resolve_env_file() -> str:
     return '.env'
 
 
+# SQLCIPHER-DB-KEY-FORMAT-001 (Pruefrunde #864, S-1): erlaubter Zeichensatz fuer
+# den SQLCipher-Schluessel. Nur URL-unreservierte ASCII-Zeichen, 32-512 Zeichen
+# (empfohlen: 64 Hex-Zeichen). Schliesst Leerzeichen, Anfuehrungszeichen, %, +,
+# Nullbyte, Steuerzeichen, Nicht-ASCII und die SQLCipher-Rohschluesselform
+# x'...' aus. Fail-closed beim Start; die Meldung nennt den Schluessel nie.
+_DB_KEY_RE = re.compile(r'[A-Za-z0-9._~-]{32,512}')
+DB_KEY_FORMAT_MESSAGE = (
+    'db_key enthaelt unzulaessige Zeichen oder hat eine unzulaessige Laenge '
+    '(erlaubt: 32-512 Zeichen aus A-Z a-z 0-9 . _ ~ -; empfohlen: 64 Hex-Zeichen). '
+    'Der Schluessel wird nicht ausgegeben.'
+)
+
+
+def db_key_format_ok(key: object) -> bool:
+    return isinstance(key, str) and _DB_KEY_RE.fullmatch(key) is not None
+
+
+_HOSTNAME_RE = re.compile(r'(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+')
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=resolve_env_file(),
         env_file_encoding='utf-8',
         extra='ignore',
+        # S-1 (Pruefrunde #864): ValidationError zeigt sonst input_value, also die
+        # gesamte Konfiguration inkl. DB_KEY/SECRET_KEY, in Exception und Log.
+        hide_input_in_errors=True,
     )
 
     app_name: str = 'Ares API'
@@ -149,12 +175,13 @@ class Settings(BaseSettings):
     log_backup_count: int = 5
 
     # Database
-    database_url: str | None = None
+    database_url: str | None = Field(default=None, repr=False)
     # Default aus EINER Quelle (core/db_location.py); die Live-DB-Waechter
     # vergleichen gegen dieselbe Funktion.
     db_path: str = Field(default_factory=lambda: str(_db_location.default_db_path()))
     db_echo: bool = False
-    db_key: str | None = None
+    # repr=False: der Schluessel erscheint nie in repr/ValidationError (S-1).
+    db_key: str | None = Field(default=None, repr=False)
     db_use_sqlcipher: bool = False
     db_bootstrap_schema_on_startup: bool = True
 
@@ -166,7 +193,7 @@ class Settings(BaseSettings):
     log_dir: str = ''
 
     # Auth
-    secret_key: str = DEFAULT_SECRET_KEY
+    secret_key: str = Field(default=DEFAULT_SECRET_KEY, repr=False)
     algorithm: str = 'HS256'
     access_token_expire_minutes: int = 480
     # Roadmap #28 (Standpunkt 2026-08-07): Refresh-Token-Rotation. Deutlich
@@ -270,12 +297,12 @@ class Settings(BaseSettings):
     target_macro_euro_provider: str = 'ecb'
     target_macro_swiss_provider: str = 'snb'
     target_enterprise_reference_provider: str = 'six'
-    twelvedata_api_key: str | None = None
-    eodhd_api_key: str | None = None
-    openfigi_api_key: str | None = None
-    fred_api_key: str | None = None
-    six_api_key: str | None = None
-    alphavantage_api_key: str | None = None
+    twelvedata_api_key: str | None = Field(default=None, repr=False)
+    eodhd_api_key: str | None = Field(default=None, repr=False)
+    openfigi_api_key: str | None = Field(default=None, repr=False)
+    fred_api_key: str | None = Field(default=None, repr=False)
+    six_api_key: str | None = Field(default=None, repr=False)
+    alphavantage_api_key: str | None = Field(default=None, repr=False)
 
     # V3 Sprint 2026-05 (Multi-Source Data Aggregator).
     # Komma-separierte Reihenfolge der Provider; erste = Primary.
@@ -307,7 +334,7 @@ class Settings(BaseSettings):
     market_data_daily_refresh_max_symbols: int = 500
 
     # P22 — Webhook-Notifier fuer Validation-Alerts. Default leer = no-op.
-    market_data_alert_webhook_url: str = ''
+    market_data_alert_webhook_url: str = Field(default='', repr=False)
     market_data_alert_webhook_timeout_seconds: float = 5.0
 
     # System / diagnostics
@@ -337,13 +364,13 @@ class Settings(BaseSettings):
 
     # Sprint U-64 (2026-06-04): Telemetrie-Adapter (opt-in).
     telemetry_enabled: bool = False
-    telemetry_dsn: str = ''
+    telemetry_dsn: str = Field(default='', repr=False)
     telemetry_environment: str = ''
     telemetry_sample_rate: float = 1.0
 
     # U-8 — DB-Backup-Strategie (PR #106).
     backup_enabled: bool = True
-    backup_dir: str = str(Path.home() / '5eyes' / 'backups')
+    backup_dir: str = str(Path.home() / 'ares' / 'backups')
     backup_retain_days: int = 30
     backup_keep_minimum: int = 3
     backup_scheduler_enabled: bool = True
@@ -356,8 +383,12 @@ class Settings(BaseSettings):
     # gegen einen Ausfall des Standorts selbst (Hardware/RZ-Ausfall). Opt-in
     # Kopie via rsync-ueber-SSH an einen zweiten CH-Standort. Default AUS --
     # erfordert einen bereits eingerichteten SSH-Zugang zum Ziel-Host.
+    # N-899-13 (H10): Update-Feed-URL der Desktop-Shell. Setzt der
+    # Electron-Hauptprozess beim Start des Backends aus der gepackten
+    # Build-Konfiguration (leer = Updates aus). Teil des Egress-Fassungs-Hashes.
+    desktop_update_feed_url: str = ''
     backup_offsite_enabled: bool = False
-    # rsync-Zielangabe, z.B. "5eyes-offsite@backup-host.ch:/srv/5eyes-offsite/"
+    # rsync-Zielangabe, z.B. "ares-offsite@backup-host.example:/srv/ares-offsite/"
     backup_offsite_target: str = ''
     backup_offsite_ssh_key_path: str = ''
     backup_offsite_ssh_port: int = 22
@@ -375,7 +406,7 @@ class Settings(BaseSettings):
     # Setting statt Wiederverwendung von market_data_alert_webhook_url, da
     # ein Betreiber Backup- und Marktdaten-Alerts an unterschiedliche Kanaele
     # routen koennte. Default leer = no-op, kein Netzwerkverkehr.
-    backup_alert_webhook_url: str = ''
+    backup_alert_webhook_url: str = Field(default='', repr=False)
     backup_alert_webhook_timeout_seconds: float = 5.0
 
     # U-19 — Aggregator-Cache (Roadmap-Punkt 19). compute_advisory_report
@@ -479,8 +510,14 @@ class Settings(BaseSettings):
     smtp_host: str = ''
     smtp_port: int = 587
     smtp_user: str = ''
-    smtp_password: str = ''
-    smtp_from: str = '5eyes <no-reply@5eyes.local>'
+    smtp_password: str = Field(default='', repr=False)
+    # W4-d: kein erfundener Absender. Ohne SMTP_FROM (<ARES_NO_REPLY_EMAIL>,
+    # Owner-Wert) verschickt services/mailer.py nichts (fail-closed, klare
+    # Meldung im Log); der Invite-Flow faellt auf Link-Copy zurueck.
+    smtp_from: str = ''
+    # W4-d: kontrollierte Hauptdomain (<ARES_DOMAIN>, Owner-Wert, kein Default).
+    # Wird z.B. als Domain-Teil der ICS-UIDs verwendet; leer = UIDs ohne Domain.
+    ares_domain: str = ''
     smtp_use_tls: bool = True        # STARTTLS auf smtp_port
     smtp_timeout_seconds: int = 10
 
@@ -489,7 +526,7 @@ class Settings(BaseSettings):
     allow_real_client_data: bool = True
     # Tenant-DEK envelope encryption. Production/Tier-2 should supply this via
     # env/vault (TENANT_MASTER_KEK); development can pass an explicit KEK in tests.
-    tenant_master_kek: str = ''
+    tenant_master_kek: str = Field(default='', repr=False)
     # RB-1: Pfad der DPAPI-geschuetzten KEK-Ablage (Datei im userData-Ordner der
     # Desktop-Shell; Electron setzt ihn beim Spawn). Leer = keine Ablage: die
     # KEK kommt dann ausschliesslich aus TENANT_MASTER_KEK (Server/Staging,
@@ -506,7 +543,18 @@ class Settings(BaseSettings):
     # verifiziert/scheitert fail-closed bei fehlendem oder falschem Sidecar.
     # Default leer -> unveraendertes Verhalten (reiner Tier-1-Desktop-Betrieb,
     # kein zusaetzliches Schluesselmaterial zu verwalten).
-    backup_hmac_key: str = ''
+    backup_hmac_key: str = Field(default='', repr=False)
+
+    # F6 (Codex-Entscheid Runde 3, 2026-11-07): Grenze der SYNCHRONEN
+    # Audit-Kettenpruefung beim Start. Darueber laeuft die Vollpruefung
+    # chunked im Hintergrund (sichtbarer Status: GET /admin/system/audit-log/
+    # verification-status und Compliance-Warnung); das Bestandssiegel wird
+    # unabhaengig von der Zeilenzahl vor dem Return gebildet. Die Grenze
+    # begrenzt nur die Startzeit, nie den Pruefumfang.
+    audit_startup_check_max_rows: int = Field(default=200_000, ge=1)
+    # Zeilen je Teilschritt der Hintergrundpruefung (eigene kurze Session je
+    # Teilschritt, Fortschritt nach jedem Teilschritt gespeichert).
+    audit_verify_chunk_size: int = Field(default=5_000, ge=1)
 
     # Browser-Hosting (2026-06-10): Haupt-App (ares.html) ueber das Backend
     # ausliefern, damit ein einzelner Host/Tunnel die komplette App im Browser
@@ -721,6 +769,14 @@ class Settings(BaseSettings):
             raise ValueError('backup_retain_days must be >= 0 (0 = nie aufraeumen)')
         return value
 
+    @field_validator('ares_domain')
+    @classmethod
+    def validate_ares_domain(cls, value: str) -> str:
+        value = (value or '').strip().lower()
+        if value and not _HOSTNAME_RE.fullmatch(value):
+            raise ValueError('ARES_DOMAIN muss ein reiner Hostname sein (z.B. firma.example), ohne Schema, Pfad oder @')
+        return value
+
     @field_validator('backup_keep_minimum')
     @classmethod
     def validate_backup_keep_minimum(cls, value: int) -> int:
@@ -791,8 +847,26 @@ class Settings(BaseSettings):
                 'strict_tenant_isolation muss in staging/production mit PostgreSQL '
                 'aktiv sein (Multi-Tenant-Isolation-Backstop).'
             )
+        # AUDIT-FIX Fondsuniversum N-855-3 (2026-11): die Tenant-Admin-UI legt
+        # weitere Tenants an. Ohne effektive strikte Mandantentrennung (gleiche
+        # Regel wie services/auth.py::_effective_strict_tenant_isolation)
+        # griffen dann die Tier-1-Ausnahmen (globaler Fondskatalog, CMA, FX)
+        # in einer Installation mit mehreren Firmen. Fail-closed ablehnen.
+        effective_strict = (
+            bool(self.strict_tenant_isolation)
+            or str(self.deployment_tier or '').strip().lower() == 'tier2'
+            or str(self.tenancy_mode or '').strip().lower() == 'multi'
+        )
+        if self.tenant_admin_ui_enabled and not effective_strict:
+            raise ValueError(
+                'tenant_admin_ui_enabled=true erfordert strikte Mandantentrennung: '
+                'strict_tenant_isolation=true oder deployment_tier=tier2 bzw. '
+                'tenancy_mode=multi setzen.'
+            )
         if self.db_use_sqlcipher and not self.db_key:
             raise ValueError('db_key must be set when db_use_sqlcipher=true')
+        if self.db_use_sqlcipher and not db_key_format_ok(self.db_key):
+            raise ValueError(DB_KEY_FORMAT_MESSAGE)
         if self.recent_log_lines_default > self.recent_log_lines_max:
             raise ValueError('recent_log_lines_default must not exceed recent_log_lines_max')
         # Sprint U-59 (2026-06-01): Bearer-Token-TTL hard cap in production.
@@ -855,6 +929,18 @@ class RunContext:
     - ``bound_mandate``: das Mandatsobjekt, aus dem der Kontext gebildet wurde
       (nur fuer die Bindungspruefung ungespeicherter Mandate ohne ``id``;
       nicht Teil von Vergleich/Repr).
+
+    Grenzen der Identitaetsbindung bei ``mandate_id=None``:
+
+    - N-843-2: Die Bindung haengt an der Objektidentitaet (``is``). Sie
+      ueberlebt weder ``pickle``/``copy.deepcopy`` des Kontexts noch ein
+      ``db.merge``/Neuladen des Mandats; danach wirft ``ensure_bound_to``
+      ``RunContextMandateMismatch`` (fail-closed, nie eine falsche Bindung).
+      ``copy.copy`` und ``dataclasses.replace`` behalten das Objekt.
+    - N-843-3: Der Kontext haelt das Mandatsobjekt fuer seine ganze
+      Lebensdauer fest. Heute ist er lauf- bzw. requestlokal. Wer ihn
+      kuenftig cached, serialisiert oder in Evidence schreibt, muss
+      ``bound_mandate`` ausschliessen (es ist kein Fachwert des Laufs).
     """
 
     mandate_id: Any
@@ -992,15 +1078,253 @@ KEK_STORE_ENTROPY = b"ares.tenant-master-kek.store.v1"
 CRYPTPROTECT_UI_FORBIDDEN = 0x01
 CRYPTPROTECT_LOCAL_MACHINE = 0x04
 
-# W4-c-Andockstelle: Solange der Vorgaengervertrag (KEK v1 mit Rueckfall auf
-# SECRET_KEY) gilt, startet eine Bestandsinstallation ohne KEK weiter ueber
-# diesen Rueckfall -- hier wird dann nur KEINE KEK erzeugt. W4-c (KEK-Pflicht)
-# setzt diesen Schalter auf True: vorhandene Datenbank ohne KEK = Abbruch.
-KEK_REQUIRED_FOR_EXISTING_DATA = False
+# Vorhandene Datenbank ohne KEK (weder TENANT_MASTER_KEK noch Ablage): hier
+# wird nie eine KEK erzeugt, und der Start bricht schon an dieser Stelle mit
+# :class:`KekStoreError` ab -- mit dem konkreten Hinweis auf Migrator bzw.
+# Ablage aus Sicherung/Treuhand, vor init_db (fail-closed, Runbook P-7).
+# Mit False kaeme ``legacy-existing-db`` zurueck; der Start braeche dann erst
+# an ``require_tenant_master_kek`` ab, mit der allgemeinen Meldung.
+KEK_REQUIRED_FOR_EXISTING_DATA = True
 
 
 class KekStoreError(RuntimeError):
     """Die Master-KEK laesst sich nicht sicher bereitstellen (Start abbrechen)."""
+
+
+# W4-c / AF-4: Pruefung der Master-KEK ohne Rueckfall auf SECRET_KEY oder einen
+# Platzhalter. Sie steht hier und nicht in services.tenant_crypto, damit der
+# Start (main.lifespan, vor init_db) sie ohne zusaetzliche Modulkante aufrufen
+# kann (Architektur-Ratsche); services.tenant_crypto nutzt dieselbe Pruefung.
+MISSING_TENANT_MASTER_KEK_MESSAGE = (
+    "TENANT_MASTER_KEK fehlt: Ares startet nicht ohne eigene Master-KEK. "
+    "Einen Fernet-Key erzeugen (python -c \"from cryptography.fernet import "
+    "Fernet; print(Fernet.generate_key().decode())\") und als "
+    "TENANT_MASTER_KEK in der Konfiguration setzen. Die Desktop-App liest ihn "
+    "sonst aus der DPAPI-Ablage tenant-master-kek.dpapi im userData-Ordner "
+    "(beim Erststart angelegt; bei einer Bestandsinstallation legt der "
+    "Migrator sie an)."
+)
+
+
+# KEK-Vertrag v2 (W4-c): Ableitung eines Passphrase-KEK. services.tenant_crypto
+# nutzt genau diese Funktion und diese Konstanten (dort als _KEK_KDF_SALT /
+# _KEK_KDF_ITERATIONS); sie stehen hier, damit die Startpruefung unten nach
+# derselben Ableitung vergleichen kann, ohne eine Modulkante zu tenant_crypto.
+TENANT_KEK_KDF_SALT = b"ares.tenant.kek.pbkdf2.v2"
+TENANT_KEK_KDF_ITERATIONS = 200_000
+
+
+@functools.lru_cache(maxsize=8)
+def effective_tenant_master_kek(
+    raw_bytes: bytes,
+    *,
+    salt: bytes = TENANT_KEK_KDF_SALT,
+    iterations: int = TENANT_KEK_KDF_ITERATIONS,
+) -> bytes:
+    """Der Fernet-Key, mit dem services.tenant_crypto tatsaechlich arbeitet:
+    ein gueltiger Fernet-Key unveraendert, sonst PBKDF2-HMAC-SHA256 (Salt und
+    Iterationen des KEK-Vertrags v2), url-safe-Base64 kodiert."""
+    from cryptography.fernet import Fernet
+
+    try:
+        Fernet(raw_bytes)
+        return raw_bytes
+    except Exception:  # noqa: BLE001 - kein Fernet-Key -> Passphrase ableiten
+        derived = hashlib.pbkdf2_hmac("sha256", raw_bytes, salt, iterations)
+        return base64.urlsafe_b64encode(derived)
+
+
+# N-870-2 (2026-11-05): fruehere Ableitungen der Master-KEK aus dem Platzhalter.
+# Aeltere Staende fielen ohne TENANT_MASTER_KEK auf SECRET_KEY zurueck (Default:
+# DEFAULT_SECRET_KEY) und leiteten daraus ab -- diese Schluessel sind damit
+# oeffentlich rekonstruierbar. Gepinnt ist nur der SHA-256 des 32-Byte-
+# Schluesselmaterials, nie der Schluessel oder die alten Ableitungsparameter.
+_KNOWN_PUBLIC_KEK_MATERIAL_SHA256 = frozenset({
+    # KEK-Vertrag v1: PBKDF2-HMAC-SHA256, 200'000 Iterationen, Salt des
+    # Vorgaengervertrags (nur dem Einmal-Migrator bekannt).
+    "d215bf22085629300db8efb1693c060d2aed385d8a0759bf0ae21c39e42e8e6f",
+    # Vor #355: saltloses SHA-256 des Rohwerts.
+    "798128683e1c23740a7892efb65234001c401cab49e91affabd465dadc65e16e",
+})
+
+
+# N-870-4 (2026-11-05): Platzhalter aus Deploy-Vorlagen und schwache
+# Passphrasen. Die Vorlagenwerte (``*.example``, Deploy-Doku) leitet
+# tests/test_kek_placeholder_derived.py aus den Dateien ab und verlangt fuer
+# jeden die Ablehnung; die Liste hier ist nur der bekannte Bestand.
+KNOWN_TEMPLATE_KEK_PLACEHOLDERS = frozenset({
+    DEFAULT_SECRET_KEY,
+    "__BITTE_ERSETZEN__",
+})
+# Offensichtliche Platzhalter-Formen (Gross/Klein egal). N-870-6/N-870-7: sie
+# gelten nur fuer den GANZEN (getrimmten) Wert, nie als Teilstring -- eine
+# starke Passphrase, die zufaellig "xxx" oder ein Wort wie "Replacement"
+# enthaelt, ist kein Platzhalter (vorher: 0,19 % aller token_urlsafe(48)
+# abgelehnt, auch beim Start einer Bestandsinstallation). Gelten nur fuer
+# Passphrasen, nicht fuer gueltige Fernet-Keys.
+_KEK_PLACEHOLDER_PATTERNS = (
+    re.compile(
+        r"^(?:change[\W_]*me|replace[\W_]*me|bitte[\W_]*ersetzen|example|placeholder|x{3,})$",
+        re.IGNORECASE,
+    ),
+    re.compile(r"^__.*__$", re.DOTALL),
+    re.compile(r"^<.*>$", re.DOTALL),
+    re.compile(r"^\$\{.*\}$", re.DOTALL),
+    re.compile(r"^%.*%$", re.DOTALL),
+    # Nicht ausgewertete Shell-Ausdruecke: dotenv fuehrt nichts aus, der Wert
+    # waere woertlich "$(...)" bzw. "${...}" (oeffentlicher Text).
+    re.compile(r"^\$[({]"),
+)
+# Der Erzeugungsbefehl aus MISSING_TENANT_MASTER_KEK_MESSAGE, versehentlich
+# statt seiner Ausgabe in die Konfiguration kopiert (N-870-8). Verglichen wird
+# der ganze Wert ohne umschliessende Anfuehrungszeichen, Leerraum normalisiert.
+_KEK_GENERATOR_COMMAND = (
+    'python -c "from cryptography.fernet import Fernet; '
+    'print(Fernet.generate_key().decode())"'
+)
+_KEK_GENERATOR_COMMAND_PREFIXES = ("python -c", "python3 -c", "py -c")
+
+
+def _normalized_ws(value: str) -> str:
+    return " ".join(value.split())
+
+
+def _looks_like_kek_placeholder(value: str) -> bool:
+    """Ganzwert-Pruefung auf Platzhalter-Formen und den kopierten
+    Erzeugungsbefehl (nur fuer Passphrasen)."""
+    stripped = value.strip()
+    if any(p.search(stripped) for p in _KEK_PLACEHOLDER_PATTERNS):
+        return True
+    unquoted = _normalized_ws(stripped.strip("'\"")).lower()
+    if unquoted in {
+        _normalized_ws(_KEK_GENERATOR_COMMAND).lower(),
+        _normalized_ws(_KEK_GENERATOR_COMMAND.split('"', 1)[1].rstrip('"')).lower(),
+    }:
+        return True
+    return unquoted.startswith(_KEK_GENERATOR_COMMAND_PREFIXES)
+
+
+# Mindestlaenge wie die bestehende SECRET_KEY-Regel fuer staging/production
+# (32 Zeichen); dazu eine einfache Vielfaltsschranke gegen "aaaa...".
+MIN_KEK_PASSPHRASE_LENGTH = 32
+MIN_KEK_PASSPHRASE_DISTINCT_CHARS = 10
+# N-870-6: Eine Bestandsinstallation mit schwacher Passphrase-KEK startet nicht
+# (fail-closed); die verpackten DEKs bleiben unveraendert. Der Weg heraus ist
+# der Offline-Rewrap auf einen Fernet-Key (scripts/rewrap_tenant_master_kek.py).
+WEAK_TENANT_MASTER_KEK_MESSAGE = (
+    "TENANT_MASTER_KEK ist als Passphrase zu schwach (mindestens "
+    f"{MIN_KEK_PASSPHRASE_LENGTH} Zeichen und "
+    f"{MIN_KEK_PASSPHRASE_DISTINCT_CHARS} verschiedene Zeichen). "
+    "Besser einen Fernet-Key setzen. Bestandsinstallation: die Daten sind "
+    "unveraendert; bei gestopptem Server mit scripts/rewrap_tenant_master_kek.py "
+    "auf einen neuen Fernet-Key umverpacken (alte Passphrase als Quelle), "
+    "danach den neuen Key als TENANT_MASTER_KEK setzen."
+)
+
+
+def _kek_passphrase_too_weak(value: str) -> bool:
+    return (
+        len(value) < MIN_KEK_PASSPHRASE_LENGTH
+        or len(set(value)) < MIN_KEK_PASSPHRASE_DISTINCT_CHARS
+    )
+
+
+def kek_is_weak_passphrase(raw: "str | bytes") -> bool:
+    """N-870-13: True nur fuer eine Passphrase (kein gueltiger Fernet-Key), die
+    an der Staerkeregel scheitert -- der einzige Fall, fuer den der
+    Offline-Rewrap gedacht ist. Ein Fernet-Key oder eine starke Passphrase
+    braucht keinen Rewrap."""
+    value = (raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw or "")).strip()
+    return bool(value) and not _is_fernet_key(value) and _kek_passphrase_too_weak(value)
+
+
+def _is_fernet_key(value: str) -> bool:
+    return effective_tenant_master_kek(value.encode("utf-8")) == value.encode("utf-8")
+
+
+def _kek_key_material(value: str) -> bytes:
+    """32 Byte Schluesselmaterial nach der tenant_crypto-Ableitung. Vergleicht
+    das Material statt der Zeichenkette: urlsafe_b64decode ueberliest fremde
+    Zeichen, verschiedene Schreibweisen ergeben sonst denselben Schluessel."""
+    return base64.urlsafe_b64decode(effective_tenant_master_kek(value.encode("utf-8")))
+
+
+def tenant_master_kek_problem(
+    raw: "str | bytes | None",
+    *,
+    secret_key: str = "",
+    enforce_passphrase_strength: bool = True,
+) -> "str | None":
+    """Grund, warum ``raw`` keine zulaessige Master-KEK ist; ``None`` wenn zulaessig.
+
+    ``enforce_passphrase_strength=False`` nur fuer die QUELL-KEK des
+    Offline-Rewraps (services.tenant_crypto.rewrap_tenant_deks_to_master_kek):
+    eine Bestands-Passphrase, die allein an Laenge/Vielfalt scheitert, darf
+    dort einmalig zum Entpacken dienen. Platzhalter, Vorlagenwerte und
+    oeffentliche Ableitungen bleiben auch dann abgelehnt.
+
+    Die Meldungen nennen nie den Schluessel selbst."""
+    value = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw or "")
+    if not value.strip():
+        return MISSING_TENANT_MASTER_KEK_MESSAGE
+    if value == DEFAULT_SECRET_KEY:
+        return (
+            "TENANT_MASTER_KEK ist der oeffentliche Platzhalter aus dem Quellcode "
+            "und damit kein Geheimnis. Einen eigenen Fernet-Key setzen."
+        )
+    if secret_key and value == secret_key:
+        return (
+            "TENANT_MASTER_KEK ist identisch mit SECRET_KEY. Der JWT-Schluessel "
+            "darf nicht zugleich die Master-KEK sein; einen eigenen Fernet-Key setzen."
+        )
+    if value.strip() in KNOWN_TEMPLATE_KEK_PLACEHOLDERS:
+        return (
+            "TENANT_MASTER_KEK ist ein Platzhalter aus einer Deploy-Vorlage und "
+            "damit kein Geheimnis. Einen eigenen Fernet-Key setzen."
+        )
+    if not _is_fernet_key(value):
+        if _looks_like_kek_placeholder(value):
+            return (
+                "TENANT_MASTER_KEK sieht nach einem Platzhalter aus (Vorlagen-Muster) "
+                "und wird nicht als Schluessel akzeptiert. Einen eigenen Fernet-Key setzen."
+            )
+        if enforce_passphrase_strength and _kek_passphrase_too_weak(value):
+            return WEAK_TENANT_MASTER_KEK_MESSAGE
+    # SEED-FK-HYGIENE / H-129 Teil C (2026-11-05): auch einen aus dem Platzhalter
+    # (bzw. aus SECRET_KEY) ABGELEITETEN Wert ablehnen -- etwa den Fernet-Key,
+    # den tenant_crypto aus dem Platzhalter erzeugt. Verglichen wird nach
+    # derselben Ableitung, die tenant_crypto nutzt.
+    material = _kek_key_material(value)
+    if hmac.compare_digest(material, _kek_key_material(DEFAULT_SECRET_KEY)):
+        return (
+            "TENANT_MASTER_KEK ergibt nach der KEK-Ableitung denselben Schluessel "
+            "wie der oeffentliche Platzhalter aus dem Quellcode und ist damit kein "
+            "Geheimnis. Einen eigenen Fernet-Key setzen."
+        )
+    if hashlib.sha256(material).hexdigest() in _KNOWN_PUBLIC_KEK_MATERIAL_SHA256:
+        return (
+            "TENANT_MASTER_KEK entspricht einer frueheren, oeffentlich "
+            "rekonstruierbaren Ableitung des Platzhalters aus dem Quellcode und ist "
+            "damit kein Geheimnis. Einen eigenen Fernet-Key setzen."
+        )
+    if secret_key and hmac.compare_digest(material, _kek_key_material(secret_key)):
+        return (
+            "TENANT_MASTER_KEK ergibt nach der KEK-Ableitung denselben Schluessel "
+            "wie SECRET_KEY. Der JWT-Schluessel darf nicht zugleich die Master-KEK "
+            "sein; einen eigenen Fernet-Key setzen."
+        )
+    return None
+
+
+def require_tenant_master_kek(cfg: "Settings | None" = None) -> None:
+    """Startpruefung (Lifespan, vor init_db): ohne gueltige Master-KEK startet Ares nicht."""
+    cfg = cfg if cfg is not None else settings
+    problem = tenant_master_kek_problem(
+        str(getattr(cfg, "tenant_master_kek", "") or "").strip(),
+        secret_key=str(getattr(cfg, "secret_key", "") or ""),
+    )
+    if problem:
+        raise KekStoreError(problem)
 
 
 class _DataBlob(ctypes.Structure):
@@ -1078,25 +1402,55 @@ def _existing_database(cfg: "Settings") -> str | None:
     return None
 
 
+def _kek_store_exists(path: Path) -> bool:
+    """N-867-2: ``exists()`` selbst kann scheitern (z. B. verweigerter Zugriff
+    auf den Ordner); auch das endet in :class:`KekStoreError`, ohne Pfad."""
+    try:
+        return path.exists()
+    except OSError as exc:
+        raise KekStoreError(
+            f"Die KEK-Ablage laesst sich nicht pruefen ({type(exc).__name__}: "
+            "fehlende Berechtigung oder E/A-Fehler). Ares startet nicht und "
+            "erzeugt KEINE neue KEK. Zugriffsrechte im userData-Ordner pruefen."
+        ) from exc
+
+
 def _read_kek_store(path: Path, protector) -> str:
-    raw = path.read_bytes()
+    """Liest und entschluesselt die KEK-Ablage; jeder Fehler endet in :class:`KekStoreError`.
+
+    C-100-01: auch das Lesen selbst (Verzeichnis statt Datei, verweigerter
+    Zugriff, E/A-Fehler) wird in :class:`KekStoreError` umgewandelt, damit der
+    Lifespan die vorgesehene CRITICAL-Diagnose ausgibt und vor ``init_db``
+    abbricht. Die Ursache bleibt per Exception-Chaining erhalten; die Meldung
+    selbst nennt weder Pfad noch Schluesselmaterial, nur die Fehlerklasse.
+    """
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise KekStoreError(
+            f"Die KEK-Ablage laesst sich nicht lesen ({type(exc).__name__}: "
+            "Verzeichnis statt Datei, fehlende Berechtigung oder E/A-Fehler). "
+            "Sie wird weder ueberschrieben noch ersetzt; Ares startet nicht und "
+            "erzeugt KEINE neue KEK. Datei und Zugriffsrechte im userData-Ordner "
+            "pruefen."
+        ) from exc
     if not raw.startswith(KEK_STORE_MAGIC):
         raise KekStoreError(
-            f"Die KEK-Ablage {path} hat ein unbekanntes Format. Sie wird weder "
+            "Die KEK-Ablage hat ein unbekanntes Format. Sie wird weder "
             "ueberschrieben noch ersetzt; Ares startet nicht."
         )
     try:
         value = protector.unprotect(raw[len(KEK_STORE_MAGIC):], KEK_STORE_ENTROPY).decode("ascii")
-    except (KekStoreError, UnicodeDecodeError, OSError) as exc:
+    except Exception as exc:  # noqa: BLE001 -- C-100-01: jeder Entschluesselungsfehler ist KekStoreError
         raise KekStoreError(
-            f"Die KEK-Ablage {path} laesst sich nicht entschluesseln (anderes "
+            "Die KEK-Ablage laesst sich nicht entschluesseln (anderes "
             "Windows-Konto, fremdes Profil oder beschaedigte Datei). Ares startet "
             "nicht und erzeugt KEINE neue KEK, weil vorhandene Daten sonst "
             "unlesbar wuerden. Datei nicht loeschen; aus Sicherung/Treuhand "
             "wiederherstellen."
         ) from exc
     if not _is_fernet_key(value):
-        raise KekStoreError(f"Die KEK-Ablage {path} enthaelt keinen gueltigen Schluessel.")
+        raise KekStoreError("Die KEK-Ablage enthaelt keinen gueltigen Schluessel.")
     return value
 
 
@@ -1146,10 +1500,11 @@ def ensure_tenant_master_kek(
 
     Ergebnisse (nie mit KEK-Wert): ``disabled`` (keine Ablage konfiguriert),
     ``configured`` (TENANT_MASTER_KEK gesetzt), ``loaded`` (aus der Ablage),
-    ``generated`` (Erststart: neu erzeugt, abgelegt und zurueckgelesen),
-    ``legacy-existing-db`` (Bestandsdatenbank ohne KEK unter dem
-    Vorgaengervertrag: nichts erzeugt). Jeder unsichere Zustand wirft
-    :class:`KekStoreError`.
+    ``generated`` (Erststart: neu erzeugt, abgelegt und zurueckgelesen).
+    Eine Bestandsdatenbank ohne KEK wirft :class:`KekStoreError`, ohne eine
+    KEK zu erzeugen (``KEK_REQUIRED_FOR_EXISTING_DATA``); nur mit
+    ``require_for_existing_data=False`` kaeme ``legacy-existing-db`` zurueck.
+    Jeder unsichere Zustand wirft :class:`KekStoreError`.
     """
     cfg = cfg if cfg is not None else settings
     store_setting = str(getattr(cfg, "tenant_master_kek_file", "") or "").strip()
@@ -1161,7 +1516,7 @@ def ensure_tenant_master_kek(
     explicit = str(getattr(cfg, "tenant_master_kek", "") or "").strip()
 
     if explicit:
-        if store.exists():
+        if _kek_store_exists(store):
             stored = _read_kek_store(store, protector)
             if not hmac.compare_digest(stored.encode("ascii"), explicit.encode("utf-8")):
                 raise KekStoreError(
@@ -1171,7 +1526,7 @@ def ensure_tenant_master_kek(
                 )
         return "configured"
 
-    if store.exists():
+    if _kek_store_exists(store):
         cfg.tenant_master_kek = _read_kek_store(store, protector)
         return "loaded"
 

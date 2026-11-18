@@ -603,14 +603,14 @@ def test_full_de_mandate_flow_data_derived_then_committee_approved_via_router(cl
 def test_router_compute_candidate_then_approve_then_get_current(client, session_factory):
     roles = _seed_pm_and_advisor_users(session_factory, tenant_id="main", suffix="router1")
 
-    def _fake_compute(db, jurisdiction, as_of_date):
+    def _fake_compute(db, jurisdiction, as_of_date, *, created_by_user_id):
         now = _now()
         cma = CapitalMarketAssumption(
             id="cma-router-de-1", assumption_set_name="DE-router-test", version=1,
             valid_from=as_of_date, is_current=0, jurisdiction=jurisdiction, tenant_id=None,
             status="data_derived", bonds_home_ig_return_bps=210,
             source_detail=json.dumps({"source": "fake-yield-curve-for-test"}),
-            created_by="system:cma_data_pipeline", created_at=now, updated_at=now,
+            created_by=created_by_user_id, created_at=now, updated_at=now,
         )
         db.add(cma)
         db.flush()
@@ -662,13 +662,13 @@ def test_router_compute_candidate_then_approve_then_get_current(client, session_
 def test_role_gate_end_to_end_advisor_forbidden_pm_allowed(client, session_factory):
     roles = _seed_pm_and_advisor_users(session_factory, tenant_id="main", suffix="role1")
 
-    def _fake_compute(db, jurisdiction, as_of_date):
+    def _fake_compute(db, jurisdiction, as_of_date, *, created_by_user_id):
         now = _now()
         cma = CapitalMarketAssumption(
             id="cma-role-de-1", assumption_set_name="DE-role-test", version=1,
             valid_from=as_of_date, is_current=0, jurisdiction=jurisdiction, tenant_id=None,
             status="data_derived", bonds_home_ig_return_bps=190,
-            created_by="system:cma_data_pipeline", created_at=now, updated_at=now,
+            created_by=created_by_user_id, created_at=now, updated_at=now,
         )
         db.add(cma)
         db.flush()
