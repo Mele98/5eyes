@@ -615,8 +615,6 @@ def lock_bound_reference_rows(db: Session, *, run: Any, target_allocation: Any) 
         ("SELECT id FROM house_matrix WHERE policy_id = :v ORDER BY id FOR SHARE", policy_id),
         ("SELECT id FROM building_blocks WHERE policy_id = :v ORDER BY id FOR SHARE", policy_id),
         ("SELECT id FROM cma_policies WHERE id = :v ORDER BY id FOR SHARE", cma_policy_id),
-        ("SELECT id FROM cma_policy_components WHERE policy_row_id = :v ORDER BY id FOR SHARE", cma_policy_id),
-        ("SELECT id FROM cma_policy_approvals WHERE policy_row_id = :v ORDER BY id FOR SHARE", cma_policy_id),
     ):
         if value:
             db.execute(text(sql), {"v": str(value)})
