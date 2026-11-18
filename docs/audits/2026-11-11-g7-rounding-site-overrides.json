@@ -116,11 +116,11 @@
    "reason": "_position_weight_bps: `round(amount / total_amount * 10000)` -> Rueckgabewert; Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
   },
   {
-   "file": "ares-desktop/frontend/ares.html",
-   "source": "(rate>0 ? rate.toFixed(4) : '') + '\" style=\"font-size:11px\">';",
+   "file": "ares-desktop/frontend/fx-rates-editor.js",
+   "source": "var shown=rate>0?rate.toFixed(4):'';",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "loadAdminFxRates: `rate.toFixed(4)` -> Teilausdruck; Geometrie/Layout (Pixel, CSS-Breite/Position, Farbe)"
+   "reason": "loadAdminFxRates (N-909-11, aus ares.html ausgelagert): `rate.toFixed(4)` -> Eingabefeld-Wert bzw. Platzhalter des Kurs-Editors; ein Kurs hat genau vier Dezimalen (Speicherformat x10000), kein Betrag und kein Kundentext"
   },
   {
    "file": "ares-desktop/frontend/ares.html",

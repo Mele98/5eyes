@@ -14,7 +14,11 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from services.advisory_decision_envelope import current_verified_envelope, seal_advisory_envelope
+from services.advisory_decision_envelope import (  # noqa: F401 - call_with_fx_basis_audit: Re-Export (N-909-12)
+    call_with_fx_basis_audit,
+    current_verified_envelope,
+    seal_advisory_envelope,
+)
 from services.holdings_valuation import prepare_valuation_binding
 
 

@@ -180,6 +180,20 @@ def reject_fx_basis_before_seal(
     )
 
 
+def call_with_fx_basis_audit(fn: Any, db: Session, *, mandate: Any, run: Any, user: Any,
+                             ip_address: str | None = None) -> Any:
+    """Fuehrt ``fn()`` aus; eine FX-Sperre (Kanal ``fx_basis``) wird vor dem
+    Weiterwerfen wie die Bewertungssperre im Siegel auditiert (N-909-12)."""
+    try:
+        return fn()
+    except DomainError as exc:
+        if getattr(exc, "channel", None) != "fx_basis":
+            raise
+        raise reject_fx_basis_before_seal(
+            db, exc, mandate=mandate, run=run, user=user, ip_address=ip_address,
+        ) from exc
+
+
 # ── Versiegeln ───────────────────────────────────────────────────────────────
 
 

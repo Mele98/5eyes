@@ -40,6 +40,8 @@ from services.recommendation_release_gate import (
     preference_state as _preference_state,
 )
 from services.audit import gate_block_audit
+# CCX-P3-FX (N-909-01/-13): strikte FX-Basis und Druckpruefung ueber die Druck-Fassade.
+from services.print_fx_gate import assert_print_fx_basis_current, load_fx_basis
 from services.portfolio_engine import run_exclusion_evidence_status
 from sqlalchemy import text as sql_text
 from services.pdf import ReportLabRenderer
@@ -256,7 +258,6 @@ def _target_allocation_bands(ta_obj) -> dict[str, tuple[int, int]]:
 
 def _advisory_wealth_positions(mandate: Mandate, db: Session) -> tuple[list[dict], dict[str, int], int]:
     from models.wealth import WealthPosition
-    from services.fx_basis import load_fx_basis
     from services.wealth_position_semantics import canonical_assignment
 
     # FX-DRIFT-001 (Audit-Finding, 2026-10-07): diese Beratungsvermoegen-Tabelle
@@ -487,7 +488,6 @@ def _other_wealth_positions(mandate: Mandate, db: Session) -> list[dict]:
     sie direkt unit-testbar ist, ohne die volle Strategie-Decision-Anchor-
     Pipeline (TargetAllocation/CMA/RiskAssessment) mitzuseeden."""
     from models.wealth import WealthPosition
-    from services.fx_basis import load_fx_basis
     from services.wealth_position_semantics import canonical_assignment, is_liability_assignment
 
     other_wealth_positions: list[dict] = []
@@ -1216,8 +1216,6 @@ def _assert_client_pdf_fx_basis(db: Session, mandate: Mandate) -> None:
     """CCX-P3-FX (N-909-13): Kundendokumente mit eingefrorenen Betraegen
     pruefen beim Druck die heutige strikte FX-Basis, solange der Lauf nicht
     versiegelt ist (wie der gespeicherte Depot-Check, N-909-02)."""
-    from services.print_fx_gate import assert_print_fx_basis_current
-
     assert_print_fx_basis_current(db, mandate)
 
 

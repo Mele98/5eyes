@@ -1,17 +1,19 @@
-"""CCX-P3-FX (N-909-13): Druckpruefung der FX-Basis fuer Kundendokumente mit
-eingefrorenen Betraegen.
+"""CCX-P3-FX (N-909-13): Druckpruefung der FX-Basis fuer Kundendokumente.
 
-Portfolio-, Vertrags-, Protokoll-, Kostenausweis- und Backtest-PDF sowie der
-Ex-ante-Kostenausweis (JSON) zeigen Betraege eines Laufs, der mit dem damals
-belegten Kurs gerechnet wurde. Solange dieser Lauf nicht versiegelt ist (kein
-SEALED-Envelope mit gebundenem Bewertungs-Snapshot und FX-Basis), gibt es keine
-gebundene Kursevidenz, auf die sich "eingefroren" berufen koennte. Deshalb gilt
-dieselbe Linie wie beim gespeicherten Depot-Check (N-909-02): beim Druck muss
-jede Waehrung der Betragsquellen des Mandats heute strikt konvertierbar sein
-(belegt, frisch nach Tenant-Frist, kein Ersatzkurs) -- sonst ``CCX_FX_BASIS_*``.
+Alle 12 Kunden-PDFs und der Ex-ante-Kostenausweis (JSON) zeigen Betraege eines
+Laufs, der mit dem damals belegten Kurs gerechnet wurde. Solange dieser Lauf
+nicht versiegelt ist (kein SEALED-Envelope mit gebundenem Bewertungs-Snapshot
+und FX-Basis), gibt es keine gebundene Kursevidenz, auf die sich "eingefroren"
+berufen koennte. Deshalb gilt dieselbe Linie wie beim gespeicherten
+Depot-Check (N-909-02): beim Druck muss jede Waehrung der Betragsquellen des
+Mandats heute strikt konvertierbar sein (belegt, frisch nach Tenant-Frist,
+kein Ersatzkurs) -- sonst ``CCX_FX_BASIS_*``.
 
 Ein versiegelter Lauf traegt seine FX-Basis im Envelope (Bewertungs-Snapshot
 mit ``fx_basis_hash``); er wird hier nicht erneut gegen heute geprueft.
+
+Das Modul ist zugleich die Druck-Fassade der Router fuer die strikte FX-Basis
+(``load_fx_basis``) und den Kostenausweis (``build_client_cost_disclosure``).
 """
 from __future__ import annotations
 
@@ -19,14 +21,17 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from models.review import RecommendationRun
+from models.snapshots import AdvisoryDecisionEnvelope, AdvisoryEnvelopeBinding
+from models.wealth import Cashflow, WealthInflow, WealthPosition
+from services.advisory_decision_envelope import VALUATION_BINDING_KIND, mandate_tenant
+from services.cost_disclosure import build_cost_disclosure
 from services.fx_basis import load_fx_basis, normalize_currency
 
 
 def mandate_amount_currencies(db: Session, mandate: Any) -> set[str]:
     """Waehrungen aller aktiven Betragsquellen des Mandats (Vermoegen,
     einbezogene Cashflows, Zufluesse) -- dieselben Quellen wie die Engine."""
-    from models.wealth import Cashflow, WealthInflow, WealthPosition
-
     client_id = getattr(mandate, "client_id", None)
     currencies: set[str] = set()
     for row in db.query(WealthPosition).filter(
@@ -46,14 +51,24 @@ def mandate_amount_currencies(db: Session, mandate: Any) -> set[str]:
     return currencies
 
 
+def current_run_id(db: Session, mandate_id: str) -> str | None:
+    """Aktueller Lauf wie ``portfolio_engine._current_recommendation_run``:
+    juengster Final-Lauf, sonst juengster Lauf."""
+    for only_final in (True, False):
+        query = db.query(RecommendationRun).filter(RecommendationRun.mandate_id == str(mandate_id))
+        if only_final:
+            query = query.filter(RecommendationRun.result_status == "Final")
+        run = query.order_by(RecommendationRun.created_at.desc()).first()
+        if run is not None:
+            return str(run.id)
+    return None
+
+
 def run_is_sealed(db: Session, mandate: Any, run_id: str | None) -> bool:
     """Ist ``run_id`` der Lauf des aktuellen SEALED-Envelopes mit gebundenem
     Bewertungs-Snapshot (FX-Basis)?"""
     if not run_id:
         return False
-    from models.snapshots import AdvisoryDecisionEnvelope, AdvisoryEnvelopeBinding
-    from services.advisory_decision_envelope import VALUATION_BINDING_KIND, mandate_tenant
-
     tenant_id = mandate_tenant(mandate)
     if not tenant_id:
         return False
@@ -81,10 +96,7 @@ def assert_print_fx_basis_current(db: Session, mandate: Any, *, run_id: str | No
     Betragsquellen heute nicht strikt konvertierbar ist und der Lauf nicht
     versiegelt ist. Ohne Fremdwaehrung: keine Kursabfrage."""
     if run_id is None:
-        from services.portfolio_engine import _current_recommendation_run
-
-        run = _current_recommendation_run(db, str(mandate.id))
-        run_id = str(run.id) if run is not None else None
+        run_id = current_run_id(db, str(mandate.id))
     if run_is_sealed(db, mandate, run_id):
         return
     target = normalize_currency(getattr(mandate, "base_currency", None))
@@ -95,4 +107,18 @@ def assert_print_fx_basis_current(db: Session, mandate: Any, *, run_id: str | No
     basis.require_convertible(currencies)
 
 
-__all__ = ["assert_print_fx_basis_current", "mandate_amount_currencies", "run_is_sealed"]
+def build_client_cost_disclosure(db: Session, mandate: Any) -> dict:
+    """Ex-ante-Kostenausweis fuer den Kunden: erst die Druckpruefung, dann
+    derselbe ``build_cost_disclosure`` (Single-Source-of-Truth)."""
+    assert_print_fx_basis_current(db, mandate)
+    return build_cost_disclosure(db, mandate)
+
+
+__all__ = [
+    "assert_print_fx_basis_current",
+    "build_client_cost_disclosure",
+    "current_run_id",
+    "load_fx_basis",
+    "mandate_amount_currencies",
+    "run_is_sealed",
+]

@@ -70,7 +70,11 @@ from services.audit import gate_block_audit, log, release_block_audit, restore_t
 # CCX-P1: direkt aus services.auth (derselbe Helfer, den routers.auth nur
 # weiterreicht) -- Router importieren keine Router (Architektur-Ratsche).
 from services.auth import extract_client_ip as _extract_client_ip
-from services.advisory_finalization import current_advisory_envelope, finalize_advisory_decision
+from services.advisory_finalization import (
+    call_with_fx_basis_audit,
+    current_advisory_envelope,
+    finalize_advisory_decision,
+)
 from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
 from services.data_classification import enforce_data_classification
 from services.eodhd_client import preview_eodhd_reference
@@ -4643,18 +4647,12 @@ def finalize_recommendation(
             "message": cma_policy_block[1],
             "errors": [cma_policy_block[1]],
         })
-    from services.currency.fx_rates import FxBasisError
-
-    try:
-        errors, warnings = _validate_recommendation_for_finalization(db, mandate, run)
-    except FxBasisError as exc:
-        # CCX-P3-FX (N-909-12): die fruehe FX-Sperre (strikte Payload-Neu-
-        # berechnung) wird typisiert auditiert wie die Bewertungssperre im Siegel.
-        from services.advisory_decision_envelope import reject_fx_basis_before_seal
-
-        raise reject_fx_basis_before_seal(
-            db, exc, mandate=mandate, run=run, user=current_user, ip_address=_extract_client_ip(request),
-        ) from exc
+    # CCX-P3-FX (N-909-12): die fruehe FX-Sperre (strikte Payload-Neuberechnung)
+    # wird typisiert auditiert wie die Bewertungssperre im Siegel.
+    errors, warnings = call_with_fx_basis_audit(
+        lambda: _validate_recommendation_for_finalization(db, mandate, run),
+        db, mandate=mandate, run=run, user=current_user, ip_address=_extract_client_ip(request),
+    )
     if errors:
         # RESERVE-LEDGER-SNAPSHOT-001: die Ledger-Sperre ist eine Handlungs-
         # anweisung (neu berechnen) -> strukturierte 422 mit reason_code; alle

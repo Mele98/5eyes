@@ -20,7 +20,8 @@ from database import get_db
 from models.users import User
 from schemas.cost_disclosure import CostDisclosureResponse
 from services.auth import get_current_user, get_mandate_for_user_or_404
-from services.cost_disclosure import build_cost_disclosure
+# CCX-P3-FX (N-909-13): Druckpruefung der FX-Basis vor dem Kostenausweis.
+from services.print_fx_gate import build_client_cost_disclosure
 
 
 router = APIRouter(tags=["Kostenausweis"])
@@ -45,7 +46,4 @@ def get_ex_ante_cost_disclosure(
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     # CCX-P3-FX (N-909-13): Betraege des Laufs nur auf heute belegter FX-Basis
     # (bzw. aus dem versiegelten Lauf) -- sonst CCX_FX_BASIS_* (409).
-    from services.print_fx_gate import assert_print_fx_basis_current
-
-    assert_print_fx_basis_current(db, mandate)
-    return build_cost_disclosure(db, mandate)
+    return build_client_cost_disclosure(db, mandate)

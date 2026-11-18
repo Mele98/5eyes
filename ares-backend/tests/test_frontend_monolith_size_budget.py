@@ -113,7 +113,7 @@ CCX-P3 Nachtrag 1 (N-909-07): Finalisierung mit Bestaetigung "Bewertung
 aktuell" als Teil ``finalize-attestation.js`` (27/1705); Monolith 26887 Z./
 1650341 B.
 CCX-P3 Nachtrag 2 (N-909-11): Wechselkurs-Editor als Teil
-``fx-rates-editor.js`` (99/5202) ausgelagert; Monolith 26827 Z./1647407 B.
+``fx-rates-editor.js`` (99/5202) ausgelagert; Monolith 26827 Z./1647400 B.
 """
 from __future__ import annotations
 
@@ -124,7 +124,7 @@ MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
 MONOLITH_MAX_LINES = 26827
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1647407
+MONOLITH_MAX_BYTES = 1647400
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
