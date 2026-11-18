@@ -88,7 +88,7 @@ def _mark_stale(conn, envelope_id):
 
 CLIENTS = {
     "c-a": "t-a", "c-b": "t-b", "c-hook": "t-a", "c-r1": "t-a", "c-r2": "t-a", "c-r3": "t-a", "c-trig": "t-a",
-    "c-r4": "t-a",
+    "c-r4": "t-a", "c-r5": "t-a",
 }
 
 
@@ -127,6 +127,19 @@ def pg_p2():
                 "INSERT INTO capital_market_assumptions (id, tenant_id, assumption_set_name, version, valid_from, "
                 "is_current, created_by, created_at, updated_at) VALUES ('cma-race', 't-a', 'race', 1, "
                 "'2026-01-01', 1, 'adv', :n, :n)"
+            ), {"n": NOW})
+            # Globale CMA-Policy-Zeile samt Komponente fuer den Wettlauf
+            # Komponentenersatz <-> Siegel (Nachtrag 2, FOR SHARE).
+            conn.execute(text(
+                "INSERT INTO cma_policies (id, policy_id, version, status, capital_market_assumptions_id, "
+                "valid_from, data_as_of, base_currency, return_basis, fee_basis, method_version, sources_json, "
+                "rationale, created_by, created_at, updated_at) VALUES ('cmap-race', 'race', 1, 'DRAFT', "
+                "'cma-race', '2026-01-01', '2026-01-01', 'CHF', 'nominal', 'net', 'v1', '[]', 'race', 'adv', :n, :n)"
+            ), {"n": NOW})
+            conn.execute(text(
+                "INSERT INTO cma_policy_components (id, policy_row_id, asset_key, component, value_bps, unit, "
+                "horizon_years, method, source, sign, range_min_bps, range_max_bps, created_at) VALUES "
+                "('cmapc-race', 'cmap-race', 'equity_ch', 'yield', 300, 'bps', 10, 'm', 's', 'positive', 0, 600, :n)"
             ), {"n": NOW})
             ensure_postgres_rls_policies(conn)
             conn.execute(text(
@@ -498,5 +511,59 @@ def test_cma_change_during_sealing_waits_and_invalidates(pg_p2):
         sealer.close()
         mutator.close()
     row, seqs = _state(pg_p2, "e-r4")
+    assert (row.status, row.freshness_status) == ("SEALED", "STALE")
+    assert seqs == [1]
+
+
+def test_cma_policy_component_change_during_sealing_waits_and_invalidates(pg_p2):
+    """H-161 Nachtrag 2: die Versiegelung sperrt auch ``cma_policy_components``
+    (und ``cma_policy_approvals``) der gebundenen CMA-Policy FOR SHARE. Ein
+    paralleler Komponentenersatz (``replace_components``: Massen-DELETE, der
+    Massen-Hook liest die Zeilen FOR UPDATE) wartet bis zum Siegel-Commit, sieht
+    danach die Kante und setzt den neuen Entscheid STALE."""
+    from types import SimpleNamespace
+
+    from models.cma_policy import CmaPolicyComponent
+    from services.advisory_decision_envelope import lock_bound_reference_rows, lock_mandate_row
+
+    sealer = _session(pg_p2, "t-a")
+    mutator = _session(pg_p2, "t-a")
+    outcome: dict = {}
+    try:
+        lock_mandate_row(sealer, "m-r5")
+        lock_bound_reference_rows(
+            sealer, run=SimpleNamespace(capital_market_assumptions_id=None, policy_id=None,
+                                        cma_policy_row_id="cmap-race"),
+            target_allocation=SimpleNamespace(capital_market_assumptions_id=None, policy_id=None),
+        )
+        conn = sealer.connection()
+        _manifest(conn, "man-r5", "m-r5", tenant_id="t-a")
+        _draft(conn, "e-r5", "m-r5", tenant_id="t-a")
+        _bind(conn, "b-r5", "e-r5", "t-a")
+        _edge(conn, "e-r5", "t-a", "cma_policy_components", "cmap-race")
+        assert _seal(conn, "e-r5", "8" * 64) == 1
+
+        def _replace_components():
+            try:
+                mutator.query(CmaPolicyComponent).filter(
+                    CmaPolicyComponent.policy_row_id == "cmap-race").delete(synchronize_session=False)
+                mutator.commit()
+                outcome["result"] = "committed"
+            except Exception as exc:  # pragma: no cover - Diagnose
+                mutator.rollback()
+                outcome["result"] = f"error: {exc!r}"
+
+        worker = threading.Thread(target=_replace_components)
+        worker.start()
+        worker.join(timeout=1.5)
+        assert worker.is_alive(), (
+            "der Komponentenersatz haette auf die FOR-SHARE-Sperre der Versiegelung warten muessen", outcome)
+        sealer.commit()
+        worker.join(timeout=30)
+        assert not worker.is_alive() and outcome["result"] == "committed", outcome
+    finally:
+        sealer.close()
+        mutator.close()
+    row, seqs = _state(pg_p2, "e-r5")
     assert (row.status, row.freshness_status) == ("SEALED", "STALE")
     assert seqs == [1]
