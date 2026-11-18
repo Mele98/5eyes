@@ -61,29 +61,19 @@ def _get_guard_engine():
     (gecachte) Engine. In Tests kann diese Funktion monkeypatch-t werden bzw.
     ``LoginAttemptGuard`` erhaelt eine Engine via Konstruktor-Argument.
     """
-    from database import build_database_url, build_connect_args
+    from database import build_database_url, create_app_engine
 
     url = build_database_url(
         db_path=settings.db_path, db_key=getattr(settings, "db_key", None)
     )
     eng = _ENGINE_CACHE.get(url)
     if eng is None:
-        from sqlalchemy import create_engine
-
-        kwargs = {"connect_args": build_connect_args(db_key=getattr(settings, "db_key", None))}
-        module = None
-        try:
-            from database import _sqlcipher_enabled  # type: ignore
-
-            if _sqlcipher_enabled(db_key=getattr(settings, "db_key", None)):
-                import sqlcipher3  # type: ignore
-
-                module = sqlcipher3
-        except Exception:
-            module = None
-        if module is not None:
-            kwargs["module"] = module
-        eng = create_engine(url, **kwargs)
+        # SEED-FK-HYGIENE (2026-11-05): dieselbe Fabrik wie die App-Engine --
+        # vorher ein nacktes create_engine ohne die SQLite-Pragmas
+        # (foreign_keys=ON, busy_timeout, journal_mode, SQLCipher-Parameter).
+        eng = create_app_engine(
+            db_path=settings.db_path, db_key=getattr(settings, "db_key", None), echo=False,
+        )
         _ENGINE_CACHE[url] = eng
     return eng
 

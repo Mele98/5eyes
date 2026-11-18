@@ -70,7 +70,7 @@ def _external_pension(pid: str, client_id: str) -> WealthPosition:
 
 
 def _inflow(iid: str, client_id: str, linked: str | None = None) -> WealthInflow:
-    return WealthInflow(
+    return WealthInflow(currency="CHF",
         id=iid, client_id=client_id, label=iid, source_type="Andere",
         amount_rappen=5_000_000, expected_year=2030, is_recurring=0,
         frequency="einmalig", value_mode="nominal", linked_position_id=linked,
@@ -277,7 +277,7 @@ def test_foreign_tenant_inflow_not_writable(attacker):
 @pytest.mark.parametrize("role", ["advisor", "admin"])
 def test_create_inflow_cannot_link_foreign_position(world, strict, role):
     s, users = world
-    body = WealthInflowCreate(
+    body = WealthInflowCreate(currency="CHF",
         label="Bezug", source_type="Andere", amount_rappen=1_000_000,
         expected_year=2031, linked_position_id="pos-b",
     )
@@ -289,7 +289,7 @@ def test_create_inflow_cannot_link_foreign_position(world, strict, role):
 @pytest.mark.parametrize("role", ["advisor", "admin"])
 def test_create_inflow_cannot_target_foreign_mandate(world, strict, role):
     s, users = world
-    body = WealthInflowCreate(
+    body = WealthInflowCreate(currency="CHF",
         label="Bezug", source_type="Andere", amount_rappen=1_000_000,
         expected_year=2031, mandate_id=B_MANDATE,
     )

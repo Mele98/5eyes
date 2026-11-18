@@ -41,6 +41,7 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
+from core.db_integrity import raise_if_check_violation
 from core.evidence import evidence_hash
 from core.reason_codes import DomainError
 from services.audit import log
@@ -943,8 +944,10 @@ def record_signoff(
             advisory_log_id = entry.id
         db.commit()
         db.refresh(ra)
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         _conflict(
             "RISK_PROFILE_SIGNOFF_CONCURRENT_MODIFICATION",
             "Eine andere Signatur wurde gleichzeitig gespeichert -- bitte Seite neu laden.",

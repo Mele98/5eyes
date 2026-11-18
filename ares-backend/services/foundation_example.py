@@ -31,7 +31,7 @@ from services.review_engine import refresh_system_review_triggers
 from services.risk_scoring import compute_scores
 
 
-FOUNDATION_CLIENT_NUMBER = "EX-5E-FOUNDATION"
+FOUNDATION_CLIENT_NUMBER = "EX-FOUNDATION-01"
 FOUNDATION_MANDATE_NUMBER = "MX-FOUNDATION-01"
 
 

@@ -20,11 +20,62 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+from core.reason_codes import ReasonCode
 
 logger = logging.getLogger(__name__)
 
 _UNSET: Any = object()
+# Gleicher Verbindungs-Merker wie models/snapshots.py::freshness_tables_present.
+_FRESHNESS_TABLES_KEY = "ares_ccx_p2_tables_present"
+
+
+def advisory_envelope_stale_reason(db: Session, mandate: Any, ta: Any) -> ReasonCode | None:
+    """CCX-P2 (Vertrag 2026-11-13 §5): Frische des versiegelten
+    Beratungsentscheids, der genau diese Soll-Allokation bindet.
+
+    ``CCX_INPUT_STALE`` -- der Entscheid ist durch eine Mutation einer
+    Abhaengigkeit (Ziele, Cashflows, Vermoegen, Risikoprofil, ESG-Praeferenz,
+    CMA/Policy, Benchmark, Restriktionen, Mandatsdaten) invalidiert
+    (``AdvisoryInvalidationEvent`` mit ``invalidation_sequence``,
+    ``optimistic_version`` des Envelopes erhoeht; Kanten
+    ``AdvisoryDependencyEdge`` mit ``dependency_hash``).
+    ``CCX_FRESHNESS_UNKNOWN`` -- Bestand ohne Kanten (unknown != fresh).
+    ``None`` -- kein versiegelter Entscheid bindet diese Allokation oder er ist
+    FRESH (inkl. Pull-Pruefung der Kanten, N-908-01). Reine Lesung (keine
+    Fachwirkung); die Oberflaechen zeigen den
+    Serverstatus ueber den bestehenden Veraltet-Hinweis an."""
+    if ta is None or mandate is None or not getattr(ta, "id", None):
+        return None
+    connection = db.connection()
+    if not connection.info.get(_FRESHNESS_TABLES_KEY):
+        if not sa_inspect(connection).has_table("advisory_invalidation_events"):
+            return None  # ohne Envelope-Schema gibt es keinen Entscheid
+        connection.info[_FRESHNESS_TABLES_KEY] = True
+    row = db.execute(text(
+        "SELECT e.freshness_status FROM advisory_decision_envelopes e "
+        "JOIN advisory_envelope_bindings b ON b.envelope_id = e.id AND b.tenant_id = e.tenant_id "
+        "WHERE e.mandate_id = :mandate_id AND e.status = 'SEALED' "
+        "AND b.binding_kind = 'target_allocation' AND b.object_id = :ta_id"
+    ), {"mandate_id": str(mandate.id), "ta_id": str(ta.id)}).first()
+    if row is None:
+        return None
+    if row[0] == "STALE":
+        return ReasonCode.CCX_INPUT_STALE
+    if row[0] != "FRESH":
+        return ReasonCode.CCX_FRESHNESS_UNKNOWN
+    # N-908-01: FRESH allein genuegt nicht -- die Kanten gegen die aktuellen
+    # Objekte pruefen (lesend, gezielt nur fuer den Entscheid dieser Allokation;
+    # ohne Entscheid bleibt es bei der einen Statusabfrage oben).
+    from services.advisory_decision_envelope import decision_freshness_for_allocation
+
+    code, _envelope, _drift = decision_freshness_for_allocation(
+        db, mandate=mandate, target_allocation_id=str(ta.id),
+    )
+    return code
 
 
 def allocation_inputs_stale(
@@ -51,9 +102,18 @@ def allocation_inputs_stale(
         return False
     if not str(getattr(ta, "input_snapshot_hash", None) or "").strip():
         return False
+    # CCX-P2: ein invalidierter versiegelter Entscheid, der genau diese
+    # Allokation bindet, ist "Inputs veraltet" (Serverstatus, keine neue
+    # Herleitung). Alt-Allokationen ohne input_snapshot_hash bleiben wie
+    # bisher ohne Query unmarkiert; fuer sie sperren das Envelope-Gate und das
+    # Dokumentarchiv einen nicht FRESHen Entscheid weiterhin.
+    if advisory_envelope_stale_reason(db, mandate, ta) == ReasonCode.CCX_INPUT_STALE:
+        return True
 
-    from models.allocation import OptimizerPolicy
+    # OptimizerPolicy ueber portfolio_engine (dort ohnehin importiert): haelt
+    # Fan-out/Lazy-Imports dieses Moduls trotz der CCX-P2-Pull-Pruefung stabil.
     from services.portfolio_engine import (
+        OptimizerPolicy,
         StaleAllocationInputError,
         _current_risk_assessment_or_none,
         build_target_payload_from_allocation,
