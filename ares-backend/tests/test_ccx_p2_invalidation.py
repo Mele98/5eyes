@@ -1036,7 +1036,7 @@ def _document(db, ids, *, at: str, signed_by_client: int = 1) -> str:
     return doc_id
 
 
-def _onsite_evidence(db, ids, doc_id: str, *, at: str) -> None:
+def _onsite_evidence(db, ids, doc_id: str, *, at: str, signer_role: str = "client") -> None:
     from database import Base, new_uuid
 
     table = Base.metadata.tables["onsite_signature_evidence"]
@@ -1048,7 +1048,7 @@ def _onsite_evidence(db, ids, doc_id: str, *, at: str) -> None:
         length = getattr(column.type, "length", None)
         values[column.name] = 1 if python_type is int else ("e" * length if length else "x")
     values.update(id=new_uuid(), mandate_id=ids["mid"], client_id=ids["cid"], document_id=doc_id,
-                  signer_role="client", signed_at=at, advisor_id=ids["advisor"], created_at=at,
+                  signer_role=signer_role, signed_at=at, advisor_id=ids["advisor"], created_at=at,
                   schema_version="OnsiteSignatureEvidenceV1",
                   tenant_id=db.execute(text("SELECT tenant_id FROM mandates WHERE id = :m"),
                                        {"m": ids["mid"]}).scalar())
@@ -1148,3 +1148,107 @@ def test_flush_counter_is_reset_at_transaction_end(session_factory):
     with session_factory() as db:
         assert _envelope(db, ids["envelope"]).freshness_status == "STALE"
         assert {e.source_kind for e in _events(db, ids["envelope"])} == {"goals"}
+
+
+# ── Nachtrag 3: N-908-06 (Klauseln created_at und signer_role gepinnt) ──────
+# Uebernommene Pruefer-Proben (H-161 Nachtrag 2, Pruefung e6e996de).
+
+
+def _gate_code(db, ids) -> str:
+    try:
+        _gate(db, ids["mid"], ids["advisor"])
+    except DomainError as exc:
+        return exc.reason_code
+    return "FRESH"
+
+
+def _client_signs_later(session_factory, doc_id: str) -> None:
+    from models.review import ContractDocument
+
+    with session_factory() as db:
+        doc = db.get(ContractDocument, doc_id)
+        now = _ms_now()
+        doc.signed_by_client, doc.signature_client_signed_at, doc.signed_at = 1, now, now
+        db.commit()
+
+
+def test_e1_document_signed_after_e2_seal_does_not_exempt_e2(session_factory):
+    """Pflichtfall N-908-06 (Klausel ``cd.created_at >= sealed_at``): Dokument D1
+    entsteht fuer E1 (vor dem Siegel von E2), der Kunde signiert D1 erst NACH dem
+    Siegel von E2. Er hat den E1-Stand unterschrieben -- E2 darf nicht als
+    unterzeichnet gelten und wird bei neuer Hausmeinung STALE."""
+    ids = _ids(session_factory, "sig-e1-late")
+    with session_factory() as db:
+        doc_id = _document(db, ids, at=_ms_now(), signed_by_client=0)  # D1 fuer E1, unsigniert
+    _a, _m, _x, run2 = _finalizable_run(session_factory, "sig-e1-late", mandate=(ids["advisor"], ids["mid"], ids["aid"]))
+    e2 = _finalize(session_factory, ids["advisor"], ids["mid"], run2).advisory_envelope_id
+    with session_factory() as db:
+        assert db.execute(text("SELECT target_allocation_id FROM recommendation_runs WHERE id = :r"),
+                          {"r": run2}).scalar() == ids["ta"]
+        sealed_e2 = db.execute(text("SELECT sealed_at FROM advisory_decision_envelopes WHERE id = :e"),
+                               {"e": e2}).scalar()
+    _client_signs_later(session_factory, doc_id)  # Signatur nach dem Siegel von E2
+    with session_factory() as db:
+        from models.review import ContractDocument
+
+        assert db.get(ContractDocument, doc_id).signature_client_signed_at[:23] >= sealed_e2[:23]
+    _house_view_change(session_factory, ids)
+    with session_factory() as db:
+        assert _envelope(db, e2).freshness_status == "STALE"
+        assert {e.source_kind for e in _events(db, e2)} == {"cma"}
+        assert _gate_code(db, ids) == "CCX_INPUT_STALE"
+
+
+def test_document_created_before_seal_signed_after_does_not_count(session_factory):
+    """N-908-06: vor dem Siegel erzeugt, nach dem Siegel vom Kunden signiert ->
+    nicht dieser Entscheid (Klausel ``created_at``)."""
+    ids = _ids(session_factory, "sig-created-before")
+    with session_factory() as db:
+        doc_id = _document(db, ids, at="2026-01-01T00:00:00.000Z", signed_by_client=0)
+    _client_signs_later(session_factory, doc_id)
+    _house_view_change(session_factory, ids)
+    with session_factory() as db:
+        assert _envelope(db, ids["envelope"]).freshness_status == "STALE"
+
+
+def test_onsite_evidence_with_advisor_role_does_not_count(session_factory):
+    """N-908-06 (Klausel ``signer_role = 'client'``): Vor-Ort-Evidenz des Beraters
+    ist keine Kundenunterschrift."""
+    ids = _ids(session_factory, "sig-onsite-adv")
+    with session_factory() as db:
+        now = _ms_now()
+        doc_id = _document(db, ids, at=now, signed_by_client=0)
+        _onsite_evidence(db, ids, doc_id, at=now, signer_role="advisor")
+        assert db.execute(text("SELECT signer_role FROM onsite_signature_evidence WHERE document_id = :d"),
+                          {"d": doc_id}).scalar() == "advisor"
+
+    _house_view_change(session_factory, ids)
+    with session_factory() as db:
+        assert _envelope(db, ids["envelope"]).freshness_status == "STALE"
+
+
+def test_advisor_only_signature_does_not_count(session_factory):
+    """Nur Berater signiert (``signed_by_client = 0``) -> nicht unterzeichnet."""
+    from models.review import ContractDocument
+
+    ids = _ids(session_factory, "sig-advisor-only")
+    with session_factory() as db:
+        doc_id = _document(db, ids, at=_ms_now(), signed_by_client=0)
+        doc = db.get(ContractDocument, doc_id)
+        doc.signed_by_advisor, doc.signed_at = 1, _ms_now()
+        db.commit()
+    _house_view_change(session_factory, ids)
+    with session_factory() as db:
+        assert _envelope(db, ids["envelope"]).freshness_status == "STALE"
+
+
+def test_signature_after_stale_does_not_revive(session_factory):
+    """Eine Unterschrift nach STALE macht den Entscheid nicht wieder FRESH."""
+    ids = _ids(session_factory, "sig-after-stale")
+    _house_view_change(session_factory, ids)
+    with session_factory() as db:
+        assert _envelope(db, ids["envelope"]).freshness_status == "STALE"
+        _document(db, ids, at=_ms_now())
+    with session_factory() as db:
+        assert _envelope(db, ids["envelope"]).freshness_status == "STALE"
+        assert _gate_code(db, ids) == "CCX_INPUT_STALE"
