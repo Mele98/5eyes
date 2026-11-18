@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from sqlalchemy.exc import IntegrityError, InternalError, OperationalError
+from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from core.evidence import SCHEME_V1, advisory_domain, canonical_json, domain_sha256_hex
@@ -143,8 +143,10 @@ AUDIT_CHANNEL_BLOCKED = "ccx.allocation.channel_blocked"
 # Envelope beim Insert nicht mehr SEALED + FRESH ist.
 INSERT_STALE_MARKER = "CCX_ALLOCATION_NOT_PUBLISHABLE"
 # H12 N-910-16: erkennbare Meldungen der Publikations-Guards (SQLite RAISE /
-# PG RAISE EXCEPTION). Nur ein InternalError mit einer dieser Meldungen ist ein
-# Domaenenfehler; jeder andere InternalError bleibt ein technischer Fehler.
+# PG RAISE EXCEPTION). Ein IntegrityError ist immer ein Domaenenfehler; jeder
+# andere DB-Fehler (PG RAISE EXCEPTION erscheint je nach Treiber als
+# InternalError oder ProgrammingError, psycopg 3: ProgrammingError) nur mit einer
+# dieser Meldungen -- sonst bleibt er ein technischer Fehler.
 PUBLICATION_GUARD_MARKERS: tuple[str, ...] = (
     INSERT_STALE_MARKER,
     "CCX_PUBLICATION_RACE",
@@ -667,9 +669,9 @@ def publish_allocation(
         logger.warning("CCX-P4: Publikation technisch abgebrochen (retryable) | mandate=%s: %s",
                        evaluation.mandate_id, type(getattr(exc, "orig", None) or exc).__name__)
         raise _retryable_reject(db, common) from exc
-    except (IntegrityError, InternalError) as exc:
+    except DBAPIError as exc:  # OperationalError oben abgefangen
         message = str(getattr(exc, "orig", None) or exc)
-        if isinstance(exc, InternalError) and not any(marker in message for marker in PUBLICATION_GUARD_MARKERS):
+        if not isinstance(exc, IntegrityError) and not any(marker in message for marker in PUBLICATION_GUARD_MARKERS):
             raise  # H12 N-910-16: kein Guard-Text -> technischer Fehler, nicht als Wettlauf maskieren
         logger.info("CCX-P4: Publikation verloren | mandate=%s: %s", evaluation.mandate_id, exc)
         if INSERT_STALE_MARKER in message:

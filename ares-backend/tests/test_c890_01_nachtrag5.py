@@ -138,9 +138,13 @@ def _cost_pdf(monkeypatch, *, watermark, archived, db_queries):
     from routers import pdf_reports
 
     rendered, archived_calls = [], []
+    # Merge H11 in H12: auch die P3-Druckpruefung (FX) ist hier nicht Gegenstand.
     for gate in ("_assert_client_pdf_kyc_review", "_assert_client_pdf_signoff", "_assert_client_pdf_cma_hold",
-                 "_assert_client_pdf_sustainability_floor"):
+                 "_assert_client_pdf_sustainability_floor", "_assert_client_pdf_fx_basis"):
         monkeypatch.setattr(pdf_reports, gate, lambda *a, **k: None)
+    # Merge H11 in H12: der P4-Publish-Gate liefert den Kontext unveraendert (die
+    # Entwurfsmarke steuert der Test ueber ``watermark``).
+    monkeypatch.setattr(pdf_reports, "_mark_unpublished", lambda ctx, *a: ctx)
     mandate = SimpleNamespace(id="m-1", mandate_number="M-1")
     monkeypatch.setattr(pdf_reports, "get_mandate_for_user_or_404", lambda *a: mandate)
     monkeypatch.setattr(cost_service, "build_cost_disclosure", lambda *a: {"advisory_wealth_rappen": 100})
@@ -159,6 +163,9 @@ def _cost_pdf(monkeypatch, *, watermark, archived, db_queries):
         def query(self, *_a):
             db_queries.append("query")
             return _Query(archived)
+
+        def get(self, *_a):  # Merge H11 in H12: P2-Archivgate laedt das Mandat (ohne Bindung kein Pull)
+            return None
 
     response = pdf_reports.get_cost_disclosure_pdf("m-1", request=None, db=_Db(), current_user=None)
     return response, rendered, archived_calls
