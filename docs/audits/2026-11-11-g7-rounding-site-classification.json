@@ -4248,15 +4248,6 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23420,
-   "source": "if(posType==='Depot'&&tot>0&&Math.round(tot*10)!==1000){ // N-917R3-08: exakt 100.0 % (wie Server)",
-   "channel": "classic",
-   "class": "COMPUTATION_KEEP",
-   "status": "",
-   "reason": "buildWealthPositionPayload (KN4-U N-917R3-08): Summe der Depot-Aufteilung auf 0.1 % gerundet und mit 100.0 % verglichen (Eingabepruefung wie der Server); keine Anzeige."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
    "line": 23421,
    "source": "throw new Error('Allokation muss 100% ergeben (aktuell: '+AresRounding.formatPercent(tot,0,{typography:'screen'})+'). Bitte die Anlageklassen-Aufschl\u00fcsselung auf 100% aufteilen.'); // E2E3-08: keine automatische Annahme (KN3-B lehnt 0 % mit",
    "channel": "classic",
@@ -5406,6 +5397,15 @@
    "class": "MIGRATE",
    "status": "done",
    "reason": "Anzeige ueber gemeinsamen Formatter"
+  },
+  {
+   "file": "ares-desktop/frontend/kn4-ui.js",
+   "line": 40,
+   "source": "function aresSplitIs100(v){var t=0;for(var i=0;i<v.length;i++)t+=Math.round((v[i]||0)*100);return Math.floor((t+5)/10)===1000;} // N-917R3-08: gesendete bps, auf 0.1 % = 100.0 % (schemas.wealth)",
+   "channel": "classic",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "aresSplitIs100 (Kern-Integration R4, N-917R3-08): Depot-/Vorsorge-Aufteilung je Klasse in bps wie der Payload, Summe auf 0.1 % gerundet und mit 100.0 % verglichen (Eingabepruefung = schemas.wealth.allocation_total_is_100); keine Anzeige."
   },
   {
    "file": "ares-desktop/frontend/mandate-view.js",
@@ -7092,7 +7092,7 @@
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
-   "line": 338,
+   "line": 339,
    "source": "amount = int(round(value * bps / 10000))",
    "channel": "pdf",
    "class": "COMPUTATION_KEEP",
@@ -7101,7 +7101,7 @@
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
-   "line": 354,
+   "line": 355,
    "source": "bucket: int(round(amount / total * 10000)) if total > 0 else 0",
    "channel": "pdf",
    "class": "COMPUTATION_KEEP",
@@ -7110,7 +7110,7 @@
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
-   "line": 431,
+   "line": 432,
    "source": "amount = lambda r: format_amount_minor(r, ccy)  # noqa: E731  (G7: Half-up statt round())",
    "channel": "pdf",
    "class": "MIGRATE",
@@ -7119,7 +7119,7 @@
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
-   "line": 482,
+   "line": 483,
    "source": "# Half-up auf ganze Franken (vorher round() = Banker's Rounding), Klassen per",
    "channel": "pdf",
    "class": "FALSE_POSITIVE",
@@ -7128,7 +7128,7 @@
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
-   "line": 1748,
+   "line": 1749,
    "source": "int(round(current_amount / current_total * 10000))",
    "channel": "pdf",
    "class": "COMPUTATION_KEEP",
@@ -7137,7 +7137,7 @@
   },
   {
    "file": "ares-backend/routers/pdf_reports.py",
-   "line": 2694,
+   "line": 2709,
    "source": "return int(round(sum((value / total) ** 2 for value in clean) * 10000))",
    "channel": "pdf",
    "class": "COMPUTATION_KEEP",
@@ -7244,5 +7244,5 @@
    "reason": "_position_weight_bps: `round(amount / total_amount * 10000)` -> Rueckgabewert; Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
   }
  ],
- "head_sha_parent": "ec80b3ef57ffedede681ea666179dd7957beadd2"
+ "head_sha_parent": "87265ba7ca817d9a2064679a124c365e429e40f7"
 }

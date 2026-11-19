@@ -4,11 +4,11 @@
  "doc": "G7 Einzelentscheide je Quelltextzeile (Ausnahme-Annotation). COMPUTATION_KEEP gibt es nur hier; Regeln liefern nur Vorschlaege (scripts/classify_rounding_sites.py).",
  "overrides": [
   {
-   "file": "ares-desktop/frontend/ares.html",
-   "source": "if(posType==='Depot'&&tot>0&&Math.round(tot*10)!==1000){ // N-917R3-08: exakt 100.0 % (wie Server)",
+   "file": "ares-desktop/frontend/kn4-ui.js",
+   "source": "function aresSplitIs100(v){var t=0;for(var i=0;i<v.length;i++)t+=Math.round((v[i]||0)*100);return Math.floor((t+5)/10)===1000;} // N-917R3-08: gesendete bps, auf 0.1 % = 100.0 % (schemas.wealth)",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "buildWealthPositionPayload (KN4-U N-917R3-08): Summe der Depot-Aufteilung auf 0.1 % gerundet und mit 100.0 % verglichen (Eingabepruefung wie der Server); keine Anzeige."
+   "reason": "aresSplitIs100 (Kern-Integration R4, N-917R3-08): Depot-/Vorsorge-Aufteilung je Klasse in bps wie der Payload, Summe auf 0.1 % gerundet und mit 100.0 % verglichen (Eingabepruefung = schemas.wealth.allocation_total_is_100); keine Anzeige."
   },
   {
    "file": "ares-desktop/frontend/kn3-ui.js",
