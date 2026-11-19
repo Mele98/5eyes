@@ -411,9 +411,13 @@ def test_simulate_bucket_path_uses_geometric_growth_and_ignores_zero_bands():
     assert events == []
 
 
-def test_build_live_bucket_drifts_ignores_zero_bands():
+def test_build_live_bucket_drifts_zero_band_is_upper_limit_zero():
+    """KN3-B Nachtrag 2 (CTO-Entscheid): Band 0/0 heisst "Obergrenze 0", nicht
+    "keine Grenze" (core/band_rule.py). Vorher pinnte dieser Test das Gegenteil
+    ("ignores_zero_bands") -- mit einer Soll-Allokation (Ziel 100 % bei Band 0/0),
+    die der DB-CHECK band_min <= target <= band_max gar nicht zulaesst."""
     allocation = SimpleNamespace(
-        target_equities_bps=10000,
+        target_equities_bps=0,
         band_equities_min_bps=0,
         band_equities_max_bps=0,
         target_bonds_bps=0,
@@ -442,9 +446,9 @@ def test_build_live_bucket_drifts_ignores_zero_bands():
     )
 
     equities_bucket = next(item for item in bucket_drifts if item["asset_class"] == "Aktien")
-    assert equities_bucket["breached"] is False
-    assert equities_bucket["breach_bps"] == 0
-    assert breached_asset_classes == []
+    assert equities_bucket["breached"] is True
+    assert equities_bucket["breach_bps"] == 10000
+    assert breached_asset_classes == ["Aktien"]
 
 
 def test_bucket_expected_metrics_weight_sub_asset_class_tilts():
