@@ -106,7 +106,8 @@ def test_depot_check_partial_fallback_has_no_band_statement(session_factory):
                                 real_estate_bps=0, alternatives_bps=0, liquidity_bps=0)
         s.commit()
         result = compute_depot_check(s, mandate)
-    assert result["ist_basiert_auf_soll"] is True
+    # Teil-Rueckfall: nicht "IST = SOLL", aber teilweise abgeleitet -> keine Bandaussage.
+    assert result["ist_teilweise_abgeleitet"] is True and result["ist_basiert_auf_soll"] is False
     assert all(bucket["in_band"] is None for bucket in result["buckets"].values()), result["buckets"]
 
 

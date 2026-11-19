@@ -23,11 +23,25 @@ def _int(value) -> int:
         return 0
 
 
-def ist_partially_derived(positions) -> bool:
-    """True, sobald eine Position ohne erfassten Bestand (``current_amount_rappen``
-    fehlt oder <= 0) mit einem Zielbetrag > 0 ins IST eingeht."""
-    for position in positions or []:
-        if _int(getattr(position, "current_amount_rappen", None)) <= 0 and \
-                _int(getattr(position, "target_amount_rappen", None)) > 0:
-            return True
-    return False
+def _derived(position, held_ids) -> bool:
+    if str(getattr(position, "id", "") or "") in held_ids:
+        return False  # Bestand ueber die Holding-Route erfasst (EXT-01)
+    return _int(getattr(position, "current_amount_rappen", None)) <= 0 and \
+        _int(getattr(position, "target_amount_rappen", None)) > 0
+
+
+def ist_partially_derived(positions, held_ids=()) -> bool:
+    """True, sobald eine Position ohne erfassten Bestand (keine Holding,
+    ``current_amount_rappen`` fehlt oder <= 0) mit einem Zielbetrag > 0 ins IST
+    eingeht. ``held_ids``: Positionen mit Bestand aus ``recommendation_holdings``."""
+    held = {str(i) for i in held_ids or ()}
+    return any(_derived(position, held) for position in positions or [])
+
+
+def ist_fully_derived(positions, held_ids=()) -> bool:
+    """True, wenn KEINE Position einen erfassten Bestand hat (IST = SOLL)."""
+    held = {str(i) for i in held_ids or ()}
+    items = list(positions or [])
+    return bool(items) and all(_derived(position, held) or (
+        str(getattr(position, "id", "") or "") not in held
+        and _int(getattr(position, "current_amount_rappen", None)) <= 0) for position in items)

@@ -618,7 +618,11 @@ def _compute_advisory_report_inner(
     # Resolver GARANTIERT None ohne jeden DB-Zugriff (Constraint 1).
     from services.pdf.provisional_notice import resolve_pdf_provisional_notice
     provisional_data_warning = resolve_pdf_provisional_notice(db, mandate)
-    ist_basiert_auf_soll = _current_amounts_missing_for_latest_run(db, mandate)
+    # KN4-B / EXT-01: dieselbe Definition und Bestandsquelle wie der Depotcheck.
+    ist_basiert_auf_soll = (
+        bool(dc.get("ist_teilweise_abgeleitet") or dc.get("ist_basiert_auf_soll"))
+        if "ist_teilweise_abgeleitet" in dc else _current_amounts_missing_for_latest_run(db, mandate)
+    )
     equity_sector_context = _build_equity_sector_context(db, mandate)
     # Sprint U-P28 PR B: Berater-Overrides werden EINMAL geladen und an die
     # vier betroffenen Sektion-Builder weitergegeben. Leere/fehlende Felder
@@ -1829,7 +1833,7 @@ def _check_asset_allocation(dc: dict[str, Any], mandate: Mandate) -> dict[str, A
         (key, b) for key, b in buckets.items()
         if b.get("in_band") is False
     ]
-    if not out_of_band and dc.get("ist_basiert_auf_soll"):
+    if not out_of_band and (dc.get("ist_basiert_auf_soll") or dc.get("ist_teilweise_abgeleitet")):
         # H-172 / KN4-B N-917R3-04: IST (teilweise) aus Zielbetraegen -> kein "gruen".
         return _verdict(
             "Asset Allocation", "nicht_beurteilbar",
