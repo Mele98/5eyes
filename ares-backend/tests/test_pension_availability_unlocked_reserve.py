@@ -291,7 +291,7 @@ def test_property_with_active_linked_mortgage_counts_net_of_debt(session_factory
             id=f"pos-mortgage-{uuid.uuid4().hex[:8]}",
             client_id=client_id,
             label="Hypothek Ferienhaus",
-            position_type="Hypothek",
+            position_type="Hypothek", mortgage_interest_rate_bps=0,  # K1 N-913-01: Satz erfasst (0 %), Testfokus unveraendert
             assignment="Verbindlichkeit",
             current_value_rappen=800_000_00,
             currency="CHF",

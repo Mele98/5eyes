@@ -128,6 +128,9 @@ fx-rates-editor.js 99/5202); Monolith auf den gemessenen Stand: 26668 Z./1640535
 K1 Property-Gate (2026-11-19): Wertsteigerungs- und Amortisationsfeld aus der
 Vermoegensmaske entfernt (Hinweis "Zins und Amortisation als Ausgaben-Cashflow
 erfassen"), "Gemischt" nur noch als Altbestand waehlbar; Monolith 26662 Z./1639661 B.
+K1-Nachtrag 1 (N-913-01/-11): Amortisationsfeld zurueck (Zins/Amortisation werden
+aus den erfassten Werten gerechnet), tote Altmaske #m-edit-hypo entfernt; Monolith
+26632 Z./1637553 B.
 """
 from __future__ import annotations
 
@@ -136,9 +139,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26662
+MONOLITH_MAX_LINES = 26632
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1639661
+MONOLITH_MAX_BYTES = 1637553
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).

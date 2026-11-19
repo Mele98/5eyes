@@ -22,10 +22,12 @@ from typing import Iterable, Mapping
 
 from sqlalchemy.orm import Session
 
+from core.reason_codes import DomainError
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
 from models.review import Product, RecommendationPosition, RecommendationRun
 from models.wealth import WealthPosition
+from services.fx_basis import load_fx_basis, normalize_currency
 from services.product_exposures import (
     aggregate_exposures,
     country_exposure_for_product,
@@ -388,7 +390,7 @@ def _load_positions(
     Original-Block in compute_depot_check.
     """
     positions_with_products: list[tuple[RecommendationPosition, Product]] = []
-    wealth_only_positions: list[tuple[WealthPosition, str]] = []
+    wealth_only_positions: list[tuple[WealthPosition, str, int]] = []
     total_rappen = 0
 
     latest_run = _select_latest_run(db, mandate)
@@ -429,13 +431,20 @@ def _load_positions(
                 )
                 .all()
             )
+            # N-913-04 (K1-Nachtrag 1): zeilenweise ueber die strikte FX-Basis in
+            # die Mandatswaehrung -- nie eine nominale Summe ueber Waehrungen;
+            # fehlender/abgelaufener/Ersatzkurs -> typisierter CCX_FX_BASIS_*-Block.
+            wp_rows = [wp for wp in wp_rows if _safe_int(getattr(wp, "current_value_rappen", 0)) > 0]
+            currencies = {normalize_currency(getattr(wp, "currency", None)) for wp in wp_rows}
+            basis = load_fx_basis(db, getattr(mandate, "base_currency", None) or "CHF", currencies - {""},
+                                  tenant_id=getattr(mandate, "tenant_id", None))
+            basis.require_convertible(currencies)
             for wp in wp_rows:
-                amount = _safe_int(getattr(wp, "current_value_rappen", 0))
-                if amount > 0:
-                    wealth_only_positions.append(
-                        (wp, _bucket_from_position_type(getattr(wp, "position_type", "")))
-                    )
-                    total_rappen += amount
+                amount = basis.convert(_safe_int(wp.current_value_rappen), wp.currency).converted_amount_minor
+                wealth_only_positions.append(
+                    (wp, _bucket_from_position_type(getattr(wp, "position_type", "")), amount)
+                )
+                total_rappen += amount
 
     return positions_with_products, wealth_only_positions, total_rappen
 
@@ -562,7 +571,13 @@ def compute_depot_check(
             db, mandate, holdings_snapshot,
         )
     else:
-        positions_with_products, wealth_only_positions, total_rappen = _load_positions(db, mandate)
+        try:
+            positions_with_products, wealth_only_positions, total_rappen = _load_positions(db, mandate)
+        except DomainError as exc:  # N-913-04: FX-Sperre statt Rohsumme, Analyse ohne Betraege
+            result["total_advisory_wealth_rappen"] = None
+            result["fx_block_reason_code"] = str(exc.reason_code)
+            result["warnings"].append(exc.message)
+            return result
 
     result["total_advisory_wealth_rappen"] = total_rappen
     if total_rappen <= 0:
@@ -663,8 +678,7 @@ def compute_depot_check(
         liquidity_buckets[tier] += amount
 
     # Fallback aus WealthPositions (kein Produkt → keine Exposure-Tiefe)
-    for wp, bucket in wealth_only_positions:
-        amount = _safe_int(getattr(wp, "current_value_rappen", 0))
+    for wp, bucket, amount in wealth_only_positions:  # amount in Mandatswaehrung (N-913-04)
         bucket_amounts_rappen[bucket] = bucket_amounts_rappen.get(bucket, 0) + amount
         weight_bps = int(round(amount / total_rappen * 10000))
         position_records_for_top.append({
@@ -701,12 +715,10 @@ def compute_depot_check(
     # konform meldete -- ein intern widerspruechliches Dokument. Siehe
     # services.risk_assessment_semantics.target_allocation_predates_current_
     # assessment fuer die (jetzt EINE, geteilte) Pruef-Logik.
-    from services.portfolio_engine import _current_risk_assessment_or_none
-    from services.risk_assessment_semantics import (
-        target_allocation_predates_current_assessment,
-    )
+    from services.portfolio_engine import _current_risk_assessment_or_none, risk_assessment_semantics
     current_ra = _current_risk_assessment_or_none(db, mandate.id)
-    result["target_allocation_stale"] = target_allocation_predates_current_assessment(
+    # Lookup zur Laufzeit ueber das Modul (eine Kante weniger, N-913-04).
+    result["target_allocation_stale"] = risk_assessment_semantics.target_allocation_predates_current_assessment(
         ta, getattr(current_ra, "id", None), current_ra
     )
     # ALLOCATION-INPUT-STALENESS-001: Payload/Finalisierung/Strategie-PDF

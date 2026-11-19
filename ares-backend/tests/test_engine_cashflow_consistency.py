@@ -37,7 +37,7 @@ def _now() -> str:
 def test_both_engine_paths_feed_derived_cashflows():
     src_load = inspect.getsource(pe._load_allocation_inputs)
     src_build = inspect.getsource(pe.build_target_payload_from_allocation)
-    assert "derive_wealth_cashflows(all_positions)" in src_load, (
+    assert "derive_wealth_cashflows(require_mortgage_interest_rates(all_positions))" in src_load, (  # K1 N-913-01
         "_load_allocation_inputs speist die vermögensgetriebenen Cashflows nicht mehr ein"
     )
     assert "derive_wealth_cashflows(all_positions)" in src_build, (

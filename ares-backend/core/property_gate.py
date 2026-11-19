@@ -13,11 +13,14 @@ P3-FX-Snapshot; Immobilie als nicht handelbarer Sockel). Hart deaktiviert sind:
   uebrige Vorsorge nur mit belegtem Bezugsdatum (bestehendes Gate).
 * ``goal_funding_method`` Belehnung (jede Position) bzw. Verkauf/Automatisch
   (illiquide Werte).
-* Collateral/LTV, automatische Refinanzierungs- und Amortisationsprojektionen
-  (Zinssprung nach Ablauf/SARON-Frist, sinkende Schuld, verpfaendete
-  3a-Serie) und -- damit es genau EINE Cashflow-Abbildung gibt -- die
-  automatisch abgeleiteten Hypothekar-Cashflows (Zins, Amortisation). Zins und
-  Amortisation erfasst der Berater als Ausgaben-Cashflow; die Maske sagt das.
+* Collateral/LTV, Refinanzierungs- und Schuldabbau-Projektion (Zinssprung nach
+  Ablauf/SARON-Frist, sinkende Schuld, verpfaendete 3a-Serie): die Schuld bleibt
+  in der Prognose konstant.
+  K1-Nachtrag 1 (N-913-01, CTO-Entscheid Variante A erweitert): die laufende
+  Belastung wird weiter abgebildet -- Hypothekarzins (erfasster Satz x aktuelle
+  Schuld, konstant) und Amortisation (erfasster Betrag, konstante Ausgabe)
+  werden als Ausgaben-Cashflow abgeleitet; manuelle Doppelerfassung ist
+  gesperrt; ohne Zinssatz sperrt Generate (MORTGAGE_INTEREST_RATE_MISSING).
 * die angenommene Wertsteigerung der Direktimmobilie
   (``asset_expected_return_bps``) als Prognose-/Optimizer-Input.
 * positive Claims aus Belehnung/Veraeusserung (folgen aus den Punkten oben).
@@ -57,7 +60,6 @@ MIXED_MORTGAGE_TYPE = "Gemischt"
 
 FEATURE_GOAL_FUNDING_COLLATERAL = "goal_funding_collateral"
 FEATURE_GOAL_FUNDING_METHOD = "goal_funding_method"
-FEATURE_AMORTIZATION_PROJECTION = "mortgage_amortization_projection"
 FEATURE_PROPERTY_RETURN_INPUT = "property_return_input"
 REVIEW_MORTGAGE_TYPE_MIXED = "mortgage_type_mixed_legacy"
 
@@ -67,9 +69,9 @@ REVIEW_SCHEMA = "ares/property-gate-review/1"
 
 DISABLED_HINT = (
     "Erweiterte Immobilien-/Belehnungsfunktionen sind bis zur Abnahme deaktiviert "
-    "(Verkauf/Belehnung zur Zielfinanzierung, Amortisations-/Refinanzierungsprojektion, "
+    "(Verkauf/Belehnung zur Zielfinanzierung, Refinanzierungs-/Schuldabbau-Projektion, "
     "angenommene Wertsteigerung). Immobilie und Hypothek bleiben normal erfassbar; "
-    "Hypothekarzins und Amortisation bitte als Ausgaben-Cashflow erfassen."
+    "Hypothekarzins und Amortisation werden aus den erfassten Werten gerechnet."
 )
 MIXED_HINT = (
     "Hypothekartyp 'Gemischt' wird nicht mehr angenommen: bitte als zwei Hypotheken "
@@ -79,7 +81,7 @@ MIXED_HINT = (
 NEUTRAL_VALUES = {"set_0": 0, "set_" + NEUTRAL_FUNDING_METHOD: NEUTRAL_FUNDING_METHOD, "set_null": None}
 LEGACY_COLUMNS = (
     "id", "client_id", "position_type", "pension_vehicle", "is_available_for_goal_funding",
-    "goal_funding_method", "mortgage_amortization_rappen", "asset_expected_return_bps",
+    "goal_funding_method", "asset_expected_return_bps",
     "mortgage_type", "property_gate_review_json",
 )
 
@@ -138,11 +140,22 @@ def disabled_features(position_type: Any, values: Mapping[str, Any]) -> list[str
     method = values.get("goal_funding_method")
     if method in COLLATERAL_FUNDING_METHODS or (method in LIQUID_ONLY_FUNDING_METHODS and illiquid):
         found.append(FEATURE_GOAL_FUNDING_METHOD)
-    if ptype == MORTGAGE and int(values.get("mortgage_amortization_rappen") or 0) > 0:
-        found.append(FEATURE_AMORTIZATION_PROJECTION)
     if ptype == DIRECT_REAL_ESTATE and int(values.get("asset_expected_return_bps") or 0) != 0:
         found.append(FEATURE_PROPERTY_RETURN_INPUT)
     return found
+
+
+def mortgages_without_interest_rate(positions) -> list[str]:
+    """Aktive Hypotheken mit Schuld > 0 ohne erfassten Zinssatz (N-913-01:
+    kein stilles 0 -- Generate sperrt typisiert)."""
+    return sorted(
+        str(getattr(p, "label", None) or getattr(p, "id", None) or MORTGAGE) for p in positions or []
+        if canonical_type(getattr(p, "position_type", None)) == MORTGAGE
+        and not getattr(p, "deleted_at", None)
+        and int(getattr(p, "is_active", 1) or 0) == 1
+        and int(getattr(p, "current_value_rappen", 0) or 0) > 0
+        and getattr(p, "mortgage_interest_rate_bps", None) is None
+    )
 
 
 def mixed_mortgage_rejected(position_type: Any, new_type: Any, current_type: Any = None) -> bool:
@@ -168,10 +181,6 @@ def review_findings(row: Mapping[str, Any]) -> list[dict[str, Any]]:
     if method in COLLATERAL_FUNDING_METHODS or (method in LIQUID_ONLY_FUNDING_METHODS and illiquid):
         out.append({"feature": FEATURE_GOAL_FUNDING_METHOD, "field": "goal_funding_method",
                     "previous": method, "action": "set_" + NEUTRAL_FUNDING_METHOD})
-    amortization = int(row.get("mortgage_amortization_rappen") or 0)
-    if ptype == MORTGAGE and amortization > 0:
-        out.append({"feature": FEATURE_AMORTIZATION_PROJECTION, "field": "mortgage_amortization_rappen",
-                    "previous": amortization, "action": "set_0"})
     growth = int(row.get("asset_expected_return_bps") or 0)
     if ptype == DIRECT_REAL_ESTATE and growth != 0:
         out.append({"feature": FEATURE_PROPERTY_RETURN_INPUT, "field": "asset_expected_return_bps",
@@ -221,7 +230,7 @@ def model_basis_labels() -> dict[str, str]:
         }
     return {
         "property_advanced_features": "disabled_until_p1_closure_v1",
-        "mortgage_cashflow_treatment": "manual_cashflow_only_v1",
+        "mortgage_cashflow_treatment": "derived_flat_interest_and_amortization_v1",
         "indirect_amortization_treatment": "disabled_until_p1_closure_v1",
         "direct_real_estate_return_basis": "nominal_flat_plus_explicit_rent_v1",
     }
@@ -237,6 +246,7 @@ __all__ = [
     "mixed_mortgage_rejected",
     "model_basis_labels",
     "mortgage_projection_enabled",
+    "mortgages_without_interest_rate",
     "neutralization_update",
     "review_findings",
     "review_json",

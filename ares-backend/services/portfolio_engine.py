@@ -67,12 +67,13 @@ from services.cashflow_timeline import (
     totals_for_year,
 )
 from core.fx_freshness import (  # K1 E2E-03
-    INPUT_SNAPSHOT_VERSION_FX_EFFECTIVE, fx_freshness_projection_context, used_foreign_currencies,
+    INPUT_SNAPSHOT_VERSION_FX_EFFECTIVE, fx_freshness_projection_context, predates_fx_effective_hash,
+    stale_allocation_message, used_foreign_currencies,
 )
 from core.property_gate import effective_property_growth_bps, goal_funding_flag_counts, mortgage_projection_enabled  # K1
 from services.wealth_cashflows import (
     derive_tax_cashflow,
-    derive_wealth_cashflows,
+    derive_wealth_cashflows, require_mortgage_interest_rates,  # K1 N-913-01
     mortgage_amortization_adjustment_series,
     mortgage_interest_adjustment_series,
 )
@@ -104,6 +105,7 @@ from services.risk_matrix import (
     classify_limiting_factor,
     compute_portfolio_risky_fraction_bps,
 )
+import services.risk_assessment_semantics as risk_assessment_semantics  # noqa: E402 -- depot_check (Laufzeit-Lookup)
 from services.risk_assessment_semantics import (
     OVERRIDE_AFTER_ALLOCATION_MESSAGE,
     assessment_overridden_after_allocation,
@@ -2224,7 +2226,7 @@ def _load_allocation_inputs(
     # Miet-/Zinserträge) auch in die Engine-Projektion/Reserve einspeisen, damit
     # Strategie-Verzehr und Cashflow-Ansicht 1:1 dieselben Posten sehen.
     # Roadmap #39 (2026-08-07): optional geschaetzte Vermoegenssteuer dito.
-    derived_wealth_cashflows = derive_wealth_cashflows(all_positions)
+    derived_wealth_cashflows = derive_wealth_cashflows(require_mortgage_interest_rates(all_positions))
     derived_tax_cashflows = derive_tax_cashflow(mandate, total_wealth_rappen)
     cashflows = (
         list(cashflows)
@@ -5935,20 +5937,9 @@ def build_target_payload_from_allocation(
         stored_input_snapshot_hash
         and stored_input_snapshot_hash not in accepted_current_snapshot_hashes
     ):
-        fx_changed = fx_rates_changed_since(
-            db, used_foreign_currencies(current_projection_context), getattr(allocation, "created_at", None),
-        )
-        if fx_changed:
-            raise StaleAllocationInputError(
-                f"Die gespeicherte Soll-Allokation ist veraltet: Wechselkurs {', '.join(fx_changed)} seit der "
-                "Berechnung geaendert. Bitte Strategie neu berechnen; alte Targets werden nicht mit einer "
-                "aktuellen Analyse kombiniert.")
-        raise StaleAllocationInputError(
-            "Die gespeicherte Soll-Allokation ist veraltet: Vermoegen, "
-            "Cashflows oder Ziele haben sich seit der Berechnung geaendert. "
-            "Bitte Strategie neu berechnen; alte Targets werden nicht mit "
-            "einer aktuellen Analyse kombiniert."
-        )
+        raise StaleAllocationInputError(stale_allocation_message(  # K1 E2E-03/N-913-02: wahre Ursache
+            fx_rates_changed_since(db, used_foreign_currencies(current_projection_context), allocation.created_at),
+            predates_fx_effective_hash(getattr(allocation, "effective_constraints_json", None))))
     if input_snapshot_check_only:
         # ALLOCATION-INPUT-STALENESS-001: Lese-Oberflaechen (Depot-Check,
         # Beratungsreport) brauchen nur die Anker-Aussage, nicht die

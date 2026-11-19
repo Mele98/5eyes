@@ -31,7 +31,6 @@ from core.property_gate import (  # K1 Property-Gate
     MIXED_HINT as MORTGAGE_MIXED_HINT,
     disabled_features as property_disabled_features,
     mixed_mortgage_rejected,
-    mortgage_projection_enabled,
 )
 from services.goal_lifecycle_transitions import (
     invalidate_goal_achievability_evidence,
@@ -679,9 +678,7 @@ def _validate_no_mortgage_amortization_double_count(
         label = existing.label
     effective_type = str(cashflow_type or "")
 
-    if effective_type == "Expense" and mortgage_projection_enabled():
-        # K1 Property-Gate: ohne automatische Hypothekar-Cashflows sind Zins und
-        # Amortisation als manueller Ausgaben-Cashflow erforderlich (keine Sperre).
+    if effective_type == "Expense":
         if _is_amortization_label(label) and _has_active_mortgage_liability(client_id, db):
             raise HTTPException(
                 status_code=422,
@@ -729,7 +726,6 @@ def _validate_no_manual_flow_duplicated_by_new_position(
     if (
         str(position_type or "") == "Hypothek"
         and str(assignment or "") == "Verbindlichkeit"
-        and mortgage_projection_enabled()  # K1 Property-Gate: keine Automatik
     ):
         conflicting = db.query(Cashflow).filter(
             Cashflow.client_id == client_id,
@@ -1130,8 +1126,12 @@ def update_wealth_position(
             wp.asset_expected_return_bps,
         ),
     )
+    # N-913-05: gegen den zusammengefuehrten Zustand pruefen (z. B. Vehikelwechsel
+    # zur Police bei gesetztem Goal-Funding-Flag), nicht nur gegen die gesendeten Felder.
+    merged_gate_fields = ("is_available_for_goal_funding", "goal_funding_method", "asset_expected_return_bps",
+                          "pension_vehicle")
     require_property_write_allowed(
-        wp.position_type, {**updates, "pension_vehicle": updates.get("pension_vehicle", wp.pension_vehicle)},
+        wp.position_type, {f: updates.get(f, getattr(wp, f, None)) for f in merged_gate_fields},
     )
     if "mortgage_type" in updates:
         require_mortgage_type_allowed(wp.position_type, updates["mortgage_type"], wp.mortgage_type)

@@ -3425,11 +3425,12 @@ function _wireSollIstHover(){
     <div class="fg"><label class="fl">Laufzeit bis</label><input class="fi" id="maw-mortgage-maturity" type="date"></div>
   </div>
   <div class="frow">
-    <div class="fg" style="font-size:10px;color:var(--n5);line-height:1.4">Zins und Amortisation fliessen nicht automatisch in die Prognose: bitte als Ausgaben-Cashflow erfassen.</div>
+    <div class="fg"><label class="fl">Amortisation p.a. (<span class="ccy">CHF</span>)</label><input class="fi" id="maw-mortgage-amortization" type="number" placeholder="20000"></div>
     <div class="fg"><label class="fl">Amortisationstyp</label>
       <select class="fsel" id="maw-mortgage-amortization-type"><option>Indirekt (Säule 3a)</option><option>Direkt</option><option>Keine</option></select>
     </div>
   </div>
+  <div style="font-size:10px;color:var(--n5);line-height:1.4;margin:-2px 0 6px">Zins (Satz × heutige Schuld) und Amortisation werden aus den erfassten Werten als Ausgaben gerechnet – nicht zusätzlich als Cashflow erfassen. Schuldabbau und Refinanzierung werden nicht prognostiziert.</div>
     <div class="frow"><div class="fg"><label class="fl">Verknüpfte Immobilie</label><select class="fsel" id="maw-mortgage-linked-property"><option value="">Keine direkte Verknüpfung</option></select><div id="maw-mortgage-linked-property-hint" style="font-size:10px;color:var(--n4);margin-top:4px">Optional: Hypothek einer bereits erfassten Immobilienposition zuordnen.</div></div></div>
 </div>
 
@@ -8980,39 +8981,6 @@ function protokolliereEreignis(){
   console.log('Ereignis protokolliert. Kalender-Export (.ics) heruntergeladen – in Outlook öffnen zum Importieren.');
 }
 </script>
-<div class="overlay" id="m-edit-hypo">
-  <div class="modal" style="width:480px">
-    <div class="mhd"><div class="mtitle">Hypothek / Kredit bearbeiten</div><button class="mx" onclick="cm('m-edit-hypo')">✕</button></div>
-    <div class="mbody">
-      <div class="frow">
-        <div class="fg"><label class="fl">Bezeichnung</label><input class="fi" value="Hypothek Eigentumswohnung" placeholder="z.B. Hypothek EFH Zürich"></div>
-        <div class="fg"><label class="fl">Kreditgeberin (Bank)</label><input class="fi" value="ZKB" placeholder="z.B. UBS, ZKB, Raiffeisen"></div>
-      </div>
-      <div class="frow">
-        <div class="fg"><label class="fl">Ausstehender Betrag (CHF)</label><input class="fi" value="780000" type="number"></div>
-        <div class="fg"><label class="fl">Hypothekartyp</label><select class="fsel"><option selected>Festhypothek</option><option>SARON/Variable</option><option>Libor-Nachfolger</option><option>Gemischt</option></select></div>
-      </div>
-      <div class="frow">
-        <div class="fg"><label class="fl">Zinssatz (%)</label><input class="fi" type="number" step="0.01" value="1.85" placeholder="z.B. 1.85"></div>
-        <div class="fg"><label class="fl">Laufzeit bis</label><input class="fi" type="date" value="2028-03-31"></div>
-      </div>
-      <div class="frow">
-        <div class="fg"><label class="fl">Amortisation p.a. (CHF)</label><input class="fi" type="number" value="20000" placeholder="0 = keine"></div>
-        <div class="fg"><label class="fl">Amortisationstyp</label><select class="fsel"><option selected>Indirekt (3a)</option><option>Direkt</option><option>Keine</option></select></div>
-      </div>
-      <div class="frow">
-        <div class="fg"><label class="fl">Verknüpfte Immobilie</label><input class="fi" value="Eigentumswohnung Zürich" placeholder="Verweis auf Immobilien-Position"></div>
-        <div class="fg"><label class="fl">Belehnungswert (%)</label><input class="fi" type="number" value="65" placeholder="z.B. 65%"></div>
-      </div>
-      <div class="frow"><div class="fg"><label class="fl">Bemerkung</label><input class="fi" placeholder="Erneuerung geplant, Sondertilgung möglich..."></div></div>
-    </div>
-    <div class="mfooter">
-      <button class="btn" onclick="cm('m-edit-hypo')">Abbrechen</button>
-      <button style="background:var(--neg);color:#fff;border:none;border-radius:var(--r);font-family:var(--f-s);font-size:11px;padding:6px 13px;cursor:pointer;margin-right:auto" onclick="cm('m-edit-hypo')">Löschen</button>
-      <button class="btn-p" onclick="cm('m-edit-hypo')">Speichern</button>
-    </div>
-  </div>
-</div>
 <div class="overlay" id="m-edit-custom">
   <div class="modal" style="width:480px">
     <div class="mhd"><div class="mtitle">Custom Asset / Vorsorge bearbeiten</div><button class="mx" onclick="cm('m-edit-custom')">✕</button></div>
@@ -16481,7 +16449,7 @@ var liveClientLoadToken=0;
       'maw-pension-label','maw-pension-institution','maw-pension-value','maw-pension-rate','maw-pension-age','maw-pension-available',
       'maw-pension-interest','maw-pension-maturity-value','maw-pension-maturity-date','maw-pension-tax-chf','maw-pension-tax-pct',
       'maw-alt-label','maw-alt-value','maw-alt-valuation-date','maw-alt-return','maw-alt-location',
-      'maw-mortgage-label','maw-mortgage-bank','maw-mortgage-value','maw-mortgage-rate','maw-mortgage-maturity',
+      'maw-mortgage-label','maw-mortgage-bank','maw-mortgage-value','maw-mortgage-rate','maw-mortgage-maturity','maw-mortgage-amortization',
       'maw-note'
     ].forEach(function(id){ setInputValue(id,''); });
     ['sc-akt','sc-obl','sc-imm','sc-liq','sc-alt'].forEach(function(id){ setInputValue(id,'0'); });
@@ -16588,6 +16556,7 @@ var liveClientLoadToken=0;
       setSelectValue('maw-mortgage-type',pos.mortgage_type||'Festhypothek');
       setInputValue('maw-mortgage-rate',formatInputPercent(pos.mortgage_interest_rate_bps));
       setInputValue('maw-mortgage-maturity',pos.mortgage_maturity_date||'');
+      setInputValue('maw-mortgage-amortization',formatInputCHF(pos.mortgage_amortization_rappen));
       setSelectValue('maw-mortgage-amortization-type',pos.mortgage_amortization_type||'Indirekt (Säule 3a)');
       updateMortgageLinkedPropertyOptions(pos.mortgage_linked_property_id||'');
     }
@@ -23719,6 +23688,7 @@ function buildWealthPositionPayload(cat,typ,note){
     payload.mortgage_type=getInputValue('maw-mortgage-type')||null;
     payload.mortgage_interest_rate_bps=parsePercentToBps(getInputValue('maw-mortgage-rate'));
     payload.mortgage_maturity_date=getInputValue('maw-mortgage-maturity')||null;
+    payload.mortgage_amortization_rappen=parseCHF(getInputValue('maw-mortgage-amortization'));
     payload.mortgage_amortization_type=getInputValue('maw-mortgage-amortization-type')||null;
     payload.mortgage_linked_property_id=getInputValue('maw-mortgage-linked-property').trim()||null;
   }

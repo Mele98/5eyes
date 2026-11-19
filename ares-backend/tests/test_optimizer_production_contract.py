@@ -721,7 +721,7 @@ def test_generate_and_reload_label_decision_and_implementation_model_bases(
                 "disabled_until_p1_closure_v1"
             )
             assert model_view["property_advanced_features"] == "disabled_until_p1_closure_v1"
-            assert model_view["mortgage_cashflow_treatment"] == "manual_cashflow_only_v1"
+            assert model_view["mortgage_cashflow_treatment"] == "derived_flat_interest_and_amortization_v1"
             assert model_view["direct_real_estate_scope"] == (
                 "external_total_wealth"
             )

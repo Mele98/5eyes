@@ -27,7 +27,8 @@ import math
 from dataclasses import dataclass, asdict
 from typing import Optional
 
-from core.property_gate import mortgage_projection_enabled
+from core.property_gate import mortgage_projection_enabled, mortgages_without_interest_rate
+from core.reason_codes import DomainError, ReasonCode
 from services.wealth_position_semantics import (
     is_direct_real_estate_position,
     is_liquidity_position,
@@ -303,6 +304,21 @@ def mortgage_amortization_adjustment_series(
     return adjustment
 
 
+def require_mortgage_interest_rates(positions: list) -> list:
+    """K1-Nachtrag 1 (N-913-01): vor Generate -- eine Hypothek mit Schuld > 0
+    ohne Zinssatz wuerde still mit 0 % gerechnet. 409 mit Wegweiser statt
+    stillem 0; liefert die Positionen unveraendert zurueck."""
+    missing = mortgages_without_interest_rate(positions)
+    if missing:
+        raise DomainError(
+            ReasonCode.MORTGAGE_INTEREST_RATE_MISSING,
+            "Fuer die Hypothek " + ", ".join(missing) + " ist kein Zinssatz erfasst. Bitte unter "
+            "Vermoegen den Zinssatz der Hypothek nachtragen; ohne Zinssatz wird keine Strategie berechnet.",
+            extra={"positions": missing},
+        )
+    return positions
+
+
 def derive_wealth_cashflows(positions: list) -> list[DerivedCashflow]:
     """Erzeugt die abgeleiteten Cashflows für eine Liste von Vermögenspositionen.
 
@@ -354,12 +370,8 @@ def derive_wealth_cashflows(positions: list) -> list[DerivedCashflow]:
             ))
 
         if is_mortgage_position(ptype):
-            if not mortgage_projection_enabled():
-                # K1 Property-Gate (Codex-Entscheid 2026-11-19): Hypothekarzins
-                # und Amortisation erfasst der Berater als Ausgaben-Cashflow
-                # (Hinweis in der Maske). Die Automatik liefert nichts -- so
-                # gibt es genau EINE Abbildung und keine Doppelzaehlung.
-                continue
+            # K1-Nachtrag 1 (N-913-01): laufende Belastung zum erfassten Satz bzw.
+            # Betrag, konstant (Refinanzierung/Schuldabbau bleiben deaktiviert).
             _mk("mortgage_interest", "Expense",
                 _rate_amount(value, getattr(pos, "mortgage_interest_rate_bps", 0)),
                 f"Hypothekarzins: {label}")

@@ -101,18 +101,17 @@ def test_property_advanced_writes_are_rejected_typed(api, advisor_user, extra, f
     assert api.get(f"/clients/{client_id}/wealth-positions").json() == []
 
 
-def test_amortization_amount_and_update_paths_are_rejected(api, advisor_user):
+def test_amortization_amount_is_allowed_and_update_paths_are_gated(api, advisor_user):
+    """K1-Nachtrag 1 (N-913-01): Amortisation ist wieder erfassbar (konstante
+    Ausgabe); die uebrigen deaktivierten Funktionen bleiben auch im Update 409."""
     client_id = _client(api, advisor_user)
     home = api.post(f"/clients/{client_id}/wealth-positions", json=HOME).json()
     resp = api.post(f"/clients/{client_id}/wealth-positions",
                     json=_mortgage(home["id"], mortgage_amortization_rappen=20_000_00))
-    assert resp.status_code == 409 and _code(resp) == "PROPERTY_ADVANCED_FEATURE_DISABLED"
-    assert resp.json()["detail"]["features"] == ["mortgage_amortization_projection"]
-
-    mortgage = api.post(f"/clients/{client_id}/wealth-positions", json=_mortgage(home["id"])).json()
-    upd = api.put(f"/clients/{client_id}/wealth-positions/{mortgage['id']}",
+    assert resp.status_code == 201, resp.text[:300]
+    upd = api.put(f"/clients/{client_id}/wealth-positions/{resp.json()['id']}",
                   json={"mortgage_amortization_rappen": 10_000_00})
-    assert upd.status_code == 409 and _code(upd) == "PROPERTY_ADVANCED_FEATURE_DISABLED"
+    assert upd.status_code == 200, upd.text[:300]
     upd = api.put(f"/clients/{client_id}/wealth-positions/{home['id']}",
                   json={"is_available_for_goal_funding": True})
     assert upd.status_code == 409 and _code(upd) == "PROPERTY_ADVANCED_FEATURE_DISABLED"
@@ -124,6 +123,24 @@ def test_amortization_amount_and_update_paths_are_rejected(api, advisor_user):
                  json={"is_available_for_goal_funding": False, "goal_funding_method": "Ignorieren",
                        "asset_expected_return_bps": 0})
     assert ok.status_code == 200, ok.text[:300]
+
+
+def test_pension_vehicle_change_to_police_is_gated_on_merged_state(api, advisor_user):
+    """N-913-05: Vorsorge-Konto mit Goal-Funding-Flag (zulaessig) darf nicht per
+    Vehikelwechsel zur Police mit gesetztem Flag werden."""
+    client_id = _client(api, advisor_user)
+    konto = api.post(f"/clients/{client_id}/wealth-positions", json={
+        "label": "Synthetic vested account", "position_type": "Vorsorge", "assignment": "Anderes Vermögen",
+        "current_value_rappen": 100_000_00, "currency": "CHF", "pension_type": "Freizügigkeit",
+        "pension_vehicle": "Konto", "is_available_for_goal_funding": True, "data_classification": "synthetic",
+    })
+    assert konto.status_code == 201, konto.text[:300]
+    upd = api.put(f"/clients/{client_id}/wealth-positions/{konto.json()['id']}", json={"pension_vehicle": "Police"})
+    assert upd.status_code == 409 and _code(upd) == "PROPERTY_ADVANCED_FEATURE_DISABLED", upd.text[:300]
+    assert upd.json()["detail"]["features"] == ["goal_funding_collateral"]
+    both = api.put(f"/clients/{client_id}/wealth-positions/{konto.json()['id']}",
+                   json={"pension_vehicle": "Police", "is_available_for_goal_funding": False})
+    assert both.status_code == 200, both.text[:300]
 
 
 def test_liquid_positions_keep_goal_funding_flag(api, advisor_user):
@@ -163,7 +180,8 @@ def test_ch_home_and_mortgage_fully_capturable_without_double_count(api, advisor
     home = home.json()
     assert (home["current_value_rappen"], home["currency"], home["valuation_date"],
             home["asset_valuation_method"]) == (1_200_000_00, "CHF", "2026-11-18", "Fachgutachten")
-    mortgage = api.post(f"/clients/{client_id}/wealth-positions", json=_mortgage(home["id"]))
+    mortgage = api.post(f"/clients/{client_id}/wealth-positions",
+                        json=_mortgage(home["id"], mortgage_amortization_rappen=10_000_00))
     assert mortgage.status_code == 201, mortgage.text[:300]
     mortgage = mortgage.json()
     assert (mortgage["mortgage_type"], mortgage["mortgage_interest_rate_bps"],
@@ -180,40 +198,63 @@ def test_ch_home_and_mortgage_fully_capturable_without_double_count(api, advisor
     assert summary["net_worth_rappen"] == 1_050_000_00
     assert summary["advisory_wealth_rappen"] == 450_000_00
 
-    # Keine Automatik: weder Zins noch Amortisation werden abgeleitet ...
-    derived = api.get(f"/clients/{client_id}/cashflows-derived").json()
-    assert [d for d in derived if d["origin_position_type"] == "Hypothek"] == []
-    # ... der Berater erfasst den Zins als Ausgaben-Cashflow (nicht gesperrt) ...
-    manual = api.post(f"/clients/{client_id}/cashflows", json={
-        "cashflow_type": "Expense", "label": "Hypothekarzins", "amount_rappen": 8_400_00,
-        "frequency": "jährlich", "nature": "wiederkehrend", "data_classification": "synthetic",
-    })
-    assert manual.status_code == 201, manual.text[:300]
-    amort = api.post(f"/clients/{client_id}/cashflows", json={
-        "cashflow_type": "Expense", "label": "Amortisation Hypothek", "amount_rappen": 10_000_00,
-        "frequency": "jährlich", "nature": "wiederkehrend", "data_classification": "synthetic",
-    })
-    assert amort.status_code == 201, amort.text[:300]
-    # ... und beides zaehlt genau einmal.
+    # N-913-01: Zins (Satz x heutige Schuld) und Amortisation werden abgeleitet ...
+    derived = {d["label"]: d["amount_rappen"] for d in api.get(f"/clients/{client_id}/cashflows-derived").json()
+               if d["origin_position_type"] == "Hypothek"}
+    assert derived == {"Hypothekarzins: Synthetic mortgage": 8_400_00,
+                       "Amortisation: Synthetic mortgage": 10_000_00}, derived
+    # ... eine manuelle Doppelerfassung ist gesperrt ...
+    for label in ("Hypothekarzins", "Amortisation Hypothek"):
+        blocked = api.post(f"/clients/{client_id}/cashflows", json={
+            "cashflow_type": "Expense", "label": label, "amount_rappen": 8_400_00,
+            "frequency": "jährlich", "nature": "wiederkehrend", "data_classification": "synthetic",
+        })
+        assert blocked.status_code == 422, (label, blocked.text[:300])
+    # ... und die Belastung zaehlt genau einmal (konstant, kein Schuldabbau).
     totals = api.get(f"/clients/{client_id}/cashflow-summary").json()
     assert totals["recurring_expense_rappen"] == 18_400_00, totals
 
 
-def test_manual_mortgage_interest_would_double_count_with_dormant_automatic(
-    api, advisor_user, property_advanced_mechanics_enabled,
-):
-    """Gegenprobe: mit der (dormanten) Automatik wird der Zins abgeleitet und der
-    manuelle Eintrag deshalb gesperrt -- genau die Doppelzaehlung, die das Gate
-    durch "nur manuell" ausschliesst."""
+def test_guard_counterproof_manual_mortgage_interest_double_counts_without_guard(api, advisor_user, monkeypatch):
+    """Gegenprobe Guard: ohne die Hypothekarzins-Erkennung wird der manuelle
+    Eintrag angenommen und die Belastung doppelt gezaehlt (8'400 + 8'400)."""
+    import routers.wealth as wealth_router
+
+    monkeypatch.setattr(wealth_router, "_is_mortgage_interest_label", lambda _label: False)
     client_id = _client(api, advisor_user)
     api.post(f"/clients/{client_id}/wealth-positions", json=_mortgage())
-    derived = api.get(f"/clients/{client_id}/cashflows-derived").json()
-    assert any(d["origin_position_type"] == "Hypothek" for d in derived)
-    blocked = api.post(f"/clients/{client_id}/cashflows", json={
+    manual = api.post(f"/clients/{client_id}/cashflows", json={
         "cashflow_type": "Expense", "label": "Hypothekarzins", "amount_rappen": 8_400_00,
-        "frequency": "jährlich", "data_classification": "synthetic",
+        "frequency": "jährlich", "nature": "wiederkehrend", "data_classification": "synthetic",
     })
-    assert blocked.status_code == 422
+    assert manual.status_code == 201
+    assert api.get(f"/clients/{client_id}/cashflow-summary").json()["recurring_expense_rappen"] == 16_800_00
+
+
+def test_mortgage_without_interest_rate_blocks_generate(api, advisor_user):
+    """N-913-01: kein stilles 0 % -- Generate sperrt typisiert mit Wegweiser."""
+    from tests.test_e2e_thierry_goessi_walkthrough import (
+        _seed_cashflows, _seed_goals, _seed_products, _seed_risk_profile, _seed_wealth,
+    )
+
+    client_id, mandate_id = _create_client_and_mandate(api, advisor_user, "CHF")
+    _seed_cashflows(api, client_id)
+    _seed_wealth(api, client_id)
+    _seed_goals(api, mandate_id)
+    assert _seed_risk_profile(api, mandate_id).get("final_profile")
+    _seed_products(api, advisor_user)
+    norate = api.post(f"/clients/{client_id}/wealth-positions",
+                      json={**_mortgage(), "label": "Hypothek ohne Satz", "mortgage_interest_rate_bps": None})
+    assert norate.status_code == 201, norate.text[:300]
+    blocked = api.post(f"/mandates/{mandate_id}/target-allocation/generate", json={"preferences": {}})
+    assert blocked.status_code == 409 and _code(blocked) == "MORTGAGE_INTEREST_RATE_MISSING", blocked.text[:300]
+    assert "Hypothek ohne Satz" in blocked.json()["detail"]["message"]
+    # Satz nachgetragen -> Generate laeuft.
+    fixed = api.put(f"/clients/{client_id}/wealth-positions/{norate.json()['id']}",
+                    json={"mortgage_interest_rate_bps": 150})
+    assert fixed.status_code == 200
+    ok = api.post(f"/mandates/{mandate_id}/target-allocation/generate", json={"preferences": {}})
+    assert ok.status_code in (200, 201), ok.text[:300]
 
 
 # ── 4. Engine ──────────────────────────────────────────────────────────────
@@ -242,7 +283,7 @@ MORTGAGE_POS = dict(id="mort", position_type="Hypothek", assignment="Verbindlich
                     mortgage_linked_property_id="home")
 
 
-def test_engine_ignores_collateral_growth_amortization_and_refinancing():
+def test_engine_ignores_collateral_growth_debt_reduction_and_refinancing():
     home, mortgage = _pos(**HOME_POS), _pos(**MORTGAGE_POS)
     savings = _pos(id="sav", position_type="Liquidität", assignment="Anderes Vermögen",
                    current_value_rappen=30_000_00, is_available_for_goal_funding=1)
@@ -253,10 +294,36 @@ def test_engine_ignores_collateral_growth_amortization_and_refinancing():
     assert foundation["property_series_rappen"] == [1_000_000_00] * 6
     assert foundation["liability_series_rappen"] == [400_000_00] * 6
     assert foundation["pledged_asset_series_rappen"] == [0] * 6
-    # Cashflows: keine Hypothekar-Automatik, keine Refi-/Amortisationskorrektur.
-    assert [d for d in derive_wealth_cashflows([home, mortgage]) if d.origin_position_type == "Hypothek"] == []
+    # Cashflows: laufende Belastung konstant abgeleitet (N-913-01), keine
+    # Refinanzierungs- und keine Schuldabbau-/Payoff-Korrektur.
+    flows = {d.label: d.amount_rappen for d in derive_wealth_cashflows([home, mortgage])
+             if d.origin_position_type == "Hypothek"}
+    assert flows == {"Hypothekarzins: x": 6_000_00, "Amortisation: x": 10_000_00}
     assert mortgage_interest_adjustment_series([mortgage], 6, 2026) == [0] * 6
     assert mortgage_amortization_adjustment_series([mortgage], 60) == [0] * 60
+
+
+def test_derived_mortgage_flows_disappear_when_derivation_is_removed(monkeypatch):
+    """Gegenprobe Ableitung: ohne Hypothekar-Zweig in derive_wealth_cashflows
+    (Stand K1 vor Nachtrag 1) fehlt die Belastung -- der Test oben wird rot."""
+    import services.wealth_cashflows as wc
+
+    mortgage = _pos(**MORTGAGE_POS)
+    monkeypatch.setattr(wc, "is_mortgage_position", lambda _ptype: False)
+    assert [d for d in wc.derive_wealth_cashflows([mortgage]) if d.origin_position_type == "Hypothek"] == []
+
+
+def test_rate_check_blocks_only_missing_rates():
+    from core.reason_codes import DomainError
+    from services.wealth_cashflows import require_mortgage_interest_rates
+
+    ok = [_pos(**MORTGAGE_POS), _pos(id="zero", position_type="Hypothek", current_value_rappen=0,
+                                     mortgage_interest_rate_bps=None)]
+    assert require_mortgage_interest_rates(ok) is ok
+    with pytest.raises(DomainError) as exc:
+        require_mortgage_interest_rates([_pos(**{**MORTGAGE_POS, "mortgage_interest_rate_bps": None, "label": "M"})])
+    assert exc.value.reason_code == "MORTGAGE_INTEREST_RATE_MISSING"
+    assert exc.value.as_detail()["positions"] == ["M"]
 
 
 def test_engine_mechanics_differ_when_dormant_path_is_enabled(property_advanced_mechanics_enabled):
@@ -273,7 +340,7 @@ def test_engine_mechanics_differ_when_dormant_path_is_enabled(property_advanced_
 def test_model_basis_labels_bind_gate_state():
     labels = gate.model_basis_labels()
     assert labels["property_advanced_features"] == "disabled_until_p1_closure_v1"
-    assert labels["mortgage_cashflow_treatment"] == "manual_cashflow_only_v1"
+    assert labels["mortgage_cashflow_treatment"] == "derived_flat_interest_and_amortization_v1"
 
 
 # ── 5. Migration ───────────────────────────────────────────────────────────
@@ -337,10 +404,11 @@ def test_migration_neutralizes_and_logs_owner_review_idempotently(tmp_path):
         ("is_available_for_goal_funding", 1), ("goal_funding_method", "Belehnung"),
         ("asset_expected_return_bps", 200)}
     # Amortisation neutralisiert, "Gemischt" bleibt (offen gemeldet).
-    assert rows["mort"]["mortgage_amortization_rappen"] == 0
+    # N-913-01: Amortisation bleibt (konstante Ausgabe); "Gemischt" bleibt, offen gemeldet.
+    assert rows["mort"]["mortgage_amortization_rappen"] == 30_000_00
     assert rows["mort"]["mortgage_type"] == "Gemischt"
     mort_features = {f["feature"] for f in json.loads(rows["mort"]["property_gate_review_json"])["findings"]}
-    assert mort_features == {"mortgage_amortization_projection", "mortgage_type_mixed_legacy"}
+    assert mort_features == {"mortgage_type_mixed_legacy"}
     assert json.loads(rows["mixed-only"]["property_gate_review_json"])["findings"][0]["action"] == "keep_open"
     # Liquide Position unveraendert, kein Fall.
     assert (rows["cash"]["is_available_for_goal_funding"], rows["cash"]["goal_funding_method"],
@@ -398,11 +466,70 @@ def test_alembic_k1_single_head_upgrade_downgrade_and_column_parity(tmp_path, mo
     assert set(columns(orm_db)) == alembic_cols
 
 
-def test_postgres_offline_ddl_adds_column_only():
+def test_postgres_offline_ddl_adds_column_and_guards_legacy_values():
+    """N-913-06: Offline-SQL legt die Spalte an und bricht ab, falls
+    neutralisierungspflichtige Altwerte existieren (kein stilles Ueberspringen)."""
     from tests.h10_support import postgres_offline_ddl
 
     ddl = postgres_offline_ddl(P4_REV, K1_REV)
     assert "ALTER TABLE wealth_positions ADD COLUMN property_gate_review_json VARCHAR" in ddl
+    assert "RAISE EXCEPTION 'K1 63332bb56098" in ddl and "goal_funding_method = 'Belehnung'" in ddl
+
+
+def test_migration_has_no_app_imports_and_matches_runtime_neutralization(tmp_path):
+    """N-913-06: Revision ohne App-Importe (Regeln eingefroren) und mit
+    demselben Ergebnis wie der SQLite-Startpfad (database + core.property_gate)."""
+    import ast
+    import shutil
+    from pathlib import Path
+
+    from alembic import command
+
+    path = Path(__file__).resolve().parents[1] / "alembic" / "versions" / f"{K1_REV}_k1_property_advanced_gate.py"
+    imported = {n.module.split(".")[0] for n in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+                if isinstance(n, ast.ImportFrom) and n.module} | {
+        a.name.split(".")[0] for n in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(n, ast.Import) for a in n.names}
+    assert imported <= {"__future__", "json", "datetime", "typing", "sqlalchemy", "alembic"}, imported
+
+    # Legacy-Zeilen im Head-Schema anlegen, Revision zurueck und wieder vor:
+    # die Revision neutralisiert dieselben Zeilen wie der Laufzeitpfad.
+    engine = _legacy_db(tmp_path)
+    engine.dispose()
+    alembic_db = tmp_path / "alembic_legacy.db"
+    cfg = alembic_cfg(f"sqlite:///{alembic_db}")
+    command.upgrade(cfg, "head")
+    src = sqlite3.connect(tmp_path / "legacy.db")
+    dst = sqlite3.connect(alembic_db)
+    cols = [r[1] for r in src.execute("PRAGMA table_info(wealth_positions)") if r[1] != "property_gate_review_json"]
+    dst_cols = {r[1] for r in dst.execute("PRAGMA table_info(wealth_positions)")}
+    cols = [c for c in cols if c in dst_cols]
+    dst.execute("PRAGMA foreign_keys = OFF")
+    for name, in dst.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='wealth_positions'").fetchall():
+        dst.execute(f"DROP TRIGGER {name}")
+    for row in src.execute(f"SELECT {', '.join(cols)} FROM wealth_positions"):
+        dst.execute(f"INSERT INTO wealth_positions ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", row)
+    dst.commit()
+    src.close()
+    dst.close()
+    command.downgrade(cfg, P4_REV)
+    command.upgrade(cfg, "head")
+    runtime_copy = tmp_path / "runtime.db"
+    shutil.copy(tmp_path / "legacy.db", runtime_copy)
+    runtime = create_engine(f"sqlite:///{runtime_copy}")
+    with runtime.begin() as conn:
+        neutralize_legacy_property_values(conn, recorded_at="T")
+    runtime.dispose()
+
+    def state(db_path):
+        with sqlite3.connect(db_path) as conn:
+            rows = conn.execute(
+                "SELECT id, is_available_for_goal_funding, goal_funding_method, asset_expected_return_bps, "
+                "mortgage_amortization_rappen, mortgage_type, property_gate_review_json FROM wealth_positions "
+                "ORDER BY id").fetchall()
+        return [(r[:6], json.loads(r[6])["findings"] if r[6] else None) for r in rows]
+
+    assert state(alembic_db) == state(runtime_copy)
 
 
 # ── 6. PROP-5: Duplikat-Schutz im Update-Pfad ──────────────────────────────
