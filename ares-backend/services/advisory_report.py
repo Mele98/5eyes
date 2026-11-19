@@ -24,6 +24,8 @@ Bezug: docs/planning/2026-05-24-sprint-u-p21-advisory-report-backend.md
 """
 from __future__ import annotations
 
+from core.holdings_rule import ist_partially_derived
+
 import json
 from datetime import datetime, timezone
 from typing import Any, Mapping
@@ -827,11 +829,10 @@ def _current_or_target_amount_rappen(rec_pos: Any) -> int:
 
 
 def _current_amounts_missing_for_latest_run(db: Session, mandate: Mandate) -> bool:
-    """True when current values are absent and IST is therefore SOLL-backed."""
-    rec_positions = _latest_recommendation_positions(db, mandate)
-    if not rec_positions:
-        return False
-    return all(getattr(pos, "current_amount_rappen", None) is None for pos in rec_positions)
+    """True, wenn das IST (teilweise) aus Zielbetraegen stammt -- KN4-B /
+    N-917R3-04: dieselbe Definition wie der Depotcheck
+    (services.depot_check.ist_partially_derived)."""
+    return ist_partially_derived(_latest_recommendation_positions(db, mandate))
 
 
 def _build_equity_sector_context(db: Session, mandate: Mandate) -> dict[str, Any]:
@@ -1829,11 +1830,12 @@ def _check_asset_allocation(dc: dict[str, Any], mandate: Mandate) -> dict[str, A
         if b.get("in_band") is False
     ]
     if not out_of_band and dc.get("ist_basiert_auf_soll"):
-        # H-172: IST = Zielbetraege (kein Bestand erfasst) -> kein "gruen".
+        # H-172 / KN4-B N-917R3-04: IST (teilweise) aus Zielbetraegen -> kein "gruen".
         return _verdict(
             "Asset Allocation", "nicht_beurteilbar",
-            "Aktuelle Bestände nicht erfasst -- Band-Vergleich nicht aussagekräftig.",
-            "Aktuelle Bestände erfassen.",
+            "Bestand unvollständig: Für Titel der Empfehlung ist kein aktueller "
+            "Bestand erfasst -- Band-Vergleich nicht beurteilbar.",
+            "Aktuelle Bestände je Titel der Empfehlung erfassen.",
         )
     if not out_of_band:
         return _verdict(
@@ -2334,6 +2336,10 @@ def _build_asset_allocation(
             "band_max_bps": int(b.get("band_max_bps", 0) or 0),
             "in_band": b.get("in_band"),
         })
+    if ist_basiert_auf_soll:
+        # KN4-B / E2E4-04: ein (teilweise) aus Zielbetraegen abgeleitetes IST wird
+        # nie als "IST" gedruckt -- nur SOLL und der Hinweis.
+        _hide_derived_ist(items)
     default_anm = _default_anmerkungen_asset_allocation(items)
     anmerkungen = _override_or_default(
         getattr(notes, "aa_anmerkungen", None) if notes is not None else None,
@@ -2374,9 +2380,9 @@ def _build_asset_allocation(
         }
     return {
         "items": items,
-        "ist_bps": ist_bps,
+        "ist_bps": None if ist_basiert_auf_soll else ist_bps,
         "soll_bps": soll_bps,
-        "drift_bps": drift_bps,
+        "drift_bps": None if ist_basiert_auf_soll else drift_bps,
         "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
         "target_allocation_stale": False,
         "soll_ausgeblendet": False,
@@ -2430,22 +2436,42 @@ def _build_risikowaehrungen(
             "staleness_hinweis": hinweis,
             "erklaerung": hinweis,
         }
-    default_erkl = _default_erklaerung_waehrungen(items)
+    if ist_basiert_auf_soll:
+        # KN4-B / E2E4-04: ein (teilweise) aus Zielbetraegen abgeleitetes IST wird
+        # nie als "IST" gedruckt -- nur SOLL und der Hinweis.
+        _hide_derived_ist(items)
+    default_erkl = _DERIVED_IST_NOTE if ist_basiert_auf_soll else _default_erklaerung_waehrungen(items)
     erklaerung = _override_or_default(
         getattr(notes, "waehrungen_erklaerung", None) if notes is not None else None,
         default_erkl,
     )
     return {
         "items": items,
-        "ist_bps": {it["label"]: it["ist_bps"] for it in items},
+        "ist_bps": None if ist_basiert_auf_soll else {it["label"]: it["ist_bps"] for it in items},
         "soll_bps": {it["label"]: it["soll_bps"] for it in items},
-        "drift_bps": {it["label"]: it["drift_bps"] for it in items},
+        "drift_bps": None if ist_basiert_auf_soll else {it["label"]: it["drift_bps"] for it in items},
         "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
         "target_allocation_stale": False,
         "soll_ausgeblendet": False,
         "staleness_hinweis": None,
         "erklaerung": erklaerung,
     }
+
+
+_DERIVED_IST_NOTE = (
+    "Der IST-Vergleich ist nicht beurteilbar: Der Bestand je Titel der Empfehlung "
+    "ist nicht vollständig erfasst."
+)
+
+
+def _hide_derived_ist(items: list[dict[str, Any]]) -> None:
+    """KN4-B / E2E4-04: IST (teilweise) aus Zielbetraegen -> IST, Drift und
+    Bandstatus "nicht beurteilbar" (None); SOLL bleibt sichtbar."""
+    for it in items:
+        it["ist_bps"] = None
+        it["drift_bps"] = None
+        if "in_band" in it:
+            it["in_band"] = None
 
 
 def _hide_stale_exposure_items(items: list[dict[str, Any]]) -> None:
@@ -2529,16 +2555,20 @@ def _build_branchen(
             "staleness_hinweis": hinweis,
             "analyse": hinweis,
         }
-    default_analyse = _default_analyse_branchen(items)
+    if ist_basiert_auf_soll:
+        # KN4-B / E2E4-04: ein (teilweise) aus Zielbetraegen abgeleitetes IST wird
+        # nie als "IST" gedruckt -- nur SOLL und der Hinweis.
+        _hide_derived_ist(items)
+    default_analyse = _DERIVED_IST_NOTE if ist_basiert_auf_soll else _default_analyse_branchen(items)
     analyse = _override_or_default(
         getattr(notes, "branchen_analyse", None) if notes is not None else None,
         default_analyse,
     )
     return {
         "items": items,
-        "ist_bps": {it["label"]: it["ist_bps"] for it in items},
+        "ist_bps": None if ist_basiert_auf_soll else {it["label"]: it["ist_bps"] for it in items},
         "soll_bps": {it["label"]: it["soll_bps"] for it in items},
-        "drift_bps": {it["label"]: it["drift_bps"] for it in items},
+        "drift_bps": None if ist_basiert_auf_soll else {it["label"]: it["drift_bps"] for it in items},
         "anteil_aktien_bps": anteil_aktien_bps,
         "hinweis": _sector_basis_note(anteil_aktien_bps),
         "ist_basiert_auf_soll": bool(ist_basiert_auf_soll),
@@ -2578,10 +2608,10 @@ def _default_anmerkungen_asset_allocation(items: list[dict[str, Any]]) -> str:
         if it.get("in_band") is False
     ]
     if not out_of_band and any(it.get("in_band") is None for it in items):
-        # H-172: ohne bewertbares IST (Bestand nicht erfasst) keine Bandaussage.
+        # H-172 / KN4-B: ohne bewertbares IST keine Bandaussage.
         return (
             "Die Einhaltung der Toleranzbänder kann nicht beurteilt werden: "
-            "Die aktuellen Bestände sind nicht erfasst."
+            "Der Bestand je Titel der Empfehlung ist nicht vollständig erfasst."
         )
     if not out_of_band:
         return (

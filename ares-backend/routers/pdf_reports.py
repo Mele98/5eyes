@@ -17,6 +17,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database import get_db
+from core.preference_labels import preference_label
 from models.clients import Client, ClientRepresentation
 
 logger = logging.getLogger(__name__)
@@ -2009,7 +2010,11 @@ def _format_portfolio_orientation(preferences) -> str:
                 if label:
                     values.append(label)
                 continue
-            values.append(f"{key}: {value}")
+            # KN4-B / E2E4-03: nur Kundentexte aus der Label-Liste; ein
+            # unbekannter Schluessel oder Wert wird weggelassen, nie roh gedruckt.
+            label = preference_label(section, key, value)
+            if label and label not in values:
+                values.append(label)
     if not values:
         return (
             "Die Portfolioausrichtung folgt der dokumentierten Zielallokation "
@@ -2651,8 +2656,18 @@ def _build_depotcheck_data(
         as_of=identity.get("as_of"),
         result_hash=identity.get("result_hash"),
         without_holdings=bool(without_holdings and analysis is None),
+        depot_position_recorded=bool(without_holdings and analysis is None) and _depot_position_recorded(db, mandate),
         inputs_note=inputs_note,
     )
+
+
+def _depot_position_recorded(db: Session, mandate: Mandate) -> bool:
+    """KN4-B / E2E4-04: aktive Depot-Vermoegensposition (Beratungsvermoegen) mit
+    Wert > 0 vorhanden -- dann ist ein Depot erfasst, nur nicht je Titel."""
+    return db.execute(sql_text(
+        "SELECT 1 FROM wealth_positions WHERE client_id = :cid AND position_type = 'Depot' "
+        "AND is_active = 1 AND deleted_at IS NULL AND current_value_rappen > 0 LIMIT 1"
+    ), {"cid": str(getattr(mandate, "client_id", "") or "")}).first() is not None
 
 
 def _aggregate_depotcheck_sub_allocations(positions: list[dict]) -> list[dict]:

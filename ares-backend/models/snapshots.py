@@ -1012,6 +1012,14 @@ def _dml_table(orm_execute_state):
     return table
 
 
+def _sets_tenant_id(statement) -> bool:
+    """True, wenn ein UPDATE-Statement ``tenant_id`` setzt (ORM-Massen-UPDATE)."""
+    values = getattr(statement, "_values", None) or {}
+    ordered = getattr(statement, "_ordered_values", None) or ()
+    keys = [getattr(key, "key", getattr(key, "name", key)) for key in list(values) + [k for k, _v in ordered]]
+    return "tenant_id" in {str(key) for key in keys}
+
+
 def _bulk_orm_write(orm_execute_state):
     """Massen-UPDATE/-DELETE ueber die Session (``query(...).update()``,
     ``update(Model)``, ``update(Model.__table__)``): betroffene Zeilen VOR der
@@ -1031,6 +1039,9 @@ def _bulk_orm_write(orm_execute_state):
             f"CCX-P2: Massen-INSERT auf {table.name} umgeht den Invalidation-Hook; "
             "Objekte einzeln ueber die Session anlegen."
         )
+    if orm_execute_state.is_update and table.name in TENANT_LOCKED_TABLES and _sets_tenant_id(
+            orm_execute_state.statement):
+        raise RuntimeError(f"{TENANT_CHANGE_ERROR}: Massen-UPDATE von {table.name}.tenant_id ist verboten.")
     session = orm_execute_state.session
     connection = session.connection()
     where = getattr(orm_execute_state.statement, "whereclause", None)
@@ -1154,6 +1165,36 @@ def _discard_pending_audit(session: Session, *_args) -> None:
     session.info.pop(_PENDING_AUDIT_KEY, None)
 
 
+# KN4-B / N-917R3-06 (CTO-Entscheid): ``tenant_id`` ist Mandantengrenze und
+# deshalb nicht Teil der Freshness-Projektion (KN3-B). Damit eine Umhaengung
+# nicht unbemerkt bleibt, ist eine Aenderung einer GESETZTEN ``tenant_id`` an
+# Kunden, Mandaten und Vermoegenspositionen im Anwendungscode verboten (ORM-
+# Flush und ORM-Massen-UPDATE). Erlaubt bleiben das Setzen beim Anlegen und die
+# Start-Backfills/Migrationen NULL -> Default-Mandant (Roh-SQL in database.py).
+TENANT_LOCKED_TABLES = frozenset({"clients", "mandates", "wealth_positions"})
+TENANT_CHANGE_ERROR = "TENANT_REASSIGNMENT_FORBIDDEN"
+
+
+def _guard_tenant_reassignment(session, _flush_context, _instances) -> None:
+    for obj in list(session.dirty):
+        try:
+            state = sa_inspect(obj)
+        except NoInspectionAvailable:
+            continue
+        table = getattr(getattr(state.mapper, "local_table", None), "name", None)
+        if table not in TENANT_LOCKED_TABLES or "tenant_id" not in state.mapper.column_attrs.keys():
+            continue
+        history = state.attrs["tenant_id"].history
+        old = history.deleted[0] if history.deleted else None
+        new = state.dict.get("tenant_id")
+        if history.deleted and old not in (None, "") and str(new or "") != str(old):
+            raise RuntimeError(
+                f"{TENANT_CHANGE_ERROR}: {table}.tenant_id einer bestehenden Zeile darf nicht "
+                "geaendert werden (nur Anlegen und Start-Backfill NULL -> Default-Mandant)."
+            )
+
+
+event.listen(Session, "before_flush", _guard_tenant_reassignment)
 event.listen(Session, "before_flush", _enter_flush)
 event.listen(Session, "after_flush", _after_flush)
 event.listen(Session, "after_flush_postexec", _leave_flush)

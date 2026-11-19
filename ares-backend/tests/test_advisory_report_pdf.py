@@ -899,7 +899,7 @@ def test_erkenntnisse_shows_all_pruefpunkte_with_ampel():
 
 
 def test_erkenntnisse_renders_all_four_ampel_labels():
-    """gruen→OK / gelb→Achtung / rot→Handeln / nicht_beurteilbar→Pendant.
+    """gruen→OK / gelb→Achtung / rot→Handeln / nicht_beurteilbar→Ausstehend.
 
     pypdf bricht schmale Cell-Texte teils auf zwei Zeilen um — wir
     vergleichen daher gegen den Text ohne Zeilenwechsel/Whitespace,
@@ -911,14 +911,14 @@ def test_erkenntnisse_renders_all_four_ampel_labels():
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     raw = reader.pages[6].extract_text() or ""
     normalized = "".join(raw.split())  # whitespace incl. \n weg
-    for label in ["OK", "Achtung", "Handeln", "Pendant"]:
+    for label in ["OK", "Achtung", "Handeln", "Ausstehend"]:
         assert label in normalized, (
             f"Ampel-Label '{label}' fehlt. Normalisiert: {normalized[:600]}"
         )
 
 
 def test_erkenntnisse_unknown_bewertung_falls_back_to_pendant():
-    """Unbekannte Ampel-Werte → 'Pendant' (kein Crash)."""
+    """Unbekannte Ampel-Werte → 'Ausstehend' (kein Crash)."""
     pypdf = pytest.importorskip("pypdf")
     payload = _make_minimal_payload()
     payload["erkenntnisse"]["checks"] = [{
@@ -930,7 +930,7 @@ def test_erkenntnisse_unknown_bewertung_falls_back_to_pendant():
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     page_text = reader.pages[6].extract_text() or ""
-    assert "Pendant" in page_text
+    assert "Ausstehend" in page_text
 
 
 def test_erkenntnisse_handles_empty_checks():

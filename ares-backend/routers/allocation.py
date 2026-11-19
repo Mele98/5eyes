@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 from sqlalchemy.exc import IntegrityError
 from core.db_integrity import raise_if_check_violation
 import logging
@@ -60,8 +60,9 @@ from services.data_classification import enforce_data_classification
 # den routers.auth nur weiterreicht) -- Router importieren keine Router.
 from services.auth import extract_client_ip as _extract_client_ip
 # CCX-P4: die eine Publish-Gatefunktion (nur sie macht eine Allocation aktiv).
-from services.allocation_publication_gate import (
+from services.allocation_publication_gate import (  # load_fx_basis: Re-Export von services.fx_basis
     STATUS_DRAFT as PUBLICATION_STATUS_DRAFT,
+    load_fx_basis,
     active_publication_state,
     allocation_publication_status,
     approval_mode_label,
@@ -600,6 +601,26 @@ def get_current_building_blocks(
 # (fail-closed, Reason-Code IST_PROJECTION_BASIS_UNAVAILABLE).
 
 
+def _require_ist_projection_fx(db: Session, mandate) -> None:
+    """KN4-B / E2E4-07: alle Waehrungen der aktiven Positionen und Cashflows des
+    Kunden gegen die strikte FX-Basis der Mandatswaehrung pruefen."""
+    params = {"cid": str(getattr(mandate, "client_id", "") or "")}
+    currencies = {
+        str(row[0] or "").upper().strip()
+        for sql in (
+            "SELECT DISTINCT currency FROM wealth_positions WHERE client_id = :cid "
+            "AND is_active = 1 AND deleted_at IS NULL",
+            "SELECT DISTINCT currency FROM cashflows WHERE client_id = :cid AND is_active = 1 AND deleted_at IS NULL",
+        )
+        for row in db.execute(text(sql), params).all()
+    }
+    if not currencies:
+        return
+    basis = load_fx_basis(db, getattr(mandate, "base_currency", None) or "CHF", currencies - {""},
+                          tenant_id=getattr(mandate, "tenant_id", None))
+    basis.require_convertible(currencies)
+
+
 @router.get("/mandates/{mandate_id}/ist-projection-basis",
             response_model=IstProjectionBasisResponse)
 def get_ist_projection_basis(
@@ -628,6 +649,9 @@ def get_ist_projection_basis(
             "message": "Keine wirksamen Kapitalmarktannahmen fuer dieses Mandat; "
                        "die Ist-Projektion wird nicht berechnet.",
         }) from exc
+    # KN4-B / E2E4-07: fehlende Kurse vorab gesammelt pruefen -- die Sperre nennt
+    # alle betroffenen Waehrungen (Positionen und Cashflows), nicht nur die erste.
+    _require_ist_projection_fx(db, mandate)
     try:
         inputs = _load_allocation_inputs(
             db, mandate, simulation_prefs={}, cma=cma,

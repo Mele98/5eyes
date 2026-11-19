@@ -268,10 +268,28 @@ class FxBasis:
         )
 
     def require_convertible(self, currencies: Iterable[Any]) -> None:
-        """Jede Waehrung ist in die Zielwaehrung konvertierbar -- sonst der
-        typisierte ``FxBasisError`` der ersten blockierten Waehrung."""
+        """Jede Waehrung ist in die Zielwaehrung konvertierbar -- sonst EIN
+        typisierter ``FxBasisError``, der ALLE blockierten Waehrungen nennt
+        (KN4-B / E2E4-07: vorher nur die erste; die zweite fehlende Waehrung
+        erfuhr der Berater erst nach dem Erfassen der ersten)."""
+        blocked: list[tuple[str, FxBasisError]] = []
         for currency in sorted({normalize_currency(c) for c in currencies}):
-            self.convert(0, currency)
+            try:
+                self.convert(0, currency)
+            except FxBasisError as exc:
+                blocked.append((currency, exc))
+        if not blocked:
+            return
+        if len(blocked) == 1:
+            raise blocked[0][1]
+        names = sorted({c for currency, exc in blocked
+                        for c in ((getattr(exc, "extra", None) or {}).get("currencies") or [currency])})
+        shown = ", ".join(name or "(ohne Währung)" for name in names)
+        raise FxBasisError(
+            blocked[0][1].reason_code,
+            f"Für {shown} liegt kein verwendbarer Kurs vor; ohne Kurs wird nicht umgerechnet.",
+            extra={"currencies": names, "fx_basis_hash": self.fx_basis_hash},
+        )
 
     # Duck-Typing als strikte ``FXRateSource`` fuer bestehende Engine-Helfer
     # (``convert_with_source``): nur verwendbare, gebundene Kurse.
@@ -460,7 +478,10 @@ def assert_same_fx_basis(expected_hash: str | None, basis: FxBasis) -> None:
 
 
 def convert_sum(basis: FxBasis, items: Iterable[tuple[int, Any]]) -> tuple[int, list[ConversionLine]]:
-    """Zeilenweise konvertieren, erst danach summieren."""
+    """Zeilenweise konvertieren, erst danach summieren. Vorab alle Waehrungen
+    pruefen: eine Sperre nennt alle fehlenden Kurse (KN4-B / E2E4-07)."""
+    items = list(items)
+    basis.require_convertible(currency for _amount, currency in items)
     lines = [basis.convert(int(amount or 0), currency) for amount, currency in items]
     return sum(line.converted_amount_minor for line in lines), lines
 

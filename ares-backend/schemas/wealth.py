@@ -252,8 +252,10 @@ class WealthPositionCreate(BaseModel):
                 + self.alloc_real_estate_bps + self.alloc_liquidity_bps
                 + self.alloc_alternatives_bps
             )
-            if total != 10000:
+            if not allocation_total_is_100(total):
                 raise depot_allocation_error(total)
+            for field, value in normalized_allocation(self.__dict__).items():
+                object.__setattr__(self, field, value)
         elif self.position_type == "Vorsorge":
             # VORSORGE-EXPOSURE-001 (2026-10-18): Vorsorge darf eine
             # Aufteilung tragen (z.B. 3a-Wertschriftenloesung) -- entweder
@@ -263,12 +265,15 @@ class WealthPositionCreate(BaseModel):
                 + self.alloc_real_estate_bps + self.alloc_liquidity_bps
                 + self.alloc_alternatives_bps
             )
-            if total not in (0, 10000):
+            if total != 0 and not allocation_total_is_100(total):
                 raise PydanticCustomError(
                     "pension_allocation_incomplete",
                     "Die Aufteilung der Vorsorge muss zusammen 100 % ergeben oder ganz leer "
                     f"bleiben (erfasst: {total / 100:g} %).",
                 )
+            if total:
+                for field, value in normalized_allocation(self.__dict__).items():
+                    object.__setattr__(self, field, value)
         elif any(
             (
                 self.alloc_equities_bps,
@@ -295,6 +300,30 @@ class WealthPositionCreate(BaseModel):
 # IST-Bild). Die Meldung ist fuer den Berater bestimmt: Deutsch, in Prozent,
 # ohne technisches Praefix ("Value error, ...") und ohne Basispunkte.
 DEPOT_ALLOCATION_MISSING_MESSAGE = "Bitte die Aufteilung des Depots erfassen (Summe 100 %)."
+
+
+ALLOC_FIELD_ORDER = ("alloc_equities_bps", "alloc_bonds_bps", "alloc_real_estate_bps",
+                     "alloc_liquidity_bps", "alloc_alternatives_bps")
+
+
+def allocation_total_is_100(total_bps: int) -> bool:
+    """KN4-B / N-917R3-08 (CTO-Entscheid): dieselbe Toleranz wie die Oberflaeche --
+    die Summe muss nach Rundung auf 0.1 % (kaufmaennisch) genau 100.0 % sein,
+    also 9'995-10'004 bps (z. B. 3 x 33.33 % = 99.99 % ist gueltig)."""
+    return (int(total_bps) + 5) // 10 == 1000
+
+
+def normalized_allocation(values: dict) -> dict:
+    """Aufteilung mit Rundungsrest: auf exakt 10'000 bps normiert, der Rest
+    (hoechstens 0.05 Prozentpunkte) geht an die groesste Anlageklasse. Nur fuer
+    Summen, die ``allocation_total_is_100`` erfuellen -- keine erfundene
+    Aufteilung, nur der Rundungsrest der Eingabe."""
+    out = {field: int(values.get(field) or 0) for field in ALLOC_FIELD_ORDER}
+    rest = 10000 - sum(out.values())
+    if rest:
+        largest = max(ALLOC_FIELD_ORDER, key=lambda field: out[field])
+        out[largest] += rest
+    return out
 
 
 def depot_allocation_message(total_bps: int) -> str:

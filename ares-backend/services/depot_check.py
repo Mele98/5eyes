@@ -23,6 +23,7 @@ from typing import Iterable, Mapping
 from sqlalchemy.orm import Session
 
 from core.band_rule import in_band as band_in_band
+from core.holdings_rule import DERIVED_IST_STATUS, ist_partially_derived  # noqa: F401
 from core.reason_codes import DomainError
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
@@ -458,15 +459,15 @@ def _aggregate_warnings(result: dict) -> None:
     """
     if result.get("target_allocation_inputs_stale"):
         result["warnings"].append(
-            "Soll-Allokation ist veraltet: Vermoegen, Cashflows oder Ziele "
-            "haben sich seit der Berechnung geaendert -- Band-Vergleiche "
-            "unten sind nicht aussagekraeftig. Strategie neu berechnen."
+            "Soll-Allokation ist veraltet: Vermögen, Cashflows oder Ziele "
+            "haben sich seit der Berechnung geändert -- Band-Vergleiche "
+            "unten sind nicht aussagekräftig. Strategie neu berechnen."
         )
     elif result.get("target_allocation_stale"):
         result["warnings"].append(
-            "Soll-Allokation basiert auf einem frueheren, nicht mehr "
+            "Soll-Allokation basiert auf einem früheren, nicht mehr "
             "aktuellen Risikoprofil -- Band-Vergleiche unten sind nicht "
-            "aussagekraeftig. Strategie neu berechnen."
+            "aussagekräftig. Strategie neu berechnen."
         )
 
     hhi = result["concentration_hhi"]
@@ -492,10 +493,10 @@ def _aggregate_warnings(result: dict) -> None:
         )
     if result["liquidity_profile"]["unknown_bps"] > _UNKNOWN_LIQUIDITY_WARNING_THRESHOLD_BPS:
         result["warnings"].append(
-            f"Liquiditaets-Einstufung unklar fuer "
+            f"Liquiditäts-Einstufung unklar für "
             f"{result['liquidity_profile']['unknown_bps']/100:.1f}% des Depots "
             f"(>{_UNKNOWN_LIQUIDITY_WARNING_THRESHOLD_BPS//100}%) -- Produkt-/"
-            "Positions-Metadaten pflegen, verdeckte Illiquiditaet kann "
+            "Positions-Metadaten pflegen, verdeckte Illiquidität kann "
             "andernfalls unerkannt bleiben."
         )
 
@@ -588,8 +589,9 @@ def compute_depot_check(
     result["total_advisory_wealth_rappen"] = total_rappen
     # H-172: ohne erfassten Bestand ist das IST der Rueckfall auf die Zielbetraege
     # (IST = SOLL per Konstruktion) -- dann ist keine Bandaussage moeglich.
-    result["ist_basiert_auf_soll"] = bool(positions_with_products) and holdings_snapshot is None and all(
-        _safe_int(getattr(rec, "current_amount_rappen", 0)) <= 0 for rec, _prod in positions_with_products)
+    # KN4-B / N-917R3-03: schon EINE zurueckgefallene Position genuegt.
+    result["ist_basiert_auf_soll"] = bool(positions_with_products) and holdings_snapshot is None and (
+        ist_partially_derived(rec for rec, _prod in positions_with_products))
     if total_rappen <= 0:
         result["warnings"].append("Kein Beratungsvermögen erfasst. Bitte WealthPositions oder RecommendationRun anlegen.")
         return result

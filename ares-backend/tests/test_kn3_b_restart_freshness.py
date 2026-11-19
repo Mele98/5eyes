@@ -124,6 +124,9 @@ def test_seal_made_before_the_boundary_rule_survives_the_backfill(session_factor
     import services.effective_input_manifest as manifest
 
     original = manifest._columns
+    # KN4-B / N-917R3-06: Uebergang nur fuer Altsiegel -- hier wird ein Altsiegel
+    # simuliert, also gilt es als vor dem Stichtag versiegelt.
+    monkeypatch.setattr(manifest, "LEGACY_PROJECTION_SEALED_BEFORE", "9999-12-31T00:00:00.000Z")
     monkeypatch.setattr(manifest, "_columns", lambda model, include_exempt=False, include_boundary=False:
                         original(model, include_exempt=include_exempt, include_boundary=True))
     _a, _b, mid, _aid, _run, decision = _published(session_factory, "kn3-leg")

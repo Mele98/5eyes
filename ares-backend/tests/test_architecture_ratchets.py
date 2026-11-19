@@ -307,7 +307,8 @@ def test_exempt_leaves_allowlist_is_explicit_and_versioned(gate):
         {"core.evidence", "core.reason_codes", "core.db_integrity", "core.goal_vocabulary",
          "core.presentation_rounding", "core.sustainability_preference",
          "core.property_gate", "core.fx_freshness",
-         "core.depletion_display", "core.customer_terms", "core.band_rule"}
+         "core.depletion_display", "core.customer_terms", "core.band_rule",
+         "core.preference_labels", "core.holdings_rule"}
     )
 
 

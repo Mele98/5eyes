@@ -411,24 +411,24 @@ def _audit_verification_warning(status: dict[str, Any]) -> str | None:
     summary = status.get('scope') == 'installation_summary'
     if state == 'broken':
         if summary:
-            return ('Audit-Log-Integritaet verletzt (installationsweit; Details beim Plattformbetreiber).')
+            return ('Audit-Log-Integrität verletzt (installationsweit; Details beim Plattformbetreiber).')
         return (
-            f"Audit-Log-Integritaet verletzt ({status.get('finding_count') or 0} Befunde). "
+            f"Audit-Log-Integrität verletzt ({status.get('finding_count') or 0} Befunde). "
             'Details: GET /admin/system/audit-log/verify.'
         )
     if state in ('pending', 'running'):
         if summary:
-            return ('Audit-Kettenpruefung laeuft im Hintergrund (installationsweit). '
-                    'Integritaet bis zum Abschluss nicht bestaetigt.')
+            return ('Audit-Kettenprüfung läuft im Hintergrund (installationsweit). '
+                    'Integrität bis zum Abschluss nicht bestätigt.')
         done = status.get('checked') or 0
         total = status.get('total_rows') or status.get('target_sequence') or 0
         return (
-            f'Audit-Kettenpruefung laeuft im Hintergrund ({done} von ca. {total} Eintraegen geprueft). '
-            'Integritaet bis zum Abschluss nicht bestaetigt.'
+            f'Audit-Kettenprüfung läuft im Hintergrund ({done} von ca. {total} Einträgen geprüft). '
+            'Integrität bis zum Abschluss nicht bestätigt.'
         )
     if state == 'error':
-        return 'Audit-Kettenpruefung konnte nicht durchgefuehrt werden. Integritaet nicht bestaetigt.'
-    return 'Audit-Kettenpruefung ohne Ergebnis. Integritaet nicht bestaetigt.'
+        return 'Audit-Kettenprüfung konnte nicht durchgeführt werden. Integrität nicht bestätigt.'
+    return 'Audit-Kettenprüfung ohne Ergebnis. Integrität nicht bestätigt.'
 
 
 def build_compliance_status(audit_verification: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -450,12 +450,12 @@ def build_compliance_status(audit_verification: dict[str, Any] | None = None) ->
     if settings.secret_key == DEFAULT_SECRET_KEY:
         warnings.append('secret_key ist noch auf dem Defaultwert und muss ausserhalb von Development/Test ersetzt werden.')
     if not db_encryption_enabled:
-        warnings.append('DB-Verschluesselung ist aktuell nicht aktiviert. Fuer reale Kundendaten sollte SQLCipher mit DB_KEY aktiviert werden.')
+        warnings.append('DB-Verschlüsselung ist aktuell nicht aktiviert. Für reale Kundendaten sollte SQLCipher mit DB_KEY aktiviert werden.')
     if not settings.login_rate_limit_enabled:
         warnings.append('Login-Rate-Limit ist deaktiviert.')
     backups_colocated = _backups_colocated_with_db()
     if backups_colocated:
-        warnings.append('Backups liegen im selben Verzeichnis wie die Live-Datenbank. Bei Datenverlust des Datentraegers (Disk-Ausfall, Ordner-Loeschung) sind DB und Backup gleichzeitig betroffen — separates Verzeichnis/Medium empfohlen.')
+        warnings.append('Backups liegen im selben Verzeichnis wie die Live-Datenbank. Bei Datenverlust des Datenträgers (Disk-Ausfall, Ordner-Löschung) sind DB und Backup gleichzeitig betroffen — separates Verzeichnis/Medium empfohlen.')
     if audit_warning and audit_status.get('state') != 'broken':
         warnings.append(audit_warning)
     return {

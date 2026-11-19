@@ -474,6 +474,9 @@ class DepotCheckData:
     # True nur fuer Mandate ohne erfassten Depotbestand: reine SOLL-Analyse
     # ohne Snapshot-Bindung, im PDF sichtbar gekennzeichnet.
     without_holdings: bool = False
+    # KN4-B / E2E4-04: ein Depot ist als Vermoegensposition erfasst (Aufteilung
+    # je Anlageklasse), aber kein Bestand je Titel -- dann nie "kein Depot erfasst".
+    depot_position_recorded: bool = False
     # DEPOT-E2E-SNAPSHOT-001 (c): Hinweis, wenn die im Depot-Check gebundenen
     # Kosten-/Benchmark-/Stress-Inputs vom Live-Stand abweichen ("Stand vom").
     inputs_note: str | None = None

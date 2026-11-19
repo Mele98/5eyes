@@ -802,24 +802,55 @@ def _build_bucket_response(
         "alternatives": (BUCKET_LABELS["alternatives"], target_allocation.target_alternatives_bps, target_allocation.band_alternatives_min_bps, target_allocation.band_alternatives_max_bps),
         "liquidity": (BUCKET_LABELS["liquidity"], target_allocation.target_liquidity_bps, target_allocation.band_liquidity_min_bps, target_allocation.band_liquidity_max_bps),
     }
-    bucket_response = []
-    for key in BUCKET_FIELDS:
-        label, target_bps, min_bps, max_bps = label_map[key]
-        current_amount = current_amounts[key]
-        current_bps = _bps(current_amount, advisory_wealth_rappen)
-        bucket_response.append(
-            {
-                "asset_class": label,
-                "current_weight_bps": current_bps,
-                "current_amount_rappen": current_amount,
-                "target_weight_bps": int(target_bps),
-                "target_amount_rappen": int(round(target_base_rappen * target_bps / 10000)) if target_base_rappen else 0,
-                "delta_weight_bps": int(target_bps) - current_bps,
-                "band_min_bps": int(min_bps),
-                "band_max_bps": int(max_bps),
-            }
-        )
-    return bucket_response
+    return _bucket_rows(label_map, current_amounts, advisory_wealth_rappen, target_base_rappen, bps=_bps)
+
+
+def _bucket_rows(label_map: dict, current_amounts: dict, advisory_wealth_rappen: int,
+                 strategy_base_rappen: int, *, bps) -> list[dict]:
+    """Ist/Soll je Anlageklasse auf DERSELBEN Basis (KN3-B E2E4-02).
+
+    Soll (``target_weight_bps``) und Baender beziehen sich auf die Strategiebasis
+    (Beratungsvermoegen ohne die Liquiditaetsreserve ausserhalb der Strategie).
+    Bisher stand das Ist auf dem ganzen Beratungsvermoegen: mit Reserve ergab
+    der Vergleich eine falsche Handelsrichtung (Obligationen "aufstocken", obwohl
+    in Franken zu reduzieren; Liquiditaet "reduzieren", obwohl die Reserve
+    fehlte). Jetzt wird die Reserve vom Liquiditaets-Ist abgezogen und getrennt
+    ausgewiesen (``reserve_rappen``/``reserve_funded_rappen``/
+    ``reserve_gap_rappen``); ``current_amount_rappen``/``current_weight_bps``
+    sind der Strategieanteil des Bestands auf der Strategiebasis. Damit hat
+    ``target_amount_rappen - current_amount_rappen`` immer dasselbe Vorzeichen
+    wie ``delta_weight_bps``. Ist die Reserve groesser als die vorhandene
+    Liquiditaet, ist das Liquiditaets-Ist negativ (Reservelücke, ehrlich statt
+    gekappt). Der tatsaechliche Bestand bleibt als ``current_amount_total_rappen``.
+    Ohne Reserve ist alles unveraendert (Basis = Beratungsvermoegen).
+    ``label_map`` in Bucket-Reihenfolge; ``bps`` = portfolio_engine._bps."""
+    advisory = int(advisory_wealth_rappen or 0)
+    base = int(strategy_base_rappen if strategy_base_rappen is not None else advisory)
+    reserve = max(0, advisory - base) if base > 0 else 0
+    rows = []
+    for key, (label, target_bps, min_bps, max_bps) in label_map.items():
+        holding = int(current_amounts[key] or 0)
+        row_reserve = reserve if key == "liquidity" else 0
+        strategy_amount = holding - row_reserve
+        current_bps = bps(strategy_amount, base) if reserve else bps(holding, advisory)
+        row = {
+            "asset_class": label,
+            "current_weight_bps": current_bps,
+            "current_amount_rappen": strategy_amount,
+            "current_amount_total_rappen": holding,
+            "target_weight_bps": int(target_bps),
+            "target_amount_rappen": int(round(base * target_bps / 10000)) if base else 0,
+            "delta_weight_bps": int(target_bps) - current_bps,
+            "band_min_bps": int(min_bps),
+            "band_max_bps": int(max_bps),
+            "comparison_basis": "strategy" if reserve else "advisory_wealth",
+        }
+        if key == "liquidity":
+            funded = max(0, min(holding, reserve))
+            row.update({"reserve_rappen": reserve, "reserve_funded_rappen": funded,
+                        "reserve_gap_rappen": reserve - funded})
+        rows.append(row)
+    return rows
 
 
 # ESG-THEME-EXCLUSION-EFFECTIVE-001 (Audit 2026-10-14): Klassifikation der
@@ -841,7 +872,7 @@ THEME_DISPLAY_NAMES: dict[str, str] = {
     "defense": "Verteidigung",
     "tobacco": "Tabak",
     "alcohol": "Alkohol",
-    "gaming": "Gluecksspiel",
+    "gaming": "Glücksspiel",
     "nuclear": "Kernenergie",
 }
 _THEME_KEY_BY_SUB_ASSET_CLASS = {label: key for key, label in THEME_SUB_ASSET_CLASSES.items()}
@@ -901,12 +932,12 @@ ESG_POLICY_CRITERIA: dict[str, str] = {
     "best_in_class": (
         "nur Produkte nach SFDR Art. 8 oder 9 mit ESG-Rating AAA oder AA "
         "(Leader-Klasse der Rating-Skala AAA-CCC) oder ESG-Score von "
-        "mindestens 71.4/100; Produkte ohne Rating/Score sind nicht zulaessig"
+        "mindestens 71.4/100; Produkte ohne Rating/Score sind nicht zulässig"
     ),
     "impact": "nur Produkte nach SFDR Art. 9",
     "net_zero": (
         "nur Produkte nach SFDR Art. 8 oder 9 mit EU-Klima-Benchmark PAB oder "
-        "CTB (beides Pflicht); SFDR Art. 9 allein genuegt nicht"
+        "CTB (beides Pflicht); SFDR Art. 9 allein genügt nicht"
     ),
 }
 
@@ -921,9 +952,12 @@ ESG_POLICY_CRITERIA: dict[str, str] = {
 # mit eigener SFDR-Klasse, nicht nur Konto/Festgeld ohne Klassifikation.
 # Text und Bedingung teilen sich ESG_POLICY_EXEMPT_ASSET_CLASS.
 ESG_POLICY_EXEMPT_ASSET_CLASS = "Liquiditaet"
+# KN4-B (Rest aus KN3-B): Anzeigeform mit echtem Umlaut fuer den Kundentext;
+# die Bedingung vergleicht weiter den Datenschluessel oben.
+ESG_POLICY_EXEMPT_ASSET_CLASS_LABEL = "Liquidität"
 ESG_POLICY_LIQUIDITY_EXEMPTION = (
-    f"die gesamte Anlageklasse {ESG_POLICY_EXEMPT_ASSET_CLASS} (Konto, Festgeld "
-    "und Geldmarktfonds, unabhaengig von deren SFDR-Klassifikation) ist vom "
+    f"die gesamte Anlageklasse {ESG_POLICY_EXEMPT_ASSET_CLASS_LABEL} (Konto, Festgeld "
+    "und Geldmarktfonds, unabhängig von deren SFDR-Klassifikation) ist vom "
     "Kriterium ausgenommen"
 )
 

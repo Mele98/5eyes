@@ -1098,7 +1098,8 @@ _AMPEL_PALETTE = {
     "gruen":            ("OK",       "#E5EEDF", "#4E6F58"),
     "gelb":             ("Achtung",  "#F4EBD5", "#B59243"),
     "rot":              ("Handeln",  "#F0D9D9", "#9E4747"),
-    "nicht_beurteilbar":("Pendant",  "#E9EBEE", "#7A8395"),
+    # KN4-B / E2E4-11: "Pendant" heisst Gegenstueck -- Statuslabel "Ausstehend".
+    "nicht_beurteilbar":("Ausstehend",  "#E9EBEE", "#7A8395"),
 }
 
 
@@ -1106,7 +1107,7 @@ def _build_erkenntnisse_flowables(erkenntnisse: dict, styles: dict) -> list[Any]
     """Tabelle: Prüfpunkt | Ampel | Beurteilung | Handlungsempfehlung.
 
     Ampel-Pills sind kleine farbige Rechtecke mit Status-Label (gruen→OK,
-    gelb→Achtung, rot→Handeln, nicht_beurteilbar→Pendant). Matte Farben
+    gelb→Achtung, rot→Handeln, nicht_beurteilbar→Ausstehend). Matte Farben
     gemäss Design-System (NICHT signal-grün/-rot).
     """
     out: list[Any] = []
@@ -1386,9 +1387,9 @@ def _build_bar_chart_section(
 def _data_basis_banner(styles: dict) -> Table:
     """Banner-Hinweis: IST basiert auf SOLL (alte Mandate ohne aktuelle Bestände)."""
     text = Paragraph(
-        "<b>Datenstand:</b> IST basiert aktuell auf SOLL-/Empfehlungswerten. "
-        "Sobald aktuelle Bestände gepflegt sind, zeigt der Bericht echte "
-        "Portfolio-Drifts.",
+        "<b>Datenstand:</b> Bestand unvollständig – für Titel der Empfehlung ist "
+        "kein aktueller Bestand erfasst. Der IST-Vergleich ist nicht beurteilbar; "
+        "gezeigt wird nur die SOLL-Struktur.",
         _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
     )
     banner = Table([[text]])

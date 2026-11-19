@@ -1,6 +1,7 @@
 import re
 from datetime import date as _date
 from pydantic import BaseModel, ValidationInfo, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 from typing import Optional, Literal
 from schemas.common import BaseResponse
 
@@ -427,11 +428,25 @@ def personal_data_hints(text, names=()) -> list[str]:
     return hints
 
 
+# KN4-B / E2E4-10: Meldungen fuer den Berater -- deutsch, ohne Feldnamen und
+# ohne technisches Praefix ("Value error, ..."), mit den Bezeichnungen der Maske.
+_KYC_FIELD_LABELS = {
+    "form_completed_on": "Datum des Formulars",
+    "next_review_due": "Nächste Aktualisierung",
+    "identification_date": "Datum der Identifizierung",
+}
+
+
+def _kyc_error(message: str) -> PydanticCustomError:
+    return PydanticCustomError("kyc_confirmation_invalid", message)
+
+
 def _iso_date(value: str, field: str) -> str:
     try:
         return _date.fromisoformat(str(value).strip()[:10]).isoformat()
     except ValueError as exc:
-        raise ValueError(f"{field} muss ein ISO-Datum (JJJJ-MM-TT) sein") from exc
+        label = _KYC_FIELD_LABELS.get(field, "Datum")
+        raise _kyc_error(f"{label}: bitte ein gültiges Datum erfassen (TT.MM.JJJJ).") from exc
 
 
 class KycConfirmationRequest(BaseModel):
@@ -463,25 +478,24 @@ class KycConfirmationRequest(BaseModel):
         self.next_review_due = _iso_date(self.next_review_due, "next_review_due")
         self.identification_date = _iso_date(self.identification_date, "identification_date")
         if not self.identification_confirmed:
-            raise ValueError(
-                "identification_confirmed muss bestaetigt sein (Identifizierung der "
-                "Vertragspartei nach GwG Art. 3)"
+            raise _kyc_error(
+                "Bitte die Identifizierung der Vertragspartei (GwG Art. 3) bestätigen."
             )
         if _date.fromisoformat(self.identification_date) > _date.today():
-            raise ValueError("identification_date darf nicht in der Zukunft liegen")
+            raise _kyc_error("Das Datum der Identifizierung darf nicht in der Zukunft liegen.")
         if _date.fromisoformat(self.form_completed_on) > _date.today():
-            raise ValueError("form_completed_on darf nicht in der Zukunft liegen")
+            raise _kyc_error("Das Datum des Formulars darf nicht in der Zukunft liegen.")
         if self.next_review_due <= self.form_completed_on:
-            raise ValueError("next_review_due muss nach form_completed_on liegen")
+            raise _kyc_error("Die nächste Aktualisierung muss nach dem Datum des Formulars liegen.")
         if len(self.external_reference.strip()) < 3:
-            raise ValueError("external_reference (Referenz im SRO-/Fremdprozess) ist Pflicht")
+            raise _kyc_error("Bitte die Referenz im SRO-/Fremdprozess erfassen.")
         # N-897-07: Freitexte erscheinen in der Freigabe-Ansicht der zweiten
         # Person -- kurz halten, keine Personendaten (Hinweise siehe
         # personal_data_hints, die Erfassung warnt).
         if len(self.external_reference.strip()) > KYC_EXTERNAL_REFERENCE_MAX:
-            raise ValueError(f"external_reference hoechstens {KYC_EXTERNAL_REFERENCE_MAX} Zeichen")
+            raise _kyc_error(f"Die Referenz darf höchstens {KYC_EXTERNAL_REFERENCE_MAX} Zeichen lang sein.")
         if self.note is not None and len(self.note.strip()) > KYC_NOTE_MAX:
-            raise ValueError(f"note hoechstens {KYC_NOTE_MAX} Zeichen")
+            raise _kyc_error(f"Die Notiz darf höchstens {KYC_NOTE_MAX} Zeichen lang sein.")
         self.external_reference = self.external_reference.strip()
         return self
 

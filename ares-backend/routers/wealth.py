@@ -20,7 +20,9 @@ from schemas.wealth import (
     WealthInflowCreate, WealthInflowUpdate, WealthInflowResponse,
     MaxPensionSpendingRequest, MaxPensionSpendingResponse,
     FinancialCoverageAttestationCreate,
+    allocation_total_is_100,
     depot_allocation_message,
+    normalized_allocation,
 )
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
@@ -1161,9 +1163,11 @@ def update_wealth_position(
             )
         # KN3-B / E2E3-08: ein Depot braucht immer eine vollstaendige Aufteilung
         # (keine angenommene Aufteilung); Vorsorge darf weiter "alle 0" tragen.
-        if wp.position_type == "Depot" and total != 10000:
+        # KN4-B / N-917R3-08: gleiche Toleranz wie die Oberflaeche (100.0 % nach
+        # Rundung auf 0.1 %); der Rundungsrest wird auf exakt 10'000 bps normiert.
+        if wp.position_type == "Depot" and not allocation_total_is_100(total):
             raise HTTPException(status_code=422, detail=depot_allocation_message(total))
-        if total != 0 and total != 10000:
+        if total != 0 and not allocation_total_is_100(total):
             raise HTTPException(
                 status_code=422,
                 detail=(
@@ -1171,6 +1175,8 @@ def update_wealth_position(
                     f"(erfasst: {total / 100:g} %)."
                 ),
             )
+        if total:
+            updates.update(normalized_allocation(merged))
     _validate_mortgage_link(client_id, updates, db)
     if (
         "is_active" in updates
