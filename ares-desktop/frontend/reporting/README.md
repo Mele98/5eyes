@@ -1,4 +1,4 @@
-# 5eyes Reporting Sub-App
+# Ares Reporting Sub-App
 
 Institutioneller Depotcheck und Advisory-Report (15 Sektionen). Konsumiert
 den Backend-Endpoint `GET /mandates/{id}/advisory-report` (Sprint U-P21).
@@ -124,7 +124,7 @@ Shell-Integration folgt in U-P27 (Polish-Sprint), wenn alle 15 Sektionen
    uvicorn main:app --reload --port 8000
    ```
 
-2. **Login in 5eyes-Hauptapp**, damit der Bearer-Token vorhanden ist
+2. **Login in Ares-Hauptapp**, damit der Bearer-Token vorhanden ist
    (`window.desktop.getAuthToken` in Electron, `sessionStorage['ares.token']`
    im Browser-Dev-Fallback).
    (die Reporting-Sub-App nutzt dieselbe Session). Hauptapp normal über
@@ -185,7 +185,7 @@ vor Commits.
 | **Single Source of Truth** | Alle Daten kommen aus `/advisory-report`. Keine Frontend-State-Logik für Geschäfts-Aggregation. |
 | **Design-Tokens** | Farben/Typo/Spacing in `tailwind.config.ts` + `src/design/tokens.ts`. Beide synchron halten. |
 | **Print-ready** | Bildschirm- und Print-Layout identisch (siehe `@media print` in `globals.css`). |
-| **Branding-Disziplin** | Keine Dritt-Marken in Code, Texten oder Assets (per 5eyes-Memory-Regel). |
+| **Branding-Disziplin** | Keine Dritt-Marken in Code, Texten oder Assets. |
 | **Editorial / institutional** | Serif Headlines, Sans Body, viel Weissraum, keine Fintech-Pills. |
 
 ---

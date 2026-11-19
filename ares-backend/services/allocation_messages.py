@@ -34,6 +34,23 @@ WARN_FALLBACK = "WARN_FALLBACK"
 WARN_OVERRIDE = "WARN_OVERRIDE"
 WARN_BAND_OUTSIDE_HOUSE_MATRIX = "WARN_BAND_OUTSIDE_HOUSE_MATRIX"
 WARN_GLOBAL_CAP_CLAMP = "WARN_GLOBAL_CAP_CLAMP"
+# AUDIT-2026-11 A1: ein explizites Berater-Ziel (bands.<bucket>.target_bps)
+# konnte nicht exakt umgesetzt werden (Bandrand, uebrige Grenzen, Reserve).
+WARN_TARGET_ADJUSTED = "WARN_TARGET_ADJUSTED"
+# H-859-3 (Pruefrunde #859): der Risikobudget-Fallback setzt ein explizites
+# Berater-Ziel auf die Bandbreiten-Mitte des Risikoprofils zurueck.
+WARN_TARGET_FALLBACK_RESET = "WARN_TARGET_FALLBACK_RESET"
+# Live-Test 04 / M3: Mandatsbandbreite ausserhalb der Hausmatrix ohne
+# tragfaehige Begruendung -- die Freigabe ist blockiert (routers/review.py).
+CONFLICT_BAND_REASON_MISSING = "CONFLICT_BAND_REASON_MISSING"
+# Delta-Pruefung #859 D-2/E-2: Liquiditaetsband systembedingt ueber das
+# Hausmatrix-Maximum erweitert (Mindestliquiditaet/Zielreserve, AA-7.2).
+# Severity warning OHNE Aktion, damit der Berater sie im Banner sieht
+# (die Banner zeigen nur conflict/warning).
+WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED = "WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED"
+# F-1 (Pruefrunde #859): unterhalb der Wesentlichkeitsschwelle nur Info
+# (kein Banner); ab der Schwelle WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED.
+INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED = "INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED"
 
 ALL_CODES: tuple[str, ...] = (
     OK_COMFORTABLE,
@@ -46,6 +63,11 @@ ALL_CODES: tuple[str, ...] = (
     WARN_OVERRIDE,
     WARN_BAND_OUTSIDE_HOUSE_MATRIX,
     WARN_GLOBAL_CAP_CLAMP,
+    WARN_TARGET_ADJUSTED,
+    WARN_TARGET_FALLBACK_RESET,
+    CONFLICT_BAND_REASON_MISSING,
+    WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED,
+    INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED,
 )
 
 # Severities mappen auf die Frontend-Render-Klassen aus der UX-Spec §1.1.
@@ -225,6 +247,83 @@ MESSAGE_TEMPLATES: dict[str, dict[str, Any]] = {
         "body_client": (
             "Für {bucket_label} gilt eine allgemeine Obergrenze von {cap} %, die auch in "
             "Ihrer Strategie eingehalten wird."
+        ),
+        "actions": ("review_constraints",),
+    },
+    # AUDIT-2026-11 A1: ein Berater-Ziel wird nie still verworfen. Weicht
+    # die umgesetzte Quote vom expliziten Ziel ab, wird das hier offengelegt.
+    WARN_TARGET_ADJUSTED: {
+        "severity": SEVERITY_WARNING,
+        "title": "Berater-Zielquote angepasst",
+        "body_advisor": (
+            "{bucket_label}: Das vorgegebene Ziel von {requested} % ist mit den "
+            "wirksamen Grenzen ({effective_min} % bis {effective_max} %) und den "
+            "übrigen Vorgaben nicht vereinbar. Umgesetzt werden {effective} %."
+        ),
+        "body_client": (
+            "Für {bucket_label} wird eine Quote von {effective} % umgesetzt, die "
+            "innerhalb der für Ihre Strategie geltenden Grenzen liegt."
+        ),
+        "actions": ("review_constraints",),
+    },
+    WARN_LIQUIDITY_BAND_SYSTEM_EXTENDED: {
+        "severity": SEVERITY_WARNING,
+        "title": "Liquiditätsband systembedingt erweitert",
+        "body_advisor": (
+            "Liquidität: Das Band wurde systembedingt auf {extended} % erweitert "
+            "({source}; Hausmatrix-Maximum {house_max} %). Das ist kein Austritt aus "
+            "dem Eignungsrahmen und braucht keine Begründung."
+        ),
+        "body_client": (
+            "Für Ihre Strategie wird eine Liquidität von {extended} % gehalten, "
+            "{client_reason}."
+        ),
+        "actions": (),
+    },
+    INFO_LIQUIDITY_BAND_SYSTEM_EXTENDED: {
+        "severity": SEVERITY_INFO,
+        "title": "Liquiditätsband systembedingt erweitert",
+        "body_advisor": (
+            "Liquidität: Das Band wurde systembedingt auf {extended} % erweitert "
+            "({source}; Hausmatrix-Maximum {house_max} %). Die Erweiterung liegt unter "
+            "der Wesentlichkeitsschwelle; kein Austritt aus dem Eignungsrahmen, keine "
+            "Begründung nötig."
+        ),
+        "body_client": (
+            "Für Ihre Strategie wird eine Liquidität von {extended} % gehalten, "
+            "{client_reason}."
+        ),
+        "actions": (),
+    },
+    CONFLICT_BAND_REASON_MISSING: {
+        "severity": SEVERITY_CONFLICT,
+        "title": "Begründung für Abweichung vom Eignungsrahmen fehlt",
+        "body_advisor": (
+            "{bucket_labels}: Die Mandatsbandbreite verlässt den Eignungsrahmen des "
+            "Risikoprofils «{profile_label}» (Score {score_bucket}). Ohne dokumentierte "
+            "Begründung ist die Freigabe der Empfehlung blockiert. Bitte im "
+            "Bandbreiten-Editor eine Begründung erfassen und die Strategie neu berechnen."
+        ),
+        "body_client": (
+            "Die vereinbarte Bandbreite weicht vom Standardrahmen Ihres Anlageprofils ab. "
+            "Die Begründung wird im Beratungsgespräch dokumentiert, bevor die Empfehlung "
+            "freigegeben wird."
+        ),
+        "actions": ("review_constraints",),
+    },
+    WARN_TARGET_FALLBACK_RESET: {
+        "severity": SEVERITY_WARNING,
+        "title": "Berater-Zielquote durch Risikobudget-Fallback ersetzt",
+        "body_advisor": (
+            "{bucket_label}: Das Berater-Ziel von {requested} % wird nicht umgesetzt. "
+            "Die Allokation überschritt das Risikobudget des Risikoprofils "
+            "({risk_budget} % Risky Fraction); sie wurde deshalb auf die "
+            "Bandbreiten-Mitte zurückgesetzt. Umgesetzt werden {effective} %. "
+            "Ihre Mindest- und Maximalgrenzen bleiben in Kraft."
+        ),
+        "body_client": (
+            "Für {bucket_label} wird eine Quote von {effective} % umgesetzt, damit "
+            "Ihre Strategie innerhalb des Risikorahmens Ihres Anlageprofils bleibt."
         ),
         "actions": ("review_constraints",),
     },

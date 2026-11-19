@@ -83,8 +83,10 @@ def test_analysis_ist_is_the_depot_snapshot_not_the_run_copy(session_factory):
         analysis = dca.build_depot_check_analysis(s, mandate, snapshot)
     held = sum(p["amount_base_rappen"] for p in snapshot["positions"])
     result = analysis["result"]
-    # Die ungebundene Live-Analyse liest die Lauf-Kopie (999'999'999 je Position).
-    assert live["total_advisory_wealth_rappen"] == 3 * 999_999_999_00
+    # KN4-B / EXT-01: die ungebundene Live-Analyse liest die Holdings mit der
+    # Bewertung des Live-Rebalancings, nicht mehr die Lauf-Kopie
+    # (999'999'999 je Position) -- der gebundene Snapshot bleibt davon unberuehrt.
+    assert live["total_advisory_wealth_rappen"] < 3 * 999_999_999_00
     assert result["total_advisory_wealth_rappen"] == held == 988_000_00
     assert result["buckets"]["equities"]["ist_rappen"] == 600_000_00 + 88_000_00
     assert result["buckets"]["bonds"]["ist_rappen"] == 300_000_00
@@ -174,6 +176,7 @@ def test_snapshot_of_another_mandate_is_rejected(session_factory):
 def test_api_stores_idempotently_and_json_reads_the_stored_analysis(session_factory):
     with session_factory() as s:
         advisor, mandate = _seed(s)
+        _fresh_usd_rate(s)  # CCX-P3 N-909-01: Depot-Snapshot nur mit belegtem USD-Kurs
         s.commit()
         from routers.allocation import create_depot_snapshot
 
@@ -252,9 +255,22 @@ def test_latest_analysis_is_loaded_and_none_without_snapshot(session_factory):
     assert loaded["analysis_snapshot_id"] == created["analysis_snapshot_id"]
 
 
+def _fresh_usd_rate(s):
+    """CCX-P3: belegter, frischer USD-Kurs (synthetischer Testvektor 0.8800)."""
+    from datetime import datetime, timezone
+
+    from models.fx_rate import FXRate
+
+    now = datetime.now(timezone.utc).isoformat()
+    s.add(FXRate(id="fx-usd-test", currency="USD", rate_x10000=8_800, valid_from=now, is_current=1,
+                 source="Manual", created_at=now, updated_at=now))
+    s.flush()
+
+
 def test_pdf_binding_rejects_analysis_for_a_replaced_target_allocation(session_factory):
     with session_factory() as s:
         _advisor, mandate = _seed(s)
+        _fresh_usd_rate(s)
         analysis = dca.build_depot_check_analysis(s, mandate, _snapshot(s, mandate))
         dca.assert_analysis_matches_current_allocation(s, mandate, analysis)
         s.query(TargetAllocation).filter(TargetAllocation.id == "ta-a").update({"is_current": 0})
@@ -346,3 +362,60 @@ def test_alembic_chain_contains_revision_and_round_trips(tmp_path):
     assert "depot_check_analysis_snapshots" in _tables(db_path)
     command.downgrade(cfg, DOWN_REVISION)
     assert "depot_check_analysis_snapshots" not in _tables(db_path)
+
+
+# ── CCX-P3 Nachtrag 1 (N-909-02, N-909-03 R4) ────────────────────────────────
+
+
+def _set_usd_rate(s, rate_x10000, source="Manual", rid="fx-usd-n1"):
+    from datetime import datetime, timezone
+
+    from models.fx_rate import FXRate
+
+    now = datetime.now(timezone.utc).isoformat()
+    s.query(FXRate).filter(FXRate.currency == "USD", FXRate.is_current == 1).update(
+        {"is_current": 0, "valid_until": now})
+    s.add(FXRate(id=rid, currency="USD", rate_x10000=rate_x10000, valid_from=now, is_current=1,
+                 source=source, created_at=now, updated_at=now))
+    s.flush()
+
+
+@pytest.mark.parametrize("rate,source,code", [
+    (9_000, "Manual", "CCX_FX_BASIS_MISMATCH"),   # heute anderer Kurs als gespeichert
+    (8_800, "Default", "CCX_FX_BASIS_MISSING"),   # gespeicherter Kurs nur noch als Ersatzkurs
+])
+def test_stored_depot_check_rejects_outdated_or_substitute_fx_evidence(session_factory, rate, source, code):
+    """N-909-02: depotcheck.pdf?analysis_snapshot_id=... druckt nur, wenn die
+    Kursevidenz des gespeicherten Snapshots heute belegt ist."""
+    from core.reason_codes import DomainError
+
+    with session_factory() as s:
+        _advisor, mandate = _seed(s)
+        _set_usd_rate(s, 8_800)
+        analysis = dca.build_depot_check_analysis(s, mandate, _snapshot(s, mandate))
+        dca.assert_analysis_matches_current_allocation(s, mandate, analysis)  # Kontrolle: gleicher Kurs
+        _set_usd_rate(s, rate, source, rid="fx-usd-n1b")
+        with pytest.raises(DomainError) as exc:
+            dca.assert_analysis_matches_current_allocation(s, mandate, analysis)
+        assert exc.value.reason_code == code
+
+
+def test_stored_depot_check_requires_current_depot_valuation(session_factory):
+    """N-909-03 R4: die Depotzeilen-Pruefung (assert_depot_rows_complete) sperrt
+    einen Druck, sobald ein Depotpreis heute abgelaufen ist."""
+    from datetime import date, timedelta
+
+    from core.reason_codes import DomainError
+    from models.review import PriceHistory
+
+    with session_factory() as s:
+        _advisor, mandate = _seed(s)
+        _set_usd_rate(s, 8_800)
+        analysis = dca.build_depot_check_analysis(s, mandate, _snapshot(s, mandate))
+        dca.assert_analysis_matches_current_allocation(s, mandate, analysis)
+        stale = (date.today() - timedelta(days=10)).isoformat()
+        s.query(PriceHistory).filter(PriceHistory.product_id == "prod-rp-eq").update({"price_date": stale})
+        s.flush()
+        with pytest.raises(DomainError) as exc:
+            dca.assert_analysis_matches_current_allocation(s, mandate, analysis)
+        assert exc.value.reason_code == "CCX_VALUATION_STALE"

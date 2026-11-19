@@ -306,7 +306,7 @@ def _seed_pension(session, client_id: str, start_year: int) -> tuple[str, str]:
         pension_type="Säule 3a", liquidity_available_from=f"{start_year + 2}-03-31",
         is_active=1, created_at=_now(), updated_at=_now(),
     ))
-    session.add(WealthInflow(
+    session.add(WealthInflow(currency="CHF",
         id=iid, client_id=client_id, label="3a-Bezug", source_type="Saeule3b",
         amount_rappen=105_000_00, expected_year=start_year + 2, is_recurring=0,
         value_mode="nominal", linked_position_id=pid, is_active=1,

@@ -6,6 +6,7 @@
  * valid_until ist INKLUSIV.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useReportCurrency } from '@/lib/reportCurrency';
 import { ApiError } from '@/api/client';
 import {
   createCashflow,
@@ -17,6 +18,7 @@ import {
 import {
   CASHFLOW_FREQUENCIES,
   buildCashflowPayload,
+  NO_MANDATE_RECORD_CURRENCY,
   rappenToChf,
   validateCashflow,
   type CashflowFormInput,
@@ -140,7 +142,7 @@ export function CashflowEditor({ clientId }: CashflowEditorProps) {
                   <tr key={cf.id} className="border-b border-rule/50">
                     <td className="py-2">{cf.cashflow_type === 'Income' ? 'Einnahme' : 'Ausgabe'}</td>
                     <td className="py-2">{cf.label}</td>
-                    <td className="py-2 text-right">{rappenToChf(cf.amount_rappen)}</td>
+                    <td className="py-2 text-right">{rappenToChf(cf.amount_rappen, cf.currency)}</td>
                     <td className="py-2">{cf.frequency}</td>
                     <td className="py-2">{cf.valid_until ?? '—'}</td>
                     <td className="py-2 text-right">
@@ -196,7 +198,7 @@ export function CashflowEditor({ clientId }: CashflowEditorProps) {
                         {d.cashflow_type === 'Income' ? 'Einnahme' : 'Ausgabe'}
                       </td>
                       <td className="py-2">{d.label}</td>
-                      <td className="py-2 text-right">{rappenToChf(d.amount_rappen)}</td>
+                      <td className="py-2 text-right">{rappenToChf(d.amount_rappen, d.currency)}</td>
                       <td className="py-2">{d.frequency}</td>
                     </tr>
                   ))}
@@ -229,9 +231,11 @@ interface CashflowFormDrawerProps {
   onSaved: () => void;
 }
 
-function inputFromRecord(rec: CashflowRecord | null): CashflowFormInput {
+// N-894-10: neue Cashflows in Mandatswaehrung, bestehende behalten ihre eigene (wie Classic).
+function inputFromRecord(rec: CashflowRecord | null, currency: string | null): CashflowFormInput {
   if (!rec) {
     return {
+      currency,
       cashflow_type: 'Expense',
       label: '',
       amountChf: '',
@@ -244,6 +248,7 @@ function inputFromRecord(rec: CashflowRecord | null): CashflowFormInput {
     };
   }
   return {
+    currency: rec.currency || currency,
     cashflow_type: (rec.cashflow_type as CashflowType) ?? 'Expense',
     label: rec.label,
     amountChf: String(rec.amount_rappen / 100),
@@ -263,17 +268,19 @@ function CashflowFormDrawer({
   onClose,
   onSaved,
 }: CashflowFormDrawerProps) {
-  const [form, setForm] = useState<CashflowFormInput>(() => inputFromRecord(editing));
+  const currency = useReportCurrency();
+  const recordCurrency = currency ?? NO_MANDATE_RECORD_CURRENCY;
+  const [form, setForm] = useState<CashflowFormInput>(() => inputFromRecord(editing, recordCurrency));
   const [errors, setErrors] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setForm(inputFromRecord(editing));
+      setForm(inputFromRecord(editing, recordCurrency));
       setErrors([]);
       setSaving(false);
     }
-  }, [open, editing]);
+  }, [open, editing, recordCurrency]);
 
   useEffect(() => {
     if (!open) return;
@@ -373,7 +380,7 @@ function CashflowFormDrawer({
             />
           </label>
           <label className="block text-caption text-ink-muted">
-            Betrag (CHF)
+            Betrag ({form.currency ?? '—'})
             <input
               type="number"
               value={form.amountChf}

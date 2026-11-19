@@ -204,6 +204,9 @@ def test_pdf_without_recorded_holdings_is_marked_target_only(session_factory):
         )
         assert _counts(session) == (0, 0)
     text = _pdf_text(response)
-    assert "ohne IST-Bestand (kein Depot erfasst)" in text
+    # KN4-B / E2E4-04: der Foundation-Fall hat ein Depot als Vermoegensposition --
+    # gekennzeichnet als Soll-Analyse, aber nie "kein Depot erfasst".
+    assert "ohne IST-Bestand (Bestände je Titel der Empfehlung nicht erfasst)" in text
+    assert "kein Depot erfasst" not in text
     assert "dps-" not in text
 

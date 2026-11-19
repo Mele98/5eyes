@@ -51,6 +51,7 @@ from models.review import (
     RecommendationRun,
 )
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
+from core.band_rule import band_breach_bps
 from services.product_market_data import resolve_market_profile
 
 if TYPE_CHECKING:
@@ -353,6 +354,12 @@ def _build_live_rebalancing_entry(
             holding_as_of_date = str(holding.as_of_date or "").strip() or None
             holding_units_milli = raw_units if raw_units > 0 else None
             holding_market_value_rappen = raw_market_value if raw_market_value > 0 else None
+            # N-858-13 (bewusst): 0 gilt hier als "kein Einstand erfasst".
+            # Das Erfassungsformular sendet fuer <= 0 null (die API nimmt 0
+            # an). Vor allem dient der Einstand unten als Referenzpreis fuer
+            # die implizite Stueckzahl und Bewertung; ein Einstand 0 wuerde
+            # dort eine Bewertung 0 erzeugen. Ein echter Einstand 0
+            # (Schenkung) braucht zuerst ein eigenes Feld (N-873-05).
             holding_avg_cost_price_rappen = int(holding.avg_cost_price_rappen or 0) or None
             holding_depot_bank = str(holding.depot_bank or "").strip() or None
             holding_custody_account_number = str(holding.custody_account_number or "").strip() or None
@@ -499,14 +506,11 @@ def _build_live_bucket_drifts(
         delta_weight_bps = current_weight_bps - target_weight_bps
         min_weight = int(config["band_min_bps"])
         max_weight = int(config["band_max_bps"])
-        breach_bps = 0
-        # Zero bands = "no constraint" (Bucket nicht aktiv konfiguriert).
-        if min_weight == 0 and max_weight == 0:
-            breach_bps = 0
-        elif current_weight_bps < min_weight:
-            breach_bps = min_weight - current_weight_bps
-        elif current_weight_bps > max_weight:
-            breach_bps = current_weight_bps - max_weight
+        # KN3-B Nachtrag 2 (CTO): Band 0/0 = Obergrenze 0, nicht "keine Grenze"
+        # (core/band_rule.py). Die Bandspalten der Soll-Allokation sind NOT NULL
+        # mit CHECK min <= Ziel <= max; 0/0 heisst also immer Ziel 0 und ist eine
+        # echte Grenze (z. B. Aktien bei Kapitalschutz), nie ein Platzhalter.
+        breach_bps = band_breach_bps(current_weight_bps, min_weight, max_weight) or 0
         breached = breach_bps > 0
         if breached:
             breached_asset_classes.append(asset_class)

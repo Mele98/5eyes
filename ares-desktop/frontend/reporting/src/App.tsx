@@ -1,3 +1,4 @@
+import { MandateCurrencyProvider, ReportCurrencyContext, reportCurrencyFrom } from '@/lib/reportCurrency';
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { useAdvisoryReport } from '@/api/useAdvisoryReport';
@@ -132,7 +133,12 @@ function WealthInflowEditorRoute() {
       />
     );
   }
-  return <WealthInflowEditor clientId={clientId} />;
+  // N-894-16: Waehrungs-Provider auch fuer Editor-Routen (Mandate des Kunden).
+  return (
+    <MandateCurrencyProvider clientId={clientId}>
+      <WealthInflowEditor clientId={clientId} />
+    </MandateCurrencyProvider>
+  );
 }
 
 function GoalsEditorRoute() {
@@ -145,7 +151,11 @@ function GoalsEditorRoute() {
       />
     );
   }
-  return <GoalsEditor mandateId={mandateId} />;
+  return (
+    <MandateCurrencyProvider mandateId={mandateId}>
+      <GoalsEditor mandateId={mandateId} />
+    </MandateCurrencyProvider>
+  );
 }
 
 function AllocationEditorRoute() {
@@ -171,7 +181,11 @@ function CashflowEditorRoute() {
       />
     );
   }
-  return <CashflowEditor clientId={clientId} />;
+  return (
+    <MandateCurrencyProvider clientId={clientId}>
+      <CashflowEditor clientId={clientId} />
+    </MandateCurrencyProvider>
+  );
 }
 
 function MandateEditorRoute() {
@@ -258,12 +272,53 @@ function ReportShell({ sectionId }: { sectionId: ReportSectionId }) {
         tabIndex={-1}
         aria-label={`Beratungsreport-Hauptinhalt: ${sectionId}`}
       >
+        <AllocationDraftNotice notice={data.allocation_draft_notice} />
+        <AllocationApprovalNotice publication={data.allocation_publication} />
         <Suspense fallback={<SectionSkeleton />}>
-          {renderSection(sectionId, data, mandateId, reload)}
+          <ReportCurrencyContext.Provider value={reportCurrencyFrom(data)}>
+            {renderSection(sectionId, data, mandateId, reload)}
+          </ReportCurrencyContext.Provider>
         </Suspense>
       </main>
       <KeyboardShortcuts mandateId={mandateId} activeSection={sectionId} />
     </div>
+  );
+}
+
+/** CCX-P4: ruhiger Hinweis, solange die Soll-Allokation nicht (gueltig)
+ * publiziert ist -- der Bericht ist dann ein Entwurf (Serverstatus). */
+export function AllocationDraftNotice({ notice }: { notice?: string | null }) {
+  if (!notice) return null;
+  return (
+    <p
+      role="status"
+      data-testid="allocation-draft-notice"
+      className="mx-auto mt-block max-w-editorial px-page-x text-caption text-ink-muted"
+    >
+      {notice}
+    </p>
+  );
+}
+
+/** CCX-P4 N-910-02: Berater-Ansicht kennzeichnet eine Einzelfreigabe
+ * ("Einzelfreigabe (eine berechtigte Person)"); Vier-Augen bleibt ruhig. */
+export function AllocationApprovalNotice({
+  publication,
+}: {
+  publication?: { status: string; approval_mode_label?: string | null } | null;
+}) {
+  const label = publication?.approval_mode_label;
+  if (!publication || publication.status !== 'PUBLISHED' || !label || !label.startsWith('Einzelfreigabe')) {
+    return null;
+  }
+  return (
+    <p
+      role="status"
+      data-testid="allocation-approval-notice"
+      className="mx-auto mt-block max-w-editorial px-page-x text-caption text-ink-muted"
+    >
+      Publiziert · {label}
+    </p>
   );
 }
 
@@ -444,9 +499,7 @@ function renderSection(
     return (
       <Risikoprofil
         data={data.risikoprofilierung}
-        capacityPlausibility={data.suitability_summary?.risk_capacity_plausibility ?? null}
         projectionGate={data.projection_gate}
-        mandateId={mandateId}
       />
     );
   }

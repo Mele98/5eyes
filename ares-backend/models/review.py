@@ -1,6 +1,6 @@
-from sqlalchemy import BigInteger, Column, String, Integer, ForeignKey, UniqueConstraint, Index, text
+from sqlalchemy import DDL, BigInteger, Column, String, Integer, ForeignKey, UniqueConstraint, Index, event, text
 from sqlalchemy.orm import relationship
-from database import Base
+from database import CLIENT_INFORMATION_DELIVERY_SQLITE_TRIGGERS, Base
 
 
 class ReviewTrigger(Base):
@@ -94,6 +94,19 @@ class ContractDocument(Base):
     signature_client_signer_name = Column(String)
     signature_client_signed_at = Column(String)
     signature_client_ip = Column(String)
+    # E2a (Dok. 106, Codex-Vertrag E2): Bindung eines archivierten
+    # Kundendokuments an die Nachhaltigkeitspraeferenz, die bei der Erzeugung
+    # aktuell war (decision_hash bzw. 'keine-erfassung:<mandat>'). Signatur,
+    # Vor-Ort-Signatur und Handoff vergleichen sie mit der aktuellen
+    # Erfassung; eine neue Erfassung macht alte Dokumente unwirksam.
+    # NULL = Altbestand vor E2 (gebunden nur, solange keine Erfassung besteht).
+    bound_preference_decision_hash = Column(String)
+    # E2b / N-888-09: Bindung eines Empfehlungsdokuments an die Soll-Allokation,
+    # deren Inhalt es traegt (ID + SHA-256 des Praeferenz-Snapshots); Signatur
+    # und Vor-Ort-Signatur pruefen GENAU diesen Inhalt gegen die Kunden-
+    # ausschluesse (Alembic c4e8a2f6b9d1). NULL = Altbestand/ohne Strategie.
+    bound_target_allocation_id = Column(String)
+    bound_preferences_sha256 = Column(String)
     version = Column(Integer, nullable=False, default=1)
     supersedes_id = Column(String)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
@@ -234,6 +247,13 @@ class ConflictOfInterestDisclosure(Base):
     # unterschriebene Verzichts-Dokument fuer Beweiszwecke.
     reimbursed_to_client = Column(Integer, nullable=False, default=0)
     waiver_document_id = Column(String)
+    # N-861-1 (Pruefrunde #861, 2026-11-04): optionale Bindung einer
+    # Retrozessions-Zeile an ein konkretes Produkt. NULL = Zuordnung wie
+    # bisher ueber den Anbieternamen (inducement_provider). Bewusst ohne
+    # Fremdschluessel-Constraint (gleiches Muster wie waiver_document_id);
+    # der Router prueft, dass das Produkt fuer den Tenant sichtbar ist.
+    # Alembic d4f7a9c2e1b6, SQLite-Runtime-Patch database.py.
+    product_id = Column(String)
     disclosed_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
@@ -245,6 +265,15 @@ class ConflictOfInterestDisclosure(Base):
 
 class Product(Base):
     __tablename__ = "products"
+    # Owner-Anforderung P1: interne Produkt-ID eindeutig je Tenant (aktive
+    # Zeilen). Identisch in Alembic c2e6f8a1b3d5 und im SQLite-Runtime-Patch.
+    __table_args__ = (
+        Index(
+            "ux_products_tenant_internal_id", "tenant_id", "internal_product_id", unique=True,
+            sqlite_where=text("internal_product_id IS NOT NULL AND deleted_at IS NULL"),
+            postgresql_where=text("internal_product_id IS NOT NULL AND deleted_at IS NULL"),
+        ),
+    )
 
     id = Column(String, primary_key=True)
     isin = Column(String)
@@ -294,6 +323,39 @@ class Product(Base):
     # py::product_theme_keys). Backfill fuer "Thema X"-Produkte: database.py
     # ensure_runtime_columns() + Alembic d7c3e9a2f5b1.
     theme_tags = Column(String)
+    # AUDIT-2026-11 P1 (Entscheid PO-6, Luecke L1): Produkt-Stammdaten.
+    # Alle Felder nullable, NULL = "nicht erfasst" -- nichts wird erfunden
+    # (der Standardkatalog fuehrt keine echten ISIN/Retrozessionssaetze).
+    # Validierung: schemas/review.py (Abschnitt P1); Alembic a8d3c5e7f9b1;
+    # SQLite-Runtime-Patch: database.py::ensure_runtime_columns.
+    # Die Auswahl-/Scoring-Logik liest diese Felder in P1 NICHT (P13).
+    domicile = Column(String)                # ISO 3166-1 alpha-2, z.B. 'IE'
+    is_hedged = Column(Integer)              # 1/0, NULL = nicht erfasst
+    hedge_currency = Column(String)          # ISO 4217 der Absicherung
+    ter_source = Column(String)              # Quelle der TER (z.B. KID/Factsheet)
+    ter_as_of = Column(String)               # Stichtag der TER (YYYY-MM-DD)
+    # Retrozessionssatz in bps p.a. auf dem investierten Volumen.
+    # NULL = UNBEKANNT (nie "retrozessionsfrei"), 0 = ausdruecklich frei.
+    retrocession_bps = Column(Integer)
+    retrocession_source = Column(String)
+    is_house_product = Column(Integer)       # 1/0, NULL = nicht erfasst
+    distribution_policy = Column(String)     # 'accumulating' | 'distributing'
+    valor = Column(String)                   # Valorennummer (optional)
+    # Mindestanlage in Minor Units der Anteilsklassen-Waehrung (optional).
+    minimum_investment_minor_units = Column(BigInteger)
+    # Owner-Anforderung P1 (eigene Fonds, kotiert/nicht kotiert), Alembic
+    # c2e6f8a1b3d5: Kotierung, interne tenant-eindeutige ID (Pflicht bei
+    # unlisted ohne ISIN; Unique-Index je Tenant), Bewertungsquelle,
+    # NAV-Rhythmus/-Stichtag, Liquiditaetsrhythmus. Alle nullable.
+    listing_status = Column(String)          # 'listed' | 'unlisted'
+    internal_product_id = Column(String)
+    price_source = Column(String)            # 'market' | 'manual_nav' | 'provider'
+    nav_frequency = Column(String)           # 'daily' | 'weekly' | 'monthly' | 'quarterly'
+    nav_as_of = Column(String)               # YYYY-MM-DD, manuell pflegbar
+    redemption_period_days = Column(Integer)
+    notice_period_days = Column(Integer)
+    has_gating = Column(Integer)             # 1/0, NULL = nicht erfasst
+    gating_terms = Column(String)
     is_active = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
@@ -460,6 +522,10 @@ class RecommendationRun(Base):
     # Finalisierung gebunden ist. NULL fuer Entwuerfe und solange das
     # Policy-Modell nicht aktiv geschaltet ist (services/cma_policy.py).
     cma_policy_row_id = Column(String)
+    # E2b Nachtrag 1: Belege der Produktauswahl fuer die Kundenausschluesse
+    # (decision_hash, Themen, Stichtag, Nachweis-ID je Position). NULL = kein
+    # Ausschluss aktiv bzw. Altlauf (Alembic e7b3d9f1a2c4).
+    sustainability_evidence_json = Column(String)
     result_status = Column(String, nullable=False, default="Draft")
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
@@ -577,6 +643,44 @@ class AuditLogSequenceCounter(Base):
 
     id = Column(String, primary_key=True)
     value = Column(Integer, nullable=False, default=0)
+    # N-869-4 (Pruefrunde #869): integrity_hash des Eintrags mit sequence =
+    # value, atomar mit value fortgeschrieben (services/audit.py::log()).
+    # Damit braucht die Verkettung nie eine Lese-Abfrage auf audit_log --
+    # unter PostgreSQL-RLS waere der Vorgaenger eines anderen Tenants (oder
+    # ohne tenant_id) unsichtbar und previous_hash wurde ''. Diese Tabelle
+    # ist system_only (keine tenant_id, keine RLS-Policy).
+    last_hash = Column(String(64))
+
+
+# F6 (Codex-Entscheid Runde 3, 2026-11-07): persistierter Status der
+# Audit-Kettenpruefung (Singleton id='singleton'). Ueber der synchronen
+# Startgrenze laeuft die Vollpruefung chunked im Hintergrund; bis zum Erfolg
+# muss ein sichtbarer Integritaetsstatus vorliegen. Nur Zaehler, Sequenz-
+# nummern, Hashes der Kette und Zeitpunkte -- keine Inhalte. system_only
+# (keine tenant_id, keine RLS-Policy), wie audit_log_sequence_counter.
+class AuditChainVerificationStatus(Base):
+    __tablename__ = "audit_chain_verification_status"
+
+    id = Column(String, primary_key=True)
+    # pending | running | ok | broken | error
+    state = Column(String, nullable=False)
+    # sync | background
+    mode = Column(String, nullable=False)
+    total_rows = Column(Integer)
+    threshold = Column(Integer)
+    target_sequence = Column(Integer)
+    verified_through_sequence = Column(Integer)
+    checked = Column(Integer)
+    finding_count = Column(Integer)
+    # Letzter erfolgreich vollstaendig gepruefter Kettenkopf.
+    last_ok_sequence = Column(Integer)
+    last_ok_hash = Column(String(64))
+    last_ok_at = Column(String)
+    started_at = Column(String)
+    updated_at = Column(String)
+    finished_at = Column(String)
+    # Zaehler je Befundart (JSON, ohne Inhalte) bzw. Fehlerklasse bei 'error'.
+    detail_json = Column(String)
 
 
 class MandateReportNotes(Base):
@@ -626,3 +730,49 @@ class MandateReportNotes(Base):
 
     mandate = relationship("Mandate", back_populates="report_notes")
     editor = relationship("User")
+
+
+class ClientInformationDelivery(Base):
+    """H8 C-2 (Compliance-Audit 2026-11-07, Luecke 2): Abgabenachweis der
+    Kundeninformation nach Art. 8/9 FIDLEG.
+
+    Belegt, WELCHE archivierte Fassung (``contract_document_id`` mit Byte-Hash
+    ``pdf_sha256``, Vorlagenversion, Revision/Hash der rechtlichen Angaben)
+    WANN (``delivered_at``) und WIE (``delivery_channel``) dem Kunden
+    uebergeben wurde. Gate: Finalisierung und Vertragsunterzeichnung nur, wenn
+    die Uebergabe vor dem Vertragsabschluss liegt
+    (services/recommendation_release_gate.py::client_onboarding_findings).
+
+    Append-only (Trigger SQLite/PostgreSQL); kein FK auf mandates/clients
+    (Purge-fest wie audit_log), nur der Akteur verweist auf users.
+    """
+
+    __tablename__ = "client_information_deliveries"
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    mandate_id = Column(String, nullable=False)
+    client_id = Column(String, nullable=False)
+    contract_document_id = Column(String, nullable=False)
+    template_version = Column(String, nullable=False)
+    legal_profile_revision = Column(Integer, nullable=False)
+    legal_profile_hash = Column(String, nullable=False)
+    pdf_sha256 = Column(String, nullable=False)
+    delivered_at = Column(String, nullable=False)
+    delivery_channel = Column(String, nullable=False)
+    # N-890-02: "vor_vertragsabschluss" (erfasst, bevor ein Vertrag unterzeichnet
+    # war) oder "nachtraeglich" (Bestandsvertrag; zaehlt nie als vorvertraglich).
+    delivery_timing = Column(String, nullable=False)
+    # Pflicht, wenn delivered_at mehr als 24 h vor recorded_at liegt.
+    backdating_reason = Column(String)
+    recorded_by = Column(String, ForeignKey("users.id"), nullable=False)
+    recorded_at = Column(String, nullable=False)
+    delivery_hash = Column(String, nullable=False)
+
+
+for _trigger_ddl in CLIENT_INFORMATION_DELIVERY_SQLITE_TRIGGERS:
+    event.listen(
+        ClientInformationDelivery.__table__,
+        "after_create",
+        DDL(_trigger_ddl).execute_if(dialect="sqlite"),
+    )

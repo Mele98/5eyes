@@ -8,7 +8,9 @@ from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
+from core.depletion_display import depleted, not_meaningful_text
 from services.pdf.components.header import _esc
+from core.presentation_rounding import allocation_pct_texts, format_amount_minor, format_bps_as_pct, sub_allocation_pct_texts
 from services.pdf.styles import (
     BUCKET_COLORS,
     COLOR_BORDER,
@@ -61,6 +63,7 @@ def make_target_allocation_bars(
     value_w = 20 * mm
     bar_x = label_w
     bar_w = width - label_w - value_w
+    shown = allocation_pct_texts(dict(items))  # G7 N-894-02: Summe 100.0 %
     for index, (bucket, bps) in enumerate(items):
         y = height - 12 * mm - index * row_h
         drawing.add(String(
@@ -104,7 +107,7 @@ def make_target_allocation_bars(
         drawing.add(String(
             width,
             y + 2.5,
-            f"{bps / 100:.1f}%",
+            shown.get(bucket, format_bps_as_pct(bps, decimals=1)),
             textAnchor="end",
             fontName=FONT_BOLD,
             fontSize=9,
@@ -123,6 +126,14 @@ def make_target_allocation_bars(
 
 def make_sub_allocation_table(rows: list[dict], base_currency: str = "CHF") -> Table:
     data = [["Hauptanlageklasse", "Subanlageklasse", "Produkte", "Zielquote", "Zielbetrag"]]
+    # G7 N-894-02: Unterklassen je Klasse auf den apportionierten Klassenwert.
+    by_class: dict[str, dict[str, int]] = {}
+    for item in rows:
+        cls = str(item.get("asset_class") or "")
+        sub = str(item.get("sub_asset_class") or "-")
+        by_class.setdefault(cls, {})[sub] = by_class.get(cls, {}).get(sub, 0) + int(item.get("weight_bps", 0) or 0)
+    class_text = allocation_pct_texts({c: sum(v.values()) for c, v in by_class.items() if sum(v.values()) > 0})
+    sub_text = {c: sub_allocation_pct_texts(class_text[c], v, sum(v.values())) for c, v in by_class.items() if c in class_text}
     for item in rows:
         data.append([
             Paragraph(
@@ -131,12 +142,13 @@ def make_sub_allocation_table(rows: list[dict], base_currency: str = "CHF") -> T
             ),
             Paragraph(_esc(item.get("sub_asset_class") or "-"), _cell_style()),
             str(int(item.get("products", 0) or 0)),
-            f'{int(item.get("weight_bps", 0) or 0) / 100:.1f}%',
+            sub_text.get(str(item.get("asset_class") or ""), {}).get(str(item.get("sub_asset_class") or "-"),
+                                                                    format_bps_as_pct(int(item.get("weight_bps", 0) or 0), decimals=1)),
             _format_amount(int(item.get("amount_rappen", 0) or 0), base_currency),
         ])
     if len(data) == 1:
         # PDF-RUN-RESOLVER-001: expliziter Marker statt stiller Leere.
-        data.append(["-", "Keine aktuelle Produktempfehlung fuer die gueltige Asset Allocation.", "-", "-", "-"])
+        data.append(["-", "Keine aktuelle Produktempfehlung für die gültige Asset Allocation.", "-", "-", "-"])
     return _styled_table(data, [0.19, 0.36, 0.10, 0.14, 0.21], right_from=2)
 
 
@@ -205,7 +217,7 @@ def make_exposure_bars(
         drawing.add(String(
             width,
             y + 1.5,
-            f"{bps / 100:.1f}%",
+            f"{format_bps_as_pct(bps, decimals=1)}",
             textAnchor="end",
             fontName=FONT_BOLD,
             fontSize=7.5,
@@ -215,12 +227,21 @@ def make_exposure_bars(
 
 
 def make_risk_kpis(profile: str | None, metrics: Mapping[str, object]) -> Table:
+    # KN3-B / N-917R2-02 (E2E2-03-Regel): bei Vermoegensverzehr im mittleren
+    # Verlauf ist der simulierte Max-Drawdown (-100 %) nicht aussagekraeftig.
+    note = metrics.get("depletion_note") or None
+    cagr = metrics.get("median_cagr_bps")
+    is_depleted = depleted(note, int(cagr) if isinstance(cagr, (int, float)) else None)
+    drawdown = (
+        not_meaningful_text(note or "Vermögen aufgebraucht") if is_depleted
+        else _fmt_negative_bps(metrics.get("max_drawdown_bps"))
+    )
     values = [
         ("RISIKOPROFIL", profile or "Nicht dokumentiert"),
         ("ERWARTETE RENDITE P.A.", _fmt_bps(metrics.get("expected_return_bps"))),
-        ("ERWARTETE VOLATILITAET", _fmt_bps(metrics.get("expected_vol_bps"))),
+        ("ERWARTETE VOLATILITÄT", _fmt_bps(metrics.get("expected_vol_bps"))),
         ("ANLAGEHORIZONT", f'{int(metrics.get("horizon_years") or 0)} Jahre'),
-        ("MAX. DRAWDOWN MODELL", _fmt_negative_bps(metrics.get("max_drawdown_bps"))),
+        ("MAX. DRAWDOWN MODELL", drawdown),
         ("VALUE-AT-RISK 95%", _fmt_negative_bps(metrics.get("var_95_bps"))),
     ]
     width = (PAGE_SIZE[0] - 24 * mm) / 3
@@ -246,9 +267,9 @@ def make_risk_kpis(profile: str | None, metrics: Mapping[str, object]) -> Table:
 
 def make_diversification_heatmap(hhi: Mapping[str, int]) -> Table:
     labels = (
-        ("country", "Laender"),
+        ("country", "Länder"),
         ("sector", "Sektoren"),
-        ("currency", "Waehrungen"),
+        ("currency", "Währungen"),
         ("top_positions", "Top-Positionen"),
     )
     cells = []
@@ -285,7 +306,7 @@ def make_concentration_table(positions: list[dict], base_currency: str = "CHF") 
     rows = [["Position", "Subanlageklasse", "Zielquote", "Zielbetrag", "Beurteilung"]]
     for item in positions[:10]:
         weight = int(item.get("weight_bps", 0) or 0)
-        level = "Pruefen" if weight >= 1000 else "Im Rahmen"
+        level = "Prüfen" if weight >= 1000 else "Im Rahmen"
         rows.append([
             Paragraph(
                 f'<font name="{FONT_BOLD}">{_esc(item.get("product_name") or "-")}</font>'
@@ -297,12 +318,12 @@ def make_concentration_table(positions: list[dict], base_currency: str = "CHF") 
                 _cell_style(),
             ),
             Paragraph(_esc(item.get("sub_asset_class") or "-"), _cell_style()),
-            f"{weight / 100:.1f}%",
+            f"{format_bps_as_pct(weight, decimals=1)}",
             _format_amount(int(item.get("amount_rappen", 0) or 0), base_currency),
             level,
         ])
     if len(rows) == 1:
-        rows.append(["-", "Keine Zielpositionen verfuegbar.", "-", "-", "-"])
+        rows.append(["-", "Keine Zielpositionen verfügbar.", "-", "-", "-"])
     table = _styled_table(rows, [0.31, 0.25, 0.12, 0.18, 0.14], right_from=2)
     table.setStyle(TableStyle([
         ("FONTSIZE", (0, 1), (-1, -1), max(7, FONT_SIZE_TABLE - 0.5)),
@@ -317,7 +338,7 @@ def make_cost_table(costs: Mapping[str, object], base_currency: str = "CHF") -> 
     if costs and costs.get("evidence_status") == "blocked":
         # COST-SNAPSHOT-BINDING-001: ausgewiesener Fehler statt "ausstehend".
         rows.append([
-            "Kostennachweis ungueltig", "-", "-", "-",
+            "Kostennachweis ungültig", "-", "-", "-",
             Paragraph(_esc(str(costs.get("evidence_error") or "-")), _cell_style()),
         ])
     elif not costs or costs.get("data_pending"):
@@ -327,7 +348,7 @@ def make_cost_table(costs: Mapping[str, object], base_currency: str = "CHF") -> 
             rows.append([
                 Paragraph(_esc(item.get("label") or "Kosten"), _cell_style()),
                 str(item.get("frequency") or "-"),
-                f'{int(item.get("rate_bps", 0) or 0) / 100:.2f}%',
+                f'{format_bps_as_pct(int(item.get("rate_bps", 0) or 0), decimals=2)}',
                 _format_amount(int(item.get("amount_rappen", 0) or 0), base_currency),
                 Paragraph(_esc(item.get("basis_label") or "-"), _cell_style()),
             ])
@@ -336,30 +357,30 @@ def make_cost_table(costs: Mapping[str, object], base_currency: str = "CHF") -> 
             [
                 "Total einmalig",
                 "einmalig",
-                f'{int(totals.get("one_time_bps", 0) or 0) / 100:.2f}%',
+                f'{format_bps_as_pct(int(totals.get("one_time_bps", 0) or 0), decimals=2)}',
                 _format_amount(int(totals.get("one_time_rappen", 0) or 0), base_currency),
-                "Beratungsvermoegen",
+                "Beratungsvermögen",
             ],
             [
                 "Total laufend p.a.",
-                "jaehrlich",
-                f'{int(totals.get("annual_bps", 0) or 0) / 100:.2f}%',
+                "jährlich",
+                f'{format_bps_as_pct(int(totals.get("annual_bps", 0) or 0), decimals=2)}',
                 _format_amount(int(totals.get("annual_rappen", 0) or 0), base_currency),
-                "Beratungsvermoegen",
+                "Beratungsvermögen",
             ],
             [
                 "Gesamtkosten erstes Jahr",
                 "erstes Jahr",
-                f'{int(totals.get("first_year_bps", 0) or 0) / 100:.2f}%',
+                f'{format_bps_as_pct(int(totals.get("first_year_bps", 0) or 0), decimals=2)}',
                 _format_amount(int(totals.get("first_year_rappen", 0) or 0), base_currency),
-                "Beratungsvermoegen",
+                "Beratungsvermögen",
             ],
         ])
     return _styled_table(rows, [0.34, 0.13, 0.11, 0.18, 0.24], right_from=2)
 
 
 def make_summary_text(text: str) -> Table:
-    content = Paragraph(_esc(text or "Keine qualitative Einschaetzung dokumentiert."), _summary_style())
+    content = Paragraph(_esc(text or "Keine qualitative Einschätzung dokumentiert."), _summary_style())
     table = Table([[content]], colWidths=[PAGE_SIZE[0] - 24 * mm])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
@@ -402,23 +423,23 @@ def _hhi_level(value: int):
         return "Breit diversifiziert", colors.HexColor("#75a685")
     if value < 2500:
         return "Mittlere Konzentration", colors.HexColor("#d8b454")
-    return "Erhoehte Konzentration", colors.HexColor("#c87368")
+    return "Erhöhte Konzentration", colors.HexColor("#c87368")
 
 
 def _fmt_bps(value) -> str:
     if value is None:
         return "-"
-    return f"{int(value or 0) / 100:.2f}%"
+    return f"{format_bps_as_pct(int(value or 0), decimals=2)}"
 
 
 def _fmt_negative_bps(value) -> str:
     if value is None:
         return "-"
-    return f"-{abs(int(value or 0)) / 100:.1f}%"
+    return f"-{format_bps_as_pct(abs(int(value or 0)), decimals=1)}"
 
 
 def _format_amount(rappen: int, currency: str) -> str:
-    return f"{currency} {int(rappen or 0) / 100:,.0f}".replace(",", "'")
+    return format_amount_minor(int(rappen or 0), currency or "CHF")
 
 
 def _shorten(value: str, length: int) -> str:

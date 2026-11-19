@@ -1,4 +1,4 @@
-"""Sprint U-P26 PR A — Tests fuer den Advisory-Report Server-PDF.
+"""Sprint U-P26 PR A — Tests für den Advisory-Report Server-PDF.
 
 PR A deckt nur Cover + Disclaimer + TOC ab. Spaetere Sprints fuegen
 weitere Sektion-Tests hinzu.
@@ -52,7 +52,7 @@ def _make_minimal_payload() -> dict:
         "disclaimer": {
             "hinweise": [
                 "Dieser Bericht dient ausschliesslich Beratungszwecken.",
-                "Vergangene Performance ist kein Indikator fuer kuenftige Renditen.",
+                "Vergangene Performance ist kein Indikator für künftige Renditen.",
                 "Monte-Carlo-Simulationen sind Modellrechnungen mit Modell-Risiken.",
             ],
         },
@@ -70,6 +70,7 @@ def _make_minimal_payload() -> dict:
                 "risikoprofil": "Defensiv",
                 "anlageziel": "Frühpension mit 60",
                 "liquiditaetsbedarf_rappen": 6_600_000,
+                "liquiditaetsbedarf_currency": "CHF",  # G7 N4: Server-Feld
                 "steuerdomizil": "CH",
                 "referenzwaehrung": "CHF",
             },
@@ -442,7 +443,7 @@ def _make_payload_with_mc_paths() -> dict:
         {
             "goal_id": "g-reach",
             "label": "Retirement Goal",
-            "goal_type": "Vermoegen",
+            "goal_type": "Vermögen",
             "target_amount_rappen": 210_000_000,
             "target_date": "2029-01-01",
             "hardness": "primaer",
@@ -462,7 +463,7 @@ def _make_payload_with_mc_paths() -> dict:
         {
             "goal_id": "g-hard",
             "label": "Safety Goal",
-            "goal_type": "Vermoegen",
+            "goal_type": "Vermögen",
             "target_amount_rappen": 200_000_000,
             "target_date": "2026-01-01",
             "hardness": "hart",
@@ -472,7 +473,7 @@ def _make_payload_with_mc_paths() -> dict:
         {
             "goal_id": "g-later",
             "label": "Later Goal",
-            "goal_type": "Vermoegen",
+            "goal_type": "Vermögen",
             "target_amount_rappen": 220_000_000,
             "target_date": "2035-01-01",
             "hardness": "primaer",
@@ -781,7 +782,7 @@ def test_ausgangslage_shows_six_key_metrics():
     flat_text = " ".join(page_text.split())
     for label in [
         "Risikobehafteter Anteil", "Erfolgs-Wkt. gesamt", "Erw. Volatilität",
-        "Erw. Rendite", "Max Drawdown", "VaR 95",
+        "Median-Rendite (simuliert)", "Max Drawdown", "VaR 95",
     ]:
         assert label in flat_text, f"KPI-Karte '{label}' fehlt"
     # Werte: 4250 bps -> 42.5 %, 8500 -> 85.0 %, 1100 -> 11.0 %
@@ -898,7 +899,7 @@ def test_erkenntnisse_shows_all_pruefpunkte_with_ampel():
 
 
 def test_erkenntnisse_renders_all_four_ampel_labels():
-    """gruen→OK / gelb→Achtung / rot→Handeln / nicht_beurteilbar→Pendant.
+    """gruen→OK / gelb→Achtung / rot→Handeln / nicht_beurteilbar→Ausstehend.
 
     pypdf bricht schmale Cell-Texte teils auf zwei Zeilen um — wir
     vergleichen daher gegen den Text ohne Zeilenwechsel/Whitespace,
@@ -910,14 +911,14 @@ def test_erkenntnisse_renders_all_four_ampel_labels():
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     raw = reader.pages[6].extract_text() or ""
     normalized = "".join(raw.split())  # whitespace incl. \n weg
-    for label in ["OK", "Achtung", "Handeln", "Pendant"]:
+    for label in ["OK", "Achtung", "Handeln", "Ausstehend"]:
         assert label in normalized, (
             f"Ampel-Label '{label}' fehlt. Normalisiert: {normalized[:600]}"
         )
 
 
 def test_erkenntnisse_unknown_bewertung_falls_back_to_pendant():
-    """Unbekannte Ampel-Werte → 'Pendant' (kein Crash)."""
+    """Unbekannte Ampel-Werte → 'Ausstehend' (kein Crash)."""
     pypdf = pytest.importorskip("pypdf")
     payload = _make_minimal_payload()
     payload["erkenntnisse"]["checks"] = [{
@@ -929,7 +930,7 @@ def test_erkenntnisse_unknown_bewertung_falls_back_to_pendant():
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     page_text = reader.pages[6].extract_text() or ""
-    assert "Pendant" in page_text
+    assert "Ausstehend" in page_text
 
 
 def test_erkenntnisse_handles_empty_checks():
@@ -1401,8 +1402,8 @@ def test_page_chrome_shows_total_pages_after_single_pass_build():
 
 
 def test_two_pass_render_builds_story_twice():
-    """U-13 (2026-06-02): Two-Pass-Render fuer echte Seitenzahlen.
-    Pass 1 zaehlt + sammelt TOC-Anker, Pass 2 zeichnet mit echten Seiten.
+    """U-13 (2026-06-02): Two-Pass-Render für echte Seitenzahlen.
+    Pass 1 zählt + sammelt TOC-Anker, Pass 2 zeichnet mit echten Seiten.
     Beide Passes rufen _build_all_flowables auf."""
     import services.pdf.documents.advisory_report as advisory_pdf
     payload = _make_minimal_payload()
@@ -1638,7 +1639,7 @@ def test_suitability_section_renders_header_and_status_pill():
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     text = "\n".join((page.extract_text() or "") for page in reader.pages)
-    assert "Eignungspruefung" in text
+    assert "Eignungsprüfung" in text
     assert "Eignung gegeben" in text
     assert "Anna Beispiel" in text
     assert "Suitability" in text
@@ -1689,7 +1690,7 @@ def test_suitability_section_shows_missing_info_block_when_incomplete():
         "result": "incomplete",
         "missing_information": [
             "Aktualisierter Anlagehorizont fehlt",
-            "Liquiditaetsbedarf nicht dokumentiert",
+            "Liquiditätsbedarf nicht dokumentiert",
         ],
     }
     pdf = render_advisory_report_pdf_from_payload(payload)
@@ -1731,7 +1732,7 @@ def test_suitability_section_empty_state_when_no_check():
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     text = "\n".join((page.extract_text() or "") for page in reader.pages)
-    assert "Noch keine Eignungspruefung" in text
+    assert "Noch keine Eignungsprüfung" in text
 
 
 # ---------------------------------------------------------------------------
@@ -1768,7 +1769,7 @@ def test_hidden_section_text_does_not_appear_in_pdf():
 
 
 def test_ab_backtest_pattern_still_works_when_key_present_but_falsy():
-    """Regressionsschutz fuer das bereits VOR der HUD-Konfiguration bestehende
+    """Regressionsschutz für das bereits VOR der HUD-Konfiguration bestehende
     Muster: ab_backtest wird bedingt gerendert, auch wenn der Key vorhanden,
     aber sein Wert leer/falsy ist (anders als die neuen 'in payload'-Checks)."""
     pypdf = pytest.importorskip("pypdf")

@@ -28,7 +28,9 @@ SCHEMA_FILE = BACKEND_ROOT / "ares_schema.sql"
 # (aktuelles Referenzfragment, Fragment der realen Alt-DB)
 _LEGACY_FRAGMENTS = (
     (
-        "CHECK(role IN ('admin', 'advisor', 'readonly', 'super_admin', 'portfolio_management', 'client'))",
+        # C-890-01 Nachtrag 1: Referenz um 'compliance_reviewer' erweitert.
+        "CHECK(role IN ('admin', 'advisor', 'readonly', 'super_admin', 'portfolio_management', 'client', "
+        "'compliance_reviewer'))",
         "CHECK(role IN ('admin', 'advisor', 'readonly'))",
     ),
     (
@@ -125,7 +127,7 @@ def test_legacy_maintenance_path_widens_stale_check_lists(tmp_path, monkeypatch)
     db_module._run_sqlite_legacy_schema_maintenance()
     test_engine.dispose()
 
-    for role in ("client", "super_admin", "portfolio_management"):
+    for role in ("client", "super_admin", "portfolio_management", "compliance_reviewer"):
         assert _accepts(db_path, "users", "role", role, f"u-{role}"), role
     assert _accepts(db_path, "contract_documents", "status", "Teilweise unterzeichnet", "")
     assert _accepts(db_path, "wealth_positions", "mortgage_amortization_type", "Indirekt (Säule 3a)", "")
@@ -135,11 +137,11 @@ def test_legacy_maintenance_path_widens_stale_check_lists(tmp_path, monkeypatch)
         assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert conn.execute("SELECT role FROM users WHERE id='u-legacy'").fetchone()[0] == "readonly"
     assert _schema_objects(db_path) == objects_before
-    assert len(list((tmp_path / "bk").glob("5eyes_pre_check_upgrade_*.db"))) == 1
+    assert len(list((tmp_path / "bk").glob("ares_pre_check_upgrade_*.db"))) == 1
 
 
 _EXPECTED_ADDED = {
-    "users": {"role": ["'super_admin'", "'portfolio_management'", "'client'"]},
+    "users": {"role": ["'super_admin'", "'portfolio_management'", "'client'", "'compliance_reviewer'"]},
     "wealth_positions": {"mortgage_amortization_type": ["'Indirekt (Säule 3a)'"]},
     "contract_documents": {"status": ["'Teilweise unterzeichnet'"]},
 }
@@ -164,7 +166,7 @@ def test_widening_is_idempotent_union_only_with_backup_and_protocol(tmp_path):
     # Zweiter Lauf: nichts zu tun, KEINE weitere Sicherung.
     assert ensure_sqlite_check_in_lists_current(engine, SCHEMA_FILE, backup_dir=backup_dir) == {}
     engine.dispose()
-    backups = sorted(backup_dir.glob("5eyes_pre_check_upgrade_*.db"))
+    backups = sorted(backup_dir.glob("ares_pre_check_upgrade_*.db"))
     assert len(backups) == 1
     assert not list(backup_dir.glob("*.partial*"))  # keine verwaisten Temp-Reste
     # Sicherung = Zustand VOR der Aenderung.
