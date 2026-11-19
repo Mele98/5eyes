@@ -193,7 +193,7 @@ def _append(db: Session, model, key_column: str, tenant_id: str, contents: dict[
     created = []
     for key in keys or list(contents):
         if key not in contents:
-            raise DomainError(ReasonCode.PRIVACY_OWNER_FIELD_UNKNOWN, f"Unbekannter Schlüssel: {key}", http_status=422)
+            raise DomainError(ReasonCode.PRIVACY_OWNER_FIELD_UNKNOWN, f"Unbekannter Schluessel: {key}", http_status=422)
         rows = existing.get(key, [])
         if status == INVENTORY_REQUIRED and rows:
             continue

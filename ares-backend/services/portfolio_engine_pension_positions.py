@@ -771,7 +771,7 @@ def pension_series_for_horizon(external_foundation_projection: dict, required_le
 
         raise OptimizerInputError(
             "Die Vorsorge-Serie deckt den Optimizer-Horizont nicht "
-            "vollständig ab."
+            "vollstaendig ab."
         )
     return [max(0, int(value)) for value in series]
 

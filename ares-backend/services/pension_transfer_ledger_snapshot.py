@@ -147,25 +147,25 @@ def verify_pension_transfer_ledger_snapshot(snapshot) -> dict:
         raise ValueError("Vorsorge-Transfer-Snapshot referenziert eine unbekannte Ledger-Version.")
     missing = [key for key in _BODY_KEYS if key not in snapshot]
     if missing:
-        raise ValueError(f"Vorsorge-Transfer-Snapshot unvollständig: {', '.join(missing)}.")
+        raise ValueError(f"Vorsorge-Transfer-Snapshot unvollstaendig: {', '.join(missing)}.")
     body = {key: snapshot[key] for key in _BODY_KEYS}
     expected_hash = _sha256(body)
     if snapshot.get("snapshot_hash") != expected_hash or snapshot.get("snapshot_id") != f"ptls-{expected_hash[:24]}":
-        raise ValueError("Vorsorge-Transfer-Snapshot-Hash stimmt nicht mit dem Inhalt überein.")
+        raise ValueError("Vorsorge-Transfer-Snapshot-Hash stimmt nicht mit dem Inhalt ueberein.")
     raw_rows = body["rows"]
     if not isinstance(raw_rows, list) or not all(isinstance(row, dict) for row in raw_rows):
-        raise ValueError("Vorsorge-Transfer-Snapshot: Zeilen müssen Objekte sein.")
+        raise ValueError("Vorsorge-Transfer-Snapshot: Zeilen muessen Objekte sein.")
     try:
         # __post_init__ erzwingt beide Ledger-Identitaeten erneut.
         rows = [PensionTransferRow(**row, within_horizon=False) for row in raw_rows]
     except TypeError as exc:
-        raise ValueError("Vorsorge-Transfer-Snapshot: Zeilenschema ungültig.") from exc
+        raise ValueError("Vorsorge-Transfer-Snapshot: Zeilenschema ungueltig.") from exc
     rebuilt = PensionTransferLedgerV1.build(
         rows, valuation_year=int(body["valuation_year"]), currency=str(body["currency"]),
         policy_version=str(body["policy_version"]),
     )
     if rebuilt.input_hash != body["ledger_input_hash"]:
-        raise ValueError("Vorsorge-Transfer-Snapshot: Ledger-Hash stimmt nicht mit den Zeilen überein.")
+        raise ValueError("Vorsorge-Transfer-Snapshot: Ledger-Hash stimmt nicht mit den Zeilen ueberein.")
     return snapshot
 
 
@@ -202,12 +202,12 @@ def verify_bound_pension_transfer_ledger_snapshot(allocation, stored_constraints
     if reference is None or raw is None:
         raise ValueError(
             "Vorsorge-Transfer-Snapshot und seine Referenz im Allocation-Context "
-            "müssen gemeinsam vorliegen."
+            "muessen gemeinsam vorliegen."
         )
     try:
         snapshot = json.loads(raw)
     except (TypeError, ValueError) as exc:
-        raise ValueError("Persistierter Vorsorge-Transfer-Snapshot ist kein gültiges JSON.") from exc
+        raise ValueError("Persistierter Vorsorge-Transfer-Snapshot ist kein gueltiges JSON.") from exc
     verify_pension_transfer_ledger_snapshot(snapshot)
     if reference != snapshot_reference(snapshot):
         raise ValueError(
@@ -223,7 +223,7 @@ def stored_pension_transfer_ledger_snapshot(allocation) -> dict | None:
     try:
         constraints = json.loads(raw_constraints) if raw_constraints else {}
     except (TypeError, ValueError) as exc:
-        raise ValueError("Persistierte effektive Allocation-Constraints sind ungültig.") from exc
+        raise ValueError("Persistierte effektive Allocation-Constraints sind ungueltig.") from exc
     return verify_bound_pension_transfer_ledger_snapshot(allocation, constraints if isinstance(constraints, dict) else {})
 
 

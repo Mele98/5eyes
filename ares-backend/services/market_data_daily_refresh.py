@@ -186,7 +186,7 @@ def _refresh_asset_class_prices(db: Session, aggregator: Any, errors: list[dict]
             bar = aggregator.get_eod(symbol, target_date)
             close_rappen = _bar_close_rappen(bar)
             if close_rappen is None or close_rappen <= 0:
-                raise ValueError("Provider lieferte keinen gültigen Schlusskurs.")
+                raise ValueError("Provider lieferte keinen gueltigen Schlusskurs.")
         except Exception as exc:  # noqa: BLE001
             errors.append({
                 "scope": "asset_class",
@@ -244,7 +244,7 @@ def _refresh_fx_rates(
             bar = aggregator.get_eod(symbol, target_date)
             rate = _bar_rate_to_chf_x10000(bar)
             if rate is None:
-                raise ValueError("Provider lieferte keinen gültigen FX-Schlusskurs.")
+                raise ValueError("Provider lieferte keinen gueltigen FX-Schlusskurs.")
         except Exception as exc:  # noqa: BLE001
             errors.append({
                 "scope": "fx",

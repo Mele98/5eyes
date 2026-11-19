@@ -2,8 +2,8 @@
  "protokoll": {
   "page_text": [
    {
-    "chars": 899,
-    "sha256": "9a7588076b2c084388d985e2f79f3d789037ed066cba8c25ce05a55d46e59956"
+    "chars": 897,
+    "sha256": "5b1989906d34cb85f0f6a46e4616e2f247ad77bddb5d547d562b4a73b87ffca6"
    },
    {
     "chars": 475,
@@ -19,8 +19,8 @@
     "sha256": "fb958468b28336349f276d40c78150b4cb9c32d12c57d70ebc46abc093dcf5c3"
    },
    {
-    "chars": 1553,
-    "sha256": "33299ea146c032aaaf5928cf584ea8037af187be07ce3fb70cb1102d3fa1449b"
+    "chars": 1552,
+    "sha256": "5a35c556f4c1f8a744d8f93304c3f06adebb3bd189cfc26eeb062cae22716b45"
    }
   ],
   "pages": 2

@@ -100,7 +100,7 @@ class FXRateEntry(BaseModel):
         except ValueError as exc:
             raise ValueError(
                 "rate hat mehr als vier Dezimalen; das Speicherformat (x10000) "
-                "würde still runden"
+                "wuerde still runden"
             ) from exc
         return value
 
@@ -265,8 +265,8 @@ async def upsert_fx_rates(
         )
         if entry.confirm_current and substitute:
             raise HTTPException(status_code=422, detail=(
-                f"{ccy}: ein Ersatzkurs (Quelle Default) kann nicht als geprüft "
-                "bestätigt werden."
+                f"{ccy}: ein Ersatzkurs (Quelle Default) kann nicht als geprueft "
+                "bestaetigt werden."
             ))
         if unchanged and not entry.confirm_current:
             continue  # No-op: kein neuer Beobachtungszeitpunkt ohne Bestaetigung
@@ -277,7 +277,7 @@ async def upsert_fx_rates(
         ):
             raise HTTPException(status_code=422, detail=(
                 f"{ccy}: der Kurs entspricht exakt dem Ersatzkurs. Er wird nur "
-                "mit ausdrücklicher Bestätigung 'Kurs geprüft' "
+                "mit ausdruecklicher Bestaetigung 'Kurs geprueft' "
                 "(confirm_current) als belegt angenommen."
             ))
         plan.append((entry, ccy, source, scaled, old_rows, unchanged))

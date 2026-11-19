@@ -99,13 +99,13 @@ def _check_split_matches_ledger(split: ReserveSplitSnapshotV1, ledger: ReserveFu
     if (split.external_rappen, split.reserve_needed_rappen) != (
         int(ledger.total_external_rappen), int(ledger.reserve_needed_rappen)
     ):
-        raise ValueError("Reserve-Split und Reserve-Funding-Ledger nennen verschiedene Beträge.")
+        raise ValueError("Reserve-Split und Reserve-Funding-Ledger nennen verschiedene Betraege.")
 
 
 def ledger_snapshot_columns(ledger: ReserveFundingLedgerV1, split: ReserveSplitSnapshotV1 | None = None) -> dict:
     """Spaltenwerte der ``TargetAllocation`` fuer den publizierten Ledger (+ Split)."""
     if ledger_contract_hash(ledger) != ledger.contract_hash:
-        raise ValueError("Reserve-Funding-Ledger: Contract-Hash stimmt nicht mit den Zeilen überein.")
+        raise ValueError("Reserve-Funding-Ledger: Contract-Hash stimmt nicht mit den Zeilen ueberein.")
     snapshot = {
         "snapshot_version": RESERVE_FUNDING_LEDGER_SNAPSHOT_VERSION,
         "ledger": ledger.to_dict(),
@@ -143,7 +143,7 @@ def verify_persisted_reserve_snapshot(
             and raw_hash.strip() and isinstance(reference, dict)):
         raise ValueError(
             "Persistierter Reserve-Funding-Ledger ist partiell: Snapshot, Hash-Spalte "
-            "und gehashte Constraint-Referenz müssen gemeinsam vorliegen."
+            "und gehashte Constraint-Referenz muessen gemeinsam vorliegen."
         )
     try:
         snapshot = json.loads(raw_json)
@@ -160,12 +160,12 @@ def verify_persisted_reserve_snapshot(
         if split is not None:
             _check_split_matches_ledger(split, ledger)
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise ValueError(f"Persistierter Reserve-Funding-Ledger ist ungültig: {exc}") from exc
+        raise ValueError(f"Persistierter Reserve-Funding-Ledger ist ungueltig: {exc}") from exc
     recomputed = ledger_contract_hash(ledger)
     if not (recomputed == ledger.contract_hash == raw_hash == reference.get("contract_hash")):
         raise ValueError(
             "Reserve-Funding-Ledger-Hash stimmt nicht mit den persistierten "
-            "Ledger-Zeilen bzw. der gehashten Referenz überein."
+            "Ledger-Zeilen bzw. der gehashten Referenz ueberein."
         )
     if reference != ledger_reference(ledger, split):
         raise ValueError(

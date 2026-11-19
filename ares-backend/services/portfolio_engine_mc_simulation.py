@@ -1289,8 +1289,8 @@ def _goal_duration_years(goal: Goal, start_year: int, horizon_years: int) -> int
 
     if _is_recurring_outflow_goal(goal):
         raise AssertionError(
-            "_goal_duration_years ist für wiederkehrende Ziele nicht mehr "
-            "zulässig -- _recurring_outflow_total_rappen benutzen (ADR-2c)."
+            "_goal_duration_years ist fuer wiederkehrende Ziele nicht mehr "
+            "zulaessig -- _recurring_outflow_total_rappen benutzen (ADR-2c)."
         )
 
     start_date = _parse_iso_date(goal.start_date)

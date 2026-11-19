@@ -376,7 +376,7 @@ class DomainError(Exception):
         self.extra = dict(extra or {})
         clash = self._RESERVED_KEYS & set(self.extra)
         if clash or (self.channel and "channel" in self.extra) or ("details" in self.extra and self.details):
-            raise ValueError(f"DomainError.extra überschreibt Pflichtschlüssel: {sorted(clash) or 'channel/details'}")
+            raise ValueError(f"DomainError.extra ueberschreibt Pflichtschluessel: {sorted(clash) or 'channel/details'}")
 
     @property
     def status_code(self) -> int:

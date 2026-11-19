@@ -288,7 +288,7 @@ async def domain_error_handler(request: Request, exc: DomainError) -> Response:
 # die komplette Zeile ("Failing row contains ..."), das bleibt auch im Log aus.
 
 CHECK_CONSTRAINT_VIOLATION_MESSAGE = (
-    "Ein Wert liegt ausserhalb des zulässigen Wertebereichs und wurde nicht gespeichert."
+    "Ein Wert liegt ausserhalb des zulaessigen Wertebereichs und wurde nicht gespeichert."
 )
 
 

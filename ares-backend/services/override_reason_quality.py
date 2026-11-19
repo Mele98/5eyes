@@ -137,7 +137,7 @@ def validate_override_reason_quality(
     ):
         raise OverrideReasonQualityError(
             f"override_reason '{text!r}' ist eine generische Floskel. "
-            f"Bitte konkret begründen warum das Profil vom Fragebogen "
+            f"Bitte konkret begruenden warum das Profil vom Fragebogen "
             f"abweicht (FIDLEG Art. 13).",
             reason_code=REASON_CODE_GENERIC_PHRASE,
         )
@@ -146,6 +146,6 @@ def validate_override_reason_quality(
         raise OverrideReasonQualityError(
             f"override_reason braucht mindestens {min_meaningful_words} "
             f"bedeutungsvolle Worte (>= 4 Zeichen). Bitte konkreter "
-            f"begründen.",
+            f"begruenden.",
             reason_code=REASON_CODE_INSUFFICIENT_WORDS,
         )

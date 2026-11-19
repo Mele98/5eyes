@@ -108,7 +108,7 @@ def rerank_by_validated_objective(entries: Sequence[dict]) -> dict:
     """
     n = len(entries)
     if n == 0:
-        raise ValueError("Keine Kandidaten für die Drawdown-Zertifizierung.")
+        raise ValueError("Keine Kandidaten fuer die Drawdown-Zertifizierung.")
     values = [float(entry["validated_objective"]) for entry in entries]
     if not all(np.isfinite(values)):
         raise ValueError("Validiertes Objective ist nicht endlich.")

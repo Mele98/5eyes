@@ -898,7 +898,7 @@ def require_published_allocation(
     db.commit()
     raise DomainError(
         ReasonCode.CCX_ALLOCATION_NOT_PUBLISHABLE,
-        "Die Soll-Allokation ist nicht publiziert (oder die Publikation ist nicht mehr gültig). "
+        "Die Soll-Allokation ist nicht publiziert (oder die Publikation ist nicht mehr gueltig). "
         "Bitte zuerst finalisieren und publizieren.",
         http_status=409,
         extra={"channel": channel, "blocker_code": state.reason_code, "publication_status": state.status},

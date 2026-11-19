@@ -966,7 +966,7 @@ def _fx_to_chf(amount_rappen: int, currency: Any, fx_source) -> int:
         return amount
     rate = float(fx_source.cross_rate(cur, "CHF"))
     if not rate > 0:
-        raise ValueError(f"Ungültige FX-Rate {cur}->CHF.")
+        raise ValueError(f"Ungueltige FX-Rate {cur}->CHF.")
     return int(round(amount * rate))
 
 

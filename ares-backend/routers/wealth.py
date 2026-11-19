@@ -102,7 +102,7 @@ def _normalize_cashflow_date(value) -> str | None:
     except (TypeError, ValueError):
         raise HTTPException(
             status_code=422,
-            detail=f"Ungültiges Datumsformat: {value!r} (erwartet YYYY-MM-DD oder YYYY-MM)",
+            detail=f"Ungueltiges Datumsformat: {value!r} (erwartet YYYY-MM-DD oder YYYY-MM)",
         )
     return candidate
 
@@ -185,7 +185,7 @@ def _normalize_cashflow_payload(data: dict, existing: Cashflow | None = None) ->
         if not valid_from and valid_until:
             valid_from = valid_until
         if not valid_from:
-            raise HTTPException(status_code=422, detail="Einmalige Cashflows benötigen ein Datum")
+            raise HTTPException(status_code=422, detail="Einmalige Cashflows benoetigen ein Datum")
         valid_until = valid_from
     elif valid_from and valid_until and valid_until < valid_from:
         raise HTTPException(status_code=422, detail="Enddatum darf nicht vor dem Startdatum liegen")
@@ -404,8 +404,8 @@ def _normalize_goal_payload(data: dict, existing: Goal | None = None) -> dict:
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "Wiederkehrende und Pensions-Ziele benötigen eine "
-                    "unterstützte wiederkehrende Frequenz."
+                    "Wiederkehrende und Pensions-Ziele benoetigen eine "
+                    "unterstuetzte wiederkehrende Frequenz."
                 ),
             )
         payload["frequency"] = normalized_frequency
@@ -690,8 +690,8 @@ def _validate_no_mortgage_amortization_double_count(
                 status_code=422,
                 detail=(
                     "Hypothek-Tilgung darf nicht als Cashflow erfasst werden. "
-                    "Tilgung ist bilanziell eine Reklassifikation (Vermögen und Liability "
-                    "sinken um denselben Betrag), kein Aufwand. Die Tilgung wird über die "
+                    "Tilgung ist bilanziell eine Reklassifikation (Vermoegen und Liability "
+                    "sinken um denselben Betrag), kein Aufwand. Die Tilgung wird ueber die "
                     "Liability-Position verfolgt und automatisch abgeleitet."
                 ),
             )
@@ -699,10 +699,10 @@ def _validate_no_mortgage_amortization_double_count(
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "Hypothekarzins darf nicht zusätzlich manuell als Cashflow erfasst "
-                    "werden, solange eine aktive Hypothek für diesen Kunden existiert. "
+                    "Hypothekarzins darf nicht zusaetzlich manuell als Cashflow erfasst "
+                    "werden, solange eine aktive Hypothek fuer diesen Kunden existiert. "
                     "Der Zins wird automatisch aus der Hypothek-Position abgeleitet -- ein "
-                    "zusätzlicher manueller Eintrag würde ihn doppelt zählen."
+                    "zusaetzlicher manueller Eintrag wuerde ihn doppelt zaehlen."
                 ),
             )
     elif effective_type == "Income":
@@ -710,11 +710,11 @@ def _validate_no_mortgage_amortization_double_count(
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "Mieteinnahmen dürfen nicht zusätzlich manuell als Cashflow erfasst "
-                    "werden, solange eine aktive Immobilie mit Wert > 0 für diesen Kunden "
+                    "Mieteinnahmen duerfen nicht zusaetzlich manuell als Cashflow erfasst "
+                    "werden, solange eine aktive Immobilie mit Wert > 0 fuer diesen Kunden "
                     "existiert. Die Miete wird automatisch aus der Immobilien-Position "
-                    "abgeleitet -- ein zusätzlicher manueller Eintrag würde sie doppelt "
-                    "zählen."
+                    "abgeleitet -- ein zusaetzlicher manueller Eintrag wuerde sie doppelt "
+                    "zaehlen."
                 ),
             )
 
@@ -745,8 +745,8 @@ def _validate_no_manual_flow_duplicated_by_new_position(
                     status_code=422,
                     detail=(
                         "Es existiert bereits ein manueller Tilgungs-Cashflow "
-                        f"({cf.label!r}). Diese Hypothek würde denselben Flow zusätzlich "
-                        "automatisch ableiten und doppelt zählen. Bitte den manuellen "
+                        f"({cf.label!r}). Diese Hypothek wuerde denselben Flow zusaetzlich "
+                        "automatisch ableiten und doppelt zaehlen. Bitte den manuellen "
                         "Cashflow zuerst entfernen."
                     ),
                 )
@@ -755,8 +755,8 @@ def _validate_no_manual_flow_duplicated_by_new_position(
                     status_code=422,
                     detail=(
                         "Es existiert bereits ein manueller Hypothekarzins-Cashflow "
-                        f"({cf.label!r}). Diese Hypothek würde denselben Flow zusätzlich "
-                        "automatisch ableiten und doppelt zählen. Bitte den manuellen "
+                        f"({cf.label!r}). Diese Hypothek wuerde denselben Flow zusaetzlich "
+                        "automatisch ableiten und doppelt zaehlen. Bitte den manuellen "
                         "Cashflow zuerst entfernen."
                     ),
                 )
@@ -776,8 +776,8 @@ def _validate_no_manual_flow_duplicated_by_new_position(
                     status_code=422,
                     detail=(
                         "Es existiert bereits ein manueller Mietertrags-Cashflow "
-                        f"({cf.label!r}). Diese Immobilie würde denselben Flow zusätzlich "
-                        "automatisch ableiten und doppelt zählen. Bitte den manuellen "
+                        f"({cf.label!r}). Diese Immobilie wuerde denselben Flow zusaetzlich "
+                        "automatisch ableiten und doppelt zaehlen. Bitte den manuellen "
                         "Cashflow zuerst entfernen."
                     ),
                 )
@@ -1164,7 +1164,7 @@ def update_wealth_position(
                 detail=(
                     f"Allokation muss zusammen 10000 bps oder alle 0 ergeben "
                     f"(aktuelle Summe: {total}). Bitte alle alloc_*-Felder zusammen "
-                    f"updaten oder auf 0 zurücksetzen."
+                    f"updaten oder auf 0 zuruecksetzen."
                 ),
             )
     _validate_mortgage_link(client_id, updates, db)
@@ -1942,7 +1942,7 @@ def create_wealth_inflow(
         if str(inflow_mandate.client_id) != str(client_id):
             raise HTTPException(
                 status_code=422,
-                detail="Mandat und Vermögenszufluss müssen zum selben Client gehören.",
+                detail="Mandat und Vermoegenszufluss muessen zum selben Client gehoeren.",
             )
     _validate_inflow_position_link(client_id, body.linked_position_id, db)
     _block_if_pension_source_already_linked(client_id, body.linked_position_id, db)

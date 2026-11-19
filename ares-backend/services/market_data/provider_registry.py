@@ -69,13 +69,13 @@ def _external_provider_map() -> dict[str, MarketDataProvider]:
         raw_name = getattr(provider, "name", None)
         if not isinstance(raw_name, str) or not raw_name.strip():
             raise ProviderConfigurationError(
-                f"Externer Marktdaten-Provider {provider!r} hat keinen gültigen Namen."
+                f"Externer Marktdaten-Provider {provider!r} hat keinen gueltigen Namen."
             )
         key = raw_name.strip().lower()
         if key in BUILTIN_PROVIDERS:
             raise ProviderConfigurationError(
                 f"Namenskollision: externer Marktdaten-Provider {raw_name!r} "
-                "überschneidet sich mit einem eingebauten Provider."
+                "ueberschneidet sich mit einem eingebauten Provider."
             )
         if key in external:
             raise ProviderConfigurationError(
@@ -102,11 +102,11 @@ def resolve_providers(settings: object) -> list[MarketDataProvider]:
     if missing:
         known = sorted(BUILTIN_PROVIDERS) + list(external)
         raise ProviderConfigurationError(
-            "MARKET_DATA_PROVIDERS: explizit konfigurierte Marktdaten-Provider sind nicht verfügbar "
-            f"(fehlen, nicht ladbar oder ungültige Klasse): {', '.join(missing)}. "
-            f"Verfügbar: {', '.join(known)}. Ladefehler externer Pakete "
+            "MARKET_DATA_PROVIDERS: explizit konfigurierte Marktdaten-Provider sind nicht verfuegbar "
+            f"(fehlen, nicht ladbar oder ungueltige Klasse): {', '.join(missing)}. "
+            f"Verfuegbar: {', '.join(known)}. Ladefehler externer Pakete "
             f"(Entry-Point-Gruppe {provider_discovery.ENTRY_POINT_GROUP!r}) "
-            "stehen im Log. Kein Rückfall auf andere Quellen."
+            "stehen im Log. Kein Rueckfall auf andere Quellen."
         )
     providers = [
         external[n] if n in external else BUILTIN_PROVIDERS[n](settings)
@@ -120,7 +120,7 @@ def resolve_providers(settings: object) -> list[MarketDataProvider]:
     if authoritative and not getattr(providers[0], "authoritative", False):
         raise ProviderConfigurationError(
             f"MARKET_DATA_PROVIDERS: massgebliche Quelle(n) {', '.join(authoritative)} "
-            f"müssen an erster Stelle stehen (konfiguriert: {', '.join(names)}). "
-            "Kein stilles Umsortieren, kein Rückfall."
+            f"muessen an erster Stelle stehen (konfiguriert: {', '.join(names)}). "
+            "Kein stilles Umsortieren, kein Rueckfall."
         )
     return providers

@@ -119,7 +119,7 @@ def compute_retain_until(entry_datetime_iso: str) -> str:
         base = datetime.fromisoformat(normalized)
     except ValueError:
         raise AdvisoryLogDatetimeError(
-            f"entry_datetime ist kein gültiges ISO-Datum/-Zeitstempel: {entry_datetime_iso!r}"
+            f"entry_datetime ist kein gueltiges ISO-Datum/-Zeitstempel: {entry_datetime_iso!r}"
         ) from None
     # Für 10 Jahre: naive Jahr-Addition reicht (kein Schaltjahr-Issue, weil
     # wir nur Date-Teil persistieren).
@@ -132,7 +132,7 @@ def compute_retain_until(entry_datetime_iso: str) -> str:
             retain = base.replace(year=target_year, day=28)
         except ValueError:
             raise AdvisoryLogDatetimeError(
-                f"entry_datetime {entry_datetime_iso!r} führt zu einer "
+                f"entry_datetime {entry_datetime_iso!r} fuehrt zu einer "
                 f"Aufbewahrungsfrist ausserhalb des darstellbaren "
                 f"Datumsbereichs (Jahr {target_year})"
             ) from None

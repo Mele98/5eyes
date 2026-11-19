@@ -138,7 +138,7 @@ def resolve_bucket_correlation_matrix(
         return matrix
     if jurisdiction_default_correlation_policy(cma) is None:
         raise CMAValidationError(
-            "Keine Korrelationsmatrix für Jurisdiktion "
+            "Keine Korrelationsmatrix fuer Jurisdiktion "
             f"{normalized_jurisdiction(cma)}: die CMA hat keinen "
             "correlation_matrix_json und es gibt keine genehmigte Default-"
             f"Policy ({CORRELATION_DECISION_ID}). Ein Fremdmarkt-Default wird "

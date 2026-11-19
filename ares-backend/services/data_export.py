@@ -361,7 +361,7 @@ def _coerce_jsonable(value: Any) -> Any:
 # namen, Query-Strukturen, Stacktraces) preisgeben soll.
 _SECTION_ERROR_MESSAGE = (
     "Sektion konnte nicht geladen werden (interner Fehler bei der "
-    "Datenabfrage). Der Export ist dadurch unvollständig -- bitte "
+    "Datenabfrage). Der Export ist dadurch unvollstaendig -- bitte "
     "Support kontaktieren und Export erneut anfordern."
 )
 

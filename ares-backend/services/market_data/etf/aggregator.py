@@ -94,7 +94,7 @@ class ETFAggregator:
         candidates = self._candidates()
         if not candidates:
             raise MarketDataError(
-                f"{action_name}: kein gesunder ETF-Provider verfügbar "
+                f"{action_name}: kein gesunder ETF-Provider verfuegbar "
                 f"(insgesamt {len(self._providers)} konfiguriert)"
             )
         last_exc: BaseException | None = None

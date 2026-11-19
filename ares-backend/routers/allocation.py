@@ -625,7 +625,7 @@ def get_ist_projection_basis(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail={
             "reason_code": "IST_PROJECTION_BASIS_UNAVAILABLE",
-            "message": "Keine wirksamen Kapitalmarktannahmen für dieses Mandat; "
+            "message": "Keine wirksamen Kapitalmarktannahmen fuer dieses Mandat; "
                        "die Ist-Projektion wird nicht berechnet.",
         }) from exc
     try:
@@ -636,7 +636,7 @@ def get_ist_projection_basis(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail={
             "reason_code": "IST_PROJECTION_BASIS_UNAVAILABLE",
-            "message": "Die erfassten Vermögensdaten sind für die Ist-Projektion "
+            "message": "Die erfassten Vermoegensdaten sind fuer die Ist-Projektion "
                        "nicht lesbar: " + str(exc),
         }) from exc
     try:
@@ -655,7 +655,7 @@ def get_ist_projection_basis(
         # N-892-08: auch die Basis-Berechnung ist fail-closed (409 statt 500).
         raise HTTPException(status_code=409, detail={
             "reason_code": "IST_PROJECTION_BASIS_UNAVAILABLE",
-            "message": "Die Gesamtvermögens-Basis der Ist-Projektion ist nicht "
+            "message": "Die Gesamtvermoegens-Basis der Ist-Projektion ist nicht "
                        "berechenbar: " + str(exc),
         }) from exc
     return {
@@ -784,7 +784,7 @@ def update_cma(
         raise HTTPException(
             status_code=409,
             detail=(
-                f"Mehrere aktuelle CMA-Versionen für {jur} und den gewählten "
+                f"Mehrere aktuelle CMA-Versionen fuer {jur} und den gewaehlten "
                 "Tenant-Scope gefunden; Update blockiert, bis der "
                 "Referenzdatenkonflikt bereinigt ist."
             ),
@@ -1238,17 +1238,16 @@ def get_advisory_report(
         # KN-B / E2E2-05: abgeleitete Frische (veraltet mit Ursache).
         freshness = publication_freshness(db, mandate, state)
         published = state.published and freshness.get("status") != "STALE"
+        publication = {"status": state.status, "reason_code": state.reason_code,
+                       "approval_mode_label": approval_mode_label(state.approval_mode) if published else None,
+                       "freshness": freshness}
+        if state.published and not published:
+            publication.update(status="PUBLICATION_INVALID", reason_code=ReasonCode.CCX_INPUT_STALE.value)
         report = {
             **report,
             # N-910-02: Kennzeichnung der Freigabeart in der Berater-Ansicht
             # (nicht in Kunden-PDFs -- interne Governance).
-            "allocation_publication": {"status": state.status if published or not state.published
-                                       else "PUBLICATION_INVALID",
-                                       "reason_code": state.reason_code if published or not state.published
-                                       else freshness.get("reason_code"),
-                                       "approval_mode_label": approval_mode_label(state.approval_mode)
-                                       if published else None,
-                                       "freshness": freshness},
+            "allocation_publication": publication,
             "allocation_draft_notice": None if published else ALLOCATION_DRAFT_NOTICE,
         }
     return report
@@ -1711,7 +1710,7 @@ def _raise_if_policy_house_matrix_incomplete(house_matrix_rows) -> None:
         status_code=422,
         detail={
             "reason_code": REASON_CODE_HOUSE_MATRIX_INCOMPLETE,
-            "message": "Policy nicht aktiviert: House Matrix unvollständig ("
+            "message": "Policy nicht aktiviert: House Matrix unvollstaendig ("
                        + "; ".join(problems) + ").",
             "problems": problems,
         },
@@ -1738,9 +1737,9 @@ def _raise_if_policy_engine_infeasible(house_matrix_rows, policy) -> None:
         detail={
             "reason_code": REASON_CODE_INFEASIBLE,
             "message": (
-                "Policy nicht aktiviert: Für folgende Score-Bänder kann die "
+                "Policy nicht aktiviert: Fuer folgende Score-Baender kann die "
                 "Berechnung keine Allokation bilden (wirksame Mindestquoten "
-                "über 100 % oder wirksame Maxima unter 100 %, inkl. "
+                "ueber 100 % oder wirksame Maxima unter 100 %, inkl. "
                 "Aktien-Mindestquote und Policy-Grenzen): "
                 + ", ".join(
                     f"{v['score_from']}-{v['score_to']} {v['profile_name']}"

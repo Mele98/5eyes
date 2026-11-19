@@ -741,8 +741,8 @@ def _resolve_enabled(enabled) -> bool:
     if value is False:
         return False
     raise LossToleranceFlagError(
-        "Verlusttoleranz-Prüfung: Aktivierungsflag muss True oder False sein, "
-        f"erhalten {value!r} ({type(value).__name__}); Prüfung bleibt inaktiv."
+        "Verlusttoleranz-Pruefung: Aktivierungsflag muss True oder False sein, "
+        f"erhalten {value!r} ({type(value).__name__}); Pruefung bleibt inaktiv."
     )
 
 

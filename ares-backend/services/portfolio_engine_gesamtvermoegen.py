@@ -399,7 +399,7 @@ def _wealth_inflow_series_rappen(
     for infl in inflows:
         active = getattr(infl, "is_active", 1)
         if isinstance(active, bool) or not isinstance(active, int) or active not in (0, 1):
-            raise ValueError("Vermögenszufluss: is_active muss exakt 0 oder 1 sein.")
+            raise ValueError("Vermoegenszufluss: is_active muss exakt 0 oder 1 sein.")
         if active == 0:
             continue
         base_amount = getattr(infl, "amount_rappen", None)
@@ -407,45 +407,45 @@ def _wealth_inflow_series_rappen(
         recurring_raw = getattr(infl, "is_recurring", None)
         duration_raw = getattr(infl, "duration_years", None)
         if isinstance(base_amount, bool) or not isinstance(base_amount, int) or base_amount <= 0:
-            raise ValueError("Vermögenszufluss: amount_rappen muss eine positive Ganzzahl sein.")
+            raise ValueError("Vermoegenszufluss: amount_rappen muss eine positive Ganzzahl sein.")
         if target_currency is not None:
             inflow_currency = str(getattr(infl, "currency", "") or "").upper().strip()
             if not inflow_currency:
                 raise ValueError(
-                    "Vermögenszufluss: Währung fehlt. Bitte die Währung des Zuflusses "
+                    "Vermoegenszufluss: Waehrung fehlt. Bitte die Waehrung des Zuflusses "
                     "erfassen -- sie wird nie geraten (CCX_FX_BASIS_MISSING)."
                 )
             if inflow_currency != str(target_currency).upper().strip():
                 if fx_source is None:
                     raise ValueError(
-                        f"Vermögenszufluss in {inflow_currency}: keine FX-Quelle für die "
+                        f"Vermoegenszufluss in {inflow_currency}: keine FX-Quelle fuer die "
                         f"Umrechnung nach {target_currency}."
                     )
                 try:
                     base_amount = fx_source.convert_storage_amount(base_amount, inflow_currency, target_currency)
                 except (ValueError, AttributeError) as exc:
                     raise ValueError(
-                        f"Vermögenszufluss: keine gültige FX-Rate {inflow_currency}->{target_currency}; "
-                        "eine stille 1:1-Konvertierung ist nicht zulässig."
+                        f"Vermoegenszufluss: keine gueltige FX-Rate {inflow_currency}->{target_currency}; "
+                        "eine stille 1:1-Konvertierung ist nicht zulaessig."
                     ) from exc
         if isinstance(year, bool) or not isinstance(year, int) or not 1900 <= year <= 2200:
-            raise ValueError("Vermögenszufluss: expected_year muss zwischen 1900 und 2200 liegen.")
+            raise ValueError("Vermoegenszufluss: expected_year muss zwischen 1900 und 2200 liegen.")
         if (
             isinstance(recurring_raw, bool)
             or not isinstance(recurring_raw, int)
             or recurring_raw not in (0, 1)
         ):
-            raise ValueError("Vermögenszufluss: is_recurring muss exakt 0 oder 1 sein.")
+            raise ValueError("Vermoegenszufluss: is_recurring muss exakt 0 oder 1 sein.")
         recurring = recurring_raw == 1
         freq = str(getattr(infl, "frequency", "") or "").strip().lower()
         value_mode = str(getattr(infl, "value_mode", "") or "").strip().lower()
         if value_mode not in {"nominal", "real"}:
-            raise ValueError("Vermögenszufluss: value_mode muss nominal oder real sein.")
+            raise ValueError("Vermoegenszufluss: value_mode muss nominal oder real sein.")
         if recurring:
             if freq not in {"jaehrlich", "monatlich"}:
                 raise ValueError(
-                    "Vermögenszufluss: wiederkehrend erfordert frequency "
-                    "jährlich oder monatlich."
+                    "Vermoegenszufluss: wiederkehrend erfordert frequency "
+                    "jaehrlich oder monatlich."
                 )
             if (
                 isinstance(duration_raw, bool)
@@ -453,19 +453,19 @@ def _wealth_inflow_series_rappen(
                 or not 1 <= duration_raw <= 99
             ):
                 raise ValueError(
-                    "Vermögenszufluss: wiederkehrend erfordert duration_years "
+                    "Vermoegenszufluss: wiederkehrend erfordert duration_years "
                     "zwischen 1 und 99."
                 )
             duration = duration_raw
         else:
             if freq not in {"", "einmalig"}:
                 raise ValueError(
-                    "Vermögenszufluss: einmalig darf keine wiederkehrende "
+                    "Vermoegenszufluss: einmalig darf keine wiederkehrende "
                     "frequency besitzen."
                 )
             if duration_raw not in (None, 0):
                 raise ValueError(
-                    "Vermögenszufluss: einmalig darf keine duration_years besitzen."
+                    "Vermoegenszufluss: einmalig darf keine duration_years besitzen."
                 )
             duration = 0
 

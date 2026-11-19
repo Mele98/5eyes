@@ -54,7 +54,7 @@ def resolve_goal_order(
     active_ids = [str(goal.id) for goal in goals]
     requested = [str(goal_id) for goal_id in goal_ids]
     if len(set(requested)) != len(requested):
-        raise GoalOrderError("Die Reihenfolge enthält eine Ziel-ID mehrfach.")
+        raise GoalOrderError("Die Reihenfolge enthaelt eine Ziel-ID mehrfach.")
     if set(requested) != set(active_ids):
         missing = sorted(set(active_ids) - set(requested))
         unknown = sorted(set(requested) - set(active_ids))
@@ -66,7 +66,7 @@ def resolve_goal_order(
         )
     if expected_goal_ids is not None and not _matches_server_order(goals, expected_goal_ids):
         raise GoalOrderConflictError(
-            "Die Ziel-Reihenfolge wurde inzwischen geändert. Bitte neu "
+            "Die Ziel-Reihenfolge wurde inzwischen geaendert. Bitte neu "
             "laden und erneut sortieren."
         )
     return {goal_id: index + 1 for index, goal_id in enumerate(requested)}

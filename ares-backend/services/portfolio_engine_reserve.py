@@ -296,7 +296,7 @@ def _real_expense_value_rappen(goal, amount_rappen: int, inflation_series_bps) -
     if inflation_series_bps is None:
         raise RealGoalInflationMissingError(
             f"Ziel '{getattr(goal, 'label', '') or 'Ziel'}': reales Ausgabenziel "
-            "ohne Inflationspfad -- Bewertung nicht möglich."
+            "ohne Inflationspfad -- Bewertung nicht moeglich."
         )
     if _norm_text(goal.goal_type) in ("Wiederkehrende_Ausgabe", "Pensionsausgabe"):
         anchor = _parse_iso(goal.start_date) or _parse_iso(goal.target_date)

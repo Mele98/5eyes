@@ -172,7 +172,7 @@ def policy_from_mapping(data: Mapping[str, Any]) -> OnsiteSignaturePolicy:
         version = _optional_str(witness_raw.get("version"))
         text = _optional_str(witness_raw.get("text"))
         if not version or not text:
-            raise ValueError("Zeugenerklärung ohne Version oder Text")
+            raise ValueError("Zeugenerklaerung ohne Version oder Text")
         witness = WitnessStatement(version=version, text=text)
     approval = data.get("approval") or {}
     return OnsiteSignaturePolicy(

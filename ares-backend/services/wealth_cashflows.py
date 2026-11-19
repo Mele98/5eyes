@@ -120,9 +120,9 @@ def _convert_position_rappen(
         return amount
     if fx_source is None:
         raise ValueError(
-            f"Keine FX-Quelle für Hypothekenpfad "
+            f"Keine FX-Quelle fuer Hypothekenpfad "
             f"{source_currency}->{target}; eine stille 1:1-Konvertierung "
-            "ist nicht zulässig."
+            "ist nicht zulaessig."
         )
     try:
         rate = float(fx_source.cross_rate(source_currency, target))
@@ -132,7 +132,7 @@ def _convert_position_rappen(
         ) from exc
     if not math.isfinite(rate) or rate <= 0.0:
         raise ValueError(
-            f"Ungültiger FX-Kurs {source_currency}/{target} für "
+            f"Ungueltiger FX-Kurs {source_currency}/{target} fuer "
             f"Hypothekenpfad: {rate}."
         )
     return int(round(amount * rate))
@@ -317,8 +317,8 @@ def require_mortgage_interest_rates(positions: list) -> list:
     if missing:
         raise DomainError(
             ReasonCode.MORTGAGE_INTEREST_RATE_MISSING,
-            "Für die Hypothek " + ", ".join(missing) + " ist kein Zinssatz erfasst. Bitte unter "
-            "Vermögen den Zinssatz der Hypothek nachtragen; ohne Zinssatz wird keine Strategie berechnet.",
+            "Fuer die Hypothek " + ", ".join(missing) + " ist kein Zinssatz erfasst. Bitte unter "
+            "Vermoegen den Zinssatz der Hypothek nachtragen; ohne Zinssatz wird keine Strategie berechnet.",
             extra={"positions": missing},
         )
     return positions

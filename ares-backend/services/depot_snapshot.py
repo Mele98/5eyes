@@ -118,7 +118,7 @@ def _complete_holdings_valuation(db: Session, mandate: Mandate, fx_source, targe
     valuation = value_mandate_holdings(db, mandate.id, fx_source=fx_source, target_currency=target)
     if not valuation["holding_positions_count"]:
         raise HoldingsValuationIncompleteError(
-            "Kein erfasster Depotbestand: es gibt keinen IST-Bestand für einen Stress-Replay."
+            "Kein erfasster Depotbestand: es gibt keinen IST-Bestand fuer einen Stress-Replay."
         )
     # Fehlender/veralteter Preis, FX-Fehler (Regeln der Handelsliste).
     assert_holdings_valuation_complete(valuation)
@@ -128,8 +128,8 @@ def _complete_holdings_valuation(db: Session, mandate: Mandate, fx_source, targe
         )
     if valuation["missing_units_count"]:
         raise HoldingsValuationIncompleteError(
-            f"{valuation['missing_units_count']} Depotposition(en) ohne erfasste Stückzahl: "
-            "Wert und Währung sind nicht durch Stückzahl x Marktpreis belegt."
+            f"{valuation['missing_units_count']} Depotposition(en) ohne erfasste Stueckzahl: "
+            "Wert und Waehrung sind nicht durch Stueckzahl x Marktpreis belegt."
         )
     # CIO-Entscheid 2026-10-28 (a): Bestaende nur in frueheren Laeufen.
     assert_holdings_carried_over(valuation.get("holdings_not_carried_over") or [])
@@ -213,7 +213,7 @@ def verify_depot_snapshot(snapshot) -> dict:
     body = {key: snapshot[key] for key in _BODY_KEYS}
     expected_hash = _sha256(body)
     if snapshot["snapshot_hash"] != expected_hash or snapshot["snapshot_id"] != f"dps-{expected_hash[:24]}":
-        raise DepotSnapshotIntegrityError("Depot-Snapshot-Hash stimmt nicht mit dem Inhalt überein.")
+        raise DepotSnapshotIntegrityError("Depot-Snapshot-Hash stimmt nicht mit dem Inhalt ueberein.")
     positions = body["positions"]
     if not isinstance(positions, list) or [p.get("position_id") for p in positions] != sorted(
         p.get("position_id") for p in positions
@@ -334,7 +334,7 @@ def verify_persisted_depot_snapshot(row, *, mandate_id: str) -> dict:
     try:
         snapshot = json.loads(getattr(row, "snapshot_json", None) or "")
     except (TypeError, ValueError) as exc:
-        raise DepotSnapshotIntegrityError("Gespeicherter Depot-Snapshot ist kein gültiges JSON.") from exc
+        raise DepotSnapshotIntegrityError("Gespeicherter Depot-Snapshot ist kein gueltiges JSON.") from exc
     verify_depot_snapshot(snapshot)
     header = (
         row.id, row.snapshot_hash, row.mandate_id, row.as_of_date, row.currency,

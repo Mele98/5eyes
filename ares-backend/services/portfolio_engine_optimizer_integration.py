@@ -216,7 +216,7 @@ def sensitivity_canonical_scalar(value):
     if isinstance(value, float):
         if not math.isfinite(value):
             raise ValueError(
-                "Sensitivity-Modellkontext enthält NaN/Infinity."
+                "Sensitivity-Modellkontext enthaelt NaN/Infinity."
             )
         return value
     if isinstance(value, (date, datetime)):
@@ -379,9 +379,9 @@ def _build_tax_solver_kwargs(mandate) -> dict:
         from services.optimizer.constraints import OptimizerInputError
 
         raise OptimizerInputError(
-            "Die konfigurierte Steuerbasis kann nicht aufgelöst werden; "
+            "Die konfigurierte Steuerbasis kann nicht aufgeloest werden; "
             "die Modellrechnung wird nicht mit einer stillen tax-naiven Annahme "
-            "ausgeführt."
+            "ausgefuehrt."
         ) from exc
     return tax_kwargs
 

@@ -362,7 +362,7 @@ def seal_advisory_envelope(
         raise _reject(db, AdvisoryEnvelopeError(
             ReasonCode.CCX_ENVELOPE_UNSEALED,
             "Der Beratungsentscheid kann nicht versiegelt werden: Beratungssprache oder "
-            "Referenzwährung des Mandats fehlt.",
+            "Referenzwaehrung des Mandats fehlt.",
         ), record_id=run.id, run=run.id, stage="identity", **common)
 
     if valuation is None:
@@ -376,8 +376,8 @@ def seal_advisory_envelope(
         raise _reject(db, AdvisoryEnvelopeError(
             _valuation_reason(valuation.primary_code),
             "Der Beratungsentscheid kann nicht versiegelt werden: die Bewertung des Bestands ist "
-            f"nicht vollständig belegt ({projection.coverage_status}). Bitte fehlende Preise, Kurse, "
-            "Stichtage oder Währungen ergänzen.",
+            f"nicht vollstaendig belegt ({projection.coverage_status}). Bitte fehlende Preise, Kurse, "
+            "Stichtage oder Waehrungen ergaenzen.",
             extra={"coverage_status": projection.coverage_status,
                    "blocker_codes": list(projection.blocker_codes),
                    "valuation_snapshot_hash": projection.snapshot_hash},
@@ -410,8 +410,8 @@ def seal_advisory_envelope(
     if expected_manifest_hash is not None and expected_manifest_hash != manifest_digest:
         raise _reject(db, AdvisoryEnvelopeError(
             ReasonCode.CCX_RESULT_SUPERSEDED,
-            "Die Beratungsdaten wurden seit dem Start der Berechnung geändert; das Ergebnis ist "
-            "überholt. Bitte neu berechnen.",
+            "Die Beratungsdaten wurden seit dem Start der Berechnung geaendert; das Ergebnis ist "
+            "ueberholt. Bitte neu berechnen.",
         ), record_id=run.id, run=run.id, stage="result", expected_manifest_hash=expected_manifest_hash,
             manifest_hash=manifest_digest, audit_field=AUDIT_RACE_REJECTED, **common)
 
@@ -497,7 +497,7 @@ def seal_advisory_envelope(
         if valuation.missing_decisions():
             raise _reject(db, AdvisoryEnvelopeError(
                 ReasonCode.CCX_POSITION_DECISION_MISSING,
-                "Nicht jede bestehende Position hat einen Entscheid (Halten/Verkaufen/Prüfen).",
+                "Nicht jede bestehende Position hat einen Entscheid (Halten/Verkaufen/Pruefen).",
             ), record_id=run.id, stage="ledger", **refs, **common)
         # Snapshot-Fence: dieselben Inputs unmittelbar vor dem Siegel erneut.
         after_parts: list = []
@@ -512,7 +512,7 @@ def seal_advisory_envelope(
         if not valuation.unchanged(db, mandate):
             raise _reject(db, AdvisoryEnvelopeError(
                 ReasonCode.CCX_VALUATION_STALE,
-                "Bestand, Preise oder Kurse wurden während der Versiegelung geändert. Bitte erneut "
+                "Bestand, Preise oder Kurse wurden waehrend der Versiegelung geaendert. Bitte erneut "
                 "finalisieren.",
             ), record_id=run.id, stage="valuation_fence", valuation_hash=projection.snapshot_hash, **refs,
                 **common)
@@ -521,13 +521,13 @@ def seal_advisory_envelope(
         if _draft_invalidated(db, envelope_id):
             raise _reject(db, AdvisoryEnvelopeError(
                 ReasonCode.CCX_INVALIDATION_RACE,
-                "Die Beratungsdaten wurden während der Versiegelung geändert. Bitte erneut finalisieren.",
+                "Die Beratungsdaten wurden waehrend der Versiegelung geaendert. Bitte erneut finalisieren.",
             ), record_id=run.id, stage="invalidated", audit_field=AUDIT_RACE_REJECTED, **refs, **common)
         if (classify_snapshot_consistency(before, after) == RETRY
                 or components_from_parts(after_parts) != before):
             raise _reject(db, AdvisoryEnvelopeError(
                 ReasonCode.CCX_INPUT_MANIFEST_MISMATCH,
-                "Die Beratungsdaten wurden während der Versiegelung geändert. Bitte erneut finalisieren.",
+                "Die Beratungsdaten wurden waehrend der Versiegelung geaendert. Bitte erneut finalisieren.",
             ), record_id=run.id, stage="fence", **refs, **common)
         # CCX-P2: Abhaengigkeitskanten derselben Lesung (FRESH nur damit).
         for part in after_parts:
@@ -554,7 +554,7 @@ def seal_advisory_envelope(
             if _draft_invalidated(db, envelope_id):
                 raise _reject(db, AdvisoryEnvelopeError(
                     ReasonCode.CCX_INVALIDATION_RACE,
-                    "Die Beratungsdaten wurden während der Versiegelung geändert. Bitte erneut finalisieren.",
+                    "Die Beratungsdaten wurden waehrend der Versiegelung geaendert. Bitte erneut finalisieren.",
                 ), record_id=run.id, stage="invalidated", audit_field=AUDIT_RACE_REJECTED, **refs, **common)
             raise _reject(db, AdvisoryEnvelopeError(
                 ReasonCode.CCX_ENVELOPE_UNSEALED,
@@ -574,7 +574,7 @@ def seal_advisory_envelope(
         if "CCX_INVALIDATION_RACE" in str(exc):
             raise _reject(db, AdvisoryEnvelopeError(
                 ReasonCode.CCX_INVALIDATION_RACE,
-                "Die Beratungsdaten wurden parallel geändert. Bitte erneut finalisieren.",
+                "Die Beratungsdaten wurden parallel geaendert. Bitte erneut finalisieren.",
             ), record_id=run.id, stage="race", audit_field=AUDIT_RACE_REJECTED, **refs, **common) from exc
         raise _reject(db, AdvisoryEnvelopeError(
             ReasonCode.CCX_ENVELOPE_UNSEALED,
@@ -588,12 +588,12 @@ def seal_advisory_envelope(
         if "CCX_INVALIDATION_RACE" in str(exc):
             raise _reject(db, AdvisoryEnvelopeError(
                 ReasonCode.CCX_INVALIDATION_RACE,
-                "Die Beratungsdaten wurden parallel geändert. Bitte erneut finalisieren.",
+                "Die Beratungsdaten wurden parallel geaendert. Bitte erneut finalisieren.",
             ), record_id=run.id, stage="race", audit_field=AUDIT_RACE_REJECTED, **refs, **common) from exc
         if "CCX_FRESHNESS_UNKNOWN" in str(exc):
             raise _reject(db, AdvisoryEnvelopeError(
                 ReasonCode.CCX_FRESHNESS_UNKNOWN,
-                "Der Beratungsentscheid kann ohne Abhängigkeitskanten nicht als aktuell versiegelt werden.",
+                "Der Beratungsentscheid kann ohne Abhaengigkeitskanten nicht als aktuell versiegelt werden.",
             ), record_id=run.id, stage="freshness", **refs, **common) from exc
         raise _reject(db, AdvisoryEnvelopeError(
             ReasonCode.CCX_ENVELOPE_UNSEALED,
@@ -696,7 +696,7 @@ def current_verified_envelope(
     if envelope is None:
         raise AdvisoryEnvelopeError(
             ReasonCode.CCX_ENVELOPE_MISSING,
-            "Für dieses Mandat liegt kein versiegelter Beratungsentscheid vor.",
+            "Fuer dieses Mandat liegt kein versiegelter Beratungsentscheid vor.",
             http_status=404,
         )
     defect = verify_envelope(db, envelope)
@@ -986,7 +986,7 @@ def current_envelope_freshness(db: Session, *, mandate: Any) -> dict[str, Any]:
     if envelope is None:
         raise AdvisoryEnvelopeError(
             ReasonCode.CCX_ENVELOPE_MISSING,
-            "Für dieses Mandat liegt kein versiegelter Beratungsentscheid vor.",
+            "Fuer dieses Mandat liegt kein versiegelter Beratungsentscheid vor.",
             http_status=404,
         )
     events = db.query(

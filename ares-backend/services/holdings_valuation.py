@@ -620,7 +620,7 @@ def assert_valuation_publishable(projection: ValuationProjection) -> None:
     code = primary_reason(projection.blocker_codes)
     raise ValuationError(
         code,
-        "Die Bewertung des Bestands ist nicht vollständig belegt "
+        "Die Bewertung des Bestands ist nicht vollstaendig belegt "
         f"({projection.coverage_status}); kundenwirksame Schritte sind gesperrt.",
         extra={
             "coverage_status": projection.coverage_status,

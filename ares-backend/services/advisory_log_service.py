@@ -628,7 +628,7 @@ def build_auto_log_payload(
         "description": (
             f"Auto-generiertes Beratungsprotokoll auf Basis des Advisory-"
             f"Reports vom {entry_datetime[:10]}. Bitte vom Berater "
-            "individuell ergänzen / korrigieren (Mindestlänge 30 Zeichen)."
+            "individuell ergaenzen / korrigieren (Mindestlaenge 30 Zeichen)."
         ),
         "decision": None,
         "entry_datetime": entry_datetime,

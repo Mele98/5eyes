@@ -358,7 +358,7 @@ def assign_user_to_tenant(
                 status_code=409,
                 detail=(
                     f"User betreut noch {active_clients} aktive Kunden im bisherigen "
-                    "Tenant -- Neuzuweisung würde diese für den User unsichtbar machen. "
+                    "Tenant -- Neuzuweisung wuerde diese fuer den User unsichtbar machen. "
                     "Bitte zuerst die Kunden umziehen oder den Advisor-Owner wechseln."
                 ),
             )
@@ -371,7 +371,7 @@ def assign_user_to_tenant(
                 status_code=409,
                 detail=(
                     "User ist als aktiver Kunden-Login mit einem Client im bisherigen "
-                    "Tenant verknüpft -- Neuzuweisung würde diese Verknüpfung "
+                    "Tenant verknuepft -- Neuzuweisung wuerde diese Verknuepfung "
                     "inkonsistent machen."
                 ),
             )

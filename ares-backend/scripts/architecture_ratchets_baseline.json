@@ -526,12 +526,12 @@
   "leaf_content_sha256": {
     "core": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "core.db_integrity": "b2221c8d06a7cb27e782d6ab1db7f765d699b166392a90f67c9d1769ae28fe58",
-    "core.evidence": "4c5b2916860326477dee260a04e3d8521817720d37a763766b87f21674aa11df",
+    "core.evidence": "107ad66eeb7424fd9b9ea3c4786e895e2350aa1061fc43e35ae9b65033b93ae6",
     "core.fx_freshness": "7e88d1391849634f09bc87e0ee9114c746b69f937bcfaae6ab9fc27aa085f560",
     "core.goal_vocabulary": "2ce6455a657546ddbc54b665215e899d9e0d4e6df4a79aeaa2562857b0867b82",
-    "core.presentation_rounding": "22abb8f8073fd1cd035fd804816a0908393603d6f04d5caf00230d3ef699d196",
+    "core.presentation_rounding": "be5c45fc1b51629e3bfc7093c74a3bc79855a63f70f1d23830b45486276dbed7",
     "core.property_gate": "a4f2c812f0a84c89b3868f363c14252a4ef0c8e0158f69e9028f5970412ec0d7",
-    "core.reason_codes": "28bae2f4f10d95b401970d85bbeec09b6f9d7ef197f54a4e915f5121acf8ab16",
-    "core.sustainability_preference": "dd5be560f2df0f56bf77d3afeb74a5c3b0393929876ef96134b67614b2b4a781"
+    "core.reason_codes": "49d9d322b1bf747e707ff94f60001f24913fe48d211046b0a7d281d7e2b4f680",
+    "core.sustainability_preference": "6fe9be224f9d71e20beac49d2a6e35f8310415f2de34e419e7403efc7050a055"
   }
 }

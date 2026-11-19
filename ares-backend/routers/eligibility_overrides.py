@@ -46,7 +46,7 @@ class EligibilityOverrideRequest(BaseModel):
         value = (value or "").strip()
         if len(value) < MIN_OVERRIDE_REASON_LENGTH:
             raise ValueError(
-                f"Begründung ist Pflicht (mindestens {MIN_OVERRIDE_REASON_LENGTH} Zeichen)."
+                f"Begruendung ist Pflicht (mindestens {MIN_OVERRIDE_REASON_LENGTH} Zeichen)."
             )
         return value
 

@@ -258,8 +258,8 @@ def get_current_user(
         ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=("Passwort muss geändert werden, bevor weitere Aktionen "
-                        "möglich sind (must_change_password)."),
+                detail=("Passwort muss geaendert werden, bevor weitere Aktionen "
+                        "moeglich sind (must_change_password)."),
             )
     # AUTH-01 (2026-08-04, Mega-Audit): settings.require_2fa serverseitig
     # erzwingen. Bisher wurde das Flag AUSSCHLIESSLICH fuer die Status-Anzeige
@@ -388,7 +388,7 @@ def assert_compliance_reviewer_ready(user: User) -> None:
             "Zwei-Faktor-Anmeldung (2FA) selbst einrichten."), http_status=status.HTTP_403_FORBIDDEN)
     if code is not None:
         raise DomainError(code, (
-            "Dieses Freigabekonto ist nicht über eine Einladung mit selbst gesetztem "
+            "Dieses Freigabekonto ist nicht ueber eine Einladung mit selbst gesetztem "
             "Passwort aktiviert und darf nicht freigeben."), http_status=status.HTTP_403_FORBIDDEN)
 
 
@@ -400,7 +400,7 @@ STAFF_ROLES: tuple[str, ...] = (
 def require_staff(current_user: User = Depends(get_current_user)) -> User:
     """N-897-09: nur Personal-Rollen -- nie Kunden-Logins (Rolle ``client``)."""
     if current_user.role not in STAFF_ROLES:
-        raise HTTPException(status_code=403, detail="Nur für Mitarbeitende")
+        raise HTTPException(status_code=403, detail="Nur fuer Mitarbeitende")
     return current_user
 
 
@@ -423,7 +423,7 @@ def _enforce_compliance_reviewer_scope(user: User, request) -> None:
     if not compliance_reviewer_may_call(getattr(request, "method", "GET"), path):
         raise DomainError(
             COMPLIANCE_REVIEWER_SCOPE,
-            "Dieses Konto ist nur für die Freigabe der KYC-Wiedervorlage-Policy berechtigt.",
+            "Dieses Konto ist nur fuer die Freigabe der KYC-Wiedervorlage-Policy berechtigt.",
             http_status=status.HTTP_403_FORBIDDEN,
         )
 
@@ -432,7 +432,7 @@ def require_compliance_approver(current_user: User = Depends(get_current_user)) 
     """Zweite Person fuer Compliance-Freigaben: Firmen-Admin oder die schmale
     Rolle ``compliance_reviewer`` (externe Compliance-Person)."""
     if current_user.role not in COMPLIANCE_APPROVER_ROLES:
-        raise HTTPException(status_code=403, detail="Nur für Administratoren oder Compliance-Freigabe")
+        raise HTTPException(status_code=403, detail="Nur fuer Administratoren oder Compliance-Freigabe")
     return current_user
 
 
@@ -454,7 +454,7 @@ def require_super_admin(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role != "super_admin":
         raise HTTPException(
             status_code=403,
-            detail="Nur für Super-Administratoren (Tier-2-Operator)",
+            detail="Nur fuer Super-Administratoren (Tier-2-Operator)",
         )
     return current_user
 
@@ -572,7 +572,7 @@ def require_audit_chain_verifier(current_user: User = Depends(get_current_user))
             return current_user
         raise HTTPException(
             status_code=403,
-            detail="Die Audit-Kettenprüfung umfasst alle Mandanten und erfordert Super-Admin.",
+            detail="Die Audit-Kettenpruefung umfasst alle Mandanten und erfordert Super-Admin.",
         )
     raise HTTPException(status_code=403, detail="Nur für Administratoren")
 
@@ -590,7 +590,7 @@ def require_reference_data_reader(current_user: User = Depends(get_current_user)
     Client-Portal-User werden jetzt abgewiesen."""
     if current_user.role in ("admin", "advisor", "super_admin", "portfolio_management"):
         return current_user
-    raise HTTPException(status_code=403, detail="Keine Leseberechtigung für Referenzdaten")
+    raise HTTPException(status_code=403, detail="Keine Leseberechtigung fuer Referenzdaten")
 
 
 def enforce_cma_cross_tenant_read_scope(current_user: User, tenant_id: Optional[str]) -> None:
@@ -857,7 +857,7 @@ def require_client(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role != "client":
         raise HTTPException(
             status_code=403,
-            detail="Dieser Endpoint ist nur für Kunden-Logins erreichbar.",
+            detail="Dieser Endpoint ist nur fuer Kunden-Logins erreichbar.",
         )
     return current_user
 
@@ -882,7 +882,7 @@ def get_linked_client_for_user_or_404(user: User, db: Session) -> Client:
     if not link:
         raise HTTPException(
             status_code=404,
-            detail="Kein Kunden-Datensatz mit diesem Login verknüpft.",
+            detail="Kein Kunden-Datensatz mit diesem Login verknuepft.",
         )
     client = (
         db.query(Client)
@@ -895,7 +895,7 @@ def get_linked_client_for_user_or_404(user: User, db: Session) -> Client:
     if not client:
         raise HTTPException(
             status_code=404,
-            detail="Kunden-Datensatz nicht mehr verfügbar.",
+            detail="Kunden-Datensatz nicht mehr verfuegbar.",
         )
     # E1 (2026-06-14): Defense-in-depth — die 1:1-Linkage allein darf NICHT
     # genuegen. Wenn die tenant_id des Client-Users und des Clients beide
@@ -907,7 +907,7 @@ def get_linked_client_for_user_or_404(user: User, db: Session) -> Client:
     _utid_s = str(_utid).strip() if _utid is not None else ""
     _ctid_s = str(_ctid).strip() if _ctid is not None else ""
     if _utid_s and _ctid_s and _utid_s != _ctid_s:
-        raise HTTPException(status_code=404, detail="Kunden-Datensatz nicht verfügbar.")
+        raise HTTPException(status_code=404, detail="Kunden-Datensatz nicht verfuegbar.")
     try:
         from config import settings as _settings
         if _effective_strict_tenant_isolation(_settings):
@@ -918,7 +918,7 @@ def get_linked_client_for_user_or_404(user: User, db: Session) -> Client:
             # Fail-closed: im Strict-Modus verlangt jede Linkage eine
             # uebereinstimmende, nicht-leere tenant_id auf BEIDEN Seiten.
             if not _utid_s or not _ctid_s or _utid_s != _ctid_s:
-                raise HTTPException(status_code=404, detail="Kunden-Datensatz nicht verfügbar.")
+                raise HTTPException(status_code=404, detail="Kunden-Datensatz nicht verfuegbar.")
     except HTTPException:
         raise
     except Exception:

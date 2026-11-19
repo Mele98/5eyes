@@ -58,11 +58,11 @@ def _local_date(value, policy: PortfolioDataPolicy) -> tuple[date, datetime | No
             try:
                 return date.fromisoformat(text), None
             except ValueError as exc:
-                raise FreshnessInputError(f"Ungültiges Datum: {text!r}") from exc
+                raise FreshnessInputError(f"Ungueltiges Datum: {text!r}") from exc
         try:
             moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
         except ValueError as exc:
-            raise FreshnessInputError(f"Ungültiger Zeitpunkt: {text!r}") from exc
+            raise FreshnessInputError(f"Ungueltiger Zeitpunkt: {text!r}") from exc
     else:
         raise FreshnessInputError("Zeitpunkt fehlt.")
     if moment.tzinfo is None or moment.utcoffset() is None:

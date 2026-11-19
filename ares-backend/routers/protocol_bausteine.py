@@ -367,14 +367,14 @@ def replace_mandate_selections(
             if not _baustein_tenant_visible(b, current_user):
                 raise HTTPException(
                     status_code=403,
-                    detail=f"Baustein {b.id} gehört einem anderen Mandanten",
+                    detail=f"Baustein {b.id} gehoert einem anderen Mandanten",
                 )
         if current_user.role != "admin":
             for b in bausteine:
                 if b.advisor_id and b.advisor_id != current_user.id:
                     raise HTTPException(
                         status_code=403,
-                        detail=f"Baustein {b.id} gehört einem anderen Berater",
+                        detail=f"Baustein {b.id} gehoert einem anderen Berater",
                     )
 
     # Replace: alte Selektionen weg, neue rein.

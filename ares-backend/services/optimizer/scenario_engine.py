@@ -953,12 +953,12 @@ def scenario_inputs_from_cma(cma, sub_allocations: list[dict] | None = None) -> 
             from .constraints import OptimizerInputError
 
             raise OptimizerInputError(
-                f"CMA-Skew/Kurtosis für Bucket '{bucket}' "
+                f"CMA-Skew/Kurtosis fuer Bucket '{bucket}' "
                 f"(skew={skew_bps[index] / 10_000.0:.3f}, "
                 f"excess_kurt={excess_kurt_bps[index] / 10_000.0:.3f}) macht "
                 "die Cornish-Fisher-Transformation nicht-monoton (keine "
-                "gültige Quantilfunktion mehr) -- Betrag der Schiefe "
-                "reduzieren oder Exzess-Kurtosis erhöhen."
+                "gueltige Quantilfunktion mehr) -- Betrag der Schiefe "
+                "reduzieren oder Exzess-Kurtosis erhoehen."
             )
 
     # Korrelations-Matrix
@@ -1046,12 +1046,12 @@ def _compute_return_from_risk_premium(cma, premium_field_name: str) -> float | N
         raise
     except (ArithmeticError, TypeError, ValueError) as exc:
         raise CMAValidationError(
-            f"Ungültige {premium_field_name}-CMA-Parameter: {exc}"
+            f"Ungueltige {premium_field_name}-CMA-Parameter: {exc}"
         ) from exc
     if not np.isfinite(result) or result <= -10_000.0:
         raise CMAValidationError(
             f"{premium_field_name} erzeugt keinen endlichen, fachlich "
-            "gültigen Return (> -100 %)."
+            "gueltigen Return (> -100 %)."
         )
     return result
 
@@ -1085,7 +1085,7 @@ def _compute_equity_kgv_adjustment(cma) -> float:
         )
     except (ArithmeticError, TypeError, ValueError) as exc:
         raise CMAValidationError(
-            f"Ungültige vollständige KGV-CMA-Parameter: {exc}"
+            f"Ungueltige vollstaendige KGV-CMA-Parameter: {exc}"
         ) from exc
     if not np.isfinite(adjustment):
         raise CMAValidationError(
@@ -1137,12 +1137,12 @@ def _compute_bonds_return_from_nelson_siegel(
         result = float(curve.yield_at(maturity))
     except (ArithmeticError, TypeError, ValueError) as exc:
         raise CMAValidationError(
-            f"Ungültige vollständige Nelson-Siegel-CMA-Parameter: {exc}"
+            f"Ungueltige vollstaendige Nelson-Siegel-CMA-Parameter: {exc}"
         ) from exc
     if not np.isfinite(result) or result <= -10_000.0:
         raise CMAValidationError(
             "Nelson-Siegel-CMA-Parameter erzeugen keinen endlichen, "
-            f"fachlich gültigen {maturity:g}J-Yield (> -100 %)."
+            f"fachlich gueltigen {maturity:g}J-Yield (> -100 %)."
         )
     return result
 

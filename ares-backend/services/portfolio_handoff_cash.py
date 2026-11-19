@@ -65,10 +65,10 @@ def advisory_cash_entries(db: Session, mandate: Mandate) -> list[dict]:
         currency = str(pos.currency or "").upper().strip()
         if not as_of or not currency:
             raise AdvisoryCashValuationError(
-                f"Die Liquiditätsposition '{label}' im Beratungsvermögen hat keinen "
-                "Bewertungsstichtag oder keine Währung. Ohne belegte Bewertung kann sie "
+                f"Die Liquiditaetsposition '{label}' im Beratungsvermoegen hat keinen "
+                "Bewertungsstichtag oder keine Waehrung. Ohne belegte Bewertung kann sie "
                 "nicht in die Basis der Handelsliste einfliessen; bitte Stichtag und "
-                "Währung erfassen."
+                "Waehrung erfassen."
             )
         if currency != target_currency and fx_source is None:
             # Dieselbe FX-Basis wie die Allokation (build_recommendation_payload).
@@ -77,8 +77,8 @@ def advisory_cash_entries(db: Session, mandate: Mandate) -> list[dict]:
             value_target = _convert_position_value_to_target_currency(value, pos, fx_source, target_currency)
         except ValueError as exc:
             raise AdvisoryCashValuationError(
-                f"Die Liquiditätsposition '{label}' lässt sich nicht in die "
-                f"Mandatswährung umrechnen: {exc}"
+                f"Die Liquiditaetsposition '{label}' laesst sich nicht in die "
+                f"Mandatswaehrung umrechnen: {exc}"
             ) from exc
         entries.append({
             "id": f"cash-{pos.id}",

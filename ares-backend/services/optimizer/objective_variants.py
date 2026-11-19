@@ -320,7 +320,7 @@ def _normalized_weights(
         raise ObjectiveDomainError(
             "objective_weights_negative",
             f"{n_bad} von {array.shape[0]} Likelihood-Gewichten sind negativ; "
-            "ein Dichteverhältnis ist nichtnegativ.",
+            "ein Dichteverhaeltnis ist nichtnegativ.",
         )
     total = float(np.sum(array))
     # Nach den beiden Pruefungen oben ist `total` endlich und >= 0; <= 0
@@ -328,7 +328,7 @@ def _normalized_weights(
     if total <= 0.0:
         raise ObjectiveDomainError(
             "objective_weights_no_positive_mass",
-            "Die Summe der Likelihood-Gewichte ist 0; kein Pfad trägt Masse.",
+            "Die Summe der Likelihood-Gewichte ist 0; kein Pfad traegt Masse.",
         )
     return array / total
 
@@ -345,7 +345,7 @@ def _require_finite_values(values: np.ndarray) -> None:
         n_bad = int(np.count_nonzero(~np.isfinite(values)))
         raise ObjectiveDomainError(
             "objective_values_not_finite",
-            f"{n_bad} von {np.size(values)} Schätzer-Werten sind nicht "
+            f"{n_bad} von {np.size(values)} Schaetzer-Werten sind nicht "
             "endlich (nan/inf).",
         )
 
@@ -360,8 +360,8 @@ def _require_finite_estimate(value: float, estimator: str) -> float:
     if not np.isfinite(value):
         raise ObjectiveDomainError(
             "objective_estimate_not_finite",
-            f"{estimator} über endliche Werte ist nicht endlich ({value!r}); "
-            "numerischer Überlauf.",
+            f"{estimator} ueber endliche Werte ist nicht endlich ({value!r}); "
+            "numerischer Ueberlauf.",
         )
     return value
 
@@ -646,8 +646,8 @@ def primary_objective(
     if portfolio_return_factors is None:
         raise ObjectiveModeError(
             f"Objective-Modus {resolved!r} braucht die cashflow-neutralen "
-            "Renditefaktoren (portfolio_return_factors). Ein Rückfall auf "
-            "die Vermögenspfade würde geplante Ein-/Auszahlungen als "
+            "Renditefaktoren (portfolio_return_factors). Ein Rueckfall auf "
+            "die Vermoegenspfade wuerde geplante Ein-/Auszahlungen als "
             "Marktrisiko bewerten."
         )
     factors = np.asarray(portfolio_return_factors, dtype=np.float64)

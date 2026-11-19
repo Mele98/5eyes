@@ -278,8 +278,8 @@ def recurring_occurrence_series(
     # Builder; hier ist es ein Modellinputfehler und keine stille Annahme.
     if normalize_frequency(frequency) == "einmalig":
         raise ValueError(
-            "recurring_occurrence_series ist nur für wiederkehrende Serien "
-            "zulässig; frequency='einmalig' gehört zum Einmal-Builder."
+            "recurring_occurrence_series ist nur fuer wiederkehrende Serien "
+            "zulaessig; frequency='einmalig' gehoert zum Einmal-Builder."
         )
 
     base = int(base_year)
@@ -377,21 +377,21 @@ def _convert_cf_amount_to_target_currency(
     label = str(getattr(cf, "label", "") or "").strip()
     if fx_source is None:
         raise ValueError(
-            f"Keine FX-Quelle für Cashflow '{label or cf_currency}' "
+            f"Keine FX-Quelle fuer Cashflow '{label or cf_currency}' "
             f"({cf_currency}->{target}); eine stille 1:1-Konvertierung ist "
-            "nicht zulässig."
+            "nicht zulaessig."
         )
     try:
         rate = float(fx_source.cross_rate(cf_currency, target))
     except (ValueError, TypeError, AttributeError) as exc:
         raise ValueError(
-            f"Keine gültige FX-Rate für Cashflow "
+            f"Keine gueltige FX-Rate fuer Cashflow "
             f"'{label or cf_currency}' ({cf_currency}->{target}); eine "
-            "stille 1:1-Konvertierung ist nicht zulässig."
+            "stille 1:1-Konvertierung ist nicht zulaessig."
         ) from exc
     if not math.isfinite(rate) or rate <= 0.0:
         raise ValueError(
-            f"Ungültige FX-Rate für Cashflow '{label or cf_currency}' "
+            f"Ungueltige FX-Rate fuer Cashflow '{label or cf_currency}' "
             f"({cf_currency}->{target}): {rate}."
         )
     # CCX-P3-FX: exakte Konversion (Kursverhaeltnis x10000, ares-rounding/1,
@@ -400,9 +400,9 @@ def _convert_cf_amount_to_target_currency(
         return fx_source.convert_storage_amount(raw_amount, cf_currency, target)
     except (ValueError, TypeError, AttributeError) as exc:
         raise ValueError(
-            f"Keine gültige FX-Rate für Cashflow "
+            f"Keine gueltige FX-Rate fuer Cashflow "
             f"'{label or cf_currency}' ({cf_currency}->{target}); eine "
-            "stille 1:1-Konvertierung ist nicht zulässig."
+            "stille 1:1-Konvertierung ist nicht zulaessig."
         ) from exc
 
 

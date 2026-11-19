@@ -143,8 +143,8 @@ def seal_for_client(db: Session, client_id: str | None, plaintext: Any) -> str |
     row = _ensure_key(db, client_id)
     if row is None or row.key_material is None:
         raise PiiVaultError(
-            "Die Personendaten dieses Kunden wurden nach DSG Art. 32 gelöscht "
-            "(Schlüssel vernichtet) -- neuer Freitext wird nicht gespeichert."
+            "Die Personendaten dieses Kunden wurden nach DSG Art. 32 geloescht "
+            "(Schluessel vernichtet) -- neuer Freitext wird nicht gespeichert."
         )
     token = _fernet(row.key_material).encrypt(value.encode("utf-8")).decode("ascii")
     return f"{ENVELOPE_PREFIX}{row.key_id}:{token}"

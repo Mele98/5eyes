@@ -69,15 +69,15 @@ def record_lifecycle_decision(
     state = str(to_state or "").strip()
     if state not in DECIDED_STATES:
         raise GoalLifecycleError(
-            f"{state!r} ist kein Entscheidungs-Zustand. Zulässig sind "
-            f"{sorted(DECIDED_STATES)}. Die Zeit-Zustände (planned, due, "
+            f"{state!r} ist kein Entscheidungs-Zustand. Zulaessig sind "
+            f"{sorted(DECIDED_STATES)}. Die Zeit-Zustaende (planned, due, "
             "overdue) entstehen aus dem Zieldatum und werden nicht gesetzt."
         )
 
     cleaned_reason = str(reason or "").strip()
     if len(cleaned_reason) < _MIN_REASON_CHARS:
         raise GoalLifecycleError(
-            f"Lifecycle-Wechsel nach '{state}' verlangt eine Begründung "
+            f"Lifecycle-Wechsel nach '{state}' verlangt eine Begruendung "
             f"(mindestens {_MIN_REASON_CHARS} Zeichen). ADR-3c: kein "
             "Terminal-Zustand ohne Nachweis."
         )

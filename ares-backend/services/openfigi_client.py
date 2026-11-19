@@ -93,7 +93,7 @@ def _build_mapping_job(
             "idValue": raw_symbol,
         }
     else:
-        raise ValueError("OpenFIGI Preview benötigt ISIN oder Symbol")
+        raise ValueError("OpenFIGI Preview benoetigt ISIN oder Symbol")
 
     if raw_exchange_code:
         job["exchCode"] = raw_exchange_code
@@ -192,7 +192,7 @@ def preview_openfigi_mapping(
     try:
         decoded = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise RuntimeError("OpenFIGI Mapping lieferte keine gültige JSON-Antwort") from exc
+        raise RuntimeError("OpenFIGI Mapping lieferte keine gueltige JSON-Antwort") from exc
 
     if not isinstance(decoded, list) or not decoded:
         raise RuntimeError("OpenFIGI Mapping lieferte kein Ergebnisarray")

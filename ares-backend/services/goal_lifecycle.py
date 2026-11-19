@@ -141,7 +141,7 @@ def _stored_decision(goal) -> str | None:
     if value not in DECIDED_STATES:
         raise GoalLifecycleError(
             f"Unbekannter persistierter Lifecycle-Zustand {value!r}; "
-            f"zulässig sind {sorted(DECIDED_STATES)}."
+            f"zulaessig sind {sorted(DECIDED_STATES)}."
         )
     return value
 
@@ -266,10 +266,10 @@ def assert_no_unresolved_overdue_goals(goals, *, as_of: date | None = None) -> N
     raise GoalLifecycleError(
         "Berechnung blockiert: "
         + str(len(blocked))
-        + (" überfälliges Ziel" if len(blocked) == 1 else " überfällige Ziele")
+        + (" ueberfaelliges Ziel" if len(blocked) == 1 else " ueberfaellige Ziele")
         + " ohne dokumentierte Entscheidung -- "
         + ", ".join(blocked)
         + ". Bitte pro Ziel entscheiden: Betrag als sofortigen Bedarf "
-        "übernehmen, neues Fälligkeitsdatum vereinbaren, oder das Ziel "
-        "als erfüllt bzw. storniert abschliessen."
+        "uebernehmen, neues Faelligkeitsdatum vereinbaren, oder das Ziel "
+        "als erfuellt bzw. storniert abschliessen."
     )

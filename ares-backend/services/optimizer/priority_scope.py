@@ -513,9 +513,9 @@ class PriorityScopeWealth:
         if replay is None:
             raise PriorityScopeUnavailableError(
                 f"Ziel {goal.goal_id!r} (Rang {goal.rank}) hat einen eigenen "
-                "Prioritäts-Scope, aber keinen Replay-Kontext. Eine "
-                "Rückwärtsrekonstruktion aus dem gemeinsamen Pfad ist nicht "
-                "exakt (Cashflows, Mortalität, W2.5, Steuer) und entfällt."
+                "Prioritaets-Scope, aber keinen Replay-Kontext. Eine "
+                "Rueckwaertsrekonstruktion aus dem gemeinsamen Pfad ist nicht "
+                "exakt (Cashflows, Mortalitaet, W2.5, Steuer) und entfaellt."
             )
         if self._retained_unverified:
             # Festgehaltener Kontext: erst nutzen, wenn er den gemeinsamen
@@ -582,7 +582,7 @@ class PriorityScopeWealth:
             and np.array_equal(joint, wealth_paths, equal_nan=True)
         ):
             raise PriorityScopeUnavailableError(
-                "Publizierter gemeinsamer Vermögenspfad und Scope-Wrapper "
+                "Publizierter gemeinsamer Vermoegenspfad und Scope-Wrapper "
                 "stammen nicht aus demselben Plan; keine Zielzeile ohne "
                 "eindeutige Pfadquelle."
             )
@@ -611,8 +611,8 @@ class PriorityScopeWealth:
             expected, joint, rtol=0.0, atol=1e-6,
         ):
             raise PriorityScopeUnavailableError(
-                "Gemeinsamer Vermögenspfad und Replay-Kontext stimmen nicht "
-                "überein; Prioritäts-Scopes sind so nicht bewertbar."
+                "Gemeinsamer Vermoegenspfad und Replay-Kontext stimmen nicht "
+                "ueberein; Prioritaets-Scopes sind so nicht bewertbar."
             )
 
 

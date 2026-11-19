@@ -277,7 +277,7 @@ def validate_standard_submission(body) -> dict[str, int]:
     if mismatches:
         raise RiskQuestionnaireIntegrityError(
             REASON_POINTS_MISMATCH,
-            "Die mitgesendeten Punkte passen nicht zu den gewählten Antworten. "
+            "Die mitgesendeten Punkte passen nicht zu den gewaehlten Antworten. "
             "Bitte den Fragebogen neu laden und erneut speichern.",
             mismatches=mismatches,
         )
@@ -288,7 +288,7 @@ def validate_standard_submission(body) -> dict[str, int]:
     if HORIZON_YEARS.get(label) != expected_years or sent_years != expected_years:
         raise RiskQuestionnaireIntegrityError(
             REASON_HORIZON_MISMATCH,
-            "Der Anlagehorizont passt nicht zur gewählten Antwort in Frage 8. "
+            "Der Anlagehorizont passt nicht zur gewaehlten Antwort in Frage 8. "
             "Bitte den Fragebogen neu laden und erneut speichern.",
             answer_horizon=horizon_option,
             investment_horizon_label=getattr(body, "investment_horizon_label", None),

@@ -45,13 +45,13 @@ MODE_LIVE_PREVIEW = "live_preview_not_persisted"
 STALE_MESSAGE = (
     "Die Reporting-Methodik dieser Soll-Allokation ist veraltet: die heutige "
     "Berechnungsgrundlage weicht von der gespeicherten ab ({keys}). Die "
-    "gespeicherten Kennzahlen gelten für die gespeicherte Methodik; für "
+    "gespeicherten Kennzahlen gelten fuer die gespeicherte Methodik; fuer "
     "aktuelle Kennzahlen die Strategie neu berechnen."
 )
 NOT_PERSISTED_MESSAGE = (
-    "Für diese Soll-Allokation ist keine Reporting-Methodik gespeichert "
+    "Fuer diese Soll-Allokation ist keine Reporting-Methodik gespeichert "
     "(Basis nicht gespeichert). Die angezeigte Methodik ist eine Live-"
-    "Vorschau nach heutigem Stand; für eine nachvollziehbare Basis die "
+    "Vorschau nach heutigem Stand; fuer eine nachvollziehbare Basis die "
     "Strategie neu berechnen."
 )
 

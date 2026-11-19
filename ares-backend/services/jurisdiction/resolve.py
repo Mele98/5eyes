@@ -86,8 +86,8 @@ def _validity_date(raw, *, field: str, row_id) -> date | None:
         return date.fromisoformat(str(raw).strip()[:10])
     except ValueError as exc:
         raise JurisdictionReferenceDataConflictError(
-            f"CMA-Zeile {row_id}: {field}='{raw}' ist kein gültiges ISO-Datum; "
-            "die Gültigkeit ist nicht bestimmbar."
+            f"CMA-Zeile {row_id}: {field}='{raw}' ist kein gueltiges ISO-Datum; "
+            "die Gueltigkeit ist nicht bestimmbar."
         ) from exc
 
 
@@ -127,20 +127,20 @@ def assert_cma_activatable_on(valid_from, valid_until, as_of: date | None = None
         raise CMAValidityWindowError(CMA_VALIDITY_DATE_INVALID, str(exc)) from exc
     if start is None:
         raise CMAValidityWindowError(
-            CMA_VALIDITY_DATE_INVALID, "valid_from fehlt; die Gültigkeit ist nicht bestimmbar."
+            CMA_VALIDITY_DATE_INVALID, "valid_from fehlt; die Gueltigkeit ist nicht bestimmbar."
         )
     if start > today:
         raise CMAValidityWindowError(
             CMA_FUTURE_VALID_FROM_NOT_SUPPORTED,
             f"valid_from {start.isoformat()} liegt nach dem Aktivierungstag "
             f"{today.isoformat()}. Vorab erfasste CMA-Versionen werden noch nicht "
-            "unterstützt; die bisherige Version bleibt aktiv.",
+            "unterstuetzt; die bisherige Version bleibt aktiv.",
         )
     if end is not None and end < today:
         raise CMAValidityWindowError(
             CMA_VALID_UNTIL_IN_PAST,
             f"valid_until {end.isoformat()} liegt vor dem Aktivierungstag "
-            f"{today.isoformat()}; die Version wäre sofort abgelaufen.",
+            f"{today.isoformat()}; die Version waere sofort abgelaufen.",
         )
 
 
@@ -212,7 +212,7 @@ def resolve_cma_for_jurisdiction(
             ).all(), effective_date)
             if len(tenant_candidates) > 1:
                 raise JurisdictionReferenceDataConflictError(
-                    f"Mehrere aktuelle {jurisdiction}-CMA-Zeilen für Tenant "
+                    f"Mehrere aktuelle {jurisdiction}-CMA-Zeilen fuer Tenant "
                     f"{tenant_id} gefunden."
                 )
             cma = tenant_candidates[0] if tenant_candidates else None
@@ -228,17 +228,17 @@ def resolve_cma_for_jurisdiction(
 
     if cma is None:
         raise JurisdictionReferenceDataMissingError(
-            f"Keine aktuelle CapitalMarketAssumption-Referenzzeile für Jurisdiktion "
+            f"Keine aktuelle CapitalMarketAssumption-Referenzzeile fuer Jurisdiktion "
             f"'{label}' gefunden (is_current=1, deleted_at IS NULL, "
-            f"gültig am {effective_date.isoformat()}"
+            f"gueltig am {effective_date.isoformat()}"
             + ("" if jurisdiction in (None, "CH") else f", jurisdiction='{jurisdiction}'")
             + (f", tenant_id='{tenant_id}' oder firmenweit" if tenant_id and jurisdiction not in (None, "CH") else "")
-            + "). Es wird bewusst keine erfundene Zahl zurückgegeben."
+            + "). Es wird bewusst keine erfundene Zahl zurueckgegeben."
         )
 
     if require_committee_approved and cma.status != _COMMITTEE_APPROVED_STATUS:
         raise JurisdictionNotApprovedError(
-            f"CapitalMarketAssumption für Jurisdiktion '{label}' hat Status "
+            f"CapitalMarketAssumption fuer Jurisdiktion '{label}' hat Status "
             f"'{cma.status}', nicht '{_COMMITTEE_APPROVED_STATUS}' -- ohne IC-Freigabe "
             f"darf sie nicht verwendet werden (require_committee_approved=True)."
         )
@@ -270,8 +270,8 @@ def _ch_building_block_rows(
         rows = base_query.filter(BuildingBlock.universe == universe).all()
         if not rows:
             raise JurisdictionReferenceDataMissingError(
-                "Keine aktiven BuildingBlock-Referenzzeilen für das explizit "
-                f"gewählte Universum '{universe}' und Jurisdiktion 'CH' "
+                "Keine aktiven BuildingBlock-Referenzzeilen fuer das explizit "
+                f"gewaehlte Universum '{universe}' und Jurisdiktion 'CH' "
                 f"(policy_id='{policy_id}') gefunden."
             )
     else:
@@ -312,7 +312,7 @@ def _prefer_exact_jurisdiction_rows(
         if len(preferred) > 1:
             scope = f"Jurisdiktion {jurisdiction}" if exact else "shared/NULL"
             raise JurisdictionReferenceDataConflictError(
-                "Mehrere gleichrangige BuildingBlock-Zeilen für "
+                "Mehrere gleichrangige BuildingBlock-Zeilen fuer "
                 f"{key!r} im Scope {scope}; Risky-Fraction und Submix sind "
                 "nicht eindeutig."
             )
@@ -359,8 +359,8 @@ def resolve_building_blocks_for_jurisdiction(
         rows = base_query.filter(BuildingBlock.universe == universe).all()
         if not rows:
             raise JurisdictionReferenceDataMissingError(
-                "Keine aktiven BuildingBlock-Referenzzeilen für das explizit "
-                f"gewählte Universum '{universe}' und Jurisdiktion "
+                "Keine aktiven BuildingBlock-Referenzzeilen fuer das explizit "
+                f"gewaehlte Universum '{universe}' und Jurisdiktion "
                 f"'{jurisdiction}' (policy_id='{policy_id}') gefunden."
             )
     else:
@@ -370,9 +370,9 @@ def resolve_building_blocks_for_jurisdiction(
         getattr(row, "jurisdiction", None) == jurisdiction for row in rows
     ):
         raise JurisdictionReferenceDataMissingError(
-            f"Keine aktiven BuildingBlock-Referenzzeilen für Jurisdiktion "
+            f"Keine aktiven BuildingBlock-Referenzzeilen fuer Jurisdiktion "
             f"'{jurisdiction}' (policy_id='{policy_id}') gefunden. Es wird bewusst "
-            f"keine erfundene Zusammensetzung zurückgegeben."
+            f"keine erfundene Zusammensetzung zurueckgegeben."
         )
     return _prefer_exact_jurisdiction_rows(rows, jurisdiction)
 
@@ -404,7 +404,7 @@ def resolve_home_bias_defaults(
     """
     if jurisdiction in (None, "CH"):
         raise ValueError(
-            "resolve_home_bias_defaults() darf für jurisdiction in (None, 'CH') "
+            "resolve_home_bias_defaults() darf fuer jurisdiction in (None, 'CH') "
             "nicht aufgerufen werden -- der CH-Pfad nutzt weiterhin ausschliesslich "
             "die hartcodierten Splits in services/portfolio_engine.py::_build_sub_allocations."
         )
@@ -422,8 +422,8 @@ def resolve_home_bias_defaults(
     )
     if not rows:
         raise JurisdictionReferenceDataMissingError(
-            f"Keine Home-Bias-Default-Zeilen für Jurisdiktion '{jurisdiction}' "
+            f"Keine Home-Bias-Default-Zeilen fuer Jurisdiktion '{jurisdiction}' "
             f"(preference_key='{preference_key}', preference_value='{preference_value}') "
-            f"gefunden. Es wird bewusst keine erfundene Zusammensetzung zurückgegeben."
+            f"gefunden. Es wird bewusst keine erfundene Zusammensetzung zurueckgegeben."
         )
     return [(row.sub_asset_class, row.split_bps, row.rationale_text or "") for row in rows]

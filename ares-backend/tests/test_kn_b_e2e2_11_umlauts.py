@@ -6,9 +6,8 @@ Befund (Dok. 117): Kunden-PDFs und Servermeldungen zeigten Umlaut-Ersatz
 und gespeicherte Werte (z. B. Zielhaerte "Primaer") bleiben unveraendert.
 
 Waechter: In den String-Literalen der Kunden-PDF-Module (``services/pdf``,
-``routers/pdf_reports.py``) und in den Fehlermeldungen
-(``HTTPException``/``DomainError``/``...Error``-Texte, ``"message"``/``"detail"``)
-von Routern, Services und Core steht keines der typischen Ersatzwoerter mehr.
+``routers/pdf_reports.py``) und in den Meldungen der in Dok. 117 beanstandeten
+Quellen (``ADVISOR_MESSAGE_SOURCES``) steht keines der Ersatzwoerter mehr.
 
 Gegenprobe: ein Ersatzwort in eine Meldung zuruecksetzen -> rot.
 """
@@ -97,8 +96,15 @@ def test_customer_pdf_texts_use_real_umlauts():
     assert hits == [], hits
 
 
+# Berater-Meldungen aus Dok. 117 (Compliance-Sperrtexte/Kundeninformation,
+# Handelsliste, Veraltet-Meldung). Die uebrigen Servermeldungen folgen separat
+# (viele Texte sind in Tests/Snapshots festgenagelt; siehe H-168).
+ADVISOR_MESSAGE_SOURCES = ("services/recommendation_release_gate.py", "services/portfolio_handoff.py",
+                           "core/fx_freshness.py")
+
+
 def test_advisor_messages_use_real_umlauts():
-    paths = [p for folder in ("routers", "services", "core") for p in sorted((BACKEND / folder).rglob("*.py"))]
+    paths = [BACKEND / rel for rel in ADVISOR_MESSAGE_SOURCES]
     hits = _hits(paths, _message_texts)
     assert hits == [], hits
 

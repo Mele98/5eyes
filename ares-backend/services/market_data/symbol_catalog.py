@@ -372,7 +372,7 @@ def get_sub_asset(key: str) -> SubAssetClass:
         return SUB_ASSET_CATALOG[key]
     except KeyError as exc:
         raise KeyError(
-            f"Unbekannter Sub-Asset-Schlüssel: {key!r}. "
+            f"Unbekannter Sub-Asset-Schluessel: {key!r}. "
             f"Bekannt: {sorted(SUB_ASSET_CATALOG.keys())}"
         ) from exc
 

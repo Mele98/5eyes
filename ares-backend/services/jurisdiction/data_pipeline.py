@@ -220,7 +220,7 @@ def fetch_yield_curve_for_jurisdiction(jurisdiction: str) -> list[YieldCurvePoin
     entry = _YIELD_CURVE_REGISTRY.get(key)
     if entry is None:
         raise NoYieldCurveSourceConfiguredError(
-            f"Keine Zinskurven-Quelle (FRED/ECB) für Jurisdiktion '{jurisdiction}' "
+            f"Keine Zinskurven-Quelle (FRED/ECB) fuer Jurisdiktion '{jurisdiction}' "
             f"konfiguriert. Bekannt: {sorted(_YIELD_CURVE_REGISTRY.keys())}."
         )
     provider_name, series = entry
@@ -233,7 +233,7 @@ def fetch_yield_curve_for_jurisdiction(jurisdiction: str) -> list[YieldCurvePoin
         provider = _build_ecb_provider()
     else:  # pragma: no cover - Registry-interne Konsistenz, nicht von aussen erreichbar
         raise NoYieldCurveSourceConfiguredError(
-            f"Unbekannter Provider-Typ '{provider_name}' für Jurisdiktion '{jurisdiction}'."
+            f"Unbekannter Provider-Typ '{provider_name}' fuer Jurisdiktion '{jurisdiction}'."
         )
 
     points: list[YieldCurvePoint] = []
@@ -259,8 +259,8 @@ def fetch_yield_curve_for_jurisdiction(jurisdiction: str) -> list[YieldCurvePoin
     if len(points) < 3:
         raise InsufficientYieldCurveDataError(
             f"Nur {len(points)} von {len(series)} konfigurierten Zinskurven-Punkten "
-            f"für Jurisdiktion '{key}' via {provider_name} erhalten (mind. 3 für "
-            f"Nelson-Siegel-Fit nötig)."
+            f"fuer Jurisdiktion '{key}' via {provider_name} erhalten (mind. 3 fuer "
+            f"Nelson-Siegel-Fit noetig)."
         )
     return points
 

@@ -328,7 +328,7 @@ class ObjectiveContractV2(ObjectiveContractV1):
         for name in _ALL_POLICY_FIELDS:
             if name not in fields and getattr(self, name) is not None:
                 raise ObjectiveContractError(
-                    f"Feld {name!r} gehört nicht zu {self.version!r}."
+                    f"Feld {name!r} gehoert nicht zu {self.version!r}."
                 )
         for name in fields:
             value = getattr(self, name)
@@ -467,7 +467,7 @@ def _canonical_value(name: str, value):
             raise TypeError(f"{name} muss eine Liste sein")
         return tuple(value)
     if isinstance(value, bool) or value is None:
-        raise TypeError(f"{name} hat keinen zulässigen Wert")
+        raise TypeError(f"{name} hat keinen zulaessigen Wert")
     if isinstance(value, (int, float)):
         number = float(value)
         if not math.isfinite(number):
@@ -475,7 +475,7 @@ def _canonical_value(name: str, value):
         return number
     if isinstance(value, str):
         return value
-    raise TypeError(f"{name} hat einen unzulässigen Typ")
+    raise TypeError(f"{name} hat einen unzulaessigen Typ")
 
 
 def verify_objective_contract_evidence(evidence) -> dict:
@@ -571,8 +571,8 @@ def objective_contract_of(context: object) -> ObjectiveContractV1:
     if contract is None:
         raise ObjectiveContractError(
             "OptimizerContext ohne eingefrorenen ObjectiveContractV1 -- der "
-            "Lauf könnte nicht nachweisen, welche Mathematik ihn erzeugt "
-            "hat. Context über build_optimizer_context() bauen oder den "
+            "Lauf koennte nicht nachweisen, welche Mathematik ihn erzeugt "
+            "hat. Context ueber build_optimizer_context() bauen oder den "
             "Vertrag explizit setzen."
         )
     if not isinstance(contract, ObjectiveContractV1):

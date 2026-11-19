@@ -316,7 +316,7 @@ def _validation_seed_for_role(content_seed: int, role: str) -> int:
     try:
         domain = _CUBE_ROLE_SEED_DOMAINS[role]
     except KeyError as exc:
-        raise ValueError(f"Unbekannte Würfel-Rolle: {role!r}") from exc
+        raise ValueError(f"Unbekannte Wuerfel-Rolle: {role!r}") from exc
     return _domain_seed(domain, int(content_seed))
 
 
@@ -4233,7 +4233,7 @@ def _run_resampled_solver(
     started = time.perf_counter()
     if context.scenario_inputs is None:
         raise OptimizerInputError(
-            "Resampling braucht die ScenarioInputs des Contexts, um Bag-Würfel "
+            "Resampling braucht die ScenarioInputs des Contexts, um Bag-Wuerfel "
             "derselben Verteilung zu ziehen."
         )
     # HOUSE-PRIOR-001: im Default-Modus mit projizierbarem Anker tragen ALLE

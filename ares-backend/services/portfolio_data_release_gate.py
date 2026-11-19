@@ -181,7 +181,7 @@ def assert_portfolio_data_release_eligible(db: Session, mandate, *, action: str)
     raise DomainError(
         PORTFOLIO_DATA_NOT_RELEASABLE,
         (
-            f"{_ACTION_LABELS[action]}: die Depotdaten erfüllen die Policy "
+            f"{_ACTION_LABELS[action]}: die Depotdaten erfuellen die Policy "
             f"{policy.version} nicht ({', '.join(gate['reasons'])})."
         ),
         http_status=409,

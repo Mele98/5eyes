@@ -939,7 +939,7 @@ def approve_sustainability_standard(
     rows = _standard_rows(db, tenant_id)
     draft = _pending_standard(rows, category)
     if draft is None:
-        raise LookupError("Kein offener Entwurf für diesen Hausstandard.")
+        raise LookupError("Kein offener Entwurf fuer diesen Hausstandard.")
     if not approver_id:
         raise RuleApprovalConflict("Genehmiger fehlt.")
     if approver_id != draft.created_by:

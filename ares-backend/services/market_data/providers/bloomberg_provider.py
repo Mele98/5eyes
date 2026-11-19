@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 BLPAPI_INSTALL_HINT = (
     "BloombergProvider braucht das `blpapi`-Paket (Bloomberg-eigene Wheel). "
     "Installation: 'pip install --index-url=https://blpapi.bloomberg.com/repository/releases/python/simple/ blpapi'. "
-    "Zusätzlich braucht es einen laufenden Bloomberg-Terminal oder B-PIPE-Service. "
+    "Zusaetzlich braucht es einen laufenden Bloomberg-Terminal oder B-PIPE-Service. "
     "Siehe https://www.bloomberg.com/professional/support/api-library/"
 )
 

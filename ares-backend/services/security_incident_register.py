@@ -59,7 +59,7 @@ def _moment(value: str | None, field: str) -> datetime:
         parsed = datetime.fromisoformat(raw.replace("Z", "+00:00")) if len(raw) > 10 else datetime.fromisoformat(raw)
     except ValueError as exc:
         raise DomainError(
-            ReasonCode.INCIDENT_INPUT_INVALID, f"{field} ist kein gültiger Zeitpunkt", http_status=422,
+            ReasonCode.INCIDENT_INPUT_INVALID, f"{field} ist kein gueltiger Zeitpunkt", http_status=422,
         ) from exc
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
@@ -174,14 +174,14 @@ def decide_notification(
         if decision != "NOTIFY":
             raise DomainError(
                 ReasonCode.INCIDENT_NOTIFICATION_DECISION_FINAL,
-                "Der Entscheid 'an den EDÖB melden' ist endgültig; eine Änderung nur als begründete Notiz",
+                "Der Entscheid 'an den EDOEB melden' ist endgueltig; eine Aenderung nur als begruendete Notiz",
                 http_status=409,
             )
         return incident
     if incident.risk_level in ESCALATING_RISKS and decision != "NOTIFY":
         raise DomainError(
             ReasonCode.INCIDENT_HIGH_RISK_REQUIRES_NOTIFICATION,
-            "Bei voraussichtlich hohem Risiko ist dem EDÖB zu melden", http_status=409,
+            "Bei voraussichtlich hohem Risiko ist dem EDOEB zu melden", http_status=409,
         )
     moment = _utc(now)
     incident.notification_decision = decision
@@ -312,16 +312,16 @@ def close(
     problems = close_problems(incident, has_edoeb_receipt=receipt)
     if incident.risk_level == "UNKNOWN":
         raise DomainError(ReasonCode.INCIDENT_RISK_UNKNOWN_AT_CLOSE,
-                          "Abschluss mit unbekanntem Risiko ist nicht zulässig", http_status=409,
+                          "Abschluss mit unbekanntem Risiko ist nicht zulaessig", http_status=409,
                           extra={"problems": problems})
     if incident.remediation_status != "DONE":
         raise DomainError(
-            ReasonCode.INCIDENT_REMEDIATION_OPEN, "Abschluss nicht möglich: " + "; ".join(problems),
+            ReasonCode.INCIDENT_REMEDIATION_OPEN, "Abschluss nicht moeglich: " + "; ".join(problems),
             http_status=409, extra={"problems": problems},
         )
     if problems:
         raise DomainError(
-            ReasonCode.INCIDENT_CLOSE_BLOCKED, "Abschluss nicht möglich: " + "; ".join(problems),
+            ReasonCode.INCIDENT_CLOSE_BLOCKED, "Abschluss nicht moeglich: " + "; ".join(problems),
             http_status=409, extra={"problems": problems},
         )
     moment = _utc(now)
@@ -398,15 +398,15 @@ def gate_findings(
             continue
         if incident.risk_level in ESCALATING_RISKS and incident.notification_decision != "NOTIFY":
             findings.append({**base, "reason_code": ReasonCode.INCIDENT_NOTIFICATION_DECISION_MISSING.value,
-                             "message": "Hohes oder unbekanntes Risiko ohne Meldeentscheid an den EDÖB",
+                             "message": "Hohes oder unbekanntes Risiko ohne Meldeentscheid an den EDOEB",
                              "blocking": True})
         elif incident.notification_decision == "NOTIFY" and not incident.edoeb_notified_at:
             findings.append({**base, "reason_code": ReasonCode.INCIDENT_EDOEB_NOTIFICATION_PENDING.value,
-                             "message": "Meldung an den EDÖB so rasch als möglich nachweisen",
+                             "message": "Meldung an den EDOEB so rasch als moeglich nachweisen",
                              "blocking": incident.risk_level in ESCALATING_RISKS})
             if target is not None and hours > target:
                 findings.append({**base, "reason_code": ReasonCode.INCIDENT_NOTIFICATION_TARGET_EXCEEDED.value,
-                                 "message": f"Interne Zielfrist von {target:g} Stunden überschritten",
+                                 "message": f"Interne Zielfrist von {target:g} Stunden ueberschritten",
                                  "blocking": True})
         if not incident.subject_notification_decision:
             findings.append({**base, "reason_code": ReasonCode.INCIDENT_SUBJECT_DECISION_MISSING.value,
@@ -437,7 +437,7 @@ def record_artifact(db: Session, incident: PrivacySecurityIncident, *, kind: str
                     sha256: str, media_type: str | None, size_bytes: int | None, actor_id: str,
                     event_sha256: str | None, now: datetime | None = None) -> SecurityIncidentArtifact:
     if size_bytes is None or size_bytes < 0:
-        raise DomainError(ReasonCode.INCIDENT_INPUT_INVALID, "Grösse des Artefakts fehlt", http_status=422)
+        raise DomainError(ReasonCode.INCIDENT_INPUT_INVALID, "Groesse des Artefakts fehlt", http_status=422)
     artifact = SecurityIncidentArtifact(
         id=new_uuid(), tenant_id=incident.tenant_id, incident_id=incident.id,
         kind=_choice(kind, EVIDENCE_KINDS, "Nachweisart"), reference=_text(reference, "Referenz", required=True),
@@ -473,7 +473,7 @@ def verify_artifact(db: Session, incident: PrivacySecurityIncident, artifact_id:
         raise DomainError(ReasonCode.INCIDENT_STATE_INVALID, "Artefakt nicht gefunden", http_status=404)
     if artifact.sha256 != sha256 or _artifact_seal(artifact) != artifact.row_sha256:
         raise DomainError(ReasonCode.INCIDENT_EVIDENCE_HASH_MISMATCH,
-                          "Vorgelegtes Artefakt stimmt nicht mit dem erfassten Digest überein", http_status=409)
+                          "Vorgelegtes Artefakt stimmt nicht mit dem erfassten Digest ueberein", http_status=409)
     return {"artifact_id": artifact.id, "match": True, "sha256": artifact.sha256}
 
 

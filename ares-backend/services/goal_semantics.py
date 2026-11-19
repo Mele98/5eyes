@@ -61,7 +61,7 @@ def _strict_int(
     if minimum is not None and value < minimum:
         raise GoalInputError(f"{field} muss mindestens {minimum} sein.")
     if maximum is not None and value > maximum:
-        raise GoalInputError(f"{field} darf höchstens {maximum} sein.")
+        raise GoalInputError(f"{field} darf hoechstens {maximum} sein.")
     return value
 
 
@@ -83,7 +83,7 @@ def _parse_date(value: Any, *, field: str) -> date | None:
     try:
         return date.fromisoformat(raw[:10])
     except ValueError as exc:
-        raise GoalInputError(f"{field} muss ein gültiges ISO-Datum sein.") from exc
+        raise GoalInputError(f"{field} muss ein gueltiges ISO-Datum sein.") from exc
 
 
 def validate_goal_model_input(goal: Any) -> None:
@@ -165,7 +165,7 @@ def validate_goal_model_input(goal: Any) -> None:
     scope = _fold(_get(goal, "goal_scope"))
     if scope not in {"beratungsvermoegen", "gesamtvermoegen"}:
         raise GoalInputError(
-            f"{prefix}: goal_scope muss Beratungs- oder Gesamtvermögen sein."
+            f"{prefix}: goal_scope muss Beratungs- oder Gesamtvermoegen sein."
         )
     value_mode = _fold(_get(goal, "value_mode"))
     if value_mode not in {"nominal", "real"}:
@@ -217,20 +217,20 @@ def validate_goal_model_input(goal: Any) -> None:
         # otherwise anchorless raw/legacy row look valid.
         if horizon is None and target_date is None:
             raise GoalInputError(
-                f"{prefix}: Ziel benötigt horizon_years oder target_date; "
-                "start_date allein ist für diesen Zieltyp kein Timing-Anker."
+                f"{prefix}: Ziel benoetigt horizon_years oder target_date; "
+                "start_date allein ist fuer diesen Zieltyp kein Timing-Anker."
             )
 
     def require_stream_timing() -> None:
         if horizon is None and target_date is None and start is None:
             raise GoalInputError(
-                f"{prefix}: Ziel benötigt horizon_years, target_date oder start_date."
+                f"{prefix}: Ziel benoetigt horizon_years, target_date oder start_date."
             )
 
     def forbid(value: Any, field: str) -> None:
         if value is not None:
             raise GoalInputError(
-                f"{prefix}: {field} ist für diesen Zieltyp nicht erlaubt."
+                f"{prefix}: {field} ist fuer diesen Zieltyp nicht erlaubt."
             )
 
     if goal_type == "renditeziel":
@@ -245,11 +245,11 @@ def validate_goal_model_input(goal: Any) -> None:
         require_evaluation_timing()
     elif goal_type in {"kapitalerhalt", "vermoegensziel"}:
         if target_wealth is None or target_wealth <= 0:
-            raise GoalInputError(f"{prefix}: positives Zielvermögen fehlt.")
+            raise GoalInputError(f"{prefix}: positives Zielvermoegen fehlt.")
         forbid(target_amount, "target_amount_rappen")
         forbid(target_return, "target_return_bps")
         if frequency_raw not in (None, "") or ongoing:
-            raise GoalInputError(f"{prefix}: Vermögensziel darf nicht wiederkehrend sein.")
+            raise GoalInputError(f"{prefix}: Vermoegensziel darf nicht wiederkehrend sein.")
         require_evaluation_timing()
     elif goal_type == "einmalige_ausgabe":
         if target_amount is None or target_amount <= 0:
@@ -265,11 +265,11 @@ def validate_goal_model_input(goal: Any) -> None:
         forbid(target_wealth, "target_wealth_rappen")
         forbid(target_return, "target_return_bps")
         if frequency not in SUPPORTED_FREQUENCIES or frequency == "einmalig":
-            raise GoalInputError(f"{prefix}: ungültige wiederkehrende Frequenz.")
+            raise GoalInputError(f"{prefix}: ungueltige wiederkehrende Frequenz.")
         require_stream_timing()
         if not ongoing and target_date is None:
             raise GoalInputError(
-                f"{prefix}: ein endliches wiederkehrendes Ziel benötigt "
+                f"{prefix}: ein endliches wiederkehrendes Ziel benoetigt "
                 "target_date; ohne Enddatum muss is_ongoing=1 sein."
             )
     elif goal_type == "maximierung":
@@ -282,10 +282,10 @@ def validate_goal_model_input(goal: Any) -> None:
     pillar = str(_get(goal, "pension_pillar") or "").strip()
     if goal_type == "pensionsausgabe":
         if pillar and pillar not in {"AHV", "BVG", "3a", "1e", "FZG"}:
-            raise GoalInputError(f"{prefix}: unbekannte Vorsorge-Säule {pillar!r}.")
+            raise GoalInputError(f"{prefix}: unbekannte Vorsorge-Saeule {pillar!r}.")
     elif pillar:
         raise GoalInputError(
-            f"{prefix}: pension_pillar ist nur für Pensionsausgabe erlaubt."
+            f"{prefix}: pension_pillar ist nur fuer Pensionsausgabe erlaubt."
         )
 
 
@@ -342,7 +342,7 @@ def validate_active_goal_inputs(goals: list) -> None:
             frequency = normalize_frequency(getattr(goal, "frequency", None))
             if frequency not in SUPPORTED_FREQUENCIES or frequency == "einmalig":
                 raise GoalInputError(
-                    f"Ziel '{label}': unbekannte oder unzulässige Frequenz "
+                    f"Ziel '{label}': unbekannte oder unzulaessige Frequenz "
                     f"{getattr(goal, 'frequency', None)!r}."
                 )
         probability = getattr(goal, "probability_pct", None)
