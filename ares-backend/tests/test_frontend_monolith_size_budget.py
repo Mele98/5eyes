@@ -141,6 +141,23 @@ aus den erfassten Werten gerechnet), tote Altmaske #m-edit-hypo entfernt; Monoli
 26632 Z./1637553 B.
 Integration H12+K1 (2026-11-19, r5/kern-integration): alle Teile beider Seiten
 gelten; Monolith auf den gemessenen Stand nach dem Merge: 26629 Z./1637450 B.
+K2 Kernkette CH (Dok. 115, 2026-11-19): Berater-Fuehrung als neuer Teil
+``advisor-guidance.js`` (Budget = Stand bei Einfuehrung). Im Monolithen nur
+Einbindung und Hooks; vier nie geoeffnete Legacy-Masken (m-edit-depot/-immo/
+-hypo/-custom, mit Drittbank-Namen) und statische Platzhalterdaten entfernt --
+der Monolith schrumpft (Budget gesenkt). allocation-publication.js schrumpft
+(Einzelfreigabe-Ablauf nach advisor-guidance.js), finalize-attestation.js
+ebenso; client-compliance.js +4 Z./+474 B fuer E2E-18 (Zeitpunkt der Uebergabe
+sekundengenau, lokale Zeit und Kanal-Label).
+K2-Nachtrag 1 (Pruefbericht H-166): Monolith 26485 Z./1625431 B (Hooks gegen
+nominale Mischsummen, tote m-edit-Verweise entfernt, zwei Kommentare gekuerzt);
+unsaved-changes.js 85/4470 (tote Masken-Eintraege). advisor-guidance.js ist im
+selben, noch nicht gemergten PR eingefuehrt; sein Einfuehrungsstand umfasst den
+Nachtrag (728/43966: Erst-Einrichtungsdialog mit "spaeter", Finalisieren-
+Wegweiser, Verzehr-Logik, Grund fuer den gesperrten Ist-Pfad).
+Integration H12+K1+K2 (2026-11-19, r5/kern-integration): alle Teile aller
+Seiten gelten; Monolith und Teilbudgets auf den gemessenen Stand nach dem Merge:
+26479 Z./1624968 B; unsaved-changes.js 82/4342 (H11-Rueckfrage + K2-Bereinigung).
 """
 from __future__ import annotations
 
@@ -149,9 +166,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26629
+MONOLITH_MAX_LINES = 26479
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1637450
+MONOLITH_MAX_BYTES = 1624968
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -163,16 +180,17 @@ EXTRACTED_PART_BUDGETS = {
     "ist-projection-gate.js": (288, 15951),
     "session-boundary.js": (53, 2763),
     "ist-projection-basis.js": (87, 4649),
-    "unsaved-changes.js": (83, 4476),
+    "unsaved-changes.js": (82, 4342),
     "goal-review-runtime.js": (1564, 83881),
-    "client-compliance.js": (465, 29504),
+    "client-compliance.js": (469, 29978),
     "kyc-review-policy.js": (427, 25832),
     "privacy-governance.js": (500, 35256),
     "sustainability-preferences.js": (517, 26065),
     "wealth-inflows.js": (282, 16491),
-    "allocation-publication.js": (276, 13973),
-    "finalize-attestation.js": (27, 1753),
+    "allocation-publication.js": (272, 13780),
+    "finalize-attestation.js": (27, 1750),
     "fx-rates-editor.js": (99, 5202),
+    "advisor-guidance.js": (728, 43966),
 }
 
 

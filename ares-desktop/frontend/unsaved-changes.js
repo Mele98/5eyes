@@ -5,8 +5,7 @@
 // Kundenmasken (schliessen/neu oeffnen setzt zurueck), ESG-Karte #sust-card.
 var ARES_CUSTOMER_FORM_MODALS={
   'm-es':'Stammdaten','m-nc':'Mandat','m-mandate-settings':'Mandat-Einstellungen',
-  'm-aw':'Vermögensposition','m-edit-depot':'Vermögensposition','m-edit-hypo':'Hypothek/Kredit',
-  'm-edit-custom':'Vermögensposition','m-edit-immo':'Immobilie','m-awi':'Vermögenszufluss',
+  'm-aw':'Vermögensposition','m-awi':'Vermögenszufluss',
   'm-acf':'Cashflow','m-nz':'Ziel','m-goalrev':'Ziel','m-ev':'Lebensereignis',
   'm-overr':'Risikoprofil-Override'};
 var aresUnsavedModals={},aresUnsavedEsgEl=null,ARES_DISCARD_NOTICE_KEY='ares.unsavedDiscarded';

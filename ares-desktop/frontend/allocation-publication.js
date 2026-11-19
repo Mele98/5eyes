@@ -173,8 +173,8 @@ var allocationPublicationState=null;
 var allocationPublicationKey='';
 var allocationPublicationLoading=false;
 var ALLOCATION_PUBLICATION_REASON_TEXT={
-  CCX_ENVELOPE_MISSING:'Empfehlung noch nicht finalisiert',
-  CCX_BINDING_MISSING:'Empfehlung zu dieser Strategie noch nicht finalisiert',
+  CCX_ENVELOPE_MISSING:'Empfehlung noch nicht finalisiert (Portfolio › Empfehlung finalisieren)',
+  CCX_BINDING_MISSING:'Empfehlung zu dieser Strategie noch nicht finalisiert (Portfolio › Empfehlung finalisieren)',
   CCX_INPUT_STALE:'Daten seit der Finalisierung geändert – bitte neu finalisieren',
   CCX_FRESHNESS_UNKNOWN:'Aktualität nicht belegt – bitte neu finalisieren',
   CCX_RESULT_SUPERSEDED:'Empfehlung wurde neu finalisiert',
@@ -185,7 +185,7 @@ var ALLOCATION_PUBLICATION_REASON_TEXT={
   CCX_ALLOCATION_CONTEXT_INVALID:'Strategiedaten nicht konsistent – bitte neu berechnen',
   CCX_ENVELOPE_HASH_MISMATCH:'Beratungsentscheid nicht integer – bitte neu finalisieren',
   CLIENT_ONBOARDING_INCOMPLETE:'Kundeninformation oder KYC offen',
-  FOUR_EYES_REQUIRED:'Freigabe durch eine zweite Person nötig'
+  FOUR_EYES_REQUIRED:'Freigabe durch eine zweite Person oder Einzelfreigabe als Ein-Personen-Firma nötig'
 };
 function allocationPublicationReason(code){
   if(!code)return '';
@@ -220,7 +220,9 @@ function renderAllocationPublication(){
     btn.style.display=hasTa&&s&&s.publication_status!=='PUBLISHED'?'':'none';
     btn.disabled=!canPublish;
     btn.title=canPublish?'Soll-Allokation freigeben und publizieren':allocationPublicationReason((s&&s.blocker_codes||[])[0])||'Noch nicht publizierbar';
+    if(canPublish&&s.prepared_by&&typeof currentUser!=='undefined'&&currentUser&&String(s.prepared_by)===String(currentUser.id))btn.title='Sie haben selbst finalisiert: Freigabe durch eine zweite Person oder, als Ein-Personen-Firma, Einzelfreigabe mit Begründung';
   }
+  if(typeof syncFinalizeShortcut==='function')syncFinalizeShortcut(hasTa?s:null);
 }
 async function refreshAllocationPublication(force){
   var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
@@ -253,14 +255,8 @@ async function publishAllocation(){
     updateStrategyStatus('Soll-Allokation publiziert.',false);
   }catch(e){
     if(allocationPublicationErrorCode(e)==='CCX_APPROVAL_BINDING_MISSING'){
-      var reason=await uiPrompt({message:'Sie haben die Empfehlung selbst finalisiert. Ist in Ihrer Firma niemand sonst freigabeberechtigt, begründen Sie die Einzelfreigabe kurz:',required:true,minLength:20});
-      if(reason&&reason.trim()){
-        try{
-          var again=await API.get('/mandates/'+mid+'/allocation-publication');
-          await API.post('/mandates/'+mid+'/allocation-publication',{target_allocation_id:again.target_allocation_id,validation_hash:again.validation_hash,single_approver_attestation:true,attestation_reason:reason.trim()});
-          updateStrategyStatus('Soll-Allokation publiziert (Einzelfreigabe).',false);
-        }catch(e2){uiAlert({level:'warn',message:'Publizieren nicht möglich: '+allocationPublicationReason(allocationPublicationErrorCode(e2))});}
-      }
+      // K2/E2E-02: beide Wege nennen (zweite Person oder Ein-Personen-Firma), advisor-guidance.js.
+      await publishFourEyesFlow(mid);
     }else{
       uiAlert({level:'warn',message:'Publizieren nicht möglich: '+allocationPublicationReason(allocationPublicationErrorCode(e))});
     }

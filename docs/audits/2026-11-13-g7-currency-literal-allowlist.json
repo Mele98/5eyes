@@ -550,24 +550,10 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "code": "<div class=\"fg\"><label class=\"fl\">Aktueller Schätzwert (CHF)</label><input class=\"fi\" value=\"1'200'000\"></div>",
-   "count": 1,
-   "context": "#m-edit-immo",
-   "reason": "ares.html #m-edit-immo: Legacy-Modal; prepareModalBeforeOpen() leitet m-edit-depot/-immo/-hypo/-custom immer auf den Vermoegens-Editor um (return false) -- Markup wird nie angezeigt."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"fg\"><label class=\"fl\">Aktueller Wert (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"maw-alt-value\" type=\"number\" placeholder=\"100000\"></div>",
    "count": 1,
    "context": "#maw-alt-value",
    "reason": "ares.html #maw-alt-value: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "<div class=\"fg\"><label class=\"fl\">Aktueller Wert (CHF)</label><input class=\"fi\" type=\"number\" placeholder=\"500000\"></div>",
-   "count": 1,
-   "context": "#m-edit-custom",
-   "reason": "ares.html #m-edit-custom: Legacy-Modal; prepareModalBeforeOpen() leitet m-edit-depot/-immo/-hypo/-custom immer auf den Vermoegens-Editor um (return false) -- Markup wird nie angezeigt."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -606,24 +592,10 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "code": "<div class=\"fg\"><label class=\"fl\">Hypothek (CHF)</label><input class=\"fi\" placeholder=\"0\" type=\"number\"></div>",
-   "count": 1,
-   "context": "#m-edit-immo",
-   "reason": "ares.html #m-edit-immo: Legacy-Modal; prepareModalBeforeOpen() leitet m-edit-depot/-immo/-hypo/-custom immer auf den Vermoegens-Editor um (return false) -- Markup wird nie angezeigt."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"fg\"><label class=\"fl\">Jährl. Mietertrag (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"maw-immo-rent\" type=\"number\" placeholder=\"0\"></div>",
    "count": 1,
    "context": "#maw-immo-rent",
    "reason": "ares.html #maw-immo-rent: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "<div class=\"fg\"><label class=\"fl\">Jährlicher Mietertrag (CHF)</label><input class=\"fi\" placeholder=\"0\" type=\"number\"></div>",
-   "count": 1,
-   "context": "#m-edit-immo",
-   "reason": "ares.html #m-edit-immo: Legacy-Modal; prepareModalBeforeOpen() leitet m-edit-depot/-immo/-hypo/-custom immer auf den Vermoegens-Editor um (return false) -- Markup wird nie angezeigt."
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -641,13 +613,6 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "code": "<div class=\"fg\"><label class=\"fl\">Marktwert (CHF)</label><input class=\"fi\" value=\"1'850'000\"></div>",
-   "count": 1,
-   "context": "#m-edit-depot",
-   "reason": "ares.html #m-edit-depot: Legacy-Modal; prepareModalBeforeOpen() leitet m-edit-depot/-immo/-hypo/-custom immer auf den Vermoegens-Editor um (return false) -- Markup wird nie angezeigt."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"fg\"><label class=\"fl\">Schätzwert (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"maw-immo-value\" type=\"number\" placeholder=\"1200000\"></div>",
    "count": 1,
    "context": "#maw-immo-value",
@@ -655,14 +620,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "code": "<div class=\"kpi\" onclick=\"go('vg')\" title=\"Zu Vermögen\" style=\"cursor:pointer\"><div class=\"kl\">Reinvermögen</div><div class=\"kv\" id=\"kpi-reinvermoegen\">CHF 3.9 Mio</div><div class=\"ks\"><span class=\"g\">+340k</span> seit Review</div></div>",
-   "count": 1,
-   "context": "#kpi-reinvermoegen",
-   "reason": "ares.html #kpi-reinvermoegen: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "<div class=\"overlay\" id=\"m-ap\"><div class=\"modal\"><div class=\"mhd\"><div class=\"mtitle\">Bestand zu Empfehlungstitel</div><button class=\"mx\" onclick=\"cm('m-ap')\">✕</button></div><div class=\"mbody\"><div id=\"ap-empty-state\" style=\"display:none;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px;font-size:11px;color:var(--n6);line-height:1.6\">Portfolio-Bestände bauen auf einem vorhandenen Rezept auf. Bitte zuerst die Strategie berechnen und ein aktuelles Anlagerezept laden.</div><div id=\"ap-form-wrap\"><div style=\"background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;margin-bottom:10px;font-size:10px;line-height:1.6;color:var(--n6)\">Hier wird der effektive Depotbestand zum Empfehlungstitel hinterlegt. Wenn ein Bestand vorhanden ist, basiert Live-Drift auf diesem Holding statt auf einer Rekonstruktion aus dem Zielbetrag.</div><div class=\"frow\"><div class=\"fg\"><label class=\"fl\">Empfehlungstitel</label><select class=\"fsel\" id=\"ap-position-id\" onchange=\"syncPortfolioHoldingSelection()\"></select></div></div><div id=\"ap-product-meta\" style=\"font-size:10px;color:var(--n5);margin:-2px 0 10px\"></div><div class=\"frow\"><div class=\"fg\"><label class=\"fl\">Depotbank / Institut</label><input class=\"fi\" id=\"ap-depot-bank\" placeholder=\"z.B. UBS AG Zürich\"></div><div class=\"fg\"><label class=\"fl\">Konto / Depotnummer</label><input class=\"fi\" id=\"ap-custody-account\" placeholder=\"optional\"></div></div><div class=\"frow\"><div class=\"fg\"><label class=\"fl\">Bestand (Stück)</label><input class=\"fi\" id=\"ap-units\" placeholder=\"z.B. 128.750\"></div><div class=\"fg\"><label class=\"fl\">Bestandsmarktwert (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"ap-market-value\" placeholder=\"optional, z.B. 415'600\"></div></div><div class=\"frow\"><div class=\"fg\"><label class=\"fl\">Einstand / Durchschnittskurs (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"ap-cost-price\" placeholder=\"optional\"></div><div class=\"fg\"><label class=\"fl\">Standdatum</label><input class=\"fi\" id=\"ap-as-of\" type=\"date\"></div></div><div class=\"frow\"><div class=\"fg\"><label class=\"fl\">Quelle</label><select class=\"fsel\" id=\"ap-source\"><option value=\"manual\">Manuell</option><option value=\"custody_import\">Custody-Import</option></select></div><div class=\"fg\"><label class=\"fl\">Bewertungsbasis</label><div id=\"ap-basis-note\" style=\"font-size:10px;color:var(--n5);padding:9px 0\">Noch kein Bestand hinterlegt.</div></div></div><div class=\"frow\"><div class=\"fg\"><label class=\"fl\">Notizen</label><textarea class=\"fta\" id=\"ap-notes\" rows=\"3\" placeholder=\"optional\"></textarea></div></div></div><div id=\"ap-error\" style=\"display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px\"></div></div><div class=\"mfooter\"><button class=\"btn\" onclick=\"cm('m-ap')\">Abbrechen</button><button class=\"btn\" id=\"btn-ap-delete\" style=\"display:none\" onclick=\"deletePortfolioHolding()\">Bestand löschen</button><button class=\"btn-p\" id=\"btn-ap-save\" onclick=\"savePortfolioHolding()\">Speichern</button></div></div></div>",
+   "code": "<div class=\"overlay\" id=\"m-ap\"><div class=\"modal\"><div class=\"mhd\"><div class=\"mtitle\">Bestand zu Empfehlungstitel</div><button class=\"mx\" onclick=\"cm('m-ap')\">✕</button></div><div class=\"mbody\"><div id=\"ap-empty-state\" style=\"display:none;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:10px 12px;font-size:11px;color:var(--n6);line-height:1.6\">Portfolio-Bestände bauen auf einem vorhandenen Rezept auf. Bitte zuerst die Strategie berechnen und ein aktuelles Anlagerezept laden.</div><div id=\"ap-form-wrap\"><div style=\"background:var(--bg);border:1px solid var(--b1);border-radius:var(--r);padding:9px 10px;margin-bottom:10px;font-size:10px;line-height:1.6;color:var(--n6)\">Hier wird der effektive Depotbestand zum Empfehlungstitel hinterlegt. Wenn ein Bestand vorhanden ist, basiert Live-Drift auf diesem Holding statt auf einer Rekonstruktion aus dem Zielbetrag.</div><div class=\"frow\"><div class=\"fg\"><label class=\"fl\">Empfehlungstitel</label><select class=\"fsel\" id=\"ap-position-id\" onchange=\"syncPortfolioHoldingSelection()\"></select></div></div><div id=\"ap-product-meta\" style=\"font-size:10px;color:var(--n5);margin:-2px 0 10px\"></div><div class=\"frow\"><div class=\"fg\"><label class=\"fl\">Depotbank / Institut</label><input class=\"fi\" id=\"ap-depot-bank\" placeholder=\"Name der Depotbank\"></div><div class=\"fg\"><label class=\"fl\">Konto / Depotnummer</label><input class=\"fi\" id=\"ap-custody-account\" placeholder=\"optional\"></div></div><div class=\"frow\"><div class=\"fg\"><label class=\"fl\">Bestand (Stück)</label><input class=\"fi\" id=\"ap-units\" placeholder=\"z.B. 128.750\"></div><div class=\"fg\"><label class=\"fl\">Bestandsmarktwert (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"ap-market-value\" placeholder=\"optional, z.B. 415'600\"></div></div><div class=\"frow\"><div class=\"fg\"><label class=\"fl\">Einstand / Durchschnittskurs (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"ap-cost-price\" placeholder=\"optional\"></div><div class=\"fg\"><label class=\"fl\">Standdatum</label><input class=\"fi\" id=\"ap-as-of\" type=\"date\"></div></div><div class=\"frow\"><div class=\"fg\"><label class=\"fl\">Quelle</label><select class=\"fsel\" id=\"ap-source\"><option value=\"manual\">Manuell</option><option value=\"custody_import\">Custody-Import</option></select></div><div class=\"fg\"><label class=\"fl\">Bewertungsbasis</label><div id=\"ap-basis-note\" style=\"font-size:10px;color:var(--n5);padding:9px 0\">Noch kein Bestand hinterlegt.</div></div></div><div class=\"frow\"><div class=\"fg\"><label class=\"fl\">Notizen</label><textarea class=\"fta\" id=\"ap-notes\" rows=\"3\" placeholder=\"optional\"></textarea></div></div></div><div id=\"ap-error\" style=\"display:none;color:var(--neg);font-size:11px;padding:4px 0;margin-top:4px\"></div></div><div class=\"mfooter\"><button class=\"btn\" onclick=\"cm('m-ap')\">Abbrechen</button><button class=\"btn\" id=\"btn-ap-delete\" style=\"display:none\" onclick=\"deletePortfolioHolding()\">Bestand löschen</button><button class=\"btn-p\" id=\"btn-ap-save\" onclick=\"savePortfolioHolding()\">Speichern</button></div></div></div>",
    "count": 1,
    "context": "#m-ap",
    "reason": "ares.html #m-ap: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
@@ -774,76 +732,6 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "code": "<div class=\"wr\"><div class=\"wn\"><div class=\"wna\">BVG / Pensionskasse</div><div class=\"wnd\">Gesperrt bis 2033</div></div><div class=\"wa\">CHF 340'000</div><div class=\"wt\"><span class=\"tag tn\">Andere</span></div></div>",
-   "count": 1,
-   "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "<div class=\"wr\"><div class=\"wn\"><div class=\"wna\">Cash / Liquidität</div><div class=\"wnd\">Sichtguthaben UBS</div></div><div class=\"wa\">CHF 210'000</div><div class=\"wt\"><span class=\"tag tb\">Beratung</span></div></div>",
-   "count": 1,
-   "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "<div class=\"wr\"><div class=\"wn\"><div class=\"wna\">Depot UBS AG Zürich</div><div class=\"wnd\">Kto. 12-345678-9</div></div><div class=\"wa\">CHF 1'850'000</div><div class=\"wt\"><span class=\"tag tb\">Beratung</span></div><button class=\"btn-ico e\" onclick=\"om('m-edit-depot')\" title=\"Bearbeiten\">✎</button></div>",
-   "count": 1,
-   "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "<div class=\"wr\"><div class=\"wn\"><div class=\"wna\">Depot ZKB</div><div class=\"wnd\">Kto. 87-654321-0</div></div><div class=\"wa\">CHF 620'000</div><div class=\"wt\"><span class=\"tag tb\">Beratung</span></div></div>",
-   "count": 1,
-   "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "<div class=\"wr\"><div class=\"wn\"><div class=\"wna\">Eigenheim Zürich-Seefeld</div><div class=\"wnd\">Marktwert</div></div><div class=\"wa\">CHF 1'450'000</div><div class=\"wt\"><span class=\"tag tn\">Andere</span></div><button class=\"btn-ico e\" onclick=\"om('m-edit-custom')\" title=\"Bearbeiten\">✎</button></div>",
-   "count": 1,
-   "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "<div class=\"wr\"><div class=\"wn\"><div class=\"wna\">Hypothek Eigenheim</div><div class=\"wnd\">1.2% bis 2027</div></div><div class=\"wa\" style=\"color:var(--neg)\">−CHF 856'000</div><div class=\"wt\"><span class=\"tag tr2\">Verbindl.</span></div><button class=\"btn-ico e\" onclick=\"om('m-edit-hypo')\" title=\"Bearbeiten\">✎</button></div>",
-   "count": 1,
-   "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "<div class=\"wr\"><div class=\"wn\"><div class=\"wna\">Private-Equity-Fonds A</div><div class=\"wnd\">Illiquid · 8 J.</div></div><div class=\"wa\">CHF 168'000</div><div class=\"wt\"><span class=\"tag tb\">Beratung</span></div></div>",
-   "count": 1,
-   "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "<div class=\"wr\"><div class=\"wn\"><div class=\"wna\">Säule 3a (2 Konten BEKB)</div><div class=\"wnd\">Bezug ab 2027</div></div><div class=\"wa\">CHF 112'000</div><div class=\"wt\"><span class=\"tag tn\">Andere</span></div></div>",
-   "count": 1,
-   "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "<div style=\"display:flex;justify-content:space-between;padding:6px 0 0;border-top:1px solid var(--b1);margin-top:2px\"><span style=\"font-size:11px;font-weight:600\">Total Anderes (netto)</span><span style=\"font-family:var(--f-d);font-size:15px;color:var(--n8)\">CHF 1'046'000</span></div>",
-   "count": 1,
-   "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "<div style=\"display:flex;justify-content:space-between;padding:6px 0 0;border-top:1px solid var(--b1);margin-top:2px\"><span style=\"font-size:11px;font-weight:600\">Total Beratungsvermögen</span><span style=\"font-family:var(--f-d);font-size:15px;color:var(--pos)\">CHF 2'848'000</span></div>",
-   "count": 1,
-   "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
    "code": "<div style=\"font-size:10px;color:var(--n5);line-height:1.4;margin:-2px 0 6px\">Kapitalbezugssteuer aus dem Steuerrechner des Kantons erfassen (CHF-Betrag hat Vorrang vor dem Satz). Leer = defensiv 10 % (3a, Freizügigkeit, BVG-Kapital); 3b-Policen 0 %.</div>",
    "count": 1,
    "context": "#m-aw",
@@ -904,13 +792,6 @@
    "count": 1,
    "context": "#aa-policy-hedging",
    "reason": "ares.html #aa-policy-hedging: Name der Anlagerestriktion 'Nur CHF-Instrumente' bzw. FX-Policy chf_only (Instrumentenwaehrung), kein Betragslabel."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "<span style=\"font-family:var(--f-d);font-size:20px;color:var(--n8)\">CHF 3'894'000</span>",
-   "count": 1,
-   "context": "#page-sd",
-   "reason": "ares.html #page-sd: statischer Platzhalter im Ausgangs-Markup; beim Rendern ueberschrieben (renderWealthPositions -> #asset-view, KPI ueber wealth-summary amount_currency, ub-*-terminal ueber die Projektionswaehrung)."
   },
   {
    "file": "ares-desktop/frontend/ares.html",

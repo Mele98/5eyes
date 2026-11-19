@@ -301,7 +301,7 @@ def test_manual_add_of_excluded_theme_product_is_409(SF):
     advisor_id, mandate_id = _seed(SF, "man-theme")
     _generate_ta(SF, mandate_id, advisor_id, {"policy": {"esg": "negative_screening"}})
     run_id = _draft_run(SF, mandate_id, advisor_id)
-    energy = _product_id(SF, "Energy Select Sector ETF")
+    energy = _product_id(SF, "Musterprodukt Thema Fossile Energie")
     with pytest.raises(HTTPException) as excinfo:
         _add_position(SF, mandate_id, run_id, advisor_id, energy)
     assert excinfo.value.status_code == 409
@@ -362,7 +362,7 @@ def test_finalize_blocks_run_with_manipulated_excluded_theme_position(SF):
     advisor_id, mandate_id = _seed(SF, "fin-theme")
     _generate_ta(SF, mandate_id, advisor_id, {"tilts": {"fossil": "exclude"}})
     run_id, pids, _w = _generate_run(SF, mandate_id, advisor_id)
-    energy = _product_id(SF, "Energy Select Sector ETF")
+    energy = _product_id(SF, "Musterprodukt Thema Fossile Energie")
     with SF() as s:
         pos = s.query(RecommendationPosition).filter(
             RecommendationPosition.run_id == run_id,
@@ -433,10 +433,10 @@ def test_seed_catalog_esg_data_is_marked_seed_unverified(SF):
 
     _seed(SF, "seed-status")
     with SF() as s:
-        spi = s.query(Product).filter(Product.product_name == "iShares Core SPI ETF").one()
+        spi = s.query(Product).filter(Product.product_name == "Musterprodukt Aktien Schweiz").one()
         assert product_esg_data_status(spi) == ESG_DATA_STATUS_SEED_UNVERIFIED
         assert set(seed_unverified_esg_fields(spi)) == {"sfdr_class", "esg_rating"}
-        energy = s.query(Product).filter(Product.product_name == "Energy Select Sector ETF").one()
+        energy = s.query(Product).filter(Product.product_name == "Musterprodukt Thema Fossile Energie").one()
         assert "theme_tags" in seed_unverified_esg_fields(energy)
         cash = s.query(Product).filter(Product.product_name == "Kontoguthaben CHF").one()
         assert product_esg_data_status(cash) == ESG_DATA_STATUS_NOT_MAINTAINED
@@ -448,7 +448,7 @@ def test_seed_catalog_esg_data_is_marked_seed_unverified(SF):
         spi.esg_rating = "AA"
         assert product_esg_data_status(spi) == ESG_DATA_STATUS_MAINTAINED_NO_SOURCE
         s.rollback()
-    custom = _add_product(SF, product_name="iShares Core SPI ETF", tenant_id=None, sfdr_class="8", esg_rating="A")
+    custom = _add_product(SF, product_name="Musterprodukt Aktien Schweiz", tenant_id=None, sfdr_class="8", esg_rating="A")
     with SF() as s:
         # Gleichnamig, gleiche Werte: von der Seed-Zeile nicht unterscheidbar
         # -> konservativ unbelegt.
@@ -463,7 +463,7 @@ def test_product_response_exposes_esg_data_status(SF):
 
     _seed(SF, "seed-resp")
     with SF() as s:
-        spi = s.query(Product).filter(Product.product_name == "iShares Core SPI ETF").one()
+        spi = s.query(Product).filter(Product.product_name == "Musterprodukt Aktien Schweiz").one()
         dumped = ProductResponse.model_validate(spi).model_dump()
     assert dumped["esg_data_status"] == "seed_unverified"
     assert set(dumped["esg_data_seed_fields"]) == {"sfdr_class", "esg_rating"}
@@ -500,7 +500,7 @@ def _pdf_text(preferences, products=None) -> str:
 
 
 _SEED_PRODUCTS = [
-    {"name": "iShares Core SPI ETF", "asset_class": "equities", "esg_data_status": "seed_unverified"},
+    {"name": "Musterprodukt Aktien Schweiz", "asset_class": "equities", "esg_data_status": "seed_unverified"},
     {"name": "Kontoguthaben CHF", "asset_class": "liquidity", "esg_data_status": "not_maintained"},
 ]
 
@@ -514,7 +514,7 @@ def test_customer_pdf_states_seed_esg_data_as_unconfirmed(policy):
     assert "ESG-Datenstand" in lines
     row = lines[lines.index("ESG-Datenstand") + 1]
     assert "nicht bestaetigt" in row
-    assert "iShares Core SPI ETF" in row
+    assert "Musterprodukt Aktien Schweiz" in row
     assert "Kontoguthaben" not in row  # ausgenommene Liquiditaet
     assert not [c for c in ESG_CUSTOMER_CLAIM_LABELS if c.lower() in text_.lower()]
 

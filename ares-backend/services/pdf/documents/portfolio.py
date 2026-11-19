@@ -35,6 +35,10 @@ def build_portfolio_flowables(ctx: PDFContext, data) -> list:
     flowables: list = []
     styles = make_paragraph_styles()
 
+    positions = list(getattr(data, "positions", []) or [])
+    # K2/E2E-07: "mit ISIN" nur versprechen, wenn jede Position eine ISIN traegt;
+    # Positionen ohne ISIN sind Musterprodukte (z. B. Seed-Katalog) und nicht zur Umsetzung.
+    sample_count = sum(1 for p in positions if _is_sample_position(p))
     advisory_label = None
     if getattr(data, "advisory_wealth_rappen", None):
         advisory_label = _format_amount(data.advisory_wealth_rappen, ctx.base_currency)
@@ -45,7 +49,8 @@ def build_portfolio_flowables(ctx: PDFContext, data) -> list:
         mandate_number=getattr(data, "mandate_number", None),
         advisory_wealth_label=advisory_label,
         focus_points=[
-            "Konkrete Produkte mit ISIN und Zielgewicht",
+            ("Konkrete Produkte mit ISIN und Zielgewicht" if not sample_count
+             else "Produkte und Zielgewichte; ohne ISIN = Musterprodukt, nicht zur Umsetzung"),
             "Zielwerte je Position fuer die Umsetzung",
             "Abgleich vor Review, Protokollierung und Abschluss",
         ],
@@ -70,8 +75,15 @@ def build_portfolio_flowables(ctx: PDFContext, data) -> list:
         document_title="Portfolio",
     ))
 
-    positions = list(getattr(data, "positions", []) or [])
     flowables.append(_section_title("Portfolio-Positionen"))
+    if sample_count:
+        flowables.append(Paragraph(
+            f'<font name="{FONT_BOLD}" size="8" color="#9a3412">Musterkatalog: {sample_count} von '
+            f'{len(positions)} Positionen ohne ISIN.</font> <font size="8" color="#9a3412">Diese Musterprodukte '
+            f'haben keine belegten Stammdaten und sind nicht zur Umsetzung bestimmt.</font>',
+            styles["small_muted"],
+        ))
+        flowables.append(Spacer(1, 2 * mm))
     if positions:
         flowables.extend(_make_position_group_flowables(positions, ctx.base_currency))
     else:
@@ -146,6 +158,8 @@ def _make_group_positions_table(positions: list, currency: str, total_amount: in
             product_parts.append(
                 f'<font color="#64748b" size="7">ISIN {_esc(isin)}{isin_extra}</font>'
             )
+        if not isin:
+            product_parts.append('<font color="#9a3412" size="7">Musterprodukt – nicht zur Umsetzung (keine ISIN)</font>')
         product_para = Paragraph("<br/>".join(product_parts), _para_compact())
 
         rows.append([
@@ -188,6 +202,11 @@ def _make_group_positions_table(positions: list, currency: str, total_amount: in
         ("RIGHTPADDING", (0, 0), (-1, -1), 5),
     ]))
     return table
+
+
+def _is_sample_position(position) -> bool:
+    """K2/E2E-07: Position ohne ISIN = Musterprodukt (keine belegten Stammdaten)."""
+    return not str((position or {}).get("isin", "") or "").strip()
 
 
 def _group_positions(positions: list) -> list[tuple[str, list]]:

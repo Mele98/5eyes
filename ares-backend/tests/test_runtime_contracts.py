@@ -1183,7 +1183,7 @@ def test_refresh_all_prices_batches_external_and_synthetic_profiles(session_fact
             [
                 Product(
                     id="prod-energy",
-                    product_name="Energy Select Sector ETF",
+                    product_name="Musterprodukt Thema Fossile Energie",
                     provider="State Street",
                     product_type="ETF",
                     asset_class="Aktien",
@@ -1236,7 +1236,7 @@ def test_refresh_all_prices_reuses_existing_fresh_price_when_provider_fails(sess
         session.add(
             Product(
                 id="prod-reuse",
-                product_name="Energy Select Sector ETF",
+                product_name="Musterprodukt Thema Fossile Energie",
                 provider="State Street",
                 product_type="ETF",
                 asset_class="Aktien",
@@ -1285,7 +1285,7 @@ def test_refresh_all_prices_uses_stooq_fallback_for_external_profiles(session_fa
         session.add(
             Product(
                 id="prod-stooq",
-                product_name="Energy Select Sector ETF",
+                product_name="Musterprodukt Thema Fossile Energie",
                 provider="State Street",
                 product_type="ETF",
                 asset_class="Aktien",
@@ -3636,7 +3636,7 @@ def test_generate_recommendation_run_builds_product_positions(session_factory, a
                 "assetClasses": {"equitiesGeo": "Global", "altsGold": True, "liquidityInstrument": "Festgeld"},
             },
             target_allocation_id=allocation["target_allocation"].id,
-            depot_bank="UBS AG Zürich",
+            depot_bank="Testbank Fiktiv",
         )
         hydrated = build_recommendation_payload_from_run(
             db=session,
@@ -3695,7 +3695,7 @@ def test_generate_recommendation_run_builds_product_positions(session_factory, a
     assert result["positions"]
     assert result["average_ter_bps"] >= 0
     assert len({position["product_id"] for position in result["positions"]}) == len(result["positions"])
-    assert any("Umsetzung ueber UBS AG Zürich" in position["rationale"] for position in result["positions"])
+    assert any("Umsetzung ueber Testbank Fiktiv" in position["rationale"] for position in result["positions"])
     assert hydrated["run"].id == result["run"].id
     assert len(hydrated["positions"]) == len(result["positions"])
     assert hydrated["target_allocation_id"] == allocation["target_allocation"].id
@@ -3775,7 +3775,7 @@ def test_recommendation_payload_prefers_actual_holdings_for_live_drift(session_f
             user_id=advisor_user.id,
             preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
             target_allocation_id=allocation["target_allocation"].id,
-            depot_bank="UBS AG Zürich",
+            depot_bank="Testbank Fiktiv",
         )
         assert result["positions"]
         first_position = result["positions"][0]
@@ -3808,7 +3808,7 @@ def test_recommendation_payload_prefers_actual_holdings_for_live_drift(session_f
                 run_id=result["run"].id,
                 recommendation_position_id=first_position["id"],
                 product_id=first_position["product_id"],
-                depot_bank="UBS AG Zürich",
+                depot_bank="Testbank Fiktiv",
                 custody_account_number="CH-DEPOT-1",
                 as_of_date=date.today().isoformat(),
                 units_milli=1500,
@@ -3834,7 +3834,7 @@ def test_recommendation_payload_prefers_actual_holdings_for_live_drift(session_f
     assert hydrated["live_rebalancing"]["implied_positions_count"] >= 0
     assert first_hydrated["holding_present"] is True
     assert first_hydrated["valuation_basis"] == "actual_holding_units"
-    assert first_hydrated["holding_depot_bank"] == "UBS AG Zürich"
+    assert first_hydrated["holding_depot_bank"] == "Testbank Fiktiv"
     assert first_hydrated["holding_units_milli"] == 1500
     assert first_hydrated["current_units_milli"] == 1500
     assert first_hydrated["current_market_value_rappen"] == 187500
@@ -3899,7 +3899,7 @@ def test_recommendation_payload_marks_implied_units_from_holding_market_value(se
             user_id=advisor_user.id,
             preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
             target_allocation_id=allocation["target_allocation"].id,
-            depot_bank="UBS AG Zürich",
+            depot_bank="Testbank Fiktiv",
         )
         first_position = result["positions"][0]
         session.add(
@@ -3920,7 +3920,7 @@ def test_recommendation_payload_marks_implied_units_from_holding_market_value(se
                 run_id=result["run"].id,
                 recommendation_position_id=first_position["id"],
                 product_id=first_position["product_id"],
-                depot_bank="UBS AG Zürich",
+                depot_bank="Testbank Fiktiv",
                 custody_account_number="CH-DEPOT-TINY-1",
                 as_of_date=date.today().isoformat(),
                 market_value_rappen=1,
@@ -3989,7 +3989,7 @@ def test_upsert_position_holding_partial_update_preserves_existing_fields(sessio
             run_id=run.id,
             recommendation_position_id=position.id,
             product_id=product.id,
-            depot_bank="UBS AG",
+            depot_bank="Testbank Fiktiv",
             custody_account_number="DEPOT-123",
             as_of_date="2026-03-27",
             units_milli=1000,
@@ -4015,7 +4015,7 @@ def test_upsert_position_holding_partial_update_preserves_existing_fields(sessio
     assert result.units_milli == 1500
     assert result.market_value_rappen == 125000
     assert result.avg_cost_price_rappen == 120000
-    assert result.depot_bank == "UBS AG"
+    assert result.depot_bank == "Testbank Fiktiv"
     assert result.custody_account_number == "DEPOT-123"
     assert result.as_of_date == "2026-03-27"
     assert result.notes == "Bestehende Notiz"
@@ -4086,7 +4086,7 @@ def test_generate_recommendation_run_carries_holdings_forward_by_product(session
                 run_id=first_run["run"].id,
                 recommendation_position_id=first_position["id"],
                 product_id=first_position["product_id"],
-                depot_bank="UBS AG Zurich",
+                depot_bank="Testbank Fiktiv",
                 custody_account_number="CARRY-1",
                 as_of_date=date.today().isoformat(),
                 units_milli=7777,
@@ -4118,7 +4118,7 @@ def test_generate_recommendation_run_carries_holdings_forward_by_product(session
     assert any(item["holding_present"] for item in hydrated["positions"])
     carried = next(item for item in hydrated["positions"] if item["holding_present"])
     assert carried["holding_units_milli"] == 7777
-    assert carried["holding_depot_bank"] == "UBS AG Zurich"
+    assert carried["holding_depot_bank"] == "Testbank Fiktiv"
     assert carried["valuation_basis"] == "actual_holding_units"
 
 
@@ -4187,7 +4187,7 @@ def test_deleted_holding_does_not_resurface_from_older_runs(session_factory, adv
                 run_id=first_run["run"].id,
                 recommendation_position_id=first_position["id"],
                 product_id=first_position["product_id"],
-                depot_bank="UBS AG Zurich",
+                depot_bank="Testbank Fiktiv",
                 custody_account_number="DEL-1",
                 as_of_date=date.today().isoformat(),
                 units_milli=5000,
@@ -4295,7 +4295,7 @@ def test_review_engine_emits_market_data_trigger_for_missing_prices(session_fact
             user_id=advisor_user.id,
             preferences=None,
             target_allocation_id=allocation["target_allocation"].id,
-            depot_bank="UBS AG Zürich",
+            depot_bank="Testbank Fiktiv",
         )
         triggers = refresh_system_review_triggers(session, mandate, advisor_user.id)
 

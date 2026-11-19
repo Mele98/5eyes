@@ -143,7 +143,7 @@ def test_anlagestrategie_reference_structure_has_19_pages(ctx):
                 "target_weight_bps": 3195,
                 "target_amount_rappen": 170_964_00,
                 "ter_bps": 12,
-                "provider": "UBS",
+                "provider": "Musteranbieter",
             }
         ],
         advisory_positions=[

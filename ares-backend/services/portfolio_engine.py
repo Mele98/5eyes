@@ -87,7 +87,9 @@ from services.wealth_position_semantics import (
     require_supported_mortgage_amortization,
     require_supported_position_assignment,
 )
-from services.product_market_data import resolve_market_profile, validate_default_product_market_coverage
+from services.product_market_data import (  # noqa: F401  (LEGACY_*: Re-Export fuer esg_data_provenance)
+    LEGACY_SEED_NAME_SHA256, canonical_seed_name, resolve_market_profile, validate_default_product_market_coverage,
+)
 from services.jurisdiction.exceptions import (
     JurisdictionReferenceDataConflictError,
     JurisdictionReferenceDataMissingError,
@@ -1927,43 +1929,43 @@ def _ensure_runtime_reference_data_ch(
 # Mandat) referenzieren dieselbe Liste, damit beide Pfade nie auseinander
 # driften koennen.
 HEDGED_PRODUCT_VARIANTS: list[tuple] = [
-    ("iShares Core MSCI World UCITS ETF CHF Hedged", "BlackRock", "ETF", "Aktien", "Aktien Global", "CHF", 30, "8", "A"),
-    ("Vanguard FTSE Developed Europe ETF CHF Hedged", "Vanguard", "ETF", "Aktien", "Aktien Europa", "CHF", 22, "8", "A"),
-    ("iShares Core MSCI EM IMI ETF CHF Hedged", "BlackRock", "ETF", "Aktien", "Aktien Schwellenlaender", "CHF", 30, "8", "BBB"),
-    ("VanEck Defense UCITS ETF CHF Hedged", "VanEck", "ETF", "Aktien", "Thema Verteidigung", "CHF", 65, "6", "BBB"),
-    ("Energy Select Sector ETF CHF Hedged", "State Street", "ETF", "Aktien", "Thema Fossile Energie", "CHF", 55, "6", "BBB"),
-    ("Consumer Staples Tobacco Tilt ETF CHF Hedged", "WisdomTree", "ETF", "Aktien", "Thema Tabak", "CHF", 68, "6", "BBB"),
-    ("Roundhill Sports Betting ETF CHF Hedged", "Roundhill", "ETF", "Aktien", "Thema Gluecksspiel", "CHF", 85, "6", "BB"),
-    ("VanEck Uranium and Nuclear ETF CHF Hedged", "VanEck", "ETF", "Aktien", "Thema Kernenergie", "CHF", 71, "6", "BBB"),
-    ("EM Local Bond Opportunities CHF Hedged", "JPMorgan", "Fonds", "Obligationen", "Obligationen Emerging", "CHF", 72, "6", "BBB"),
-    ("iShares Developed Markets Property Yield CHF Hedged", "BlackRock", "ETF", "Immobilien", "Immobilien Global", "CHF", 48, "8", "BBB"),
+    ("Musterprodukt Aktien Global CHF-abgesichert", "Musteranbieter A", "ETF", "Aktien", "Aktien Global", "CHF", 30, "8", "A"),
+    ("Musterprodukt Aktien Europa CHF-abgesichert", "Musteranbieter B", "ETF", "Aktien", "Aktien Europa", "CHF", 22, "8", "A"),
+    ("Musterprodukt Aktien Schwellenlaender CHF-abgesichert", "Musteranbieter A", "ETF", "Aktien", "Aktien Schwellenlaender", "CHF", 30, "8", "BBB"),
+    ("Musterprodukt Thema Verteidigung CHF-abgesichert", "Musteranbieter C", "ETF", "Aktien", "Thema Verteidigung", "CHF", 65, "6", "BBB"),
+    ("Musterprodukt Thema Fossile Energie CHF-abgesichert", "Musteranbieter D", "ETF", "Aktien", "Thema Fossile Energie", "CHF", 55, "6", "BBB"),
+    ("Musterprodukt Thema Tabak CHF-abgesichert", "Musteranbieter E", "ETF", "Aktien", "Thema Tabak", "CHF", 68, "6", "BBB"),
+    ("Musterprodukt Thema Gluecksspiel CHF-abgesichert", "Musteranbieter F", "ETF", "Aktien", "Thema Gluecksspiel", "CHF", 85, "6", "BB"),
+    ("Musterprodukt Thema Kernenergie CHF-abgesichert", "Musteranbieter C", "ETF", "Aktien", "Thema Kernenergie", "CHF", 71, "6", "BBB"),
+    ("Musterprodukt Obligationen Emerging CHF-abgesichert", "Musteranbieter G", "Fonds", "Obligationen", "Obligationen Emerging", "CHF", 72, "6", "BBB"),
+    ("Musterprodukt Immobilien Global CHF-abgesichert", "Musteranbieter A", "ETF", "Immobilien", "Immobilien Global", "CHF", 48, "8", "BBB"),
 ]
 
 DEFAULT_CATALOG_PRODUCTS: list[tuple] = [
-    ("iShares Core SPI ETF", "BlackRock", "ETF", "Aktien", "Aktien Schweiz", "CHF", 10, "8", "A"),
-    ("SPDR Swiss Small Cap ETF", "State Street", "ETF", "Aktien", "Aktien Schweiz Small/Mid", "CHF", 35, "8", "BBB"),
-    ("iShares Core MSCI World UCITS ETF", "BlackRock", "ETF", "Aktien", "Aktien Global", "USD", 20, "8", "A"),
-    ("Vanguard FTSE Developed Europe ETF", "Vanguard", "ETF", "Aktien", "Aktien Europa", "EUR", 12, "8", "A"),
-    ("iShares Core MSCI EM IMI ETF", "BlackRock", "ETF", "Aktien", "Aktien Schwellenlaender", "USD", 18, "8", "BBB"),
-    ("VanEck Defense UCITS ETF", "VanEck", "ETF", "Aktien", "Thema Verteidigung", "USD", 55, "6", "BBB"),
-    ("Energy Select Sector ETF", "State Street", "ETF", "Aktien", "Thema Fossile Energie", "USD", 45, "6", "BBB"),
-    ("Consumer Staples Tobacco Tilt ETF", "WisdomTree", "ETF", "Aktien", "Thema Tabak", "USD", 58, "6", "BBB"),
-    ("Global Beverage Leaders ETF", "Amundi", "ETF", "Aktien", "Thema Alkohol", "EUR", 42, "6", "BBB"),
-    ("Roundhill Sports Betting ETF", "Roundhill", "ETF", "Aktien", "Thema Gluecksspiel", "USD", 75, "6", "BB"),
-    ("VanEck Uranium and Nuclear ETF", "VanEck", "ETF", "Aktien", "Thema Kernenergie", "USD", 61, "6", "BBB"),
-    ("Swisscanto Bond CHF", "Swisscanto", "Fonds", "Obligationen", "Obligationen CHF IG", "CHF", 32, "8", "A"),
-    ("iShares Global Aggregate Bond CHF Hedged", "BlackRock", "ETF", "Obligationen", "Obligationen Global Hedged", "CHF", 10, "8", "A"),
-    ("PIMCO High Yield Fund", "PIMCO", "Fonds", "Obligationen", "Obligationen High Yield", "CHF", 55, "6", "BBB"),
-    ("EM Local Bond Opportunities", "JPMorgan", "Fonds", "Obligationen", "Obligationen Emerging", "USD", 62, "6", "BBB"),
-    ("Swisscanto Real Estate Fund", "Swisscanto", "Immobilienfonds", "Immobilien", "Immobilien Schweiz", "CHF", 52, "8", "A"),
-    ("iShares Developed Markets Property Yield", "BlackRock", "ETF", "Immobilien", "Immobilien Global", "USD", 38, "8", "BBB"),
-    ("ZKB Gold ETF", "ZKB", "ETF", "Alternative", "Gold / Rohstoffe", "CHF", 40, "8", "A"),
-    ("JPM Global Macro Opportunities", "JPMorgan", "Fonds", "Alternative", "Liquid Alternatives", "CHF", 90, "8", "BBB"),
-    ("Man AHL TargetRisk", "Man Group", "Fonds", "Alternative", "Hedge Funds", "USD", 145, "6", "BB"),
-    ("Partners Group Listed PE", "Partners Group", "Fonds", "Alternative", "Private Equity", "CHF", 165, "6", "BB"),
-    ("21Shares Core Bitcoin ETP", "21Shares", "ETF", "Alternative", "Krypto", "USD", 125, "6", "BB"),
+    ("Musterprodukt Aktien Schweiz", "Musteranbieter A", "ETF", "Aktien", "Aktien Schweiz", "CHF", 10, "8", "A"),
+    ("Musterprodukt Aktien Schweiz Small/Mid", "Musteranbieter D", "ETF", "Aktien", "Aktien Schweiz Small/Mid", "CHF", 35, "8", "BBB"),
+    ("Musterprodukt Aktien Global", "Musteranbieter A", "ETF", "Aktien", "Aktien Global", "USD", 20, "8", "A"),
+    ("Musterprodukt Aktien Europa", "Musteranbieter B", "ETF", "Aktien", "Aktien Europa", "EUR", 12, "8", "A"),
+    ("Musterprodukt Aktien Schwellenlaender", "Musteranbieter A", "ETF", "Aktien", "Aktien Schwellenlaender", "USD", 18, "8", "BBB"),
+    ("Musterprodukt Thema Verteidigung", "Musteranbieter C", "ETF", "Aktien", "Thema Verteidigung", "USD", 55, "6", "BBB"),
+    ("Musterprodukt Thema Fossile Energie", "Musteranbieter D", "ETF", "Aktien", "Thema Fossile Energie", "USD", 45, "6", "BBB"),
+    ("Musterprodukt Thema Tabak", "Musteranbieter E", "ETF", "Aktien", "Thema Tabak", "USD", 58, "6", "BBB"),
+    ("Musterprodukt Thema Alkohol", "Musteranbieter H", "ETF", "Aktien", "Thema Alkohol", "EUR", 42, "6", "BBB"),
+    ("Musterprodukt Thema Gluecksspiel", "Musteranbieter F", "ETF", "Aktien", "Thema Gluecksspiel", "USD", 75, "6", "BB"),
+    ("Musterprodukt Thema Kernenergie", "Musteranbieter C", "ETF", "Aktien", "Thema Kernenergie", "USD", 61, "6", "BBB"),
+    ("Musterprodukt Obligationen CHF IG", "Musteranbieter I", "Fonds", "Obligationen", "Obligationen CHF IG", "CHF", 32, "8", "A"),
+    ("Musterprodukt Obligationen Global CHF-abgesichert", "Musteranbieter A", "ETF", "Obligationen", "Obligationen Global Hedged", "CHF", 10, "8", "A"),
+    ("Musterprodukt Obligationen High Yield", "Musteranbieter J", "Fonds", "Obligationen", "Obligationen High Yield", "CHF", 55, "6", "BBB"),
+    ("Musterprodukt Obligationen Emerging", "Musteranbieter G", "Fonds", "Obligationen", "Obligationen Emerging", "USD", 62, "6", "BBB"),
+    ("Musterprodukt Immobilien Schweiz", "Musteranbieter I", "Immobilienfonds", "Immobilien", "Immobilien Schweiz", "CHF", 52, "8", "A"),
+    ("Musterprodukt Immobilien Global", "Musteranbieter A", "ETF", "Immobilien", "Immobilien Global", "USD", 38, "8", "BBB"),
+    ("Musterprodukt Gold / Rohstoffe", "Musteranbieter K", "ETF", "Alternative", "Gold / Rohstoffe", "CHF", 40, "8", "A"),
+    ("Musterprodukt Liquid Alternatives", "Musteranbieter G", "Fonds", "Alternative", "Liquid Alternatives", "CHF", 90, "8", "BBB"),
+    ("Musterprodukt Hedge Funds", "Musteranbieter L", "Fonds", "Alternative", "Hedge Funds", "USD", 145, "6", "BB"),
+    ("Musterprodukt Private Equity", "Musteranbieter M", "Fonds", "Alternative", "Private Equity", "CHF", 165, "6", "BB"),
+    ("Musterprodukt Krypto", "Musteranbieter N", "ETF", "Alternative", "Krypto", "USD", 125, "6", "BB"),
     *HEDGED_PRODUCT_VARIANTS,
-    ("UBS Geldmarktfonds CHF", "UBS", "Fonds", "Liquidität", "Geldmarktfonds", "CHF", 8, "8", "A"),
+    ("Musterprodukt Geldmarktfonds", "Musteranbieter O", "Fonds", "Liquidität", "Geldmarktfonds", "CHF", 8, "8", "A"),
     ("Kontoguthaben CHF", "Hausbank", "Cash", "Liquidität", "Kontoguthaben", "CHF", 0, None, None),
     ("Festgeld CHF 12M", "Hausbank", "Cash", "Liquidität", "Festgeld", "CHF", 0, None, None),
 ]
@@ -2073,11 +2075,11 @@ def ensure_hedged_product_variants(db: Session) -> None:
     an. Sicher bei jedem Start aufzurufen, auch parallel zu
     ensure_default_products() (kein Konflikt, da beide denselben
     product_name-Vertrag nutzen)."""
+    # K2/N-915-03: Bestandsinstallationen fuehren die Varianten ggf. noch unter dem
+    # frueheren Seed-Namen; canonical_seed_name erkennt sie (keine Doppelanlage).
     existing_names = {
-        row[0]
-        for row in db.query(Product.product_name).filter(
-            Product.product_name.in_([name for name, *_ in HEDGED_PRODUCT_VARIANTS]),
-        ).all()
+        canonical_seed_name(row[0])
+        for row in db.query(Product.product_name).all()
     }
     missing = [entry for entry in HEDGED_PRODUCT_VARIANTS if entry[0] not in existing_names]
     if not missing:
