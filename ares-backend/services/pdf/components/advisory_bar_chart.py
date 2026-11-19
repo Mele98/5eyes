@@ -85,9 +85,12 @@ def make_bar_chart_ist_soll(
     rows = []
     for it in items:
         label = str(it.get("label") or "—")
-        ist_bps = int(it.get("ist_bps", 0) or 0)
+        # KN4-B / E2E4-04: fehlendes IST (None) ist "nicht beurteilbar", nie 0 %.
+        raw_ist = it.get("ist_bps")
+        ist_bps = None if raw_ist is None else int(raw_ist)
         soll_bps = int(it.get("soll_bps", 0) or 0)
-        drift_bps = int(it.get("drift_bps", ist_bps - soll_bps))
+        raw_drift = it.get("drift_bps")
+        drift_bps = None if ist_bps is None else int(raw_drift if raw_drift is not None else ist_bps - soll_bps)
         band_min = it.get("band_min_bps") if show_bands else None
         band_max = it.get("band_max_bps") if show_bands else None
 
@@ -128,8 +131,11 @@ def _label_cell(label: str) -> Paragraph:
     )
 
 
-def _drift_cell(drift_bps: int, threshold_bps: int) -> Paragraph:
-    """Mono-Font, Vorzeichen, Threshold-basierte Farbe."""
+def _drift_cell(drift_bps: int | None, threshold_bps: int) -> Paragraph:
+    """Mono-Font, Vorzeichen, Threshold-basierte Farbe (None -> "—")."""
+    if drift_bps is None:
+        return Paragraph("—", _paragraph_style("BarChartDrift", font=FONT_MONO, size=FONT_SIZE_CAPTION,
+                                               color=COLOR_INK_SUBTLE))
     if abs(drift_bps) >= threshold_bps:
         col = COLOR_STATUS_ROT
     elif abs(drift_bps) >= threshold_bps // 2:
@@ -149,7 +155,7 @@ def _drift_cell(drift_bps: int, threshold_bps: int) -> Paragraph:
 
 def _bars_cell(
     *,
-    ist_bps: int,
+    ist_bps: int | None,
     soll_bps: int,
     bar_max_width: float,
     band_min_bps: float | None = None,
@@ -168,9 +174,9 @@ def _bars_cell(
     # IST-Bar (oben)
     ist_y = total_height - 12 - _BAR_HEIGHT_PT
     _draw_bar(
-        drawing, y=ist_y, width=bar_max_width, fill_bps=ist_bps,
+        drawing, y=ist_y, width=bar_max_width, fill_bps=ist_bps or 0,
         fill_color=COLOR_ACCENT,
-        label_text=f"IST  {format_bps_as_pct(ist_bps)}",
+        label_text=("IST  nicht beurteilbar" if ist_bps is None else f"IST  {format_bps_as_pct(ist_bps)}"),
         label_y_offset=ist_y + _BAR_HEIGHT_PT + 1,
         text_color=COLOR_INK_MUTED,
     )

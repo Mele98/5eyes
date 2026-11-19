@@ -1061,6 +1061,9 @@ def test_asset_allocation_carries_drift_and_band_info(session_factory):
             s, mandate_id=mandate.id, client_id=client.id,
             advisor_id=advisor.id,
             target_amount_rappen=1_000_000_00,
+            # KN4-B / E2E4-04: mit erfasstem Bestand -- ein aus dem Zielbetrag
+            # abgeleitetes IST wird nie als IST gedruckt.
+            current_amount_rappen=1_000_000_00,
             asset_class="Aktien",
         )
         # Die Recommendation hat bereits eine globale Current-Policy erzeugt.

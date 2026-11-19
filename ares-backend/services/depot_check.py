@@ -20,13 +20,15 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Iterable, Mapping
 
+from sqlalchemy import exists
 from sqlalchemy.orm import Session
 
 from core.band_rule import in_band as band_in_band
+from core.holdings_rule import DERIVED_IST_STATUS, ist_fully_derived, ist_partially_derived  # noqa: F401
 from core.reason_codes import DomainError
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
-from models.review import Product, RecommendationPosition, RecommendationRun
+from models.review import Product, RecommendationHolding, RecommendationPosition, RecommendationRun
 from models.wealth import WealthPosition
 from services.fx_basis import load_fx_basis, normalize_currency
 from services.product_exposures import (
@@ -380,8 +382,71 @@ def _load_snapshot_positions(
     return positions, [], sum(held.values())
 
 
+def _select_latest_run_with_holdings(db: Session, mandate: Mandate) -> tuple[RecommendationRun | None, bool]:
+    """Wie ``_select_latest_run``, plus "hat der Lauf Holdings?" in DERSELBEN
+    Abfrage (KN4-B / EXT-01: kein zusaetzlicher SELECT im Report-Pfad)."""
+    has_holdings = exists().where(RecommendationHolding.run_id == RecommendationRun.id)
+    rows = (
+        db.query(RecommendationRun, has_holdings)
+        .filter(RecommendationRun.mandate_id == mandate.id)
+        .order_by(RecommendationRun.created_at.desc())
+        .all()
+    )
+    chosen = (
+        next((r for r in rows if r[0].result_status == "Final"), None)
+        or next((r for r in rows if r[0].result_status == "Draft"), None)
+        or (rows[0] if rows else None)
+    )
+    return (chosen[0], bool(chosen[1])) if chosen else (None, False)
+
+
+def _live_holding_amounts(db: Session, mandate: Mandate, build_live_payload, run=None,
+                          has_holdings=None) -> dict[str, int]:
+    """KN4-B / EXT-01 (CTO-Entscheid): Bestaende aus der oeffentlichen Holding-
+    Route (``recommendation_holdings``) mit DERSELBEN Bewertung wie das Live-
+    Rebalancing (``build_live_rebalancing_payload``: Stueckzahl x Preis bzw.
+    Marktwert, strikte FX-Basis). Ergebnis: Positions-ID -> Bestandswert, nur fuer
+    Positionen mit erfasstem Bestand. Ohne Holdings oder Soll-Allokation leer."""
+    if has_holdings is None:
+        run, has_holdings = _select_latest_run_with_holdings(db, mandate)
+    if run is None or not has_holdings:
+        return {}
+    ta = db.query(TargetAllocation).filter(
+        TargetAllocation.mandate_id == mandate.id, TargetAllocation.is_current == 1,
+        TargetAllocation.deleted_at.is_(None),
+    ).first()
+    positions = db.query(RecommendationPosition).filter(RecommendationPosition.run_id == run.id).all()
+    if ta is None or not positions:
+        return {}
+    product_ids = [p.product_id for p in positions if p.product_id]
+    currencies = {normalize_currency(row[0]) for row in db.query(Product.currency).filter(
+        Product.id.in_(product_ids)).all()} if product_ids else set()
+    base = getattr(mandate, "base_currency", None) or "CHF"
+    basis = load_fx_basis(db, base, currencies - {""}, tenant_id=getattr(mandate, "tenant_id", None))
+    payload = build_live_payload(
+        db=db, allocation=ta, run=run, advisory_wealth_rappen=0, positions=positions,
+        fx_source=basis, target_currency=normalize_currency(base),
+    ) or {}
+    return {
+        str(entry["id"]): int(entry.get("current_market_value_rappen") or 0)
+        for entry in payload.get("position_drifts") or []
+        if entry.get("holding_present") and not entry.get("fx_conversion_failed")
+    }
+
+
+def _position_amount(rec_pos, held_amounts: Mapping[str, int]) -> int:
+    """EIN Bestandswert je Position: Holding (Live-Bewertung), sonst
+    ``current_amount_rappen``, sonst Rueckfall auf den Zielbetrag."""
+    if str(rec_pos.id) in held_amounts:
+        return int(held_amounts[str(rec_pos.id)])
+    amount = _safe_int(getattr(rec_pos, "current_amount_rappen", 0))
+    if amount <= 0:
+        amount = _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
+    return amount
+
+
 def _load_positions(
-    db: Session, mandate: Mandate,
+    db: Session, mandate: Mandate, held_amounts: Mapping[str, int] | None = None, *, latest_run=False,
 ) -> tuple[list[tuple[RecommendationPosition, Product]], list[tuple[WealthPosition, str]], int]:
     """Sprint U-39 (2026-06-06): Laedt Holdings + berechnet total_rappen.
 
@@ -394,7 +459,8 @@ def _load_positions(
     wealth_only_positions: list[tuple[WealthPosition, str, int]] = []
     total_rappen = 0
 
-    latest_run = _select_latest_run(db, mandate)
+    if latest_run is False:  # nicht vorgegeben -> selbst waehlen
+        latest_run = _select_latest_run(db, mandate)
     if latest_run is not None:
         rec_positions = (
             db.query(RecommendationPosition)
@@ -410,10 +476,9 @@ def _load_positions(
             prod = products_map.get(rec_pos.product_id)
             if prod is None:
                 continue
-            current_amount = _safe_int(getattr(rec_pos, "current_amount_rappen", 0))
-            if current_amount <= 0:
-                # Fallback auf target_amount wenn current_amount nicht gepflegt
-                current_amount = _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
+            # KN4-B / EXT-01: Holding-Bestand (Live-Bewertung) vor current_amount,
+            # Rueckfall auf target_amount nur ohne jeden erfassten Bestand.
+            current_amount = _position_amount(rec_pos, held_amounts or {})
             if current_amount > 0:
                 positions_with_products.append((rec_pos, prod))
                 total_rappen += current_amount
@@ -458,15 +523,15 @@ def _aggregate_warnings(result: dict) -> None:
     """
     if result.get("target_allocation_inputs_stale"):
         result["warnings"].append(
-            "Soll-Allokation ist veraltet: Vermoegen, Cashflows oder Ziele "
-            "haben sich seit der Berechnung geaendert -- Band-Vergleiche "
-            "unten sind nicht aussagekraeftig. Strategie neu berechnen."
+            "Soll-Allokation ist veraltet: Vermögen, Cashflows oder Ziele "
+            "haben sich seit der Berechnung geändert -- Band-Vergleiche "
+            "unten sind nicht aussagekräftig. Strategie neu berechnen."
         )
     elif result.get("target_allocation_stale"):
         result["warnings"].append(
-            "Soll-Allokation basiert auf einem frueheren, nicht mehr "
+            "Soll-Allokation basiert auf einem früheren, nicht mehr "
             "aktuellen Risikoprofil -- Band-Vergleiche unten sind nicht "
-            "aussagekraeftig. Strategie neu berechnen."
+            "aussagekräftig. Strategie neu berechnen."
         )
 
     hhi = result["concentration_hhi"]
@@ -492,10 +557,10 @@ def _aggregate_warnings(result: dict) -> None:
         )
     if result["liquidity_profile"]["unknown_bps"] > _UNKNOWN_LIQUIDITY_WARNING_THRESHOLD_BPS:
         result["warnings"].append(
-            f"Liquiditaets-Einstufung unklar fuer "
+            f"Liquiditäts-Einstufung unklar für "
             f"{result['liquidity_profile']['unknown_bps']/100:.1f}% des Depots "
             f"(>{_UNKNOWN_LIQUIDITY_WARNING_THRESHOLD_BPS//100}%) -- Produkt-/"
-            "Positions-Metadaten pflegen, verdeckte Illiquiditaet kann "
+            "Positions-Metadaten pflegen, verdeckte Illiquidität kann "
             "andernfalls unerkannt bleiben."
         )
 
@@ -565,6 +630,11 @@ def compute_depot_check(
     Snapshot-Bestand -- ohne Rueckfall auf Zielbetraege.
     """
     result = _init_result_dict(mandate)
+    # Lookup zur Laufzeit (Zyklus-Haertung; eine Lazy-Kante fuer die ganze Funktion).
+    from services.portfolio_engine import (
+        _current_risk_assessment_or_none, build_live_rebalancing_payload, risk_assessment_semantics,
+    )
+    held_amounts: dict[str, int] = {}
 
     # Sprint U-39 (2026-06-06): Step 1+2 extrahiert in _load_positions().
     if holdings_snapshot is not None:
@@ -573,7 +643,12 @@ def compute_depot_check(
         )
     else:
         try:
-            positions_with_products, wealth_only_positions, total_rappen = _load_positions(db, mandate)
+            # KN4-B / EXT-01: dieselbe Bestandsquelle wie das Live-Rebalancing.
+            run, run_has_holdings = _select_latest_run_with_holdings(db, mandate)
+            held_amounts = _live_holding_amounts(
+                db, mandate, build_live_rebalancing_payload, run=run, has_holdings=run_has_holdings)
+            positions_with_products, wealth_only_positions, total_rappen = _load_positions(
+                db, mandate, held_amounts, latest_run=run)
         except DomainError as exc:  # N-913-04: FX-Sperre statt Rohsumme, Analyse ohne Betraege
             if db.query(TargetAllocation.id).filter(
                 TargetAllocation.mandate_id == mandate.id, TargetAllocation.is_current == 1,
@@ -588,8 +663,16 @@ def compute_depot_check(
     result["total_advisory_wealth_rappen"] = total_rappen
     # H-172: ohne erfassten Bestand ist das IST der Rueckfall auf die Zielbetraege
     # (IST = SOLL per Konstruktion) -- dann ist keine Bandaussage moeglich.
-    result["ist_basiert_auf_soll"] = bool(positions_with_products) and holdings_snapshot is None and all(
-        _safe_int(getattr(rec, "current_amount_rappen", 0)) <= 0 for rec, _prod in positions_with_products)
+    # KN4-B / N-917R3-03 + EXT-01: eine Definition (core/holdings_rule.py).
+    # ``ist_basiert_auf_soll``: kein einziger erfasster Bestand (IST = SOLL);
+    # ``ist_teilweise_abgeleitet``: mindestens eine Position faellt auf den
+    # Zielbetrag zurueck -- beides ohne Bandaussage.
+    held_ids = tuple((held_amounts or {}).keys()) if holdings_snapshot is None else ()
+    run_positions = [rec for rec, _prod in positions_with_products]
+    result["ist_basiert_auf_soll"] = bool(run_positions) and holdings_snapshot is None and (
+        ist_fully_derived(run_positions, held_ids))
+    result["ist_teilweise_abgeleitet"] = bool(run_positions) and holdings_snapshot is None and (
+        ist_partially_derived(run_positions, held_ids))
     if total_rappen <= 0:
         result["warnings"].append("Kein Beratungsvermögen erfasst. Bitte WealthPositions oder RecommendationRun anlegen.")
         return result
@@ -624,9 +707,10 @@ def compute_depot_check(
         # zwei Stellen fuer dieselbe Position haette total_rappen (Nenner
         # JEDER Prozentangabe im gesamten Depot-Check) von der Summe der
         # tatsaechlich gebuckten Betraege abkoppeln koennen.
-        amount = _safe_int(getattr(rec_pos, "current_amount_rappen", 0))
-        if amount <= 0 and holdings_snapshot is None:
-            amount = _safe_int(getattr(rec_pos, "target_amount_rappen", 0))
+        if holdings_snapshot is None:
+            amount = _position_amount(rec_pos, held_amounts or {})
+        else:
+            amount = _safe_int(getattr(rec_pos, "current_amount_rappen", 0))
         # Exposures vor dem Ueberspringen: im Snapshot-Modus braucht der
         # SOLL-Vergleich (5b) auch Produkte, die (noch) nicht gehalten werden.
         # Ohne Snapshot ist hier jede Position > 0 (_load_positions filtert).
@@ -725,7 +809,6 @@ def compute_depot_check(
     # konform meldete -- ein intern widerspruechliches Dokument. Siehe
     # services.risk_assessment_semantics.target_allocation_predates_current_
     # assessment fuer die (jetzt EINE, geteilte) Pruef-Logik.
-    from services.portfolio_engine import _current_risk_assessment_or_none, risk_assessment_semantics
     current_ra = _current_risk_assessment_or_none(db, mandate.id)
     # Lookup zur Laufzeit ueber das Modul (eine Kante weniger, N-913-04).
     result["target_allocation_stale"] = risk_assessment_semantics.target_allocation_predates_current_assessment(
@@ -758,7 +841,8 @@ def compute_depot_check(
             band_max_bps = _safe_int(raw_max)
             # KN3-B Nachtrag 2 (CTO): 0/0 = Obergrenze 0 (core/band_rule.py);
             # nur eine fehlende Grenze (None) ist "nicht bewertbar".
-            in_band = None if result.get("ist_basiert_auf_soll") else band_in_band(ist_bps, raw_min, raw_max)
+            in_band = None if (result.get("ist_basiert_auf_soll") or result.get("ist_teilweise_abgeleitet")) \
+                else band_in_band(ist_bps, raw_min, raw_max)
         result["buckets"][bucket] = {
             "label": BUCKET_LABELS[bucket],
             "ist_bps": ist_bps,

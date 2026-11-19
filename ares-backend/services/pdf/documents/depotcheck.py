@@ -42,7 +42,7 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
         ctx,
         title="Depot-Check",
         subtitle="Analyse des empfohlenen Zielportfolios"
-        + (f" - {WITHOUT_HOLDINGS_LABEL}" if data.without_holdings else ""),
+        + (f" - {_without_holdings_label(data)}" if data.without_holdings else ""),
         mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
         focus_points=[
@@ -254,7 +254,7 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
     if data.without_holdings:
         flowables.append(Paragraph(
             f'<font name="{FONT_BOLD}" size="8.5" color="#475569">'
-            f'Datenstand: {WITHOUT_HOLDINGS_LABEL}. Reine SOLL-Zielportfolioanalyse '
+            f'Datenstand: {_without_holdings_label(data)}. Reine SOLL-Zielportfolioanalyse '
             'ohne Depot-Snapshot.</font>',
             make_paragraph_styles()["small"],
         ))
@@ -275,6 +275,13 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
 
 
 WITHOUT_HOLDINGS_LABEL = "ohne IST-Bestand (kein Depot erfasst)"
+# KN4-B / E2E4-04: Depot als Vermoegensposition erfasst, aber kein Bestand je Titel.
+HOLDINGS_NOT_PER_TITLE_LABEL = "ohne IST-Bestand (Bestände je Titel der Empfehlung nicht erfasst)"
+
+
+def _without_holdings_label(data) -> str:
+    """Nie "kein Depot erfasst", wenn ein Depot als Vermoegensposition existiert."""
+    return HOLDINGS_NOT_PER_TITLE_LABEL if getattr(data, "depot_position_recorded", False) else WITHOUT_HOLDINGS_LABEL
 
 
 def _snapshot_identity_line(data: DepotCheckData) -> str:

@@ -7,6 +7,7 @@ signals visible in the PDF.
 """
 from __future__ import annotations
 
+from core.preference_labels import method_label
 from core.customer_terms import customer_term
 from typing import Any
 
@@ -39,7 +40,7 @@ PILL_BAD = ("rot", "#F0D9D9", "#9E4747")
 PILL_PENDING = ("Daten ausstehend", "#E9EBEE", "#7A8395")
 
 
-def render_compliance_audit_section(payload: dict, story: list, styles) -> None:
+def render_compliance_audit_section(payload: dict, story: list, styles, *, advisor_annex: bool = False) -> None:
     """Append the consolidated Compliance-Audit PDF section.
 
     The function is intentionally side-effect free except for appending
@@ -69,8 +70,10 @@ def render_compliance_audit_section(payload: dict, story: list, styles) -> None:
     # Sprint C2 (2026-06-07): Engine-Configuration-Block sichtbar machen
     # (IS-Status, Tax-Mode, Sub-Allocation-Aware). Nur appended wenn payload
     # einen 'engine_configuration'-Key enthaelt (Backwards-Compat: optional).
+    # KN4-B / DEMO-B3: interne Diagnosewerte (Optimizer-Modus, Importance
+    # Sampling, Tax-Modus) nur im Berater-Anhang, nie im Kunden-PDF.
     engine_cfg = payload.get("engine_configuration")
-    if engine_cfg:
+    if engine_cfg and advisor_annex:
         blocks.append(_engine_configuration_block(engine_cfg, styles))
     for index, block in enumerate(blocks):
         if index:
@@ -163,20 +166,14 @@ def _recommendation_block(data: dict, styles) -> list:
         else _compliance_pill(is_compliant, styles)
     )
 
-    out = [
-        _block_header("Recommendation-Methodology", pill, styles),
-        _metrics_row([[
-            _metric("Runs", data.get("total_runs"), styles),
-            _metric("Active", data.get("active_count"), styles),
-            _metric("Shadow", data.get("shadow_count"), styles),
-            _metric("Fallback", data.get("fallback_count"), styles),
-        ]], styles),
-    ]
+    # KN4-B / DEMO-B3: keine Lauf-Zaehler (Runs/Active/Shadow/Fallback) und
+    # keine Rohwerte im Kunden-PDF; Methode nur als Kundentext.
+    out = [_block_header("Methodik der Produktempfehlung", pill, styles)]
     if has_run:
+        method = method_label(active_run.get("method") or active_run.get("optimizer_mode"))
         details = [
-            ("Methode", _safe(active_run.get("method") or active_run.get("optimizer_mode"))),
-            ("Status", _safe(active_run.get("status_label") or active_run.get("status"))),
-            ("Konvergenz", "akzeptiert" if active_run.get("is_acceptable") else "pruefen"),
+            *([("Methode", method)] if method else []),
+            ("Konvergenz", "akzeptiert" if active_run.get("is_acceptable") else "prüfen"),
             ("Seed / Pfade", _seed_paths(active_run)),
         ]
         out.append(Spacer(1, 2 * mm))

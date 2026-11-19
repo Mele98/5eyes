@@ -89,6 +89,13 @@ def _pdf_text(data: bytes) -> str:
     return "\n".join(page.extract_text() or "" for page in reader.pages)
 
 
+UI_PREFERENCES = {
+    "policy": {"esg": "none", "hedging": "none", "homeBias": "ch_focus", "universe": "funds_only"},
+    "assetClasses": {"altsGold": True, "bondsDuration": "Langfristig", "bondsInvestmentGrade": True,
+                     "equitiesGeo": "Schweiz Fokus", "equitiesLargeCap": True},
+    "product": {"fundsOnly": True},
+}
+
 CLEAN_LEGAL_PROFILE = {
     "legal_name": COMPANY,
     "address_street": "Teststrasse 1",
@@ -165,7 +172,9 @@ def live():
             "exclusions": [], "information_acknowledged": False, "client_confirmed": True,
             "capture_channel": "in_person"})
         assert status == 201, body
-        status, body = api("POST", f"/mandates/{mid}/target-allocation/generate", {"preferences": {}})
+        # KN4-B / E2E4-03: Strategiebaustein-Praeferenzen wie ein ueber die
+        # Oberflaeche angelegter Kunde (vorher {} -- Rohschluessel blieben unentdeckt).
+        status, body = api("POST", f"/mandates/{mid}/target-allocation/generate", {"preferences": UI_PREFERENCES})
         assert status == 200, body
         status, body = api("POST", f"/mandates/{mid}/recommendations/generate", {})
         assert status == 200, body
@@ -403,3 +412,40 @@ def test_first_restart_after_setup_keeps_publication_and_bound_rows(live):
     # Positivkontrolle: Kunde und Position tragen von Anfang an den Mandanten.
     assert all(dict(row).get("tenant_id") == "main" for row in rows_before["clients"])
     assert all(dict(row).get("tenant_id") == "main" for row in rows_before["wealth_positions"])
+
+
+# ── KN4-B / E2E4-03: keine Rohschluessel und keine Python-Werte ──────────────
+
+_RAW_KEY = re.compile(r"\b[a-z]+[A-Z][A-Za-z]*\s*:\s*\S")
+_PYTHON_VALUE = re.compile(r"\b(True|False|None)\b")
+# KN4-B / DEMO-B3: interne Diagnose-/Rohwerte der Berechnung.
+_DIAGNOSTIC = re.compile(r"\bstochastic\b|\bhouse_matrix\b|\bFALLBACK\b|\bFallback\b|\bIS (?:in)?aktiv\b|"
+                         r"Optimizer-Modus|Importance Sampling|Recommendation-Methodology")
+
+
+def test_no_raw_preference_keys_or_python_values_in_customer_pdfs(rendered):
+    offenders = {}
+    for name, text in _texts(rendered).items():
+        flat = " ".join(text.split())
+        hits = _RAW_KEY.findall(flat) + _PYTHON_VALUE.findall(flat) + _DIAGNOSTIC.findall(flat)
+        if hits:
+            offenders[name] = hits[:8]
+    assert not offenders, offenders
+    # Positivkontrolle: die Praeferenzen erscheinen als Kundentext.
+    assert "Heimmarkt Schweiz bevorzugt" in " ".join(_texts(rendered)["contract-signoff"].split())
+
+
+def test_raw_key_patterns_detect_the_old_output():
+    old = "Dokumentierte Präferenzen: hedging: none; homeBias: ch_focus; altsGold: True; fundsOnly: True."
+    assert _RAW_KEY.search(old) and _PYTHON_VALUE.search(old)
+    assert not _RAW_KEY.search("Seite 2: Übersicht; Datum: 19.11.2026")
+    assert _DIAGNOSTIC.search("Berechnungsmethode stochastic") and _DIAGNOSTIC.search("FALLBACK 0 IS inaktiv")
+    assert not _DIAGNOSTIC.search("Berechnungsmethode stochastische Optimierung (Monte-Carlo)")
+
+
+# ── KN4-B / E2E4-04: Depot als Vermoegensposition erfasst ────────────────────
+
+
+def test_depotcheck_never_claims_no_depot_when_depot_position_exists(rendered):
+    text = " ".join(_texts(rendered)["depotcheck"].split())
+    assert "kein Depot erfasst" not in text, text[:600]

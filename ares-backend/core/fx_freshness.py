@@ -101,7 +101,7 @@ def stale_allocation_message(fx_changed: list[str], predates_v5: bool) -> StaleA
     if fx_changed:
         return _stale_reason(
             f"Die gespeicherte Soll-Allokation ist veraltet: Wechselkurs {', '.join(fx_changed)} seit der "
-            "Berechnung geaendert. Bitte Strategie neu berechnen; alte Targets werden nicht mit einer "
+            "Berechnung geändert. Bitte Strategie neu berechnen; alte Targets werden nicht mit einer "
             "aktuellen Analyse kombiniert.",
             "fx_rate", fx_changed,
         )

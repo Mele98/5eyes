@@ -167,6 +167,9 @@ def test_decision_sealed_with_full_row_stays_current_until_the_row_changes(sessi
     import services.effective_input_manifest as manifest
 
     original = manifest._columns
+    # KN4-B / N-917R3-06: Uebergang nur fuer Altsiegel -- hier wird ein Altsiegel
+    # simuliert, also gilt es als vor dem Stichtag versiegelt.
+    monkeypatch.setattr(manifest, "LEGACY_PROJECTION_SEALED_BEFORE", "9999-12-31T00:00:00.000Z")
     # Altsiegel: ganze Zeile inkl. Beruf und Mandantengrenze (vor KN-B und KN3-B).
     monkeypatch.setattr(manifest, "_columns", lambda model, include_exempt=False, include_boundary=False:
                         original(model, include_exempt=True, include_boundary=True))

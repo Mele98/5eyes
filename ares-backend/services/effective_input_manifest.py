@@ -232,11 +232,26 @@ class DependencyPart:
     # Bestand.
     legacy_hashes: tuple[str, ...] = ()
 
-    def accepts(self, bound_hash: str | None) -> bool:
-        """Ist ``bound_hash`` (Siegel) der heutige oder ein Uebergangs-Hash?"""
+    def accepts(self, bound_hash: str | None, *, allow_legacy: bool = True) -> bool:
+        """Ist ``bound_hash`` (Siegel) der heutige oder -- nur fuer Altsiegel
+        (``allow_legacy``) -- ein Uebergangs-Hash?"""
         if not bound_hash:
             return False
-        return any(str(bound_hash) == str(value) for value in (self.dependency_hash, *self.legacy_hashes) if value)
+        candidates = (self.dependency_hash, *self.legacy_hashes) if allow_legacy else (self.dependency_hash,)
+        return any(str(bound_hash) == str(value) for value in candidates if value)
+
+
+# KN4-B / N-917R3-06 (CTO-Entscheid): Uebergangs-Hashes (KN-B Beruf, KN3-B
+# Mandantengrenze) gelten nur fuer Entscheide, die VOR der neuen Projektion
+# versiegelt wurden. Seit diesem Stand versiegelte Entscheide binden ohnehin die
+# neue Projektion; ein Altsiegel danach (Installation erst spaeter aktualisiert)
+# wird im Zweifel STALE -- die sichere Richtung.
+LEGACY_PROJECTION_SEALED_BEFORE = "2026-11-20T00:00:00.000Z"
+
+
+def legacy_projection_allowed(sealed_at: str | None) -> bool:
+    """Altsiegel-Uebergang nur fuer ``sealed_at`` vor dem Stichtag (ISO-Text)."""
+    return bool(sealed_at) and str(sealed_at)[:23] < LEGACY_PROJECTION_SEALED_BEFORE[:23]
 
 
 def _int_or_none(value: Any) -> int | None:
@@ -461,4 +476,6 @@ __all__ = [
     "empty_required_kinds",
     "engine_version_of",
     "random_stream_id_of",
+    "legacy_projection_allowed",
+    "LEGACY_PROJECTION_SEALED_BEFORE",
 ]

@@ -1437,6 +1437,7 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _average_ter_bps,
     _build_asset_class_assumptions,
     _build_bucket_response,
+    _bucket_rows,
     _build_goal_analysis,
     _build_mandate_score,
     _build_sub_asset_class_assumption_reference,
@@ -6054,7 +6055,6 @@ def build_target_payload_from_allocation(
         summaries_key="current_goal_summaries",
     )
     goal_analysis = _merge_goal_analysis_with_monte_carlo(goal_analysis, monte_carlo, achievability=_stored_goal_achievability(allocation, log_invalid=False))
-    bucket_response = []
     current_amounts = advisory_summary.amounts_rappen
     label_map = {
         "equities": ("Aktien", targets["equities"], minimums["equities"], maximums["equities"]),
@@ -6063,22 +6063,9 @@ def build_target_payload_from_allocation(
         "alternatives": ("Alternative", targets["alternatives"], minimums["alternatives"], maximums["alternatives"]),
         "liquidity": ("Liquiditaet", targets["liquidity"], minimums["liquidity"], maximums["liquidity"]),
     }
-    for key in BUCKET_FIELDS:
-        label, target_bps, min_bps, max_bps = label_map[key]
-        current_amount = current_amounts[key]
-        current_bps = _bps(current_amount, advisory_wealth_rappen)
-        bucket_response.append(
-            {
-                "asset_class": label,
-                "current_weight_bps": current_bps,
-                "current_amount_rappen": current_amount,
-                "target_weight_bps": int(target_bps),
-                "target_amount_rappen": int(round(investable_advisory_wealth_rappen * target_bps / 10000)) if investable_advisory_wealth_rappen else 0,
-                "delta_weight_bps": int(target_bps) - current_bps,
-                "band_min_bps": int(min_bps),
-                "band_max_bps": int(max_bps),
-            }
-        )
+    # KN3-B E2E4-02: Ist und Soll auf derselben Basis (eine Quelle mit Generate).
+    bucket_response = _bucket_rows(label_map, current_amounts, advisory_wealth_rappen,
+                                   investable_advisory_wealth_rappen, bps=_bps)
     live_rebalancing = None
     current_run = _current_recommendation_run(db, mandate.id)
     if current_run and not normalized_legacy_liquidity:

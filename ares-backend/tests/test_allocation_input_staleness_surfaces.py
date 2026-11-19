@@ -158,7 +158,7 @@ def test_wealth_change_flags_depot_check_and_building_blocks(session):
         _stale_inputs(w) for w in dc["warnings"]
     ), dc["warnings"]
     # Kein falscher Grund: das Risikoprofil ist unveraendert.
-    assert not any("frueheren, nicht mehr aktuellen Risikoprofil" in w for w in dc["warnings"])
+    assert not any("früheren, nicht mehr aktuellen Risikoprofil" in w for w in dc["warnings"])
 
     rep = compute_advisory_report(session, mandate, advisor=adv)
     aa_verdict = next(

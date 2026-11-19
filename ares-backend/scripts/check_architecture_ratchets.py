@@ -190,7 +190,10 @@ FAN_OUT_EXEMPT_LEAVES = frozenset(
      # Kunden-PDFs als reine Blaetter (nur Standardbibliothek).
      "core.depletion_display", "core.customer_terms",
      # KN3-B Nachtrag 2: eine Bandregel fuer alle Konsumenten.
-     "core.band_rule"}
+     "core.band_rule",
+     # KN4-B (H-174): Praeferenz-Kundentexte und die eine Definition
+     # "IST teilweise abgeleitet".
+     "core.preference_labels", "core.holdings_rule"}
 )
 _STDLIB = frozenset(sys.stdlib_module_names) | {"__future__"}
 _DYNAMIC_IMPORT_CALLS = frozenset({"__import__", "import_module"})

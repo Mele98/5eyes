@@ -78,10 +78,14 @@ def _build_current_drift_buckets(
         fx_source=fx_source,
         target_currency=target_currency,
     )
+    # KN4-B / E2E4-02: Ist und Soll auf derselben Basis -- die Reserve ausserhalb
+    # der Strategie (Stand der Berechnung) wird wie im Payload getrennt.
+    reserve = max(0, int(getattr(allocation, "external_reserve_at_generation_rappen", 0) or 0))
     return _build_bucket_response(
         allocation,
         summary.amounts_rappen,
         summary.total_rappen,
+        target_total_rappen=max(0, int(summary.total_rappen or 0) - reserve),
     )
 
 
@@ -135,8 +139,9 @@ def band_drifts(drift_source) -> list[dict]:
     bewertbar" (kein Trigger, aber auch kein "im Band")."""
     drifts = []
     for bucket in drift_source or []:
+        # KN4-B / N-917R3-05: fehlendes Ist ist "nicht bewertbar", nie 0 %.
+        status = band_status(bucket.get("current_weight_bps"), bucket.get("band_min_bps"), bucket.get("band_max_bps"))
         current_weight = int(bucket.get("current_weight_bps") or 0)
-        status = band_status(current_weight, bucket.get("band_min_bps"), bucket.get("band_max_bps"))
         if status == BAND_BELOW:
             min_weight = int(bucket.get("band_min_bps"))
             drifts.append(

@@ -22,13 +22,35 @@ def depletion_note(year_labels, series, offset: int = 0) -> str | None:
     aufgebraucht ab JJJJ", bei Startwert <= 0 "Finanzierungslücke ab JJJJ"."""
     if not isinstance(series, (list, tuple)) or not series:
         return None
-    values = [int(value or 0) + (int(offset) if value else 0) for value in series]
+    raw = [int(value or 0) for value in series]
+    values = [value + (int(offset) if value else 0) for value in raw]
     labels = list(year_labels) if isinstance(year_labels, (list, tuple)) else []
     for index, value in enumerate(values):
         if value < 0:
-            year = str(labels[index])[:4] if index < len(labels) and labels[index] is not None else None
-            phrase = "Vermögen aufgebraucht" if values[0] > 0 else "Finanzierungslücke"
+            year = _year_of(labels[index]) if index < len(labels) else None
+            # KN4-B / N-917R3-07: Wortwahl wie die App am ROHEN Startwert
+            # (advisor-guidance.js), nicht am um die Reserve korrigierten.
+            phrase = "Vermögen aufgebraucht" if raw[0] > 0 else "Finanzierungslücke"
             return f"{phrase} ab {year}" if year else phrase
+    return None
+
+
+def _year_of(label) -> str | None:
+    """Kalenderjahr aus einem Jahreslabel (``2042``, ``"2042"``, ``"2042-12-31"``,
+    ``"Ende 2042"``); ``None``, wenn keine vierstellige Jahreszahl 1900-2999
+    enthalten ist (nie blind die ersten vier Zeichen, KN4-B N-917R3-07)."""
+    text = "" if label is None else str(label)
+    runs, current = [], ""
+    for char in text + " ":
+        if char.isdigit():
+            current += char
+        else:
+            if current:
+                runs.append(current)
+            current = ""
+    for run in runs:
+        if len(run) == 4 and 1900 <= int(run) <= 2999:
+            return run
     return None
 
 

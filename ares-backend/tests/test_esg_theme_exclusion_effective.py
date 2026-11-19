@@ -267,7 +267,7 @@ def test_e2e_screening_discloses_missing_look_through(session_factory):
     )
     disclosure = [w for w in warnings if "Look-through" in w]
     assert len(disclosure) == 1, warnings
-    assert "Tabak" in disclosure[0] and "Gluecksspiel" in disclosure[0]
+    assert "Tabak" in disclosure[0] and "Glücksspiel" in disclosure[0]
 
 
 # ---------------------------------------------------------------------------
