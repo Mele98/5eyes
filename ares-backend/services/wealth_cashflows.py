@@ -269,11 +269,16 @@ def mortgage_amortization_adjustment_series(
     base cashflow and therefore contains the positive overstatement to reverse.
     Indirect amortization remains a recurring transfer into the pledged-asset
     series and is deliberately not capped here.
+
+    KN-B / E2E2-09 (CTO-Entscheid 2026-11-19) fuer den K1-Modus (Property-Gate,
+    keine Schuldabbau-/Verpfaendungsprojektion): die abgeleitete Amortisation
+    (direkt wie indirekt) endet, sobald die kumulierte Amortisation die heutige
+    Schuld erreicht; das letzte Jahr wird anteilig gerechnet. Die Schuld bleibt
+    in der Bilanz konstant (konservativ, bis Property-P1).
     """
     n = max(0, int(horizon_years or 0))
     adjustment = [0] * n
-    if not mortgage_projection_enabled():
-        return adjustment  # K1 Property-Gate: keine Amortisationsprojektion
+    k1_payoff_cap = not mortgage_projection_enabled()
     for pos in positions or []:
         if getattr(pos, "deleted_at", None):
             continue
@@ -281,7 +286,7 @@ def mortgage_amortization_adjustment_series(
             continue
         if str(getattr(pos, "position_type", "") or "") != "Hypothek":
             continue
-        if not _is_direct_amortization(
+        if not k1_payoff_cap and not _is_direct_amortization(
             getattr(pos, "mortgage_amortization_type", None)
         ):
             continue
