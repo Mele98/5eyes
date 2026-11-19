@@ -73,7 +73,9 @@ def seed_unverified_esg_fields(product) -> tuple[str, ...]:
     """ESG-Felder des Produkts, die noch den unbelegten Seed-Wert tragen."""
     if str(getattr(product, "tenant_id", None) or "").strip():
         return ()
-    seed = _seed_esg_values().get(str(getattr(product, "product_name", None) or ""))
+    from services.seed_catalog_names import canonical_seed_name  # K2/N-915-03: Bestandsnamen
+
+    seed = _seed_esg_values().get(canonical_seed_name(getattr(product, "product_name", None)))
     if not seed:
         return ()
     return tuple(

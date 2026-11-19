@@ -4120,7 +4120,7 @@ async function loadClientById(clientId) {
         const w = wealthRes.value;
         currentWealthSummary = clientScopedSummary((w||{}), c.id);
         // G7 N4: Kundensummen (Rohsummen der Positionen) in amount_currency des Servers; gemischt -> "—".
-        const fmtK = v => fmtCHF(Number(v)||0, w.amount_currency);
+        const fmtK = v => (!w.amount_currency&&(w.gross_wealth_chf||w.amount_block_reason_code))?'Umrechnung offen':fmtCHF(Number(v)||0, w.amount_currency);
         const kRV = document.getElementById('kpi-reinvermoegen');
         if (kRV) kRV.textContent = fmtK(w.net_worth_chf);
         const kBV = document.getElementById('kpi-beratungsvermoegen');
@@ -5347,6 +5347,8 @@ function currentAllocationInputSnapshot(){
     totalGrossRappen+=Math.max(0,value);
     if(String(pos.assignment||'')==='Beratungsvermögen')advisoryRappen+=Math.max(0,value);
   });
+  var _mix=typeof wealthMixedTotals==='function'?wealthMixedTotals(activeClientWealthPositions()):null; // K2/N-915-01: nur Serverumrechnung
+  if(_mix){advisoryRappen=_mix.advisoryRappen||0;totalGrossRappen=_mix.grossRappen||0;liabilitiesRappen=_mix.liabilitiesRappen||0;}
   var goalCount=Array.isArray(currentGoals)?currentGoals.length:0;
   var cashflowCount=activeClientCashflows().length;
   var summary=activeClientCashflowSummary();
@@ -5357,7 +5359,7 @@ function currentAllocationInputSnapshot(){
   return {
     advisoryRappen:advisoryRappen,
     // G7 N4: Positions-Rohsummen bzw. Cashflow-Summary -> jeweilige Waehrung (unbekannt null).
-    wealthCurrency:positionsCurrency(activeClientWealthPositions()),
+    wealthCurrency:_mix?(_mix.currency||null):positionsCurrency(activeClientWealthPositions()),fxOpen:!!(_mix&&_mix.blocked),
     cashflowCurrency:summary?ccyOf(summary.amount_currency):null,
     totalGrossRappen:totalGrossRappen,
     liabilitiesRappen:liabilitiesRappen,
@@ -5533,6 +5535,7 @@ function wealthProjectionInputs(scope,years){
   // PROJECTION-001, Tilgung bilanzneutral), ALLE Schulden (TOTAL-WEALTH-LIABILITY-001).
   var mortgagePositions=scope!=='advisory'?activeClientWealthPositions():[];
   var mortgageSeries=mortgageLiabilityAndPledgedSeriesRappen(mortgagePositions,years);
+  var _fxOpen=positions.concat(mortgagePositions).length>0&&!positionsCurrency(positions.concat(mortgagePositions)); // K2/N-915-02
   var liabilitiesRappen=Number(mortgageSeries.liability[0]||0);
   var startRappen=Math.max(0,totalRappen-liabilitiesRappen+Number(mortgageSeries.pledged[0]||0));
   // Lokale Vorschau ohne Snapshot: Sockel = Immobilie minus alle Schulden.
@@ -5566,7 +5569,7 @@ function wealthProjectionInputs(scope,years){
   return {
     scope:scope,basisSource:basisSource,
     currency:projectionCurrency,
-    cmaReady:!!_srvRet,cmaReference:_srvBasis&&_srvBasis.cma||null,
+    cmaReady:!!_srvRet,cmaReference:_srvBasis&&_srvBasis.cma||null,fxOpen:_fxOpen,
     startRappen:startRappen,
     grossRappen:totalRappen,
     sockelRappen:sockelRappen,
@@ -5906,8 +5909,8 @@ function buildCurrentWealthProjection(scope,preferredYears,preferredLabels){
   projection.startRappen=Number(inputs.startRappen||0);
   projection.currency=inputs.currency;  // G7 N4
   projection.cmaReference=inputs.cmaReference||null;
-  if(!inputs.cmaReady){
-    // H9 Nachtrag 2: fail-closed -- keine Projektion ohne wirksame Server-CMA.
+  if(!inputs.cmaReady||inputs.fxOpen){
+    // H9 Nachtrag 2 / K2 N-915-02: fail-closed ohne Server-CMA bzw. bei gemischten Waehrungen.
     projection.unavailable=true;
     projection.seriesK=[];projection.seriesRappen=[];
     projection.projectedRappen=0;projection.cagrBps=0;projection.expectedReturnBps=0;
@@ -16270,10 +16273,6 @@ var liveClientLoadToken=0;
     }
   }
   function prepareModalBeforeOpen(id){
-    if(id==='m-edit-depot'){openLegacyWealthModalRedirect('Depot');return false;}
-    if(id==='m-edit-immo'){openLegacyWealthModalRedirect('Immobilien');return false;}
-    if(id==='m-edit-hypo'){openLegacyWealthModalRedirect('Hypothek');return false;}
-    if(id==='m-edit-custom'){openLegacyWealthModalRedirect('Alternative');return false;}
     if(id==='m-ev')resetEventCaptureModal();
     if(id==='m-ne'){advisoryLogPrefill=null;resetAdvisoryLogModal();}
     if(id==='m-nt')resetReviewTriggerModal();
@@ -16839,15 +16838,8 @@ function resetAdvisoryLogModal(){
     currentWealthPositions=clientScopedItems(items,currentClientId);
     var keepVisibleStrategy=typeof hasVisibleStrategyOutputs==='function'&&hasVisibleStrategyOutputs();
     var advisoryProjection=wealthProjectionInputs('advisory');
-    // 2026-08-06 (User-Direktive, Cashflow-/Ziele-Audit): TOTAL/alloc starten
-    // als hartcodierte Demo-Werte (siehe deren Deklaration) und wurden HIER
-    // nur bei startRappen>0 aktualisiert -- ein Mandant/Client-Wechsel zu
-    // jemandem OHNE Vermoegen liess TOTAL/alloc auf dem Stand des zuletzt
-    // betrachteten Mandanten (oder dem Demo-Default) stehen. Explizites
-    // Zuruecksetzen im else-Zweig verhindert sowohl erfundene Zahlen bei
-    // einem frischen Mandanten als auch eine potenzielle Uebernahme von
-    // Zahlen eines ANDEREN, zuvor betrachteten Mandanten.
-    if(advisoryProjection.startRappen>0&&!keepVisibleStrategy){
+    // 2026-08-06: TOTAL/alloc explizit zuruecksetzen (kein Demo-/Fremdmandatsstand; Details: Git-Historie).
+    if(advisoryProjection.startRappen>0&&!advisoryProjection.fxOpen&&!keepVisibleStrategy){
       TOTAL=Math.round(advisoryProjection.startRappen/100);
       TOTAL_CCY=positionsCurrency(items.filter(function(pos){return pos.assignment==='Beratungsvermögen';}));
       var _pEq=Math.round(Number(advisoryProjection.bucketWeightsBps.equities||0))/100;
@@ -16875,7 +16867,7 @@ function resetAdvisoryLogModal(){
     } else if(!keepVisibleStrategy){
       TOTAL=0;
       TOTAL_CCY=null;
-      alloc=[{n:'Nicht klassifiziert',c:'#9ca3af',ist:100,soll:100,chf:0}];
+      alloc=[{n:advisoryProjection.fxOpen?'Umrechnung offen':'Nicht klassifiziert',c:'#9ca3af',ist:100,soll:100,chf:0}];
       if(typeof syncAllocationDonutFromStrategyState==='function')syncAllocationDonutFromStrategyState();
       if(typeof buildAT==='function')buildAT();
     }
@@ -19844,6 +19836,7 @@ function clearStrategySummaryForDirtyState(){
   var totalChf=Number(snapshot.totalNetRappen||0)/100;
   setText('sr-wealth',advisoryChf?formatCompactCHF(advisoryChf,snapshot.wealthCurrency):'—');
   setText('sr-wealth-share',totalChf&&advisoryChf?AresRounding.formatPercent(advisoryChf/Math.max(1,totalChf)*100,0,{typography:'screen'})+' des Reinvermögens':'Strategie ausstehend');
+  if(snapshot.fxOpen){setText('sr-wealth','Umrechnung offen');setText('sr-wealth-share','Kein Anteil: Kurs einer Fremdwährung nicht belegt');}
   setGoalSuccessTile(null);
   setText('sr-goal-sub','Bitte Strategie neu berechnen.');
   setText('kpi-goal-score','—');
@@ -23633,11 +23626,7 @@ async function refreshWealthUI(cid){
     if(positionsRes.status==='fulfilled'){
       renderWealthPositions(positionsRes.value);
     }
-    // Fix (2026-06-12): Vermoegens-Edit muss sich im IST-Projektionschart
-    // niederschlagen — auch wenn eine Strategie sichtbar ist. renderWealthPositions
-    // ueberspringt den IST-Refresh dann via keepVisibleStrategy-Guard, sodass die
-    // Verzehr-Kurve auf den alten Vermoegenswerten stehen blieb. Beide Refresh-
-    // Funktionen fassen nur den IST-/Baseline-Chart an, nie die SOLL-Strategie.
+    // Fix (2026-06-12): Vermoegens-Edit auch im IST-Chart nachziehen, nie die SOLL-Strategie (Details: Git-Historie).
     try{
       if(strategyState&&strategyState.allocation&&typeof updateProjectionChartsFromSimulation==='function'){
         updateProjectionChartsFromSimulation(strategyState.allocation);

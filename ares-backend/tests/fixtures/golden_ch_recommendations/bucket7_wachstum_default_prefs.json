@@ -13,52 +13,10 @@
   ],
   "positions": [
     {
-      "asset_class": "Obligationen",
-      "currency": "CHF",
-      "product_name": "Swisscanto Bond CHF",
-      "provider": "Swisscanto",
-      "rationale": "Langfristiger CHF-Kern",
-      "source_sub_asset_classes": [
-        "Obligationen CHF IG"
-      ],
-      "sub_asset_class": "Obligationen CHF IG",
-      "target_amount_rappen": 5001362,
-      "target_weight_bps": 1005,
-      "ter_bps": 32
-    },
-    {
-      "asset_class": "Immobilien",
-      "currency": "CHF",
-      "product_name": "Swisscanto Real Estate Fund",
-      "provider": "Swisscanto",
-      "rationale": "Schweizer Immobilienfokus",
-      "source_sub_asset_classes": [
-        "Immobilien Schweiz"
-      ],
-      "sub_asset_class": "Immobilien Schweiz",
-      "target_amount_rappen": 3204853,
-      "target_weight_bps": 644,
-      "ter_bps": 52
-    },
-    {
-      "asset_class": "Liquidität",
-      "currency": "CHF",
-      "product_name": "UBS Geldmarktfonds CHF",
-      "provider": "UBS",
-      "rationale": "Liquiditaetsreserve gemaess Mandatsvorgabe",
-      "source_sub_asset_classes": [
-        "Geldmarktfonds"
-      ],
-      "sub_asset_class": "Geldmarktfonds",
-      "target_amount_rappen": 1000272,
-      "target_weight_bps": 201,
-      "ter_bps": 8
-    },
-    {
       "asset_class": "Aktien",
       "currency": "CHF",
-      "product_name": "Vanguard FTSE Developed Europe ETF CHF Hedged",
-      "provider": "Vanguard",
+      "product_name": "Musterprodukt Aktien Europa CHF-abgesichert",
+      "provider": "Musteranbieter B",
       "rationale": "Europa-Diversifikation",
       "source_sub_asset_classes": [
         "Aktien Europa"
@@ -69,38 +27,10 @@
       "ter_bps": 22
     },
     {
-      "asset_class": "Alternative",
-      "currency": "CHF",
-      "product_name": "ZKB Gold ETF",
-      "provider": "ZKB",
-      "rationale": "Standardbaustein fuer Alternative Anlagen",
-      "source_sub_asset_classes": [
-        "Gold / Rohstoffe"
-      ],
-      "sub_asset_class": "Gold / Rohstoffe",
-      "target_amount_rappen": 2936123,
-      "target_weight_bps": 590,
-      "ter_bps": 40
-    },
-    {
       "asset_class": "Aktien",
       "currency": "CHF",
-      "product_name": "iShares Core MSCI EM IMI ETF CHF Hedged",
-      "provider": "BlackRock",
-      "rationale": "Wachstumsbaustein",
-      "source_sub_asset_classes": [
-        "Aktien Schwellenlaender"
-      ],
-      "sub_asset_class": "Aktien Schwellenlaender",
-      "target_amount_rappen": 1682050,
-      "target_weight_bps": 338,
-      "ter_bps": 30
-    },
-    {
-      "asset_class": "Aktien",
-      "currency": "CHF",
-      "product_name": "iShares Core MSCI World UCITS ETF CHF Hedged",
-      "provider": "BlackRock",
+      "product_name": "Musterprodukt Aktien Global CHF-abgesichert",
+      "provider": "Musteranbieter A",
       "rationale": "Globaler Kernbaustein",
       "source_sub_asset_classes": [
         "Aktien Global"
@@ -113,8 +43,8 @@
     {
       "asset_class": "Aktien",
       "currency": "CHF",
-      "product_name": "iShares Core SPI ETF",
-      "provider": "BlackRock",
+      "product_name": "Musterprodukt Aktien Schweiz",
+      "provider": "Musteranbieter A",
       "rationale": "Mandatierter Schweiz-Fokus",
       "source_sub_asset_classes": [
         "Aktien Schweiz"
@@ -125,10 +55,52 @@
       "ter_bps": 10
     },
     {
+      "asset_class": "Aktien",
+      "currency": "CHF",
+      "product_name": "Musterprodukt Aktien Schwellenlaender CHF-abgesichert",
+      "provider": "Musteranbieter A",
+      "rationale": "Wachstumsbaustein",
+      "source_sub_asset_classes": [
+        "Aktien Schwellenlaender"
+      ],
+      "sub_asset_class": "Aktien Schwellenlaender",
+      "target_amount_rappen": 1682050,
+      "target_weight_bps": 338,
+      "ter_bps": 30
+    },
+    {
+      "asset_class": "Liquidität",
+      "currency": "CHF",
+      "product_name": "Musterprodukt Geldmarktfonds",
+      "provider": "Musteranbieter O",
+      "rationale": "Liquiditaetsreserve gemaess Mandatsvorgabe",
+      "source_sub_asset_classes": [
+        "Geldmarktfonds"
+      ],
+      "sub_asset_class": "Geldmarktfonds",
+      "target_amount_rappen": 1000272,
+      "target_weight_bps": 201,
+      "ter_bps": 8
+    },
+    {
+      "asset_class": "Alternative",
+      "currency": "CHF",
+      "product_name": "Musterprodukt Gold / Rohstoffe",
+      "provider": "Musteranbieter K",
+      "rationale": "Standardbaustein fuer Alternative Anlagen",
+      "source_sub_asset_classes": [
+        "Gold / Rohstoffe"
+      ],
+      "sub_asset_class": "Gold / Rohstoffe",
+      "target_amount_rappen": 2936123,
+      "target_weight_bps": 590,
+      "ter_bps": 40
+    },
+    {
       "asset_class": "Immobilien",
       "currency": "CHF",
-      "product_name": "iShares Developed Markets Property Yield CHF Hedged",
-      "provider": "BlackRock",
+      "product_name": "Musterprodukt Immobilien Global CHF-abgesichert",
+      "provider": "Musteranbieter A",
       "rationale": "Ergaenzende Diversifikation",
       "source_sub_asset_classes": [
         "Immobilien Global"
@@ -139,10 +111,38 @@
       "ter_bps": 48
     },
     {
+      "asset_class": "Immobilien",
+      "currency": "CHF",
+      "product_name": "Musterprodukt Immobilien Schweiz",
+      "provider": "Musteranbieter I",
+      "rationale": "Schweizer Immobilienfokus",
+      "source_sub_asset_classes": [
+        "Immobilien Schweiz"
+      ],
+      "sub_asset_class": "Immobilien Schweiz",
+      "target_amount_rappen": 3204853,
+      "target_weight_bps": 644,
+      "ter_bps": 52
+    },
+    {
       "asset_class": "Obligationen",
       "currency": "CHF",
-      "product_name": "iShares Global Aggregate Bond CHF Hedged",
-      "provider": "BlackRock",
+      "product_name": "Musterprodukt Obligationen CHF IG",
+      "provider": "Musteranbieter I",
+      "rationale": "Langfristiger CHF-Kern",
+      "source_sub_asset_classes": [
+        "Obligationen CHF IG"
+      ],
+      "sub_asset_class": "Obligationen CHF IG",
+      "target_amount_rappen": 5001362,
+      "target_weight_bps": 1005,
+      "ter_bps": 32
+    },
+    {
+      "asset_class": "Obligationen",
+      "currency": "CHF",
+      "product_name": "Musterprodukt Obligationen Global Hedged",
+      "provider": "Musteranbieter A",
       "rationale": "Globale Diversifikation",
       "source_sub_asset_classes": [
         "Obligationen Global Hedged"

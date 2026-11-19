@@ -278,7 +278,7 @@ def upsert_foundation_example_case(db: Session, user: User) -> dict:
         base_currency="CHF",
         advisory_language="DE",
         depot_bank="Depotbank (Muster)",
-        depot_account_number="CH93 0024 0024 0000 5501 T",
+        depot_account_number="MUSTER-DEPOT-0001",
         opened_at=today,
         created_at=now,
         updated_at=now,

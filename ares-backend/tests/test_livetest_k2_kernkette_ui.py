@@ -244,9 +244,10 @@ def test_k2_bootstrap_question_firm_switch_and_four_eyes(server):
             page.fill("#bootstrap-password", PWD)
             page.fill("#bootstrap-password-confirm", PWD)
             page.click("#btn-bootstrap-submit")
-            question = _dialog(page, 30000)
-            _shot(page, "k2_e02_ersteinrichtung_frage.png", "#m-ui-dialog-box")
-            page.click("#m-ui-dialog-ok")
+            page.wait_for_selector("#m-firm-question", timeout=30000)
+            question = page.evaluate("({title:document.getElementById('firmq-title').textContent,yes:document.getElementById('firmq-yes').textContent,no:document.getElementById('firmq-no').textContent,msg:document.getElementById('firmq-msg').textContent})")
+            _shot(page, "k2_e02_ersteinrichtung_frage.png", "#m-firm-question .modal")
+            page.click("#firmq-yes")
             page.wait_for_timeout(2500)
             api.login()
             after_yes = api("GET", "/tenants/me")[1]
@@ -293,14 +294,27 @@ def test_k2_bootstrap_question_firm_switch_and_four_eyes(server):
                 else:
                     route.fulfill(status=200, content_type="application/json", body=json.dumps({**tenant, "id": "main"}))
             page.route("**/tenants/me", fake_tenant)
+            # N-915-08: Schliessen (X bzw. Esc) ist kein "Nein" -- nichts gespeichert, Frage bleibt offen.
             page.evaluate("()=>{window.__k2ask=askSinglePersonFirmAfterBootstrap();}")
-            _dialog(page)
-            page.click("#m-ui-dialog-cancel")
+            page.wait_for_selector("#m-firm-question", timeout=15000)
+            page.click("#firmq-later")
+            page.wait_for_timeout(800)
+            answer_closed = page.evaluate("window.__k2ask")
+            puts_after_close = len(puts)
+            page.evaluate("()=>{window.__k2ask=askSinglePersonFirmAfterBootstrap();}")
+            page.wait_for_selector("#m-firm-question", timeout=15000)
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(800)
+            answer_esc = page.evaluate("window.__k2ask")
+            puts_after_esc = len(puts)
+            page.evaluate("()=>{window.__k2ask=askSinglePersonFirmAfterBootstrap();}")
+            page.wait_for_selector("#m-firm-question", timeout=15000)
+            page.click("#firmq-no")
             page.wait_for_timeout(800)
             answer_no = page.evaluate("window.__k2ask")
             tenant["max_users"] = 3
             answer_multi = page.evaluate("askSinglePersonFirmAfterBootstrap()")
-            dialog_multi = page.evaluate("document.getElementById('m-ui-dialog').classList.contains('open')")
+            dialog_multi = page.evaluate("!!document.getElementById('m-firm-question')")
             page.unroute("**/tenants/me")
 
             # Vier-Augen-Sperre beim Publizieren (Serverantworten per Route).
@@ -351,7 +365,9 @@ def test_k2_bootstrap_question_firm_switch_and_four_eyes(server):
     assert "UBS" not in before_login["asset"] and "1'850'000" not in before_login["asset"]
     assert before_login["complete"].strip() == ""
     assert question["title"] == "Arbeiten Sie allein?"
-    assert "Ja, Ein-Personen-Firma" == question["ok"] and "Vier-Augen" in question["cancel"]
+    assert question["yes"] == "Ja, Ein-Personen-Firma" and "Vier-Augen" in question["no"]
+    assert "Schliessen Sie den Dialog, bleibt die Frage offen" in question["msg"] and "Attest" not in question["msg"]
+    assert answer_closed is None and answer_esc is None and puts_after_close == 0 and puts_after_esc == 0
     assert after_yes["single_person_firm"] == 1, after_yes
     assert audit_status == 200, audit
     entries = audit["entries"]
@@ -468,6 +484,15 @@ def test_k2_wealth_currency_fx_blocker_and_sums(server):
             # Gegenprobe: reiner CHF-Kunde zeigt Summen und Anteile wie bisher.
             _load(page, cid_chf, "vg")
             chf_text = page.evaluate("document.getElementById('asset-view').innerText")
+            chf_derived = page.evaluate("({goal:goalEditorInitialRappen(),reason:wealthFxOpenReason(),snap:currentAllocationInputSnapshot().fxOpen})")
+            # N-915-01/02: Review-Anteil, Ist-Pfad, Ist-Gewichte und Ziel-Vorbelegung des gemischten Kunden.
+            _load(page, cid, "rv")
+            mixed_derived = page.evaluate("""(function(){clearStrategySummaryForDirtyState();
+              var t=buildCurrentWealthProjection('total');
+              return {wealth:document.getElementById('sr-wealth').textContent,share:document.getElementById('sr-wealth-share').textContent,
+                goal:goalEditorInitialRappen(),unavailable:!!t.unavailable,reason:istProjectionBasisUnavailableReason(),
+                adv:wealthProjectionInputs('advisory').fxOpen,alloc:(typeof alloc!=='undefined'&&alloc[0])?alloc[0].n:null};})()""")
+            _shot(page, "k2_n91501_review_gemischt.png", "#page-rv")
             # E2E-04: Kurs fehlt -> sichtbare Sperre, Kurseditor aus der Sperre.
             _load(page, cid, "al")
             page.evaluate("()=>{calculateInvestmentStrategy();}")
@@ -495,6 +520,27 @@ def test_k2_wealth_currency_fx_blocker_and_sums(server):
             page.evaluate(CLOSE)
             recalculated = page.evaluate("document.getElementById('aa-calc-blocker').style.display")
             _shot(page, "k2_e04_aa_nach_kurs.png")
+            # N-915-10 / E2E-06: echter Publikationsstatus des Servers -> Wegweiser neben "Publizieren".
+            page.evaluate("()=>refreshAllocationPublication(true)")
+            page.wait_for_timeout(1500)
+            real_pub = page.evaluate("""(function(){var s=allocationPublicationState||{};var l=document.getElementById('btn-aa-goto-finalize');
+              return {codes:s.blocker_codes||[],chip:document.getElementById('aa-publication-status').textContent,
+                link:!!(l&&l.offsetParent)};})()""")
+            _shot(page, "k2_e06_aa_wegweiser_echt.png", "#page-al .ph")
+            # N-915-10 / E2E-07: echtes Portfolio aus dem Seed-Katalog -> Musterprodukt-Warnung; N-915-11 aktiv.
+            page.evaluate("go('po')")
+            page.wait_for_timeout(1500)
+            page.evaluate(CLOSE)
+            page.evaluate("()=>{refreshPortfolioFromStoredState();}")
+            page.wait_for_function("() => (document.getElementById('po-portfolio-sections')||{innerText:''}).innerText.indexOf('Musterprodukt')>=0", timeout=240000)
+            page.wait_for_timeout(1000)
+            page.evaluate(CLOSE)
+            real_po = page.evaluate("""(function(){var w=document.getElementById('po-sample-warning');var b=document.getElementById('btn-po-finalize');
+              var h=document.getElementById('po-finalize-hint');
+              return {warn:w?w.textContent:'',visible:!!(w&&w.style.display!=='none'),rows:document.getElementById('po-portfolio-sections').innerText,
+                positions:(strategyState.recommendation&&strategyState.recommendation.positions||[]).map(function(p){return [p.product_name,p.provider,p.isin||null];}),
+                finalizeDisabled:!!(b&&b.disabled),hint:!!(h&&h.style.display!=='none')};})()""")
+            _shot(page, "k2_e07_portfolio_echt.png")
         finally:
             browser.close()
 
@@ -512,12 +558,23 @@ def test_k2_wealth_currency_fx_blocker_and_sums(server):
     assert "Kurs nicht belegt: USD (abgelaufen)" in k1_text and "Umrechnung offen" in k1_text
     assert "des Bruttovermögens" not in k1_text and "—" not in k1_text
     assert "Umrechnung offen" not in chf_text and "des Bruttovermögens" in chf_text and "mehreren Währungen" not in chf_text
+    assert mixed_derived["wealth"] == "Umrechnung offen" and "Kein Anteil" in mixed_derived["share"], mixed_derived
+    assert "%" not in mixed_derived["share"] and mixed_derived["goal"] == 0, mixed_derived
+    assert mixed_derived["unavailable"] is True and "mehreren Währungen (CHF, USD)" in mixed_derived["reason"], mixed_derived
+    assert mixed_derived["adv"] is True and mixed_derived["alloc"] == "Umrechnung offen", mixed_derived
+    assert chf_derived["goal"] > 0 and chf_derived["reason"] == "" and chf_derived["snap"] is False, chf_derived
     assert blocker["page"] and blocker["code"] == "CCX_FX_BASIS_MISSING"
     assert "Wechselkurs nicht belegt" in blocker["text"] and "USD (Ersatzkurs – nicht bestätigt)" in blocker["text"]
     assert blocker["h"] > 0
     assert fx_editor == ["USD"]
     assert rates["USD"]["source"] == "Manual" and abs(rates["USD"]["rate"] - 0.8) < 1e-9
     assert blocker_after_save == "none" and recalculated == "none"
+    assert "CCX_ENVELOPE_MISSING" in real_pub["codes"] and real_pub["link"] is True, real_pub
+    assert "Portfolio › Empfehlung finalisieren" in real_pub["chip"], real_pub
+    assert real_po["positions"] and real_po["visible"], real_po
+    assert all(name.startswith("Musterprodukt") or name.startswith(("Kontoguthaben", "Festgeld")) for name, _p, _i in real_po["positions"]), real_po
+    assert "Musterkatalog – nicht zur Umsetzung" in real_po["warn"] and "Musterprodukt – nicht zur Umsetzung" in real_po["rows"]
+    assert real_po["finalizeDisabled"] is False and real_po["hint"] is False, real_po
     assert not errors, errors
 
 
@@ -553,7 +610,7 @@ def test_k2_flow_guidance_without_dead_ends(server):
             page.evaluate("go('po')")
             page.wait_for_timeout(1500)
             page.evaluate(CLOSE)
-            finalize_btn = page.evaluate("(function(){var b=document.getElementById('btn-po-finalize');return b&&{text:b.textContent,visible:!!b.offsetParent};})()")
+            finalize_btn = page.evaluate("(function(){var b=document.getElementById('btn-po-finalize');var h=document.getElementById('po-finalize-hint');return b&&{text:b.textContent,visible:!!b.offsetParent,disabled:b.disabled,hint:!!(h&&h.offsetParent),hintText:h?h.textContent:''};})()")
             _shot(page, "k2_e06_portfolio_finalisieren.png", "#page-po .ph")
             page.evaluate("go('al')")
             page.wait_for_timeout(1200)
@@ -628,7 +685,8 @@ def test_k2_flow_guidance_without_dead_ends(server):
     assert re.match(r"Punkte \d+/12", rsub[1]), rsub
     assert "nicht erfasst" in ret_before
     assert mandate_after["retirement_year"] == 2041
-    assert finalize_btn == {"text": "Empfehlung finalisieren", "visible": True}
+    assert finalize_btn["text"] == "Empfehlung finalisieren" and finalize_btn["visible"] is True, finalize_btn
+    assert finalize_btn["disabled"] is True and finalize_btn["hint"] is True and "Anlagestrategie berechnen" in finalize_btn["hintText"]
     assert shortcut["shown"] is True and shortcut["visible"] is True
     assert "Portfolio › Empfehlung finalisieren" in shortcut["reason"]
     assert jumped_po is True and hidden_when_published == "none"

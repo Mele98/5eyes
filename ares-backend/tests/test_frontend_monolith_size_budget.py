@@ -133,6 +133,12 @@ der Monolith schrumpft (Budget gesenkt). allocation-publication.js schrumpft
 (Einzelfreigabe-Ablauf nach advisor-guidance.js), finalize-attestation.js
 ebenso; client-compliance.js +4 Z./+474 B fuer E2E-18 (Zeitpunkt der Uebergabe
 sekundengenau, lokale Zeit und Kanal-Label).
+K2-Nachtrag 1 (Pruefbericht H-166): Monolith 26488 Z./1625444 B (Hooks gegen
+nominale Mischsummen, tote m-edit-Verweise entfernt, zwei Kommentare gekuerzt);
+unsaved-changes.js 85/4470 (tote Masken-Eintraege). advisor-guidance.js ist im
+selben, noch nicht gemergten PR eingefuehrt; sein Einfuehrungsstand umfasst den
+Nachtrag (717/43265: Erst-Einrichtungsdialog mit "spaeter", Finalisieren-
+Wegweiser, Verzehr-Logik, Grund fuer den gesperrten Ist-Pfad).
 """
 from __future__ import annotations
 
@@ -141,9 +147,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26499
+MONOLITH_MAX_LINES = 26488
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1625734
+MONOLITH_MAX_BYTES = 1625444
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -155,7 +161,7 @@ EXTRACTED_PART_BUDGETS = {
     "ist-projection-gate.js": (288, 15951),
     "session-boundary.js": (53, 2763),
     "ist-projection-basis.js": (87, 4649),
-    "unsaved-changes.js": (86, 4604),
+    "unsaved-changes.js": (85, 4470),
     "goal-review-runtime.js": (1564, 83881),
     "client-compliance.js": (469, 29978),
     "kyc-review-policy.js": (427, 25832),
@@ -165,7 +171,7 @@ EXTRACTED_PART_BUDGETS = {
     "allocation-publication.js": (272, 13780),
     "finalize-attestation.js": (27, 1750),
     "fx-rates-editor.js": (99, 5202),
-    "advisor-guidance.js": (610, 36797),
+    "advisor-guidance.js": (717, 43265),
 }
 
 

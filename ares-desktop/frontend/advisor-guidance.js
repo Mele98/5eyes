@@ -67,7 +67,7 @@
       + '<legend style="font-weight:600;padding:0 4px">Freigabe der Soll-Allokation</legend>'
       + '<label for="firm-single-person" style="display:flex;gap:8px;align-items:flex-start;cursor:pointer">'
       + '<input type="checkbox" id="firm-single-person" aria-describedby="firm-single-person-help"' + (on ? ' checked' : '') + '>'
-      + '<span><b>Ein-Personen-Firma (Einzelfreigabe mit Attest)</b></span></label>'
+      + '<span><b>Ein-Personen-Firma (Einzelfreigabe mit Begründung)</b></span></label>'
       + '<div id="firm-single-person-help" style="color:var(--n6);margin:6px 0 0 24px">'
       + 'Nur einschalten, wenn in Ihrer Firma genau eine Person Empfehlungen freigibt. Dann publizieren Sie eine selbst finalisierte '
       + 'Soll-Allokation mit einer kurzen Begründung (mindestens 20 Zeichen); die Freigabe wird als «Einzelfreigabe» gekennzeichnet. '
@@ -107,7 +107,8 @@
     if (ok !== true) { box.checked = !want; return false; }
     try {
       await API.put('/tenants/me', {single_person_firm: want});
-      if (status) { status.textContent = want ? 'Gespeichert: Ein-Personen-Firma (Einzelfreigabe mit Attest).' : 'Gespeichert: Vier-Augen-Prinzip.'; status.style.color = 'var(--pos)'; }
+      markFirmQuestionAnswered({id: 'main'});
+      if (status) { status.textContent = want ? 'Gespeichert: Ein-Personen-Firma (Einzelfreigabe mit Begründung).' : 'Gespeichert: Vier-Augen-Prinzip.'; status.style.color = 'var(--pos)'; }
       return true;
     } catch(e) {
       box.checked = !want;
@@ -129,18 +130,72 @@
   // Erst-Einrichtung: bei einer Lizenz fuer genau einen Benutzer wird die Frage
   // ausdruecklich gestellt (Ja/Nein, beide Antworten gehen ueber PUT /tenants/me
   // und damit ins Protokoll). Nie still gesetzt.
+  // N-915-08: eigener Dialog mit drei Ausgaengen -- Ja, Nein, Schliessen/Esc (= spaeter,
+  // nichts gespeichert, die Frage bleibt offen und kommt beim naechsten Start wieder).
+  var firmAskedThisSession = false;
+  function firmQuestionKey(t){ return 'ares.firmQuestionAnswered.' + String((t && t.id) || 'main'); }
+  function firmQuestionAnswered(t){ try { return localStorage.getItem(firmQuestionKey(t)) === '1'; } catch(_) { return false; } }
+  function markFirmQuestionAnswered(t){ try { localStorage.setItem(firmQuestionKey(t), '1'); } catch(_) {} }
+  function firmQuestionDialog(){
+    return new Promise(function(resolve){
+      var old = byId('m-firm-question');
+      if (old && old.parentNode) old.parentNode.removeChild(old);
+      var wrap = document.createElement('div');
+      wrap.id = 'm-firm-question';
+      wrap.className = 'overlay open';
+      wrap.dataset.locked = '1';
+      wrap.style.zIndex = '9500';
+      wrap.innerHTML = '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="firmq-title" aria-describedby="firmq-msg" style="max-width:480px">'
+        + '<div class="mhd"><div class="mtitle" id="firmq-title">Arbeiten Sie allein?</div><button class="mx" type="button" id="firmq-later" aria-label="Schliessen, später entscheiden">&#10005;</button></div>'
+        + '<div class="mbody"><div id="firmq-msg" style="font-size:12px;color:var(--n7);line-height:1.5">'
+        + '<p style="margin:0 0 8px">Ihre Lizenz umfasst einen Benutzer.</p>'
+        + '<p style="margin:0 0 8px"><b>Ja:</b> Ein-Personen-Firma. Sie publizieren selbst finalisierte Soll-Allokationen mit einer kurzen Begründung (Einzelfreigabe mit Begründung).</p>'
+        + '<p style="margin:0 0 8px"><b>Nein:</b> Vier-Augen-Prinzip. Eine zweite berechtigte Person gibt frei.</p>'
+        + '<p style="margin:0">Die Antwort wird protokolliert und ist unter Administration › Firma jederzeit änderbar. Schliessen Sie den Dialog, bleibt die Frage offen.</p></div></div>'
+        + '<div class="mfooter"><button class="btn" type="button" id="firmq-no">Nein, Vier-Augen-Prinzip</button><button class="btn-p" type="button" id="firmq-yes">Ja, Ein-Personen-Firma</button></div></div>';
+      document.body.appendChild(wrap);
+      function done(v){ document.removeEventListener('keydown', onKey, true); if (wrap.parentNode) wrap.parentNode.removeChild(wrap); resolve(v); }
+      function onKey(ev){ if (ev.key === 'Escape') { ev.preventDefault(); done(null); } }
+      document.addEventListener('keydown', onKey, true);
+      byId('firmq-yes').addEventListener('click', function(){ done('yes'); });
+      byId('firmq-no').addEventListener('click', function(){ done('no'); });
+      byId('firmq-later').addEventListener('click', function(){ done(null); });
+      try { byId('firmq-yes').focus(); } catch(_){}
+    });
+  }
+  // Bei einer Lizenz fuer genau einen Benutzer ausdruecklich fragen; Ja/Nein gehen ueber
+  // PUT /tenants/me ins Protokoll. Nie still gesetzt. Rueckgabe true/false, null = offen.
   async function askSinglePersonFirmAfterBootstrap(){
     var t;
     try { t = await API.get('/tenants/me'); } catch(_) { return null; }
     if (!t || Number(t.max_users) !== 1 || Number(t.single_person_firm || 0) === 1) return null;
-    var yes = await uiConfirm({
-      title: 'Arbeiten Sie allein?',
-      message: 'Ihre Lizenz umfasst einen Benutzer.\n\nJa: Ein-Personen-Firma. Sie publizieren selbst finalisierte Soll-Allokationen mit einer kurzen Begründung (Einzelfreigabe mit Attest).\n\nNein: Vier-Augen-Prinzip. Eine zweite berechtigte Person gibt frei.\n\nDie Antwort wird protokolliert und ist unter Administration › Firma jederzeit änderbar.',
-      okLabel: 'Ja, Ein-Personen-Firma', cancelLabel: 'Nein, Vier-Augen-Prinzip'
-    });
-    try { await API.put('/tenants/me', {single_person_firm: yes === true}); }
-    catch(e) { notice('warn', 'Einstellung Ein-Personen-Firma nicht gespeichert: ' + errorText(e, '?') + ' Bitte unter Administration › Firma nachholen.'); }
-    return yes === true;
+    firmAskedThisSession = true;
+    var answer = await firmQuestionDialog();
+    if (answer === null) return null;
+    try {
+      await API.put('/tenants/me', {single_person_firm: answer === 'yes'});
+      markFirmQuestionAnswered(t);
+    } catch(e) { notice('warn', 'Einstellung Ein-Personen-Firma nicht gespeichert: ' + errorText(e, '?') + ' Bitte unter Administration › Firma nachholen.'); }
+    return answer === 'yes';
+  }
+  // Offene Frage beim naechsten Start erneut stellen (nur Admin, einmal je Sitzung).
+  async function askSinglePersonFirmIfOpen(){
+    if (!isAdmin() || firmAskedThisSession) return null;
+    var t;
+    try { t = await API.get('/tenants/me'); } catch(_) { return null; }
+    if (!t || firmQuestionAnswered(t)) return null;
+    return askSinglePersonFirmAfterBootstrap();
+  }
+  function hookInitApp(){
+    var original = window.initApp;
+    if (typeof original !== 'function' || original.__k2Hooked) return;
+    var wrapped = async function(){
+      var result = await original.apply(this, arguments);
+      askSinglePersonFirmIfOpen();
+      return result;
+    };
+    wrapped.__k2Hooked = true;
+    window.initApp = wrapped;
   }
 
   // Vier-Augen-Sperre beim Publizieren (aus allocation-publication.js aufgerufen).
@@ -162,7 +217,7 @@
     }
     var goFirm = await uiConfirm({
       title: 'Freigabe durch eine zweite Person nötig',
-      message: 'Sie haben die Empfehlung selbst finalisiert. Es gibt zwei Wege:\n\n1. Eine zweite berechtigte Person meldet sich an und publiziert: ein Admin oder der zuständige Berater dieses Kunden (Berater sehen nur die eigenen Kunden).\n\n2. Arbeiten Sie allein, schalten Sie unter Administration › Firma «Ein-Personen-Firma (Einzelfreigabe mit Attest)» ein und publizieren danach mit Begründung.'
+      message: 'Sie haben die Empfehlung selbst finalisiert. Es gibt zwei Wege:\n\n1. Eine zweite berechtigte Person meldet sich an und publiziert: ein Admin oder der zuständige Berater dieses Kunden (Berater sehen nur die eigenen Kunden).\n\n2. Arbeiten Sie allein, schalten Sie unter Administration › Firma «Ein-Personen-Firma (Einzelfreigabe mit Begründung)» ein und publizieren danach mit Begründung.'
         + (isAdmin() ? '' : '\n\nDie Firmeneinstellung ändert ein Admin.'),
       okLabel: isAdmin() ? 'Zu Administration › Firma' : 'OK', cancelLabel: 'Schliessen'
     });
@@ -224,7 +279,7 @@
         + (sub ? '<span style="color:var(--neg);font-weight:600">Ersatzkurs – nicht belegt</span>' : esc(String(r.source || '') + ', ' + String(r.valid_from || '').slice(0, 10))) + '</label>'
         + '<input class="fi fxq-input" id="fxq-rate-' + esc(ccy) + '" type="number" step="0.0001" min="0.0001" data-currency="' + esc(ccy) + '" data-original="' + (sub ? '' : esc(shown)) + '"'
         + (sub ? ' placeholder="' + esc(shown) + '" value=""' : ' value="' + esc(shown) + '"') + '>'
-        + '<label style="font-size:10px;color:var(--n5);display:flex;gap:4px;align-items:center;margin-top:3px"><input type="checkbox" class="fxq-confirm" data-currency="' + esc(ccy) + '"> Kurs geprüft (Quelle Manual, Datum heute)</label></div>';
+        + '<label style="font-size:10px;color:var(--n5);display:flex;gap:4px;align-items:center;margin-top:3px"><input type="checkbox" class="fxq-confirm" data-currency="' + esc(ccy) + '"> Kurs geprüft (Quelle manuell, Datum heute)</label></div>';
     }).join('');
     try { var first = grid.querySelector('.fxq-input'); if (first) first.focus(); } catch(_){}
     return true;
@@ -375,10 +430,26 @@
     }
     if (!s.loading && s.data && s.data.amount_currency && s.data.gross_wealth_rappen != null) {
       var d = s.data;
-      return {currency: up(d.amount_currency), advisory: d.advisory_wealth_rappen / 100, gross: d.gross_wealth_rappen / 100,
+      return {currency: up(d.amount_currency), advisoryRappen: d.advisory_wealth_rappen, grossRappen: d.gross_wealth_rappen,
+        liabilitiesRappen: d.liabilities_rappen, advisory: d.advisory_wealth_rappen / 100, gross: d.gross_wealth_rappen / 100,
         liabilities: d.liabilities_rappen / 100, net: d.net_worth_rappen / 100, other: (d.gross_wealth_rappen - d.advisory_wealth_rappen) / 100};
     }
     return {blocked: true, pending: s.loading, currencies: ccys, error: s.error};
+  }
+  // N-915-02: Ist-Pfad, Ist-Gewichte und Hypothekenserie rechnet der Browser nicht ueber Waehrungen.
+  function wealthFxOpenReason(){
+    var items = typeof activeClientWealthPositions === 'function' ? activeClientWealthPositions() : [];
+    var ccys = wealthCurrencies(items).filter(function(c){ return c !== '?'; });
+    if (ccys.length < 2) return '';
+    return 'Ist-Vermögenspfad und Ist-Gewichte: Positionen in mehreren Währungen (' + ccys.join(', ') + '). Umrechnung offen – '
+      + 'der Browser rechnet keine Kurse um. Die Anlagestrategie rechnet mit belegten Kursen (Asset Allokation).';
+  }
+  function hookIstReason(){
+    var original = window.istProjectionBasisUnavailableReason;
+    if (typeof original !== 'function' || original.__k2Hooked) return;
+    var wrapped = function(){ return wealthFxOpenReason() || original.apply(this, arguments); };
+    wrapped.__k2Hooked = true;
+    window.istProjectionBasisUnavailableReason = wrapped;
   }
   function wealthMixedNotice(mix){
     if (!mix || !mix.blocked) return '';
@@ -407,6 +478,26 @@
     btn.title = 'Prüft die Empfehlung, bestätigt die Bewertungen und hält sie fest. Danach kann die Soll-Allokation publiziert werden.';
     btn.addEventListener('click', function(){ if (typeof openImplementationRecipe === 'function') openImplementationRecipe(); });
     refresh.parentNode.insertBefore(btn, refresh.nextSibling);
+    var hint = document.createElement('button');
+    hint.className = 'btn';
+    hint.id = 'po-finalize-hint';
+    hint.type = 'button';
+    hint.textContent = 'Zuerst Anlagestrategie berechnen →';
+    hint.title = 'Ohne Soll-Allokation gibt es nichts zu finalisieren (Asset Allokation › Anlagestrategie berechnen).';
+    hint.addEventListener('click', function(){ if (typeof go === 'function') go('al'); });
+    btn.parentNode.insertBefore(hint, btn.nextSibling);
+    syncFinalizeButton();
+  }
+  // N-915-11: "Empfehlung finalisieren" nur mit einer Soll-Allokation (sonst Wegweiser).
+  function syncFinalizeButton(){
+    var btn = byId('btn-po-finalize'), hint = byId('po-finalize-hint');
+    if (!btn) return false;
+    var a = typeof strategyState !== 'undefined' && strategyState ? strategyState.allocation : null;
+    var ready = !!(a && a.target_allocation && a.target_allocation.id);
+    btn.disabled = !ready;
+    btn.setAttribute('aria-disabled', ready ? 'false' : 'true');
+    if (hint) hint.style.display = ready ? 'none' : '';
+    return ready;
   }
   function goFinalize(){
     if (typeof go === 'function') go('po');
@@ -469,6 +560,7 @@
       el.style.cssText = 'display:none;background:#fff7ed;border:1px solid rgba(194,65,12,0.3);border-radius:var(--r);padding:10px 12px;margin-bottom:10px;font-size:11px;line-height:1.5;color:#7c2d12';
       wrap.parentNode.insertBefore(el, wrap);
     }
+    syncFinalizeButton();
     var txt = sampleProductText(positions);
     el.innerHTML = txt ? '<b>Musterkatalog – nicht zur Umsetzung.</b> ' + esc(txt) : '';
     el.style.display = txt ? '' : 'none';
@@ -478,19 +570,29 @@
   }
 
   // ---------------------------------------------------------------- Prognose-Verzehr (E2E-12)
+  // Erstes Jahr unter null (N-915-05: strikt < 0; ein Startwert 0 ist kein Verzehr).
   function depletionYear(labels, series){
-    for (var i = 0; i < (series || []).length; i++) { if (Number(series[i]) <= 0) return labels && labels[i] != null ? String(labels[i]).slice(0, 4) : null; }
+    for (var i = 0; i < (series || []).length; i++) { if (Number(series[i]) < 0) return labels && labels[i] != null ? String(labels[i]).slice(0, 4) : null; }
     return null;
   }
+  // "aufgebraucht" nur, wenn zuvor Vermoegen da war; sonst (Start <= 0) Finanzierungsluecke.
+  function depletionPhrase(series, year){
+    return Number((series || [])[0]) > 0 ? 'Vermögen aufgebraucht ab ' + year : 'Finanzierungslücke ab ' + year;
+  }
   // Satz unter dem Faecher, wenn die Prognose ins Negative laeuft (Berechnung unveraendert).
+  // Massgeblich ist der schwaechste negative Verlauf: P90 < 0 vor P50 < 0 vor P10 < 0.
   function fanDepletionSentence(labels, p10, p50, p90){
-    var last = Math.min((p10 || []).length, (p90 || []).length) - 1;
+    var last = Math.min((p10 || []).length, (p50 || []).length, (p90 || []).length) - 1;
     if (last < 0 || !(Number(p10[last]) < 0)) return '';
-    var mid = depletionYear(labels, p50), low = depletionYear(labels, p10);
+    var tail = ' Werte unter null zeigen die Finanzierungslücke.';
+    var mid = depletionYear(labels, p50), low = depletionYear(labels, p10), high = depletionYear(labels, p90);
     if (Number(p90[last]) < 0 && mid) {
-      return 'Vermögen aufgebraucht ab ' + mid + ' (mittlerer Verlauf). Danach entsteht eine Finanzierungslücke; die Werte unter null zeigen deren Höhe.';
+      return depletionPhrase(p50, mid) + ' (mittlerer Verlauf); auch im günstigen Verlauf (9 von 10) ab ' + high + '.' + tail;
     }
-    return low ? 'Im ungünstigen Verlauf (1 von 10) ist das Vermögen ab ' + low + ' aufgebraucht; Werte unter null zeigen die Finanzierungslücke.' : '';
+    if (Number(p50[last]) < 0 && mid) {
+      return depletionPhrase(p50, mid) + ' (mittlerer Verlauf, in mehr als der Hälfte der Verläufe).' + tail;
+    }
+    return low ? 'Im ungünstigen Verlauf (1 von 10): ' + depletionPhrase(p10, low) + '.' + tail : '';
   }
   // Kennzahl "Prognose <Jahr>": negativer Endwert wird als Verzehr beschriftet.
   function markProjectionDepletion(valueId, projectedRappen, result){
@@ -501,7 +603,7 @@
     var series = (mc && mc.target_p50_series_rappen) || (sim && sim.target_mix_series_rappen) || [];
     var labels = (mc && mc.year_labels) || (sim && sim.year_labels) || [];
     var year = depletionYear(labels, series);
-    el.previousElementSibling.textContent = year ? 'Vermögen aufgebraucht ab ' + year : 'Vermögen aufgebraucht';
+    el.previousElementSibling.textContent = year ? depletionPhrase(series, year) : 'Finanzierungslücke';
     el.title = 'Finanzierungslücke am Ende der Prognose (Wert unter null).';
     return year;
   }
@@ -515,7 +617,7 @@
     card.setAttribute('role', 'group');
     card.setAttribute('aria-label', 'Pensionierung');
     card.style.cssText = 'display:none;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;padding:8px 12px;border:1px solid var(--b1);border-radius:var(--r2);background:var(--bg);font-size:11px';
-    card.innerHTML = '<span style="font-weight:600">Pensionierung</span><span id="cf-retirement-text"></span>'
+    card.innerHTML = '<span style="font-weight:600">Pensionierung:</span> <span id="cf-retirement-text"></span>'
       + '<label for="cf-retirement-year" style="margin-left:auto;font-size:10px;color:var(--n5)">Pensionierungsjahr</label>'
       + '<input class="fi" id="cf-retirement-year" type="number" min="2000" max="2100" placeholder="z.B. 2031" style="width:90px;font-size:11px">'
       + '<button class="btn btn-sm" type="button" id="btn-cf-retirement-save" onclick="saveRetirementYear()">Speichern</button>';
@@ -564,7 +666,7 @@
     var wrapped = async function(p){
       var result = await original.apply(this, arguments);
       if (p === 'cf' || p === 'ub') renderRetirementCard();
-      if (p === 'po') mountFinalizeButton();
+      if (p === 'po') { mountFinalizeButton(); syncFinalizeButton(); }
       return result;
     };
     wrapped.__k2Hooked = true;
@@ -578,6 +680,8 @@
     mountRetirementCard();
     ensureBlocker();
     hookGo();
+    hookIstReason();
+    hookInitApp();
   }
   if (typeof document !== 'undefined' && document.addEventListener) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountAll);
@@ -588,6 +692,8 @@
   window.saveAdminFirm = saveAdminFirm;
   window.openAdminFirmSection = openAdminFirmSection;
   window.askSinglePersonFirmAfterBootstrap = askSinglePersonFirmAfterBootstrap;
+  window.askSinglePersonFirmIfOpen = askSinglePersonFirmIfOpen;
+  window.syncFinalizeButton = syncFinalizeButton;
   window.publishFourEyesFlow = publishFourEyesFlow;
   window.openFxQuickEditor = openFxQuickEditor;
   window.saveFxQuickEditor = saveFxQuickEditor;
@@ -598,6 +704,7 @@
   window.wealthMixedTotals = wealthMixedTotals;
   window.resetWealthSummaryCache = resetWealthSummaryCache;
   window.wealthMixedNotice = wealthMixedNotice;
+  window.wealthFxOpenReason = wealthFxOpenReason;
   window.syncFinalizeShortcut = syncFinalizeShortcut;
   window.goFinalize = goFinalize;
   window.populateRecipeDepotBanks = populateRecipeDepotBanks;
