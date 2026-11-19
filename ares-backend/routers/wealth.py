@@ -592,7 +592,13 @@ def _resolve_goal_rank_conflict(
     return int(max_rank or 0) + 1
 
 
-_AMORTIZATION_LABEL_RE = re.compile(r"\b(tilgung|amortisation|amortization)\b", re.IGNORECASE)
+# KN-B / N-917-01: ohne Wortgrenzen -- deutsche Komposita ("Hypothekar-
+# amortisation", "Amortisationszahlung (Hypothek)", "Hypothekartilgung") haben
+# keine interne Wortgrenze. Wirkt nur bei aktiver Hypothek des Kunden.
+_AMORTIZATION_LABEL_RE = re.compile(r"tilgung|amorti[sz]", re.IGNORECASE)
+# Hypothekarzins auch als "Hypozins", "Schuldzins (Eigenheim)", "Eigenheimzins";
+# nicht "Mietzins", "Sparzins", "Zinsertrag Sparkonto".
+_MORTGAGE_INTEREST_CONTEXT = ("hypo", "schuldzins", "eigenheim")
 # Mieteinnahmen werden von derive_wealth_cashflows() JEDER aktiven Immobilie
 # mit Wert > 0 automatisch als "Mieteinnahmen: {label}"-Income hinzugefuegt.
 _RENTAL_INCOME_LABEL_RE = re.compile(r"\bmiet\w*", re.IGNORECASE)
@@ -617,7 +623,7 @@ def _is_mortgage_interest_label(label) -> bool:
     if not label:
         return False
     normalized = str(label).lower()
-    return "hypothek" in normalized and "zins" in normalized
+    return "zins" in normalized and any(term in normalized for term in _MORTGAGE_INTEREST_CONTEXT)
 
 
 def _is_rental_income_label(label) -> bool:

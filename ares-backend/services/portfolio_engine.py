@@ -70,7 +70,7 @@ from core.fx_freshness import (  # K1 E2E-03
     INPUT_SNAPSHOT_VERSION_FX_EFFECTIVE, fx_freshness_projection_context, predates_fx_effective_hash,
     stale_allocation_message, used_foreign_currencies,
 )
-from core.property_gate import effective_property_growth_bps, goal_funding_flag_counts, mortgage_projection_enabled  # K1
+from core.property_gate import effective_property_growth_bps, goal_funding_flag_counts, mortgage_projection_enabled, mortgages_without_interest_rate  # K1
 from services.wealth_cashflows import (
     derive_tax_cashflow,
     derive_wealth_cashflows, require_mortgage_interest_rates,  # K1 N-913-01
@@ -2683,7 +2683,7 @@ def _compute_input_snapshot_hash(
             int(getattr(p, "property_rental_inflation_linked", 0) or 0),
             int(getattr(p, "asset_expected_return_bps", 0) or 0),
             int(getattr(p, "liquidity_interest_rate_bps", 0) or 0),
-            int(getattr(p, "mortgage_interest_rate_bps", 0) or 0),
+            -1 if mortgages_without_interest_rate([p]) else int(getattr(p, "mortgage_interest_rate_bps", 0) or 0),  # N-917-02
             int(getattr(p, "mortgage_amortization_rappen", 0) or 0),
             str(getattr(p, "mortgage_amortization_type", "") or ""),
             str(getattr(p, "mortgage_type", "") or ""),
