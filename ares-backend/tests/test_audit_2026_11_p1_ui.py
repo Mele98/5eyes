@@ -44,7 +44,7 @@ def test_module_renders_all_master_data_fields_and_marks():
                        "pf-distribution", "pf-valor", "pf-min-investment"):
         assert f'id="{element_id}"' in module, element_id
     assert "Retrozession unbekannt" in module
-    assert "ISIN ungueltig" in module
+    assert "ISIN ungültig" in module
 
 
 def _run(script_body: str) -> dict:
@@ -56,7 +56,7 @@ def _run(script_body: str) -> dict:
     %s
     %s
     """ % (module, script_body)
-    proc = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+    proc = subprocess.run(["node", "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=30)
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
 
@@ -89,8 +89,8 @@ def test_badges_mark_unknown_retro_and_invalid_isin():
         "unknown: adminFundMasterDataBadges({isin_status:'invalid', retrocession_status:'unknown', master_data_gaps:['isin','retrocession_bps','domicile']}),"
         "free: adminFundMasterDataBadges({isin_status:'valid', retrocession_status:'none', master_data_gaps:[]})}));"
     )
-    assert "ISIN ungueltig" in out["unknown"] and "Retrozession unbekannt" in out["unknown"]
-    assert "Stammdaten unvollstaendig" in out["unknown"]
+    assert "ISIN ungültig" in out["unknown"] and "Retrozession unbekannt" in out["unknown"]
+    assert "Stammdaten unvollständig" in out["unknown"]
     assert out["free"] == ""
 
 

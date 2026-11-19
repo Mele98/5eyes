@@ -276,7 +276,7 @@
       var ccy = up(r.currency), sub = typeof fxIsSubstituteSource === 'function' && fxIsSubstituteSource(r.source);
       var shown = Number(r.rate) > 0 ? String(Number(r.rate)) : '';
       return '<div><label class="fl" for="fxq-rate-' + esc(ccy) + '">1 ' + esc(ccy) + (unit ? ' in ' + esc(unit) : '') + ' · '
-        + (sub ? '<span style="color:var(--neg);font-weight:600">Ersatzkurs – nicht belegt</span>' : esc(String(r.source || '') + ', ' + String(r.valid_from || '').slice(0, 10))) + '</label>'
+        + (sub ? '<span style="color:var(--neg);font-weight:600">Ersatzkurs – nicht belegt</span>' : esc(fxSourceText(r.source) + ', ' + String(r.valid_from || '').slice(0, 10))) + '</label>'
         + '<input class="fi fxq-input" id="fxq-rate-' + esc(ccy) + '" type="number" step="0.0001" min="0.0001" data-currency="' + esc(ccy) + '" data-original="' + (sub ? '' : esc(shown)) + '"'
         + (sub ? ' placeholder="' + esc(shown) + '" value=""' : ' value="' + esc(shown) + '"') + '>'
         + '<label style="font-size:10px;color:var(--n5);display:flex;gap:4px;align-items:center;margin-top:3px"><input type="checkbox" class="fxq-confirm" data-currency="' + esc(ccy) + '"> Kurs geprüft (Quelle manuell, Datum heute)</label></div>';
@@ -423,9 +423,9 @@
       API.get(wealthSummaryUrl(cid)).then(function(d){ s.data = d; }, function(e){ s.error = detailOf(e) || {message: errorText(e, '?')}; })
         .then(function(){ s.loading = false; if (s.key === key && String(currentClientId) === String(cid) && typeof renderWealthPositions === 'function') renderWealthPositions(currentWealthPositions); });
     }
-    // K1/CK-01 (Stand 47bb7f5f): fehlender Kurs = 200 ohne Betrag mit amount_block_*; aelter: 409 CCX_FX_BASIS_*.
+    // K1/CK-01: fehlender Kurs = 200 ohne Betrag mit amount_block_*; aelter: 409 CCX_FX_BASIS_*.
     if (!s.loading && s.data && s.data.amount_block_reason_code) {
-      return {blocked: true, currencies: ccys, error: {reason_code: s.data.amount_block_reason_code,
+      return {blocked: true, currencies: ccys, srvAdvisoryRappen: s.data.advisory_wealth_rappen, error: {reason_code: s.data.amount_block_reason_code,
         currencies: s.data.amount_block_currencies || [], message: s.data.amount_block_message || ''}};
     }
     if (!s.loading && s.data && s.data.amount_currency && s.data.gross_wealth_rappen != null) {
@@ -442,7 +442,7 @@
     var ccys = wealthCurrencies(items).filter(function(c){ return c !== '?'; });
     if (ccys.length < 2) return '';
     return 'Ist-Vermögenspfad und Ist-Gewichte: Positionen in mehreren Währungen (' + ccys.join(', ') + '). Umrechnung offen – '
-      + 'der Browser rechnet keine Kurse um. Die Anlagestrategie rechnet mit belegten Kursen (Asset Allokation).';
+      + 'die Anlagestrategie rechnet mit belegten Kursen (Asset Allokation).';
   }
   function hookIstReason(){
     var original = window.istProjectionBasisUnavailableReason;

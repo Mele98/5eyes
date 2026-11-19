@@ -158,6 +158,12 @@ Wegweiser, Verzehr-Logik, Grund fuer den gesperrten Ist-Pfad).
 Integration H12+K1+K2 (2026-11-19, r5/kern-integration): alle Teile aller
 Seiten gelten; Monolith und Teilbudgets auf den gemessenen Stand nach dem Merge:
 26479 Z./1624968 B; unsaved-changes.js 82/4342 (H11-Rueckfrage + K2-Bereinigung).
+KN-U Kernkette-Nachtrag Classic-UI (Dok. 117, 2026-11-19): neuer Teil
+``mandate-view.js`` (Budget = Stand bei Einfuehrung): Reset beim Mandatswechsel,
+Banner unter der Kopfzeile, veraltete Soll-Allokation mit Ursache, "Umrechnung
+offen" statt "keine Position", Verzehr-Kachel. clearStrategySummaryForDirtyState
+ist in den Teil umgezogen; der Monolith schrumpft trotz Umlaut-/Textkorrekturen.
+advisor-guidance.js, fx-rates-editor.js, ist-projection-basis.js gesenkt.
 """
 from __future__ import annotations
 
@@ -166,9 +172,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26479
+MONOLITH_MAX_LINES = 26456
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1624968
+MONOLITH_MAX_BYTES = 1623898
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -179,7 +185,7 @@ EXTRACTED_PART_BUDGETS = {
     "aa-chart.js": (316, 20632),
     "ist-projection-gate.js": (288, 15951),
     "session-boundary.js": (53, 2763),
-    "ist-projection-basis.js": (87, 4649),
+    "ist-projection-basis.js": (87, 4627),
     "unsaved-changes.js": (82, 4342),
     "goal-review-runtime.js": (1564, 83881),
     "client-compliance.js": (469, 29978),
@@ -189,8 +195,9 @@ EXTRACTED_PART_BUDGETS = {
     "wealth-inflows.js": (282, 16491),
     "allocation-publication.js": (272, 13780),
     "finalize-attestation.js": (27, 1750),
-    "fx-rates-editor.js": (99, 5202),
-    "advisor-guidance.js": (728, 43966),
+    "fx-rates-editor.js": (97, 5091),
+    "mandate-view.js": (625, 35585),
+    "advisor-guidance.js": (728, 43963),
 }
 
 

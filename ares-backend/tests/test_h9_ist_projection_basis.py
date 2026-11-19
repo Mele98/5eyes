@@ -270,7 +270,7 @@ def test_basis_module_is_mandate_scoped_and_fail_closed():
     module = (FRONTEND_DIR / "ist-projection-basis.js").read_text(encoding="utf-8")
     assert "'/mandates/'+mid+'/ist-projection-basis'" in module
     assert "if(st.mid!==mid)st.data=null;" in module
-    assert "IST_PROJECTION_BASIS_UNAVAILABLE" in module
+    assert "st.reason=(detail&&detail.message)" in module  # KN-U E2E2-08: jeder typisierte Grund
     out = run_js((), (
         "var r1=istProjectionServerBasisFor();"
         "istProjectionBasisState={mid:'m-A',key:'k',data:{x:1},status:'ok',reason:'',seq:1};var r2=istProjectionServerBasisFor();"

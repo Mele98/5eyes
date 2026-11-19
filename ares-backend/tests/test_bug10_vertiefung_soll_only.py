@@ -52,7 +52,7 @@ def test_analysis_disclosure_wording_ist_soll_only():
     line = text[idx:line_end]
     assert "IST/SOLL" not in line
     assert "Strategie-Spiegel" not in line
-    assert "Solver-Trace" in line
+    assert "Rechenweg" in line and "Solver-Trace" not in line  # KN-U E2E2-14
 
 
 def test_analysis_body_haengt_nicht_mehr_strategyCard_oder_strategySpiegel_an():

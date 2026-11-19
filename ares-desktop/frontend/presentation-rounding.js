@@ -138,7 +138,7 @@
   }
   function unitOf(currency) {
     var c = String(currency || '').toUpperCase().trim();
-    if (!c) throw new Error('Waehrung ist Pflicht');
+    if (!c) throw new Error('Währung ist Pflicht');
     return c;
   }
   function formatMoneyMinor(minor, currency, exponent, decimals, opts) {
@@ -180,7 +180,7 @@
     var ds = (values || []).map(function (v) {
       var d = toDecimal(v);
       if (!d) throw new Error('Apportionierung braucht Werte');
-      if (d.neg) throw new Error('Apportionierung nur fuer nicht-negative Gewichte');
+      if (d.neg) throw new Error('Apportionierung nur für nicht-negative Gewichte');
       return scale(d, decimals - 2); // in Anzeigeeinheiten
     });
     var e = 0;

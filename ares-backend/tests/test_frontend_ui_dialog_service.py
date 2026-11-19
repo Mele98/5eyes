@@ -172,7 +172,7 @@ def test_cancel_handoff_empty_reason_blocks_submit_without_sending():
     )
     r, calls = result["R"], result["calls"]
     assert r["stillOpen"] is True
-    assert r["err"] == "Bitte ausfuellen."
+    assert r["err"] == "Bitte ausfüllen."  # KN-U E2E2-11: echte Umlaute
     assert r["errShown"] == ""
     assert r["invalid"] == "true"
     assert calls["posts"] == []

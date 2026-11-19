@@ -254,7 +254,7 @@ function syncGoalModalState(){
   var prioritySelect=document.getElementById('nz-prio');
   if(prioritySelect&&prioritySelect.options&&prioritySelect.options.length>=3){
     prioritySelect.options[0].textContent='Hart - muss erreicht werden';
-    prioritySelect.options[1].textContent='Primaer - wichtiges Planungsziel';
+    prioritySelect.options[1].textContent='Primär - wichtiges Planungsziel';
     prioritySelect.options[2].textContent='Opportunistisch - Wunschziel';
   }
   applyGoalTypeVisibility(type);
@@ -328,10 +328,10 @@ function syncGoalModalState(){
   }
   if(hardnessHint){
     hardnessHint.textContent=isReturnGoalType(type)
-      ? 'Rendite ist keine garantierbare Leistung und kann deshalb nur Primaer oder Opportunistisch sein.'
+      ? 'Rendite ist keine garantierbare Leistung und kann deshalb nur Primär oder Opportunistisch sein.'
       : (isMaxGoalType(type)
         ? 'Maximierung ist ein Wunschziel und kein verbindlicher Mindestbedarf.'
-        : 'Hart ist fuer echte Bedarfs-, Entnahme- und Vermoegensziele zulaessig.');
+        : 'Hart ist für echte Bedarfs-, Entnahme- und Vermögensziele zulässig.');
   }
   updateGoalDerivedDiagnostics();
 }
@@ -565,7 +565,7 @@ async function saveGoal(options){
     }
   }
   if(isReturnGoalType(type)&&prio==='1'){
-    showModalFeedback('nz-error',btn,'Renditeziele koennen nicht als Hart gespeichert werden. Bitte Primaer oder Opportunistisch waehlen.',true);
+    showModalFeedback('nz-error',btn,'Renditeziele können nicht als Hart gespeichert werden. Bitte Primär oder Opportunistisch wählen.',true);
     return false;
   }
   if(type==='Einmalige_Ausgabe'){
@@ -1222,7 +1222,7 @@ function aaKnowledgeGapCardBody(check,buckets){
     var cls=f?(f.asset_class||f.label):'',bps=Number(f&&f.target_weight_bps||0),pct=sollPct(cls,bps,buckets);
     return String(f&&f.label||'Anlageklasse')+' ('+pct+'): '+String(f&&f.action||'');
   });
-  return 'Fuer folgende Anlageklassen der Strategie sind weder Kenntnisse noch eine Aufklaerung dokumentiert: '+actions.join(' · ')+' Die Allokation wurde dadurch nicht veraendert.';
+  return 'Für folgende Anlageklassen der Strategie sind weder Kenntnisse noch eine Aufklärung dokumentiert: '+actions.join(' · ')+' Die Allokation wurde dadurch nicht verändert.';
 }
 function renderActionCards(reasoning){
   var el=document.getElementById('aa-action-list');
@@ -1241,7 +1241,7 @@ function renderActionCards(reasoning){
     var horizonText=risk&&risk.investment_horizon_years?('Horizont '+risk.investment_horizon_years+' Jahre'):'';
     var profileBits=[profile,scoreText,horizonText].filter(Boolean);
     var profileBody='Die Soll-Allokation wird vom Profil '+profileBits.join(' · ')+' getragen.';
-    if(allocation&&allocation.house_matrix_profile)profileBody+=' Die House View startet aus '+allocation.house_matrix_profile+' und bleibt innerhalb der Risiko-Leitplanken.';
+    if(allocation&&allocation.house_matrix_profile)profileBody+=' Die Hausmeinung startet aus '+allocation.house_matrix_profile+' und bleibt innerhalb der Risiko-Leitplanken.';
     pushCard('Risikoprofil & Horizont','Zentral','tr2',profileBody,'good');
   }
   if(allocation&&allocation.knowledge_asset_class_check){
@@ -1262,11 +1262,11 @@ function renderActionCards(reasoning){
     var cashflowInfo=currentCashflowCoverageInfo();
     var reliefRows=decumulationCapitalBridgeRows(2);
     if(annualNet<0||reserveNeeded>0||externalReserve>0){
-      var reserveBody='Der Fall ist im Vermoegensverzehr: laufende Einkommen '+formatRappen(cashflowInfo.incomeRappen,cashflowInfo.currency)+' p.a., Ausgaben '+formatRappen(cashflowInfo.expenseRappen,cashflowInfo.currency)+' p.a., Finanzierungsluecke '+formatSignedRappen(cashflowInfo.netRappen,cashflowInfo.currency)+' p.a..';
+      var reserveBody='Der Fall ist im Vermögensverzehr: laufende Einkommen '+formatRappen(cashflowInfo.incomeRappen,cashflowInfo.currency)+' p.a., Ausgaben '+formatRappen(cashflowInfo.expenseRappen,cashflowInfo.currency)+' p.a., Finanzierungslücke '+formatSignedRappen(cashflowInfo.netRappen,cashflowInfo.currency)+' p.a..';
       if(cashflowInfo.coveragePct!=null)reserveBody+=' Die laufenden Einkommen decken rund '+AresRounding.formatPercent(cashflowInfo.coveragePct,0,{typography:'screen'})+' der Ausgaben.';
-      if(reliefRows.length)reserveBody+=' Einmalige Kapitalereignisse entlasten temporaer: '+reliefRows.map(function(row){return row.year+' '+row.label+' '+formatRappen(row.amountRappen,row.currency);}).join(' und ')+'.';
+      if(reliefRows.length)reserveBody+=' Einmalige Kapitalereignisse entlasten temporär: '+reliefRows.map(function(row){return row.year+' '+row.label+' '+formatRappen(row.amountRappen,row.currency);}).join(' und ')+'.';
       reserveBody+=' Die strategische Liquiditaet im Mandat bleibt bei '+liqTarget+'.';
-      if(externalReserve>0)reserveBody+=' Zusaetzlich werden '+formatRappen(allocation.external_reserve_rappen)+' als separate Reserve ausserhalb des Mandats empfohlen.';
+      if(externalReserve>0)reserveBody+=' Zusätzlich werden '+formatRappen(allocation.external_reserve_rappen)+' als separate Reserve ausserhalb des Mandats empfohlen.';
       else if(reserveNeeded>0)reserveBody+=' Der kurzfristige Reservebedarf liegt bei rund '+formatRappen(allocation.reserve_needed_rappen)+'.';
       if(targetRunway!=='-'||currentRunway!=='-')reserveBody+=' Median-Reichweite: IST '+currentRunway+', SOLL '+targetRunway+'.';
       if(runwayDeltaYears!=null&&runwayDeltaYears>0)reserveBody+=' Die Strategie gewinnt im Median rund '+runwayDeltaYears+' Jahre Zeit.';
@@ -1276,7 +1276,7 @@ function renderActionCards(reasoning){
   }
   if(allocation&&Array.isArray(allocation.goal_analysis)&&allocation.goal_analysis.length){
     var primaryGoal=allocation.goal_analysis.slice().sort(function(a,b){return Number(a.rank||99)-Number(b.rank||99);})[0];
-    var goalBody='Prioritaet 1 ist "'+String(primaryGoal.label||'Ziel')+'": '+strategyGoalTargetText(primaryGoal)+' · '+goalTimingLabel(primaryGoal)+'.';
+    var goalBody='Priorität 1 ist "'+String(primaryGoal.label||'Ziel')+'": '+strategyGoalTargetText(primaryGoal)+' · '+goalTimingLabel(primaryGoal)+'.';
     // GOAL-STATUS-BY-SUCCESS-001: kritisch = Erfolgs-Wkt. < 45 % (Ampel 70/45), nicht Mischwert.
     var primarySuccess=goalSuccessPct(primaryGoal);
     var primaryCritical=primarySuccess!=null&&primarySuccess<45;
@@ -1290,7 +1290,7 @@ function renderActionCards(reasoning){
     var expectedVol=fmtPct((Number(allocation.expected_volatility_bps||0)),1);
     var varText=formatRiskLossBps(mc&&mc.target_var_95_1y_bps);
     var ddText=formatRiskLossBps(mc&&mc.target_max_drawdown_p50_bps);
-    var riskBody='Die Strategie rechnet langfristig mit rund '+expectedReturn+' p.a. bei einer Volatilitaet von '+expectedVol+'. In einem schwachen Jahr liegt der modellierte VaR 95% bei '+varText+', der mediane Max Drawdown bei '+ddText+'.';
+    var riskBody='Die Strategie rechnet langfristig mit rund '+expectedReturn+' p.a. bei einer Volatilität von '+expectedVol+'. In einem schwachen Jahr liegt der modellierte VaR 95% bei '+varText+', der mediane Max Drawdown bei '+ddText+'.';
     pushCard('Ertrag & Risiko','Relevant','ta',riskBody,'');
   }
   var leftoverReasoning=(Array.isArray(reasoning)?reasoning:[]).filter(function(text){
@@ -1301,8 +1301,8 @@ function renderActionCards(reasoning){
   if(!items.length){
     items=[
       aaActionCardHtml('Risikoprofil & Horizont','Zentral','tr2','Die Soll-Allokation richtet sich nach Risikoprofil, Anlagehorizont und dem priorisierten Zielpfad.','good'),
-      aaActionCardHtml('House View & Leitplanken','Relevant','ta','Bandbreiten, Restriktionen und Kapitalmarktannahmen begrenzen die Strategie bewusst und machen sie nachvollziehbar.',''),
-      aaActionCardHtml('Naechster Schritt','Einordnung','tn','Vergleiche zur Umsetzung, Entscheidungen und die eigentliche Dokumentation erfolgen anschliessend im Review.','')
+      aaActionCardHtml('Hausmeinung & Leitplanken','Relevant','ta','Bandbreiten, Restriktionen und Kapitalmarktannahmen begrenzen die Strategie bewusst und machen sie nachvollziehbar.',''),
+      aaActionCardHtml('Nächster Schritt','Einordnung','tn','Vergleiche zur Umsetzung, Entscheidungen und die eigentliche Dokumentation erfolgen anschliessend im Review.','')
     ];
   }
   el.innerHTML=items.join('');
@@ -1310,7 +1310,7 @@ function renderActionCards(reasoning){
 // 2026-07-24: Geschaeftsmodell-bewusste Formulierung fuer Band-Abweichungen.
 // Zwei unabhaengige Achsen bestimmen die Sprache, NICHT nur eine:
 // (a) illiquide Anlageklassen (aktuell: Immobilien) sind fuer NIEMANDEN per
-//     Handelsliste rebalancierbar -- auch nicht fuer Vermoegensverwaltung.
+//     Handelsliste rebalancierbar, auch nicht fuer Vermoegensverwaltung.
 // (b) reine Anlageberatung/Finanzplanung/Reporting-only hat keine
 //     Ausfuehrungsbefugnis -- "Rebalancing erforderlich" impliziert faelschlich,
 //     dass die Firma selbst handelt. Nur Vermoegensverwaltung bekommt die
@@ -1347,7 +1347,7 @@ function reviewBandStateMeta(bucket,assetKey){
       label:'Verletzt',
       tagClass:'tr2',
       tone:'var(--neg)',
-      action: illiquid ? 'Bei naechster Transaktion/Gespraech beruecksichtigen'
+      action: illiquid ? 'Bei nächster Transaktion/Gespräch berücksichtigen'
         : (discretionary ? 'Rebalancing erforderlich' : 'Empfehlung anpassen')
     };
   }

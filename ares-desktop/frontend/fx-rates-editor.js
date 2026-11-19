@@ -1,10 +1,8 @@
-/* Ares -- Wechselkurs-Editor (Administration).
- * CCX-P3-FX (N-909-11, 2026-11-18): aus ares.html ausgelagert (Monolith-Budget).
- * Ein Kurs gilt nur als belegt, wenn ihn jemand bewusst erfasst oder bestaetigt
- * hat. Ersatzkurse sind Platzhalter (kein vorbelegter Wert) und sichtbar als
- * "Ersatzkurs – nicht belegt" gekennzeichnet. Gesendet werden nur Zeilen, die
- * der Berater geaendert oder je Zeile ausdruecklich als "Kurs geprueft"
- * bestaetigt hat (Quelle Manual, Datum heute). Teil des Monolith-Bundles. */
+/* Ares -- Wechselkurs-Editor (Administration), CCX-P3-FX (N-909-11). Belegt ist
+ * ein Kurs nur, wenn ihn jemand erfasst oder bestaetigt; Ersatzkurse sind nur
+ * Platzhalter. Gesendet werden geaenderte bzw. als "Kurs geprueft" bestaetigte
+ * Zeilen (Quelle "Manual", angezeigt als "manuell", KN-U E2E2-14). */
+function fxSourceText(s){s=String(s==null?'':s);return s.toLowerCase()==='manual'?'manuell':s;}
 function fxIsSubstituteSource(source){
   return String(source==null?'':source).trim().toLowerCase()==='default'||String(source==null?'':source).trim()==='';
 }
@@ -33,7 +31,7 @@ async function loadAdminFxRates(){
   var grid=document.getElementById('admin-fx-rates-grid');
   var status=document.getElementById('admin-fx-rates-status');
   if(!grid)return;
-  grid.innerHTML='<div style="grid-column:span 4;font-size:10px;color:var(--n5);text-align:center;padding:8px">Laedt...</div>';
+  grid.innerHTML='<div style="grid-column:span 4;font-size:10px;color:var(--n5);text-align:center;padding:8px">Lädt...</div>';
   if(status)status.textContent='';
   try{
     var rates=await API.get('/fx-rates/current');
@@ -47,13 +45,13 @@ async function loadAdminFxRates(){
       var shown=rate>0?rate.toFixed(4):'';
       var hint=substitute
         ?'<span style="color:var(--neg);font-weight:600">Ersatzkurs – nicht belegt</span>'
-        :'<span style="color:var(--n3);font-weight:400">('+escapeHtml(String(entry.source||''))+', '+escapeHtml(String(entry.valid_from||'').slice(0,10))+')</span>';
+        :'<span style="color:var(--n3);font-weight:400">('+escapeHtml(fxSourceText(entry.source))+', '+escapeHtml(String(entry.valid_from||'').slice(0,10))+')</span>';
       var cell=document.createElement('div');
       cell.innerHTML='<label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">'+escapeHtml(ccy)+' '+hint+'</label>'+
         '<input class="fi admin-fx-rate-input" data-currency="'+escapeHtml(ccy)+'" data-original="'+(substitute?'':escapeHtml(shown))+'" type="number" step="0.0001" min="0.0001" '+
         (substitute?'placeholder="'+escapeHtml(shown)+'" value=""':'value="'+escapeHtml(shown)+'"')+' style="font-size:11px">'+
         '<label style="font-size:9px;color:var(--n4);display:flex;gap:4px;align-items:center;margin-top:2px">'+
-        '<input type="checkbox" class="admin-fx-rate-confirm" data-currency="'+escapeHtml(ccy)+'"> Kurs geprüft (Quelle Manual, Datum heute)</label>';
+        '<input type="checkbox" class="admin-fx-rate-confirm" data-currency="'+escapeHtml(ccy)+'"> Kurs geprüft (Quelle manuell, Datum heute)</label>';
       grid.appendChild(cell);
     });
     if(status)status.textContent='Geladen: '+rates.length+' Wechselkurse. Ersatzkurse sind nur Platzhalter und werden nie gespeichert.';
@@ -79,7 +77,7 @@ async function saveAdminFxRates(){
   var status=document.getElementById('admin-fx-rates-status');
   var payload=fxRatesSavePayload(adminFxRateRows());
   if(!payload.rates.length){
-    if(status){status.textContent='Keine geaenderten oder als geprueft bestaetigten Kurse.';status.style.color='var(--neg)';}
+    if(status){status.textContent='Keine geänderten oder als geprüft bestätigten Kurse.';status.style.color='var(--neg)';}
     return;
   }
   if(status){status.textContent='Speichert...';status.style.color='var(--n5)';}

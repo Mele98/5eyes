@@ -76,6 +76,10 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     # FX-Sperre mit Kurseditor, Finalisieren-Schritt, Musterprodukt-Warnung,
     # Verzehr-Kennzeichnung, Pensionierungsjahr. Haengt sich selbst ein.
     ("advisor-guidance.js", "js"),
+    # KN-U Kernkette-Nachtrag (Dok. 117): mandatsgebundene Anzeigen -- Reset beim
+    # Mandatswechsel, Banner unter der Kopfzeile, veraltete Soll-Allokation mit
+    # Ursache, "Umrechnung offen" statt "keine Position", Verzehr-Kachel.
+    ("mandate-view.js", "js"),
     # E2 Nachhaltigkeitspraeferenzen (Dok. 106): Kundenmaske nach dem Risikoprofil.
     ("sustainability-preferences.js", "js"),
 )
