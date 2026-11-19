@@ -183,7 +183,9 @@ ENV_ATTRS = frozenset({"environ", "getenv", "putenv", "unsetenv"})
 #     ohne neue Kopplung.
 FAN_OUT_EXEMPT_LEAVES = frozenset(
     {"core.evidence", "core.reason_codes", "core.db_integrity", "core.goal_vocabulary",
-     "core.presentation_rounding", "core.sustainability_preference"}
+     "core.presentation_rounding", "core.sustainability_preference",
+     # K1 (2026-11-19): Property-Gate und FX-Freshness-Sicht als reine Blaetter.
+     "core.property_gate", "core.fx_freshness"}
 )
 _STDLIB = frozenset(sys.stdlib_module_names) | {"__future__"}
 _DYNAMIC_IMPORT_CALLS = frozenset({"__import__", "import_module"})

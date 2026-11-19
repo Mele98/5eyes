@@ -52,7 +52,7 @@
     "services.cost_disclosure": 7,
     "services.currency.fx_rates": 2,
     "services.data_export": 24,
-    "services.depot_check": 3,
+    "services.depot_check": 2,
     "services.depot_check_snapshot": 7,
     "services.depot_snapshot": 2,
     "services.esg_data_provenance": 6,
@@ -264,7 +264,7 @@
     "services.currency.fx_rates": ["models.fx_rate"],
     "services.data_classification": ["config"],
     "services.data_export": ["models.allocation", "models.clients", "models.mandates", "models.profiling", "models.protocol_bausteine", "models.review", "models.snapshots", "models.wealth", "services.privacy_erasure"],
-    "services.depot_check": ["models.allocation", "models.mandates", "models.review", "models.wealth", "services.allocation_input_staleness", "services.portfolio_engine", "services.product_exposures", "services.risk_assessment_semantics"],
+    "services.depot_check": ["models.allocation", "models.mandates", "models.review", "models.wealth", "services.allocation_input_staleness", "services.fx_basis", "services.portfolio_engine", "services.product_exposures"],
     "services.depot_check_snapshot": ["models.allocation", "models.mandates", "models.snapshots", "services.backtest_stress", "services.cost_disclosure", "services.depot_check", "services.depot_snapshot", "services.holdings_valuation", "services.house_matrix_benchmark"],
     "services.depot_snapshot": ["models.mandates", "models.review", "models.snapshots", "services.backtest_stress", "services.currency.fx_rates", "services.depot_check", "services.portfolio_engine_live_rebalancing", "services.portfolio_handoff"],
     "services.document_archive": ["database", "models.review", "models.users", "services.audit"],
@@ -527,9 +527,11 @@
     "core": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "core.db_integrity": "b2221c8d06a7cb27e782d6ab1db7f765d699b166392a90f67c9d1769ae28fe58",
     "core.evidence": "107ad66eeb7424fd9b9ea3c4786e895e2350aa1061fc43e35ae9b65033b93ae6",
+    "core.fx_freshness": "3305dbb2a5180ffd07b2e0760824b32354de39bb8398c79dc7c17b5792ceadcc",
     "core.goal_vocabulary": "2ce6455a657546ddbc54b665215e899d9e0d4e6df4a79aeaa2562857b0867b82",
     "core.presentation_rounding": "be5c45fc1b51629e3bfc7093c74a3bc79855a63f70f1d23830b45486276dbed7",
-    "core.reason_codes": "406994646c933178977a429647f30bd2d17282e60d391a55900ed31e72835b9d",
+    "core.property_gate": "a4f2c812f0a84c89b3868f363c14252a4ef0c8e0158f69e9028f5970412ec0d7",
+    "core.reason_codes": "b4764a5fbdeb2ba610bef37dab809f19b94fe4de762eac36b40f920a434ceaba",
     "core.sustainability_preference": "6fe9be224f9d71e20beac49d2a6e35f8310415f2de34e419e7403efc7050a055"
   }
 }

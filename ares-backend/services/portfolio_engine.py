@@ -66,9 +66,14 @@ from services.cashflow_timeline import (
     recurring_net_cashflow_series,
     totals_for_year,
 )
+from core.fx_freshness import (  # K1 E2E-03
+    INPUT_SNAPSHOT_VERSION_FX_EFFECTIVE, fx_freshness_projection_context, predates_fx_effective_hash,
+    stale_allocation_message, used_foreign_currencies,
+)
+from core.property_gate import effective_property_growth_bps, goal_funding_flag_counts, mortgage_projection_enabled  # K1
 from services.wealth_cashflows import (
     derive_tax_cashflow,
-    derive_wealth_cashflows,
+    derive_wealth_cashflows, require_mortgage_interest_rates,  # K1 N-913-01
     mortgage_amortization_adjustment_series,
     mortgage_interest_adjustment_series,
 )
@@ -100,6 +105,7 @@ from services.risk_matrix import (
     classify_limiting_factor,
     compute_portfolio_risky_fraction_bps,
 )
+import services.risk_assessment_semantics as risk_assessment_semantics  # noqa: E402 -- depot_check (Laufzeit-Lookup)
 from services.risk_assessment_semantics import (
     OVERRIDE_AFTER_ALLOCATION_MESSAGE,
     assessment_overridden_after_allocation,
@@ -760,6 +766,9 @@ def _position_is_currently_unlocked_for_goal_funding(pos, *, as_of: "date | None
     """
     if int(getattr(pos, "is_available_for_goal_funding", 0) or 0) != 1:
         return False
+    # K1 Property-Gate: keine Collateral-/Verwertungsanrechnung illiquider Werte bis P1.
+    if not goal_funding_flag_counts(getattr(pos, "position_type", None), getattr(pos, "pension_vehicle", None)):
+        return False
     if _norm_text(getattr(pos, "assignment", "")) != "Anderes Vermoegen":
         return False
     if not _position_has_pension_restriction_metadata(pos):
@@ -984,9 +993,8 @@ def _build_external_foundation_projection(
             is_direct_real_estate_position(position_type)
             and is_external_wealth_assignment(assignment)
         ):
-            rate_bps = int(
-                getattr(position, "asset_expected_return_bps", 0) or 0
-            )
+            # K1 Property-Gate: keine angenommene Wertsteigerung (nominal flach bis P1).
+            rate_bps = effective_property_growth_bps(getattr(position, "asset_expected_return_bps", 0))
             current = value
             property_series[0] += current
             growth_factor = 1.0 + rate_bps / 10000.0
@@ -1005,8 +1013,8 @@ def _build_external_foundation_projection(
         )
         amortization_mode = (
             mortgage_amortization_mode(amortization_type)
-            if is_mortgage
-            else "none"
+            if is_mortgage and mortgage_projection_enabled()
+            else "none"  # K1 Property-Gate: keine Amortisationsprojektion
         )
         amortization = 0
         if is_mortgage and amortization_mode in {"direct", "indirect"}:
@@ -1456,6 +1464,7 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _product_matches_constraints,
     _product_score,
     _product_selection_key,
+    product_ter_status,
     theme_screening_disclosure,
     esg_policy_gap_hint,
     default_catalog_theme_tags,
@@ -2217,7 +2226,7 @@ def _load_allocation_inputs(
     # Miet-/Zinserträge) auch in die Engine-Projektion/Reserve einspeisen, damit
     # Strategie-Verzehr und Cashflow-Ansicht 1:1 dieselben Posten sehen.
     # Roadmap #39 (2026-08-07): optional geschaetzte Vermoegenssteuer dito.
-    derived_wealth_cashflows = derive_wealth_cashflows(all_positions)
+    derived_wealth_cashflows = derive_wealth_cashflows(require_mortgage_interest_rates(all_positions))
     derived_tax_cashflows = derive_tax_cashflow(mandate, total_wealth_rappen)
     cashflows = (
         list(cashflows)
@@ -2805,19 +2814,23 @@ def _compute_input_snapshot_hash(
     has_projection_context = use_v2 and projection_context is not None
     effective_snapshot_version = snapshot_version
     if has_projection_context and effective_snapshot_version is None:
-        effective_snapshot_version = "strategy_inputs_v4_complete_goals"
+        # K1 / E2E-03: v5 -- FX nur ueber die effektiven Kurse (core.fx_freshness).
+        effective_snapshot_version = INPUT_SNAPSHOT_VERSION_FX_EFFECTIVE
     if effective_snapshot_version is not None and (
         not has_projection_context
         or effective_snapshot_version
         not in {
             "strategy_inputs_v3_projection_context",
             "strategy_inputs_v4_complete_goals",
+            INPUT_SNAPSHOT_VERSION_FX_EFFECTIVE,
         }
     ):
         raise ValueError("Unbekannte oder unvollstaendige Snapshot-Version.")
+    if effective_snapshot_version == INPUT_SNAPSHOT_VERSION_FX_EFFECTIVE:
+        projection_context = fx_freshness_projection_context(projection_context)
     goal_encoder = (
         _goal_v4
-        if effective_snapshot_version == "strategy_inputs_v4_complete_goals"
+        if effective_snapshot_version in {"strategy_inputs_v4_complete_goals", INPUT_SNAPSHOT_VERSION_FX_EFFECTIVE}
         else (_goal_v2 if use_v2 else _goal_v1)
     )
 
@@ -5472,7 +5485,7 @@ def build_target_payload_from_allocation(
     score_bucket = _risk_score_bucket(assessment)
     house_matrix = _house_matrix_or_default(db, policy, score_bucket)
     # Rebuild uses the same fail-closed, versioned FX source as generation.
-    from services.currency.fx_rates import FXRateSource
+    from services.currency.fx_rates import FXRateSource, fx_rates_changed_since  # K1 E2E-03
     fx_source = FXRateSource.from_db_strict_for_model(db, tenant_id=getattr(mandate, "tenant_id", None))  # CCX-P3-FX N-909-01
     target_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
 
@@ -5875,6 +5888,13 @@ def build_target_payload_from_allocation(
             "external_reserve_rappen": int(external_reserve_rappen), "reserve_funding_ledger": reserve_ledger, "reserve_split": live_reserve_breakdown["reserve_split"],
             "external_foundation_projection": external_foundation_projection,
         }
+    # K1 / E2E-03: v4-Hash (voller Kontext inkl. basis_id) des Bestands bleibt akzeptiert.
+    current_v4_snapshot_hash = _compute_input_snapshot_hash(
+        advisory_positions=advisory_positions, all_positions=all_positions, cashflows=cashflows, goals=goals,
+        advisory_wealth_rappen=advisory_wealth_rappen, total_wealth_rappen=total_wealth_rappen,
+        wealth_inflows=rebuild_wealth_inflows, projection_context=current_projection_context,
+        snapshot_version="strategy_inputs_v4_complete_goals",
+    )
     legacy_projection_context = dict(current_projection_context)
     legacy_projection_context.pop("fx_basis", None)
     current_projection_v3_snapshot_hash = _compute_input_snapshot_hash(
@@ -5905,6 +5925,7 @@ def build_target_payload_from_allocation(
     )
     accepted_current_snapshot_hashes = (
         current_snapshot_hash,
+        current_v4_snapshot_hash,
         current_projection_v3_snapshot_hash,
         current_foundation_snapshot_hash,
         current_legacy_snapshot_hash,
@@ -5916,12 +5937,9 @@ def build_target_payload_from_allocation(
         stored_input_snapshot_hash
         and stored_input_snapshot_hash not in accepted_current_snapshot_hashes
     ):
-        raise StaleAllocationInputError(
-            "Die gespeicherte Soll-Allokation ist veraltet: Vermoegen, "
-            "Cashflows oder Ziele haben sich seit der Berechnung geaendert. "
-            "Bitte Strategie neu berechnen; alte Targets werden nicht mit "
-            "einer aktuellen Analyse kombiniert."
-        )
+        raise StaleAllocationInputError(stale_allocation_message(  # K1 E2E-03/N-913-02: wahre Ursache
+            fx_rates_changed_since(db, used_foreign_currencies(current_projection_context), allocation.created_at),
+            predates_fx_effective_hash(getattr(allocation, "effective_constraints_json", None))))
     if input_snapshot_check_only:
         # ALLOCATION-INPUT-STALENESS-001: Lese-Oberflaechen (Depot-Check,
         # Beratungsreport) brauchen nur die Anker-Aussage, nicht die
@@ -6465,6 +6483,7 @@ def build_recommendation_payload_from_run(
                 "source_sub_asset_classes": [],
                 "currency": product.currency,
                 "ter_bps": product.ter_bps,
+                "ter_status": product_ter_status(product),  # K1 / PE-S
                 "target_weight_bps": int(position.target_weight_bps or 0),
                 "target_amount_rappen": int(position.target_amount_rappen or 0),
                 "rationale": position.rationale,
@@ -6953,6 +6972,7 @@ def generate_recommendation_run(
                 "source_sub_asset_classes": source_subs,
                 "currency": best.currency,
                 "ter_bps": best.ter_bps,
+                "ter_status": product_ter_status(best),  # K1 / PE-S
                 "target_weight_bps": position.target_weight_bps,
                 "target_amount_rappen": position.target_amount_rappen,
                 "rationale": position.rationale,
