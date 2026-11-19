@@ -118,3 +118,25 @@ def test_e2e2_15_fx_editor_source_label():
     assert "escapeHtml(fxSourceText(entry.source))" in fx and "Kurs geprüft (Quelle manuell, Datum heute)" in fx
     assert "esc(fxSourceText(r.source)" in ag
     assert "'saveFxQuickEditor', 'saveAdminFxRates'" in (FRONTEND / "mandate-view.js").read_text(encoding="utf-8")
+
+
+def test_n918_01_reset_neutralizes_all_outputs_first():
+    mod = (FRONTEND / "mandate-view.js").read_text(encoding="utf-8")
+    body = mod[mod.index("function resetOutputs()"):mod.index("function resetDom()")]
+    for call in ("invalidateStrategyOutputs()", "renderPortfolioNeutralState(", "renderPortfolioSections([])"):
+        assert call in body, call
+    assert mod.index("resetOutputs();") > mod.index("function resetDom()")
+
+
+def test_n918_03_header_buttons_never_cover_steps():
+    mod = (FRONTEND / "mandate-view.js").read_text(encoding="utf-8")
+    assert "'.topbar .tr{flex-shrink:0}'" in mod
+    assert "@media(max-width:1440px)" in mod and ".tstep:not(.active){font-size:0" in mod
+
+
+def test_n918_04_texts():
+    vis = _visible_source()
+    for word in ("3a-Bezuegen", "-abfluesse mit", "-abfluesse.", "Externe Depot-Aenderung", "Zielaenderung",
+                 "Global währungsgesichert Rendite", "'House View laden'", ">House View für"):
+        assert word not in vis, word
+    assert "Endvermögen (mittlerer Verlauf) '+projectionHorizonYearLabel(sim)" in vis

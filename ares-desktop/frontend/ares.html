@@ -1862,7 +1862,7 @@ function _wireSollIstHover(){
               <div class="advisor-note">Diese Karte erklärt nur die Herleitung der Strategie. Vergleiche, Entscheidungen, Dokumentation und Umsetzung erfolgen anschliessend im Review.</div>
               <div id="aa-action-list" class="action-list">
                 <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">Risikoprofil, Ziele &amp; Beratungsvermögen</span><span class="tag tr2">Zentral</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Die SOLL-Allokation wird mit tausenden simulierten Marktverläufen aus dem Risikoprofil-Score, den priorisierten Lebenszielen und dem Beratungsvermögen hergeleitet.</div></div>
-                <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">House View &amp; Leitplanken</span><span class="tag ta">Relevant</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Building Blocks pro Anlageklasse (CMA-Input), Bandbreiten und Kapitalmarktannahmen begrenzen die Strategie bewusst und machen sie nachvollziehbar.</div></div>
+                <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">Hausmeinung &amp; Leitplanken</span><span class="tag ta">Relevant</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Building Blocks pro Anlageklasse (CMA-Input), Bandbreiten und Kapitalmarktannahmen begrenzen die Strategie bewusst und machen sie nachvollziehbar.</div></div>
                 <div style="border:1px solid var(--b1);border-radius:var(--r);padding:8px 10px"><div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-size:11px;font-weight:500">Nächster Schritt</span><span class="tag tn">Einordnung</span></div><div style="font-size:10px;color:var(--n6);line-height:1.5">Im Portfolio-Schritt folgt die Umsetzung in konkrete Wertschriften (ISIN). Vergleiche und Drift-Monitoring laufen im Review.</div></div>
               </div>
             </div>
@@ -9045,7 +9045,7 @@ function adminBuildActionPlan(ctx) {
     push('warn', 'Preisfrische verbessern', 'Nur ' + AresRounding.formatPercent(ctx.freshPct,0,{typography:'screen'}) + ' der Preisbasis ist frisch. Vor Reviews oder Rebalancing zuerst Preise aktualisieren.', 'sec-markt', 'Preise');
   }
   if (!ctx.cma || !ctx.cma.version) {
-    push('warn', 'House View laden', 'Ohne aktive Kapitalmarktannahmen fehlen nachvollziehbare Grundlagen für Simulationen und Strategievorschläge.', 'sec-cma', 'Annahmen');
+    push('warn', 'Hausmeinung laden', 'Ohne aktive Kapitalmarktannahmen fehlen nachvollziehbare Grundlagen für Simulationen und Strategievorschläge.', 'sec-cma', 'Annahmen');
   }
   if (ctx.admins < 2) {
     push('warn', 'Zweiten Admin sicherstellen', 'Mindestens zwei aktive Admins reduzieren Aussperr- und Stellvertretungsrisiko.', 'sec-users', 'Benutzer');
@@ -9141,7 +9141,7 @@ function renderAdminDashboard() {
     + '<div class="admin-action-list">' + actionItems.map(adminDashboardActionHtml).join('') + '</div></div>'
     + '<div class="admin-health-grid" style="margin-top:10px">'
     + adminHealthCard('Daten', AresRounding.formatPercent(coveragePct,0,{typography:'screen'}), AresRounding.formatPercent(freshPct,0,{typography:'screen'}) + ' frisch. ' + missingPrices + ' ohne Preis, ' + mappingGapCount + ' Mapping-Luecken.', priceTone)
-    + adminHealthCard('House View', cma.version ? ('v' + cma.version) : 'n/a', cma.assumption_set_name || 'Keine Annahmen geladen.', cma.version ? 'ok' : 'warn')
+    + adminHealthCard('Hausmeinung', cma.version ? ('v' + cma.version) : 'n/a', cma.assumption_set_name || 'Keine Annahmen geladen.', cma.version ? 'ok' : 'warn')
     + adminHealthCard('Backup', backupLabel, backupSub, backupTone)
     + adminHealthCard('Benutzer', users.length ? String(users.length) : 'n/a', admins + ' Admins, ' + inactiveUsers + ' inaktiv.', userTone)
     + adminHealthCard('System', updateValue, systemSub, systemTone)
@@ -9899,7 +9899,7 @@ function renderAdminCapitalMarketAssumptionsSummary(cma) {
   var cards = [
     { label: 'Set', value: String(cma.assumption_set_name || 'Standard'), detail: 'Version ' + String(cma.version || 'Vorschau') },
     { label: 'Gueltigkeit', value: String(cma.valid_from || 'n/a'), detail: cma.valid_until ? ('bis ' + String(cma.valid_until)) : 'offen' },
-    { label: 'Quelle', value: String(cma.source || 'Portfolio Management intern'), detail: cma.notes ? String(cma.notes) : 'House View aktiv' },
+    { label: 'Quelle', value: String(cma.source || 'Portfolio Management intern'), detail: cma.notes ? String(cma.notes) : 'Hausmeinung aktiv' },
     { label: 'Inflation', value: avgInflation != null ? adminPercentLabelFromBps(avgInflation) : 'keine Pfade', detail: inflationKeys.length ? (inflationKeys[0] + ' bis ' + inflationKeys[inflationKeys.length - 1]) : '5-Jahres-Planer leer' },
     { label: 'Sub-Anlageklassen', value: String(subAssetCount), detail: subAssetCount ? 'Feintuning hinterlegt' : 'Fallback auf Asset-Klassen' },
     { label: 'Korrelationen', value: Array.isArray(parsedCorrelation) && parsedCorrelation.length === 5 ? '5x5 Matrix' : 'Standard', detail: 'Cholesky-Basis für Monte Carlo' }
@@ -10063,7 +10063,7 @@ function loadAdminCapitalMarketAssumptionDefaults(silent) {
   setInputValue('admin-cma-valid-from', getInputValue('admin-cma-valid-from').trim() || today);
   setInputValue('admin-cma-valid-until', '');
   setInputValue('admin-cma-source', 'Portfolio Management intern');
-  setInputValue('admin-cma-notes', 'Standardisierte House View für Strategie- und Szenariorechnungen');
+  setInputValue('admin-cma-notes', 'Standardisierte Hausmeinung für Strategie- und Szenariorechnungen');
   setInputValue('admin-cma-bond-chf-return', adminBpsToPercentValue(ADMIN_CMA_DEFAULTS.bonds_chf_ig_return_bps));
   setInputValue('admin-cma-bond-chf-vol', adminBpsToPercentValue(ADMIN_CMA_DEFAULTS.bonds_chf_ig_vol_bps));
   setInputValue('admin-cma-bond-hedged-return', adminBpsToPercentValue(ADMIN_CMA_DEFAULTS.bonds_fx_hedged_return_bps));
@@ -16470,8 +16470,8 @@ var liveClientLoadToken=0;
         'Immobilienkauf / -verkauf',
         'Grosse Einzahlung (>20%)',
         'Grosse Entnahme (>20%)',
-        'Externe Depot-Aenderung',
-        'Zielaenderung',
+        'Externe Depot-Änderung',
+        'Zieländerung',
         'Gesundheitliche Veränderung',
         'Anderes Ereignis'
       ].forEach(function(label,idx){
@@ -20848,7 +20848,7 @@ if(cashflow&&cashflow.recurring_net_rappen!=null)goalSubParts.push('Laufend '+fo
   setGoalSuccessTile(goalSuccess);
   setText('sr-goal-sub',goalSubParts.join(' · '));
   setText('sr-proj-wealth',formatCompactCHF(projectedRappen/100));
-  setText('sr-proj-sub',sim?('Endwert '+projectionHorizonYearLabel(sim)):'Aktuelle Soll-Allokation');
+  setText('sr-proj-sub',sim?('Endvermögen (mittlerer Verlauf) '+projectionHorizonYearLabel(sim)):'Aktuelle Soll-Allokation');
   var srProjValue=document.getElementById('sr-proj-wealth');
   if(srProjValue&&srProjValue.previousElementSibling){
     srProjValue.previousElementSibling.textContent=(projectionHorizonYearLabel(sim)?('Prognose '+projectionHorizonYearLabel(sim)):'Prognose');
@@ -21513,9 +21513,6 @@ async function refreshStrategyData(force,includeRecommendation,retriedAfterBandR
     return true;
   }catch(e){
     var detail=String(e.detail||e.message||'?');
-    // [DIAG 2026-06-12 — temporaer] Stack-Overflow-Zyklus sichtbar machen, damit
-    // der rekursive Aufrufpfad ohne DevTools identifizierbar ist. Nach dem Fix
-    // wieder entfernen.
     if(detail.indexOf('call stack')>=0||detail.indexOf('Maximum call')>=0||detail.toLowerCase().indexOf('recursion')>=0){
       var __st=String(e&&e.stack||'');
       var __frames=__st.split('\n').map(function(l){var m=l.match(/at\s+([A-Za-z0-9_$.<>]+)/);return m?m[1]:null;}).filter(Boolean);
@@ -22395,7 +22392,7 @@ function normalizeAllocationLayout(){
       flowShell=document.createElement('div');
       flowShell.id='aa-flow-timeline-shell';
       flowShell.className='aa-flow-timeline';
-      flowShell.innerHTML='<div class="aa-flow-timeline-note">Die Soll-Prognose oben berücksichtigt weiterhin alle Cashflows inklusive 3a-Bezuegen, einmaliger Kapitalzuflüsse und Kapitalabflüsse. Der Zeitstrahl darunter ist die Legende dazu: laufende Einnahmen, laufende Ausgaben sowie punktuelle Vermögenszu- und -abfluesse auf derselben Zeitachse.</div><div id="aa-cashflow-timeline"></div>';
+      flowShell.innerHTML='<div class="aa-flow-timeline-note">Die Soll-Prognose oben berücksichtigt weiterhin alle Cashflows inklusive 3a-Bezügen, einmaliger Kapitalzuflüsse und Kapitalabflüsse. Der Zeitstrahl darunter ist die Legende dazu: laufende Einnahmen, laufende Ausgaben sowie punktuelle Vermögenszu- und -abflüsse auf derselben Zeitachse.</div><div id="aa-cashflow-timeline"></div>';
       if(chartGrid&&chartGrid.parentNode===body){
         if(metrics&&metrics.parentNode===body)body.insertBefore(flowShell,metrics);
         else chartGrid.insertAdjacentElement('afterend',flowShell);
@@ -22696,7 +22693,7 @@ function renderAllocationCashflowTimeline(result){
   var flows=activeClientCashflows().filter(isAllocationTimelineCashflow);
   if(!flows.length)flows=allocationTimelineFallbackFlows(result);
   if(!flows.length){
-    host.innerHTML='<div class="aa-flow-timeline-empty">Keine Vermögenszu- oder -abfluesse mit Zeitbezug erfasst. Sobald laufende oder einmalige Ereignisse gepflegt sind, erscheinen sie hier als Zeitstrahl unter der Soll-Prognose.</div>';
+    host.innerHTML='<div class="aa-flow-timeline-empty">Keine Vermögenszu- oder -abflüsse mit Zeitbezug erfasst. Sobald laufende oder einmalige Ereignisse gepflegt sind, erscheinen sie hier als Zeitstrahl unter der Soll-Prognose.</div>';
     return;
   }
   var range=allocationTimelineRange(result);
@@ -22716,7 +22713,7 @@ function renderAllocationCashflowTimeline(result){
     return rows?'<div class="aa-flow-timeline-group">'+section+'</div>'+rows:'';
   }).join('');
   if(!sectionHtml){
-    host.innerHTML='<div class="aa-flow-timeline-empty">Für den aktuellen Prognosehorizont liegen keine sichtbaren Vermögenszu- oder -abfluesse. Die Timeline reagiert auf gültig-ab- und gültig-bis-Daten bei laufenden Ereignissen sowie auf punktuelle Kapitalereignisse wie 3a-Bezuege.</div>';
+    host.innerHTML='<div class="aa-flow-timeline-empty">Für den aktuellen Prognosehorizont liegen keine sichtbaren Vermögenszu- oder -abflüsse. Die Timeline reagiert auf gültig-ab- und gültig-bis-Daten bei laufenden Ereignissen sowie auf punktuelle Kapitalereignisse wie 3a-Bezuege.</div>';
     return;
   }
   host.innerHTML=scale+sectionHtml;
@@ -26137,7 +26134,7 @@ function openStammdatenModal(){
             <div>
               <div class="admin-section-title">Kapitalmarktannahmen</div>
               <div class="admin-risk-note warn" style="margin-top:8px"><strong>Fachliche Wirkung</strong> Neue Annahmen beeinflussen künftige Strategien, Simulationen und Kundenausgaben. Bestehende Strategien sollten danach neu berechnet werden.</div>
-              <div class="admin-section-sub">House View für Rendite, Volatilität, Inflation und Sub-Anlageklassen.</div>
+              <div class="admin-section-sub">Hausmeinung für Rendite, Volatilität, Inflation und Sub-Anlageklassen.</div>
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
               <button class="btn-p" style="background:var(--bg2);color:var(--n6)" onclick="loadAdminCapitalMarketAssumptions(true)" id="btn-admin-cma-refresh">Laden</button>
@@ -26189,8 +26186,8 @@ function openStammdatenModal(){
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">CHF IG Rendite</label><input class="fi" id="admin-cma-bond-chf-return" type="number" step="0.1" style="font-size:11px"></div>
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">CHF IG Vol</label><input class="fi" id="admin-cma-bond-chf-vol" type="number" step="0.1" style="font-size:11px"></div>
             <div style="background:var(--bg2);border-radius:var(--r);display:flex;align-items:center;padding:4px 8px;font-size:9px;color:var(--n4)">Obligationen</div>
-            <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Global währungsgesichert Rendite</label><input class="fi" id="admin-cma-bond-hedged-return" type="number" step="0.1" style="font-size:11px"></div>
-            <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Global währungsgesichert Vol.</label><input class="fi" id="admin-cma-bond-hedged-vol" type="number" step="0.1" style="font-size:11px"></div>
+            <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Obligationen global, währungsgesichert – Rendite</label><input class="fi" id="admin-cma-bond-hedged-return" type="number" step="0.1" style="font-size:11px"></div>
+            <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">Obligationen global, währungsgesichert – Vol.</label><input class="fi" id="admin-cma-bond-hedged-vol" type="number" step="0.1" style="font-size:11px"></div>
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">High Yield Rendite</label><input class="fi" id="admin-cma-bond-hy-return" type="number" step="0.1" style="font-size:11px"></div>
             <div><label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">High Yield Vol</label><input class="fi" id="admin-cma-bond-hy-vol" type="number" step="0.1" style="font-size:11px"></div>
             <div style="background:var(--bg2);border-radius:var(--r);display:flex;align-items:center;padding:4px 8px;font-size:9px;color:var(--n4)">Aktien</div>
@@ -26299,7 +26296,7 @@ function openStammdatenModal(){
         <div id="sec-cma-sub" class="admin-sec-panel" style="display:none;gap:14px;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
             <div>
-              <div class="admin-section-title">Sub-Anlageklassen House View</div>
+              <div class="admin-section-title">Sub-Anlageklassen Hausmeinung</div>
               <div class="admin-section-sub">Feintuning pro Sub-Klasse. Ohne Eintrag fällt die Engine auf die übergeordneten Werte zurück.</div>
             </div>
             <div id="admin-cma-subasset-preview" style="min-width:180px;flex:1 1 180px"></div>

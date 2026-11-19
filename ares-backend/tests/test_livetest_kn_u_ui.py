@@ -17,6 +17,7 @@ Mandatsanlage mit echten Mausklicks (nicht per evaluate).
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from tests.test_livetest_k2_kernkette_ui import (  # noqa: F401  (server = Fixture)
@@ -177,7 +178,7 @@ def test_kn_u_stale_publication_cause_without_reload(server):
         "label": "Depot USD (fiktiv)", "position_type": "Depot", "assignment": "Beratungsvermögen",
         "current_value_rappen": 10000000, "currency": "USD", "depot_bank": "Testbank Fiktiv",
         "alloc_equities_bps": 7000, "alloc_bonds_bps": 3000}], mandate_type="Vermögensverwaltung")
-    cause = "Wechselkurs USD seit der Berechnung geändert"
+    cause = "Wechselkurs USD geändert"
     with sync_api.sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         errors: list[str] = []
@@ -316,6 +317,170 @@ def test_kn_u_fx_open_texts_and_typed_reasons(server):
     assert "Noch kein Beratungsvermögen erfasst" not in usd_aa and "Noch keine Advisory-Position" not in usd_aa, usd_aa
     assert "Umrechnung offen – Kurs GBP" in usd_aa, usd_aa
     assert "Zinssatz" in h_cf and "Kapitalmarktannahmen konnten nicht geladen" not in h_cf, h_cf
+    assert not errors, errors
+
+
+PAGES = ("sd", "vg", "cf", "rp", "al", "po", "rv")
+A_MARKERS = ("777'700", "833'200", "55'500", "Quellwasser", "Seehaus", "131'313", "76'767")
+
+
+def _rich_client_a(api):
+    """A: eigene Betraege, Namen, Cashflows, Ziel und Risikoprofil (von B unterscheidbar)."""
+    from tests.risk_fixture_helpers import standard_risk_payload
+
+    advisor_id = api("GET", "/auth/me")[1]["id"]
+    status, client = api("POST", "/clients", {
+        "client_number": f"KNU-A-{time.time_ns()}", "first_name": "Annalena", "last_name": "Quellwasser-Fiktiv",
+        "advisor_id": advisor_id, "household_type": "Einzelperson", "date_of_birth": "1966-04-01"})
+    assert status == 201, client
+    status, mandate = api("POST", f"/clients/{client['id']}/mandates",
+                          {"mandate_number": f"M-KNU-A-{time.time_ns()}", "mandate_type": "Vermögensverwaltung"})
+    assert status == 201, mandate
+    assert api("POST", f"/mandates/{mandate['id']}/risk-assessments", standard_risk_payload(income=1, wealth=1))[0] == 201
+    for pos in (
+        {**_chf_depot(77770000), "label": "Depot Quellwasser (fiktiv)"},
+        {"label": "Konto Quellwasser (fiktiv)", "position_type": "Liquidität", "assignment": "Beratungsvermögen",
+         "current_value_rappen": 5550000, "currency": "CHF", "liquidity_instrument": "Sparkonto"},
+    ):
+        st, body = api("POST", f"/clients/{client['id']}/wealth-positions", pos)
+        assert st in (200, 201), body
+    for cf in ({"cashflow_type": "Income", "label": "Lohn Quellwasser (fiktiv)", "amount_rappen": 13131300},
+               {"cashflow_type": "Expense", "label": "Haushalt Quellwasser (fiktiv)", "amount_rappen": 7676700}):
+        st, body = api("POST", f"/clients/{client['id']}/cashflows", {
+            **cf, "currency": "CHF", "frequency": "jaehrlich", "nature": "wiederkehrend",
+            "valid_from": "2026-12-01", "valid_until": "2031-03-31", "is_inflation_linked": False})
+        assert st in (200, 201), body
+    st, body = api("POST", f"/mandates/{mandate['id']}/goals", {
+        "goal_family": "Rendite", "goal_type": "Renditeziel", "label": "Ziel Quellwasser Seehaus",
+        "rank": 1, "target_return_bps": 300, "hardness": "Primär"})
+    assert st == 201, body
+    return client["id"], mandate["id"]
+
+
+def _empty_client_b(api):
+    advisor_id = api("GET", "/auth/me")[1]["id"]
+    status, client = api("POST", "/clients", {
+        "client_number": f"KNU-B-{time.time_ns()}", "first_name": "Berta", "last_name": "Leerfeld-Fiktiv",
+        "advisor_id": advisor_id, "household_type": "Einzelperson", "date_of_birth": "1990-09-09"})
+    assert status == 201, client
+    status, mandate = api("POST", f"/clients/{client['id']}/mandates",
+                          {"mandate_number": f"M-KNU-B-{time.time_ns()}", "mandate_type": "Anlageberatung"})
+    assert status == 201, mandate
+    return client["id"], mandate["id"]
+
+
+_LEAKS_JS = """(markers) => {
+  var out = {};
+  ['sd','vg','cf','rp','al','po','rv'].forEach(function(p){
+    var el = document.getElementById('page-' + p); var t = el ? el.textContent : '';
+    var hits = markers.filter(function(m){ return t.indexOf(m) >= 0; });
+    if (hits.length) out['page-' + p] = hits;
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('.overlay'), function(o){
+    var hits = markers.filter(function(m){ return (o.textContent || '').indexOf(m) >= 0; });
+    if (hits.length) out[o.id || 'overlay'] = hits;
+  });
+  return out;
+}"""
+
+
+def test_kn_u_no_previous_client_values_on_any_page(server):
+    """N-918-01: A komplett (Strategie + Portfolio) -> B ganz ohne Daten: auf keiner der 7 Seiten
+    (auch nicht im unsichtbaren DOM-Inhalt) und in keinem Dialog steht ein Wert von A."""
+    sync_api = _sync_api()
+    api = _Api(server).login()
+    cid_a, _mid_a = _rich_client_a(api)
+    cid_b, _mid_b = _empty_client_b(api)
+    with sync_api.sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        errors: list[str] = []
+        try:
+            page = browser.new_page(viewport={"width": 1500, "height": 950})
+            page.on("pageerror", lambda exc: errors.append(str(exc)))
+            _open(page, server, sync_api)
+            _login(page)
+            _load(page, cid_a, "al")
+            _compute(page)
+            page.evaluate("go('po')")
+            page.wait_for_timeout(1500)
+            page.evaluate(CLOSE)
+            page.evaluate("()=>{refreshPortfolioFromStoredState();}")
+            page.wait_for_function("() => (document.getElementById('po-portfolio-sections')||{innerText:''}).innerText.indexOf('Musterprodukt')>=0", timeout=240000)
+            page.wait_for_timeout(1000)
+            page.evaluate(CLOSE)
+            for pg in ("rv", "cf", "vg"):
+                page.evaluate(f"go('{pg}')")
+                page.wait_for_timeout(1500)
+                page.evaluate(CLOSE)
+            a_seen = page.evaluate(_LEAKS_JS, list(A_MARKERS))
+            _shot(page, "knu_n918_01_A_vermoegen.png")
+            # Wechsel zu B (wie Seitenleiste/Auto-Oeffnen), dann jede Seite mit echtem Klick.
+            page.evaluate(f"loadClientById('{cid_b}')")
+            page.wait_for_timeout(3500)
+            page.evaluate(CLOSE)
+            leaks = {"nach Wechsel": page.evaluate(_LEAKS_JS, list(A_MARKERS))}
+            for i, pg in enumerate(PAGES):
+                page.locator(".tnav .tstep").nth(i).click(timeout=8000)
+                page.wait_for_timeout(1800)
+                page.evaluate(CLOSE)
+                hits = page.evaluate(_LEAKS_JS, list(A_MARKERS))
+                if hits:
+                    leaks[pg] = hits
+                if pg in ("po", "al", "rv"):
+                    _shot(page, f"knu_n918_01_B_{pg}.png")
+            po_head = page.evaluate("""['po-advisory-wealth','po-position-count','po-average-ter','po-total-footer']
+              .map(function(id){var e=document.getElementById(id);return e?e.textContent.trim():null;})""")
+            # Schneller Doppelwechsel A -> B.
+            page.evaluate(f"loadClientById('{cid_a}');loadClientById('{cid_b}')")
+            page.wait_for_timeout(4000)
+            page.evaluate(CLOSE)
+            double = page.evaluate(_LEAKS_JS, list(A_MARKERS))
+        finally:
+            browser.close()
+
+    # Positivkontrolle: A-Werte standen vorher wirklich im DOM (sonst prueft der Test nichts).
+    seen = {m for hits in a_seen.values() for m in hits}
+    assert {"833'200", "Quellwasser"} <= seen, a_seen
+    assert "833'200" in a_seen.get("page-po", []), a_seen
+    leaks = {k: v for k, v in leaks.items() if v}
+    assert leaks == {}, leaks
+    assert double == {}, double
+    assert "833'200" not in " ".join(str(x) for x in po_head), po_head
+    assert not errors, errors
+
+
+def test_kn_u_header_steps_clickable_at_1024_and_1280(server):
+    """N-918-03: alle sieben Schritte bei 1280 und 1024 px sichtbar und klickbar (echter Klick auf Schritt 7)."""
+    sync_api = _sync_api()
+    api = _Api(server).login()
+    cid, _mid = _client(api, "Kopf", [_chf_depot()])
+    results = {}
+    with sync_api.sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        errors: list[str] = []
+        try:
+            for width in (1280, 1024):
+                page = browser.new_page(viewport={"width": width, "height": 800})
+                page.on("pageerror", lambda exc: errors.append(str(exc)))
+                _open(page, server, sync_api)
+                _login(page)
+                _load(page, cid, "sd")
+                covered = page.evaluate("""Array.from(document.querySelectorAll('.tnav .tstep')).map(function(s,i){
+                  var r=s.getBoundingClientRect();var x=r.left+r.width/2,y=r.top+r.height/2;
+                  var hit=document.elementFromPoint(x,y);
+                  return {i:i+1,visible:r.width>0&&x<window.innerWidth,own:!!(hit&&s.contains(hit))};
+                }).filter(function(o){return !(o.visible&&o.own);})""")
+                page.locator(".tnav .tstep").nth(6).click(timeout=8000)
+                page.wait_for_timeout(1500)
+                active = page.evaluate("document.querySelector('.page.active')&&document.querySelector('.page.active').id")
+                _shot(page, f"knu_n918_03_kopfzeile_{width}.png", ".topbar")
+                results[width] = {"covered": covered, "active": active}
+                page.close()
+        finally:
+            browser.close()
+    for width, res in results.items():
+        assert res["covered"] == [], (width, res)
+        assert res["active"] == "page-rv", (width, res)
     assert not errors, errors
 
 

@@ -97,12 +97,18 @@ globalThis.openFxQuickEditor=async function(){return true;};
 globalThis.refreshAllocationPublication=function(){};
 globalThis.renderWealthPositions=function(){};
 globalThis.go=async function(){};
+globalThis.cashflowProjectionComponents=function(r){return r.parts;};
+globalThis.renderCashflowProjection=function(d){var e=EL['cf-projection'];e.style.display='';var p=d.years[0].parts;e.innerHTML=p.recurringIncomeRappen?'HUD Einnahmen':'CHF 0 · Ausgeglichen';};
+globalThis.renderPortfolioNeutralState=function(sub){['po-advisory-wealth','po-total-footer','po-position-count','po-average-ter','po-price-quality'].forEach(function(id){EL[id].textContent='—';});EL['po-price-quality-sub'].textContent=sub;};
+globalThis.renderPortfolioSections=function(){EL['po-portfolio-sections'].innerHTML='';};
 """
 
 IDS = ["sr-risk-score", "sr-risk-profile", "sr-ovr-badge", "sr-wealth", "sr-wealth-share", "sr-goal-score", "sr-goal-sub",
        "kpi-goal-score", "kpi-goal-sub", "sr-proj-sub", "sr-strategy-name", "sr-horizon", "sr-allocation-bars",
        "sr-goal-priority-list", "cf-projection", "rv-hero", "aa-publication-status", "btn-aa-publish",
-       "btn-portfolio-umsetzen", "sr-implementation-steps", "sr-decision-meta", "po-status", "kpi-beratungsvermoegen"]
+       "btn-portfolio-umsetzen", "sr-implementation-steps", "sr-decision-meta", "po-status", "kpi-beratungsvermoegen",
+       "po-advisory-wealth", "po-total-footer", "po-position-count", "po-average-ter", "po-price-quality", "po-price-quality-sub",
+       "po-portfolio-sections"]
 
 
 def _run(script: str, extra_sources: tuple[Path, ...] = ()):
@@ -133,13 +139,18 @@ def test_mandate_switch_resets_tiles_hud_dialogs_and_caches():
       EL['cf-projection'].innerHTML='Einnahmen CHF 150000';EL['cf-projection'].style.display='';
       EL['aa-publication-status'].textContent='Publiziert';allocationPublicationState={publication_status:'PUBLISHED'};
       var tl=overlay('m-tl',true), dlg=overlay('m-ui-dialog',true), nc=overlay('m-nc',true);
+      EL['po-advisory-wealth'].textContent='CHF 833200';EL['po-position-count'].textContent='4';EL['po-average-ter'].textContent='0.23 %';
+      EL['po-total-footer'].textContent='CHF 833200';EL['po-portfolio-sections'].innerHTML='Musterprodukt A';
       MANDATE.id='C'; // neues Mandat ohne Risikoprofil und ohne Strategie
+      var invBefore=INVALIDATED;
       aresResetMandateView();
+      var po=['po-advisory-wealth','po-total-footer','po-position-count','po-average-ter'].map(function(id){return EL[id].textContent;});
       return {risk:EL['sr-risk-score'].textContent, profile:EL['sr-risk-profile'].textContent, wealth:EL['sr-wealth'].textContent,
         goal:EL['sr-goal-score'].textContent, proj:EL['sr-proj-wealth'].textContent, strat:EL['sr-strategy-name'].textContent,
         hud:EL['cf-projection'].style.display, hudHtml:EL['cf-projection'].innerHTML, chip:EL['aa-publication-status'].style.display,
         tl:tl.classList.contains('open'), dlg:dlg.classList.contains('open'), nc:nc.classList.contains('open'),
-        review:currentReviewState.logs.length, pub:allocationPublicationState, pos:currentWealthPositions.length, ws:currentWealthSummary};
+        review:currentReviewState.logs.length, pub:allocationPublicationState, pos:currentWealthPositions.length, ws:currentWealthSummary,
+        po:po, sections:EL['po-portfolio-sections'].innerHTML, invalidated:INVALIDATED-invBefore};
     """)
     assert out["risk"] == "—" and out["profile"] == "Risikoprofil noch nicht erfasst", out
     assert out["wealth"] == "—" and out["goal"] == "—" and out["proj"] == "—" and out["strat"] == "Nicht definiert", out
@@ -147,6 +158,10 @@ def test_mandate_switch_resets_tiles_hud_dialogs_and_caches():
     assert out["tl"] is False, "Handelsliste des vorigen Kunden bleibt offen"
     assert out["dlg"] is True and out["nc"] is True, "System-/Wechseldialoge duerfen nicht geschlossen werden"
     assert out["review"] == 0 and out["pub"] is None and out["pos"] == 0 and out["ws"] is None, out
+    # N-918-01: Portfolio-Kopf und AA-Ausgaben des vorigen Kunden werden neutralisiert.
+    assert out["po"] == ["—"] * 4 and out["sections"] == "", out
+    assert out["invalidated"] == 1, "Ausgaben-Reset (invalidateStrategyOutputs) nicht aufgerufen"
+
 
 
 def test_summary_without_allocation_shows_active_mandate_risk_not_previous_client():
@@ -180,8 +195,8 @@ def test_stale_cause_from_server_text_and_future_status_fields():
         aresStaleCauseFromStatus({{publication_status:'STALE',stale_currencies:['usd']}}),
         aresStaleCauseFromStatus({{publication_status:'PUBLISHED',blocker_codes:[]}})];
     """)
-    assert out[0] == out[4] == out[5] == "Wechselkurs USD seit der Berechnung geändert", out
-    assert out[1] == "Wechselkurs USD, GBP seit der Berechnung geändert", out
+    assert out[0] == out[4] == out[5] == "Wechselkurs USD geändert", out
+    assert out[1] == "Wechselkurs USD, GBP geändert", out
     assert out[2] == "Vermögen, Cashflows oder Ziele seit der Berechnung geändert", out
     assert out[3] == "" and out[6] == "", out
 
@@ -198,9 +213,9 @@ def test_fx_change_without_reload_marks_publication_stale_everywhere():
       await saveAdminFxRates();
       return {{before:before, chip:EL['aa-publication-status'].textContent, invalidated:INVALIDATED,
         notice:strategyState.staleNotice, status:STATUS[STATUS.length-1], umsetzen:EL['btn-portfolio-umsetzen'].style.display,
-        hero:EL['rv-hero'].innerHTML.indexOf('Wechselkurs USD seit der Berechnung geändert')>=0}};
+        hero:EL['rv-hero'].innerHTML.indexOf('Wechselkurs USD geändert')>=0}};
     """)
-    cause = "Wechselkurs USD seit der Berechnung geändert"
+    cause = "Wechselkurs USD geändert"
     assert out["before"] == "Publiziert", out
     assert out["chip"] == "Veraltet · " + cause, out
     assert out["invalidated"] == 1, "alte Zahlen bleiben sichtbar"
@@ -221,8 +236,8 @@ def test_future_status_field_alone_marks_stale_and_generic_texts_name_the_cause(
       MANDATE.id='A'; // anderes Mandat: keine Ursache von B
       return {chip:chip, notice:notice, st:st, other:aresStaleCause()};
     """)
-    assert out["chip"] == "Veraltet · Wechselkurs USD seit der Berechnung geändert", out
-    assert out["notice"].startswith("Wechselkurs USD seit der Berechnung geändert"), out
+    assert out["chip"] == "Veraltet · Wechselkurs USD geändert", out
+    assert out["notice"].startswith("Wechselkurs USD geändert"), out
     assert "Wechselkurs USD" in out["st"] and "hydratisiert" not in out["st"], out
     assert out["other"] == "", out
 
@@ -237,7 +252,7 @@ def test_payload_409_on_load_sets_cause_and_fresh_load_clears_it():
       await loadCurrentAllocationResult('B');
       return [c1, aresStaleCause()];
     """)
-    assert out == ["Wechselkurs USD seit der Berechnung geändert", ""], out
+    assert out == ["Wechselkurs USD geändert", ""], out
 
 
 # ---------------------------------------------------------------- Umrechnung offen (E2E2-07, N-917-03/-08/-09)
@@ -381,3 +396,37 @@ def test_ist_projection_names_typed_server_reason():
     assert status == "unavailable", (status, reason)
     assert reason == "Ist-Projektion nicht verfügbar: " + detail["message"], reason
     assert "Kapitalmarktannahmen" not in reason
+
+
+def test_kn_b_freshness_contract_and_publication_invalid():
+    """N-918-02: echte KN-B-Antwortform (r5/kn-backend d2f5951d) neben dem 409-Rueckfall."""
+    out = _run("""
+      var knb={publication_status:'PUBLICATION_INVALID',active_publication:{status:'PUBLICATION_INVALID',reason_code:'CCX_INPUT_STALE'},
+        freshness:{status:'STALE',reason_code:'CCX_INPUT_STALE',message:'Die publizierte Soll-Allokation ist veraltet: Wechselkurs USD geändert. Bitte neu berechnen, finalisieren und publizieren.',
+          causes:[{kind:'fx_rate',text:'Wechselkurs USD geändert',currencies:['USD']},{kind:'cashflows',text:'Cashflows geändert',currencies:[]},{kind:'fx_rate',text:'Wechselkurs USD geändert',currencies:['USD']}]}};
+      var a=aresStaleCauseFromStatus(knb);
+      var b=aresStaleCauseFromStatus({publication_status:'PUBLISHED',freshness:{status:'STALE',causes:[],message:knb.freshness.message}});
+      var c=aresStaleCauseFromStatus({publication_status:'PUBLICATION_INVALID',active_publication:{status:'PUBLICATION_INVALID',reason_code:'CCX_INPUT_STALE'}});
+      var d=aresStaleCauseFromStatus({publication_status:'PUBLISHED',freshness:{status:'FRESH',causes:[]}});
+      var e=aresStaleCauseFromStatus({publication_status:'PUBLICATION_INVALID',active_publication:{status:'PUBLICATION_INVALID',reason_code:'CCX_ALLOCATION_BAND_VIOLATED'}});
+      strategyState.allocation={buckets:[1],target_allocation:{id:'ta'}};
+      allocationPublicationState=knb;renderAllocationPublication();
+      return [a,b,c,d,e,EL['aa-publication-status'].textContent];
+    """)
+    assert out[0] == "Wechselkurs USD geändert; Cashflows geändert", out
+    assert out[1] == "Wechselkurs USD geändert", out
+    assert out[2] == "Beratungsdaten geändert", out
+    assert out[3] == "" and out[4] == "", out
+    assert out[5] == "Veraltet · Wechselkurs USD geändert; Cashflows geändert", out
+
+
+def test_cashflow_hud_without_cashflows_says_so():
+    """N-918-04: keine Nullaussage "CHF 0 · Ausgeglichen" im HUD; Gegenprobe mit Cashflows unveraendert."""
+    out = _run("""
+      renderCashflowProjection({years:[{parts:{recurringIncomeRappen:0,recurringExpenseRappen:0}}]});
+      var empty=EL['cf-projection'].innerHTML;
+      renderCashflowProjection({years:[{parts:{recurringIncomeRappen:15000000,recurringExpenseRappen:10500000}}]});
+      return [empty, EL['cf-projection'].innerHTML];
+    """)
+    assert "Keine Cashflows erfasst" in out[0] and "Ausgeglichen" not in out[0], out
+    assert out[1] == "HUD Einnahmen", out

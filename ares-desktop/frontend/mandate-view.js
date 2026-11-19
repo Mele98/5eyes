@@ -144,22 +144,40 @@
   function staleCauseFromText(text){
     var t = String(text || '');
     if (!/veraltet/i.test(t)) return '';
-    var fx = t.match(/Wechselkurs(?:e)?\s+([A-Z]{3}(?:\s*,\s*[A-Z]{3})*)\s+seit der Berechnung ge(?:ae|ä)ndert/);
-    if (fx) return 'Wechselkurs ' + fx[1].replace(/\s*,\s*/g, ', ') + ' seit der Berechnung geändert';
+    var fx = t.match(/Wechselkurs(?:e)?\s+([A-Z]{3}(?:\s*,\s*[A-Z]{3})*)\s+(?:seit der Berechnung\s+)?ge(?:ae|ä)ndert/);
+    if (fx) return 'Wechselkurs ' + fx[1].replace(/\s*,\s*/g, ', ') + ' geändert'; // Wortlaut wie KN-B freshness_cause
     if (/Berechnungsgrundlage aktualisiert/.test(t)) return 'Berechnungsgrundlage aktualisiert';
     if (/Vermoegen, Cashflows oder Ziele|Vermögen, Cashflows oder Ziele/.test(t)) return 'Vermögen, Cashflows oder Ziele seit der Berechnung geändert';
     var m = t.match(/veraltet:\s*([^.]+)/i);
     return m ? deAscii(m[1].trim()) : 'Eingaben seit der Berechnung geändert';
   }
   // Annahme KN-B: abgeleiteter Status "veraltet" mit Ursache (Feldnamen defensiv).
+  // N-918-02: KN-B-Vertrag (r5/kn-backend): freshness {status:'STALE', causes:[{kind,text,currencies}], message}
+  // und publication_status bzw. active_publication.status 'PUBLICATION_INVALID' (reason_code CCX_INPUT_STALE).
+  function causeText(c){
+    if (!c) return '';
+    var ccys = Array.isArray(c.currencies) ? c.currencies.map(up).filter(Boolean) : [];
+    if (c.kind === 'fx_rate' && ccys.length) return 'Wechselkurs ' + ccys.join(', ') + ' geändert';
+    return String(c.text || '').trim();
+  }
   function staleCauseFromStatus(s){
     if (!s || typeof s !== 'object') return '';
+    var f = s.freshness;
+    if (f && typeof f === 'object' && up(f.status) === 'STALE') {
+      var seen = {}, texts = [];
+      (Array.isArray(f.causes) ? f.causes : []).forEach(function(c){ var t = causeText(c); if (t && !seen[t]) { seen[t] = 1; texts.push(t); } });
+      if (texts.length) return texts.join('; ');
+      return f.message ? staleCauseFromText(f.message) : 'Beratungsdaten geändert';
+    }
+    var act = s.active_publication || {};
+    if ((up(s.publication_status) === 'PUBLICATION_INVALID' || up(act.status) === 'PUBLICATION_INVALID')
+      && /STALE/.test(up(act.reason_code || s.reason_code))) return 'Beratungsdaten geändert';
     var flagged = s.stale === true || /STALE|VERALTET|OUTDATED/i.test(String(s.publication_status || s.derived_status || s.status || '')) || !!s.stale_reason_code;
     if (!flagged) return '';
     var reason = String(s.stale_reason || s.stale_message || '');
     if (reason) return staleCauseFromText(/veraltet/i.test(reason) ? reason : 'veraltet: ' + reason);
     var ccys = Array.isArray(s.stale_currencies) ? s.stale_currencies.map(up).filter(Boolean) : [];
-    if (ccys.length) return 'Wechselkurs ' + ccys.join(', ') + ' seit der Berechnung geändert';
+    if (ccys.length) return 'Wechselkurs ' + ccys.join(', ') + ' geändert';
     return 'Eingaben seit der Berechnung geändert';
   }
   function staleCause(){ return stale.mid && stale.mid === activeMid() ? stale.cause : ''; }
@@ -251,7 +269,7 @@
         safe(function(){
           var s = typeof allocationPublicationState !== 'undefined' ? allocationPublicationState : null;
           var fromStatus = staleCauseFromStatus(s);
-          if (fromStatus && !staleCause()) applyStale(activeMid(), fromStatus);
+          if (fromStatus && fromStatus !== staleCause()) { stale.cause = ''; applyStale(activeMid(), fromStatus); }
           var c = staleCause();
           if (!c) return;
           var chip = byId('aa-publication-status');
@@ -381,7 +399,27 @@
     try { allocationPublicationState = null; allocationPublicationKey = ''; } catch(_){}
     try { if (typeof strategyState !== 'undefined' && strategyState) { strategyState.allocation = null; strategyState.recommendation = null; strategyState.pendingAllocation = null; strategyState.pendingRecommendation = null; strategyState.staleNotice = null; } } catch(_){}
   }
+  // N-918-01: erst alle Ausgaben neutralisieren (AA, Portfolio-Kopf, Review), dann rendert der Ladepfad
+  // neu; bricht ein Render-Pfad frueh ab (z. B. ohne Risikoprofil), bleibt nichts vom vorigen Mandat stehen.
+  function resetOutputs(){
+    if (g('invalidateStrategyOutputs')) safe(function(){ invalidateStrategyOutputs(); });
+    if (g('renderPortfolioNeutralState')) safe(function(){ renderPortfolioNeutralState('Kein Portfolio für dieses Mandat geladen'); });
+    if (g('renderPortfolioSections')) safe(function(){ renderPortfolioSections([]); });
+    if (g('renderSrImplementationDecision')) safe(function(){ renderSrImplementationDecision(null); });
+    if (g('renderOptimizerAchievability')) safe(function(){ renderOptimizerAchievability(null); });
+    if (g('renderGoalAchievementSollIst')) safe(function(){ renderGoalAchievementSollIst(null); });
+    // Ausgeblendete Kontext-Bloecke behalten sonst ihren Text im DOM (Reinvermoegen, Zielnamen, Rechenfakten).
+    ['alloc-rein-context', 'aa-goal-sollist', 'opt-sensitivity-list'].forEach(function(id){
+      var el = byId(id); if (el) el.innerHTML = '';
+    });
+    safe(function(){ var dnBody = document.querySelector('#ch-dn-table tbody'); if (dnBody) dnBody.innerHTML = ''; });
+    safe(function(){
+      var calc = byId('m-strategy-calc');
+      if (calc && !calc.classList.contains('open')) { var facts = byId('strategy-calc-facts'); if (facts) facts.textContent = ''; }
+    });
+  }
   function resetDom(){
+    resetOutputs();
     clearStrategySummaryForDirtyState();
     Array.prototype.forEach.call(document.querySelectorAll('.kpir .kv'), function(el){ el.textContent = DASH; });
     Array.prototype.forEach.call(document.querySelectorAll('.kpir .ks'), function(el){ el.textContent = ''; });
@@ -470,8 +508,18 @@
     var st = document.createElement('style');
     st.id = 'knu-banner-css';
     st.textContent = '#pg-egress-banner{position:fixed!important;top:48px!important;left:0;right:0;z-index:150!important;max-height:40vh;overflow:auto}'
-      + 'body.knu-banner .layout{margin-top:calc(48px + var(--knu-banner-h,0px));height:calc(100vh - 48px - var(--knu-banner-h,0px))}';
+      + 'body.knu-banner .layout{margin-top:calc(48px + var(--knu-banner-h,0px));height:calc(100vh - 48px - var(--knu-banner-h,0px))}'
+      // N-918-03: rechte Kopfzeilen-Knoepfe schrumpfen nie ueber die Schritte; schmal = Kompaktmodus
+      // (inaktive Schritte nur Nummer, Name als title/Screenreader), Rueckfall Scrollleiste der .tnav.
+      + '.topbar .tr{flex-shrink:0}'
+      + '@media(max-width:1440px){#current-user-label{display:none}.topbar .tr{gap:5px;padding:0 8px}.topbar .tr .t-btn{padding:5px 8px}'
+      + '.tstep:not(.active){font-size:0;gap:0;padding:0 6px}.tstep:not(.active) .sn{font-size:9px}}'
+      + '@media(max-width:1180px){.logo{width:112px;min-width:112px;padding:0 10px}.logo-s{display:none}'
+      + '#btn-presentation-mode-toggle{max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}';
     document.head.appendChild(st);
+    Array.prototype.forEach.call(document.querySelectorAll('.tnav .tstep'), function(el){
+      if (!el.title) el.title = String(el.textContent || '').replace(/^\s*\d+\s*/, '').trim();
+    });
     var observed = null;
     var ro = typeof ResizeObserver === 'function' ? new ResizeObserver(function(){ sync(); }) : null;
     function sync(){
@@ -496,6 +544,26 @@
       };
     });
   }
+  // N-918-04: Cashflow-HUD ohne erfasste Einnahmen/Ausgaben -- keine Nullaussage "CHF 0 · Ausgeglichen".
+  function hookCashflowHud(){
+    wrap('renderCashflowProjection', function(orig){
+      return function(data){
+        var r = orig.apply(this, arguments);
+        safe(function(){
+          var el = byId('cf-projection');
+          var row = data && Array.isArray(data.years) ? data.years[0] : null;
+          var parts = row && g('cashflowProjectionComponents') ? cashflowProjectionComponents(row) : null;
+          if (!el || !parts || el.style.display === 'none') return;
+          if (Number(parts.recurringIncomeRappen || 0) === 0 && Number(parts.recurringExpenseRappen || 0) === 0) {
+            el.innerHTML = '<div class="cf-hud"><div class="cf-hud-head"><div><div class="cf-hud-kicker">Cashflow-HUD</div>'
+              + '<div class="cf-hud-copy">Keine Cashflows erfasst</div></div></div>'
+              + '<div class="cf-hud-hint" style="padding:6px 0">Erfassen Sie laufende Einnahmen und Ausgaben, damit Sparquote bzw. Vermögensverzehr berechnet werden.</div></div>';
+          }
+        });
+        return r;
+      };
+    });
+  }
   function hookWealth(){
     wrap('renderWealthPositions', function(orig){
       return function(){ var r = orig.apply(this, arguments); safe(syncAdvisoryKpi); return r; };
@@ -507,6 +575,7 @@
     safe(hookStale);
     safe(hookReview);
     safe(hookWealth);
+    safe(hookCashflowHud);
     safe(hookGo);
   }
   if (typeof document !== 'undefined' && document.addEventListener) {

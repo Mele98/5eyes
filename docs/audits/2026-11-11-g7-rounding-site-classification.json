@@ -4077,7 +4077,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21851,
+   "line": 21848,
    "source": "return Number.isFinite(n)?Math.round(n):null;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4086,7 +4086,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 21894,
+   "line": 21891,
    "source": "var score=Math.max(1,Math.min(10,Math.round(Number(scoreX10||10)/10)));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4095,7 +4095,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 22112,
+   "line": 22109,
    "source": "horizonInput.value=years>0?String(Math.max(1,Math.round(years))):'';",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4104,7 +4104,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 22158,
+   "line": 22155,
    "source": "if(gross>0)parts.push('Brutto '+formatRappen(gross,cashflow&&cashflow.currency));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4113,7 +4113,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 22159,
+   "line": 22156,
    "source": "if(tax>0)parts.push('Steuer '+formatRappen(tax,cashflow&&cashflow.currency));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4122,7 +4122,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 22507,
+   "line": 22504,
    "source": "var amount=formatRappen(Math.abs(Number(item&&item.amount_rappen||0)),item&&item.currency);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4131,7 +4131,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 22531,
+   "line": 22528,
    "source": "+'<div class=\"aa-flow-timeline-bar '+(isIncome?'aa-flow-timeline-bar-income':'aa-flow-timeline-bar-expense')+'\" style=\"left:'+left.toFixed(2)+'%;width:'+width.toFixed(2)+'%\">'",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4140,7 +4140,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 22559,
+   "line": 22556,
    "source": "var amount=formatRappen(Math.abs(Number(item&&item.amount_rappen||0)),item&&item.currency);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4149,7 +4149,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 22592,
+   "line": 22589,
    "source": "+'<div class=\"'+barClass+'\" data-aa-tooltip=\"'+hoverLabel+'\" aria-label=\"'+hoverLabel+'\" tabindex=\"0\" style=\"left:'+left.toFixed(2)+'%;width:'+width.toFixed(2)+'%\">'",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4158,7 +4158,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 22758,
+   "line": 22755,
    "source": "if(cashflowValue)cashflowValue.textContent=formatSignedRappen(net,ccyOf(summary&&summary.amount_currency));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4167,7 +4167,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 22759,
+   "line": 22756,
    "source": "if(sub)sub.innerHTML=savingsRate==null?'<span class=\"a\">Kapital netto '+formatSignedRappen(capitalNet,ccyOf(summary&&summary.amount_currency))+'</span>':'<span class=\"'+(savingsRate>=0?'g':'a')+'\">Sparquote '+AresRounding.formatPercent(Math",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4176,7 +4176,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 22763,
+   "line": 22760,
    "source": "if(cashflowSubClean)cashflowSubClean.innerHTML='<span class=\"'+(net>=0?'g':'a')+'\">Einnahmen '+formatRappen(income,ccyOf(summary&&summary.amount_currency))+' | Ausgaben '+formatRappen(expense,ccyOf(summary&&summary.amount_currency))+'</span",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4185,7 +4185,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 22888,
+   "line": 22885,
    "source": "setInputValue('acf-amount',formatInputCHF(cashflow.amount_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4194,7 +4194,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 22892,
+   "line": 22889,
    "source": "setInputValue('acf-gross-amount',formatInputCHF(cashflow.gross_amount_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4203,7 +4203,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 22893,
+   "line": 22890,
    "source": "setInputValue('acf-tax-amount',formatInputCHF(cashflow.tax_amount_rappen));",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4212,7 +4212,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 22995,
+   "line": 22992,
    "source": "'<div class=\"cfa '+(isInc?'ci':'co')+'\">'+(isInc?'+':'\u2212')+fmtCHF(parseFloat(amount),cashflowCurrency)+'</div>'+",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4221,7 +4221,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23105,
+   "line": 23102,
    "source": "var fmt=function(r,c){return formatRappen(Number(r||0),arguments.length>1?c:cfListCcy);};",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4230,7 +4230,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23361,
+   "line": 23358,
    "source": "var fmtR=function(r,c){return formatRappen(Number(r||0),arguments.length>1?c:ccyOf(data&&data.amount_currency));};",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4239,7 +4239,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23392,
+   "line": 23389,
    "source": "var fmtHud = function(rappen) { return formatRappen(Math.abs(Number(rappen || 0)), data.amount_currency); };  // G7 N4",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4248,7 +4248,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23397,
+   "line": 23394,
    "source": "var statusValue = currentNet > 0 && savingsRate !== null ? AresRounding.formatPercent(savingsRate,0,{typography:'screen'}) : fmtHud(currentNet);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4257,7 +4257,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23438,
+   "line": 23435,
    "source": "throw new Error('Allokation muss 100% ergeben (aktuell: '+AresRounding.formatPercent(tot,0,{typography:'screen'})+'). Bitte auf 100% aufteilen oder alle Felder auf 0 lassen (dann wird automatisch 60% Aktien / 25% Obligationen angenommen).')",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4266,7 +4266,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23441,
+   "line": 23438,
    "source": "throw new Error('Vorsorge-Aufteilung muss 100% ergeben (aktuell: '+AresRounding.formatPercent(tot,0,{typography:'screen'})+') oder ganz leer bleiben (dann z\u00e4hlt die Vorsorge nicht ins Anlage-Exposure).');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4275,7 +4275,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23455,
+   "line": 23452,
    "source": "alloc_equities_bps:Math.round(akt*100),",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4284,7 +4284,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23456,
+   "line": 23453,
    "source": "alloc_bonds_bps:Math.round(obl*100),",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4293,7 +4293,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23457,
+   "line": 23454,
    "source": "alloc_real_estate_bps:Math.round(imm*100),",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4302,7 +4302,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23458,
+   "line": 23455,
    "source": "alloc_liquidity_bps:Math.round(liq*100),",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4311,7 +4311,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23459,
+   "line": 23456,
    "source": "alloc_alternatives_bps:Math.round(alt*100),",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4320,7 +4320,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23584,
+   "line": 23581,
    "source": "var fmt=function(v){return d.amount_block_reason_code?'Umrechnung offen':(d.amount_currency||!v?fmtCHF(v,d.amount_currency):'Umrechnung offen');};  // G7 N4: Rohsummen der Positionen -> amount_currency des Servers",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4329,7 +4329,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23593,
+   "line": 23590,
    "source": "k2Sub.textContent=AresRounding.formatPercent(share,0,{typography:'screen'})+' des Bruttoverm\u00f6gens';",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4338,7 +4338,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23618,
+   "line": 23615,
    "source": "? Math.round(bucket.rebalance_amount_rappen / 100) : null;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4347,7 +4347,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23619,
+   "line": 23616,
    "source": "var partialSaleChf = rebalAmtChf ? Math.round(rebalAmtChf * 0.8 / 1000) * 1000 : null;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4356,7 +4356,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23620,
+   "line": 23617,
    "source": "var rebalRoundedChf = rebalAmtChf ? Math.round(rebalAmtChf / 5000) * 5000 : null;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4365,7 +4365,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23621,
+   "line": 23618,
    "source": "var fmtChf = function(v) {",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4374,7 +4374,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23625,
+   "line": 23622,
    "source": "if (v >= 1000000) return c+'\u00a0' + formatCompactCHFAmount(v);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4383,7 +4383,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23626,
+   "line": 23623,
    "source": "if (v >= 1000)    return c+'\u00a0' + fmtNumber(v/1000,0) + 'k';",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4392,7 +4392,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23627,
+   "line": 23624,
    "source": "return c+'\u00a0' + fmtNumber(v,0);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4401,7 +4401,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23633,
+   "line": 23630,
    "source": "? fmtChf(rebalRoundedChf) + ' in defensivere Klassen umlenken. Organische Normalisierung 12\u201318 Monate.'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4410,7 +4410,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23640,
+   "line": 23637,
    "source": "? 'Teilverkauf ' + assetClass + ' ' + fmtChf(partialSaleChf) + '. Sofortige Normalisierung, Steuerfolgen separat pr\u00fcfen.'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4419,7 +4419,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23745,
+   "line": 23742,
    "source": "return Math.round((date.getTime()-today.getTime())/86400000);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4428,7 +4428,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23936,
+   "line": 23933,
    "source": "var zoneLeft=(min/100).toFixed(2);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4437,7 +4437,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23937,
+   "line": 23934,
    "source": "var zoneWidth=Math.max(1,(max-min)/100).toFixed(2);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4446,7 +4446,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23938,
+   "line": 23935,
    "source": "var targetLeft=(target/100).toFixed(2);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4455,7 +4455,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23939,
+   "line": 23936,
    "source": "var currentLeft=(current/100).toFixed(2);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4464,7 +4464,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23947,
+   "line": 23944,
    "source": "+'</div><div style=\"display:flex;justify-content:space-between;gap:6px;margin-top:4px;font-size:9px;color:var(--n4)\"><span>'+escapeHtml(formatBpsPercent(min))+'</span><span>Ziel '+escapeHtml(formatBpsPercent(target))+'</span><span>'+escapeH",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4473,7 +4473,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 23991,
+   "line": 23988,
    "source": "return '<div style=\"display:flex;justify-content:space-between;gap:10px;align-items:flex-start\"><div style=\"font-size:11px;color:var(--n7)\">\u2022 '+escapeHtml(item.assetClass)+': '+escapeHtml(item.meta.action)+'</div><div style=\"font-size:10px;",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4482,7 +4482,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24198,
+   "line": 24195,
    "source": "var pct=Math.round(doneCount/Math.max(1,totalCount)*100);",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -4491,7 +4491,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24247,
+   "line": 24244,
    "source": "? (formatSignedBpsPercent(liveDrift.delta_weight_bps||0)+' '+(liveDrift.breached?'VERLETZT':'IM BAND'))",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4500,7 +4500,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24248,
+   "line": 24245,
    "source": ": (trigger.threshold_bps!=null?fmtPct(trigger.threshold_bps,1):'Aktiv');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4509,7 +4509,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24252,
+   "line": 24249,
    "source": "? ((trigger.threshold_bps!=null?'Schwelle +/-'+fmtPct(trigger.threshold_bps,1):'Markt-Trigger')+(trigger.triggered_notes?' / '+trigger.triggered_notes:''))",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4518,7 +4518,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24255,
+   "line": 24252,
    "source": "detail=formatBpsPercent(liveDrift.current_weight_bps||0)+' Ist vs. '+sollPct(liveDrift.asset_class,liveDrift.target_weight_bps||0,reviewLiveBucketDrifts(state))+' Soll / Band '+formatBpsPercent(liveDrift.band_min_bps||0)+' bis '+formatBpsPe",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4527,7 +4527,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24556,
+   "line": 24553,
    "source": "+'<div style=\"font-family:var(--f-d);font-size:13px;color:var(--n8);text-align:right\" title=\"'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+'\">'+escapeHtml(fmtProbPct(prob*100))+'</div>'",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4536,7 +4536,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24571,
+   "line": 24568,
    "source": "'Risky-Fraction: '+formatBpsPercent(allocationMetaValue(result,'risky_fraction_bps_at_generation')||0),",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4545,7 +4545,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24572,
+   "line": 24569,
    "source": "'Risikobudget: '+formatBpsPercent(allocationMetaValue(result,'risk_budget_bps_at_generation')||0),",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4554,7 +4554,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24607,
+   "line": 24604,
    "source": "if(probEl){probEl.textContent=prob==null?'\u2014':fmtProbPct(prob*100);probEl.title=GOAL_SUCCESS_PROBABILITY_TOOLTIP;}",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4563,7 +4563,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24610,
+   "line": 24607,
    "source": "if(metaEl)metaEl.textContent=hardnessDisplay(main.hardness)+' \u00b7 '+(mainLegacy?'Altbewertung ohne Priorit\\u00e4tszuordnung \\u2013 Strategie neu berechnen':(PRIORITY_FUNDED_LABEL+(main.tau!=null?(' \u00b7 Zielniveau '+AresRounding.formatPercent(Nu",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4572,7 +4572,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24638,
+   "line": 24635,
    "source": "if(retBps)chips.push('Rendite p.a. '+fmtPct(retBps,1));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4581,7 +4581,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24640,
+   "line": 24637,
    "source": "if(projRappen>0)chips.push('Prognose'+(projYear?(' '+projYear):'')+' (Median) '+formatCompactCHF(projRappen/100));",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4590,7 +4590,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24659,
+   "line": 24656,
    "source": "summary=top.assetClass+': IST '+formatBpsPercent(top.currentWeightBps)+' / SOLL '+sollPct(top.assetClass,top.targetWeightBps,allocation&&allocation.buckets)+' \u2014 ausserhalb der vereinbarten Bandbreite. '+top.meta.action+'.';",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4599,7 +4599,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24704,
+   "line": 24701,
    "source": "summary=topInfo.assetClass+': aktuell '+formatBpsPercent(topInfo.currentWeightBps)+' / Ziel '+formatBpsPercent(topInfo.targetWeightBps)+'. '+topInfo.meta.action+'.';",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4608,7 +4608,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 24838,
+   "line": 24835,
    "source": "var scoreTxt=scoreX10!=null?(' &middot; '+fmtNumber(Number(scoreX10||0)/10,0)+' / 10'):'';",
    "channel": "classic",
    "class": "MIGRATE",
@@ -4617,7 +4617,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "line": 25029,
+   "line": 25026,
    "source": "payload.threshold_bps=isFinite(pct)?Math.round(Math.abs(pct)*100):500;",
    "channel": "classic",
    "class": "COMPUTATION_KEEP",
@@ -5454,7 +5454,7 @@
   },
   {
    "file": "ares-desktop/frontend/mandate-view.js",
-   "line": 334,
+   "line": 352,
    "source": "txt('sr-risk-score', score != null && g('fmtNumber') ? fmtNumber(score, 0) + ' / 10' : DASH);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -5463,7 +5463,7 @@
   },
   {
    "file": "ares-desktop/frontend/mandate-view.js",
-   "line": 352,
+   "line": 370,
    "source": "txt('sr-wealth', advisory && g('formatCompactCHF') ? formatCompactCHF(advisory / 100, snap.wealthCurrency) : DASH);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -5472,7 +5472,7 @@
   },
   {
    "file": "ares-desktop/frontend/mandate-view.js",
-   "line": 354,
+   "line": 372,
    "source": "? AresRounding.formatPercent(advisory / Math.max(1, total) * 100, 0, {typography: 'screen'}) + ' des Reinverm\u00f6gens' : 'Strategie ausstehend');",
    "channel": "classic",
    "class": "MIGRATE",
@@ -7280,5 +7280,5 @@
    "reason": "_position_weight_bps: `round(amount / total_amount * 10000)` -> Rueckgabewert; Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
   }
  ],
- "head_sha_parent": "4d956fb0a479ce35c180ffa89caef110f9eb3a8f"
+ "head_sha_parent": "a8a1bee4f550f4df3b529029fb149e00042b8b27"
 }

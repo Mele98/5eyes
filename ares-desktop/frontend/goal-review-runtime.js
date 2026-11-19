@@ -1241,7 +1241,7 @@ function renderActionCards(reasoning){
     var horizonText=risk&&risk.investment_horizon_years?('Horizont '+risk.investment_horizon_years+' Jahre'):'';
     var profileBits=[profile,scoreText,horizonText].filter(Boolean);
     var profileBody='Die Soll-Allokation wird vom Profil '+profileBits.join(' · ')+' getragen.';
-    if(allocation&&allocation.house_matrix_profile)profileBody+=' Die House View startet aus '+allocation.house_matrix_profile+' und bleibt innerhalb der Risiko-Leitplanken.';
+    if(allocation&&allocation.house_matrix_profile)profileBody+=' Die Hausmeinung startet aus '+allocation.house_matrix_profile+' und bleibt innerhalb der Risiko-Leitplanken.';
     pushCard('Risikoprofil & Horizont','Zentral','tr2',profileBody,'good');
   }
   if(allocation&&allocation.knowledge_asset_class_check){
@@ -1301,7 +1301,7 @@ function renderActionCards(reasoning){
   if(!items.length){
     items=[
       aaActionCardHtml('Risikoprofil & Horizont','Zentral','tr2','Die Soll-Allokation richtet sich nach Risikoprofil, Anlagehorizont und dem priorisierten Zielpfad.','good'),
-      aaActionCardHtml('House View & Leitplanken','Relevant','ta','Bandbreiten, Restriktionen und Kapitalmarktannahmen begrenzen die Strategie bewusst und machen sie nachvollziehbar.',''),
+      aaActionCardHtml('Hausmeinung & Leitplanken','Relevant','ta','Bandbreiten, Restriktionen und Kapitalmarktannahmen begrenzen die Strategie bewusst und machen sie nachvollziehbar.',''),
       aaActionCardHtml('Nächster Schritt','Einordnung','tn','Vergleiche zur Umsetzung, Entscheidungen und die eigentliche Dokumentation erfolgen anschliessend im Review.','')
     ];
   }
@@ -1310,7 +1310,7 @@ function renderActionCards(reasoning){
 // 2026-07-24: Geschaeftsmodell-bewusste Formulierung fuer Band-Abweichungen.
 // Zwei unabhaengige Achsen bestimmen die Sprache, NICHT nur eine:
 // (a) illiquide Anlageklassen (aktuell: Immobilien) sind fuer NIEMANDEN per
-//     Handelsliste rebalancierbar -- auch nicht fuer Vermoegensverwaltung.
+//     Handelsliste rebalancierbar, auch nicht fuer Vermoegensverwaltung.
 // (b) reine Anlageberatung/Finanzplanung/Reporting-only hat keine
 //     Ausfuehrungsbefugnis -- "Rebalancing erforderlich" impliziert faelschlich,
 //     dass die Firma selbst handelt. Nur Vermoegensverwaltung bekommt die
