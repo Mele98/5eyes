@@ -804,7 +804,7 @@ jobs:
         env:
           ARES_REQUIRE_PLAYWRIGHT: "1"
         run: |
-          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/kint-r2             --startup-timeout 300 --test-timeout 900 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_kern_integration_r2.py -p no:xdist -rs --tb=short
+          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/kint-r2             --startup-timeout 300 --test-timeout 900 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_kern_integration_r2.py tests/test_livetest_kern_integration_r3.py -p no:xdist -rs --tb=short
 
   kn3b-customer-pdf-guard:
     # KN3-B (H-170): Waechter ueber ALLE Kunden-PDFs (Verzehr-Fall, Umlaute,

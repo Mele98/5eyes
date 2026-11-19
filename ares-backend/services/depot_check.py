@@ -586,6 +586,10 @@ def compute_depot_check(
             return result
 
     result["total_advisory_wealth_rappen"] = total_rappen
+    # H-172: ohne erfassten Bestand ist das IST der Rueckfall auf die Zielbetraege
+    # (IST = SOLL per Konstruktion) -- dann ist keine Bandaussage moeglich.
+    result["ist_basiert_auf_soll"] = bool(positions_with_products) and holdings_snapshot is None and all(
+        _safe_int(getattr(rec, "current_amount_rappen", 0)) <= 0 for rec, _prod in positions_with_products)
     if total_rappen <= 0:
         result["warnings"].append("Kein Beratungsvermögen erfasst. Bitte WealthPositions oder RecommendationRun anlegen.")
         return result
@@ -754,7 +758,7 @@ def compute_depot_check(
             band_max_bps = _safe_int(raw_max)
             # KN3-B Nachtrag 2 (CTO): 0/0 = Obergrenze 0 (core/band_rule.py);
             # nur eine fehlende Grenze (None) ist "nicht bewertbar".
-            in_band = band_in_band(ist_bps, raw_min, raw_max)
+            in_band = None if result.get("ist_basiert_auf_soll") else band_in_band(ist_bps, raw_min, raw_max)
         result["buckets"][bucket] = {
             "label": BUCKET_LABELS[bucket],
             "ist_bps": ist_bps,

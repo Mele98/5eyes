@@ -1828,6 +1828,13 @@ def _check_asset_allocation(dc: dict[str, Any], mandate: Mandate) -> dict[str, A
         (key, b) for key, b in buckets.items()
         if b.get("in_band") is False
     ]
+    if not out_of_band and dc.get("ist_basiert_auf_soll"):
+        # H-172: IST = Zielbetraege (kein Bestand erfasst) -> kein "gruen".
+        return _verdict(
+            "Asset Allocation", "nicht_beurteilbar",
+            "Aktuelle Bestände nicht erfasst -- Band-Vergleich nicht aussagekräftig.",
+            "Aktuelle Bestände erfassen.",
+        )
     if not out_of_band:
         return _verdict(
             "Asset Allocation", "gruen",
@@ -2570,6 +2577,12 @@ def _default_anmerkungen_asset_allocation(items: list[dict[str, Any]]) -> str:
         it["label"] for it in items
         if it.get("in_band") is False
     ]
+    if not out_of_band and any(it.get("in_band") is None for it in items):
+        # H-172: ohne bewertbares IST (Bestand nicht erfasst) keine Bandaussage.
+        return (
+            "Die Einhaltung der Toleranzbänder kann nicht beurteilt werden: "
+            "Die aktuellen Bestände sind nicht erfasst."
+        )
     if not out_of_band:
         return (
             "Die aktuelle Allokation liegt innerhalb der definierten "
