@@ -1,5 +1,6 @@
 from datetime import date as _date
 from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 from typing import Optional, Literal
 from schemas.common import BaseResponse, PERSISTABLE_INT_MAX, PERSISTABLE_INT_MIN
 # RC-CH-1-F1 (N-903-03): Vokabular und Kanonisierung liegen in genau einer
@@ -252,7 +253,7 @@ class WealthPositionCreate(BaseModel):
                 + self.alloc_alternatives_bps
             )
             if total != 10000:
-                raise ValueError(f"Depot Allokation muss 10000 BP ergeben (aktuell: {total})")
+                raise depot_allocation_error(total)
         elif self.position_type == "Vorsorge":
             # VORSORGE-EXPOSURE-001 (2026-10-18): Vorsorge darf eine
             # Aufteilung tragen (z.B. 3a-Wertschriftenloesung) -- entweder
@@ -263,9 +264,10 @@ class WealthPositionCreate(BaseModel):
                 + self.alloc_alternatives_bps
             )
             if total not in (0, 10000):
-                raise ValueError(
-                    "Vorsorge-Aufteilung muss 10000 BP oder alle 0 ergeben "
-                    f"(aktuell: {total})"
+                raise PydanticCustomError(
+                    "pension_allocation_incomplete",
+                    "Die Aufteilung der Vorsorge muss zusammen 100 % ergeben oder ganz leer "
+                    f"bleiben (erfasst: {total / 100:g} %).",
                 )
         elif any(
             (
@@ -286,6 +288,25 @@ class WealthPositionCreate(BaseModel):
             self.position_type, self.asset_expected_return_bps,
         )
         return self
+
+
+# KN3-B / E2E3-08 (CTO-Entscheid): ein Depot ohne Aufteilung wird abgelehnt,
+# nie mit einer angenommenen Aufteilung gespeichert (keine erfundenen Zahlen im
+# IST-Bild). Die Meldung ist fuer den Berater bestimmt: Deutsch, in Prozent,
+# ohne technisches Praefix ("Value error, ...") und ohne Basispunkte.
+DEPOT_ALLOCATION_MISSING_MESSAGE = "Bitte die Aufteilung des Depots erfassen (Summe 100 %)."
+
+
+def depot_allocation_message(total_bps: int) -> str:
+    if int(total_bps or 0) == 0:
+        return DEPOT_ALLOCATION_MISSING_MESSAGE
+    pct = f"{int(total_bps) / 100:.2f}".rstrip("0").rstrip(".")
+    return f"Die Aufteilung des Depots muss zusammen 100 % ergeben (erfasst: {pct} %)."
+
+
+def depot_allocation_error(total_bps: int) -> PydanticCustomError:
+    """422-Fehler mit genau dieser Meldung (``msg`` ohne "Value error, ")."""
+    return PydanticCustomError("depot_allocation_incomplete", depot_allocation_message(total_bps))
 
 
 class WealthPositionUpdate(BaseModel):

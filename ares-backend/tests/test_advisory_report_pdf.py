@@ -782,7 +782,7 @@ def test_ausgangslage_shows_six_key_metrics():
     flat_text = " ".join(page_text.split())
     for label in [
         "Risikobehafteter Anteil", "Erfolgs-Wkt. gesamt", "Erw. Volatilität",
-        "Erw. Rendite", "Max Drawdown", "VaR 95",
+        "Median-Rendite (simuliert)", "Max Drawdown", "VaR 95",
     ]:
         assert label in flat_text, f"KPI-Karte '{label}' fehlt"
     # Werte: 4250 bps -> 42.5 %, 8500 -> 85.0 %, 1100 -> 11.0 %

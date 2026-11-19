@@ -8,6 +8,7 @@ from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
+from core.depletion_display import depleted, not_meaningful_text
 from services.pdf.components.header import _esc
 from core.presentation_rounding import allocation_pct_texts, format_amount_minor, format_bps_as_pct, sub_allocation_pct_texts
 from services.pdf.styles import (
@@ -226,12 +227,21 @@ def make_exposure_bars(
 
 
 def make_risk_kpis(profile: str | None, metrics: Mapping[str, object]) -> Table:
+    # KN3-B / N-917R2-02 (E2E2-03-Regel): bei Vermoegensverzehr im mittleren
+    # Verlauf ist der simulierte Max-Drawdown (-100 %) nicht aussagekraeftig.
+    note = metrics.get("depletion_note") or None
+    cagr = metrics.get("median_cagr_bps")
+    is_depleted = depleted(note, int(cagr) if isinstance(cagr, (int, float)) else None)
+    drawdown = (
+        not_meaningful_text(note or "Vermögen aufgebraucht") if is_depleted
+        else _fmt_negative_bps(metrics.get("max_drawdown_bps"))
+    )
     values = [
         ("RISIKOPROFIL", profile or "Nicht dokumentiert"),
         ("ERWARTETE RENDITE P.A.", _fmt_bps(metrics.get("expected_return_bps"))),
         ("ERWARTETE VOLATILITÄT", _fmt_bps(metrics.get("expected_vol_bps"))),
         ("ANLAGEHORIZONT", f'{int(metrics.get("horizon_years") or 0)} Jahre'),
-        ("MAX. DRAWDOWN MODELL", _fmt_negative_bps(metrics.get("max_drawdown_bps"))),
+        ("MAX. DRAWDOWN MODELL", drawdown),
         ("VALUE-AT-RISK 95%", _fmt_negative_bps(metrics.get("var_95_bps"))),
     ]
     width = (PAGE_SIZE[0] - 24 * mm) / 3
@@ -353,7 +363,7 @@ def make_cost_table(costs: Mapping[str, object], base_currency: str = "CHF") -> 
             ],
             [
                 "Total laufend p.a.",
-                "jaehrlich",
+                "jährlich",
                 f'{format_bps_as_pct(int(totals.get("annual_bps", 0) or 0), decimals=2)}',
                 _format_amount(int(totals.get("annual_rappen", 0) or 0), base_currency),
                 "Beratungsvermögen",

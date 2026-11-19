@@ -233,7 +233,7 @@ def test_reserve_explainability_no_reserve_needed(session_factory):
     assert section["external_reserve_rappen"] == 0
     assert section["composition_available"] is True
     assert section["narrative"] == [
-        "Fuer dieses Mandat besteht aktuell kein zusaetzlicher Liquiditaetsreserve-Bedarf."
+        "Für dieses Mandat besteht aktuell kein zusätzlicher Liquiditätsreserve-Bedarf."
     ]
 
 

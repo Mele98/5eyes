@@ -806,6 +806,41 @@ jobs:
         run: |
           python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/kint-r2             --startup-timeout 300 --test-timeout 900 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_kern_integration_r2.py -p no:xdist -rs --tb=short
 
+  kn3b-customer-pdf-guard:
+    # KN3-B (H-170): Waechter ueber ALLE Kunden-PDFs (Verzehr-Fall, Umlaute,
+    # Firmenkopf) plus echter App-Neustart nach der Ersteinrichtung
+    # (N-917R2-01). Echter Backend-Prozess, kein Browser. Eigener Job: das
+    # 15-Minuten-Budget von "Frontend Reporting Tests" ist ausgeschoepft.
+    name: KN3-B Kunden-PDF-Waechter
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ARES_STRICT_LEAK_GUARD: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: ares-backend/requirements.txt
+
+      - name: Install backend test dependencies
+        working-directory: ares-backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Kunden-PDF-Waechter und Neustart (Pflicht)
+        working-directory: ares-backend
+        env:
+          ARES_KN3_PDF_GUARD: "1"
+        run: |
+          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/kn3b-pdf             --startup-timeout 300 --test-timeout 600 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_kn3_b_customer_pdf_guard.py -p no:xdist -rs --tb=short
+
   vitest:
     # Sprint U-53 (2026-06-04): Frontend Reporting Sub-App vitest in CI.
     # Pre-U-53 lief vitest nur lokal — Bundle-Size (U-56), Sort-Filter-

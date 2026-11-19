@@ -740,7 +740,7 @@ def _load_client_or_raise(db: Session, mandate: Mandate) -> Client:
         raise ValueError(f"Mandat {getattr(mandate, 'id', '?')!r} ohne client_id.")
     client = db.query(Client).filter(Client.id == client_id).first()
     if client is None:
-        raise ValueError(f"Client {client_id!r} fuer Mandat nicht gefunden.")
+        raise ValueError(f"Client {client_id!r} für Mandat nicht gefunden.")
     return client
 
 
@@ -900,7 +900,7 @@ def _build_cover(
     ) or "—"
     return {
         "title": "Strategische Portfolioanalyse",
-        "subtitle": "Persoenlicher Advisory-Report",
+        "subtitle": "Persönlicher Advisory-Report",
         "client_name": client_name,
         "mandate_number": str(getattr(mandate, "mandate_number", "") or ""),
         "report_date": generated_at[:10],  # YYYY-MM-DD
@@ -1009,7 +1009,7 @@ def _build_tax_domicile_mismatch_warning(client: Client, mandate: Mandate) -> st
     return (
         f"Steuersitz-Hinweis: Client-Wohnsitz ({residence}) weicht vom "
         f"hinterlegten Steuerjurisdiktions-Code des Mandats ({jurisdiction_raw}) "
-        "ab -- bitte pruefen."
+        "ab -- bitte prüfen."
     )
 
 
@@ -1497,7 +1497,7 @@ def _build_positionen(db: Session, mandate: Mandate) -> dict[str, Any]:
             "total_rappen": 0,
             "has_recommendation_run": False,
             "hinweis": (
-                "Keine aktuelle Empfehlung fuer die gueltige Asset "
+                "Keine aktuelle Empfehlung für die gültige Asset "
                 "Allokation (keine aktuelle Produktempfehlung). Bitte Asset "
                 "Allokation berechnen und Produktauswahl im Portfolio-Tab "
                 "vornehmen."
@@ -1806,22 +1806,22 @@ def _check_asset_allocation(dc: dict[str, Any], mandate: Mandate) -> dict[str, A
         return _verdict(
             "Asset Allocation", "nicht_beurteilbar",
             str(dc.get("projection_gate_hinweis"))
-            + " Band-Vergleich nicht aussagekraeftig.",
-            "Risikoprofil pruefen und Strategie neu berechnen.",
+            + " Band-Vergleich nicht aussagekräftig.",
+            "Risikoprofil prüfen und Strategie neu berechnen.",
         )
     if dc.get("target_allocation_inputs_stale"):
         # ALLOCATION-INPUT-STALENESS-001: gleiche Konsequenz, anderer Grund.
         return _verdict(
             "Asset Allocation", "nicht_beurteilbar",
             _INPUT_STALE_ALLOCATION_TEXT
-            + " -- Band-Vergleich nicht aussagekraeftig.",
+            + " -- Band-Vergleich nicht aussagekräftig.",
             "Strategie neu berechnen.",
         )
     if dc.get("target_allocation_stale"):
         return _verdict(
             "Asset Allocation", "nicht_beurteilbar",
-            "Soll-Allokation basiert auf einem frueheren, nicht mehr "
-            "aktuellen Risikoprofil -- Band-Vergleich nicht aussagekraeftig.",
+            "Soll-Allokation basiert auf einem früheren, nicht mehr "
+            "aktuellen Risikoprofil -- Band-Vergleich nicht aussagekräftig.",
             "Strategie neu berechnen (siehe Compliance-Audit, Sektion 19).",
         )
     out_of_band = [
@@ -1916,29 +1916,29 @@ def _suggest_hedge_ratio_bps(fx_total_bps: int, horizon_years: int | None) -> tu
     """
     # 0 oder negative FX-Exposure: nichts zu hedgen
     if fx_total_bps <= 0:
-        return 0, "Keine Fremdwaehrungs-Exposition vorhanden."
+        return 0, "Keine Fremdwährungs-Exposition vorhanden."
     # Sehr kleine FX-Exposure: Hedging selten wirtschaftlich
     if fx_total_bps < 1500:
         return 0, (
-            f"Fremdwaehrungs-Anteil {fx_total_bps/100:.1f}% — Hedging wirtschaftlich "
-            "wenig sinnvoll bei dieser Groesse."
+            f"Fremdwährungs-Anteil {fx_total_bps/100:.1f}% — Hedging wirtschaftlich "
+            "wenig sinnvoll bei dieser Grösse."
         )
     if horizon_years is None:
         return 5000, (
             "Kein Anlagehorizont bekannt — konservative Default-Hedge-Quote 50% "
-            "der Fremdwaehrungs-Exposition empfohlen."
+            "der Fremdwährungs-Exposition empfohlen."
         )
     if horizon_years < 3:
         ratio_bps = 8000
         rationale = (
-            f"Kurzer Horizont ({horizon_years} J): Wechselkurs-Volatilitaet "
+            f"Kurzer Horizont ({horizon_years} J): Wechselkurs-Volatilität "
             "dominiert vor Mean-Reversion. Hohe Hedge-Quote angezeigt."
         )
     elif horizon_years < 7:
         ratio_bps = 5000
         rationale = (
             f"Mittelfristiger Horizont ({horizon_years} J): Hedge-Quote "
-            "ausgewogen — schuetzt vor Drawdowns ohne Long-Term-Mean-Reversion zu vereiteln."
+            "ausgewogen — schützt vor Drawdowns ohne Long-Term-Mean-Reversion zu vereiteln."
         )
     elif horizon_years < 15:
         ratio_bps = 2500
@@ -1950,7 +1950,7 @@ def _suggest_hedge_ratio_bps(fx_total_bps: int, horizon_years: int | None) -> tu
         ratio_bps = 0
         rationale = (
             f"Sehr langer Horizont ({horizon_years} J): Hedge nicht zwingend, "
-            "Mean-Reversion-Argument tragend, Hedge-Kosten ueberwiegen oft."
+            "Mean-Reversion-Argument tragend, Hedge-Kosten überwiegen oft."
         )
     return ratio_bps, rationale
 
@@ -1968,16 +1968,16 @@ def _check_waehrungsabsicherung(
     fx = dc.get("currency_exposure_bps") or {}
     if not fx:
         return _verdict(
-            "Waehrungsabsicherung", "nicht_beurteilbar",
-            "Keine Waehrungs-Daten verfuegbar.",
-            "Produkte mit Waehrungs-Exposure pflegen, anschliessend Hedge-Quote berechnen.",
+            "Währungsabsicherung", "nicht_beurteilbar",
+            "Keine Währungs-Daten verfügbar.",
+            "Produkte mit Währungs-Exposure pflegen, anschliessend Hedge-Quote berechnen.",
         )
 
     fx_total_bps = sum(int(v or 0) for k, v in fx.items() if k != "CHF")
     if fx_total_bps <= 0:
         return _verdict(
-            "Waehrungsabsicherung", "gruen",
-            "Keine Fremdwaehrungs-Exposition vorhanden.",
+            "Währungsabsicherung", "gruen",
+            "Keine Fremdwährungs-Exposition vorhanden.",
             "Keine Massnahme erforderlich.",
         )
 
@@ -2001,7 +2001,7 @@ def _check_waehrungsabsicherung(
     fx_pct = fx_total_bps / 100
     hedge_pct = hedge_bps / 100
     beurteilung = (
-        f"Fremdwaehrungs-Exposition {fx_pct:.1f}%. "
+        f"Fremdwährungs-Exposition {fx_pct:.1f}%. "
         + rationale
     )
     # PO-06 (Audit 2026-11): Herkunft des Exposures offenlegen -- abgesicherte
@@ -2011,7 +2011,7 @@ def _check_waehrungsabsicherung(
     if proxy_bps > 0:
         beurteilung += (
             f" Herkunft: {proxy_bps / 100:.1f}% des Depots ohne Produktdaten zur "
-            "Waehrung (Schaetzung aus der Sub-Anlageklasse)."
+            "Währung (Schätzung aus der Sub-Anlageklasse)."
         )
     if hedge_bps == 0:
         handlung = (
@@ -2020,15 +2020,15 @@ def _check_waehrungsabsicherung(
         bewertung = "gruen" if fx_total_bps < 1500 else "gelb"
     else:
         handlung = (
-            f"Empfohlene Hedge-Quote: {hedge_pct:.0f}% der Fremdwaehrungs-Position "
-            f"(~{(fx_total_bps * hedge_bps // 10000)/100:.1f}% des Beratungsvermoegens). "
-            "Mit Kunde besprechen — Hedge-Kosten gegen Volatilitaets-Reduktion abwaegen."
+            f"Empfohlene Hedge-Quote: {hedge_pct:.0f}% der Fremdwährungs-Position "
+            f"(~{(fx_total_bps * hedge_bps // 10000)/100:.1f}% des Beratungsvermögens). "
+            "Mit Kunde besprechen — Hedge-Kosten gegen Volatilitäts-Reduktion abwägen."
         )
         # Gelb wenn Hedge mittel/klein, rot wenn hohe Quote bei kurzem Horizont noetig
         bewertung = "rot" if hedge_bps >= 6000 else "gelb"
 
     return _verdict(
-        "Waehrungsabsicherung", bewertung, beurteilung, handlung,
+        "Währungsabsicherung", bewertung, beurteilung, handlung,
     )
 
 
@@ -2924,7 +2924,7 @@ def _build_monte_carlo_paths_section(
             "reason_code": str(_fx_reason(exc.reason_code)),
             "fx_status": _fx_block_status(exc, basis),
             "note": (
-                "Die Prognose wird nicht ausgewiesen: fuer mindestens eine Waehrung "
+                "Die Prognose wird nicht ausgewiesen: für mindestens eine Währung "
                 "fehlt ein belegter, aktueller Wechselkurs (" + exc.reason_code + ")."
             ),
         }
@@ -2939,9 +2939,9 @@ def _build_monte_carlo_paths_section(
     except Exception:  # noqa: BLE001 - aktiviertes Feature: Solver waere fail-closed
         return _data_pending_response(horizon_years, initial_wealth) | unavailable | {
             "note": (
-                "Die Mortalitaets-Simulation ist aktiviert, aber die Angaben "
-                "zu Geburtsjahr/Geschlecht sind unvollstaendig. Bitte Angaben "
-                "ergaenzen und Strategie neu berechnen."
+                "Die Mortalitäts-Simulation ist aktiviert, aber die Angaben "
+                "zu Geburtsjahr/Geschlecht sind unvollständig. Bitte Angaben "
+                "ergänzen und Strategie neu berechnen."
             ),
             "projection_status": "blocked",
         }
@@ -3006,7 +3006,7 @@ def _strategy_payload_for_report(
         raise ValueError(cma_note)
     policy = db.get(OptimizerPolicy, ta.policy_id) if ta.policy_id else None
     if policy is None:
-        raise ValueError("Die Soll-Allokation referenziert keine verfuegbare Optimizer-Policy.")
+        raise ValueError("Die Soll-Allokation referenziert keine verfügbare Optimizer-Policy.")
     return _aggregator_cache_get(
         db, ("strategy_payload", str(mandate.id), str(ta.id)),
         lambda: build(
@@ -3036,7 +3036,7 @@ def _compute_beratungsvermoegen_rappen(db: Session, client: Client, mandate: Man
         or (line.source_currency != line.target_currency and not line.source_observed_at)
         for line in lines
     ):
-        raise ValueError("Beratungsvermoegen: gemischte oder unbelegte FX-Basis")
+        raise ValueError("Beratungsvermögen: gemischte oder unbelegte FX-Basis")
     return sum(line.converted_amount_minor for line in lines)
 
 
@@ -3157,8 +3157,8 @@ def _build_risikoprofilierung(db: Session, mandate: Mandate) -> dict[str, Any]:
 
 
 _INPUT_STALE_ALLOCATION_TEXT = (
-    "Soll-Allokation ist veraltet: Vermoegen, Cashflows oder Ziele haben "
-    "sich seit der Berechnung geaendert"
+    "Soll-Allokation ist veraltet: Vermögen, Cashflows oder Ziele haben "
+    "sich seit der Berechnung geändert"
 )
 
 
@@ -3171,7 +3171,7 @@ def _stale_allocation_hinweis(dc: dict[str, Any]) -> str:
     if dc.get("target_allocation_inputs_stale"):
         return "Hinweis: " + _INPUT_STALE_ALLOCATION_TEXT + "."
     return (
-        "Hinweis: Soll-Allokation basiert auf einem frueheren, nicht "
+        "Hinweis: Soll-Allokation basiert auf einem früheren, nicht "
         "mehr aktuellen Risikoprofil."
     )
 
@@ -4608,7 +4608,7 @@ def _build_reserve_explainability(db: Session, mandate: Mandate) -> dict[str, An
         "composition_available": False,
         "narrative": [],
         "drift_detected": False,
-        "hinweis": "Keine Reserve-Herleitung verfuegbar (keine aktive Soll-Allokation).",
+        "hinweis": "Keine Reserve-Herleitung verfügbar (keine aktive Soll-Allokation).",
         "fidleg_basis": "Art. 8 / Art. 9 FIDLEG (Transparenz Kosten- und Anlageentscheid)",
     }
     try:
@@ -4647,7 +4647,7 @@ def _build_reserve_explainability(db: Session, mandate: Mandate) -> dict[str, An
                 "external_reserve_rappen": 0,
                 "saa_liquidity_ceiling_bps": saa_ceiling_bps,
                 "composition_available": True,
-                "narrative": ["Fuer dieses Mandat besteht aktuell kein zusaetzlicher Liquiditaetsreserve-Bedarf."],
+                "narrative": ["Für dieses Mandat besteht aktuell kein zusätzlicher Liquiditätsreserve-Bedarf."],
                 "hinweis": None,
             }
 
@@ -4678,8 +4678,8 @@ def _build_reserve_explainability(db: Session, mandate: Mandate) -> dict[str, An
 
         external_reserve_recommended = external_reserve_rappen > 0
         external_reserve_reason = (
-            "Der Liquiditaetsbedarf uebersteigt die strategische SAA-Liquiditaets-"
-            f"Obergrenze von {saa_ceiling_bps / 100:.1f}%. Der Ueberschuss wird als "
+            "Der Liquiditätsbedarf übersteigt die strategische SAA-Liquiditäts-"
+            f"Obergrenze von {saa_ceiling_bps / 100:.1f}%. Der Überschuss wird als "
             "externe Reserve ausserhalb des Beratungsmandats empfohlen."
             if external_reserve_recommended else None
         )
@@ -4688,9 +4688,9 @@ def _build_reserve_explainability(db: Session, mandate: Mandate) -> dict[str, An
         if drift_detected:
             hinweis = (
                 "Hinweis: Die Reserve-Zusammensetzung konnte nicht im Detail "
-                "hergeleitet werden, weil sich Cashflows, Ziele oder Praeferenzen "
-                "seit der letzten Allokations-Generierung geaendert haben. Die "
-                "angezeigten Reserve-Betraege sind unveraendert die bei der "
+                "hergeleitet werden, weil sich Cashflows, Ziele oder Präferenzen "
+                "seit der letzten Allokations-Generierung geändert haben. Die "
+                "angezeigten Reserve-Beträge sind unverändert die bei der "
                 "Generierung persistierten Werte. Strategie neu berechnen, um die "
                 "Herleitung zu aktualisieren."
             )
@@ -4809,7 +4809,7 @@ def _detect_is_status_from_reasoning(reasoning_text: str) -> tuple[bool, str]:
     """
     lower = reasoning_text.lower()
     if any(p in lower for p in _IS_AKTIV_PATTERNS):
-        return True, "Importance Sampling aktiv (Tail-Schutz fuer Shortfall-Berechnung)"
+        return True, "Importance Sampling aktiv (Tail-Schutz für Shortfall-Berechnung)"
     if any(p in lower for p in _IS_INAKTIV_PATTERNS):
         return False, "Standard-MC (uniformer Sample-Mean)"
     return False, ""
@@ -4999,7 +4999,7 @@ def _build_performance_attribution(
         )
         if resolution.row is None:
             empty = _performance_attribution_empty(
-                "Keine eindeutige House-Matrix-Referenz fuer das Risikoprofil "
+                "Keine eindeutige House-Matrix-Referenz für das Risikoprofil "
                 f"({resolution.reason_code}): {resolution.detail}"
             )
             empty["reason_code"] = resolution.reason_code
@@ -5024,7 +5024,7 @@ def _build_performance_attribution(
         )
         if cma is None:
             return _performance_attribution_empty(
-                "Keine aktuelle CMA verfuegbar."
+                "Keine aktuelle CMA verfügbar."
             )
         returns_bps = {
             "equities": _safe_int(getattr(cma, "equity_ch_return_bps", 0)),

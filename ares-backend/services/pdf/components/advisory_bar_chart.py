@@ -16,6 +16,7 @@ Wird in PDF-Sektionen 8 (Asset Allocation), 9 (Risikowährungen) und
 """
 from __future__ import annotations
 
+from core.customer_terms import customer_term
 from typing import Sequence
 
 from reportlab.graphics.shapes import Drawing, Rect
@@ -270,7 +271,7 @@ def _paragraph_style(
 
 def _escape(text: str) -> str:
     return (
-        str(text)
+        customer_term(str(text))
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")

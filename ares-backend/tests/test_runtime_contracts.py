@@ -5055,7 +5055,13 @@ def test_refresh_system_review_triggers_reuses_supplied_allocation_payload(sessi
         assert "Erfolgswahrscheinlichkeit" in (goal_trigger.triggered_notes or "")
 
 
-def test_refresh_system_review_triggers_ignores_unconfigured_zero_bands(session_factory, advisor_user):
+def test_refresh_system_review_triggers_treats_zero_bands_as_upper_limit(session_factory, advisor_user):
+    """KN3-B Nachtrag 2 (CTO-Entscheid): Band 0/0 ist "Obergrenze 0", nicht
+    "nicht konfiguriert" (core/band_rule.py). Vorher pinnte dieser Test das
+    Gegenteil ("ignores_unconfigured_zero_bands"). Die Soll-Allokation kann 0/0
+    nur bei Ziel 0 tragen (CHECK band_min <= target <= band_max); 5 % in einem
+    0/0-Band sind also ein vom Profil ausgeschlossener Bestand. Nur eine fehlende
+    Bandangabe ist nicht bewertbar und loest keinen Trigger aus."""
     _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 
     with session_factory() as session:
@@ -5128,12 +5134,16 @@ def test_refresh_system_review_triggers_ignores_unconfigured_zero_bands(session_
                     {"asset_class": "Aktien", "current_weight_bps": 6000, "band_min_bps": 5000, "band_max_bps": 7000},
                     {"asset_class": "Alternative", "current_weight_bps": 500, "band_min_bps": 0, "band_max_bps": 0},
                     {"asset_class": "Immobilien", "current_weight_bps": 0, "band_min_bps": 0, "band_max_bps": 0},
+                    {"asset_class": "Liquiditaet", "current_weight_bps": 3500},  # ohne Band: nicht bewertbar
                 ],
             },
         )
 
     drift_trigger = next((trigger for trigger in triggers if trigger.trigger_name == SYSTEM_TRIGGER_DRIFT), None)
-    assert drift_trigger is None or drift_trigger.status != "Ausgelöst"
+    assert drift_trigger is not None and drift_trigger.status == "Ausgelöst"
+    # Nur Alternative (5 % ueber Obergrenze 0) -- nicht Immobilien (0 %) und nicht
+    # die Liquiditaet ohne Bandangabe.
+    assert drift_trigger.threshold_bps == 500
 
 
 def test_refresh_system_review_triggers_resolves_drift_when_portfolio_returns_inside_bands(session_factory, advisor_user):

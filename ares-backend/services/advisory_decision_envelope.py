@@ -920,8 +920,9 @@ def pull_freshness(
         (edge, current.get(edge.dependency_kind)) for edge in edges
         if current.get(edge.dependency_kind) is None
         or current[edge.dependency_kind].object_id != edge.dependency_object_id
-        or not (dependency_is_current(edge.dependency_hash, current[edge.dependency_kind].dependency_hash)
-                or dependency_is_current(edge.dependency_hash, current[edge.dependency_kind].legacy_hash))
+        # Heutige Projektion oder Uebergangs-Hash frueherer Projektionen (KN-B
+        # Beruf, KN3-B Mandantengrenze); unknown ist nie current.
+        or not current[edge.dependency_kind].accepts(edge.dependency_hash)
     ]
     if drift and any(edge.dependency_kind in REFERENCE_KINDS for edge, _part in drift) \
             and decision_signed(db, envelope):

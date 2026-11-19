@@ -1,6 +1,7 @@
 """Editorial ex-ante cost disclosure for the Advisory-Report PDF."""
 from __future__ import annotations
 
+from core.customer_terms import customer_term
 from typing import Any
 
 from reportlab.lib.colors import HexColor
@@ -415,7 +416,7 @@ def _style(
 
 def _escape(value: Any) -> str:
     return (
-        str(value if value is not None else "—")
+        customer_term(str(value if value is not None else "—"))
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")

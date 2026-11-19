@@ -185,7 +185,12 @@ FAN_OUT_EXEMPT_LEAVES = frozenset(
     {"core.evidence", "core.reason_codes", "core.db_integrity", "core.goal_vocabulary",
      "core.presentation_rounding", "core.sustainability_preference",
      # K1 (2026-11-19): Property-Gate und FX-Freshness-Sicht als reine Blaetter.
-     "core.property_gate", "core.fx_freshness"}
+     "core.property_gate", "core.fx_freshness",
+     # KN3-B (H-170): Verzehr-Regel und Anzeigeform der Datenbegriffe fuer
+     # Kunden-PDFs als reine Blaetter (nur Standardbibliothek).
+     "core.depletion_display", "core.customer_terms",
+     # KN3-B Nachtrag 2: eine Bandregel fuer alle Konsumenten.
+     "core.band_rule"}
 )
 _STDLIB = frozenset(sys.stdlib_module_names) | {"__future__"}
 _DYNAMIC_IMPORT_CALLS = frozenset({"__import__", "import_module"})

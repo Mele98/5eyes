@@ -14,6 +14,7 @@ CH-Bestand, siehe Auftrag Constraint 1.
 """
 from __future__ import annotations
 
+from core.customer_terms import customer_term
 import json
 import logging
 from typing import Any
@@ -159,7 +160,7 @@ def _resolve_jurisdiction_provisional_notice(db: Session | None, mandate: Any) -
 
 def _escape(text: str) -> str:
     return (
-        str(text or "")
+        customer_term(str(text or ""))
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")

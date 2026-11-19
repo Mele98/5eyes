@@ -50,7 +50,12 @@ def make_drift_table(buckets: Mapping[str, Mapping]) -> Table:
         else:
             status = '<font color="#94a3b8">—</font>'
 
-        band_text = f"{format_bps_as_pct(band_min, decimals=1)} – {format_bps_as_pct(band_max, decimals=1)}" if (band_min or band_max) else "—"
+        # KN3-B Nachtrag 2: ein bewertetes Band 0/0 ist eine Grenze ("0.0 % – 0.0 %"),
+        # "—" nur ohne Bewertung.
+        band_text = (
+            f"{format_bps_as_pct(band_min, decimals=1)} – {format_bps_as_pct(band_max, decimals=1)}"
+            if (band_min or band_max or in_band is not None) else "—"
+        )
         drift_color = "#7f1d1d" if abs(drift_bps) > 200 else "#475569"
         drift_text = format_bps_signed_pct(drift_bps, decimals=1)
 

@@ -411,7 +411,7 @@ def test_stale_price_in_current_run_blocks(session_factory):
 def test_fx_failure_blocks(session_factory):
     with session_factory() as s:
         _, mandate = _seed(s)
-        with pytest.raises(HoldingsValuationIncompleteError, match="Waehrungsumrechnung"):
+        with pytest.raises(HoldingsValuationIncompleteError, match="Währungsumrechnung"):
             _build(s, mandate, fx=FXRateSource({"CHF": 1.0}))
 
 

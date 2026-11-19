@@ -16,6 +16,7 @@ Risikoprofil, Building Blocks, Weiteres Vorgehen) folgen in U-P26 PR B-F.
 """
 from __future__ import annotations
 
+from core.customer_terms import customer_term
 import logging
 import time
 from datetime import datetime
@@ -86,6 +87,7 @@ from services.pdf.components.swiss_numbers import (
     format_integer,
     format_number,
 )
+from core.depletion_display import depleted, depletion_note, not_meaningful_text
 
 
 logger = logging.getLogger(__name__)
@@ -300,6 +302,7 @@ def _build_all_flowables(
         flowables.extend(_build_ausgangslage_flowables(
             payload.get("ausgangslage") or {}, styles,
             projection_gate=payload.get("projection_gate"),
+            depletion=_report_depletion_note(payload),
         ))
         flowables.append(PageBreak())
     if "positionen" in payload:
@@ -632,6 +635,7 @@ def _build_ausgangslage_flowables(
     styles: dict,
     *,
     projection_gate: dict | None = None,
+    depletion: str | None = None,
 ) -> list[Any]:
     """Editorial 2-Spalten-Layout: links Client-Info, rechts Wealth-Summary,
     unten 6 KPI-Karten.
@@ -685,8 +689,30 @@ def _build_ausgangslage_flowables(
             "<b>Achtung:</b> " + _escape(gate_hint), styles["body"],
         ))
         out.append(Spacer(1, 3 * mm))
-    out.append(_build_key_metrics_row(metrics, styles))
+    out.append(_build_key_metrics_row(metrics, styles, depletion=depletion))
     return out
+
+
+def _safe_bps(value: Any) -> int | None:
+    try:
+        return None if value is None else int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _report_depletion_note(payload: dict) -> str | None:
+    """KN3-B / N-917R2-02: Verzehr-Hinweis aus dem Faecher desselben Berichts
+    (``goal_based_investing.monte_carlo_paths``: SOLL-Median inkl. Reserve-
+    Sockel, dieselbe Strategie-Payload wie die App). Gleiche Regel wie die
+    uebrigen Kunden-PDFs (``services.pdf.base.depletion_note``, E2E2-03)."""
+    gbi = payload.get("goal_based_investing") if isinstance(payload, dict) else None
+    paths = (gbi or {}).get("monte_carlo_paths") if isinstance(gbi, dict) else None
+    if not isinstance(paths, dict) or paths.get("data_pending"):
+        return None
+    try:
+        return depletion_note(paths.get("time_axis"), paths.get("p50"))
+    except (TypeError, ValueError):
+        return None
 
 
 def _build_client_info_block(client_info: dict, styles: dict, *, currency: str = "CHF"):
@@ -776,23 +802,35 @@ def _label_value_table(rows: list[tuple[str, str]], styles: dict) -> Table:
     return table
 
 
-def _build_key_metrics_row(metrics: dict, styles: dict) -> Table:
+def _build_key_metrics_row(metrics: dict, styles: dict, *, depletion: str | None = None) -> Table:
     """6 KPI-Karten in einer Zeile (Risky-Fraction / Zielerreichung /
-    erw Vol / erw Return / Max DD / VaR 95)."""
+    erw Vol / Median-Rendite / Max DD / VaR 95).
+
+    KN3-B / N-917R2-02 (E2E2-03-Regel): bei Vermoegensverzehr im mittleren
+    Verlauf (Hinweis ``depletion``) oder Totalverlust-Median sind die simulierte
+    Rendite (-100 %) und der Drawdown (100 %) nicht aussagekraeftig -- statt
+    der Zahl steht "nicht aussagekräftig – Vermögen aufgebraucht ab JJJJ".
+    Die Kachel zeigt den simulierten Median (``mc_exp_return_bps``), daher
+    "Median-Rendite (simuliert)" statt "Erw. Rendite"."""
     page_width, _ = PAGE_SIZE
     inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
     col_w = inner_width / 6
 
+    exp_return = metrics.get("exp_return_bps")
+    is_depleted = depleted(depletion, _safe_bps(exp_return))
+    na = not_meaningful_text(depletion or "Vermögen aufgebraucht") if is_depleted else None
     karten = [
         ("Risikobehafteter Anteil", format_bps_as_pct(metrics.get("risky_fraction_bps"))),
         ("Erfolgs-Wkt. gesamt", format_bps_as_pct(metrics.get("zielerreichung_bps"))),
         ("Erw. Volatilität", format_bps_as_pct(metrics.get("exp_vol_bps"))),
-        ("Erw. Rendite", format_bps_as_pct(metrics.get("exp_return_bps"))),
-        ("Max Drawdown", format_bps_as_pct(metrics.get("max_drawdown_bps"))),
+        ("Median-Rendite (simuliert)", na or format_bps_as_pct(exp_return)),
+        ("Max Drawdown", na or format_bps_as_pct(metrics.get("max_drawdown_bps"))),
         ("VaR 95 %", format_bps_as_pct(metrics.get("var_95_bps"))),
     ]
     cells = [
-        _kpi_card(label, value, styles) for label, value in karten
+        # Der Verzehr-Hinweis ist laenger als eine Zahl: kleinere Schrift,
+        # damit «aussagekräftig» in der schmalen Karte nicht mitten im Wort bricht.
+        _kpi_card(label, value, styles, small=bool(na) and value == na) for label, value in karten
     ]
     row = Table([cells], colWidths=[col_w] * 6)
     row.setStyle(TableStyle([
@@ -805,8 +843,9 @@ def _build_key_metrics_row(metrics: dict, styles: dict) -> Table:
     return row
 
 
-def _kpi_card(label: str, value: str, styles: dict) -> Table:
-    """Mini-Karte: Label oben (micro), Wert mittig (body-bold)."""
+def _kpi_card(label: str, value: str, styles: dict, *, small: bool = False) -> Table:
+    """Mini-Karte: Label oben (micro), Wert mittig (body-bold; ``small``:
+    Hinweistext in Caption-Groesse)."""
     label_p = Paragraph(
         _escape(label),
         _ar_paragraph_style(
@@ -816,7 +855,7 @@ def _kpi_card(label: str, value: str, styles: dict) -> Table:
     value_p = Paragraph(
         _escape(value or "—"),
         _ar_paragraph_style(
-            styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD,
+            styles["caption"] if small else styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD,
         ),
     )
     card = Table([[label_p], [value_p]])
@@ -3404,7 +3443,7 @@ def _format_two_digits(value: Any) -> str:
 def _escape(text: str) -> str:
     """ReportLab Paragraph akzeptiert mini-HTML. Wir escapen die Standard-Trio."""
     return (
-        str(text)
+        customer_term(str(text))
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")

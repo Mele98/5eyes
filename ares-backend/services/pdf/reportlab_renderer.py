@@ -144,7 +144,8 @@ class ReportLabRenderer:
         register_editorial_fonts()
         buffer = BytesIO()
         # KN-B Nachtrag 1: kein Personenname als Fallback; ohne Firma/Berater entfaellt das Praefix.
-        metadata_brand = ctx.advisor_org or ctx.advisor_name or ""
+        # KN3-B E2E3-04: Firma im Titel, der Berater bleibt Autor.
+        metadata_brand = ctx.advisor_org or ""
         doc_title = " - ".join(part for part in (metadata_brand, title, ctx.mandate_name) if part)
         doc = SimpleDocTemplate(
             buffer,

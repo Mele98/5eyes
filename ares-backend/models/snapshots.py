@@ -16,6 +16,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, relationship
 from sqlalchemy.sql.dml import UpdateBase
 from database import (
+    ADVISORY_TENANT_BOUNDARY_COLUMNS,
     ALLOCATION_PUBLICATION_SQLITE_TENANT_GUARDS,
     ALLOCATION_PUBLICATION_SQLITE_TRIGGERS,
     ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS,
@@ -539,7 +540,11 @@ class DependencySource:
     scope: str
     key: str
     current_flag: str | None = None
-    volatile: frozenset[str] = frozenset({"updated_at"})
+    # KN3-B / N-917R2-01: ``tenant_id`` ist Mandantengrenze, kein
+    # Beratungsinhalt (Begruendung bei ADVISORY_TENANT_BOUNDARY_COLUMNS in
+    # database.py). Der Mandant eines Ereignisses wird separat gelesen
+    # (``_Change.tenant_id``), er bleibt fuer die Reichweite massgeblich.
+    volatile: frozenset[str] = frozenset({"updated_at"}) | ADVISORY_TENANT_BOUNDARY_COLUMNS
 
 
 DEPENDENCY_SOURCES: dict[str, DependencySource] = {
@@ -735,7 +740,8 @@ def _scope(values: dict, key: str) -> str | None:
     return str(value)
 
 
-def _change(table: str, source: DependencySource, op: str, old: dict, new: dict) -> _Change | None:
+def _change(table: str, source: DependencySource, op: str, old: dict, new: dict,
+            tenant: str | None = None) -> _Change | None:
     old_hash = None if op == "insert" else projection_hash(table, old)
     new_hash = None if op == "delete" else projection_hash(table, new)
     if op == "update" and old_hash == new_hash:
@@ -750,8 +756,25 @@ def _change(table: str, source: DependencySource, op: str, old: dict, new: dict)
         old_hash=old_hash, new_hash=new_hash, scope_values=scope_values,
         fallback_client=fallback if source.scope == SCOPE_MANDATE and not scope_values else None,
         global_current=bool(op == "insert" and flag and new.get(flag) not in (None, 0, False, "", _UNLOADED)),
-        tenant_id=_scope(new, "tenant_id") or _scope(old, "tenant_id"),
+        tenant_id=_scope({"tenant_id": tenant}, "tenant_id") or _scope(new, "tenant_id") or _scope(old, "tenant_id"),
     )
+
+
+def _state_tenant(state) -> str | None:
+    """Mandant eines ORM-Objekts (neu, sonst alt) -- ausserhalb der Projektion,
+    weil ``tenant_id`` volatil ist (KN3-B / N-917R2-01)."""
+    if "tenant_id" not in state.mapper.column_attrs.keys():
+        return None
+    value = state.dict.get("tenant_id")
+    if value in (None, ""):
+        deleted = state.attrs["tenant_id"].history.deleted
+        value = deleted[0] if deleted else None
+    return str(value) if value not in (None, "") else None
+
+
+def _row_tenant(row) -> str | None:
+    value = row.get("tenant_id") if hasattr(row, "get") else None
+    return str(value) if value not in (None, "") else None
 
 
 def _session_changes(session: Session) -> list[_Change]:
@@ -769,7 +792,7 @@ def _session_changes(session: Session) -> list[_Change]:
             if op == "update" and not session.is_modified(obj, include_collections=False):
                 continue
             old, new = _old_new(state, source.volatile)
-            change = _change(table, source, op, old, new)
+            change = _change(table, source, op, old, new, tenant=_state_tenant(state))
             if change is not None:
                 changes.append(change)
     return changes
@@ -1019,7 +1042,7 @@ def _bulk_orm_write(orm_execute_state):
     changes = []
     for row in rows:
         old = _row_projection(table, row, source)
-        change = _change(table.name, source, "delete", old, {})
+        change = _change(table.name, source, "delete", old, {}, tenant=_row_tenant(row))
         if orm_execute_state.is_update:
             change.op = "update"
         changes.append(change)
@@ -1099,7 +1122,7 @@ def _guard_core_dml(conn, clauseelement, multiparams, params, execution_options)
         if clauseelement.is_insert:
             for row in _insert_rows(clauseelement, multiparams, params):
                 values = _row_projection(table, row, source)
-                changes.append(_change(table.name, source, "insert", {}, values))
+                changes.append(_change(table.name, source, "insert", {}, values, tenant=_row_tenant(row)))
         else:
             where = getattr(clauseelement, "whereclause", None)
             query = select(table) if where is None else select(table).where(where)
@@ -1108,7 +1131,7 @@ def _guard_core_dml(conn, clauseelement, multiparams, params, execution_options)
                 query = query.with_for_update()
             for row in conn.execute(query).mappings().all():
                 old = _row_projection(table, row, source)
-                change = _change(table.name, source, "delete", old, {})
+                change = _change(table.name, source, "delete", old, {}, tenant=_row_tenant(row))
                 if clauseelement.is_update:
                     change.op = "update"
                 changes.append(change)

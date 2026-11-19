@@ -56,7 +56,9 @@ def test_every_client_column_is_bound_or_explicitly_exempt():
     assert snapshots.HASH_EXEMPT_INFO_KEY == ADVISORY_HASH_EXEMPT_INFO_KEY
     assert set(CLIENT_HASH_EXEMPT_COLUMNS) == EXPECTED_EXEMPT
     assert not set(CLIENT_HASH_COLUMNS) & EXPECTED_EXEMPT
-    assert set(CLIENT_HASH_COLUMNS) | EXPECTED_EXEMPT | {"updated_at"} == _client_columns()
+    # KN3-B / N-917R2-01: tenant_id ist Mandantengrenze, nicht Beratungsinhalt.
+    assert "tenant_id" not in CLIENT_HASH_COLUMNS
+    assert set(CLIENT_HASH_COLUMNS) | EXPECTED_EXEMPT | {"updated_at", "tenant_id"} == _client_columns()
     # Im Zweifel gebunden: Geburtsdatum, Zivilstand, Wohnsitz/Kanton, Haushalt ...
     for column in ("date_of_birth", "partner_date_of_birth", "civil_status", "country_of_residence", "canton",
                    "household_type", "client_classification", "salutation", "language", "deleted_at"):
@@ -88,9 +90,11 @@ def _client_reads(source: str, columns: set[str]) -> set[str]:
 def test_guard_pipeline_reads_only_bound_client_columns():
     """Waechter: jede von Engine/Payload/Eignung/PDF gelesene Kundenspalte ist
     im Siegel; keine ausgenommene Spalte wird dort gelesen."""
-    from models.clients import CLIENT_HASH_COLUMNS
+    from models.clients import ADVISORY_TENANT_BOUNDARY_COLUMNS, CLIENT_HASH_COLUMNS
 
-    columns = _client_columns() - {"id"}
+    # KN3-B / N-917R2-01: tenant_id wird zur Mandantentrennung gelesen (Auth,
+    # Scope, RLS), nie als Beratungsinhalt -- deshalb nicht Teil dieses Scans.
+    columns = _client_columns() - {"id"} - ADVISORY_TENANT_BOUNDARY_COLUMNS
     offenders = {}
     seen: set[str] = set()
     for rel, source in _pipeline_sources():
@@ -163,7 +167,9 @@ def test_decision_sealed_with_full_row_stays_current_until_the_row_changes(sessi
     import services.effective_input_manifest as manifest
 
     original = manifest._columns
-    monkeypatch.setattr(manifest, "_columns", lambda model, include_exempt=False: original(model, include_exempt=True))
+    # Altsiegel: ganze Zeile inkl. Beruf und Mandantengrenze (vor KN-B und KN3-B).
+    monkeypatch.setattr(manifest, "_columns", lambda model, include_exempt=False, include_boundary=False:
+                        original(model, include_exempt=True, include_boundary=True))
     _advisor, _approver, mid, _aid, _run, decision = _published(session_factory, "kn-leg")
     monkeypatch.setattr(manifest, "_columns", original)
     assert _status(session_factory, mid, decision.envelope_id) == (("SEALED", "FRESH"), "PUBLISHED", None)

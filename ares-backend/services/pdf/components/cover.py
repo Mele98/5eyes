@@ -56,7 +56,8 @@ def make_cover_page(
 
     flowables: list = []
     # KN-B Nachtrag 1: kein Personenname als Fallback -- ohne Firma/Berater entfaellt die Zeile.
-    org = advisor_org or ctx.advisor_org or DEFAULT_ADVISOR_ORG or ctx.advisor_name or ""
+    # KN3-B E2E3-04: nie der Beratername als Firma.
+    org = advisor_org or ctx.advisor_org or DEFAULT_ADVISOR_ORG or ""
 
     # ---- Brand-Block + Titel ----
     flowables.append(Spacer(1, 12 * mm))

@@ -90,7 +90,7 @@ def test_section8_stale_nulls_all_target_fields():
     # Echte IST-Werte bleiben (keine Zielzahl).
     eq = next(it for it in aa["items"] if it["key"] == "equities")
     assert eq["ist_bps"] == 4000
-    assert "Vermoegen, Cashflows oder Ziele" in aa["staleness_hinweis"]
+    assert "Vermögen, Cashflows oder Ziele" in aa["staleness_hinweis"]
 
 
 def test_section8_stale_shows_only_notice_not_drift_text_or_advisor_note():
@@ -136,7 +136,7 @@ def test_report_stale_inputs_hides_section8_and_13_targets(session):  # noqa: F8
         bb = rep["building_blocks"]
         assert bb["target_allocation_stale"] is True
         assert bb["soll_ausgeblendet"] is True
-        assert "Vermoegen, Cashflows oder Ziele" in bb["staleness_hinweis"]
+        assert "Vermögen, Cashflows oder Ziele" in bb["staleness_hinweis"]
         for b in bb["blocks"]:
             assert b["target_bps"] is None, b
             assert b["band_min_bps"] is None, b
@@ -220,7 +220,7 @@ def test_pdf_section8_stale_renders_notice_without_chart():
     aa = _build_asset_allocation(_dc(stale=True, inputs_stale=True))
     flowables = _build_asset_allocation_flowables(aa, make_advisory_styles())
     texts = _all_texts(flowables)
-    assert any("Vermoegen, Cashflows oder Ziele" in t for t in texts), texts
+    assert any("Vermögen, Cashflows oder Ziele" in t for t in texts), texts
     # Kein Chart (Tabelle mit Anlageklassen-Labels / Prozenten).
     assert not any("Aktien" in t for t in texts), texts
     assert not any("%" in t for t in texts), texts

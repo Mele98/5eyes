@@ -265,7 +265,7 @@ def test_local_ip_is_not_an_indicator(session_factory):
         db.commit()
         account = gate.kyc_approver_account(db, "rev-1")
     assert account["same_ip_as_inviter"] is None and account["same_device_as_inviter"] is False
-    assert "nicht aussagekraeftig (lokale Installation)" in account["origin_hint"]
+    assert "nicht aussagekräftig (lokale Installation)" in account["origin_hint"]
     assert account["accepted_after_minutes"] == 5
 
 

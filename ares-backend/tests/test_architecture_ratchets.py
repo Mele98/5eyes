@@ -299,10 +299,15 @@ def test_exempt_leaves_allowlist_is_explicit_and_versioned(gate):
     # Aufnahme (Definition/Ableitung/Zustand/Kundentexte der Nachhaltigkeitspraeferenz).
     # K1 (Handoff H-165): core.property_gate (Property-Gate bis P1) und
     # core.fx_freshness (FX-Freshness-Sicht des Input-Hashs) als Review-Entscheid.
+    # KN3-B (Handoff H-170): core.depletion_display (Verzehr-Regel E2E2-03 fuer
+    # alle Kunden-PDFs) und core.customer_terms (Anzeigeform datengebundener
+    # Fachbegriffe) als Review-Entscheid; Nachtrag 2: core.band_rule (eine
+    # Bandregel 0/0 = Obergrenze 0 fuer Review, Live-Rebalancing, Depotcheck).
     assert gate.FAN_OUT_EXEMPT_LEAVES == frozenset(
         {"core.evidence", "core.reason_codes", "core.db_integrity", "core.goal_vocabulary",
          "core.presentation_rounding", "core.sustainability_preference",
-         "core.property_gate", "core.fx_freshness"}
+         "core.property_gate", "core.fx_freshness",
+         "core.depletion_display", "core.customer_terms", "core.band_rule"}
     )
 
 

@@ -106,7 +106,7 @@ class HoldingsValuationIncompleteError(ValueError):
 _PRICE_BLOCKERS = (
     ("missing_prices_count", "Position(en) ohne aktuellen Marktpreis"),
     ("stale_positions_count", "Position(en) mit veraltetem Marktpreis"),
-    ("fx_conversion_failed_count", "Position(en) mit fehlgeschlagener Waehrungsumrechnung"),
+    ("fx_conversion_failed_count", "Position(en) mit fehlgeschlagener Währungsumrechnung"),
 )
 _COVERAGE_KEYS = ("holding_positions_count", "implied_positions_count") + tuple(k for k, _ in _PRICE_BLOCKERS)
 

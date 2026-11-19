@@ -38,7 +38,10 @@ def _allocation(**targets):
     fields = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
     values = {}
     for field in fields:
-        target, band_min, band_max = targets.get(field, (0, 0, 0))
+        # KN3-B Nachtrag 2: "kein Band" ist None (nicht bewertbar). 0/0 ist eine
+        # echte Grenze (Obergrenze 0) -- die DB erlaubt 0/0 ohnehin nur bei Ziel 0
+        # (CHECK band_min <= target <= band_max).
+        target, band_min, band_max = targets.get(field, (0, None, None))
         values[f"target_{field}_bps"] = target
         values[f"band_{field}_min_bps"] = band_min
         values[f"band_{field}_max_bps"] = band_max
@@ -71,7 +74,7 @@ def test_deviation_above_tolerance_warns_even_inside_band():
 
 
 def test_band_breach_warns_with_band_text():
-    alloc = _allocation(equities=(6000, 5980, 6020), bonds=(4000, 0, 0))
+    alloc = _allocation(equities=(6000, 5980, 6020), bonds=(4000, None, None))
     warnings = saa_bucket_reconciliation_warnings(alloc, [_pos("eq", 5950), _pos("bd", 4050)], PRODUCTS)
     assert len(warnings) == 1
     assert "Aktien" in warnings[0] and "ausserhalb der Bandbreite" in warnings[0]
@@ -137,7 +140,7 @@ def test_finalize_validation_warns_but_does_not_block_on_saa_deviation(session_f
 
 
 def test_weight_sum_off_target_is_normalised_and_disclosed():
-    alloc = _allocation(equities=(6000, 0, 0), bonds=(4000, 0, 0))
+    alloc = _allocation(equities=(6000, None, None), bonds=(4000, None, None))
     # 6100/4067 = exakt SAA-proportional auf 10'167 bps
     warnings = saa_bucket_reconciliation_warnings(alloc, [_pos("eq", 6100), _pos("bd", 4067)], PRODUCTS)
     assert not [w for w in warnings if CODE in w], warnings
@@ -145,7 +148,7 @@ def test_weight_sum_off_target_is_normalised_and_disclosed():
 
 
 def test_unmapped_position_is_reported_and_mapped_buckets_are_normalised():
-    alloc = _allocation(equities=(6000, 0, 0), bonds=(4000, 0, 0))
+    alloc = _allocation(equities=(6000, None, None), bonds=(4000, None, None))
     products = dict(PRODUCTS, x=SimpleNamespace(asset_class=None))
     warnings = saa_bucket_reconciliation_warnings(
         alloc, [_pos("eq", 5700), _pos("bd", 3800), _pos("x", 500)], products,

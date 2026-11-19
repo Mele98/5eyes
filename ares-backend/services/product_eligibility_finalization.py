@@ -39,6 +39,7 @@ from sqlalchemy.orm import Session
 from models.mandates import Mandate
 from models.profiling import RiskAssessment, SuitabilityCheck
 from models.review import Product, RecommendationPosition, RecommendationRun
+from core.band_rule import in_band as band_in_band
 from services.product_eligibility import (
     derive_service_mode,
     evaluate_product_eligibility,
@@ -257,9 +258,13 @@ def saa_bucket_reconciliation_warnings(allocation, positions: Iterable, products
         band_max = int(getattr(allocation, f"band_{field}_max_bps", 0) or 0)
         weight = actual.get(label, 0)
         delta = weight - target
-        outside_band = not (band_min == 0 and band_max == 0) and not (band_min <= weight <= band_max)
+        # KN3-B Nachtrag 2 (CTO): 0/0 = Obergrenze 0 (core/band_rule.py).
+        outside_band = band_in_band(
+            weight, getattr(allocation, f"band_{field}_min_bps", None),
+            getattr(allocation, f"band_{field}_max_bps", None),
+        ) is False
         if abs(delta) > FINALIZE_WEIGHT_TOLERANCE_BPS or outside_band:
-            band_text = f", Bandbreite {band_min / 100:.2f}-{band_max / 100:.2f}%" if band_min or band_max else ""
+            band_text = f", Bandbreite {band_min / 100:.2f}-{band_max / 100:.2f}%"
             warnings.append(
                 f"SAA-Abgleich {label}: Portfolio {weight / 100:.2f}% statt SAA {target / 100:.2f}% "
                 f"(Abweichung {delta / 100:+.2f} Prozentpunkte, Toleranz "

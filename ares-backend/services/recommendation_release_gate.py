@@ -386,7 +386,7 @@ KYC_APPROVER_ROLES: tuple[str, ...] = ("admin", "super_admin", "compliance_revie
 CLIENT_INFORMATION_DOCUMENT_TYPE = "Kundeninformation"
 # RC-CH-1 Teil 2b: -2 = Zahlendarstellung ueber den G7-Formatter (Half-up,
 # fehlender Betrag "—" statt 0) und Mandatswaehrung ohne CHF-Ersatz.
-CLIENT_INFORMATION_TEMPLATE_VERSION = "ARES-KI-FIDLEG-2"
+CLIENT_INFORMATION_TEMPLATE_VERSION = "ARES-KI-FIDLEG-3"
 # Dokumenttypen, deren Unterzeichnung den Vertragsabschluss markiert. Die
 # Kundeninformation muss VOR der ersten Unterschrift auf einem davon liegen.
 CONTRACT_CONCLUSION_DOCUMENT_TYPES = frozenset({
@@ -406,14 +406,14 @@ CLIENT_INFORMATION_DELIVERY_CHANNELS = (
 
 # (Feld, Bezeichnung fuer den Owner-Hinweis) -- Reihenfolge = Anzeige.
 LEGAL_PROFILE_FIELDS: tuple[tuple[str, str], ...] = (
-    ("legal_name", "Firma (vollstaendiger Name)"),
+    ("legal_name", "Firma (vollständiger Name)"),
     ("address_street", "Adresse: Strasse und Nummer"),
     ("address_postal_code", "Adresse: PLZ"),
     ("address_city", "Adresse: Ort"),
     ("address_country", "Adresse: Land (Sitz, ISO-Code)"),
-    ("business_activity", "Taetigkeitsfeld"),
+    ("business_activity", "Tätigkeitsfeld"),
     ("supervision_type", "Aufsichtsstatus"),
-    ("supervisory_authority", "Aufsichtsbehoerde"),
+    ("supervisory_authority", "Aufsichtsbehörde"),
     ("supervisory_organisation", "Aufsichtsorganisation (AO)"),
     ("license_reference", "Bewilligungs- bzw. Registerangabe"),
     ("ombudsman_name", "Ombudsstelle: Name"),
@@ -435,14 +435,14 @@ SUPERVISION_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "anlageberater_ohne_prudenzielle_aufsicht": ("license_reference",),
 }
 SUPERVISION_LABELS: dict[str, str] = {
-    "vermoegensverwalter_finig": "Vermoegensverwalter mit Bewilligung der FINMA (FINIG)",
+    "vermoegensverwalter_finig": "Vermögensverwalter mit Bewilligung der FINMA (FINIG)",
     "andere_finma_bewilligung": "Finanzinstitut mit anderer Bewilligung der FINMA",
     "anlageberater_ohne_prudenzielle_aufsicht": (
         "Kundenberater ohne prudenzielle Aufsicht (Eintrag in einem Beraterregister)"
     ),
 }
 _OWNER_PROFILE_ACTION = (
-    "Ein Firmen-Admin ergaenzt unter Administration > Rechtliche Angaben "
+    "Ein Firmen-Admin ergänzt unter Administration > Rechtliche Angaben "
     "(Kundeninformation FIDLEG): "
 )
 
@@ -523,6 +523,36 @@ def mandate_tenant_id(db: Session, mandate: Any) -> str:
         {"cid": str(getattr(mandate, "client_id", "") or "")},
     ).first()
     return str(row[0]) if row is not None and row[0] else _DEFAULT_TENANT_ID
+
+
+# Platzhalter der Default-Mandantenzeile (database.ensure_default_tenant), solange
+# die Ersteinrichtung keinen Firmennamen gesetzt hat -- nie eine Firmenmarke.
+_PLACEHOLDER_TENANT_NAMES = frozenset({"default tenant"})
+
+
+def firm_display_name(db: Session, mandate: Any) -> Optional[str]:
+    """KN3-B / E2E3-04: Firmenname fuer den Kopf der Kunden-PDFs.
+
+    Quelle sind die Firmenangaben des Mandanten -- zuerst der rechtliche Name
+    aus "Rechtliche Angaben" (``tenant_legal_profiles.legal_name``, derselbe
+    Wert wie in der Kundeninformation), sonst der Anzeigename des Mandanten
+    (``tenants.display_name``, Ersteinrichtung bzw. PUT /tenants/me). Fehlt
+    beides, ist das Ergebnis ``None``: der Kopf bleibt ohne Firmenzeile, die
+    Kundeninformation sperrt ueber ``CLIENT_INFORMATION_TENANT_DATA_MISSING``.
+    Nie der Name des Beraters (vorher Rueckfall in routers/pdf_reports.py)."""
+    tenant_id = mandate_tenant_id(db, mandate)
+    legal = db.execute(
+        _sql_text("SELECT legal_name FROM tenant_legal_profiles WHERE tenant_id = :tid"),
+        {"tid": tenant_id},
+    ).scalar()
+    if str(legal or "").strip():
+        return str(legal).strip()
+    display = str(db.execute(
+        _sql_text("SELECT display_name FROM tenants WHERE id = :tid"), {"tid": tenant_id},
+    ).scalar() or "").strip()
+    if display and display.lower() not in _PLACEHOLDER_TENANT_NAMES:
+        return display
+    return None
 
 
 def _utc_now_iso() -> str:
@@ -801,7 +831,7 @@ def _invite_origin_hints(db: Session, user_id: Any, invited_at: Any, activated_a
         "origin_hint": (
             None if minutes is None else
             f"angenommen nach {minutes} Minuten; gleiche IP wie Einladender: "
-            f"{'nicht aussagekraeftig (lokale Installation)' if local else ('ja' if same_ip else ('nein' if same_ip is False else 'unbekannt'))}; gleiches Geraet: "
+            f"{'nicht aussagekräftig (lokale Installation)' if local else ('ja' if same_ip else ('nein' if same_ip is False else 'unbekannt'))}; gleiches Gerät: "
             f"{'ja' if same_device else ('nein' if same_device is False else 'unbekannt')}"
         ),
     }
@@ -886,15 +916,15 @@ _REVIEW_OWNER_POLICY_ACTION = (
 )
 _REVIEW_MESSAGES: dict[str, tuple[str, str]] = {
     KYC_REVIEW_POLICY_MISSING: (
-        "Fuer diese Firma und Jurisdiktion ist keine Wiedervorlage-Policy "
-        "(maximaler Abstand bis zur naechsten KYC-Aktualisierung) erfasst; Ares "
+        "Für diese Firma und Jurisdiktion ist keine Wiedervorlage-Policy "
+        "(maximaler Abstand bis zur nächsten KYC-Aktualisierung) erfasst; Ares "
         "setzt keine eigene Frist.",
         _REVIEW_OWNER_POLICY_ACTION,
     ),
     KYC_REVIEW_POLICY_JURISDICTION_UNKNOWN: (
         "Die Jurisdiktion der Wiedervorlage-Policy ist unbekannt: das Sitzland "
         "der Firma fehlt in den rechtlichen Angaben.",
-        "Ein Firmen-Admin ergaenzt unter Administration > Rechtliche Angaben das "
+        "Ein Firmen-Admin ergänzt unter Administration > Rechtliche Angaben das "
         "Sitzland der Firma.",
     ),
     KYC_REVIEW_POLICY_UNAPPROVED: (
@@ -905,45 +935,45 @@ _REVIEW_MESSAGES: dict[str, tuple[str, str]] = {
     ),
     KYC_REVIEW_POLICY_NOT_YET_EFFECTIVE: (
         "Die freigegebene Wiedervorlage-Policy ist noch nicht wirksam "
-        "(Gueltigkeitsbeginn liegt in der Zukunft).",
-        "Bis zum Gueltigkeitsbeginn warten oder eine ab heute gueltige Version "
+        "(Gültigkeitsbeginn liegt in der Zukunft).",
+        "Bis zum Gültigkeitsbeginn warten oder eine ab heute gültige Version "
         "erfassen und freigeben lassen.",
     ),
     KYC_REVIEW_POLICY_EXPIRED: (
-        "Die Wiedervorlage-Policy ist abgelaufen (Gueltigkeitsende ueberschritten).",
+        "Die Wiedervorlage-Policy ist abgelaufen (Gültigkeitsende überschritten).",
         _REVIEW_OWNER_POLICY_ACTION,
     ),
     KYC_REVIEW_POLICY_AMBIGUOUS: (
         "Die Wiedervorlage-Policy ist mehrdeutig (keine eindeutige Kette der "
         "freigegebenen Versionen); keine Version gilt.",
-        "Owner/Compliance: Vorgang pruefen lassen; danach eine neue Version "
+        "Owner/Compliance: Vorgang prüfen lassen; danach eine neue Version "
         "erfassen und freigeben.",
     ),
     KYC_REVIEW_POLICY_INVALID: (
-        "Die Wiedervorlage-Policy ist ungueltig (Siegel bzw. Freigabe-Hash "
+        "Die Wiedervorlage-Policy ist ungültig (Siegel bzw. Freigabe-Hash "
         "stimmt nicht oder der Inhalt verletzt die Regeln); keine Version gilt.",
-        "Owner/Compliance: Vorgang pruefen lassen; danach eine neue Version "
+        "Owner/Compliance: Vorgang prüfen lassen; danach eine neue Version "
         "erfassen und freigeben.",
     ),
     KYC_REVIEW_POLICY_BINDING_MISSING: (
-        "Die KYC-Bestaetigung ist an keine freigegebene Wiedervorlage-Policy "
-        "gebunden (erfasst vor Einfuehrung der Policy).",
-        "Berater: nach Freigabe der Policy eine neue KYC-Bestaetigung erfassen.",
+        "Die KYC-Bestätigung ist an keine freigegebene Wiedervorlage-Policy "
+        "gebunden (erfasst vor Einführung der Policy).",
+        "Berater: nach Freigabe der Policy eine neue KYC-Bestätigung erfassen.",
     ),
     KYC_REVIEW_POLICY_BINDING_INVALID: (
-        "Die Policy-Bindung der KYC-Bestaetigung ist ungueltig (Policy, Version, "
+        "Die Policy-Bindung der KYC-Bestätigung ist ungültig (Policy, Version, "
         "Hash, Mandant, Zeitpunkt oder berechnete Obergrenze stimmen nicht).",
-        "Berater: neue KYC-Bestaetigung erfassen; Owner/Compliance: Vorgang pruefen.",
+        "Berater: neue KYC-Bestätigung erfassen; Owner/Compliance: Vorgang prüfen.",
     ),
     KYC_REVIEW_POLICY_SHORTENED: (
         "Die heute wirksame Wiedervorlage-Policy ist strenger als die bei der "
         "Erfassung gebundene: der erfasste Termin liegt nach der neuen "
-        "Obergrenze, die Aktualisierung ist sofort faellig.",
-        "Berater: Aktualisierung im SRO-/Fremdprozess durchfuehren und eine neue "
-        "KYC-Bestaetigung erfassen.",
+        "Obergrenze, die Aktualisierung ist sofort fällig.",
+        "Berater: Aktualisierung im SRO-/Fremdprozess durchführen und eine neue "
+        "KYC-Bestätigung erfassen.",
     ),
     KYC_REVIEW_DUE_EXCEEDS_POLICY: (
-        "Die naechste Aktualisierung liegt nach der Obergrenze der wirksamen "
+        "Die nächste Aktualisierung liegt nach der Obergrenze der wirksamen "
         "Wiedervorlage-Policy.",
         "Berater: einen Termin bis zur angegebenen Obergrenze erfassen.",
     ),
@@ -1422,10 +1452,10 @@ def kyc_review_release_findings(db: Session, mandate: Any, today: Optional[str] 
     if _iso_day(confirmation.get("next_review_due")) < today:
         findings.append(_finding(
             KYC_CONFIRMATION_REVIEW_OVERDUE,
-            "Die KYC-Bestaetigung ist ueberfaellig (naechste Aktualisierung am "
+            "Die KYC-Bestätigung ist überfällig (nächste Aktualisierung am "
             f"{confirmation.get('next_review_due')}).",
-            "Berater: Aktualisierung im SRO-/Fremdprozess durchfuehren und eine neue "
-            "KYC-Bestaetigung erfassen.",
+            "Berater: Aktualisierung im SRO-/Fremdprozess durchführen und eine neue "
+            "KYC-Bestätigung erfassen.",
             "client",
             confirmation_id=confirmation.get("id"),
             kyc_review_status=KYC_REVIEW_STATUS_BY_CODE[KYC_CONFIRMATION_REVIEW_OVERDUE],
@@ -1442,22 +1472,22 @@ def kyc_review_release_findings(db: Session, mandate: Any, today: Optional[str] 
 REPORT_CLIENT_FACING = "kundenwirksam"
 REPORT_INTERNAL = "intern"
 REPORT_ROUTE_CLASSIFICATION: dict[str, tuple[str, str]] = {
-    "GET /mandates/{mandate_id}/reports/anlagestrategie.pdf": (REPORT_CLIENT_FACING, "Anlagestrategie fuer den Kunden"),
-    "GET /mandates/{mandate_id}/reports/assetallocation.pdf": (REPORT_CLIENT_FACING, "Asset-Allocation-Ausdruck fuer das Kundengespraech"),
+    "GET /mandates/{mandate_id}/reports/anlagestrategie.pdf": (REPORT_CLIENT_FACING, "Anlagestrategie für den Kunden"),
+    "GET /mandates/{mandate_id}/reports/assetallocation.pdf": (REPORT_CLIENT_FACING, "Asset-Allocation-Ausdruck für das Kundengespräch"),
     "GET /mandates/{mandate_id}/reports/risikoprofil.pdf": (REPORT_CLIENT_FACING, "Risikoprofil zur Unterschrift des Kunden"),
-    "GET /mandates/{mandate_id}/reports/portfolio.pdf": (REPORT_CLIENT_FACING, "Anlagerezept/Portfolio fuer den Kunden"),
+    "GET /mandates/{mandate_id}/reports/portfolio.pdf": (REPORT_CLIENT_FACING, "Anlagerezept/Portfolio für den Kunden"),
     "GET /mandates/{mandate_id}/reports/vertrag.pdf": (REPORT_CLIENT_FACING, "Vertragsdokumente"),
     "GET /mandates/{mandate_id}/reports/contract-signoff.pdf": (REPORT_CLIENT_FACING, "Kunden-Sign-off"),
     "GET /mandates/{mandate_id}/reports/protokoll.pdf": (REPORT_CLIENT_FACING, "Beratungsprotokoll (Kundenexemplar)"),
-    "GET /mandates/{mandate_id}/reports/depotcheck.pdf": (REPORT_CLIENT_FACING, "Depotcheck-Analyse fuer den Kunden"),
-    "GET /mandates/{mandate_id}/reports/backtest.pdf": (REPORT_CLIENT_FACING, "Backtest-Ausdruck fuer den Kunden"),
+    "GET /mandates/{mandate_id}/reports/depotcheck.pdf": (REPORT_CLIENT_FACING, "Depotcheck-Analyse für den Kunden"),
+    "GET /mandates/{mandate_id}/reports/backtest.pdf": (REPORT_CLIENT_FACING, "Backtest-Ausdruck für den Kunden"),
     "GET /mandates/{mandate_id}/reports/advisory-report.pdf": (REPORT_CLIENT_FACING, "Beratungsbericht (client-ready, Attachment)"),
     "GET /mandates/{mandate_id}/reports/cost-disclosure.pdf": (REPORT_CLIENT_FACING, "Ex-ante-Kostenausweis (FIDLEG)"),
     "GET /mandates/{mandate_id}/advisory-report": (REPORT_CLIENT_FACING, "React-Beratungsbericht (gleicher Inhalt wie das PDF)"),
     "GET /client-portal/mandates/{mandate_id}/report": (REPORT_CLIENT_FACING, "Bericht im Kundenportal"),
     "GET /mandates/{mandate_id}/reports/kundeninformation.pdf": (REPORT_INTERNAL, (
-        "Kundeninformation Art. 8/9 FIDLEG: muss VOR Vertragsabschluss und vor der KYC-Bestaetigung "
-        "abgegeben werden koennen; eigenes Gate (rechtliche Angaben)")),
+        "Kundeninformation Art. 8/9 FIDLEG: muss VOR Vertragsabschluss und vor der KYC-Bestätigung "
+        "abgegeben werden können; eigenes Gate (rechtliche Angaben)")),
     "GET /mandates/{mandate_id}/documents/{doc_id}/pdf": (REPORT_INTERNAL, (
         "Archivabruf bereits erzeugter, gesiegelter Dokumente als Nachweis; erzeugt keinen neuen Inhalt")),
     "GET /clients/{client_id}/data-export": (REPORT_INTERNAL, (
@@ -1468,15 +1498,15 @@ REPORT_ROUTE_CLASSIFICATION: dict[str, tuple[str, str]] = {
     "GET /products/sustainability/attributes/export": (REPORT_INTERNAL, "Produkt-Referenzdaten, kein Kundenbezug"),
     # RC-CH-1 Teil 2a (Integration H4 x C-890-01): F4-Audit-Anker (H4), Admin/Operator.
     "POST /admin/system/audit-log/anchor/export": (REPORT_INTERNAL, (
-        "Audit-Anker (Kettenkopf/Bestandssiegel) fuer die WORM-Ablage, ohne Kundendaten, kein Bericht")),
+        "Audit-Anker (Kettenkopf/Bestandssiegel) für die WORM-Ablage, ohne Kundendaten, kein Bericht")),
     # RC-CH-1 Teil 2a (Integration H10 x C-890-01): Datenschutz-Exporte (H10).
     "GET /privacy/processing-register/export": (REPORT_INTERNAL, (
-        "Verzeichnis der Bearbeitungstaetigkeiten der Firma (DSG Art. 12), keine Empfehlung")),
+        "Verzeichnis der Bearbeitungstätigkeiten der Firma (DSG Art. 12), keine Empfehlung")),
     "POST /privacy/subject-requests/{request_id}/export": (REPORT_INTERNAL, (
         "Datenauskunft im Betroffenenfall nach DSG (gesetzlicher Anspruch), keine Empfehlung")),
     # N-897-12: Export-/CSV-Routen (Produktstamm, Pflege durch Admin), kein Kundenbezug.
     "GET /products/export/csv": (REPORT_INTERNAL, "Export des Produktstamms (Referenzdaten), kein Kundenbezug"),
-    "GET /products/import/csv/template": (REPORT_INTERNAL, "leere CSV-Vorlage fuer den Produktimport"),
+    "GET /products/import/csv/template": (REPORT_INTERNAL, "leere CSV-Vorlage für den Produktimport"),
     "POST /products/import/csv": (REPORT_INTERNAL, "Import von Produktstammdaten (Admin), kein Bericht"),
     "POST /products/sustainability/attributes/import/csv": (REPORT_INTERNAL, (
         "Import von Nachhaltigkeitsmerkmalen der Produkte (Admin), kein Bericht")),
@@ -1557,9 +1587,9 @@ def _kyc_findings(db: Session, mandate: Any, today: str) -> list[dict]:
         findings.append(_finding(
             KYC_BENEFICIAL_OWNER_UNANSWERED,
             "Die Frage, ob der Kunde auf eigene Rechnung handelt (wirtschaftlich "
-            "Berechtigter, GwG Art. 4), ist nicht ausdruecklich beantwortet.",
-            "Berater: Sorgfaltspflicht-Erfassung des Kunden oeffnen und die Frage "
-            "'handelt auf eigene Rechnung' ausdruecklich beantworten.",
+            "Berechtigter, GwG Art. 4), ist nicht ausdrücklich beantwortet.",
+            "Berater: Sorgfaltspflicht-Erfassung des Kunden öffnen und die Frage "
+            "'handelt auf eigene Rechnung' ausdrücklich beantworten.",
             "client",
         ))
     confirmation = latest_kyc_confirmation(db, client_id, getattr(mandate, "id", None))
@@ -1567,22 +1597,22 @@ def _kyc_findings(db: Session, mandate: Any, today: str) -> list[dict]:
         findings.extend(kyc_review_findings(db, mandate, today, confirmation=None))
         findings.append(_finding(
             KYC_CONFIRMATION_MISSING,
-            "Bestaetigung fehlt: Fuer diesen Kunden ist nicht erfasst, dass die "
-            "GwG-Abklaerung (Identifizierung der Vertragspartei nach GwG Art. 3, "
+            "Bestätigung fehlt: Für diesen Kunden ist nicht erfasst, dass die "
+            "GwG-Abklärung (Identifizierung der Vertragspartei nach GwG Art. 3, "
             "wirtschaftlich Berechtigter mit Formular A/K/S/T nach GwG Art. 4, "
             "Risikokategorie, PEP) im SRO- bzw. "
             "Fremdprozess erfolgt ist.",
-            "Berater: KYC-Bestaetigung erfassen (Formular, Datum, Referenz, "
-            "Risikokategorie, PEP, naechste Aktualisierung).",
+            "Berater: KYC-Bestätigung erfassen (Formular, Datum, Referenz, "
+            "Risikokategorie, PEP, nächste Aktualisierung).",
             "client",
         ))
         return findings
     if not confirmation.get("seal_verified"):
         findings.append(_finding(
             KYC_CONFIRMATION_SEAL_INVALID,
-            "Das Siegel der KYC-Bestaetigung stimmt nicht mit dem gespeicherten "
-            "Inhalt ueberein; die Bestaetigung gilt nicht.",
-            "Berater: neue KYC-Bestaetigung erfassen; Owner/Compliance: Vorgang pruefen.",
+            "Das Siegel der KYC-Bestätigung stimmt nicht mit dem gespeicherten "
+            "Inhalt überein; die Bestätigung gilt nicht.",
+            "Berater: neue KYC-Bestätigung erfassen; Owner/Compliance: Vorgang prüfen.",
             "client",
             confirmation_id=confirmation.get("id"),
         ))
@@ -1592,9 +1622,9 @@ def _kyc_findings(db: Session, mandate: Any, today: str) -> list[dict]:
     if kyc_requires_second_approval(confirmation) and confirmation.get("rejected"):
         findings.append(_finding(
             KYC_CONFIRMATION_REJECTED,
-            "Die Zweitfreigabe dieser KYC-Bestaetigung wurde begruendet abgelehnt; "
-            "die Bestaetigung wird nie wirksam.",
-            "Berater: Sachverhalt klaeren und eine neue KYC-Bestaetigung erfassen, "
+            "Die Zweitfreigabe dieser KYC-Bestätigung wurde begründet abgelehnt; "
+            "die Bestätigung wird nie wirksam.",
+            "Berater: Sachverhalt klären und eine neue KYC-Bestätigung erfassen, "
             "die erneut durch eine zweite Person freigegeben wird.",
             "client",
             confirmation_id=confirmation.get("id"),
@@ -1604,21 +1634,21 @@ def _kyc_findings(db: Session, mandate: Any, today: str) -> list[dict]:
         if not approver or approver == str(confirmation.get("recorded_by") or ""):
             findings.append(_finding(
                 KYC_SECOND_APPROVAL_MISSING,
-                "PEP, erhoehtes Risiko oder Herabstufung gegenueber der zuletzt "
-                "wirksamen Bestaetigung: die KYC-Bestaetigung ist noch nicht "
+                "PEP, erhöhtes Risiko oder Herabstufung gegenüber der zuletzt "
+                "wirksamen Bestätigung: die KYC-Bestätigung ist noch nicht "
                 "durch eine zweite Person freigegeben.",
                 "Eine zweite Person (Admin oder externe Compliance-Freigabe) "
-                "gibt die KYC-Bestaetigung frei.",
+                "gibt die KYC-Bestätigung frei.",
                 "client",
                 confirmation_id=confirmation.get("id"),
             ))
     if str(confirmation.get("next_review_due") or "") < today:
         findings.append(_finding(
             KYC_CONFIRMATION_REVIEW_OVERDUE,
-            "Die KYC-Bestaetigung ist ueberfaellig (naechste Aktualisierung am "
+            "Die KYC-Bestätigung ist überfällig (nächste Aktualisierung am "
             f"{confirmation.get('next_review_due')}).",
-            "Berater: Aktualisierung im SRO-/Fremdprozess durchfuehren und eine neue "
-            "KYC-Bestaetigung erfassen.",
+            "Berater: Aktualisierung im SRO-/Fremdprozess durchführen und eine neue "
+            "KYC-Bestätigung erfassen.",
             "client",
             confirmation_id=confirmation.get("id"),
             kyc_review_status=KYC_REVIEW_STATUS_BY_CODE[KYC_CONFIRMATION_REVIEW_OVERDUE],
@@ -1628,10 +1658,10 @@ def _kyc_findings(db: Session, mandate: Any, today: str) -> list[dict]:
     if dd_pep is not None and dd_pep != conf_pep:
         findings.append(_finding(
             KYC_PEP_INCONSISTENT,
-            "Widerspruch: Sorgfaltspflicht-Erfassung und KYC-Bestaetigung fuehren "
+            "Widerspruch: Sorgfaltspflicht-Erfassung und KYC-Bestätigung führen "
             "den PEP-Status unterschiedlich"
-            + (" (PEP in der Erfassung zurueckgenommen)." if conf_pep else "."),
-            "Berater: PEP-Status klaeren und eine neue KYC-Bestaetigung erfassen; "
+            + (" (PEP in der Erfassung zurückgenommen)." if conf_pep else "."),
+            "Berater: PEP-Status klären und eine neue KYC-Bestätigung erfassen; "
             "eine Herabstufung braucht die Freigabe einer zweiten Person.",
             "client",
             confirmation_id=confirmation.get("id"),
@@ -1669,11 +1699,11 @@ def client_onboarding_findings(
     elif _clean(profile.get("address_country")).upper() not in CLIENT_INFORMATION_SEAT_REGIMES:
         findings.append(_finding(
             CLIENT_INFORMATION_REGIME_UNSUPPORTED,
-            "Fuer den Sitz der Firma ("
+            "Für den Sitz der Firma ("
             f"{_clean(profile.get('address_country')) or 'unbekannt'}) bildet Ares "
             "kein Informationsregime ab (heute nur Schweiz/FIDLEG).",
             "Owner/Compliance: Informationspflichten ausserhalb von Ares regeln; "
-            "Ares gibt die Kundeninformation fuer diesen Sitz nicht frei.",
+            "Ares gibt die Kundeninformation für diesen Sitz nicht frei.",
             "tenant",
         ))
     mandate_id = str(getattr(mandate, "id", "") or "")
@@ -1686,10 +1716,10 @@ def client_onboarding_findings(
     if not deliveries:
         findings.append(_finding(
             CLIENT_INFORMATION_NOT_DELIVERED,
-            "Fuer dieses Mandat ist keine Abgabe der Kundeninformation (Art. 8/9 "
+            "Für dieses Mandat ist keine Abgabe der Kundeninformation (Art. 8/9 "
             "FIDLEG) mit archivierter Fassung nachgewiesen.",
             "Berater: Kundeninformation als PDF erstellen, dem Kunden vor "
-            "Vertragsabschluss uebergeben und die Uebergabe erfassen.",
+            "Vertragsabschluss übergeben und die Übergabe erfassen.",
             "mandate",
         ))
     elif not any(
@@ -1701,11 +1731,11 @@ def client_onboarding_findings(
     ):
         findings.append(_finding(
             CLIENT_INFORMATION_DELIVERED_AFTER_CONTRACT,
-            "Die Kundeninformation wurde nachtraeglich uebergeben bzw. erfasst "
+            "Die Kundeninformation wurde nachträglich übergeben bzw. erfasst "
             f"(Vertragsabschluss {cutoff}); Art. 9 FIDLEG verlangt die Abgabe vor "
             "Vertragsabschluss.",
-            "Owner/Compliance: Vorgang pruefen; der Vertrag ist neu abzuschliessen, "
-            "nachdem die Kundeninformation uebergeben wurde.",
+            "Owner/Compliance: Vorgang prüfen; der Vertrag ist neu abzuschliessen, "
+            "nachdem die Kundeninformation übergeben wurde.",
             "mandate",
             contract_concluded_at=concluded,
         ))

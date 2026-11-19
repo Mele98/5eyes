@@ -51,6 +51,7 @@ from models.review import (
     RecommendationRun,
 )
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
+from core.band_rule import band_breach_bps
 from services.product_market_data import resolve_market_profile
 
 if TYPE_CHECKING:
@@ -505,14 +506,11 @@ def _build_live_bucket_drifts(
         delta_weight_bps = current_weight_bps - target_weight_bps
         min_weight = int(config["band_min_bps"])
         max_weight = int(config["band_max_bps"])
-        breach_bps = 0
-        # Zero bands = "no constraint" (Bucket nicht aktiv konfiguriert).
-        if min_weight == 0 and max_weight == 0:
-            breach_bps = 0
-        elif current_weight_bps < min_weight:
-            breach_bps = min_weight - current_weight_bps
-        elif current_weight_bps > max_weight:
-            breach_bps = current_weight_bps - max_weight
+        # KN3-B Nachtrag 2 (CTO): Band 0/0 = Obergrenze 0, nicht "keine Grenze"
+        # (core/band_rule.py). Die Bandspalten der Soll-Allokation sind NOT NULL
+        # mit CHECK min <= Ziel <= max; 0/0 heisst also immer Ziel 0 und ist eine
+        # echte Grenze (z. B. Aktien bei Kapitalschutz), nie ein Platzhalter.
+        breach_bps = band_breach_bps(current_weight_bps, min_weight, max_weight) or 0
         breached = breach_bps > 0
         if breached:
             breached_asset_classes.append(asset_class)

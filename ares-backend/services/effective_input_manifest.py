@@ -44,7 +44,7 @@ from core.advisory_envelope_codec import (
 )
 from core.presentation_rounding import ROUNDING_POLICY_VERSION
 from models.allocation import BuildingBlock, CapitalMarketAssumption, HouseMatrix, OptimizerPolicy
-from models.clients import ADVISORY_HASH_EXEMPT_INFO_KEY, Client
+from models.clients import ADVISORY_HASH_EXEMPT_INFO_KEY, ADVISORY_TENANT_BOUNDARY_COLUMNS, Client
 from models.cma_policy import CmaPolicy, CmaPolicyApproval, CmaPolicyComponent
 from models.mandates import Mandate
 from models.profiling import (
@@ -66,7 +66,10 @@ from models.wealth import (
     WealthPosition,
 )
 
-_EXCLUDED_COLUMNS = frozenset({"updated_at"})
+# KN3-B / N-917R2-01: ``tenant_id`` ist Mandantengrenze, kein Beratungsinhalt
+# (Begruendung bei ADVISORY_TENANT_BOUNDARY_COLUMNS in database.py) --
+# dieselbe Regel wie ``DependencySource.volatile`` im Hook (models/snapshots.py).
+_EXCLUDED_COLUMNS = frozenset({"updated_at"}) | ADVISORY_TENANT_BOUNDARY_COLUMNS
 # Kurzname (Adapter CCX-02) -> Manifest-Feld.
 _SHORT_NAMES = {name[: -len("_hash")]: name for name in MANIFEST_COMPONENTS}
 _SCALARS = ("tenant_id", "mandate_id", "engine_version", "random_stream_id", "rounding_policy_version")
@@ -113,12 +116,15 @@ def build_effective_input_hash(components: Mapping[str, Any]) -> str:
 # ── Projektion der Datenbankzeilen ───────────────────────────────────────────
 
 
-def _columns(model: Any, *, include_exempt: bool = False) -> list[str]:
-    """Projektion: alle Spalten ausser ``updated_at`` und (KN-B / E2E2-04) den
-    als nicht beratungsrelevant markierten (``Column(info=...)``, z. B. Beruf)."""
+def _columns(model: Any, *, include_exempt: bool = False, include_boundary: bool = False) -> list[str]:
+    """Projektion: alle Spalten ausser ``updated_at``, der Mandantengrenze
+    ``tenant_id`` (KN3-B) und (KN-B / E2E2-04) den als nicht beratungsrelevant
+    markierten (``Column(info=...)``, z. B. Beruf). ``include_boundary`` nur fuer
+    die Uebergangs-Hashes bestehender Siegel (``_legacy_hashes``)."""
+    excluded = _EXCLUDED_COLUMNS - ADVISORY_TENANT_BOUNDARY_COLUMNS if include_boundary else _EXCLUDED_COLUMNS
     return [
         attr.key for attr in sa_inspect(model).column_attrs
-        if attr.key not in _EXCLUDED_COLUMNS
+        if attr.key not in excluded
         and (include_exempt or not any(col.info.get(ADVISORY_HASH_EXEMPT_INFO_KEY) for col in attr.columns))
     ]
 
@@ -135,6 +141,44 @@ def _hash_rows(kind: str, model: Any, rows: Sequence[Any], sort_fields: Sequence
         kind, _columns(model, include_exempt=include_exempt), list(rows),
         lambda row: tuple(none_sort_key(getattr(row, name)) for name in sort_fields),
     )
+
+
+class _BoundaryCleared:
+    """Zeilensicht mit geleerter Mandantengrenze (``tenant_id = NULL``): so
+    sah eine in der ersten Sitzung versiegelte Zeile vor dem Start-Backfill aus."""
+
+    __slots__ = ("_row",)
+
+    def __init__(self, row: Any) -> None:
+        self._row = row
+
+    def __getattr__(self, name: str) -> Any:
+        if name in ADVISORY_TENANT_BOUNDARY_COLUMNS:
+            return None
+        return getattr(self._row, name)
+
+
+def _legacy_hashes(kind: str, model: Any, rows: Sequence[Any], sort_fields: Sequence[str], *,
+                   exempt_variants: Sequence[bool] = (False,)) -> tuple[str, ...]:
+    """KN3-B / N-917R2-01, Uebergang: Siegel vor diesem Wechsel banden die
+    Mandantengrenze mit. Sie bleiben aktuell, solange sich ausser ``tenant_id``
+    nichts geaendert hat -- mit dem heutigen Wert (unveraendert) oder mit
+    ``NULL`` (versiegelt vor dem Start-Backfill NULL -> 'main'). Eine
+    beratungsrelevante Spalte deckt das nie zu: sie ist in jeder Variante
+    gebunden. Ohne ``tenant_id``-Spalte gibt es keinen Uebergang."""
+    if not ADVISORY_TENANT_BOUNDARY_COLUMNS & {attr.key for attr in sa_inspect(model).column_attrs}:
+        return ()
+    hashes: list[str] = []
+    for include_exempt in exempt_variants:
+        columns = _columns(model, include_exempt=include_exempt, include_boundary=True)
+        for view in (list(rows), [_BoundaryCleared(row) for row in rows]):
+            value = rows_child_hash(
+                kind, columns, view,
+                lambda row: tuple(none_sort_key(getattr(row, name)) for name in sort_fields),
+            )
+            if value not in hashes:
+                hashes.append(value)
+    return tuple(hashes)
 
 
 def _combine(kind: str, parts: Mapping[str, str]) -> str:
@@ -180,10 +224,19 @@ class DependencyPart:
     # Anzahl gebundener Zeilen (-1 = nicht gezaehlt); eine leere
     # Pflicht-Inputgruppe ist "unknown", nie "fresh" (REQUIRED_DEPENDENCY_KINDS).
     row_count: int = -1
-    # KN-B / E2E2-04: Hash der bisherigen Projektion (ganze Kundenzeile). Ein
-    # vor dem Wechsel versiegelter Entscheid bleibt aktuell, solange sich die
-    # Zeile nicht geaendert hat -- der Wechsel entwertet keinen Bestand.
-    legacy_hash: str | None = None
+    # Hashes frueherer Projektionen derselben Zeilen (Uebergang): KN-B /
+    # E2E2-04 (ganze Kundenzeile inkl. Beruf) und KN3-B / N-917R2-01
+    # (inkl. Mandantengrenze, auch mit NULL vor dem Start-Backfill). Ein vor
+    # dem Wechsel versiegelter Entscheid bleibt aktuell, solange sich die
+    # gebundenen Zeilen nicht geaendert haben -- der Wechsel entwertet keinen
+    # Bestand.
+    legacy_hashes: tuple[str, ...] = ()
+
+    def accepts(self, bound_hash: str | None) -> bool:
+        """Ist ``bound_hash`` (Siegel) der heutige oder ein Uebergangs-Hash?"""
+        if not bound_hash:
+            return False
+        return any(str(bound_hash) == str(value) for value in (self.dependency_hash, *self.legacy_hashes) if value)
 
 
 def _int_or_none(value: Any) -> int | None:
@@ -242,43 +295,42 @@ def collect_dependency_parts(
         "preference": len(preferences), "constraints": len(constraints_rows), "cma": len(cma_rows),
         "optimizer_policy": len(policy_rows), "benchmark": len(house_matrix),
     }
+    def part(kind, object_id, version, hash_kind, model, rows, sort_fields, exempt_variants=(False,)):
+        rows = list(rows)
+        return DependencyPart(
+            kind, object_id, version, _hash_rows(hash_kind, model, rows, sort_fields),
+            legacy_hashes=_legacy_hashes(hash_kind, model, rows, sort_fields, exempt_variants=exempt_variants),
+        )
+
+    client_rows = _by_id(db, Client, client_id)
     parts = [
-        DependencyPart("client", client_id, None,
-                       _hash_rows("client", Client, _by_id(db, Client, client_id), ("id",)),
-                       legacy_hash=_hash_rows("client", Client, _by_id(db, Client, client_id), ("id",),
-                                              include_exempt=True)),
-        DependencyPart("mandate", mandate_id, None,
-                       _hash_rows("mandate", Mandate, _by_id(db, Mandate, mandate_id), ("id",))),
-        DependencyPart("goals", mandate_id, None, _hash_rows("goals", Goal, goals, ("rank", "target_date", "id"))),
-        DependencyPart("cashflows", client_id, None, _hash_rows("cashflow-rows", Cashflow, cashflows, ("id",))),
-        DependencyPart("wealth_inflows", client_id, None,
-                       _hash_rows("inflow-rows", WealthInflow, inflows, ("id",))),
-        DependencyPart("positions", client_id, None, _hash_rows(
-            "position-rows", WealthPosition, positions, ("depot_bank", "depot_account_number", "id"),
-        )),
-        DependencyPart("run_holdings", str(run.id), None, _hash_rows(
-            "run-holding-rows", RecommendationHolding, run_holdings,
-            ("depot_bank", "custody_account_number", "id"),
-        )),
-        DependencyPart("risk", _object_key(risk_id), None,
-                       _hash_rows("risk", RiskAssessment, _by_id(db, RiskAssessment, risk_id), ("id",))),
-        DependencyPart("preference", mandate_id, None, _hash_rows(
-            "preference", InvestmentPreferenceDecision, preferences, ("sequence_no", "id"),
-        )),
+        # Kunde: Uebergang auch fuer die ganze Zeile inkl. Beruf (KN-B / E2E2-04).
+        part("client", client_id, None, "client", Client, client_rows, ("id",), exempt_variants=(False, True)),
+        part("mandate", mandate_id, None, "mandate", Mandate, _by_id(db, Mandate, mandate_id), ("id",)),
+        part("goals", mandate_id, None, "goals", Goal, goals, ("rank", "target_date", "id")),
+        part("cashflows", client_id, None, "cashflow-rows", Cashflow, cashflows, ("id",)),
+        part("wealth_inflows", client_id, None, "inflow-rows", WealthInflow, inflows, ("id",)),
+        part("positions", client_id, None, "position-rows", WealthPosition, positions,
+             ("depot_bank", "depot_account_number", "id")),
+        part("run_holdings", str(run.id), None, "run-holding-rows", RecommendationHolding, run_holdings,
+             ("depot_bank", "custody_account_number", "id")),
+        part("risk", _object_key(risk_id), None, "risk", RiskAssessment, _by_id(db, RiskAssessment, risk_id),
+             ("id",)),
+        part("preference", mandate_id, None, "preference", InvestmentPreferenceDecision, preferences,
+             ("sequence_no", "id")),
         DependencyPart("constraints", _object_key(getattr(ta, "id", None)), _int_or_none(getattr(ta, "version", None)),
                        rows_child_hash("constraints", list(CONSTRAINT_COLUMNS), constraints_rows,
                                        lambda row: (str(row["id"]),))),
-        DependencyPart("cma", _object_key(cma_id), _int_or_none(getattr(cma_rows[0], "version", None)) if cma_rows else None,
-                       _hash_rows("cma", CapitalMarketAssumption, cma_rows, ("id",))),
-        DependencyPart("optimizer_policy", _object_key(policy_id),
-                       _int_or_none(getattr(policy_rows[0], "version", None)) if policy_rows else None,
-                       _hash_rows("optimizer-policy", OptimizerPolicy, policy_rows, ("id",))),
-        DependencyPart("cma_policy", _object_key(cma_policy_id), None, _hash_rows(
-            "cma-policy", CmaPolicy, _by_id(db, CmaPolicy, cma_policy_id), ("id",),
-        )),
-        DependencyPart("benchmark", _object_key(policy_id),
-                       _int_or_none(getattr(policy_rows[0], "version", None)) if policy_rows else None,
-                       _hash_rows("benchmark", HouseMatrix, house_matrix, ("score_from", "score_to", "id"))),
+        part("cma", _object_key(cma_id), _int_or_none(getattr(cma_rows[0], "version", None)) if cma_rows else None,
+             "cma", CapitalMarketAssumption, cma_rows, ("id",)),
+        part("optimizer_policy", _object_key(policy_id),
+             _int_or_none(getattr(policy_rows[0], "version", None)) if policy_rows else None,
+             "optimizer-policy", OptimizerPolicy, policy_rows, ("id",)),
+        part("cma_policy", _object_key(cma_policy_id), None, "cma-policy", CmaPolicy,
+             _by_id(db, CmaPolicy, cma_policy_id), ("id",)),
+        part("benchmark", _object_key(policy_id),
+             _int_or_none(getattr(policy_rows[0], "version", None)) if policy_rows else None,
+             "benchmark", HouseMatrix, house_matrix, ("score_from", "score_to", "id")),
     ]
     # N-908-04: auch die Tabellen, die der Hook bisher nur ueber die Reichweite
     # traf, bekommen eine Kante -- damit greift die Pull-Pruefung auch dort.
@@ -306,7 +358,7 @@ def collect_dependency_parts(
         ("cma_policy_approvals", CmaPolicyApproval,
          rows_by(CmaPolicyApproval, "policy_row_id", cma_policy_id), _object_key(cma_policy_id)),
     ):
-        parts.append(DependencyPart(kind, object_id, None, _hash_rows(kind.replace("_", "-"), model, rows, ("id",))))
+        parts.append(part(kind, object_id, None, kind.replace("_", "-"), model, rows, ("id",)))
         counts[kind] = len(rows)
     counts["mandate"] = 1 if _by_id(db, Mandate, mandate_id) else 0
     counts["client"] = 1 if _by_id(db, Client, client_id) else 0
