@@ -480,6 +480,22 @@ def test_k2_wealth_currency_fx_blocker_and_sums(server):
             page.evaluate("resetWealthSummaryCache();renderWealthPositions(currentWealthPositions)")
             page.wait_for_function("() => document.querySelector('[data-wealth-fx-notice]')&&/abgelaufen/.test(document.querySelector('[data-wealth-fx-notice]').textContent)", timeout=15000)
             k1_text = page.evaluate("document.getElementById('asset-view').innerText")
+            # N-913-03: KPI und Depot-Check zeigen bei gesperrter Summe nie 0/0 %, sondern die Ursache.
+            page.evaluate(f"()=>refreshWealthUI('{cid}')")
+            page.wait_for_timeout(1500)
+            k1_kpi = page.evaluate("(function(){var k=document.getElementById('kpi-reinvermoegen');return {t:k.textContent,title:k.title};})()")
+            page.route("**/depot-check", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({
+                "total_advisory_wealth_rappen": None, "amount_block_reason_code": "CCX_FX_BASIS_MISSING",
+                "amount_block_currencies": ["USD"], "amount_block_message": "kein Kurs", "buckets": {},
+                "country_exposure_bps": {}, "sector_exposure_bps": {}, "currency_exposure_bps": {},
+                "concentration_hhi": {}, "fund_characteristics": {}, "warnings": []})))
+            page.route("**/backtest/stress-replays", lambda route: route.fulfill(status=404, content_type="application/json", body="{}"))
+            page.evaluate("()=>{openDepotCheck();}")
+            page.wait_for_function("() => !/Lädt/.test((document.getElementById('dc-status')||{}).textContent||'Lädt')", timeout=15000)
+            k1_dc = page.evaluate("document.getElementById('dc-status').textContent")
+            page.evaluate("cm('m-dc')")
+            page.unroute("**/depot-check")
+            page.unroute("**/backtest/stress-replays")
             page.unroute("**/wealth-summary*")
             # Gegenprobe: reiner CHF-Kunde zeigt Summen und Anteile wie bisher.
             _load(page, cid_chf, "vg")
@@ -557,6 +573,9 @@ def test_k2_wealth_currency_fx_blocker_and_sums(server):
     assert "Kurs nicht belegt: USD" in blocked_text
     assert "Kurs nicht belegt: USD (abgelaufen)" in k1_text and "Umrechnung offen" in k1_text
     assert "des Bruttovermögens" not in k1_text and "—" not in k1_text
+    assert " 0 %" not in k1_text and "CHF 0" not in k1_text
+    assert k1_kpi["t"] == "Umrechnung offen" and "Kurs USD abgelaufen" in k1_kpi["title"], k1_kpi
+    assert "Umrechnung offen – Kurs USD fehlt oder nur Ersatzkurs" in k1_dc and "CHF 0" not in k1_dc, k1_dc
     assert "Umrechnung offen" not in chf_text and "des Bruttovermögens" in chf_text and "mehreren Währungen" not in chf_text
     assert mixed_derived["wealth"] == "Umrechnung offen" and "Kein Anteil" in mixed_derived["share"], mixed_derived
     assert "%" not in mixed_derived["share"] and mixed_derived["goal"] == 0, mixed_derived

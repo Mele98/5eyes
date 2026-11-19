@@ -451,6 +451,16 @@
     wrapped.__k2Hooked = true;
     window.istProjectionBasisUnavailableReason = wrapped;
   }
+  // N-913-03 (aus K1-Pruefung): typisierte Sperre einer Serversumme (amount_block_*) als
+  // Klartext. '' = nicht gesperrt. Nie 0 oder 0 % anstelle einer gesperrten Summe.
+  var BLOCK_CAUSE = {CCX_FX_BASIS_MISSING: 'fehlt oder nur Ersatzkurs', CCX_FX_BASIS_STALE: 'abgelaufen',
+    CCX_FX_BASIS_MISMATCH: 'Währungsbasis nicht eindeutig'};
+  function wealthBlockText(d){
+    var code = d && d.amount_block_reason_code;
+    if (!code) return '';
+    var ccys = (d.amount_block_currencies || []).map(up).filter(Boolean);
+    return 'Umrechnung offen – Kurs ' + (ccys.length ? ccys.join(', ') + ' ' : '') + (BLOCK_CAUSE[code] || 'nicht belegt') + '.';
+  }
   function wealthMixedNotice(mix){
     if (!mix || !mix.blocked) return '';
     var foreign = (mix.currencies || []).filter(function(c){ return c !== '?' && c !== up(baseCcy()); });
@@ -704,6 +714,7 @@
   window.wealthMixedTotals = wealthMixedTotals;
   window.resetWealthSummaryCache = resetWealthSummaryCache;
   window.wealthMixedNotice = wealthMixedNotice;
+  window.wealthBlockText = wealthBlockText;
   window.wealthFxOpenReason = wealthFxOpenReason;
   window.syncFinalizeShortcut = syncFinalizeShortcut;
   window.goFinalize = goFinalize;

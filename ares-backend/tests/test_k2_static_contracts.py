@@ -94,15 +94,25 @@ def test_seed_catalog_and_market_profiles_are_neutral():
 def test_legacy_seed_names_still_resolve_without_plaintext():
     from services.portfolio_engine import DEFAULT_CATALOG_PRODUCTS
     from services.product_market_data import default_market_entry
-    from services.seed_catalog_names import LEGACY_SEED_NAME_SHA256, canonical_seed_name
+    from services.product_market_data import LEGACY_SEED_NAME_SHA256, canonical_seed_name
 
     names = {r[0] for r in DEFAULT_CATALOG_PRODUCTS}
     assert set(LEGACY_SEED_NAME_SHA256.values()) <= names
     assert len(LEGACY_SEED_NAME_SHA256) == len(set(LEGACY_SEED_NAME_SHA256.values()))
     for name in names:
         assert canonical_seed_name(name) == name and default_market_entry(name) is not None
-    text = (REPO / "ares-backend" / "services" / "seed_catalog_names.py").read_text(encoding="utf-8")
-    assert not ISSUERS.search(text)
+    text = (REPO / "ares-backend" / "services" / "product_market_data.py").read_text(encoding="utf-8")
+    table = text[text.index("LEGACY_SEED_NAME_SHA256"):text.index("def canonical_seed_name")]
+    assert not ISSUERS.search(table)
+
+
+def test_hedged_seed_products_keep_their_chf_hedge_marker():
+    from services.portfolio_engine import DEFAULT_CATALOG_PRODUCTS
+    from services.product_exposures import hedge_from_product_name
+
+    hedged = [r for r in DEFAULT_CATALOG_PRODUCTS if "abgesichert" in r[0]]
+    assert len(hedged) == 11
+    assert all(hedge_from_product_name(r[0], r[2]) == (True, "CHF") for r in hedged), hedged
 
 
 def test_foundation_demo_and_portfolio_pdf_are_neutral():

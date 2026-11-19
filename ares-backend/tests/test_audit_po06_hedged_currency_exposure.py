@@ -98,7 +98,7 @@ def test_depot_check_and_hedge_proposal_do_not_count_hedged_products_as_fx(sessi
         s.commit()
         run = generate_recommendation_run(s, mandate, adv, preferences=None, target_allocation_id=ta["target_allocation"].id)
         s.commit()
-        hedged = [p for p in run["positions"] if "hedged" in p["product_name"].lower()]
+        hedged = [p for p in run["positions"] if any(m in p["product_name"].lower() for m in ("hedged", "abgesichert"))]
         assert hedged, "Szenario braucht abgesicherte Produkte im Lauf"
         hedged_bps = sum(p["target_weight_bps"] for p in hedged)
 

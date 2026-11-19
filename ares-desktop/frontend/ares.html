@@ -4122,7 +4122,7 @@ async function loadClientById(clientId) {
         // G7 N4: Kundensummen (Rohsummen der Positionen) in amount_currency des Servers; gemischt -> "—".
         const fmtK = v => (!w.amount_currency&&(w.gross_wealth_chf||w.amount_block_reason_code))?'Umrechnung offen':fmtCHF(Number(v)||0, w.amount_currency);
         const kRV = document.getElementById('kpi-reinvermoegen');
-        if (kRV) kRV.textContent = fmtK(w.net_worth_chf);
+        if (kRV) { kRV.textContent = fmtK(w.net_worth_chf); kRV.title = typeof wealthBlockText==='function'?wealthBlockText(w):''; }
         const kBV = document.getElementById('kpi-beratungsvermoegen');
         if (kBV) kBV.textContent = fmtK(w.advisory_wealth_chf);
       } else {
@@ -5535,7 +5535,7 @@ function wealthProjectionInputs(scope,years){
   // PROJECTION-001, Tilgung bilanzneutral), ALLE Schulden (TOTAL-WEALTH-LIABILITY-001).
   var mortgagePositions=scope!=='advisory'?activeClientWealthPositions():[];
   var mortgageSeries=mortgageLiabilityAndPledgedSeriesRappen(mortgagePositions,years);
-  var _fxOpen=positions.concat(mortgagePositions).length>0&&!positionsCurrency(positions.concat(mortgagePositions)); // K2/N-915-02
+  var _fxOpen=positions.concat(mortgagePositions).length>0&&!positionsCurrency(positions.concat(mortgagePositions));
   var liabilitiesRappen=Number(mortgageSeries.liability[0]||0);
   var startRappen=Math.max(0,totalRappen-liabilitiesRappen+Number(mortgageSeries.pledged[0]||0));
   // Lokale Vorschau ohne Snapshot: Sockel = Immobilie minus alle Schulden.
@@ -5910,7 +5910,7 @@ function buildCurrentWealthProjection(scope,preferredYears,preferredLabels){
   projection.currency=inputs.currency;  // G7 N4
   projection.cmaReference=inputs.cmaReference||null;
   if(!inputs.cmaReady||inputs.fxOpen){
-    // H9 Nachtrag 2 / K2 N-915-02: fail-closed ohne Server-CMA bzw. bei gemischten Waehrungen.
+    // H9 N2 / K2: fail-closed ohne CMA oder bei gemischten Waehrungen.
     projection.unavailable=true;
     projection.seriesK=[];projection.seriesRappen=[];
     projection.projectedRappen=0;projection.cagrBps=0;projection.expectedReturnBps=0;
@@ -12274,7 +12274,7 @@ async function openDepotCheck(){
     catch(e){ /* Endpoint optional */ }
     dcRender(data, stress);
     if(statusEl){
-      statusEl.textContent = 'Beratungsvermögen: ' + dcFmtCHF(data.total_advisory_wealth_rappen) + (data.warnings && data.warnings.length ? ' · ' + data.warnings.length + ' Hinweis(e)' : ' · alles OK');
+      statusEl.textContent = 'Beratungsvermögen: ' + ((typeof wealthBlockText==='function'&&wealthBlockText(data))||(data.total_advisory_wealth_rappen==null?'Umrechnung offen':dcFmtCHF(data.total_advisory_wealth_rappen))) + (data.warnings && data.warnings.length ? ' · ' + data.warnings.length + ' Hinweis(e)' : ' · alles OK');
       statusEl.style.color = (data.warnings && data.warnings.length) ? 'var(--neg)' : 'var(--pos)';
     }
     if(contentEl) contentEl.style.display = '';
@@ -16905,7 +16905,7 @@ function resetAdvisoryLogModal(){
         '<div><button class="btn-ico e" type="button" title="Bearbeiten">✎</button><button class="btn-ico d" type="button" title="Löschen">✕</button></div></div>';
     }).join('');
   };
-  // G7 N4: Summen sind Rohsummen der Positionsbetraege -> Waehrung nur bei einheitlicher Positionswaehrung.
+  // G7 N4 + K2: Summen nur in einer Waehrung, sonst umgerechnete Serversumme (mixFx).
   var wealthCcy=positionsCurrency(items);
   var advisoryTotal=totalChf(advisory);
   var otherTotal=totalChf(other)-totalChf(liabilities);
@@ -16942,10 +16942,7 @@ function resetAdvisoryLogModal(){
     liabilityCount:liabilities.length,
     currency:wealthCcy
   });
-  // Sprint Bug-#1 (2026-06-08): Edit-/Delete-Buttons wieder funktional machen.
-  // Pre-Fix: renderRowsSafe rendert Buttons ohne onClick → User konnte Positionen
-  // nach Erstellung NICHT bearbeiten. Sicherheits-Pattern (kein Inline-JS) bleibt,
-  // wir registrieren saubere Event-Listener nach dem innerHTML-Update.
+  // Sprint Bug-#1 (2026-06-08): Edit/Delete per Event-Listener (kein Inline-JS).
   Array.prototype.forEach.call(av.querySelectorAll('.wr[data-posid] .btn-ico'),function(btn){
     var row=btn.closest('.wr[data-posid]');
     if(!row)return;
@@ -23468,7 +23465,7 @@ function buildWealthPositionPayload(cat,typ,note){
   if(posType==='Vorsorge'&&tot>0&&Math.abs(tot-100)>0.5){
     throw new Error('Vorsorge-Aufteilung muss 100% ergeben (aktuell: '+AresRounding.formatPercent(tot,0,{typography:'screen'})+') oder ganz leer bleiben (dann zählt die Vorsorge nicht ins Anlage-Exposure).');
   }
-  // CURRENCY-CLOBBER-001 + K2/E2E-01: Waehrungsfeld der Maske; sonst bestehende Waehrung bzw. Mandatswaehrung.
+  // CURRENCY-CLOBBER-001/K2: Maskenfeld, sonst Position, sonst Mandat.
   var existingWealthPos=currentWealthEditId
     ?currentWealthPositions.find(function(item){return item&&String(item.id||'')===String(currentWealthEditId);})
     :null;
@@ -23612,7 +23609,7 @@ async function refreshWealthUI(cid){
       currentWealthSummary=clientScopedSummary((d||{}),cid);
       var fmt=function(v){return d.amount_block_reason_code?'Umrechnung offen':(d.amount_currency||!v?fmtCHF(v,d.amount_currency):'Umrechnung offen');};  // G7 N4: Rohsummen der Positionen -> amount_currency des Servers
       var k=document.getElementById('kpi-reinvermoegen');
-      if(k)k.textContent=fmt(d.net_worth_chf||0);
+      if(k){k.textContent=fmt(d.net_worth_chf||0);k.title=typeof wealthBlockText==='function'?wealthBlockText(d):'';}
       var k2=document.getElementById('kpi-beratungsvermoegen');
       if(k2)k2.textContent=fmt(d.advisory_wealth_chf||0);
       var k2Card=k2&&k2.closest?k2.closest('.kpi'):null;
@@ -23620,7 +23617,7 @@ async function refreshWealthUI(cid){
       if(k2Sub){
         var share=wealthSharePercent(d.advisory_wealth_chf||0,d.gross_wealth_chf||0);
         k2Sub.textContent=AresRounding.formatPercent(share,0,{typography:'screen'})+' des Bruttovermögens';
-        if(!d.amount_currency&&(d.gross_wealth_chf||d.amount_block_reason_code))k2Sub.textContent='Anteil nach Umrechnung';
+        if(!d.amount_currency&&(d.gross_wealth_chf||d.amount_block_reason_code))k2Sub.textContent=(typeof wealthBlockText==='function'&&wealthBlockText(d))||'Anteil nach Umrechnung';
       }
     }else if(summaryRes.reason&&summaryRes.reason.status===409){var kr=document.getElementById('kpi-reinvermoegen');if(kr)kr.textContent='Umrechnung offen';}
     if(positionsRes.status==='fulfilled'){

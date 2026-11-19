@@ -132,7 +132,7 @@
     {
       "asset_class": "Obligationen",
       "currency": "CHF",
-      "product_name": "Musterprodukt Obligationen Global Hedged",
+      "product_name": "Musterprodukt Obligationen Global CHF-abgesichert",
       "provider": "Musteranbieter A",
       "rationale": "Globale Diversifikation",
       "source_sub_asset_classes": [

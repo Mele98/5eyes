@@ -82,7 +82,9 @@ from services.wealth_position_semantics import (
     require_supported_mortgage_amortization,
     require_supported_position_assignment,
 )
-from services.product_market_data import resolve_market_profile, validate_default_product_market_coverage
+from services.product_market_data import (  # noqa: F401  (LEGACY_*: Re-Export fuer esg_data_provenance)
+    LEGACY_SEED_NAME_SHA256, canonical_seed_name, resolve_market_profile, validate_default_product_market_coverage,
+)
 from services.jurisdiction.exceptions import (
     JurisdictionReferenceDataConflictError,
     JurisdictionReferenceDataMissingError,
@@ -1933,7 +1935,7 @@ DEFAULT_CATALOG_PRODUCTS: list[tuple] = [
     ("Musterprodukt Thema Gluecksspiel", "Musteranbieter F", "ETF", "Aktien", "Thema Gluecksspiel", "USD", 75, "6", "BB"),
     ("Musterprodukt Thema Kernenergie", "Musteranbieter C", "ETF", "Aktien", "Thema Kernenergie", "USD", 61, "6", "BBB"),
     ("Musterprodukt Obligationen CHF IG", "Musteranbieter I", "Fonds", "Obligationen", "Obligationen CHF IG", "CHF", 32, "8", "A"),
-    ("Musterprodukt Obligationen Global Hedged", "Musteranbieter A", "ETF", "Obligationen", "Obligationen Global Hedged", "CHF", 10, "8", "A"),
+    ("Musterprodukt Obligationen Global CHF-abgesichert", "Musteranbieter A", "ETF", "Obligationen", "Obligationen Global Hedged", "CHF", 10, "8", "A"),
     ("Musterprodukt Obligationen High Yield", "Musteranbieter J", "Fonds", "Obligationen", "Obligationen High Yield", "CHF", 55, "6", "BBB"),
     ("Musterprodukt Obligationen Emerging", "Musteranbieter G", "Fonds", "Obligationen", "Obligationen Emerging", "USD", 62, "6", "BBB"),
     ("Musterprodukt Immobilien Schweiz", "Musteranbieter I", "Immobilienfonds", "Immobilien", "Immobilien Schweiz", "CHF", 52, "8", "A"),
@@ -2056,8 +2058,6 @@ def ensure_hedged_product_variants(db: Session) -> None:
     product_name-Vertrag nutzen)."""
     # K2/N-915-03: Bestandsinstallationen fuehren die Varianten ggf. noch unter dem
     # frueheren Seed-Namen; canonical_seed_name erkennt sie (keine Doppelanlage).
-    from services.seed_catalog_names import canonical_seed_name
-
     existing_names = {
         canonical_seed_name(row[0])
         for row in db.query(Product.product_name).all()
