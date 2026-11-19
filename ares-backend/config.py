@@ -709,6 +709,14 @@ class Settings(BaseSettings):
     # (siehe portfolio_engine._DEFAULT_CORRELATION_MATRIX).
     sub_class_intra_correlation: float = 1.0
 
+    @property
+    def foundation_example_available(self) -> bool:
+        """KN-B / E2E2-10: Der Demo-Systemfall ("Foundation Case laden") nur im
+        Entwicklungs-/Demo-/Testbetrieb. Gesperrt in ``app_env=production`` und
+        in der gepackten Produktivinstallation (PyInstaller-EXE der Desktop-App,
+        ``sys.frozen``) -- bestehende Modus-Merkmale, kein neuer Schalter."""
+        return self.app_env != 'production' and not getattr(sys, 'frozen', False)
+
     @field_validator('app_env')
     @classmethod
     def validate_app_env(cls, value: str) -> str:
