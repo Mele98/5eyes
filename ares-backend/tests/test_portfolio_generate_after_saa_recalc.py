@@ -104,7 +104,7 @@ def test_current_payload_blocks_stale_run_then_regenerate_succeeds(session_facto
         # Regenerate (wie das Frontend nach dem 409) generiert sauber
         result = generate_recommendation_run(
             db=s, mandate=mandate, user_id=adv.id, preferences=None,
-            target_allocation_id=ta2.id, run_type="Optimizer", depot_bank="UBS AG Zürich")
+            target_allocation_id=ta2.id, run_type="Optimizer", depot_bank="Testbank Fiktiv")
         s.commit()
         assert len(result.get("positions") or []) > 0
         assert str(result["run"].target_allocation_id) == str(ta2.id)
@@ -130,7 +130,7 @@ def test_default_ui_preferences_generate_a_portfolio(session_factory):
         s.flush()
         result = generate_recommendation_run(
             db=s, mandate=mandate, user_id="advisor-1", preferences=fe_default,
-            target_allocation_id=ta.id, run_type="Optimizer", depot_bank="UBS AG Zürich")
+            target_allocation_id=ta.id, run_type="Optimizer", depot_bank="Testbank Fiktiv")
         assert len(result.get("positions") or []) > 0
 
 
@@ -177,7 +177,7 @@ def test_low_risk_override_does_not_silently_violate_the_overridden_risk_profile
                 preferences=None,
                 target_allocation_id=ta.id,
                 run_type="Optimizer",
-                depot_bank="UBS AG ZÃ¼rich",
+                depot_bank="Testbank Fiktiv",
             )
 
 

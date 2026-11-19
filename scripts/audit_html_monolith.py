@@ -71,6 +71,11 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     # CCX-P3-FX (N-909-11): Wechselkurs-Editor (nur geaenderte bzw. als
     # geprueft bestaetigte Kurse werden gesendet; Ersatzkurse nur Platzhalter).
     ("fx-rates-editor.js", "js"),
+    # K2 Kernkette CH (Dok. 115): Berater-Fuehrung bis "Portfolio generieren" --
+    # Firma/Ein-Personen-Firma, Vier-Augen-Wegweiser, Waehrungsfeld, sichtbare
+    # FX-Sperre mit Kurseditor, Finalisieren-Schritt, Musterprodukt-Warnung,
+    # Verzehr-Kennzeichnung, Pensionierungsjahr. Haengt sich selbst ein.
+    ("advisor-guidance.js", "js"),
     # E2 Nachhaltigkeitspraeferenzen (Dok. 106): Kundenmaske nach dem Risikoprofil.
     ("sustainability-preferences.js", "js"),
 )

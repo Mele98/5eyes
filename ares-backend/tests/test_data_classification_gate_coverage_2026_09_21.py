@@ -415,7 +415,7 @@ def test_portfolio_handoff_real_blocked_when_gate_closed(session_factory, monkey
             create_portfolio_handoff(
                 mandate_id=mandate_id, run_id=run_id,
                 body=PortfolioHandoffCreate(
-                    recipient_name="UBS AG Zuerich", data_classification="real",
+                    recipient_name="Testbank Fiktiv", data_classification="real",
                 ),
                 request=_request_stub(), db=db, current_user=advisor,
             )
@@ -435,8 +435,8 @@ def test_portfolio_handoff_synthetic_allowed_when_gate_closed(session_factory, m
         result = create_portfolio_handoff(
             mandate_id=mandate_id, run_id=run_id,
             body=PortfolioHandoffCreate(
-                recipient_name="UBS AG Zuerich", data_classification="synthetic",
+                recipient_name="Testbank Fiktiv", data_classification="synthetic",
             ),
             request=_request_stub(), db=db, current_user=advisor,
         )
-        assert result.recipient_name == "UBS AG Zuerich"
+        assert result.recipient_name == "Testbank Fiktiv"
