@@ -37,7 +37,7 @@ def _now() -> str:
 def test_both_engine_paths_feed_derived_cashflows():
     src_load = inspect.getsource(pe._load_allocation_inputs)
     src_build = inspect.getsource(pe.build_target_payload_from_allocation)
-    assert "derive_wealth_cashflows(all_positions)" in src_load, (
+    assert "derive_wealth_cashflows(require_mortgage_interest_rates(all_positions))" in src_load, (  # K1 N-913-01
         "_load_allocation_inputs speist die vermögensgetriebenen Cashflows nicht mehr ein"
     )
     assert "derive_wealth_cashflows(all_positions)" in src_build, (
@@ -311,6 +311,7 @@ def _add_mortgage(session_factory, client_id, value=400_000_00, rate_bps=200,
         s.commit()
 
 
+@pytest.mark.usefixtures("property_advanced_mechanics_enabled")  # K1: dormante Mechanik
 def test_generate_path_includes_mortgage_interest(session_factory):
     """Verhaltens-Gegenprobe: mit Hypothek steigt die wiederkehrende Ausgabe um
     den Zins (Beleg, dass der Generate-Pfad die abgeleiteten Cashflows nutzt)."""
@@ -329,6 +330,7 @@ def test_generate_path_includes_mortgage_interest(session_factory):
 
 # ── #6: IST-Risikometriken vorhanden, symmetrisch, deterministisch ──
 
+@pytest.mark.usefixtures("property_advanced_mechanics_enabled")  # K1: dormante Mechanik
 def test_direct_amortization_improves_projection_vs_indirect(session_factory):
     """#31 Schritt B: direkte Amortisation baut die Schuld ab → sinkende Zinslast
     → die Projektions-Cashflow-Serie liegt höher als bei indirekter (Schuld bleibt).
@@ -384,3 +386,6 @@ def test_ist_risk_metrics_deterministic(session_factory):
     for base in _RISK_FIELDS:
         key = f"current_{base}"
         assert mc1.get(key) == mc2.get(key), (key, mc1.get(key), mc2.get(key))
+
+
+from tests.property_gate_support import property_advanced_mechanics_enabled  # noqa: E402,F401  (K1)

@@ -10,6 +10,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
+from core.presentation_rounding import allocation_pct_texts, format_bps_as_pct, format_bps_signed_pct
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -29,6 +30,9 @@ BUCKET_ORDER = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
 def make_drift_table(buckets: Mapping[str, Mapping]) -> Table:
     """Returns Table mit Bucket | IST | SOLL | Drift | Band | Status."""
     rows = [["Bucket", "IST", "SOLL", "Drift", "Toleranzband", "Status"]]
+    # G7 N-894-02: IST- und SOLL-Spalte je gemeinsam apportioniert (Summe 100.0 %).
+    ist_text = allocation_pct_texts({k: int((buckets.get(k) or {}).get("ist_bps", 0) or 0) for k in BUCKET_ORDER})
+    soll_text = allocation_pct_texts({k: int((buckets.get(k) or {}).get("soll_bps", 0) or 0) for k in BUCKET_ORDER})
     for bucket in BUCKET_ORDER:
         b = buckets.get(bucket) or {}
         ist_bps = int(b.get("ist_bps", 0) or 0)
@@ -46,9 +50,9 @@ def make_drift_table(buckets: Mapping[str, Mapping]) -> Table:
         else:
             status = '<font color="#94a3b8">—</font>'
 
-        band_text = f"{band_min/100:.1f}% – {band_max/100:.1f}%" if (band_min or band_max) else "—"
+        band_text = f"{format_bps_as_pct(band_min, decimals=1)} – {format_bps_as_pct(band_max, decimals=1)}" if (band_min or band_max) else "—"
         drift_color = "#7f1d1d" if abs(drift_bps) > 200 else "#475569"
-        drift_text = f'{drift_bps/100:+.1f}%'
+        drift_text = format_bps_signed_pct(drift_bps, decimals=1)
 
         color_hex = asset_class_color(bucket).hexval()[2:]
 
@@ -58,8 +62,8 @@ def make_drift_table(buckets: Mapping[str, Mapping]) -> Table:
                 f'<font name="{FONT_BOLD}">{_esc(label)}</font>',
                 _para_compact(),
             ),
-            Paragraph(f'<para align="right"><b>{ist_bps/100:.1f}%</b></para>', _para_compact()),
-            Paragraph(f'<para align="right">{soll_bps/100:.1f}%</para>', _para_compact()),
+            Paragraph(f'<para align="right"><b>{ist_text.get(bucket, format_bps_as_pct(ist_bps, decimals=1))}</b></para>', _para_compact()),
+            Paragraph(f'<para align="right">{soll_text.get(bucket, format_bps_as_pct(soll_bps, decimals=1))}</para>', _para_compact()),
             Paragraph(
                 f'<para align="right"><font color="{drift_color}">{drift_text}</font></para>',
                 _para_compact(),

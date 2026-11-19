@@ -41,6 +41,8 @@ from models.mandates import Mandate
 from models.users import User
 from models.wealth import WealthPosition
 from routers.pdf_reports import _advisory_wealth_positions, _other_wealth_positions
+from services.currency.fx_rates import FxBasisError
+from tests.fx_test_support import seed_attested_fx
 
 
 def _now() -> str:
@@ -101,6 +103,8 @@ def test_advisory_wealth_positions_converts_non_base_currency_position(session_f
             is_active=1, created_at=now, updated_at=now,
         ))
         s.commit()
+        # CCX-P3-FX (N-909-01): nur ein belegter Kurs ist kundenwirksam.
+        seed_attested_fx(s, {"EUR": 0.95})
 
     with session_factory() as s:
         mandate = s.query(Mandate).filter(Mandate.id == mid).first()
@@ -109,8 +113,9 @@ def test_advisory_wealth_positions_converts_non_base_currency_position(session_f
     # CHF 100'000 darf NICHT 1:1 als "total" (EUR) erscheinen -- das wuerde
     # bedeuten, dass gar keine Konvertierung stattgefunden hat.
     assert total != 100_000_00
-    # Erwartete Konvertierung: cross_rate(CHF->EUR) = 1.0/0.95 (DEFAULT_FX_RATES).
-    expected = round(100_000_00 * (1.0 / 0.95))
+    # Erwartete Konvertierung zum belegten Kurs EUR 0.9500 (half-up, exakt):
+    # 10'000'000 * 10000 / 9500 = 10'526'315.79 -> 10'526'316.
+    expected = 10_526_316
     assert total == expected
     assert len(positions) == 1
     assert positions[0]["current_amount_rappen"] == expected
@@ -178,13 +183,14 @@ def test_other_wealth_positions_converts_non_base_currency_position(session_fact
             is_active=1, created_at=now, updated_at=now,
         ))
         s.commit()
+        seed_attested_fx(s, {"EUR": 0.95})  # CCX-P3-FX (N-909-01)
 
     with session_factory() as s:
         mandate = s.query(Mandate).filter(Mandate.id == mid).first()
         other = _other_wealth_positions(mandate, s)
 
     assert len(other) == 1
-    expected = round(200_000_00 * (1.0 / 0.95))
+    expected = 21_052_632  # 20'000'000 * 10000 / 9500 = 21'052'631.58, half-up
     assert other[0]["amount_rappen"] == expected
 
 
@@ -236,3 +242,24 @@ def test_other_wealth_positions_excludes_advisory_legacy_alias(session_factory):
         other = _other_wealth_positions(mandate, s)
 
     assert other == []
+
+
+@pytest.mark.parametrize("builder", [_advisory_wealth_positions, _other_wealth_positions])
+def test_wealth_tables_block_without_attested_rate(session_factory, builder):
+    """CCX-P3-FX (N-909-01): ohne belegten Kurs (nur Ersatzkurs) sperren beide
+    PDF-Tabellen typisiert, statt zum Ersatzkurs umzurechnen."""
+    cid, mid = _seed_mandate(session_factory, base_currency="EUR")
+    now = _now()
+    assignment = "Beratungsvermögen" if builder is _advisory_wealth_positions else "Eigenvermögen"
+    with session_factory() as s:
+        s.add(WealthPosition(
+            id=str(uuid.uuid4()), client_id=cid, label="Depot CHF", position_type="Depot",
+            assignment=assignment, current_value_rappen=100_000_00, currency="CHF",
+            alloc_equities_bps=10000, is_active=1, created_at=now, updated_at=now,
+        ))
+        s.commit()
+    with session_factory() as s:
+        mandate = s.query(Mandate).filter(Mandate.id == mid).first()
+        with pytest.raises(FxBasisError) as exc:
+            builder(mandate, s)
+    assert exc.value.reason_code == "CCX_FX_BASIS_MISSING"

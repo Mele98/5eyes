@@ -5,7 +5,7 @@ Date: 2026-06-19
 
 ## Context
 
-5eyes needs a tax layer that can support Switzerland today and additional
+Ares needs a tax layer that can support Switzerland today and additional
 countries later without changing optimizer core code for every jurisdiction.
 The existing `TaxRegime` interface is optimizer-facing and path-level. It is
 kept intact for backwards compatibility.

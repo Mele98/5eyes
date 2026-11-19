@@ -17,7 +17,12 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
-from services.pdf.components.swiss_numbers import format_bps_as_pct, format_chf_rappen
+from services.pdf.components.swiss_numbers import (
+    format_bps_as_pct,
+    format_chf_rappen,
+    format_end_of_year,
+    format_number,
+)
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -45,7 +50,7 @@ def _sharpe_ratio(cagr_bps: int | None, vol_bps: int | None, risk_free_bps: int)
 
 
 def _fmt_sharpe(value: float | None) -> str:
-    return "—" if value is None else f"{value:.2f}"
+    return "—" if value is None else format_number(value, decimals=2)
 
 
 def _fmt_chf_pair_row(label: str, soll_rappen: int | None, ist_rappen: int | None, currency: str) -> list:
@@ -71,16 +76,17 @@ def make_sollist_kennzahlen_table(
     current_volatility_1y_bps: int | None,
     risk_free_bps: int = 80,
     currency: str = "CHF",
+    end_year_label: object = None,
 ) -> list:
     """SOLL/IST-Kennzahlentabelle: Endwerte, Volatilitaet, Rendite, Sharpe.
 
     Leere Liste (kein Render) wenn weder SOLL- noch IST-Monte-Carlo-Werte
     vorliegen -- z.B. bevor 'Anlagestrategie berechnen' je gelaufen ist.
     """
-    has_any = any([
-        target_median_end_rappen, current_median_end_rappen,
-        target_cagr_bps, current_cagr_bps,
-    ])
+    # N-858-12: Eine gerechnete Rendite von 0 bps ist ein Wert, keine Luecke.
+    has_any = any([target_median_end_rappen, current_median_end_rappen]) or any(
+        value is not None for value in (target_cagr_bps, current_cagr_bps)
+    )
     if not has_any:
         return []
 
@@ -93,16 +99,19 @@ def make_sollist_kennzahlen_table(
         Paragraph("<b>SOLL-Strategie</b>", header_style),
         Paragraph("<b>IST-Portfolio (heute)</b>", header_style),
     ]]
+    # H9 Nachtrag 3: Endjahr wie in der App ("Endwert Ende 2040 – ...").
+    end_text = format_end_of_year(end_year_label)
+    end_suffix = f" {end_text}" if end_text else ""
     rows.append(_fmt_chf_pair_row(
-        "Erwartetes Endvermögen (Median)",
+        f"Erwartetes Endvermögen{end_suffix} (Median)",
         target_median_end_rappen, current_median_end_rappen, currency,
     ))
     rows.append(_fmt_chf_pair_row(
-        "Endvermögen optimistisch (P90)",
+        f"Endvermögen{end_suffix} optimistisch (P90)",
         target_p90_end_rappen, current_p90_end_rappen, currency,
     ))
     rows.append(_fmt_chf_pair_row(
-        "Endvermögen pessimistisch (P10)",
+        f"Endvermögen{end_suffix} pessimistisch (P10)",
         target_p10_end_rappen, current_p10_end_rappen, currency,
     ))
     cell_style = make_paragraph_styles().get("small_muted") or make_paragraph_styles().get("body")
@@ -112,14 +121,16 @@ def make_sollist_kennzahlen_table(
         Paragraph(_esc(format_bps_as_pct(current_cagr_bps, decimals=2)), cell_style),
     ])
     rows.append([
-        Paragraph(_esc("Volatilität (1 Jahr)"), cell_style),
+        # Live-Test 2026-11 M8: in der Monte-Carlo-Simulation realisiert (nicht
+        # die Modell-Volatilitaet der Kennzahlen-Kachel).
+        Paragraph(_esc("Volatilität 1 Jahr (simuliert)"), cell_style),
         Paragraph(_esc(format_bps_as_pct(target_volatility_1y_bps, decimals=2)), cell_style),
         Paragraph(_esc(format_bps_as_pct(current_volatility_1y_bps, decimals=2)), cell_style),
     ])
     rows.append([
         Paragraph(
             f'<font color="#475569">Rendite/Risiko (Sharpe, risikofrei '
-            f'{risk_free_bps / 100:.1f}%)</font>', cell_style,
+            f'{format_bps_as_pct(risk_free_bps, decimals=1)})</font>', cell_style,
         ),
         Paragraph(_esc(_fmt_sharpe(sharpe_target)), cell_style),
         Paragraph(_esc(_fmt_sharpe(sharpe_current)), cell_style),

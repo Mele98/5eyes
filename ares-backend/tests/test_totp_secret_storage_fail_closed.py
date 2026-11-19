@@ -34,6 +34,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from database import Base, get_db  # noqa: E402
 from main import app  # noqa: E402
+from config import settings  # noqa: E402
 from models.tenant import Tenant  # noqa: E402
 from models.users import User  # noqa: E402
 from services import totp  # noqa: E402
@@ -83,7 +84,7 @@ def _reset_login_guard():
 @pytest.fixture()
 def kek_a(monkeypatch):
     key = Fernet.generate_key().decode("ascii")
-    monkeypatch.setenv("TENANT_MASTER_KEK", key)
+    monkeypatch.setattr(settings, "tenant_master_kek", key)
     return key
 
 
@@ -170,7 +171,7 @@ def test_load_with_wrong_kek_raises_instead_of_empty_string(session_factory, mon
         assert user.totp_secret.startswith(_ENC_PREFIX)
         ciphertext = user.totp_secret
 
-        monkeypatch.setenv("TENANT_MASTER_KEK", Fernet.generate_key().decode("ascii"))
+        monkeypatch.setattr(settings, "tenant_master_kek", Fernet.generate_key().decode("ascii"))
         with caplog.at_level(logging.ERROR, logger="services.totp_secret_storage"):
             with pytest.raises(TotpSecretStorageError) as info:
                 load_totp_secret(db, user)
@@ -266,7 +267,7 @@ def test_login_with_wrong_kek_rejects_otherwise_valid_code(client, session_facto
         user.totp_enabled = 1
         db.commit()
 
-    monkeypatch.setenv("TENANT_MASTER_KEK", Fernet.generate_key().decode("ascii"))
+    monkeypatch.setattr(settings, "tenant_master_kek", Fernet.generate_key().decode("ascii"))
     r = client.post(
         "/auth/login",
         json={"username": "h3", "password": "pw", "totp_code": totp.totp_at(secret, time.time())},
