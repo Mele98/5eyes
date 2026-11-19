@@ -72,7 +72,7 @@ def advisory_cash_entries(db: Session, mandate: Mandate) -> list[dict]:
             )
         if currency != target_currency and fx_source is None:
             # Dieselbe FX-Basis wie die Allokation (build_recommendation_payload).
-            fx_source = FXRateSource.from_db_for_model(db)
+            fx_source = FXRateSource.from_db_strict_for_model(db, tenant_id=getattr(mandate, "tenant_id", None))  # CCX-P3-FX N-909-01
         try:
             value_target = _convert_position_value_to_target_currency(value, pos, fx_source, target_currency)
         except ValueError as exc:

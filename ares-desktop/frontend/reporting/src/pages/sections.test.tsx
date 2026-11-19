@@ -8,6 +8,7 @@
  */
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { ReportCurrencyContext } from '@/lib/reportCurrency';
 import { describe, expect, it, vi } from 'vitest';
 import { legacyBrandIdsIn } from '@/test/brandDigest';
 
@@ -84,8 +85,13 @@ import {
   makeSuitabilitySummary,
 } from '@/test/fixtures';
 
+// G7 N4: Bericht-Sektionen laufen in der App unter dem Mandatswaehrungs-Provider (App.tsx).
 function withRouter(ui: React.ReactNode) {
-  return <MemoryRouter>{ui}</MemoryRouter>;
+  return (
+    <MemoryRouter>
+      <ReportCurrencyContext.Provider value="CHF">{ui}</ReportCurrencyContext.Provider>
+    </MemoryRouter>
+  );
 }
 
 describe('Section 1: Cover', () => {

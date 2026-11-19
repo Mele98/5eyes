@@ -16,6 +16,7 @@ Risikoprofil, Building Blocks, Weiteres Vorgehen) folgen in U-P26 PR B-F.
 """
 from __future__ import annotations
 
+from core.customer_terms import customer_term
 import logging
 import time
 from datetime import datetime
@@ -77,13 +78,16 @@ from services.pdf.components.advisory_palette import (
     make_advisory_styles,
 )
 from services.pdf.components.goal_classification import classify_goals
+from core.presentation_rounding import allocation_pct_texts
 from services.pdf.components.mc_paths_chart import build_mc_paths_drawing
 from services.pdf.components.swiss_numbers import (
     format_bps_as_pct,
     format_bps_signed_pct,
     format_chf_rappen,
     format_integer,
+    format_number,
 )
+from core.depletion_display import depleted, depletion_note, not_meaningful_text
 
 
 logger = logging.getLogger(__name__)
@@ -298,6 +302,7 @@ def _build_all_flowables(
         flowables.extend(_build_ausgangslage_flowables(
             payload.get("ausgangslage") or {}, styles,
             projection_gate=payload.get("projection_gate"),
+            depletion=_report_depletion_note(payload),
         ))
         flowables.append(PageBreak())
     if "positionen" in payload:
@@ -363,7 +368,7 @@ def _build_all_flowables(
         flowables.append(PageBreak())
     # U-FINMA-3 (2026-05-29, re-architektiert 2026-06-09): SuitabilityCheck-
     # Summary fuer Berater-Sicht (per-Mandat, Single-Check). Geschuetzt (FIDLEG).
-    flowables.append(_toc_anchor(toc_collector, "suitability_summary", "Eignungspruefung"))
+    flowables.append(_toc_anchor(toc_collector, "suitability_summary", "Eignungsprüfung"))
     flowables.extend(_build_suitability_summary_flowables(
         payload.get("suitability_summary") or {}, styles,
     ))
@@ -630,6 +635,7 @@ def _build_ausgangslage_flowables(
     styles: dict,
     *,
     projection_gate: dict | None = None,
+    depletion: str | None = None,
 ) -> list[Any]:
     """Editorial 2-Spalten-Layout: links Client-Info, rechts Wealth-Summary,
     unten 6 KPI-Karten.
@@ -683,8 +689,30 @@ def _build_ausgangslage_flowables(
             "<b>Achtung:</b> " + _escape(gate_hint), styles["body"],
         ))
         out.append(Spacer(1, 3 * mm))
-    out.append(_build_key_metrics_row(metrics, styles))
+    out.append(_build_key_metrics_row(metrics, styles, depletion=depletion))
     return out
+
+
+def _safe_bps(value: Any) -> int | None:
+    try:
+        return None if value is None else int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _report_depletion_note(payload: dict) -> str | None:
+    """KN3-B / N-917R2-02: Verzehr-Hinweis aus dem Faecher desselben Berichts
+    (``goal_based_investing.monte_carlo_paths``: SOLL-Median inkl. Reserve-
+    Sockel, dieselbe Strategie-Payload wie die App). Gleiche Regel wie die
+    uebrigen Kunden-PDFs (``services.pdf.base.depletion_note``, E2E2-03)."""
+    gbi = payload.get("goal_based_investing") if isinstance(payload, dict) else None
+    paths = (gbi or {}).get("monte_carlo_paths") if isinstance(gbi, dict) else None
+    if not isinstance(paths, dict) or paths.get("data_pending"):
+        return None
+    try:
+        return depletion_note(paths.get("time_axis"), paths.get("p50"))
+    except (TypeError, ValueError):
+        return None
 
 
 def _build_client_info_block(client_info: dict, styles: dict, *, currency: str = "CHF"):
@@ -700,7 +728,8 @@ def _build_client_info_block(client_info: dict, styles: dict, *, currency: str =
         ("Anlageziel", _safe_string(client_info.get("anlageziel"))),
         (
             "Liquiditätsbedarf",
-            format_chf_rappen(client_info.get("liquiditaetsbedarf_rappen"), currency=currency),
+            # G7 N4: Rohsumme der Ausgaben-Cashflows -> deren Waehrung; unbekannt -> "—".
+            _amount_in(client_info.get("liquiditaetsbedarf_rappen"), client_info.get("liquiditaetsbedarf_currency")),
         ),
         ("Steuerdomizil", _safe_string(client_info.get("steuerdomizil"))),
         ("Referenzwährung", _safe_string(client_info.get("referenzwaehrung"))),
@@ -709,7 +738,14 @@ def _build_client_info_block(client_info: dict, styles: dict, *, currency: str =
 
 
 def _build_wealth_summary_block(wealth: dict, styles: dict, *, currency: str = "CHF"):
-    """Rechte Spalte der Sektion 4 — 5 Vermögens-Kategorien."""
+    """Rechte Spalte der Sektion 4 — 5 Vermögens-Kategorien.
+
+    CCX-P3-FX: Betraege in der Waehrung, in der der Server sie liefert
+    (``amount_currency`` = Mandatswaehrung nach Konversion mit gebundener
+    FX-Basis); dazu Bewertungsstichtag und FX-Basis. Das PDF rechnet nie um;
+    ohne belegten Kurs liefert der Server keine Summe ("—")."""
+    if "amount_currency" in wealth:
+        currency = wealth.get("amount_currency") or ""
     rows = [
         ("Gesamtvermögen", format_chf_rappen(wealth.get("gesamtvermoegen_rappen"), currency=currency)),
         ("Beratungsvermögen", format_chf_rappen(wealth.get("beratungsvermoegen_rappen"), currency=currency)),
@@ -717,6 +753,18 @@ def _build_wealth_summary_block(wealth: dict, styles: dict, *, currency: str = "
         ("Vorsorge", format_chf_rappen(wealth.get("vorsorge_rappen"), currency=currency)),
         ("Kredite", format_chf_rappen(wealth.get("kredite_rappen"), currency=currency)),
     ]
+    if wealth.get("valuation_as_of"):
+        basis = str(wealth.get("fx_basis_hash") or "")
+        rows.append((
+            "Bewertungsstand",
+            _safe_string(f"{wealth.get('valuation_as_of')} · FX-Basis {basis[:12]}" if basis
+                         else wealth.get("valuation_as_of")),
+        ))
+    if isinstance(wealth.get("fx_status"), dict):
+        rows.append(("Hinweis", _safe_string(
+            "Summen gesperrt: Wechselkurs fehlt oder ist nicht aktuell ("
+            + str(wealth["fx_status"].get("reason_code") or "") + ")."
+        )))
     return _label_value_table(rows, styles)
 
 
@@ -754,23 +802,35 @@ def _label_value_table(rows: list[tuple[str, str]], styles: dict) -> Table:
     return table
 
 
-def _build_key_metrics_row(metrics: dict, styles: dict) -> Table:
+def _build_key_metrics_row(metrics: dict, styles: dict, *, depletion: str | None = None) -> Table:
     """6 KPI-Karten in einer Zeile (Risky-Fraction / Zielerreichung /
-    erw Vol / erw Return / Max DD / VaR 95)."""
+    erw Vol / Median-Rendite / Max DD / VaR 95).
+
+    KN3-B / N-917R2-02 (E2E2-03-Regel): bei Vermoegensverzehr im mittleren
+    Verlauf (Hinweis ``depletion``) oder Totalverlust-Median sind die simulierte
+    Rendite (-100 %) und der Drawdown (100 %) nicht aussagekraeftig -- statt
+    der Zahl steht "nicht aussagekräftig – Vermögen aufgebraucht ab JJJJ".
+    Die Kachel zeigt den simulierten Median (``mc_exp_return_bps``), daher
+    "Median-Rendite (simuliert)" statt "Erw. Rendite"."""
     page_width, _ = PAGE_SIZE
     inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
     col_w = inner_width / 6
 
+    exp_return = metrics.get("exp_return_bps")
+    is_depleted = depleted(depletion, _safe_bps(exp_return))
+    na = not_meaningful_text(depletion or "Vermögen aufgebraucht") if is_depleted else None
     karten = [
         ("Risikobehafteter Anteil", format_bps_as_pct(metrics.get("risky_fraction_bps"))),
         ("Erfolgs-Wkt. gesamt", format_bps_as_pct(metrics.get("zielerreichung_bps"))),
         ("Erw. Volatilität", format_bps_as_pct(metrics.get("exp_vol_bps"))),
-        ("Erw. Rendite", format_bps_as_pct(metrics.get("exp_return_bps"))),
-        ("Max Drawdown", format_bps_as_pct(metrics.get("max_drawdown_bps"))),
+        ("Median-Rendite (simuliert)", na or format_bps_as_pct(exp_return)),
+        ("Max Drawdown", na or format_bps_as_pct(metrics.get("max_drawdown_bps"))),
         ("VaR 95 %", format_bps_as_pct(metrics.get("var_95_bps"))),
     ]
     cells = [
-        _kpi_card(label, value, styles) for label, value in karten
+        # Der Verzehr-Hinweis ist laenger als eine Zahl: kleinere Schrift,
+        # damit «aussagekräftig» in der schmalen Karte nicht mitten im Wort bricht.
+        _kpi_card(label, value, styles, small=bool(na) and value == na) for label, value in karten
     ]
     row = Table([cells], colWidths=[col_w] * 6)
     row.setStyle(TableStyle([
@@ -783,8 +843,9 @@ def _build_key_metrics_row(metrics: dict, styles: dict) -> Table:
     return row
 
 
-def _kpi_card(label: str, value: str, styles: dict) -> Table:
-    """Mini-Karte: Label oben (micro), Wert mittig (body-bold)."""
+def _kpi_card(label: str, value: str, styles: dict, *, small: bool = False) -> Table:
+    """Mini-Karte: Label oben (micro), Wert mittig (body-bold; ``small``:
+    Hinweistext in Caption-Groesse)."""
     label_p = Paragraph(
         _escape(label),
         _ar_paragraph_style(
@@ -794,7 +855,7 @@ def _kpi_card(label: str, value: str, styles: dict) -> Table:
     value_p = Paragraph(
         _escape(value or "—"),
         _ar_paragraph_style(
-            styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD,
+            styles["caption"] if small else styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD,
         ),
     )
     card = Table([[label_p], [value_p]])
@@ -841,8 +902,14 @@ def _build_positionen_flowables(positionen: dict, styles: dict, *, currency: str
         ))
         return out
 
-    for group in groups:
-        out.extend(_build_position_group(group, styles, currency=currency))
+    # N-894-14: Gruppenanteile ueber die gemeinsame Apportionierung (Summe exakt
+    # 100.0 %, kanonische Gleichstandsregel) -- dieselbe Zahl wie die Soll-Tabellen.
+    group_pct = allocation_pct_texts({
+        str(g.get("key") or g.get("label") or i): g.get("share_bps") or 0 for i, g in enumerate(groups)
+    })
+    for i, group in enumerate(groups):
+        shown = group_pct.get(str(group.get("key") or group.get("label") or i))
+        out.extend(_build_position_group(group, styles, currency=currency, share_text=shown))
         out.append(Spacer(1, 4 * mm))
 
     total_rappen = positionen.get("total_rappen") or 0
@@ -858,7 +925,8 @@ def _build_positionen_flowables(positionen: dict, styles: dict, *, currency: str
     return out
 
 
-def _build_position_group(group: dict, styles: dict, *, currency: str = "CHF") -> list[Any]:
+def _build_position_group(group: dict, styles: dict, *, currency: str,
+                          share_text: str | None = None) -> list[Any]:
     """Ein Bucket: Header (Label + Share + Total) + Positions-Tabelle."""
     out: list[Any] = []
     label = _safe_string(group.get("label"))
@@ -867,7 +935,7 @@ def _build_position_group(group: dict, styles: dict, *, currency: str = "CHF") -
 
     header_text = (
         f"<b>{_escape(label)}</b>"
-        f"  &mdash; {format_bps_as_pct(share_bps)}"
+        f"  &mdash; {share_text or format_bps_as_pct(share_bps)}"
         f"  &middot; {format_chf_rappen(total_rappen, currency=currency)}"
     )
     out.append(Paragraph(header_text, _ar_paragraph_style(
@@ -1379,6 +1447,13 @@ _GOAL_STATUS_PILL = {
 }
 
 
+def _amount_in(rappen: Any, currency: str | None) -> str:
+    """G7 N4 (Grundregel): Betrag mit der Waehrung, in der er vorliegt; unbekannt -> "—"."""
+    if not currency:
+        return "—"
+    return format_chf_rappen(rappen, currency=currency)
+
+
 def _build_goals_flowables(gbi: dict, styles: dict, *, currency: str = "CHF") -> list[Any]:
     """Goals-Tabelle + Achievement-Score-KPI + MC-Chart/-Hinweis."""
     out: list[Any] = []
@@ -1396,7 +1471,8 @@ def _build_goals_flowables(gbi: dict, styles: dict, *, currency: str = "CHF") ->
     goals = gbi.get("goals") or []
     mc = gbi.get("monte_carlo_paths") or {}
     mc_classifications = classify_goals(goals, mc)
-    chart = build_mc_paths_drawing(mc, goals)
+    # G7 N4: Pfade in der Waehrung, in der der Server sie liefert (amount_currency), nicht Mandatswaehrung.
+    chart = build_mc_paths_drawing(mc, goals, currency=mc.get("amount_currency"))
     if chart is not None:
         out.append(chart)
         if mc.get("horizon_note"):
@@ -2936,7 +3012,7 @@ def _ab_policy_label(policy: dict) -> str:
 
 def _format_x100(value: int | float | None) -> str:
     try:
-        return f"{float(value or 0) / 100:.2f}"
+        return format_number(float(value or 0) / 100, decimals=2)
     except (TypeError, ValueError):
         return "0.00"
 
@@ -2946,8 +3022,8 @@ def _format_signed_x100(value: int | float | None) -> str:
         numeric = float(value or 0) / 100
     except (TypeError, ValueError):
         numeric = 0.0
-    sign = "+" if numeric > 0 else ""
-    return f"{sign}{numeric:.2f}"
+    text = format_number(numeric, decimals=2)
+    return ("+" + text) if numeric > 0 and text != "0.00" else text
 
 
 # ---------------------------------------------------------------------------
@@ -2958,13 +3034,13 @@ def _format_signed_x100(value: int | float | None) -> str:
 _SUITABILITY_RESULT_PILL = {
     "passed":     ("Eignung gegeben",       "#E5EEDF", "#4E6F58"),
     "mismatch":   ("Mismatch dokumentiert", "#F0D9D9", "#9E4747"),
-    "incomplete": ("Pruefung unvollstaendig","#F4EBD5", "#B59243"),
+    "incomplete": ("Prüfung unvollständig","#F4EBD5", "#B59243"),
 }
 
 _DUTY_TYPE_LABEL = {
-    "suitability":     "Eignungspruefung (Suitability)",
-    "appropriateness": "Angemessenheitspruefung (Appropriateness)",
-    "informational":   "Informationspruefung",
+    "suitability":     "Eignungsprüfung (Suitability)",
+    "appropriateness": "Angemessenheitsprüfung (Appropriateness)",
+    "informational":   "Informationsprüfung",
     "execution_only":  "Execution-only",
 }
 
@@ -2979,39 +3055,14 @@ def _build_suitability_summary_flowables(ss: dict, styles: dict) -> list[Any]:
     """
     out: list[Any] = []
     out.append(Paragraph("Sektion 27", styles["kicker"]))
-    out.append(Paragraph("Eignungspruefung", styles["h1"]))
+    out.append(Paragraph("Eignungsprüfung", styles["h1"]))
     out.append(Spacer(1, 4 * mm))
     out.append(_hr())
     out.append(Spacer(1, 5 * mm))
 
-    # RISK-CAPACITY-REPORT-001: Beraterhinweis der Plausibilitaetspruefung
-    # Risikofaehigkeit -- unabhaengig davon, ob ein SuitabilityCheck existiert
-    # (geschuetzte Sektion, nie per HUD ausblendbar). Betragsfreier Text aus
-    # services/risk_capacity_plausibility_report.advisor_report_note.
-    rcp_block = (ss or {}).get("risk_capacity_plausibility")
-    rcp_note = (
-        str(rcp_block.get("note") or "").strip()
-        if isinstance(rcp_block, dict) else ""
-    )
-    if rcp_note:
-        out.append(Paragraph(
-            _escape(rcp_note),
-            _ar_paragraph_style(styles["caption"], color=COLOR_STATUS_NEUTRAL),
-        ))
-        out.append(Spacer(1, 4 * mm))
-    # Closure-Review PR #677: die Plausibilitaetspruefung ist eine Live-
-    # Pruefung des aktuellen Profils; zeigt die Eignungspruefung auf ein
-    # anderes Profil, werden beide nicht als zusammengehoerig dargestellt.
-    if isinstance(rcp_block, dict) and rcp_block.get("suitability_reference_match") is False:
-        from services.risk_capacity_plausibility_report import (
-            REFERENCE_MISMATCH_NOTE as RCP_REFERENCE_MISMATCH_NOTE,
-        )
-
-        out.append(Paragraph(
-            _escape(RCP_REFERENCE_MISMATCH_NOTE),
-            _ar_paragraph_style(styles["caption"], color=COLOR_STATUS_NEUTRAL),
-        ))
-        out.append(Spacer(1, 4 * mm))
+    # H9 (Owner-Vorgabe 2026-11-08): kein Plausibilitaets-/Widerspruchs-
+    # hinweis zur Risikofaehigkeit im Beratungsbericht -- Kundenangaben werden
+    # respektiert; die Pruefung bleibt intern (Evidenz + Audit).
 
     if not ss or not ss.get("has_check"):
         out.append(_ss_empty_state(styles))
@@ -3041,7 +3092,7 @@ def _build_suitability_summary_flowables(ss: dict, styles: dict) -> list[Any]:
 
     refs = ss.get("references") or {}
     if any(refs.values()):
-        out.append(Paragraph("Verknuepfte Datensaetze", styles["h2"]))
+        out.append(Paragraph("Verknüpfte Datensätze", styles["h2"]))
         out.append(Spacer(1, 2 * mm))
         out.append(_ss_references_table(refs, ss, styles))
 
@@ -3105,7 +3156,7 @@ def _ss_summary_box(ss: dict, styles: dict) -> Table:
         ("BOTTOMPADDING", (0, 0), (0, 0), 6),
     ]))
     advisor_col = Table(
-        [[_cell_label("Geprueft von")], [_cell_value(advisor_name)]],
+        [[_cell_label("Geprüft von")], [_cell_value(advisor_name)]],
     )
     advisor_col.setStyle(TableStyle([
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -3150,7 +3201,7 @@ def _ss_missing_info_block(missing: list, styles: dict) -> Table:
 
     lines: list[Any] = [
         Paragraph(
-            "<b>Fehlende Informationen zum Zeitpunkt der Pruefung</b>",
+            "<b>Fehlende Informationen zum Zeitpunkt der Prüfung</b>",
             _ar_paragraph_style(
                 styles["caption"], color=HexColor("#B59243"), font=FONT_SANS_BOLD,
             ),
@@ -3181,14 +3232,14 @@ def _ss_override_workflow_block(ss: dict, styles: dict) -> Table:
     warning_at = _format_swiss_datetime(str(ss.get("warning_delivered_at") or ""))
     ack_at = _format_swiss_datetime(str(ss.get("client_acknowledged_at") or ""))
     warning_line = (
-        f"Warnung ausgehaendigt am {warning_at}"
+        f"Warnung ausgehändigt am {warning_at}"
         if ss.get("warning_delivered")
-        else "Warnung NICHT dokumentiert ausgehaendigt"
+        else "Warnung NICHT dokumentiert ausgehändigt"
     )
     ack_line = (
-        f"Kunde hat Hinweis bestaetigt am {ack_at}"
+        f"Kunde hat Hinweis bestätigt am {ack_at}"
         if ss.get("client_acknowledged")
-        else "Kundenbestaetigung NICHT dokumentiert"
+        else "Kundenbestätigung NICHT dokumentiert"
     )
 
     lines: list[Any] = [
@@ -3292,13 +3343,13 @@ def _ss_empty_state(styles: dict) -> Table:
     inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
 
     title = Paragraph(
-        "<b>Noch keine Eignungspruefung dokumentiert</b>",
+        "<b>Noch keine Eignungsprüfung dokumentiert</b>",
         _ar_paragraph_style(styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD),
     )
     body = Paragraph(
         _escape(
             "Vor der Umsetzung der Anlagestrategie ist eine FINMA-konforme "
-            "Eignungspruefung (Suitability nach FIDLEG) durchzufuehren und "
+            "Eignungsprüfung (Suitability nach FIDLEG) durchzuführen und "
             "im System zu hinterlegen. Sie erscheint danach an dieser Stelle."
         ),
         _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
@@ -3392,7 +3443,7 @@ def _format_two_digits(value: Any) -> str:
 def _escape(text: str) -> str:
     """ReportLab Paragraph akzeptiert mini-HTML. Wir escapen die Standard-Trio."""
     return (
-        str(text)
+        customer_term(str(text))
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")

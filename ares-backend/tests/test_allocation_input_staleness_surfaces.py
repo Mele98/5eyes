@@ -56,6 +56,11 @@ from services.portfolio_engine import (  # noqa: E402
 )
 
 
+def _stale_inputs(text) -> bool:
+    """KN3-B: Advisory-Report-Texte mit echten Umlauten, Depotcheck noch mit Umschrift."""
+    return any(v in str(text) for v in ("Vermögen, Cashflows oder Ziele", "Vermoegen, Cashflows oder Ziele"))
+
+
 @pytest.fixture()
 def session(tmp_path):
     engine = create_engine(
@@ -150,7 +155,7 @@ def test_wealth_change_flags_depot_check_and_building_blocks(session):
     assert dc["target_allocation_stale"] is True
     assert dc["target_allocation_inputs_stale"] is True
     assert any(
-        "Vermoegen, Cashflows oder Ziele" in w for w in dc["warnings"]
+        _stale_inputs(w) for w in dc["warnings"]
     ), dc["warnings"]
     # Kein falscher Grund: das Risikoprofil ist unveraendert.
     assert not any("frueheren, nicht mehr aktuellen Risikoprofil" in w for w in dc["warnings"])
@@ -160,13 +165,13 @@ def test_wealth_change_flags_depot_check_and_building_blocks(session):
         c for c in rep["erkenntnisse"]["checks"] if c["pruefpunkt"] == "Asset Allocation"
     )
     assert aa_verdict["bewertung"] == "nicht_beurteilbar"
-    assert "Vermoegen, Cashflows oder Ziele" in aa_verdict["beurteilung"]
+    assert _stale_inputs(aa_verdict["beurteilung"])
     assert rep["asset_allocation"]["target_allocation_stale"] is True
-    assert "Vermoegen, Cashflows oder Ziele" in rep["asset_allocation"]["anmerkungen"]
+    assert _stale_inputs(rep["asset_allocation"]["anmerkungen"])
 
     bb = rep["building_blocks"]
     assert bb["target_allocation_stale"] is True
-    assert "Vermoegen, Cashflows oder Ziele" in bb["staleness_hinweis"]
+    assert _stale_inputs(bb["staleness_hinweis"])
 
     client_rep = compute_advisory_report(session, mandate, advisor=adv, client_facing=True)
     assert client_rep["building_blocks"]["target_allocation_stale"] is True
@@ -209,7 +214,7 @@ def test_building_blocks_pdf_renders_staleness_notice():
         make_advisory_styles(),
     )
     texts = [getattr(f, "text", "") for f in flowables]
-    assert any("Vermoegen, Cashflows oder Ziele" in t for t in texts), texts
+    assert any(_stale_inputs(t) for t in texts), texts
 
 
 def test_building_blocks_pdf_without_flag_has_no_notice():

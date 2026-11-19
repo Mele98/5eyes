@@ -1,7 +1,7 @@
 # κ_H-Kalibrierung des Hausmatrix-Priors – commitgebundenes Paket
 
 Stand 2026-10-18 · HOUSE-PRIOR-CALIBRATION-PROVENANCE-001 (Codex-Review `2026-10-18-house-prior-v6-pr640-current-review.md`, §9)
-Produktparameter: `services/optimizer/house_prior.py` – `HOUSE_PRIOR_KAPPA = 300.0`, `HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "experimental_tuned_holdout_checked"` (im Audit unter `house_prior.prior_metric.kappa_calibration_status`).
+Produktparameter: `services/optimizer/house_prior.py` – `HOUSE_PRIOR_KAPPA = 300.0`, `HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "provisional_v1"` seit 2026-11-03 (vorher `"experimental_tuned_holdout_checked"`; im Audit unter `house_prior.prior_metric.kappa_calibration_status`). Holdout v7 `confirmed`, Bestätigungs-Holdout v18 `not_confirmed` (§5, ADR-015).
 
 ## 1. Inhalt
 
@@ -63,3 +63,7 @@ Deterministisch innerhalb eines Bewertungsjahres (Zieldaten kalenderjahr-relativ
 ## 5. Status und Freigabe
 
 `HOUSE_PRIOR_KAPPA_CALIBRATION_STATUS = "experimental_tuned_holdout_checked"`: getunt (post hoc) und auf unberührten Welten nach vorab festgelegter Regel bestätigt. Die Modellowner-Freigabe (Gültigkeitsbereich, Re-Kalibrierungstrigger, Sensitivität gegen Σ-/Tail-/Regimefehler) steht aus; bis dahin ist κ_H kein belegter CIO-Parameter im Sinne einer Model Card.
+
+**Nachtrag 2026-11-02 (HOUSE-PRIOR-APPROVAL-001):** κ_H = 300 als „Haus-Prior v1“ zur Freigabe vorbereitet (am 2026-11-03 auf `provisional_v1` korrigiert, siehe unten) (`docs/adr/ADR-015-haus-prior-kappa-v1.md`: Gültigkeitsbereich, Grenzen, Release-Gate, Review-Turnus). Der Wert ist unverändert.
+
+**Nachtrag 2026-11-03 (N-857-2):** Bestätigungs-Holdout mit demselben Werkzeug, denselben Seeds und Welten auf der Produktions-Engine `saa_resampled_v18`: `holdout-v18/` (Rohdaten + `holdout_summary.json`). κ300 ΔP(Ziel) +0.202 pp (se 0.128), R1-Untergrenze −0.010 pp → **`not_confirmed`** (R2 erfüllt, Zielebene −0.034, se 0.009). Owner-Entscheid 2026-11-03: Wert 300 bleibt, Status `provisional_v1` (nicht "approved"); Auflage vor Produktivfreigabe in ADR-015.

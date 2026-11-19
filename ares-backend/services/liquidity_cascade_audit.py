@@ -38,17 +38,17 @@ STAGE_UNKNOWN = "unknown"
 
 STAGE_LABELS = {
     STAGE_NORMAL:
-        "Liquiditaetsanteil innerhalb der normalen Bandbreite.",
+        "Liquiditätsanteil innerhalb der normalen Bandbreite.",
     STAGE_HARD_CAP:
-        "Liquiditaet am Soll-Hard-Cap (3 %). Berater hat die "
+        "Liquidität am Soll-Hard-Cap (3 %). Berater hat die "
         "Eskalation nicht in den Emergency-Bereich getrieben.",
     STAGE_EMERGENCY:
-        "Liquiditaet ueber dem Soll-Hard-Cap im Emergency-Bereich "
+        "Liquidität über dem Soll-Hard-Cap im Emergency-Bereich "
         "(bis 10 %). Risikoprofil oder Goal-Struktur im Beratungs-"
-        "gespraech pruefen — die SAA wurde aufgeweicht damit das "
+        "gespräch prüfen — die SAA wurde aufgeweicht damit das "
         "Risikobudget eingehalten wird.",
     STAGE_UNKNOWN:
-        "Liquiditaets-Cascade-Stage kann nicht bestimmt werden — "
+        "Liquiditäts-Cascade-Stage kann nicht bestimmt werden — "
         "keine aktuelle Allokation vorhanden.",
 }
 
@@ -164,7 +164,7 @@ def audit_mandate_liquidity_cascade(
         # vorher lief dieser Pfad komplett ohne Log-Eintrag.
         logger.warning(
             "audit_mandate_liquidity_cascade: TargetAllocation-Abfrage "
-            "fuer Mandat %s fehlgeschlagen -- Liquiditaets-Cascade-Stage "
+            "für Mandat %s fehlgeschlagen -- Liquiditäts-Cascade-Stage "
             "kann nicht bestimmt werden (audit_degraded=True). %s",
             getattr(mandate, "id", "?"), exc,
         )

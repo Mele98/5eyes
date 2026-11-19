@@ -80,7 +80,7 @@ def test_section9_stale_nulls_soll_and_replaces_text():
     assert rw["soll_bps"] is None
     assert rw["drift_bps"] is None
     assert all(it["ist_bps"] is None for it in rw["items"])
-    assert "Vermoegen, Cashflows oder Ziele" in rw["staleness_hinweis"]
+    assert "Vermögen, Cashflows oder Ziele" in rw["staleness_hinweis"]
     assert "Strategie neu berechnen" in rw["staleness_hinweis"]
     assert rw["erklaerung"] == rw["staleness_hinweis"]
     assert "73" not in rw["erklaerung"]

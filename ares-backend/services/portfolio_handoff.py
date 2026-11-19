@@ -106,7 +106,7 @@ class HoldingsValuationIncompleteError(ValueError):
 _PRICE_BLOCKERS = (
     ("missing_prices_count", "Position(en) ohne aktuellen Marktpreis"),
     ("stale_positions_count", "Position(en) mit veraltetem Marktpreis"),
-    ("fx_conversion_failed_count", "Position(en) mit fehlgeschlagener Waehrungsumrechnung"),
+    ("fx_conversion_failed_count", "Position(en) mit fehlgeschlagener Währungsumrechnung"),
 )
 _COVERAGE_KEYS = ("holding_positions_count", "implied_positions_count") + tuple(k for k, _ in _PRICE_BLOCKERS)
 
@@ -134,7 +134,7 @@ def assert_holdings_valuation_complete(live: dict) -> None:
     held_count = counts["holding_positions_count"]
     if held_count is not None and held_count <= 0:
         raise HoldingsValuationIncompleteError(
-            "Kein erfasster Depotbestand. Bitte die Depotbestaende erfassen."
+            "Kein erfasster Depotbestand. Bitte die Depotbestände erfassen."
         )
     if any(value is None for value in counts.values()):
         raise HoldingsValuationIncompleteError(
@@ -144,8 +144,8 @@ def assert_holdings_valuation_complete(live: dict) -> None:
     problems = [f"{counts[key]} {label}" for key, label in blockers if counts[key] > 0]
     if problems:
         raise HoldingsValuationIncompleteError(
-            "Die Bewertung ist nicht vollstaendig belegt: " + "; ".join(problems)
-            + ". Bitte Bestaende und Preise aktualisieren."
+            "Die Bewertung ist nicht vollständig belegt: " + "; ".join(problems)
+            + ". Bitte Bestände und Preise aktualisieren."
         )
 
 def assert_holdings_carried_over(missing: list[dict]) -> None:
@@ -161,8 +161,8 @@ def assert_holdings_carried_over(missing: list[dict]) -> None:
         f"{item.get('isin') or item.get('product_id')} ({item.get('product_name') or '-'})" for item in missing
     )
     raise HoldingsValuationIncompleteError(
-        f"{len(missing)} Bestand/Bestaende stehen nur in einem frueheren Lauf: {labels}. "
-        "Bitte im aktuellen Lauf erfassen oder dort als verkauft (Menge 0) bestaetigen.",
+        f"{len(missing)} Bestand/Bestände stehen nur in einem früheren Lauf: {labels}. "
+        "Bitte im aktuellen Lauf erfassen oder dort als verkauft (Menge 0) bestätigen.",
         REASON_HOLDINGS_NOT_CARRIED_OVER,
     )
 
@@ -206,41 +206,41 @@ def resolve_handoff_holdings_basis(
         raise HoldingsValuationIncompleteError(
             "Kein erfasster Depotbestand: die Handelsliste beruht ausschliesslich "
             "auf aus dem Ziel abgeleiteten Positionen und ist keine Handelsinstruktion. "
-            "Bitte die Depotbestaende erfassen oder -- nur bei Neugeld ohne bestehendes "
-            "Depot -- ausdruecklich bestaetigen (confirm_no_existing_holdings).",
+            "Bitte die Depotbestände erfassen oder -- nur bei Neugeld ohne bestehendes "
+            "Depot -- ausdrücklich bestätigen (confirm_no_existing_holdings).",
             REASON_NO_HOLDINGS_CONFIRMATION_REQUIRED,
         )
     if any(value is None for value in counts.values()):
         raise HoldingsValuationIncompleteError(
             "Die Bewertungsabdeckung der Live-Handelsliste ist nicht belegt "
-            "(Bestands-/Preis-/FX-Nachweis fehlt). Keine Weiterleitung moeglich."
+            "(Bestands-/Preis-/FX-Nachweis fehlt). Keine Weiterleitung möglich."
         )
     problems = [f"{counts[key]} {label}" for key, label in _PRICE_BLOCKERS if counts[key] > 0]
     if problems:
         raise HoldingsValuationIncompleteError(
-            "Die Live-Bewertung ist nicht vollstaendig belegt: " + "; ".join(problems)
-            + ". Bitte Bestaende und Preise aktualisieren, bevor die Handelsliste weitergeleitet wird."
+            "Die Live-Bewertung ist nicht vollständig belegt: " + "; ".join(problems)
+            + ". Bitte Bestände und Preise aktualisieren, bevor die Handelsliste weitergeleitet wird."
         )
 
     drifts = live.get("position_drifts") or []
     if held_count > 0:
         if confirm_no_existing_holdings:
             raise HoldingsValuationIncompleteError(
-                "Widerspruch: es sind Depotbestaende erfasst, bestaetigt wurde aber, "
-                "dass kein Bestand existiert. Bitte die Angaben pruefen."
+                "Widerspruch: es sind Depotbestände erfasst, bestätigt wurde aber, "
+                "dass kein Bestand existiert. Bitte die Angaben prüfen."
             )
         basis = HOLDINGS_BASIS_RECORDED_DEPOT
     else:
         if advisory_depot_recorded:
             raise HoldingsValuationIncompleteError(
-                "Das Beratungsvermoegen enthaelt ein Wertschriftendepot, aber kein Bestand "
-                "ist erfasst. Die Bestaetigung 'kein Bestand' ist dafuer nicht zulaessig; "
-                "bitte die Depotbestaende erfassen."
+                "Das Beratungsvermögen enthält ein Wertschriftendepot, aber kein Bestand "
+                "ist erfasst. Die Bestätigung 'kein Bestand' ist dafür nicht zulässig; "
+                "bitte die Depotbestände erfassen."
             )
         if not investable_wealth_rappen or int(investable_wealth_rappen) <= 0:
             raise HoldingsValuationIncompleteError(
-                "Ohne Depotbestand und ohne investierbares Beratungsvermoegen gibt es "
-                "keine belegte Basis fuer die Handelsliste."
+                "Ohne Depotbestand und ohne investierbares Beratungsvermögen gibt es "
+                "keine belegte Basis für die Handelsliste."
             )
         basis = HOLDINGS_BASIS_CONFIRMED_NO_HOLDINGS
 
@@ -262,7 +262,7 @@ def resolve_handoff_holdings_basis(
     ):
         raise HoldingsValuationIncompleteError(
             "Die Zuordnung gehaltener und nicht gehaltener Positionen ist nicht "
-            "belegt (Zaehler und Zeilen stimmen nicht ueberein). Keine Weiterleitung moeglich."
+            "belegt (Zähler und Zeilen stimmen nicht überein). Keine Weiterleitung möglich."
         )
     for entry in drifts:
         if entry["holding_present"] and (
@@ -270,9 +270,9 @@ def resolve_handoff_holdings_basis(
             or int(entry.get("current_market_value_rappen") or 0) <= 0
         ):
             raise HoldingsValuationIncompleteError(
-                "Das erfasste Depot ist nicht vollstaendig belegt: "
+                "Das erfasste Depot ist nicht vollständig belegt: "
                 f"{entry.get('product_name') or entry.get('product_id')} hat keinen "
-                "Bestands-Stichtag oder keinen Bestandswert. Ohne vollstaendiges Depot "
+                "Bestands-Stichtag oder keinen Bestandswert. Ohne vollständiges Depot "
                 "darf ein nicht erfasstes Produkt nicht als Nullbestand gelten."
             )
 
@@ -344,7 +344,13 @@ def snapshot_handoff(
     )
     live = payload.get("live_rebalancing") or {}
     if not (live.get("position_drifts") or []) or int(live.get("live_total_value_rappen") or 0) <= 0:
-        raise NoTradeListAvailableError("Keine Live-Rebalancing-Daten fuer diesen Lauf verfuegbar.")
+        if payload.get("investable_advisory_wealth_rappen") == 0:
+            # N-858-11: Basis 0 ist eine Aussage (Reserve beansprucht alles), nicht "Daten fehlen".
+            raise NoTradeListAvailableError(
+                "Keine investierbare Strategiebasis: Die Liquiditätsreserve beansprucht "
+                "das gesamte Beratungsvermögen; es gibt nichts zu handeln."
+            )
+        raise NoTradeListAvailableError("Keine Live-Rebalancing-Daten für diesen Lauf verfügbar.")
     # HANDOFF-CASH-BASIS-001: nur bei erfasstem Depot (sonst Neugeld-Pfad).
     advisory_cash = []
     if not confirm_no_existing_holdings and (_coverage_counts(live)["holding_positions_count"] or 0) > 0:

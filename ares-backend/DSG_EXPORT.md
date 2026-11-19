@@ -1,4 +1,4 @@
-# 5eyes — DSG-Datenexport
+# Ares — DSG-Datenexport
 
 > Roadmap-Punkt 10 (2026-05-30): Erfuellt das Schweizer Auskunftsrecht
 > nach DSG Art. 25. Liefert alle personenbezogenen Daten zu einem
@@ -118,7 +118,7 @@ kann, warum bestimmte Daten noch nicht geloescht werden duerfen.
 ## Beispiel (Live, Mandat MX-FOUNDATION-01)
 
 ```
-Client: EX-5E-FOUNDATION (Daniel Beispiel)
+Client: <FOUNDATION_CLIENT_NUMBER> (Daniel Beispiel)
 Schema-Version: 1
 Manifest:
   client: 1                       client_nationalities: 1
@@ -192,5 +192,5 @@ einzelner Zeilen wird beim naechsten Audit-Verify auffallen.
 | `test_export_payload_is_json_serializable` | json.dumps() ohne TypeError |
 
 **Live-Roundtrip:** `scripts/data_export.py` gegen die produktive
-5eyes.db (MX-FOUNDATION-01) exportierte 601 Datensaetze in 494 KB JSON
+ares.db (MX-FOUNDATION-01) exportierte 601 Datensaetze in 494 KB JSON
 in unter einer Sekunde, alle Sektionen befuellt.
