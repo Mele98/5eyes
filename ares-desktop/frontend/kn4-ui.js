@@ -14,6 +14,8 @@
  *          "konnte nicht generiert werden".
  * E2E4-14  Leere Soll-Prognose ohne Achsenbeschriftung ("1k 1k ... 0k").
  * N-917R3-05  Review-Karte und Kopfzeile: fehlendes Ist = "nicht bewertbar", nie im Band.
+ * DEMO-B1  Portfolio: Sub-Anlageklassen/Produktnamen aus den Daten ueber aresTerm (Umlaute).
+ * DEMO-B4  Preisstatus (Admin-Route) nur fuer die Rolle admin abfragen (kein 403 fuer Berater).
  * Umgezogen aus ares.html (Budget): normalizeCashflowProjectionLabels. */
 
 function normalizeCashflowProjectionLabels(){
@@ -131,18 +133,38 @@ function aresPortfolioDisplayPositions(positions,allocation){
     });
   }
 
+  function termPositions(list){
+    if (!Array.isArray(list) || !g('aresTerm')) return list;
+    return list.map(function(r){
+      var o = Object.assign({}, r);
+      ['sub_asset_class', 'product_name'].forEach(function(k){ if (o[k] != null) o[k] = aresTerm(o[k]); });
+      return o;
+    });
+  }
+  // DEMO-B4: Preisstatus ist eine Admin-Route; fuer Berater kein Aufruf (sonst 403 bei jedem Start).
+  function hookPriceStatus(){
+    wrap('refreshPricesFromBackend', function(orig){
+      return function(){
+        var u = typeof currentUser !== 'undefined' ? currentUser : null;
+        return u && u.role === 'admin' ? orig.apply(this, arguments) : Promise.resolve();
+      };
+    });
+  }
+
   // ------------------------------------------------------------ E2E4-06 Portfolio-Zeilen = AA-Klassenbetrag
   function hookPortfolioRounding(){
     wrap('renderPortfolioSections', function(orig){
       return function(positions){
-        var a = curAlloc(), c = staleCause();
+        var a = curAlloc(), c = staleCause(), raw = positions;
+        positions = termPositions(positions); // DEMO-B1: Fachbegriffe/Umlaute fuer Namen aus den Daten
         if (!a || !Array.isArray(positions) || !positions.length) {
+          if (Array.isArray(raw) && raw.length) { var r1 = orig.call(this, positions); try { currentPortfolioPositions = raw.slice(); } catch(_){} return r1; }
           var r0 = orig.apply(this, arguments);
           if (c && !a) safe(function(){ stalePortfolio(c); }); // E2E4-09
           return r0;
         }
         var r = orig.call(this, aresPortfolioDisplayPositions(positions, a));
-        try { currentPortfolioPositions = positions.slice(); } catch(_){} // Rohdaten bleiben fuer Finalisieren/Handelsliste
+        try { currentPortfolioPositions = raw.slice(); } catch(_){} // Rohdaten bleiben fuer Finalisieren/Handelsliste
         return r;
       };
     });
@@ -214,6 +236,7 @@ function aresPortfolioDisplayPositions(positions,allocation){
     safe(hookStalePortfolio);
     safe(hookIstReason);
     safe(hookAxis);
+    safe(hookPriceStatus);
   }
   if (typeof document !== 'undefined' && document.addEventListener) {
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountAll);

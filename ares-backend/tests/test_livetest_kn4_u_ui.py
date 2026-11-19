@@ -261,3 +261,59 @@ def test_kn4u_cashflow_page_no_open_conversion_when_rates_covered(server):
 def test_ci_runs_this_behaviour_test_with_playwright_required():
     workflow = (BACKEND.parent / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
     assert "test_livetest_kn4_u_ui.py" in workflow
+
+
+def test_demo_b4_advisor_client_switch_without_403_and_b1_terms(server):
+    """DEMO-B4: Berater (nicht Admin) loest beim Start/Kundenwechsel keine Admin-Route (403) aus.
+    DEMO-B1: Sub-Anlageklassen aus den Daten erscheinen im Portfolio mit Umlaut (aresTerm)."""
+    sync_api = _sync_api()
+    admin = _Api(server["base"]).login()
+    user, pwd = f"berater{time.time_ns() % 100000}", "Berater-Probe-Passwort-2026!x"
+    st, body = admin("POST", "/users", {"username": user, "password": pwd, "full_name": "Berta Beraterin-Fiktiv", "role": "advisor"})
+    assert st in (200, 201), body
+    adv = _Api(server["base"])
+    st, tok = adv("POST", "/auth/login", {"username": user, "password": pwd})
+    assert st == 200, tok
+    adv.token = tok["access_token"]
+    # Erzwungener Erst-Passwortwechsel (wie ein neuer Mitarbeiter), danach normal anmelden.
+    pwd2 = pwd + "-neu"
+    st, body = adv("POST", "/auth/change-password", {"current_password": pwd, "new_password": pwd2})
+    assert st == 200, body
+    pwd = pwd2
+    st, tok = adv("POST", "/auth/login", {"username": user, "password": pwd})
+    assert st == 200, tok
+    adv.token = tok["access_token"]
+    c1, _m1, _ = _new_client(adv, "Hanna", "Beraterkundin-Fiktiv", "1975-03-03", [_depot("Depot Hanna (fiktiv)", 30_000_000)])
+    c2, _m2, _ = _new_client(adv, "Ivo", "Beraterkunde-Fiktiv", "1979-09-09", [_depot("Depot Ivo (fiktiv)", 20_000_000)])
+    with sync_api.sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        errors: list[str] = []
+        bad: list[str] = []
+        console: list[str] = []
+        try:
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.on("pageerror", lambda exc: errors.append(str(exc)))
+            page.on("response", lambda r: bad.append(f"{r.status} {r.url}") if r.status == 403 else None)
+            page.on("console", lambda m: console.append(m.text) if m.type == "error" else None)
+            from tests.test_livetest_k2_kernkette_ui import _open
+            _open(page, server["base"], sync_api)
+            page.fill("#login-username", user)
+            page.fill("#login-password", pwd)
+            page.evaluate("document.getElementById('btn-login-submit').click()")
+            page.wait_for_timeout(5000)
+            page.evaluate(CLOSE)
+            role = page.evaluate("currentUser&&currentUser.role")
+            for cid in (c1, c2, c1, c2):
+                _load(page, cid, "vg")
+            page.wait_for_timeout(1500)
+            # DEMO-B1 an der Render-Stelle: Datenname "Aktien Schwellenlaender" -> "Aktien Schwellenländer".
+            po = page.evaluate("""() => { renderPortfolioSections([{asset_class:'Aktien',sub_asset_class:'Aktien Schwellenlaender',
+                product_name:'Aktien Schwellenlaender ETF (Muster)',target_amount_rappen:1000000,target_weight_bps:10000,ter_bps:20}]);
+              return document.getElementById('po-portfolio-sections').innerText; }""")
+        finally:
+            browser.close()
+    assert role == "advisor", role
+    assert [b for b in bad if "/admin/" in b] == [], bad
+    assert not [c for c in console if "403" in c], console
+    assert "Schwellenländer" in po and "Schwellenlaender" not in po, po
+    assert not errors, errors

@@ -3,7 +3,7 @@
     "css_selectors": 1176,
     "event_handlers": 435,
     "ids": 1011,
-    "js_functions": 1685,
+    "js_functions": 1687,
     "modal_structures": 102,
     "script_blocks": 41,
     "style_blocks": 2,
@@ -9398,8 +9398,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/finalize-attestation.js",
-      "sha256": "9abef3b91bd6d7a44d29303dae2dbbbcc9101f55ae2edae58b938f03d1ffdb60",
-      "size_bytes": 1750
+      "sha256": "040535bda934b42decea8c0eaa8618cc87445e6a23be876efdf7a3fd8443f6a4",
+      "size_bytes": 1741
     },
     {
       "kind": "js",
@@ -9428,8 +9428,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/kn4-ui.js",
-      "sha256": "7aacdde7d0ea3fafbb3bcb96f4154d711269082fddc51c5c5321021475dd5509",
-      "size_bytes": 12361
+      "sha256": "875f050aefe44626fd5fa628aedd0e3b7e49eb4065fe9af81324c1e2796c3d08",
+      "size_bytes": 13547
     },
     {
       "kind": "js",
@@ -24119,127 +24119,139 @@
     },
     {
       "declaration": "function",
-      "line": 40,
+      "line": 42,
       "name": "aresPortfolioDisplayPositions",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 33,
+      "line": 35,
       "name": "aresReviewPct",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 65,
+      "line": 67,
       "name": "byId",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 77,
+      "line": 79,
       "name": "curAlloc",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 79,
+      "line": 81,
       "name": "esc",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 66,
+      "line": 68,
       "name": "g",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 201,
+      "line": 223,
       "name": "hookAxis",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 181,
+      "line": 203,
       "name": "hookIstReason",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 102,
+      "line": 104,
       "name": "hookNotEvaluable",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 135,
+      "line": 155,
       "name": "hookPortfolioRounding",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 91,
+      "line": 145,
+      "name": "hookPriceStatus",
+      "source": "kn4-ui.js"
+    },
+    {
+      "declaration": "function",
+      "line": 93,
       "name": "hookReset",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 163,
+      "line": 185,
       "name": "hookStalePortfolio",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 210,
+      "line": 232,
       "name": "mountAll",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 19,
+      "line": 21,
       "name": "normalizeCashflowProjectionLabels",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 82,
+      "line": 84,
       "name": "resetAmounts",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 67,
+      "line": 69,
       "name": "safe",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 196,
+      "line": 218,
       "name": "setAxis",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 78,
+      "line": 80,
       "name": "staleCause",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 152,
+      "line": 174,
       "name": "stalePortfolio",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 76,
+      "line": 78,
       "name": "state",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 68,
+      "line": 136,
+      "name": "termPositions",
+      "source": "kn4-ui.js"
+    },
+    {
+      "declaration": "function",
+      "line": 70,
       "name": "wrap",
       "source": "kn4-ui.js"
     },

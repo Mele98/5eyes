@@ -178,7 +178,8 @@ KN4-U Kernkette Runde 4 (Dok. 119 / H-172-Pruefung, Classic-UI): neuer Teil
 neues Mandat, eine Rundungsquelle je Zahl, Portfolio bei veralteter Strategie,
 fehlendes Ist nicht bewertbar. normalizeCashflowProjectionLabels aus ares.html
 umgezogen, reviewBandVisualHtml (ohne Aufrufer) aus kn3-ui.js entfernt. Budgets
-gesenkt: Monolith, kn3-ui.js, aa-chart.js.
+gesenkt: Monolith, kn3-ui.js, aa-chart.js. Zusatz Pitch-Selbsttest (DEMO-B1/B2/B4): kn4-ui.js
+245/13547 (Stand bei Einfuehrung inkl. Zusatz), finalize-attestation.js gesenkt auf 1741 B.
 """
 from __future__ import annotations
 
@@ -209,11 +210,11 @@ EXTRACTED_PART_BUDGETS = {
     "sustainability-preferences.js": (517, 26065),
     "wealth-inflows.js": (282, 16491),
     "allocation-publication.js": (272, 13780),
-    "finalize-attestation.js": (27, 1750),
+    "finalize-attestation.js": (27, 1741),
     "fx-rates-editor.js": (97, 5091),
     "mandate-view.js": (604, 35395),
     "kn3-ui.js": (259, 14886),
-    "kn4-ui.js": (222, 12361),
+    "kn4-ui.js": (245, 13547),
     "advisor-guidance.js": (728, 43963),
 }
 

@@ -5400,7 +5400,7 @@
   },
   {
    "file": "ares-desktop/frontend/kn4-ui.js",
-   "line": 36,
+   "line": 38,
    "source": "return m[k]||m[String(key)]||formatBpsPercent(0);",
    "channel": "classic",
    "class": "MIGRATE",
@@ -7244,5 +7244,5 @@
    "reason": "_position_weight_bps: `round(amount / total_amount * 10000)` -> Rueckgabewert; Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
   }
  ],
- "head_sha_parent": "50b95457078562d7a4ee7ec0c90e410f26d09ff9"
+ "head_sha_parent": "ec80b3ef57ffedede681ea666179dd7957beadd2"
 }

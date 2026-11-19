@@ -268,3 +268,25 @@ def test_e2e4_06_review_card_and_hero_use_the_single_percent_source():
     assert "aresReviewPct(reviewStrategyComparisonRows(allocation),item.assetKey,'soll')" in dec
     assert "Ziel '+escapeHtml(formatBpsPercent(item.targetWeightBps))" not in dec
     assert "aresReviewPct(rows,topInfo.assetKey,'soll')" in html and "aresReviewPct(rows,top.assetKey,'ist')" in html
+
+
+def test_demo_b1_b4_portfolio_terms_and_price_status_only_for_admin():
+    out = run_js(("aresBandOf",), """
+      renderPortfolioSections([{sub_asset_class:'Aktien Schwellenlaender',product_name:'Fonds Schwellenlaender',asset_class:'Aktien'}]);
+      var shown=SHOWN[0][0];
+      currentUser={role:'advisor'};refreshPricesFromBackend();var adv=CALLS;
+      currentUser={role:'admin'};refreshPricesFromBackend();
+      return {sub:shown.sub_asset_class,name:shown.product_name,raw:currentPortfolioPositions[0].sub_asset_class,adv:adv,admin:CALLS};
+    """, prelude="""
+      var SHOWN=[],CALLS=0,currentUser=null,currentPortfolioPositions=[];var strategyState={allocation:null};
+      function renderPortfolioSections(p){SHOWN.push(p);currentPortfolioPositions=p;}
+      function refreshPricesFromBackend(){CALLS++;return Promise.resolve();}
+      function aresTerm(n){return String(n).replace(/laender/g,'länder');}
+    """ + MOUNT + _iife(KN4))
+    assert out == {"sub": "Aktien Schwellenländer", "name": "Fonds Schwellenländer", "raw": "Aktien Schwellenlaender", "adv": 0, "admin": 1}, out
+
+
+def test_demo_b2_finalize_block_message_without_rezept():
+    src = (FRONTEND_DIR / "finalize-attestation.js").read_text(encoding="utf-8")
+    assert "Rezept" not in src.split("*/", 1)[-1].replace("printPortfolioPlan", "")
+    assert "'Empfehlung konnte nicht finalisiert werden: '+finalizeErrorText(e)" in src  # Servermeldung unveraendert angehaengt
