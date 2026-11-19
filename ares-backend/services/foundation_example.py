@@ -406,7 +406,7 @@ def upsert_foundation_example_case(db: Session, user: User) -> dict:
             currency="CHF",
             valuation_date=today,
             pension_type="S\u00e4ule 3a",
-            pension_institution="VIAC",
+            pension_institution="Vorsorgestiftung (Muster)",  # N-917-04: kein realer Anbieter
             pension_retirement_age=63,
             pension_payout_form="Kapital",
             pension_wef_possible=1,

@@ -137,3 +137,60 @@ def test_foundation_demo_and_portfolio_pdf_are_neutral():
     text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf)).pages)
     assert not ISSUERS.search(text), ISSUERS.findall(text)
     assert "Musterprodukt" in text
+
+
+# ── KN-B (E2E2-13, N-917-04, N-917-05): Kundentexte im Backend ───────────────
+# Emittenten-, Studien-, Vorsorge-/Fintech- und Bankennamen duerfen in keinem
+# Kundentext stehen (Kunden-PDFs, Demo-Fall, Kundeninformation/Handoff). Geprueft
+# werden nur String-Literale (Kommentare/Docstrings mit Fachbegriffen bleiben).
+THIRD_PARTY = re.compile(
+    r"\b(Vanguard|Dalbar|QAIB|VIAC|frankly|finpension|BlackRock|iShares|Swisscanto|Pictet|Vontobel|"
+    r"Credit Suisse|Swiss Life|Julius B[äa]e?r|Lombard Odier|Morningstar|Amundi|Xtrackers|SPDR|UBS|Raiffeisen|"
+    r"ZKB|PostFinance|Swissquote|Kantonalbank|True Wealth|Selma|Brinson|Ibbotson|Beebower|Advisor's Alpha)\b"
+)
+BACKEND = REPO / "ares-backend"
+
+
+def _customer_text_sources():
+    yield from sorted((BACKEND / "services" / "pdf").rglob("*.py"))
+    for rel in ("routers/pdf_reports.py", "services/foundation_example.py", "services/recommendation_release_gate.py",
+                "services/portfolio_handoff.py", "services/advisory_report.py"):
+        yield BACKEND / rel
+
+
+def _string_literals(path):
+    """String-Literale ohne Docstrings bzw. alleinstehende Kommentar-Strings."""
+    import ast
+    import io
+    import tokenize
+
+    source = path.read_text(encoding="utf-8")
+    doc_lines = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            doc_lines.update(range(node.lineno, (node.end_lineno or node.lineno) + 1))
+    kinds = {tokenize.STRING} | ({tokenize.FSTRING_MIDDLE} if hasattr(tokenize, "FSTRING_MIDDLE") else set())
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type in kinds and token.start[0] not in doc_lines:
+            yield token.start[0], token.string.encode().decode("unicode_escape", "ignore")
+
+
+def test_no_issuer_study_or_provider_names_in_backend_customer_texts():
+    hits = []
+    for path in _customer_text_sources():
+        for line, literal in _string_literals(path):
+            for match in THIRD_PARTY.finditer(literal):
+                hits.append(f"{path.relative_to(BACKEND).as_posix()}:{line}: {match.group(0)}")
+    assert hits == [], hits
+
+
+def test_gegenprobe_third_party_pattern_detects_old_texts():
+    assert THIRD_PARTY.search("(vgl. Dalbar QAIB-Studien; Vanguard «Advisor's Alpha»)")
+    assert THIRD_PARTY.search('pension_institution="VIAC"')
+    assert THIRD_PARTY.search("Brinson, Hood & Beebower, 1986")
+    assert not THIRD_PARTY.search("Vorsorgestiftung (Muster) erfolgt substanziell")
+
+
+def test_foundation_demo_case_has_neutral_pension_provider():
+    text = (BACKEND / "services" / "foundation_example.py").read_text(encoding="utf-8")
+    assert 'pension_institution="Vorsorgestiftung (Muster)"' in text
