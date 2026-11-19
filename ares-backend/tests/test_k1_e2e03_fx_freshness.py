@@ -80,7 +80,7 @@ def test_relevant_rate_change_makes_allocation_stale_with_true_cause(api, adviso
     assert stale.status_code == 409, stale.text[:400]
     text = stale.text
     assert "Wechselkurs USD" in text, text[:400]
-    assert "Vermoegen, Cashflows oder Ziele" not in text
+    assert "Vermögen, Cashflows oder Ziele" not in text
 
 
 def test_freshness_view_drops_only_table_wide_provenance():

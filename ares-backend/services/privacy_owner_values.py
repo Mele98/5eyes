@@ -110,7 +110,7 @@ def set_owner_value(
                 ReasonCode.PRIVACY_OWNER_VALUE_INVALID, "Stunden als positive Zahl angeben", http_status=422,
             )
     if len(cleaned) > OWNER_VALUE_MAX_LENGTH:
-        raise DomainError(ReasonCode.PRIVACY_OWNER_VALUE_INVALID, f"Wert laenger als {OWNER_VALUE_MAX_LENGTH} Zeichen", http_status=422)
+        raise DomainError(ReasonCode.PRIVACY_OWNER_VALUE_INVALID, f"Wert länger als {OWNER_VALUE_MAX_LENGTH} Zeichen", http_status=422)
     stamp = now_iso(now)
     current = _current_rows(db, tenant_id).get(field_key)
     old_value = current.value if current else None

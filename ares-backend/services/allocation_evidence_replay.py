@@ -207,7 +207,7 @@ def _validated_drivers(drivers) -> list[dict]:
 def _check_ranking(drivers: list[dict]) -> None:
     ranks = [int(row["rank"]) for row in drivers]
     if ranks != list(range(1, len(drivers) + 1)):
-        raise ValueError("Raenge nicht lueckenlos 1..n in Listenreihenfolge")
+        raise ValueError("Ränge nicht lückenlos 1..n in Listenreihenfolge")
     values = [
         float(row["weighted_objective_contribution_decimal"])
         for row in drivers
@@ -291,7 +291,7 @@ def _verified_envelope(evidence_json: str, optimization: dict) -> tuple[dict, li
         or envelope["objective_contract_version"]
         != optimization.get("objective_contract_version")
     ):
-        raise ValueError("Snapshot und Modellbasis tragen verschiedene Vertraege")
+        raise ValueError("Snapshot und Modellbasis tragen verschiedene Verträge")
     return envelope, drivers
 
 

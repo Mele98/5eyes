@@ -144,10 +144,10 @@ def parse_portfolio_data_policy(data) -> PortfolioDataPolicy:
             raise PortfolioDataPolicyError("Freigabe braucht genau role, approved_by, approved_at, reference.")
         parsed = {key: _non_empty_str(entry[key], f"approvals[].{key}") for key in sorted(_APPROVAL_KEYS)}
         if parsed["role"] not in roles:
-            raise PortfolioDataPolicyError(f"Freigabe fuer nicht geforderte Rolle {parsed['role']!r}.")
+            raise PortfolioDataPolicyError(f"Freigabe für nicht geforderte Rolle {parsed['role']!r}.")
         parsed_approvals.append(parsed)
     if status != STATUS_APPROVED and parsed_approvals:
-        raise PortfolioDataPolicyError("Freigaben sind nur bei Status APPROVED zulaessig.")
+        raise PortfolioDataPolicyError("Freigaben sind nur bei Status APPROVED zulässig.")
 
     calendar = data["calendar"]
     if not isinstance(calendar, dict) or set(calendar) != {"calendar_id", "timezone"}:
@@ -158,7 +158,7 @@ def parse_portfolio_data_policy(data) -> PortfolioDataPolicy:
         calendar_for_id(calendar_id)
         ZoneInfo(timezone)
     except Exception as exc:  # noqa: BLE001 - jede Fehlkonfiguration ist ein Policy-Fehler
-        raise PortfolioDataPolicyError(f"Kalender/Zeitzone ungueltig: {exc}") from exc
+        raise PortfolioDataPolicyError(f"Kalender/Zeitzone ungültig: {exc}") from exc
 
     freshness = data["freshness"]
     if not isinstance(freshness, dict) or set(freshness) != {
@@ -172,7 +172,7 @@ def parse_portfolio_data_policy(data) -> PortfolioDataPolicy:
         or len(set(components)) != len(components)
         or not set(components) <= set(FRESHNESS_COMPONENTS)
     ):
-        raise PortfolioDataPolicyError("freshness.required_components ist ungueltig.")
+        raise PortfolioDataPolicyError("freshness.required_components ist ungültig.")
     final_max = _non_negative_int(freshness["final_max_business_days"], "final_max_business_days")
     draft_max = _non_negative_int(freshness["draft_max_business_days"], "draft_max_business_days")
     if draft_max < final_max:
@@ -216,7 +216,7 @@ def load_portfolio_data_policy(path: Path | None = None) -> PortfolioDataPolicy:
     try:
         data = json.loads(raw)
     except ValueError as exc:
-        raise PortfolioDataPolicyError("Policy-Datei ist kein gueltiges JSON.") from exc
+        raise PortfolioDataPolicyError("Policy-Datei ist kein gültiges JSON.") from exc
     return parse_portfolio_data_policy(data)
 
 

@@ -88,7 +88,7 @@ class ReportLabRenderer:
 
         return self._render_to_bytes(
             ctx=ctx,
-            title="Beratungsentscheid und Kundenbestaetigung",
+            title="Beratungsentscheid und Kundenbestätigung",
             build_flowables=lambda: build_contract_signoff_flowables(ctx, data),
         )
 

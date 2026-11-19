@@ -88,13 +88,13 @@ def check_sdk_compatibility(name: str, loaded: Any) -> None:
     declared = _parse_semver(declared_raw)
     if declared is None:
         raise IncompatibleTaxPluginError(
-            f"Tax-Plugin '{name}' deklariert kein gueltiges "
+            f"Tax-Plugin '{name}' deklariert kein gültiges "
             f"{PLUGIN_SDK_DECLARATION_ATTR} (gefunden: {declared_raw!r}); "
             f"Host-SDK ist {TAX_SDK_VERSION}"
         )
     if declared[0] != host[0] or declared > host:
         raise IncompatibleTaxPluginError(
-            f"Tax-Plugin '{name}' ist fuer SDK {declared_raw} gebaut; "
+            f"Tax-Plugin '{name}' ist für SDK {declared_raw} gebaut; "
             f"Host-SDK {TAX_SDK_VERSION} akzeptiert nur {host[0]}.x <= Host"
         )
 

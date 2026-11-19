@@ -365,7 +365,7 @@ def _build_all_flowables(
         flowables.append(PageBreak())
     # U-FINMA-3 (2026-05-29, re-architektiert 2026-06-09): SuitabilityCheck-
     # Summary fuer Berater-Sicht (per-Mandat, Single-Check). Geschuetzt (FIDLEG).
-    flowables.append(_toc_anchor(toc_collector, "suitability_summary", "Eignungspruefung"))
+    flowables.append(_toc_anchor(toc_collector, "suitability_summary", "Eignungsprüfung"))
     flowables.extend(_build_suitability_summary_flowables(
         payload.get("suitability_summary") or {}, styles,
     ))
@@ -2995,13 +2995,13 @@ def _format_signed_x100(value: int | float | None) -> str:
 _SUITABILITY_RESULT_PILL = {
     "passed":     ("Eignung gegeben",       "#E5EEDF", "#4E6F58"),
     "mismatch":   ("Mismatch dokumentiert", "#F0D9D9", "#9E4747"),
-    "incomplete": ("Pruefung unvollstaendig","#F4EBD5", "#B59243"),
+    "incomplete": ("Prüfung unvollständig","#F4EBD5", "#B59243"),
 }
 
 _DUTY_TYPE_LABEL = {
-    "suitability":     "Eignungspruefung (Suitability)",
-    "appropriateness": "Angemessenheitspruefung (Appropriateness)",
-    "informational":   "Informationspruefung",
+    "suitability":     "Eignungsprüfung (Suitability)",
+    "appropriateness": "Angemessenheitsprüfung (Appropriateness)",
+    "informational":   "Informationsprüfung",
     "execution_only":  "Execution-only",
 }
 
@@ -3016,7 +3016,7 @@ def _build_suitability_summary_flowables(ss: dict, styles: dict) -> list[Any]:
     """
     out: list[Any] = []
     out.append(Paragraph("Sektion 27", styles["kicker"]))
-    out.append(Paragraph("Eignungspruefung", styles["h1"]))
+    out.append(Paragraph("Eignungsprüfung", styles["h1"]))
     out.append(Spacer(1, 4 * mm))
     out.append(_hr())
     out.append(Spacer(1, 5 * mm))
@@ -3053,7 +3053,7 @@ def _build_suitability_summary_flowables(ss: dict, styles: dict) -> list[Any]:
 
     refs = ss.get("references") or {}
     if any(refs.values()):
-        out.append(Paragraph("Verknuepfte Datensaetze", styles["h2"]))
+        out.append(Paragraph("Verknüpfte Datensätze", styles["h2"]))
         out.append(Spacer(1, 2 * mm))
         out.append(_ss_references_table(refs, ss, styles))
 
@@ -3117,7 +3117,7 @@ def _ss_summary_box(ss: dict, styles: dict) -> Table:
         ("BOTTOMPADDING", (0, 0), (0, 0), 6),
     ]))
     advisor_col = Table(
-        [[_cell_label("Geprueft von")], [_cell_value(advisor_name)]],
+        [[_cell_label("Geprüft von")], [_cell_value(advisor_name)]],
     )
     advisor_col.setStyle(TableStyle([
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
@@ -3162,7 +3162,7 @@ def _ss_missing_info_block(missing: list, styles: dict) -> Table:
 
     lines: list[Any] = [
         Paragraph(
-            "<b>Fehlende Informationen zum Zeitpunkt der Pruefung</b>",
+            "<b>Fehlende Informationen zum Zeitpunkt der Prüfung</b>",
             _ar_paragraph_style(
                 styles["caption"], color=HexColor("#B59243"), font=FONT_SANS_BOLD,
             ),
@@ -3193,14 +3193,14 @@ def _ss_override_workflow_block(ss: dict, styles: dict) -> Table:
     warning_at = _format_swiss_datetime(str(ss.get("warning_delivered_at") or ""))
     ack_at = _format_swiss_datetime(str(ss.get("client_acknowledged_at") or ""))
     warning_line = (
-        f"Warnung ausgehaendigt am {warning_at}"
+        f"Warnung ausgehändigt am {warning_at}"
         if ss.get("warning_delivered")
-        else "Warnung NICHT dokumentiert ausgehaendigt"
+        else "Warnung NICHT dokumentiert ausgehändigt"
     )
     ack_line = (
-        f"Kunde hat Hinweis bestaetigt am {ack_at}"
+        f"Kunde hat Hinweis bestätigt am {ack_at}"
         if ss.get("client_acknowledged")
-        else "Kundenbestaetigung NICHT dokumentiert"
+        else "Kundenbestätigung NICHT dokumentiert"
     )
 
     lines: list[Any] = [
@@ -3304,13 +3304,13 @@ def _ss_empty_state(styles: dict) -> Table:
     inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
 
     title = Paragraph(
-        "<b>Noch keine Eignungspruefung dokumentiert</b>",
+        "<b>Noch keine Eignungsprüfung dokumentiert</b>",
         _ar_paragraph_style(styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD),
     )
     body = Paragraph(
         _escape(
             "Vor der Umsetzung der Anlagestrategie ist eine FINMA-konforme "
-            "Eignungspruefung (Suitability nach FIDLEG) durchzufuehren und "
+            "Eignungsprüfung (Suitability nach FIDLEG) durchzuführen und "
             "im System zu hinterlegen. Sie erscheint danach an dieser Stelle."
         ),
         _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),

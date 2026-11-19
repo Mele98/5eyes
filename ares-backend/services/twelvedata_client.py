@@ -43,7 +43,7 @@ def _request_json(url: str) -> Any:
     try:
         return json.loads(payload)
     except json.JSONDecodeError as exc:
-        raise RuntimeError("Twelve Data lieferte keine gueltige JSON-Antwort") from exc
+        raise RuntimeError("Twelve Data lieferte keine gültige JSON-Antwort") from exc
 
 
 def _extract_series_payload(decoded: Any, symbol: str) -> dict[str, Any] | None:

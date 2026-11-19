@@ -56,8 +56,8 @@ def build_asset_allocation_flowables(
         advisory_wealth_label=advisory_label,
         focus_points=[
             "SOLL-Quoten je Anlageklasse als Grundlage der Beratung",
-            "Subanlageklassen und Zielbetraege fuer die Umsetzung",
-            "Dokumentierter Auszug fuer die Besprechung der Strategie",
+            "Subanlageklassen und Zielbeträge für die Umsetzung",
+            "Dokumentierter Auszug für die Besprechung der Strategie",
         ],
     ))
     # WP-B (2026-08-01): Provisorik-Banner direkt unter dem Cover-Block,
@@ -116,7 +116,7 @@ def build_asset_allocation_flowables(
         flowables.append(_section_title("Subanlageklassen"))
         flowables.append(Paragraph(
             f'<font name="{FONT_DEFAULT}" size="9" color="#475569">'
-            'Die Subanlageklassen uebersetzen die strategischen Zielquoten in '
+            'Die Subanlageklassen übersetzen die strategischen Zielquoten in '
             'konkrete Segmente. Die Summe der Detailquoten entspricht der '
             'jeweiligen Hauptanlageklasse.</font>',
             styles["body"],
@@ -158,7 +158,7 @@ def _make_structure_description(data: AnlagestrategieData):
         lead_text = allocation_pct_texts(dict(active))[lead_bucket]
         text = (
             f"Die empfohlene Struktur kombiniert {len(active)} "
-            f"Hauptanlageklassen. Den groessten Anteil bildet "
+            f"Hauptanlageklassen. Den grössten Anteil bildet "
             f"{asset_class_label(lead_bucket)} mit {lead_text}. "
             "Die Zielquote markiert den strategischen Mittelpunkt; Min/Max "
             "definieren den vereinbarten Handlungskorridor. Bewegungen innerhalb "

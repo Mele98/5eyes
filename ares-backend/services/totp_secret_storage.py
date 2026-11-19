@@ -93,8 +93,8 @@ def store_totp_secret(db: Session, user: User, plaintext_secret: str) -> str:
         )
         raise TotpSecretStorageError(
             REASON_ENCRYPT_FAILED,
-            "TOTP-Secret konnte nicht verschluesselt werden "
-            "(Schluesselkonfiguration pruefen)",
+            "TOTP-Secret konnte nicht verschlüsselt werden "
+            "(Schlüsselkonfiguration prüfen)",
         ) from exc
     return _ENC_PREFIX + ciphertext
 
@@ -121,7 +121,7 @@ def load_totp_secret(db: Session, user: User) -> str:
         )
         raise TotpSecretStorageError(
             REASON_TENANT_MISSING,
-            "Verschluesseltes TOTP-Secret ohne Tenant-Zuordnung",
+            "Verschlüsseltes TOTP-Secret ohne Tenant-Zuordnung",
         )
     try:
         plaintext = decrypt_for_tenant(db, tenant_id, raw[len(_ENC_PREFIX):]).decode("utf-8")
@@ -133,8 +133,8 @@ def load_totp_secret(db: Session, user: User) -> str:
         )
         raise TotpSecretStorageError(
             REASON_DECRYPT_FAILED,
-            "TOTP-Secret konnte nicht entschluesselt werden "
-            "(Schluesselkonfiguration pruefen)",
+            "TOTP-Secret konnte nicht entschlüsselt werden "
+            "(Schlüsselkonfiguration prüfen)",
         ) from exc
     if not plaintext:
         logger.error(
@@ -142,6 +142,6 @@ def load_totp_secret(db: Session, user: User) -> str:
             "-- leerer Klartext", REASON_DECRYPT_FAILED, user_id, tenant_id,
         )
         raise TotpSecretStorageError(
-            REASON_DECRYPT_FAILED, "Entschluesseltes TOTP-Secret ist leer",
+            REASON_DECRYPT_FAILED, "Entschlüsseltes TOTP-Secret ist leer",
         )
     return plaintext

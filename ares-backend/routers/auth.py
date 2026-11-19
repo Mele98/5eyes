@@ -508,7 +508,7 @@ def revoke_all_sessions_endpoint(
         if requested is None:
             raise HTTPException(
                 status_code=422,
-                detail="tenant_id ist Pflicht; globaler Widerruf nur ueber die Betreiber-CLI.",
+                detail="tenant_id ist Pflicht; globaler Widerruf nur über die Betreiber-CLI.",
             )
         if db.query(Tenant).filter(Tenant.id == requested).first() is None:
             raise HTTPException(status_code=404, detail="Mandant nicht gefunden.")
@@ -648,7 +648,7 @@ def change_password(
         table_name="users", record_id=current_user.id, action="PASSWORD_CHANGE",
         ip_address=_extract_client_ip(request))
     db.commit()
-    return {"message": "Passwort erfolgreich geaendert."}
+    return {"message": "Passwort erfolgreich geändert."}
 
 
 # ── 2FA / TOTP (E1, externe Logins) ─────────────────────────────────────────────
@@ -939,7 +939,7 @@ def password_reset_confirm(body: _PasswordResetConfirm, request: Request, db: Se
         User.deleted_at.is_(None),
     ).first()
     if not user or not reset_token_valid(user, body.token):
-        raise HTTPException(status_code=400, detail="Ungueltiger oder abgelaufener Reset-Link.")
+        raise HTTPException(status_code=400, detail="Ungültiger oder abgelaufener Reset-Link.")
     # AUTH-TEN-08 (Codex-Audit 2026-08-25): Reset-Token war bisher ein
     # read-then-write-Einmalvertrag -- zwei parallele Requests mit demselben
     # Token konnten beide die obige Pruefung bestehen, bevor irgendeiner
@@ -954,7 +954,7 @@ def password_reset_confirm(body: _PasswordResetConfirm, request: Request, db: Se
         .values(reset_token_hash=None, reset_token_expires_at=None)
     )
     if claim.rowcount == 0:
-        raise HTTPException(status_code=400, detail="Ungueltiger oder abgelaufener Reset-Link.")
+        raise HTTPException(status_code=400, detail="Ungültiger oder abgelaufener Reset-Link.")
     user.password_hash = hash_password(body.new_password)
     clear_reset_token(user)  # ORM-Objekt synchron halten (Core-Update oben)
     user.must_change_password = 0
@@ -981,7 +981,7 @@ def password_reset_confirm(body: _PasswordResetConfirm, request: Request, db: Se
         table_name="users", record_id=user.id, action="PASSWORD_RESET_CONFIRM",
         ip_address=_extract_client_ip(request))
     db.commit()
-    return {"message": "Passwort erfolgreich gesetzt. Sie koennen sich jetzt anmelden."}
+    return {"message": "Passwort erfolgreich gesetzt. Sie können sich jetzt anmelden."}
 
 
 # ── Users ──────────────────────────────────────────────────────────────────────
@@ -1237,7 +1237,7 @@ def invite_accept(body: InviteAccept, request: Request, db: Session = Depends(ge
         .values(invite_token_hash=None, invite_expires_at=None)
     )
     if claim.rowcount == 0:
-        raise HTTPException(status_code=404, detail="Einladungslink ungueltig oder bereits verwendet.")
+        raise HTTPException(status_code=404, detail="Einladungslink ungültig oder bereits verwendet.")
     user.password_hash = hash_password(body.password)
     user.invite_token_hash = None  # ORM-Objekt synchron halten (Core-Update oben)
     user.invite_expires_at = None
@@ -1260,14 +1260,14 @@ def invite_accept(body: InviteAccept, request: Request, db: Session = Depends(ge
 def _resolve_invite(db: Session, token: str) -> User:
     """Findet den User zum (gueltigen, nicht abgelaufenen) Invite-Token oder 404/410."""
     if not token or not str(token).strip():
-        raise HTTPException(status_code=404, detail="Ungueltiger Einladungslink.")
+        raise HTTPException(status_code=404, detail="Ungültiger Einladungslink.")
     token_hash = _hash_invite_token(str(token).strip())
     user = db.query(User).filter(
         User.invite_token_hash == token_hash,
         User.deleted_at.is_(None),
     ).first()
     if not user:
-        raise HTTPException(status_code=404, detail="Einladungslink ungueltig oder bereits verwendet.")
+        raise HTTPException(status_code=404, detail="Einladungslink ungültig oder bereits verwendet.")
     exp = getattr(user, "invite_expires_at", None)
     if exp and str(exp).strip() and _now() > str(exp).strip():
         raise HTTPException(status_code=410, detail="Einladungslink abgelaufen. Bitte neue Einladung anfordern.")
@@ -1417,7 +1417,7 @@ def compromise_user(
     if since_iso < earliest or (floor and since_iso < floor):
         raise HTTPException(status_code=422, detail={
             "reason_code": "COMPROMISE_BACKDATE_INVALID",
-            "message": (f"compromised_since hoechstens {COMPROMISE_MAX_BACKDATE_DAYS} Tage zurueck "
+            "message": (f"compromised_since höchstens {COMPROMISE_MAX_BACKDATE_DAYS} Tage zurück "
                         "und nicht vor der Aktivierung des Kontos."),
         })
     backdated_days = (datetime.now(timezone.utc) - since.astimezone(timezone.utc)).days
@@ -1453,7 +1453,7 @@ def reset_user_password(
     # E1 (2026-06-14): Self-Service (eigenes Passwort) ODER Admin-Reset (fremdes).
     is_self = (current_user.id == user_id)
     if not is_self and getattr(current_user, "role", None) not in ("admin", "super_admin"):
-        raise HTTPException(status_code=403, detail="Nur das eigene Passwort oder als Admin aenderbar")
+        raise HTTPException(status_code=403, detail="Nur das eigene Passwort oder als Admin änderbar")
     user = db.query(User).filter(User.id == user_id, User.deleted_at.is_(None)).first()
     if not user:
         raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")

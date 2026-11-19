@@ -98,7 +98,7 @@ def calibrate_from_market_yields(
     """
     if len(yields_by_maturity_bps) < 3:
         raise ValueError(
-            f"Mindestens 3 Markt-Yields noetig fuer NS-Kalibrierung, "
+            f"Mindestens 3 Markt-Yields nötig für NS-Kalibrierung, "
             f"erhalten: {len(yields_by_maturity_bps)}"
         )
     items = sorted(yields_by_maturity_bps.items())

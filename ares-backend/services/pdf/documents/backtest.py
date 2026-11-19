@@ -304,8 +304,8 @@ def _make_fee_comparison_block(data, styles, currency: str) -> list:
         f'<font name="{FONT_DEFAULT}" size="8" color="#64748b"><i>'
         f'Geometrischer Fee-Abzug pro Jahr nach Bucket-Update. Der Brutto-'
         f'Indexvergleich ist nicht direkt investierbar; die Netto-Reihe '
-        f'spiegelt eine realistisch gefuehrte Strategie inkl. TER, Depot- '
-        f'und Beratungsgebuehren.</i></font>',
+        f'spiegelt eine realistisch geführte Strategie inkl. TER, Depot- '
+        f'und Beratungsgebühren.</i></font>',
         styles["small_muted"],
     )
     return [paragraph, Spacer(1, 2 * mm), note]

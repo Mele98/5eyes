@@ -126,7 +126,7 @@ def advisory_domain(kind: str | None = None) -> bytes:
     if kind is None:
         return ADVISORY_ENVELOPE_DOMAIN
     if not kind or "\x00" in kind or "/" in kind:
-        raise ValueError(f"Ungueltige Kind-Domaene: {kind!r}")
+        raise ValueError(f"Ungültige Kind-Domäne: {kind!r}")
     return b"Ares\x00" + (ADVISORY_ENVELOPE_SCHEMA + "/" + kind).encode("utf-8") + b"\x00"
 
 

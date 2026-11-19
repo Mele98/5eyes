@@ -968,7 +968,7 @@ def _resolve_initial_value_rappen(db: Session, mandate: Mandate, ta: TargetAlloc
         raise DomainError(
             ReasonCode.CCX_FX_BASIS_MISMATCH,
             "Der Backtest-Startwert ist ohne Strategie-Snapshot nicht ohne Umrechnung bestimmbar "
-            f"(Positionen in {', '.join(foreign) or 'unbekannter Waehrung'}). Bitte Strategie neu berechnen.",
+            f"(Positionen in {', '.join(foreign) or 'unbekannter Währung'}). Bitte Strategie neu berechnen.",
             extra={"currencies": foreign},
         )
     return sum(int(getattr(r, "current_value_rappen", 0) or 0) for r in rows)

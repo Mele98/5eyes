@@ -111,7 +111,7 @@ def _parse_iso_date(value: str | None) -> date:
             return date.fromisoformat(raw)
         except ValueError:
             pass
-    raise ReviewAnchorDataError(f"Ungueltiges oder fehlendes Datum: {value!r}")
+    raise ReviewAnchorDataError(f"Ungültiges oder fehlendes Datum: {value!r}")
 
 
 def _add_months(value: str | None, months: int) -> str:
@@ -252,7 +252,7 @@ def refresh_system_review_triggers(
             raise ReviewAnchorDataError(
                 f"Mandat {mandate.id}: {len(tied)} gleichrangige "
                 f"Review-Anker am {latest_anchor.entry_date!r} -- "
-                "Ambiguitaet muss manuell aufgeloest werden."
+                "Ambiguität muss manuell aufgelöst werden."
             )
         review_anchor = latest_anchor.entry_date
         if not review_anchor:
@@ -392,7 +392,7 @@ def refresh_system_review_triggers(
                     {
                         "label": bucket.get("asset_class") or "Allokation",
                         "breach_bps": current_weight - max_weight,
-                        "detail": f"{bucket.get('asset_class')}: {_format_bps(current_weight)} ueber Maximum {_format_bps(max_weight)}",
+                        "detail": f"{bucket.get('asset_class')}: {_format_bps(current_weight)} über Maximum {_format_bps(max_weight)}",
                     }
                 )
 

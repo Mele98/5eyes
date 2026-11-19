@@ -186,7 +186,7 @@ def require_plausible_property_expected_return(position_type, value) -> None:
         return
     if not (PROPERTY_EXPECTED_RETURN_BPS_MIN <= int(value) <= PROPERTY_EXPECTED_RETURN_BPS_MAX):
         raise WealthPositionSemanticsError(
-            "asset_expected_return_bps fuer Direktimmobilien muss zwischen "
+            "asset_expected_return_bps für Direktimmobilien muss zwischen "
             f"{PROPERTY_EXPECTED_RETURN_BPS_MIN} und {PROPERTY_EXPECTED_RETURN_BPS_MAX} "
             "bps liegen (-20% bis +20% p.a.) -- Immobilien werden deterministisch "
             "indexiert, keine kotierte Marktschwankung."

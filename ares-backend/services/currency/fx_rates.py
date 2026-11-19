@@ -68,7 +68,7 @@ def currency_exponent(currency: str) -> int:
     """ISO-4217-Minor-Unit-Exponent (G7-Tabelle); unbekannt -> ValueError."""
     code = str(currency or "").upper().strip()
     if code not in CURRENCY_EXPONENTS:
-        raise ValueError(f"Kein Minor-Unit-Exponent fuer Waehrung {code or '(leer)'}")
+        raise ValueError(f"Kein Minor-Unit-Exponent für Währung {code or '(leer)'}")
     return CURRENCY_EXPONENTS[code]
 
 
@@ -94,7 +94,7 @@ def rate_x10000(rate: float, currency: str) -> int:
     Dezimalen sind kein belegter Kurs dieser Quelle."""
     from_text = Decimal(repr(float(rate))) * RATE_SCALE
     if from_text != from_text.to_integral_value() or from_text <= 0:
-        raise ValueError(f"FX-Kurs fuer {currency} ist nicht auf vier Dezimalen belegt: {rate!r}")
+        raise ValueError(f"FX-Kurs für {currency} ist nicht auf vier Dezimalen belegt: {rate!r}")
     return int(from_text)
 
 
@@ -256,13 +256,13 @@ class StrictFXRateSource:
         if code and not self._known(code):
             # Unbekannter Code: wie die Modellquelle ein Eingabefehler (ValueError),
             # nie ein Kurs -- bestehende fail-closed-Pfade bleiben unveraendert.
-            raise ValueError(f"Unbekannte Waehrung: {code}")
+            raise ValueError(f"Unbekannte Währung: {code}")
         status = self.statuses().get(code, FX_STATUS_MISSING) if code else FX_STATUS_MISSING
         if status != FX_STATUS_OK:
             label = code or "(ohne Waehrung)"
             raise FxBasisError(
                 fx_status_reason(status),
-                f"Fuer {label} liegt kein belegter, aktueller Kurs vor ({status}); "
+                f"Für {label} liegt kein belegter, aktueller Kurs vor ({status}); "
                 "Ersatzkurse werden nie kundenwirksam.",
                 extra={"currencies": [code], "fx_status": status},
             )
@@ -273,11 +273,11 @@ class StrictFXRateSource:
         if not code:
             raise FxBasisError(
                 fx_status_reason(FX_STATUS_MISSING),
-                "Ein Betrag ohne Waehrung kann nicht bewertet werden; Ersatzwerte werden nie kundenwirksam.",
+                "Ein Betrag ohne Währung kann nicht bewertet werden; Ersatzwerte werden nie kundenwirksam.",
                 extra={"currencies": [code], "fx_status": FX_STATUS_MISSING},
             )
         if not self._known(code):
-            raise ValueError(f"Unbekannte Waehrung: {code}")
+            raise ValueError(f"Unbekannte Währung: {code}")
 
     def rate_to_chf(self, currency: str) -> float:
         self.require(currency)
@@ -493,12 +493,12 @@ class FXRateSource:
                 or (ccy == "CHF" and raw_rate != 10_000)
             ):
                 raise FXRateLoadError(
-                    "Eine aktive FX-Rate ist ungueltig; die Modellrechnung "
+                    "Eine aktive FX-Rate ist ungültig; die Modellrechnung "
                     "wird nicht mit einem Default-Kurs fortgesetzt."
                 )
             if ccy in seen:
                 raise FXRateLoadError(
-                    f"Mehrere aktive FX-Rates fuer {ccy}; die effektive "
+                    f"Mehrere aktive FX-Rates für {ccy}; die effektive "
                     "Modellbasis ist nicht eindeutig."
                 )
             seen.add(ccy)

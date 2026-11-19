@@ -53,7 +53,7 @@ def make_effektives_portfolio_section(
         styles = make_paragraph_styles()
         flowables.append(Paragraph(
             f'<font name="{FONT_DEFAULT}" size="9" color="#94a3b8"><i>'
-            f'Noch keine effektiven Bestaende erfasst. Die IST-Werte werden '
+            f'Noch keine effektiven Bestände erfasst. Die IST-Werte werden '
             f'bei Portfolio-Umsetzung oder via Kursdaten-Import aktualisiert.'
             f'</i></font>',
             styles["small_muted"],

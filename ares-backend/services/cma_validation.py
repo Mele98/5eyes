@@ -118,7 +118,7 @@ def validate_runtime_cma_completeness(cma: Any) -> None:
     ]
     if missing:
         raise CMAValidationError(
-            "Aktuelle CMA ist fuer den stochastischen Lauf unvollstaendig; "
+            "Aktuelle CMA ist für den stochastischen Lauf unvollständig; "
             f"fehlende Modellfelder: {', '.join(missing)}."
         )
     # CMA-001 / CMA-CORR-001: die Korrelationsmatrix ist wie Returns und
@@ -132,7 +132,7 @@ def validate_runtime_cma_completeness(cma: Any) -> None:
         raise CMAValidationError(
             f"Aktuelle CMA ({jurisdiction}) hat keine eigene Korrelationsmatrix "
             "(correlation_matrix_json) und es gibt keine genehmigte Default-"
-            "Policy fuer diese Jurisdiktion (CMA-CORR-001)."
+            "Policy für diese Jurisdiktion (CMA-CORR-001)."
         )
 
     for field_name in return_fields:
@@ -141,13 +141,13 @@ def validate_runtime_cma_completeness(cma: Any) -> None:
         )
         if value <= -10_000:
             raise CMAValidationError(
-                f"{field_name} muss groesser als -100 % sein."
+                f"{field_name} muss grösser als -100 % sein."
             )
         if value > RUNTIME_RETURN_MAX_BPS:
             raise CMAValidationError(
                 f"{field_name}={value} unplausibel hoch (Maximum "
                 f"{RUNTIME_RETURN_MAX_BPS} bps / +100%) -- Tippfehler "
-                "(Prozent statt Basispunkte, zusaetzliche Nullen) pruefen."
+                "(Prozent statt Basispunkte, zusätzliche Nullen) prüfen."
             )
     for field_name in volatility_fields:
         value = _finite_scaled_integer(
@@ -161,7 +161,7 @@ def validate_runtime_cma_completeness(cma: Any) -> None:
             raise CMAValidationError(
                 f"{field_name}={value} unplausibel hoch (Maximum "
                 f"{RUNTIME_VOL_MAX_BPS} bps / 200%) -- Tippfehler "
-                "(Prozent statt Basispunkte, zusaetzliche Nullen) pruefen."
+                "(Prozent statt Basispunkte, zusätzliche Nullen) prüfen."
             )
 
     # CORNISH-FISHER-NON-MONOTONIC-CLAMP-BOUNDS-001 (Kontrollrunde 2026-09-27):
@@ -185,9 +185,9 @@ def validate_runtime_cma_completeness(cma: Any) -> None:
         ):
             raise CMAValidationError(
                 f"{skew_field}={skew_bps} / {kurt_field}={kurt_bps} macht die "
-                "Cornish-Fisher-Transformation nicht-monoton (keine gueltige "
+                "Cornish-Fisher-Transformation nicht-monoton (keine gültige "
                 "Quantilfunktion mehr) -- Betrag der Schiefe reduzieren oder "
-                "Exzess-Kurtosis erhoehen."
+                "Exzess-Kurtosis erhöhen."
             )
 
 
@@ -265,7 +265,7 @@ def validate_nelson_siegel_parameters(
         for field_name, value in zip(_NELSON_SIEGEL_FIELDS, raw_values)
     )
     if lambda_x100 <= 0:
-        raise CMAValidationError("bonds_ns_lambda_x100 muss groesser als 0 sein.")
+        raise CMAValidationError("bonds_ns_lambda_x100 muss grösser als 0 sein.")
 
     lambda_ = float(lambda_x100) / 100.0
     maturity = NELSON_SIEGEL_DEFAULT_MATURITY_YEARS
@@ -291,7 +291,7 @@ def validate_nelson_siegel_parameters(
             raise CMAValidationError(f"{field_name} muss endlich (finite) sein.")
         if value <= -10_000.0:
             raise CMAValidationError(
-                f"{field_name} muss groesser als -100 % sein."
+                f"{field_name} muss grösser als -100 % sein."
             )
 
     return float(beta0), float(beta1), float(beta2), lambda_
@@ -315,9 +315,9 @@ def validate_equity_kgv_parameters(
         for field_name, value in zip(_EQUITY_KGV_FIELDS, raw_values)
     )
     if current_x10 <= 0:
-        raise CMAValidationError("equity_kgv_current_x10 muss groesser als 0 sein.")
+        raise CMAValidationError("equity_kgv_current_x10 muss grösser als 0 sein.")
     if fair_x10 <= 0:
-        raise CMAValidationError("equity_kgv_fair_x10 muss groesser als 0 sein.")
+        raise CMAValidationError("equity_kgv_fair_x10 muss grösser als 0 sein.")
     if not 0 <= alpha_x100 <= 100:
         raise CMAValidationError(
             "equity_kgv_alpha_x100 muss im Bereich [0, 100] liegen."
@@ -371,7 +371,7 @@ def validate_correlation_matrix(
             if number < -1.0 or number > 1.0:
                 raise CMAValidationError(
                     f"{field_name}[{i}][{j}]={number} liegt ausserhalb "
-                    "des gueltigen Korrelationsbereichs [-1, 1]."
+                    "des gültigen Korrelationsbereichs [-1, 1]."
                 )
             normalized_row.append(number)
         if abs(normalized_row[i] - 1.0) > _MATRIX_TOLERANCE:
@@ -517,10 +517,10 @@ def parse_inflation_path_json(
         value = _integral_bps(raw_value, location=location)
         if not INFLATION_PATH_MIN_BPS <= value <= INFLATION_PATH_MAX_BPS:
             raise CMAValidationError(
-                f"{location}: {value} bps liegt ausserhalb der zulaessigen "
-                f"Baseline-Domaene [{INFLATION_PATH_MIN_BPS}, "
+                f"{location}: {value} bps liegt ausserhalb der zulässigen "
+                f"Baseline-Domäne [{INFLATION_PATH_MIN_BPS}, "
                 f"{INFLATION_PATH_MAX_BPS}] bps (-10 % bis +30 % pro Jahr). "
-                "Stress-Szenarien gehoeren in einen separaten, typisierten "
+                "Stress-Szenarien gehören in einen separaten, typisierten "
                 "Stress-Vertrag, nicht in die Current-CMA-Baseline."
             )
         normalized[year] = value
@@ -775,7 +775,7 @@ def parse_sub_asset_class_assumptions_json(
                     f"sub_asset_class_assumptions_json[{label!r}]"
                     f".expected_return_bps={return_bps} unplausibel hoch "
                     f"(Maximum {RUNTIME_RETURN_MAX_BPS} bps / +100%) -- "
-                    "Tippfehler pruefen."
+                    "Tippfehler prüfen."
                 )
 
         if volatility_value is None:
@@ -803,7 +803,7 @@ def parse_sub_asset_class_assumptions_json(
                     f"sub_asset_class_assumptions_json[{label!r}]"
                     f".expected_volatility_bps={volatility_bps} unplausibel "
                     f"hoch (Maximum {RUNTIME_VOL_MAX_BPS} bps / 200%) -- "
-                    "Tippfehler pruefen."
+                    "Tippfehler prüfen."
                 )
 
         # Schema validation may intentionally validate a partial historical

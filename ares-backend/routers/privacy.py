@@ -197,11 +197,11 @@ def privacy_status(db: Session = Depends(get_db), current_user: User = Depends(r
         "inventory_version": gov.ERASURE_INVENTORY_VERSION,
         "retention_baseline_version": pe.RETENTION_BASELINE_VERSION,
         "message": (
-            "Aufbewahrungsmatrix ist nicht durch Legal/Datenschutz freigegeben. Loeschgesuche "
-            "bleiben 'Entscheid ausstehend'; es wird weder automatisch geloescht noch "
+            "Aufbewahrungsmatrix ist nicht durch Legal/Datenschutz freigegeben. Löschgesuche "
+            "bleiben 'Entscheid ausstehend'; es wird weder automatisch gelöscht noch "
             "unbegrenzt aufbewahrt."
         ) if missing else (
-            "Matrix fuer alle Nachweisarten genehmigt. Produktivaktivierung bleibt bis zur "
+            "Matrix für alle Nachweisarten genehmigt. Produktivaktivierung bleibt bis zur "
             "Freigabe blockiert."
         ),
     }
@@ -518,7 +518,7 @@ def _require_case_operator(db: Session, user: User) -> None:
         return
     raise HTTPException(status_code=403, detail={
         "code": "PRIVACY_ROLE_REQUIRED",
-        "message": "Datenschutzfaelle bearbeiten nur Administration oder benannte Legal-/Datenschutzpersonen",
+        "message": "Datenschutzfälle bearbeiten nur Administration oder benannte Legal-/Datenschutzpersonen",
     })
 
 
@@ -541,7 +541,7 @@ def _commit_case(db: Session, *steps) -> None:
         raise_if_check_violation(exc)
         raise DomainError(
             ReasonCode.PRIVACY_CASE_CONCURRENT_UPDATE,
-            "Der Fall wurde gleichzeitig geaendert; bitte neu laden und erneut ausfuehren", http_status=409,
+            "Der Fall wurde gleichzeitig geändert; bitte neu laden und erneut ausführen", http_status=409,
         ) from exc
 
 
@@ -750,7 +750,7 @@ class IncidentClosure(BaseModel):
 
 def _require_staff(user: User) -> None:
     if user.role not in ("admin", "super_admin", "advisor"):
-        raise HTTPException(status_code=403, detail="Nur fuer Mitarbeitende")
+        raise HTTPException(status_code=403, detail="Nur für Mitarbeitende")
 
 
 def _incident(db: Session, incident_id: str, user: User) -> PrivacySecurityIncident:
@@ -967,7 +967,7 @@ def approve_processing_register(body: VersionApproval, request: Request, db: Ses
         raise DomainError(ReasonCode.PROCESSING_REGISTER_UNAVAILABLE, "; ".join(view["problems"]), http_status=409)
     if view.get("open_blocking_fields"):
         raise DomainError(ReasonCode.PRIVACY_OWNER_VALUES_OPEN,
-                          "Angaben des Verantwortlichen fehlen; Freigabe nicht moeglich", http_status=409,
+                          "Angaben des Verantwortlichen fehlen; Freigabe nicht möglich", http_status=409,
                           extra={"open_fields": view["open_blocking_fields"]})
     rows = gov.versions.approve_register(db, tenant, gov.owner_values(db, tenant), actor_id=current_user.id,
                                          keys=body.keys or None)

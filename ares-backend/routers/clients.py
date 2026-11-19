@@ -187,7 +187,7 @@ def update_client(
     client = _get_client_or_404(client_id, db, current_user)
     if "advisor_id" in updates and not has_global_client_access(current_user):
         if updates["advisor_id"] != current_user.id:
-            raise HTTPException(status_code=403, detail="Berater duerfen Kunden nicht einem anderen Berater zuweisen")
+            raise HTTPException(status_code=403, detail="Berater dürfen Kunden nicht einem anderen Berater zuweisen")
         updates["advisor_id"] = current_user.id
     for field, value in updates.items():
         setattr(client, field, value)
@@ -362,7 +362,7 @@ def _opting_event(body: OptHistoryCreate) -> str:
     if body.event_type is not None and body.event_type != derived:
         raise HTTPException(status_code=422, detail={
             "reason_code": "OPTING_TRANSITION_INVALID",
-            "message": f"event_type '{body.event_type}' passt nicht zum Uebergang ({derived}).",
+            "message": f"event_type '{body.event_type}' passt nicht zum Übergang ({derived}).",
         })
     return derived
 
@@ -388,7 +388,7 @@ def _enforce_opting_evidence(body: OptHistoryCreate) -> None:
             "reason_code": "OPT_OUT_EVIDENCE_MISSING",
             "message": (
                 "Ein Wechsel auf ein tieferes Schutzniveau (Art. 5 FIDLEG) nur mit "
-                "Beleg der Erklaerung des Kunden (document_id)."
+                "Beleg der Erklärung des Kunden (document_id)."
             ),
         })
     if needs_criteria and body.opt_out_criteria is None:
@@ -396,18 +396,18 @@ def _enforce_opting_evidence(body: OptHistoryCreate) -> None:
             "reason_code": "OPT_OUT_EVIDENCE_MISSING",
             "message": (
                 "Opting-out eines Privatkunden nach Art. 5 Abs. 2 FIDLEG nur mit "
-                "vollstaendiger Kriterien-Checkliste (opt_out_criteria)."
+                "vollständiger Kriterien-Checkliste (opt_out_criteria)."
             ),
         })
     if body.opt_out_criteria is not None and not needs_criteria:
         raise HTTPException(status_code=422, detail={
             "reason_code": "OPT_OUT_EVIDENCE_MISSING",
-            "message": "opt_out_criteria gilt nur fuer das Opting-out eines Privatkunden.",
+            "message": "opt_out_criteria gilt nur für das Opting-out eines Privatkunden.",
         })
     if raises and not has_document:
         raise HTTPException(status_code=422, detail={
             "reason_code": "OPT_OUT_EVIDENCE_MISSING",
-            "message": "Opting-in (Rueckkehr zu mehr Schutz) nur mit Beleg (document_id).",
+            "message": "Opting-in (Rückkehr zu mehr Schutz) nur mit Beleg (document_id).",
         })
 
 
@@ -446,7 +446,7 @@ def add_opt_history(
             status_code=409,
             detail=(
                 "from_classification stimmt nicht mit dem aktuellen "
-                f"Klassifikationsstatus des Kunden ueberein "
+                f"Klassifikationsstatus des Kunden überein "
                 f"(aktuell: '{client.client_classification}', "
                 f"angegeben: '{body.from_classification}')."
             ),
@@ -460,7 +460,7 @@ def add_opt_history(
             status_code=409,
             detail=(
                 "from_professional_opt_out stimmt nicht mit dem aktuellen "
-                f"Zustand des Kunden ueberein (aktuell: {current_opt_out}, "
+                f"Zustand des Kunden überein (aktuell: {current_opt_out}, "
                 f"angegeben: {body.from_professional_opt_out})."
             ),
         )
@@ -473,7 +473,7 @@ def add_opt_history(
             status_code=409,
             detail=(
                 "from_qualified_investor stimmt nicht mit dem aktuellen "
-                f"Zustand des Kunden ueberein (aktuell: {current_qualified}, "
+                f"Zustand des Kunden überein (aktuell: {current_qualified}, "
                 f"angegeben: {body.from_qualified_investor})."
             ),
         )
@@ -684,7 +684,7 @@ def _assert_latest_confirmation(db: Session, record: KycConfirmation) -> None:
     if latest is not None and latest.id != record.id:
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_APPROVAL_SUPERSEDED",
-            "message": "Fuer den Kunden liegt eine neuere Bestaetigung vor.",
+            "message": "Für den Kunden liegt eine neuere Bestätigung vor.",
         })
 
 
@@ -708,7 +708,7 @@ def _record_decision(db: Session, record: KycConfirmation, decision: str, user: 
         raise_if_check_violation(exc)
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_SECOND_APPROVAL_ALREADY_DECIDED",
-            "message": "Ueber diese Bestaetigung wurde bereits entschieden.",
+            "message": "Über diese Bestätigung wurde bereits entschieden.",
         }) from exc
 
 
@@ -727,7 +727,7 @@ def _mandate_of_client_or_404(db: Session, client_id: str, mandate_id: str | Non
         Mandate.id == mandate_id, Mandate.client_id == client_id,
     ).first()
     if mandate is None:
-        raise HTTPException(status_code=404, detail="Mandat gehoert nicht zu diesem Kunden")
+        raise HTTPException(status_code=404, detail="Mandat gehört nicht zu diesem Kunden")
     return mandate.id
 
 
@@ -843,8 +843,8 @@ def create_kyc_confirmation(
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_PEP_INCONSISTENT",
             "message": (
-                "Die Sorgfaltspflicht-Erfassung fuehrt den Kunden als PEP; die "
-                "KYC-Bestaetigung muss PEP = ja ausweisen oder die Erfassung "
+                "Die Sorgfaltspflicht-Erfassung führt den Kunden als PEP; die "
+                "KYC-Bestätigung muss PEP = ja ausweisen oder die Erfassung "
                 "ist zuerst zu korrigieren."
             ),
         })
@@ -904,12 +904,12 @@ def approve_kyc_confirmation(
         KycConfirmation.client_id == client_id,
     ).first()
     if record is None:
-        raise HTTPException(status_code=404, detail="KYC-Bestaetigung nicht gefunden")
+        raise HTTPException(status_code=404, detail="KYC-Bestätigung nicht gefunden")
     if not _kyc_requires_second_approval(record):
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_SECOND_APPROVAL_NOT_REQUIRED",
             "message": (
-                "Diese Bestaetigung (kein PEP, normales Risiko, keine Herabstufung) "
+                "Diese Bestätigung (kein PEP, normales Risiko, keine Herabstufung) "
                 "braucht keine Freigabe."
             ),
         })
@@ -922,13 +922,13 @@ def approve_kyc_confirmation(
         KycConfirmationApproval.confirmation_id == record.id
     ).first()
     if existing is not None:
-        raise HTTPException(status_code=409, detail="KYC-Bestaetigung ist bereits freigegeben")
+        raise HTTPException(status_code=409, detail="KYC-Bestätigung ist bereits freigegeben")
     if db.query(KycConfirmationRejection).filter(
         KycConfirmationRejection.confirmation_id == record.id
     ).first() is not None:
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_SECOND_APPROVAL_ALREADY_DECIDED",
-            "message": "Die Zweitfreigabe wurde abgelehnt; es braucht eine neue Bestaetigung.",
+            "message": "Die Zweitfreigabe wurde abgelehnt; es braucht eine neue Bestätigung.",
         })
     _assert_latest_confirmation(db, record)
     now = _now()
@@ -1071,11 +1071,11 @@ def decide_kyc_second_approval(
     tenant_id = _approver_tenant(current_user)
     record = db.query(KycConfirmation).filter(KycConfirmation.id == confirmation_id).first()
     if record is None or not _tenant_matches(record.tenant_id, tenant_id):
-        raise HTTPException(status_code=404, detail="KYC-Bestaetigung nicht gefunden")
+        raise HTTPException(status_code=404, detail="KYC-Bestätigung nicht gefunden")
     if not _kyc_requires_second_approval(record):
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_SECOND_APPROVAL_NOT_REQUIRED",
-            "message": "Diese Bestaetigung braucht keine Freigabe.",
+            "message": "Diese Bestätigung braucht keine Freigabe.",
         })
     if same_person(db, record.recorded_by, current_user.id):
         raise HTTPException(status_code=403, detail={
@@ -1087,20 +1087,20 @@ def decide_kyc_second_approval(
     if _decided(db, record.id):
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_SECOND_APPROVAL_ALREADY_DECIDED",
-            "message": "Ueber diese Bestaetigung wurde bereits entschieden.",
+            "message": "Über diese Bestätigung wurde bereits entschieden.",
         })
     history = _latest_by_client(db, tenant_id).get(record.client_id, [])
     if not history or history[0].id != record.id:
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_APPROVAL_SUPERSEDED",
-            "message": "Fuer den Kunden liegt eine neuere Bestaetigung vor.",
+            "message": "Für den Kunden liegt eine neuere Bestätigung vor.",
         })
     if body.confirmation_hash != record.confirmation_hash or (
         _row_seal(record, "confirmation_hash") != record.confirmation_hash
     ):
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_APPROVAL_HASH_MISMATCH",
-            "message": "Der bestaetigte Pruefwert stimmt nicht mit der Bestaetigung ueberein.",
+            "message": "Der bestätigte Prüfwert stimmt nicht mit der Bestätigung überein.",
         })
     now = _now()
     if body.decision == "approve":
@@ -1127,7 +1127,7 @@ def decide_kyc_second_approval(
         raise_if_check_violation(exc)
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_SECOND_APPROVAL_ALREADY_DECIDED",
-            "message": "Ueber diese Bestaetigung wurde gleichzeitig entschieden.",
+            "message": "Über diese Bestätigung wurde gleichzeitig entschieden.",
         }) from exc
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name=entry.__tablename__, record_id=entry.id, action="CREATE",
@@ -1338,7 +1338,7 @@ def _client_wealth_totals(db, client_id, mandate_id, target_currency, current_us
     if mandate_id:
         mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
         if str(mandate.client_id) != str(client_id):
-            raise HTTPException(status_code=404, detail="Mandat gehoert nicht zu diesem Kunden.")
+            raise HTTPException(status_code=404, detail="Mandat gehört nicht zu diesem Kunden.")
         mandate_currency = normalize_currency(mandate.base_currency)
         tenant_id = getattr(mandate, "tenant_id", None) or tenant_id
     mandates = db.query(Mandate).filter(
@@ -1418,7 +1418,7 @@ def _client_amount_basis(db, client_id, mandate_id, target_currency, currencies,
     if mandate_id:
         mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
         if str(mandate.client_id) != str(client_id):
-            raise HTTPException(status_code=404, detail="Mandat gehoert nicht zu diesem Kunden.")
+            raise HTTPException(status_code=404, detail="Mandat gehört nicht zu diesem Kunden.")
         summary_currency = normalize_currency(mandate.base_currency)
         tenant_id = getattr(mandate, "tenant_id", None) or tenant_id
     elif target_currency:
@@ -1428,8 +1428,8 @@ def _client_amount_basis(db, client_id, mandate_id, target_currency, currencies,
     else:
         raise DomainError(
             ReasonCode.CCX_FX_BASIS_MISMATCH,
-            "Die Betraege liegen in verschiedenen Waehrungen vor; fuer eine Summe ist ein "
-            "Mandatskontext (mandate_id) oder eine Zielwaehrung (target_currency) erforderlich.",
+            "Die Beträge liegen in verschiedenen Währungen vor; für eine Summe ist ein "
+            "Mandatskontext (mandate_id) oder eine Zielwährung (target_currency) erforderlich.",
             extra={"currencies": sorted(currencies)},
         )
     basis = load_fx_basis(db, summary_currency or "CHF", currencies - {""}, tenant_id=tenant_id)
@@ -1610,7 +1610,7 @@ def cashflow_projection(
         )
         raise DomainError(
             ReasonCode.CCX_FX_BASIS_MISSING,
-            f"Vermoegenszufluss ohne Waehrung: {names}. Bitte die Waehrung erfassen -- sie wird nie geraten.",
+            f"Vermögenszufluss ohne Währung: {names}. Bitte die Währung erfassen -- sie wird nie geraten.",
             extra={"inflows": [
                 {"id": str(i.id), "label": getattr(i, "label", None), "expected_year": getattr(i, "expected_year", None)}
                 for i in missing_ccy
@@ -1821,7 +1821,7 @@ def create_client_login(
         ClientLogin.is_active == 1,
     ).first()
     if existing_link:
-        raise HTTPException(status_code=409, detail="Fuer diesen Kunden existiert bereits ein aktiver Login")
+        raise HTTPException(status_code=409, detail="Für diesen Kunden existiert bereits ein aktiver Login")
 
     now = _now()
     full_name = str(body.get("full_name") or "").strip() or f"{client.first_name} {client.last_name}".strip()
@@ -1906,9 +1906,9 @@ def export_data(
     raise HTTPException(status_code=409, detail={
         "reason_code": ReasonCode.SUBJECT_REQUEST_REQUIRED.value,
         "message": (
-            "Der direkte Datenexport ist stillgelegt. Auskunft und Herausgabe laufen ueber "
+            "Der direkte Datenexport ist stillgelegt. Auskunft und Herausgabe laufen über "
             "eine Betroffenenanfrage (Datenschutz > Betroffenenanfragen): Eingang erfassen, "
-            "Identitaet pruefen, entscheiden, dann ueber den Fall exportieren und die "
+            "Identität prüfen, entscheiden, dann über den Fall exportieren und die "
             "Zustellung nachweisen."
         ),
         "workflow": "/privacy/subject-requests",

@@ -508,7 +508,7 @@ def require_strategy_ready_assessment(db: Session, mandate_id: str) -> RiskAsses
     )
     if not risk_assessment_ready_for_strategy(assessment):
         raise ValueError(
-            "Risikoprofil unvollstaendig. Bitte Fragebogen vollstaendig ausfuellen und erneut speichern."
+            "Risikoprofil unvollständig. Bitte Fragebogen vollständig ausfüllen und erneut speichern."
         )
     return assessment
 
@@ -549,17 +549,17 @@ def _allocation_snapshot_preferences(allocation: TargetAllocation | None) -> dic
         return None
     if not str(raw).strip():
         raise ValueError(
-            "Persistierte Allocation-Praeferenzen enthalten kein gueltiges JSON."
+            "Persistierte Allocation-Präferenzen enthalten kein gültiges JSON."
         )
     try:
         parsed = json.loads(str(raw))
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
         raise ValueError(
-            "Persistierte Allocation-Praeferenzen enthalten kein gueltiges JSON."
+            "Persistierte Allocation-Präferenzen enthalten kein gültiges JSON."
         ) from exc
     if not isinstance(parsed, dict):
         raise ValueError(
-            "Persistierte Allocation-Praeferenzen muessen ein JSON-Objekt sein."
+            "Persistierte Allocation-Präferenzen müssen ein JSON-Objekt sein."
         )
     return parsed
 
@@ -696,9 +696,9 @@ def _convert_position_value_to_target_currency(
     except (ValueError, AttributeError) as exc:
         label = str(getattr(pos, "label", "") or "").strip()
         raise ValueError(
-            f"Keine gueltige FX-Rate fuer Position '{label or pos_currency}' "
+            f"Keine gültige FX-Rate für Position '{label or pos_currency}' "
             f"({pos_currency}->{target}); eine stille 1:1-Konvertierung ist "
-            "nicht zulaessig."
+            "nicht zulässig."
         ) from exc
 
 
@@ -802,12 +802,12 @@ def _effective_fx_rate_signature(
             rate = float(fx_source.cross_rate(currency, target))
         except (ValueError, AttributeError) as exc:
             raise ValueError(
-                f"Keine gueltige FX-Rate fuer {currency}->{target}; der "
+                f"Keine gültige FX-Rate für {currency}->{target}; der "
                 "Projektionskontext kann nicht kanonisch gebildet werden."
             ) from exc
         if not math.isfinite(rate) or rate <= 0.0:
             raise ValueError(
-                f"Ungueltige FX-Rate fuer {currency}->{target}: {rate}."
+                f"Ungültige FX-Rate für {currency}->{target}: {rate}."
             )
         signature.append([currency, int(round(rate * 100_000_000))])
     return signature
@@ -888,7 +888,7 @@ def _parse_strict_model_date(value, *, label: str) -> date | None:
     try:
         return date.fromisoformat(raw[:10])
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"{label}: ungueltiges ISO-Datum {value!r}.") from exc
+        raise ValueError(f"{label}: ungültiges ISO-Datum {value!r}.") from exc
 
 
 def _validate_active_cashflow_inputs(cashflows: list) -> None:
@@ -942,7 +942,7 @@ def _validate_active_cashflow_inputs(cashflows: list) -> None:
             valid_from or valid_until
         ):
             raise ValueError(
-                f"Cashflow '{label}': einmalige Cashflows benoetigen ein Datum."
+                f"Cashflow '{label}': einmalige Cashflows benötigen ein Datum."
             )
 
 
@@ -1117,7 +1117,7 @@ def _build_external_goal_funding_series(
 
         raise OptimizerInputError(
             "Die externe Foundation-Serie deckt den Optimizer-Horizont nicht "
-            "vollstaendig ab."
+            "vollständig ab."
         )
     pension_series = pension_series_for_horizon(external_foundation_projection, required_length)
     gross_start = max(0, int(external_gross_assets_rappen or 0))
@@ -1406,7 +1406,7 @@ def _resolve_jurisdiction_context(db: Session, mandate: Mandate, jurisdiction: s
         home_currency = str(getattr(profile, "home_currency", None) or "").strip().upper()
     if not home_currency:
         raise JurisdictionReferenceDataMissingError(
-            f"Keine Heimwaehrung fuer Jurisdiktion '{jurisdiction}' ermittelbar "
+            f"Keine Heimwährung für Jurisdiktion '{jurisdiction}' ermittelbar "
             "(weder mandate.base_currency noch JurisdictionProfile.home_currency gesetzt)."
         )
 
@@ -1651,15 +1651,15 @@ _ILLIQUID_SUB_ASSET_CLASSES = {"private equity"}
 def _validate_default_products(defaults: list[tuple]) -> None:
     for name, provider, product_type, asset_class, sub_asset_class, currency, ter_bps, sfdr_class, esg_rating in defaults:
         if product_type not in ALLOWED_PRODUCT_TYPES:
-            raise ValueError(f"Unzulaessiger Produkt-Typ fuer {name}: {product_type}.")
+            raise ValueError(f"Unzulässiger Produkt-Typ für {name}: {product_type}.")
         if asset_class not in ALLOWED_PRODUCT_ASSET_CLASSES:
-            raise ValueError(f"Unzulaessige Asset-Klasse fuer {name}: {asset_class}.")
+            raise ValueError(f"Unzulässige Asset-Klasse für {name}: {asset_class}.")
         if currency and len(str(currency)) != 3:
-            raise ValueError(f"Unzulaessige Waehrung fuer {name}: {currency}.")
+            raise ValueError(f"Unzulässige Währung für {name}: {currency}.")
         if sfdr_class and sfdr_class not in ("6", "8", "9"):
-            raise ValueError(f"Unzulaessige SFDR-Klasse fuer {name}: {sfdr_class}.")
+            raise ValueError(f"Unzulässige SFDR-Klasse für {name}: {sfdr_class}.")
         if ter_bps is not None and int(ter_bps) < 0:
-            raise ValueError(f"Negativer TER fuer {name}: {ter_bps}.")
+            raise ValueError(f"Negativer TER für {name}: {ter_bps}.")
 
 
 def ensure_runtime_reference_data(
@@ -1726,10 +1726,10 @@ def ensure_runtime_reference_data(
     policy = policy_candidates[0] if policy_candidates else None
     if policy is None:
         raise JurisdictionReferenceDataMissingError(
-            "Keine globale OptimizerPolicy vorhanden -- fuer Jurisdiktion "
+            "Keine globale OptimizerPolicy vorhanden -- für Jurisdiktion "
             f"'{jurisdiction}' kann ensure_runtime_reference_data() keine eigene "
             "Policy erzeugen (policy bleibt in dieser Ausbaustufe die globale, "
-            "jurisdiktionsunabhaengige Policy; siehe WP2-Doku)."
+            "jurisdiktionsunabhängige Policy; siehe WP2-Doku)."
         )
     cma = resolve_cma_for_jurisdiction(
         db, jurisdiction, require_committee_approved=False, tenant_id=tenant_id,
@@ -1820,7 +1820,7 @@ def _ensure_runtime_reference_data_ch(
         if settings.app_env == "production":
             raise JurisdictionReferenceDataMissingError(
                 "In Produktion fehlen freigegebene OptimizerPolicy-"
-                "Referenzdaten. Runtime-Autoseeding ist nicht zulaessig."
+                "Referenzdaten. Runtime-Autoseeding ist nicht zulässig."
             )
         policy = OptimizerPolicy(
             id=new_uuid(),
@@ -1855,7 +1855,7 @@ def _ensure_runtime_reference_data_ch(
         if settings.app_env == "production":
             raise JurisdictionReferenceDataMissingError(
                 "In Produktion fehlt eine aktuelle CH-CMA. Runtime-"
-                "Autoseeding mit Hausannahmen ist nicht zulaessig."
+                "Autoseeding mit Hausannahmen ist nicht zulässig."
             )
         cma = CapitalMarketAssumption(
             id=new_uuid(),
@@ -2837,7 +2837,7 @@ def _compute_input_snapshot_hash(
             INPUT_SNAPSHOT_VERSION_FX_EFFECTIVE,
         }
     ):
-        raise ValueError("Unbekannte oder unvollstaendige Snapshot-Version.")
+        raise ValueError("Unbekannte oder unvollständige Snapshot-Version.")
     if effective_snapshot_version == INPUT_SNAPSHOT_VERSION_FX_EFFECTIVE:
         projection_context = fx_freshness_projection_context(projection_context)
     goal_encoder = (
@@ -3329,7 +3329,7 @@ def generate_target_allocation(
         for bucket, cap_bps in global_caps_bps.items():
             if int(optimizer_minimums[bucket]) > cap_bps:
                 raise OptimizerInputError(
-                    f"Die Mindestquote fuer {bucket} ueberschreitet die "
+                    f"Die Mindestquote für {bucket} überschreitet die "
                     f"globale Obergrenze ({optimizer_minimums[bucket]} > "
                     f"{cap_bps} bps)."
                 )
@@ -3341,7 +3341,7 @@ def generate_target_allocation(
         global_liquidity_floor_bps = int(round(MIN_LIQUIDITY * 10000))
         if int(optimizer_maximums["liquidity"]) < global_liquidity_floor_bps:
             raise OptimizerInputError(
-                "Die Liquiditaets-Obergrenze liegt unter der globalen "
+                "Die Liquiditäts-Obergrenze liegt unter der globalen "
                 f"Mindestquote ({optimizer_maximums['liquidity']} < "
                 f"{global_liquidity_floor_bps} bps)."
             )
@@ -3395,7 +3395,7 @@ def generate_target_allocation(
             from services.optimizer.constraints import OptimizerInputError
 
             raise OptimizerInputError(
-                "Die explizite Liquiditaets-Obergrenze ist mit der zwingend "
+                "Die explizite Liquiditäts-Obergrenze ist mit der zwingend "
                 "vorzuhaltenden internen Reserve nicht vereinbar."
             )
         # A House cap expressed on the original advisory base may need a small
@@ -3605,8 +3605,8 @@ def generate_target_allocation(
         from services.optimizer.constraints import OptimizerInputError
 
         raise OptimizerInputError(
-            "Der validierte stochastische Kandidat musste nachtraeglich "
-            "rebalanciert werden; die Allocation wird aus Konsistenzgruenden "
+            "Der validierte stochastische Kandidat musste nachträglich "
+            "rebalanciert werden; die Allocation wird aus Konsistenzgründen "
             "nicht persistiert."
         )
     if apply_stochastic and optimizer_sub_allocation_plan is not None:
@@ -3726,7 +3726,7 @@ def generate_target_allocation(
                         "Der House-Matrix-Fallback kann das im stochastischen "
                         "Run-Context harte Risikobudget innerhalb der effektiven "
                         "Mandatsgrenzen nicht einhalten. Es wird keine fachlich "
-                        "ungueltige Empfehlung persistiert."
+                        "ungültige Empfehlung persistiert."
                     )
                 # Stufe 2: Cap auf SAA-Hard-Cap (3%)
                 hard_capped = max(
@@ -4410,12 +4410,12 @@ def evaluate_goal_sensitivity(
         )
     if target_delta_pct not in (-20, -10, 0, 10, 20):
         raise ValueError(
-            f"target_delta_pct {target_delta_pct} ungueltig "
+            f"target_delta_pct {target_delta_pct} ungültig "
             "(erlaubt: -20, -10, 0, 10, 20)."
         )
     if horizon_delta_years < -10 or horizon_delta_years > 10:
         raise ValueError(
-            f"horizon_delta_years {horizon_delta_years} ungueltig "
+            f"horizon_delta_years {horizon_delta_years} ungültig "
             "(erlaubt: -10..+10)."
         )
 
@@ -4648,10 +4648,10 @@ def evaluate_goal_sensitivity(
         # Fail-closed statt den Cube still zu verlaengern -- ein
         # schritt-abhaengiger Horizont waere genau der Befund zurueck.
         raise ValueError(
-            f"Sensitivitaets-Horizont {modified_run_horizon_requested} "
-            f"ueberschreitet den gemeinsamen Szenario-Horizont "
+            f"Sensitivitäts-Horizont {modified_run_horizon_requested} "
+            f"überschreitet den gemeinsamen Szenario-Horizont "
             f"{projection_horizon}; MAX_SENSITIVITY_HORIZON_DELTA_YEARS "
-            "(schemas/allocation.py) und die Eingabepruefung des "
+            "(schemas/allocation.py) und die Eingabeprüfung des "
             "Horizont-Deltas sind nicht mehr konsistent."
         )
     if len(natural_cashflow_series) < projection_horizon:
@@ -4880,7 +4880,7 @@ def evaluate_goal_sensitivity(
         for bucket, cap_bps in global_caps_bps.items():
             if int(live_minimums[bucket]) > cap_bps:
                 raise OptimizerInputError(
-                    f"Die Mindestquote fuer {bucket} ueberschreitet die "
+                    f"Die Mindestquote für {bucket} überschreitet die "
                     f"globale Obergrenze ({live_minimums[bucket]} > "
                     f"{cap_bps} bps)."
                 )
@@ -4891,7 +4891,7 @@ def evaluate_goal_sensitivity(
         global_liquidity_floor_bps = int(round(MIN_LIQUIDITY * 10000))
         if int(live_maximums["liquidity"]) < global_liquidity_floor_bps:
             raise OptimizerInputError(
-                "Die Liquiditaets-Obergrenze liegt unter der globalen "
+                "Die Liquiditäts-Obergrenze liegt unter der globalen "
                 f"Mindestquote ({live_maximums['liquidity']} < "
                 f"{global_liquidity_floor_bps} bps)."
             )
@@ -4941,7 +4941,7 @@ def evaluate_goal_sensitivity(
                 and reserve_floor_bps > int(explicit_liquidity_max)
             ):
                 raise OptimizerInputError(
-                    "Die explizite Liquiditaets-Obergrenze ist mit der "
+                    "Die explizite Liquiditäts-Obergrenze ist mit der "
                     "zwingend vorzuhaltenden internen Reserve nicht "
                     "vereinbar."
                 )
@@ -5471,8 +5471,8 @@ def build_target_payload_from_allocation(
         modern_context and not snapshot_cma_id
     ):
         raise ValueError(
-            "Die moderne Soll-Allokation besitzt keinen unveraenderlichen "
-            "CMA-Snapshot-Anker; aktuelle Ersatzannahmen sind unzulaessig."
+            "Die moderne Soll-Allokation besitzt keinen unveränderlichen "
+            "CMA-Snapshot-Anker; aktuelle Ersatzannahmen sind unzulässig."
         )
     if snapshot_cma_id:
         snapshot_cma = db.query(CapitalMarketAssumption).filter(
@@ -5482,7 +5482,7 @@ def build_target_payload_from_allocation(
         if snapshot_cma is None:
             raise ValueError(
                 "Die von der Soll-Allokation referenzierte CMA ist nicht mehr "
-                "verfuegbar; eine Analyse mit aktuellen Ersatzannahmen ist "
+                "verfügbar; eine Analyse mit aktuellen Ersatzannahmen ist "
                 "unzulässig. Bitte Strategie neu berechnen."
             )
         cma = snapshot_cma
@@ -6306,7 +6306,7 @@ def _implementation_metrics(target_payload: dict, cma: CapitalMarketAssumption, 
         },
         "warning": (
             f"Kennzahlen der Umsetzung weichen von der SAA ab (Produktersatz, abweichende Sub-Klassen: {', '.join(deviating)}). "
-            "Erwartete Rendite und Volatilitaet beschreiben das umgesetzte Portfolio; die SAA-Kennzahlen sind separat ausgewiesen."
+            "Erwartete Rendite und Volatilität beschreiben das umgesetzte Portfolio; die SAA-Kennzahlen sind separat ausgewiesen."
             + (f" Hinweis:{caveat}; die Kennzahlen sind darauf nicht normiert." if caveat else "")
         ) if deviating else None,
     }
@@ -6334,13 +6334,13 @@ def build_recommendation_payload_from_run(
         if allocation is None:
             raise ValueError(
                 "Die im RecommendationRun verankerte Soll-Allokation fehlt "
-                "oder ist geloescht; ein Austausch durch die aktuelle "
-                "Allokation ist unzulaessig."
+                "oder ist gelöscht; ein Austausch durch die aktuelle "
+                "Allokation ist unzulässig."
             )
     else:
         allocation = _current_target_allocation_or_none(db, mandate.id)
     if not allocation:
-        raise ValueError("Keine aktuelle Soll-Allokation fuer dieses Mandat gefunden.")
+        raise ValueError("Keine aktuelle Soll-Allokation für dieses Mandat gefunden.")
 
     assessment_id = str(getattr(run, "assessment_id", "") or "").strip()
     if assessment_id:
@@ -6352,7 +6352,7 @@ def build_recommendation_payload_from_run(
     else:
         assessment = _current_risk_assessment_or_none(db, mandate.id)
     if not assessment:
-        raise ValueError("Der RecommendationRun referenziert kein gueltiges Risikoprofil.")
+        raise ValueError("Der RecommendationRun referenziert kein gültiges Risikoprofil.")
 
     policy_id = str(getattr(run, "policy_id", "") or allocation.policy_id or "").strip()
     if policy_id != str(allocation.policy_id):
@@ -6376,7 +6376,7 @@ def build_recommendation_payload_from_run(
         if cma is None:
             raise ValueError("Die im RecommendationRun verankerte CMA fehlt.")
     elif getattr(allocation, "input_snapshot_hash", None):
-        raise ValueError("Ein modern verankerter RecommendationRun benoetigt eine CMA-ID.")
+        raise ValueError("Ein modern verankerter RecommendationRun benötigt eine CMA-ID.")
     else:
         cma = current_cma
     allocation_assessment_id = str(
@@ -6628,7 +6628,7 @@ def generate_recommendation_run(
         if allocation is None:
             raise ValueError(
                 "Die explizit angeforderte Soll-Allokation wurde nicht gefunden, "
-                "gehoert nicht zu diesem Mandat oder ist geloescht."
+                "gehört nicht zu diesem Mandat oder ist gelöscht."
             )
         if int(getattr(allocation, "is_current", 0) or 0) != 1:
             raise ValueError(
@@ -6661,7 +6661,7 @@ def generate_recommendation_run(
             if allocation_cma is None:
                 raise ValueError(
                     "Die von der Soll-Allokation referenzierte CMA ist nicht mehr "
-                    "verfuegbar; bitte Strategie neu berechnen."
+                    "verfügbar; bitte Strategie neu berechnen."
                 )
             cma = allocation_cma
         else:
@@ -6684,7 +6684,7 @@ def generate_recommendation_run(
             raise ValueError(
                 "Die Soll-Allokation referenziert keine Kapitalmarktannahmen "
                 "(CMA); eine Empfehlung kann daraus nicht erzeugt werden. "
-                "Bitte Strategie neu berechnen oder eine vollstaendige "
+                "Bitte Strategie neu berechnen oder eine vollständige "
                 "Soll-Allokation speichern."
             )
         based_on_assessment_id = str(
@@ -6738,7 +6738,7 @@ def generate_recommendation_run(
             "jurisdiction": jurisdiction,
             "cma_status": getattr(cma, "status", None),
             "message": (
-                f"Kapitalmarktannahmen fuer Jurisdiktion '{jurisdiction}' sind noch nicht "
+                f"Kapitalmarktannahmen für Jurisdiktion '{jurisdiction}' sind noch nicht "
                 "vom Investment Committee freigegeben (status="
                 f"{getattr(cma, 'status', None)!r}). Diese Empfehlung ist PROVISORISCH und "
                 "darf ohne IC-Freigabe nicht als finales Kundendokument verwendet werden."
@@ -6898,9 +6898,9 @@ def generate_recommendation_run(
                 for item in missing_sub_classes
             )
             raise ValueError(
-                f"Produktselektion unvollstaendig: kein passendes Produkt fuer "
+                f"Produktselektion unvollständig: kein passendes Produkt für "
                 f"{len(missing_sub_classes)} Sub-Klassen ({details}). "
-                f"Gesamt-Luecke: {total_missing_bps/100:.1f}%. "
+                f"Gesamt-Lücke: {total_missing_bps/100:.1f}%. "
                 f"Bitte Produktuniversum erweitern oder Restriktionen "
                 f"(chf_only, hedgingRequired, noStructured, noLeverage, ESG, "
                 f"Themen-Ausschluss/-Untergewichtung) lockern."

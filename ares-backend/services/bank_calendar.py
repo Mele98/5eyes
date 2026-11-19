@@ -21,7 +21,7 @@ WEEKEND_ONLY_CALENDAR_ID = "weekend-only/v1"
 
 HOLIDAYS_NOT_MODELLED_NOTE = (
     "Bankfeiertage sind nicht modelliert (nur Wochenenden). Owner-Entscheid "
-    "offen: Feiertagskalender und Quelle festlegen. Ein Feiertag zaehlt bis "
+    "offen: Feiertagskalender und Quelle festlegen. Ein Feiertag zählt bis "
     "dahin als Bankarbeitstag; die Frische wird dadurch eher strenger beurteilt."
 )
 

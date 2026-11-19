@@ -88,7 +88,7 @@ def currency_exponent(currency: str) -> int:
     if code not in CURRENCY_EXPONENTS:
         raise FxBasisError(
             ReasonCode.CCX_FX_BASIS_MISSING,
-            f"Fuer die Waehrung {code or '(leer)'} ist kein Minor-Unit-Exponent hinterlegt.",
+            f"Für die Währung {code or '(leer)'} ist kein Minor-Unit-Exponent hinterlegt.",
             extra={"currencies": [code]},
         )
     return CURRENCY_EXPONENTS[code]
@@ -211,7 +211,7 @@ class FxBasis:
         if quote is None:
             raise FxBasisError(
                 ReasonCode.CCX_FX_BASIS_MISSING,
-                f"Fuer {currency} liegt kein belegter Kurs vor; ohne Kurs wird nicht addiert.",
+                f"Für {currency} liegt kein belegter Kurs vor; ohne Kurs wird nicht addiert.",
                 extra={"currencies": [currency], "fx_basis_hash": self.fx_basis_hash},
             )
         return int(quote.rate_x10000)
@@ -223,7 +223,7 @@ class FxBasis:
         if not source:
             raise FxBasisError(
                 ReasonCode.CCX_FX_BASIS_MISSING,
-                "Ein Betrag ohne Waehrung kann nicht umgerechnet werden; die Waehrung wird nie geraten.",
+                "Ein Betrag ohne Währung kann nicht umgerechnet werden; die Währung wird nie geraten.",
                 extra={"currencies": [""], "fx_basis_hash": self.fx_basis_hash},
             )
         amount = int(amount_minor or 0)
@@ -244,7 +244,7 @@ class FxBasis:
             pivot = self.statuses.get(target, STATUS_MISSING)
             raise FxBasisError(
                 status_reason(pivot),
-                f"Der Kurs der Zielwaehrung {target} ist nicht verwendbar ({pivot}).",
+                f"Der Kurs der Zielwährung {target} ist nicht verwendbar ({pivot}).",
                 extra={"currencies": [target], "fx_basis_hash": self.fx_basis_hash},
             )
         rate_from = self._rate_x10000(source)
@@ -280,7 +280,7 @@ class FxBasis:
         if code == FX_BASE_CURRENCY:
             return 1.0
         if code != self.target_currency and self.status(code) != STATUS_OK:
-            raise ValueError(f"Kein verwendbarer Kurs fuer {code} ({self.status(code)}).")
+            raise ValueError(f"Kein verwendbarer Kurs für {code} ({self.status(code)}).")
         return self._rate_x10000(code) / CHF_UNIT_X10000
 
     def cross_rate(self, from_currency: str, to_currency: str) -> float:
@@ -289,7 +289,7 @@ class FxBasis:
     def convert_storage_amount(self, amount_minor: int, source_currency: str, target_currency: str) -> int:
         """Duck-Typing zu ``FXRateSource.convert_storage_amount`` (strikt)."""
         if normalize_currency(target_currency) != self.target_currency:
-            raise ValueError("FxBasis: andere Zielwaehrung als die gebundene Basis")
+            raise ValueError("FxBasis: andere Zielwährung als die gebundene Basis")
         try:
             return self.convert(int(amount_minor or 0), source_currency).converted_amount_minor
         except FxBasisError as exc:
@@ -401,7 +401,7 @@ def load_quotes(db: Any, currencies: Iterable[Any]) -> dict[str, FxQuote | None]
         if currency in seen:
             raise FxBasisError(
                 ReasonCode.CCX_FX_BASIS_MISMATCH,
-                f"Mehrere aktive Kurse fuer {currency}; die FX-Basis ist nicht eindeutig.",
+                f"Mehrere aktive Kurse für {currency}; die FX-Basis ist nicht eindeutig.",
                 extra={"currencies": [currency]},
             )
         seen.add(currency)
@@ -454,7 +454,7 @@ def assert_same_fx_basis(expected_hash: str | None, basis: FxBasis) -> None:
     if expected_hash and expected_hash != basis.fx_basis_hash:
         raise FxBasisError(
             ReasonCode.CCX_FX_BASIS_MISMATCH,
-            "Die FX-Basis hat sich gegenueber der gebundenen Basis geaendert.",
+            "Die FX-Basis hat sich gegenüber der gebundenen Basis geändert.",
             extra={"expected_fx_basis_hash": expected_hash, "fx_basis_hash": basis.fx_basis_hash},
         )
 
@@ -562,9 +562,9 @@ def client_base_currency(mandates: Iterable[Any]) -> str:
     if len(currencies) != 1:
         raise DomainError(
             ReasonCode.CCX_FX_BASIS_MISMATCH,
-            "Die Vermoegenspositionen liegen in verschiedenen Waehrungen vor und der Kunde hat "
-            "keine eindeutige Mandatswaehrung; fuer eine Summe ist ein Mandatskontext "
-            "(mandate_id) oder eine Zielwaehrung (target_currency) erforderlich.",
+            "Die Vermögenspositionen liegen in verschiedenen Währungen vor und der Kunde hat "
+            "keine eindeutige Mandatswährung; für eine Summe ist ein Mandatskontext "
+            "(mandate_id) oder eine Zielwährung (target_currency) erforderlich.",
             extra={"currencies": sorted(currencies)},
         )
     return next(iter(currencies))

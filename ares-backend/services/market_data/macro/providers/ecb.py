@@ -49,7 +49,7 @@ class ECBMacroProvider(MacroProvider):
             raise ProviderError(f"ECB series_code muss Format 'DATAFLOW.SERIES_KEY' haben: {sc}")
         dataflow, _, key = sc.partition(".")
         if not dataflow or not key:
-            raise ProviderError(f"ECB series_code unvollstaendig: {sc}")
+            raise ProviderError(f"ECB series_code unvollständig: {sc}")
         return dataflow, key
 
     def _http_get(self, dataflow: str, series_key: str, params: dict[str, str]) -> dict:

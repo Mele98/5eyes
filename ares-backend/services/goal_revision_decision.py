@@ -443,7 +443,7 @@ def record_goal_revision_decision(
         validate_override_reason_quality(reason)
     except OverrideReasonQualityError as exc:
         raise GoalRevisionError(
-            str(exc).replace("override_reason", "Begruendung"),
+            str(exc).replace("override_reason", "Begründung"),
             reason_code=f"reason_{exc.reason_code}", status_code=422,
         ) from exc
 
@@ -457,19 +457,19 @@ def record_goal_revision_decision(
     evidence = engine_evidence_for_goal(allocation, str(goal.id))
     if evidence is None:
         raise GoalRevisionError(
-            "Fuer dieses Ziel liegt keine Engine-Auswertung der aktuellen "
+            "Für dieses Ziel liegt keine Engine-Auswertung der aktuellen "
             "Strategie vor. Bitte die Strategie neu berechnen.",
             reason_code="evidence_missing",
         )
     if evidence.get("goal_snapshot_hash") != snapshot_hash:
         raise GoalRevisionError(
-            "Das Ziel wurde seit der letzten Strategie-Berechnung geaendert. "
+            "Das Ziel wurde seit der letzten Strategie-Berechnung geändert. "
             "Bitte die Strategie neu berechnen.",
             reason_code="evidence_stale",
         )
     if not evidence.get("revision_suggested"):
         raise GoalRevisionError(
-            "Die Engine schlaegt fuer dieses Ziel keine Einstufung als "
+            "Die Engine schlägt für dieses Ziel keine Einstufung als "
             "nachrangiges Wunschziel vor.",
             reason_code="not_suggested",
         )

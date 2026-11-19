@@ -42,9 +42,9 @@ LEGACY_SNAPSHOT_WARNING = (
     "an die Strategie gebunden. Bitte Strategie neu berechnen."
 )
 INHERITED_PREFERENCES_NOTE = (
-    "Neuberechnung ohne mitgesendete Praeferenzen: die festgehaltenen "
-    "Praeferenzen der bisherigen Soll-Allokation (inkl. ESG-Vorgaben) wurden "
-    "unveraendert uebernommen."
+    "Neuberechnung ohne mitgesendete Präferenzen: die festgehaltenen "
+    "Präferenzen der bisherigen Soll-Allokation (inkl. ESG-Vorgaben) wurden "
+    "unverändert übernommen."
 )
 
 
@@ -324,7 +324,7 @@ class ThemeGapDiagnosis:
     def raise_if_blocked(missing_sub_classes: list[dict]) -> None:
         theme_blocked = [item for item in missing_sub_classes if item.get("theme_gap_hint")]
         if theme_blocked:
-            raise ThemeClassificationMissingError(theme_blocked, "Produktselektion unvollstaendig: " + "; ".join(
+            raise ThemeClassificationMissingError(theme_blocked, "Produktselektion unvollständig: " + "; ".join(
                 f"{item['sub_asset_class']} ({item['target_weight_bps']/100:.1f}%): {item['theme_gap_hint']}"
                 for item in theme_blocked
             ) + ". Themen-Zuordnung im Produktkatalog pflegen oder ein klassifiziertes Produkt erfassen.")

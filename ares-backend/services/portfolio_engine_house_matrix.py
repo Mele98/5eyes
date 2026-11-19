@@ -291,9 +291,9 @@ def _apply_band_preferences(
         minimum, maximum = minimums[key], maximums[key]
         if minimum < 0 or maximum > 10000:
             raise AllocationInputError(
-                f"Bandbreiten fuer {BUCKET_LABELS[key]} sind ungueltig: "
+                f"Bandbreiten für {BUCKET_LABELS[key]} sind ungültig: "
                 f"Minimum {_band_pct(minimum)} % / Maximum {_band_pct(maximum)} % "
-                "(zulaessig 0 % bis 100 %)."
+                "(zulässig 0 % bis 100 %)."
             )
         if minimum > maximum:
             # F-BAND-3: benennen, woher jede der beiden Grenzen stammt -- ein
@@ -317,8 +317,8 @@ def _apply_band_preferences(
                     "die Abweichung von der Hausmatrix wird dann offengelegt."
                 )
             raise AllocationInputError(
-                f"Bandbreiten fuer {BUCKET_LABELS[key]} sind nicht vereinbar: "
-                f"{min_source} von {_band_pct(minimum)} % liegt ueber "
+                f"Bandbreiten für {BUCKET_LABELS[key]} sind nicht vereinbar: "
+                f"{min_source} von {_band_pct(minimum)} % liegt über "
                 f"{max_source} von {_band_pct(maximum)} %.{hint}"
             )
 
@@ -345,7 +345,7 @@ def _apply_band_preferences(
                 "mitsetzen; die Abweichung wird dann offengelegt."
             )
         raise AllocationInputError(
-            f"Das Berater-Ziel fuer {BUCKET_LABELS[key]} von {_band_pct(target)} % "
+            f"Das Berater-Ziel für {BUCKET_LABELS[key]} von {_band_pct(target)} % "
             f"liegt {direction} {_bound_phrase(key, side)} von {_band_pct(bound)} %"
             f"{profile_text if source == 'house' else ''}.{hint}"
         )
@@ -378,7 +378,7 @@ def _apply_band_preferences(
         # partial Soft Preference, which legitimately need not.
         total = sum(int(targets[key]) for key in BUCKET_FIELDS)
         if total != 10000:
-            raise AllocationInputError(f"Mandatsspezifische Zielquoten muessen 100% ergeben (aktuell {total / 100:.2f}%).")
+            raise AllocationInputError(f"Mandatsspezifische Zielquoten müssen 100% ergeben (aktuell {total / 100:.2f}%).")
     reasoning.append("Mandatsspezifische Soll-Quoten und Bandbreiten werden als Simulations-Constraint beruecksichtigt.")
 
     # F-BAND-1: jede Mandatsbandbreite ausserhalb der Hausmatrix-Bandbreite
@@ -443,9 +443,9 @@ def _raise_if_band_envelope_infeasible(
         ]
         raise BandEnvelopeInfeasibleError(
             f"Die Mindestquoten summieren sich auf {_band_pct(total_min)} % "
-            f"({', '.join(parts)}) und uebersteigen 100 %. Bitte die "
+            f"({', '.join(parts)}) und übersteigen 100 %. Bitte die "
             "Berater-Vorgaben so anpassen, dass die Mindestquoten zusammen "
-            "hoechstens 100 % ergeben."
+            "höchstens 100 % ergeben."
         )
 
 
@@ -489,8 +489,8 @@ def apply_house_mode_liquidity_floor(
     advisor_max = probe_max["liquidity"]
     if advisor_max >= 0 and floor_bps > advisor_max:
         raise AllocationInputError(
-            f"Die Berater-Obergrenze fuer Liquiditaet von {_band_pct(advisor_max)} % "
-            f"liegt unter der Liquiditaets-Untergrenze von {_band_pct(floor_bps)} % ({source})."
+            f"Die Berater-Obergrenze für Liquidität von {_band_pct(advisor_max)} % "
+            f"liegt unter der Liquiditäts-Untergrenze von {_band_pct(floor_bps)} % ({source})."
         )
     minimums["liquidity"] = floor_bps
     maximums["liquidity"] = max(int(maximums["liquidity"]), floor_bps)
@@ -540,10 +540,10 @@ def _raise_if_system_liquidity_floor_infeasible(
             "der uebrigen Anlageklassen senken."
         )
     raise BandEnvelopeInfeasibleError(
-        f"Die Liquiditaets-Untergrenze von {_band_pct(minimums['liquidity'])} % "
-        f"({label}) und die Mindestquoten der uebrigen Anlageklassen "
+        f"Die Liquiditäts-Untergrenze von {_band_pct(minimums['liquidity'])} % "
+        f"({label}) und die Mindestquoten der übrigen Anlageklassen "
         f"({others or 'keine'}) ergeben zusammen {_band_pct(total)} % und "
-        f"uebersteigen 100 %. {hint}"
+        f"übersteigen 100 %. {hint}"
     )
 
 
@@ -599,8 +599,8 @@ def raise_if_locked_targets_infeasible(
     )
     raise BandEnvelopeInfeasibleError(
         f"Die fixierten Berater-Ziele ({target_parts}) und die Mindestquoten der "
-        f"uebrigen Anlageklassen ({min_parts or 'keine'}) ergeben zusammen "
-        f"{_band_pct(total)} % und uebersteigen 100 %. Bitte ein Ziel senken oder "
+        f"übrigen Anlageklassen ({min_parts or 'keine'}) ergeben zusammen "
+        f"{_band_pct(total)} % und übersteigen 100 %. Bitte ein Ziel senken oder "
         "eine Mindestquote anpassen."
     )
 
@@ -1525,7 +1525,7 @@ def _enrich_sub_allocations_with_risk(
             from services.optimizer.constraints import OptimizerInputError
 
             raise OptimizerInputError(
-                "Fuer die verwendete Sub-Asset-Klasse fehlt eine gueltige "
+                "Für die verwendete Sub-Asset-Klasse fehlt eine gültige "
                 "BuildingBlock-Risikofraktion (0..10000 bps): "
                 f"{key}."
             )
@@ -1728,8 +1728,8 @@ def _build_sub_allocations(
     is_ch = jurisdiction in (None, "CH")
     if not is_ch and db is None:
         raise ValueError(
-            "_build_sub_allocations() braucht fuer jurisdiction != 'CH' einen "
-            "db-Parameter (fuer resolve_home_bias_defaults())."
+            "_build_sub_allocations() braucht für jurisdiction != 'CH' einen "
+            "db-Parameter (für resolve_home_bias_defaults())."
         )
 
     def _flag_enabled(name: str, default: bool = False) -> bool:
@@ -1738,14 +1738,14 @@ def _build_sub_allocations(
             return default
         if type(value) is not bool:
             raise ValueError(
-                f"Anlagepraeferenz {name} muss true oder false sein; "
+                f"Anlagepräferenz {name} muss true oder false sein; "
                 f"erhalten: {value!r}."
             )
         return value
 
     if "noEm" in geo_prefs and type(geo_prefs["noEm"]) is not bool:
         raise ValueError(
-            "Anlagepraeferenz noEm muss true oder false sein."
+            "Anlagepräferenz noEm muss true oder false sein."
         )
 
     def _append_split(asset_class: str, bucket_weight: int, splits: list[tuple[str, int, str]]):
@@ -1788,12 +1788,12 @@ def _build_sub_allocations(
     if targets["equities"] > 0 and not equities_large_cap:
         if equities_smid:
             raise ValueError(
-                "Anlagepraeferenzen nicht umsetzbar: Aktien Large Cap ist ausgeschaltet, "
-                "aber das aktuelle strategische Universum enthaelt nur einen Small-/Mid-Cap-Satelliten. "
-                "Bitte Large Cap aktivieren oder ein vollstaendiges Small-/Mid-Cap-Universum hinterlegen."
+                "Anlagepräferenzen nicht umsetzbar: Aktien Large Cap ist ausgeschaltet, "
+                "aber das aktuelle strategische Universum enthält nur einen Small-/Mid-Cap-Satelliten. "
+                "Bitte Large Cap aktivieren oder ein vollständiges Small-/Mid-Cap-Universum hinterlegen."
             )
         raise ValueError(
-            "Anlagepraeferenzen unvollstaendig: Bei Aktien muss mindestens ein Segment aktiv sein."
+            "Anlagepräferenzen unvollständig: Bei Aktien muss mindestens ein Segment aktiv sein."
         )
 
     if is_ch:
@@ -1802,11 +1802,11 @@ def _build_sub_allocations(
             "Schweiz Fokus", "Global", "Europa", "Schwellenlaender",
         }:
             raise ValueError(
-                f"Unbekannte CH-Aktienpraeferenz {equities_geo!r}."
+                f"Unbekannte CH-Aktienpräferenz {equities_geo!r}."
             )
         if geo_prefs.get("noEm") and equities_geo == "Schwellenlaender":
             raise ValueError(
-                "Anlagepraeferenzen widerspruechlich: Schwellenlaender-Fokus ist gewaehlt, "
+                "Anlagepräferenzen widersprüchlich: Schwellenländer-Fokus ist gewählt, "
                 "aber Kein EM-Exposure ist aktiv."
             )
         if equities_geo == "Global":
@@ -1843,7 +1843,7 @@ def _build_sub_allocations(
         equities_geo = _preference_choice(asset_prefs.get("equitiesGeo"), DE_DEFAULT_EQUITIES_GEO)
         if geo_prefs.get("noEm") and equities_geo == "Schwellenlaender":
             raise ValueError(
-                "Anlagepraeferenzen widerspruechlich: Schwellenlaender-Fokus ist gewaehlt, "
+                "Anlagepräferenzen widersprüchlich: Schwellenländer-Fokus ist gewählt, "
                 "aber Kein EM-Exposure ist aktiv."
             )
         eq_splits = list(resolve_home_bias_defaults(db, jurisdiction, "equitiesGeo", equities_geo))
@@ -1903,14 +1903,14 @@ def _build_sub_allocations(
 
     if geo_prefs.get("noEm") and asset_prefs.get("bondsEmerging"):
         raise ValueError(
-            "Anlagepraeferenzen widerspruechlich: Obligationen Emerging Markets ist aktiv, "
+            "Anlagepräferenzen widersprüchlich: Obligationen Emerging Markets ist aktiv, "
             "aber Kein EM-Exposure ist aktiv."
         )
     if is_ch:
         bonds_duration = _preference_choice(asset_prefs.get("bondsDuration"), "Langfristig")
         if bonds_duration not in {"Langfristig", "Kurzfristig", "Gemischt"}:
             raise ValueError(
-                f"Unbekannte Obligationen-Laufzeitpraeferenz {bonds_duration!r}."
+                f"Unbekannte Obligationen-Laufzeitpräferenz {bonds_duration!r}."
             )
         if bonds_duration == "Kurzfristig":
             bond_splits = [("Obligationen CHF IG", 7000, "Kurzfristige CHF-Qualitaet"), ("Obligationen Global Hedged", 2500, "Ergaenzende Diversifikation"), ("Obligationen High Yield", 300, "Renditebeimischung"), ("Obligationen Emerging", 200, "Diversifikation")]
@@ -1943,7 +1943,7 @@ def _build_sub_allocations(
         bond_splits = [item for item in bond_splits if item[0] != "Obligationen Emerging"]
     if targets["bonds"] > 0 and not bond_splits:
         raise ValueError(
-            "Anlagepraeferenzen unvollstaendig: Die Obligationen-Auswahl schliesst alle "
+            "Anlagepräferenzen unvollständig: Die Obligationen-Auswahl schliesst alle "
             "umsetzbaren Segmente aus. Bitte Investment Grade, High Yield oder Emerging Markets aktivieren."
         )
     _append_split("Obligationen", targets["bonds"], bond_splits)
@@ -1953,11 +1953,11 @@ def _build_sub_allocations(
     if targets["real_estate"] > 0:
         if not realestate_funds and not realestate_direct:
             raise ValueError(
-                "Anlagepraeferenzen unvollstaendig: Bei Immobilien muss Fonds/REIT oder Direkt aktiv sein."
+                "Anlagepräferenzen unvollständig: Bei Immobilien muss Fonds/REIT oder Direkt aktiv sein."
             )
         if realestate_direct and not realestate_funds:
             raise ValueError(
-                "Anlagepraeferenzen nicht umsetzbar: Direktimmobilien-only kann im aktuellen "
+                "Anlagepräferenzen nicht umsetzbar: Direktimmobilien-only kann im aktuellen "
                 "produktiven Beratungsuniversum nicht als handelbare Zielallokation umgesetzt werden."
             )
 
@@ -1965,7 +1965,7 @@ def _build_sub_allocations(
         realestate_market = _preference_choice(asset_prefs.get("realestateMarket"), "Schweiz")
         if realestate_market not in {"Schweiz", "Ausland", "Gemischt"}:
             raise ValueError(
-                f"Unbekannte CH-Immobilienpraeferenz {realestate_market!r}."
+                f"Unbekannte CH-Immobilienpräferenz {realestate_market!r}."
             )
         if realestate_market == "Ausland":
             re_splits = [("Immobilien Global", 7000, "Auslandsfokus fuer Immobilien"), ("Immobilien Schweiz", 3000, "Heimmarkt-Stabilisator")]
@@ -1999,7 +1999,7 @@ def _build_sub_allocations(
     if not alt_splits:
         if targets["alternatives"] > 0 and explicit_alt_keys:
             raise ValueError(
-                "Anlagepraeferenzen unvollstaendig: Bei Alternativen Anlagen muss mindestens "
+                "Anlagepräferenzen unvollständig: Bei Alternativen Anlagen muss mindestens "
                 "ein Instrument aktiv sein."
             )
         alt_splits.append(("Gold / Rohstoffe", 10000, "Standardbaustein fuer Alternative Anlagen"))
@@ -2309,8 +2309,8 @@ def _build_stochastic_sub_allocation_plan(
     minimum_total = sum(int(minimums[bucket]) for bucket in BUCKET_FIELDS)
     if minimum_total > 10000:
         raise OptimizerInputError(
-            "Mandatsspezifische Mindestquoten sind unloesbar: ihre Summe "
-            f"betraegt {minimum_total / 100:.2f}% statt hoechstens 100%."
+            "Mandatsspezifische Mindestquoten sind unlösbar: ihre Summe "
+            f"beträgt {minimum_total / 100:.2f}% statt höchstens 100%."
         )
 
     reference_targets: dict[str, int] = {}
@@ -2363,9 +2363,9 @@ def _build_stochastic_sub_allocation_plan(
             )
             if int(minimums["alternatives"]) > effective_maximums["alternatives"]:
                 raise OptimizerInputError(
-                    "Mandatsvorgaben sind unloesbar: Das Mindestgewicht fuer "
+                    "Mandatsvorgaben sind unlösbar: Das Mindestgewicht für "
                     "Alternative Anlagen ist mit der maximal erlaubten "
-                    "Illiquiditaet nicht vereinbar."
+                    "Illiquidität nicht vereinbar."
                 )
             reference_targets["alternatives"] = min(
                 reference_targets["alternatives"],
@@ -2423,8 +2423,8 @@ def _build_stochastic_sub_allocation_plan(
 
     if sum(int(effective_maximums[bucket]) for bucket in BUCKET_FIELDS) < 10000:
         raise OptimizerInputError(
-            "Mandatsspezifische Maximalquoten sind unloesbar: ihre Summe "
-            "reicht nicht fuer eine voll investierte Allokation von 100%."
+            "Mandatsspezifische Maximalquoten sind unlösbar: ihre Summe "
+            "reicht nicht für eine voll investierte Allokation von 100%."
         )
 
     return _canonicalize_sub_allocation_mix(raw), effective_maximums
@@ -2439,12 +2439,12 @@ def _house_matrix_or_default(db: Session, policy: OptimizerPolicy, score_bucket:
     ).all()
     if len(candidates) > 1:
         raise ValueError(
-            f"HouseMatrix ist fuer Score {score_bucket} mehrdeutig; "
-            "aktive Score-Bereiche ueberlappen sich."
+            f"HouseMatrix ist für Score {score_bucket} mehrdeutig; "
+            "aktive Score-Bereiche überlappen sich."
         )
     if candidates:
         return candidates[0]
-    raise ValueError(f"HouseMatrix unvollstaendig fuer Score {score_bucket}")
+    raise ValueError(f"HouseMatrix unvollständig für Score {score_bucket}")
 
 
 def _validate_house_matrix_defaults(defaults: list[tuple]) -> None:
@@ -2475,16 +2475,16 @@ def _validate_house_matrix_defaults(defaults: list[tuple]) -> None:
             equity_floor,
         ) = entry
         if profile_name not in ALLOWED_HOUSE_MATRIX_PROFILES:
-            raise ValueError(f"Unzulaessiger House-Matrix-Profilname: {profile_name}.")
+            raise ValueError(f"Unzulässiger House-Matrix-Profilname: {profile_name}.")
         if score_from > score_to:
-            raise ValueError(f"Ungueltige Score-Range fuer {profile_name}: {score_from}-{score_to}.")
+            raise ValueError(f"Ungültige Score-Range für {profile_name}: {score_from}-{score_to}.")
         covered_scores.extend(range(score_from, score_to + 1))
         target_total = liq_target + bonds_target + eq_target + re_target + alt_target
         if target_total != 10000:
-            raise ValueError(f"House-Matrix-Targets fuer {profile_name} ({score_from}-{score_to}) summieren sich auf {target_total} statt 10000 Bps.")
+            raise ValueError(f"House-Matrix-Targets für {profile_name} ({score_from}-{score_to}) summieren sich auf {target_total} statt 10000 Bps.")
         if not 0 <= risky <= 10000:
             raise ValueError(
-                f"House-Matrix-Risky-Fraction fuer {profile_name} ({score_from}-{score_to}) liegt ausserhalb von 0-10000 Bps."
+                f"House-Matrix-Risky-Fraction für {profile_name} ({score_from}-{score_to}) liegt ausserhalb von 0-10000 Bps."
             )
         bounds = (
             ("Liquiditaet", liq_min, liq_target, liq_max),
@@ -2496,14 +2496,14 @@ def _validate_house_matrix_defaults(defaults: list[tuple]) -> None:
         for label, minimum, target, maximum in bounds:
             if not minimum <= target <= maximum:
                 raise ValueError(
-                    f"House-Matrix-Band verletzt fuer {profile_name} ({score_from}-{score_to}) in {label}: {minimum}/{target}/{maximum}."
+                    f"House-Matrix-Band verletzt für {profile_name} ({score_from}-{score_to}) in {label}: {minimum}/{target}/{maximum}."
                 )
         if equity_floor and not (eq_min <= equity_floor <= eq_max):
             raise ValueError(
-                f"House-Matrix-Aktienminimum fuer {profile_name} ({score_from}-{score_to}) ist ausserhalb des Bandes: {equity_floor}."
+                f"House-Matrix-Aktienminimum für {profile_name} ({score_from}-{score_to}) ist ausserhalb des Bandes: {equity_floor}."
             )
     if sorted(covered_scores) != list(range(1, 11)):
-        raise ValueError("House-Matrix-Defaults muessen jeden Score von 1 bis 10 genau einmal abdecken.")
+        raise ValueError("House-Matrix-Defaults müssen jeden Score von 1 bis 10 genau einmal abdecken.")
 
 
 def _normalize_house_matrix_defaults(defaults: list[tuple]) -> list[tuple]:
@@ -2549,7 +2549,7 @@ def _normalize_house_matrix_defaults(defaults: list[tuple]) -> list[tuple]:
                     break
         if delta != 0:
             raise ValueError(
-                f"House-Matrix-Defaults fuer {values[2]} ({values[0]}-{values[1]}) koennen nicht auf 10000 Bps normalisiert werden."
+                f"House-Matrix-Defaults für {values[2]} ({values[0]}-{values[1]}) können nicht auf 10000 Bps normalisiert werden."
             )
         normalized.append(tuple(values))
     return normalized
@@ -2843,10 +2843,10 @@ def _reject_house_matrix_internal_band_inversion(house_matrix: HouseMatrix) -> N
         upper = int(getattr(house_matrix, max_attr))
         if lower > upper:
             raise ValueError(
-                f"Hausmatrix-Zeile hat eine invertierte Bandbreite fuer "
+                f"Hausmatrix-Zeile hat eine invertierte Bandbreite für "
                 f"{bucket_label}: {min_attr}={lower} > {max_attr}={upper}. "
                 "Das sind korrupte Referenzdaten und keine "
-                "Policy-Verschaerfung -- die Zeile muss korrigiert werden."
+                "Policy-Verschärfung -- die Zeile muss korrigiert werden."
             )
 
 

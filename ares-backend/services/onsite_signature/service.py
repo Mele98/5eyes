@@ -185,7 +185,7 @@ def _read_time(policy: OnsiteSignaturePolicy, time_source: TimeSource,
             or reading.instant.tzinfo is None):
         raise OnsiteSignatureError(
             TIME_SOURCE_UNRELIABLE,
-            "Keine verlaessliche Zeitquelle verfuegbar -- Signaturschritt gesperrt.",
+            "Keine verlässliche Zeitquelle verfügbar -- Signaturschritt gesperrt.",
             details={"time_source": reading.source},
         )
     if not_before is not None and reading.instant < _parse(not_before):
@@ -295,14 +295,14 @@ def _commit(db: Session, *rows: Any) -> None:
         raise_if_check_violation(exc)
         raise OnsiteSignatureError(
             CONCURRENT_TRANSITION,
-            "Der Signaturvorgang wurde gleichzeitig veraendert -- Schritt nicht ausgefuehrt.",
+            "Der Signaturvorgang wurde gleichzeitig verändert -- Schritt nicht ausgeführt.",
         ) from exc
 
 
 def _require_owner(tx: Transaction, advisor: AdvisorActor) -> None:
     if advisor.user_id != tx.advisor_id:
         raise OnsiteSignatureError(
-            ADVISOR_NOT_OWNER, "Nur der eroeffnende Berater darf diesen Schritt ausfuehren.",
+            ADVISOR_NOT_OWNER, "Nur der eröffnende Berater darf diesen Schritt ausführen.",
             http_status=403,
         )
 
@@ -311,7 +311,7 @@ def _require_strong_advisor(advisor: AdvisorActor) -> None:
     if advisor.role == ROLE_CLIENT or not advisor.totp_enabled:
         raise OnsiteSignatureError(
             ADVISOR_STRONG_AUTH_REQUIRED,
-            "Vor-Ort-Signatur nur fuer Berater mit aktiver Zwei-Faktor-Anmeldung.",
+            "Vor-Ort-Signatur nur für Berater mit aktiver Zwei-Faktor-Anmeldung.",
             http_status=403,
         )
 
@@ -337,7 +337,7 @@ def _document_class_or_block(policy: OnsiteSignaturePolicy, document_type: str,
     if document_class is None:
         raise OnsiteSignatureError(
             DOCUMENT_CLASS_UNCLASSIFIED,
-            "Fuer diesen Dokumenttyp liegt keine genehmigte Klassifikation vor -- "
+            "Für diesen Dokumenttyp liegt keine genehmigte Klassifikation vor -- "
             "Vor-Ort-Signatur gesperrt.",
             details={"document_type": document_type},
         )
@@ -346,7 +346,7 @@ def _document_class_or_block(policy: OnsiteSignaturePolicy, document_type: str,
         raise OnsiteSignatureError(
             code,
             "Dieser Dokumenttyp verlangt eine qualifizierte elektronische Signatur "
-            "(oder eigenhaendige Unterschrift); es ist kein QES-Anbieter angebunden.",
+            "(oder eigenhändige Unterschrift); es ist kein QES-Anbieter angebunden.",
             details={"document_type": document_type, "document_class": document_class},
         )
     return document_class
@@ -365,10 +365,10 @@ def open_transaction(
     if document.mandate_id != mandate.id or document.deleted_at is not None:
         raise OnsiteSignatureError(TRANSACTION_NOT_FOUND, "Dokument nicht gefunden.", http_status=404)
     if not str(device_app_version or "").strip():
-        raise OnsiteSignatureError(INPUT_MISSING, "Geraete-/App-Version fehlt.", http_status=422)
+        raise OnsiteSignatureError(INPUT_MISSING, "Geräte-/App-Version fehlt.", http_status=422)
     if language not in policy.consent_texts:
         raise OnsiteSignatureError(
-            LANGUAGE_NOT_SUPPORTED, "Fuer diese Sprache ist kein genehmigter Einwilligungstext hinterlegt.",
+            LANGUAGE_NOT_SUPPORTED, "Für diese Sprache ist kein genehmigter Einwilligungstext hinterlegt.",
             http_status=422,
         )
     document_class = _document_class_or_block(policy, str(document.document_type or ""), qes_provider)
@@ -438,7 +438,7 @@ def record_identity_check(
             reading=reading, payload=payload, reason_code=IDENTITY_CHECK_FAILED,
         ))
         raise OnsiteSignatureError(
-            IDENTITY_CHECK_FAILED, "Identitaetspruefung nicht bestanden -- Vorgang abgebrochen.",
+            IDENTITY_CHECK_FAILED, "Identitätsprüfung nicht bestanden -- Vorgang abgebrochen.",
         )
     _commit(db, _new_event(
         tx, event_type=sm.EV_IDENTITY_VERIFIED, actor_id=advisor.user_id,
@@ -640,11 +640,11 @@ def record_witness_statement(
             or not hmac.compare_digest(str(statement_hash or ""), witness.text_hash)):
         raise OnsiteSignatureError(
             WITNESS_STATEMENT_MISMATCH,
-            "Die Zeugenerklaerung muss dem genehmigten Text entsprechen und bestaetigt sein.",
+            "Die Zeugenerklärung muss dem genehmigten Text entsprechen und bestätigt sein.",
             http_status=422,
         )
     if sm.next_state(tx.state, sm.EV_WITNESSED) is None:
-        raise OnsiteSignatureError(INVALID_STATE, f"Zeugenerklaerung im Zustand {tx.state} nicht erlaubt.")
+        raise OnsiteSignatureError(INVALID_STATE, f"Zeugenerklärung im Zustand {tx.state} nicht erlaubt.")
     reading = _read_time(policy, time_source, tx.last_occurred_at)
     _commit(db, _new_event(
         tx, event_type=sm.EV_WITNESSED, actor_id=advisor.user_id, actor_role=advisor.role,
@@ -711,13 +711,13 @@ def finalize_signature(
         ))
         raise OnsiteSignatureError(
             DOCUMENT_CHANGED_AFTER_DISPLAY,
-            "Das Dokument wurde nach der Anzeige veraendert -- Signatur blockiert, "
+            "Das Dokument wurde nach der Anzeige verändert -- Signatur blockiert, "
             "Vorgang abgebrochen.",
         )
     document_class = _document_class_or_block(policy, str(document.document_type or ""), qes_provider)
     if document_class != tx.opened["document_class"]:
         raise OnsiteSignatureError(
-            DOCUMENT_CLASS_CHANGED, "Die Dokumentklassifikation hat sich seit Eroeffnung geaendert.",
+            DOCUMENT_CLASS_CHANGED, "Die Dokumentklassifikation hat sich seit Eröffnung geändert.",
         )
     qes = None
     if document_class in QES_REQUIRED_CLASSES:
@@ -727,14 +727,14 @@ def finalize_signature(
         )
         if not qes.valid:
             raise OnsiteSignatureError(
-                QES_INVALID, "Die qualifizierte elektronische Signatur ist ungueltig.",
+                QES_INVALID, "Die qualifizierte elektronische Signatur ist ungültig.",
                 details={"provider": qes.provider, "provider_reason": qes.reason_code},
             )
     identity = _last_event_of(db, tx.transaction_id, sm.EV_IDENTITY_VERIFIED)
     factor = _last_event_of(db, tx.transaction_id, sm.EV_FACTOR_VERIFIED)
     witness = _last_event_of(db, tx.transaction_id, sm.EV_WITNESSED)
     if identity is None or factor is None or witness is None:
-        raise OnsiteSignatureError(INVALID_STATE, "Evidence unvollstaendig -- Signatur blockiert.")
+        raise OnsiteSignatureError(INVALID_STATE, "Evidence unvollständig -- Signatur blockiert.")
     identity_payload = json.loads(identity.payload_json)
     factor_payload = json.loads(factor.payload_json)
     witness_payload = json.loads(witness.payload_json)

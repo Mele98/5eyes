@@ -287,7 +287,7 @@ def erase_client_personal_data(
     if client_row[1]:
         raise HTTPException(
             status_code=409,
-            detail="Kunde wurde bereits nach DSG Art. 32 geloescht (anonymisiert)",
+            detail="Kunde wurde bereits nach DSG Art. 32 gelöscht (anonymisiert)",
         )
 
     now = _now()

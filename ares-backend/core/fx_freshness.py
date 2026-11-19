@@ -61,13 +61,13 @@ def used_foreign_currencies(projection_context: Any) -> list[str]:
 
 
 STALE_INPUTS_MESSAGE = (
-    "Die gespeicherte Soll-Allokation ist veraltet: Vermoegen, Cashflows oder Ziele haben sich seit "
-    "der Berechnung geaendert. Bitte Strategie neu berechnen; alte Targets werden nicht mit einer "
+    "Die gespeicherte Soll-Allokation ist veraltet: Vermögen, Cashflows oder Ziele haben sich seit "
+    "der Berechnung geändert. Bitte Strategie neu berechnen; alte Targets werden nicht mit einer "
     "aktuellen Analyse kombiniert."
 )
 STALE_BASIS_UPDATED_MESSAGE = (
     "Die gespeicherte Soll-Allokation ist veraltet: Berechnungsgrundlage aktualisiert (Wechselkurs-"
-    "Bindung seit diesem Update nur noch ueber die verwendeten Kurse) -- bitte neu berechnen."
+    "Bindung seit diesem Update nur noch über die verwendeten Kurse) -- bitte neu berechnen."
 )
 
 

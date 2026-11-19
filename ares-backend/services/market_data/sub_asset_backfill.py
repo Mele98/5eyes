@@ -223,7 +223,7 @@ def backfill_sub_asset_annual_returns(
     # Validate vor irgendeiner Aktion
     for key in requested_keys:
         if key not in SUB_ASSET_CATALOG:
-            raise ValueError(f"Unbekannter Sub-Asset-Schluessel: {key!r}")
+            raise ValueError(f"Unbekannter Sub-Asset-Schlüssel: {key!r}")
 
     active_providers = frozenset(p.name for p in aggregator.providers)
     started_at = datetime.utcnow().isoformat()

@@ -122,7 +122,7 @@ def resolve_bond_maturity_years(preference: str | None) -> float:
         return float(CMA_REFERENCE_MATURITY_YEARS)
     if normalized not in BOND_DURATION_MATURITY_YEARS:
         raise BondDurationError(
-            f"Unbekannte Obligationen-Laufzeitpraeferenz {preference!r}. "
-            f"Zulaessig: {', '.join(sorted(BOND_DURATION_MATURITY_YEARS))}."
+            f"Unbekannte Obligationen-Laufzeitpräferenz {preference!r}. "
+            f"Zulässig: {', '.join(sorted(BOND_DURATION_MATURITY_YEARS))}."
         )
     return float(BOND_DURATION_MATURITY_YEARS[normalized])

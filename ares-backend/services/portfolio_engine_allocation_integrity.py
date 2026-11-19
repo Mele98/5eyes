@@ -150,16 +150,16 @@ def _verify_manual_override_contract(
         manual_block.get("reason") or ""
     ).strip():
         raise ValueError(
-            "Manuelle Soll-Allokation ohne dokumentierte Begruendung."
+            "Manuelle Soll-Allokation ohne dokumentierte Begründung."
         )
     budget = stored_constraints.get("risk_budget_bps")
     if isinstance(budget, bool) or not isinstance(budget, int):
         raise ValueError(
-            "Manuelle Soll-Allokation ohne gueltiges Risikobudget."
+            "Manuelle Soll-Allokation ohne gültiges Risikobudget."
         )
     if int(verified_total_risky_bps) > int(budget):
         raise ValueError(
-            "Manuelle Soll-Allokation ueberschreitet das gehashte "
+            "Manuelle Soll-Allokation überschreitet das gehashte "
             "Risikobudget."
         )
 
@@ -196,8 +196,8 @@ def _verified_persisted_allocation_context(
     if all(value is None for value in artifact_values):
         if int(getattr(allocation, "context_artifacts_required", 0) or 0) == 1:
             raise ValueError(
-                "Persistierter Allocation-Context fehlt vollstaendig, obwohl "
-                "diese Engine-Allokation unveraenderliche Artefakte verlangt."
+                "Persistierter Allocation-Context fehlt vollständig, obwohl "
+                "diese Engine-Allokation unveränderliche Artefakte verlangt."
             )
         # RESERVE-LEDGER-SNAPSHOT-001: ohne gehashten Context ist ein evtl.
         # vorhandener Ledger-Snapshot ungebunden; der Reload behandelt ihn
@@ -208,8 +208,8 @@ def _verified_persisted_allocation_context(
         for value in artifact_values
     ):
         raise ValueError(
-            "Persistierter Allocation-Context ist partiell oder unvollstaendig; "
-            "Sub-Allokationen, Constraints und Hash muessen gemeinsam vorliegen."
+            "Persistierter Allocation-Context ist partiell oder unvollständig; "
+            "Sub-Allokationen, Constraints und Hash müssen gemeinsam vorliegen."
         )
 
     try:
@@ -232,7 +232,7 @@ def _verified_persisted_allocation_context(
         stored_sub_allocations = [dict(row) for row in parsed_sub_allocations]
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
         raise ValueError(
-            "Persistierte Sub-Allokationen sind ungueltig oder nicht "
+            "Persistierte Sub-Allokationen sind ungültig oder nicht "
             "mit den Bucket-Zielen abstimmbar."
         ) from exc
 
@@ -240,11 +240,11 @@ def _verified_persisted_allocation_context(
         stored_constraints = json.loads(raw_constraints)
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
         raise ValueError(
-            "Persistierte effektive Allocation-Constraints sind ungueltig."
+            "Persistierte effektive Allocation-Constraints sind ungültig."
         ) from exc
     if not isinstance(stored_constraints, dict):
         raise ValueError(
-            "Persistierte effektive Allocation-Constraints muessen ein Objekt sein."
+            "Persistierte effektive Allocation-Constraints müssen ein Objekt sein."
         )
     # PENSION-TRANSFER-LEDGER-001: gespeicherter Vorsorge-Transfer-Snapshot
     # und seine gehashte Referenz muessen gemeinsam vorliegen und passen.
@@ -292,7 +292,7 @@ def _verified_persisted_allocation_context(
         # generischen Spalten-Widerspruchs.
         raise ValueError(
             "Diese manuell gespeicherte Soll-Allokation stammt aus einem "
-            "aelteren, nicht verifizierbaren Format. Bitte die Strategie neu "
+            "älteren, nicht verifizierbaren Format. Bitte die Strategie neu "
             "berechnen oder die Allokation im Editor erneut speichern."
         )
     if str(stored_constraints.get("active_method")) != expected_method:
@@ -400,7 +400,7 @@ def _verified_persisted_allocation_context(
     if recomputed_context_hash != str(stored_context_hash):
         raise ValueError(
             "Allocation-Context-Hash stimmt nicht mit den persistierten "
-            "Entscheidungsartefakten ueberein."
+            "Entscheidungsartefakten überein."
         )
     # RESERVE-LEDGER-SNAPSHOT-001: Ledger-Hash aus den gespeicherten Zeilen
     # rekalkulieren und gegen Hash-Spalte + gehashte Referenz pruefen.

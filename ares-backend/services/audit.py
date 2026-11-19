@@ -1483,7 +1483,7 @@ def read_anchor_state(fetch: Fetch) -> dict:
             raise AuditAnchorError("Kettenkopf fehlt oder ist nicht eindeutig")
         head_hash = str(rows[0][0])
         if counter_last_hash is not None and counter_last_hash != head_hash:
-            raise AuditAnchorError("Kettenkopf passt nicht zum Sequenzzaehler")
+            raise AuditAnchorError("Kettenkopf passt nicht zum Sequenzzähler")
     else:
         head_hash = _NONE
     seals = fetch(
@@ -1594,17 +1594,17 @@ def parse_anchor_text(payload: str) -> dict:
         key, sep, value = line.partition(":")
         key = key.strip()
         if not sep or key not in known:
-            raise AuditAnchorError("Anker enthaelt eine unbekannte Zeile")
+            raise AuditAnchorError("Anker enthält eine unbekannte Zeile")
         if key in values:
             raise AuditAnchorError(f"Anker-Feld doppelt: {key}")
         values[key] = value.strip()
     missing = [key for key in known if key not in values]
     if missing:
-        raise AuditAnchorError(f"Anker unvollstaendig: {', '.join(missing)}")
+        raise AuditAnchorError(f"Anker unvollständig: {', '.join(missing)}")
     for key in _INT_FIELDS:
         if values[key] != _NONE:
             if not values[key].isdigit():
-                raise AuditAnchorError(f"Anker-Feld ungueltig: {key}")
+                raise AuditAnchorError(f"Anker-Feld ungültig: {key}")
             values[key] = int(values[key])
     if values["scheme"] != ANCHOR_SCHEME:
         raise AuditAnchorError("Anker-Format unbekannt")

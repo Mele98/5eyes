@@ -71,7 +71,7 @@ _INPUT_KEYS = (
     "benchmark", "benchmark_hash", "stress_catalog_hash", "stress", "stress_hash",
 )
 # Text wie bisher im PDF-Fallback (routers/pdf_reports.py).
-COST_PENDING_NOTE = "Kostenausweis ist fuer diese Empfehlung noch nicht verfuegbar."
+COST_PENDING_NOTE = "Kostenausweis ist für diese Empfehlung noch nicht verfügbar."
 BENCHMARK_FAILED_STATUS = {
     "status": "unavailable",
     "reason_code": "BENCHMARK_RESOLUTION_FAILED",
@@ -93,7 +93,7 @@ _IDENTITY_KEYS = (
 )
 
 NO_ANALYSIS_MESSAGE = (
-    "Depot-Check-PDF nicht moeglich: zum erfassten Depotbestand gibt es keinen "
+    "Depot-Check-PDF nicht möglich: zum erfassten Depotbestand gibt es keinen "
     "gespeicherten Depot-Check (Depot-Snapshot). Ein Berater muss den Depot-Check "
     "einmal erzeugen."
 )
@@ -174,7 +174,7 @@ def capture_depot_check_inputs(db: Session, mandate: Mandate, *, gate=None) -> d
 
 def _verify_inputs(inputs) -> None:
     if not isinstance(inputs, dict) or set(inputs) != set(_INPUT_KEYS):
-        raise DepotCheckAnalysisIntegrityError("Gebundene Depot-Check-Inputs sind unvollstaendig.")
+        raise DepotCheckAnalysisIntegrityError("Gebundene Depot-Check-Inputs sind unvollständig.")
     if not isinstance(inputs["cost_disclosure"], dict):
         raise DepotCheckAnalysisIntegrityError("Gebundener Kostenausweis fehlt.")
     for part, digest in (
@@ -184,14 +184,14 @@ def _verify_inputs(inputs) -> None:
     ):
         if inputs[digest] != _sha256(inputs[part]):
             raise DepotCheckAnalysisIntegrityError(
-                "Gebundene Depot-Check-Inputs stimmen nicht mit ihrem Hash ueberein."
+                "Gebundene Depot-Check-Inputs stimmen nicht mit ihrem Hash überein."
             )
     if inputs["cost_evidence_content_hash"] != inputs["cost_disclosure"].get("content_hash"):
         raise DepotCheckAnalysisIntegrityError("Kostenausweis-Nachweis-Hash widerspricht dem Inhalt.")
     try:
         date.fromisoformat(str(inputs["captured_on"]))
     except ValueError as exc:
-        raise DepotCheckAnalysisIntegrityError("Stand der Depot-Check-Inputs ist ungueltig.") from exc
+        raise DepotCheckAnalysisIntegrityError("Stand der Depot-Check-Inputs ist ungültig.") from exc
 
 
 def bound_inputs_note(analysis: dict, live_inputs: dict) -> str | None:
@@ -223,7 +223,7 @@ def build_depot_check_analysis(
 
     verify_depot_snapshot(snapshot)
     if snapshot["mandate_id"] != str(getattr(mandate, "id", "") or ""):
-        raise DepotCheckAnalysisIntegrityError("Depot-Snapshot gehoert nicht zu diesem Mandat.")
+        raise DepotCheckAnalysisIntegrityError("Depot-Snapshot gehört nicht zu diesem Mandat.")
     result = compute_depot_check(db, mandate, holdings_snapshot=snapshot)
     # Wie GET /depot-check: Status der HouseMatrix-Referenz gehoert zum Ergebnis.
     result["house_matrix_benchmark"] = resolve_depotcheck_benchmark(db, mandate).public()
@@ -257,12 +257,12 @@ def verify_depot_check_analysis(analysis) -> dict:
     if set(analysis) != set(body_keys) | {"analysis_hash", "analysis_snapshot_id"}:
         raise DepotCheckAnalysisIntegrityError("Depot-Check-Snapshot hat unerwartete oder fehlende Felder.")
     if analysis["result_hash"] != _sha256(analysis["result"]):
-        raise DepotCheckAnalysisIntegrityError("Depot-Check-Ergebnis stimmt nicht mit seinem Hash ueberein.")
+        raise DepotCheckAnalysisIntegrityError("Depot-Check-Ergebnis stimmt nicht mit seinem Hash überein.")
     if "inputs" in body_keys:
         _verify_inputs(analysis["inputs"])
     expected = _sha256({key: analysis[key] for key in body_keys})
     if analysis["analysis_hash"] != expected or analysis["analysis_snapshot_id"] != f"dca-{expected[:24]}":
-        raise DepotCheckAnalysisIntegrityError("Depot-Check-Snapshot-Hash stimmt nicht mit dem Inhalt ueberein.")
+        raise DepotCheckAnalysisIntegrityError("Depot-Check-Snapshot-Hash stimmt nicht mit dem Inhalt überein.")
     return analysis
 
 
@@ -315,7 +315,7 @@ def _verify_row(row, *, mandate_id: str) -> dict:
     try:
         analysis = json.loads(getattr(row, "analysis_json", None) or "")
     except (TypeError, ValueError) as exc:
-        raise DepotCheckAnalysisIntegrityError("Gespeicherter Depot-Check ist kein gueltiges JSON.") from exc
+        raise DepotCheckAnalysisIntegrityError("Gespeicherter Depot-Check ist kein gültiges JSON.") from exc
     verify_depot_check_analysis(analysis)
     header = (
         row.id, row.analysis_hash, row.result_hash, row.mandate_id, row.depot_snapshot_id,
@@ -378,7 +378,7 @@ def assert_analysis_matches_current_allocation(db: Session, mandate: Mandate, an
     if analysis.get("target_allocation_id") != _current_target_allocation_id(db, mandate):
         raise ValueError(
             "Depot-Check kann nicht erstellt werden: die Soll-Allokation hat sich seit "
-            "dem gespeicherten Depot-Check geaendert. Bitte den Depot-Check zum "
+            "dem gespeicherten Depot-Check geändert. Bitte den Depot-Check zum "
             "Depot-Snapshot neu speichern."
         )
     assert_depot_rows_complete(project_holdings_valuation(db, mandate))
@@ -411,7 +411,7 @@ def assert_depot_rows_complete(projection: ValuationProjection) -> None:
         primary_reason(codes),
         "Depot-Check kann nicht erstellt werden: nicht jede Depotposition ist mit belegtem "
         "Preis, Stichtag und Kurs bewertet (CCX_VALUATION_INCOMPLETE). Bitte Bestand und "
-        "Marktdaten ergaenzen.",
+        "Marktdaten ergänzen.",
         extra={"coverage_status": "UNKNOWN", "blocker_codes": codes,
                "snapshot_hash": projection.snapshot_hash},
     )

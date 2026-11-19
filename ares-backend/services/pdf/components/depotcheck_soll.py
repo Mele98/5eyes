@@ -147,7 +147,7 @@ def make_sub_allocation_table(rows: list[dict], base_currency: str = "CHF") -> T
         ])
     if len(data) == 1:
         # PDF-RUN-RESOLVER-001: expliziter Marker statt stiller Leere.
-        data.append(["-", "Keine aktuelle Produktempfehlung fuer die gueltige Asset Allocation.", "-", "-", "-"])
+        data.append(["-", "Keine aktuelle Produktempfehlung für die gültige Asset Allocation.", "-", "-", "-"])
     return _styled_table(data, [0.19, 0.36, 0.10, 0.14, 0.21], right_from=2)
 
 
@@ -229,7 +229,7 @@ def make_risk_kpis(profile: str | None, metrics: Mapping[str, object]) -> Table:
     values = [
         ("RISIKOPROFIL", profile or "Nicht dokumentiert"),
         ("ERWARTETE RENDITE P.A.", _fmt_bps(metrics.get("expected_return_bps"))),
-        ("ERWARTETE VOLATILITAET", _fmt_bps(metrics.get("expected_vol_bps"))),
+        ("ERWARTETE VOLATILITÄT", _fmt_bps(metrics.get("expected_vol_bps"))),
         ("ANLAGEHORIZONT", f'{int(metrics.get("horizon_years") or 0)} Jahre'),
         ("MAX. DRAWDOWN MODELL", _fmt_negative_bps(metrics.get("max_drawdown_bps"))),
         ("VALUE-AT-RISK 95%", _fmt_negative_bps(metrics.get("var_95_bps"))),
@@ -257,9 +257,9 @@ def make_risk_kpis(profile: str | None, metrics: Mapping[str, object]) -> Table:
 
 def make_diversification_heatmap(hhi: Mapping[str, int]) -> Table:
     labels = (
-        ("country", "Laender"),
+        ("country", "Länder"),
         ("sector", "Sektoren"),
-        ("currency", "Waehrungen"),
+        ("currency", "Währungen"),
         ("top_positions", "Top-Positionen"),
     )
     cells = []
@@ -296,7 +296,7 @@ def make_concentration_table(positions: list[dict], base_currency: str = "CHF") 
     rows = [["Position", "Subanlageklasse", "Zielquote", "Zielbetrag", "Beurteilung"]]
     for item in positions[:10]:
         weight = int(item.get("weight_bps", 0) or 0)
-        level = "Pruefen" if weight >= 1000 else "Im Rahmen"
+        level = "Prüfen" if weight >= 1000 else "Im Rahmen"
         rows.append([
             Paragraph(
                 f'<font name="{FONT_BOLD}">{_esc(item.get("product_name") or "-")}</font>'
@@ -313,7 +313,7 @@ def make_concentration_table(positions: list[dict], base_currency: str = "CHF") 
             level,
         ])
     if len(rows) == 1:
-        rows.append(["-", "Keine Zielpositionen verfuegbar.", "-", "-", "-"])
+        rows.append(["-", "Keine Zielpositionen verfügbar.", "-", "-", "-"])
     table = _styled_table(rows, [0.31, 0.25, 0.12, 0.18, 0.14], right_from=2)
     table.setStyle(TableStyle([
         ("FONTSIZE", (0, 1), (-1, -1), max(7, FONT_SIZE_TABLE - 0.5)),
@@ -328,7 +328,7 @@ def make_cost_table(costs: Mapping[str, object], base_currency: str = "CHF") -> 
     if costs and costs.get("evidence_status") == "blocked":
         # COST-SNAPSHOT-BINDING-001: ausgewiesener Fehler statt "ausstehend".
         rows.append([
-            "Kostennachweis ungueltig", "-", "-", "-",
+            "Kostennachweis ungültig", "-", "-", "-",
             Paragraph(_esc(str(costs.get("evidence_error") or "-")), _cell_style()),
         ])
     elif not costs or costs.get("data_pending"):
@@ -349,28 +349,28 @@ def make_cost_table(costs: Mapping[str, object], base_currency: str = "CHF") -> 
                 "einmalig",
                 f'{format_bps_as_pct(int(totals.get("one_time_bps", 0) or 0), decimals=2)}',
                 _format_amount(int(totals.get("one_time_rappen", 0) or 0), base_currency),
-                "Beratungsvermoegen",
+                "Beratungsvermögen",
             ],
             [
                 "Total laufend p.a.",
                 "jaehrlich",
                 f'{format_bps_as_pct(int(totals.get("annual_bps", 0) or 0), decimals=2)}',
                 _format_amount(int(totals.get("annual_rappen", 0) or 0), base_currency),
-                "Beratungsvermoegen",
+                "Beratungsvermögen",
             ],
             [
                 "Gesamtkosten erstes Jahr",
                 "erstes Jahr",
                 f'{format_bps_as_pct(int(totals.get("first_year_bps", 0) or 0), decimals=2)}',
                 _format_amount(int(totals.get("first_year_rappen", 0) or 0), base_currency),
-                "Beratungsvermoegen",
+                "Beratungsvermögen",
             ],
         ])
     return _styled_table(rows, [0.34, 0.13, 0.11, 0.18, 0.24], right_from=2)
 
 
 def make_summary_text(text: str) -> Table:
-    content = Paragraph(_esc(text or "Keine qualitative Einschaetzung dokumentiert."), _summary_style())
+    content = Paragraph(_esc(text or "Keine qualitative Einschätzung dokumentiert."), _summary_style())
     table = Table([[content]], colWidths=[PAGE_SIZE[0] - 24 * mm])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f8fafc")),
@@ -413,7 +413,7 @@ def _hhi_level(value: int):
         return "Breit diversifiziert", colors.HexColor("#75a685")
     if value < 2500:
         return "Mittlere Konzentration", colors.HexColor("#d8b454")
-    return "Erhoehte Konzentration", colors.HexColor("#c87368")
+    return "Erhöhte Konzentration", colors.HexColor("#c87368")
 
 
 def _fmt_bps(value) -> str:

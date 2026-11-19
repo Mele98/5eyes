@@ -143,15 +143,15 @@ def compute_quantile_paths(
     if initial_wealth_rappen is None or initial_wealth_rappen <= 0:
         return fail | {
             "note": (
-                "Kein Beratungsvermoegen erfasst — Monte-Carlo-Pfade "
-                "koennen nicht berechnet werden."
+                "Kein Beratungsvermögen erfasst — Monte-Carlo-Pfade "
+                "können nicht berechnet werden."
             ),
         }
     if horizon_years is None or horizon_years <= 0:
         return fail | {
             "note": (
                 "Anlagehorizont nicht definiert — Monte-Carlo-Pfade "
-                "koennen nicht berechnet werden."
+                "können nicht berechnet werden."
             ),
         }
 
@@ -175,7 +175,7 @@ def compute_quantile_paths(
         # aber wir kapseln hier defensiv.
         return fail | {
             "note": (
-                "Anlagestrategie ist nicht vollstaendig (Summe der "
+                "Anlagestrategie ist nicht vollständig (Summe der "
                 "Bucket-Gewichte != 100%)."
             ),
         }

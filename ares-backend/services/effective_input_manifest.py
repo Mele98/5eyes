@@ -389,7 +389,7 @@ def build_manifest_record(
     })
     missing = [name for name in MANIFEST_COMPONENTS if not record.get(name)]
     if missing:
-        raise ValueError(f"Manifest unvollstaendig: {missing}")
+        raise ValueError(f"Manifest unvollständig: {missing}")
     return record
 
 

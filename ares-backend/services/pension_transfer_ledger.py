@@ -139,7 +139,7 @@ class PensionTransferRow:
             self.lumpsum_tax_rappen, self.net_advisory_inflow_rappen,
         )
         if any(type(value) is not int or value < 0 for value in amounts):
-            raise ValueError("PensionTransferRow: Betraege muessen nicht-negative Rappen sein.")
+            raise ValueError("PensionTransferRow: Beträge müssen nicht-negative Rappen sein.")
         if type(self.valuation_adjustment_rappen) is not int:
             raise ValueError("PensionTransferRow: Bewertungsanpassung muss ganze Rappen sein.")
         if self.gross_withdrawal_rappen != self.lumpsum_tax_rappen + self.net_advisory_inflow_rappen:

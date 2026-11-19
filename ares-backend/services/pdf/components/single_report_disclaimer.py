@@ -39,7 +39,7 @@ def make_single_report_cover(
     if mandate_number:
         rows.append(["Mandatsnummer", mandate_number])
     if advisory_wealth_label:
-        rows.append(["Beratungsvermoegen", advisory_wealth_label])
+        rows.append(["Beratungsvermögen", advisory_wealth_label])
 
     info_table = Table(
         [
@@ -97,7 +97,7 @@ def make_single_report_cover(
             # Sprint U-15 (2026-06-06): Editorial-Italic via TTF
             # (CormorantGaramond-Italic) statt Helvetica-Oblique.
             f'<font name="{_editorial_italic_font()}" size="10" color="#64748b">'
-            'Isolierter Auszug aus dem Beratungsprozess. Das vollstaendige '
+            'Isolierter Auszug aus dem Beratungsprozess. Das vollständige '
             'Kundendossier wird im Abschlussbericht dokumentiert.</font>',
             _cover_title(10, after=0),
         ),
@@ -117,36 +117,36 @@ def make_single_report_disclaimer(
             f"Dieser Bericht ist ein isolierter Auszug zur Rubrik {scope}. "
             "Er wurde auf Kundenwunsch bzw. zur gezielten Besprechung "
             "erstellt und basiert auf den im System zum Erstellungszeitpunkt "
-            "erfassten Kundendaten, Praeferenzen, Werten und "
+            "erfassten Kundendaten, Präferenzen, Werten und "
             "Berechnungsannahmen."
         ),
         (
-            "Der Auszug ersetzt nicht das vollstaendige Beratungsdossier, "
-            "keine vollstaendige Beratung, keine Vertragsdokumentation und "
-            "keine abschliessende Anlageempfehlung. Fuer die Gesamtbeurteilung "
+            "Der Auszug ersetzt nicht das vollständige Beratungsdossier, "
+            "keine vollständige Beratung, keine Vertragsdokumentation und "
+            "keine abschliessende Anlageempfehlung. Für die Gesamtbeurteilung "
             "sind immer alle weiteren Beratungs- und Vertragsunterlagen, die "
-            "finanzielle Situation, der Anlagehorizont, Praeferenzen, Kosten, "
-            "Produktunterlagen und das vollstaendige Abschlussdokument "
+            "finanzielle Situation, der Anlagehorizont, Präferenzen, Kosten, "
+            "Produktunterlagen und das vollständige Abschlussdokument "
             "gemeinsam massgeblich."
         ),
         (
             "Die dargestellten Quoten, Produkte, Werte, Kurse, Risiken und "
-            "Kosten koennen sich veraendern. Abweichungen durch Marktbewegungen, "
-            "Rundungen, fehlende Daten, Drittquellen, Produktverfuegbarkeit, "
-            "Steuern, Transaktionskosten oder Mindeststueckelungen sind moeglich."
+            "Kosten können sich verändern. Abweichungen durch Marktbewegungen, "
+            "Rundungen, fehlende Daten, Drittquellen, Produktverfügbarkeit, "
+            "Steuern, Transaktionskosten oder Mindeststückelungen sind möglich."
         ),
         (
-            "Es wird keine Garantie fuer Vollstaendigkeit, Richtigkeit, "
-            "kuenftige Wertentwicklung, Zielerreichung oder Umsetzbarkeit "
-            "uebernommen. Eine Haftung fuer Entscheide, die allein auf diesem "
-            "Einzelauszug beruhen, wird soweit gesetzlich zulaessig "
+            "Es wird keine Garantie für Vollständigkeit, Richtigkeit, "
+            "künftige Wertentwicklung, Zielerreichung oder Umsetzbarkeit "
+            "übernommen. Eine Haftung für Entscheide, die allein auf diesem "
+            "Einzelauszug beruhen, wird soweit gesetzlich zulässig "
             "ausgeschlossen."
         ),
         (
-            "Dieses Dokument ist vertraulich und nur fuer den bezeichneten "
+            "Dieses Dokument ist vertraulich und nur für den bezeichneten "
             "Kunden bzw. das bezeichnete Mandat bestimmt. Eine Weitergabe an "
             "Dritte oder eine Verwendung ausserhalb des dokumentierten "
-            "Beratungskontexts bedarf einer separaten Pruefung."
+            "Beratungskontexts bedarf einer separaten Prüfung."
         ),
     ]
 

@@ -56,7 +56,7 @@ def tenant_scoped_table_names() -> tuple[str, ...]:
 
 def quote_identifier(identifier: str) -> str:
     if not _IDENTIFIER_RE.match(identifier):
-        raise ValueError(f"Ungueltiger SQL-Identifier: {identifier!r}")
+        raise ValueError(f"Ungültiger SQL-Identifier: {identifier!r}")
     return f'"{identifier}"'
 
 

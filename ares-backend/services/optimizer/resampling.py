@@ -315,7 +315,7 @@ def missingness_identified_set(
     n_bags = int(n_bags)
     n_succeeded = int(n_succeeded)
     if n_bags <= 0 or not 0 <= n_succeeded <= n_bags:
-        raise ValueError("n_bags/n_succeeded ungueltig.")
+        raise ValueError("n_bags/n_succeeded ungültig.")
     mean = np.asarray(mean_weights, dtype=np.float64).reshape(-1)
     lo, hi = feasible_bucket_range(bounds)
     if lo.shape != mean.shape:
@@ -421,7 +421,7 @@ def scalar_loss(loss) -> float:
 def scalar_improvement(anchor, candidate) -> tuple[float, str]:
     """``L(anker) - L(kandidat)`` der Skalar-Zielfunktion (Ebene ``scalar``)."""
     if isinstance(anchor, (tuple, list)) != isinstance(candidate, (tuple, list)):
-        raise TypeError("Anker und Kandidat muessen dieselbe Verlustform haben.")
+        raise TypeError("Anker und Kandidat müssen dieselbe Verlustform haben.")
     return scalar_loss(anchor) - scalar_loss(candidate), COMPARISON_SCALAR
 
 
@@ -470,7 +470,7 @@ def _resolve_sampling_units(
     ids = np.asarray(sampling_unit_ids, dtype=np.int64).reshape(-1)
     if ids.size != int(n_paths):
         raise ValueError(
-            f"sampling_unit_ids hat {ids.size} Eintraege, erwartet {int(n_paths)}."
+            f"sampling_unit_ids hat {ids.size} Einträge, erwartet {int(n_paths)}."
         )
     return ids, str(sampling_unit or "custom")
 

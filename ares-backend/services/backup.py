@@ -406,14 +406,14 @@ def restore_database(
         sidecar = src.with_suffix(src.suffix + ".sha256")
         if not sidecar.exists():
             raise ValueError(
-                f"Kein SHA256-Sidecar fuer {src.name} — Restore mit "
-                f"verify_hash=True abgelehnt (fehlende Integritaetsgarantie)."
+                f"Kein SHA256-Sidecar für {src.name} — Restore mit "
+                f"verify_hash=True abgelehnt (fehlende Integritätsgarantie)."
             )
         expected = sidecar.read_text(encoding="utf-8").split()[0].strip()
         actual = _sha256_file(src)
         if expected != actual:
             raise ValueError(
-                f"SHA256-Mismatch fuer {src.name}: "
+                f"SHA256-Mismatch für {src.name}: "
                 f"expected={expected[:16]}... actual={actual[:16]}..."
             )
         hash_verified = True
@@ -424,17 +424,17 @@ def restore_database(
         hmac_sidecar = src.with_suffix(src.suffix + _HMAC_SIDECAR_SUFFIX)
         if not hmac_sidecar.exists():
             raise ValueError(
-                f"Kein HMAC-Sidecar fuer {src.name} — backup_hmac_key ist "
+                f"Kein HMAC-Sidecar für {src.name} — backup_hmac_key ist "
                 f"konfiguriert, Restore mit verify_hmac=True abgelehnt "
-                f"(fehlende Authentizitaetsgarantie; ein reiner SHA256-Match "
-                f"beweist keine Authentizitaet)."
+                f"(fehlende Authentizitätsgarantie; ein reiner SHA256-Match "
+                f"beweist keine Authentizität)."
             )
         expected_hmac = hmac_sidecar.read_text(encoding="utf-8").split()[0].strip()
         actual_hmac = _hmac_sha256_file(src, hmac_key)
         if not hmac.compare_digest(expected_hmac, actual_hmac):
             raise ValueError(
-                f"HMAC-Mismatch fuer {src.name}: Backup ist entweder "
-                f"korrupt oder wurde manipuliert (Authentizitaet verletzt)."
+                f"HMAC-Mismatch für {src.name}: Backup ist entweder "
+                f"korrupt oder wurde manipuliert (Authentizität verletzt)."
             )
         hmac_verified = True
 
@@ -545,8 +545,8 @@ def _open_connection(path_or_uri: str, *, uri: bool, db_key: str | None) -> sqli
         if not SQLCIPHER_AVAILABLE:
             raise RuntimeError(
                 "DB_USE_SQLCIPHER=true ist gesetzt, aber sqlcipher3 ist nicht "
-                "installiert -- Backup/Restore einer verschluesselten Datenbank "
-                "ist nicht moeglich. Installiere sqlcipher3-binary oder sqlcipher3."
+                "installiert -- Backup/Restore einer verschlüsselten Datenbank "
+                "ist nicht möglich. Installiere sqlcipher3-binary oder sqlcipher3."
             )
         conn = guarded_sqlite_connect(path_or_uri, context='Backup', connector=sqlcipher3.connect, uri=uri)
         try:
@@ -615,7 +615,7 @@ def _perform_atomic_copy(source: Path, target: Path, *, db_key: str | None = Non
         # Integritaet der frisch geschriebenen Kopie verifizieren.
         if not _integrity_check_ok(temp, db_key=db_key):
             raise ValueError(
-                f"integrity_check fehlgeschlagen fuer Backup-Temp {temp.name}"
+                f"integrity_check fehlgeschlagen für Backup-Temp {temp.name}"
             )
 
         # Durabilitaet: Dateiinhalt auf Platte, dann atomarer Rename.

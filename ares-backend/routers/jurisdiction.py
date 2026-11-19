@@ -93,7 +93,7 @@ def _get_home_bias_row_or_404(code: str, row_id: str, db: Session) -> Jurisdicti
     if not row:
         raise HTTPException(
             status_code=404,
-            detail=f"Home-Bias-Default {row_id} fuer Jurisdiktion '{code}' nicht gefunden",
+            detail=f"Home-Bias-Default {row_id} für Jurisdiktion '{code}' nicht gefunden",
         )
     return row
 
@@ -183,7 +183,7 @@ def create_home_bias_default(
             status_code=403,
             detail=(
                 "CH-Home-Bias-Splits sind hartcodiert (services/portfolio_engine.py) "
-                "und werden NIE aus dieser Tabelle gelesen -- ein Eintrag hier waere wirkungslos."
+                "und werden NIE aus dieser Tabelle gelesen -- ein Eintrag hier wäre wirkungslos."
             ),
         )
     now = _now()
@@ -361,7 +361,7 @@ def approve_capital_market_assumption(
         raise HTTPException(
             status_code=409,
             detail=(
-                f"CapitalMarketAssumption {id} enthaelt keine einzige "
+                f"CapitalMarketAssumption {id} enthält keine einzige "
                 "Renditeannahme (*_return_bps) und kann nicht freigegeben werden."
             ),
         )

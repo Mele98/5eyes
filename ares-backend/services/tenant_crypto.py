@@ -44,7 +44,7 @@ def _fernet_class():
         from cryptography.fernet import Fernet, InvalidToken
     except ImportError as exc:  # pragma: no cover - exercised in envs without dependency
         raise TenantCryptoError(
-            "cryptography ist fuer Tenant-DEK-Verschluesselung erforderlich"
+            "cryptography ist für Tenant-DEK-Verschlüsselung erforderlich"
         ) from exc
     return Fernet, InvalidToken
 
@@ -123,9 +123,9 @@ def _require_current_kek_version(tenant: Tenant) -> None:
     if version != CURRENT_KEK_VERSION:
         raise TenantCryptoError(
             f"Tenant-DEK ist unter KEK-Generation {version!r} verpackt, erwartet "
-            f"{CURRENT_KEK_VERSION}. Diese Daten stammen aus einer frueheren "
-            "Installation: Daten mit dem Migrator uebernehmen (Rewrap auf die "
-            "aktuelle KEK), nicht mit dieser App-Version oeffnen."
+            f"{CURRENT_KEK_VERSION}. Diese Daten stammen aus einer früheren "
+            "Installation: Daten mit dem Migrator übernehmen (Rewrap auf die "
+            "aktuelle KEK), nicht mit dieser App-Version öffnen."
         )
 
 
@@ -134,7 +134,7 @@ def _decrypt_dek(encrypted_dek: str, master_kek: str | bytes | None = None) -> b
     try:
         return _master_fernet(master_kek).decrypt(encrypted_dek.encode("utf-8"))
     except InvalidToken as exc:
-        raise TenantCryptoError("Tenant-DEK kann mit dieser Master-KEK nicht entschluesselt werden") from exc
+        raise TenantCryptoError("Tenant-DEK kann mit dieser Master-KEK nicht entschlüsselt werden") from exc
 
 
 def _provision_tenant_dek_committed(
@@ -246,7 +246,7 @@ def decrypt_for_tenant(
             ciphertext.encode("utf-8")
         )
     except InvalidToken as exc:
-        raise TenantCryptoError("Tenant-Ciphertext konnte nicht entschluesselt werden") from exc
+        raise TenantCryptoError("Tenant-Ciphertext konnte nicht entschlüsselt werden") from exc
 
 
 @dataclass(frozen=True)
@@ -305,7 +305,7 @@ def rewrap_tenant_deks_to_master_kek(
     target_bytes = target_kek.encode("utf-8") if isinstance(target_kek, str) else bytes(target_kek)
     if effective_tenant_master_kek(target_bytes.strip()) != target_bytes.strip():
         raise TenantCryptoError(
-            "Ziel-KEK abgelehnt: fuer den Rewrap ist ein Fernet-Key verlangt "
+            "Ziel-KEK abgelehnt: für den Rewrap ist ein Fernet-Key verlangt "
             "(Fernet.generate_key()), keine Passphrase."
         )
     source_key = effective_tenant_master_kek(
@@ -328,12 +328,12 @@ def rewrap_tenant_deks_to_master_kek(
                 dek = source_fernet.decrypt(str(tenant.encrypted_dek).encode("utf-8"))
             except InvalidToken as exc:
                 raise TenantCryptoError(
-                    "Tenant-DEK kann mit der Quell-KEK nicht entschluesselt werden; "
-                    "kein DEK wurde geaendert."
+                    "Tenant-DEK kann mit der Quell-KEK nicht entschlüsselt werden; "
+                    "kein DEK wurde geändert."
                 ) from exc
             rewrapped = target_fernet.encrypt(dek)
             if target_fernet.decrypt(rewrapped) != dek:  # pragma: no cover - Fernet-Vertrag
-                raise TenantCryptoError("Rewrap-Rueckpruefung fehlgeschlagen; kein DEK wurde geaendert.")
+                raise TenantCryptoError("Rewrap-Rückprüfung fehlgeschlagen; kein DEK wurde geändert.")
             planned.append((tenant, rewrapped.decode("utf-8")))
         now = _now_iso()
         for tenant, encrypted in planned:

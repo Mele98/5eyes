@@ -299,7 +299,7 @@ def _check_component(row: CmaPolicyComponent) -> None:
     if horizon < 1:
         raise CmaPolicyError(f"{label}: horizon_years muss >= 1 sein.")
     if not low <= value <= high:
-        raise CmaPolicyError(f"{label}: Wert liegt nicht im zulaessigen Bereich.")
+        raise CmaPolicyError(f"{label}: Wert liegt nicht im zulässigen Bereich.")
     if max(abs(low), abs(high)) > _COMPONENT_ABS_MAX_BPS:
         raise CmaPolicyError(f"{label}: Bereich unplausibel (> {_COMPONENT_ABS_MAX_BPS} bps).")
     if row.sign == "positive" and value < 0 or row.sign == "negative" and value > 0:
@@ -343,7 +343,7 @@ def approve_policy(
 ) -> CmaPolicyApproval:
     _require_status(policy, STATUS_VALIDATED)
     if not str(rationale or "").strip():
-        raise CmaPolicyError("Eine Freigabe braucht eine Begruendung.")
+        raise CmaPolicyError("Eine Freigabe braucht eine Begründung.")
     if approver_id == policy.created_by:
         raise CmaPolicyConflict(
             "Vier-Augen-Prinzip: der Ersteller darf seine Policy nicht freigeben."
@@ -445,7 +445,7 @@ def revoke_policy(
 ) -> CmaPolicy:
     _require_status(policy, STATUS_VALIDATED, STATUS_APPROVED, STATUS_ACTIVE)
     if not str(reason or "").strip():
-        raise CmaPolicyError("Ein Widerruf braucht eine Begruendung.")
+        raise CmaPolicyError("Ein Widerruf braucht eine Begründung.")
     policy.status = STATUS_REVOKED
     policy.revoked_by = actor_id
     policy.revoked_at = _now()

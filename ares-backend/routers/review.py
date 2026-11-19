@@ -699,7 +699,7 @@ def _get_suitability_check_or_404(
         SuitabilityCheck.mandate_id == mandate_id,
     ).first()
     if not check:
-        raise HTTPException(status_code=404, detail="Geeignetheitspruefung nicht gefunden")
+        raise HTTPException(status_code=404, detail="Geeignetheitsprüfung nicht gefunden")
     return check
 
 
@@ -1700,7 +1700,7 @@ def update_advisory_log_entry(
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "client_signed=true mit verknuepftem document_id verlangt, "
+                    "client_signed=true mit verknüpftem document_id verlangt, "
                     "dass dieses Dokument bereits echt vom Kunden signiert "
                     "wurde (signed_by_client)."
                 ),
@@ -1780,7 +1780,7 @@ def get_document_pdf(
     _get_mandate_or_404(mandate_id, db, current_user)
     doc = _get_document_or_404(mandate_id, doc_id, db)
     if not doc.pdf_base64:
-        raise HTTPException(status_code=404, detail="Fuer dieses Dokument liegt kein PDF vor.")
+        raise HTTPException(status_code=404, detail="Für dieses Dokument liegt kein PDF vor.")
     safe_title = str(doc.title or "dokument")[:40]
     # N-897-12: als Archivexemplar gekennzeichnet (Dateiname + Header). Die
     # Bytes bleiben unveraendert -- ein Wasserzeichen wuerde die gesiegelte
@@ -1896,7 +1896,7 @@ def sign_document(
                 "message": (
                     "Die Kundenunterschrift kann nicht im Berater-Login erfasst "
                     "werden. Sie braucht einen kundeneigenen Faktor (Vor-Ort-"
-                    "Signatur, noch nicht freigegeben) oder eine eigenhaendige "
+                    "Signatur, noch nicht freigegeben) oder eine eigenhändige "
                     "Unterschrift auf Papier."
                 ),
                 "channel": "signature",
@@ -1970,12 +1970,12 @@ def sign_document(
     if body.signed_by_advisor and doc.signed_by_advisor:
         raise HTTPException(
             status_code=409,
-            detail="Dokument wurde bereits vom Berater unterzeichnet -- Signatur ist unveraenderlich.",
+            detail="Dokument wurde bereits vom Berater unterzeichnet -- Signatur ist unveränderlich.",
         )
     if body.signed_by_client and doc.signed_by_client:
         raise HTTPException(
             status_code=409,
-            detail="Dokument wurde bereits vom Kunden unterzeichnet -- Signatur ist unveraenderlich.",
+            detail="Dokument wurde bereits vom Kunden unterzeichnet -- Signatur ist unveränderlich.",
         )
     now = _now()
     signer_ip = _extract_client_ip(request)
@@ -2122,10 +2122,10 @@ def _kyc_review_defect_or_422(policy: dict) -> None:
         return
     if defect == "elevated_looser_than_normal":
         detail = {"reason_code": "KYC_REVIEW_POLICY_ELEVATED_LOOSER", "message": (
-            "Die Frist fuer PEP/erhoehtes Risiko darf nicht laenger sein als die Normalfrist.")}
+            "Die Frist für PEP/erhöhtes Risiko darf nicht länger sein als die Normalfrist.")}
     elif defect in ("valid_from", "valid_until"):
         detail = {"reason_code": "KYC_REVIEW_POLICY_VALIDITY_INVALID", "message": (
-            "Das Gueltigkeitsende liegt vor dem Gueltigkeitsbeginn.")}
+            "Das Gültigkeitsende liegt vor dem Gültigkeitsbeginn.")}
     else:
         detail = {"reason_code": "KYC_REVIEW_POLICY_INTERVAL_INVALID", "message": (
             "Der Abstand muss eine positive Zahl ganzer Monate sein.")}
@@ -2293,7 +2293,7 @@ def activate_kyc_review_policy(
     if row_seal(policy, "policy_hash") != policy_obj.policy_hash or body.policy_hash != policy_obj.policy_hash:
         raise HTTPException(status_code=409, detail={
             "reason_code": "KYC_REVIEW_POLICY_HASH_MISMATCH",
-            "message": "Der bestaetigte Inhalts-Hash stimmt nicht mit der Policy-Version ueberein.",
+            "message": "Der bestätigte Inhalts-Hash stimmt nicht mit der Policy-Version überein.",
         })
     _kyc_review_defect_or_422(policy)
     now = _now()
@@ -2314,7 +2314,7 @@ def activate_kyc_review_policy(
     else:
         if head["reason_code"] not in (None, "KYC_REVIEW_POLICY_EXPIRED"):
             raise HTTPException(status_code=409, detail={
-                "reason_code": head["reason_code"], "message": "Die bestehende Policy-Kette ist ungueltig.",
+                "reason_code": head["reason_code"], "message": "Die bestehende Policy-Kette ist ungültig.",
             })
         if int(policy_obj.version) <= int(head["policy_row"]["version"]):
             raise HTTPException(status_code=409, detail={
@@ -2393,7 +2393,7 @@ def record_client_information_delivery(
     if doc.document_type != CLIENT_INFORMATION_DOCUMENT_TYPE or not doc.checksum_sha256:
         raise HTTPException(status_code=422, detail={
             "reason_code": "CLIENT_INFORMATION_DOCUMENT_INVALID",
-            "message": "Das Dokument ist keine archivierte Kundeninformation (PDF mit Pruefsumme).",
+            "message": "Das Dokument ist keine archivierte Kundeninformation (PDF mit Prüfsumme).",
         })
     tenant_id = mandate_tenant_id(db, mandate)
     profile = load_tenant_legal_profile(db, tenant_id)
@@ -2401,7 +2401,7 @@ def record_client_information_delivery(
     if missing:
         raise HTTPException(status_code=409, detail={
             "reason_code": CLIENT_INFORMATION_TENANT_DATA_MISSING,
-            "message": "Rechtliche Angaben der Firma unvollstaendig: " + ", ".join(missing),
+            "message": "Rechtliche Angaben der Firma unvollständig: " + ", ".join(missing),
             "missing_fields": missing,
         })
     try:
@@ -2419,7 +2419,7 @@ def record_client_information_delivery(
             "message": (
                 "Diese Fassung der Kundeninformation entspricht nicht den aktuellen "
                 "rechtlichen Angaben bzw. der aktuellen Vorlage. Bitte das PDF neu "
-                "erstellen und die neue Fassung uebergeben."
+                "erstellen und die neue Fassung übergeben."
             ),
         })
     delivered = datetime.fromisoformat(body.delivered_at)
@@ -2427,7 +2427,7 @@ def record_client_information_delivery(
     if delivered > now_dt:
         raise HTTPException(status_code=422, detail={
             "reason_code": "CLIENT_INFORMATION_DELIVERY_IN_FUTURE",
-            "message": "Der Uebergabezeitpunkt darf nicht in der Zukunft liegen.",
+            "message": "Der Übergabezeitpunkt darf nicht in der Zukunft liegen.",
         })
     delivered_at = _utc_storage_timestamp(delivered)
     # N-890-02: eine Fassung kann nicht vor ihrer Erstellung uebergeben worden sein.
@@ -2436,7 +2436,7 @@ def record_client_information_delivery(
         raise HTTPException(status_code=422, detail={
             "reason_code": "CLIENT_INFORMATION_DELIVERY_BEFORE_DOCUMENT",
             "message": (
-                "Der Uebergabezeitpunkt liegt vor der Erstellung dieser Fassung "
+                "Der Übergabezeitpunkt liegt vor der Erstellung dieser Fassung "
                 f"({document_created or 'unbekannt'})."
             ),
         })
@@ -2448,7 +2448,7 @@ def record_client_information_delivery(
         raise HTTPException(status_code=422, detail={
             "reason_code": "CLIENT_INFORMATION_BACKDATING_REASON_REQUIRED",
             "message": (
-                "Die Uebergabe liegt mehr als 24 Stunden zurueck; bitte begruenden "
+                "Die Übergabe liegt mehr als 24 Stunden zurück; bitte begründen "
                 "(mind. 10 Zeichen), warum sie erst jetzt erfasst wird."
             ),
         })
@@ -2609,7 +2609,7 @@ def _validated_event_timestamp(
     if candidate_at is None:
         raise HTTPException(
             status_code=422,
-            detail=f"{field_label} ist kein gueltiger Zeitpunkt: {candidate!r}",
+            detail=f"{field_label} ist kein gültiger Zeitpunkt: {candidate!r}",
         )
     if candidate_at > parse_utc_timestamp(now):
         raise HTTPException(
@@ -2623,7 +2623,7 @@ def _validated_event_timestamp(
             status_code=422,
             detail=(
                 f"{field_label} liegt vor der Erfassung des Konflikts "
-                f"({created_at}) -- bitte den tatsaechlichen Zeitpunkt erfassen."
+                f"({created_at}) -- bitte den tatsächlichen Zeitpunkt erfassen."
             ),
         )
     # C-867-01: zusaetzliche Untergrenze (Kenntnisnahme nie vor der
@@ -2635,7 +2635,7 @@ def _validated_event_timestamp(
                 status_code=422,
                 detail=(
                     f"{field_label} liegt vor der {not_before_label or 'Untergrenze'} "
-                    f"({not_before}) -- bitte den tatsaechlichen Zeitpunkt erfassen."
+                    f"({not_before}) -- bitte den tatsächlichen Zeitpunkt erfassen."
                 ),
             )
     return candidate
@@ -2684,7 +2684,7 @@ def disclose_conflict(
             detail=(
                 "Dieser Interessenkonflikt ist bereits als offengelegt erfasst "
                 f"({getattr(conflict, 'disclosed_at', None)}). Der "
-                "urspruengliche Zeitpunkt wird nicht ueberschrieben."
+                "ursprüngliche Zeitpunkt wird nicht überschrieben."
             ),
         )
     disclosed_at = _validated_event_timestamp(
@@ -2732,7 +2732,7 @@ def acknowledge_conflict(
             detail=(
                 "Der Konflikt ist noch nicht als offengelegt erfasst. Eine "
                 "Kenntnisnahme ohne vorangehende Offenlegung ist kein "
-                "gueltiger Zustand -- zuerst /disclose."
+                "gültiger Zustand -- zuerst /disclose."
             ),
         )
     if int(getattr(conflict, "client_acknowledged", 0) or 0):
@@ -2741,7 +2741,7 @@ def acknowledge_conflict(
             detail=(
                 "Die Kenntnisnahme ist bereits erfasst "
                 f"({getattr(conflict, 'client_acknowledged_at', None)}). Der "
-                "urspruengliche Zeitpunkt wird nicht ueberschrieben."
+                "ursprüngliche Zeitpunkt wird nicht überschrieben."
             ),
         )
     # C-867-01: Die Kenntnisnahme kann nicht vor der Offenlegung liegen.
@@ -2754,8 +2754,8 @@ def acknowledge_conflict(
             status_code=409,
             detail=(
                 "Der Offenlegungszeitpunkt fehlt oder ist nicht lesbar. Eine "
-                "Kenntnisnahme laesst sich zeitlich nicht gegen die Offenlegung "
-                "pruefen und wird nicht erfasst."
+                "Kenntnisnahme lässt sich zeitlich nicht gegen die Offenlegung "
+                "prüfen und wird nicht erfasst."
             ),
         )
     # Ohne Angabe gilt die Serverzeit -- auch sie wird gegen die Untergrenzen
@@ -3379,7 +3379,7 @@ def import_products_csv(
         raise HTTPException(status_code=422, detail="CSV-Datei hat keine Kopfzeile")
     rows = [_normalize_csv_import_row(raw) for raw in reader]
     if not rows:
-        raise HTTPException(status_code=422, detail="CSV-Datei enthaelt keine Datenzeilen")
+        raise HTTPException(status_code=422, detail="CSV-Datei enthält keine Datenzeilen")
     if len(rows) > _PRODUCT_IMPORT_MAX_ROWS:
         raise HTTPException(
             status_code=422,
@@ -3565,7 +3565,7 @@ def update_product(
             status_code=422,
             detail=(
                 f"Nicht editierbar: {', '.join(changed_immutable)}. ISIN, Symbol und Produkttyp "
-                "koennen nach dem Erfassen nicht geaendert werden; die Aenderung wurde nicht gespeichert."
+                "können nach dem Erfassen nicht geändert werden; die Änderung wurde nicht gespeichert."
             ),
         )
     payload = body.model_dump(exclude_none=True, exclude=set(_PRODUCT_IMMUTABLE_FIELDS))
@@ -3669,7 +3669,7 @@ def approve_product_eligibility_rule(
         ).order_by(ProductEligibilityRule.created_at, ProductEligibilityRule.id).all()
     ]
     if not draft_ids:
-        raise HTTPException(status_code=409, detail="Keine offene Entwurfs-Eignungsregel fuer dieses Produkt.")
+        raise HTTPException(status_code=409, detail="Keine offene Entwurfs-Eignungsregel für dieses Produkt.")
     approved: list[str] = []
     superseded: list[str] = []
     modes: set[str] = set()
@@ -3794,7 +3794,7 @@ def apply_product_id_mapping(
             status_code=409,
             detail=(
                 f"OpenFIGI lieferte {len(distinct)} Listings ({figis}). "
-                "Bitte Kandidat per preferred_figi oder candidate_index waehlen."
+                "Bitte Kandidat per preferred_figi oder candidate_index wählen."
             ),
         )
     selected = _select_preview_candidate(
@@ -3895,7 +3895,7 @@ def auto_apply_product_id_mappings(
                     "status": "ambiguous",
                     "detail": (
                         f"{len(distinct)} Listings gefunden, kein eindeutiger Kandidat. "
-                        "Bitte ueber /products/openfigi/apply mit preferred_figi auswaehlen."
+                        "Bitte über /products/openfigi/apply mit preferred_figi auswählen."
                     ),
                     "applied_candidate": None,
                     "candidates": distinct,
@@ -3944,7 +3944,7 @@ def auto_apply_product_id_mappings(
             "product_name": product_name,
             "isin": product_isin,
             "status": "applied",
-            "detail": "OpenFIGI-Mapping uebernommen",
+            "detail": "OpenFIGI-Mapping übernommen",
             "applied_candidate": selected,
         }
         error_detail = _commit_product_batch_update(
@@ -4124,7 +4124,7 @@ def auto_apply_product_reference_data(
             "isin": product_isin,
             "symbol": product_symbol,
             "status": "applied",
-            "detail": "EODHD-Referenzdaten uebernommen",
+            "detail": "EODHD-Referenzdaten übernommen",
             "applied_candidate": selected,
         }
         error_detail = _commit_product_batch_update(
@@ -4228,7 +4228,7 @@ def create_product_universe_entry(
     if existing:
         raise HTTPException(
             status_code=409,
-            detail=f"Eintrag fuer Produkt {body.product_id} in Jurisdiktion {body.jurisdiction!r} existiert bereits.",
+            detail=f"Eintrag für Produkt {body.product_id} in Jurisdiktion {body.jurisdiction!r} existiert bereits.",
         )
     now = _now()
     entry = ProductUniverseEntry(
@@ -4256,7 +4256,7 @@ def create_product_universe_entry(
         raise_if_check_violation(exc)
         raise HTTPException(
             status_code=409,
-            detail=f"Eintrag fuer Produkt {body.product_id} in Jurisdiktion {body.jurisdiction!r} existiert bereits.",
+            detail=f"Eintrag für Produkt {body.product_id} in Jurisdiktion {body.jurisdiction!r} existiert bereits.",
         )
     db.refresh(entry)
     return entry
@@ -4391,7 +4391,7 @@ def create_recommendation_run(
         ).first()
         if not ta:
             raise HTTPException(status_code=409, detail=(
-                "target_allocation_id gehoert nicht zu diesem Mandat oder ist gelöscht."
+                "target_allocation_id gehört nicht zu diesem Mandat oder ist gelöscht."
             ))
         if int(getattr(ta, "is_current", 0) or 0) != 1:
             raise HTTPException(
@@ -4409,7 +4409,7 @@ def create_recommendation_run(
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    "Die Soll-Allokation stimmt nicht mit den Run-Ankern ueberein: "
+                    "Die Soll-Allokation stimmt nicht mit den Run-Ankern überein: "
                     + ", ".join(anchor_mismatches)
                     + ". Bitte Strategie neu berechnen."
                 ),
@@ -4430,7 +4430,7 @@ def create_recommendation_run(
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    "Die Soll-Allokation stimmt nicht mit den Run-Ankern ueberein: "
+                    "Die Soll-Allokation stimmt nicht mit den Run-Ankern überein: "
                     + ", ".join(anchor_mismatches)
                     + ". Bitte Strategie neu berechnen."
                 ),
@@ -4869,7 +4869,7 @@ def add_position(
     # Run (siehe Bulk-UPDATE oben, Zeile ~2361) blieb ueber diesen Endpoint
     # trotzdem mutierbar, obwohl er kein aktiver Empfehlungsstand mehr ist.
     if run.result_status in ("Final", "Superseded"):
-        raise HTTPException(status_code=400, detail="Finalisierte oder abgeloeste Runs können nicht mehr geändert werden")
+        raise HTTPException(status_code=400, detail="Finalisierte oder abgelöste Runs können nicht mehr geändert werden")
     product = _get_product_or_404(body.product_id, db, current_user)
     # PREF-MANUAL-001 (ESG-P0-3): manuelles Hinzufuegen = derselbe Matcher wie
     # die Auto-Selektion gegen den TA-Snapshot; Verstoss -> 409, nichts gespeichert.
@@ -4924,7 +4924,7 @@ def _reject_holding_edit_on_superseded_run(run: RecommendationRun) -> None:
             "reason_code": "HOLDINGS_RUN_SUPERSEDED",
             "message": (
                 f"Der Lauf hat den Status '{run.result_status}' und ist nicht mehr der "
-                "aktuelle Lauf: Bestaende bitte im aktuellen Lauf erfassen."
+                "aktuelle Lauf: Bestände bitte im aktuellen Lauf erfassen."
             ),
             "result_status": run.result_status,
         })
@@ -5215,7 +5215,7 @@ def _create_sustainability_attribute(
         if product.tenant_id is not None:
             raise HTTPException(
                 status_code=422,
-                detail="Plattform-Nachweise gibt es nur fuer globale Katalogfonds; eigene Fonds tragen Tenant-Nachweise.",
+                detail="Plattform-Nachweise gibt es nur für globale Katalogfonds; eigene Fonds tragen Tenant-Nachweise.",
             )
         if not _may_write_global_catalog(current_user):
             raise HTTPException(status_code=403, detail=GLOBAL_SUSTAINABILITY_WRITE_FORBIDDEN_DETAIL)
@@ -5244,8 +5244,8 @@ def _create_sustainability_attribute(
     if duplicate is not None:
         raise HTTPException(
             status_code=409,
-            detail=(f"Fuer dieses Produkt besteht bereits ein Nachweis {values['category']}/{values['kind']} "
-                    f"mit Stichtag {values['as_of']} (Entwurf bearbeiten oder Nachweis zurueckziehen)."),
+            detail=(f"Für dieses Produkt besteht bereits ein Nachweis {values['category']}/{values['kind']} "
+                    f"mit Stichtag {values['as_of']} (Entwurf bearbeiten oder Nachweis zurückziehen)."),
         )
     attribute = ProductSustainabilityAttribute(
         id=new_uuid(), product_id=product.id, tenant_id=attribute_tenant_id,
@@ -5309,7 +5309,7 @@ def _get_standard_category_or_422(category: str) -> str:
     if category not in sustainability_standard_categories():
         raise HTTPException(
             status_code=422,
-            detail=f"Fuer {category!r} gibt es keinen Hausstandard (nur Umsatz- und Verhaltenskriterien).",
+            detail=f"Für {category!r} gibt es keinen Hausstandard (nur Umsatz- und Verhaltenskriterien).",
         )
     return category
 
@@ -5600,7 +5600,7 @@ def import_sustainability_attributes_csv(
                 normalized[field] = value if value else None
         rows.append(normalized)
     if not rows:
-        raise HTTPException(status_code=422, detail="CSV-Datei enthaelt keine Datenzeilen")
+        raise HTTPException(status_code=422, detail="CSV-Datei enthält keine Datenzeilen")
     if len(rows) > _PRODUCT_IMPORT_MAX_ROWS:
         raise HTTPException(status_code=422, detail=f"Maximal {_PRODUCT_IMPORT_MAX_ROWS} Zeilen pro Import")
     now = _now()
@@ -5774,7 +5774,7 @@ def update_sustainability_attribute(
     if attribute.status != "draft":
         raise HTTPException(
             status_code=409,
-            detail="Nur Entwuerfe koennen bearbeitet werden; fuer eine Korrektur einen neuen Nachweis erfassen.",
+            detail="Nur Entwürfe können bearbeitet werden; für eine Korrektur einen neuen Nachweis erfassen.",
         )
     if attribute.created_by != current_user.id:
         raise HTTPException(
@@ -5825,7 +5825,7 @@ def delete_sustainability_attribute_draft(
     Nachweise werden zurueckgezogen, nicht geloescht (Audit-Spur)."""
     attribute = _get_sustainability_attribute_or_404(attribute_id, db, current_user, for_write=True)
     if attribute.status != "draft":
-        raise HTTPException(status_code=409, detail="Nur Entwuerfe koennen geloescht werden; freigegebene Nachweise zurueckziehen.")
+        raise HTTPException(status_code=409, detail="Nur Entwürfe können gelöscht werden; freigegebene Nachweise zurückziehen.")
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="product_sustainability_attributes", record_id=attribute.id, action="DELETE",
         old_value=f"draft;category={attribute.category};kind={attribute.kind};as_of={attribute.as_of}")

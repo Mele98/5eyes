@@ -48,7 +48,7 @@ def _request_json(url: str) -> Any:
     try:
         return json.loads(payload)
     except json.JSONDecodeError as exc:
-        raise RuntimeError("EODHD lieferte keine gueltige JSON-Antwort") from exc
+        raise RuntimeError("EODHD lieferte keine gültige JSON-Antwort") from exc
 
 
 def _pick(obj: dict[str, Any], *keys: str) -> Any:
@@ -139,7 +139,7 @@ def preview_eodhd_reference(
     if raw_name:
         queries.append(("product_name", raw_name))
     if not queries:
-        raise ValueError("EODHD Preview benoetigt ISIN, Symbol oder Produktname")
+        raise ValueError("EODHD Preview benötigt ISIN, Symbol oder Produktname")
 
     selected_query_type = None
     selected_query_value = None

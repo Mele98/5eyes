@@ -625,7 +625,7 @@ def get_ist_projection_basis(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail={
             "reason_code": "IST_PROJECTION_BASIS_UNAVAILABLE",
-            "message": "Keine wirksamen Kapitalmarktannahmen fuer dieses Mandat; "
+            "message": "Keine wirksamen Kapitalmarktannahmen für dieses Mandat; "
                        "die Ist-Projektion wird nicht berechnet.",
         }) from exc
     try:
@@ -636,7 +636,7 @@ def get_ist_projection_basis(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail={
             "reason_code": "IST_PROJECTION_BASIS_UNAVAILABLE",
-            "message": "Die erfassten Vermoegensdaten sind fuer die Ist-Projektion "
+            "message": "Die erfassten Vermögensdaten sind für die Ist-Projektion "
                        "nicht lesbar: " + str(exc),
         }) from exc
     try:
@@ -655,7 +655,7 @@ def get_ist_projection_basis(
         # N-892-08: auch die Basis-Berechnung ist fail-closed (409 statt 500).
         raise HTTPException(status_code=409, detail={
             "reason_code": "IST_PROJECTION_BASIS_UNAVAILABLE",
-            "message": "Die Gesamtvermoegens-Basis der Ist-Projektion ist nicht "
+            "message": "Die Gesamtvermögens-Basis der Ist-Projektion ist nicht "
                        "berechenbar: " + str(exc),
         }) from exc
     return {
@@ -784,7 +784,7 @@ def update_cma(
         raise HTTPException(
             status_code=409,
             detail=(
-                f"Mehrere aktuelle CMA-Versionen fuer {jur} und den gewaehlten "
+                f"Mehrere aktuelle CMA-Versionen für {jur} und den gewählten "
                 "Tenant-Scope gefunden; Update blockiert, bis der "
                 "Referenzdatenkonflikt bereinigt ist."
             ),
@@ -1711,7 +1711,7 @@ def _raise_if_policy_house_matrix_incomplete(house_matrix_rows) -> None:
         status_code=422,
         detail={
             "reason_code": REASON_CODE_HOUSE_MATRIX_INCOMPLETE,
-            "message": "Policy nicht aktiviert: House Matrix unvollstaendig ("
+            "message": "Policy nicht aktiviert: House Matrix unvollständig ("
                        + "; ".join(problems) + ").",
             "problems": problems,
         },
@@ -1738,9 +1738,9 @@ def _raise_if_policy_engine_infeasible(house_matrix_rows, policy) -> None:
         detail={
             "reason_code": REASON_CODE_INFEASIBLE,
             "message": (
-                "Policy nicht aktiviert: Fuer folgende Score-Baender kann die "
+                "Policy nicht aktiviert: Für folgende Score-Bänder kann die "
                 "Berechnung keine Allokation bilden (wirksame Mindestquoten "
-                "ueber 100 % oder wirksame Maxima unter 100 %, inkl. "
+                "über 100 % oder wirksame Maxima unter 100 %, inkl. "
                 "Aktien-Mindestquote und Policy-Grenzen): "
                 + ", ".join(
                     f"{v['score_from']}-{v['score_to']} {v['profile_name']}"

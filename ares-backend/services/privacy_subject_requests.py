@@ -85,7 +85,7 @@ def _parse_moment(value: str | None, field: str) -> datetime:
             parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError as exc:
         raise DomainError(
-            ReasonCode.SUBJECT_REQUEST_INPUT_INVALID, f"{field} ist kein gueltiges Datum", http_status=422,
+            ReasonCode.SUBJECT_REQUEST_INPUT_INVALID, f"{field} ist kein gültiges Datum", http_status=422,
         ) from exc
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
@@ -126,13 +126,13 @@ def case_out(case: PrivacySubjectRequest, *, now: datetime | None = None) -> dic
     overdue = (not closed) and due is not None and today > due
     findings = []
     if not closed and case.identity_verified_at is None and case.status != "IDENTITY_FAILED":
-        findings.append({"reason_code": ReasonCode.DSAR_IDENTITY_REQUIRED.value, "message": "Identitaet nicht geprueft"})
+        findings.append({"reason_code": ReasonCode.DSAR_IDENTITY_REQUIRED.value, "message": "Identität nicht geprüft"})
     if not closed and case.status in ("IDENTITY_VERIFIED", "IDENTITY_FAILED"):
         findings.append({"reason_code": ReasonCode.DSAR_DECISION_MISSING.value, "message": "Entscheid fehlt"})
     if not closed and case.status == "DECIDED":
         findings.append({"reason_code": ReasonCode.DSAR_DELIVERY_MISSING.value, "message": "Zustellnachweis fehlt"})
     if overdue:
-        findings.append({"reason_code": ReasonCode.DSAR_OVERDUE.value, "message": "Frist ueberschritten"})
+        findings.append({"reason_code": ReasonCode.DSAR_OVERDUE.value, "message": "Frist überschritten"})
     return {
         "findings": findings,
         "id": case.id, "client_id": case.client_id, "request_type": case.request_type, "status": case.status,
@@ -198,7 +198,7 @@ def verify_identity(
     _require_open(case)
     if case.status not in ("RECEIVED", "IDENTITY_FAILED"):
         raise DomainError(
-            ReasonCode.SUBJECT_REQUEST_STATE_INVALID, "Identitaet ist bereits bestaetigt", http_status=409,
+            ReasonCode.SUBJECT_REQUEST_STATE_INVALID, "Identität ist bereits bestätigt", http_status=409,
         )
     outcome = _choice(outcome, ("VERIFIED", "FAILED"), "Ergebnis")
     stamp = _iso(_utc(now))
@@ -227,12 +227,12 @@ def extend_deadline(
         new_due = date.fromisoformat(str(extended_due_at)[:10])
     except ValueError as exc:
         raise DomainError(
-            ReasonCode.SUBJECT_REQUEST_INPUT_INVALID, "Neue Frist ist kein gueltiges Datum", http_status=422,
+            ReasonCode.SUBJECT_REQUEST_INPUT_INVALID, "Neue Frist ist kein gültiges Datum", http_status=422,
         ) from exc
     current_due = effective_due_date(case)
     if current_due is None:
         raise DomainError(
-            ReasonCode.SUBJECT_REQUEST_STATE_INVALID, "Ohne Fristen-Policy gibt es keine Frist zu verlaengern",
+            ReasonCode.SUBJECT_REQUEST_STATE_INVALID, "Ohne Fristen-Policy gibt es keine Frist zu verlängern",
             http_status=409,
         )
     if new_due <= current_due:
@@ -244,7 +244,7 @@ def extend_deadline(
     if notified.date() > current_due:
         raise DomainError(
             ReasonCode.SUBJECT_REQUEST_EXTENSION_TOO_LATE,
-            "Die Verlaengerung muss innerhalb der laufenden Frist mitgeteilt werden", http_status=409,
+            "Die Verlängerung muss innerhalb der laufenden Frist mitgeteilt werden", http_status=409,
         )
     case.extended_due_at = new_due.isoformat()
     case.extension_reason = _text(reason, "Begruendung der Verlaengerung", required=True)
@@ -262,12 +262,12 @@ def decide(
     if case.status == "IDENTITY_FAILED" and decision != "REFUSE":
         raise DomainError(
             ReasonCode.DSAR_IDENTITY_REQUIRED,
-            "Identitaet nicht bestaetigt: nur eine begruendete Ablehnung ist moeglich", http_status=409,
+            "Identität nicht bestätigt: nur eine begründete Ablehnung ist möglich", http_status=409,
         )
     if case.status not in ("IDENTITY_VERIFIED", "IDENTITY_FAILED", "DECIDED"):
         raise DomainError(
             ReasonCode.DSAR_IDENTITY_REQUIRED,
-            "Vor dem Entscheid muss die Identitaet geprueft sein", http_status=409,
+            "Vor dem Entscheid muss die Identität geprüft sein", http_status=409,
         )
     if case.exported_at:
         raise DomainError(
@@ -278,17 +278,17 @@ def decide(
         if case.request_type not in EXPORT_REQUEST_TYPES:
             raise DomainError(
                 ReasonCode.SUBJECT_REQUEST_INPUT_INVALID,
-                "Eine Einschraenkung nach Sektionen gibt es nur fuer Auskunft/Herausgabe", http_status=422,
+                "Eine Einschränkung nach Sektionen gibt es nur für Auskunft/Herausgabe", http_status=422,
             )
         unknown = [name for name in sections if name not in EXPORT_SECTIONS]
         if not sections or unknown:
             raise DomainError(
                 ReasonCode.SUBJECT_REQUEST_INPUT_INVALID,
-                f"Einschraenkung braucht bekannte Sektionen (unbekannt: {unknown})", http_status=422,
+                f"Einschränkung braucht bekannte Sektionen (unbekannt: {unknown})", http_status=422,
             )
     elif sections:
         raise DomainError(
-            ReasonCode.SUBJECT_REQUEST_INPUT_INVALID, "Sektionen nur bei Einschraenkung", http_status=422,
+            ReasonCode.SUBJECT_REQUEST_INPUT_INVALID, "Sektionen nur bei Einschränkung", http_status=422,
         )
     if case.request_type == "ERASURE" and decision == "FULFILL":
         holds = db.query(PrivacyLegalHold).filter(
@@ -298,7 +298,7 @@ def decide(
         if holds:
             raise DomainError(
                 ReasonCode.DSAR_LEGAL_HOLD,
-                "Aktiver Legal Hold: Loeschung nur eingeschraenkt oder begruendet abgelehnt moeglich", http_status=409,
+                "Aktiver Legal Hold: Löschung nur eingeschränkt oder begründet abgelehnt möglich", http_status=409,
             )
     stamp = _iso(_utc(now))
     case.decision = decision
@@ -351,11 +351,11 @@ def build_export(
     _require_open(case)
     if case.request_type not in EXPORT_REQUEST_TYPES:
         raise DomainError(
-            ReasonCode.SUBJECT_REQUEST_STATE_INVALID, "Export nur fuer Auskunft/Herausgabe", http_status=409,
+            ReasonCode.SUBJECT_REQUEST_STATE_INVALID, "Export nur für Auskunft/Herausgabe", http_status=409,
         )
     if case.identity_verified_at is None:
         raise DomainError(
-            ReasonCode.DSAR_IDENTITY_REQUIRED, "Identitaet nicht bestaetigt", http_status=409,
+            ReasonCode.DSAR_IDENTITY_REQUIRED, "Identität nicht bestätigt", http_status=409,
         )
     if case.status != "DECIDED" or case.decision not in ("FULFILL", "RESTRICT"):
         raise DomainError(
@@ -417,7 +417,7 @@ def record_action(
     _require_open(case)
     if case.request_type not in ("RECTIFICATION", "ERASURE"):
         raise DomainError(
-            ReasonCode.SUBJECT_REQUEST_STATE_INVALID, "Umsetzung nur fuer Berichtigung/Loeschung", http_status=409,
+            ReasonCode.SUBJECT_REQUEST_STATE_INVALID, "Umsetzung nur für Berichtigung/Löschung", http_status=409,
         )
     if case.status != "DECIDED" or case.decision != "FULFILL":
         raise DomainError(
@@ -432,7 +432,7 @@ def record_action(
         ):
             raise DomainError(
                 ReasonCode.SUBJECT_REQUEST_ERASURE_CASE_INVALID,
-                "Loeschung braucht einen ausgefuehrten Loeschvorgang desselben Kunden", http_status=409,
+                "Löschung braucht einen ausgeführten Löschvorgang desselben Kunden", http_status=409,
             )
         case.linked_erasure_case_id = erasure.id
         case.completion_note = _text(completion_note, "Notiz", required=False)
@@ -457,7 +457,7 @@ def record_delivery(
     if case.decision in ("FULFILL", "RESTRICT"):
         if case.request_type in EXPORT_REQUEST_TYPES and not case.export_sha256:
             raise DomainError(
-                ReasonCode.DSAR_SCOPE_INCOMPLETE, "Kein Export ueber diesen Fall erstellt", http_status=409,
+                ReasonCode.DSAR_SCOPE_INCOMPLETE, "Kein Export über diesen Fall erstellt", http_status=409,
             )
         if case.request_type not in EXPORT_REQUEST_TYPES and not case.action_completed_at:
             raise DomainError(

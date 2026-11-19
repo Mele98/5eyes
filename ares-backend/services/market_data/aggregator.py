@@ -60,8 +60,8 @@ def validate_authoritative_order(providers: Iterable[MarketDataProvider]) -> Non
     authoritative = [n for p, n in zip(ordered, names) if _is_authoritative(p)]
     if authoritative and not _is_authoritative(ordered[0]):
         raise ProviderOrderError(
-            f"Massgebliche Quelle(n) {', '.join(authoritative)} muessen an erster Stelle stehen "
-            f"(konfiguriert: {', '.join(names)}). Eine vorangestellte Quelle wuerde still liefern."
+            f"Massgebliche Quelle(n) {', '.join(authoritative)} müssen an erster Stelle stehen "
+            f"(konfiguriert: {', '.join(names)}). Eine vorangestellte Quelle würde still liefern."
         )
 
 
@@ -213,7 +213,7 @@ class MarketDataAggregator:
         candidates, reasons = self._candidates(action_name)
         if not candidates:
             raise MarketDataError(
-                f"{action_name}: kein gesunder Provider verfuegbar "
+                f"{action_name}: kein gesunder Provider verfügbar "
                 f"(insgesamt {len(self._providers)} konfiguriert)"
             )
         last_exc: BaseException | None = None
@@ -279,7 +279,7 @@ class MarketDataAggregator:
         candidates, reasons = self._candidates(action_name)
         if not candidates:
             raise MarketDataError(
-                f"get_history({symbol}): kein gesunder Provider verfuegbar"
+                f"get_history({symbol}): kein gesunder Provider verfügbar"
             )
         last_exc: BaseException | None = None
         for provider in candidates:

@@ -293,7 +293,7 @@ def audit_mandate_suitability(
     if ra is None:
         base["logs_without_suitability"].append({
             "reason": "no_current_risk_assessment",
-            "detail": ("Keine aktuelle Eignungspruefung (Risikoprofil) fuer das "
+            "detail": ("Keine aktuelle Eignungsprüfung (Risikoprofil) für das "
                        "Mandat erfasst — FIDLEG Art. 12 verlangt sie vor "
                        "portfoliobezogener Anlageberatung."),
         })

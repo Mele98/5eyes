@@ -45,12 +45,12 @@ def apportion_bps(
     if total < 0:
         raise ValueError(f"total_bps muss >= 0 sein, erhalten {total_bps!r}.")
     if len(weights) != len(labels):
-        raise ValueError("weights und labels muessen gleich lang sein.")
+        raise ValueError("weights und labels müssen gleich lang sein.")
     clean: list[int] = []
     for weight in weights:
         if isinstance(weight, bool) or int(weight) != weight or int(weight) < 0:
             raise ValueError(
-                f"Sub-Allokationsgewichte muessen ganzzahlig und >= 0 sein: {weight!r}."
+                f"Sub-Allokationsgewichte müssen ganzzahlig und >= 0 sein: {weight!r}."
             )
         clean.append(int(weight))
     weight_sum = sum(clean)

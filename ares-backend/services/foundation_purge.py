@@ -165,7 +165,7 @@ def assert_demo_client_purge_allowed(db: Session, client_id: str) -> None:
     if not _is_foundation_client(db, client_id):
         raise HTTPException(
             status_code=403,
-            detail="Hard-Purge ist nur fuer eindeutig markierte Foundation-/Demo-Kunden erlaubt.",
+            detail="Hard-Purge ist nur für eindeutig markierte Foundation-/Demo-Kunden erlaubt.",
         )
 
 

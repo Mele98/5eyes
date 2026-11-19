@@ -192,7 +192,7 @@ class SortedList(_Type):
             encoded.append((self._key(element, f"{path}[{index}]"), text))
         keys = [k for k, _ in encoded]
         if len(keys) != len(set(keys)):
-            raise CanonicalPayloadError(f"{path}: doppelter Sortierschluessel {self.sort_fields}")
+            raise CanonicalPayloadError(f"{path}: doppelter Sortierschlüssel {self.sort_fields}")
         encoded.sort(key=lambda pair: pair[0])
         return "[" + ",".join(text for _, text in encoded) + "]"
 
@@ -236,7 +236,7 @@ def canonical_text(value: Any, path: str = "value") -> str:
     try:
         text.encode("utf-8")
     except UnicodeEncodeError as exc:  # einzelne Surrogate
-        raise CanonicalPayloadError(f"{path}: kein gueltiges UTF-8") from exc
+        raise CanonicalPayloadError(f"{path}: kein gültiges UTF-8") from exc
     if text.startswith("﻿"):
         raise CanonicalPayloadError(f"{path}: BOM nicht erlaubt")
     return text
@@ -306,7 +306,7 @@ def parse_canonical(text: str, schema: Obj) -> dict[str, Any]:
     try:
         data = json.loads(text, parse_float=_no_float, parse_constant=_no_constant)
     except json.JSONDecodeError as exc:
-        raise CanonicalPayloadError("kein gueltiges JSON") from exc
+        raise CanonicalPayloadError("kein gültiges JSON") from exc
     if canonical_bytes(data, schema) != text.encode("utf-8"):
         raise CanonicalPayloadError("gespeicherter Payload ist nicht kanonisch")
     return data
@@ -364,7 +364,7 @@ def rows_child_hash(kind: str, columns: Sequence[str], rows: Sequence[Any],
     ordered = sorted(rows, key=sort_key)
     keys = [sort_key(row) for row in ordered]
     if len(keys) != len(set(keys)):
-        raise CanonicalPayloadError(f"{kind}: doppelter Sortierschluessel")
+        raise CanonicalPayloadError(f"{kind}: doppelter Sortierschlüssel")
     body = (
         "{" + _dump_str("columns") + ":[" + ",".join(_dump_str(c) for c in columns) + "],"
         + _dump_str("rows") + ":["

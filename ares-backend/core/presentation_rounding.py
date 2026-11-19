@@ -212,7 +212,7 @@ def format_probability_pct(value_pct: Any, *, typography: str = "plain") -> str:
 def currency_exponent(currency: str) -> int:
     code = str(currency or "").upper().strip()
     if code not in CURRENCY_EXPONENTS:
-        raise ValueError(f"Minor-Unit-Exponent fuer Waehrung {currency!r} unbekannt")
+        raise ValueError(f"Minor-Unit-Exponent für Währung {currency!r} unbekannt")
     return CURRENCY_EXPONENTS[code]
 
 
@@ -258,7 +258,7 @@ def format_stored_amount(rappen: Any, currency: str, decimals: int = 0, *,
 def _unit(currency: str) -> str:
     unit = str(currency or "").upper().strip()
     if not unit:
-        raise ValueError("Waehrung ist Pflicht")
+        raise ValueError("Währung ist Pflicht")
     return unit
 
 
@@ -331,7 +331,7 @@ def apportion_units(values: Sequence[Any], decimals: int, target_units: int | No
         if d is None:
             raise ValueError("Apportionierung braucht Werte, keine leeren Angaben")
         if d[0]:
-            raise ValueError("Apportionierung ist nur fuer nicht-negative Gewichte definiert")
+            raise ValueError("Apportionierung ist nur für nicht-negative Gewichte definiert")
         ds.append(_scale(d, int(decimals) - 2))
     e = min([0] + [d[2] for d in ds])
     p = 10 ** (-e)
@@ -506,7 +506,7 @@ def load_golden() -> dict[str, Any]:
     with open(golden_path(), encoding="utf-8") as handle:
         data = json.load(handle)
     if data.get("policy_version") != ROUNDING_POLICY_VERSION:
-        raise RuntimeError("Golden-Vektor gehoert zu einer anderen Rundungs-Policy")
+        raise RuntimeError("Golden-Vektor gehört zu einer anderen Rundungs-Policy")
     return data
 
 

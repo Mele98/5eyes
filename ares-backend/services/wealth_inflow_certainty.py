@@ -38,7 +38,7 @@ def effective_certainty(inflow) -> str:
     value = str(raw).strip().lower() if isinstance(raw, str) else raw
     if value not in WEALTH_INFLOW_CERTAINTIES:
         raise ValueError(
-            "Vermoegenszufluss: certainty muss 'sicher' oder 'unsicher' sein."
+            "Vermögenszufluss: certainty muss 'sicher' oder 'unsicher' sein."
         )
     return value
 
@@ -60,13 +60,13 @@ def scope_active_mandate_inflows(db, mandate, rows) -> list:
     for inflow in rows:
         active = getattr(inflow, "is_active", None)
         if isinstance(active, bool) or not isinstance(active, int) or active not in (0, 1):
-            raise ValueError("Vermoegenszufluss: is_active muss exakt 0 oder 1 sein.")
+            raise ValueError("Vermögenszufluss: is_active muss exakt 0 oder 1 sein.")
         inflow_mandate_id = getattr(inflow, "mandate_id", None)
         if inflow_mandate_id:
             inflow_mandate = db.query(Mandate).filter(Mandate.id == inflow_mandate_id).first()
             if inflow_mandate is None or inflow_mandate.client_id != mandate.client_id:
                 raise ValueError(
-                    "Vermoegenszufluss verweist auf ein Mandat eines anderen "
+                    "Vermögenszufluss verweist auf ein Mandat eines anderen "
                     "Kunden oder auf ein fehlendes Mandat."
                 )
             if inflow_mandate_id != mandate.id:

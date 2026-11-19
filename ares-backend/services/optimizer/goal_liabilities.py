@@ -313,7 +313,7 @@ def _norm_goal_type(goal_type: str | None) -> str:
     if normalized is None:
         raise ValueError(
             f"Unbekannter Zieltyp {goal_type!r}; eine stille Umdeutung zu "
-            "'Maximierung' ist nicht zulaessig."
+            "'Maximierung' ist nicht zulässig."
         )
     return normalized
 
@@ -364,9 +364,9 @@ def _assert_inflation_domain(inflation_series_bps: list[int] | None) -> None:
         if not INFLATION_PATH_MIN_BPS <= raw <= INFLATION_PATH_MAX_BPS:
             raise ValueError(
                 f"inflation_series_bps[{index}] = {raw} bps liegt ausserhalb "
-                f"der zulaessigen Baseline-Domaene "
+                f"der zulässigen Baseline-Domäne "
                 f"[{INFLATION_PATH_MIN_BPS}, {INFLATION_PATH_MAX_BPS}] bps "
-                "(-10 % bis +30 % pro Jahr). Ein Faktor <= 0 wuerde das "
+                "(-10 % bis +30 % pro Jahr). Ein Faktor <= 0 würde das "
                 "Vorzeichen einer Ausgabe umdrehen und sie als Zufluss "
                 "buchen."
             )
@@ -920,7 +920,7 @@ def goal_to_liability(
     elif goal_type == "Maximierung":
         built = _build_maximierung(goal, horizon_years=horizon_years)
     else:
-        raise ValueError(f"Nicht unterstuetzter Zieltyp {goal_type!r}.")
+        raise ValueError(f"Nicht unterstützter Zieltyp {goal_type!r}.")
 
     built = replace(built, rank=_resolve_rank(goal))
     return _apply_lifecycle(goal, built, horizon_years=horizon_years, as_of=None)

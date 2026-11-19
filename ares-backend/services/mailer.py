@@ -61,7 +61,7 @@ def mail_configured() -> bool:
 MISSING_SENDER_MESSAGE = (
     "E-Mail nicht versendet: SMTP_FROM fehlt. Es gibt keinen eingebauten "
     "Absender; die freigegebene Absenderadresse (Owner-Wert) als SMTP_FROM "
-    "konfigurieren. Bis dahin faellt der Aufrufer auf Link-Copy zurueck."
+    "konfigurieren. Bis dahin fällt der Aufrufer auf Link-Copy zurück."
 )
 
 

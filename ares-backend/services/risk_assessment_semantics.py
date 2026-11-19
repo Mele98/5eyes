@@ -91,7 +91,7 @@ def _parse_iso_timestamp(value: Any):
 # ablehnen (Payload-Rebuild, Empfehlungs-Lauf, Finalisierung).
 OVERRIDE_AFTER_ALLOCATION_MESSAGE = (
     "Das Risikoprofil wurde nach Erstellung der Soll-Allokation per "
-    "Override geaendert; bitte Strategie neu berechnen."
+    "Override geändert; bitte Strategie neu berechnen."
 )
 
 
@@ -209,8 +209,8 @@ def _validate_persisted_derivation(
     if not isinstance(raw_horizon, str):
         if is_orm_row:
             raise RiskAssessmentInputError(
-                "investment_horizon_label fehlt oder ist ungueltig; "
-                "die fachliche Score-Herleitung ist nicht pruefbar."
+                "investment_horizon_label fehlt oder ist ungültig; "
+                "die fachliche Score-Herleitung ist nicht prüfbar."
             )
         return
 
@@ -218,7 +218,7 @@ def _validate_persisted_derivation(
     if not horizon:
         raise RiskAssessmentInputError(
             "investment_horizon_label fehlt; die fachliche "
-            "Score-Herleitung ist nicht pruefbar."
+            "Score-Herleitung ist nicht prüfbar."
         )
     canonical_horizon = canonicalize_horizon_label(horizon)
     if canonical_horizon not in HORIZON_YEARS:
@@ -277,7 +277,7 @@ def _validate_persisted_derivation(
         derived = compute_scores(**source)
     except (TypeError, ValueError) as exc:
         raise RiskAssessmentInputError(
-            f"Fachliche Score-Herleitung ungueltig: {exc}"
+            f"Fachliche Score-Herleitung ungültig: {exc}"
         ) from exc
 
     expected_fields = {
@@ -386,7 +386,7 @@ def validate_risk_assessment_model_input(
     fzk = str(mandate_type or "").strip().upper() == "FZK"
     if fzk and final_score > 75:
         raise RiskAssessmentInputError(
-            "FZK-Mandat: final_score_x10 darf 75 nicht ueberschreiten."
+            "FZK-Mandat: final_score_x10 darf 75 nicht überschreiten."
         )
     _validate_persisted_derivation(
         assessment,
@@ -404,7 +404,7 @@ def validate_risk_assessment_model_input(
     )
     if fzk and override_score > 75:
         raise RiskAssessmentInputError(
-            "FZK-Mandat: override_score_x10 darf 75 nicht ueberschreiten."
+            "FZK-Mandat: override_score_x10 darf 75 nicht überschreiten."
         )
     expected_override_profile = profile_for_score_x10(override_score)
     override_profile = str(
@@ -430,12 +430,12 @@ def validate_risk_assessment_model_input(
     if needs_confirmation and confirmed != 1:
         raise RiskAssessmentInputError(
             "Ein Override nach oben erfordert die dokumentierte "
-            "Bestaetigung des ausdruecklichen Kundenwunsches."
+            "Bestätigung des ausdrücklichen Kundenwunsches."
         )
     if needs_warning and warned != 1:
         raise RiskAssessmentInputError(
-            "Ein Override ueber die Risikofaehigkeit oder um mindestens zwei "
-            "Profilbaender nach oben erfordert einen dokumentierten "
+            "Ein Override über die Risikofähigkeit oder um mindestens zwei "
+            "Profilbänder nach oben erfordert einen dokumentierten "
             "Warnhinweis."
         )
     return override_score

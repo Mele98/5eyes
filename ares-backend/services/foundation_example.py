@@ -87,7 +87,7 @@ def _build_foundation_summary(db: Session, user: User, client: Client, mandate: 
         RiskAssessment.deleted_at.is_(None),
     ).first()
     if not assessment:
-        raise ValueError("Foundation Case unvollstaendig: aktuelles Risikoprofil fehlt.")
+        raise ValueError("Foundation Case unvollständig: aktuelles Risikoprofil fehlt.")
 
     policy, cma = ensure_runtime_reference_data(db, user.id)
     allocation = db.query(TargetAllocation).filter(

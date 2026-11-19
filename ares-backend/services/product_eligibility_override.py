@@ -279,7 +279,7 @@ def request_override(db: Session, ctx: DecisionContext, *, product_id: str, reas
                      requested_by: str, expected_decision_hash: str | None = None) -> ProductEligibilityOverride:
     reason = (reason_text or "").strip()
     if len(reason) < MIN_OVERRIDE_REASON_LENGTH:
-        raise ValueError(f"Begruendung braucht mindestens {MIN_OVERRIDE_REASON_LENGTH} Zeichen.")
+        raise ValueError(f"Begründung braucht mindestens {MIN_OVERRIDE_REASON_LENGTH} Zeichen.")
     if ctx.run.result_status != "Draft":
         raise OverrideConflict("RUN_NOT_DRAFT", "Overrides nur fuer Draft-Empfehlungen.")
     _product, decision = _override_required_decision(db, ctx, product_id)

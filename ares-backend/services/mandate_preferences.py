@@ -43,20 +43,20 @@ def _validate_defaults_object(defaults: object, *, jurisdiction: str) -> dict:
     unknown = sorted(set(defaults) - SUPPORTED_KEYS)
     if unknown:
         raise MandatePreferenceError(
-            "Unbekannte Building-Block-Praeferenzschluessel: "
+            "Unbekannte Building-Block-Präferenzschlüssel: "
             + ", ".join(unknown)
             + "."
         )
     for key in BOOLEAN_KEYS.intersection(defaults):
         if type(defaults[key]) is not bool:
             raise MandatePreferenceError(
-                f"Building-Block-Praeferenz {key} muss true oder false sein."
+                f"Building-Block-Präferenz {key} muss true oder false sein."
             )
     for key in CHOICE_KEYS.intersection(defaults):
         value = defaults[key]
         if not isinstance(value, str) or not value.strip():
             raise MandatePreferenceError(
-                f"Building-Block-Praeferenz {key} muss eine nichtleere Auswahl sein."
+                f"Building-Block-Präferenz {key} muss eine nichtleere Auswahl sein."
             )
         defaults[key] = value.strip()
 
@@ -65,17 +65,17 @@ def _validate_defaults_object(defaults: object, *, jurisdiction: str) -> dict:
         equities = defaults.get("equitiesGeo")
         if equities is not None and equities not in _CH_EQUITY_CHOICES:
             raise MandatePreferenceError(
-                f"Unbekannte CH-Aktienpraeferenz {equities!r}."
+                f"Unbekannte CH-Aktienpräferenz {equities!r}."
             )
         duration = defaults.get("bondsDuration")
         if duration is not None and duration not in _BOND_DURATION_CHOICES:
             raise MandatePreferenceError(
-                f"Unbekannte Obligationen-Laufzeitpraeferenz {duration!r}."
+                f"Unbekannte Obligationen-Laufzeitpräferenz {duration!r}."
             )
         real_estate = defaults.get("realestateMarket")
         if real_estate is not None and real_estate not in _REAL_ESTATE_CHOICES:
             raise MandatePreferenceError(
-                f"Unbekannte CH-Immobilienpraeferenz {real_estate!r}."
+                f"Unbekannte CH-Immobilienpräferenz {real_estate!r}."
             )
     return dict(defaults)
 
@@ -92,7 +92,7 @@ def parse_default_building_blocks_json(
         parsed = json.loads(str(raw))
     except (TypeError, ValueError, json.JSONDecodeError) as exc:
         raise MandatePreferenceError(
-            "default_building_blocks_json enthaelt kein gueltiges JSON."
+            "default_building_blocks_json enthält kein gültiges JSON."
         ) from exc
     return _validate_defaults_object(
         parsed,

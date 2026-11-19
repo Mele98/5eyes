@@ -315,7 +315,7 @@ def create_risk_assessment(
         raise HTTPException(
             status_code=422,
             detail=(
-                "Risikoprofil unvollstaendig. Bitte alle bewerteten Fragen "
+                "Risikoprofil unvollständig. Bitte alle bewerteten Fragen "
                 "anklicken und das Risikoprofil erneut speichern."
             ),
         )
@@ -548,14 +548,14 @@ def override_risk_assessment(
     if needs_confirmation and not body.override_client_confirmed:
         raise HTTPException(
             status_code=422,
-            detail="Ein Override nach oben erfordert die dokumentierte Bestaetigung des ausdruecklichen Kundenwunsches.",
+            detail="Ein Override nach oben erfordert die dokumentierte Bestätigung des ausdrücklichen Kundenwunsches.",
         )
     if needs_warning and not body.override_warning_delivered:
         raise HTTPException(
             status_code=422,
             detail=(
-                "Ein Override ueber die Risikofaehigkeit oder um mindestens zwei "
-                "Profilbaender nach oben erfordert einen dokumentierten Warnhinweis."
+                "Ein Override über die Risikofähigkeit oder um mindestens zwei "
+                "Profilbänder nach oben erfordert einen dokumentierten Warnhinweis."
             ),
         )
 
@@ -738,8 +738,8 @@ def _legacy_remediation_precheck(ra: RiskAssessment, body: RiskAssessmentOverrid
         raise HTTPException(
             status_code=422,
             detail=(
-                "Die Altbestand-Bestaetigung uebernimmt den bestehenden Override-Score "
-                f"({int(ra.override_score_x10)}). Fuer einen anderen Score bitte einen "
+                "Die Altbestand-Bestätigung übernimmt den bestehenden Override-Score "
+                f"({int(ra.override_score_x10)}). Für einen anderen Score bitte einen "
                 "normalen Override erfassen."
             ),
         )
@@ -926,9 +926,9 @@ def create_suitability_check(
         # wenn es tatsaechlich dokumentierte Kenntnisse/Erfahrungen enthaelt.
         raise HTTPException(status_code=422, detail=(
             "Positives Angemessenheits-Ergebnis ohne Kenntnis-Nachweis: das "
-            "referenzierte Risikoprofil enthaelt keine dokumentierten "
+            "referenzierte Risikoprofil enthält keine dokumentierten "
             "Kenntnisse & Erfahrungen. Kenntnisse erfassen oder das Ergebnis "
-            "'Unvollständige Information' waehlen."
+            "'Unvollständige Information' wählen."
         ))
     if body.document_id:
         _get_document_or_404(mandate_id, body.document_id, db)

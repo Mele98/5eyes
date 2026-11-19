@@ -740,7 +740,7 @@ def _load_client_or_raise(db: Session, mandate: Mandate) -> Client:
         raise ValueError(f"Mandat {getattr(mandate, 'id', '?')!r} ohne client_id.")
     client = db.query(Client).filter(Client.id == client_id).first()
     if client is None:
-        raise ValueError(f"Client {client_id!r} fuer Mandat nicht gefunden.")
+        raise ValueError(f"Client {client_id!r} für Mandat nicht gefunden.")
     return client
 
 
@@ -1497,7 +1497,7 @@ def _build_positionen(db: Session, mandate: Mandate) -> dict[str, Any]:
             "total_rappen": 0,
             "has_recommendation_run": False,
             "hinweis": (
-                "Keine aktuelle Empfehlung fuer die gueltige Asset "
+                "Keine aktuelle Empfehlung für die gültige Asset "
                 "Allokation (keine aktuelle Produktempfehlung). Bitte Asset "
                 "Allokation berechnen und Produktauswahl im Portfolio-Tab "
                 "vornehmen."
@@ -2924,7 +2924,7 @@ def _build_monte_carlo_paths_section(
             "reason_code": str(_fx_reason(exc.reason_code)),
             "fx_status": _fx_block_status(exc, basis),
             "note": (
-                "Die Prognose wird nicht ausgewiesen: fuer mindestens eine Waehrung "
+                "Die Prognose wird nicht ausgewiesen: für mindestens eine Währung "
                 "fehlt ein belegter, aktueller Wechselkurs (" + exc.reason_code + ")."
             ),
         }
@@ -2939,9 +2939,9 @@ def _build_monte_carlo_paths_section(
     except Exception:  # noqa: BLE001 - aktiviertes Feature: Solver waere fail-closed
         return _data_pending_response(horizon_years, initial_wealth) | unavailable | {
             "note": (
-                "Die Mortalitaets-Simulation ist aktiviert, aber die Angaben "
-                "zu Geburtsjahr/Geschlecht sind unvollstaendig. Bitte Angaben "
-                "ergaenzen und Strategie neu berechnen."
+                "Die Mortalitäts-Simulation ist aktiviert, aber die Angaben "
+                "zu Geburtsjahr/Geschlecht sind unvollständig. Bitte Angaben "
+                "ergänzen und Strategie neu berechnen."
             ),
             "projection_status": "blocked",
         }
@@ -3006,7 +3006,7 @@ def _strategy_payload_for_report(
         raise ValueError(cma_note)
     policy = db.get(OptimizerPolicy, ta.policy_id) if ta.policy_id else None
     if policy is None:
-        raise ValueError("Die Soll-Allokation referenziert keine verfuegbare Optimizer-Policy.")
+        raise ValueError("Die Soll-Allokation referenziert keine verfügbare Optimizer-Policy.")
     return _aggregator_cache_get(
         db, ("strategy_payload", str(mandate.id), str(ta.id)),
         lambda: build(
@@ -3036,7 +3036,7 @@ def _compute_beratungsvermoegen_rappen(db: Session, client: Client, mandate: Man
         or (line.source_currency != line.target_currency and not line.source_observed_at)
         for line in lines
     ):
-        raise ValueError("Beratungsvermoegen: gemischte oder unbelegte FX-Basis")
+        raise ValueError("Beratungsvermögen: gemischte oder unbelegte FX-Basis")
     return sum(line.converted_amount_minor for line in lines)
 
 
@@ -4608,7 +4608,7 @@ def _build_reserve_explainability(db: Session, mandate: Mandate) -> dict[str, An
         "composition_available": False,
         "narrative": [],
         "drift_detected": False,
-        "hinweis": "Keine Reserve-Herleitung verfuegbar (keine aktive Soll-Allokation).",
+        "hinweis": "Keine Reserve-Herleitung verfügbar (keine aktive Soll-Allokation).",
         "fidleg_basis": "Art. 8 / Art. 9 FIDLEG (Transparenz Kosten- und Anlageentscheid)",
     }
     try:

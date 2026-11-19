@@ -322,13 +322,13 @@ def derive_profile(response_status, esg_relevance, esg_characteristic) -> str:
     """Neutraler Profilcode; ``ValueError`` bei widerspruechlichen Antworten."""
     if response_status == RESPONSE_DECLINED:
         if esg_relevance is not None or esg_characteristic is not None:
-            raise ValueError("Bei 'Keine Angabe' duerfen keine Antworten gesetzt sein.")
+            raise ValueError("Bei 'Keine Angabe' dürfen keine Antworten gesetzt sein.")
         return PROFILE_DECLINED
     if response_status != RESPONSE_ANSWERED:
         raise ValueError(f"Unbekannter Antwortstatus {response_status!r}.")
     if esg_relevance == RELEVANCE_NOT_RELEVANT:
         if esg_characteristic is not None:
-            raise ValueError("Bei 'Nicht relevant' entfaellt Frage 2.")
+            raise ValueError("Bei 'Nicht relevant' entfällt Frage 2.")
         return PROFILE_NO_PREFERENCE
     if esg_relevance != RELEVANCE_YES:
         raise ValueError("Frage 1 (Relevanz) ist nicht beantwortet.")

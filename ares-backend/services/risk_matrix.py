@@ -52,7 +52,7 @@ def max_risky_fraction_for_mandate(
         HouseMatrix.is_active == 1,
     ).first()
     if house_matrix is None:
-        raise ValueError(f"HouseMatrix unvollstaendig fuer Score {score_bucket}")
+        raise ValueError(f"HouseMatrix unvollständig für Score {score_bucket}")
     return int(house_matrix.max_risky_fraction_bps)
 
 
