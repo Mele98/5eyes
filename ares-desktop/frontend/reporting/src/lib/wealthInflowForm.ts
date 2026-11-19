@@ -33,6 +33,8 @@ export interface WealthInflowFormInput {
   label: string;
   source_type: WealthInflowSourceType;
   amountChf: string;
+  /** CCX-P3-FX: ISO-Waehrung des Zuflusses (Pflicht, nie geraten). */
+  currency: string;
   expected_year: string;
   is_recurring: boolean;
   frequency: WealthInflowFrequency;
@@ -68,6 +70,9 @@ export function validateWealthInflow(input: WealthInflowFormInput): string[] {
   } else if (amount <= 0) {
     errors.push('Betrag muss grösser als 0 sein.');
   }
+  if (!/^[A-Z]{3}$/.test((input.currency ?? '').trim())) {
+    errors.push('Bitte die Währung des Zuflusses wählen.');
+  }
   const year = parseInt10(input.expected_year);
   if (year === null || Number.isNaN(year) || year < YEAR_MIN || year > YEAR_MAX) {
     errors.push(`Erwartetes Jahr muss zwischen ${YEAR_MIN} und ${YEAR_MAX} liegen.`);
@@ -93,6 +98,7 @@ export function buildWealthInflowPayload(input: WealthInflowFormInput): WealthIn
     label: input.label.trim(),
     source_type: input.source_type,
     amount_rappen: Math.round(amount * 100),
+    currency: input.currency.trim(),
     expected_year: parseInt10(input.expected_year) ?? 0,
     is_recurring: recurring ? 1 : 0,
     frequency: recurring ? input.frequency : 'einmalig',
@@ -103,6 +109,6 @@ export function buildWealthInflowPayload(input: WealthInflowFormInput): WealthIn
 }
 
 /** CHF-Anzeige aus Rappen. */
-export function rappenToChf(rappen: number): string {
-  return formatChfFromRappen(rappen);
+export function rappenToChf(rappen: number, currency: string | null): string {
+  return formatChfFromRappen(rappen, currency);
 }

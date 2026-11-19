@@ -58,7 +58,7 @@ REQUIRED_ANCHOR_STRINGS_MINIMAL = (
     "Rechtliche Hinweise",     # Disclaimer-Header
     "Inhaltsverzeichnis",      # TOC-Header
     "Compliance-Audit",        # FINMA-Audit-Block
-    "Geeignetheitspruefung",   # Sektion 19 im PDF sichtbar
+    "Geeignetheitsprüfung",   # Sektion 19 im PDF sichtbar (KN-B E2E2-11: echte Umlaute)
     "Methodology-Modelle",     # Sektion 20 im PDF sichtbar
 )
 

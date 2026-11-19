@@ -62,7 +62,13 @@ def fast_monte_carlo(monkeypatch):
 
 
 def _prefs_for_equity(equity_bps: int) -> dict:
-    liquidity = 100
+    # Delta-Pruefung #859 E-1 (AA-7.2): auch im Hausmatrix-Modus gilt die
+    # globale Mindestliquiditaet von 2 % als harte Untergrenze; ein volles
+    # Zielset mit 1 % Liquiditaet wuerde sichtbar gekappt. Das Fixture haelt
+    # daher 3 % -- ueber der Untergrenze, damit die Allokation (wie gemeint)
+    # nicht als liquiditaetsbegrenzt klassifiziert wird. Obligationen gleichen
+    # aus; die geprueften Risky-Fraction-Werte haengen nur an der Aktienquote.
+    liquidity = 300
     real_estate = 300
     alternatives = 100
     bonds = 10000 - int(equity_bps) - liquidity - real_estate - alternatives

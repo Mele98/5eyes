@@ -1,6 +1,7 @@
 /**
  * Tests fuer Compliance-Dashboard (Sub-App Sektion 17).
  */
+import { ReportCurrencyContext } from '@/lib/reportCurrency';
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
@@ -25,7 +26,12 @@ function renderCompliance(overrides: Partial<Parameters<typeof Compliance>[0]> =
     reserveExplainability: makeReserveExplainability(),
     ...overrides,
   };
-  render(<Compliance {...props} />);
+  // G7 N4: wie in App.tsx unter dem Mandatswaehrungs-Provider.
+  render(
+    <ReportCurrencyContext.Provider value="CHF">
+      <Compliance {...props} />
+    </ReportCurrencyContext.Provider>,
+  );
 }
 
 

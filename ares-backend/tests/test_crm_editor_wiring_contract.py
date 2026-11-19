@@ -35,6 +35,7 @@ die im Report beschriebenen Snippets tatsaechlich eintraegt.
 """
 from pathlib import Path
 import re
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -103,7 +104,7 @@ def test_react_router_still_mounts_crm_editor_at_per_client_route():
 
 
 def test_html_bridge_opens_exact_clientless_route_the_react_router_exposes():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
 
     assert "async function openCrmEditor(){" in html
     bridge_fn = html.split(
@@ -119,7 +120,7 @@ def test_html_bridge_opens_exact_clientless_route_the_react_router_exposes():
 
 
 def test_html_bridge_opens_exact_per_client_route_the_react_router_exposes():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
 
     assert "async function openCrmEditorForClient(){" in html
     bridge_fn = html.split(
@@ -136,7 +137,7 @@ def test_html_bridge_opens_exact_per_client_route_the_react_router_exposes():
 
 
 def test_html_bridge_reuses_same_token_handoff_as_other_react_bridges():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
 
     assert "async function resolveReportingAppUrl(path){" in html
 
@@ -152,7 +153,7 @@ def test_html_bridge_reuses_same_token_handoff_as_other_react_bridges():
 
 
 def test_crm_editor_clientless_entry_point_is_reachable_from_sidebar_register():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
     sidebar_hd = html.split('<div class="sb-hd">', 1)[1].split("</div>", 1)[0]
 
     assert 'id="btn-crm-react-editor"' in sidebar_hd
@@ -163,7 +164,7 @@ def test_crm_editor_clientless_entry_point_is_reachable_from_sidebar_register():
 
 
 def test_crm_editor_per_client_entry_point_is_reachable_from_stammdaten_page():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
     sd_header = html.split('<div id="page-sd" class="page">', 1)[1].split(
         '<div class="pad">', 1
     )[0]
@@ -177,7 +178,7 @@ def test_crm_editor_per_client_entry_point_is_reachable_from_stammdaten_page():
 
 
 def test_react_crm_api_client_calls_same_endpoints_as_html_monolith():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
     crm_api = _read(CRM_API_PATH)
 
     # HTML (Stammdaten-Liste/-Speichern) und React (listClients/updateClient)

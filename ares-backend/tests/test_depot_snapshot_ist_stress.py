@@ -56,6 +56,7 @@ from models.users import User  # noqa: E402
 from services import depot_snapshot as ds  # noqa: E402
 from services.backtest_stress import compute_stress_for_weights  # noqa: E402
 from services.currency.fx_rates import FXRateSource  # noqa: E402
+from tests.fx_test_support import seed_attested_fx  # noqa: E402
 from services.portfolio_handoff import HoldingsValuationIncompleteError  # noqa: E402
 
 NOW = "2026-10-26T10:00:00.000Z"
@@ -489,6 +490,9 @@ def test_verify_rejects_manipulated_snapshot(session_factory, tamper):
 def _create(s, mandate, advisor):
     from routers.allocation import create_depot_snapshot
 
+    # CCX-P3-FX (N-909-01): der API-Pfad rechnet nur mit belegten DB-Kursen;
+    # derselbe Testvektor wie ``FX`` (USD 0.88), idempotent.
+    seed_attested_fx(s, {"USD": 0.88})
     request = SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
     return create_depot_snapshot(mandate.id, request, db=s, current_user=advisor)
 

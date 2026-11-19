@@ -98,6 +98,16 @@ class TenantUpdate(BaseModel):
     # nicht Teil von TenantSelfServiceUpdate -- eine Firma kann sich die
     # Bewilligung nicht selbst attestieren).
     discretionary_management_licensed: Optional[bool] = None
+    # E1 Nachhaltigkeitspraeferenzen: Review-Frist in Monaten (Hauspolitik,
+    # keine gesetzliche Frist); None = Default 36.
+    sustainability_review_months: Optional[int] = Field(default=None, ge=6, le=120)
+    # CCX-P3-FX (N-909-07): Kursfrische in Tagen (NULL = Default 5) und
+    # maximales Alter manueller Bewertungen (NULL = Bestaetigungspflicht).
+    fx_max_age_days: Optional[int] = Field(default=None, ge=1, le=31)
+    manual_valuation_max_age_days: Optional[int] = Field(default=None, ge=1, le=3650)
+    # CCX-P4 N-910-02: ausdrueckliche Konfiguration "Ein-Personen-Firma"
+    # (auditiert); Voraussetzung jeder Einzelfreigabe der Allokations-Publikation.
+    single_person_firm: Optional[bool] = None
 
     @field_validator("hosting_tier")
     @classmethod
@@ -147,6 +157,10 @@ class TenantResponse(BaseModel):
     home_jurisdiction: Optional[str] = None
     default_presentation_mode: Optional[str] = None
     discretionary_management_licensed: int = 1
+    sustainability_review_months: Optional[int] = None
+    fx_max_age_days: Optional[int] = None
+    manual_valuation_max_age_days: Optional[int] = None
+    single_person_firm: int = 0
     is_active: int
     created_at: str
     updated_at: str
@@ -184,6 +198,16 @@ class TenantSelfServiceUpdate(BaseModel):
     display_name: Optional[str] = Field(default=None, min_length=1, max_length=200)
     home_jurisdiction: Optional[str] = None
     default_presentation_mode: Optional[str] = None
+    # E1 Nachhaltigkeitspraeferenzen: Review-Frist in Monaten (Hauspolitik,
+    # keine gesetzliche Frist); None = Default 36.
+    sustainability_review_months: Optional[int] = Field(default=None, ge=6, le=120)
+    # CCX-P3-FX (N-909-07): Kursfrische in Tagen (NULL = Default 5) und
+    # maximales Alter manueller Bewertungen (NULL = Bestaetigungspflicht).
+    fx_max_age_days: Optional[int] = Field(default=None, ge=1, le=31)
+    manual_valuation_max_age_days: Optional[int] = Field(default=None, ge=1, le=3650)
+    # CCX-P4 N-910-02: ausdrueckliche Konfiguration "Ein-Personen-Firma"
+    # (auditiert); Voraussetzung jeder Einzelfreigabe der Allokations-Publikation.
+    single_person_firm: Optional[bool] = None
 
     @field_validator("default_presentation_mode")
     @classmethod
