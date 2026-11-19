@@ -23417,10 +23417,10 @@ function buildWealthPositionPayload(cat,typ,note){
   // VORSORGE-PROJECTION-001: Aufteilung nur fuer Depot und (optional) Vorsorge.
   if(posType!=='Depot'&&posType!=='Vorsorge'){akt=0;obl=0;imm=0;liq=0;alt=0;}
   var tot=akt+obl+imm+liq+alt;
-  if(posType==='Depot'&&tot>0&&Math.round(tot*10)!==1000){ // N-917R3-08: exakt 100.0 % (wie Server)
+  if(posType==='Depot'&&tot>0&&!aresSplitIs100([akt,obl,imm,liq,alt])){
     throw new Error('Allokation muss 100% ergeben (aktuell: '+AresRounding.formatPercent(tot,0,{typography:'screen'})+'). Bitte die Anlageklassen-Aufschlüsselung auf 100% aufteilen.'); // E2E3-08: keine automatische Annahme (KN3-B lehnt 0 % mit Meldung ab)
   }
-  if(posType==='Vorsorge'&&tot>0&&Math.abs(tot-100)>0.5){
+  if(posType==='Vorsorge'&&tot>0&&!aresSplitIs100([akt,obl,imm,liq,alt])){
     throw new Error('Vorsorge-Aufteilung muss 100% ergeben (aktuell: '+AresRounding.formatPercent(tot,0,{typography:'screen'})+') oder ganz leer bleiben (dann zählt die Vorsorge nicht ins Anlage-Exposure).');
   }
   // CURRENCY-CLOBBER-001/K2: Maskenfeld, sonst Position, sonst Mandat.

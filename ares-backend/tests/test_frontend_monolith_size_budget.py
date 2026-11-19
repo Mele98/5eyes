@@ -180,6 +180,8 @@ fehlendes Ist nicht bewertbar. normalizeCashflowProjectionLabels aus ares.html
 umgezogen, reviewBandVisualHtml (ohne Aufrufer) aus kn3-ui.js entfernt. Budgets
 gesenkt: Monolith, kn3-ui.js, aa-chart.js. Zusatz Pitch-Selbsttest (DEMO-B1/B2/B4): kn4-ui.js
 245/13547 (Stand bei Einfuehrung inkl. Zusatz), finalize-attestation.js gesenkt auf 1741 B.
+Kern-Integration R4 (N-917R3-08, H-176): aresSplitIs100 (Depot-/Vorsorge-Aufteilung = Serverregel)
+nach kn4-ui.js statt in den Monolithen: kn4-ui.js 246/13742, Monolith gesenkt auf 1623083 B.
 """
 from __future__ import annotations
 
@@ -190,7 +192,7 @@ MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
 MONOLITH_MAX_LINES = 26419
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1623095
+MONOLITH_MAX_BYTES = 1623083
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -214,7 +216,7 @@ EXTRACTED_PART_BUDGETS = {
     "fx-rates-editor.js": (97, 5091),
     "mandate-view.js": (604, 35395),
     "kn3-ui.js": (259, 14886),
-    "kn4-ui.js": (245, 13547),
+    "kn4-ui.js": (246, 13742),
     "advisor-guidance.js": (728, 43963),
 }
 

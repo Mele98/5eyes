@@ -228,7 +228,7 @@ def test_e2e4_14_empty_projection_hides_axis_and_strategy_restores_it():
 # ---------------------------------------------------------------- N-917R3-08
 def test_n917r3_08_depot_split_exactly_100_after_rounding_to_tenth():
     def run(values):
-        return run_js(("buildWealthPositionPayload",), f"""
+        return run_js(("buildWealthPositionPayload", "aresSplitIs100"), f"""
           var v={values};var ids=['sc-akt','sc-obl','sc-imm','sc-liq','sc-alt'];
           try{{buildWealthPositionPayload('Depot','Beratungsvermögen','');return 'ok';}}catch(e){{return String(e.message);}}
         """, prelude=f"""

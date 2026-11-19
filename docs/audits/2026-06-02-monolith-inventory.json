@@ -3,7 +3,7 @@
     "css_selectors": 1176,
     "event_handlers": 435,
     "ids": 1011,
-    "js_functions": 1687,
+    "js_functions": 1688,
     "modal_structures": 102,
     "script_blocks": 41,
     "style_blocks": 2,
@@ -9428,8 +9428,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/kn4-ui.js",
-      "sha256": "875f050aefe44626fd5fa628aedd0e3b7e49eb4065fe9af81324c1e2796c3d08",
-      "size_bytes": 13547
+      "sha256": "3f01d5c2e1d405f064632d6481bfef6b27bc0812cef842a63a2176de741029ac",
+      "size_bytes": 13742
     },
     {
       "kind": "js",
@@ -24119,7 +24119,7 @@
     },
     {
       "declaration": "function",
-      "line": 42,
+      "line": 43,
       "name": "aresPortfolioDisplayPositions",
       "source": "kn4-ui.js"
     },
@@ -24131,73 +24131,79 @@
     },
     {
       "declaration": "function",
-      "line": 67,
-      "name": "byId",
-      "source": "kn4-ui.js"
-    },
-    {
-      "declaration": "function",
-      "line": 79,
-      "name": "curAlloc",
-      "source": "kn4-ui.js"
-    },
-    {
-      "declaration": "function",
-      "line": 81,
-      "name": "esc",
+      "line": 40,
+      "name": "aresSplitIs100",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
       "line": 68,
+      "name": "byId",
+      "source": "kn4-ui.js"
+    },
+    {
+      "declaration": "function",
+      "line": 80,
+      "name": "curAlloc",
+      "source": "kn4-ui.js"
+    },
+    {
+      "declaration": "function",
+      "line": 82,
+      "name": "esc",
+      "source": "kn4-ui.js"
+    },
+    {
+      "declaration": "function",
+      "line": 69,
       "name": "g",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 223,
+      "line": 224,
       "name": "hookAxis",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 203,
+      "line": 204,
       "name": "hookIstReason",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 104,
+      "line": 105,
       "name": "hookNotEvaluable",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 155,
+      "line": 156,
       "name": "hookPortfolioRounding",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 145,
+      "line": 146,
       "name": "hookPriceStatus",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 93,
+      "line": 94,
       "name": "hookReset",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 185,
+      "line": 186,
       "name": "hookStalePortfolio",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 232,
+      "line": 233,
       "name": "mountAll",
       "source": "kn4-ui.js"
     },
@@ -24209,49 +24215,49 @@
     },
     {
       "declaration": "function",
-      "line": 84,
+      "line": 85,
       "name": "resetAmounts",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 69,
+      "line": 70,
       "name": "safe",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 218,
+      "line": 219,
       "name": "setAxis",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 80,
+      "line": 81,
       "name": "staleCause",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 174,
+      "line": 175,
       "name": "stalePortfolio",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 78,
+      "line": 79,
       "name": "state",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 136,
+      "line": 137,
       "name": "termPositions",
       "source": "kn4-ui.js"
     },
     {
       "declaration": "function",
-      "line": 70,
+      "line": 71,
       "name": "wrap",
       "source": "kn4-ui.js"
     },
@@ -25165,8 +25171,8 @@
     }
   ],
   "source_path": "ares-desktop/frontend/ares.html",
-  "source_sha256": "96e87e58d8f1cd97095f72e24eda16c9887a3dff0192dd5b7f6dfbcb2543e1c1",
-  "source_size_bytes": 1623095,
+  "source_sha256": "8d3a377c1f0f4c49711e09f10d58d97a3f57c3e02233cfb4f82e73c10d6ffa4e",
+  "source_size_bytes": 1623083,
   "sub_sections": [
     {
       "class": "sbb",

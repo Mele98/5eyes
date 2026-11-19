@@ -37,6 +37,7 @@ function aresReviewPct(rows,key,field){
   var m=AresRounding.bucketPctMap(list,{typography:'screen'}),k=AresRounding.assetClassKey(key);
   return m[k]||m[String(key)]||formatBpsPercent(0);
 }
+function aresSplitIs100(v){var t=0;for(var i=0;i<v.length;i++)t+=Math.round((v[i]||0)*100);return Math.floor((t+5)/10)===1000;} // N-917R3-08: gesendete bps, auf 0.1 % = 100.0 % (schemas.wealth)
 // E2E4-06: Zielbetraege der Portfolio-Zeilen je Anlageklasse auf den Klassenbetrag der AA
 // (presentationAmounts, ganze Franken) apportionieren (groesster Rest). Gibt eine Kopie zurueck.
 function aresPortfolioDisplayPositions(positions,allocation){
