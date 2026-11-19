@@ -53,7 +53,7 @@ FUNCS = (
     "reviewStrategyComparisonRows", "reviewBandStateMeta", "_reviewIsIlliquidAssetClass",
     "_reviewIsDiscretionaryMandate", "liveRebalancingPayload", "reviewAssetClassSortKey",
     "assetDisplayName", "formatBpsPercent", "_rvHeroConsultingHtml", "_rvHeroCommonChips",
-    "_rvHeroChipsHtml",
+    "_rvHeroChipsHtml", "aresBandOf", "aresBandStatus", "aresBandNumber",  # E2E3-01: gemeinsame Bandlogik
 )
 
 

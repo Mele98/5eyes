@@ -167,6 +167,12 @@ advisor-guidance.js, fx-rates-editor.js, ist-projection-basis.js gesenkt.
 Kern-Integration Runde 2 (H-167, KN-B + KN-U): Stammdaten-Maske speichert einen
 unberuehrten Horizont-Vorschlag nicht mehr (Save-Autofill ersetzt); Monolith
 gemessen 26450 Z./1623866 B.
+KN3-U Kernkette Runde 3 (Dok. 118 / H-167 R2, Classic-UI): neuer Teil ``kn3-ui.js``
+(Budget = Stand bei Einfuehrung): gemeinsame Bandlogik, Betraege nach Kurs-/
+Vermoegensaenderung, KYC-Formular, neues Mandat auffindbar, kein "veraltet" ohne
+Strategie. Umgezogen: reviewBandVisualHtml (ares.html), aresTerm und Cashflow-HUD
+(mandate-view.js). Alle betroffenen Budgets gesenkt bzw. gehalten (Monolith,
+goal-review-runtime.js, client-compliance.js, mandate-view.js).
 """
 from __future__ import annotations
 
@@ -175,9 +181,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26450
+MONOLITH_MAX_LINES = 26440
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1623866
+MONOLITH_MAX_BYTES = 1623611
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -190,8 +196,8 @@ EXTRACTED_PART_BUDGETS = {
     "session-boundary.js": (53, 2763),
     "ist-projection-basis.js": (87, 4627),
     "unsaved-changes.js": (82, 4342),
-    "goal-review-runtime.js": (1564, 83881),
-    "client-compliance.js": (469, 29978),
+    "goal-review-runtime.js": (1563, 83881),
+    "client-compliance.js": (469, 29962),
     "kyc-review-policy.js": (427, 25832),
     "privacy-governance.js": (500, 35256),
     "sustainability-preferences.js": (517, 26065),
@@ -199,7 +205,8 @@ EXTRACTED_PART_BUDGETS = {
     "allocation-publication.js": (272, 13780),
     "finalize-attestation.js": (27, 1750),
     "fx-rates-editor.js": (97, 5091),
-    "mandate-view.js": (625, 35585),
+    "mandate-view.js": (604, 35395),
+    "kn3-ui.js": (274, 16133),
     "advisor-guidance.js": (728, 43963),
 }
 

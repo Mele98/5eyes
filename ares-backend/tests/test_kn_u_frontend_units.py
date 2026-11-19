@@ -120,6 +120,8 @@ def _run(script: str, extra_sources: tuple[Path, ...] = ()):
     setup += "var _kc=new El('kpi-card');_kc._q['.ks']=mk('kpi-sub');EL['kpi-beratungsvermoegen']._card=_kc;"
     code = DOM + setup + "".join(p.read_text(encoding="utf-8") + "\n" for p in extra_sources)
     code += MODULE.read_text(encoding="utf-8")
+    # KN3-U: aresTerm und das Cashflow-HUD sind nach kn3-ui.js umgezogen (geladen direkt nach mandate-view.js).
+    code += "\n" + (FRONTEND / "kn3-ui.js").read_text(encoding="utf-8")
     code += "\n(async function(){var out=await (async function(){" + script + "})();console.log(JSON.stringify(out));})();"
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as fh:
         fh.write(code)

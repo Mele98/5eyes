@@ -14,7 +14,7 @@
  *          Position" bzw. "--"; das Beratungsvermoegen erscheint, wenn die
  *          Kurse seiner Waehrungen belegt sind (heute: nur Basiswaehrung).
  * E2E-12   Review-Kachel ohne negative Vermoegenswerte (Verzehr/Finanzierungsluecke).
- * E2E2-14  Fachbegriffe statt Technikbegriffe in der Anzeige.
+ * E2E2-14  Fachbegriffe (aresTerm) und das Cashflow-HUD ohne Cashflows: kn3-ui.js.
  * E2E2-15  Review ohne Strategie behauptet kein "alles im Band". */
 (function(){
   'use strict';
@@ -36,16 +36,6 @@
     return true;
   }
   function safe(f){ try { return f(); } catch(e){ try { console.warn('mandate-view', e); } catch(_){} return null; } }
-
-  // ------------------------------------------------------------ Fachbegriffe (E2E2-14)
-  function aresTerm(name){
-    return String(name == null ? '' : name)
-      .replace(/\s*\(CHF gehedgt\)|\s*_?Hedged\s*CHF\b/g, function(m){ var p = m.indexOf('(') >= 0; return (p ? ' (' : ' ') + 'währungsgesichert in CHF' + (p ? ')' : ''); })
-      .replace(/\bHedged\b/g, 'währungsgesichert')
-      .replace(/\bgehedgt\b/g, 'währungsgesichert')
-      .replace(/\bIG\b/g, 'Investment Grade')
-      .replace(/Gluecksspiel/g, 'Glücksspiel').replace(/laender/g, 'länder').replace(/Laender/g, 'Länder');
-  }
 
   // ------------------------------------------------------------ Umrechnung offen (E2E2-07, N-917-03/-08)
   var FX_CAUSE = {CCX_FX_BASIS_MISSING: 'fehlt oder nur Ersatzkurs', CCX_FX_BASIS_STALE: 'abgelaufen', CCX_FX_BASIS_MISMATCH: 'Währungsbasis nicht eindeutig'};
@@ -137,7 +127,7 @@
   }
 
   // ------------------------------------------------------------ Veraltete Strategie (E2E2-05)
-  var stale = {mid: '', cause: ''};
+  var stale = {mid: '', cause: '', src: ''}; // N-917R2-06/E2E3-06: src 'status' (freshness.causes) vor '409' (Rueckfall)
   var ASCII = [[/geaendert/g, 'geändert'], [/Vermoegen/g, 'Vermögen'], [/Waehrung/g, 'Währung'], [/fuer/g, 'für'], [/ueber/g, 'über']];
   function deAscii(t){ ASCII.forEach(function(p){ t = t.replace(p[0], p[1]); }); return t; }
   // Konkrete Ursache aus dem 409-Text des Servers (core/fx_freshness.stale_allocation_message).
@@ -181,18 +171,21 @@
     return 'Eingaben seit der Berechnung geändert';
   }
   function staleCause(){ return stale.mid && stale.mid === activeMid() ? stale.cause : ''; }
+  function statusCauseFor(mid){ return stale.mid && stale.mid === String(mid) && stale.src === 'status' ? stale.cause : ''; }
   function bannerText(c){ return c + ' – bitte «Anlagestrategie berechnen» klicken.'; }
   function statusText(c){ return 'Soll-Allokation veraltet: ' + c + '. Bitte «Anlagestrategie berechnen» ausführen.'; }
-  function clearStale(mid){ if (!mid || stale.mid === String(mid)) { stale.mid = ''; stale.cause = ''; } }
+  function clearStale(mid){ if (!mid || stale.mid === String(mid)) { stale.mid = ''; stale.cause = ''; stale.src = ''; } }
   function errText(e){
     if (!e) return '';
     if (typeof e.detail === 'string' && e.detail) return e.detail;
     try { var p = JSON.parse(e.body || '{}'); var d = p && p.detail; return typeof d === 'string' ? d : (d && d.message) || ''; } catch(_){ return String(e.message || ''); }
   }
   var applying = false;
-  function applyStale(mid, cause){
+  function applyStale(mid, cause, src){
     if (!cause || !mid) return false;
-    stale.mid = String(mid); stale.cause = cause;
+    var known = src === 'status' ? '' : statusCauseFor(mid); // ein 409-Text ueberschreibt nie die Statusursache
+    if (known) { cause = known; src = 'status'; }
+    stale.mid = String(mid); stale.cause = cause; stale.src = src || '409';
     if (String(mid) !== activeMid() || applying) return true;
     applying = true;
     safe(function(){
@@ -221,11 +214,16 @@
       return 'fresh';
     } catch(e) {
       var cause = String(e && e.status) === '409' ? staleCauseFromText(errText(e)) : '';
-      if (cause && activeMid() === mid) applyStale(mid, cause);
+      if (cause && activeMid() === mid) { applyStale(mid, cause, '409'); await loadStatusCause(mid); }
       return cause ? 'stale' : '';
     } finally {
       if (g('refreshAllocationPublication')) safe(function(){ refreshAllocationPublication(true); });
     }
+  }
+  // N-917R2-06: Statusursache auch ohne geladene Allokation (nach dem 409); ohne Aussage bleibt der 409-Text.
+  async function loadStatusCause(mid){
+    try { var c = staleCauseFromStatus(await API.get('/mandates/' + encodeURIComponent(mid) + '/allocation-publication'));
+      if (c && activeMid() === String(mid)) applyStale(mid, c, 'status'); } catch(_){}
   }
   var GENERIC_STATUS = /hydratisiert|Noch keine gespeicherte Strategie|Aktuelle Strategie konnte nicht geladen/;
   function hookStale(){
@@ -237,7 +235,7 @@
           return r;
         } catch(e) {
           var cause = String(e && e.status) === '409' ? staleCauseFromText(errText(e)) : '';
-          if (cause) applyStale(mid, cause);
+          if (cause) { applyStale(mid, cause, '409'); loadStatusCause(mid); }
           throw e;
         }
       };
@@ -258,7 +256,7 @@
       return function(message, isError){
         var m = String(message == null ? '' : message);
         var c = /Soll-Allokation ist veraltet/.test(m) ? staleCauseFromText(m) : '';
-        if (c) { stale.mid = activeMid(); stale.cause = c; }
+        if (c) { var known = statusCauseFor(activeMid()); if (known) c = known; else { stale.mid = activeMid(); stale.cause = c; stale.src = '409'; } }
         else c = GENERIC_STATUS.test(m) ? staleCause() : '';
         return c ? orig.call(this, statusText(c), true) : orig.apply(this, arguments);
       };
@@ -269,7 +267,8 @@
         safe(function(){
           var s = typeof allocationPublicationState !== 'undefined' ? allocationPublicationState : null;
           var fromStatus = staleCauseFromStatus(s);
-          if (fromStatus && fromStatus !== staleCause()) { stale.cause = ''; applyStale(activeMid(), fromStatus); }
+          if (fromStatus && (fromStatus !== staleCause() || stale.src !== 'status')) { stale.cause = ''; stale.src = ''; applyStale(activeMid(), fromStatus, 'status'); }
+          else if (!fromStatus && s && s.freshness && up(s.freshness.status) === 'FRESH' && stale.src === 'status') clearStale(activeMid());
           var c = staleCause();
           if (!c) return;
           var chip = byId('aa-publication-status');
@@ -309,12 +308,12 @@
         return r;
       };
     });
-    // Kursaenderung im Schnelleditor oder in der Administration: aktive Strategie neu pruefen.
+    // Kursaenderung im Schnelleditor oder in der Administration: Betraege (kn3-ui.js) und Strategie neu pruefen.
     ['saveFxQuickEditor', 'saveAdminFxRates'].forEach(function(name){
       wrap(name, function(orig){
         return async function(){
           var r = await orig.apply(this, arguments);
-          if (r !== false) await revalidateActiveAllocation();
+          if (r !== false) { if (g('aresRefreshMandateAmounts')) await aresRefreshMandateAmounts(); await revalidateActiveAllocation(); if (g('aresSyncAmountViews')) safe(aresSyncAmountViews); }
           if (name === 'saveFxQuickEditor' && r) await refreshFxQuickEditor();
           return r;
         };
@@ -409,9 +408,11 @@
     if (g('renderOptimizerAchievability')) safe(function(){ renderOptimizerAchievability(null); });
     if (g('renderGoalAchievementSollIst')) safe(function(){ renderGoalAchievementSollIst(null); });
     // Ausgeblendete Kontext-Bloecke behalten sonst ihren Text im DOM (Reinvermoegen, Zielnamen, Rechenfakten).
-    ['alloc-rein-context', 'aa-goal-sollist', 'opt-sensitivity-list'].forEach(function(id){
+    ['alloc-rein-context', 'aa-goal-sollist', 'opt-sensitivity-list', 'aa-proj-depletion', 'aa-proj-current-depletion'].forEach(function(id){
       var el = byId(id); if (el) el.innerHTML = '';
     });
+    // N-917R2-03 / E2E3-11: Hinweis-Banner (Zielkonflikt) und Verzehr-Kennzahlen leeren (Text bliebe sonst im DOM).
+    ['renderAllocationMessageBanner', 'renderReviewMessageBanner'].forEach(function(n){ if (g(n)) safe(function(){ window[n](null); }); });
     safe(function(){ var dnBody = document.querySelector('#ch-dn-table tbody'); if (dnBody) dnBody.innerHTML = ''; });
     safe(function(){
       var calc = byId('m-strategy-calc');
@@ -544,26 +545,6 @@
       };
     });
   }
-  // N-918-04: Cashflow-HUD ohne erfasste Einnahmen/Ausgaben -- keine Nullaussage "CHF 0 · Ausgeglichen".
-  function hookCashflowHud(){
-    wrap('renderCashflowProjection', function(orig){
-      return function(data){
-        var r = orig.apply(this, arguments);
-        safe(function(){
-          var el = byId('cf-projection');
-          var row = data && Array.isArray(data.years) ? data.years[0] : null;
-          var parts = row && g('cashflowProjectionComponents') ? cashflowProjectionComponents(row) : null;
-          if (!el || !parts || el.style.display === 'none') return;
-          if (Number(parts.recurringIncomeRappen || 0) === 0 && Number(parts.recurringExpenseRappen || 0) === 0) {
-            el.innerHTML = '<div class="cf-hud"><div class="cf-hud-head"><div><div class="cf-hud-kicker">Cashflow-HUD</div>'
-              + '<div class="cf-hud-copy">Keine Cashflows erfasst</div></div></div>'
-              + '<div class="cf-hud-hint" style="padding:6px 0">Erfassen Sie laufende Einnahmen und Ausgaben, damit Sparquote bzw. Vermögensverzehr berechnet werden.</div></div>';
-          }
-        });
-        return r;
-      };
-    });
-  }
   // KN-B / E2E2-10 (H-168): "Foundation Case laden" nur, wenn GET / foundation_example_available === true
   // meldet; fehlt das Feld oder schlaegt der Abruf fehl, gilt der Knopf als gesperrt.
   var foundation = {known: false, available: false, loading: false};
@@ -598,7 +579,6 @@
     safe(hookStale);
     safe(hookReview);
     safe(hookWealth);
-    safe(hookCashflowHud);
     safe(hookFoundationButton);
     safe(hookGo);
   }
@@ -607,7 +587,6 @@
     else mountAll();
   }
 
-  window.aresTerm = aresTerm;
   window.aresResetMandateView = aresResetMandateView;
   window.clearStrategySummaryForDirtyState = clearStrategySummaryForDirtyState;
   window.aresBlockedTotal = aresBlockedTotal;

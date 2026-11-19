@@ -816,7 +816,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "code": "Pro 1 Einheit Fremdwaehrung in CHF. Beispiel EUR=0.95 bedeutet 1 EUR = 0.95 CHF. Wird fuer internationale Mandate genutzt (z.B. EUR-Klient mit CHF-Portfolio).",
+   "code": "Pro 1 Einheit Fremdwährung in CHF. Beispiel EUR=0.95 bedeutet 1 EUR = 0.95 CHF. Wird für internationale Mandate genutzt (z.B. EUR-Klient mit CHF-Portfolio).",
    "count": 1,
    "context": "openStammdatenModal",
    "reason": "ares.html openStammdatenModal: Admin-FX-Tabelle -- CHF ist die technische Pivotwaehrung der gepflegten Kurse (convert_rappen rechnet ueber CHF)."
@@ -935,7 +935,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "code": "{ key: 'Liquiditaet_CHF',        top: 'Liquiditaet',   label: 'Liquiditaet CHF (SARON)' },",
+   "code": "{ key: 'Liquiditaet_CHF',        top: 'Liquiditaet',   label: 'Liquidität CHF (SARON)' },",
    "count": 1,
    "context": "btUpdateBenchmarkSum",
    "reason": "ares.html btUpdateBenchmarkSum: Name einer Anlageklasse/eines CMA-Segments (CHF-Obligationen, SARON-Liquiditaet, CHF-gehedgt) -- Segmentname, kein Betragsformat."
@@ -1032,11 +1032,11 @@
    "reason": "WealthInflowEditor.tsx INFLOW_CURRENCIES: Auswahlliste des Waehrungs-Eingabefelds eines Vermoegenszuflusses (CCX-P3-FX, Pflichtfeld, nie geraten); Eingabeoptionen, kein Anzeigeformat eines Betrags."
   },
   {
-   "file": "ares-desktop/frontend/mandate-view.js",
+   "file": "ares-desktop/frontend/kn3-ui.js",
    "code": ".replace(/\\s*\\(CHF gehedgt\\)|\\s*_?Hedged\\s*CHF\\b/g, function(m){ var p = m.indexOf('(') >= 0; return (p ? ' (' : ' ') + 'währungsgesichert in CHF' + (p ? ')' : ''); })",
    "count": 1,
    "context": "aresTerm",
-   "reason": "mandate-view.js aresTerm: Anzeige-Uebersetzung des Sub-Anlageklassen-Namens 'Hedged CHF' bzw. '(CHF gehedgt)' in 'waehrungsgesichert in CHF' (KN-U E2E2-14); Teil eines Namens, keine Betrags- oder Formatwaehrung."
+   "reason": "kn3-ui.js aresTerm: (aus mandate-view.js umgezogen) Anzeige-Uebersetzung des Sub-Anlageklassen-Namens 'Hedged CHF' bzw. '(CHF gehedgt)' in 'waehrungsgesichert in CHF' (KN-U E2E2-14); Teil eines Namens, keine Betrags- oder Formatwaehrung."
   }
  ]
 }

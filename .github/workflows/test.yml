@@ -841,6 +841,41 @@ jobs:
         run: |
           python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/kn3b-pdf             --startup-timeout 300 --test-timeout 600 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_kn3_b_customer_pdf_guard.py -p no:xdist -rs --tb=short
 
+  kn3u-livetest:
+    # KN3-U (Dok. 118, H-167 R2): Classic-Berateroberflaeche gegen das echte
+    # Backend, ohne Route-Stub. Eigener Job: "Frontend Reporting Tests" steht bei
+    # 14m37s von 15 Minuten, das Budget wird nicht angehoben.
+    name: KN3-U Livetest (Playwright Pflicht)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ARES_STRICT_LEAK_GUARD: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: ares-backend/requirements.txt
+
+      - name: Install backend test dependencies + Playwright + Chromium
+        working-directory: ares-backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt playwright==1.62.0
+          python -m playwright install --with-deps chromium
+
+      - name: KN3-U Livetest gegen echtes Backend (Playwright Pflicht)
+        working-directory: ares-backend
+        env:
+          ARES_REQUIRE_PLAYWRIGHT: "1"
+        run: |
+          python ../scripts/pytest_supervisor.py run --evidence-dir ci-out/supervisor/kn3u             --startup-timeout 300 --test-timeout 1080 --teardown-timeout 120 --session-timeout 120             --exit-timeout 60 --grace 10 --             python -m pytest tests/test_livetest_kn3_u_ui.py -p no:xdist -rs --tb=short
+
   vitest:
     # Sprint U-53 (2026-06-04): Frontend Reporting Sub-App vitest in CI.
     # Pre-U-53 lief vitest nur lokal — Bundle-Size (U-56), Sort-Filter-

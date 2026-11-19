@@ -3,7 +3,7 @@
  * SRO-/Fremdprozess) und Vertretung (ZGB) -- Paket H8, Compliance-Audit
  * 2026-11-07 (Luecken 2, 5, 7, 10).
  *
- * Ausgelagerter Monolith-Teil (EXTRACTED_MONOLITH_PARTS, eigenes Budget),
+ * Ausgelagerter Monolith-Teil (eigenes Budget),
  * eingebunden am Ende von ares.html. ares.html bleibt unveraendert bis auf die
  * Einbindung; die Masken haengt dieses Modul beim DOMContentLoaded selbst ein:
  *   - Administration > Compliance > "Rechtliche Angaben" (Button + Panel
@@ -217,7 +217,7 @@
       + '<div>' + L + 'Referenz (SRO-/Fremdsystem, keine Kundennamen)</label><input class="fi" id="kyc-ref" maxlength="120" style="font-size:11px"></div>'
       + '<div>' + L + 'Risikokategorie</label><select class="fsel" id="kyc-risk" style="font-size:11px"><option value="">bitte wählen</option><option value="normal">normal</option><option value="erhoeht">erhöht</option></select></div>'
       + '<div>' + L + 'PEP</label><select class="fsel" id="kyc-pep" style="font-size:11px"><option value="">bitte wählen</option><option value="false">nein</option><option value="true">ja</option></select></div>'
-      + '<div>' + L + 'Nächste Aktualisierung</label><input class="fi" type="date" id="kyc-review" style="font-size:11px"></div>'
+      + '<div>' + L + 'Nächste Aktualisierung (Pflicht)</label><input class="fi" type="date" id="kyc-review" style="font-size:11px"></div>'
       + '<div>' + L + 'Identifizierung der Vertragspartei am (GwG Art. 3)</label><input class="fi" type="date" id="kyc-ident-date" style="font-size:11px"></div>'
       + '<div style="grid-column:span 2;font-size:10px;padding-top:12px"><label><input type="checkbox" id="kyc-ident-ok"> Identifizierung der Vertragspartei ist erfolgt (GwG Art. 3)</label></div>'
       + '</div><button class="btn btn-sm" style="margin-top:4px" onclick="createKycConfirmation()">KYC-Bestätigung erfassen</button>';

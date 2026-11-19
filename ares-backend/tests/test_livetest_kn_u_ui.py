@@ -209,7 +209,10 @@ def test_kn_u_stale_publication_cause_without_reload(server):
             page.click("#btn-fxq-save")
             page.wait_for_function("() => /Gespeichert/.test(document.getElementById('fxq-status').textContent)", timeout=30000)
             page.wait_for_function("() => /Veraltet/.test(document.getElementById('aa-publication-status').textContent)", timeout=60000)
-            page.wait_for_function("() => /manuell/.test(document.getElementById('fxq-grid').innerText)", timeout=30000)
+            # KN3-U: der Editor laedt nach dem Neuladen der Betraege neu ("Lädt …"); erst den neuen Stand lesen.
+            page.wait_for_function("() => { var t=document.getElementById('fxq-grid').innerText; return /manuell/.test(t) && !/Lädt/.test(t); }", timeout=30000)
+            page.wait_for_timeout(1500)
+            page.wait_for_function("() => { var t=document.getElementById('fxq-grid').innerText; return /manuell/.test(t) && !/Lädt/.test(t); }", timeout=30000)
             editor = page.evaluate("document.getElementById('fxq-grid').innerText")
             _shot(page, "knu_e2e2_15_kurseditor_nach_speichern.png", "#m-fx-quick .modal")
             page.evaluate("cm('m-fx-quick')")

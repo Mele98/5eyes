@@ -80,6 +80,11 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     # Mandatswechsel, Banner unter der Kopfzeile, veraltete Soll-Allokation mit
     # Ursache, "Umrechnung offen" statt "keine Position", Verzehr-Kachel.
     ("mandate-view.js", "js"),
+    # KN3-U Kernkette Runde 3 (Dok. 118): gemeinsame Bandlogik, Betraege nach Kurs-/
+    # Vermoegensaenderung neu, KYC-Formular bleibt gefuellt, neues Mandat auffindbar,
+    # kein "veraltet" ohne Strategie; aresTerm/Cashflow-HUD aus mandate-view.js und
+    # reviewBandVisualHtml aus ares.html umgezogen (Budgets).
+    ("kn3-ui.js", "js"),
     # E2 Nachhaltigkeitspraeferenzen (Dok. 106): Kundenmaske nach dem Risikoprofil.
     ("sustainability-preferences.js", "js"),
 )
