@@ -758,9 +758,15 @@ def test_build_bucket_response_uses_investable_target_base_for_target_amounts():
     equities_bucket = next(item for item in buckets if item["asset_class"] == "Aktien")
     bonds_bucket = next(item for item in buckets if item["asset_class"] == "Obligationen")
 
-    assert equities_bucket["current_weight_bps"] == 6000
+    # KN4-B / E2E4-02: Ist auf derselben Basis wie das Soll (Strategiebasis
+    # 800'000; die Reserve 200'000 wird vom Liquiditaets-Ist abgezogen). Vorher
+    # 6000 bps auf dem Beratungsvermoegen -- "im Ziel", obwohl in Franken 120'000
+    # Aktien zu reduzieren sind, um die Reserve zu bilden.
+    assert equities_bucket["current_weight_bps"] == 7500
     assert equities_bucket["target_amount_rappen"] == 480000
     assert bonds_bucket["target_amount_rappen"] == 320000
+    liquidity = next(item for item in buckets if item["asset_class"] == "Liquiditaet")
+    assert liquidity["reserve_rappen"] == 200000 and liquidity["reserve_gap_rappen"] == 200000
 
 
 def test_build_simulation_payload_uses_target_start_value_without_changing_current_path():

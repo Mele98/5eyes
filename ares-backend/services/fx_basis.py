@@ -286,7 +286,7 @@ class FxBasis:
                         for c in ((getattr(exc, "extra", None) or {}).get("currencies") or [currency])})
         shown = ", ".join(name or "(ohne Währung)" for name in names)
         raise FxBasisError(
-            blocked[0][1].reason_code,
+            status_reason(self.status(blocked[0][0])),
             f"Für {shown} liegt kein verwendbarer Kurs vor; ohne Kurs wird nicht umgerechnet.",
             extra={"currencies": names, "fx_basis_hash": self.fx_basis_hash},
         )

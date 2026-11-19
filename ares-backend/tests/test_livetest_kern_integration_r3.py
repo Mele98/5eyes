@@ -300,7 +300,10 @@ def test_kern_integration_r3_band_pdfs_restart_and_amounts():
     assert depot["ist_basiert_auf_soll"] is True, depot
     assert all(b["in_band"] is None for b in depot["buckets"].values()), depot["buckets"]
     drift = " ".join(pdfs["depotcheck"][1].split())
-    assert "ohne IST-Bestand (kein Depot erfasst)" in drift and "im Band" not in drift, drift[:3000]
+    # KN4-B / E2E4-04: der Kunde hat ein Depot als Vermoegensposition erfasst --
+    # nie "kein Depot erfasst", sondern "Bestaende je Titel ... nicht erfasst".
+    assert "ohne IST-Bestand (Bestände je Titel der Empfehlung nicht erfasst)" in drift, drift[:3000]
+    assert "kein Depot erfasst" not in drift and "im Band" not in drift, drift[:3000]
     advisory = " ".join(pdfs["advisory-report"][1].split())
     assert "innerhalb der definierten Toleranzbänder" not in advisory, advisory[:3000]
     assert "Die Einhaltung der Toleranzbänder kann nicht beurteilt werden" in advisory, advisory[:3000]

@@ -1127,9 +1127,10 @@ def _build_erkenntnisse_flowables(erkenntnisse: dict, styles: dict) -> list[Any]
 
     page_width, _ = PAGE_SIZE
     inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
-    col_pruefpunkt = inner_width * 0.22
-    col_ampel = inner_width * 0.10
-    col_beurteilung = inner_width * 0.36
+    col_pruefpunkt = inner_width * 0.20
+    # KN4-B / E2E4-11: Platz fuer "Ausstehend" ohne Umbruch im Wort.
+    col_ampel = inner_width * 0.13
+    col_beurteilung = inner_width * 0.35
     col_empfehlung = inner_width - col_pruefpunkt - col_ampel - col_beurteilung
 
     header_row = [

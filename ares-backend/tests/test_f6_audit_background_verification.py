@@ -278,7 +278,7 @@ def test_unconfirmed_states_warn_in_compliance(state):
     })
     assert payload["controls"]["audit_chain_integrity_confirmed"] is False
     assert payload["controls"]["audit_chain_verification_state"] == state
-    assert any("Integritaet" in w and "nicht bestaetigt" in w for w in payload["warnings"])
+    assert any("Integrität" in w and "nicht bestätigt" in w for w in payload["warnings"])
     assert payload["status"] == "warning"
 
 
@@ -286,7 +286,7 @@ def test_broken_state_is_first_compliance_warning():
     payload = build_compliance_status(audit_verification={
         "state": "broken", "integrity_confirmed": False, "finding_count": 3,
     })
-    assert payload["warnings"][0].startswith("Audit-Log-Integritaet verletzt (3 Befunde)")
+    assert payload["warnings"][0].startswith("Audit-Log-Integrität verletzt (3 Befunde)")
 
 
 def test_ok_state_adds_no_audit_warning():
