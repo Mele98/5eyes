@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 
 from datetime import date as Date
 
+from core.reason_codes import DomainError, ReasonCode
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
 from models.snapshots import AssetClassAnnualReturn, AssetClassFxHistory, AssetClassPriceHistory
@@ -957,6 +958,19 @@ def _resolve_initial_value_rappen(db: Session, mandate: Mandate, ta: TargetAlloc
         )
         .all()
     )
+    # N-913-04 (K1-Nachtrag 1): nie eine nominale Summe ueber Waehrungen. Der
+    # Fallback (nur Alt-Allokationen ohne Snapshot) summiert ausschliesslich
+    # Positionen in der Mandatswaehrung; jede andere Waehrung sperrt typisiert
+    # (die strikte Umrechnung liegt im Generate-Pfad, der den Snapshot setzt).
+    base = str(getattr(mandate, "base_currency", None) or "CHF").upper()
+    foreign = sorted({str(getattr(r, "currency", None) or "").upper() for r in rows} - {base})
+    if foreign:
+        raise DomainError(
+            ReasonCode.CCX_FX_BASIS_MISMATCH,
+            "Der Backtest-Startwert ist ohne Strategie-Snapshot nicht ohne Umrechnung bestimmbar "
+            f"(Positionen in {', '.join(foreign) or 'unbekannter Waehrung'}). Bitte Strategie neu berechnen.",
+            extra={"currencies": foreign},
+        )
     return sum(int(getattr(r, "current_value_rappen", 0) or 0) for r in rows)
 
 

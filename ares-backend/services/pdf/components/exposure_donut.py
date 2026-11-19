@@ -14,6 +14,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
+from core.presentation_rounding import format_pct_value
 from services.pdf.styles import (
     FONT_BOLD,
     FONT_DEFAULT,
@@ -116,7 +117,7 @@ def _make_donut_drawing(entries: list[tuple[str, int]], diameter_mm: float) -> D
 
     total_pct = sum(values) / 100.0
     drawing.add(String(
-        size / 2, size / 2 + 1, f"{total_pct:.0f}%",
+        size / 2, size / 2 + 1, format_pct_value(total_pct, decimals=0),
         fontSize=10, fontName=FONT_BOLD, textAnchor="middle",
         fillColor=colors.HexColor("#0f172a"),
     ))
@@ -143,7 +144,7 @@ def _make_legend(entries: list[tuple[str, int]], max_entries: int) -> Table:
             ),
             Paragraph(
                 f'<para align="right"><font name="{FONT_BOLD}" size="{FONT_SIZE_TABLE}">'
-                f'{pct:.1f}%</font></para>',
+                f'{format_pct_value(pct, decimals=1)}</font></para>',
                 _para_compact(),
             ),
         ])
@@ -156,7 +157,7 @@ def _make_legend(entries: list[tuple[str, int]], max_entries: int) -> Table:
             ),
             Paragraph(
                 f'<para align="right"><font color="#94a3b8" size="{FONT_SIZE_SMALL}"><i>'
-                f'{rest_pct:.1f}%</i></font></para>',
+                f'{format_pct_value(rest_pct, decimals=1)}</i></font></para>',
                 _para_compact(),
             ),
         ])

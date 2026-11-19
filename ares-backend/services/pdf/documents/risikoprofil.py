@@ -9,6 +9,7 @@ from services.pdf.base import PDFContext, RisikoprofilData
 from services.pdf.components.eignungspruefung import make_eignungspruefung_section
 from services.pdf.components.header import _esc, make_banner_header
 from services.pdf.components.unterschrift import make_unterschrift_section
+from core.presentation_rounding import format_amount_minor
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -216,7 +217,7 @@ def _decision_reference_text(data: RisikoprofilData) -> str:
     status = (
         "Hash verifiziert"
         if data.override_decision_verified
-        else "Hash NICHT verifiziert -- Decision-Nachweis pruefen"
+        else "Hash NICHT verifiziert -- Decision-Nachweis prüfen"
     )
     return (
         f"{data.override_decision_id} · SHA-256 {data.override_decision_hash or '-'} · {status}"
@@ -234,5 +235,4 @@ def _section_title(text: str):
 def _format_amount(value_rappen: int | None, currency: str = "CHF") -> str:
     if not value_rappen:
         return ""
-    amount = int(round(value_rappen / 100))
-    return f"{currency} {amount:,.0f}".replace(",", "'")
+    return format_amount_minor(value_rappen, currency or "CHF")

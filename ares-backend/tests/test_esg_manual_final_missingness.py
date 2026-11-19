@@ -17,6 +17,7 @@ Unumsetzbarer Baustein -> 409 ``THEME_CLASSIFICATION_MISSING``.
 """
 from __future__ import annotations
 
+from tests.sustainability_test_support import answer_question_one_for_all_mandates  # noqa: E402
 import json
 import sys
 from datetime import datetime, timezone
@@ -27,6 +28,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import configure_mappers, sessionmaker
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -35,6 +37,7 @@ for _path in (BACKEND_ROOT, TESTS_ROOT):
         sys.path.insert(0, str(_path))
 
 from database import Base, new_uuid  # noqa: E402
+from retro_free_fixture import declare_all_products_retro_free  # noqa: E402
 from models import (  # noqa: E402,F401
     allocation, clients, mandates, profiling, review, snapshots, users, wealth,
 )
@@ -171,11 +174,19 @@ def _add_position(SF, mandate_id, run_id, advisor_id, product_id, weight=500):
 def _finalize(SF, mandate_id, run_id, advisor_id):
     from routers.review import finalize_recommendation
 
+    from client_onboarding_fixture import satisfy_client_onboarding
+    from models.mandates import Mandate
+
     with SF() as s:
         user = s.get(User, advisor_id)
+        declare_all_products_retro_free(s)
+        # H8 C-2/C-5: Kundeninformations-/KYC-Gate mit Testwerten erfuellen.
+        satisfy_client_onboarding(s, s.get(Mandate, mandate_id))
         try:
+            answer_question_one_for_all_mandates(s)  # Nachtrag 1: Pflichtfrage
             return finalize_recommendation(
                 mandate_id=mandate_id, run_id=run_id, request=_FakeRequest(), db=s, current_user=user,
+                confirm_valuations_current=True,
             )
         finally:
             s.rollback()
@@ -290,7 +301,7 @@ def test_manual_add_of_excluded_theme_product_is_409(SF):
     advisor_id, mandate_id = _seed(SF, "man-theme")
     _generate_ta(SF, mandate_id, advisor_id, {"policy": {"esg": "negative_screening"}})
     run_id = _draft_run(SF, mandate_id, advisor_id)
-    energy = _product_id(SF, "Energy Select Sector ETF")
+    energy = _product_id(SF, "Musterprodukt Thema Fossile Energie")
     with pytest.raises(HTTPException) as excinfo:
         _add_position(SF, mandate_id, run_id, advisor_id, energy)
     assert excinfo.value.status_code == 409
@@ -351,7 +362,7 @@ def test_finalize_blocks_run_with_manipulated_excluded_theme_position(SF):
     advisor_id, mandate_id = _seed(SF, "fin-theme")
     _generate_ta(SF, mandate_id, advisor_id, {"tilts": {"fossil": "exclude"}})
     run_id, pids, _w = _generate_run(SF, mandate_id, advisor_id)
-    energy = _product_id(SF, "Energy Select Sector ETF")
+    energy = _product_id(SF, "Musterprodukt Thema Fossile Energie")
     with SF() as s:
         pos = s.query(RecommendationPosition).filter(
             RecommendationPosition.run_id == run_id,
@@ -422,10 +433,10 @@ def test_seed_catalog_esg_data_is_marked_seed_unverified(SF):
 
     _seed(SF, "seed-status")
     with SF() as s:
-        spi = s.query(Product).filter(Product.product_name == "iShares Core SPI ETF").one()
+        spi = s.query(Product).filter(Product.product_name == "Musterprodukt Aktien Schweiz").one()
         assert product_esg_data_status(spi) == ESG_DATA_STATUS_SEED_UNVERIFIED
         assert set(seed_unverified_esg_fields(spi)) == {"sfdr_class", "esg_rating"}
-        energy = s.query(Product).filter(Product.product_name == "Energy Select Sector ETF").one()
+        energy = s.query(Product).filter(Product.product_name == "Musterprodukt Thema Fossile Energie").one()
         assert "theme_tags" in seed_unverified_esg_fields(energy)
         cash = s.query(Product).filter(Product.product_name == "Kontoguthaben CHF").one()
         assert product_esg_data_status(cash) == ESG_DATA_STATUS_NOT_MAINTAINED
@@ -437,7 +448,7 @@ def test_seed_catalog_esg_data_is_marked_seed_unverified(SF):
         spi.esg_rating = "AA"
         assert product_esg_data_status(spi) == ESG_DATA_STATUS_MAINTAINED_NO_SOURCE
         s.rollback()
-    custom = _add_product(SF, product_name="iShares Core SPI ETF", tenant_id=None, sfdr_class="8", esg_rating="A")
+    custom = _add_product(SF, product_name="Musterprodukt Aktien Schweiz", tenant_id=None, sfdr_class="8", esg_rating="A")
     with SF() as s:
         # Gleichnamig, gleiche Werte: von der Seed-Zeile nicht unterscheidbar
         # -> konservativ unbelegt.
@@ -452,7 +463,7 @@ def test_product_response_exposes_esg_data_status(SF):
 
     _seed(SF, "seed-resp")
     with SF() as s:
-        spi = s.query(Product).filter(Product.product_name == "iShares Core SPI ETF").one()
+        spi = s.query(Product).filter(Product.product_name == "Musterprodukt Aktien Schweiz").one()
         dumped = ProductResponse.model_validate(spi).model_dump()
     assert dumped["esg_data_status"] == "seed_unverified"
     assert set(dumped["esg_data_seed_fields"]) == {"sfdr_class", "esg_rating"}
@@ -489,7 +500,7 @@ def _pdf_text(preferences, products=None) -> str:
 
 
 _SEED_PRODUCTS = [
-    {"name": "iShares Core SPI ETF", "asset_class": "equities", "esg_data_status": "seed_unverified"},
+    {"name": "Musterprodukt Aktien Schweiz", "asset_class": "equities", "esg_data_status": "seed_unverified"},
     {"name": "Kontoguthaben CHF", "asset_class": "liquidity", "esg_data_status": "not_maintained"},
 ]
 
@@ -503,7 +514,7 @@ def test_customer_pdf_states_seed_esg_data_as_unconfirmed(policy):
     assert "ESG-Datenstand" in lines
     row = lines[lines.index("ESG-Datenstand") + 1]
     assert "nicht bestaetigt" in row
-    assert "iShares Core SPI ETF" in row
+    assert "Musterprodukt Aktien Schweiz" in row
     assert "Kontoguthaben" not in row  # ausgenommene Liquiditaet
     assert not [c for c in ESG_CUSTOMER_CLAIM_LABELS if c.lower() in text_.lower()]
 
@@ -528,7 +539,7 @@ def test_contract_signoff_orientation_contains_no_claim_label(policy):
 
 
 def test_advisor_fund_table_shows_esg_data_status():
-    html = MONOLITH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     start = html.index("function adminRenderFundSearchTable(")
     body = html[start:html.index("async function adminSearchFunds(", start)]
     assert "esg_data_status" in body

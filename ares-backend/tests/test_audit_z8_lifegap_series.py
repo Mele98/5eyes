@@ -290,7 +290,7 @@ def _seed_total_with_liabilities(session_factory):
         s.add(WealthPosition(
             id="pos-z8-2-hypo", client_id=cid,
             label="Hypothek", position_type="Hypothek", assignment="Verbindlichkeit",
-            current_value_rappen=600_000_00, currency="CHF",
+            current_value_rappen=600_000_00, currency="CHF", mortgage_interest_rate_bps=0,  # K1 N-913-01
             is_active=1, created_at=now, updated_at=now,
         ))
         s.add(Cashflow(

@@ -10,6 +10,15 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Mapping, Protocol, Sequence, runtime_checkable
 
+from jurisdictions.resolve import resolve_pack
+
+
+def resolve_pdf_jurisdiction(mandate) -> str:
+    """H7 N-884-02: Laendercode des Mandats fuer PDF-Texte ueber den zentralen
+    Resolver (jurisdictions.resolve, NULL = Altsemantik CH) -- kein eigener
+    Inline-Rueckgriff in den Textbausteinen."""
+    return str(resolve_pack(mandate).code)
+
 
 @dataclass(frozen=True)
 class PDFContext:
@@ -35,6 +44,31 @@ class PDFContext:
     # Backtest) gesetzt/gerendert -- fuer CH IMMER None (kein DB-Zugriff,
     # siehe resolve_pdf_provisional_notice).
     provisional_notice: Mapping[str, object] | None = None
+    # H7 C-3: Mandatstyp und Jurisdiktion fuer den Disclaimer je Mandat
+    # (services/pdf/components/static_texts.py::disclaimer_paragraphs).
+    mandate_type: str | None = None
+    jurisdiction: str | None = None
+    # C-890-01 Nachtrag 4 (N-897-12): "vorvertrag" fuer kundenwirksame Berichte
+    # ohne jede KYC-Bestaetigung (Entwurf vor Vertragsabschluss), sonst "none".
+    watermark_mode: str = "none"
+
+
+# E2E2-03: Verzehr-Hinweis fuer die Kunden-PDFs (pure Funktion).
+def depletion_note(year_labels, series, offset: int = 0) -> str | None:
+    """Erstes Jahr strikt unter null im Verlauf ``series`` (+ ``offset``, z. B.
+    die externe Reserve wie beim gedruckten Endwert). Gleiche Regel wie die App
+    (advisor-guidance.js ``depletionYear``/``depletionPhrase``): "Vermögen
+    aufgebraucht ab JJJJ", bei Startwert <= 0 "Finanzierungslücke ab JJJJ"."""
+    if not isinstance(series, (list, tuple)) or not series:
+        return None
+    values = [int(value or 0) + (int(offset) if value else 0) for value in series]
+    labels = list(year_labels) if isinstance(year_labels, (list, tuple)) else []
+    for index, value in enumerate(values):
+        if value < 0:
+            year = str(labels[index])[:4] if index < len(labels) and labels[index] is not None else None
+            phrase = "Vermögen aufgebraucht" if values[0] > 0 else "Finanzierungslücke"
+            return f"{phrase} ab {year}" if year else phrase
+    return None
 
 
 @dataclass(frozen=True)
@@ -99,7 +133,27 @@ class AnlagestrategieData:
     """{'equities': (min_bps, max_bps), ...} fuer Toleranzbaender-Spalte."""
 
     bucket_amounts_rappen: Mapping[str, int] = field(default_factory=dict)
-    """{'equities': target_amount_rappen, ...} fuer Betrag-Spalte."""
+    """{'equities': target_amount_rappen, ...} fuer Betrag-Spalte.
+
+    Live-Test 2026-11 H2/H3: Betraege auf der Strategiebasis
+    (``strategy_base_rappen``), auf die sich die SAA-Gewichte beziehen."""
+
+    strategy_base_rappen: int | None = None
+    """Strategiebasis = Beratungsvermoegen minus externe Liquiditaetsreserve
+    (Engine: ``strategy_base_rappen``). None = keine Reserve-Angabe."""
+
+    external_reserve_rappen: int = 0
+    """Ausserhalb der Anlagestrategie gehaltene Liquiditaetsreserve; wird als
+    eigene Zeile ausgewiesen, damit die Betraege auf das Beratungsvermoegen
+    summieren."""
+
+    strategy_basis_note: str | None = None
+    """N-858-2: Hinweis, wenn das aktuelle Beratungsvermoegen vom Vermoegen bei
+    Generierung der Strategie abweicht (Betraege beziehen sich auf letzteres)."""
+
+    sub_allocations: list = field(default_factory=list)
+    """SAA-Subanlageklassen (nicht Produktmix): dicts mit asset_class
+    (Bucket-Key), sub_asset_class, target_weight_bps, target_amount_rappen."""
 
     products: list = field(default_factory=list)
     """ISIN-Produkt-Liste. Jedes Element ist dict mit:
@@ -199,10 +253,20 @@ class AnlagestrategieData:
 
     target_volatility_1y_bps: int | None = None
     current_volatility_1y_bps: int | None = None
+    projection_end_year_label: str | None = None
+    """H9 Nachtrag 3: letztes Jahreslabel der Monte-Carlo-Pfade (Stand nach
+    dem letzten inklusiven Jahr); das PDF zeigt es als "Ende JJJJ" wie die App."""
     """1-Jahres-Volatilitaet aus der Monte-Carlo-Pfadsimulation (NICHT
     identisch zu cma_expected_vol_bps oben, das die theoretische CMA-Vola
     ist -- hier die tatsaechlich simulierte Pfad-Statistik, Basis fuer die
     Sharpe-Ratio)."""
+
+    target_depletion_note: str | None = None
+    current_depletion_note: str | None = None
+    """E2E2-03: "Vermögen aufgebraucht ab JJJJ" (bzw. "Finanzierungslücke ab
+    JJJJ"), wenn der mittlere Verlauf (P50) unter null faellt -- gleiche Regel
+    wie die App (advisor-guidance.js ``depletionYear``). Dann sind Median-
+    Rendite, Drawdown und Sharpe nicht aussagekraeftig (sonst -100 %)."""
 
     risk_free_bps: int = 80
     """Sharpe-Ratio-Referenzsatz. Konvention identisch zum Frontend
@@ -231,6 +295,37 @@ class VertragData:
     vereinbarungs_datum: str = ""
     mandate_number: str | None = None
     advisory_wealth_rappen: int | None = None
+
+
+@dataclass(frozen=True)
+class KundeninformationData:
+    """H8 C-2 (Compliance-Audit 2026-11-07): Kundeninformation nach Art. 8/9
+    FIDLEG. Alle Angaben zum Finanzdienstleister stammen aus den rechtlichen
+    Angaben des Tenants (keine Vorbelegung); Kosten, Retrozessionen,
+    wirtschaftliche Bindungen und Marktangebot aus den bestehenden Daten.
+    ``template_version`` geht in den Inhalts-Hash ein -- eine Textaenderung der
+    Vorlage braucht eine neue Version (sonst liefert das Archiv die alte
+    Fassung)."""
+
+    template_version: str
+    legal_profile_revision: int
+    legal_profile_hash: str
+    provider_lines: tuple = ()
+    """(Bezeichnung, Wert)-Paare: Firma, Adresse, Kontakt, Taetigkeitsfeld,
+    Aufsichtsstatus, Aufsichtsbehoerde/-organisation, Register."""
+    ombudsman_name: str = ""
+    ombudsman_address: str = ""
+    mandate_number: str | None = None
+    mandate_type: str = ""
+    cost_lines: tuple = ()
+    """(Bezeichnung, Wert)-Paare aus dem Ex-ante-Kostenausweis; leer =
+    noch kein Kostenausweis (Hinweis wird gedruckt)."""
+    cost_note: str = ""
+    retrocession_lines: tuple = ()
+    economic_ties: tuple = ()
+    market_offer_lines: tuple = ()
+    depot_bank: str | None = None
+    document_kind: str = "kundeninformation"
 
 
 @dataclass(frozen=True)
@@ -309,6 +404,17 @@ class ProtokollData:
     # dokumentierte Kenntnis/Aufklaerung (Reason-Code KNOWLEDGE_GAP_ASSET_CLASS).
     # Reiner Hinweis -- die Allokation wurde dadurch nicht veraendert.
     knowledge_gap_hints: list = field(default_factory=list)
+
+    # H8 Luecke 10 (ZGB): erfasste Vertretungen/Verfuegungsberechtigungen als
+    # Hinweiszeilen (dokumentarisch). Leer = keine erfasst (kein Abschnitt).
+    representation_lines: tuple = ()
+
+    # E2a Nachhaltigkeitspraeferenzen (Dok. 106): Zeilen (Label, Wert) und
+    # Hinweise (was im Portfolio heute nicht beruecksichtigt wird, Review).
+    # state: Pflichtzustand (core/sustainability_preference.py::STATES).
+    sustainability_state: str | None = None
+    sustainability_lines: tuple = ()
+    sustainability_notes: tuple = ()
 
 
 @dataclass(frozen=True)

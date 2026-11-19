@@ -41,7 +41,7 @@ def test_compliance_audit_minimal_payload_renders_degraded_defaults():
     text = _render_text(payload)
 
     assert "Compliance-Audit" in text
-    assert "Geeignetheitspruefung" in text
+    assert "Geeignetheitsprüfung" in text
     assert "Methodology-Modelle" in text
     assert "Daten ausstehend" in text
 
@@ -65,7 +65,7 @@ def test_compliance_audit_suitability_violation_is_visible():
 
     text = _render_text(payload)
 
-    assert "Geeignetheitspruefung" in text
+    assert "Geeignetheitsprüfung" in text
     assert "rot" in text
     assert "log-missing-1" in text
     assert "no_suitability_check_linked" in text
@@ -125,13 +125,13 @@ def test_compliance_audit_liquidity_emergency_warning_is_highlighted():
     payload = _make_minimal_payload()
     payload["liquidity_cascade"] = {
         "stage": "emergency",
-        "stage_label": "Liquiditaet ueber dem Soll-Hard-Cap im Emergency-Bereich.",
+        "stage_label": "Liquidität über dem Soll-Hard-Cap im Emergency-Bereich.",
         "liquidity_bps": 900,
         "hard_cap_bps": 300,
         "emergency_cap_bps": 1000,
         "over_hard_cap_by_bps": 600,
         "warning_required": True,
-        "beratungsgespraech_pruefen": True,
+        "beratungsgespraech_prüfen": True,
         "fidleg_basis": "Art. 11 / Art. 13 FIDLEG",
     }
 
@@ -181,7 +181,7 @@ def test_suitability_builder_fails_closed_on_audit_exception(monkeypatch):
     monkeypatch.setattr(sa, "audit_mandate_suitability", _boom)
     result = _build_suitability_compliance(db=None, mandate=None)
 
-    assert result["is_compliant"] is None, "Fail-open: behauptet faelschlich Konformitaet"
+    assert result["is_compliant"] is None, "Fail-open: behauptet faelschlich Konformität"
     assert result["audit_degraded"] is True
 
 
@@ -215,11 +215,11 @@ def test_degraded_suitability_renders_pruefung_nicht_moeglich():
         "fidleg_basis": "Art. 11/13/16 FIDLEG",
     }
     text = _render_text(payload)
-    assert "Pruefung nicht moeglich" in text
+    assert "Prüfung nicht möglich" in text
 
 
 def test_mandate_lock_builder_fails_closed_on_audit_exception(monkeypatch):
-    """Mega-Audit (2026-08-04): analog Commit 23585cf, jetzt auch fuer
+    """Mega-Audit (2026-08-04): analog Commit 23585cf, jetzt auch für
     Mandate-Lock-Status. Vorher: is_editable=True bei jedem Audit-Fehler."""
     import services.mandate_lock_audit as mla
     from services.advisory_report import _build_mandate_lock_status
@@ -260,7 +260,7 @@ def test_degraded_mandate_lock_renders_pruefung_nicht_moeglich():
         "fidleg_basis": "Art. 16 / Art. 11 FIDLEG",
     }
     text = _render_text(payload)
-    assert "Pruefung nicht moeglich" in text
+    assert "Prüfung nicht möglich" in text
 
 
 def test_editable_mandate_lock_does_not_show_degraded_hint():
@@ -276,7 +276,7 @@ def test_editable_mandate_lock_does_not_show_degraded_hint():
         "fidleg_basis": "Art. 16 / Art. 11 FIDLEG",
     }
     text = _render_text(payload)
-    assert "Pruefung nicht moeglich" not in text
+    assert "Prüfung nicht möglich" not in text
 
 
 def test_degraded_liquidity_cascade_renders_pruefung_nicht_moeglich():
@@ -289,12 +289,12 @@ def test_degraded_liquidity_cascade_renders_pruefung_nicht_moeglich():
         "emergency_cap_bps": 1000,
         "over_hard_cap_by_bps": None,
         "warning_required": False,
-        "beratungsgespraech_pruefen": False,
+        "beratungsgespraech_prüfen": False,
         "audit_degraded": True,
         "fidleg_basis": "Art. 11 / Art. 13 FIDLEG",
     }
     text = _render_text(payload)
-    assert "Pruefung nicht moeglich" in text
+    assert "Prüfung nicht möglich" in text
 
 
 def test_normal_liquidity_cascade_does_not_show_degraded_hint():
@@ -309,16 +309,16 @@ def test_normal_liquidity_cascade_does_not_show_degraded_hint():
         "emergency_cap_bps": 1000,
         "over_hard_cap_by_bps": None,
         "warning_required": False,
-        "beratungsgespraech_pruefen": False,
+        "beratungsgespraech_prüfen": False,
         "fidleg_basis": "Art. 11 / Art. 13 FIDLEG",
     }
     text = _render_text(payload)
-    assert "Pruefung nicht moeglich" not in text
+    assert "Prüfung nicht möglich" not in text
 
 
 def test_compliant_suitability_does_not_show_degraded_hint():
     """Gegenprobe: ein sauberes, konformes Payload zeigt den Fail-closed-
-    Hinweis NICHT (sonst wuerde der Test oben nichts beweisen)."""
+    Hinweis NICHT (sonst würde der Test oben nichts beweisen)."""
     payload = _make_minimal_payload()
     payload["suitability_compliance"] = {
         "total_advisory_logs": 2,
@@ -331,4 +331,4 @@ def test_compliant_suitability_does_not_show_degraded_hint():
         "fidleg_basis": "Art. 11/13/16 FIDLEG",
     }
     text = _render_text(payload)
-    assert "Pruefung nicht moeglich" not in text
+    assert "Prüfung nicht möglich" not in text
