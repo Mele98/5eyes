@@ -92,3 +92,18 @@ def preference_label(section: str, key: str, value):
     if choices is not None and isinstance(value, str):
         return choices.get(value)
     return None
+
+
+# KN4-B / DEMO-B3: Berechnungsmethode der Soll-Allokation als Kundentext.
+# Unbekannte oder interne Werte (z. B. Rueckfallmarker) werden weggelassen.
+METHOD_LABELS = {
+    "stochastic": "stochastische Optimierung (Monte-Carlo)",
+    "house_matrix": "Hausmatrix (Bandbreiten der Anlagestrategie)",
+    "fallback_house_matrix": "Hausmatrix (Bandbreiten der Anlagestrategie)",
+    "risk_budget": "Risikobudget-Methode",
+}
+
+
+def method_label(value):
+    """Kundentext zur Berechnungsmethode oder ``None`` (dann weglassen)."""
+    return METHOD_LABELS.get(str(value or "").strip().lower())

@@ -304,3 +304,59 @@ def test_bootstrap_email_error_is_german():
     with pytest.raises(ValidationError) as exc:
         BootstrapAdminRequest(username="admin", password="kurz", full_name="Erika Testberaterin")
     assert exc.value.errors()[0]["msg"] == "Das Passwort muss mindestens 10 Zeichen lang sein."
+
+
+# ── KN4-B / DEMO-B3: keine technischen Rohwerte im Kunden-PDF ────────────────
+
+
+def test_method_label_maps_known_and_omits_unknown():
+    from core.preference_labels import method_label
+
+    assert method_label("stochastic") == "stochastische Optimierung (Monte-Carlo)"
+    assert method_label("controlled_fallback") is None and method_label(None) is None
+
+
+def test_contract_signoff_prints_method_label_not_raw_value():
+    from services.pdf.documents.contract_signoff import _risk_strategy_table
+
+    def cells(method):
+        data = SimpleNamespace(risk_profile_label="Ausgewogen", risk_is_overridden=False, strategy_name="Ziel",
+                               strategy_method=method, limiting_factor=None)
+        return [str(c) for row in _risk_strategy_table(data)._cellvalues for c in row]
+
+    text = " ".join(cells("stochastic"))
+    assert "stochastische Optimierung (Monte-Carlo)" in text and "stochastic " not in text + " "
+    assert "Berechnungsmethode" not in " ".join(cells("internal_mode_x"))
+
+
+def test_customer_compliance_audit_hides_engine_diagnostics():
+    from reportlab.platypus import Paragraph
+
+    from services.pdf.components.compliance_audit import render_compliance_audit_section
+    from services.pdf.components.advisory_palette import make_advisory_styles
+
+    payload = {"recommendation_methodology": {"fallback_count": 0, "latest_run": {"method": "stochastic"}},
+               "engine_configuration": {"optimizer_mode": "stochastic", "importance_sampling_active": False}}
+
+    def text(**kw):
+        story = []
+        render_compliance_audit_section(payload, story, make_advisory_styles(), **kw)
+        out = []
+
+        def walk(obj):
+            if isinstance(obj, Paragraph):
+                out.append(obj.getPlainText())
+            for attr in ("_cellvalues", "_content"):
+                for item in getattr(obj, attr, None) or []:
+                    for sub in (item if isinstance(item, (list, tuple)) else [item]):
+                        walk(sub)
+            if isinstance(obj, (list, tuple)):
+                for item in obj:
+                    walk(item)
+        walk(story)
+        return " ".join(out)
+
+    customer = text()
+    assert "Optimizer-Modus" not in customer and "IS inaktiv" not in customer and "Fallback" not in customer
+    assert "stochastische Optimierung (Monte-Carlo)" in customer
+    assert "Optimizer-Modus" in text(advisor_annex=True)  # Berater-Anhang behaelt die Diagnose

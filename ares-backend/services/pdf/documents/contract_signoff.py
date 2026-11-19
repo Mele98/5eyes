@@ -1,6 +1,7 @@
 """Customer sign-off document for the final advisory decision."""
 from __future__ import annotations
 
+from core.preference_labels import method_label
 from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.platypus import PageBreak, Paragraph, Spacer, Table, TableStyle
@@ -218,9 +219,12 @@ def _risk_strategy_table(data: ContractSignoffData) -> Table:
         ["Risikoprofil", data.risk_profile_label or "Nicht dokumentiert"],
         ["Risikoprofil manuell überschrieben", "Ja" if data.risk_is_overridden else "Nein"],
         ["Gewählte Anlagestrategie", data.strategy_name or "Strategische Zielallokation"],
-        ["Berechnungsmethode", data.strategy_method or "Nicht dokumentiert"],
         ["Limitierender Faktor", _limiting_factor_label(data.limiting_factor)],
     ]
+    # KN4-B / DEMO-B3: Methode nur als Kundentext; unbekannt -> Zeile weglassen.
+    method = method_label(data.strategy_method)
+    if method:
+        rows.insert(5, ["Berechnungsmethode", method])
     return _table(rows, [0.38, 0.62])
 
 

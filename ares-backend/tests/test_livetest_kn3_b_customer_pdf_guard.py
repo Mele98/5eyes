@@ -418,13 +418,16 @@ def test_first_restart_after_setup_keeps_publication_and_bound_rows(live):
 
 _RAW_KEY = re.compile(r"\b[a-z]+[A-Z][A-Za-z]*\s*:\s*\S")
 _PYTHON_VALUE = re.compile(r"\b(True|False|None)\b")
+# KN4-B / DEMO-B3: interne Diagnose-/Rohwerte der Berechnung.
+_DIAGNOSTIC = re.compile(r"\bstochastic\b|\bhouse_matrix\b|\bFALLBACK\b|\bFallback\b|\bIS (?:in)?aktiv\b|"
+                         r"Optimizer-Modus|Importance Sampling|Recommendation-Methodology")
 
 
 def test_no_raw_preference_keys_or_python_values_in_customer_pdfs(rendered):
     offenders = {}
     for name, text in _texts(rendered).items():
         flat = " ".join(text.split())
-        hits = _RAW_KEY.findall(flat) + _PYTHON_VALUE.findall(flat)
+        hits = _RAW_KEY.findall(flat) + _PYTHON_VALUE.findall(flat) + _DIAGNOSTIC.findall(flat)
         if hits:
             offenders[name] = hits[:8]
     assert not offenders, offenders
@@ -436,6 +439,8 @@ def test_raw_key_patterns_detect_the_old_output():
     old = "Dokumentierte Präferenzen: hedging: none; homeBias: ch_focus; altsGold: True; fundsOnly: True."
     assert _RAW_KEY.search(old) and _PYTHON_VALUE.search(old)
     assert not _RAW_KEY.search("Seite 2: Übersicht; Datum: 19.11.2026")
+    assert _DIAGNOSTIC.search("Berechnungsmethode stochastic") and _DIAGNOSTIC.search("FALLBACK 0 IS inaktiv")
+    assert not _DIAGNOSTIC.search("Berechnungsmethode stochastische Optimierung (Monte-Carlo)")
 
 
 # ── KN4-B / E2E4-04: Depot als Vermoegensposition erfasst ────────────────────
