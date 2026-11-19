@@ -4,6 +4,13 @@
  "doc": "G7 Einzelentscheide je Quelltextzeile (Ausnahme-Annotation). COMPUTATION_KEEP gibt es nur hier; Regeln liefern nur Vorschlaege (scripts/classify_rounding_sites.py).",
  "overrides": [
   {
+   "file": "ares-desktop/frontend/kn3-ui.js",
+   "source": "try { if (typeof TOTAL !== 'undefined') { TOTAL = ok ? Math.round(adv / 100) : 0; TOTAL_CCY = ok ? (snap.wealthCurrency || null) : null; } } catch(_){}",
+   "class": "COMPUTATION_KEEP",
+   "status": "",
+   "reason": "syncAmountViews (KN3-U E2E3-02): Rappen -> ganze Franken fuer das globale TOTAL (Zwischenwert wie renderWealthPositions/applyAllocationEngineResult); angezeigt wird es nur ueber donutCenterValueHtml/formatCompactCHFAmount (Formatter)."
+  },
+  {
    "file": "ares-backend/routers/pdf_reports.py",
    "source": "amount = int(round(value * bps / 10000))",
    "class": "COMPUTATION_KEEP",
@@ -1257,11 +1264,11 @@
    "reason": "wealthProjectionInputs: `Math.round(consumableReturnRappenBps/consumableRappen)` -> setzt consumableReturnBps; Rechnende Rundung im Frontend (Zwischenwert/Vergleich, keine Anzeige). Weiterverwendung: `consumableReturnBps:consumableReturnBps,`"
   },
   {
-   "file": "ares-desktop/frontend/ares.html",
+   "file": "ares-desktop/frontend/kn3-ui.js",
    "source": "var currentLeft=(current/100).toFixed(2);",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "reviewBandVisualHtml: `(current/100).toFixed(2)` -> setzt currentLeft; Geometrie (CSS-Breite/Position aus bps). Weiterverwendung: `+'<div style=\"position:absolute;left:'+currentLeft+'%;top:5px;width:12px;height:12px;borde`"
+   "reason": "reviewBandVisualHtml (kn3-ui.js, aus ares.html umgezogen): `(current/100).toFixed(2)` -> setzt currentLeft; Geometrie (CSS-Breite/Position aus bps). Weiterverwendung: `+'<div style=\"position:absolute;left:'+currentLeft+'%;top:5px;width:12px;height:12px;borde`"
   },
   {
    "file": "ares-desktop/frontend/ares.html",
@@ -1425,11 +1432,11 @@
    "reason": "renderPortfolioSections: `Math.round(Math.abs(targetWeightBps)/Math.max(targetWeightBps,100)*100)` -> setzt targetBarPct; Geometrie (CSS-Breite/Position aus bps). Weiterverwendung: `+ '<div class=\"pdetail-item\"><strong>Soll-Anteil</strong><div class=\"pdetail-bars\"><div cl`"
   },
   {
-   "file": "ares-desktop/frontend/ares.html",
+   "file": "ares-desktop/frontend/kn3-ui.js",
    "source": "var targetLeft=(target/100).toFixed(2);",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "reviewBandVisualHtml: `(target/100).toFixed(2)` -> setzt targetLeft; Geometrie (CSS-Breite/Position aus bps). Weiterverwendung: `+'<div style=\"position:absolute;left:'+targetLeft+'%;top:4px;width:2px;height:16px;backgro`"
+   "reason": "reviewBandVisualHtml (kn3-ui.js, aus ares.html umgezogen): `(target/100).toFixed(2)` -> setzt targetLeft; Geometrie (CSS-Breite/Position aus bps). Weiterverwendung: `+'<div style=\"position:absolute;left:'+targetLeft+'%;top:4px;width:2px;height:16px;backgro`"
   },
   {
    "file": "ares-desktop/frontend/allocation-publication.js",
@@ -1474,18 +1481,18 @@
    "reason": "goalSuccessSummary: gewichtete Zielerreichung -> ganzzahlige bps (Umrechnung, Werte >= 0); Text ueber fmtNumber(weightedBps/100,0) (gemeinsamer Formatter)."
   },
   {
-   "file": "ares-desktop/frontend/ares.html",
+   "file": "ares-desktop/frontend/kn3-ui.js",
    "source": "var zoneLeft=(min/100).toFixed(2);",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "reviewBandVisualHtml: `(min/100).toFixed(2)` -> setzt zoneLeft; Geometrie (CSS-Breite/Position aus bps). Weiterverwendung: `+'<div style=\"position:absolute;left:'+zoneLeft+'%;width:'+zoneWidth+'%;top:7px;height:10p`"
+   "reason": "reviewBandVisualHtml (kn3-ui.js, aus ares.html umgezogen): `(min/100).toFixed(2)` -> setzt zoneLeft; Geometrie (CSS-Breite/Position aus bps). Weiterverwendung: `+'<div style=\"position:absolute;left:'+zoneLeft+'%;width:'+zoneWidth+'%;top:7px;height:10p`"
   },
   {
-   "file": "ares-desktop/frontend/ares.html",
+   "file": "ares-desktop/frontend/kn3-ui.js",
    "source": "var zoneWidth=Math.max(1,(max-min)/100).toFixed(2);",
    "class": "COMPUTATION_KEEP",
    "status": "",
-   "reason": "reviewBandVisualHtml: `Math.max(1,(max-min)/100).toFixed(2)` -> setzt zoneWidth; Geometrie (CSS-Breite/Position aus bps). Weiterverwendung: `+'<div style=\"position:absolute;left:'+zoneLeft+'%;width:'+zoneWidth+'%;top:7px;height:10p`"
+   "reason": "reviewBandVisualHtml (kn3-ui.js, aus ares.html umgezogen): `Math.max(1,(max-min)/100).toFixed(2)` -> setzt zoneWidth; Geometrie (CSS-Breite/Position aus bps). Weiterverwendung: `+'<div style=\"position:absolute;left:'+zoneLeft+'%;width:'+zoneWidth+'%;top:7px;height:10p`"
   },
   {
    "file": "ares-desktop/frontend/ares.html",

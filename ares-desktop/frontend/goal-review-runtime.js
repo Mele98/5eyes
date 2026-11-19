@@ -1265,12 +1265,12 @@ function renderActionCards(reasoning){
       var reserveBody='Der Fall ist im Vermögensverzehr: laufende Einkommen '+formatRappen(cashflowInfo.incomeRappen,cashflowInfo.currency)+' p.a., Ausgaben '+formatRappen(cashflowInfo.expenseRappen,cashflowInfo.currency)+' p.a., Finanzierungslücke '+formatSignedRappen(cashflowInfo.netRappen,cashflowInfo.currency)+' p.a..';
       if(cashflowInfo.coveragePct!=null)reserveBody+=' Die laufenden Einkommen decken rund '+AresRounding.formatPercent(cashflowInfo.coveragePct,0,{typography:'screen'})+' der Ausgaben.';
       if(reliefRows.length)reserveBody+=' Einmalige Kapitalereignisse entlasten temporär: '+reliefRows.map(function(row){return row.year+' '+row.label+' '+formatRappen(row.amountRappen,row.currency);}).join(' und ')+'.';
-      reserveBody+=' Die strategische Liquiditaet im Mandat bleibt bei '+liqTarget+'.';
+      reserveBody+=' Die strategische Liquidität im Mandat bleibt bei '+liqTarget+'.';
       if(externalReserve>0)reserveBody+=' Zusätzlich werden '+formatRappen(allocation.external_reserve_rappen)+' als separate Reserve ausserhalb des Mandats empfohlen.';
       else if(reserveNeeded>0)reserveBody+=' Der kurzfristige Reservebedarf liegt bei rund '+formatRappen(allocation.reserve_needed_rappen)+'.';
       if(targetRunway!=='-'||currentRunway!=='-')reserveBody+=' Median-Reichweite: IST '+currentRunway+', SOLL '+targetRunway+'.';
       if(runwayDeltaYears!=null&&runwayDeltaYears>0)reserveBody+=' Die Strategie gewinnt im Median rund '+runwayDeltaYears+' Jahre Zeit.';
-      else if(runwayDeltaYears!=null&&runwayDeltaYears===0&&targetRunway!=='-')reserveBody+=' Wichtig: Die Strategie puffert den Entnahmepfad, verlaengert die Reichweite in diesem Setup aber nicht wesentlich. Fuer mehr Reichweite braucht es weniger Entnahme, mehr Vermoegen oder zusaetzliche Einkommen.';
+      else if(runwayDeltaYears!=null&&runwayDeltaYears===0&&targetRunway!=='-')reserveBody+=' Wichtig: Die Strategie puffert den Entnahmepfad, verlängert die Reichweite in diesem Setup aber nicht wesentlich. Für mehr Reichweite braucht es weniger Entnahme, mehr Vermögen oder zusätzliche Einkommen.';
       pushCard('Entnahme & Reichweite','Zentral','tr2',reserveBody,(annualNet<0||externalReserve>0)?'warn':'good');
     }
   }
@@ -1336,10 +1336,9 @@ function _reviewIsDiscretionaryMandate(){
 function reviewBandStateMeta(bucket,assetKey){
   var target=Number(bucket&&bucket.target_weight_bps||0);
   var current=Number(bucket&&bucket.current_weight_bps||0);
-  var min=Number(bucket&&bucket.band_min_bps||0);
-  var max=Number(bucket&&bucket.band_max_bps||0);
+  var band=aresBandOf(bucket&&bucket.band_min_bps,bucket&&bucket.band_max_bps),min=band?band.min:0,max=band?band.max:0;
   var delta=current-target;
-  var pointBand=max>0&&max===min, hasBand=max>min||pointBand; // Live-Test H6: Punktband (min==max>0) ist ein Band; 0/0 = kein Band
+  var pointBand=!!(band&&band.point), hasBand=!!band; // E2E3-01: 0/0 ist ein Band (kn3-ui)
   var illiquid=_reviewIsIlliquidAssetClass(assetKey);
   var discretionary=_reviewIsDiscretionaryMandate();
   if(hasBand&&(current<min||current>max)){
@@ -1383,8 +1382,8 @@ function reviewStrategyComparisonRows(allocation){
         deltaWeightBps:Number(bucket.delta_weight_bps||0),
         currentRappen:Number(bucket.current_market_value_rappen||0),
         targetRappen:Number(bucket.target_market_value_rappen||0),
-        bandMinBps:Number(bucket.band_min_bps||0),
-        bandMaxBps:Number(bucket.band_max_bps||0)
+        bandMinBps:aresBandNumber(bucket.band_min_bps),
+        bandMaxBps:aresBandNumber(bucket.band_max_bps)
       };
     }).sort(function(a,b){
       return reviewAssetClassSortKey(a.assetKey)-reviewAssetClassSortKey(b.assetKey);
@@ -1400,8 +1399,8 @@ function reviewStrategyComparisonRows(allocation){
       deltaWeightBps:Number(bucket.current_weight_bps||0)-Number(bucket.target_weight_bps||0),
       currentRappen:Number(bucket.current_amount_rappen||0),
       targetRappen:Number(bucket.target_amount_rappen||0),
-      bandMinBps:Number(bucket.band_min_bps||0),
-      bandMaxBps:Number(bucket.band_max_bps||0)
+      bandMinBps:aresBandNumber(bucket.band_min_bps),
+      bandMaxBps:aresBandNumber(bucket.band_max_bps)
     };
   }).sort(function(a,b){
     return reviewAssetClassSortKey(a.assetKey)-reviewAssetClassSortKey(b.assetKey);

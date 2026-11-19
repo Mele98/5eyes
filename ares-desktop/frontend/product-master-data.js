@@ -129,7 +129,7 @@ function adminCollectFundMasterData(payload, editing){
   put('nav_as_of', val('pf-nav-as-of'));
   put('has_gating', flag('pf-has-gating'));
   put('gating_terms', val('pf-gating-terms'));
-  var dayFields = [['pf-redemption-days', 'redemption_period_days', 'Ruecknahmefrist'], ['pf-notice-days', 'notice_period_days', 'Kuendigungsfrist']];
+  var dayFields = [['pf-redemption-days', 'redemption_period_days', 'Rücknahmefrist'], ['pf-notice-days', 'notice_period_days', 'Kündigungsfrist']];
   for (var i = 0; i < dayFields.length; i++) {
     var raw = val(dayFields[i][0]);
     if (raw === '') { if (editing) payload[dayFields[i][1]] = null; continue; }
