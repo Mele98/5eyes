@@ -109,6 +109,25 @@ def allocation_inputs_stale(
     # Dokumentarchiv einen nicht FRESHen Entscheid weiterhin.
     if advisory_envelope_stale_reason(db, mandate, ta) == ReasonCode.CCX_INPUT_STALE:
         return True
+    return allocation_inputs_stale_reason(db, mandate, ta, assessment=assessment) is not None
+
+
+def allocation_inputs_stale_reason(
+    db: Session,
+    mandate: Any,
+    ta: Any,
+    *,
+    assessment: Any = _UNSET,
+) -> str | None:
+    """KN-B / E2E2-05: Meldung, mit der der Payload-Pfad ``ta`` als veraltet
+    ablehnen wuerde (``StaleAllocationInputError``), sonst ``None``. Die
+    Meldung ist eine ``core.fx_freshness.StaleAllocationReason`` mit Ursache
+    (``kind``, ``currencies``), z. B. "Wechselkurs USD". Gleiche Regeln wie
+    ``allocation_inputs_stale`` (ohne die Envelope-Frische)."""
+    if ta is None or mandate is None:
+        return None
+    if not str(getattr(ta, "input_snapshot_hash", None) or "").strip():
+        return None
 
     # OptimizerPolicy ueber portfolio_engine (dort ohnehin importiert): haelt
     # Fan-out/Lazy-Imports dieses Moduls trotz der CCX-P2-Pull-Pruefung stabil.
@@ -123,7 +142,7 @@ def allocation_inputs_stale(
         if assessment is _UNSET:
             assessment = _current_risk_assessment_or_none(db, mandate.id)
         if assessment is None:
-            return False
+            return None
         policy_id = str(getattr(ta, "policy_id", "") or "").strip()
         policy = (
             db.query(OptimizerPolicy).filter(OptimizerPolicy.id == policy_id).first()
@@ -131,7 +150,7 @@ def allocation_inputs_stale(
             else None
         )
         if policy is None:
-            return False
+            return None
         # Wie im Payload-Pfad: ein CMA-Snapshot-Anker der Allokation hat
         # Vorrang (build_target_payload_from_allocation laedt ihn selbst);
         # nur Alt-Allokationen ohne Anker rechnen mit der aktuellen CMA.
@@ -146,7 +165,7 @@ def allocation_inputs_stale(
                 db, resolve_mandate_jurisdiction(mandate), getattr(mandate, "tenant_id", None),
             )
             if cma is None:
-                return False
+                return None
         build_target_payload_from_allocation(
             db=db,
             mandate=mandate,
@@ -157,8 +176,8 @@ def allocation_inputs_stale(
             preferences=None,
             input_snapshot_check_only=True,
         )
-    except StaleAllocationInputError:
-        return True
+    except StaleAllocationInputError as exc:
+        return exc.args[0] if exc.args and isinstance(exc.args[0], str) else str(exc)
     except ValueError as exc:
         logger.warning(
             "allocation_inputs_stale: Anker-Pruefung fuer Allokation %s nicht "
@@ -166,5 +185,5 @@ def allocation_inputs_stale(
             getattr(ta, "id", None),
             exc,
         )
-        return False
-    return False
+        return None
+    return None

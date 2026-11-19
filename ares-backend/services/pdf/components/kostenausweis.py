@@ -274,7 +274,7 @@ def _total_row(label: str, bps: Any, amount: Any, styles, *, currency: str = "CH
 def _assumptions_panel(warnings: list[str], styles, *, compact: bool) -> Table:
     body = [
         Paragraph(
-            "ANNAHMEN UND DATENQUALITAET",
+            "ANNAHMEN UND DATENQUALITÄT",
             _style(styles["micro"], font=FONT_SANS_BOLD, color=COLOR_INK_SUBTLE),
         )
     ]

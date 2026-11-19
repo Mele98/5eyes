@@ -10,6 +10,19 @@ from database import (
 )
 
 
+# KN-B / E2E2-04: Der Siegel des Beratungsentscheids (Abhaengigkeitskante
+# "client", models/snapshots.py + services/effective_input_manifest.py) haengt
+# nur an allokations- bzw. pruefrelevanten Kundenfeldern. Ausgenommen sind nur
+# Spalten mit ``info={ADVISORY_HASH_EXEMPT_INFO_KEY: True}`` -- Felder, die weder
+# Engine noch Payload, Eignung oder die gebundenen Kunden-PDFs lesen (Waechter:
+# tests/test_kn_b_e2e2_04_client_hash.py). Im Zweifel bleibt ein Feld gebunden
+# (Geburtsdatum, Zivilstand, Wohnsitz/Kanton als Steuerdomizil, Haushalt,
+# Klassifizierung, Namen, Sprache, Berater ...); eine neue Spalte ist ohne
+# Markierung immer gebunden. Telefon/E-Mail/Adresse stehen nicht in dieser Zeile.
+ADVISORY_HASH_EXEMPT_INFO_KEY = "advisory_hash_exempt"
+_NOT_ADVISORY = {ADVISORY_HASH_EXEMPT_INFO_KEY: True}
+
+
 class Client(Base):
     __tablename__ = "clients"
 
@@ -27,20 +40,20 @@ class Client(Base):
     country_of_residence = Column(String, nullable=False, default="CH")
     canton = Column(String)
     civil_status = Column(String)
-    profession = Column(String)
-    employer = Column(String)
+    profession = Column(String, info=_NOT_ADVISORY)
+    employer = Column(String, info=_NOT_ADVISORY)
     language = Column(String, nullable=False, default="DE")
     partner_salutation = Column(String)
     partner_first_name = Column(String)
     partner_last_name = Column(String)
     partner_date_of_birth = Column(String)
-    partner_profession = Column(String)
+    partner_profession = Column(String, info=_NOT_ADVISORY)
     household_type = Column(String, nullable=False, default="Einzelperson")
     client_classification = Column(String, nullable=False, default="Privatkunde")
     is_professional_opt_out = Column(Integer, nullable=False, default=0)
     is_qualified_investor = Column(Integer, nullable=False, default=0)
     advisor_id = Column(String, ForeignKey("users.id"), nullable=False)
-    notes = Column(String)
+    notes = Column(String, info=_NOT_ADVISORY)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
     deleted_at = Column(String)
@@ -68,6 +81,16 @@ class Client(Base):
         "ClientDueDiligence", back_populates="client", uselist=False
     )
     tax_residencies = relationship("ClientTaxResidency", back_populates="client")
+
+
+# Positivliste des Kunden-Siegels (abgeleitet, eine Quelle: die Spaltenmarkierung).
+CLIENT_HASH_EXEMPT_COLUMNS = frozenset(
+    column.name for column in Client.__table__.columns if column.info.get(ADVISORY_HASH_EXEMPT_INFO_KEY)
+)
+CLIENT_HASH_COLUMNS = tuple(
+    column.name for column in Client.__table__.columns
+    if not column.info.get(ADVISORY_HASH_EXEMPT_INFO_KEY) and column.name != "updated_at"
+)
 
 
 class ClientNationality(Base):

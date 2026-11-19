@@ -2720,6 +2720,11 @@ export interface paths {
          * @description CCX-P4: Publikationsstatus der aktuellen Soll-Allokation (Pruefung ohne
          *     Schreibwirkung). ``can_publish`` nur, wenn alle Gates gruen sind; sonst
          *     katalogisierte ``blocker_codes``.
+         *
+         *     KN-B / E2E2-05: ``freshness`` (abgeleitet, Datensatz append-only): eine
+         *     publizierte, aber nicht mehr FRESHe Allokation erscheint als
+         *     ``PUBLICATION_INVALID`` mit konkreter Ursache (z. B. "Wechselkurs USD
+         *     geändert").
          */
         get: operations["get_allocation_publication_mandates__mandate_id__allocation_publication_get"];
         put?: never;
@@ -6800,11 +6805,25 @@ export interface components {
             ordinal: number;
         };
         /**
+         * AdvisoryEnvelopeFreshnessCause
+         * @description KN-B / E2E2-05: Ursache einer Invalidierung (z. B. "Ziele geändert").
+         */
+        AdvisoryEnvelopeFreshnessCause: {
+            /** Currencies */
+            currencies?: string[];
+            /** Kind */
+            kind: string;
+            /** Text */
+            text: string;
+        };
+        /**
          * AdvisoryEnvelopeFreshnessResponse
          * @description CCX-P2: Serverstatus der Frische des aktuellen versiegelten Entscheids
          *     (Anzeige; keine Neuberechnung im Client).
          */
         AdvisoryEnvelopeFreshnessResponse: {
+            /** Causes */
+            causes?: components["schemas"]["AdvisoryEnvelopeFreshnessCause"][];
             /** Envelope Hash */
             envelope_hash: string;
             /** Envelope Id */
@@ -7219,6 +7238,7 @@ export interface components {
             envelope_hash?: string | null;
             /** Envelope Id */
             envelope_id?: string | null;
+            freshness?: components["schemas"]["PublicationFreshnessResponse"] | null;
             /** Mandate Id */
             mandate_id: string;
             /** Prepared By */
@@ -13215,6 +13235,34 @@ export interface components {
              * @description Valorennummer (optional, nur Ziffern).
              */
             valor?: string | null;
+        };
+        /**
+         * PublicationFreshnessCause
+         * @description KN-B / E2E2-05: eine Ursache der Veraltung.
+         */
+        PublicationFreshnessCause: {
+            /** Currencies */
+            currencies?: string[];
+            /** Kind */
+            kind: string;
+            /** Text */
+            text: string;
+        };
+        /**
+         * PublicationFreshnessResponse
+         * @description KN-B / E2E2-05: abgeleitete Frische der aktiven Publikation.
+         *     ``status``: FRESH | STALE | UNKNOWN | null (keine bzw. aus anderem Grund
+         *     ungueltige Publikation).
+         */
+        PublicationFreshnessResponse: {
+            /** Causes */
+            causes?: components["schemas"]["PublicationFreshnessCause"][];
+            /** Message */
+            message?: string | null;
+            /** Reason Code */
+            reason_code?: string | null;
+            /** Status */
+            status?: string | null;
         };
         /**
          * RecommendationFinalizeResponse

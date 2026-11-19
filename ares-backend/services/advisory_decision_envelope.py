@@ -51,6 +51,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
+from core.fx_freshness import freshness_cause
 from core.advisory_envelope_codec import (
     CanonicalPayloadError,
     envelope_hash as compute_envelope_hash,
@@ -919,7 +920,8 @@ def pull_freshness(
         (edge, current.get(edge.dependency_kind)) for edge in edges
         if current.get(edge.dependency_kind) is None
         or current[edge.dependency_kind].object_id != edge.dependency_object_id
-        or not dependency_is_current(edge.dependency_hash, current[edge.dependency_kind].dependency_hash)
+        or not (dependency_is_current(edge.dependency_hash, current[edge.dependency_kind].dependency_hash)
+                or dependency_is_current(edge.dependency_hash, current[edge.dependency_kind].legacy_hash))
     ]
     if drift and any(edge.dependency_kind in REFERENCE_KINDS for edge, _part in drift) \
             and decision_signed(db, envelope):
@@ -987,14 +989,24 @@ def current_envelope_freshness(db: Session, *, mandate: Any) -> dict[str, Any]:
             "Fuer dieses Mandat liegt kein versiegelter Beratungsentscheid vor.",
             http_status=404,
         )
-    sequences = [row[0] for row in db.query(AdvisoryInvalidationEvent.invalidation_sequence).filter(
+    events = db.query(
+        AdvisoryInvalidationEvent.invalidation_sequence, AdvisoryInvalidationEvent.source_kind,
+    ).filter(
         AdvisoryInvalidationEvent.tenant_id == envelope.tenant_id,
         AdvisoryInvalidationEvent.envelope_id == envelope.id,
-    ).all()]
+    ).order_by(AdvisoryInvalidationEvent.invalidation_sequence).all()
+    sequences = [row[0] for row in events]
+    # KN-B / E2E2-05: konkrete Ursache(n) je Abhaengigkeitsart (ohne Duplikate).
+    causes: list[dict] = []
+    for _sequence, kind in events:
+        cause = freshness_cause(str(kind or ""))
+        if cause not in causes:
+            causes.append(cause)
     return {
         **envelope_freshness_status(envelope),
         "invalidation_count": len(sequences),
         "last_invalidation_sequence": max(sequences) if sequences else None,
+        "causes": causes,
     }
 
 

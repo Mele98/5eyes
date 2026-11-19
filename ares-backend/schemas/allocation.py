@@ -1834,6 +1834,23 @@ class AllocationPublicationStateResponse(BaseModel):
     single_person_firm: Optional[int] = None
 
 
+class PublicationFreshnessCause(BaseModel):
+    """KN-B / E2E2-05: eine Ursache der Veraltung."""
+    kind: str
+    text: str
+    currencies: list[str] = Field(default_factory=list)
+
+
+class PublicationFreshnessResponse(BaseModel):
+    """KN-B / E2E2-05: abgeleitete Frische der aktiven Publikation.
+    ``status``: FRESH | STALE | UNKNOWN | null (keine bzw. aus anderem Grund
+    ungueltige Publikation)."""
+    status: Optional[str] = None
+    reason_code: Optional[str] = None
+    message: Optional[str] = None
+    causes: list[PublicationFreshnessCause] = Field(default_factory=list)
+
+
 class AllocationPublicationOverviewResponse(BaseModel):
     """CCX-P4: Publikationsstatus der aktuellen Soll-Allokation fuer die
     Masken. ``can_publish`` nur, wenn alle Pruefungen gruen sind;
@@ -1850,6 +1867,7 @@ class AllocationPublicationOverviewResponse(BaseModel):
     already_published: bool
     prepared_by: Optional[str] = None
     active_publication: AllocationPublicationStateResponse
+    freshness: Optional[PublicationFreshnessResponse] = None
 
 
 class AllocationPublishRequest(BaseModel):

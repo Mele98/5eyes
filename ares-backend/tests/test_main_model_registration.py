@@ -197,7 +197,9 @@ GOLDEN_SORTED_TABLES_SHA256 = "618e8a807ae327ccb92d47cc4e5aefae67ac5d8e664a8806d
 # K1 (2026-11-19): wealth-summary Query mandate_id/target_currency und Felder
 # fx_basis_hash/valuation_as_of/mandate_id/amount_block_*, Summen optional (FX-Sperre);
 # ter_status in Empfehlungspositionen; property_gate_review_json in Vermoegenspositionen.
-GOLDEN_OPENAPI_SHA256 = "1f3cd2aa64d1bde2919ead23186bcbcccb015b360b18af6916a4cb6003eb3650"
+# KN-B (2026-11-19): freshness in AllocationPublicationOverviewResponse, causes in
+# AdvisoryEnvelopeFreshnessResponse (E2E2-05).
+GOLDEN_OPENAPI_SHA256 = "d0826606932ae89dac1d60f2ce51702ec8cd7d04e488fab750356914d4e2f53d"
 
 _PROBE = """
 import hashlib, json

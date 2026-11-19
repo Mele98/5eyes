@@ -422,7 +422,7 @@ def _build_anlagestrategie_flowables_template_order(
             basis_note=getattr(data, "strategy_basis_note", None),
         ))
     else:
-        empty_section("Vermoegensstruktur", "Noch keine Soll-Allokation berechnet.")
+        empty_section("Vermögensstruktur", "Noch keine Soll-Allokation berechnet.")
     # BAND-DEVIATION-REASON-REQUIRED-001: Abweichung vom Eignungsrahmen des
     # Risikoprofils + dokumentierte Begruendung direkt bei den Bandbreiten.
     flowables.extend(make_band_deviation_section(
@@ -463,7 +463,7 @@ def _build_anlagestrategie_flowables_template_order(
                 ),
             ]))
     else:
-        empty_section("Vermoegensstruktur", "Noch keine Soll-Allokation berechnet.")
+        empty_section("Vermögensstruktur", "Noch keine Soll-Allokation berechnet.")
     flowables.append(PageBreak())
 
     # 7 Investitionsansatz
@@ -481,7 +481,7 @@ def _build_anlagestrategie_flowables_template_order(
     flowables.append(PageBreak())
 
     # 10 Ausgangslage-Cover
-    flowables.extend(make_section_cover("Ihre persoenliche Ausgangslage"))
+    flowables.extend(make_section_cover("Ihre persönliche Ausgangslage"))
     flowables.append(PageBreak())
 
     # 11 Vermoegensuebersicht
@@ -494,8 +494,8 @@ def _build_anlagestrategie_flowables_template_order(
         ))
     else:
         empty_section(
-            "Vermoegensuebersicht",
-            "Noch keine Vermoegenspositionen erfasst. Bitte im Vermoegens-Tab die aktuellen Bestaende erfassen.",
+            "Vermögensübersicht",
+            "Noch keine Vermögenspositionen erfasst. Bitte im Vermögens-Tab die aktuellen Bestände erfassen.",
         )
     flowables.append(PageBreak())
 
@@ -513,7 +513,7 @@ def _build_anlagestrategie_flowables_template_order(
             base_currency=ctx.base_currency,
         ))
     if not (data.cashflow_events or data.goals_list):
-        empty_section("Kapitalzufluesse & Ziele", "Noch keine Cashflow-Ereignisse oder Anlageziele erfasst.")
+        empty_section("Kapitalzuflüsse & Ziele", "Noch keine Cashflow-Ereignisse oder Anlageziele erfasst.")
     flowables.append(PageBreak())
 
     # 13 Gesamtvermoegen: Asset-Allokation zuerst (gross nach klein)
@@ -530,7 +530,7 @@ def _build_anlagestrategie_flowables_template_order(
             basis_note=getattr(data, "strategy_basis_note", None),
         ))
     else:
-        empty_section("Vermoegensstruktur Gesamtvermoegen", "Noch keine Soll-Allokation berechnet.")
+        empty_section("Vermögensstruktur Gesamtvermögen", "Noch keine Soll-Allokation berechnet.")
     flowables.append(PageBreak())
 
     # 14 Gesamtvermoegen: Subanlageklassen und IST/SOLL-Visualisierung
@@ -538,7 +538,7 @@ def _build_anlagestrategie_flowables_template_order(
     if data.target_allocation_bps and sum(data.target_allocation_bps.values()) > 0:
         from reportlab.platypus import KeepTogether
         title_para = Paragraph(
-            '<font color="#475569" size="9"><b>SUBANLAGEKLASSEN - GESAMTVERMOEGEN</b></font>',
+            '<font color="#475569" size="9"><b>SUBANLAGEKLASSEN - GESAMTVERMÖGEN</b></font>',
             styles["section_title"],
         )
         if data.current_allocation_bps and sum(int(v or 0) for v in data.current_allocation_bps.values()) > 0:
@@ -560,7 +560,7 @@ def _build_anlagestrategie_flowables_template_order(
                 ),
             ]))
     else:
-        empty_section("Vermoegensstruktur Gesamtvermoegen", "Noch keine Soll-Allokation berechnet.")
+        empty_section("Vermögensstruktur Gesamtvermögen", "Noch keine Soll-Allokation berechnet.")
     flowables.append(PageBreak())
 
     # 15 Empfehlung
@@ -573,6 +573,7 @@ def _build_anlagestrategie_flowables_template_order(
             volatility_bps=data.cma_expected_vol_bps,
             max_drawdown_bps=data.max_drawdown_bps,
             var_95_bps=data.var_95_bps,
+            depletion_note=getattr(data, "target_depletion_note", None),
         ))
     else:
         empty_section("Risikoindikatoren", "Noch keine Monte-Carlo-Simulation gespeichert.")
@@ -596,6 +597,8 @@ def _build_anlagestrategie_flowables_template_order(
         risk_free_bps=data.risk_free_bps,
         currency=ctx.base_currency,
         end_year_label=getattr(data, "projection_end_year_label", None),
+        target_depletion_note=getattr(data, "target_depletion_note", None),
+        current_depletion_note=getattr(data, "current_depletion_note", None),
     )
     if sollist_kennzahlen:
         flowables.append(Spacer(1, 6 * mm))
@@ -707,7 +710,7 @@ def _make_preferences_section(preferences, styles, products=None) -> list:
     )
 
     esg_labels = {
-        "none": "Keine ESG-Praeferenz",
+        "none": "Keine ESG-Präferenz",
         "negative_screening": (
             "Negativ-Screening (Themenprodukte der kontroversen Themen ausgeschlossen, "
             "sofern nicht abweichend festgelegt)"
@@ -718,7 +721,7 @@ def _make_preferences_section(preferences, styles, products=None) -> list:
         for key in ESG_POLICY_CRITERIA
     })
 
-    rows = [["Bereich", "Festgehaltene Praeferenz"]]
+    rows = [["Bereich", "Festgehaltene Präferenz"]]
     rows.extend([
         ["ESG-Vorgabe", _label(policy.get("esg"), esg_labels, "Standard / keine gesonderte Vorgabe")],
         ["Anlageuniversum", _label(policy.get("universe"), {
@@ -733,7 +736,7 @@ def _make_preferences_section(preferences, styles, products=None) -> list:
             "europe_focus": "Europa-Fokus",
             "global": "Global neutral",
         }, "Schweiz-Fokus bevorzugt")],
-        ["Waehrung", _label(policy.get("hedging"), {
+        ["Währung", _label(policy.get("hedging"), {
             "none": "Keine FX-Vorgabe",
             "hedged": "FX-gehedgt bevorzugt",
             "chf_only": "Nur CHF-Instrumente",
@@ -758,7 +761,7 @@ def _make_preferences_section(preferences, styles, products=None) -> list:
             restrictions.append(label)
     geo_labels = [
         ("chFocus", "CH-Fokus"),
-        ("noEm", "Kein Schwellenlaender-Exposure"),
+        ("noEm", "Kein Schwellenländer-Exposure"),
         ("hedgingRequired", "FX-Absicherung obligatorisch"),
         ("chfOnly", "Nur CHF-Instrumente"),
         ("noUsd", "Kein USD"),
@@ -800,9 +803,9 @@ def _make_preferences_section(preferences, styles, products=None) -> list:
             action = "bewusst zugelassen" if item["mode"] == THEME_TILT_ALLOW else "uebergewichtet"
             text_ = f"{THEME_DISPLAY_NAMES[key]} {action}"
             if item["reason"]:
-                text_ += f" -- Begruendung: {item['reason']}"
+                text_ += f" -- Begründung: {item['reason']}"
             else:
-                text_ += " -- keine Begruendung erfasst"
+                text_ += " -- keine Begründung erfasst"
             deviation_texts.append(text_)
         rows.append(["Abweichungen von der ESG-Policy", "; ".join(deviation_texts)])
     # ESG-SEED-PROVENANCE-001: keine positive ESG-Aussage auf unbelegten Seed-Werten.
@@ -824,7 +827,7 @@ def _make_preferences_section(preferences, styles, products=None) -> list:
         # Tabelle (saa_bar_table), die die tatsaechlich wirksame, freigegebene
         # TargetAllocation zeigt. "Praeferenz" ist bewusst ASCII-only, siehe
         # Konvention oben ("Festgehaltene Praeferenz").
-        for field, label in (("min_bps", "Min"), ("target_bps", "Praeferenz"), ("max_bps", "Max")):
+        for field, label in (("min_bps", "Min"), ("target_bps", "Präferenz"), ("max_bps", "Max")):
             value = override.get(field)
             if value is not None:
                 parts.append(f"{label} {format_bps_as_pct(int(value))}")
@@ -875,7 +878,7 @@ def _make_preferences_section(preferences, styles, products=None) -> list:
             Paragraph(
                 _esc(
                     "Hinweis Themen-Screening: Ausgeschlossene und untergewichtete Themen "
-                    "werden weder als eigener Themenbaustein noch als Ersatz fuer einen "
+                    "werden weder als eigener Themenbaustein noch als Ersatz für einen "
                     "anderen Baustein umgesetzt. " + theme_look_through_disclosure(screened_themes)
                 ),
                 styles["body"],
@@ -883,10 +886,10 @@ def _make_preferences_section(preferences, styles, products=None) -> list:
         ]
 
     return [
-        Paragraph("Anlagepraeferenzen", styles["heading"]),
+        Paragraph("Anlagepräferenzen", styles["heading"]),
         Paragraph(
-            "Die Praeferenzen beeinflussen die Umsetzung innerhalb der Anlageklassen "
-            "und werden bei der Produktauswahl sowie bei Bandbreiten beruecksichtigt.",
+            "Die Präferenzen beeinflussen die Umsetzung innerhalb der Anlageklassen "
+            "und werden bei der Produktauswahl sowie bei Bandbreiten berücksichtigt.",
             styles["body"],
         ),
         Spacer(1, 4 * mm),
@@ -910,21 +913,21 @@ def _make_kennzahlen_hinweise_section(styles) -> list:
         ),
         (
             "Einordnung",
-            "Die ausgewiesenen Kennzahlen sind Planungs- und Beratungsgroessen. Sie "
+            "Die ausgewiesenen Kennzahlen sind Planungs- und Beratungsgrössen. Sie "
             "beruhen auf Modellannahmen, Kapitalmarkterwartungen und den erfassten "
-            "Kundendaten. Aenderungen bei Zielen, Vermoegen, Anlagehorizont oder "
-            "Risikoprofil koennen die Empfehlung wesentlich veraendern."
+            "Kundendaten. Änderungen bei Zielen, Vermögen, Anlagehorizont oder "
+            "Risikoprofil können die Empfehlung wesentlich verändern."
         ),
         (
             "Dokumentation",
             "Abweichungen, Berater-Overrides, fehlende Informationen und besondere "
-            "Kundenentscheide muessen im Beratungsprotokoll festgehalten werden. Eine "
-            "Strategie darf nur umgesetzt werden, wenn die Eignungspruefung vollstaendig "
+            "Kundenentscheide müssen im Beratungsprotokoll festgehalten werden. Eine "
+            "Strategie darf nur umgesetzt werden, wenn die Eignungsprüfung vollständig "
             "und plausibel dokumentiert ist."
         ),
     ]
 
-    flowables = [Paragraph("Erlaeuterungen zu den Kennzahlen", styles["heading"])]
+    flowables = [Paragraph("Erläuterungen zu den Kennzahlen", styles["heading"])]
     for title, text in paragraphs:
         flowables.append(Spacer(1, 3 * mm))
         flowables.append(Paragraph(

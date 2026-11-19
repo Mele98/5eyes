@@ -37,8 +37,8 @@ from services.pdf.styles import (
 BUCKET_ORDER = ("liquidity", "bonds", "equities", "real_estate", "alternatives")
 
 FALLBACK_TEXT = (
-    "Keine aktuelle Produktempfehlung fuer die gueltige Asset Allocation. "
-    "Sobald das Portfolio fuer diese Allokation generiert wurde, erscheint hier die Produktliste mit ISIN, "
+    "Keine aktuelle Produktempfehlung für die gültige Asset Allocation. "
+    "Sobald das Portfolio für diese Allokation generiert wurde, erscheint hier die Produktliste mit ISIN, "
     "Zielgewicht, Zielwert, Währung und TER."
 )
 
@@ -50,14 +50,14 @@ def make_produkte_section(
 ) -> list:
     """Returns Flowables: Section-Title + 4 Metric-Boxes + Tabelle ODER Fallback."""
     products_list = list(products or [])
-    flowables = [_section_title("Uebersicht der enthaltenen Fonds")]
+    flowables = [_section_title("Übersicht der enthaltenen Fonds")]
 
     # Beschreibungs-Paragraph
     flowables.append(Paragraph(
         '<font name="' + FONT_DEFAULT + '" size="8.5" color="#475569">'
-        'Diese Uebersicht zeigt die Fonds und die Gewichtung, die bei '
+        'Diese Übersicht zeigt die Fonds und die Gewichtung, die bei '
         'Vertragsbeginn bzw. bei Umsetzung des Portfolios verwendet werden. '
-        'Gewichtung, Wert und Produkte koennen sich ueber die Laufzeit veraendern.'
+        'Gewichtung, Wert und Produkte können sich über die Laufzeit verändern.'
         '</font>',
         make_paragraph_styles()["body"],
     ))

@@ -316,6 +316,8 @@ def health():
         "host": settings.app_host,
         "port": settings.app_port,
         "allow_real_client_data": settings.allow_real_client_data,
+        # KN-B / E2E2-10: "Foundation Case laden" nur anbieten, wenn verfuegbar.
+        "foundation_example_available": settings.foundation_example_available,
     }
 
 

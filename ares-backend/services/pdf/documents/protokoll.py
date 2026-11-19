@@ -47,8 +47,8 @@ def build_protokoll_flowables(ctx: PDFContext, data) -> list:
     ))
     flowables.append(Paragraph(
         '<font name="' + FONT_DEFAULT + '" size="9" color="#475569">'
-        'Dieses Dokument fasst die im Beratungsgespraech dokumentierten '
-        'Entscheide, Empfehlungen und naechsten Schritte zusammen.'
+        'Dieses Dokument fasst die im Beratungsgespräch dokumentierten '
+        'Entscheide, Empfehlungen und nächsten Schritte zusammen.'
         '</font>',
         styles["body"],
     ))

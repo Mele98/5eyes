@@ -217,7 +217,7 @@ def _decision_reference_text(data: RisikoprofilData) -> str:
     status = (
         "Hash verifiziert"
         if data.override_decision_verified
-        else "Hash NICHT verifiziert -- Decision-Nachweis pruefen"
+        else "Hash NICHT verifiziert -- Decision-Nachweis prüfen"
     )
     return (
         f"{data.override_decision_id} · SHA-256 {data.override_decision_hash or '-'} · {status}"

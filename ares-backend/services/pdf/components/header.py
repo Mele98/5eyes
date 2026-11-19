@@ -50,7 +50,8 @@ def make_banner_header(
     banner_width = page_width - 24 * mm
 
     # ---- Linke Spalte: Branding + Titel + Datum ----
-    brand = ctx.advisor_org or ctx.advisor_name or "Emanuele Konzelmann"
+    # KN-B Nachtrag 1: kein Personenname als Fallback -- ohne Firma/Berater bleibt die Zeile leer.
+    brand = ctx.advisor_org or ctx.advisor_name or ""
     left_lines = [
         f'<para><font name="{FONT_BOLD}" size="9" color="#94a3b8">'
         f'{_esc(brand).upper()}</font></para>',

@@ -37,6 +37,23 @@ from services.pdf.styles import (
 )
 
 
+# E2E2-03: Bei Vermoegensverzehr (mittlerer Verlauf unter null) ergibt die
+# zeitgewichtete Median-Rendite -100 %, der Drawdown -100 % und die Sharpe-Ratio
+# eine sinnlose Zahl. Statt dieser Werte steht ein Hinweis wie in der App.
+NOT_MEANINGFUL = "nicht aussagekräftig"
+_TOTAL_LOSS_BPS = -10_000
+
+
+def not_meaningful_text(note: str | None) -> str:
+    """Kennzahl-Ersatz bei Verzehr: "nicht aussagekräftig – <Hinweis>"."""
+    return f"{NOT_MEANINGFUL} – {note}" if note else NOT_MEANINGFUL
+
+
+def depleted(note: str | None, cagr_bps: int | None) -> bool:
+    """Verzehr belegt (Hinweis) oder Totalverlust-Median (-100 %)."""
+    return bool(note) or (cagr_bps is not None and int(cagr_bps) <= _TOTAL_LOSS_BPS)
+
+
 def _sharpe_ratio(cagr_bps: int | None, vol_bps: int | None, risk_free_bps: int) -> float | None:
     """(Median-Rendite - risikofrei) / Volatilitaet.
 
@@ -77,6 +94,8 @@ def make_sollist_kennzahlen_table(
     risk_free_bps: int = 80,
     currency: str = "CHF",
     end_year_label: object = None,
+    target_depletion_note: str | None = None,
+    current_depletion_note: str | None = None,
 ) -> list:
     """SOLL/IST-Kennzahlentabelle: Endwerte, Volatilitaet, Rendite, Sharpe.
 
@@ -90,8 +109,12 @@ def make_sollist_kennzahlen_table(
     if not has_any:
         return []
 
+    target_depleted = depleted(target_depletion_note, target_cagr_bps)
+    current_depleted = depleted(current_depletion_note, current_cagr_bps)
     sharpe_target = _sharpe_ratio(target_cagr_bps, target_volatility_1y_bps, risk_free_bps)
     sharpe_current = _sharpe_ratio(current_cagr_bps, current_volatility_1y_bps, risk_free_bps)
+    target_na = not_meaningful_text(target_depletion_note)
+    current_na = not_meaningful_text(current_depletion_note)
 
     header_style = make_paragraph_styles().get("small_muted") or make_paragraph_styles().get("body")
     rows = [[
@@ -117,8 +140,10 @@ def make_sollist_kennzahlen_table(
     cell_style = make_paragraph_styles().get("small_muted") or make_paragraph_styles().get("body")
     rows.append([
         Paragraph(_esc("Rendite p.a. (Median)"), cell_style),
-        Paragraph(_esc(format_bps_as_pct(target_cagr_bps, decimals=2)), cell_style),
-        Paragraph(_esc(format_bps_as_pct(current_cagr_bps, decimals=2)), cell_style),
+        Paragraph(_esc(target_na if target_depleted else format_bps_as_pct(target_cagr_bps, decimals=2)),
+                  cell_style),
+        Paragraph(_esc(current_na if current_depleted else format_bps_as_pct(current_cagr_bps, decimals=2)),
+                  cell_style),
     ])
     rows.append([
         # Live-Test 2026-11 M8: in der Monte-Carlo-Simulation realisiert (nicht
@@ -132,8 +157,8 @@ def make_sollist_kennzahlen_table(
             f'<font color="#475569">Rendite/Risiko (Sharpe, risikofrei '
             f'{format_bps_as_pct(risk_free_bps, decimals=1)})</font>', cell_style,
         ),
-        Paragraph(_esc(_fmt_sharpe(sharpe_target)), cell_style),
-        Paragraph(_esc(_fmt_sharpe(sharpe_current)), cell_style),
+        Paragraph(_esc(target_na if target_depleted else _fmt_sharpe(sharpe_target)), cell_style),
+        Paragraph(_esc(current_na if current_depleted else _fmt_sharpe(sharpe_current)), cell_style),
     ])
 
     page_width, _ = PAGE_SIZE
@@ -159,7 +184,16 @@ def make_sollist_kennzahlen_table(
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
     ]))
-    return [table]
+    if not (target_depleted or current_depleted):
+        return [table]
+    # E2E2-03: Endwerte unter null sind die Finanzierungsluecke (wie in der App).
+    notes = [f"{side}: {note}" for side, note in (("SOLL-Strategie", target_depletion_note),
+                                                  ("IST-Portfolio", current_depletion_note)) if note]
+    hint = ("; ".join(notes) + " (mittlerer Verlauf). " if notes else "") + (
+        "Werte unter null zeigen die Finanzierungslücke. Rendite, Drawdown und Sharpe-Ratio "
+        "sind bei aufgebrauchtem Vermögen nicht aussagekräftig."
+    )
+    return [table, Paragraph(f'<font color="#7c2d12">{_esc(hint)}</font>', cell_style)]
 
 
 def make_sollist_goal_comparison_table(

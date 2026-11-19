@@ -187,7 +187,7 @@ def test_full_api_path_app_and_pdfs_show_identical_numbers(api, advisor_user, cu
     assert "Rundungsdifferenzen" not in legend
     reserve_shown = "Liquiditätsreserve (ausserhalb der Anlagestrategie)" in strategy
     labels = (("Total Anlagestrategie (Strategiebasis)", "Liquiditätsreserve (ausserhalb der Anlagestrategie)",
-               "Total Beratungsvermögen") if reserve_shown else ("Total Beratungsvermoegen",))
+               "Total Beratungsvermögen") if reserve_shown else ("Total Beratungsvermögen",))
     for label in labels:
         m = re.search(re.escape(label) + r"\s+(?:100\.0 %\s+|–\s+)?(" + currency + r" [\d']+)", strategy)
         assert m, label

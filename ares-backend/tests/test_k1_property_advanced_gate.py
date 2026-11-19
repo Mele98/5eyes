@@ -297,12 +297,14 @@ def test_engine_ignores_collateral_growth_debt_reduction_and_refinancing():
     assert foundation["liability_series_rappen"] == [400_000_00] * 6
     assert foundation["pledged_asset_series_rappen"] == [0] * 6
     # Cashflows: laufende Belastung konstant abgeleitet (N-913-01), keine
-    # Refinanzierungs- und keine Schuldabbau-/Payoff-Korrektur.
+    # Refinanzierungs- und keine Schuldabbau-Korrektur des Zinses.
     flows = {d.label: d.amount_rappen for d in derive_wealth_cashflows([home, mortgage])
              if d.origin_position_type == "Hypothek"}
     assert flows == {"Hypothekarzins: x": 6_000_00, "Amortisation: x": 10_000_00}
     assert mortgage_interest_adjustment_series([mortgage], 6, 2026) == [0] * 6
-    assert mortgage_amortization_adjustment_series([mortgage], 60) == [0] * 60
+    # KN-B / E2E2-09 (CTO-Entscheid): die Amortisation endet, sobald die kumulierte
+    # Amortisation die heutige Schuld (400'000 / 10'000 = 40 Jahre) erreicht.
+    assert mortgage_amortization_adjustment_series([mortgage], 60) == [0] * 40 + [10_000_00] * 20
 
 
 def test_derived_mortgage_flows_disappear_when_derivation_is_removed(monkeypatch):

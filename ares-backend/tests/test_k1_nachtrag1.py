@@ -60,7 +60,7 @@ def test_v4_allocation_is_recognised_by_its_model_basis():
     assert predates_fx_effective_hash(json.dumps({"engine_version": "manual"})) is False  # unbekannt
     assert predates_fx_effective_hash(None) is False
     assert stale_allocation_message([], True) == STALE_BASIS_UPDATED_MESSAGE
-    assert "Vermoegen, Cashflows oder Ziele" not in STALE_BASIS_UPDATED_MESSAGE
+    assert "Vermögen, Cashflows oder Ziele" not in STALE_BASIS_UPDATED_MESSAGE
     assert "Berechnungsgrundlage aktualisiert" in STALE_BASIS_UPDATED_MESSAGE
     assert stale_allocation_message([], False) == STALE_INPUTS_MESSAGE
     assert "Wechselkurs USD" in stale_allocation_message(["USD"], True)
@@ -96,11 +96,11 @@ def test_transition_message_is_honest_for_pre_k1_allocation(api, advisor_user, m
     stale = api.get(f"/mandates/{mandate_id}/target-allocation/current/payload")
     assert stale.status_code == 409, stale.text[:300]
     assert "Berechnungsgrundlage aktualisiert" in stale.text
-    assert "Vermoegen, Cashflows oder Ziele" not in stale.text
+    assert "Vermögen, Cashflows oder Ziele" not in stale.text
     # Gegenprobe: eine nach K1 erzeugte Allokation meldet weiter die Eingaben.
     monkeypatch.undo()
     again = api.get(f"/mandates/{mandate_id}/target-allocation/current/payload")
-    assert again.status_code == 409 and "Vermoegen, Cashflows oder Ziele" in again.text
+    assert again.status_code == 409 and "Vermögen, Cashflows oder Ziele" in again.text  # KN-B E2E2-11
 
 
 # ── N-913-04 ────────────────────────────────────────────────────────────────

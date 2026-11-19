@@ -2043,6 +2043,13 @@ class AdvisoryEnvelopeResponse(BaseModel):
     bindings: list[AdvisoryEnvelopeBindingResponse]
 
 
+class AdvisoryEnvelopeFreshnessCause(BaseModel):
+    """KN-B / E2E2-05: Ursache einer Invalidierung (z. B. "Ziele geändert")."""
+    kind: str
+    text: str
+    currencies: list[str] = Field(default_factory=list)
+
+
 class AdvisoryEnvelopeFreshnessResponse(BaseModel):
     """CCX-P2: Serverstatus der Frische des aktuellen versiegelten Entscheids
     (Anzeige; keine Neuberechnung im Client)."""
@@ -2054,6 +2061,8 @@ class AdvisoryEnvelopeFreshnessResponse(BaseModel):
     optimistic_version: int
     invalidation_count: int
     last_invalidation_sequence: Optional[int] = None
+    # KN-B / E2E2-05: Ursachen der Veraltung je Abhaengigkeitsart.
+    causes: list[AdvisoryEnvelopeFreshnessCause] = Field(default_factory=list)
 
 
 class RecommendationPositionCreate(BaseModel):

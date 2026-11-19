@@ -79,6 +79,7 @@ from services.recommendation_run_resolver import (
     resolve_current_recommendation_run,
 )
 from services.pdf.base import (
+    depletion_note,
     resolve_pdf_jurisdiction,
     AnlagestrategieData,
     BacktestData,
@@ -623,7 +624,7 @@ def _require_strategy_decision_anchors(mandate: Mandate, db: Session):
     if int(getattr(allocation, "context_artifacts_required", 0) or 0) != 1:
         raise ValueError(
             "Die aktuelle Soll-Allokation ist ein Legacy-Artefakt ohne "
-            "vollstaendige Entscheidungskontexte; bitte Strategie neu berechnen."
+            "vollständige Entscheidungskontexte; bitte Strategie neu berechnen."
         )
 
     policy_id = str(getattr(allocation, "policy_id", "") or "").strip()
@@ -660,7 +661,7 @@ def _require_strategy_decision_anchors(mandate: Mandate, db: Session):
     if assessment is None:
         raise ValueError(
             "Das von der Soll-Allokation referenzierte Risikoprofil fehlt oder "
-            "gehoert nicht zu diesem Mandat; bitte Strategie neu berechnen."
+            "gehört nicht zu diesem Mandat; bitte Strategie neu berechnen."
         )
     if int(getattr(assessment, "is_current", 0) or 0) != 1:
         raise ValueError(
@@ -684,7 +685,7 @@ def _require_strategy_decision_anchors(mandate: Mandate, db: Session):
     if snapshot_cma is None:
         raise ValueError(
             "Der von der Soll-Allokation referenzierte CMA-Snapshot fehlt; "
-            "aktuelle Ersatzannahmen sind unzulaessig. Bitte Strategie neu "
+            "aktuelle Ersatzannahmen sind unzulässig. Bitte Strategie neu "
             "berechnen."
         )
     return allocation, policy, assessment, snapshot_cma
@@ -784,7 +785,7 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         parsed_prefs = json.loads(prefs_raw)
         if not isinstance(parsed_prefs, dict):
             raise ValueError(
-                "Die gespeicherten Strategie-Praeferenzen sind ungueltig; "
+                "Die gespeicherten Strategie-Präferenzen sind ungültig; "
                 "bitte Strategie neu berechnen."
             )
         allocation_preferences = parsed_prefs
@@ -817,7 +818,7 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     # ---- CMA-Werte aus Engine-Payload (echtes √(w'Σw) via _portfolio_volatility_bps) ----
     if not isinstance(engine_payload, dict):
         raise ValueError(
-            "Die Strategie-Engine lieferte kein gueltiges Ergebnis; bitte "
+            "Die Strategie-Engine lieferte kein gültiges Ergebnis; bitte "
             "Strategie neu berechnen."
         )
     cma_return = int(engine_payload.get("expected_return_bps", 0) or 0)
@@ -1109,6 +1110,7 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     target_vol_1y_bps = None
     current_vol_1y_bps = None
     projection_end_year_label = None
+    target_depletion_note = current_depletion_note = None
     if engine_payload is not None:
         mc = engine_payload.get("monte_carlo") or {}
         _mc_labels = mc.get("year_labels")
@@ -1152,6 +1154,9 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
             current_median_end_rappen = _last("current_p50_series_rappen")
             current_p90_end_rappen = _last("current_p90_series_rappen")
             current_p10_end_rappen = _last("current_p10_series_rappen")
+            # E2E2-03: Verzehr im mittleren Verlauf -> Kennzahlen nicht aussagekraeftig.
+            target_depletion_note = depletion_note(_mc_labels, mc.get("target_p50_series_rappen"), reserve_rappen)
+            current_depletion_note = depletion_note(_mc_labels, mc.get("current_p50_series_rappen"))
         except (TypeError, ValueError) as exc:
             logger.warning(
                 "PDF MC-metrics parse failed for mandate %s: %s",
@@ -1237,6 +1242,8 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         target_volatility_1y_bps=target_vol_1y_bps,
         current_volatility_1y_bps=current_vol_1y_bps,
         projection_end_year_label=projection_end_year_label,
+        target_depletion_note=target_depletion_note,
+        current_depletion_note=current_depletion_note,
         band_house_deviations=list(band_disclosure["deviations"]),
         band_house_profile=band_disclosure["profile"],
         band_deviation_reason=band_disclosure["reason"],
@@ -1326,7 +1333,7 @@ def _archive_final(ctx: PDFContext, db: Session, **kwargs):
             ReasonCode.CCX_INPUT_STALE if stale else ReasonCode.CCX_FRESHNESS_UNKNOWN,
             "Der Beratungsentscheid zu dieser Strategie ist veraltet; das Dokument wird nicht als finale "
             "Fassung abgelegt. Bitte neu berechnen und finalisieren." if stale else
-            "Die Aktualitaet des Beratungsentscheids zu dieser Strategie ist nicht belegt; das Dokument wird "
+            "Die Aktualität des Beratungsentscheids zu dieser Strategie ist nicht belegt; das Dokument wird "
             "nicht als finale Fassung abgelegt.",
             http_status=409,
             extra={"channel": "archive", "target_allocation_id": target_allocation_id},
@@ -1341,7 +1348,7 @@ def _archive_final_unbound(ctx: PDFContext, db: Session, **kwargs):
     ``binding.target_allocation_id``); dieser Pfad liest deshalb nichts aus der
     Allokation. Eine Bindung ist hier unzulaessig."""
     if kwargs.get("binding"):
-        raise ValueError("_archive_final_unbound: Dokumente mit Allokationsbindung ueber _archive_final")
+        raise ValueError("_archive_final_unbound: Dokumente mit Allokationsbindung über _archive_final")
     if (getattr(ctx, "watermark_mode", "none") or "none") != "none":
         return None
     return archive_generated_pdf(db, **kwargs)
@@ -1563,7 +1570,7 @@ def get_risikoprofil_pdf(
                 ) = resolve_assessment_decision(db, ra)
                 suitability_note = "Berater-Override wurde dokumentiert."
                 if override_reason:
-                    suitability_note += f" Begruendung: {override_reason}"
+                    suitability_note += f" Begründung: {override_reason}"
                 # Kontrollrunde 2026-09-21 (Override-Begruendungs-Audit): diese
                 # dedizierte FINMA-W305-Risikoprofil-PDF liest override_reason
                 # bisher ohne jede Qualitaetspruefung -- ein Altbestand-Override
@@ -1582,7 +1589,7 @@ def get_risikoprofil_pdf(
                     )
             else:
                 suitability_note = (
-                    "Risikofaehigkeit, Risikobereitschaft, Anlagehorizont "
+                    "Risikofähigkeit, Risikobereitschaft, Anlagehorizont "
                     "sowie Kenntnisse und Erfahrungen wurden dokumentiert."
                 )
     except Exception as exc:
@@ -1697,7 +1704,7 @@ def _build_portfolio_data(mandate: Mandate, db: Session) -> PortfolioData:
                 )
             raise HTTPException(
                 status_code=404,
-                detail="Noch kein Portfolio fuer die aktuelle Asset Allocation generiert.",
+                detail="Noch kein Portfolio für die aktuelle Asset Allocation generiert.",
             )
         if last_run is not None:
             pos_list = (
@@ -1937,7 +1944,7 @@ def _build_contract_signoff_data(
         raise ValueError(
             "Beratungsentscheid kann nicht erstellt werden: zur aktuellen "
             f"Soll-Allokation liegt {NO_CURRENT_RECOMMENDATION_MARKER} vor. "
-            "Bitte zuerst die Produktempfehlung (Portfolio) fuer die aktuelle "
+            "Bitte zuerst die Produktempfehlung (Portfolio) für die aktuelle "
             "Allokation generieren."
         )
     protocol = _build_protokoll_data(mandate, db)
@@ -1986,7 +1993,7 @@ def _format_portfolio_orientation(preferences) -> str:
     if not isinstance(preferences, dict) or not preferences:
         return (
             "Die Portfolioausrichtung folgt der dokumentierten Zielallokation "
-            "und den im Beratungsgespraech festgehaltenen Praeferenzen."
+            "und den im Beratungsgespräch festgehaltenen Präferenzen."
         )
     values: list[str] = []
     for section in ("policy", "assetClasses", "product", "geo"):
@@ -2007,9 +2014,9 @@ def _format_portfolio_orientation(preferences) -> str:
     if not values:
         return (
             "Die Portfolioausrichtung folgt der dokumentierten Zielallokation "
-            "und den im Beratungsgespraech festgehaltenen Praeferenzen."
+            "und den im Beratungsgespräch festgehaltenen Präferenzen."
         )
-    return "Dokumentierte Praeferenzen: " + "; ".join(values[:12]) + "."
+    return "Dokumentierte Präferenzen: " + "; ".join(values[:12]) + "."
 
 
 @router.get(
@@ -2053,7 +2060,7 @@ def get_contract_signoff_pdf(
 
 
 _SIGNOFF_LOAD_FAILED = ((
-    "Signatur-Status", "Signoff-Nachweis konnte nicht geladen werden -- pruefen",
+    "Signatur-Status", "Signoff-Nachweis konnte nicht geladen werden -- prüfen",
 ),)
 
 
@@ -2097,7 +2104,7 @@ def _protocol_representation_lines(db: Session, mandate: Mandate) -> tuple:
         period = ""
         if row.effective_from or row.effective_until:
             period = f"; wirksam {row.effective_from or 'offen'} bis {row.effective_until or 'unbefristet'}"
-        disposal = f"; Verfuegung {row.disposal_rule}" if row.disposal_rule else ""
+        disposal = f"; Verfügung {row.disposal_rule}" if row.disposal_rule else ""
         lines.append(
             f"{kind}: {row.representative_name} -- Umfang: {row.scope}; "
             f"Beleg: {row.evidence_reference}{period}{disposal}."
@@ -2485,12 +2492,12 @@ def _depotcheck_gate(mandate: Mandate, db: Session):
         # gueltigen Zielzahlen -- blockieren (409) statt alte Ziele zu drucken.
         if dc.get("target_allocation_inputs_stale"):
             grund = (
-                "Vermoegen, Cashflows oder Ziele haben sich seit der "
-                "Berechnung geaendert"
+                "Vermögen, Cashflows oder Ziele haben sich seit der "
+                "Berechnung geändert"
             )
         else:
             grund = (
-                "sie basiert auf einem frueheren, nicht mehr aktuellen "
+                "sie basiert auf einem früheren, nicht mehr aktuellen "
                 "Risikoprofil"
             )
         raise ValueError(
@@ -2752,7 +2759,7 @@ def _build_depotcheck_performance(
         logger.warning("Depotcheck performance unavailable: %s", exc)
         return {
             "data_pending": True,
-            "note": "Historischer Vergleich ist fuer diese Strategie noch nicht verfuegbar.",
+            "note": "Historischer Vergleich ist für diese Strategie noch nicht verfügbar.",
             "house_matrix_benchmark": benchmark_status,
             "warnings": benchmark_warnings,
         }
@@ -2807,14 +2814,14 @@ def _build_depotcheck_qualitative_assessment(
     )
     highest_hhi = max(soll_hhi.values(), default=0)
     concentration = (
-        "Die Zielstruktur weist eine erhoehte Konzentration auf, die im "
-        "Beratungsgespraech bewusst zu bestaetigen ist."
+        "Die Zielstruktur weist eine erhöhte Konzentration auf, die im "
+        "Beratungsgespräch bewusst zu bestätigen ist."
         if highest_hhi >= 3000
-        else "Die Zielstruktur ist ueber die dokumentierten Dimensionen breit gestreut."
+        else "Die Zielstruktur ist über die dokumentierten Dimensionen breit gestreut."
     )
     return (
         f"Das empfohlene Zielportfolio ist auf das Risikoprofil {profile} "
-        f"ausgerichtet und verteilt das Anlagevermoegen auf {active_buckets} "
+        f"ausgerichtet und verteilt das Anlagevermögen auf {active_buckets} "
         f"Hauptanlageklassen sowie {active_products} konkrete Zielpositionen. "
         f"{concentration} Die Analyse ist eine Beratungsgrundlage; der Abgleich "
         "mit Bank- oder Drittdepotunterlagen erfolgt durch den Berater."
@@ -3130,7 +3137,7 @@ def get_advisory_report_pdf(
                 "message": (
                     "Advisory-Report kann nicht als client-ready PDF "
                     "exportiert werden: der Kostenausweis konnte nicht "
-                    "vollstaendig berechnet werden (degraded evidence)."
+                    "vollständig berechnet werden (degraded evidence)."
                 ),
             },
         )
@@ -3200,7 +3207,7 @@ def get_cost_disclosure_pdf(
                 "source_run_id": payload.get("source_run_id"),
                 "message": (
                     "Der eingefrorene Kostennachweis des freigegebenen "
-                    "Empfehlungslaufs ist ungueltig "
+                    "Empfehlungslaufs ist ungültig "
                     f"({payload.get('evidence_error')}). Der Kostenausweis "
                     "wird nicht erstellt -- Strategie neu berechnen und "
                     "finalisieren."
@@ -3494,7 +3501,7 @@ def get_kundeninformation_pdf(
             "reason_code": CLIENT_INFORMATION_TENANT_DATA_MISSING,
             "message": (
                 "Die Kundeninformation kann nicht erstellt werden: Pflichtangaben der "
-                "Firma fehlen. Ein Firmen-Admin ergaenzt sie unter Administration > "
+                "Firma fehlen. Ein Firmen-Admin ergänzt sie unter Administration > "
                 "Rechtliche Angaben."
             ),
             "missing_fields": missing,
@@ -3502,7 +3509,7 @@ def get_kundeninformation_pdf(
     if str(profile.get("address_country") or "").strip().upper() not in CLIENT_INFORMATION_SEAT_REGIMES:
         raise HTTPException(status_code=409, detail={
             "reason_code": CLIENT_INFORMATION_REGIME_UNSUPPORTED,
-            "message": "Fuer den Sitz der Firma bildet Ares keine Kundeninformation ab (nur Schweiz/FIDLEG).",
+            "message": "Für den Sitz der Firma bildet Ares keine Kundeninformation ab (nur Schweiz/FIDLEG).",
         })
     # CCX-P3-FX (N-909-13): die Kundeninformation druckt die Kostenzeilen des
     # Ex-ante-Kostenausweises (Betraege des Laufs) -> dieselbe Druckpruefung.

@@ -110,7 +110,7 @@ def _assert_run_is_published(db: Session, mandate: Mandate, run: RecommendationR
     if str(getattr(run, "target_allocation_id", "") or "") != str(state.target_allocation_id or ""):
         raise HTTPException(status_code=409, detail={
             "reason_code": "CCX_ALLOCATION_NOT_PUBLISHABLE",
-            "message": "Diese Empfehlung gehoert nicht zur publizierten Soll-Allokation.",
+            "message": "Diese Empfehlung gehört nicht zur publizierten Soll-Allokation.",
             "channel": CHANNEL_HANDOFF,
         })
 
@@ -242,8 +242,8 @@ def create_portfolio_handoff(
         raise HTTPException(
             status_code=403,
             detail=(
-                "Weiterleitung an die Ausfuehrungsstelle ist nur fuer "
-                "Vermoegensverwaltungsmandate vorgesehen (keine Ausfuehrungs-"
+                "Weiterleitung an die Ausführungsstelle ist nur für "
+                "Vermögensverwaltungsmandate vorgesehen (keine Ausführungs-"
                 "befugnis bei Anlageberatung/Finanzplanung/Reporting only)."
             ),
         )
@@ -409,7 +409,7 @@ def _idempotent_replay_or_409(existing: PortfolioHandoff, body: PortfolioHandoff
         detail={
             "reason_code": "HANDOFF_ALREADY_OPEN",
             "message": (
-                "Fuer diese Handelsliste und diesen Empfaenger besteht bereits eine "
+                "Für diese Handelsliste und diesen Empfänger besteht bereits eine "
                 "offene Weiterleitung. Bitte diese abschliessen oder stornieren."
             ),
             "handoff_id": existing.id,
@@ -436,7 +436,7 @@ def mark_portfolio_handoff_executed(
     if body.executed_on.isoformat() < str(handoff.created_at or "")[:10]:
         raise HTTPException(
             status_code=422,
-            detail="Das Ausfuehrungsdatum liegt vor dem Anlegen der Weiterleitung.",
+            detail="Das Ausführungsdatum liegt vor dem Anlegen der Weiterleitung.",
         )
     now = _now()
     _atomically_close_handoff_or_409(db, handoff_id, mandate_id, updates={

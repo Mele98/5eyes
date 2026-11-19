@@ -61,13 +61,13 @@ def used_foreign_currencies(projection_context: Any) -> list[str]:
 
 
 STALE_INPUTS_MESSAGE = (
-    "Die gespeicherte Soll-Allokation ist veraltet: Vermoegen, Cashflows oder Ziele haben sich seit "
-    "der Berechnung geaendert. Bitte Strategie neu berechnen; alte Targets werden nicht mit einer "
+    "Die gespeicherte Soll-Allokation ist veraltet: Vermögen, Cashflows oder Ziele haben sich seit "
+    "der Berechnung geändert. Bitte Strategie neu berechnen; alte Targets werden nicht mit einer "
     "aktuellen Analyse kombiniert."
 )
 STALE_BASIS_UPDATED_MESSAGE = (
     "Die gespeicherte Soll-Allokation ist veraltet: Berechnungsgrundlage aktualisiert (Wechselkurs-"
-    "Bindung seit diesem Update nur noch ueber die verwendeten Kurse) -- bitte neu berechnen."
+    "Bindung seit diesem Update nur noch über die verwendeten Kurse) -- bitte neu berechnen."
 )
 
 
@@ -83,19 +83,82 @@ def predates_fx_effective_hash(effective_constraints_json: Any) -> bool:
     return isinstance(basis, dict) and "property_advanced_features" not in basis
 
 
-def stale_allocation_message(fx_changed: list[str], predates_v5: bool) -> str:
+class StaleAllocationReason(str):
+    """KN-B / E2E2-05: Veraltet-Meldung mit maschinenlesbarer Ursache --
+    ``kind`` ("fx_rate", "calculation_basis", "inputs") und ``currencies``."""
+
+
+def _stale_reason(text: str, kind: str, currencies: Any = ()) -> StaleAllocationReason:
+    reason = StaleAllocationReason(text)
+    reason.kind = kind
+    reason.currencies = tuple(currencies)
+    return reason
+
+
+def stale_allocation_message(fx_changed: list[str], predates_v5: bool) -> StaleAllocationReason:
     """Wahre Ursache einer Veraltung: relevanter Kurs, einmaliger Uebergang
     v4 -> v5 oder Eingaben."""
     if fx_changed:
-        return (
+        return _stale_reason(
             f"Die gespeicherte Soll-Allokation ist veraltet: Wechselkurs {', '.join(fx_changed)} seit der "
             "Berechnung geaendert. Bitte Strategie neu berechnen; alte Targets werden nicht mit einer "
-            "aktuellen Analyse kombiniert."
+            "aktuellen Analyse kombiniert.",
+            "fx_rate", fx_changed,
         )
-    return STALE_BASIS_UPDATED_MESSAGE if predates_v5 else STALE_INPUTS_MESSAGE
+    if predates_v5:
+        return _stale_reason(STALE_BASIS_UPDATED_MESSAGE, "calculation_basis")
+    return _stale_reason(STALE_INPUTS_MESSAGE, "inputs")
+
+
+# KN-B / E2E2-05: Ursachen einer Veraltung fuer die Status-APIs (Publikation,
+# Envelope). Schluessel: Ursachenart der Allokationspruefung bzw. die
+# Abhaengigkeitsart der Invalidierung (models/snapshots.DEPENDENCY_SOURCES).
+FRESHNESS_CAUSE_TEXTS = {
+    "fx_rate": "Wechselkurs geändert",
+    "calculation_basis": "Berechnungsgrundlage aktualisiert",
+    "inputs": "Vermögen, Cashflows oder Ziele geändert",
+    "client": "Stammdaten des Kunden geändert",
+    "mandate": "Mandatsdaten geändert",
+    "planning": "Planungsannahmen geändert",
+    "goals": "Ziele geändert",
+    "goal_revisions": "Ziele geändert",
+    "goal_transitions": "Ziele geändert",
+    "cashflows": "Cashflows geändert",
+    "wealth_inflows": "Vermögenszuflüsse geändert",
+    "positions": "Vermögen geändert",
+    "run_holdings": "Bestände der Empfehlung geändert",
+    "risk": "Risikoprofil geändert",
+    "risk_overrides": "Risikoprofil geändert",
+    "risk_signoffs": "Risikoprofil geändert",
+    "risk_plausibility": "Risikoprofil geändert",
+    "coverage_attestations": "Deckungsnachweis geändert",
+    "preference": "Nachhaltigkeitspräferenz geändert",
+    "constraints": "Restriktionen oder Bandbreiten geändert",
+    "cma": "Kapitalmarktannahmen geändert",
+    "optimizer_policy": "Hausmeinung geändert",
+    "cma_policy": "Hausmeinung geändert",
+    "cma_policy_components": "Hausmeinung geändert",
+    "cma_policy_approvals": "Hausmeinung geändert",
+    "building_blocks": "Hausmeinung geändert",
+    "benchmark": "Hausmeinung geändert",
+}
+
+
+def freshness_cause(kind: str, currencies: Any = ()) -> dict:
+    """Eine Ursache als ``{kind, text, currencies}``; bei Kursen mit Waehrung
+    ("Wechselkurs USD geändert")."""
+    codes = sorted({str(code).upper() for code in currencies or ()})
+    if kind == "fx_rate" and codes:
+        text = f"Wechselkurs {', '.join(codes)} geändert"
+    else:
+        text = FRESHNESS_CAUSE_TEXTS.get(kind, "Beratungsdaten geändert")
+    return {"kind": kind, "text": text, "currencies": codes}
 
 
 __all__ = [
+    "FRESHNESS_CAUSE_TEXTS",
+    "StaleAllocationReason",
+    "freshness_cause",
     "predates_fx_effective_hash",
     "stale_allocation_message",
     "INPUT_SNAPSHOT_VERSION_FX_EFFECTIVE",

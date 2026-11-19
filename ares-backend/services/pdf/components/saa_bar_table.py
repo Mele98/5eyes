@@ -109,7 +109,7 @@ def make_saa_bar_table(
     # Strategiebasis (Beratungsvermoegen minus externe Reserve). Ist eine
     # Reserve abgezogen, wird sie als eigene Zeile ausgewiesen, damit die
     # Betraege auf das Beratungsvermoegen summieren.
-    total_label = "Total Anlagestrategie (Strategiebasis)" if reserve else "Total Beratungsvermoegen"
+    total_label = "Total Anlagestrategie (Strategiebasis)" if reserve else "Total Beratungsvermögen"
     total_row = [
         Paragraph(f"<b>{total_label}</b>", _para_style_table()),
         format_bps_as_pct(total_bps),

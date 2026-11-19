@@ -44,7 +44,7 @@ from core.advisory_envelope_codec import (
 )
 from core.presentation_rounding import ROUNDING_POLICY_VERSION
 from models.allocation import BuildingBlock, CapitalMarketAssumption, HouseMatrix, OptimizerPolicy
-from models.clients import Client
+from models.clients import ADVISORY_HASH_EXEMPT_INFO_KEY, Client
 from models.cma_policy import CmaPolicy, CmaPolicyApproval, CmaPolicyComponent
 from models.mandates import Mandate
 from models.profiling import (
@@ -113,8 +113,14 @@ def build_effective_input_hash(components: Mapping[str, Any]) -> str:
 # ── Projektion der Datenbankzeilen ───────────────────────────────────────────
 
 
-def _columns(model: Any) -> list[str]:
-    return [attr.key for attr in sa_inspect(model).column_attrs if attr.key not in _EXCLUDED_COLUMNS]
+def _columns(model: Any, *, include_exempt: bool = False) -> list[str]:
+    """Projektion: alle Spalten ausser ``updated_at`` und (KN-B / E2E2-04) den
+    als nicht beratungsrelevant markierten (``Column(info=...)``, z. B. Beruf)."""
+    return [
+        attr.key for attr in sa_inspect(model).column_attrs
+        if attr.key not in _EXCLUDED_COLUMNS
+        and (include_exempt or not any(col.info.get(ADVISORY_HASH_EXEMPT_INFO_KEY) for col in attr.columns))
+    ]
 
 
 def _active(query, model):
@@ -123,9 +129,10 @@ def _active(query, model):
     return query
 
 
-def _hash_rows(kind: str, model: Any, rows: Sequence[Any], sort_fields: Sequence[str]) -> str:
+def _hash_rows(kind: str, model: Any, rows: Sequence[Any], sort_fields: Sequence[str], *,
+               include_exempt: bool = False) -> str:
     return rows_child_hash(
-        kind, _columns(model), list(rows),
+        kind, _columns(model, include_exempt=include_exempt), list(rows),
         lambda row: tuple(none_sort_key(getattr(row, name)) for name in sort_fields),
     )
 
@@ -173,6 +180,10 @@ class DependencyPart:
     # Anzahl gebundener Zeilen (-1 = nicht gezaehlt); eine leere
     # Pflicht-Inputgruppe ist "unknown", nie "fresh" (REQUIRED_DEPENDENCY_KINDS).
     row_count: int = -1
+    # KN-B / E2E2-04: Hash der bisherigen Projektion (ganze Kundenzeile). Ein
+    # vor dem Wechsel versiegelter Entscheid bleibt aktuell, solange sich die
+    # Zeile nicht geaendert hat -- der Wechsel entwertet keinen Bestand.
+    legacy_hash: str | None = None
 
 
 def _int_or_none(value: Any) -> int | None:
@@ -233,7 +244,9 @@ def collect_dependency_parts(
     }
     parts = [
         DependencyPart("client", client_id, None,
-                       _hash_rows("client", Client, _by_id(db, Client, client_id), ("id",))),
+                       _hash_rows("client", Client, _by_id(db, Client, client_id), ("id",)),
+                       legacy_hash=_hash_rows("client", Client, _by_id(db, Client, client_id), ("id",),
+                                              include_exempt=True)),
         DependencyPart("mandate", mandate_id, None,
                        _hash_rows("mandate", Mandate, _by_id(db, Mandate, mandate_id), ("id",))),
         DependencyPart("goals", mandate_id, None, _hash_rows("goals", Goal, goals, ("rank", "target_date", "id"))),

@@ -1530,6 +1530,17 @@ def _derive_cashflow_projection_horizon(
     return default_years
 
 
+
+def _unique_retirement_year(db: Session, client_id: str, mandate_id: Optional[str]) -> Optional[int]:
+    """KN-B Nachtrag 1: Pensionierungsjahr fuer die indirekte Amortisation --
+    vom angefragten Mandat bzw. eindeutig ueber die aktiven Mandate des Kunden;
+    sonst None (bestehende Horizontregel)."""
+    query = db.query(Mandate).filter(Mandate.client_id == client_id, Mandate.deleted_at.is_(None))
+    if mandate_id:
+        query = query.filter(Mandate.id == mandate_id)
+    years = {int(m.retirement_year) for m in query.all() if getattr(m, "retirement_year", None)}
+    return next(iter(years)) if len(years) == 1 else None
+
 @router.get("/{client_id}/cashflow-projection", response_model=CashflowProjectionResponse)
 def cashflow_projection(
     client_id: str,
@@ -1658,9 +1669,11 @@ def cashflow_projection(
         _mort_positions, horizon, start_year,
         fx_source=fx_source, target_currency=target_currency,
     )
+    # KN-B Nachtrag 1: indirekte Amortisation bis zum Pensionierungsjahr.
     _mort_amortization_adj = mortgage_amortization_adjustment_series(
         _mort_positions, horizon,
         fx_source=fx_source, target_currency=target_currency,
+        start_year=start_year, retirement_year=_unique_retirement_year(db, client_id, mandate_id),
     )
     _mort_adj = [
         int(a) + int(b) for a, b in zip(_mort_interest_adj, _mort_amortization_adj)

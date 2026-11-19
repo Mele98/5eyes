@@ -45,13 +45,13 @@ def build_portfolio_flowables(ctx: PDFContext, data) -> list:
     flowables.extend(make_single_report_cover(
         ctx,
         title="Portfolio",
-        subtitle="Portfolio-Positionen und Umsetzungsuebersicht",
+        subtitle="Portfolio-Positionen und Umsetzungsübersicht",
         mandate_number=getattr(data, "mandate_number", None),
         advisory_wealth_label=advisory_label,
         focus_points=[
             ("Konkrete Produkte mit ISIN und Zielgewicht" if not sample_count
              else "Produkte und Zielgewichte; ohne ISIN = Musterprodukt, nicht zur Umsetzung"),
-            "Zielwerte je Position fuer die Umsetzung",
+            "Zielwerte je Position für die Umsetzung",
             "Abgleich vor Review, Protokollierung und Abschluss",
         ],
     ))
@@ -141,7 +141,7 @@ def _make_group_header(bucket: str, amount_rappen: int, weight_bps: int, currenc
 
 
 def _make_group_positions_table(positions: list, currency: str, total_amount: int):
-    rows = [["Produkt", "Subklasse", "Soll", "Zielwert", "Waehrung", "TER"]]
+    rows = [["Produkt", "Subklasse", "Soll", "Zielwert", "Währung", "TER"]]
     for p in positions:
         name = str(p.get("name", p.get("product_name", "-")) or "-")
         isin = str(p.get("isin", "") or "")
