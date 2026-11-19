@@ -9,9 +9,13 @@ Roh-SQL auf ``'main'`` -- die Pull-Pruefung sah Drift bei ``client`` und
 ``positions``, die Publikation war ``PUBLICATION_INVALID``.
 
 Fix (CTO-Entscheid):
-1. Ursache: Bootstrap-Admin, Kunden und Protokoll-Bausteine bekommen schon beim
-   Anlegen den Default-Mandanten (``services.auth.tenant_id_for_new_record``);
-   Positionen erben ihn vom Kunden.
+1. Ursache: Kunden und Protokoll-Bausteine bekommen schon beim Anlegen den
+   Default-Mandanten (``services.auth.tenant_id_for_new_record``), auch wenn der
+   anlegende Bootstrap-Admin noch keinen hat; Positionen erben ihn vom Kunden,
+   Mandate hatten ihn schon (routers/mandates.py). Der Bootstrap-Admin selbst
+   bleibt bewusst unveraendert (Benutzer sind keine Freshness-Kante; eine
+   Aenderung wuerde die Lizenzzaehlung ``max_users`` schon in der ersten
+   Sitzung scharf schalten -- Owner-Entscheid, siehe H-170).
 2. ``tenant_id`` ist in den Freshness-Kanten Mandantengrenze, kein
    Beratungsinhalt (``ADVISORY_TENANT_BOUNDARY_COLUMNS``): volatil im Hook und
    nicht in der Manifest-Projektion. Bestehende Siegel (mit ``tenant_id``, auch
@@ -24,7 +28,7 @@ Neustart macht die Publikation weiterhin STALE.
 Gegenproben (Fix zurueck -> rot):
 * ``ADVISORY_TENANT_BOUNDARY_COLUMNS`` leer -> Neustart-Tests rot.
 * ``_legacy_hashes`` liefert ``()`` -> Uebergangstest rot.
-* Bootstrap-Admin ohne ``tenant_id`` -> Anlage-Test rot.
+* ``tenant_id_for_new_record`` ohne Default-Rueckfall -> Anlage-Test rot.
 """
 from __future__ import annotations
 
@@ -181,9 +185,10 @@ def test_new_records_get_the_default_tenant_only_in_single_tenant_mode(monkeypat
     assert tenant_id_for_new_record(legacy) is None
 
 
-def test_bootstrap_admin_first_client_and_position_carry_the_default_tenant(tmp_path):
-    """Ursache: Ersteinrichtung ueber die echte API -> Admin, Kunde und Position
-    tragen sofort 'main' (kein spaeterer Backfill auf eigenen Daten noetig)."""
+def test_first_client_and_position_after_bootstrap_carry_the_default_tenant(tmp_path):
+    """Ursache: Ersteinrichtung ueber die echte API -> Kunde und Position tragen
+    sofort 'main', obwohl der Bootstrap-Admin noch keinen Mandanten hat (kein
+    spaeterer Backfill auf beratungsrelevanten Daten noetig)."""
     import datetime as _dt
 
     from fastapi.testclient import TestClient
@@ -237,4 +242,5 @@ def test_bootstrap_admin_first_client_and_position_carry_the_default_tenant(tmp_
         position_tenant = s.execute(
             text("SELECT tenant_id FROM wealth_positions WHERE client_id = :c"), {"c": cid}).scalar()
     engine.dispose()
-    assert (admin, client_tenant, position_tenant) == ("main", "main", "main")
+    # Der Admin bleibt bis zum Start-Backfill ohne Mandant (Lizenzzaehlung unveraendert).
+    assert (admin, client_tenant, position_tenant) == (None, "main", "main")

@@ -15,14 +15,14 @@ den rechtlichen Angaben) bleiben, wie sie erfasst wurden.
 """
 from __future__ import annotations
 
-# (Umschrift in den Daten, Anzeigeform) -- Teilwort-Treffer in dieser
-# Reihenfolge (laengere Begriffe zuerst), Gross/klein wie erfasst.
+# (Umschrift in den Daten, Anzeigeform) -- nur eindeutige Namensbestandteile
+# von Sub-Anlageklassen/Musterprodukten (wie ``aresTerm``). Bewusst kein
+# allgemeines Wort wie "Liquiditaet": das kaeme auch in Prosa vor und wuerde
+# einen Satz nur halb umstellen.
 DATA_TERM_DISPLAY = (
     ("Schwellenlaender", "Schwellenländer"),
     ("schwellenlaender", "schwellenländer"),
     ("Gluecksspiel", "Glücksspiel"),
-    ("Liquiditaetsreserve", "Liquiditätsreserve"),
-    ("Liquiditaet", "Liquidität"),
 )
 
 

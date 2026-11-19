@@ -123,18 +123,9 @@ def live():
     for sub in ("home", "appdata", "localappdata"):
         (tmp / sub).mkdir()
     db_path = tmp / "kn3b_pdf.db"
-    env = {
-        **os.environ,
-        "HOME": str(tmp / "home"), "USERPROFILE": str(tmp / "home"),
-        "APPDATA": str(tmp / "appdata"), "LOCALAPPDATA": str(tmp / "localappdata"),
-        "DB_PATH": str(db_path), "SECRET_KEY": "kn3b-pdf-guard-secret-key-0123456789abcdef",
-        "PRICE_SCHEDULER_ENABLED": "0", "BACKUP_SCHEDULER_ENABLED": "0",
-        "MARKET_DATA_CACHE_PURGE_ENABLED": "0", "LOGIN_RATE_LIMIT_ENABLED": "0",
-        "APP_ENV": "development", "TENANT_MASTER_KEK": Fernet.generate_key().decode(),
-        "PYTHONDONTWRITEBYTECODE": "1",
-    }
+    kek = Fernet.generate_key().decode()
     port = _free_port()
-    proc = _start_backend(env, port)
+    proc = _start_backend(tmp, db_path, kek, port)
     base = f"http://127.0.0.1:{port}"
     original_profile = onboarding.TEST_LEGAL_PROFILE
     try:
@@ -197,7 +188,7 @@ def live():
         before = (_publication(api, mid), _dependency_rows(db_path))
         _stop(proc)
         port = _free_port()
-        proc = _start_backend(env, port)
+        proc = _start_backend(tmp, db_path, kek, port)
         api = _Api(f"http://127.0.0.1:{port}")
         status, body = api("POST", "/auth/login", {"username": USER, "password": PWD})
         assert status == 200, body
@@ -215,7 +206,19 @@ def rendered(live):
     return live["pdfs"]
 
 
-def _start_backend(env, port):
+def _start_backend(tmp, db_path, kek, port):
+    """Isolierter Backend-Prozess (Temp-HOME/APPDATA/DB, Wegwerf-KEK); derselbe
+    Aufruf fuer den ersten Start und den Neustart auf derselben Datenbank."""
+    env = {
+        **os.environ,
+        "HOME": str(tmp / "home"), "USERPROFILE": str(tmp / "home"),
+        "APPDATA": str(tmp / "appdata"), "LOCALAPPDATA": str(tmp / "localappdata"),
+        "DB_PATH": str(db_path), "SECRET_KEY": "kn3b-pdf-guard-secret-key-0123456789abcdef",
+        "PRICE_SCHEDULER_ENABLED": "0", "BACKUP_SCHEDULER_ENABLED": "0",
+        "MARKET_DATA_CACHE_PURGE_ENABLED": "0", "LOGIN_RATE_LIMIT_ENABLED": "0",
+        "APP_ENV": "development", "TENANT_MASTER_KEK": kek,
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", str(port)],
         cwd=str(BACKEND), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

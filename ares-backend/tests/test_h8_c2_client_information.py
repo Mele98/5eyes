@@ -496,7 +496,7 @@ def test_delivery_recorded_after_contract_conclusion_is_marked_late_and_blocks(s
         assert rec.delivery_timing == "nachtraeglich"
         findings = gate.client_onboarding_findings(db, mandate(db))
         assert "CLIENT_INFORMATION_DELIVERED_AFTER_CONTRACT" in [f["reason_code"] for f in findings]
-        assert any("nachtraeglich" in f["message"] for f in findings)
+        assert any("nachträglich" in f["message"] for f in findings)
 
 
 def test_tampered_delivery_seal_does_not_count(sf):
@@ -593,6 +593,8 @@ TEMPLATE_TEXT_PINS = {
     "ARES-KI-FIDLEG-1": "dedefafb64aa317b2ec01276bc3bf67b6f83bf63f3c8655ec1efdd2738c463b6",
     # RC-CH-1 Teil 2b: G7-Formatter + Mandatswaehrung in den Kostenzeilen.
     "ARES-KI-FIDLEG-2": "c2bccb7714fe51343931c907311141dc27aed96a23e4f4690ccd3c7ff44a3165",
+    # KN3-B / E2E3-03: Aufsichtsstatus mit echten Umlauten ("Vermögensverwalter ...").
+    "ARES-KI-FIDLEG-3": "f45160a1d75bd32203be2cacdcccc7cf449a136d21ebd68c18dcd2cae0c3b477",
 }
 
 

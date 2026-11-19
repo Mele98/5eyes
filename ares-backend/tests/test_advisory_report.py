@@ -299,7 +299,7 @@ def test_cover_uses_advisor_full_name_and_client_name(session_factory):
         report = compute_advisory_report(s, mandate, advisor=advisor)
     cover = report["cover"]
     assert cover["title"] == "Strategische Portfolioanalyse"
-    assert cover["subtitle"] == "Persoenlicher Advisory-Report"
+    assert cover["subtitle"] == "Persönlicher Advisory-Report"
     assert cover["client_name"] == "Hans Muster"
     assert cover["advisor_name"] == "Anna Beispiel"
     assert cover["mandate_number"].startswith("M-")

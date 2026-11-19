@@ -86,7 +86,8 @@ def test_data_terms_are_shown_with_umlauts_in_customer_pdfs():
 
     assert customer_term("Aktien Schwellenlaender") == "Aktien Schwellenländer"
     assert customer_term("Musterprodukt Thema Gluecksspiel CHF-abgesichert") == "Musterprodukt Thema Glücksspiel CHF-abgesichert"
-    assert customer_term("Liquiditaetsreserve (Muster)") == "Liquiditätsreserve (Muster)"
+    # Kein allgemeines Wort: Prosa wird an der Quelle korrigiert, nie halb umgestellt.
+    assert customer_term("Liquiditaet (unabhaengig)") == "Liquiditaet (unabhaengig)"
     assert customer_term(None) == ""
     # Eigennamen bleiben unveraendert (abschliessende Liste, keine generische Ersetzung).
     assert customer_term("Mueller Vermoegensverwaltung AG") == "Mueller Vermoegensverwaltung AG"

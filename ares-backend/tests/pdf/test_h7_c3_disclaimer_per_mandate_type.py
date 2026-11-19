@@ -182,9 +182,20 @@ def test_pdf_context_builder_carries_mandate_type_and_jurisdiction(monkeypatch):
         def first(self):
             return None
 
+    class _Result:
+        def scalar(self):
+            return None
+
+        def first(self):
+            return None
+
     class _Db:
         def query(self, *args, **kwargs):
             return _Query()
+
+        # KN3-B / E2E3-04: Firmenangaben des Mandanten (hier keine).
+        def execute(self, *args, **kwargs):
+            return _Result()
 
     monkeypatch.setattr(pdf_reports, "_audit_hash_for_mandate", lambda mandate: "h")
     mandate = SimpleNamespace(
