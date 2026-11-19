@@ -28,7 +28,9 @@ from models.review import (
 )
 from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
 from models.profiling import RiskAssessment, SuitabilityCheck
-from models.tenant import KYC_REVIEW_GENESIS, KycReviewPolicy, KycReviewPolicyActivation, Tenant, TenantLegalProfile
+from models.tenant import (
+    DEFAULT_TENANT_ID, KYC_REVIEW_GENESIS, KycReviewPolicy, KycReviewPolicyActivation, Tenant, TenantLegalProfile,
+)
 from schemas.review import (
     StrategyOptionCoverageResponse,
     master_data_consistency_errors,
@@ -4172,7 +4174,6 @@ def _effective_tenant_id(user: User) -> str:
     DEFAULT_TENANT_ID='main'). NULL als Fehler zu behandeln wuerde admins
     VOR dem naechsten Boot-Zyklus komplett aussperren -- stattdessen wie
     ueberall sonst im Code auf 'main' fallen lassen."""
-    from models.tenant import DEFAULT_TENANT_ID
     raw = getattr(user, "tenant_id", None)
     return raw.strip() if raw and isinstance(raw, str) and raw.strip() else DEFAULT_TENANT_ID
 
@@ -5043,9 +5044,11 @@ def dashboard_summary(
     else:
         trigger_count = 0
     clients = [dict(r._mapping) for r in rows]
-    for c in clients:
-        c["net_worth_chf"] = (c.get("net_worth_rappen") or 0) / 100
-        c["advisory_wealth_chf"] = (c.get("advisory_wealth_rappen") or 0) / 100
+    # K1 / CK-01: Betraege nicht aus der View (nominale Mischsumme), sondern je
+    # Kunde ueber die strikte FX-Basis; FX-Block nur fuer diesen Kunden.
+    from services.advisory_report import apply_fx_wealth_totals
+
+    apply_fx_wealth_totals(db, clients, tenant_id=getattr(current_user, "tenant_id", None))
     return {
         "clients": clients,
         "active_alerts": trigger_count,

@@ -578,24 +578,10 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "code": "<div class=\"fg\"><label class=\"fl\">Amortisation p.a. (CHF)</label><input class=\"fi\" type=\"number\" value=\"20000\" placeholder=\"0 = keine\"></div>",
-   "count": 1,
-   "context": "#m-edit-hypo",
-   "reason": "ares.html #m-edit-hypo: Legacy-Modal; prepareModalBeforeOpen() leitet m-edit-depot/-immo/-hypo/-custom immer auf den Vermoegens-Editor um (return false) -- Markup wird nie angezeigt."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"fg\"><label class=\"fl\">Ausstehender Betrag (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"maw-mortgage-value\" type=\"number\" placeholder=\"780000\"></div>",
    "count": 1,
    "context": "#maw-mortgage-value",
    "reason": "ares.html #maw-mortgage-value: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
-   "code": "<div class=\"fg\"><label class=\"fl\">Ausstehender Betrag (CHF)</label><input class=\"fi\" value=\"780000\" type=\"number\"></div>",
-   "count": 1,
-   "context": "#m-edit-hypo",
-   "reason": "ares.html #m-edit-hypo: Legacy-Modal; prepareModalBeforeOpen() leitet m-edit-depot/-immo/-hypo/-custom immer auf den Vermoegens-Editor um (return false) -- Markup wird nie angezeigt."
   },
   {
    "file": "ares-desktop/frontend/ares.html",

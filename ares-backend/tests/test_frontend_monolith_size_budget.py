@@ -133,6 +133,14 @@ sustainability-preferences.js 517/26065, privacy-governance.js 500/35256.
 Merge H11 in H12 (2026-11-18): alle Teile beider Seiten gelten; Monolith und
 Teilbudgets auf den gemessenen Stand nach dem Merge: 26665 Z./1640432 B; privacy-governance.js
 500/35256, sustainability-preferences.js 517/26065 (H11-Stand).
+K1 Property-Gate (2026-11-19): Wertsteigerungs- und Amortisationsfeld aus der
+Vermoegensmaske entfernt (Hinweis "Zins und Amortisation als Ausgaben-Cashflow
+erfassen"), "Gemischt" nur noch als Altbestand waehlbar; Monolith 26662 Z./1639661 B.
+K1-Nachtrag 1 (N-913-01/-11): Amortisationsfeld zurueck (Zins/Amortisation werden
+aus den erfassten Werten gerechnet), tote Altmaske #m-edit-hypo entfernt; Monolith
+26632 Z./1637553 B.
+Integration H12+K1 (2026-11-19, r5/kern-integration): alle Teile beider Seiten
+gelten; Monolith auf den gemessenen Stand nach dem Merge: 26629 Z./1637450 B.
 """
 from __future__ import annotations
 
@@ -141,9 +149,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26665
+MONOLITH_MAX_LINES = 26629
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1640432
+MONOLITH_MAX_BYTES = 1637450
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).

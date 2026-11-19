@@ -194,7 +194,10 @@ GOLDEN_SORTED_TABLES_SHA256 = "618e8a807ae327ccb92d47cc4e5aefae67ac5d8e664a8806d
 # Merge P3 Nachtrag 1 in CCX-P4 (2026-11-18): beide Schema-Erweiterungen.
 # CCX-P4 Nachtrag 1 (N-910-02): eligible_approver_count/single_person_firm in den
 # Publikations-Schemas, Tenant single_person_firm.
-GOLDEN_OPENAPI_SHA256 = "a0d1f36fe258d248483cf0b9dbc404291ad747dd46e5c9e316662a4c5f19cf68"
+# K1 (2026-11-19): wealth-summary Query mandate_id/target_currency und Felder
+# fx_basis_hash/valuation_as_of/mandate_id/amount_block_*, Summen optional (FX-Sperre);
+# ter_status in Empfehlungspositionen; property_gate_review_json in Vermoegenspositionen.
+GOLDEN_OPENAPI_SHA256 = "1f3cd2aa64d1bde2919ead23186bcbcccb015b360b18af6916a4cb6003eb3650"
 
 _PROBE = """
 import hashlib, json

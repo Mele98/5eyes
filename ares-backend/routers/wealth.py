@@ -4,6 +4,7 @@ from pydantic import ValidationError
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from core.db_integrity import raise_if_check_violation
+from core.reason_codes import DomainError, ReasonCode
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timezone
 from database import get_db, new_uuid
@@ -25,6 +26,12 @@ from services.audit import log
 from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
 from services.cashflow_timeline import SUPPORTED_FREQUENCIES, normalize_frequency, normalize_nature
 from services.data_classification import enforce_data_classification
+from core.property_gate import (  # K1 Property-Gate
+    DISABLED_HINT as PROPERTY_GATE_HINT,
+    MIXED_HINT as MORTGAGE_MIXED_HINT,
+    disabled_features as property_disabled_features,
+    mixed_mortgage_rejected,
+)
 from services.goal_lifecycle_transitions import (
     invalidate_goal_achievability_evidence,
 )
@@ -42,6 +49,20 @@ router = APIRouter(tags=["Vermögen & Ziele"])
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def require_property_write_allowed(position_type, values: dict) -> None:
+    """K1 Property-Gate: 409 statt stillem Ignorieren (core.property_gate)."""
+    features = property_disabled_features(position_type, values)
+    if features:
+        raise DomainError(ReasonCode.PROPERTY_ADVANCED_FEATURE_DISABLED, PROPERTY_GATE_HINT,
+                          extra={"features": features})
+
+
+def require_mortgage_type_allowed(position_type, new_type, current_type=None) -> None:
+    """K1 PROP-2: "Gemischt" nur noch als unveraenderter Altbestand."""
+    if mixed_mortgage_rejected(position_type, new_type, current_type):
+        raise DomainError(ReasonCode.MORTGAGE_TYPE_MIXED_REJECTED, MORTGAGE_MIXED_HINT, http_status=422)
 
 
 def _validate_position_projection_or_422(
@@ -702,7 +723,10 @@ def _validate_no_manual_flow_duplicated_by_new_position(
     derive_wealth_cashflows() denselben Flow zusaetzlich abzuleiten, ohne dass
     beim Anlegen der Position geprueft wurde. Audit-Repro: zuerst manueller
     Tilgungsflow (10'000), dann Hypothek angelegt -> 20'000 statt 10'000."""
-    if str(position_type or "") == "Hypothek" and str(assignment or "") == "Verbindlichkeit":
+    if (
+        str(position_type or "") == "Hypothek"
+        and str(assignment or "") == "Verbindlichkeit"
+    ):
         conflicting = db.query(Cashflow).filter(
             Cashflow.client_id == client_id,
             Cashflow.cashflow_type == "Expense",
@@ -751,6 +775,41 @@ def _validate_no_manual_flow_duplicated_by_new_position(
                         "Cashflow zuerst entfernen."
                     ),
                 )
+
+
+def _derives_rent(position_type, current_value_rappen, rental_income_rappen, is_active=1) -> bool:
+    """Exakt die Bedingung, unter der derive_wealth_cashflows() Miete ableitet."""
+    return (
+        str(position_type or "") == "Immobilien"
+        and int(is_active if is_active is not None else 1) == 1
+        and int(current_value_rappen or 0) > 0
+        and int(rental_income_rappen or 0) > 0
+    )
+
+
+def _validate_no_manual_flow_duplicated_by_position_update(
+    client_id: str, wp: WealthPosition, updates: dict, db: Session,
+) -> None:
+    """K1 / PROP-5 (Dok. 116): der Duplikat-Schutz galt nur beim Anlegen einer
+    Position. Eine Aenderung, die eine abgeleitete Miete NEU entstehen laesst
+    (Wert 0 -> > 0, Miete 0 -> > 0, Reaktivierung), wird gegen bestehende
+    manuelle Mietertrags-Cashflows geprueft wie der Create-Pfad. Hypothekar-
+    Cashflows leitet das Property-Gate nicht ab; dort entsteht keine Dublette."""
+    before = _derives_rent(
+        wp.position_type, wp.current_value_rappen, wp.property_rental_income_rappen, wp.is_active,
+    )
+    after = _derives_rent(
+        wp.position_type,
+        updates.get("current_value_rappen", wp.current_value_rappen),
+        updates.get("property_rental_income_rappen", wp.property_rental_income_rappen),
+        updates.get("is_active", wp.is_active),
+    )
+    if before or not after:
+        return
+    _validate_no_manual_flow_duplicated_by_new_position(
+        client_id, wp.position_type, wp.assignment,
+        updates.get("current_value_rappen", wp.current_value_rappen), db,
+    )
 
 
 def _validate_mortgage_link(client_id: str, data: dict, db: Session) -> None:
@@ -996,6 +1055,8 @@ def create_wealth_position(
         data.get("mortgage_amortization_type"),
         data.get("asset_expected_return_bps"),
     )
+    require_property_write_allowed(data.get("position_type"), data)
+    require_mortgage_type_allowed(data.get("position_type"), data.get("mortgage_type"))
     client = get_client_for_user_or_404(client_id, db, current_user)
     now = _now()
     # Convert booleans to integers for SQLite
@@ -1065,6 +1126,15 @@ def update_wealth_position(
             wp.asset_expected_return_bps,
         ),
     )
+    # N-913-05: gegen den zusammengefuehrten Zustand pruefen (z. B. Vehikelwechsel
+    # zur Police bei gesetztem Goal-Funding-Flag), nicht nur gegen die gesendeten Felder.
+    merged_gate_fields = ("is_available_for_goal_funding", "goal_funding_method", "asset_expected_return_bps",
+                          "pension_vehicle")
+    require_property_write_allowed(
+        wp.position_type, {f: updates.get(f, getattr(wp, f, None)) for f in merged_gate_fields},
+    )
+    if "mortgage_type" in updates:
+        require_mortgage_type_allowed(wp.position_type, updates["mortgage_type"], wp.mortgage_type)
     # C10.2: exclude_unset erlaubt explizites Null-Setzen ("clear"). exclude_none
     # haette ein None-Update verschluckt und keine Felder gecleared.
     # C10.2: Wenn alloc_*-Felder im Update sind, muss die GEMERGTE Verteilung
@@ -1099,6 +1169,7 @@ def update_wealth_position(
     ):
         _block_if_property_has_active_linked_mortgages(wp, client_id, db)
     _block_if_pension_source_has_active_transfer(wp, client_id, db, updates=updates)
+    _validate_no_manual_flow_duplicated_by_position_update(client_id, wp, updates, db)
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0

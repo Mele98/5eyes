@@ -472,6 +472,9 @@ class WealthPositionResponse(BaseResponse):
     liquidity_available_from: Optional[str] = None
     is_available_for_goal_funding: int
     goal_funding_method: Optional[str]
+    # K1 Property-Gate: Owner-Review-Fall (JSON) nach Neutralisierung von
+    # Altwerten deaktivierter Funktionen; None = kein Fall.
+    property_gate_review_json: Optional[str] = None
     notes: Optional[str]
     is_active: int
     created_at: str

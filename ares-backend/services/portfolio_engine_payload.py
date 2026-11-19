@@ -1524,6 +1524,27 @@ def _product_is_chf_or_fx_hedged(product: Product, home_currency: str = "CHF") -
     return any(marker in text for marker in markers)
 
 
+TER_STATUS_KNOWN = "known"
+TER_STATUS_MISSING = "missing"
+TER_STATUS_NOT_APPLICABLE = "not_applicable"
+# OWN-PE-05 (Dok. 116, interim): Konto-/Festgeldprodukte tragen keine TER.
+TER_NOT_APPLICABLE_PRODUCT_TYPES = frozenset({"cash"})
+# Groesser als die hoechste erfassbare TER (1000 bps, schemas/review.py) plus
+# die Summe aller Boni in _product_score (570): ein Produkt ohne TER liegt
+# damit hinter jedem Produkt mit bekannter TER im selben Slot.
+MISSING_TER_SCORE_PENALTY = 5000
+
+
+def product_ter_status(product) -> str:
+    """K1 / PE-S: ``known`` | ``missing`` | ``not_applicable`` (Cash)."""
+    if getattr(product, "ter_bps", None) is not None:
+        return TER_STATUS_KNOWN
+    product_type = str(getattr(product, "product_type", "") or "").strip().casefold()
+    if product_type in TER_NOT_APPLICABLE_PRODUCT_TYPES:
+        return TER_STATUS_NOT_APPLICABLE
+    return TER_STATUS_MISSING
+
+
 def _product_score(product: Product, sub_asset_class: str, prefs: dict, jurisdiction_ctx: dict | None = None) -> int:
     """WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): siehe
     _product_matches_constraints() -- ohne jurisdiction_ctx exakt das
@@ -1535,7 +1556,16 @@ def _product_score(product: Product, sub_asset_class: str, prefs: dict, jurisdic
     home_currency = ctx["home_currency"]
     home_equity_label = ctx["home_equity_label"]
     score = 1000
-    score -= int(product.ter_bps or 0)
+    # K1 / PE-S (Dok. 116 L-PE-1): eine fehlende TER ist nicht "TER 0". Vorher
+    # gewann ein Produkt ohne TER jede Rangfolge (``ter_bps or 0``). Jetzt ist
+    # es nachrangig: der Abschlag liegt ueber jeder erfassbaren TER plus allen
+    # Boni, ein Produkt mit bekannter TER (Score >= 0) geht immer vor; nur der
+    # Themen-Ausschluss (-10000) liegt noch tiefer. Ausnahme Konto-/Festgeld
+    # (``product_type='Cash'``, OWN-PE-05): dort entfaellt die TER.
+    if product_ter_status(product) == TER_STATUS_MISSING:
+        score -= MISSING_TER_SCORE_PENALTY
+    else:
+        score -= int(product.ter_bps or 0)
     if product.currency == home_currency:
         score += 40
     if product.sub_asset_class == sub_asset_class:
@@ -1609,7 +1639,11 @@ def _ter_coverage_bps(items: list[dict]) -> int:
 
 
 def _missing_ter_positions_count(items: list[dict]) -> int:
-    return sum(1 for item in items if item.get("ter_bps") is None)
+    # K1 / PE-S: Cash-Produkte ohne TER sind kein "TER fehlt" (ter_status).
+    return sum(
+        1 for item in items
+        if item.get("ter_bps") is None and item.get("ter_status") != TER_STATUS_NOT_APPLICABLE
+    )
 
 
 ZERO_STRATEGY_BASE_WARNING = (

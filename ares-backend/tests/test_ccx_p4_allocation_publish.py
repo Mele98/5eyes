@@ -47,6 +47,7 @@ from tests.test_ccx_p1_snapshot_hash import (  # noqa: F401
 CCX_P4_REV = "24e7606245d3"
 # H12 N-910-14: neue Revision hinter P4 (P4 eingefroren, nicht in place geaendert).
 H12_REV = "b3f1c9d2e4a7"
+K1_REV = "63332bb56098"  # Integration H12+K1: K1 haengt hinter H12
 CCX_P3_REV = "6814c14575e9"
 P4_TABLES = ("allocation_publication_decisions", "allocation_active_publications")
 
@@ -629,7 +630,10 @@ def test_alembic_single_head_p4_and_upgrade_downgrade_upgrade(tmp_path):
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
-    assert script.get_heads() == [H12_REV]
+    # Integration H12+K1: K1 (63332bb56098, Property-Gate) haengt hinter H12
+    # (b3f1c9d2e4a7, Schluesselversion), H12 hinter P4: genau ein Head.
+    assert script.get_heads() == [K1_REV]
+    assert script.get_revision(K1_REV).down_revision == H12_REV
     assert script.get_revision(H12_REV).down_revision == CCX_P4_REV
     assert script.get_revision(CCX_P4_REV).down_revision == CCX_P3_REV
     chain = [rev.revision for rev in script.walk_revisions("base", CCX_P4_REV)][:4]
