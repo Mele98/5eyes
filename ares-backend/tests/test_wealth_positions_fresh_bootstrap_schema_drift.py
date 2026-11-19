@@ -69,7 +69,7 @@ def test_fresh_bootstrap_mortgage_accepts_frontend_default_amortization_type(tmp
         position = WealthPosition(
             id="mortgage-test", client_id="client-test", label="Hypothek Eigenheim",
             position_type="Hypothek", assignment="Verbindlichkeit", current_value_rappen=80_000_000,
-            mortgage_bank="ZKB", mortgage_type="Festhypothek",
+            mortgage_bank="Testbank Fiktiv", mortgage_type="Festhypothek",
             mortgage_amortization_type="Indirekt (Säule 3a)",
             created_at=now, updated_at=now,
         )

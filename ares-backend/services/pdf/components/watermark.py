@@ -18,7 +18,12 @@ from reportlab.lib.units import mm
 from reportlab.pdfgen.canvas import Canvas
 
 
-WATERMARK_MODES = ("none", "entwurf", "vertraulich")
+WATERMARK_MODES = ("none", "entwurf", "vertraulich", "vorvertrag", "unpublished")
+# C-890-01 Nachtrag 4 (N-897-12): kundenwirksamer Bericht ohne jede
+# KYC-Bestaetigung -> sichtbar als Entwurf vor Vertragsabschluss.
+VORVERTRAG_TEXT = "Entwurf – vor Vertragsabschluss (ohne KYC-Bestätigung)"
+# CCX-P4: Kundendokument einer nicht (gueltig) publizierten Soll-Allokation.
+UNPUBLISHED_TEXT = "Entwurf – Soll-Allokation nicht publiziert"
 
 
 def _editorial_bold_font() -> str:
@@ -66,6 +71,10 @@ def draw_watermark(
             _draw_entwurf_watermark(canvas, page_width, page_height)
         elif normalized == "vertraulich":
             _draw_vertraulich_watermark(canvas, page_width, page_height)
+        elif normalized == "vorvertrag":
+            _draw_vorvertrag_watermark(canvas, page_width, page_height)
+        elif normalized == "unpublished":
+            _draw_headline_watermark(canvas, page_width, page_height, UNPUBLISHED_TEXT)
     finally:
         canvas.restoreState()
 
@@ -86,6 +95,25 @@ def _draw_entwurf_watermark(
     canvas.translate(page_width / 2, page_height / 2)
     canvas.rotate(45)
     canvas.drawCentredString(0, 0, "ENTWURF")
+
+
+def _draw_vorvertrag_watermark(
+    canvas: Canvas, page_width: float, page_height: float,
+) -> None:
+    """Entwurf vor Vertragsabschluss: Zeile oben auf jeder Seite + diagonales ENTWURF."""
+    _draw_headline_watermark(canvas, page_width, page_height, VORVERTRAG_TEXT)
+
+
+def _draw_headline_watermark(
+    canvas: Canvas, page_width: float, page_height: float, headline: str,
+) -> None:
+    """Entwurf mit Grund: Zeile oben auf jeder Seite + diagonales ENTWURF."""
+    canvas.saveState()
+    canvas.setFillColor(_ENTWURF_COLOR)
+    canvas.setFont(_editorial_bold_font(), 10)
+    canvas.drawCentredString(page_width / 2, page_height - 8 * mm, headline)
+    canvas.restoreState()
+    _draw_entwurf_watermark(canvas, page_width, page_height)
 
 
 def _draw_vertraulich_watermark(

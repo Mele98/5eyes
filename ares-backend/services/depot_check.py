@@ -22,14 +22,17 @@ from typing import Iterable, Mapping
 
 from sqlalchemy.orm import Session
 
+from core.band_rule import in_band as band_in_band
+from core.reason_codes import DomainError
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
 from models.review import Product, RecommendationPosition, RecommendationRun
 from models.wealth import WealthPosition
+from services.fx_basis import load_fx_basis, normalize_currency
 from services.product_exposures import (
     aggregate_exposures,
     country_exposure_for_product,
-    currency_exposure_for_product,
+    currency_exposure_with_source,
     herfindahl_hirschman_index,
     sector_exposure_for_product,
 )
@@ -267,6 +270,11 @@ def _init_result_dict(mandate: Mandate) -> dict:
         "country_exposure_bps": {},
         "sector_exposure_bps": {},
         "currency_exposure_bps": {},
+        # PO-06: Herkunft des Waehrungs-Exposures je Quelle (bps des IST):
+        # produktdaten / produktdaten_absicherung / produktname_absicherung /
+        # sub_klassen_proxy /
+        # produktwaehrung / unbekannt.
+        "currency_exposure_source_bps": {},
         # Sprint U-P20 (2026-05-24): SOLL-Exposures + IST-SOLL-Drift pro
         # Country/Sector/Currency. Berechnet aus RecommendationPositions
         # target_amount_rappen (statt current_amount_rappen). Bleibt leer,
@@ -383,7 +391,7 @@ def _load_positions(
     Original-Block in compute_depot_check.
     """
     positions_with_products: list[tuple[RecommendationPosition, Product]] = []
-    wealth_only_positions: list[tuple[WealthPosition, str]] = []
+    wealth_only_positions: list[tuple[WealthPosition, str, int]] = []
     total_rappen = 0
 
     latest_run = _select_latest_run(db, mandate)
@@ -424,13 +432,20 @@ def _load_positions(
                 )
                 .all()
             )
+            # N-913-04 (K1-Nachtrag 1): zeilenweise ueber die strikte FX-Basis in
+            # die Mandatswaehrung -- nie eine nominale Summe ueber Waehrungen;
+            # fehlender/abgelaufener/Ersatzkurs -> typisierter CCX_FX_BASIS_*-Block.
+            wp_rows = [wp for wp in wp_rows if _safe_int(getattr(wp, "current_value_rappen", 0)) > 0]
+            currencies = {normalize_currency(getattr(wp, "currency", None)) for wp in wp_rows}
+            basis = load_fx_basis(db, getattr(mandate, "base_currency", None) or "CHF", currencies - {""},
+                                  tenant_id=getattr(mandate, "tenant_id", None))
+            basis.require_convertible(currencies)
             for wp in wp_rows:
-                amount = _safe_int(getattr(wp, "current_value_rappen", 0))
-                if amount > 0:
-                    wealth_only_positions.append(
-                        (wp, _bucket_from_position_type(getattr(wp, "position_type", "")))
-                    )
-                    total_rappen += amount
+                amount = basis.convert(_safe_int(wp.current_value_rappen), wp.currency).converted_amount_minor
+                wealth_only_positions.append(
+                    (wp, _bucket_from_position_type(getattr(wp, "position_type", "")), amount)
+                )
+                total_rappen += amount
 
     return positions_with_products, wealth_only_positions, total_rappen
 
@@ -557,9 +572,24 @@ def compute_depot_check(
             db, mandate, holdings_snapshot,
         )
     else:
-        positions_with_products, wealth_only_positions, total_rappen = _load_positions(db, mandate)
+        try:
+            positions_with_products, wealth_only_positions, total_rappen = _load_positions(db, mandate)
+        except DomainError as exc:  # N-913-04: FX-Sperre statt Rohsumme, Analyse ohne Betraege
+            if db.query(TargetAllocation.id).filter(
+                TargetAllocation.mandate_id == mandate.id, TargetAllocation.is_current == 1,
+                TargetAllocation.deleted_at.is_(None),
+            ).first() is not None:
+                raise  # mit Soll-Allokation sperren die Kundenkanaele typisiert (wie bisher, P3)
+            result["total_advisory_wealth_rappen"] = None
+            result["fx_block_reason_code"] = str(exc.reason_code)
+            result["warnings"].append(exc.message)
+            return result
 
     result["total_advisory_wealth_rappen"] = total_rappen
+    # H-172: ohne erfassten Bestand ist das IST der Rueckfall auf die Zielbetraege
+    # (IST = SOLL per Konstruktion) -- dann ist keine Bandaussage moeglich.
+    result["ist_basiert_auf_soll"] = bool(positions_with_products) and holdings_snapshot is None and all(
+        _safe_int(getattr(rec, "current_amount_rappen", 0)) <= 0 for rec, _prod in positions_with_products)
     if total_rappen <= 0:
         result["warnings"].append("Kein Beratungsvermögen erfasst. Bitte WealthPositions oder RecommendationRun anlegen.")
         return result
@@ -571,6 +601,7 @@ def compute_depot_check(
     position_country_exp: dict[str, dict[str, int]] = {}
     position_sector_exp: dict[str, dict[str, int]] = {}
     position_currency_exp: dict[str, dict[str, int]] = {}
+    position_currency_source: dict[str, str] = {}
     position_records_for_top: list[dict] = []
     ter_weighted_sum = 0
     duration_weighted_sum = 0
@@ -607,11 +638,21 @@ def compute_depot_check(
             getattr(prod, "sector_exposure_json", None),
             getattr(prod, "sub_asset_class", None),
         )
-        position_currency_exp[rec_pos.id] = currency_exposure_for_product(
+        # PO-06 (Audit 2026-11): Exposure aus den Produktdaten (gepflegtes
+        # JSON, sonst Absicherungs-Kennzeichen + Produktwaehrung); der
+        # Sub-Klassen-Proxy nur, wenn Produktdaten fehlen. Herkunft je Position.
+        position_currency_exp[rec_pos.id], currency_source = currency_exposure_with_source(
             getattr(prod, "currency_exposure_json", None),
             getattr(prod, "sub_asset_class", None),
-            fallback_currency=getattr(prod, "currency", None),
+            product_currency=getattr(prod, "currency", None),
+            product_name=getattr(prod, "product_name", None),
+            product_type=getattr(prod, "product_type", None),
+            # N-856-1: kuenftiges Stammdatenfeld (P1), dreiwertig; fehlt es
+            # (heute immer), gilt None = unbekannt -> Namens-Heuristik/Proxy.
+            is_hedged=getattr(prod, "is_hedged", None),
+            hedge_currency=getattr(prod, "hedge_currency", None),
         )
+        position_currency_source[rec_pos.id] = currency_source
         if amount <= 0:
             continue
         bucket = _bucket_key_from_product(prod)
@@ -628,6 +669,7 @@ def compute_depot_check(
             "amount_rappen": amount,
             "weight_bps": weight_bps,
             "ter_bps": _safe_int(getattr(prod, "ter_bps", 0)),
+            "currency_exposure_source": position_currency_source[rec_pos.id],
         })
         # Fund-Characteristics gewichtet
         ter = _safe_int(getattr(prod, "ter_bps", 0))
@@ -646,8 +688,7 @@ def compute_depot_check(
         liquidity_buckets[tier] += amount
 
     # Fallback aus WealthPositions (kein Produkt → keine Exposure-Tiefe)
-    for wp, bucket in wealth_only_positions:
-        amount = _safe_int(getattr(wp, "current_value_rappen", 0))
+    for wp, bucket, amount in wealth_only_positions:  # amount in Mandatswaehrung (N-913-04)
         bucket_amounts_rappen[bucket] = bucket_amounts_rappen.get(bucket, 0) + amount
         weight_bps = int(round(amount / total_rappen * 10000))
         position_records_for_top.append({
@@ -684,12 +725,10 @@ def compute_depot_check(
     # konform meldete -- ein intern widerspruechliches Dokument. Siehe
     # services.risk_assessment_semantics.target_allocation_predates_current_
     # assessment fuer die (jetzt EINE, geteilte) Pruef-Logik.
-    from services.portfolio_engine import _current_risk_assessment_or_none
-    from services.risk_assessment_semantics import (
-        target_allocation_predates_current_assessment,
-    )
+    from services.portfolio_engine import _current_risk_assessment_or_none, risk_assessment_semantics
     current_ra = _current_risk_assessment_or_none(db, mandate.id)
-    result["target_allocation_stale"] = target_allocation_predates_current_assessment(
+    # Lookup zur Laufzeit ueber das Modul (eine Kante weniger, N-913-04).
+    result["target_allocation_stale"] = risk_assessment_semantics.target_allocation_predates_current_assessment(
         ta, getattr(current_ra, "id", None), current_ra
     )
     # ALLOCATION-INPUT-STALENESS-001: Payload/Finalisierung/Strategie-PDF
@@ -710,11 +749,16 @@ def compute_depot_check(
         soll_bps = 0
         band_min_bps = 0
         band_max_bps = 0
+        in_band = None  # ohne Soll-Allokation: nicht bewertbar
         if ta is not None:
             soll_bps = _safe_int(getattr(ta, f"target_{bucket}_bps", 0))
-            band_min_bps = _safe_int(getattr(ta, f"band_{bucket}_min_bps", 0))
-            band_max_bps = _safe_int(getattr(ta, f"band_{bucket}_max_bps", 0))
-        in_band = (band_min_bps <= ist_bps <= band_max_bps) if (band_min_bps or band_max_bps) else None
+            raw_min = getattr(ta, f"band_{bucket}_min_bps", None)
+            raw_max = getattr(ta, f"band_{bucket}_max_bps", None)
+            band_min_bps = _safe_int(raw_min)
+            band_max_bps = _safe_int(raw_max)
+            # KN3-B Nachtrag 2 (CTO): 0/0 = Obergrenze 0 (core/band_rule.py);
+            # nur eine fehlende Grenze (None) ist "nicht bewertbar".
+            in_band = None if result.get("ist_basiert_auf_soll") else band_in_band(ist_bps, raw_min, raw_max)
         result["buckets"][bucket] = {
             "label": BUCKET_LABELS[bucket],
             "ist_bps": ist_bps,
@@ -743,6 +787,12 @@ def compute_depot_check(
         result["country_exposure_bps"] = aggregate_exposures(position_weights_bps, position_country_exp)
         result["sector_exposure_bps"] = aggregate_exposures(position_weights_bps, position_sector_exp)
         result["currency_exposure_bps"] = aggregate_exposures(position_weights_bps, position_currency_exp)
+        # PO-06: Herkunft des Waehrungs-Exposures (Gewicht je Quelle, bps).
+        source_weights: dict[str, int] = {}
+        for pos_id, weight in position_weights_bps.items():
+            source = position_currency_source.get(pos_id, "unbekannt")
+            source_weights[source] = source_weights.get(source, 0) + int(weight or 0)
+        result["currency_exposure_source_bps"] = dict(sorted(source_weights.items()))
 
     # 5b. Sprint U-P20: SOLL-Exposures + IST-SOLL-Drift pro Dimension.
     # SOLL = target_amount_rappen aus RecommendationPositions (das was der

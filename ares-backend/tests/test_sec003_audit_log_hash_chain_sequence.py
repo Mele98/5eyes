@@ -209,6 +209,12 @@ def test_verify_audit_chain_ignores_legacy_rows_without_sequence(tmp_path, monke
     Verifier nicht crashen oder als Kettenbruch zaehlen -- sie beanspruchen
     bewusst keine rueckwirkende lineare Garantie."""
     engine, session_local = _fresh_engine(tmp_path, monkeypatch, "seq_legacy")
+    # N-869-3: Altzeilen ohne sequence entstanden VOR dem Ketten-Pflicht-
+    # Trigger; zum Simulieren den Trigger kurz entfernen, danach wie beim
+    # Boot wieder anlegen.
+    from sqlalchemy import text as _text
+    with engine.begin() as conn:
+        conn.execute(_text("DROP TRIGGER trg_audit_log_require_chain"))
     with session_local() as session:
         legacy = AuditLog(
             id="legacy-1", user_id="u1", user_name="A", table_name="t",
@@ -219,6 +225,7 @@ def test_verify_audit_chain_ignores_legacy_rows_without_sequence(tmp_path, monke
         )
         session.add(legacy)
         session.commit()
+        ensure_audit_log_triggers(engine)
 
         log(session, user_id="u1", user_name="A", table_name="t", record_id="new", action="CREATE")
         session.commit()

@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 from database import new_uuid
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
-from models.profiling import RiskAssessment
+from models.profiling import RiskAssessment, current_investment_preference
+from core import sustainability_preference as _sustainability
+from core.band_rule import BAND_ABOVE, BAND_BELOW, band_status
 from models.review import AdvisoryLog, RecommendationPosition, RecommendationRun, ReviewTrigger
 from price_updater import summarize_price_quality
 from schemas.review import (
@@ -32,6 +34,9 @@ from jurisdictions.resolve import resolve_pack
 SYSTEM_TRIGGER_REVIEW = "Jahres-Review (System)"
 SYSTEM_TRIGGER_DRIFT = "Bandbreitenverletzung (System)"
 SYSTEM_TRIGGER_GOALS = "Zielerreichung gefaehrdet (System)"
+# N-888-04 (Dok. 106): Ueberpruefung der Nachhaltigkeitspraeferenz faellig
+# (Hauspolitik je Tenant). Nur ausgeloest bei Faelligkeit; nie Sperre.
+SYSTEM_TRIGGER_SUSTAINABILITY = "Nachhaltigkeitspraeferenz pruefen (System)"
 SYSTEM_TRIGGER_MARKET_DATA = "Marktdaten veraltet (System)"
 
 
@@ -64,7 +69,7 @@ def _build_current_drift_buckets(
         if _norm_text(getattr(position, "assignment", None))
         == "Beratungsvermoegen"
     ]
-    fx_source = FXRateSource.from_db_for_model(db)
+    fx_source = FXRateSource.from_db_strict_for_model(db, tenant_id=getattr(mandate, "tenant_id", None))  # CCX-P3-FX N-909-01
     target_currency = str(
         getattr(mandate, "base_currency", "CHF") or "CHF"
     ).upper().strip()
@@ -123,6 +128,35 @@ def _format_bps(bps: int) -> str:
     return f"{bps / 100:.1f}%"
 
 
+
+def band_drifts(drift_source) -> list[dict]:
+    """Bandverletzungen fuer den Markt-Trigger. KN3-B Nachtrag 2 (CTO): 0/0 ist
+    Obergrenze 0 (core/band_rule.py); nur eine fehlende Bandangabe ist "nicht
+    bewertbar" (kein Trigger, aber auch kein "im Band")."""
+    drifts = []
+    for bucket in drift_source or []:
+        current_weight = int(bucket.get("current_weight_bps") or 0)
+        status = band_status(current_weight, bucket.get("band_min_bps"), bucket.get("band_max_bps"))
+        if status == BAND_BELOW:
+            min_weight = int(bucket.get("band_min_bps"))
+            drifts.append(
+                {
+                    "label": bucket.get("asset_class") or "Allokation",
+                    "breach_bps": min_weight - current_weight,
+                    "detail": f"{bucket.get('asset_class')}: {_format_bps(current_weight)} unter Minimum {_format_bps(min_weight)}",
+                }
+            )
+        elif status == BAND_ABOVE:
+            max_weight = int(bucket.get("band_max_bps"))
+            drifts.append(
+                {
+                    "label": bucket.get("asset_class") or "Allokation",
+                    "breach_bps": current_weight - max_weight,
+                    "detail": f"{bucket.get('asset_class')}: {_format_bps(current_weight)} ueber Maximum {_format_bps(max_weight)}",
+                }
+            )
+    return drifts
+
 def _get_system_trigger(
     db: Session,
     mandate_id: str,
@@ -180,6 +214,30 @@ def _resolve_system_trigger(
     trigger.triggered_notes = note
     trigger.next_due_at = None if trigger_type != "Zeit" else trigger.next_due_at
     trigger.updated_at = now
+
+
+def _refresh_sustainability_trigger(db: Session, mandate: Mandate, *, now: str, today) -> None:
+    """N-888-04: Ereignis-Trigger, solange die Ueberpruefung der
+    Nachhaltigkeitspraeferenz faellig ist; danach aufgeloest."""
+    row = current_investment_preference(db, mandate.id)
+    due_on = getattr(row, "review_due_on", None)
+    if row is not None and _sustainability.review_status(due_on, str(today)) == _sustainability.REVIEW_DUE:
+        trigger = _get_or_create_system_trigger(
+            db=db, mandate_id=mandate.id, trigger_type="Ereignis",
+            trigger_name=SYSTEM_TRIGGER_SUSTAINABILITY, now=now,
+        )
+        trigger.status = "Ausgelöst"
+        trigger.next_due_at = today
+        trigger.triggered_at = now
+        trigger.triggered_value = f"Überprüfung fällig seit {_sustainability.format_date_ch(due_on)}"
+        trigger.triggered_notes = _sustainability.review_due_text(due_on)
+        trigger.updated_at = now
+        return
+    _resolve_system_trigger(
+        db=db, mandate_id=mandate.id, trigger_type="Ereignis",
+        trigger_name=SYSTEM_TRIGGER_SUSTAINABILITY, now=now,
+        note="Systempruefung: Nachhaltigkeitspraeferenz erfasst und nicht faellig.",
+    )
 
 
 def refresh_system_review_triggers(
@@ -303,6 +361,8 @@ def refresh_system_review_triggers(
     )
     review_trigger.updated_at = now
 
+    _refresh_sustainability_trigger(db, mandate, now=now, today=today)
+
     assessment = _current_risk_assessment_or_none(db, mandate.id)
     allocation = _current_target_allocation_or_none(db, mandate.id)
 
@@ -342,29 +402,7 @@ def refresh_system_review_triggers(
 
         live_rebalancing = payload.get("live_rebalancing") or {}
         drift_source = live_rebalancing.get("bucket_drifts") or payload.get("buckets", [])
-        drifts = []
-        for bucket in drift_source:
-            current_weight = int(bucket.get("current_weight_bps") or 0)
-            min_weight = int(bucket.get("band_min_bps") or 0)
-            max_weight = int(bucket.get("band_max_bps") or 0)
-            if min_weight == 0 and max_weight == 0:
-                continue
-            if current_weight < min_weight:
-                drifts.append(
-                    {
-                        "label": bucket.get("asset_class") or "Allokation",
-                        "breach_bps": min_weight - current_weight,
-                        "detail": f"{bucket.get('asset_class')}: {_format_bps(current_weight)} unter Minimum {_format_bps(min_weight)}",
-                    }
-                )
-            elif current_weight > max_weight:
-                drifts.append(
-                    {
-                        "label": bucket.get("asset_class") or "Allokation",
-                        "breach_bps": current_weight - max_weight,
-                        "detail": f"{bucket.get('asset_class')}: {_format_bps(current_weight)} ueber Maximum {_format_bps(max_weight)}",
-                    }
-                )
+        drifts = band_drifts(drift_source)
 
         if drifts:
             drift_trigger = _get_or_create_system_trigger(
