@@ -39,13 +39,32 @@ def _hyp(**kw):
     return SimpleNamespace(**base)
 
 
-@pytest.mark.parametrize("amort_type", ["Direkt", "Indirekt (Säule 3a)", None])
+@pytest.mark.parametrize("amort_type", ["Direkt", "direkte Amortisation"])
 def test_payoff_cap_in_k1_mode_last_year_pro_rata(amort_type):
     # 25'000 Schuld, 10'000 p.a.: 10'000, 10'000, 5'000 (anteilig), dann 0.
     # Die Serie korrigiert die konstante Ausgabe von 10'000 um den Ueberhang.
     assert mortgage_amortization_adjustment_series([_hyp(mortgage_amortization_type=amort_type)], 6) == [
         0, 0, 5_000_00, 10_000_00, 10_000_00, 10_000_00,
     ]
+
+
+# KN-B Nachtrag 1 (CTO-Korrektur): indirekte Amortisation tilgt die Schuld nicht
+# (Saeule 3a) -- sie laeuft bis und mit Pensionierungsjahr, unabhaengig von der Schuld.
+@pytest.mark.parametrize("amort_type", ["Indirekt (Säule 3a)", "Indirekt", None])
+def test_indirect_runs_until_retirement_year(amort_type):
+    pos = _hyp(mortgage_amortization_type=amort_type)
+    assert mortgage_amortization_adjustment_series([pos], 6, start_year=2026, retirement_year=2029) == [
+        0, 0, 0, 0, 10_000_00, 10_000_00,
+    ]
+
+
+def test_indirect_without_retirement_year_keeps_horizon_rule():
+    """Ohne Pensionierungsjahr: bestehende Horizontregel (laeuft ueber den Horizont)."""
+    pos = _hyp(mortgage_amortization_type="Indirekt (Säule 3a)")
+    assert mortgage_amortization_adjustment_series([pos], 6, start_year=2026) == [0] * 6
+    assert mortgage_amortization_adjustment_series([pos], 6) == [0] * 6
+    # Nicht bei "Schuld getilgt" beendet (25'000 Schuld waeren nach 3 Jahren erreicht).
+    assert mortgage_amortization_adjustment_series([pos], 6, start_year=2026, retirement_year=2040) == [0] * 6
 
 
 def test_no_change_while_debt_is_not_repaid_within_horizon():
@@ -114,3 +133,25 @@ def test_engine_projection_before_and_after(api, advisor_user, session_factory, 
     assert diff[2] == 5_000_00
     assert all(value == 10_000_00 for value in diff[3:])
     assert len(diff) > 3
+
+
+def test_cashflow_projection_indirect_until_retirement_before_after(api, advisor_user):
+    """Vorher/Nachher (indirekt): Testmandat mit Pensionierungsjahr = Startjahr + 2."""
+    import datetime
+
+    client_id, mandate_id = _create_client_and_mandate(api, advisor_user, "CHF")
+    retirement = datetime.date.today().year + 2
+    assert api.put(f"/mandates/{mandate_id}", json={"retirement_year": retirement}).status_code == 200
+    created = api.post(f"/clients/{client_id}/wealth-positions", json={
+        "label": "Hypothek indirekt (fiktiv)", "position_type": "Hypothek", "assignment": "Verbindlichkeit",
+        "current_value_rappen": 25_000_00, "currency": "CHF", "mortgage_type": "Festhypothek",
+        "mortgage_interest_rate_bps": 160, "mortgage_maturity_date": "2032-03-31",
+        "mortgage_amortization_type": "Indirekt (Säule 3a)", "mortgage_amortization_rappen": 10_000_00,
+        "data_classification": "synthetic",
+    })
+    assert created.status_code == 201, created.text[:300]
+    years = api.get(f"/clients/{client_id}/cashflow-projection?horizon_years=6").json()["years"]
+    expenses = [int(y["recurring_expense_rappen"]) for y in years]
+    print("E2E2-09 Nachtrag 1 indirekt, Ausgaben je Jahr (Rappen):", expenses)
+    deltas = [expenses[0] - value for value in expenses]
+    assert deltas == [0, 0, 0, 10_000_00, 10_000_00, 10_000_00], expenses

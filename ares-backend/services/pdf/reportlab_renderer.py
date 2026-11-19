@@ -143,7 +143,9 @@ class ReportLabRenderer:
 
         register_editorial_fonts()
         buffer = BytesIO()
-        metadata_brand = ctx.advisor_org or ctx.advisor_name or "Emanuele Konzelmann"
+        # KN-B Nachtrag 1: kein Personenname als Fallback; ohne Firma/Berater entfaellt das Praefix.
+        metadata_brand = ctx.advisor_org or ctx.advisor_name or ""
+        doc_title = " - ".join(part for part in (metadata_brand, title, ctx.mandate_name) if part)
         doc = SimpleDocTemplate(
             buffer,
             pagesize=PAGE_SIZE,
@@ -151,7 +153,7 @@ class ReportLabRenderer:
             bottomMargin=MARGIN_BOTTOM + 12 * mm,  # extra Platz fuer Footer
             leftMargin=MARGIN_LEFT,
             rightMargin=MARGIN_RIGHT,
-            title=f"{metadata_brand} - {title} - {ctx.mandate_name}",
+            title=doc_title,
             author=ctx.advisor_name,
             subject=title,
             creator="Ares",

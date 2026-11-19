@@ -2404,7 +2404,7 @@ def _load_allocation_inputs(
         ]
     _mortgage_amortization_adj = mortgage_amortization_adjustment_series(
         all_positions,
-        projection_years,
+        projection_years, start_year=cashflow_totals["year"], retirement_year=getattr(mandate, "retirement_year", None),
         fx_source=fx_source,
         target_currency=target_currency,
     )
@@ -5638,7 +5638,7 @@ def build_target_payload_from_allocation(
         ]
     _mortgage_amortization_adj = mortgage_amortization_adjustment_series(
         all_positions,
-        projection_years,
+        projection_years, start_year=cashflow_totals["year"], retirement_year=getattr(mandate, "retirement_year", None),
         fx_source=fx_source,
         target_currency=target_currency,
     )

@@ -30,7 +30,8 @@ def make_single_report_cover(
     """Simple title page for one focused report extract."""
     page_width, _ = PAGE_SIZE
     table_width = page_width - 24 * mm
-    org = ctx.advisor_org or ctx.advisor_name or "Emanuele Konzelmann"
+    # KN-B Nachtrag 1: kein Personenname als Fallback -- ohne Firma/Berater bleibt die Zeile leer.
+    org = ctx.advisor_org or ctx.advisor_name or ""
     rows = [
         ["Berater", ctx.advisor_name or "-"],
         ["Mandat", ctx.mandate_name or "-"],

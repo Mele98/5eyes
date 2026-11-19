@@ -260,6 +260,8 @@ def mortgage_amortization_adjustment_series(
     *,
     fx_source=None,
     target_currency: str = "CHF",
+    start_year: int | None = None,
+    retirement_year: int | None = None,
 ) -> list[int]:
     """Correct the recurring direct-amortization cashflow after payoff.
 
@@ -271,10 +273,16 @@ def mortgage_amortization_adjustment_series(
     series and is deliberately not capped here.
 
     KN-B / E2E2-09 (CTO-Entscheid 2026-11-19) fuer den K1-Modus (Property-Gate,
-    keine Schuldabbau-/Verpfaendungsprojektion): die abgeleitete Amortisation
-    (direkt wie indirekt) endet, sobald die kumulierte Amortisation die heutige
-    Schuld erreicht; das letzte Jahr wird anteilig gerechnet. Die Schuld bleibt
-    in der Bilanz konstant (konservativ, bis Property-P1).
+    keine Schuldabbau-/Verpfaendungsprojektion):
+
+    * Direkte Amortisation endet, sobald die kumulierte Amortisation die heutige
+      Schuld erreicht; das letzte Jahr wird anteilig gerechnet. Die Schuld
+      bleibt in der Bilanz konstant (konservativ, bis Property-P1).
+    * Indirekte Amortisation (Nachtrag 1) tilgt die Schuld nicht, sie fliesst in
+      die Saeule 3a: sie laeuft bis und mit dem Pensionierungsjahr des Kunden
+      (Ende der 3a-Einzahlungen) und endet danach. Ohne Pensionierungsjahr
+      (oder ohne Startjahr) gilt die bestehende Horizontregel: sie laeuft ueber
+      den ganzen Projektionshorizont.
     """
     n = max(0, int(horizon_years or 0))
     adjustment = [0] * n
@@ -286,15 +294,22 @@ def mortgage_amortization_adjustment_series(
             continue
         if str(getattr(pos, "position_type", "") or "") != "Hypothek":
             continue
-        if not k1_payoff_cap and not _is_direct_amortization(
-            getattr(pos, "mortgage_amortization_type", None)
-        ):
+        direct = _is_direct_amortization(getattr(pos, "mortgage_amortization_type", None))
+        if not k1_payoff_cap and not direct:
             continue
         debt = abs(int(getattr(pos, "current_value_rappen", 0) or 0))
         annual = abs(
             int(getattr(pos, "mortgage_amortization_rappen", 0) or 0)
         )
         if annual <= 0:
+            continue
+        if not direct:
+            # Indirekt (K1): bis und mit Pensionierungsjahr, danach keine 3a-Einzahlung.
+            if start_year is None or not retirement_year:
+                continue
+            for index in range(n):
+                if int(start_year) + index > int(retirement_year):
+                    adjustment[index] += _convert_position_rappen(annual, pos, fx_source, target_currency)
             continue
         remaining = debt
         for index in range(n):
