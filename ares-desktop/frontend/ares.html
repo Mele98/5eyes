@@ -25487,16 +25487,10 @@ async function saveClientData(){
     return;
   }
   if(can)setInputValue('es-canton',can);
-  if(!horizonStart||!horizonEnd){
-    var suggestedHorizon=deriveSuggestedMandateHorizonFromModal();
-    if(suggestedHorizon){
-      horizonStart=horizonStart||suggestedHorizon.start||null;
-      horizonEnd=horizonEnd||suggestedHorizon.end||null;
-      setInputValue('es-horizon-start',horizonStart||'');
-      setInputValue('es-horizon-end',horizonEnd||'');
-      updateStammdatenHorizonHint(suggestedHorizon);
-    }
-  }
+  // H-167 R2: unberuehrter Horizont-Vorschlag wird nicht gespeichert.
+  var cp=currentPersona||{},hs=document.getElementById('es-horizon-start'),he=document.getElementById('es-horizon-end');
+  if(hs&&!cp.investment_horizon_start&&horizonStart===(hs.dataset.autoValue||null))horizonStart=null;
+  if(he&&!cp.investment_horizon_end&&horizonEnd===(he.dataset.autoValue||null))horizonEnd=null;
   if(horizonStart&&horizonEnd&&horizonEnd<horizonStart){showModalFeedback('es-error',btn,'Enddatum des Anlagehorizonts muss nach dem Start liegen.',true);return;}
   if((hh==='Paar'||hh==='Familie')&&(!partnerFirstName||!partnerLastName)){
     showModalFeedback('es-error',btn,'Bitte Vorname und Nachname der Partnerperson erfassen.',true);

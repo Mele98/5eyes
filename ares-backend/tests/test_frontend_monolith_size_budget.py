@@ -164,6 +164,9 @@ Banner unter der Kopfzeile, veraltete Soll-Allokation mit Ursache, "Umrechnung
 offen" statt "keine Position", Verzehr-Kachel. clearStrategySummaryForDirtyState
 ist in den Teil umgezogen; der Monolith schrumpft trotz Umlaut-/Textkorrekturen.
 advisor-guidance.js, fx-rates-editor.js, ist-projection-basis.js gesenkt.
+Kern-Integration Runde 2 (H-167, KN-B + KN-U): Stammdaten-Maske speichert einen
+unberuehrten Horizont-Vorschlag nicht mehr (Save-Autofill ersetzt); Monolith
+gemessen 26450 Z./1623866 B.
 """
 from __future__ import annotations
 
@@ -172,9 +175,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26456
+MONOLITH_MAX_LINES = 26450
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1623898
+MONOLITH_MAX_BYTES = 1623866
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
