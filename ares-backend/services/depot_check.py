@@ -20,6 +20,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Iterable, Mapping
 
+from sqlalchemy import exists
 from sqlalchemy.orm import Session
 
 from core.band_rule import in_band as band_in_band
@@ -381,15 +382,34 @@ def _load_snapshot_positions(
     return positions, [], sum(held.values())
 
 
-def _live_holding_amounts(db: Session, mandate: Mandate, build_live_payload) -> dict[str, int]:
+def _select_latest_run_with_holdings(db: Session, mandate: Mandate) -> tuple[RecommendationRun | None, bool]:
+    """Wie ``_select_latest_run``, plus "hat der Lauf Holdings?" in DERSELBEN
+    Abfrage (KN4-B / EXT-01: kein zusaetzlicher SELECT im Report-Pfad)."""
+    has_holdings = exists().where(RecommendationHolding.run_id == RecommendationRun.id)
+    rows = (
+        db.query(RecommendationRun, has_holdings)
+        .filter(RecommendationRun.mandate_id == mandate.id)
+        .order_by(RecommendationRun.created_at.desc())
+        .all()
+    )
+    chosen = (
+        next((r for r in rows if r[0].result_status == "Final"), None)
+        or next((r for r in rows if r[0].result_status == "Draft"), None)
+        or (rows[0] if rows else None)
+    )
+    return (chosen[0], bool(chosen[1])) if chosen else (None, False)
+
+
+def _live_holding_amounts(db: Session, mandate: Mandate, build_live_payload, run=None,
+                          has_holdings=None) -> dict[str, int]:
     """KN4-B / EXT-01 (CTO-Entscheid): Bestaende aus der oeffentlichen Holding-
     Route (``recommendation_holdings``) mit DERSELBEN Bewertung wie das Live-
     Rebalancing (``build_live_rebalancing_payload``: Stueckzahl x Preis bzw.
     Marktwert, strikte FX-Basis). Ergebnis: Positions-ID -> Bestandswert, nur fuer
     Positionen mit erfasstem Bestand. Ohne Holdings oder Soll-Allokation leer."""
-    run = _select_latest_run(db, mandate)
-    if run is None or db.query(RecommendationHolding.id).filter(
-            RecommendationHolding.run_id == run.id).first() is None:
+    if has_holdings is None:
+        run, has_holdings = _select_latest_run_with_holdings(db, mandate)
+    if run is None or not has_holdings:
         return {}
     ta = db.query(TargetAllocation).filter(
         TargetAllocation.mandate_id == mandate.id, TargetAllocation.is_current == 1,
@@ -426,7 +446,7 @@ def _position_amount(rec_pos, held_amounts: Mapping[str, int]) -> int:
 
 
 def _load_positions(
-    db: Session, mandate: Mandate, held_amounts: Mapping[str, int] | None = None,
+    db: Session, mandate: Mandate, held_amounts: Mapping[str, int] | None = None, *, latest_run=False,
 ) -> tuple[list[tuple[RecommendationPosition, Product]], list[tuple[WealthPosition, str]], int]:
     """Sprint U-39 (2026-06-06): Laedt Holdings + berechnet total_rappen.
 
@@ -439,7 +459,8 @@ def _load_positions(
     wealth_only_positions: list[tuple[WealthPosition, str, int]] = []
     total_rappen = 0
 
-    latest_run = _select_latest_run(db, mandate)
+    if latest_run is False:  # nicht vorgegeben -> selbst waehlen
+        latest_run = _select_latest_run(db, mandate)
     if latest_run is not None:
         rec_positions = (
             db.query(RecommendationPosition)
@@ -623,9 +644,11 @@ def compute_depot_check(
     else:
         try:
             # KN4-B / EXT-01: dieselbe Bestandsquelle wie das Live-Rebalancing.
-            held_amounts = _live_holding_amounts(db, mandate, build_live_rebalancing_payload)
+            run, run_has_holdings = _select_latest_run_with_holdings(db, mandate)
+            held_amounts = _live_holding_amounts(
+                db, mandate, build_live_rebalancing_payload, run=run, has_holdings=run_has_holdings)
             positions_with_products, wealth_only_positions, total_rappen = _load_positions(
-                db, mandate, held_amounts)
+                db, mandate, held_amounts, latest_run=run)
         except DomainError as exc:  # N-913-04: FX-Sperre statt Rohsumme, Analyse ohne Betraege
             if db.query(TargetAllocation.id).filter(
                 TargetAllocation.mandate_id == mandate.id, TargetAllocation.is_current == 1,

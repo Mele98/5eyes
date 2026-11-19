@@ -83,8 +83,10 @@ def test_analysis_ist_is_the_depot_snapshot_not_the_run_copy(session_factory):
         analysis = dca.build_depot_check_analysis(s, mandate, snapshot)
     held = sum(p["amount_base_rappen"] for p in snapshot["positions"])
     result = analysis["result"]
-    # Die ungebundene Live-Analyse liest die Lauf-Kopie (999'999'999 je Position).
-    assert live["total_advisory_wealth_rappen"] == 3 * 999_999_999_00
+    # KN4-B / EXT-01: die ungebundene Live-Analyse liest die Holdings mit der
+    # Bewertung des Live-Rebalancings, nicht mehr die Lauf-Kopie
+    # (999'999'999 je Position) -- der gebundene Snapshot bleibt davon unberuehrt.
+    assert live["total_advisory_wealth_rappen"] < 3 * 999_999_999_00
     assert result["total_advisory_wealth_rappen"] == held == 988_000_00
     assert result["buckets"]["equities"]["ist_rappen"] == 600_000_00 + 88_000_00
     assert result["buckets"]["bonds"]["ist_rappen"] == 300_000_00
