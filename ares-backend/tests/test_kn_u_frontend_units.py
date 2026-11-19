@@ -97,6 +97,7 @@ globalThis.openFxQuickEditor=async function(){return true;};
 globalThis.refreshAllocationPublication=function(){};
 globalThis.renderWealthPositions=function(){};
 globalThis.go=async function(){};
+globalThis.FOUNDATION_CALLS=0;globalThis.ensureFoundationExampleButton=function(){FOUNDATION_CALLS++;var b=new El('btn-foundation-example');b.parentNode={removeChild:function(){delete EL['btn-foundation-example'];}};EL['btn-foundation-example']=b;};
 globalThis.cashflowProjectionComponents=function(r){return r.parts;};
 globalThis.renderCashflowProjection=function(d){var e=EL['cf-projection'];e.style.display='';var p=d.years[0].parts;e.innerHTML=p.recurringIncomeRappen?'HUD Einnahmen':'CHF 0 · Ausgeglichen';};
 globalThis.renderPortfolioNeutralState=function(sub){['po-advisory-wealth','po-total-footer','po-position-count','po-average-ter','po-price-quality'].forEach(function(id){EL[id].textContent='—';});EL['po-price-quality-sub'].textContent=sub;};
@@ -430,3 +431,16 @@ def test_cashflow_hud_without_cashflows_says_so():
     """)
     assert "Keine Cashflows erfasst" in out[0] and "Ausgeglichen" not in out[0], out
     assert out[1] == "HUD Einnahmen", out
+
+
+def test_foundation_button_only_when_backend_allows_it():
+    """KN-B/E2E2-10 (H-168): GET / foundation_example_available -- fehlt das Feld, false oder Fehler: verborgen."""
+    def case(body):
+        return _run("globalThis.API={get:async function(p){" + body + "}};ensureFoundationExampleButton();"
+                    "await new Promise(function(r){setTimeout(r,20);});"
+                    "return {shown:!!EL['btn-foundation-example'],calls:FOUNDATION_CALLS,known:aresFoundationState.known};")
+    assert case("return {status:'ok'};") == {"shown": False, "calls": 0, "known": True}
+    assert case("return {status:'ok',foundation_example_available:false};")["shown"] is False
+    assert case("throw new Error('offline');")["shown"] is False
+    assert case("return {status:'ok',foundation_example_available:true};") == {"shown": True, "calls": 1, "known": True}
+

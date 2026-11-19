@@ -3,7 +3,7 @@
     "css_selectors": 1176,
     "event_handlers": 435,
     "ids": 1011,
-    "js_functions": 1637,
+    "js_functions": 1640,
     "modal_structures": 102,
     "script_blocks": 39,
     "style_blocks": 2,
@@ -9416,8 +9416,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/mandate-view.js",
-      "sha256": "f68344f412b6a804a926a7c5f4f376b399380341b51a6a784a58b4321fa4c5be",
-      "size_bytes": 34224
+      "sha256": "7867f440c5d62eb3645a39755ddf46b25de43dd061656c74e929174f1792c725",
+      "size_bytes": 35585
     },
     {
       "kind": "js",
@@ -23781,6 +23781,12 @@
     },
     {
       "declaration": "function",
+      "line": 573,
+      "name": "hookFoundationButton",
+      "source": "mandate-view.js"
+    },
+    {
+      "declaration": "function",
       "line": 538,
       "name": "hookGo",
       "source": "mandate-view.js"
@@ -23805,7 +23811,7 @@
     },
     {
       "declaration": "function",
-      "line": 567,
+      "line": 590,
       "name": "hookWealth",
       "source": "mandate-view.js"
     },
@@ -23817,7 +23823,7 @@
     },
     {
       "declaration": "function",
-      "line": 572,
+      "line": 595,
       "name": "mountAll",
       "source": "mandate-view.js"
     },
@@ -23837,6 +23843,12 @@
       "declaration": "function",
       "line": 326,
       "name": "refreshFxQuickEditor",
+      "source": "mandate-view.js"
+    },
+    {
+      "declaration": "function",
+      "line": 570,
+      "name": "removeFoundationButton",
       "source": "mandate-view.js"
     },
     {
@@ -23939,6 +23951,12 @@
       "declaration": "function",
       "line": 30,
       "name": "wrap",
+      "source": "mandate-view.js"
+    },
+    {
+      "declaration": "var",
+      "line": 575,
+      "name": "wrapped",
       "source": "mandate-view.js"
     },
     {
@@ -24851,8 +24869,8 @@
     }
   ],
   "source_path": "ares-desktop/frontend/ares.html",
-  "source_sha256": "1a2628ba734717c7c30b21a1725dbf614eab6299d6aeea584a4b3e8974cc2a15",
-  "source_size_bytes": 1623899,
+  "source_sha256": "c23e6217207e96110069246f0f0c25838242e139d938acbb7ddcfafbc870ea81",
+  "source_size_bytes": 1623898,
   "sub_sections": [
     {
       "class": "sbb",

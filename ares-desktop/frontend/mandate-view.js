@@ -564,6 +564,29 @@
       };
     });
   }
+  // KN-B / E2E2-10 (H-168): "Foundation Case laden" nur, wenn GET / foundation_example_available === true
+  // meldet; fehlt das Feld oder schlaegt der Abruf fehl, gilt der Knopf als gesperrt.
+  var foundation = {known: false, available: false, loading: false};
+  function removeFoundationButton(){
+    ['btn-foundation-example', 'foundation-case-status'].forEach(function(id){ var el = byId(id); if (el && el.parentNode) el.parentNode.removeChild(el); });
+  }
+  function hookFoundationButton(){
+    wrap('ensureFoundationExampleButton', function(orig){
+      var wrapped = function(){
+        if (foundation.known) { if (foundation.available) return orig.apply(this, arguments); removeFoundationButton(); return; }
+        removeFoundationButton();
+        if (foundation.loading || typeof API === 'undefined') return;
+        foundation.loading = true;
+        Promise.resolve().then(function(){ return API.get('/'); }).then(function(d){
+          foundation.available = !!(d && d.foundation_example_available === true);
+        }, function(){ foundation.available = false; }).then(function(){
+          foundation.known = true; foundation.loading = false;
+          safe(function(){ window.ensureFoundationExampleButton(); });
+        });
+      };
+      return wrapped;
+    });
+  }
   function hookWealth(){
     wrap('renderWealthPositions', function(orig){
       return function(){ var r = orig.apply(this, arguments); safe(syncAdvisoryKpi); return r; };
@@ -576,6 +599,7 @@
     safe(hookReview);
     safe(hookWealth);
     safe(hookCashflowHud);
+    safe(hookFoundationButton);
     safe(hookGo);
   }
   if (typeof document !== 'undefined' && document.addEventListener) {
@@ -597,4 +621,5 @@
   window.aresApplyStale = applyStale;
   window.aresRevalidateActiveAllocation = revalidateActiveAllocation;
   window.aresDepletionTile = depletionTile;
+  window.aresFoundationState = foundation;
 })();

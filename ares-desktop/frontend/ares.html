@@ -7926,7 +7926,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
     var varPct=sim&&sim.var_95_bps!=null?fmtPct(sim.var_95_bps||0,1):null;
     var cagrBps=sim?simulationCagrBps(sim.target_mix_series_rappen):null;
     mcHtml='<div style="margin-bottom:22px">'
-      +'<div style="font-size:9px;font-weight:700;letter-spacing:0.13em;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0;padding-bottom:6px;margin-bottom:14px">Risikoindiktatoren & Prognose (Monte Carlo)</div>'
+      +'<div style="font-size:9px;font-weight:700;letter-spacing:0.13em;text-transform:uppercase;color:#64748b;border-bottom:2px solid #e2e8f0;padding-bottom:6px;margin-bottom:14px">Risikoindikatoren & Prognose (Monte Carlo)</div>'
       +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">'
       +'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px"><div style="font-size:9px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Erwartete Rendite</div><div style="font-size:18px;font-weight:700;color:#0f172a">'+retPct+'</div><div style="font-size:9px;color:#64748b">p.a. (langfristig)</div></div>'
       +(cagrBps!==null?'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px"><div style="font-size:9px;text-transform:uppercase;color:#94a3b8;margin-bottom:4px">Median CAGR</div><div style="font-size:18px;font-weight:700;color:#0f172a">'+fmtPct(cagrBps,1)+'</div><div style="font-size:9px;color:#64748b">geometrisch</div></div>':'')

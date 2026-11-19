@@ -140,3 +140,9 @@ def test_n918_04_texts():
                  "Global währungsgesichert Rendite", "'House View laden'", ">House View für"):
         assert word not in vis, word
     assert "Endvermögen (mittlerer Verlauf) '+projectionHorizonYearLabel(sim)" in vis
+
+
+def test_h168_print_template_typo():
+    vis = _visible_source()
+    assert "Risikoindiktatoren" not in vis and "Risikoindikatoren" in vis
+

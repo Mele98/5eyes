@@ -7280,5 +7280,5 @@
    "reason": "_position_weight_bps: `round(amount / total_amount * 10000)` -> Rueckgabewert; Rechnende Rundung (Ableitung bps/Rappen/Jahre, keine Anzeige)"
   }
  ],
- "head_sha_parent": "a8a1bee4f550f4df3b529029fb149e00042b8b27"
+ "head_sha_parent": "56b841adeb2d3bb7dc362fa0485394d8bf912663"
 }
