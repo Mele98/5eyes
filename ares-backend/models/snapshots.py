@@ -692,12 +692,29 @@ class _Change:
     tenant_id: str | None = None
 
 
+# KN-B / E2E2-04: Spalten mit dieser Markierung (``Column(info=...)``, z. B.
+# Beruf in models/clients.py) sind nicht Teil des Siegels -- gleiche Regel wie
+# services/effective_input_manifest.py::_columns.
+HASH_EXEMPT_INFO_KEY = "advisory_hash_exempt"
+
+
+def _hash_exempt(column) -> bool:
+    return bool((getattr(column, "info", None) or {}).get(HASH_EXEMPT_INFO_KEY))
+
+
+def _row_projection(table, row, source: DependencySource) -> dict:
+    """Siegel-Projektion einer Tabellenzeile (Massen-/Core-Pfad)."""
+    columns = table.c
+    return {key: value for key, value in row.items()
+            if key not in source.volatile and not (key in columns and _hash_exempt(columns[key]))}
+
+
 def _old_new(state, volatile: frozenset[str]) -> tuple[dict, dict]:
     old: dict = {}
     new: dict = {}
     for attr in state.mapper.column_attrs:
         key = attr.key
-        if key in volatile:
+        if key in volatile or any(_hash_exempt(column) for column in attr.columns):
             continue
         current = state.dict.get(key, _UNLOADED)
         history = state.attrs[key].history
@@ -1001,7 +1018,7 @@ def _bulk_orm_write(orm_execute_state):
     rows = connection.execute(query).mappings().all()
     changes = []
     for row in rows:
-        old = {key: value for key, value in row.items() if key not in source.volatile}
+        old = _row_projection(table, row, source)
         change = _change(table.name, source, "delete", old, {})
         if orm_execute_state.is_update:
             change.op = "update"
@@ -1081,7 +1098,7 @@ def _guard_core_dml(conn, clauseelement, multiparams, params, execution_options)
         changes: list[_Change] = []
         if clauseelement.is_insert:
             for row in _insert_rows(clauseelement, multiparams, params):
-                values = {key: value for key, value in row.items() if key not in source.volatile}
+                values = _row_projection(table, row, source)
                 changes.append(_change(table.name, source, "insert", {}, values))
         else:
             where = getattr(clauseelement, "whereclause", None)
@@ -1090,7 +1107,7 @@ def _guard_core_dml(conn, clauseelement, multiparams, params, execution_options)
             if conn.dialect.name.startswith("postgresql"):
                 query = query.with_for_update()
             for row in conn.execute(query).mappings().all():
-                old = {key: value for key, value in row.items() if key not in source.volatile}
+                old = _row_projection(table, row, source)
                 change = _change(table.name, source, "delete", old, {})
                 if clauseelement.is_update:
                     change.op = "update"

@@ -179,7 +179,8 @@ def _mutate_mandate(db, ids):
 def _mutate_client(db, ids):
     from models.clients import Client
     row = db.get(Client, ids["cid"])
-    row.notes = "geaendert"
+    # KN-B / E2E2-04: Notizen sind nicht mehr Teil des Siegels; der Zivilstand schon.
+    row.civil_status = "verheiratet" if row.civil_status != "verheiratet" else "ledig"
     return "client", row.id
 
 
