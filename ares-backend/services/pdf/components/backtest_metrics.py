@@ -12,6 +12,12 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
+from core.presentation_rounding import (
+    format_amount_minor,
+    format_bps_as_pct,
+    format_bps_signed_pct,
+    format_minor_number,
+)
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -26,17 +32,16 @@ from services.pdf.styles import (
 
 
 def _fmt_pct_bps(bps: int, decimals: int = 1) -> str:
-    return f"{int(bps or 0) / 100:.{decimals}f}%"
+    return format_bps_as_pct(int(bps or 0), decimals=decimals)
 
 
 def _fmt_signed_pct_bps(bps: int, decimals: int = 1) -> str:
-    v = int(bps or 0) / 100
-    return f"{'+' if v >= 0 else ''}{v:.{decimals}f}%"
+    return format_bps_signed_pct(int(bps or 0), decimals=decimals)
 
 
-def _fmt_chf(rappen: int) -> str:
-    value = int(rappen or 0) / 100
-    return f"CHF {value:,.0f}".replace(",", "'")
+def _fmt_chf(rappen: int, currency: str) -> str:
+    # N-894-10: Mandatswaehrung statt fest CHF.
+    return format_amount_minor(int(rappen or 0), currency)
 
 
 def make_backtest_metrics_table(
@@ -44,6 +49,7 @@ def make_backtest_metrics_table(
     benchmark_metrics: Mapping | None = None,
     *,
     primary_label: str = "SOLL-Strategie",
+    currency: str = "CHF",
 ) -> Table:
     """Returns Table mit Backtest-Kennzahlen.
 
@@ -92,7 +98,7 @@ def make_backtest_metrics_table(
     add_row("Volatilität (annualisiert)",
             lambda m: _fmt_pct_bps(int(m.get("vol_bps", 0) or 0), decimals=2))
     add_row("Sharpe-Ratio",
-            lambda m: f'{int(m.get("sharpe_x100", 0) or 0) / 100:.2f}')
+            lambda m: format_minor_number(int(m.get("sharpe_x100", 0) or 0), decimals=2))
     add_row("Max Drawdown",
             lambda m: "-" + _fmt_pct_bps(int(m.get("max_drawdown_bps", 0) or 0)),
             neg_color=True)
@@ -106,9 +112,9 @@ def make_backtest_metrics_table(
             lambda m: _fmt_pct_bps(int(m.get("win_rate_x100", 0) or 0), decimals=0)
                        + f' ({int(m.get("positive_years", 0) or 0)}/{int(m.get("years_count", 0) or 0)})')
     add_row("Startwert",
-            lambda m: _fmt_chf(int(m.get("start_value_rappen", 0) or 0)))
+            lambda m: _fmt_chf(int(m.get("start_value_rappen", 0) or 0), currency))
     add_row("Endwert",
-            lambda m: _fmt_chf(int(m.get("end_value_rappen", 0) or 0)),
+            lambda m: _fmt_chf(int(m.get("end_value_rappen", 0) or 0), currency),
             bold=True)
 
     page_width, _ = PAGE_SIZE

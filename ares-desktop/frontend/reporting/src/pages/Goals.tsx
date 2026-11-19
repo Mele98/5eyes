@@ -5,6 +5,7 @@
  * mit Goal-Markern (Sprint U-12, Roadmap-Punkt 12) und Goals-Tabelle
  * mit Status-Pills.
  */
+import { useReportCurrency } from '@/lib/reportCurrency';
 import { useMemo, useState } from 'react';
 
 import type {
@@ -236,6 +237,7 @@ function PlanSolvencyKpi({ plan }: { plan: GoalBasedInvestingData['plan_solvency
 }
 
 function GoalRow({ g }: { g: GoalEntry }) {
+  const currency = useReportCurrency(); // N-894-10
   const legacy = g.evaluation_scope === 'legacy_aggregate_unknown';
   return (
     <tr className="border-b border-rule last:border-b-0">
@@ -246,7 +248,7 @@ function GoalRow({ g }: { g: GoalEntry }) {
       <td className="py-4 pr-4 text-right align-top font-mono text-ink">
         {/* PB-03: Renditeziel/Maximierung haben keinen Rappen-Zielwert (Backend 0)
             → "CHF 0" wäre irreführend; dann "—". */}
-        {g.target_amount_rappen ? formatChfRappen(g.target_amount_rappen) : '—'}
+        {g.target_amount_rappen ? formatChfRappen(g.target_amount_rappen, { currency }) : '—'}
       </td>
       <td className="py-4 pr-4 align-top">
         {legacy ? (

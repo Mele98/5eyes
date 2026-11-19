@@ -4,7 +4,7 @@
 **Stand:** 2026-06-15
 
 > ⚠️ **Kein Rechtsrat.** Diese Vorlage strukturiert die Auftragsverarbeitung
-> zwischen dem **Betreiber von 5eyes** (Auftragsverarbeiter) und der **nutzenden
+> zwischen dem **Betreiber von Ares** (Auftragsverarbeiter) und der **nutzenden
 > Beratungsfirma** (Verantwortliche). Sie ist vor produktivem Einsatz durch eine
 > Datenschutz-/Rechtsfachperson zu prüfen und an den konkreten Hosting-Tier
 > anzupassen. Rechtsgrundlage: revDSG/nDSG (CH), bei EU-Kundendaten zusätzlich DSGVO Art. 28.
@@ -14,8 +14,8 @@
 ## 1. Parteien und Rollen
 
 - **Verantwortliche** (bestimmt Zweck & Mittel der Bearbeitung): die Beratungsfirma («Mandantin»),
-  die 5eyes für die Vermögensberatung ihrer Endkunden nutzt.
-- **Auftragsverarbeiter** (bearbeitet im Auftrag): der **Betreiber der 5eyes-Plattform**.
+  die Ares für die Vermögensberatung ihrer Endkunden nutzt.
+- **Auftragsverarbeiter** (bearbeitet im Auftrag): der **Betreiber der Ares-Plattform**.
 
 Die Rollenteilung hängt vom Hosting-Tier ab (siehe [ADR-009](../adr/ADR-009-3-tier-hosting-architecture.md)):
 

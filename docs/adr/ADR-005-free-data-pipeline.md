@@ -25,7 +25,7 @@ Die Pipeline nutzt **nur gratis Quellen**:
 4. **SNB** (Schweizerische Nationalbank) — Wechselkurse + CH-Zinsen
 5. **ECB** — Euro-Wechselkurse + EZB-Zinsen
 
-13-Phasen-Plan (Memory: `project_5eyes_data_pipeline.md`):
+13-Phasen-Plan:
 - Phase 1: Provider-Abstraktion (`MarketDataProvider`-Protocol)
 - Phase 2-5: Adapter pro Quelle (mit Rate-Limiting + Cache)
 - Phase 6: Fallback-Cascade (yfinance → stooq → cached)

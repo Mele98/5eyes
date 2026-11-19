@@ -60,6 +60,7 @@ from routers.wealth import (
 )
 from services.auth import get_client_for_user_or_404, get_mandate_for_user_or_404
 from services.eodhd_client import preview_eodhd_reference
+from services.valuation_clock import bound_valuation_date
 from services.foundation_example import FOUNDATION_CLIENT_NUMBER, FOUNDATION_MANDATE_NUMBER, upsert_foundation_example_case
 from services.openfigi_client import preview_openfigi_mapping
 from services.portfolio_engine import (
@@ -101,6 +102,9 @@ from schemas.snapshots import StrategySnapshotCreate
 from schemas.wealth import CashflowCreate, CashflowUpdate, GoalCreate, WealthPositionCreate, WealthPositionUpdate
 from schemas.wealth import PlanningAssumptionCreate
 from services.risk_scoring import profile_for_score_x10
+# CCX-P4: Altbestands-Kanaltest -- prueft andere Gates; Publikation siehe
+# tests/test_ccx_p4_allocation_publish.py (tests/ccx_p4_publication_support.py).
+from tests.ccx_p4_publication_support import assume_published_allocation  # noqa: E402,F401
 
 
 @pytest.fixture()
@@ -356,10 +360,9 @@ def test_openfigi_mapping_preview_normalizes_space_separated_ticker(monkeypatch)
     erkennt nur '.', ':', '/', '=' als expliziten Market-Suffix -- ein rohes
     Leerzeichen fuehrt dazu, dass beim Preisabruf ein zweiter Suffix
     angehaengt wird ("UBSG SW" + Exchange "SW" -> "UBSG SW.SW", fuer keinen
-    Provider aufloesbar). Der Kandidat muss daher bereits hier auf die
-    Yahoo-Style-Notation ("UBSG.SW") normalisiert werden, identisch zur
-    bereits korrekten Normalisierung in
-    services/market_data/providers/openfigi_provider.py."""
+    Provider aufloesbar). Seit OF-1 (Audit 2026-11/06 O5) wird der
+    Boersenteil abgetrennt und ueber die explizite Tabelle auf den internen
+    Boersencode abgebildet; der Kandidat traegt das blanke Symbol."""
     import services.openfigi_client as openfigi_client
 
     class FakeResponse:
@@ -394,7 +397,16 @@ def test_openfigi_mapping_preview_normalizes_space_separated_ticker(monkeypatch)
 
     result = preview_openfigi_mapping(isin="CH0244767585", currency="CHF")
 
-    assert result["candidates"][0]["ticker"] == "UBSG.SW"
+    # OF-1 / Audit O5: blankes Symbol plus interner Boersencode statt eines
+    # aus dem Bloomberg-Code gebauten Suffixes ("VWRL LN" -> "VWRL.LN" loeste
+    # kein Provider auf). Die Yahoo-Notation entsteht erst im Lookup.
+    candidate = result["candidates"][0]
+    assert candidate["ticker"] == "UBSG"
+    assert candidate["exchange_code"] == "SW"
+    assert candidate["exchange_code_status"] == "mapped"
+    from services.product_market_data import provider_lookup_symbol
+
+    assert provider_lookup_symbol(candidate["ticker"], candidate["exchange_code"], "yfinance") == "UBSG.SW"
 
 
 def test_openfigi_mapping_preview_requires_basis():
@@ -1171,7 +1183,7 @@ def test_refresh_all_prices_batches_external_and_synthetic_profiles(session_fact
             [
                 Product(
                     id="prod-energy",
-                    product_name="Energy Select Sector ETF",
+                    product_name="Musterprodukt Thema Fossile Energie",
                     provider="State Street",
                     product_type="ETF",
                     asset_class="Aktien",
@@ -1224,7 +1236,7 @@ def test_refresh_all_prices_reuses_existing_fresh_price_when_provider_fails(sess
         session.add(
             Product(
                 id="prod-reuse",
-                product_name="Energy Select Sector ETF",
+                product_name="Musterprodukt Thema Fossile Energie",
                 provider="State Street",
                 product_type="ETF",
                 asset_class="Aktien",
@@ -1273,7 +1285,7 @@ def test_refresh_all_prices_uses_stooq_fallback_for_external_profiles(session_fa
         session.add(
             Product(
                 id="prod-stooq",
-                product_name="Energy Select Sector ETF",
+                product_name="Musterprodukt Thema Fossile Energie",
                 provider="State Street",
                 product_type="ETF",
                 asset_class="Aktien",
@@ -1726,6 +1738,11 @@ def test_update_cashflow_touching_gross_still_enforces_reconciliation(session_fa
     assert "Bruttobetrag" in exc_info.value.detail
 
 
+# Fester Bewertungsstichtag fuer die auf 2026 datierten Cashflow-Fixtures
+# (entspricht ihrem created_at).
+_CASHFLOW_FIXTURE_AS_OF = date(2026, 3, 27)
+
+
 def test_cashflow_summary_counts_only_current_year_cashflows(session_factory, advisor_user):
     client_id, _ = seed_client_and_mandate(session_factory, advisor_user)
     current_year = "2026-01-01"
@@ -1797,7 +1814,12 @@ def test_cashflow_summary_counts_only_current_year_cashflows(session_factory, ad
             ]
         )
         session.commit()
-        summary = cashflow_summary(client_id=client_id, db=session, current_user=advisor_user)
+        # Die Fixture-Daten sind fest auf 2026 datiert (Lohn ab 2026, Altlohn bis
+        # 2025, 3a 2028). Das Summary-Jahr bezieht der Produktcode ueber
+        # ``services.valuation_clock`` (ausserhalb eines Laufs die Wanduhr) --
+        # ohne festen Stichtag waere der Test nur im Kalenderjahr 2026 gruen.
+        with bound_valuation_date(_CASHFLOW_FIXTURE_AS_OF):
+            summary = cashflow_summary(client_id=client_id, db=session, current_user=advisor_user)
 
     assert summary.summary_year == 2026
     assert summary.total_income_rappen == 14400000
@@ -3083,12 +3105,16 @@ def test_generate_target_allocation_uses_dated_cashflow_series(session_factory, 
         )
         session.commit()
         mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
-        result = generate_target_allocation(
-            db=session,
-            mandate=mandate,
-            user_id=advisor_user.id,
-            preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
-        )
+        # Die Cashflow-Serie beginnt beim Kalenderjahr des Bewertungsstichtags;
+        # die Fixture-Daten sind fest auf 2026 datiert (3a-Bezug 2028 = Index 2).
+        # Der Lauf bindet sonst die Wanduhr -> nur im Kalenderjahr 2026 gruen.
+        with bound_valuation_date(_CASHFLOW_FIXTURE_AS_OF):
+            result = generate_target_allocation(
+                db=session,
+                mandate=mandate,
+                user_id=advisor_user.id,
+                preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
+            )
 
     assert result["annual_net_cashflow_rappen"] == 8400000
     assert result["cashflow_projection_series_rappen"][:4] == [8400000, 8400000, 43400000, 8400000]
@@ -3332,12 +3358,17 @@ def test_generate_target_allocation_goal_analysis_exposes_timing_and_return_targ
         )
         session.commit()
         mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
-        result = generate_target_allocation(
-            db=session,
-            mandate=mandate,
-            user_id=advisor_user.id,
-            preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
-        )
+        # Ziel "Eigenmittel" faellt fest am 2028-06-30 an; ab 2028-07-01 waere
+        # es gegen die Wanduhr ueberfaellig und die Ziel-Lifecycle-Pruefung
+        # blockierte den Lauf. Stichtag deshalb fest wie bei den anderen auf
+        # 2026 datierten Fixtures.
+        with bound_valuation_date(_CASHFLOW_FIXTURE_AS_OF):
+            result = generate_target_allocation(
+                db=session,
+                mandate=mandate,
+                user_id=advisor_user.id,
+                preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
+            )
 
     analysis = {item["label"]: item for item in result["goal_analysis"]}
     assert analysis["Eigenmittel"]["timing_label"] == "am 2028-06-30"
@@ -3604,7 +3635,7 @@ def test_generate_recommendation_run_builds_product_positions(session_factory, a
                 "assetClasses": {"equitiesGeo": "Global", "altsGold": True, "liquidityInstrument": "Festgeld"},
             },
             target_allocation_id=allocation["target_allocation"].id,
-            depot_bank="UBS AG Zürich",
+            depot_bank="Testbank Fiktiv",
         )
         hydrated = build_recommendation_payload_from_run(
             db=session,
@@ -3663,7 +3694,7 @@ def test_generate_recommendation_run_builds_product_positions(session_factory, a
     assert result["positions"]
     assert result["average_ter_bps"] >= 0
     assert len({position["product_id"] for position in result["positions"]}) == len(result["positions"])
-    assert any("Umsetzung ueber UBS AG Zürich" in position["rationale"] for position in result["positions"])
+    assert any("Umsetzung ueber Testbank Fiktiv" in position["rationale"] for position in result["positions"])
     assert hydrated["run"].id == result["run"].id
     assert len(hydrated["positions"]) == len(result["positions"])
     assert hydrated["target_allocation_id"] == allocation["target_allocation"].id
@@ -3743,7 +3774,7 @@ def test_recommendation_payload_prefers_actual_holdings_for_live_drift(session_f
             user_id=advisor_user.id,
             preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
             target_allocation_id=allocation["target_allocation"].id,
-            depot_bank="UBS AG Zürich",
+            depot_bank="Testbank Fiktiv",
         )
         assert result["positions"]
         first_position = result["positions"][0]
@@ -3776,7 +3807,7 @@ def test_recommendation_payload_prefers_actual_holdings_for_live_drift(session_f
                 run_id=result["run"].id,
                 recommendation_position_id=first_position["id"],
                 product_id=first_position["product_id"],
-                depot_bank="UBS AG Zürich",
+                depot_bank="Testbank Fiktiv",
                 custody_account_number="CH-DEPOT-1",
                 as_of_date=date.today().isoformat(),
                 units_milli=1500,
@@ -3802,7 +3833,7 @@ def test_recommendation_payload_prefers_actual_holdings_for_live_drift(session_f
     assert hydrated["live_rebalancing"]["implied_positions_count"] >= 0
     assert first_hydrated["holding_present"] is True
     assert first_hydrated["valuation_basis"] == "actual_holding_units"
-    assert first_hydrated["holding_depot_bank"] == "UBS AG Zürich"
+    assert first_hydrated["holding_depot_bank"] == "Testbank Fiktiv"
     assert first_hydrated["holding_units_milli"] == 1500
     assert first_hydrated["current_units_milli"] == 1500
     assert first_hydrated["current_market_value_rappen"] == 187500
@@ -3867,7 +3898,7 @@ def test_recommendation_payload_marks_implied_units_from_holding_market_value(se
             user_id=advisor_user.id,
             preferences={"policy": {}, "tilts": {}, "product": {}, "limits": {}, "geo": {}, "assetClasses": {}},
             target_allocation_id=allocation["target_allocation"].id,
-            depot_bank="UBS AG Zürich",
+            depot_bank="Testbank Fiktiv",
         )
         first_position = result["positions"][0]
         session.add(
@@ -3888,7 +3919,7 @@ def test_recommendation_payload_marks_implied_units_from_holding_market_value(se
                 run_id=result["run"].id,
                 recommendation_position_id=first_position["id"],
                 product_id=first_position["product_id"],
-                depot_bank="UBS AG Zürich",
+                depot_bank="Testbank Fiktiv",
                 custody_account_number="CH-DEPOT-TINY-1",
                 as_of_date=date.today().isoformat(),
                 market_value_rappen=1,
@@ -3957,7 +3988,7 @@ def test_upsert_position_holding_partial_update_preserves_existing_fields(sessio
             run_id=run.id,
             recommendation_position_id=position.id,
             product_id=product.id,
-            depot_bank="UBS AG",
+            depot_bank="Testbank Fiktiv",
             custody_account_number="DEPOT-123",
             as_of_date="2026-03-27",
             units_milli=1000,
@@ -3983,7 +4014,7 @@ def test_upsert_position_holding_partial_update_preserves_existing_fields(sessio
     assert result.units_milli == 1500
     assert result.market_value_rappen == 125000
     assert result.avg_cost_price_rappen == 120000
-    assert result.depot_bank == "UBS AG"
+    assert result.depot_bank == "Testbank Fiktiv"
     assert result.custody_account_number == "DEPOT-123"
     assert result.as_of_date == "2026-03-27"
     assert result.notes == "Bestehende Notiz"
@@ -4054,7 +4085,7 @@ def test_generate_recommendation_run_carries_holdings_forward_by_product(session
                 run_id=first_run["run"].id,
                 recommendation_position_id=first_position["id"],
                 product_id=first_position["product_id"],
-                depot_bank="UBS AG Zurich",
+                depot_bank="Testbank Fiktiv",
                 custody_account_number="CARRY-1",
                 as_of_date=date.today().isoformat(),
                 units_milli=7777,
@@ -4086,7 +4117,7 @@ def test_generate_recommendation_run_carries_holdings_forward_by_product(session
     assert any(item["holding_present"] for item in hydrated["positions"])
     carried = next(item for item in hydrated["positions"] if item["holding_present"])
     assert carried["holding_units_milli"] == 7777
-    assert carried["holding_depot_bank"] == "UBS AG Zurich"
+    assert carried["holding_depot_bank"] == "Testbank Fiktiv"
     assert carried["valuation_basis"] == "actual_holding_units"
 
 
@@ -4155,7 +4186,7 @@ def test_deleted_holding_does_not_resurface_from_older_runs(session_factory, adv
                 run_id=first_run["run"].id,
                 recommendation_position_id=first_position["id"],
                 product_id=first_position["product_id"],
-                depot_bank="UBS AG Zurich",
+                depot_bank="Testbank Fiktiv",
                 custody_account_number="DEL-1",
                 as_of_date=date.today().isoformat(),
                 units_milli=5000,
@@ -4263,7 +4294,7 @@ def test_review_engine_emits_market_data_trigger_for_missing_prices(session_fact
             user_id=advisor_user.id,
             preferences=None,
             target_allocation_id=allocation["target_allocation"].id,
-            depot_bank="UBS AG Zürich",
+            depot_bank="Testbank Fiktiv",
         )
         triggers = refresh_system_review_triggers(session, mandate, advisor_user.id)
 
@@ -4407,6 +4438,14 @@ _ADVISOR_SIGNATURE_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB
 _CLIENT_SIGNATURE_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 
 
+def _satisfy_onboarding(session, mandate_id):
+    from client_onboarding_fixture import satisfy_client_onboarding
+    from models.mandates import Mandate as _Mandate
+
+    satisfy_client_onboarding(session, session.get(_Mandate, mandate_id))
+    session.commit()
+
+
 def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user, monkeypatch):
     _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 
@@ -4423,6 +4462,9 @@ def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user
         )
         # CERT-SIGNED-PUBLICATION-001: signiert wird nur das archivierte PDF.
         attach_archived_pdf(session, doc)
+        # H8 C-2/C-5: Vertragsunterzeichnung erst nach Kundeninformation und KYC
+        # (Testwerte, tests/client_onboarding_fixture.py).
+        _satisfy_onboarding(session, mandate_id)
         timestamps = iter(
             [
                 "2026-04-19T09:15:00.000Z",
@@ -4500,6 +4542,9 @@ def test_sign_document_rejects_overwriting_an_existing_advisor_signature(session
         )
         # CERT-SIGNED-PUBLICATION-001: signiert wird nur das archivierte PDF.
         attach_archived_pdf(session, doc)
+        # H8 C-2/C-5: Vertragsunterzeichnung erst nach Kundeninformation und KYC
+        # (Testwerte, tests/client_onboarding_fixture.py).
+        _satisfy_onboarding(session, mandate_id)
         monkeypatch.setattr(review_router, "_now", lambda: "2026-04-19T09:15:00.000Z")
 
         sign_document(
@@ -5394,6 +5439,7 @@ def test_get_adviser_registration_only_allows_self_or_admin(session_factory, adv
     assert exc.value.status_code == 403
 
 
+@pytest.mark.usefixtures("assume_published_allocation")
 def test_snapshot_endpoints_block_foreign_mandate_access(session_factory, advisor_user, other_advisor_user):
     seed_client_and_mandate(session_factory, advisor_user)
     _, foreign_mandate_id = seed_foreign_client_and_mandate(session_factory, other_advisor_user)

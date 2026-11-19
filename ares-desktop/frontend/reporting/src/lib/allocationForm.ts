@@ -9,6 +9,7 @@
  * Intern bps (10000 = 100%); im Editor wird in Prozent eingegeben
  * (pctInputToBps / bpsToPctInput). Editierbar pro Klasse: target/min/max.
  */
+import { formatDecimal, formatPercentBps } from './presentationRounding';
 import type {
   AllocationBucketKey,
   TargetAllocationCreatePayload,
@@ -45,7 +46,7 @@ const FIELD_LABELS: Record<BandField, string> = { target: 'Ziel', min: 'Minimum'
 
 /** bps → Prozent-Text für Meldungen (1 Nachkommastelle, 4500 → "45.0 %"). */
 function pct1(bps: number): string {
-  return `${(bps / 100).toFixed(1)} %`;
+  return formatPercentBps(bps, 1, { typography: 'plain' });
 }
 
 /** Prozent-Eingabe (z. B. "12.5" oder "12,5") → bps; leer/ungültig → NaN. */
@@ -58,7 +59,7 @@ export function pctInputToBps(raw: string): number {
 
 /** bps → Wert für das Prozent-Eingabefeld (1 Nachkommastelle). */
 export function bpsToPctInput(bps: number): string {
-  return Number.isFinite(bps) ? (bps / 100).toFixed(1) : '';
+  return Number.isFinite(bps) ? formatDecimal(bps / 100, 1, { typography: 'plain' }) : '';
 }
 
 /**
@@ -198,5 +199,5 @@ export function draftFromRecord(rec: TargetAllocationRecord): AllocationDraft {
 
 /** Formatiert bps als Prozent-String (450 → "4.50 %"). */
 export function bpsToPct(bps: number): string {
-  return `${(bps / 100).toFixed(2)} %`;
+  return formatPercentBps(bps, 2, { typography: 'plain' });
 }

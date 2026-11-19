@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 from database import new_uuid
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
-from models.profiling import RiskAssessment
+from models.profiling import RiskAssessment, current_investment_preference
+from core import sustainability_preference as _sustainability
 from models.review import AdvisoryLog, RecommendationPosition, RecommendationRun, ReviewTrigger
 from price_updater import summarize_price_quality
 from schemas.review import (
@@ -32,6 +33,9 @@ from jurisdictions.resolve import resolve_pack
 SYSTEM_TRIGGER_REVIEW = "Jahres-Review (System)"
 SYSTEM_TRIGGER_DRIFT = "Bandbreitenverletzung (System)"
 SYSTEM_TRIGGER_GOALS = "Zielerreichung gefaehrdet (System)"
+# N-888-04 (Dok. 106): Ueberpruefung der Nachhaltigkeitspraeferenz faellig
+# (Hauspolitik je Tenant). Nur ausgeloest bei Faelligkeit; nie Sperre.
+SYSTEM_TRIGGER_SUSTAINABILITY = "Nachhaltigkeitspraeferenz pruefen (System)"
 SYSTEM_TRIGGER_MARKET_DATA = "Marktdaten veraltet (System)"
 
 
@@ -64,7 +68,7 @@ def _build_current_drift_buckets(
         if _norm_text(getattr(position, "assignment", None))
         == "Beratungsvermoegen"
     ]
-    fx_source = FXRateSource.from_db_for_model(db)
+    fx_source = FXRateSource.from_db_strict_for_model(db, tenant_id=getattr(mandate, "tenant_id", None))  # CCX-P3-FX N-909-01
     target_currency = str(
         getattr(mandate, "base_currency", "CHF") or "CHF"
     ).upper().strip()
@@ -180,6 +184,30 @@ def _resolve_system_trigger(
     trigger.triggered_notes = note
     trigger.next_due_at = None if trigger_type != "Zeit" else trigger.next_due_at
     trigger.updated_at = now
+
+
+def _refresh_sustainability_trigger(db: Session, mandate: Mandate, *, now: str, today) -> None:
+    """N-888-04: Ereignis-Trigger, solange die Ueberpruefung der
+    Nachhaltigkeitspraeferenz faellig ist; danach aufgeloest."""
+    row = current_investment_preference(db, mandate.id)
+    due_on = getattr(row, "review_due_on", None)
+    if row is not None and _sustainability.review_status(due_on, str(today)) == _sustainability.REVIEW_DUE:
+        trigger = _get_or_create_system_trigger(
+            db=db, mandate_id=mandate.id, trigger_type="Ereignis",
+            trigger_name=SYSTEM_TRIGGER_SUSTAINABILITY, now=now,
+        )
+        trigger.status = "Ausgelöst"
+        trigger.next_due_at = today
+        trigger.triggered_at = now
+        trigger.triggered_value = f"Überprüfung fällig seit {_sustainability.format_date_ch(due_on)}"
+        trigger.triggered_notes = _sustainability.review_due_text(due_on)
+        trigger.updated_at = now
+        return
+    _resolve_system_trigger(
+        db=db, mandate_id=mandate.id, trigger_type="Ereignis",
+        trigger_name=SYSTEM_TRIGGER_SUSTAINABILITY, now=now,
+        note="Systempruefung: Nachhaltigkeitspraeferenz erfasst und nicht faellig.",
+    )
 
 
 def refresh_system_review_triggers(
@@ -302,6 +330,8 @@ def refresh_system_review_triggers(
         f"Letzter dokumentierter Review-Anker: {_parse_iso_date(review_anchor).isoformat()}"
     )
     review_trigger.updated_at = now
+
+    _refresh_sustainability_trigger(db, mandate, now=now, today=today)
 
     assessment = _current_risk_assessment_or_none(db, mandate.id)
     allocation = _current_target_allocation_or_none(db, mandate.id)

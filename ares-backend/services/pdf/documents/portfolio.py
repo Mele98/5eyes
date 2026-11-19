@@ -12,6 +12,7 @@ from services.pdf.components.single_report_disclaimer import (
     make_single_report_disclaimer,
 )
 from services.pdf.provisional_notice import make_provisional_notice_flowables
+from core.presentation_rounding import format_amount_minor, format_bps_as_pct
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -34,6 +35,10 @@ def build_portfolio_flowables(ctx: PDFContext, data) -> list:
     flowables: list = []
     styles = make_paragraph_styles()
 
+    positions = list(getattr(data, "positions", []) or [])
+    # K2/E2E-07: "mit ISIN" nur versprechen, wenn jede Position eine ISIN traegt;
+    # Positionen ohne ISIN sind Musterprodukte (z. B. Seed-Katalog) und nicht zur Umsetzung.
+    sample_count = sum(1 for p in positions if _is_sample_position(p))
     advisory_label = None
     if getattr(data, "advisory_wealth_rappen", None):
         advisory_label = _format_amount(data.advisory_wealth_rappen, ctx.base_currency)
@@ -44,7 +49,8 @@ def build_portfolio_flowables(ctx: PDFContext, data) -> list:
         mandate_number=getattr(data, "mandate_number", None),
         advisory_wealth_label=advisory_label,
         focus_points=[
-            "Konkrete Produkte mit ISIN und Zielgewicht",
+            ("Konkrete Produkte mit ISIN und Zielgewicht" if not sample_count
+             else "Produkte und Zielgewichte; ohne ISIN = Musterprodukt, nicht zur Umsetzung"),
             "Zielwerte je Position fuer die Umsetzung",
             "Abgleich vor Review, Protokollierung und Abschluss",
         ],
@@ -69,8 +75,15 @@ def build_portfolio_flowables(ctx: PDFContext, data) -> list:
         document_title="Portfolio",
     ))
 
-    positions = list(getattr(data, "positions", []) or [])
     flowables.append(_section_title("Portfolio-Positionen"))
+    if sample_count:
+        flowables.append(Paragraph(
+            f'<font name="{FONT_BOLD}" size="8" color="#9a3412">Musterkatalog: {sample_count} von '
+            f'{len(positions)} Positionen ohne ISIN.</font> <font size="8" color="#9a3412">Diese Musterprodukte '
+            f'haben keine belegten Stammdaten und sind nicht zur Umsetzung bestimmt.</font>',
+            styles["small_muted"],
+        ))
+        flowables.append(Spacer(1, 2 * mm))
     if positions:
         flowables.extend(_make_position_group_flowables(positions, ctx.base_currency))
     else:
@@ -145,6 +158,8 @@ def _make_group_positions_table(positions: list, currency: str, total_amount: in
             product_parts.append(
                 f'<font color="#64748b" size="7">ISIN {_esc(isin)}{isin_extra}</font>'
             )
+        if not isin:
+            product_parts.append('<font color="#9a3412" size="7">Musterprodukt – nicht zur Umsetzung (keine ISIN)</font>')
         product_para = Paragraph("<br/>".join(product_parts), _para_compact())
 
         rows.append([
@@ -153,7 +168,7 @@ def _make_group_positions_table(positions: list, currency: str, total_amount: in
             _format_percent(target_bps) if target_bps > 0 else "-",
             _format_amount(amount, currency) if amount > 0 else "-",
             _esc(product_currency),
-            f"{ter/100:.2f}%" if ter > 0 else "-",
+            f"{format_bps_as_pct(ter, decimals=2)}" if ter > 0 else "-",
         ])
 
     page_width, _ = PAGE_SIZE
@@ -187,6 +202,11 @@ def _make_group_positions_table(positions: list, currency: str, total_amount: in
         ("RIGHTPADDING", (0, 0), (-1, -1), 5),
     ]))
     return table
+
+
+def _is_sample_position(position) -> bool:
+    """K2/E2E-07: Position ohne ISIN = Musterprodukt (keine belegten Stammdaten)."""
+    return not str((position or {}).get("isin", "") or "").strip()
 
 
 def _group_positions(positions: list) -> list[tuple[str, list]]:
@@ -259,9 +279,11 @@ def _display_sub_asset_class(value) -> str:
 
 
 def _position_amount_rappen(position: dict) -> int:
-    target = int(position.get("target_amount_rappen", 0) or 0)
-    if target > 0:
-        return target
+    target = position.get("target_amount_rappen")
+    if target is not None:
+        # N-858-11: Zielbetrag 0 (Strategiebasis 0) ist ein Betrag, keine
+        # fehlende Angabe -- nicht den Ist-/Marktwert als Zielwert zeigen.
+        return int(target)
     return (
         int(position.get("current_amount_rappen", 0) or 0)
         or int(position.get("market_value_rappen", 0) or 0)
@@ -280,19 +302,15 @@ def _position_weight_bps(position: dict, total_amount: int) -> int:
 def _format_percent(bps: int) -> str:
     if bps <= 0:
         return "-"
-    pct = bps / 100.0
-    return f"{pct:.0f}%" if bps % 100 == 0 else f"{pct:.1f}%"
+    # G7: eine Darstellung fuer alle Kanaele (1 Nachkommastelle, Half-up).
+    return format_bps_as_pct(bps)
 
 
 def _format_amount(rappen: int, currency: str = "CHF") -> str:
     # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): rappen ist bereits in
     # mandate.base_currency (siehe portfolio_engine._load_allocation_inputs).
     # Kein zweites convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
-    try:
-        value = rappen / 100.0
-        return f"{currency} {value:,.0f}".replace(",", "'")
-    except Exception:
-        return f"CHF {rappen/100.0:,.0f}".replace(",", "'")
+    return format_amount_minor(rappen, currency or "CHF")
 
 
 def _section_title(text: str):

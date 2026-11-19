@@ -11,18 +11,58 @@ nach Fehler) lebt im HealthState-Helper, in-memory pro Aggregator.
 Exception-Strategie:
 - Wenn ALLE Provider fehlgeschlagen sind: letzte Exception re-raise
 - Wenn Liste leer ist (z.B. alle unhealthy): MarketDataError
+
+Massgebliche Quellen (BBG-1, Audit 2026-11/06, B4): Ein Provider mit
+``authoritative = True`` (z. B. Bloomberg) wird NIE still uebersprungen.
+Ist er ungesund, im Backoff oder liefert er einen Fehler, bricht die Kette
+mit ``ProviderUnavailableError`` (bzw. ``SymbolNotFound``) ab, und der
+Provider wird als ungesund markiert. Nur mit dem expliziten Schalter
+``allow_fallback_from_authoritative=True`` (Policy-Hook fuer die
+Tenant-Konfiguration in BBG-2; Default aus) springen die folgenden Provider
+ein, und jedes Ergebnis traegt dann ``source`` UND ``fallback_reason``.
 """
 from __future__ import annotations
 
+import dataclasses
 import logging
 from datetime import date as Date
 from typing import Any, Iterable
 
 from .base import Bar, MarketDataProvider, ProductInfo
-from .exceptions import MarketDataError, ProviderError, RateLimitError, SymbolNotFound
+from .exceptions import (
+    AuthoritativeSymbolNotFound,
+    MarketDataError,
+    ProviderError,
+    ProviderOrderError,
+    ProviderUnavailableError,
+    RateLimitError,
+    SymbolNotFound,
+)
 from .health import HealthState
 
 logger = logging.getLogger(__name__)
+
+AUTHORITATIVE_PROVIDER_UNAVAILABLE = "AUTHORITATIVE_PROVIDER_UNAVAILABLE"
+# N-862-6: ein Rate-Limit der massgeblichen Quelle bleibt als eigener Code
+# sichtbar und geht nicht im generischen Code auf.
+AUTHORITATIVE_PROVIDER_RATE_LIMITED = "AUTHORITATIVE_PROVIDER_RATE_LIMITED"
+
+
+def _is_authoritative(provider: MarketDataProvider) -> bool:
+    return bool(getattr(provider, "authoritative", False))
+
+
+def validate_authoritative_order(providers: Iterable[MarketDataProvider]) -> None:
+    """N-862-3: Ist eine massgebliche Quelle konfiguriert, muss sie an erster
+    Stelle stehen. Sonst ``ProviderOrderError`` (kein stilles Umsortieren)."""
+    ordered = list(providers)
+    names = [getattr(p, "name", "?") for p in ordered]
+    authoritative = [n for p, n in zip(ordered, names) if _is_authoritative(p)]
+    if authoritative and not _is_authoritative(ordered[0]):
+        raise ProviderOrderError(
+            f"Massgebliche Quelle(n) {', '.join(authoritative)} muessen an erster Stelle stehen "
+            f"(konfiguriert: {', '.join(names)}). Eine vorangestellte Quelle wuerde still liefern."
+        )
 
 
 class MarketDataAggregator:
@@ -36,10 +76,13 @@ class MarketDataAggregator:
         providers: Iterable[MarketDataProvider],
         unhealthy_ttl_seconds: int = 300,
         health_registry: Any | None = None,
+        allow_fallback_from_authoritative: bool = False,
     ) -> None:
         self._providers: list[MarketDataProvider] = list(providers)
+        validate_authoritative_order(self._providers)
         self._health = HealthState(unhealthy_ttl_seconds=unhealthy_ttl_seconds)
         self._health_registry = health_registry
+        self._allow_fallback_from_authoritative = bool(allow_fallback_from_authoritative)
 
     @property
     def providers(self) -> list[MarketDataProvider]:
@@ -48,6 +91,10 @@ class MarketDataAggregator:
     @property
     def health(self) -> HealthState:
         return self._health
+
+    @property
+    def allow_fallback_from_authoritative(self) -> bool:
+        return self._allow_fallback_from_authoritative
 
     def _record_unhealthy(self, provider: MarketDataProvider, action_name: str, exc: BaseException) -> None:
         if self._health_registry is None:
@@ -71,25 +118,99 @@ class MarketDataAggregator:
         except Exception:  # noqa: BLE001
             logger.debug("provider-health registry healthy write failed", exc_info=True)
 
-    def _candidates(self) -> list[MarketDataProvider]:
-        """Provider in Reihenfolge, gefiltert auf currently-healthy."""
+    # ------------------------------------------------------------------ #
+    # Massgebliche Quellen (BBG-1)
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _unavailable_from(provider: MarketDataProvider, exc: BaseException | None, detail: str) -> ProviderUnavailableError:
+        if isinstance(exc, ProviderUnavailableError):
+            return exc
+        default_code = (
+            AUTHORITATIVE_PROVIDER_RATE_LIMITED if isinstance(exc, RateLimitError) else AUTHORITATIVE_PROVIDER_UNAVAILABLE
+        )
+        code = getattr(exc, "code", None) or default_code
+        message = f"[{code}] Massgebliche Quelle {provider.name} nicht verfuegbar: {detail}"
+        return ProviderUnavailableError(message, code=code, provider=provider.name)
+
+    def _authoritative_failed(
+        self,
+        provider: MarketDataProvider,
+        exc: BaseException | None,
+        detail: str,
+    ) -> str:
+        """Massgebliche Quelle ausgefallen: ohne Policy hart abbrechen,
+        mit Policy den sichtbaren Fallback-Grund zurueckgeben."""
+        if isinstance(exc, SymbolNotFound):
+            if not self._allow_fallback_from_authoritative:
+                if isinstance(exc, AuthoritativeSymbolNotFound):
+                    raise exc
+                raise AuthoritativeSymbolNotFound(
+                    f"Massgebliche Quelle {provider.name} kennt das Symbol nicht: {exc}",
+                    provider=provider.name,
+                ) from exc
+            return f"{provider.name}: SYMBOL_NOT_FOUND: {exc}"
+        unavailable = self._unavailable_from(provider, exc, detail)
+        # N-862-4: Abbruch wegen der massgeblichen Quelle ist fuer Aufrufer
+        # (Preis-Updater) erkennbar, damit dort kein eigener Fallback greift.
+        unavailable.authoritative_failure = True
+        if not self._allow_fallback_from_authoritative:
+            if unavailable is exc:
+                raise unavailable
+            raise unavailable from exc
+        return f"{provider.name}: {unavailable.code}: {unavailable}"
+
+    def _candidates(self, action_name: str) -> tuple[list[MarketDataProvider], list[str]]:
+        """Provider in Reihenfolge, gefiltert auf currently-healthy.
+
+        Liefert zusaetzlich die Fallback-Gruende fuer uebersprungene
+        massgebliche Provider (nur bei aktiver Fallback-Policy, sonst
+        wird hier bereits abgebrochen).
+        """
         result: list[MarketDataProvider] = []
+        reasons: list[str] = []
         for p in self._providers:
+            authoritative = _is_authoritative(p)
             if not self._health.is_healthy(p.name):
+                if authoritative:
+                    last = getattr(p, "last_unavailable_error", None)
+                    reasons.append(self._authoritative_failed(p, last, "Provider ist im Health-Backoff"))
                 continue
             try:
-                if not p.is_healthy():
-                    continue
-            except Exception:  # noqa: BLE001 - defensive
+                healthy = bool(p.is_healthy())
+                health_exc: BaseException | None = None
+            except Exception as exc:  # noqa: BLE001 - defensive
+                healthy = False
+                health_exc = exc
+            if not healthy:
+                if authoritative:
+                    last = getattr(p, "last_unavailable_error", None) or health_exc
+                    unavailable = self._unavailable_from(p, last, "Health-Check fehlgeschlagen")
+                    self._health.mark_unhealthy(p.name)
+                    self._record_unhealthy(p, action_name, unavailable)
+                    reasons.append(self._authoritative_failed(p, unavailable, "Health-Check fehlgeschlagen"))
                 continue
             result.append(p)
+        return result, reasons
+
+    @staticmethod
+    def _mark_fallback(result: Any, reasons: list[str]) -> Any:
+        if not reasons:
+            return result
+        reason = "; ".join(reasons)
+        if isinstance(result, (Bar, ProductInfo)):
+            return dataclasses.replace(result, fallback_reason=reason)
+        if isinstance(result, list):
+            return [
+                dataclasses.replace(item, fallback_reason=reason) if isinstance(item, Bar) else item
+                for item in result
+            ]
         return result
 
     def _call_chain(self, action_name: str, action):
         """Generischer Fallback-Loop. action(provider) liefert Result oder
         wirft. Sammelt letzte Exception fuer Re-Raise.
         """
-        candidates = self._candidates()
+        candidates, reasons = self._candidates(action_name)
         if not candidates:
             raise MarketDataError(
                 f"{action_name}: kein gesunder Provider verfuegbar "
@@ -104,10 +225,14 @@ class MarketDataAggregator:
                 self._health.mark_unhealthy(provider.name)
                 self._record_unhealthy(provider, action_name, exc)
                 last_exc = exc
+                if _is_authoritative(provider):
+                    reasons.append(self._authoritative_failed(provider, exc, str(exc)))
                 continue
             except SymbolNotFound as exc:
                 # SymbolNotFound: weitermachen, Provider bleibt healthy
                 last_exc = exc
+                if _is_authoritative(provider):
+                    reasons.append(self._authoritative_failed(provider, exc, str(exc)))
                 continue
             except ProviderError as exc:
                 logger.warning(
@@ -116,6 +241,8 @@ class MarketDataAggregator:
                 self._health.mark_unhealthy(provider.name)
                 self._record_unhealthy(provider, action_name, exc)
                 last_exc = exc
+                if _is_authoritative(provider):
+                    reasons.append(self._authoritative_failed(provider, exc, str(exc)))
                 continue
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
@@ -124,11 +251,13 @@ class MarketDataAggregator:
                 self._health.mark_unhealthy(provider.name)
                 self._record_unhealthy(provider, action_name, exc)
                 last_exc = exc
+                if _is_authoritative(provider):
+                    reasons.append(self._authoritative_failed(provider, exc, str(exc)))
                 continue
             # Erfolg: Provider bleibt/wird healthy
             self._health.mark_healthy(provider.name)
             self._record_healthy(provider, action_name)
-            return result
+            return self._mark_fallback(result, reasons)
         # Kein Provider erfolgreich -> letzte Exception werfen
         if isinstance(last_exc, BaseException):
             raise last_exc
@@ -146,7 +275,8 @@ class MarketDataAggregator:
         # nicht zwingend ein Fallback-Trigger. Aber wenn ein Provider [] gibt
         # und der naechste echte Daten haette, sollten wir diesen nutzen.
         # Pragmatisch: erste nicht-leere Antwort gewinnt.
-        candidates = self._candidates()
+        action_name = f"get_history({symbol})"
+        candidates, reasons = self._candidates(action_name)
         if not candidates:
             raise MarketDataError(
                 f"get_history({symbol}): kein gesunder Provider verfuegbar"
@@ -160,26 +290,36 @@ class MarketDataAggregator:
                     "get_history(%s): %s error (%s)", symbol, provider.name, exc,
                 )
                 self._health.mark_unhealthy(provider.name)
-                self._record_unhealthy(provider, f"get_history({symbol})", exc)
+                self._record_unhealthy(provider, action_name, exc)
                 last_exc = exc
+                if _is_authoritative(provider):
+                    reasons.append(self._authoritative_failed(provider, exc, str(exc)))
                 continue
             except SymbolNotFound as exc:
                 last_exc = exc
+                if _is_authoritative(provider):
+                    reasons.append(self._authoritative_failed(provider, exc, str(exc)))
                 continue
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "get_history(%s): %s unexpected (%s)", symbol, provider.name, exc,
                 )
                 self._health.mark_unhealthy(provider.name)
-                self._record_unhealthy(provider, f"get_history({symbol})", exc)
+                self._record_unhealthy(provider, action_name, exc)
                 last_exc = exc
+                if _is_authoritative(provider):
+                    reasons.append(self._authoritative_failed(provider, exc, str(exc)))
                 continue
             self._health.mark_healthy(provider.name)
-            self._record_healthy(provider, f"get_history({symbol})")
+            self._record_healthy(provider, action_name)
             if result:
-                return result
+                return self._mark_fallback(result, reasons)
             # leere Liste: weiter zum naechsten Provider, aber keinen Fehler werfen
             last_exc = SymbolNotFound(f"{provider.name}: leeres history fuer {symbol}")
+            if _is_authoritative(provider):
+                # Leere Antwort der massgeblichen Quelle ist ein legitimes
+                # Ergebnis (leerer Bereich), kein Anlass fuer einen Fallback.
+                return []
         # Wenn wir hier sind: kein Provider hatte Daten
         # Wenn der letzte Fehler ein "echter" Provider-Fehler war, raise.
         # Wenn nur leere Listen, leere Liste zurueck.
