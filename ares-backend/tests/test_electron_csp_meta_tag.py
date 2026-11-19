@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -25,7 +26,7 @@ from core.middleware import DEFAULT_CSP_POLICY  # noqa: E402
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def test_csp_meta_tag_present_in_head():

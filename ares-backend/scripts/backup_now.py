@@ -4,8 +4,8 @@ Aufruf
 ------
     python scripts/backup_now.py
     python scripts/backup_now.py --target /pfad/zu/backups
-    python scripts/backup_now.py --source ~/5eyes/5eyes.db --target /mnt/backup
-    python scripts/backup_now.py --restore /pfad/zu/backup.db --target ~/5eyes/5eyes.db
+    python scripts/backup_now.py --source ~/ares/ares.db --target /mnt/backup
+    python scripts/backup_now.py --restore /pfad/zu/backup.db --target ~/ares/ares.db
 
 Standardmaessig liest das Script Settings aus `.env` / Umgebungs-
 variablen via `config.settings` — selbe Quelle wie der laufende Server.
@@ -105,11 +105,15 @@ def main() -> int:
         if args.retain_days is not None
         else settings.backup_retain_days
     )
+    # F4: Manifest mit Kettenkopf + Bestandssiegel des Snapshots.
+    from services.audit import backup_snapshot_anchor
+
     result = backup_database(
         target_dir=target,
         source_db_path=source,
         retain_days=retain,
         keep_minimum=settings.backup_keep_minimum,
+        snapshot_anchor=backup_snapshot_anchor,
     )
     print(
         f"BACKUP ok -> {result.path} "

@@ -22,6 +22,7 @@ Bruecke oeffnet keinen Tab mehr. Der Inline-Standard-Fragebogen bleibt.
 """
 from pathlib import Path
 import re
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -74,7 +75,7 @@ def test_react_route_shows_lock_notice_instead_of_editor():
 
 
 def test_html_bridge_no_longer_opens_the_editor():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
 
     assert "async function openProfilingEditor(){" in html
     bridge_fn = html.split(
@@ -88,7 +89,7 @@ def test_html_bridge_no_longer_opens_the_editor():
 
 
 def test_html_bridge_reuses_same_token_handoff_as_advisory_report_bridge():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
 
     assert "async function resolveReportingAppUrl(path){" in html
     # Die verbleibenden Editor-Bridges teilen sich dieselbe Token-/Base-URL-
@@ -99,7 +100,7 @@ def test_html_bridge_reuses_same_token_handoff_as_advisory_report_bridge():
 
 
 def test_profiling_editor_button_is_hidden_and_disabled():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
     rp_header = html.split('<div id="page-rp" class="page">', 1)[1].split(
         '<div class="pad">', 1
     )[0]

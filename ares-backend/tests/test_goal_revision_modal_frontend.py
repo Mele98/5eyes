@@ -18,6 +18,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HTML_PATH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
@@ -83,7 +84,7 @@ var API={post:async function(url,body){calls.posts.push({url:url,body:body});if(
 def _run(script: str, mode: str = "ok") -> dict:
     if shutil.which("node") is None:
         pytest.skip("node binary not available to execute extracted JS")
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     code = "var MODE=" + json.dumps(mode) + ";" + HARNESS
     code += "\n".join(_var(src, name) for name in VARS) + "\n"
     code += "\n".join(_function(src, sig) for sig in FUNCTIONS) + "\n"
@@ -175,7 +176,7 @@ def test_api_errors_appear_as_message_with_reason_code(mode, expected):
 
 
 def test_modal_markup_and_no_native_dialogs_in_goal_revision_code():
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     assert 'id="m-goalrev"' in src and 'id="grv-reason"' in src and 'id="grv-submit"' in src
     code = "\n".join(_function(src, sig) for sig in FUNCTIONS)
     for native in ("prompt(", "confirm(", "alert("):

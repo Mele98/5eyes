@@ -31,7 +31,7 @@ from services.review_engine import refresh_system_review_triggers
 from services.risk_scoring import compute_scores
 
 
-FOUNDATION_CLIENT_NUMBER = "EX-5E-FOUNDATION"
+FOUNDATION_CLIENT_NUMBER = "EX-FOUNDATION-01"
 FOUNDATION_MANDATE_NUMBER = "MX-FOUNDATION-01"
 
 
@@ -410,8 +410,8 @@ def upsert_foundation_example_case(db: Session, user: User) -> dict:
             pension_retirement_age=63,
             pension_payout_form="Kapital",
             pension_wef_possible=1,
-            is_available_for_goal_funding=1,
-            goal_funding_method="Automatisch",
+            # K1 Property-Gate: Vorsorge ist illiquide -> keine Goal-Funding-Anrechnung.
+            is_available_for_goal_funding=0,
             notes="Der k\u00fcnftige Bezug wird zus\u00e4tzlich als datierter Cashflow modelliert.",
             created_at=now,
             updated_at=now,
@@ -429,7 +429,9 @@ def upsert_foundation_example_case(db: Session, user: User) -> dict:
             mortgage_type="Festhypothek",
             mortgage_interest_rate_bps=185,
             mortgage_maturity_date="2031-12-31",
-            mortgage_amortization_rappen=_rappen(30000),
+            # K1 Property-Gate: keine Amortisationsprojektion; Zins/Amortisation
+            # waeren als Ausgaben-Cashflow zu erfassen.
+            mortgage_amortization_rappen=0,
             mortgage_amortization_type="Direkt",
             mortgage_linked_property_id=property_position.id,
             notes="Verbindlichkeit mit echtem Immobilien-Link fuer die Stammdaten-Logik.",

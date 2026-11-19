@@ -20,6 +20,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HTML_PATH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
@@ -98,7 +99,7 @@ function tick(){return new Promise(function(r){setTimeout(r,0);});}
 def _run(script: str, notice_ok: bool = True) -> dict:
     if shutil.which("node") is None:
         pytest.skip("node binary not available to execute extracted JS")
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     code = "var NOTICE_OK=" + json.dumps(notice_ok) + ";" + HARNESS
     code += _var(src, "uiDialogState") + "\n"
     code += "\n".join(_function(src, sig) for sig in FUNCTIONS) + "\n"
