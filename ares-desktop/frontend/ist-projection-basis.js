@@ -69,7 +69,7 @@ async function ensureIstProjectionBasis(){
     var detail=null;
     try{detail=JSON.parse(String(err&&err.body||'')).detail;}catch(_){detail=null;}
     st.data=null;st.status='unavailable';
-    st.reason=(detail&&detail.reason_code==='IST_PROJECTION_BASIS_UNAVAILABLE'&&detail.message)
+    st.reason=(detail&&detail.message) // E2E2-08: jeder typisierte Grund
       ?'Ist-Projektion nicht verfügbar: '+String(detail.message)
       :'Ist-Projektion nicht verfügbar: Die Kapitalmarktannahmen konnten nicht geladen werden.';
   }

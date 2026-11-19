@@ -17,24 +17,24 @@
     + '<div style="grid-column:1/-1;font-size:10px;font-weight:600;color:var(--n6);margin-top:4px">Produkt-Stammdaten (FIDLEG) – leer lassen = nicht erfasst</div>'
     + '<div>' + L + 'Domizil (ISO-Land, z.B. IE)</label><input class="fi" id="pf-domicile" maxlength="2" style="font-size:11px"></div>'
     + '<div>' + L + 'Valor (optional)</label><input class="fi" id="pf-valor" style="font-size:11px"></div>'
-    + '<div>' + L + 'Waehrungsgesichert</label><select class="fsel" id="pf-is-hedged" style="font-size:11px">' + FLAG + '</select></div>'
-    + '<div>' + L + 'Absicherungswaehrung (nur bei ja)</label><input class="fi" id="pf-hedge-currency" maxlength="3" style="font-size:11px"></div>'
+    + '<div>' + L + 'Währungsgesichert</label><select class="fsel" id="pf-is-hedged" style="font-size:11px">' + FLAG + '</select></div>'
+    + '<div>' + L + 'Absicherungswährung (nur bei ja)</label><input class="fi" id="pf-hedge-currency" maxlength="3" style="font-size:11px"></div>'
     + '<div>' + L + 'TER-Quelle</label><input class="fi" id="pf-ter-source" placeholder="z.B. Basisinformationsblatt" style="font-size:11px"></div>'
     + '<div>' + L + 'TER-Stichtag</label><input class="fi" type="date" id="pf-ter-as-of" style="font-size:11px"></div>'
     + '<div>' + L + 'Retrozession (Bps p.a.; 0 = keine; leer = unbekannt)</label><input class="fi" type="number" min="0" max="1000" step="1" id="pf-retro" style="font-size:11px"></div>'
     + '<div>' + L + 'Retrozession-Quelle (Pflicht bei Satz)</label><input class="fi" id="pf-retro-source" style="font-size:11px"></div>'
     + '<div>' + L + 'Hausprodukt</label><select class="fsel" id="pf-house-product" style="font-size:11px">' + FLAG + '</select></div>'
-    + '<div>' + L + 'Ausschuettungsart</label><select class="fsel" id="pf-distribution" style="font-size:11px"><option value="">nicht erfasst</option><option value="accumulating">thesaurierend</option><option value="distributing">ausschuettend</option></select></div>'
-    + '<div>' + L + 'Mindestanlage (in Fondswaehrung, optional)</label><input class="fi" type="number" min="0" step="any" id="pf-min-investment" style="font-size:11px"></div>'
+    + '<div>' + L + 'Ausschüttungsart</label><select class="fsel" id="pf-distribution" style="font-size:11px"><option value="">nicht erfasst</option><option value="accumulating">thesaurierend</option><option value="distributing">ausschüttend</option></select></div>'
+    + '<div>' + L + 'Mindestanlage (in Fondswährung, optional)</label><input class="fi" type="number" min="0" step="any" id="pf-min-investment" style="font-size:11px"></div>'
     // Owner-Anforderung P1: eigene Fonds (kotiert/nicht kotiert), Bewertung, Liquiditaetsrhythmus.
     + '<div>' + L + 'Kotierung</label><select class="fsel" id="pf-listing-status" style="font-size:11px"><option value="">nicht erfasst</option><option value="listed">kotiert (ISIN Pflicht)</option><option value="unlisted">nicht kotiert (ohne ISIN: interne ID Pflicht)</option></select></div>'
     + '<div>' + L + 'Interne Produkt-ID (eindeutig je Verwaltung)</label><input class="fi" id="pf-internal-id" maxlength="64" style="font-size:11px"></div>'
-    + '<div>' + L + 'Bewertungsquelle</label><select class="fsel" id="pf-price-source" style="font-size:11px"><option value="">nicht erfasst</option><option value="market">Boersenkurs</option><option value="manual_nav">NAV manuell</option><option value="provider">NAV Anbieter</option></select></div>'
-    + '<div>' + L + 'NAV-Rhythmus</label><select class="fsel" id="pf-nav-frequency" style="font-size:11px"><option value="">nicht erfasst</option><option value="daily">taeglich</option><option value="weekly">woechentlich</option><option value="monthly">monatlich</option><option value="quarterly">quartalsweise</option></select></div>'
+    + '<div>' + L + 'Bewertungsquelle</label><select class="fsel" id="pf-price-source" style="font-size:11px"><option value="">nicht erfasst</option><option value="market">Börsenkurs</option><option value="manual_nav">NAV manuell</option><option value="provider">NAV Anbieter</option></select></div>'
+    + '<div>' + L + 'NAV-Rhythmus</label><select class="fsel" id="pf-nav-frequency" style="font-size:11px"><option value="">nicht erfasst</option><option value="daily">täglich</option><option value="weekly">wöchentlich</option><option value="monthly">monatlich</option><option value="quarterly">quartalsweise</option></select></div>'
     + '<div>' + L + 'NAV-Stichtag</label><input class="fi" type="date" id="pf-nav-as-of" style="font-size:11px"></div>'
-    + '<div>' + L + 'Ruecknahmefrist (Tage)</label><input class="fi" type="number" min="0" step="1" id="pf-redemption-days" style="font-size:11px"></div>'
-    + '<div>' + L + 'Kuendigungsfrist (Tage)</label><input class="fi" type="number" min="0" step="1" id="pf-notice-days" style="font-size:11px"></div>'
-    + '<div>' + L + 'Gating moeglich</label><select class="fsel" id="pf-has-gating" style="font-size:11px">' + FLAG + '</select></div>'
+    + '<div>' + L + 'Rücknahmefrist (Tage)</label><input class="fi" type="number" min="0" step="1" id="pf-redemption-days" style="font-size:11px"></div>'
+    + '<div>' + L + 'Kündigungsfrist (Tage)</label><input class="fi" type="number" min="0" step="1" id="pf-notice-days" style="font-size:11px"></div>'
+    + '<div>' + L + 'Gating möglich</label><select class="fsel" id="pf-has-gating" style="font-size:11px">' + FLAG + '</select></div>'
     + '<div style="grid-column:1/-1">' + L + 'Gating-Bedingungen (optional)</label><input class="fi" id="pf-gating-terms" style="font-size:11px"></div>';
 
   function ensureFundMasterDataFields(){
@@ -59,7 +59,7 @@ function adminFundMasterDataBadges(p){
   if (p.isin_status === 'missing') {
     out += ' <span class="tag ta" title="Keine ISIN erfasst. Ohne ISIN ist kein Basisinformationsblatt zuordenbar.">ISIN fehlt</span>';
   } else if (p.isin_status === 'invalid') {
-    out += ' <span class="tag ta" title="Die erfasste ISIN hat keine gueltige Pruefziffer (ISO 6166).">ISIN ungueltig</span>';
+    out += ' <span class="tag ta" title="Die erfasste ISIN hat keine gültige Prüfziffer (ISO 6166).">ISIN ungültig</span>';
   }
   if (p.retrocession_status === 'unknown') {
     out += ' <span class="tag ta" title="Kein Retrozessionssatz erfasst. Das Produkt gilt NICHT als retrozessionsfrei; im Kostenausweis erscheint eine Pflichtwarnung.">Retrozession unbekannt</span>';
@@ -68,7 +68,7 @@ function adminFundMasterDataBadges(p){
   }
   var gaps = Array.isArray(p.master_data_gaps) ? p.master_data_gaps.filter(function(g){ return g !== 'isin' && g !== 'retrocession_bps'; }) : [];
   if (gaps.length) {
-    out += ' <span class="tag tn" title="Fehlende Stammdaten: ' + escapeHtml(gaps.join(', ')) + '">Stammdaten unvollstaendig</span>';
+    out += ' <span class="tag tn" title="Fehlende Stammdaten: ' + escapeHtml(gaps.join(', ')) + '">Stammdaten unvollständig</span>';
   }
   return out;
 }
@@ -154,7 +154,7 @@ function adminCollectFundMasterData(payload, editing){
     if (!isFinite(minVal) || minVal < 0) return 'Mindestanlage muss eine nicht-negative Zahl sein.';
     var digits = currencyMinorDigits(val('pf-currency'));
     var minor = minVal * Math.pow(10, digits);
-    if (Math.abs(minor - Math.round(minor)) > 1e-6) return 'Mindestanlage: hoechstens ' + digits + ' Nachkommastellen fuer ' + (val('pf-currency').toUpperCase() || 'CHF') + '.';
+    if (Math.abs(minor - Math.round(minor)) > 1e-6) return 'Mindestanlage: höchstens ' + digits + ' Nachkommastellen für ' + (val('pf-currency').toUpperCase() || 'CHF') + '.';
     payload.minimum_investment_minor_units = Math.round(minor);
   } else if (editing) {
     payload.minimum_investment_minor_units = null;
@@ -201,7 +201,7 @@ function renderCostRetrocessions(data){
   var currency=String(data.currency||'').toUpperCase().trim();
   var head=block.complete
     ? '<div style="font-weight:600;margin-bottom:6px">Retrozessionen je Produkt</div>'
-    : '<div style="font-weight:600;margin-bottom:6px;color:var(--neg)">Retrozessionen je Produkt – Pflichtangaben unvollstaendig</div>';
+    : '<div style="font-weight:600;margin-bottom:6px;color:var(--neg)">Retrozessionen je Produkt – Pflichtangaben unvollständig</div>';
   box.style.display='';
   box.innerHTML=head+'<div style="border:1px solid var(--b1);border-radius:var(--r);overflow:hidden;font-size:11px">'
     +lines.map(function(line){

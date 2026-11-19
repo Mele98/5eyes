@@ -753,7 +753,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "code": "<div><label style=\"font-size:9px;color:var(--n4);display:block;margin-bottom:2px\">Waehrung</label><input class=\"fi\" id=\"pf-currency\" value=\"CHF\" style=\"font-size:11px\"></div>",
+   "code": "<div><label style=\"font-size:9px;color:var(--n4);display:block;margin-bottom:2px\">Währung</label><input class=\"fi\" id=\"pf-currency\" value=\"CHF\" style=\"font-size:11px\"></div>",
    "count": 1,
    "context": "#pf-currency",
    "reason": "ares.html #pf-currency: Vorbelegung/Option eines Waehrungs-Eingabefelds (Produkt- bzw. Mandatswaehrung waehlbar); Eingabe-Default, kein Anzeigeformat eines Betrags."
@@ -795,7 +795,7 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "code": "<summary style=\"cursor:pointer;font-size:11px;font-weight:600;color:var(--n6)\">Wechselkurse zu CHF (Multi-Currency-Support)</summary>",
+   "code": "<summary style=\"cursor:pointer;font-size:11px;font-weight:600;color:var(--n6)\">Wechselkurse zu CHF (Fremdwährungen)</summary>",
    "count": 1,
    "context": "#m-admin",
    "reason": "ares.html #m-admin: Admin-FX-Tabelle -- CHF ist die technische Pivotwaehrung der gepflegten Kurse (convert_rappen rechnet ueber CHF)."
@@ -984,7 +984,7 @@
   },
   {
    "file": "ares-desktop/frontend/product-master-data.js",
-   "code": "if (Math.abs(minor - Math.round(minor)) > 1e-6) return 'Mindestanlage: hoechstens ' + digits + ' Nachkommastellen fuer ' + (val('pf-currency').toUpperCase() || 'CHF') + '.';",
+   "code": "if (Math.abs(minor - Math.round(minor)) > 1e-6) return 'Mindestanlage: höchstens ' + digits + ' Nachkommastellen für ' + (val('pf-currency').toUpperCase() || 'CHF') + '.';",
    "count": 1,
    "context": "flag",
    "reason": "product-master-data.js flag: Vorbelegung/Option eines Waehrungs-Eingabefelds (Produkt- bzw. Mandatswaehrung waehlbar); Eingabe-Default, kein Anzeigeformat eines Betrags."
@@ -1030,6 +1030,13 @@
    "count": 1,
    "context": "INFLOW_CURRENCIES",
    "reason": "WealthInflowEditor.tsx INFLOW_CURRENCIES: Auswahlliste des Waehrungs-Eingabefelds eines Vermoegenszuflusses (CCX-P3-FX, Pflichtfeld, nie geraten); Eingabeoptionen, kein Anzeigeformat eines Betrags."
+  },
+  {
+   "file": "ares-desktop/frontend/mandate-view.js",
+   "code": ".replace(/\\s*\\(CHF gehedgt\\)|\\s*_?Hedged\\s*CHF\\b/g, function(m){ var p = m.indexOf('(') >= 0; return (p ? ' (' : ' ') + 'währungsgesichert in CHF' + (p ? ')' : ''); })",
+   "count": 1,
+   "context": "aresTerm",
+   "reason": "mandate-view.js aresTerm: Anzeige-Uebersetzung des Sub-Anlageklassen-Namens 'Hedged CHF' bzw. '(CHF gehedgt)' in 'waehrungsgesichert in CHF' (KN-U E2E2-14); Teil eines Namens, keine Betrags- oder Formatwaehrung."
   }
  ]
 }
