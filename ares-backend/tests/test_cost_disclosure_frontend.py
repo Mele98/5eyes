@@ -106,4 +106,4 @@ def test_modal_rendert_warnings_bei_pending():
     fn_start = text.find("function renderCostDisclosure(")
     block = text[fn_start:fn_start + 2000]
     assert "warnings.length" in block
-    assert "Annahmen und Datenqualitaet" in block
+    assert "Annahmen und Datenqualität" in block

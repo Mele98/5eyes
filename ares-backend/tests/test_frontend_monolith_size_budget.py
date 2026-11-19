@@ -196,7 +196,7 @@ EXTRACTED_PART_BUDGETS = {
     "allocation-publication.js": (272, 13780),
     "finalize-attestation.js": (27, 1750),
     "fx-rates-editor.js": (97, 5091),
-    "mandate-view.js": (530, 29380),
+    "mandate-view.js": (531, 29476),
     "advisor-guidance.js": (728, 43963),
 }
 

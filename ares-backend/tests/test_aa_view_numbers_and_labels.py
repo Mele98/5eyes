@@ -208,7 +208,7 @@ def test_no_best_worst_case_wording_left_in_monolith():
 
 def test_fan_footnote_present():
     html = _html()
-    note = "In 8 von 10 simulierten Verläufen liegt das Vermögen zwischen P10 und P90; keine Garantie."
+    note = "In 8 von 10 simulierten Verläufen liegt das Vermögen zwischen dem ungünstigen und dem günstigen Verlauf; keine Garantie."  # KN-U E2E2-14 (kein P10/P90)
     assert html.count(note) >= 2, "Fussnote fehlt unter Faecher (AA-Ansicht + Vergleichsdialog)"
 
 

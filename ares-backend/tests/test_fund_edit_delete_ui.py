@@ -59,7 +59,7 @@ def test_edit_form_has_dynamic_title_and_button_label():
     assert 'id="pf-form-title"' in text
     assert "Neuen Fonds erfassen" in text
     assert "Fonds bearbeiten: " in text
-    assert "Aenderungen speichern" in text
+    assert "Änderungen speichern" in text
 
 
 def test_edit_state_is_reset_on_cancel_or_reopen():
@@ -90,7 +90,7 @@ def test_table_colspan_updated_for_new_actions_column():
 
     assert 'colspan="6" style="color:var(--n4)">Suchbegriff eingeben' in text
     assert 'colspan="6" style="color:var(--n4)">Keine Fonds gefunden.' in text
-    assert "colspan=\"6\">Suche laeuft..." in text
+    assert "colspan=\"6\">Suche läuft..." in text
     assert "colspan=\"6\">Fehler</td>" in text
 
 

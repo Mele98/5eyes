@@ -56,7 +56,7 @@ def test_review_band_state_meta_takes_asset_key_and_uses_both_helpers():
     # nur der discretionary+liquid-Zweig darf diesen String noch enthalten.
     assert "Rebalancing erforderlich" in body  # bleibt fuer discretionary+liquid
     assert "Empfehlung anpassen" in body
-    assert "Bei naechster Transaktion" in body
+    assert "Bei nächster Transaktion" in body
 
 
 def test_all_three_call_sites_pass_asset_key():

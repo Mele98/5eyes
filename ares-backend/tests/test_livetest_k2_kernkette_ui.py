@@ -716,7 +716,7 @@ def test_k2_flow_guidance_without_dead_ends(server):
     assert depletion["all"].startswith("Vermögen aufgebraucht ab 2028"), depletion
     assert "ab 2028" in depletion["low"] and "ungünstigen" in depletion["low"] and depletion["none"] == ""
     assert tile == {"year": "2028", "label": "Vermögen aufgebraucht ab 2028", "positive": None}, tile
-    assert horizon["withSim"] == "= auto bis 2056 (Simulationshorizont)", horizon
+    assert horizon["withSim"] == "= auto bis Ende 2055 (Simulationshorizont)", horizon  # KN-U E2E-11: Jahreswechsel-Label 2056 = Ende 2055
     assert "Simulationshorizont" not in horizon["without"]
     assert len(captured) == 2
     sent_now = datetime.fromisoformat(captured[0]["delivered_at"].replace("Z", "+00:00"))

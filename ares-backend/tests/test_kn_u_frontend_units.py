@@ -261,7 +261,7 @@ def test_umrechnung_offen_texts_never_zero_or_dash():
     assert out["aaEmpty"] == "Noch kein Beratungsvermögen erfasst", out
     assert out["grpMixed"] == "Umrechnung offen" and out["grpOne"] == "−CHF 500", out
     assert out["totalMixed"] == "Umrechnung offen", out
-    assert out["totalEmpty"] == "CHF 0", "kein anderes Vermoegen erfasst: kein 'Umrechnung offen'"
+    assert out["totalEmpty"] == "nicht erfasst", "kein anderes Vermoegen erfasst: weder 'Umrechnung offen' noch ein Nullbetrag"
     assert out["totalOtherChf"] == "CHF 3", out
 
 

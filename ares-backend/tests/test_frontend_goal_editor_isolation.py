@@ -38,7 +38,7 @@ def test_return_goal_hardness_hart_is_disabled_and_saved_as_return_bps():
     html = _html()
     assert 'id="nz-prio-hart-option"' in html
     assert "hartOpt.disabled=!cfg.hardness_hart" in html
-    assert "Renditeziele koennen nicht als Hart gespeichert werden" in html
+    assert "Renditeziele können nicht als Hart gespeichert werden" in html
     assert "returnRaw=getInputValue('nz-target-return-bps')" in html
     assert "payload.target_return_bps=targetReturnBps" in html
 

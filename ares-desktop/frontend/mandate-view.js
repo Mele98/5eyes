@@ -86,6 +86,7 @@
   function formatAmount(rappen, ccy){ var f = g('formatRappen'); return f ? f(rappen, ccy) : String(rappen); }
   function aresBlockedTotal(mix, list){
     if (mix && mix.pending) return 'Umrechnung wird geprüft …';
+    if (!(list || []).length) return 'nicht erfasst'; // E2E2-15: leere Gruppe, kein Nullbetrag
     var isAdvisory = (list || []).length > 0 && advisoryOf(list).length === list.length;
     var known = isAdvisory ? advisoryWhenBlocked(list, mix) : sameCurrencySum(list);
     return known ? formatAmount(known.rappen, known.currency) : 'Umrechnung offen';

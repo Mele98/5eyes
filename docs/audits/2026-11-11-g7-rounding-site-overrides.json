@@ -1902,7 +1902,7 @@
   },
   {
    "file": "ares-desktop/frontend/product-master-data.js",
-   "source": "if (Math.abs(minor - Math.round(minor)) > 1e-6) return 'Mindestanlage: hoechstens ' + digits + ' Nachkommastellen fuer ' + (val('pf-currency').toUpperCase() || 'CHF') + '.';",
+   "source": "if (Math.abs(minor - Math.round(minor)) > 1e-6) return 'Mindestanlage: höchstens ' + digits + ' Nachkommastellen für ' + (val('pf-currency').toUpperCase() || 'CHF') + '.';",
    "class": "COMPUTATION_KEEP",
    "status": "",
    "reason": "adminCollectFundMasterData: Ganzzahlpruefung der Eingabe (Zwischenwert/Vergleich), die Meldung nennt nur die erlaubte Stellenzahl."
