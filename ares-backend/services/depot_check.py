@@ -22,6 +22,7 @@ from typing import Iterable, Mapping
 
 from sqlalchemy.orm import Session
 
+from core.band_rule import in_band as band_in_band
 from core.reason_codes import DomainError
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
@@ -744,11 +745,16 @@ def compute_depot_check(
         soll_bps = 0
         band_min_bps = 0
         band_max_bps = 0
+        in_band = None  # ohne Soll-Allokation: nicht bewertbar
         if ta is not None:
             soll_bps = _safe_int(getattr(ta, f"target_{bucket}_bps", 0))
-            band_min_bps = _safe_int(getattr(ta, f"band_{bucket}_min_bps", 0))
-            band_max_bps = _safe_int(getattr(ta, f"band_{bucket}_max_bps", 0))
-        in_band = (band_min_bps <= ist_bps <= band_max_bps) if (band_min_bps or band_max_bps) else None
+            raw_min = getattr(ta, f"band_{bucket}_min_bps", None)
+            raw_max = getattr(ta, f"band_{bucket}_max_bps", None)
+            band_min_bps = _safe_int(raw_min)
+            band_max_bps = _safe_int(raw_max)
+            # KN3-B Nachtrag 2 (CTO): 0/0 = Obergrenze 0 (core/band_rule.py);
+            # nur eine fehlende Grenze (None) ist "nicht bewertbar".
+            in_band = band_in_band(ist_bps, raw_min, raw_max)
         result["buckets"][bucket] = {
             "label": BUCKET_LABELS[bucket],
             "ist_bps": ist_bps,

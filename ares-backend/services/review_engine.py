@@ -8,6 +8,7 @@ from models.allocation import TargetAllocation
 from models.mandates import Mandate
 from models.profiling import RiskAssessment, current_investment_preference
 from core import sustainability_preference as _sustainability
+from core.band_rule import BAND_ABOVE, BAND_BELOW, band_status
 from models.review import AdvisoryLog, RecommendationPosition, RecommendationRun, ReviewTrigger
 from price_updater import summarize_price_quality
 from schemas.review import (
@@ -126,6 +127,35 @@ def _add_months(value: str | None, months: int) -> str:
 def _format_bps(bps: int) -> str:
     return f"{bps / 100:.1f}%"
 
+
+
+def band_drifts(drift_source) -> list[dict]:
+    """Bandverletzungen fuer den Markt-Trigger. KN3-B Nachtrag 2 (CTO): 0/0 ist
+    Obergrenze 0 (core/band_rule.py); nur eine fehlende Bandangabe ist "nicht
+    bewertbar" (kein Trigger, aber auch kein "im Band")."""
+    drifts = []
+    for bucket in drift_source or []:
+        current_weight = int(bucket.get("current_weight_bps") or 0)
+        status = band_status(current_weight, bucket.get("band_min_bps"), bucket.get("band_max_bps"))
+        if status == BAND_BELOW:
+            min_weight = int(bucket.get("band_min_bps"))
+            drifts.append(
+                {
+                    "label": bucket.get("asset_class") or "Allokation",
+                    "breach_bps": min_weight - current_weight,
+                    "detail": f"{bucket.get('asset_class')}: {_format_bps(current_weight)} unter Minimum {_format_bps(min_weight)}",
+                }
+            )
+        elif status == BAND_ABOVE:
+            max_weight = int(bucket.get("band_max_bps"))
+            drifts.append(
+                {
+                    "label": bucket.get("asset_class") or "Allokation",
+                    "breach_bps": current_weight - max_weight,
+                    "detail": f"{bucket.get('asset_class')}: {_format_bps(current_weight)} ueber Maximum {_format_bps(max_weight)}",
+                }
+            )
+    return drifts
 
 def _get_system_trigger(
     db: Session,
@@ -372,29 +402,7 @@ def refresh_system_review_triggers(
 
         live_rebalancing = payload.get("live_rebalancing") or {}
         drift_source = live_rebalancing.get("bucket_drifts") or payload.get("buckets", [])
-        drifts = []
-        for bucket in drift_source:
-            current_weight = int(bucket.get("current_weight_bps") or 0)
-            min_weight = int(bucket.get("band_min_bps") or 0)
-            max_weight = int(bucket.get("band_max_bps") or 0)
-            if min_weight == 0 and max_weight == 0:
-                continue
-            if current_weight < min_weight:
-                drifts.append(
-                    {
-                        "label": bucket.get("asset_class") or "Allokation",
-                        "breach_bps": min_weight - current_weight,
-                        "detail": f"{bucket.get('asset_class')}: {_format_bps(current_weight)} unter Minimum {_format_bps(min_weight)}",
-                    }
-                )
-            elif current_weight > max_weight:
-                drifts.append(
-                    {
-                        "label": bucket.get("asset_class") or "Allokation",
-                        "breach_bps": current_weight - max_weight,
-                        "detail": f"{bucket.get('asset_class')}: {_format_bps(current_weight)} ueber Maximum {_format_bps(max_weight)}",
-                    }
-                )
+        drifts = band_drifts(drift_source)
 
         if drifts:
             drift_trigger = _get_or_create_system_trigger(
