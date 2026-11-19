@@ -294,6 +294,7 @@ def bootstrap_admin(body: BootstrapAdminRequest, request: Request, db: Session =
             raise _bootstrap_already_done(guard_key)
 
         now = _now()
+        from models.tenant import DEFAULT_TENANT_ID
         admin = User(
             id=new_uuid(),
             username=body.username.strip(),
@@ -302,6 +303,12 @@ def bootstrap_admin(body: BootstrapAdminRequest, request: Request, db: Session =
             email=(body.email or None),
             role='admin',
             is_active=1,
+            # KN3-B / N-917R2-01: der Bootstrap-Admin gehoert zur Default-
+            # Mandanten-Zeile, die dieser Endpunkt unten mitpflegt. Ohne
+            # tenant_id entstanden seine Kunden in der ersten Sitzung mit NULL
+            # und wurden erst beim naechsten Start per Backfill auf 'main'
+            # gezogen -- nach der Versiegelung (Publikation entwertet).
+            tenant_id=DEFAULT_TENANT_ID,
             created_at=now,
             updated_at=now,
         )
@@ -323,7 +330,6 @@ def bootstrap_admin(body: BootstrapAdminRequest, request: Request, db: Session =
         # darf nicht am Tenant-Update scheitern, und eine spaetere Korrektur ist
         # jederzeit ueber PUT /tenants/me moeglich.
         if body.company_name or body.home_jurisdiction or body.default_presentation_mode:
-            from models.tenant import DEFAULT_TENANT_ID
             tenant = db.query(Tenant).filter(Tenant.id == DEFAULT_TENANT_ID).first()
             if tenant is not None:
                 if body.company_name:

@@ -6,6 +6,7 @@ Dark-Banner mit 2-spaltigem Layout:
 """
 from __future__ import annotations
 
+from core.customer_terms import customer_term
 from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
@@ -23,7 +24,7 @@ from services.pdf.styles import (
 
 def _esc(s) -> str:
     return (
-        str(s or "")
+        customer_term(str(s or ""))
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
@@ -50,8 +51,9 @@ def make_banner_header(
     banner_width = page_width - 24 * mm
 
     # ---- Linke Spalte: Branding + Titel + Datum ----
-    # KN-B Nachtrag 1: kein Personenname als Fallback -- ohne Firma/Berater bleibt die Zeile leer.
-    brand = ctx.advisor_org or ctx.advisor_name or ""
+    # KN-B Nachtrag 1 / KN3-B E2E3-04: die Markenzeile traegt nur den Firmennamen
+    # (Firmenangaben des Mandanten); ohne Firma bleibt sie leer, nie ein Personenname.
+    brand = ctx.advisor_org or ""
     left_lines = [
         f'<para><font name="{FONT_BOLD}" size="9" color="#94a3b8">'
         f'{_esc(brand).upper()}</font></para>',

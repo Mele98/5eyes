@@ -44,6 +44,7 @@ from services.auth import (
     get_current_user,
     get_mandate_for_user_or_404,
     require_advisor,
+    tenant_id_for_new_record,
 )
 from services.data_classification import enforce_data_classification
 
@@ -195,7 +196,8 @@ def create_baustein(
     b = ProtocolBaustein(
         id=str(uuid.uuid4()),
         advisor_id=current_user.id,
-        tenant_id=getattr(current_user, "tenant_id", None),
+        # KN3-B / N-917R2-01: wie der Start-Backfill, aber schon beim Anlegen.
+        tenant_id=tenant_id_for_new_record(current_user),
         title=body.title.strip(),
         content_md=body.content_md or "",
         category=(body.category or None),

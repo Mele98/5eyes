@@ -525,7 +525,9 @@
   },
   "leaf_content_sha256": {
     "core": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "core.customer_terms": "ef7fdcad9ddfd4dd86f65d75377b4e9fe64d8287cf5ef1e371779a963790119c",
     "core.db_integrity": "b2221c8d06a7cb27e782d6ab1db7f765d699b166392a90f67c9d1769ae28fe58",
+    "core.depletion_display": "7c348fddd36ba7b9046ae7d020290dafc1c673d1c65845fff3a869866bc6fd2c",
     "core.evidence": "107ad66eeb7424fd9b9ea3c4786e895e2350aa1061fc43e35ae9b65033b93ae6",
     "core.fx_freshness": "7e88d1391849634f09bc87e0ee9114c746b69f937bcfaae6ab9fc27aa085f560",
     "core.goal_vocabulary": "2ce6455a657546ddbc54b665215e899d9e0d4e6df4a79aeaa2562857b0867b82",

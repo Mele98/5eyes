@@ -47,6 +47,7 @@ from services.auth import (
     hash_password,
     _resolve_tenant_id_for_user,
     require_admin,
+    tenant_id_for_new_record,
     require_advisor,
     assert_compliance_reviewer_ready,
     compliance_reviewer_readiness,
@@ -138,8 +139,11 @@ def create_client(
         id=new_uuid(), created_at=now, updated_at=now,
         # E1 (2026-06-14): Client erbt den Tenant des anlegenden Users -> nie
         # NULL-tenant_id, harte Firmen-Trennung (Voraussetzung fuer strict mode).
+        # KN3-B / N-917R2-01: ohne User-Tenant im Einzelmandanten-Betrieb
+        # sofort der Default-Mandant (sonst setzt ihn erst der Start-Backfill
+        # nach der Versiegelung und entwertet die Publikation).
         **{**payload, "advisor_id": advisor_id,
-           "tenant_id": getattr(current_user, "tenant_id", None)}
+           "tenant_id": tenant_id_for_new_record(current_user)}
     )
     db.add(client)
     log(db, user_id=current_user.id, user_name=current_user.full_name,

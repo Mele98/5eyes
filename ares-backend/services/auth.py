@@ -643,6 +643,27 @@ def _effective_strict_tenant_isolation(settings_obj) -> bool:
     return tier == "tier2" or mode == "multi"
 
 
+def tenant_id_for_new_record(user) -> Optional[str]:
+    """KN3-B / N-917R2-01: Mandant fuer neu angelegte eigene Datensaetze
+    (Kunde, Protokoll-Baustein ...).
+
+    Bisher erbte ein neuer Kunde nur ``user.tenant_id``. Der Bootstrap-Admin
+    einer frischen Installation hatte keinen, also entstanden Kunde und
+    (abgeleitet) Positionen mit ``tenant_id = NULL``; erst der Start-Backfill
+    (``database.ensure_tenant_backfill``) zog sie beim naechsten Start auf
+    ``'main'`` -- per Roh-SQL nach der Versiegelung, was jede in der ersten
+    Sitzung publizierte Allokation entwertete. Jetzt wird schon beim Anlegen
+    derselbe Wert geschrieben, den der Backfill spaeter setzen wuerde: im
+    Einzelmandanten-Betrieb (gleicher Guard wie der Backfill) der Default-
+    Mandant. Im Mehrmandanten-Betrieb wird nie geraten (``None`` bleibt
+    ``None``, wie beim Backfill)."""
+    raw = getattr(user, "tenant_id", None)
+    if not (raw and isinstance(raw, str) and raw.strip()) and _effective_strict_tenant_isolation(settings):
+        return None
+    # Eigener Mandant, sonst der Default-Mandant (dieselbe Aufloesung wie Login/Token).
+    return _resolve_tenant_id_for_user(user)
+
+
 def _apply_tenant_filter_to_client_query(query, current_user: User, *, is_global_access: bool = False):
     """Sprint T3 (2026-06-08): Erweitert eine Client-Query um tenant_id-Filter.
 

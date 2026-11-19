@@ -6,6 +6,7 @@ from database import (
     KYC_CONFIRMATION_DECISION_SQLITE_TRIGGERS,
     KYC_CONFIRMATION_REJECTION_SQLITE_TRIGGERS,
     KYC_CONFIRMATION_SQLITE_TRIGGERS,
+    ADVISORY_TENANT_BOUNDARY_COLUMNS,
     Base,
 )
 
@@ -21,6 +22,8 @@ from database import (
 # Markierung immer gebunden. Telefon/E-Mail/Adresse stehen nicht in dieser Zeile.
 ADVISORY_HASH_EXEMPT_INFO_KEY = "advisory_hash_exempt"
 _NOT_ADVISORY = {ADVISORY_HASH_EXEMPT_INFO_KEY: True}
+# KN3-B / N-917R2-01: ``tenant_id`` ist Mandantengrenze, kein Beratungsinhalt
+# (Begruendung bei ADVISORY_TENANT_BOUNDARY_COLUMNS in database.py).
 
 
 class Client(Base):
@@ -90,6 +93,7 @@ CLIENT_HASH_EXEMPT_COLUMNS = frozenset(
 CLIENT_HASH_COLUMNS = tuple(
     column.name for column in Client.__table__.columns
     if not column.info.get(ADVISORY_HASH_EXEMPT_INFO_KEY) and column.name != "updated_at"
+    and column.name not in ADVISORY_TENANT_BOUNDARY_COLUMNS
 )
 
 

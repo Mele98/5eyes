@@ -20,6 +20,7 @@ from schemas.wealth import (
     WealthInflowCreate, WealthInflowUpdate, WealthInflowResponse,
     MaxPensionSpendingRequest, MaxPensionSpendingResponse,
     FinancialCoverageAttestationCreate,
+    depot_allocation_message,
 )
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
@@ -1158,13 +1159,16 @@ def update_wealth_position(
                     "Vorsorge-Positionen zulässig."
                 ),
             )
+        # KN3-B / E2E3-08: ein Depot braucht immer eine vollstaendige Aufteilung
+        # (keine angenommene Aufteilung); Vorsorge darf weiter "alle 0" tragen.
+        if wp.position_type == "Depot" and total != 10000:
+            raise HTTPException(status_code=422, detail=depot_allocation_message(total))
         if total != 0 and total != 10000:
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    f"Allokation muss zusammen 10000 bps oder alle 0 ergeben "
-                    f"(aktuelle Summe: {total}). Bitte alle alloc_*-Felder zusammen "
-                    f"updaten oder auf 0 zuruecksetzen."
+                    "Die Aufteilung muss zusammen 100 % ergeben oder ganz leer bleiben "
+                    f"(erfasst: {total / 100:g} %)."
                 ),
             )
     _validate_mortgage_link(client_id, updates, db)

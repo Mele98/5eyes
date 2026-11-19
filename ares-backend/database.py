@@ -3529,6 +3529,17 @@ def ensure_client_login_user_tenant_backfill(engine_to_use=None) -> None:
         _handle_startup_step_error("ensure_client_login_user_tenant_backfill", exc)
 
 
+# KN3-B / N-917R2-01 (CTO-Entscheid 2026-11-19): ``tenant_id`` ist die
+# Mandantengrenze einer Zeile, kein Beratungsinhalt. Die Grenze schuetzen
+# Mandanten-Guards, RLS und Trigger; in die Siegel-Projektion (Hook in
+# models/snapshots.py, Manifest/Pull in services/effective_input_manifest.py)
+# gehoert sie nicht. Sonst entwertete der Start-Backfill NULL -> 'main'
+# (database.ensure_tenant_backfill, wealth_tenant_boundary ...) jede in der
+# ersten Sitzung publizierte Allokation, ohne dass sich an Kunde, Vermoegen
+# oder Strategie etwas geaendert haette. Fuer alle Abhaengigkeitstabellen.
+ADVISORY_TENANT_BOUNDARY_COLUMNS = frozenset({"tenant_id"})
+
+
 def ensure_tenant_backfill(engine_to_use=None) -> None:
     """E1 (2026-06-12, External-Access-Rollout): weist Bestands-Rows mit
     tenant_id IS NULL dem Default-Tenant 'main' zu.

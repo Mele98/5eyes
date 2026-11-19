@@ -120,7 +120,7 @@ def _mandate_stub(mid: str = "m-u98") -> SimpleNamespace:
 def test_check_with_no_currency_data_returns_nicht_beurteilbar():
     db = _StubDB()
     out = _check_waehrungsabsicherung(db, _mandate_stub(), dc={})
-    assert out["pruefpunkt"] == "Waehrungsabsicherung"
+    assert out["pruefpunkt"] == "Währungsabsicherung"
     assert out["bewertung"] == "nicht_beurteilbar"
 
 

@@ -40,18 +40,13 @@ from services.pdf.styles import (
 # E2E2-03: Bei Vermoegensverzehr (mittlerer Verlauf unter null) ergibt die
 # zeitgewichtete Median-Rendite -100 %, der Drawdown -100 % und die Sharpe-Ratio
 # eine sinnlose Zahl. Statt dieser Werte steht ein Hinweis wie in der App.
-NOT_MEANINGFUL = "nicht aussagekräftig"
-_TOTAL_LOSS_BPS = -10_000
-
-
-def not_meaningful_text(note: str | None) -> str:
-    """Kennzahl-Ersatz bei Verzehr: "nicht aussagekräftig – <Hinweis>"."""
-    return f"{NOT_MEANINGFUL} – {note}" if note else NOT_MEANINGFUL
-
-
-def depleted(note: str | None, cagr_bps: int | None) -> bool:
-    """Verzehr belegt (Hinweis) oder Totalverlust-Median (-100 %)."""
-    return bool(note) or (cagr_bps is not None and int(cagr_bps) <= _TOTAL_LOSS_BPS)
+# Eine Quelle fuer alle Kunden-PDFs (KN3-B): core/depletion_display.py.
+from core.depletion_display import (  # noqa: E402,F401  (Re-Export fuer bestehende Aufrufer)
+    NOT_MEANINGFUL,
+    TOTAL_LOSS_BPS as _TOTAL_LOSS_BPS,
+    depleted,
+    not_meaningful_text,
+)
 
 
 def _sharpe_ratio(cagr_bps: int | None, vol_bps: int | None, risk_free_bps: int) -> float | None:

@@ -46,6 +46,7 @@ from core import sustainability_preference as sustainability
 from core.reason_codes import DomainError, ReasonCode
 from services.portfolio_engine_payload import ESG_CUSTOMER_CLAIM_LABELS
 from services.recommendation_release_gate import (
+    firm_display_name,
     assert_run_evidence as _assert_run_evidence,
     assert_sustainability_preference_floor as _assert_floor,
     current_run_id as _current_run_id,
@@ -117,11 +118,9 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session, *,
         mandate_name = mandate_number or f"Mandat {mandate.id}"
 
     advisor_name = getattr(current_user, "full_name", None) or getattr(current_user, "email", None) or "Berater"
-    advisor_org = (
-        getattr(current_user, "organization", None)
-        or getattr(current_user, "org_name", None)
-        or advisor_name
-    )
+    # KN3-B / E2E3-04: Firmenkopf aus den Firmenangaben des Mandanten, nie der
+    # Beratername (der erscheint als eigene Berater-Zeile bzw. als Autor).
+    advisor_org = firm_display_name(db, mandate)
     base_currency = str(getattr(mandate, "base_currency", "CHF") or "CHF").upper()
     return PDFContext(
         mandate_name=mandate_name,
@@ -2582,6 +2581,9 @@ def _build_depotcheck_data(
         "max_drawdown_bps": strategy.max_drawdown_bps,
         "var_95_bps": strategy.var_95_bps,
         "horizon_years": int(strategy.horizon_years or 0),
+        # KN3-B / N-917R2-02: E2E2-03-Regel auch im Depotcheck (Verzehr).
+        "median_cagr_bps": getattr(strategy, "median_cagr_bps", None),
+        "depletion_note": getattr(strategy, "target_depletion_note", None),
     }
     return DepotCheckData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,

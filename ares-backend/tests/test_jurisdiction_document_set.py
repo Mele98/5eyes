@@ -82,12 +82,13 @@ DECLARED_TEXT_CHANGES = {
     },
     "cost_disclosure.cover.focus_points": {
         "from": "sha256:6b5ef1b1e47d3812287bf909a079d7620646e9e78640ef74b91f5ac323e0930a",
-        "to": "sha256:9f0b3310a4f5b46e8fd185f9d76da14f8b63953351a78f6f81e196300fc5c2dc",
+        "to": "sha256:1199fce45a7fcaf2b9e18f4e347d878d9d3d4fb56d20963b60e10f38785f9128",
         "reason": (
             "PO-17: Transaktionskosten auf den Umschlag; Deckblatt neutral "
-            "'Transaktionen der Umsetzung bzw. Umschichtung' statt 'Erstumsetzung'"
+            "'Transaktionen der Umsetzung bzw. Umschichtung' statt 'Erstumsetzung'. "
+            "KN3-B / N-917R2-04: 'Depotgebühren' mit echtem Umlaut statt 'Depotgebuehren'"
         ),
-        "ref": "H-120 / N-856-2",
+        "ref": "H-120 / N-856-2; H-170 / N-917R2-04",
     },
 }
 
@@ -98,7 +99,7 @@ def _expected_digest(key: str) -> str:
 
 
 # Gepinnter Inhalts-Hash aller CH-Texte (jede Textaenderung ist sichtbar).
-CH_DOCUMENTS_HASH = "sha256:4d79420f34f044da35f58ab5b664ab4997a21b64936c2d7f1b65fced59e3f558"  # H7 N-884-03, H8 N-890-07
+CH_DOCUMENTS_HASH = "sha256:6174bf0cff1e24e17463561dcaa7b4adf9e81ad18653ff04b124ee862497f390"  # H7 N-884-03, H8 N-890-07, H-170 N-917R2-04
 
 def _norm(value):
     if isinstance(value, (list, tuple)):

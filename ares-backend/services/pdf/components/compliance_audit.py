@@ -7,6 +7,7 @@ signals visible in the PDF.
 """
 from __future__ import annotations
 
+from core.customer_terms import customer_term
 from typing import Any
 
 from reportlab.lib.colors import HexColor
@@ -33,7 +34,7 @@ from services.pdf.components.advisory_palette import (
 from services.pdf.components.swiss_numbers import format_bps_as_pct, format_integer
 
 
-PILL_OK = ("gruen", "#E5EEDF", "#4E6F58")
+PILL_OK = ("grün", "#E5EEDF", "#4E6F58")
 PILL_BAD = ("rot", "#F0D9D9", "#9E4747")
 PILL_PENDING = ("Daten ausstehend", "#E9EBEE", "#7A8395")
 
@@ -597,7 +598,7 @@ def _safe(value: Any) -> str:
 
 def _escape(text: Any) -> str:
     return (
-        str(text)
+        customer_term(str(text))
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
