@@ -55,6 +55,7 @@
       "frontend/advisor-guidance.js",
       "frontend/mandate-view.js",
       "frontend/kn3-ui.js",
+      "frontend/kn4-ui.js",
       "frontend/eligibility-overrides.js",
       "frontend/desktop-api.js",
       "frontend/trade-list-preview.js",

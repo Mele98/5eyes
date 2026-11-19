@@ -39,7 +39,7 @@ BAND_FUNCS = (
     "aresBandOf", "aresBandStatus", "aresBandNumber", "reviewBandStateMeta", "reviewStrategyComparisonRows",
     "_reviewIsIlliquidAssetClass", "_reviewIsDiscretionaryMandate", "liveRebalancingPayload",
     "reviewAssetClassSortKey", "assetDisplayName", "formatBpsPercent", "_rvHeroConsultingHtml",
-    "_rvHeroCommonChips", "_rvHeroChipsHtml", "reviewBandVisualHtml", "reviewLiveDriftsBackedByHoldings",
+    "_rvHeroCommonChips", "_rvHeroChipsHtml", "reviewLiveDriftsBackedByHoldings", "aresReviewPct",
 )
 # Persona A (Dok. 118): Kapitalschutz, Ist 35.6 % Aktien, Aktien- und Immobilienband 0/0.
 PERSONA_A = """
@@ -77,7 +77,8 @@ def test_e2e3_01_point_band_zero_is_a_band_card_and_header_agree():
     # Kopfzeile zaehlt dieselbe Bewertung: Aktien, Obligationen, Liquiditaet verletzt, Alternative eng.
     assert "4 Anlageklassen weichen von der Zielallokation ab" in now["html"], now["html"]
     assert "1/5 Anlageklassen im Band" in now["html"], now["html"]
-    assert "Obligationen: aktuell 44.4 % / Ziel 93.3 %" in now["html"], now["html"]
+    plain = now["html"].replace(" ", " ").replace(" ", " ")
+    assert "Obligationen: aktuell 44.4 % / Ziel 93.3 %" in plain, now["html"]
     # Gegenprobe rot: der Befund aus Dok. 118 (Karte "Im Band · Beobachten", Kopfzeile 2/5).
     assert old["labels"]["aktien"] == ["Im Band", "Beobachten"], old["labels"]
     assert "2/5 Anlageklassen im Band" in old["html"], old["html"]
@@ -102,14 +103,9 @@ def test_e2e3_01_missing_band_is_no_band_and_h6_point_band_still_violated():
     assert out["rowBands"] == [["aktien", None, None], ["obligationen", 0, 0]], out
 
 
-def test_e2e3_01_band_visual_draws_point_band_not_fake_zone():
-    out = run_js(BAND_FUNCS, """
-      var m={tagClass:'tr2',tone:'red'};
-      return {point:reviewBandVisualHtml({bandMinBps:0,bandMaxBps:0,targetWeightBps:0,currentWeightBps:3556},m),
-              none:reviewBandVisualHtml({bandMinBps:null,bandMaxBps:null,targetWeightBps:0,currentWeightBps:3556},m)};
-    """, prelude=BAND_PRELUDE)
-    assert "<span>0.0 %</span><span>Ziel 0.0 %</span><span>0.0 %</span>" in out["point"], out["point"]
-    assert "<span>5.0 %</span>" in out["none"], out["none"]  # ohne Band weiter Hilfszone Ziel +/- 5 %
+def test_kn4_review_band_visual_removed_dead_code():
+    """KN4-U: reviewBandVisualHtml hatte seit dem Rebrand keinen Aufrufer (keine Bandgrafik in der Review) -> entfernt."""
+    assert "reviewBandVisualHtml(" not in read_monolith_bundle()
 
 
 def test_e2e3_01_every_band_evaluation_uses_the_shared_logic():
@@ -121,8 +117,6 @@ def test_e2e3_01_every_band_evaluation_uses_the_shared_logic():
     assert "function aresBandOf(" not in runtime
     meta = src[src.index("function reviewBandStateMeta("):src.index("function reviewLiveDriftsBackedByHoldings(")]
     assert "aresBandOf(bucket&&bucket.band_min_bps,bucket&&bucket.band_max_bps)" in meta and "hasBand=!!band" in meta
-    visual = kn3[kn3.index("function reviewBandVisualHtml("):kn3.index("function derivedAmortizationEndLabel(")]
-    assert "aresBandOf(item.bandMinBps,item.bandMaxBps)" in visual and src.count("function reviewBandVisualHtml(") == 1
     trigger = src[src.index("function renderTriggerBucket("):src.index("function renderTriggerBucket(") + 2500]
     assert "aresBandStatus(liveDrift.current_weight_bps,liveDrift.band_min_bps,liveDrift.band_max_bps)" in trigger
     assert "bandMinBps:Number(bucket.band_min_bps||0)" not in src

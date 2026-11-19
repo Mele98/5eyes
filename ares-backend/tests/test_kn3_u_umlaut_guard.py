@@ -1,4 +1,4 @@
-"""KN3-U / N-917R2-05 (H-167 R2, Dok. 118): Waechter gegen ASCII-Umschriften
+"""KN3-U / N-917R2-05 (ortsgebunden seit KN4-U, N-917R3-05) (H-167 R2, Dok. 118): Waechter gegen ASCII-Umschriften
 (ae/oe/ue statt ä/ö/ü) in sichtbaren Texten der Classic-Berateroberflaeche.
 
 Geprueft werden alle String-Literale und HTML-Textknoten des Monolithen inkl.
@@ -85,14 +85,36 @@ def _is_transcription(word: str) -> bool:
     return re.search(r"ae|oe|ue", rest) is not None
 
 
+# N-917R3-05 (KN4-U): die Allowlist ist ortsgebunden. Ein Schluessel ist nur erlaubt, wo er
+# als Wert steht: als eigenes Wert-Literal in Bezeichner-Form ('Liquiditaet', 'kpi-reinvermoegen',
+# 'Liquiditaet_CHF', === 'nachtraeglich') oder als Attributwert (value="persoenlich_papier").
+# Ausnahmen mit Leerzeichen/Pfad stehen woertlich in KEY_EXACT. In einem Satz oder in einem
+# HTML-Textknoten ist dasselbe Wort eine Umschrift.
+KEY_EXACT = {
+    "Schwellenlaender": ("'Aktien Schwellenlaender'",),
+    "edoeb": ("'/edoeb-notification'",),
+}
+
+
+def _key_place(chunk: str, word: str, literal: bool) -> bool:
+    w = re.escape(word)
+    if any(x in chunk for x in KEY_EXACT.get(word, ())):
+        return True
+    if literal and re.fullmatch(r"(['\"`])[A-Za-z0-9_\-]*" + w + r"[A-Za-z0-9_\-]*\1", chunk.strip()):
+        return True
+    if re.search(r"(?:value|id|data-[\w-]+)=\\?[\"'][A-Za-z0-9_\-]*" + w + r"[A-Za-z0-9_\-]*\\?[\"']", chunk):
+        return True
+    return re.search(r"(?<![A-Za-z])['\"][A-Za-z0-9_\-]*" + w + r"[A-Za-z0-9_\-]*['\"]", chunk) is not None and not literal
+
+
 def visible_transcriptions(sources: dict[str, str]) -> list[tuple[str, str, str]]:
     found = []
     for name, text in sources.items():
         stripped = COMMENTS.sub("", text)
-        chunks = [m.group(0) for m in LITERALS.finditer(stripped)] + [m.group(1) for m in TEXT_NODES.finditer(stripped)]
-        for chunk in chunks:
+        chunks = [(m.group(0), True) for m in LITERALS.finditer(stripped)] + [(m.group(1), False) for m in TEXT_NODES.finditer(stripped)]
+        for chunk, literal in chunks:
             for word in WORD.findall(chunk):
-                if word in KEYS or not _is_transcription(word):
+                if not _is_transcription(word) or (word in KEYS and _key_place(chunk, word, literal)):
                     continue
                 found.append((name, word, chunk.strip()[:120]))
     return found
@@ -121,5 +143,7 @@ def test_guard_detects_transcriptions_counterproof():
     assert words == ["3a-Bezuege".split("-")[1], "Kapitalzufluesse", "Vermoegensteuer", "fuer", "geaendert"], words
     # Kommentar und Regex-Literal sind ausgenommen.
     assert visible_transcriptions({"p.js": "// Vermoegen fuer\nvar r=/geaendert/g;"}) == []
-    # Schluessel aus der Allowlist bleiben erlaubt.
-    assert visible_transcriptions({"p.js": "var k='Liquiditaet';"}) == []
+    # Schluessel aus der Allowlist bleiben erlaubt -- aber nur an ihrem Ort (als Wert-Literal).
+    assert visible_transcriptions({"p.js": "var k='Liquiditaet';var i=\"kpi-reinvermoegen\";"}) == []
+    in_text = visible_transcriptions({"p.js": "var t='Die Liquiditaet bleibt';", "p.html": "<td>jaehrlich</td>"})
+    assert sorted(w for _n, w, _c in in_text) == ["Liquiditaet", "jaehrlich"], in_text

@@ -39,7 +39,7 @@ function aaChartPrepare(items,keepZeroWithBand){
       expanded:!!it.expanded,_i:idx,subs:(it.subs||[]).map(function(s,j){
         return {name:String(s.name||''),bps:Math.max(0,Math.round(Number(s.bps)||0)),note:s.note||'',_j:j};
       })};
-  }).filter(function(r){return r.bps>0||(keepZeroWithBand&&r.band&&r.band.max>0);});
+  }).filter(function(r){return r.bps>0||(keepZeroWithBand&&!!r.band);});
   // Klassen: Apportionierung in kanonischer Reihenfolge (Gleichstandsregel).
   aaChartApportion(rows.slice().sort(function(a,b){return (aaChartClassRank(a.key)-aaChartClassRank(b.key))||(a._i-b._i);}));
   rows.sort(function(a,b){return (b.bps-a.bps)||(aaChartClassRank(a.key)-aaChartClassRank(b.key))||(a._i-b._i);});
@@ -211,7 +211,7 @@ function aaChartAllocItems(){
     var amount=pos.length?0:Math.round((rb.strategyBaseRappen/100)*Number(r.soll||0)/100),band=null;
     pos.forEach(function(b,i){if(dn(b.asset_class)===r.n)amount=pa.buckets[i];});
     buckets.forEach(function(b){
-      if(dn(b.asset_class)===r.n&&(Number(b.band_max_bps)>0))band={min:Number(b.band_min_bps||0),max:Number(b.band_max_bps||0)};
+      if(dn(b.asset_class)===r.n)band=aresBandOf(b.band_min_bps,b.band_max_bps)||band; // N-917R3-05: 0/0 = Linie bei 0
     });
     var subs=typeof allocationSubAllocationsForBucket==='function'?allocationSubAllocationsForBucket(r.n):[];
     var gk=typeof allocationTableGroupKey==='function'?allocationTableGroupKey(r.n):String(r.n||'');
@@ -284,11 +284,11 @@ function aaChartContextHtml(o,f){
 }
 // Bandbreite als horizontaler Balken: Skala 0-100 %, Band min-max, Ziel-Marker.
 function aaChartBandHtml(band,bps,label){
-  if(!band||!(band.max>0))return '';
+  if(!band)return '';
   var mn=Math.max(0,Math.min(10000,band.min)),mx=Math.max(mn,Math.min(10000,band.max)),t=Math.max(0,Math.min(10000,bps));
   var txt='Bandbreite '+(mn===mx?aaChartPctText(mn):(aaChartPctText(mn).replace(' %','')+'–'+aaChartPctText(mx)));
   return '<span class="aa-band" role="img" aria-label="'+aaChartEsc(label+': '+txt+', Ziel '+aaChartPctText(t))+'">'
-    +'<span class="aa-band-track"><span class="aa-band-range" style="left:'+(mn/100)+'%;width:'+((mx-mn)/100)+'%"></span>'
+    +'<span class="aa-band-track"><span class="aa-band-range" style="left:'+(mn/100)+'%;width:'+Math.max(0.6,(mx-mn)/100)+'%"></span>'
     +'<span class="aa-band-mark" style="left:'+(t/100)+'%"></span></span><span class="aa-band-txt">'+aaChartEsc(txt)+'</span></span>';
 }
 // SOLL-Quoten-Liste: gleiche Sortierung/Rundung wie die Torte, Unterklassen

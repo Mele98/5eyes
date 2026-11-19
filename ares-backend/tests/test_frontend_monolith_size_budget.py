@@ -173,6 +173,12 @@ Vermoegensaenderung, KYC-Formular, neues Mandat auffindbar, kein "veraltet" ohne
 Strategie. Umgezogen: reviewBandVisualHtml (ares.html), aresTerm und Cashflow-HUD
 (mandate-view.js). Alle betroffenen Budgets gesenkt bzw. gehalten (Monolith,
 goal-review-runtime.js, client-compliance.js, mandate-view.js).
+KN4-U Kernkette Runde 4 (Dok. 119 / H-172-Pruefung, Classic-UI): neuer Teil
+``kn4-ui.js`` (Budget = Stand bei Einfuehrung): ein Reset fuer Kundenwechsel und
+neues Mandat, eine Rundungsquelle je Zahl, Portfolio bei veralteter Strategie,
+fehlendes Ist nicht bewertbar. normalizeCashflowProjectionLabels aus ares.html
+umgezogen, reviewBandVisualHtml (ohne Aufrufer) aus kn3-ui.js entfernt. Budgets
+gesenkt: Monolith, kn3-ui.js, aa-chart.js.
 """
 from __future__ import annotations
 
@@ -181,9 +187,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26440
+MONOLITH_MAX_LINES = 26419
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1623611
+MONOLITH_MAX_BYTES = 1623095
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -191,7 +197,7 @@ EXTRACTED_PART_BUDGETS = {
     "ares.css": (1143, 90070),
     "aa-chart.css": (66, 5978),
     "intro-sequence.js": (761, 36861),
-    "aa-chart.js": (316, 20632),
+    "aa-chart.js": (316, 20608),
     "ist-projection-gate.js": (288, 15951),
     "session-boundary.js": (53, 2763),
     "ist-projection-basis.js": (87, 4627),
@@ -206,7 +212,8 @@ EXTRACTED_PART_BUDGETS = {
     "finalize-attestation.js": (27, 1750),
     "fx-rates-editor.js": (97, 5091),
     "mandate-view.js": (604, 35395),
-    "kn3-ui.js": (274, 16133),
+    "kn3-ui.js": (259, 14886),
+    "kn4-ui.js": (222, 12361),
     "advisor-guidance.js": (728, 43963),
 }
 
