@@ -116,7 +116,11 @@ from services.depot_check import compute_depot_check
 from services.backtest_stress import gated_stress_replays
 from services.backtest_ab import run_ab_backtest
 from services.backtest_strategy import run_strategy_backtest
-from services.report_projection_gate import resolve_current_allocation_projection_gate
+from services.report_projection_gate import (
+    apply_publication_freshness,
+    publication_freshness,
+    resolve_current_allocation_projection_gate,
+)
 from services.review_engine import ReviewAnchorDataError, refresh_system_review_triggers
 from services.suitability_audit import audit_mandate_suitability, suitability_gate_blocks
 from services.knowledge_asset_class_gap import (
@@ -1025,9 +1029,16 @@ def get_allocation_publication(
 ):
     """CCX-P4: Publikationsstatus der aktuellen Soll-Allokation (Pruefung ohne
     Schreibwirkung). ``can_publish`` nur, wenn alle Gates gruen sind; sonst
-    katalogisierte ``blocker_codes``."""
+    katalogisierte ``blocker_codes``.
+
+    KN-B / E2E2-05: ``freshness`` (abgeleitet, Datensatz append-only): eine
+    publizierte, aber nicht mehr FRESHe Allokation erscheint als
+    ``PUBLICATION_INVALID`` mit konkreter Ursache (z. B. "Wechselkurs USD
+    geändert")."""
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    return publication_overview(db, mandate)
+    overview = publication_overview(db, mandate)
+    state = active_publication_state(db, mandate)
+    return apply_publication_freshness(overview, publication_freshness(db, mandate, state))
 
 
 @router.post("/mandates/{mandate_id}/allocation-publication",
@@ -1224,14 +1235,21 @@ def get_advisory_report(
         # CCX-P4: der Bericht zeigt die Strategie nur als publiziert, wenn sie
         # gueltig publiziert ist (tiefe Pruefung); sonst als Entwurf.
         state = active_publication_state(db, mandate)
+        # KN-B / E2E2-05: abgeleitete Frische (veraltet mit Ursache).
+        freshness = publication_freshness(db, mandate, state)
+        published = state.published and freshness.get("status") != "STALE"
         report = {
             **report,
             # N-910-02: Kennzeichnung der Freigabeart in der Berater-Ansicht
             # (nicht in Kunden-PDFs -- interne Governance).
-            "allocation_publication": {"status": state.status, "reason_code": state.reason_code,
+            "allocation_publication": {"status": state.status if published or not state.published
+                                       else "PUBLICATION_INVALID",
+                                       "reason_code": state.reason_code if published or not state.published
+                                       else freshness.get("reason_code"),
                                        "approval_mode_label": approval_mode_label(state.approval_mode)
-                                       if state.published else None},
-            "allocation_draft_notice": None if state.published else ALLOCATION_DRAFT_NOTICE,
+                                       if published else None,
+                                       "freshness": freshness},
+            "allocation_draft_notice": None if published else ALLOCATION_DRAFT_NOTICE,
         }
     return report
 

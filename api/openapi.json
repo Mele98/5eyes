@@ -285,9 +285,42 @@
         "title": "AdvisoryEnvelopeBindingResponse",
         "type": "object"
       },
+      "AdvisoryEnvelopeFreshnessCause": {
+        "description": "KN-B / E2E2-05: Ursache einer Invalidierung (z. B. \"Ziele geändert\").",
+        "properties": {
+          "currencies": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Currencies",
+            "type": "array"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ],
+        "title": "AdvisoryEnvelopeFreshnessCause",
+        "type": "object"
+      },
       "AdvisoryEnvelopeFreshnessResponse": {
         "description": "CCX-P2: Serverstatus der Frische des aktuellen versiegelten Entscheids\n(Anzeige; keine Neuberechnung im Client).",
         "properties": {
+          "causes": {
+            "items": {
+              "$ref": "#/components/schemas/AdvisoryEnvelopeFreshnessCause"
+            },
+            "title": "Causes",
+            "type": "array"
+          },
           "envelope_hash": {
             "title": "Envelope Hash",
             "type": "string"
@@ -1621,6 +1654,16 @@
               }
             ],
             "title": "Envelope Id"
+          },
+          "freshness": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicationFreshnessResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "mandate_id": {
             "title": "Mandate Id",
@@ -21417,6 +21460,79 @@
         "title": "ProductUpdate",
         "type": "object"
       },
+      "PublicationFreshnessCause": {
+        "description": "KN-B / E2E2-05: eine Ursache der Veraltung.",
+        "properties": {
+          "currencies": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Currencies",
+            "type": "array"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ],
+        "title": "PublicationFreshnessCause",
+        "type": "object"
+      },
+      "PublicationFreshnessResponse": {
+        "description": "KN-B / E2E2-05: abgeleitete Frische der aktiven Publikation.\n``status``: FRESH | STALE | UNKNOWN | null (keine bzw. aus anderem Grund\nungueltige Publikation).",
+        "properties": {
+          "causes": {
+            "items": {
+              "$ref": "#/components/schemas/PublicationFreshnessCause"
+            },
+            "title": "Causes",
+            "type": "array"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "title": "PublicationFreshnessResponse",
+        "type": "object"
+      },
       "RecommendationFinalizeResponse": {
         "description": "N-856-7 (Pruefrunde #856): Finalize-Antwort = Lauf + Warnungen.\n\n``warnings`` ist identisch zum Audit-Log-Eintrag (\"Final; Warnungen:\n...\"), ``warning_codes`` die daraus gelesenen Codes (z. B.\nSAA_BUCKET_DEVIATION, POSITION_LIMIT_EXCEEDED).",
         "properties": {
@@ -38745,7 +38861,7 @@
     },
     "/mandates/{mandate_id}/allocation-publication": {
       "get": {
-        "description": "CCX-P4: Publikationsstatus der aktuellen Soll-Allokation (Pruefung ohne\nSchreibwirkung). ``can_publish`` nur, wenn alle Gates gruen sind; sonst\nkatalogisierte ``blocker_codes``.",
+        "description": "CCX-P4: Publikationsstatus der aktuellen Soll-Allokation (Pruefung ohne\nSchreibwirkung). ``can_publish`` nur, wenn alle Gates gruen sind; sonst\nkatalogisierte ``blocker_codes``.\n\nKN-B / E2E2-05: ``freshness`` (abgeleitet, Datensatz append-only): eine\npublizierte, aber nicht mehr FRESHe Allokation erscheint als\n``PUBLICATION_INVALID`` mit konkreter Ursache (z. B. \"Wechselkurs USD\ngeändert\").",
         "operationId": "get_allocation_publication_mandates__mandate_id__allocation_publication_get",
         "parameters": [
           {
