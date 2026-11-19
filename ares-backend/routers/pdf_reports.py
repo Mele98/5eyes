@@ -79,6 +79,7 @@ from services.recommendation_run_resolver import (
     resolve_current_recommendation_run,
 )
 from services.pdf.base import (
+    depletion_note,
     resolve_pdf_jurisdiction,
     AnlagestrategieData,
     BacktestData,
@@ -1109,6 +1110,7 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
     target_vol_1y_bps = None
     current_vol_1y_bps = None
     projection_end_year_label = None
+    target_depletion_note = current_depletion_note = None
     if engine_payload is not None:
         mc = engine_payload.get("monte_carlo") or {}
         _mc_labels = mc.get("year_labels")
@@ -1152,6 +1154,9 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
             current_median_end_rappen = _last("current_p50_series_rappen")
             current_p90_end_rappen = _last("current_p90_series_rappen")
             current_p10_end_rappen = _last("current_p10_series_rappen")
+            # E2E2-03: Verzehr im mittleren Verlauf -> Kennzahlen nicht aussagekraeftig.
+            target_depletion_note = depletion_note(_mc_labels, mc.get("target_p50_series_rappen"), reserve_rappen)
+            current_depletion_note = depletion_note(_mc_labels, mc.get("current_p50_series_rappen"))
         except (TypeError, ValueError) as exc:
             logger.warning(
                 "PDF MC-metrics parse failed for mandate %s: %s",
@@ -1237,6 +1242,8 @@ def _build_anlagestrategie_data(mandate: Mandate, db: Session) -> Anlagestrategi
         target_volatility_1y_bps=target_vol_1y_bps,
         current_volatility_1y_bps=current_vol_1y_bps,
         projection_end_year_label=projection_end_year_label,
+        target_depletion_note=target_depletion_note,
+        current_depletion_note=current_depletion_note,
         band_house_deviations=list(band_disclosure["deviations"]),
         band_house_profile=band_disclosure["profile"],
         band_deviation_reason=band_disclosure["reason"],

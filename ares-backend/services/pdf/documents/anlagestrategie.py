@@ -573,6 +573,7 @@ def _build_anlagestrategie_flowables_template_order(
             volatility_bps=data.cma_expected_vol_bps,
             max_drawdown_bps=data.max_drawdown_bps,
             var_95_bps=data.var_95_bps,
+            depletion_note=getattr(data, "target_depletion_note", None),
         ))
     else:
         empty_section("Risikoindikatoren", "Noch keine Monte-Carlo-Simulation gespeichert.")
@@ -596,6 +597,8 @@ def _build_anlagestrategie_flowables_template_order(
         risk_free_bps=data.risk_free_bps,
         currency=ctx.base_currency,
         end_year_label=getattr(data, "projection_end_year_label", None),
+        target_depletion_note=getattr(data, "target_depletion_note", None),
+        current_depletion_note=getattr(data, "current_depletion_note", None),
     )
     if sollist_kennzahlen:
         flowables.append(Spacer(1, 6 * mm))

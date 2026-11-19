@@ -53,6 +53,24 @@ class PDFContext:
     watermark_mode: str = "none"
 
 
+# E2E2-03: Verzehr-Hinweis fuer die Kunden-PDFs (pure Funktion).
+def depletion_note(year_labels, series, offset: int = 0) -> str | None:
+    """Erstes Jahr strikt unter null im Verlauf ``series`` (+ ``offset``, z. B.
+    die externe Reserve wie beim gedruckten Endwert). Gleiche Regel wie die App
+    (advisor-guidance.js ``depletionYear``/``depletionPhrase``): "Vermögen
+    aufgebraucht ab JJJJ", bei Startwert <= 0 "Finanzierungslücke ab JJJJ"."""
+    if not isinstance(series, (list, tuple)) or not series:
+        return None
+    values = [int(value or 0) + (int(offset) if value else 0) for value in series]
+    labels = list(year_labels) if isinstance(year_labels, (list, tuple)) else []
+    for index, value in enumerate(values):
+        if value < 0:
+            year = str(labels[index])[:4] if index < len(labels) and labels[index] is not None else None
+            phrase = "Vermögen aufgebraucht" if values[0] > 0 else "Finanzierungslücke"
+            return f"{phrase} ab {year}" if year else phrase
+    return None
+
+
 @dataclass(frozen=True)
 class AnlagestrategieData:
     """Daten-Bundle fuer Anlagestrategie-PDF (Sprint 11 vollumfaenglich).
@@ -242,6 +260,13 @@ class AnlagestrategieData:
     identisch zu cma_expected_vol_bps oben, das die theoretische CMA-Vola
     ist -- hier die tatsaechlich simulierte Pfad-Statistik, Basis fuer die
     Sharpe-Ratio)."""
+
+    target_depletion_note: str | None = None
+    current_depletion_note: str | None = None
+    """E2E2-03: "Vermögen aufgebraucht ab JJJJ" (bzw. "Finanzierungslücke ab
+    JJJJ"), wenn der mittlere Verlauf (P50) unter null faellt -- gleiche Regel
+    wie die App (advisor-guidance.js ``depletionYear``). Dann sind Median-
+    Rendite, Drawdown und Sharpe nicht aussagekraeftig (sonst -100 %)."""
 
     risk_free_bps: int = 80
     """Sharpe-Ratio-Referenzsatz. Konvention identisch zum Frontend

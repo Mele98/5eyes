@@ -1,6 +1,6 @@
 """Sprint 11: 5 farbcodierte Metric-Boxes fuer Risiko-Indikatoren.
 
-Frontend-Vorlage: "Risikoindiktatoren & Prognose (Monte Carlo)"
+Frontend-Vorlage: "Risikoindikatoren & Prognose (Monte Carlo)"
 - Erwartete Rendite (p.a. langfristig)
 - Median CAGR (geometrisch)
 - Volatilitaet (p.a. annualisiert)
@@ -13,7 +13,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
-from services.pdf.components.produkte import _make_single_metric
+from services.pdf.components.sollist_vergleich import NOT_MEANINGFUL, depleted
 from core.presentation_rounding import format_bps_as_pct
 from services.pdf.styles import (
     COLOR_BORDER,
@@ -31,6 +31,7 @@ def make_risiko_metriken_section(
     volatility_bps: int | None,
     max_drawdown_bps: int | None,
     var_95_bps: int | None,
+    depletion_note: str | None = None,
 ) -> list:
     """5 Metric-Boxes in einer Tabellen-Zeile."""
     # N-858-12: Die Monte-Carlo-Kennzahlen sind None, wenn sie fehlen; 0 ist
@@ -40,11 +41,18 @@ def make_risiko_metriken_section(
     ):
         return []
 
-    flowables = [_section_title("Risikoindiktatoren & Prognose (Monte Carlo)")]
+    # E2E2-03: Titel war "Risikoindiktatoren" (Tippfehler, in Versalien gedruckt).
+    flowables = [_section_title("Risikoindikatoren & Prognose (Monte Carlo)")]
+    # E2E2-03: bei Vermoegensverzehr im mittleren Verlauf sind Median-CAGR und
+    # Drawdown -100 % -- nicht aussagekraeftig, Hinweis wie in der App.
+    depleted_mc = depleted(depletion_note, median_cagr_bps)
+    na_text = NOT_MEANINGFUL
+    na_sub = depletion_note or "Vermögen aufgebraucht"
 
     boxes = [
         ("Erwartete Rendite", _fmt_pct(expected_return_bps), "p.a. langfristig", COLOR_BORDER),
-        ("Median CAGR", _fmt_mc_pct(median_cagr_bps), "geometrisch", COLOR_BORDER),
+        ("Median CAGR", na_text, na_sub, COLOR_BORDER) if depleted_mc
+        else ("Median CAGR", _fmt_mc_pct(median_cagr_bps), "geometrisch", COLOR_BORDER),
         # Live-Test 2026-11 M8: Modell-Volatilitaet sqrt(w'Sigma w) der SAA --
         # nicht identisch mit der in der Simulation realisierten 1-Jahres-
         # Volatilitaet im SOLL/IST-Vergleich; daher eindeutig beschriftet.
@@ -54,7 +62,8 @@ def make_risiko_metriken_section(
         # simulierten Max-Drawdown-Verteilung, in einem Abschnitt, der selbst
         # "(Monte Carlo)" heisst. Kundensichtbar falsch etikettiert; keine
         # historische Beobachtung fliesst hier ein.
-        ("Max. Drawdown", _fmt_mc_pct(max_drawdown_bps, neg=True), "Median, simuliert", COLOR_BORDER_WARN),
+        ("Max. Drawdown", na_text, na_sub, COLOR_BORDER_WARN) if depleted_mc
+        else ("Max. Drawdown", _fmt_mc_pct(max_drawdown_bps, neg=True), "Median, simuliert", COLOR_BORDER_WARN),
         ("VaR 95%", _fmt_mc_pct(var_95_bps, neg=True), "1-Jahres-Risiko", COLOR_BORDER_DANGER),
     ]
 
