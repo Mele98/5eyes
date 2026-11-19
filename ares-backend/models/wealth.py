@@ -77,7 +77,7 @@ class WealthPosition(Base):
     goal_funding_method = Column(String)
     # K1 Property-Gate (2026-11-19): Owner-Review-Fall, wenn die Migration aktive
     # Werte deaktivierter Property-/Collateral-Funktionen neutralisiert hat (alter
-    # Wert + Aktion, services/property_advanced_gate.py). NULL = kein Fall.
+    # Wert + Aktion, core/property_gate.py). NULL = kein Fall.
     property_gate_review_json = Column(String)
     notes = Column(String)
     is_active = Column(Integer, nullable=False, default=1)

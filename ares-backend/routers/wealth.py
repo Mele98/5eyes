@@ -4,6 +4,7 @@ from pydantic import ValidationError
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from core.db_integrity import raise_if_check_violation
+from core.reason_codes import DomainError, ReasonCode
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timezone
 from database import get_db, new_uuid
@@ -25,10 +26,12 @@ from services.audit import log
 from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
 from services.cashflow_timeline import SUPPORTED_FREQUENCIES, normalize_frequency, normalize_nature
 from services.data_classification import enforce_data_classification
-from services.property_advanced_gate import (  # K1 Property-Gate
+from core.property_gate import (  # K1 Property-Gate
+    DISABLED_HINT as PROPERTY_GATE_HINT,
+    MIXED_HINT as MORTGAGE_MIXED_HINT,
+    disabled_features as property_disabled_features,
+    mixed_mortgage_rejected,
     mortgage_projection_enabled,
-    require_mortgage_type_allowed,
-    require_property_write_allowed,
 )
 from services.goal_lifecycle_transitions import (
     invalidate_goal_achievability_evidence,
@@ -47,6 +50,20 @@ router = APIRouter(tags=["Vermögen & Ziele"])
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def require_property_write_allowed(position_type, values: dict) -> None:
+    """K1 Property-Gate: 409 statt stillem Ignorieren (core.property_gate)."""
+    features = property_disabled_features(position_type, values)
+    if features:
+        raise DomainError(ReasonCode.PROPERTY_ADVANCED_FEATURE_DISABLED, PROPERTY_GATE_HINT,
+                          extra={"features": features})
+
+
+def require_mortgage_type_allowed(position_type, new_type, current_type=None) -> None:
+    """K1 PROP-2: "Gemischt" nur noch als unveraenderter Altbestand."""
+    if mixed_mortgage_rejected(position_type, new_type, current_type):
+        raise DomainError(ReasonCode.MORTGAGE_TYPE_MIXED_REJECTED, MORTGAGE_MIXED_HINT, http_status=422)
 
 
 def _validate_position_projection_or_422(

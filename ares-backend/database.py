@@ -4,6 +4,7 @@ import sqlite3
 import re
 import sys
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Generator
 
@@ -14,6 +15,7 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from sqlalchemy.pool import QueuePool
 
 from config import DB_KEY_FORMAT_MESSAGE, db_key_format_ok, settings
+from core import property_gate  # K1 Property-Gate (Stdlib-Blatt)
 from core.mandate_evidence_tenant_boundary import (
     MANDATE_BOUND_TENANT_TABLES,
     create_sqlite_guards_after_metadata_create,
@@ -3621,14 +3623,41 @@ def migrate_house_matrix_real_estate_cap_20(engine_to_use=None) -> int:
     return updated
 
 
+def neutralize_legacy_property_values(conn, *, recorded_at: str | None = None) -> list[dict]:
+    """K1 Property-Gate (Alembic ``63332bb56098`` und SQLite-Startpfad): aktive
+    Altwerte deaktivierter Property-/Collateral-Funktionen auf
+    Ignorieren/false/0/NULL setzen und je Position als Owner-Review-Fall in
+    ``property_gate_review_json`` festhalten (alter Wert, Aktion) -- nicht still
+    verwerfen. "Gemischt" bleibt und wird offen gemeldet. Idempotent. Die
+    geaenderten Zeilen machen versiegelte Entscheide ueber die Kanten-Pull-
+    Pruefung STALE (nie FRESH)."""
+    recorded = recorded_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = conn.execute(text(
+        f"SELECT {', '.join(property_gate.LEGACY_COLUMNS)} FROM wealth_positions "
+        "WHERE deleted_at IS NULL ORDER BY id"
+    )).mappings().all()
+    cases: list[dict] = []
+    for row in rows:
+        update = property_gate.neutralization_update(dict(row), recorded_at=recorded)
+        if update is None:
+            continue
+        assignments = ", ".join(f"{column} = :{column}" for column in update)
+        conn.execute(text(f"UPDATE wealth_positions SET {assignments} WHERE id = :position_id"),
+                     {**update, "position_id": row["id"]})
+        cases.append({"position_id": row["id"], "client_id": row["client_id"],
+                      "findings": property_gate.review_findings(dict(row))})
+    if cases:
+        logger.warning("K1 Property-Gate: %d Position(en) als Owner-Review-Fall markiert "
+                       "(PROPERTY_ADVANCED_FEATURE_DISABLED): %s",
+                       len(cases), ", ".join(c["position_id"] for c in cases))
+    return cases
+
+
 def migrate_property_advanced_gate(engine_to_use=None) -> int:
-    """K1 Property-Gate, SQLite-Startpfad (gleiche Logik wie Alembic
-    ``63332bb56098``): aktive Altwerte deaktivierter Property-/Collateral-
-    Funktionen neutralisieren und als Owner-Review-Fall festhalten. Idempotent."""
+    """K1 Property-Gate, SQLite-Startpfad (gleiche Funktion wie Alembic
+    ``63332bb56098``). Idempotent."""
     eng = engine_to_use if engine_to_use is not None else engine
     try:
-        from services.property_advanced_gate import neutralize_legacy_property_values
-
         with eng.begin() as conn:
             return len(neutralize_legacy_property_values(conn))
     except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error

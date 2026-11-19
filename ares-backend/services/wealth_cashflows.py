@@ -27,7 +27,7 @@ import math
 from dataclasses import dataclass, asdict
 from typing import Optional
 
-from services.property_advanced_gate import mortgage_projection_enabled
+from core.property_gate import mortgage_projection_enabled
 from services.wealth_position_semantics import (
     is_direct_real_estate_position,
     is_liquidity_position,

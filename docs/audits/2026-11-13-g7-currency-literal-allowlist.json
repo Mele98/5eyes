@@ -571,13 +571,6 @@
   },
   {
    "file": "ares-desktop/frontend/ares.html",
-   "code": "<div class=\"fg\"><label class=\"fl\">Amortisation p.a. (<span class=\"ccy\">CHF</span>)</label><input class=\"fi\" id=\"maw-mortgage-amortization\" type=\"number\" placeholder=\"20000\"></div>",
-   "count": 1,
-   "context": "#maw-mortgage-amortization",
-   "reason": "ares.html #maw-mortgage-amortization: Startwert des Waehrungs-Platzhalters <span class=\"ccy\">; syncCcy() setzt beim Oeffnen (om/go) die Waehrung des neuen Datensatzes (newRecordCurrency: Mandat), im Vermoegens-Editor die Positionswaehrung -- Test test_ccy_labels_follow_mandate_and_position_currency."
-  },
-  {
-   "file": "ares-desktop/frontend/ares.html",
    "code": "<div class=\"fg\"><label class=\"fl\">Amortisation p.a. (CHF)</label><input class=\"fi\" type=\"number\" value=\"20000\" placeholder=\"0 = keine\"></div>",
    "count": 1,
    "context": "#m-edit-hypo",

@@ -33,6 +33,7 @@ API darf sie deshalb nie als eine unbenannte Methodik praesentieren.
 from __future__ import annotations
 
 from models.allocation import CapitalMarketAssumption, TargetAllocation
+from core.property_gate import model_basis_labels  # K1 Property-Gate
 from models.mandates import Mandate
 from services.cma_correlation_provenance import bucket_correlation_provenance
 from services.drawdown_refinement import drawdown_time_grid_basis
@@ -48,10 +49,8 @@ from services.portfolio_engine_mc_simulation import (
 
 
 def _property_gate_labels(*, decision: bool) -> dict[str, str]:
-    """K1: Property-Semantik aus dem Gate (services.property_advanced_gate).
+    """K1: Property-Semantik aus dem Gate (core.property_gate).
     Der Entscheidungskanal fuehrte nie ``direct_real_estate_return_basis``."""
-    from services.property_advanced_gate import model_basis_labels
-
     labels = dict(model_basis_labels())
     if decision:
         labels.pop("direct_real_estate_return_basis", None)

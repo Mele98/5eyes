@@ -33,11 +33,11 @@ from sqlalchemy.orm import Session
 
 from models.clients import Client
 from models.mandates import Mandate
-from core.reason_codes import ReasonCode
+from core.reason_codes import DomainError, ReasonCode
 from models.users import User
 from models.allocation import OptimizerPolicy
 from models.wealth import WealthInflow, WealthPosition
-from services.fx_basis import FxBasisError, load_fx_basis, strict_model_fx_source
+from services.fx_basis import FxBasisError, compute_wealth_totals, load_fx_basis, strict_model_fx_source
 
 
 # ---------------------------------------------------------------------------
@@ -5069,3 +5069,38 @@ def _performance_attribution_empty(reason: str) -> dict[str, Any]:
         ),
         "error": reason,
     }
+
+
+def apply_fx_wealth_totals(db, clients: list[dict], *, tenant_id=None) -> None:
+    """K1 / CK-01 (Dashboard-Liste): Betraege je Kunde zeilenweise ueber die
+    strikte FX-Basis (services.fx_basis.compute_wealth_totals), nie die nominale
+    Mischsumme der View. Ein FX-Block betrifft nur diesen Kunden: Betraege None
+    plus ``amount_block_reason_code``; die Liste bleibt lesbar."""
+    ids = [c["client_id"] for c in clients]
+    if not ids:
+        return
+    positions: dict = {cid: [] for cid in ids}
+    for pos in db.query(WealthPosition).filter(
+        WealthPosition.client_id.in_(ids), WealthPosition.deleted_at.is_(None), WealthPosition.is_active == 1,
+    ).all():
+        positions[pos.client_id].append(pos)
+    mandates: dict = {cid: [] for cid in ids}
+    for mandate in db.query(Mandate).filter(Mandate.client_id.in_(ids), Mandate.deleted_at.is_(None)).all():
+        mandates[mandate.client_id].append(mandate)
+    amount_keys = ("gross_wealth_rappen", "liabilities_rappen", "net_worth_rappen", "advisory_wealth_rappen",
+                   "net_worth_chf", "advisory_wealth_chf")
+    for c in clients:
+        cid = c["client_id"]
+        try:
+            totals = compute_wealth_totals(db, positions[cid], mandates[cid], tenant_id=tenant_id)
+        except DomainError as exc:
+            c.update({key: None for key in amount_keys})
+            c.update(amount_currency=None, fx_basis_hash=None, amount_block_reason_code=str(exc.reason_code))
+            continue
+        c.update(
+            gross_wealth_rappen=totals.gross_wealth_rappen, liabilities_rappen=totals.liabilities_rappen,
+            net_worth_rappen=totals.net_worth_rappen, advisory_wealth_rappen=totals.advisory_wealth_rappen,
+            net_worth_chf=totals.net_worth_rappen / 100, advisory_wealth_chf=totals.advisory_wealth_rappen / 100,
+            amount_currency=totals.amount_currency, fx_basis_hash=totals.fx_basis_hash,
+            amount_block_reason_code=None,
+        )

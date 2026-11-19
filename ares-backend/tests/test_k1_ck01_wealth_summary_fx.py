@@ -16,7 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 from core.reason_codes import DomainError
-from services.client_wealth_summary import resolve_summary_currency
+from services.fx_basis import resolve_summary_currency
 from tests.test_e2e_thierry_goessi_walkthrough import (  # noqa: F401  (Fixtures)
     advisor_user,
     api,

@@ -527,9 +527,11 @@
     "core": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "core.db_integrity": "b2221c8d06a7cb27e782d6ab1db7f765d699b166392a90f67c9d1769ae28fe58",
     "core.evidence": "107ad66eeb7424fd9b9ea3c4786e895e2350aa1061fc43e35ae9b65033b93ae6",
+    "core.fx_freshness": "aea28060da3c97d052b4b62eca2f129842084b4a0963167870284b72385e2d4b",
     "core.goal_vocabulary": "2ce6455a657546ddbc54b665215e899d9e0d4e6df4a79aeaa2562857b0867b82",
     "core.presentation_rounding": "be5c45fc1b51629e3bfc7093c74a3bc79855a63f70f1d23830b45486276dbed7",
-    "core.reason_codes": "406994646c933178977a429647f30bd2d17282e60d391a55900ed31e72835b9d",
+    "core.property_gate": "1c0d4a123770f77910c44b109a1edd1dd42c6c2f6f5e2bf6332f7eac949990c4",
+    "core.reason_codes": "80d910e1fc804ad77dcea26a459978ff67970572eaf782a2236f1f7e78882338",
     "core.sustainability_preference": "6fe9be224f9d71e20beac49d2a6e35f8310415f2de34e419e7403efc7050a055"
   }
 }

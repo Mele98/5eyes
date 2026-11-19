@@ -29,7 +29,8 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import create_engine, text
 
-import services.property_advanced_gate as gate
+import core.property_gate as gate
+from database import neutralize_legacy_property_values
 from services import portfolio_engine as pe
 from services.wealth_cashflows import (
     derive_wealth_cashflows,
@@ -321,7 +322,7 @@ def _legacy_db(tmp_path):
 def test_migration_neutralizes_and_logs_owner_review_idempotently(tmp_path):
     engine = _legacy_db(tmp_path)
     with engine.begin() as conn:
-        cases = gate.neutralize_legacy_property_values(conn, recorded_at="2026-11-19T00:00:00Z")
+        cases = neutralize_legacy_property_values(conn, recorded_at="2026-11-19T00:00:00Z")
     assert sorted(c["position_id"] for c in cases) == ["home", "mixed-only", "mort"]
     with engine.connect() as conn:
         rows = {r["id"]: dict(r) for r in conn.execute(text(
@@ -346,7 +347,7 @@ def test_migration_neutralizes_and_logs_owner_review_idempotently(tmp_path):
             rows["cash"]["property_gate_review_json"]) == (1, "Automatisch", None)
     # Idempotent.
     with engine.begin() as conn:
-        assert gate.neutralize_legacy_property_values(conn) == []
+        assert neutralize_legacy_property_values(conn) == []
     engine.dispose()
 
 

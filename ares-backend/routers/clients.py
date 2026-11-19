@@ -66,8 +66,7 @@ from services.recommendation_release_gate import (
     kyc_review_entry_binding,
     kyc_review_message,
 )
-from services.fx_basis import load_fx_basis, normalize_currency  # CCX-P3-FX
-from services.client_wealth_summary import compute_wealth_totals  # K1 / CK-01
+from services.fx_basis import compute_wealth_totals, load_fx_basis, normalize_currency  # CCX-P3-FX, K1 CK-01
 from services.wealth_cashflows import (
     derive_wealth_cashflows,
     mortgage_amortization_adjustment_series,
@@ -1328,7 +1327,7 @@ def wealth_summary(
 
 
 def _client_wealth_totals(db, client_id, mandate_id, target_currency, current_user):
-    """CK-01: Kundensummen ueber die strikte FX-Basis (services.client_wealth_summary)."""
+    """CK-01: Kundensummen ueber die strikte FX-Basis (services.fx_basis)."""
     positions = db.query(WealthPosition).filter(
         WealthPosition.client_id == client_id,
         WealthPosition.deleted_at.is_(None),

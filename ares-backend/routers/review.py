@@ -28,7 +28,9 @@ from models.review import (
 )
 from models.allocation import CapitalMarketAssumption, OptimizerPolicy, TargetAllocation
 from models.profiling import RiskAssessment, SuitabilityCheck
-from models.tenant import KYC_REVIEW_GENESIS, KycReviewPolicy, KycReviewPolicyActivation, Tenant, TenantLegalProfile
+from models.tenant import (
+    DEFAULT_TENANT_ID, KYC_REVIEW_GENESIS, KycReviewPolicy, KycReviewPolicyActivation, Tenant, TenantLegalProfile,
+)
 from schemas.review import (
     StrategyOptionCoverageResponse,
     master_data_consistency_errors,
@@ -4172,7 +4174,6 @@ def _effective_tenant_id(user: User) -> str:
     DEFAULT_TENANT_ID='main'). NULL als Fehler zu behandeln wuerde admins
     VOR dem naechsten Boot-Zyklus komplett aussperren -- stattdessen wie
     ueberall sonst im Code auf 'main' fallen lassen."""
-    from models.tenant import DEFAULT_TENANT_ID
     raw = getattr(user, "tenant_id", None)
     return raw.strip() if raw and isinstance(raw, str) and raw.strip() else DEFAULT_TENANT_ID
 
@@ -5004,52 +5005,6 @@ def delete_position_holding(
     db.commit()
 
 
-def _apply_fx_wealth_totals(db: Session, clients: list[dict], current_user: User) -> None:
-    """K1 / CK-01: Betraege je Kunde nicht aus der View (nominale Mischsumme),
-    sondern zeilenweise ueber die strikte FX-Basis (services.client_wealth_summary).
-    Ein FX-Block betrifft nur diesen Kunden: Betraege None plus
-    ``amount_block_reason_code`` statt einer Rohsumme; die Liste bleibt lesbar."""
-    from models.wealth import WealthPosition
-    from services.client_wealth_summary import compute_wealth_totals
-
-    ids = [c["client_id"] for c in clients]
-    if not ids:
-        return
-    positions: dict[str, list] = {cid: [] for cid in ids}
-    for pos in db.query(WealthPosition).filter(
-        WealthPosition.client_id.in_(ids),
-        WealthPosition.deleted_at.is_(None),
-        WealthPosition.is_active == 1,
-    ).all():
-        positions[pos.client_id].append(pos)
-    mandates: dict[str, list] = {cid: [] for cid in ids}
-    for mandate in db.query(Mandate).filter(
-        Mandate.client_id.in_(ids), Mandate.deleted_at.is_(None),
-    ).all():
-        mandates[mandate.client_id].append(mandate)
-    tenant_id = getattr(current_user, "tenant_id", None)
-    for c in clients:
-        cid = c["client_id"]
-        try:
-            totals = compute_wealth_totals(db, positions[cid], mandates[cid], tenant_id=tenant_id)
-        except DomainError as exc:
-            for key in ("gross_wealth_rappen", "liabilities_rappen", "net_worth_rappen",
-                        "advisory_wealth_rappen", "net_worth_chf", "advisory_wealth_chf"):
-                c[key] = None
-            c["amount_currency"] = None
-            c["amount_block_reason_code"] = str(exc.reason_code)
-            continue
-        c["gross_wealth_rappen"] = totals.gross_wealth_rappen
-        c["liabilities_rappen"] = totals.liabilities_rappen
-        c["net_worth_rappen"] = totals.net_worth_rappen
-        c["advisory_wealth_rappen"] = totals.advisory_wealth_rappen
-        c["net_worth_chf"] = totals.net_worth_rappen / 100
-        c["advisory_wealth_chf"] = totals.advisory_wealth_rappen / 100
-        c["amount_currency"] = totals.amount_currency
-        c["fx_basis_hash"] = totals.fx_basis_hash
-        c["amount_block_reason_code"] = None
-
-
 @dashboard_router.get("/summary")
 def dashboard_summary(
     db: Session = Depends(get_db),
@@ -5089,7 +5044,11 @@ def dashboard_summary(
     else:
         trigger_count = 0
     clients = [dict(r._mapping) for r in rows]
-    _apply_fx_wealth_totals(db, clients, current_user)
+    # K1 / CK-01: Betraege nicht aus der View (nominale Mischsumme), sondern je
+    # Kunde ueber die strikte FX-Basis; FX-Block nur fuer diesen Kunden.
+    from services.advisory_report import apply_fx_wealth_totals
+
+    apply_fx_wealth_totals(db, clients, tenant_id=getattr(current_user, "tenant_id", None))
     return {
         "clients": clients,
         "active_alerts": trigger_count,

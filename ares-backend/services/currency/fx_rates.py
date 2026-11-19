@@ -140,6 +140,23 @@ def tenant_fx_max_age_days(db, tenant_id) -> int:
     return DEFAULT_FX_MAX_AGE_DAYS
 
 
+def fx_rates_changed_since(db, currencies, since) -> list[str]:
+    """K1 / E2E-03: verwendete Waehrungen, deren aktuelle Kurszeile nach
+    ``since`` erfasst/bestaetigt wurde -- benennt die wahre Ursache einer
+    Veraltung ("Wechselkurs CCY geaendert")."""
+    wanted = sorted({str(c or "").upper().strip() for c in currencies or []} - {"", "CHF"})
+    if not wanted or not since:
+        return []
+    rows = db.execute(text(
+        "SELECT currency, created_at, valid_from FROM fx_rates "
+        "WHERE is_current = 1 AND valid_until IS NULL"
+    )).fetchall()
+    return sorted({
+        str(row[0]).upper() for row in rows
+        if str(row[0]).upper() in wanted and str(row[1] or row[2] or "") > str(since)
+    })
+
+
 def is_substitute_source(source) -> bool:
     """Ersatzkurs-Quelle (N-909-14): ``Default`` in jeder Schreibweise
     (Gross-/Kleinschreibung, Leerraum) bzw. leer -- nie ein belegter Kurs."""

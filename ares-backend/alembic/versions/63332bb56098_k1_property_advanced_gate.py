@@ -14,7 +14,7 @@ Aktion) -- nicht still verworfen:
 
 Altbestand mit Hypothekartyp "Gemischt" bleibt unveraendert und wird offen
 gemeldet. Gleiche Logik wie der SQLite-Startpfad
-(``services.property_advanced_gate.neutralize_legacy_property_values``); gleiche
+(``database.neutralize_legacy_property_values``, Regeln in ``core.property_gate``); gleiche
 Spalte wie ORM (``models/wealth.py``), Bootstrap (``ares_schema.sql``) und
 SQLite-Laufzeitpatch (``database.ensure_runtime_columns``).
 
@@ -35,7 +35,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import context, op
 
-from services.property_advanced_gate import neutralize_legacy_property_values
+from database import neutralize_legacy_property_values
 from services.tenant_context import BYPASS_GUC
 
 
