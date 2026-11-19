@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from core.evidence import SCHEME_V1, advisory_domain, canonical_json
@@ -122,16 +123,32 @@ def _approval_key(db: Session, tenant_id: str) -> bytes:
     return hmac.new(dek, _APPROVAL_KEY_LABEL, hashlib.sha256).digest()
 
 
+def _read_dek_version(db: Session, tenant_id: str) -> Any:
+    """N-912-05: Auf PostgreSQL bricht ein fehlgeschlagenes Statement die ganze
+    Transaktion ab. Darum dort ein SAVEPOINT direkt auf der Session-Verbindung
+    (kein ORM-Flush); scheitert der SELECT, wird nur der Savepoint
+    zurueckgerollt und die Session bleibt benutzbar. SQLite bricht die
+    Transaktion bei einem fehlgeschlagenen SELECT nicht ab (unveraendert)."""
+    statement = text("SELECT dek_version FROM tenants WHERE id = :t")
+    params = {"t": str(tenant_id)}
+    conn = db.connection()
+    if conn.dialect.name == "postgresql":
+        with conn.begin_nested():
+            return conn.execute(statement, params).scalar()
+    return conn.execute(statement, params).scalar()
+
+
 def current_approval_key_version(db: Session, tenant_id: str) -> int:
     """H12 N-910-14: Version des heutigen Approval-Schluessels (= DEK-Generation
     ``tenants.dek_version``). Stellt den DEK bei Bedarf bereit (wie
     ``_approval_key``); ohne lesbare Version keine Freigabe (fail-closed)."""
     _approval_key(db, tenant_id)
     try:
-        version = db.execute(
-            text("SELECT dek_version FROM tenants WHERE id = :t"), {"t": str(tenant_id)},
-        ).scalar()
-    except Exception as exc:  # noqa: BLE001 - Altschema/DB-Fehler: fail-closed
+        version = _read_dek_version(db, tenant_id)
+    except (OperationalError, ProgrammingError) as exc:
+        # N-912-05: nur die DB-Fehler eines Altschemas ohne Spalte (SQLite
+        # OperationalError, PostgreSQL ProgrammingError) -> fail-closed. Alles
+        # andere wird nicht maskiert.
         raise ApprovalKeyUnavailable(f"DEK-Version nicht lesbar: {exc}") from exc
     if isinstance(version, bool) or not isinstance(version, int) or version < 1:
         raise ApprovalKeyUnavailable(f"DEK-Version des Mandanten unbekannt ({version!r}).")
