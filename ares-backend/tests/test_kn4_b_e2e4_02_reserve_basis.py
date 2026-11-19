@@ -43,7 +43,8 @@ def _rows(base=BASE, holdings=HOLDINGS):
 def test_direction_in_francs_matches_direction_in_percent_with_reserve():
     rows = _rows()
     for row in rows.values():
-        amount_delta = row["target_amount_rappen"] - row["current_amount_rappen"]
+        amount_delta = (row["target_amount_rappen"] + row.get("reserve_rappen", 0)
+                        - row["current_amount_rappen"])
         if row["delta_weight_bps"]:
             assert (amount_delta > 0) == (row["delta_weight_bps"] > 0), row
     bonds, liq = rows["Obligationen"], rows["Liquiditaet"]
@@ -51,9 +52,13 @@ def test_direction_in_francs_matches_direction_in_percent_with_reserve():
     assert bonds["delta_weight_bps"] < 0 and bonds["current_weight_bps"] > 10000 - 1 and bonds["current_weight_bps"] > 9200
     # Liquiditaet: Reserve 168'030 + Soll 11'987 gegen Ist 35'000 -> aufstocken.
     assert liq["delta_weight_bps"] > 0
-    # Strategieanteil des Bestands: 35'000 Liquiditaet abzueglich Reserve.
-    assert liq["current_amount_rappen"] == 35_000_00 - RESERVE
-    assert liq["target_amount_rappen"] - liq["current_amount_rappen"] > RESERVE - 35_000_00
+    # Strategieanteil des Bestands: 35'000 Liquiditaet abzueglich Reserve; der
+    # ausgewiesene Bestand bleibt der tatsaechliche (externe Abnahme g).
+    assert liq["current_strategy_amount_rappen"] == 35_000_00 - RESERVE
+    assert liq["current_amount_rappen"] == 35_000_00
+    # Summen-Konsistenz: Ist-Summe = Soll-Summe + Reserve = Beratungsvermoegen.
+    assert abs(sum(r["current_amount_rappen"] for r in rows.values())
+               - sum(r["target_amount_rappen"] for r in rows.values()) - RESERVE) <= 500
     # Reserve getrennt ausgewiesen, tatsaechlicher Bestand erhalten.
     assert liq["reserve_rappen"] == RESERVE and liq["reserve_funded_rappen"] == 35_000_00
     assert liq["reserve_gap_rappen"] == RESERVE - 35_000_00

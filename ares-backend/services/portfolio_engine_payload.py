@@ -816,13 +816,14 @@ def _bucket_rows(label_map: dict, current_amounts: dict, advisory_wealth_rappen:
     in Franken zu reduzieren; Liquiditaet "reduzieren", obwohl die Reserve
     fehlte). Jetzt wird die Reserve vom Liquiditaets-Ist abgezogen und getrennt
     ausgewiesen (``reserve_rappen``/``reserve_funded_rappen``/
-    ``reserve_gap_rappen``); ``current_amount_rappen``/``current_weight_bps``
-    sind der Strategieanteil des Bestands auf der Strategiebasis. Damit hat
-    ``target_amount_rappen - current_amount_rappen`` immer dasselbe Vorzeichen
-    wie ``delta_weight_bps``. Ist die Reserve groesser als die vorhandene
-    Liquiditaet, ist das Liquiditaets-Ist negativ (Reservelücke, ehrlich statt
-    gekappt). Der tatsaechliche Bestand bleibt als ``current_amount_total_rappen``.
-    Ohne Reserve ist alles unveraendert (Basis = Beratungsvermoegen).
+    ``reserve_gap_rappen``); ``current_weight_bps`` ist der Strategieanteil des
+    Bestands auf der Strategiebasis (``current_strategy_amount_rappen``; ist die
+    Reserve groesser als die Liquiditaet, negativ = Reservelücke, ehrlich statt
+    gekappt). ``current_amount_rappen`` bleibt der TATSAECHLICHE Bestand (Summe =
+    Beratungsvermoegen = Soll-Summe + Reserve, externe Abnahme g). CHF-Delta je
+    Klasse = ``target_amount_rappen + reserve_rappen - current_amount_rappen``
+    (Reserve nur bei Liquiditaet) und hat immer dasselbe Vorzeichen wie
+    ``delta_weight_bps``. Ohne Reserve ist alles unveraendert.
     ``label_map`` in Bucket-Reihenfolge; ``bps`` = portfolio_engine._bps."""
     advisory = int(advisory_wealth_rappen or 0)
     base = int(strategy_base_rappen if strategy_base_rappen is not None else advisory)
@@ -836,8 +837,9 @@ def _bucket_rows(label_map: dict, current_amounts: dict, advisory_wealth_rappen:
         row = {
             "asset_class": label,
             "current_weight_bps": current_bps,
-            "current_amount_rappen": strategy_amount,
+            "current_amount_rappen": holding,
             "current_amount_total_rappen": holding,
+            "current_strategy_amount_rappen": strategy_amount,
             "target_weight_bps": int(target_bps),
             "target_amount_rappen": int(round(base * target_bps / 10000)) if base else 0,
             "delta_weight_bps": int(target_bps) - current_bps,
@@ -1704,7 +1706,9 @@ def _implementation_steps(buckets: list[dict], target_total_rappen: int) -> list
     steps = []
     def amount_delta_rappen(item: dict) -> int:
         if item.get("target_amount_rappen") is not None and item.get("current_amount_rappen") is not None:
-            return int(item.get("target_amount_rappen") or 0) - int(item.get("current_amount_rappen") or 0)
+            # KN4-B / E2E4-02: Reserve ausserhalb der Strategie gehoert zum Liquiditaets-Soll.
+            return (int(item.get("target_amount_rappen") or 0) + int(item.get("reserve_rappen") or 0)
+                    - int(item.get("current_amount_rappen") or 0))
         return int(round(target_total_rappen * int(item.get("delta_weight_bps") or 0) / 10000))
 
     for bucket in sorted(buckets, key=lambda item: abs(amount_delta_rappen(item)), reverse=True):
