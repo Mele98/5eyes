@@ -574,6 +574,11 @@ def compute_depot_check(
         try:
             positions_with_products, wealth_only_positions, total_rappen = _load_positions(db, mandate)
         except DomainError as exc:  # N-913-04: FX-Sperre statt Rohsumme, Analyse ohne Betraege
+            if db.query(TargetAllocation.id).filter(
+                TargetAllocation.mandate_id == mandate.id, TargetAllocation.is_current == 1,
+                TargetAllocation.deleted_at.is_(None),
+            ).first() is not None:
+                raise  # mit Soll-Allokation sperren die Kundenkanaele typisiert (wie bisher, P3)
             result["total_advisory_wealth_rappen"] = None
             result["fx_block_reason_code"] = str(exc.reason_code)
             result["warnings"].append(exc.message)
