@@ -85,6 +85,10 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     # kein "veraltet" ohne Strategie; aresTerm/Cashflow-HUD aus mandate-view.js und
     # reviewBandVisualHtml aus ares.html umgezogen (Budgets).
     ("kn3-ui.js", "js"),
+    # KN4-U Kernkette Runde 4 (Dok. 119): ein Reset fuer Kundenwechsel und neues
+    # Mandat, eine Rundungsquelle je Zahl, Portfolio bei veralteter Strategie,
+    # fehlendes Ist nicht bewertbar; normalizeCashflowProjectionLabels umgezogen.
+    ("kn4-ui.js", "js"),
     # E2 Nachhaltigkeitspraeferenzen (Dok. 106): Kundenmaske nach dem Risikoprofil.
     ("sustainability-preferences.js", "js"),
 )

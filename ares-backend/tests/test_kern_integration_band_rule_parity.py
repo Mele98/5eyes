@@ -13,9 +13,8 @@ Node und werden Fall fuer Fall gegen die Python-Regel gelegt:
 Abbildung: Backend ``in_band`` = UI ``in``; ``below``/``above`` = ``violated``;
 ``not_evaluable`` = ``none``.
 
-Bewusste Abweichung (nur dokumentiert, nicht in der Tabelle): fehlt der
-Ist-Wert, rechnet die UI mit 0 (die Classic-Oberflaeche erhaelt das Ist-Gewicht
-immer als Zahl), das Backend meldet "nicht bewertbar".
+KN4-U / N-917R3-05: fehlt der Ist-Wert, melden UI und Backend gleich "nicht
+bewertbar" (frueher rechnete die UI mit 0); die Faelle stehen in der Tabelle.
 """
 from __future__ import annotations
 
@@ -40,6 +39,9 @@ CASES = [
     (500, None, None, "none"),
     (0, None, None, "none"),
     (500, 700, 600, "none"),       # min > max ungueltig
+    (None, 0, 0, "none"),          # N-917R3-05: fehlendes Ist -> nicht bewertbar
+    (None, 100, 200, "none"),
+    (None, None, None, "none"),
 ]
 
 BACKEND_TO_UI = {BAND_IN: "in", BAND_BELOW: "violated", BAND_ABOVE: "violated", BAND_UNKNOWN: "none"}
@@ -47,7 +49,7 @@ BACKEND_TO_UI = {BAND_IN: "in", BAND_BELOW: "violated", BAND_ABOVE: "violated", 
 
 def _ui_statuses():
     js_cases = ",".join(
-        "[{},{},{}]".format(c, "null" if lo is None else lo, "null" if hi is None else hi)
+        "[{},{},{}]".format("null" if c is None else c, "null" if lo is None else lo, "null" if hi is None else hi)
         for c, lo, hi, _ in CASES
     )
     return run_js(["aresBandOf", "aresBandStatus"],
@@ -67,14 +69,26 @@ def test_ui_and_backend_band_rule_agree_on_every_case():
 def test_counterproof_old_zero_band_rule_would_be_detected():
     """Gegenprobe: die alte Regel "0/0 = keine Grenze" weicht in der Tabelle ab."""
     def old_rule(current, low, high):
-        if low is None or high is None or low > high or (low == 0 and high == 0):
+        if current is None or low is None or high is None or low > high or (low == 0 and high == 0):
             return "none"
         return "in" if low <= current <= high else "violated"
 
     assert [c for c in CASES if old_rule(*c[:3]) != c[3]], "Tabelle wuerde die alte 0/0-Regel nicht erkennen"
 
 
-def test_documented_difference_missing_current():
-    ui = run_js(["aresBandOf", "aresBandStatus"], "return [aresBandStatus(null,0,0),aresBandStatus(null,100,200)];")
-    assert ui == ["in", "violated"]
+def test_missing_current_is_not_evaluable_in_ui_and_backend():
+    ui = run_js(["aresBandOf", "aresBandStatus"],
+                "return [aresBandStatus(null,0,0),aresBandStatus(null,100,200),aresBandStatus(undefined,0,0),aresBandStatus('',0,0)];")
+    assert ui == ["none", "none", "none", "none"]
     assert band_status(None, 0, 0) == BAND_UNKNOWN and band_status(None, 100, 200) == BAND_UNKNOWN
+
+
+def test_counterproof_old_missing_current_rule_would_be_detected():
+    """Gegenprobe: die alte UI-Regel (fehlendes Ist = 0) weicht in der Tabelle ab."""
+    def old_ui(current, low, high):
+        if low is None or high is None or low > high:
+            return "none"
+        cur = 0 if current is None else current
+        return "in" if low <= cur <= high else "violated"
+
+    assert [c for c in CASES if old_ui(*c[:3]) != c[3]]

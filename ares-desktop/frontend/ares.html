@@ -5714,28 +5714,6 @@ function normalizeCashflowTotalsLabels(summaryYear,breakdown){
   });
 }
 
-function normalizeCashflowProjectionLabels(){
-  var el=document.getElementById('cf-projection');
-  if(!el)return;
-  var walker=document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
-  var node;
-  while((node=walker.nextNode())){
-    var text=String(node.nodeValue||'');
-    node.nodeValue=text
-      .replace(/KapitalzuflÃ¼sse/g,'Kapitalzuflüsse')
-      .replace(/ZuflÃ¼sse/g,'Zuflüsse')
-      .replace(/VermÃ¶gen/g,'Vermögen')
-            .replace(/NÃ¤chstes/g,'Nächstes')
-      .replace(/kÃ¼nftigen/g,'künftigen')
-      .replace(/Ã¼bernimmt/g,'übernimmt')
-      .replace(/unverÃ¤ndert/g,'unverändert')
-      .replace(/Â·/g,'·')
-      .replace(/â€”/g,'-')
-      .replace(/â†’/g,'->')
-      .replace(/âˆ’/g,'-');
-  }
-}
-
 function clientScopedItems(items,clientId){
   var activeId=clientId!=null?clientId:currentClientId;
   return (Array.isArray(items)?items:[]).filter(function(item){
@@ -20809,7 +20787,7 @@ function renderSrImplementationDecision(entry){
         cards.push('<div style="border:1px solid var(--b1);border-radius:var(--r2);padding:10px">'
           +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px"><span class="tag '+item.meta.tagClass+'">'+escapeHtml(item.meta.label)+'</span><span style="font-size:10px;font-weight:600;color:'+item.meta.tone+'">'+escapeHtml(formatSignedBpsPercent(item.deltaWeightBps))+'</span></div>'
           +'<div style="font-size:10px;color:var(--n8);font-weight:500;margin-bottom:3px">'+escapeHtml(item.assetClass)+'</div>'
-          +'<div style="font-size:10px;color:var(--n6);margin-bottom:4px">Aktuell '+escapeHtml(formatBpsPercent(item.currentWeightBps))+' · Ziel '+escapeHtml(formatBpsPercent(item.targetWeightBps))+'</div>'
+          +'<div style="font-size:10px;color:var(--n6);margin-bottom:4px">Aktuell '+escapeHtml(aresReviewPct(reviewStrategyComparisonRows(allocation),item.assetKey,'ist'))+' · Ziel '+escapeHtml(aresReviewPct(reviewStrategyComparisonRows(allocation),item.assetKey,'soll'))+'</div>'
           +'<div style="font-size:10px;color:var(--n5)">'+escapeHtml(item.meta.action)+'</div>'
           +'</div>');
       }
@@ -23439,7 +23417,7 @@ function buildWealthPositionPayload(cat,typ,note){
   // VORSORGE-PROJECTION-001: Aufteilung nur fuer Depot und (optional) Vorsorge.
   if(posType!=='Depot'&&posType!=='Vorsorge'){akt=0;obl=0;imm=0;liq=0;alt=0;}
   var tot=akt+obl+imm+liq+alt;
-  if(posType==='Depot'&&tot>0&&Math.abs(tot-100)>0.5){
+  if(posType==='Depot'&&tot>0&&Math.round(tot*10)!==1000){ // N-917R3-08: exakt 100.0 % (wie Server)
     throw new Error('Allokation muss 100% ergeben (aktuell: '+AresRounding.formatPercent(tot,0,{typography:'screen'})+'). Bitte die Anlageklassen-Aufschlüsselung auf 100% aufteilen.'); // E2E3-08: keine automatische Annahme (KN3-B lehnt 0 % mit Meldung ab)
   }
   if(posType==='Vorsorge'&&tot>0&&Math.abs(tot-100)>0.5){
@@ -23581,6 +23559,7 @@ async function refreshWealthUI(cid){
       API.get(typeof wealthSummaryUrl==='function'?wealthSummaryUrl(cid):'/clients/'+cid+'/wealth-summary'),
       API.get('/clients/'+cid+'/wealth-positions'),
     ]);
+    if(String(cid)!==String(currentClientId||''))return; // N-917R3-01: Kunde gewechselt
     var summaryRes=results[0];
     var positionsRes=results[1];
     if(summaryRes.status==='fulfilled'&&summaryRes.value){
@@ -24640,7 +24619,7 @@ function _rvHeroWealthmanagementHtml(rows,violated,tight,allocation){
     badge='HANDLUNGSBEDARF';
     var top=violated.slice().sort(function(a,b){return Math.abs(Number(b.deltaWeightBps||0))-Math.abs(Number(a.deltaWeightBps||0));})[0];
     headline=violated.length===1?'Bandverletzung bei '+top.assetClass:String(violated.length)+' Bandverletzungen — Rebalancing erforderlich';
-    summary=top.assetClass+': IST '+formatBpsPercent(top.currentWeightBps)+' / SOLL '+sollPct(top.assetClass,top.targetWeightBps,allocation&&allocation.buckets)+' — ausserhalb der vereinbarten Bandbreite. '+top.meta.action+'.';
+    summary=top.assetClass+': IST '+aresReviewPct(rows,top.assetKey,'ist')+' / SOLL '+sollPct(top.assetClass,top.targetWeightBps,allocation&&allocation.buckets)+' — ausserhalb der vereinbarten Bandbreite. '+top.meta.action+'.';
     var live=liveRebalancingPayload(allocation);
     var hasTradeList=!!(live&&Array.isArray(live.position_drifts)&&live.position_drifts.some(function(r){return String(r&&r.rebalance_action_code||'')!=='HOLD';}));
     ctaHtml='<button class="btn-p btn-sm" onclick="openDecisionTemplateModal(\'\')">Entscheidungsvorlage</button>'+(hasTradeList?'<button class="btn btn-sm" onclick="openTradeList()">Handelsliste</button>':'');
@@ -24685,7 +24664,7 @@ function _rvHeroConsultingHtml(rows,violated,tight,allocation,state){
     badge='ANPASSUNG EMPFOHLEN';
     var topInfo=infoRows.slice().sort(function(a,b){return Math.abs(Number(b.deltaWeightBps||0))-Math.abs(Number(a.deltaWeightBps||0));})[0];
     headline=infoRows.length===1?topInfo.assetClass+' weicht von der Zielallokation ab':String(infoRows.length)+' Anlageklassen weichen von der Zielallokation ab';
-    summary=topInfo.assetClass+': aktuell '+formatBpsPercent(topInfo.currentWeightBps)+' / Ziel '+formatBpsPercent(topInfo.targetWeightBps)+'. '+topInfo.meta.action+'.';
+    summary=topInfo.assetClass+': aktuell '+aresReviewPct(rows,topInfo.assetKey,'ist')+' / Ziel '+aresReviewPct(rows,topInfo.assetKey,'soll')+'. '+topInfo.meta.action+'.';
   } else {
     statusKey='ok';bg='var(--pos-lt)';dotColor='var(--pos)';
     badge='EMPFEHLUNG AKTUELL';
@@ -26435,6 +26414,6 @@ function openStammdatenModal(){
 </div>
 <!-- ─────────────────────────────────────────────────────────── -->
 
-<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./allocation-publication.js"></script><script src="./finalize-attestation.js"></script><script src="./fx-rates-editor.js"></script><script src="./advisor-guidance.js"></script><script src="./mandate-view.js"></script><script src="./kn3-ui.js"></script><script src="./sustainability-preferences.js"></script>
+<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./allocation-publication.js"></script><script src="./finalize-attestation.js"></script><script src="./fx-rates-editor.js"></script><script src="./advisor-guidance.js"></script><script src="./mandate-view.js"></script><script src="./kn3-ui.js"></script><script src="./kn4-ui.js"></script><script src="./sustainability-preferences.js"></script>
 </body>
 </html>

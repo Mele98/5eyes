@@ -21,7 +21,8 @@
  * E2E3-13  Automatische Amortisation mit Ende statt "unbefristet".
  * E2E3-14  Ohne je berechnete Strategie (Server 404) kein "Strategie veraltet".
  * Umgezogen aus mandate-view.js (Budget): aresTerm (E2E2-14), Cashflow-HUD
- * ohne Cashflows (N-918-04); aus ares.html: reviewBandVisualHtml. */
+ * ohne Cashflows (N-918-04). KN4-U: reviewBandVisualHtml entfernt (seit dem Rebrand ohne Aufrufer,
+ * die Review hat keine Bandgrafik); Kunden-Abgleich nach jedem await (N-917R3-01). */
 
 function aresBandOf(minBps,maxBps){
   if(minBps==null||maxBps==null||minBps===''||maxBps==='')return null;
@@ -32,29 +33,11 @@ function aresBandOf(minBps,maxBps){
 function aresBandStatus(currentBps,minBps,maxBps){
   var band=aresBandOf(minBps,maxBps);
   if(!band)return 'none';
-  var current=Number(currentBps||0);
+  if(currentBps==null||currentBps===''||!isFinite(Number(currentBps)))return 'none'; // N-917R3-05: fehlendes Ist = nicht bewertbar (core/band_rule.py)
+  var current=Number(currentBps);
   return (current<band.min||current>band.max)?'violated':'in';
 }
 function aresBandNumber(value){return value==null||value===''?null:Number(value);}
-function reviewBandVisualHtml(item,meta){
-  var band=aresBandOf(item.bandMinBps,item.bandMaxBps); // 0/0 = Punktband bei 0, ohne Angaben Hilfszone Ziel +/- 5 %
-  var min=band?band.min:Math.max(0,Number(item.targetWeightBps||0)-500);
-  var max=band?band.max:Math.min(10000,Number(item.targetWeightBps||0)+500);
-  var target=Math.max(0,Math.min(10000,Number(item.targetWeightBps||0)));
-  var current=Math.max(0,Math.min(10000,Number(item.currentWeightBps||0)));
-  var zoneLeft=(min/100).toFixed(2);
-  var zoneWidth=Math.max(1,(max-min)/100).toFixed(2);
-  var targetLeft=(target/100).toFixed(2);
-  var currentLeft=(current/100).toFixed(2);
-  var zoneTone=meta.tagClass==='tr2'?'rgba(139,30,30,0.16)':'rgba(42,74,112,0.14)';
-  var shellTone=meta.tagClass==='tr2'?'rgba(139,30,30,0.08)':'transparent';
-  return '<div style="min-width:170px"><div style="position:relative;height:24px;border:1px solid var(--b1);border-radius:999px;background:'+shellTone+'">'
-    +'<div style="position:absolute;left:5px;right:5px;top:11px;height:2px;background:var(--bg2);border-radius:999px"></div>'
-    +'<div style="position:absolute;left:'+zoneLeft+'%;width:'+zoneWidth+'%;top:7px;height:10px;background:'+zoneTone+';border-radius:999px"></div>'
-    +'<div style="position:absolute;left:'+targetLeft+'%;top:4px;width:2px;height:16px;background:var(--pri);transform:translateX(-1px)"></div>'
-    +'<div style="position:absolute;left:'+currentLeft+'%;top:5px;width:12px;height:12px;border-radius:50%;background:'+meta.tone+';border:2px solid #fff;box-shadow:0 0 0 1px rgba(15,23,42,0.12);transform:translateX(-6px)"></div>'
-    +'</div><div style="display:flex;justify-content:space-between;gap:6px;margin-top:4px;font-size:9px;color:var(--n4)"><span>'+escapeHtml(formatBpsPercent(min))+'</span><span>Ziel '+escapeHtml(formatBpsPercent(target))+'</span><span>'+escapeHtml(formatBpsPercent(max))+'</span></div></div>';
-}
 // E2E3-13: Rechnung der Engine (K1): direkt bis die Schuld getilgt ist, indirekt bis und
 // mit dem Pensionierungsjahr (ohne Pensionierungsjahr ueber den Planungshorizont).
 function derivedAmortizationEndLabel(cashflow){
@@ -150,8 +133,9 @@ function derivedAmortizationEndLabel(cashflow){
     wrap('refreshWealthUI', function(orig){
       return async function(cid){
         var r = await orig.apply(this, arguments);
-        if (cid && String(cid) === activeCid() && g('refreshCashflowsUI')) { try { await refreshCashflowsUI(cid); } catch(_){} }
-        safe(syncAmountViews);
+        if (!cid || String(cid) !== activeCid()) return r; // N-917R3-01: Kunde gewechselt -> nichts schreiben
+        if (g('refreshCashflowsUI')) { try { await refreshCashflowsUI(cid); } catch(_){} }
+        if (String(cid) === activeCid()) safe(syncAmountViews);
         return r;
       };
     });
@@ -179,7 +163,7 @@ function derivedAmortizationEndLabel(cashflow){
         var r = orig.apply(this, arguments);
         safe(function(){
           var s = state(), cause = g('aresStaleCause') ? aresStaleCause() : '';
-          if (serverAlloc[activeMid()] !== false || alloc() || !s || s.pendingAllocation || cause) return;
+          if (serverAlloc[activeMid()] === true || alloc() || !s || s.pendingAllocation || cause) return; // E2E4-05: auch "unbekannt" (neu angelegt)
           s.staleNotice = null; // Leerzustand nennt den Grund ("noch nicht berechnet")
           if (g('syncStrategyStaleView')) syncStrategyStaleView();
         });
@@ -235,10 +219,11 @@ function derivedAmortizationEndLabel(cashflow){
         if (!(byId('kyc-ident-ok') || {}).checked) missing.push('Identifizierung ist erfolgt');
         if (missing.length) { if (g('showAppError')) showAppError('Bitte ausfüllen: ' + missing.join(', ') + '.'); return; }
         // Fehler der Erfassung erkennen (run() zeichnet das Panel in jedem Fall neu und leert es).
-        var saved = captureForm(), failed = false, post = API.post;
-        API.post = async function(){ try { return await post.apply(this, arguments); } catch(e){ failed = true; throw e; } };
+        // N-917R3-02: nur der eigene POST zaehlt, Wiederherstellung nur bei gleichem Kunden und Mandat.
+        var saved = captureForm(), failed = false, post = API.post, cid = activeCid(), mid = activeMid();
+        API.post = async function(url){ try { return await post.apply(this, arguments); } catch(e){ if (/\/kyc-confirmations$/.test(String(url))) failed = true; throw e; } };
         try { await orig.apply(this, arguments); } finally { API.post = post; }
-        if (failed) restoreForm(saved);
+        if (failed && cid === activeCid() && mid === activeMid()) restoreForm(saved);
       };
     });
   }

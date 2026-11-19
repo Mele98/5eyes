@@ -45,7 +45,7 @@ FUNCS = (
     "allocationReserveBreakdown", "allocationTableGroupKey", "formatRappen", "formatBpsPercent", "fmtPct",
     "aaChartClassRank", "aaChartKey", "aaChartPctText", "aaChartCurrency", "aaChartMoney", "aaChartChf",
     "aaChartApportion", "aaChartPctNumber", "aaChartPrepare", "aaChartShadeStep", "aaChartMix",
-    "aaChartDonutDatasets", "aaChartAllocItems", "aaChartHasSubs", "aaChartEsc", "aaChartLegendHtml",
+    "aaChartDonutDatasets", "aaChartAllocItems", "aaChartHasSubs", "aaChartEsc", "aaChartLegendHtml", "aresBandOf",
 )
 
 

@@ -17,11 +17,11 @@ async function confirmImplementationRecipe(){
       await API.fetch('/mandates/'+mid+'/recommendations/'+runId+'/finalize?confirm_valuations_current=true',{method:'PUT'});
       updateStrategyStatus('Empfehlung finalisiert. Nächster Schritt: Asset Allokation › Publizieren.',false);refreshAllocationPublication(true);
     }else{
-      updateStrategyStatus('Aktuelles Rezept wurde live aufgebaut und kann jetzt gedruckt werden.',false);
+      updateStrategyStatus('Umsetzungsplan aufgebaut, er kann jetzt gedruckt werden.',false);
     }
     cm('m-ums');
     printPortfolioPlan();
   }catch(e){
-    updateStrategyStatus('Rezept konnte nicht finalisiert werden: '+finalizeErrorText(e),true);if(typeof eligOverrideOnFinalizeBlocked==='function')eligOverrideOnFinalizeBlocked(mid,runId,e);
+    updateStrategyStatus('Empfehlung konnte nicht finalisiert werden: '+finalizeErrorText(e),true);if(typeof eligOverrideOnFinalizeBlocked==='function')eligOverrideOnFinalizeBlocked(mid,runId,e);
   }
 }

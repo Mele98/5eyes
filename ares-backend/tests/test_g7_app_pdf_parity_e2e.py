@@ -178,7 +178,7 @@ def _app_amounts_for_mandate_currency(currency: str) -> dict:
     bundle = read_monolith_bundle()
     helpers = "\n".join(extract_function(bundle, n) for n in (
         "assetDisplayName", "allocationBucketKey", "allocationReserveBreakdown",
-        "allocationSubAllocationsForBucket", "allocationTableGroupKey"))
+        "allocationSubAllocationsForBucket", "allocationTableGroupKey", "aresBandOf"))  # KN4-U: aa-chart Bandlogik
     names = {k: asset_class_label(k) for k in ALLOCATION_BPS}
     german = {"equities": "Aktien", "bonds": "Obligationen", "real_estate": "Immobilien",
               "alternatives": "Alternative", "liquidity": "Liquiditaet"}

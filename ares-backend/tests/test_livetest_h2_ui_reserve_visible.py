@@ -48,7 +48,7 @@ def test_donut_legend_lists_reserve_and_sums_to_advisory_wealth():
         optional=("allocationReserveBreakdown", "aaChartLegendHtml", "aaChartPrepare", "aaChartApportion", "aaChartPctNumber", "aaChartAllocItems", "aaChartCurrency", "aaChartMoney",
                   "allocationSubAllocationsForBucket", "allocationTableGroupKey", "allocationBucketKey", "assetDisplayName",
                   "aaChartPctText", "aaChartChf", "aaChartEsc", "aaChartKey", "aaChartClassRank",
-                  "aaChartShadeStep", "aaChartHasSubs"),
+                  "aaChartShadeStep", "aaChartHasSubs", "aresBandOf"),  # KN4-U: aa-chart nutzt die gemeinsame Bandlogik
     )
     leg = out["leg"]
     assert "Liquiditätsreserve" in leg, "Reserve fehlt in der Legende"

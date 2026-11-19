@@ -122,6 +122,7 @@ def _run(script: str, extra_sources: tuple[Path, ...] = ()):
     code += MODULE.read_text(encoding="utf-8")
     # KN3-U: aresTerm und das Cashflow-HUD sind nach kn3-ui.js umgezogen (geladen direkt nach mandate-view.js).
     code += "\n" + (FRONTEND / "kn3-ui.js").read_text(encoding="utf-8")
+    code += "\n" + (FRONTEND / "kn4-ui.js").read_text(encoding="utf-8")  # KN4-U: Reset-Erweiterung, Portfolio
     code += "\n(async function(){var out=await (async function(){" + script + "})();console.log(JSON.stringify(out));})();"
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as fh:
         fh.write(code)
