@@ -5,9 +5,8 @@
  *
  * N-917R4-02  Review: Ist-% und Ist-CHF auf derselben Basis (Strategieanteil, Server-
  *             feld comparison_basis 'strategy'); Bestand und «davon Liquiditaetsreserve
- *             (ausserhalb der Anlagestrategie)» getrennt (Label = PDF, N858-5; Karte +
- *             Kopfzeile); eine negative Liquiditaet (Reserve > Liquiditaet) wird als
- *             Reservelücke erklaert, nie als 0.0 %.
+ *             (ausserhalb der Anlagestrategie)» getrennt (Label = PDF, N858-5); negative
+ *             Liquiditaet (Reserve > Liquiditaet) als Reservelücke erklaert, nie 0.0 %.
  * N-917R4-05  Portfolio: Hinweis, wenn eine Klasse nicht auf den AA-Betrag apportioniert
  *             wird (Toleranzschranke in kn4-ui.js aresPortfolioDisplayPositions).
  * Umgezogen aus ares.html (Budget): allocationReserveBreakdown. */

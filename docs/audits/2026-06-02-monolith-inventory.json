@@ -9434,8 +9434,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/kn5-ui.js",
-      "sha256": "90b554e76b23055d2081213c132935dd0b9b2b2d0a65562c833146e59c582846",
-      "size_bytes": 6914
+      "sha256": "5bdc997d24fda3b0a5254fa12d0a14179c29ff2eacb6e0d1ed3662aaec00b236",
+      "size_bytes": 6960
     },
     {
       "kind": "js",
