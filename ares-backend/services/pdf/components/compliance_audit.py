@@ -7,6 +7,8 @@ signals visible in the PDF.
 """
 from __future__ import annotations
 
+from core.preference_labels import method_label
+from core.customer_terms import customer_term
 from typing import Any
 
 from reportlab.lib.colors import HexColor
@@ -33,27 +35,52 @@ from services.pdf.components.advisory_palette import (
 from services.pdf.components.swiss_numbers import format_bps_as_pct, format_integer
 
 
-PILL_OK = ("gruen", "#E5EEDF", "#4E6F58")
+PILL_OK = ("grün", "#E5EEDF", "#4E6F58")
 PILL_BAD = ("rot", "#F0D9D9", "#9E4747")
 PILL_PENDING = ("Daten ausstehend", "#E9EBEE", "#7A8395")
 
 
-def render_compliance_audit_section(payload: dict, story: list, styles) -> None:
+def render_compliance_audit_section(payload: dict, story: list, styles, *, advisor_annex: bool = False) -> None:
     """Append the consolidated Compliance-Audit PDF section.
 
     The function is intentionally side-effect free except for appending
     ReportLab flowables to `story`.
+
+    KN5 / N-917R4-01: Das Kunden-PDF (Default) zeigt je Prüfung nur den
+    Status und eine verständliche Aussage. Interne Prüfwerte (Seed/Pfade,
+    Optimizer-Status, Log-Zähler, Audit-Payload-Hinweise, Lock-Reason-Codes,
+    Liquiditäts-Kaskade/Hard-Cap, Methodology-Modelle, Engine-Konfiguration)
+    stehen nur in der Berater-/Audit-Fassung (``advisor_annex=True``).
     """
     story.append(Paragraph("Sektionen 19-23", styles["kicker"]))
     story.append(Paragraph("Compliance-Audit", styles["h1"]))
     story.append(Spacer(1, 4 * mm))
     story.append(_hr())
     story.append(Spacer(1, 5 * mm))
+    if not advisor_annex:
+        story.append(Paragraph(
+            "Überblick über die Prüfungen, die zu dieser Empfehlung dokumentiert "
+            "sind. Der Abschnitt ist rein dokumentierend und löst keine "
+            "automatische Portfolio-Anpassung aus.",
+            _style(styles["caption"], color=COLOR_INK_MUTED),
+        ))
+        story.append(Spacer(1, 5 * mm))
+        customer_blocks = [
+            _customer_suitability_block(payload.get("suitability_compliance") or {}, styles),
+            _customer_recommendation_block(payload.get("recommendation_methodology") or {}, styles),
+            _customer_mandate_block(payload.get("mandate_lock_status") or {}, styles),
+            _customer_liquidity_block(payload.get("liquidity_cascade") or {}, styles),
+        ]
+        for index, block in enumerate(customer_blocks):
+            if index:
+                story.append(Spacer(1, 4 * mm))
+            story.append(KeepTogether(block))
+        return
     story.append(Paragraph(
-        "Kompakte FINMA-Audit-Sicht auf Geeignetheitspruefung, "
+        "Kompakte FINMA-Audit-Sicht auf Geeignetheitsprüfung, "
         "Methodik, Optimizer-Herleitung, Mandats-Sperren und "
-        "Liquiditaets-Cascade. Die Sektion ist rein dokumentierend "
-        "und loest keine automatische Portfolio-Anpassung aus.",
+        "Liquiditäts-Cascade. Die Sektion ist rein dokumentierend "
+        "und löst keine automatische Portfolio-Anpassung aus.",
         _style(styles["caption"], color=COLOR_INK_MUTED),
     ))
     story.append(Spacer(1, 5 * mm))
@@ -68,6 +95,8 @@ def render_compliance_audit_section(payload: dict, story: list, styles) -> None:
     # Sprint C2 (2026-06-07): Engine-Configuration-Block sichtbar machen
     # (IS-Status, Tax-Mode, Sub-Allocation-Aware). Nur appended wenn payload
     # einen 'engine_configuration'-Key enthaelt (Backwards-Compat: optional).
+    # KN4-B / DEMO-B3: interne Diagnosewerte (Optimizer-Modus, Importance
+    # Sampling, Tax-Modus) nur im Berater-Anhang, nie im Kunden-PDF.
     engine_cfg = payload.get("engine_configuration")
     if engine_cfg:
         blocks.append(_engine_configuration_block(engine_cfg, styles))
@@ -75,6 +104,140 @@ def render_compliance_audit_section(payload: dict, story: list, styles) -> None:
         if index:
             story.append(Spacer(1, 4 * mm))
         story.append(KeepTogether(block))
+
+
+# -- Kundenfassung (KN5 / N-917R4-01): Status + verständlicher Text ----------
+
+
+def _customer_panel(title: str, pill: Table, text: str, styles, *, accent) -> list:
+    return [_panel([_block_header(title, pill, styles), _customer_note(text, styles)], styles, accent=accent)]
+
+
+def _customer_note(text: str, styles) -> Table:
+    table = Table([[Paragraph(_escape(text), _style(styles["caption"], color=COLOR_INK))]])
+    table.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return table
+
+
+def _customer_suitability_block(data: dict, styles) -> list:
+    title = "Geeignetheitsprüfung"
+    if data.get("audit_degraded"):
+        return _customer_panel(
+            title, _pill(*PILL_PENDING, styles=styles),
+            "Prüfung nicht möglich: Die Geeignetheit konnte für diesen Bericht nicht bestätigt "
+            "werden. Ihr Berater klärt dies vor einer Umsetzung.",
+            styles, accent=COLOR_ACCENT)
+    if bool(data.get("is_compliant", True)):
+        return _customer_panel(
+            title, _compliance_pill(True, styles),
+            "Für die dokumentierten Beratungen liegt die erforderliche Geeignetheitsprüfung vor.",
+            styles, accent=COLOR_STATUS_GRUEN)
+    return _customer_panel(
+        title, _compliance_pill(False, styles),
+        "Für mindestens eine Beratung fehlt eine gültige Geeignetheitsprüfung. "
+        "Ihr Berater ergänzt sie vor einer Umsetzung.",
+        styles, accent=COLOR_STATUS_ROT)
+
+
+def _customer_recommendation_block(data: dict, styles) -> list:
+    title = "Methodik der Produktempfehlung"
+    active_run = data.get("latest_active_run") or data.get("latest_run") or {}
+    has_run = isinstance(active_run, dict) and bool(active_run)
+    if data.get("audit_degraded"):
+        return _customer_panel(
+            title, _pill(*PILL_PENDING, styles=styles),
+            "Prüfung nicht möglich: Die Herleitung der Produktempfehlung konnte für diesen "
+            "Bericht nicht bestätigt werden.",
+            styles, accent=COLOR_ACCENT)
+    if not has_run:
+        return _customer_panel(
+            title, _pill(*PILL_PENDING, styles=styles),
+            "Daten ausstehend: Es liegt noch keine berechnete Produktempfehlung vor.",
+            styles, accent=COLOR_ACCENT)
+    is_compliant = bool(data.get("is_compliant", True))
+    method = method_label(active_run.get("method") or active_run.get("optimizer_mode"))
+    checked = (
+        "Die Berechnung ist abgeschlossen und erfüllt die Prüfkriterien."
+        if active_run.get("is_acceptable")
+        else "Die Berechnung wird von Ihrem Berater noch geprüft."
+    )
+    text = (f"Berechnungsmethode: {method}. " if method else "") + checked
+    return _customer_panel(
+        title, _compliance_pill(is_compliant, styles), text, styles,
+        accent=COLOR_STATUS_GRUEN if is_compliant else COLOR_STATUS_ROT)
+
+
+def _customer_mandate_block(data: dict, styles) -> list:
+    title = "Bearbeitungsstand des Mandats"
+    if data.get("audit_degraded"):
+        return _customer_panel(
+            title, _pill(*PILL_PENDING, styles=styles),
+            "Prüfung nicht möglich: Der Bearbeitungsstand des Mandats konnte nicht bestätigt werden.",
+            styles, accent=COLOR_ACCENT)
+    if bool(data.get("is_editable", True)):
+        return _customer_panel(
+            title, _pill("änderbar", "#E5EEDF", "#4E6F58", styles),
+            "Das Mandat kann bei Bedarf angepasst werden.",
+            styles, accent=COLOR_STATUS_GRUEN)
+    return _customer_panel(
+        title, _pill("gesperrt", "#F0D9D9", "#9E4747", styles),
+        "Das Mandat ist derzeit für Änderungen gesperrt. Ihr Berater erläutert Ihnen den Grund.",
+        styles, accent=COLOR_STATUS_ROT)
+
+
+def _customer_liquidity_block(data: dict, styles) -> list:
+    title = "Liquidität"
+    if data.get("audit_degraded"):
+        return _customer_panel(
+            title, _pill(*PILL_PENDING, styles=styles),
+            "Prüfung nicht möglich: Die Liquiditätsquote konnte nicht beurteilt werden.",
+            styles, accent=COLOR_ACCENT)
+    stage = str(data.get("stage") or "unknown")
+    quota_text = _customer_quota_text(data.get("liquidity_bps"), data.get("hard_cap_bps"))
+    if bool(data.get("warning_required")) or stage == "emergency":
+        return _customer_panel(
+            title, _pill("Hinweis", "#F0D9D9", "#9E4747", styles),
+            quota_text + "Die Liquidität liegt über dem üblichen Rahmen, damit das Risikobudget "
+            "eingehalten wird. Ihr Berater bespricht Risikoprofil, Ziele und Liquiditätsbedarf mit Ihnen.",
+            styles, accent=COLOR_STATUS_ROT)
+    if stage == "hard_cap":
+        return _customer_panel(
+            title, _pill("an Obergrenze", "#F4EBD5", "#B59243", styles),
+            quota_text + "Die Liquidität liegt an der vorgesehenen Obergrenze.",
+            styles, accent=COLOR_GOLD)
+    if stage == "normal":
+        return _customer_panel(
+            title, _pill("im Rahmen", "#E5EEDF", "#4E6F58", styles),
+            quota_text + "Die Liquidität liegt im vorgesehenen Rahmen.",
+            styles, accent=COLOR_GOLD)
+    return _customer_panel(
+        title, _pill(*PILL_PENDING, styles=styles),
+        "Daten ausstehend: Für die Liquiditätsquote liegt noch keine berechnete Strategie vor.",
+        styles, accent=COLOR_ACCENT)
+
+
+def _customer_quota_text(quota: Any, cap: Any) -> str:
+    """Quote und Obergrenze auf 0.01 % genau: ein knapp über der Grenze
+    liegender Wert (z. B. 3.02 % bei 3.00 %) darf nicht als «3.0 %» neben
+    «über dem Rahmen» stehen."""
+    try:
+        quota_bps = int(quota)
+    except (TypeError, ValueError):
+        return ""
+    text = f"Liquiditätsquote der Strategie: {format_bps_as_pct(quota_bps, decimals=2)}"
+    try:
+        text += f" (übliche Obergrenze {format_bps_as_pct(int(cap), decimals=2)})"
+    except (TypeError, ValueError):
+        pass
+    return text + ". "
+
+
+# -- Berater-/Audit-Fassung (advisor_annex=True) ------------------------------
 
 
 def _suitability_block(data: dict, styles) -> list:
@@ -92,23 +255,23 @@ def _suitability_block(data: dict, styles) -> list:
     ]]
     pill = _pill(*PILL_PENDING, styles=styles) if is_degraded else _compliance_pill(is_compliant, styles)
     out = [
-        _block_header("Geeignetheitspruefung", pill, styles),
+        _block_header("Geeignetheitsprüfung", pill, styles),
         _metrics_row(rows, styles),
     ]
     if is_degraded:
         out.append(_muted_note(
-            "Pruefung nicht moeglich: Suitability-Audit fehlgeschlagen. "
-            "Konformitaet konnte NICHT bestaetigt werden.", styles))
+            "Prüfung nicht möglich: Suitability-Audit fehlgeschlagen. "
+            "Konformität konnte NICHT bestätigt werden.", styles))
     elif violations:
         out.append(Spacer(1, 2 * mm))
         out.append(_issues_table(
             violations,
             styles,
             headers=("Typ", "Referenz", "Grund"),
-            empty_text="Keine Verstoesse erfasst.",
+            empty_text="Keine Verstösse erfasst.",
         ))
     else:
-        out.append(_muted_note("Keine Suitability-Verstoesse im Audit-Payload.", styles))
+        out.append(_muted_note("Keine Suitability-Verstösse im Audit-Payload.", styles))
     accent = COLOR_ACCENT if is_degraded else (COLOR_STATUS_GRUEN if is_compliant else COLOR_STATUS_ROT)
     return [_panel(out, styles, accent=accent)]
 
@@ -162,28 +325,22 @@ def _recommendation_block(data: dict, styles) -> list:
         else _compliance_pill(is_compliant, styles)
     )
 
-    out = [
-        _block_header("Recommendation-Methodology", pill, styles),
-        _metrics_row([[
-            _metric("Runs", data.get("total_runs"), styles),
-            _metric("Active", data.get("active_count"), styles),
-            _metric("Shadow", data.get("shadow_count"), styles),
-            _metric("Fallback", data.get("fallback_count"), styles),
-        ]], styles),
-    ]
+    # KN4-B / DEMO-B3: keine Lauf-Zaehler (Runs/Active/Shadow/Fallback) und
+    # keine Rohwerte im Kunden-PDF; Methode nur als Kundentext.
+    out = [_block_header("Methodik der Produktempfehlung", pill, styles)]
     if has_run:
+        method = method_label(active_run.get("method") or active_run.get("optimizer_mode"))
         details = [
-            ("Methode", _safe(active_run.get("method") or active_run.get("optimizer_mode"))),
-            ("Status", _safe(active_run.get("status_label") or active_run.get("status"))),
-            ("Konvergenz", "akzeptiert" if active_run.get("is_acceptable") else "pruefen"),
+            *([("Methode", method)] if method else []),
+            ("Konvergenz", "akzeptiert" if active_run.get("is_acceptable") else "prüfen"),
             ("Seed / Pfade", _seed_paths(active_run)),
         ]
         out.append(Spacer(1, 2 * mm))
         out.append(_kv_table(details, styles))
     elif is_degraded:
         out.append(_muted_note(
-            "Pruefung nicht moeglich: Recommendation-Audit fehlgeschlagen. "
-            "Konformitaet konnte NICHT bestaetigt werden.", styles))
+            "Prüfung nicht möglich: Recommendation-Audit fehlgeschlagen. "
+            "Konformität konnte NICHT bestätigt werden.", styles))
     else:
         out.append(_muted_note("Daten ausstehend: kein Optimizer-Run im Payload.", styles))
     accent = COLOR_ACCENT if (is_degraded or not has_run) else (
@@ -217,8 +374,8 @@ def _mandate_lock_block(data: dict, styles) -> list:
     labels = data.get("lock_reason_labels") or {}
     if is_degraded:
         out.append(_muted_note(
-            "Pruefung nicht moeglich: Mandate-Lock-Audit fehlgeschlagen. "
-            "Editierbarkeit konnte NICHT bestaetigt werden.", styles))
+            "Prüfung nicht möglich: Mandate-Lock-Audit fehlgeschlagen. "
+            "Editierbarkeit konnte NICHT bestätigt werden.", styles))
     elif reasons:
         out.append(Spacer(1, 2 * mm))
         out.append(_bullet_list(
@@ -244,21 +401,21 @@ def _liquidity_block(data: dict, styles) -> list:
         _block_header("Liquidity-Cascade", pill, styles),
         _kv_table([
             ("Stage", _safe(data.get("stage_label") or stage)),
-            ("Liquiditaet", _bps_or_dash(data.get("liquidity_bps"))),
+            ("Liquidität", _bps_or_dash(data.get("liquidity_bps"))),
             ("Hard-Cap", _bps_or_dash(data.get("hard_cap_bps"))),
-            ("Ueber Hard-Cap", _bps_or_dash(over)),
+            ("Über Hard-Cap", _bps_or_dash(over)),
         ], styles),
     ]
     if is_degraded:
         out.append(_muted_note(
-            "Pruefung nicht moeglich: Liquidity-Cascade-Audit fehlgeschlagen. "
+            "Prüfung nicht möglich: Liquidity-Cascade-Audit fehlgeschlagen. "
             "Stage konnte NICHT bestimmt werden.", styles))
     elif warning_required or stage == "emergency":
         out.append(Spacer(1, 2 * mm))
         out.append(_warning_box(
             "Liquidity-Cascade-Warnung",
             "Emergency-Stage: Berater soll Risikoprofil, Zielstruktur und "
-            "Liquiditaetsbedarf im Beratungsgespraech dokumentiert pruefen.",
+            "Liquiditätsbedarf im Beratungsgespräch dokumentiert prüfen.",
             styles,
         ))
     accent = COLOR_ACCENT if is_degraded else (COLOR_STATUS_ROT if warning_required else COLOR_GOLD)
@@ -304,7 +461,7 @@ def _engine_configuration_block(data: dict, styles) -> list:
         out.append(_muted_note(
             "Achievability-Wahrscheinlichkeiten sind likelihood-ratio-gewichtet "
             "(Mean-Shift Importance Sampling, Glasserman 2004 Sec 4.6). "
-            "Tail-Statistik (P5/P95) reduziert Varianz 5-50x gegenueber Standard-MC.",
+            "Tail-Statistik (P5/P95) reduziert Varianz 5-50x gegenüber Standard-MC.",
             styles,
         ))
     return [_panel(out, styles, accent=COLOR_STATUS_GRUEN if is_active else COLOR_GOLD)]
@@ -419,7 +576,7 @@ def _bullet_list(title: str, items: list[str], styles) -> Table:
         styles["micro"], color=COLOR_INK_SUBTLE, font=FONT_SANS_BOLD,
     ))]]
     if not items:
-        rows.append([Paragraph("<i>Keine Eintraege.</i>", styles["caption"])])
+        rows.append([Paragraph("<i>Keine Einträge.</i>", styles["caption"])])
     for item in items:
         rows.append([Paragraph(f"- {_escape(_safe(item))}", _style(
             styles["caption"], color=COLOR_INK_MUTED,
@@ -597,7 +754,7 @@ def _safe(value: Any) -> str:
 
 def _escape(text: Any) -> str:
     return (
-        str(text)
+        customer_term(str(text))
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")

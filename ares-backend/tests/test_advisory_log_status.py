@@ -520,7 +520,14 @@ def test_resolve_trigger_is_not_replayable(session_factory, auth_client, advisor
     """REVIEW-STATE-003 Kern-Repro: ein frueher zweiter Resolve-Aufruf darf
     die Faelligkeit NICHT ein zweites Mal verschieben."""
     mandate_id, _ = _seed_review_context(session_factory, advisor_user)
-    trigger_id = _seed_time_trigger(session_factory, mandate_id)
+    # Faelligkeitsanker relativ zu heute: der Resolve verschiebt um 12 Monate
+    # ab dem Anker, die Faelligkeitspruefung liest ``date.today()``. Mit dem
+    # festen Anker 2026-04-01 lag die neue Frist (2027-04-01) ab 2027-04-02
+    # wieder in der Vergangenheit, der zweite Resolve war dann fachlich
+    # korrekt zulaessig.
+    today = datetime.date.today()
+    anchor = today.replace(day=1)
+    trigger_id = _seed_time_trigger(session_factory, mandate_id, next_due_at=anchor.isoformat())
 
     first = auth_client.put(
         f"/mandates/{mandate_id}/triggers/{trigger_id}/resolve",
@@ -528,7 +535,7 @@ def test_resolve_trigger_is_not_replayable(session_factory, auth_client, advisor
     )
     assert first.status_code == 200
     first_next_due = first.json()["next_due_at"]
-    assert first_next_due == "2027-04-01"
+    assert first_next_due == anchor.replace(year=anchor.year + 1).isoformat()
 
     replay = auth_client.put(
         f"/mandates/{mandate_id}/triggers/{trigger_id}/resolve",

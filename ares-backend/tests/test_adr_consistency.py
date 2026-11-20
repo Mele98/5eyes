@@ -19,6 +19,7 @@ EXPECTED_ADRS = (
     "ADR-004-editorial-no-recharts.md",
     "ADR-005-free-data-pipeline.md",
     "ADR-006-drift-tests.md",
+    "ADR-015-haus-prior-kappa-v1.md",
 )
 
 REQUIRED_SECTIONS = ("Status", "Kontext", "Entscheidung", "Konsequenzen")
