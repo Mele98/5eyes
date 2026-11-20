@@ -29,6 +29,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from core.holdings_rule import select_valuation_runs
 from models.review import RecommendationRun
 from models.snapshots import AdvisoryDecisionEnvelope, AdvisoryEnvelopeBinding
 from models.wealth import Cashflow, WealthInflow, WealthPosition
@@ -93,16 +94,12 @@ def mandate_amount_currencies(db: Session, mandate: Any) -> set[str]:
 
 
 def current_run_id(db: Session, mandate_id: str) -> str | None:
-    """Aktueller Lauf wie ``portfolio_engine._current_recommendation_run``:
-    juengster Final-Lauf, sonst juengster Lauf."""
-    for only_final in (True, False):
-        query = db.query(RecommendationRun).filter(RecommendationRun.mandate_id == str(mandate_id))
-        if only_final:
-            query = query.filter(RecommendationRun.result_status == "Final")
-        run = query.order_by(RecommendationRun.created_at.desc()).first()
-        if run is not None:
-            return str(run.id)
-    return None
+    """Aktueller Lauf wie ``portfolio_engine._current_recommendation_run``
+    (KN5 / N-917R4-03: eine Regel, ``core.holdings_rule.select_valuation_runs``)."""
+    run = select_valuation_runs(db.query(RecommendationRun).filter(
+        RecommendationRun.mandate_id == str(mandate_id),
+    ).order_by(RecommendationRun.created_at.desc(), RecommendationRun.id.desc()).all())[0]
+    return str(run.id) if run is not None else None
 
 
 def run_is_sealed(db: Session, mandate: Any, run_id: str | None) -> bool:

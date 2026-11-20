@@ -3,6 +3,7 @@ import datetime as _dt
 import hashlib
 import json
 import weakref
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -1012,12 +1013,29 @@ def _dml_table(orm_execute_state):
     return table
 
 
-def _sets_tenant_id(statement) -> bool:
-    """True, wenn ein UPDATE-Statement ``tenant_id`` setzt (ORM-Massen-UPDATE)."""
+def _sets_tenant_id(statement, params=None) -> bool:
+    """True, wenn ein UPDATE-Statement ``tenant_id`` setzt -- in ``.values()``
+    oder (KN5 / N-917R4-04) erst in den Ausfuehrungsparametern
+    (``execute(update(t), {"tenant_id": ...})`` bzw. Liste solcher dicts)."""
     values = getattr(statement, "_values", None) or {}
     ordered = getattr(statement, "_ordered_values", None) or ()
     keys = [getattr(key, "key", getattr(key, "name", key)) for key in list(values) + [k for k, _v in ordered]]
+    for item in _param_dicts(params):
+        keys.extend(item.keys())
     return "tenant_id" in {str(key) for key in keys}
+
+
+def _param_dicts(params) -> list:
+    if not params:
+        return []
+    if isinstance(params, Mapping):
+        return [params]
+    if isinstance(params, (list, tuple)):
+        out = []
+        for item in params:
+            out.extend(_param_dicts(item))
+        return out
+    return []
 
 
 def _bulk_orm_write(orm_execute_state):
@@ -1040,7 +1058,7 @@ def _bulk_orm_write(orm_execute_state):
             "Objekte einzeln ueber die Session anlegen."
         )
     if orm_execute_state.is_update and table.name in TENANT_LOCKED_TABLES and _sets_tenant_id(
-            orm_execute_state.statement):
+            orm_execute_state.statement, orm_execute_state.parameters):
         raise RuntimeError(f"{TENANT_CHANGE_ERROR}: Massen-UPDATE von {table.name}.tenant_id ist verboten.")
     session = orm_execute_state.session
     connection = session.connection()
@@ -1122,6 +1140,12 @@ def _guard_core_dml(conn, clauseelement, multiparams, params, execution_options)
     if not isinstance(clauseelement, UpdateBase):
         return
     table = getattr(clauseelement, "table", None)
+    # KN5 / N-917R4-04: auch Core-DML darf eine Mandantenzuordnung nicht
+    # umhaengen (ORM-Flush und ORM-Massen-UPDATE pruefen eigene Waechter).
+    if (clauseelement.is_update and getattr(table, "name", None) in TENANT_LOCKED_TABLES
+            and not _HOOK_SCOPE.get() and not _flush_in_progress()
+            and _sets_tenant_id(clauseelement, (multiparams, params))):
+        raise RuntimeError(f"{TENANT_CHANGE_ERROR}: Core-UPDATE von {table.name}.tenant_id ist verboten.")
     source = DEPENDENCY_SOURCES.get(getattr(table, "name", None))
     if source is None or _HOOK_SCOPE.get() or _flush_in_progress():
         return
@@ -1175,6 +1199,15 @@ TENANT_LOCKED_TABLES = frozenset({"clients", "mandates", "wealth_positions"})
 TENANT_CHANGE_ERROR = "TENANT_REASSIGNMENT_FORBIDDEN"
 
 
+def _stored_tenant_id(session, state):
+    """Gespeicherte ``tenant_id`` einer persistenten Zeile (Core-SELECT ueber
+    die Session-Verbindung, kein Autoflush)."""
+    table = state.mapper.local_table
+    pk_columns = list(state.mapper.primary_key)
+    where = [column == value for column, value in zip(pk_columns, state.key[1])]
+    return session.connection().execute(select(table.c.tenant_id).where(*where)).scalar()
+
+
 def _guard_tenant_reassignment(session, _flush_context, _instances) -> None:
     for obj in list(session.dirty):
         try:
@@ -1185,9 +1218,16 @@ def _guard_tenant_reassignment(session, _flush_context, _instances) -> None:
         if table not in TENANT_LOCKED_TABLES or "tenant_id" not in state.mapper.column_attrs.keys():
             continue
         history = state.attrs["tenant_id"].history
-        old = history.deleted[0] if history.deleted else None
+        if history.deleted:
+            old = history.deleted[0]
+        elif history.added and state.key is not None:
+            # KN5 / N-917R4-04: alter Wert nicht geladen (expired/refresh) ->
+            # ``deleted`` ist leer; den gespeicherten Wert aus der DB lesen.
+            old = _stored_tenant_id(session, state)
+        else:
+            continue
         new = state.dict.get("tenant_id")
-        if history.deleted and old not in (None, "") and str(new or "") != str(old):
+        if old not in (None, "") and str(new or "") != str(old):
             raise RuntimeError(
                 f"{TENANT_CHANGE_ERROR}: {table}.tenant_id einer bestehenden Zeile darf nicht "
                 "geaendert werden (nur Anlegen und Start-Backfill NULL -> Default-Mandant)."

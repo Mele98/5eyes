@@ -45,12 +45,37 @@ def render_compliance_audit_section(payload: dict, story: list, styles, *, advis
 
     The function is intentionally side-effect free except for appending
     ReportLab flowables to `story`.
+
+    KN5 / N-917R4-01: Das Kunden-PDF (Default) zeigt je Prüfung nur den
+    Status und eine verständliche Aussage. Interne Prüfwerte (Seed/Pfade,
+    Optimizer-Status, Log-Zähler, Audit-Payload-Hinweise, Lock-Reason-Codes,
+    Liquiditäts-Kaskade/Hard-Cap, Methodology-Modelle, Engine-Konfiguration)
+    stehen nur in der Berater-/Audit-Fassung (``advisor_annex=True``).
     """
     story.append(Paragraph("Sektionen 19-23", styles["kicker"]))
     story.append(Paragraph("Compliance-Audit", styles["h1"]))
     story.append(Spacer(1, 4 * mm))
     story.append(_hr())
     story.append(Spacer(1, 5 * mm))
+    if not advisor_annex:
+        story.append(Paragraph(
+            "Überblick über die Prüfungen, die zu dieser Empfehlung dokumentiert "
+            "sind. Der Abschnitt ist rein dokumentierend und löst keine "
+            "automatische Portfolio-Anpassung aus.",
+            _style(styles["caption"], color=COLOR_INK_MUTED),
+        ))
+        story.append(Spacer(1, 5 * mm))
+        customer_blocks = [
+            _customer_suitability_block(payload.get("suitability_compliance") or {}, styles),
+            _customer_recommendation_block(payload.get("recommendation_methodology") or {}, styles),
+            _customer_mandate_block(payload.get("mandate_lock_status") or {}, styles),
+            _customer_liquidity_block(payload.get("liquidity_cascade") or {}, styles),
+        ]
+        for index, block in enumerate(customer_blocks):
+            if index:
+                story.append(Spacer(1, 4 * mm))
+            story.append(KeepTogether(block))
+        return
     story.append(Paragraph(
         "Kompakte FINMA-Audit-Sicht auf Geeignetheitsprüfung, "
         "Methodik, Optimizer-Herleitung, Mandats-Sperren und "
@@ -73,12 +98,146 @@ def render_compliance_audit_section(payload: dict, story: list, styles, *, advis
     # KN4-B / DEMO-B3: interne Diagnosewerte (Optimizer-Modus, Importance
     # Sampling, Tax-Modus) nur im Berater-Anhang, nie im Kunden-PDF.
     engine_cfg = payload.get("engine_configuration")
-    if engine_cfg and advisor_annex:
+    if engine_cfg:
         blocks.append(_engine_configuration_block(engine_cfg, styles))
     for index, block in enumerate(blocks):
         if index:
             story.append(Spacer(1, 4 * mm))
         story.append(KeepTogether(block))
+
+
+# -- Kundenfassung (KN5 / N-917R4-01): Status + verständlicher Text ----------
+
+
+def _customer_panel(title: str, pill: Table, text: str, styles, *, accent) -> list:
+    return [_panel([_block_header(title, pill, styles), _customer_note(text, styles)], styles, accent=accent)]
+
+
+def _customer_note(text: str, styles) -> Table:
+    table = Table([[Paragraph(_escape(text), _style(styles["caption"], color=COLOR_INK))]])
+    table.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return table
+
+
+def _customer_suitability_block(data: dict, styles) -> list:
+    title = "Geeignetheitsprüfung"
+    if data.get("audit_degraded"):
+        return _customer_panel(
+            title, _pill(*PILL_PENDING, styles=styles),
+            "Prüfung nicht möglich: Die Geeignetheit konnte für diesen Bericht nicht bestätigt "
+            "werden. Ihr Berater klärt dies vor einer Umsetzung.",
+            styles, accent=COLOR_ACCENT)
+    if bool(data.get("is_compliant", True)):
+        return _customer_panel(
+            title, _compliance_pill(True, styles),
+            "Für die dokumentierten Beratungen liegt die erforderliche Geeignetheitsprüfung vor.",
+            styles, accent=COLOR_STATUS_GRUEN)
+    return _customer_panel(
+        title, _compliance_pill(False, styles),
+        "Für mindestens eine Beratung fehlt eine gültige Geeignetheitsprüfung. "
+        "Ihr Berater ergänzt sie vor einer Umsetzung.",
+        styles, accent=COLOR_STATUS_ROT)
+
+
+def _customer_recommendation_block(data: dict, styles) -> list:
+    title = "Methodik der Produktempfehlung"
+    active_run = data.get("latest_active_run") or data.get("latest_run") or {}
+    has_run = isinstance(active_run, dict) and bool(active_run)
+    if data.get("audit_degraded"):
+        return _customer_panel(
+            title, _pill(*PILL_PENDING, styles=styles),
+            "Prüfung nicht möglich: Die Herleitung der Produktempfehlung konnte für diesen "
+            "Bericht nicht bestätigt werden.",
+            styles, accent=COLOR_ACCENT)
+    if not has_run:
+        return _customer_panel(
+            title, _pill(*PILL_PENDING, styles=styles),
+            "Daten ausstehend: Es liegt noch keine berechnete Produktempfehlung vor.",
+            styles, accent=COLOR_ACCENT)
+    is_compliant = bool(data.get("is_compliant", True))
+    method = method_label(active_run.get("method") or active_run.get("optimizer_mode"))
+    checked = (
+        "Die Berechnung ist abgeschlossen und erfüllt die Prüfkriterien."
+        if active_run.get("is_acceptable")
+        else "Die Berechnung wird von Ihrem Berater noch geprüft."
+    )
+    text = (f"Berechnungsmethode: {method}. " if method else "") + checked
+    return _customer_panel(
+        title, _compliance_pill(is_compliant, styles), text, styles,
+        accent=COLOR_STATUS_GRUEN if is_compliant else COLOR_STATUS_ROT)
+
+
+def _customer_mandate_block(data: dict, styles) -> list:
+    title = "Bearbeitungsstand des Mandats"
+    if data.get("audit_degraded"):
+        return _customer_panel(
+            title, _pill(*PILL_PENDING, styles=styles),
+            "Prüfung nicht möglich: Der Bearbeitungsstand des Mandats konnte nicht bestätigt werden.",
+            styles, accent=COLOR_ACCENT)
+    if bool(data.get("is_editable", True)):
+        return _customer_panel(
+            title, _pill("änderbar", "#E5EEDF", "#4E6F58", styles),
+            "Das Mandat kann bei Bedarf angepasst werden.",
+            styles, accent=COLOR_STATUS_GRUEN)
+    return _customer_panel(
+        title, _pill("gesperrt", "#F0D9D9", "#9E4747", styles),
+        "Das Mandat ist derzeit für Änderungen gesperrt. Ihr Berater erläutert Ihnen den Grund.",
+        styles, accent=COLOR_STATUS_ROT)
+
+
+def _customer_liquidity_block(data: dict, styles) -> list:
+    title = "Liquidität"
+    if data.get("audit_degraded"):
+        return _customer_panel(
+            title, _pill(*PILL_PENDING, styles=styles),
+            "Prüfung nicht möglich: Die Liquiditätsquote konnte nicht beurteilt werden.",
+            styles, accent=COLOR_ACCENT)
+    stage = str(data.get("stage") or "unknown")
+    quota_text = _customer_quota_text(data.get("liquidity_bps"), data.get("hard_cap_bps"))
+    if bool(data.get("warning_required")) or stage == "emergency":
+        return _customer_panel(
+            title, _pill("Hinweis", "#F0D9D9", "#9E4747", styles),
+            quota_text + "Die Liquidität liegt über dem üblichen Rahmen, damit das Risikobudget "
+            "eingehalten wird. Ihr Berater bespricht Risikoprofil, Ziele und Liquiditätsbedarf mit Ihnen.",
+            styles, accent=COLOR_STATUS_ROT)
+    if stage == "hard_cap":
+        return _customer_panel(
+            title, _pill("an Obergrenze", "#F4EBD5", "#B59243", styles),
+            quota_text + "Die Liquidität liegt an der vorgesehenen Obergrenze.",
+            styles, accent=COLOR_GOLD)
+    if stage == "normal":
+        return _customer_panel(
+            title, _pill("im Rahmen", "#E5EEDF", "#4E6F58", styles),
+            quota_text + "Die Liquidität liegt im vorgesehenen Rahmen.",
+            styles, accent=COLOR_GOLD)
+    return _customer_panel(
+        title, _pill(*PILL_PENDING, styles=styles),
+        "Daten ausstehend: Für die Liquiditätsquote liegt noch keine berechnete Strategie vor.",
+        styles, accent=COLOR_ACCENT)
+
+
+def _customer_quota_text(quota: Any, cap: Any) -> str:
+    """Quote und Obergrenze auf 0.01 % genau: ein knapp über der Grenze
+    liegender Wert (z. B. 3.02 % bei 3.00 %) darf nicht als «3.0 %» neben
+    «über dem Rahmen» stehen."""
+    try:
+        quota_bps = int(quota)
+    except (TypeError, ValueError):
+        return ""
+    text = f"Liquiditätsquote der Strategie: {format_bps_as_pct(quota_bps, decimals=2)}"
+    try:
+        text += f" (übliche Obergrenze {format_bps_as_pct(int(cap), decimals=2)})"
+    except (TypeError, ValueError):
+        pass
+    return text + ". "
+
+
+# -- Berater-/Audit-Fassung (advisor_annex=True) ------------------------------
 
 
 def _suitability_block(data: dict, styles) -> list:

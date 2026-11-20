@@ -5,6 +5,8 @@ Entscheide, Empfehlung, Status und Unterschrift.
 """
 from __future__ import annotations
 
+import re
+
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 
@@ -71,7 +73,7 @@ def build_protokoll_flowables(ctx: PDFContext, data) -> list:
     else:
         flowables.append(Paragraph(
             f'<font name="{FONT_DEFAULT}" size="9" color="#94a3b8"><i>'
-            f'Noch kein Advisory-Log-Eintrag dokumentiert. Bitte im Review '
+            f'Noch kein Entscheid dokumentiert. Bitte im Review '
             f'& Abschluss einen Entscheid protokollieren.</i></font>',
             styles["small_muted"],
         ))
@@ -150,8 +152,10 @@ def build_protokoll_flowables(ctx: PDFContext, data) -> list:
 
     # KNOWLEDGE-GAP-ASSET-CLASS-001: SAA-Anlageklassen, zu denen weder
     # Kenntnisse noch eine Aufklaerung dokumentiert sind. Hinweis, kein Block.
+    # KN5 / N-917R4-01: der Reason-Code (z. B. «[KNOWLEDGE_GAP_ASSET_CLASS]»)
+    # bleibt in Reasoning/Audit; im Kunden-PDF steht nur der Text.
     knowledge_gap_hints = [
-        str(h).strip() for h in list(getattr(data, "knowledge_gap_hints", []) or []) if str(h).strip()
+        _without_reason_code(str(h)) for h in list(getattr(data, "knowledge_gap_hints", []) or []) if str(h).strip()
     ]
     if knowledge_gap_hints:
         flowables.append(Spacer(1, 4 * mm))
@@ -284,6 +288,14 @@ def _format_date(raw: str) -> str:
     if len(s) >= 10 and s[4] == "-" and s[7] == "-":
         return f"{s[8:10]}.{s[5:7]}.{s[0:4]}"
     return s
+
+
+_REASON_CODE = re.compile(r"\s*\[[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\]")
+
+
+def _without_reason_code(text: str) -> str:
+    """«Kenntnislücke [KNOWLEDGE_GAP_ASSET_CLASS]: …» -> «Kenntnislücke: …»."""
+    return _REASON_CODE.sub("", text).strip()
 
 
 def _section_title(text: str):

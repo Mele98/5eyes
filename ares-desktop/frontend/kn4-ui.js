@@ -47,19 +47,23 @@ function aresPortfolioDisplayPositions(positions,allocation){
   var pa=AresRounding.presentationAmounts(rb.advisoryRappen,rb.strategyBaseRappen,pos.map(function(b){return b.target_weight_bps;}),pos.map(function(b){return b.asset_class;}),2);
   var classChf={};
   pos.forEach(function(b,i){classChf[assetDisplayName(b.asset_class)]=Number(pa.buckets[i]||0);});
-  var groups={};
+  var groups={},live={},notes=[];
   rows.forEach(function(r){
-    if(r.current_market_value_rappen!=null||r.target_amount_rappen==null)return;
-    var g=assetDisplayName(r.asset_class||'Portfolio');(groups[g]=groups[g]||[]).push(r);
+    var g=assetDisplayName(r.asset_class||'Portfolio');
+    if(r.current_market_value_rappen!=null){live[g]=1;return;}
+    if(r.target_amount_rappen!=null)(groups[g]=groups[g]||[]).push(r);
   });
   Object.keys(groups).forEach(function(g){
     var list=groups[g],raw=list.reduce(function(a,r){return a+Number(r.target_amount_rappen||0);},0),total=classChf[g];
     if(!(total>0)||!(raw>0))return;
+    // KN5 N-917R4-05: nur den Rundungsrest verteilen (je Zeile max. 1 Franken); gemischte Klasse oder mehr -> Rohwerte + Hinweis (kn5-ui.js)
+    if(live[g]||Math.abs(raw/100-total)>list.length){notes.push(g);return;}
     var parts=list.map(function(r){var exact=Number(r.target_amount_rappen||0)/raw*total;return {r:r,chf:Math.floor(exact),frac:exact-Math.floor(exact)};});
     var rest=total-parts.reduce(function(a,p){return a+p.chf;},0);
     parts.slice().sort(function(a,b){return b.frac-a.frac;}).forEach(function(p){if(rest>0){p.chf+=1;rest-=1;}});
     parts.forEach(function(p){p.r.target_amount_rappen=p.chf*100;});
   });
+  rows.apportionNotes=notes;
   return rows;
 }
 

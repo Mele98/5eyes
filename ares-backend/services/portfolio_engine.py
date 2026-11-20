@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from config import RunContext, settings
 from core.chf_amount import normalize_chf_amount_text
+from core.holdings_rule import select_valuation_runs
 from core.evidence import SCHEME_V1_ASCII, canonical_json, evidence_hash
 from database import new_uuid
 from models.allocation import (
@@ -1197,15 +1198,10 @@ def _amount_from_weight_bps(total_rappen: int, weight_bps: int) -> int:
 
 
 def _current_recommendation_run(db: Session, mandate_id: str) -> RecommendationRun | None:
-    current = db.query(RecommendationRun).filter(
+    # KN5 / N-917R4-03: dieselbe Regel wie der Depotcheck (core.holdings_rule).
+    return select_valuation_runs(db.query(RecommendationRun).filter(
         RecommendationRun.mandate_id == mandate_id,
-        RecommendationRun.result_status == "Final",
-    ).order_by(RecommendationRun.created_at.desc()).first()
-    if current:
-        return current
-    return db.query(RecommendationRun).filter(
-        RecommendationRun.mandate_id == mandate_id,
-    ).order_by(RecommendationRun.created_at.desc()).first()
+    ).order_by(RecommendationRun.created_at.desc(), RecommendationRun.id.desc()).all())[0]
 
 
 # ADR-014 Schritt 2 (2026-08-02): Live-Rebalancing-Cluster (Payload-Bau Phase A)

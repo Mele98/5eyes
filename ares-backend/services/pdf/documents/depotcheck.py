@@ -255,7 +255,7 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
         flowables.append(Paragraph(
             f'<font name="{FONT_BOLD}" size="8.5" color="#475569">'
             f'Datenstand: {_without_holdings_label(data)}. Reine SOLL-Zielportfolioanalyse '
-            'ohne Depot-Snapshot.</font>',
+            'ohne erfassten Depotbestand.</font>',
             make_paragraph_styles()["small"],
         ))
     if data.inputs_note:

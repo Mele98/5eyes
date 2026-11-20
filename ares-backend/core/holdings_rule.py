@@ -45,3 +45,34 @@ def ist_fully_derived(positions, held_ids=()) -> bool:
     return bool(items) and all(_derived(position, held) or (
         str(getattr(position, "id", "") or "") not in held
         and _int(getattr(position, "current_amount_rappen", None)) <= 0) for position in items)
+
+
+# KN5 / N-917R4-03: EINE Regel fuer Lauf und Holdings -- Depotcheck
+# (services/depot_check.py), Live-Rebalancing (portfolio_engine.
+# _current_recommendation_run + portfolio_engine_live_rebalancing.
+# current_run_holdings) und Druck-FX-Gate (services/print_fx_gate.py).
+CURRENT_RUN_STATUSES = ("Draft", "Final")
+
+
+def _status(run) -> str | None:
+    return getattr(run, "result_status", None)
+
+
+def select_valuation_runs(runs, status=_status):
+    """``runs``: alle Laeufe des Mandats, juengster zuerst (``created_at``, dann
+    ``id`` absteigend). Liefert ``(bewerteter Lauf, Holdings-Lauf)``:
+
+    * bewerteter Lauf: juengster Final, sonst juengster Draft, sonst juengster;
+    * Holdings-Lauf: juengster Draft/Final (CIO-Entscheid 2026-10-28 (b)); seine
+      Holdings gelten je Position, sonst je Produkt auch fuer den bewerteten Lauf.
+
+    Vorher waehlte der Depotcheck "Final vor Draft", das Live-Rebalancing "Final
+    vor juengstem" und die Holdings den juengsten Draft/Final; ein Final ohne
+    Holdings neben einem neueren Draft mit Holdings wurde vom Live-Rebalancing
+    bewertet, vom Depotcheck ignoriert (H-176-Pruefung N-917R4-03)."""
+    items = list(runs or [])
+    valuation = (next((r for r in items if status(r) == "Final"), None)
+                 or next((r for r in items if status(r) == "Draft"), None)
+                 or (items[0] if items else None))
+    holdings = next((r for r in items if status(r) in CURRENT_RUN_STATUSES), None)
+    return valuation, holdings

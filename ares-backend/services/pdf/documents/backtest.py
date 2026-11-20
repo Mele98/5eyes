@@ -198,15 +198,14 @@ def _build_appendix_flowables(ctx, data: BacktestData, styles, advisory_label) -
     flowables.append(_section_title("Methodik & Hinweise"))
     method_para = (
         f'<font name="{FONT_DEFAULT}" size="9.5" color="#334155">'
-        f'Der Backtest wendet die SOLL-Strategie (Bucket-Gewichte aus der aktuellen '
-        f'TargetAllocation) auf historische Jahresrenditen pro Asset-Klasse an. '
-        f'Datenquelle: <i>asset_class_annual_returns</i>; Anchor-Indizes (USD-'
-        f'Total-Return) für die Standard-Buckets sind via Marktdaten-Aggregator '
-        f'(yfinance/stooq) eingespeist. Das Initial-Kapital entspricht dem '
-        f'Beratungsvermögen-Snapshot der TargetAllocation. Pfad-Berechnung: '
-        f'Buy-and-Hold mit jährlichem Rebalancing zur SOLL-Quote (Year-End-'
-        f'Snapshot). Cashflows, Spar- und Bezugspläne werden nicht berücksichtigt — '
-        f'der Backtest zeigt die reine Strategie-Performance.</font>'
+        f'Der Backtest wendet die Gewichte der empfohlenen SOLL-Strategie je '
+        f'Anlageklasse auf historische Jahresrenditen an. Die Jahresrenditen stammen '
+        f'aus öffentlich verfügbaren Marktdaten repräsentativer Indizes (Gesamtrendite '
+        f'in US-Dollar). Das Startkapital entspricht dem Beratungsvermögen der '
+        f'Strategie. Berechnung: Kaufen und Halten mit jährlicher Rückführung auf die '
+        f'SOLL-Quote zum Jahresende. Cashflows, Spar- und Bezugspläne werden nicht '
+        f'berücksichtigt — der Backtest zeigt die reine Wertentwicklung der '
+        f'Strategie.</font>'
     )
     flowables.append(Paragraph(method_para, styles["body"]))
     flowables.append(Spacer(1, 4 * mm))

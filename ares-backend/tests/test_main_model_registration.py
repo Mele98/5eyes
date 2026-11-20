@@ -199,7 +199,9 @@ GOLDEN_SORTED_TABLES_SHA256 = "618e8a807ae327ccb92d47cc4e5aefae67ac5d8e664a8806d
 # ter_status in Empfehlungspositionen; property_gate_review_json in Vermoegenspositionen.
 # KN-B (2026-11-19): freshness in AllocationPublicationOverviewResponse, causes in
 # AdvisoryEnvelopeFreshnessResponse (E2E2-05).
-GOLDEN_OPENAPI_SHA256 = "d0826606932ae89dac1d60f2ce51702ec8cd7d04e488fab750356914d4e2f53d"
+# KN5 (2026-11-20, N-917R4-02): AllocationBucketResponse liefert comparison_basis,
+# current_strategy_amount_rappen und reserve_*_rappen (Reserve ausserhalb der Strategie).
+GOLDEN_OPENAPI_SHA256 = "170370de7d0e10d5c802af18089fc4114b1385aaccfd7971e086179663d0cf58"
 
 _PROBE = """
 import hashlib, json

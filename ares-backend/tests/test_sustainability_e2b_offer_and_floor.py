@@ -18,9 +18,10 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
+import time_machine
 from sqlalchemy import text
 
 from core import sustainability_preference as sp
@@ -39,6 +40,20 @@ from tests.test_sustainability_e2a_contract import _capture, _ok_capture, _resul
 # CCX-P4: Altbestands-Kanaltest -- prueft andere Gates; Publikation siehe
 # tests/test_ccx_p4_allocation_publish.py (tests/ccx_p4_publication_support.py).
 from tests.ccx_p4_publication_support import assume_published_allocation  # noqa: E402,F401
+
+
+# KN5 (H-176, CI 44641282250 Versuch 1): Mitternachts-Flake -- Baseline und
+# Vergleichslauf lagen beidseits des UTC-Tageswechsels und trugen verschiedene
+# ``*_from``-Daten. Feste Wanduhr fuer den ganzen Test (inkl. Szenario): 12:00 UTC
+# des Starttags, laeuft weiter (Reihenfolge der Zeitstempel bleibt), kreuzt nie
+# Mitternacht. ``CLOCK_START`` ist der Stellhebel der Gegenprobe (H-177).
+CLOCK_START = time(12, 0)
+
+
+@pytest.fixture(autouse=True)
+def _fixed_clock():
+    with time_machine.travel(datetime.combine(date.today(), CLOCK_START, tzinfo=timezone.utc), tick=True):
+        yield
 
 
 @pytest.fixture()
