@@ -182,6 +182,11 @@ gesenkt: Monolith, kn3-ui.js, aa-chart.js. Zusatz Pitch-Selbsttest (DEMO-B1/B2/B
 245/13547 (Stand bei Einfuehrung inkl. Zusatz), finalize-attestation.js gesenkt auf 1741 B.
 Kern-Integration R4 (N-917R3-08, H-176): aresSplitIs100 (Depot-/Vorsorge-Aufteilung = Serverregel)
 nach kn4-ui.js statt in den Monolithen: kn4-ui.js 246/13742, Monolith gesenkt auf 1623083 B.
+KN5 (H-176-Pruefung): neuer Teil ``kn5-ui.js`` (Budget = Stand bei Einfuehrung): Review mit
+Reserve ausserhalb der Strategie (N-917R4-02; Label = PDF, +46 B nach N858-5), Hinweis ohne Apportionierung (N-917R4-05);
+allocationReserveBreakdown aus ares.html umgezogen -> Monolith gesenkt auf 26418/1622457.
+kn4-ui.js 250/14025: Toleranzschranke direkt in aresPortfolioDisplayPositions (N-917R4-05,
+Korrektur der bestehenden Apportionierung, keine neue Funktion; Hinweis in kn5-ui.js).
 """
 from __future__ import annotations
 
@@ -190,9 +195,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26419
+MONOLITH_MAX_LINES = 26418
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1623083
+MONOLITH_MAX_BYTES = 1622457
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -216,7 +221,8 @@ EXTRACTED_PART_BUDGETS = {
     "fx-rates-editor.js": (97, 5091),
     "mandate-view.js": (604, 35395),
     "kn3-ui.js": (259, 14886),
-    "kn4-ui.js": (246, 13742),
+    "kn4-ui.js": (250, 14025),
+    "kn5-ui.js": (105, 6960),
     "advisor-guidance.js": (728, 43963),
 }
 

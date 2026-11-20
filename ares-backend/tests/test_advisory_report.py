@@ -1376,7 +1376,7 @@ def test_ab_backtest_pending_without_second_policy(session_factory):
     assert ab["data_pending"] is True
     assert ab["policy_a"] is None
     assert ab["policy_b"]["is_current"] is True
-    assert "zweite OptimizerPolicy" in ab["note"]
+    assert "zweites Strategiemodell" in ab["note"]
 
 
 def test_ab_backtest_returns_policy_diff_from_current_and_comparison_policy(session_factory):

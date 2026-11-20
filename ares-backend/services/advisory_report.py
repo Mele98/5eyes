@@ -2212,7 +2212,7 @@ def _check_zielkompatibilitaet(db: Session, mandate: Mandate) -> dict[str, Any]:
         return _verdict(
             "Zielkompatibilität", "nicht_beurteilbar",
             "Keine Zielerreichungs-Daten verfügbar.",
-            "Anlagestrategie mit stochastischer Engine berechnen.",
+            "Anlagestrategie mit Monte-Carlo-Simulation berechnen.",
         )
     rows, _plan_row = _load_goal_achievability_view(ta)
     if not rows:
@@ -3818,7 +3818,7 @@ def _build_ab_backtest(db: Session, mandate: Mandate) -> dict[str, Any]:
     if comparison is None:
         return {
             "data_pending": True,
-            "note": "Keine zweite OptimizerPolicy für einen A/B-Vergleich vorhanden.",
+            "note": "Kein zweites Strategiemodell für einen A/B-Vergleich vorhanden.",
             "policy_a": _ab_policy_reference(comparison),
             "policy_b": _ab_policy_reference(current),
             "buckets_diff": [],

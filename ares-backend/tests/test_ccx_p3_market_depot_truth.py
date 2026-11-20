@@ -1000,16 +1000,24 @@ def test_valuation_marks_rows_when_target_currency_rate_is_stale(session_factory
 
 
 def test_depot_price_after_cutoff_is_never_used(session_factory):
-    """N-909-03 R7: ein Preis nach dem Stichtag zaehlt nicht (Stichtagsgrenze)."""
+    """N-909-03 R7: ein Preis nach dem Stichtag zaehlt nicht (Stichtagsgrenze).
+
+    KN5 (H-176, CI 44641282250 Versuch 1): ``TODAY`` wird beim Import fixiert; lief
+    der Test nach Mitternacht, war «morgen» schon heute. Feste Wanduhr: der Test
+    laeuft am Tag ``TODAY`` (12:00 UTC, weiterlaufend)."""
+    import time_machine
+
     from models.review import PriceHistory
 
-    _advisor, mid, _aid, run_id = _finalizable_run(session_factory, "n1-r7")
-    hid, pid = _seed_depot_holding(session_factory, run_id)
-    with session_factory() as db:
-        db.query(PriceHistory).filter(PriceHistory.product_id == pid).update(
-            {"price_date": (TODAY + timedelta(days=1)).isoformat()})
-        db.commit()
-    row = next(r for r in _project(session_factory, mid).rows if r.position_id == hid)
+    with time_machine.travel(datetime.combine(TODAY, datetime.min.time().replace(hour=12), tzinfo=timezone.utc),
+                             tick=True):
+        _advisor, mid, _aid, run_id = _finalizable_run(session_factory, "n1-r7")
+        hid, pid = _seed_depot_holding(session_factory, run_id)
+        with session_factory() as db:
+            db.query(PriceHistory).filter(PriceHistory.product_id == pid).update(
+                {"price_date": (TODAY + timedelta(days=1)).isoformat()})
+            db.commit()
+        row = next(r for r in _project(session_factory, mid).rows if r.position_id == hid)
     assert row.data_quality == "MISSING_PRICE" and row.base_value_minor is None
 
 

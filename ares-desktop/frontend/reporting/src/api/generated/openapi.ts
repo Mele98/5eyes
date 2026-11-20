@@ -7118,12 +7118,22 @@ export interface components {
             band_max_bps: number;
             /** Band Min Bps */
             band_min_bps: number;
+            /** Comparison Basis */
+            comparison_basis?: string | null;
             /** Current Amount Rappen */
             current_amount_rappen: number;
+            /** Current Strategy Amount Rappen */
+            current_strategy_amount_rappen?: number | null;
             /** Current Weight Bps */
             current_weight_bps: number;
             /** Delta Weight Bps */
             delta_weight_bps: number;
+            /** Reserve Funded Rappen */
+            reserve_funded_rappen?: number | null;
+            /** Reserve Gap Rappen */
+            reserve_gap_rappen?: number | null;
+            /** Reserve Rappen */
+            reserve_rappen?: number | null;
             /** Target Amount Rappen */
             target_amount_rappen: number;
             /** Target Weight Bps */

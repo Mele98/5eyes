@@ -10,6 +10,7 @@ import dataclasses
 import hashlib
 import json
 import logging
+import re
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -2250,6 +2251,28 @@ def _assert_sustainability_texts_claim_free(view: dict) -> None:
         )
 
 
+# KN5 / N-917R4-01: Die Engine speichert im Lauf eine interne Zielbeschreibung
+# (``objective_summary``, z. B. «TBI V1 - strategische Soll-Allokation mit
+# produktiver Titelselektion»). Sie bleibt im Lauf und im Audit unveraendert;
+# im Kunden-PDF steht ein Kundentext. Unbekannte Texte verlieren nur ein
+# internes Versionspraefix («XYZ V1 - »).
+_CUSTOMER_RECOMMENDATION_SUMMARIES = {
+    "TBI V1 - strategische Soll-Allokation mit produktiver Titelselektion":
+        "Strategische Soll-Allokation mit Titelauswahl aus dem Produktuniversum",
+}
+_INTERNAL_SUMMARY_PREFIX = re.compile(r"^[A-Z]{2,}\s+V\d+\s*[-–—]\s*")
+
+
+def _customer_recommendation_summary(raw) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    if text in _CUSTOMER_RECOMMENDATION_SUMMARIES:
+        return _CUSTOMER_RECOMMENDATION_SUMMARIES[text]
+    stripped = _INTERNAL_SUMMARY_PREFIX.sub("", text).strip()
+    return (stripped[:1].upper() + stripped[1:]) if stripped else ""
+
+
 def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     """Beratungsprotokoll-Daten aus AdvisoryLog + letzter Empfehlung."""
     advisory_wealth = None
@@ -2294,9 +2317,9 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
         # ein Draft (oder sein roher Status-String) wird nie als finale
         # Empfehlung in Protokoll/Kunden-Signoff ausgewiesen.
         if latest_run is not None and getattr(latest_run, "result_status", None) == "Final":
-            latest_recommendation_summary = str(
-                getattr(latest_run, "objective_summary", None) or ""
-            ).strip() or (
+            latest_recommendation_summary = _customer_recommendation_summary(
+                getattr(latest_run, "objective_summary", None)
+            ) or (
                 "Finalisierte Empfehlung vom "
                 f"{str(getattr(latest_run, 'updated_at', '') or '')[:10]}"
             ).strip()

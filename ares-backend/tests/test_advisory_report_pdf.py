@@ -348,7 +348,7 @@ def _make_minimal_payload() -> dict:
         },
         "ab_backtest": {
             "data_pending": True,
-            "note": "Keine zweite OptimizerPolicy für einen A/B-Vergleich vorhanden.",
+            "note": "Kein zweites Strategiemodell für einen A/B-Vergleich vorhanden.",
             "policy_a": None,
             "policy_b": None,
             "buckets_diff": [],
@@ -389,7 +389,7 @@ def _make_payload_with_stress_replay() -> dict:
     payload = _make_minimal_payload()
     payload["stress_replay"] = {
         "data_pending": False,
-        "note": "Replay mit historischen jährlichen Returns pro Asset-Klasse.",
+        "note": "Nachrechnung mit historischen Jahresrenditen je Anlageklasse.",
         "weights_bps": {
             "equities": 5500,
             "bonds": 2500,
@@ -1589,8 +1589,8 @@ def test_ab_backtest_section_renders_pending_hint():
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     text = "\n".join((page.extract_text() or "") for page in reader.pages)
-    assert "Policy-A/B-Vergleich" in text
-    assert "Keine zweite OptimizerPolicy" in text
+    assert "Strategievergleich A/B" in text
+    assert "Kein zweites Strategiemodell" in text
 
 
 def test_ab_backtest_section_renders_policy_metric_table():
@@ -1599,7 +1599,7 @@ def test_ab_backtest_section_renders_policy_metric_table():
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     text = "\n".join((page.extract_text() or "") for page in reader.pages)
-    assert "Policy-A/B-Vergleich" in text
+    assert "Strategievergleich A/B" in text
     assert "Policy 2025" in text
     assert "Policy 2026" in text
     assert "Erwartete Rendite" in text
@@ -1623,7 +1623,7 @@ def test_ab_backtest_section_shows_stress_diff():
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     text = "\n".join((page.extract_text() or "") for page in reader.pages)
-    assert "Stress-Replay-Differenz" in text
+    assert "Stress-Szenarien: Differenz" in text
     assert "Dotcom 2000-2002" in text
     assert "GFC 2008" in text
 

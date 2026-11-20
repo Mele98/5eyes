@@ -14,6 +14,10 @@ API. Danach wird jeder Kunden-PDF-Endpunkt abgerufen und der Text ausgelesen.
   beanstandet.
 * E2E3-04: der Firmenkopf traegt den Firmennamen aus den Firmenangaben, nie
   den Beraternamen als Firma.
+* KN5 / N-917R4-01: keine internen Pruef-/Diagnosewerte (technische
+  Bezeichner, Seeds, englische Statuswoerter, CamelCase/UPPER_SNAKE) -- in
+  allen 12 Kunden-PDFs eines Verzehr- UND eines Reserve-Falls; begruendete,
+  ortsgebundene Allowlist (``TECHNICAL_ALLOWLIST``).
 
 Kein Browser. Eigener CI-Job «KN3-B Kunden-PDF-Waechter» (das Budget des
 Frontend-Jobs ist ausgeschoepft); lokal mit ``ARES_KN3_PDF_GUARD=1``.
@@ -122,9 +126,6 @@ def live():
     from cryptography.fernet import Fernet
 
     import tests.client_onboarding_fixture as onboarding
-    from core import sustainability_preference as sp
-    from tests.risk_fixture_helpers import standard_risk_payload
-    from tests.test_livetest_e2b_strategy_blocks import _finalize_and_publish
 
     tmp = Path(tempfile.mkdtemp(prefix="kn3b_pdf_"))
     for sub in ("home", "appdata", "localappdata"):
@@ -145,52 +146,19 @@ def live():
         assert status == 200, body
         api.token = body["access_token"]
         advisor_id = api("GET", "/auth/me")[1]["id"]
-        status, client = api("POST", "/clients", {
-            "client_number": "KN3-DEPL-1", "first_name": "Verena", "last_name": "Verzehr-Fiktiv",
-            "advisor_id": advisor_id, "household_type": "Einzelperson", "date_of_birth": "1960-05-01",
-            "canton": "ZH"})
-        assert status == 201, client
-        cid = client["id"]
-        status, mandate = api("POST", f"/clients/{cid}/mandates",
-                              {"mandate_number": "M-KN3-DEPL-1", "mandate_type": "Anlageberatung"})
-        assert status == 201, mandate
-        mid = mandate["id"]
-        assert api("POST", f"/mandates/{mid}/risk-assessments", standard_risk_payload())[0] == 201
-        status, body = api("POST", f"/clients/{cid}/wealth-positions", {
-            "label": "Depot CHF (fiktiv)", "position_type": "Depot", "assignment": "Beratungsvermögen",
-            "current_value_rappen": 500_000_00, "currency": "CHF", "depot_bank": "Testbank Fiktiv",
-            "alloc_equities_bps": 6000, "alloc_bonds_bps": 3000, "alloc_liquidity_bps": 1000})
-        assert status in (200, 201), body
-        status, body = api("POST", f"/clients/{cid}/cashflows", {
-            "cashflow_type": "Expense", "label": "Lebenshaltung (fiktiv)", "amount_rappen": 60_000_00,
-            "currency": "CHF", "frequency": "jaehrlich", "nature": "wiederkehrend", "valid_from": "2026-12-01",
-            "valid_until": None, "is_inflation_linked": True})
-        assert status in (200, 201), body
-        status, body = api("POST", f"/mandates/{mid}/sustainability-preferences", {
-            "questionnaire_version": sp.QUESTIONNAIRE_VERSION, "definition_hash": sp.definition_hash(),
-            "response_status": "declined", "esg_relevance": None, "esg_characteristic": None,
-            "exclusions": [], "information_acknowledged": False, "client_confirmed": True,
-            "capture_channel": "in_person"})
-        assert status == 201, body
-        # KN4-B / E2E4-03: Strategiebaustein-Praeferenzen wie ein ueber die
-        # Oberflaeche angelegter Kunde (vorher {} -- Rohschluessel blieben unentdeckt).
-        status, body = api("POST", f"/mandates/{mid}/target-allocation/generate", {"preferences": UI_PREFERENCES})
-        assert status == 200, body
-        status, body = api("POST", f"/mandates/{mid}/recommendations/generate", {})
-        assert status == 200, body
         # Rechtliche Angaben mit echten Umlauten (Benutzerdaten sind nicht Teil
         # des Umlaut-Waechters, sie sollen ihn aber auch nicht ausloesen).
         onboarding.TEST_LEGAL_PROFILE = CLEAN_LEGAL_PROFILE
-        _finalize_and_publish(api, db_path, mid)
-        results = {}
-        for name in CUSTOMER_PDFS:
-            status, data = api("GET", f"/mandates/{mid}/reports/{name}.pdf", raw=True)
-            results[name] = (status, _pdf_text(data) if status == 200 else data.decode("utf-8", "replace"))
+        mid = _seed_case(api, db_path, advisor_id, DEPLETION_CASE)["mid"]
+        reserve = _seed_case(api, db_path, advisor_id, RESERVE_CASE)
+        results = _render_all(api, mid)
+        reserve_results = _render_all(api, reserve["mid"])
         out = os.environ.get("ARES_KN3_PDF_GUARD_OUT")
         if out:
-            Path(out).mkdir(parents=True, exist_ok=True)
-            for name, (status, text) in results.items():
-                Path(out, f"{name}.txt").write_text(f"{status}\n{text}", encoding="utf-8")
+            for case, rendered_case in (("verzehr", results), ("reserve", reserve_results)):
+                Path(out, case).mkdir(parents=True, exist_ok=True)
+                for name, (status, text) in rendered_case.items():
+                    Path(out, case, f"{name}.txt").write_text(f"{status}\n{text}", encoding="utf-8")
         # N-917R2-01 (live): App-Neustart auf derselben Datenbank. Ersteinrichtung
         # und Publikation stammen aus der ersten Sitzung; danach darf sich weder
         # der Status noch eine gebundene Zeile aendern.
@@ -203,7 +171,9 @@ def live():
         assert status == 200, body
         api.token = body["access_token"]
         after = (_publication(api, mid), _dependency_rows(db_path))
-        yield {"pdfs": results, "restart": (before, after)}
+        yield {"pdfs": results, "restart": (before, after),
+               "cases": {"verzehr": results, "reserve": reserve_results},
+               "reserve_generate": reserve["generate"]}
     finally:
         onboarding.TEST_LEGAL_PROFILE = original_profile
         _stop(proc)
@@ -213,6 +183,81 @@ def live():
 @pytest.fixture(scope="module")
 def rendered(live):
     return live["pdfs"]
+
+
+@pytest.fixture(scope="module")
+def rendered_all(live):
+    """Beide Faelle; Schluessel ``(fall, dokument)``."""
+    return {(case, name): value for case, pdfs in live["cases"].items() for name, value in pdfs.items()}
+
+
+DEPLETION_CASE = {
+    "client_number": "KN3-DEPL-1", "first_name": "Verena", "last_name": "Verzehr-Fiktiv",
+    "date_of_birth": "1960-05-01", "mandate_number": "M-KN3-DEPL-1",
+    "depot_rappen": 500_000_00, "expense_rappen": 60_000_00, "preferences": None,
+}
+# KN5: Reserve-Fall -- Mindestreserve ueber dem internen Liquiditaetsdeckel, also
+# eine externe Reserve ausserhalb der Strategie; kein Verzehr.
+RESERVE_CASE = {
+    "client_number": "KN5-RES-1", "first_name": "Rainer", "last_name": "Reserve-Fiktiv",
+    "date_of_birth": "1975-03-01", "mandate_number": "M-KN5-RES-1",
+    "depot_rappen": 400_000_00, "expense_rappen": None,
+    "preferences": {"limits": {"minReserve": "CHF 150'000"}},
+}
+
+
+def _seed_case(api, db_path, advisor_id, case):
+    """Kunde, Mandat, Risikoprofil, Depot, (Ausgaben), Nachhaltigkeit,
+    Strategie, Produktlauf, Finalisieren und Publizieren ueber die echte API."""
+    from core import sustainability_preference as sp
+    from tests.risk_fixture_helpers import standard_risk_payload
+    from tests.test_livetest_e2b_strategy_blocks import _finalize_and_publish
+
+    status, client = api("POST", "/clients", {
+        "client_number": case["client_number"], "first_name": case["first_name"],
+        "last_name": case["last_name"], "advisor_id": advisor_id, "household_type": "Einzelperson",
+        "date_of_birth": case["date_of_birth"], "canton": "ZH"})
+    assert status == 201, client
+    cid = client["id"]
+    status, mandate = api("POST", f"/clients/{cid}/mandates",
+                          {"mandate_number": case["mandate_number"], "mandate_type": "Anlageberatung"})
+    assert status == 201, mandate
+    mid = mandate["id"]
+    assert api("POST", f"/mandates/{mid}/risk-assessments", standard_risk_payload())[0] == 201
+    status, body = api("POST", f"/clients/{cid}/wealth-positions", {
+        "label": "Depot CHF (fiktiv)", "position_type": "Depot", "assignment": "Beratungsvermögen",
+        "current_value_rappen": case["depot_rappen"], "currency": "CHF", "depot_bank": "Testbank Fiktiv",
+        "alloc_equities_bps": 6000, "alloc_bonds_bps": 3000, "alloc_liquidity_bps": 1000})
+    assert status in (200, 201), body
+    if case["expense_rappen"]:
+        status, body = api("POST", f"/clients/{cid}/cashflows", {
+            "cashflow_type": "Expense", "label": "Lebenshaltung (fiktiv)", "amount_rappen": case["expense_rappen"],
+            "currency": "CHF", "frequency": "jaehrlich", "nature": "wiederkehrend", "valid_from": "2026-12-01",
+            "valid_until": None, "is_inflation_linked": True})
+        assert status in (200, 201), body
+    status, body = api("POST", f"/mandates/{mid}/sustainability-preferences", {
+        "questionnaire_version": sp.QUESTIONNAIRE_VERSION, "definition_hash": sp.definition_hash(),
+        "response_status": "declined", "esg_relevance": None, "esg_characteristic": None,
+        "exclusions": [], "information_acknowledged": False, "client_confirmed": True,
+        "capture_channel": "in_person"})
+    assert status == 201, body
+    # KN4-B / E2E4-03: Strategiebaustein-Praeferenzen wie ein ueber die
+    # Oberflaeche angelegter Kunde (vorher {} -- Rohschluessel blieben unentdeckt).
+    preferences = {**UI_PREFERENCES, **(case["preferences"] or {})}
+    status, generate = api("POST", f"/mandates/{mid}/target-allocation/generate", {"preferences": preferences})
+    assert status == 200, generate
+    status, body = api("POST", f"/mandates/{mid}/recommendations/generate", {})
+    assert status == 200, body
+    _finalize_and_publish(api, db_path, mid)
+    return {"mid": mid, "generate": generate}
+
+
+def _render_all(api, mid):
+    results = {}
+    for name in CUSTOMER_PDFS:
+        status, data = api("GET", f"/mandates/{mid}/reports/{name}.pdf", raw=True)
+        results[name] = (status, _pdf_text(data) if status == 200 else data.decode("utf-8", "replace"))
+    return results
 
 
 def _start_backend(tmp, db_path, kek, port):
@@ -297,6 +342,23 @@ def test_every_customer_pdf_renders_for_the_depletion_case(rendered):
     assert any("aufgebraucht ab" in text for text in _texts(rendered).values())
 
 
+def test_every_customer_pdf_renders_for_the_reserve_case(live):
+    rendered = live["cases"]["reserve"]
+    failed = {name: (status, body[:300]) for name, (status, body) in rendered.items()
+              if status != 200 and name not in NOT_RENDERABLE}
+    assert not failed, failed
+    # Positivkontrolle: der Fall hat wirklich eine Reserve ausserhalb der Strategie
+    # und ist kein Verzehr-Fall.
+    assert live["reserve_generate"]["external_reserve_rappen"] > 0, live["reserve_generate"].get("external_reserve_rappen")
+    assert not any("aufgebraucht ab" in text for text in _texts(rendered).values())
+    # KN5 / N-917R4-02: die echte API liefert die Reserve getrennt im Bucket-Schema.
+    generate = live["reserve_generate"]
+    liq = [b for b in generate["buckets"] if b.get("reserve_rappen") is not None]
+    assert len(liq) == 1 and liq[0]["reserve_rappen"] == generate["external_reserve_rappen"], generate["buckets"]
+    assert all(b["comparison_basis"] == "strategy" for b in generate["buckets"]), generate["buckets"]
+    assert liq[0]["current_strategy_amount_rappen"] == liq[0]["current_amount_rappen"] - liq[0]["reserve_rappen"]
+
+
 _MINUS_100 = re.compile(r"[−\-–]\s?100(?:[.,]0+)?\s?%")
 _DRAWDOWN_100 = re.compile(r"drawdown[^\n%]{0,40}?\b100(?:[.,]0+)?\s?%", re.IGNORECASE)
 
@@ -367,8 +429,8 @@ def umlaut_transliterations(text: str) -> list[str]:
     return found
 
 
-def test_no_ascii_umlaut_transliteration_in_customer_pdfs(rendered):
-    offenders = {name: sorted(set(umlaut_transliterations(text))) for name, text in _texts(rendered).items()}
+def test_no_ascii_umlaut_transliteration_in_customer_pdfs(rendered_all):
+    offenders = {name: sorted(set(umlaut_transliterations(text))) for name, text in _texts(rendered_all).items()}
     offenders = {name: words for name, words in offenders.items() if words}
     assert not offenders, offenders
 
@@ -389,14 +451,14 @@ def test_umlaut_detector_positive_and_negative_controls():
 # ── E2E3-04: Firmenkopf = Firmenname, nie der Beratername ────────────────────
 
 
-def test_header_brand_is_the_firm_never_the_advisor(rendered):
-    texts = _texts(rendered)
+def test_header_brand_is_the_firm_never_the_advisor(rendered_all):
+    texts = _texts(rendered_all)
     as_brand = {name for name, text in texts.items() if ADVISOR.upper() in text}
     assert not as_brand, as_brand
     # Jedes Kunden-PDF mit Firmenkopf zeigt den Firmennamen aus den Firmenangaben
     # (der Advisory-Report fuehrt keine Firmenzeile, nur "Berater/Beraterin").
     missing = {name for name, text in texts.items()
-               if name != "advisory-report" and COMPANY.upper() not in text.upper()}
+               if name[1] != "advisory-report" and COMPANY.upper() not in text.upper()}
     assert not missing, missing
 
 
@@ -423,9 +485,9 @@ _DIAGNOSTIC = re.compile(r"\bstochastic\b|\bhouse_matrix\b|\bFALLBACK\b|\bFallba
                          r"Optimizer-Modus|Importance Sampling|Recommendation-Methodology")
 
 
-def test_no_raw_preference_keys_or_python_values_in_customer_pdfs(rendered):
+def test_no_raw_preference_keys_or_python_values_in_customer_pdfs(rendered, rendered_all):
     offenders = {}
-    for name, text in _texts(rendered).items():
+    for name, text in _texts(rendered_all).items():
         flat = " ".join(text.split())
         hits = _RAW_KEY.findall(flat) + _PYTHON_VALUE.findall(flat) + _DIAGNOSTIC.findall(flat)
         if hits:
@@ -449,3 +511,85 @@ def test_raw_key_patterns_detect_the_old_output():
 def test_depotcheck_never_claims_no_depot_when_depot_position_exists(rendered):
     text = " ".join(_texts(rendered)["depotcheck"].split())
     assert "kein Depot erfasst" not in text, text[:600]
+
+
+# -- KN5 / N-917R4-01: keine internen Pruef-/Diagnosewerte ------------------
+
+# Klassen technischer Rohwerte (Befund-Texte H-176-Pruefung, A_advisory-report):
+_TECHNICAL = re.compile(
+    r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b"            # UPPER_SNAKE (Reason-Codes)
+    r"|\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b"           # lower_snake (Felder/Tabellen)
+    r"|\b[a-z]+[A-Z][A-Za-z0-9]*\b"                 # camelCase
+    r"|\b[A-Z][a-z]+(?:[A-Z][a-z0-9]+)+\b"          # CamelCase (Klassen)
+    r"|\b[A-Z]{2,4} V\d+\b"                        # interne Versionskennung («TBI V1»)
+    r"|\b\d{10,}\b"                                # Seeds/lange Kennzahlen
+    # Englische Status-/Technikwoerter, auch in Grossbuchstaben («TOTAL-LOGS»).
+    r"|\b(?i:seed|converged|diverged|pending|failed|succeeded|active|inactive|shadow|emergency|"
+    r"payload|optimizer|engine|polic(?:y|ies)|snapshot|sprint|pipeline|buckets?|hard-cap|cascade|"
+    r"read-only|reasons?|logs|required|stage|foundation|anchor|recovery|returns?)\b"
+)
+# Ortsgebundene Allowlist: (Dokument, Fundstelle) -> Begruendung. Gilt nur in
+# genau diesem Dokument (beide Faelle); dieselbe Fundstelle anderswo ist rot.
+TECHNICAL_ALLOWLIST: dict[tuple[str, str], str] = {
+    ("contract-signoff", "revDSG"): "Gesetzesabkuerzung (revidiertes Datenschutzgesetz), Rechtstext",
+    ("anlagestrategie", "iSAA"): "im Satz eingefuehrte Abkuerzung «individuelle strategische Asset Allokation (iSAA)»",
+    ("advisory-report", "iSAA"): "dieselbe Abkuerzung, im Methodik-Absatz erklaert",
+    ("kundeninformation", "VertragsabschlussInformationen"):
+        "Textauslese verbindet Titel «… vor Vertragsabschluss» und Untertitel «Informationen nach Art. 8 …»",
+    ("vertrag", "UmsetzungsplanDokument"):
+        "Textauslese verbindet Zeilenende «Umsetzungsplan» und folgende Zeile «Dokument …»",
+}
+
+
+def technical_hits(name: str, text: str) -> list[str]:
+    flat = " ".join(text.split())
+    return [hit for hit in (m.group(0) for m in _TECHNICAL.finditer(flat))
+            if (name, hit) not in TECHNICAL_ALLOWLIST]
+
+
+def test_no_internal_diagnostic_values_in_customer_pdfs(rendered_all):
+    offenders = {}
+    for (case, name), text in _texts(rendered_all).items():
+        hits = technical_hits(name, text)
+        if hits:
+            offenders[f"{case}/{name}"] = sorted(set(hits))[:12]
+    assert not offenders, offenders
+    # Positivkontrolle: die kundenrelevanten Aussagen stehen als Text da.
+    advisory = " ".join(_texts(rendered_all)[("verzehr", "advisory-report")].split())
+    assert "Methodik der Produktempfehlung" in advisory
+    assert "Bearbeitungsstand des Mandats" in advisory
+    assert "Berechnungsmethode: stochastische Optimierung (Monte-Carlo)" in advisory
+
+
+def test_allowlist_entries_are_used_and_located():
+    """Jeder Allowlist-Eintrag nennt Dokument + Fundstelle + Begruendung; ein
+    erlaubter Ausdruck in einem anderen Dokument bleibt rot."""
+    assert all(name in CUSTOMER_PDFS and hit and reason for (name, hit), reason in TECHNICAL_ALLOWLIST.items())
+    assert technical_hits("contract-signoff", "gemäss revDSG") == []
+    assert technical_hits("portfolio", "gemäss revDSG") == ["revDSG"]
+
+
+def test_technical_patterns_detect_the_old_output():
+    """Gegenprobe mit den Befund-Texten (gerendert auf d1dc, H-176-Pruefung)."""
+    old = [
+        "Seed / Pfade Seed 5948716738976139969 / 2000 Pfade",
+        "Letzter Optimizer-Status converged",
+        "Keine Suitability-Verstösse im Audit-Payload.",
+        "Keine Read-only-Reasons im Audit-Payload.",
+        "TOTAL-LOGS 0 REQUIRED 1",
+        "Liquidity-Cascade emergency Stage Hard-Cap 3.0 %",
+        "Keine zweite OptimizerPolicy für einen A/B-Vergleich vorhanden.",
+        "Kenntnislücke [KNOWLEDGE_GAP_ASSET_CLASS]: Die SAA enthält Aktien",
+        "Datenquelle: asset_class_annual_returns; TargetAllocation",
+        "TBI V1 - strategische Soll-Allokation",
+        "(ch_bucket_correlation_default v1)",
+        "Foundation-Variante — volle Marktdaten-Pipeline kommt in Sprint U-P11.",
+    ]
+    for line in old:
+        assert technical_hits("advisory-report", line), line
+    clean = ("Berechnungsmethode: stochastische Optimierung (Monte-Carlo). Die Berechnung ist "
+             "abgeschlossen und erfüllt die Prüfkriterien. Das Mandat kann bei Bedarf angepasst "
+             "werden. Liquiditätsquote der Strategie: 3.02 % (übliche Obergrenze 3.00 %). "
+             "Max Drawdown 10.4 %, VaR 95 %, Länder-HHI 3171, CHF 1'227'410, 20.11.2026, "
+             "Musterprodukt Aktien Schweiz, FIDLEG, FINMA, Retrozession, OK")
+    assert technical_hits("advisory-report", clean) == []

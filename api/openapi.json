@@ -1299,9 +1299,31 @@
             "title": "Band Min Bps",
             "type": "integer"
           },
+          "comparison_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comparison Basis"
+          },
           "current_amount_rappen": {
             "title": "Current Amount Rappen",
             "type": "integer"
+          },
+          "current_strategy_amount_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Strategy Amount Rappen"
           },
           "current_weight_bps": {
             "title": "Current Weight Bps",
@@ -1310,6 +1332,39 @@
           "delta_weight_bps": {
             "title": "Delta Weight Bps",
             "type": "integer"
+          },
+          "reserve_funded_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reserve Funded Rappen"
+          },
+          "reserve_gap_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reserve Gap Rappen"
+          },
+          "reserve_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reserve Rappen"
           },
           "target_amount_rappen": {
             "title": "Target Amount Rappen",
