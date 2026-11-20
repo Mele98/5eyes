@@ -5,7 +5,8 @@ mit Toleranzschranke (N-917R4-05) -- echte Funktionen aus dem Bundle in Node.
   (Persona C aus H-174: Beratungsvermoegen 399'000, Strategiebasis 230'970, Reserve
   168'030, Liquiditaet 35'000), zeigte die Review «-57.6 %» ohne Erklaerung, und
   Ist-% (Strategieanteil) stand neben Ist-CHF (Bestand). Jetzt: Ist-CHF = Strategie-
-  anteil wie Ist-%, Bestand und «davon Reserve ausserhalb der Strategie» getrennt,
+  anteil wie Ist-%, Bestand und «davon Liquiditätsreserve (ausserhalb der Anlagestrategie)»
+  (Label = PDF, Vertrag N858-5) getrennt,
   die negative Liquiditaet als Reservelücke erklaert (Karte + Kopfzeile).
 * N-917R4-05  Portfolio-Zeilen werden nur apportioniert, wenn die Abweichung zur
   AA-Klassensumme je Produkt hoechstens eine Rundungseinheit (1 Franken) betraegt
@@ -79,12 +80,12 @@ def test_n917r4_02_review_ist_chf_and_percent_on_strategy_basis_reserve_separate
     assert all(abs(d) <= 1 for d in out["sameBasis"]), out
     assert (out["holding"], out["reserve"], out["funded"], out["gap"]) == (3500000, 16803000, 3500000, 13303000), out
     note = _norm(out["note"])
-    assert "davon Reserve ausserhalb der Strategie CHF 35'000" in note, note
+    assert "davon Liquiditätsreserve (ausserhalb der Anlagestrategie) CHF 35'000" in note, note
     assert "nicht gedeckt" in note and "CHF 133'030" in note and "-57.6 %" in note, note
     assert "Strategieanteil" in note and "Bestand CHF 35'000" in note, note
     assert _norm(out["ist"]) == "-57.6 %", out  # nicht stillschweigend 0.0 %
     assert "data-kn5-reserve-note" in out["card"] and "nicht gedeckt" in _norm(out["card"]), out
-    assert any("Liquiditätsreserve ausserhalb der Strategie CHF 168'030" in _norm(c) for c in out["chips"]), out
+    assert any("Liquiditätsreserve (ausserhalb der Anlagestrategie) CHF 168'030" in _norm(c) for c in out["chips"]), out
 
 
 def test_n917r4_02_without_reserve_nothing_changes():

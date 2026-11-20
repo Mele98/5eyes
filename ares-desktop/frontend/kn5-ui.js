@@ -4,9 +4,10 @@
  * bleiben Serverwahrheit (Bucket-Felder aus portfolio_engine_payload._bucket_rows).
  *
  * N-917R4-02  Review: Ist-% und Ist-CHF auf derselben Basis (Strategieanteil, Server-
- *             feld comparison_basis 'strategy'); Bestand und «davon Reserve ausserhalb
- *             der Strategie» getrennt (Karte + Kopfzeile); eine negative Liquiditaet
- *             (Reserve > Liquiditaet) wird als Reservelücke erklaert, nie als 0.0 %.
+ *             feld comparison_basis 'strategy'); Bestand und «davon Liquiditaetsreserve
+ *             (ausserhalb der Anlagestrategie)» getrennt (Label = PDF, N858-5; Karte +
+ *             Kopfzeile); eine negative Liquiditaet (Reserve > Liquiditaet) wird als
+ *             Reservelücke erklaert, nie als 0.0 %.
  * N-917R4-05  Portfolio: Hinweis, wenn eine Klasse nicht auf den AA-Betrag apportioniert
  *             wird (Toleranzschranke in kn4-ui.js aresPortfolioDisplayPositions).
  * Umgezogen aus ares.html (Budget): allocationReserveBreakdown. */
@@ -23,7 +24,7 @@ function aresReviewReserveBucket(a){return ((a&&a.buckets)||[]).filter(function(
 function aresReviewReserveNote(a){
   var b=aresReviewReserveBucket(a);if(!b)return '';
   var f=function(r){return formatRappen(r);},st=Number(b.current_strategy_amount_rappen),gap=Number(b.reserve_gap_rappen||0);
-  var t='Ist-Werte in % und als Betrag = Strategieanteil (ohne Liquiditätsreserve ausserhalb der Strategie). Liquidität: Bestand '+f(b.current_amount_rappen)+', davon Reserve ausserhalb der Strategie '+f(b.reserve_funded_rappen)+'.';
+  var t='Ist-Werte in % und als Betrag = Strategieanteil ohne die Liquiditätsreserve (ausserhalb der Anlagestrategie). Liquidität: Bestand '+f(b.current_amount_rappen)+', davon Liquiditätsreserve (ausserhalb der Anlagestrategie) '+f(b.reserve_funded_rappen)+'.';
   return t+(gap>0?' Die Reserve von '+f(b.reserve_rappen)+' ist um '+f(gap)+' nicht gedeckt – deshalb ist der Strategieanteil der Liquidität negativ ('+formatBpsPercent(b.current_weight_bps)+' = '+f(st)+').'
     :' Strategieanteil der Liquidität '+formatBpsPercent(b.current_weight_bps)+' = '+f(st)+'.');
 }
@@ -69,7 +70,7 @@ function aresReviewReserveNote(a){
     wrap('_rvHeroCommonChips', function(orig){
       return function(allocation){
         var chips = orig.apply(this, arguments), rb = aresReviewReserveBucket(allocation);
-        return rb ? chips.concat(['Liquiditätsreserve ausserhalb der Strategie ' + formatRappen(rb.reserve_rappen)]) : chips;
+        return rb ? chips.concat(['Liquiditätsreserve (ausserhalb der Anlagestrategie) ' + formatRappen(rb.reserve_rappen)]) : chips;
       };
     });
     wrap('renderSrImplementationDecision', function(orig){
