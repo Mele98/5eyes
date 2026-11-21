@@ -1374,6 +1374,35 @@ def assert_run_product_evidence(
     return snapshot
 
 
+def run_product_evidence_values(
+    db: Session, mandate: Mandate, run, *, channel: str,
+) -> dict[str, dict[str, dict]]:
+    """Return only values bound into the verified run snapshot.
+
+    Consumers must not read mutable Product master data after generation.
+    The freshness assertion also rejects expiry, revoke and replacement.
+    """
+    snapshot = assert_run_product_evidence(db, mandate, run, channel=channel)
+    item_ids = [str(value) for value in json.loads(snapshot.item_ids_json)]
+    items = db.query(ProductEvidenceItem).filter(ProductEvidenceItem.id.in_(item_ids)).all()
+    if len(items) != len(item_ids):
+        _raise_product_evidence(_evidence_issue(
+            ReasonCode.PRODUCT_EVIDENCE_HASH_MISMATCH,
+            type("Snapshot", (), {"id": "unknown"})(),
+            "snapshot", "Ein gebundener Produktnachweis fehlt.", status="hash_mismatch",
+        ), channel=channel)
+    values: dict[str, dict[str, dict]] = {}
+    for item in items:
+        values.setdefault(str(item.product_id), {})[str(item.evidence_kind)] = {
+            "payload": json.loads(item.canonical_payload_json),
+            "source_reference": item.source_reference,
+            "as_of": item.as_of,
+            "item_id": item.id,
+            "payload_hash": item.canonical_payload_hash,
+        }
+    return values
+
+
 # ===========================================================================
 # E2b Nachtrag 1 (Owner-Vertretung 2026-11-12): Durchsetzung der
 # Kundenausschluesse AM PRODUKT. Ist in der aktuellen Nachhaltigkeits-

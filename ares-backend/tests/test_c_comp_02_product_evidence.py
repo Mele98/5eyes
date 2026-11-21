@@ -20,6 +20,7 @@ from services.product_eligibility import (
     evaluate_product_evidence,
     product_evidence_hash,
     product_evidence_item_payload_hash,
+    run_product_evidence_values,
     seed_synthetic_default_catalog_evidence,
     snapshot_run_product_evidence,
 )
@@ -126,6 +127,9 @@ def test_missing_evidence_blocks_snapshot_then_complete_evidence_binds_run(db):
     assert run.product_evidence_hash == snapshot.product_evidence_hash
     assert len(json.loads(snapshot.item_ids_json)) == len(PRODUCT_EVIDENCE_KINDS)
     assert assert_run_product_evidence(db, mandate, run, channel="test").id == snapshot.id
+    values = run_product_evidence_values(db, mandate, run, channel="test")
+    assert values[product.id]["costs"]["payload"]["value"] == 25
+    assert values[product.id]["retrocession"]["payload"]["status"] == "not_applicable"
 
 
 def test_unbound_draft_note_is_irrelevant_but_revoke_and_replacement_are_stale(db):

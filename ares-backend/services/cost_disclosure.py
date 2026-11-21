@@ -485,34 +485,42 @@ def build_cost_disclosure_for_run(
             current = latest_holding[position.id]
             if current is None or str(holding.updated_at or "") > str(current.updated_at or ""):
                 latest_holding[position.id] = holding
-    # 2026-07-27 (Fonds-Kuratierung): eine Verwaltung kann fuer ein Produkt
-    # eine eigene, ausgehandelte Gebuehr hinterlegt haben (ProductUniverseEntry.
-    # override_ter_bps) -- live nachgeschlagen (kein Snapshot), damit eine
-    # spaetere Korrektur der Konditionen sofort im naechsten Kostenausweis
-    # wirkt. Betrifft NUR diesen Tenant, das globale Produkt bleibt unveraendert.
-    # mandate.tenant_id=NULL -> DEFAULT_TENANT_ID ('main'), gleiches Muster wie
-    # services/auth.py::_resolve_tenant_id_for_user + portfolio_engine-Filter.
-    ter_bps_overrides: dict[str, int] = {}
-    if rows:
-        from models.tenant import DEFAULT_TENANT_ID
+    # C-COMP-02: Kosten/Retrozession stammen ausschliesslich aus dem beim
+    # Generieren versiegelten Evidenzsatz, nie aus mutierbaren Produktfeldern.
+    from services.product_eligibility import run_product_evidence_values
+    evidence = (
+        run_product_evidence_values(db, mandate, latest_run, channel="cost_disclosure")
+        if getattr(latest_run, "product_evidence_status", None) is not None else None
+    )
+    legacy_ter_overrides: dict[str, int] = {}
+    if evidence is None and rows:
         from jurisdictions.resolve import resolve_pack
+        from models.tenant import DEFAULT_TENANT_ID
         tenant_id = getattr(mandate, "tenant_id", None) or DEFAULT_TENANT_ID
-        jurisdiction = resolve_pack(mandate).code
-        product_ids = {product.id for _, product in rows}
-        override_entries = (
-            db.query(ProductUniverseEntry)
-            .filter(
-                ProductUniverseEntry.tenant_id == tenant_id,
-                ProductUniverseEntry.jurisdiction == jurisdiction,
-                ProductUniverseEntry.product_id.in_(product_ids),
-                ProductUniverseEntry.deleted_at.is_(None),
-                ProductUniverseEntry.override_ter_bps.is_not(None),
-            )
-            .all()
-        )
-        ter_bps_overrides = {
-            entry.product_id: int(entry.override_ter_bps) for entry in override_entries
+        entries = db.query(ProductUniverseEntry).filter(
+            ProductUniverseEntry.tenant_id == tenant_id,
+            ProductUniverseEntry.jurisdiction == resolve_pack(mandate).code,
+            ProductUniverseEntry.product_id.in_({product.id for _, product in rows}),
+            ProductUniverseEntry.deleted_at.is_(None),
+            ProductUniverseEntry.override_ter_bps.is_not(None),
+        ).all()
+        legacy_ter_overrides = {
+            entry.product_id: int(entry.override_ter_bps) for entry in entries
         }
+
+    def _evidence_component(product_id: str, kind: str) -> dict:
+        if evidence is None:
+            return {}
+        return evidence[str(product_id)][kind]
+
+    def _evidence_rate(product_id: str, kind: str) -> int | None:
+        if evidence is None:
+            return None
+        payload = _evidence_component(product_id, kind)["payload"]
+        if payload.get("status") == "not_applicable":
+            return None
+        value = payload.get("value")
+        return int(value) if value is not None else None
     holding_values: dict[str, int | None] = {
         position_id: (int(h.market_value_rappen) if h.market_value_rappen is not None else None)
         for position_id, h in latest_holding.items()
@@ -547,12 +555,11 @@ def build_cost_disclosure_for_run(
             "amount_rappen": _position_amount_rappen(position),
             "weight_bps": int(getattr(position, "target_weight_bps", 0) or 0),
             "ter_bps": (
-                ter_bps_overrides[product.id]
-                if product.id in ter_bps_overrides
+                _evidence_rate(product.id, "costs") if evidence is not None
                 else (
-                    int(product.ter_bps)
-                    if getattr(product, "ter_bps", None) is not None
-                    else None
+                    legacy_ter_overrides[product.id]
+                    if product.id in legacy_ter_overrides
+                    else (int(product.ter_bps) if product.ter_bps is not None else None)
                 )
             ),
         }
@@ -571,8 +578,14 @@ def build_cost_disclosure_for_run(
                 or getattr(position, "current_amount_rappen", 0)
                 or 0
             ),
-            "retrocession_bps": getattr(product, "retrocession_bps", None),
-            "retrocession_source": getattr(product, "retrocession_source", None),
+            "retrocession_bps": (
+                _evidence_rate(product.id, "retrocession") if evidence is not None
+                else getattr(product, "retrocession_bps", None)
+            ),
+            "retrocession_source": (
+                _evidence_component(product.id, "retrocession")["source_reference"]
+                if evidence is not None else getattr(product, "retrocession_source", None)
+            ),
         }
         for position, product in rows
     ]
