@@ -1055,24 +1055,24 @@ def evaluate_channel_envelope(db: Session, mandate: Any) -> ChannelDecision:
         HoldingsValuationSnapshot.id == str(snapshot_row.object_id),
     ).first() if snapshot_row is not None else None
     if snapshot is None:
-        return _channel_blocked(ReasonCode.CCX_FX_BASIS_MISSING, **base)
+        return ChannelDecision(applicable=True, reason_code=ReasonCode.CCX_FX_BASIS_MISSING.value, **base)
     fx = _fx_basis_findings(snapshot) or _current_fx_findings(db, snapshot, envelope.tenant_id)
     if fx:
         return _channel_blocked(fx[0], **base)
     bound_parameter = bindings.get(PARAMETER_SET_BINDING_KIND)
     bound_goal = bindings.get(GOAL_METRIC_BINDING_KIND)
     if bound_parameter is None or bound_goal is None:
-        return _channel_blocked(ReasonCode.CCX_CHANNEL_BINDING_MISSING, **base)
+        return ChannelDecision(applicable=True, reason_code=ReasonCode.CCX_CHANNEL_BINDING_MISSING.value, **base)
     try:
         parameter_hash, goal_hash = _ade.p5_decision_hashes(db, mandate=mandate, ta=ta)
     except ParameterSetMissing:
-        return _channel_blocked(ReasonCode.CCX_PARAMETER_SET_MISSING, **base)
+        return ChannelDecision(applicable=True, reason_code=ReasonCode.CCX_PARAMETER_SET_MISSING.value, **base)
     except GoalMetricUncertified:
-        return _channel_blocked(ReasonCode.CCX_GOAL_METRIC_UNCERTIFIED, **base)
+        return ChannelDecision(applicable=True, reason_code=ReasonCode.CCX_GOAL_METRIC_UNCERTIFIED.value, **base)
     if parameter_hash != bound_parameter.child_hash:
-        return _channel_blocked(ReasonCode.CCX_CHANNEL_HASH_MISMATCH, **base)
+        return ChannelDecision(applicable=True, reason_code=ReasonCode.CCX_CHANNEL_HASH_MISMATCH.value, **base)
     if goal_hash != bound_goal.child_hash:
-        return _channel_blocked(ReasonCode.CCX_GOAL_METRIC_MISMATCH, **base)
+        return ChannelDecision(applicable=True, reason_code=ReasonCode.CCX_GOAL_METRIC_MISMATCH.value, **base)
     try:
         rounding = json.loads(envelope.canonical_payload_json or "{}").get("rounding_policy_version")
     except (TypeError, ValueError):
@@ -1126,13 +1126,12 @@ def require_channel_envelope(
         prefix = "Weiterleitung gesperrt"
     elif code == ReasonCode.CCX_SIGNATURE_ENVELOPE_OUTDATED.value:
         prefix = "Signatur gesperrt"
-    raise DomainError(
-        code,
-        f"{prefix} ({channel}): {decision.cause}",
-        http_status=409,
-        extra={"channel": channel, "blocker_code": blocker, "cause": decision.cause,
-               "envelope_hash": decision.envelope_hash},
-    )
+    extra = {"channel": channel, "blocker_code": blocker, "cause": decision.cause,
+             "envelope_hash": decision.envelope_hash}
+    if code == ReasonCode.CCX_HANDOFF_ENVELOPE_OUTDATED.value:
+        raise DomainError(ReasonCode.CCX_HANDOFF_ENVELOPE_OUTDATED,
+                          f"{prefix} ({channel}): {decision.cause}", http_status=409, extra=extra)
+    raise DomainError(code, f"{prefix} ({channel}): {decision.cause}", http_status=409, extra=extra)
 
 
 def record_channel_publication(

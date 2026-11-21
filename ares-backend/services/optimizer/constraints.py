@@ -56,8 +56,8 @@ _ASSET_CLASS_TO_BUCKET = {
 
 
 # Testlauf: Tests, die den Optimierer DIREKT (ohne Engine/BuildingBlocks)
-# aufrufen, setzen hier ausdruecklich einen Testvektor (tests/conftest.py ->
-# tests/p5_test_vectors.py). Nur unter pytest setzbar; der Produktivpfad setzt
+# aufrufen, setzen hier ausdruecklich einen Testvektor (Session-Fixture in
+# tests/conftest.py). Nur unter pytest setzbar; der Produktivpfad setzt
 # ihn nie und bleibt fail-closed (Waechter tests/test_ccx_p5_parameter_set.py).
 _TEST_RISKY_FRACTION: dict | None = None
 
