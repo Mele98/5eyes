@@ -599,9 +599,14 @@ def test_portal_signoff_binds_decision_and_counts_as_client_signature(session_fa
         assert entry.system_event == "risk_profile_signoff"
         assert entry.entry_type == "Eignungsprüfung"
         assert entry.duration_minutes is None
-        assert res["signoff_id"] in entry.description and res["signoff_hash"] in entry.description
-        assert res["override_decision_id"] in entry.description
-        assert res["override_decision_hash"] in entry.description
+        # L2c (H-192): Protokoll-Freitexte sind versiegelt -- gelesen wird ueber
+        # die zentrale Oeffnung.
+        from services.advisory_log_service import serialize_response
+
+        description = serialize_response(entry, session)["description"]
+        assert res["signoff_id"] in description and res["signoff_hash"] in description
+        assert res["override_decision_id"] in description
+        assert res["override_decision_hash"] in description
         assert _fresh(session).client_signed_ref == "cu-rcp"
 
 

@@ -3,7 +3,7 @@
     "css_selectors": 1176,
     "event_handlers": 435,
     "ids": 1011,
-    "js_functions": 1760,
+    "js_functions": 1762,
     "modal_structures": 102,
     "script_blocks": 45,
     "style_blocks": 2,
@@ -9386,8 +9386,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/advice-contract.js",
-      "sha256": "5162abb989697d3dbf3062be4bd6db95eac489ec8f26e38007e9ef9256416825",
-      "size_bytes": 19058
+      "sha256": "e49387adc3a54a791b287a2b0a3121227d998516eb0bed1f7b09aaf5652ec9ad",
+      "size_bytes": 18981
     },
     {
       "kind": "js",
@@ -22926,187 +22926,199 @@
     },
     {
       "declaration": "function",
-      "line": 98,
+      "line": 80,
       "name": "apiError",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 257,
-      "name": "archivedContractIds",
-      "source": "advice-contract.js"
-    },
-    {
-      "declaration": "function",
-      "line": 94,
+      "line": 76,
       "name": "canWrite",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 110,
+      "line": 92,
       "name": "contractErrorText",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 310,
+      "line": 300,
       "name": "decorateGrid",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 91,
+      "line": 73,
       "name": "el",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 135,
+      "line": 117,
       "name": "ensureModal",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 85,
+      "line": 69,
       "name": "esc",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 104,
+      "line": 86,
       "name": "findingLines",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 96,
+      "line": 78,
       "name": "isDemo",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 175,
+      "line": 155,
       "name": "loadLayer",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 95,
+      "line": 77,
       "name": "mid",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 117,
+      "line": 99,
       "name": "modalHtml",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 196,
+      "line": 176,
       "name": "openAdviceContractModal",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 101,
+      "line": 292,
+      "name": "openArchivedContract",
+      "source": "advice-contract.js"
+    },
+    {
+      "declaration": "function",
+      "line": 83,
       "name": "parsedDetail",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 267,
+      "line": 237,
+      "name": "pdfFetch",
+      "source": "advice-contract.js"
+    },
+    {
+      "declaration": "function",
+      "line": 251,
       "name": "previewAdviceContract",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 93,
+      "line": 75,
       "name": "role",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 213,
+      "line": 193,
       "name": "saveAdviceContract",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 22,
+      "line": 6,
       "name": "saveContractDocumentDraft",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 242,
+      "line": 222,
       "name": "savePdf",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 145,
+      "line": 242,
+      "name": "sha256Hex",
+      "source": "advice-contract.js"
+    },
+    {
+      "declaration": "function",
+      "line": 127,
       "name": "show",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 186,
+      "line": 166,
       "name": "supported",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 187,
+      "line": 167,
       "name": "syncButtons",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 153,
+      "line": 133,
       "name": "templateHtml",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 97,
+      "line": 79,
       "name": "today",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 92,
+      "line": 74,
       "name": "val",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 358,
+      "line": 353,
       "name": "wrapAll",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 350,
+      "line": 345,
       "name": "wrapReleaseGateMessage",
       "source": "advice-contract.js"
     },
     {
       "declaration": "function",
-      "line": 338,
+      "line": 333,
       "name": "wrapRenderDocumentGrid",
       "source": "advice-contract.js"
     },
     {
       "declaration": "var",
-      "line": 341,
+      "line": 336,
       "name": "wrapped",
       "source": "advice-contract.js"
     },
     {
       "declaration": "var",
-      "line": 353,
+      "line": 348,
       "name": "wrapped",
       "source": "advice-contract.js"
     },

@@ -1082,8 +1082,12 @@ def seal_protocol_text(db, client_id: str | None, plaintext: str) -> str:
     return seal_for_client(db, client_id, plaintext)
 
 
-def reveal_protocol_text(db, value: Any) -> tuple[str | None, str]:
-    """(Klartext, Status) -- Status aus ``pii_vault.reveal_state``."""
-    return reveal_state(db, value)
+def reveal_protocol_text(db, value: Any, client_id: str | None = None) -> tuple[str | None, str]:
+    """(Klartext, Status) -- Status aus ``pii_vault.reveal_state``. L2c: mit
+    ``client_id`` gilt die Schluessel-Kunden-Bindung (N-936-05) und
+    «gelöscht» nur mit belegter Loeschung (N-936-04)."""
+    if client_id is None:
+        return reveal_state(db, value)
+    return reveal_state(db, value, client_id=client_id)
 
 

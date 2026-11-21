@@ -33,6 +33,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 from models.clients import Client, ClientNationality, ClientOptHistory
@@ -91,6 +92,16 @@ RETENTION_NOTES: dict[str, str] = {
     ),
     "conflict_of_interest_disclosure": _FIDLEG_DOCUMENTATION,
     "mandate_report_notes": _FIDLEG_DOCUMENTATION,
+    # L2c (H-192): versionierte Berichtsnotizen und Gruende der Empfehlung.
+    "mandate_report_note_versions": _FIDLEG_DOCUMENTATION,
+    "advice_rationales": _FIDLEG_DOCUMENTATION,
+    # L2c: append-only Nachweise mit versiegelten Freitexten (Auskunft
+    # vollstaendig, CTO-Entscheid "alle Personendaten").
+    "risk_override_decisions": _FIDLEG_DOCUMENTATION,
+    "risk_profile_signoffs": _FIDLEG_DOCUMENTATION,
+    "financial_coverage_attestations": _FIDLEG_DOCUMENTATION,
+    "investment_preference_decisions": _FIDLEG_DOCUMENTATION,
+    "goal_revision_decisions": _RELATIONSHIP_EVIDENCE,
     "review_trigger": _FIDLEG_DOCUMENTATION,
     "protocol_baustein_selections": _FIDLEG_DOCUMENTATION,
     "client_nationalities": (
@@ -241,6 +252,18 @@ def export_client_data(db: Session, client_id: str) -> dict[str, Any]:
         "mandate_report_notes": _s(
             "mandate_report_notes", lambda: _query_mandate_report_notes(db, mandate_ids)
         ),
+        "mandate_report_note_versions": _s(
+            "mandate_report_note_versions",
+            lambda: _query_rows_by_mandate(db, "mandate_report_note_versions", mandate_ids, "version"),
+        ),
+        "advice_rationales": _s(
+            "advice_rationales",
+            lambda: _query_rows_by_mandate(db, "advice_rationales", mandate_ids, "recorded_at"),
+        ),
+        **{
+            table: _s(table, lambda table=table: _query_rows_by_mandate(db, table, mandate_ids, "id"))
+            for table in _SEALED_EVIDENCE_SECTIONS
+        },
         "review_trigger": _s("review_trigger", lambda: _query_review_trigger(db, mandate_ids)),
         "strategy_snapshots": _s(
             "strategy_snapshots", lambda: _query_strategy_snapshots(db, mandate_ids)
@@ -298,8 +321,16 @@ _SECTION_TABLES: dict[str, str] = {
 def _apply_privacy_restrictions(
     db: Session, client_id: str, sections: dict[str, Any], section_status: dict[str, str],
 ) -> dict[str, list[str]]:
-    from services.privacy_erasure import evidence_types_for_table, restricted_evidence_types
+    from services.privacy_erasure import (
+        evidence_types_for_table,
+        restricted_evidence_types,
+        reveal_sealed_export_values,
+    )
 
+    # L2c (H-192, CTO-Entscheid): die Auskunft enthaelt ALLE Personendaten,
+    # auch die versiegelten Freitexte -- geoeffnet mit dem Schluessel dieses
+    # Kunden, geloeschte als «Gelöscht (DSG).». Nie ein Umschlag im Export.
+    reveal_sealed_export_values(db, client_id, sections)
     restricted = restricted_evidence_types(db, client_id=client_id)
     if not restricted:
         return {}
@@ -664,6 +695,27 @@ def _query_mandate_report_notes(
         .all()
     )
     return _serialize_list(rows)
+
+
+# L2c: weitere append-only Nachweise mit versiegelten Freitexten (pii_vault).
+_SEALED_EVIDENCE_SECTIONS = (
+    "risk_override_decisions", "risk_profile_signoffs", "goal_revision_decisions",
+    "financial_coverage_attestations", "investment_preference_decisions",
+)
+
+
+def _query_rows_by_mandate(
+    db: Session, table: str, mandate_ids: list[str], order_column: str,
+) -> list[dict[str, Any]]:
+    """L2c: Zeilen einer Mandats-Evidenztabelle (ohne Modellimport)."""
+    if not mandate_ids:
+        return []
+    rows = db.execute(
+        text(f'SELECT * FROM "{table}" WHERE mandate_id IN :ids ORDER BY mandate_id, "{order_column}", id')
+        .bindparams(bindparam("ids", expanding=True)),
+        {"ids": list(mandate_ids)},
+    ).mappings().all()
+    return [{key: _coerce_jsonable(value) for key, value in row.items()} for row in rows]
 
 
 def _query_review_trigger(

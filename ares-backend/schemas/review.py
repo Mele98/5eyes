@@ -602,6 +602,9 @@ class ContractDocumentResponse(BaseResponse):
     # ob fuer diesen Eintrag ueberhaupt ein Download existiert (Alteintraege
     # aus create_document ohne PDF haben keinen).
     has_pdf: bool = False
+    # L2c (N-936-02): beim archivierten Beratungsvertrag der Entwurf, aus dem
+    # er erzeugt wurde (content_json.source_document_id); sonst None.
+    source_document_id: Optional[str] = None
     created_by: str
     created_by_name: Optional[str] = None
     created_at: str

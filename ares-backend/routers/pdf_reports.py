@@ -92,8 +92,10 @@ from services.pdf import ReportLabRenderer
 # get_advisory_report_pdf); liefert auch den Suitability-Audit fuer den
 # Beratungsentscheid -- keine neue Import-Kante.
 from services.pdf.documents.advisory_report import (
+    PROTOCOL_TEXT_TAMPERED,
     AdvisoryLogIntegrityFailed,
     assert_shown_entries_intact,
+    conflict_text_view,
     customer_protocol_entry,
     render_advisory_report_pdf,
     suitability_compliance_for_mandate,
@@ -2457,13 +2459,12 @@ class AdviceRationaleIntegrityFailed(AdvisoryLogIntegrityFailed):
     """L2b: Siegel der Gruende der Empfehlung passt nicht zum Inhalt."""
 
     def __init__(self, entry_id: str | None = None, *, document: str = "Beratungsprotokoll") -> None:
-        super().__init__(entry_id, document=document)
-        self.args = (
+        super().__init__(entry_id, document=document, entry_kind="advice_rationale", message=(
             f"{document} kann nicht als Kunden-PDF erzeugt werden: Die Prüfsumme der "
             "erfassten Kundenbedürfnisse und Gründe der Empfehlung passt nicht zu ihrem "
             "Inhalt. Sie wurden nach dem Speichern verändert oder sind beschädigt. Bitte "
-            "Bedürfnisse und Gründe der Empfehlung neu erfassen.",
-        )
+            "Bedürfnisse und Gründe der Empfehlung neu erfassen."
+        ))
 
 
 def _protocol_advice_sections(db: Session, mandate: Mandate, ta, document: str = "Beratungsprotokoll") -> dict:
@@ -2561,11 +2562,15 @@ def _customer_recommendation_summary(raw) -> str:
 def _advisory_log_integrity_409(exc: AdvisoryLogIntegrityFailed) -> HTTPException:
     """KN9 / KN9a: gleiche 409-Form fuer alle Kunden-PDFs mit Protokollinhalt
     (Advisory-Report, Beratungsprotokoll, Beratungsentscheid)."""
-    return HTTPException(
-        status_code=409,
-        detail={"reason_code": "ADVISORY_LOG_INTEGRITY_FAILED", "message": str(exc),
-                "advisory_log_id": exc.entry_id},
-    )
+    # N-936-06: neutral ``entry_id`` + ``entry_kind``; ``advisory_log_id``
+    # nur, wenn es wirklich ein Protokolleintrag ist (nicht bei den Gruenden
+    # der Empfehlung, Berichtsnotizen oder Interessenkonflikten).
+    kind = getattr(exc, "entry_kind", "advisory_log")
+    detail = {"reason_code": "ADVISORY_LOG_INTEGRITY_FAILED", "message": str(exc),
+              "entry_id": exc.entry_id, "entry_kind": kind}
+    if kind == "advisory_log":
+        detail["advisory_log_id"] = exc.entry_id
+    return HTTPException(status_code=409, detail=detail)
 
 
 def _build_protokoll_data(
@@ -3793,7 +3798,20 @@ def _kundeninformation_ties_and_offer(db: Session, mandate: Mandate, tenant_id: 
     ).order_by(ConflictOfInterestDisclosure.created_at).all()
     for row in conflicts:
         provider = f" ({row.inducement_provider})" if row.inducement_provider else ""
-        ties.append(f"{row.conflict_type}{provider}: {row.description}")
+        # L2c (H-192): versiegelte Beschreibung geoeffnet; veraendert sperrt
+        # das Kunden-PDF (409 vor der Archivierung).
+        texts = conflict_text_view(db, row, client_id=getattr(mandate, "client_id", None))
+        if texts["text_state"] == PROTOCOL_TEXT_TAMPERED:
+            raise AdvisoryLogIntegrityFailed(
+                str(row.id), document="Kundeninformation", entry_kind="conflict_disclosure",
+                message=(
+                    "Kundeninformation kann nicht als Kunden-PDF erzeugt werden: Die Prüfsumme "
+                    "der Beschreibung eines Interessenkonflikts passt nicht zu ihrem Inhalt. Der "
+                    "Eintrag wurde nach dem Speichern verändert oder ist beschädigt. Bitte die "
+                    "Datenbank prüfen lassen (Sicherung) und den Eintrag neu erfassen."
+                ),
+            )
+        ties.append(f"{row.conflict_type}{provider}: {texts['description']}")
     products = db.query(Product).filter(
         Product.deleted_at.is_(None), Product.is_active == 1,
         or_(Product.tenant_id.is_(None), Product.tenant_id == tenant_id),
@@ -3923,8 +3941,12 @@ def get_kundeninformation_pdf(
         _build_pdf_context(mandate, current_user, db, draft_check=False, allocation_free=True),
         mandate_type=CLIENT_INFORMATION_DOCUMENT_TYPE,
     )
+    try:
+        base_data = _build_kundeninformation_data(db, mandate, profile)
+    except AdvisoryLogIntegrityFailed as exc:
+        raise _advisory_log_integrity_409(exc) from exc
     data = dataclasses.replace(
-        _build_kundeninformation_data(db, mandate, profile),
+        base_data,
         privacy_lines=privacy["lines"],
         depot_bank_inducement_lines=_depot_bank_inducement_lines(inducement),
     )

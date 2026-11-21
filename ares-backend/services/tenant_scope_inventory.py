@@ -40,6 +40,8 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     # Vier-Augen-Freigabe (append-only, tenant_id NOT NULL) und Mandats-Evidenz
     # (Gruende der Empfehlung, W033-Bestaetigung) mit INSERT-Guard aus dem Mandat.
     "advice_rationales",
+    # L2c (H-192): Berichtsnotiz-Versionen (append-only, Guard aus dem Mandat).
+    "mandate_report_note_versions",
     "owner_content_approvals",
     "owner_content_versions",
     "w033_client_declarations",

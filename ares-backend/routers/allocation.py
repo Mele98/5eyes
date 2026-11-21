@@ -16,6 +16,7 @@ from models.mandates import Mandate
 from models.allocation import TargetAllocation, OptimizerPolicy, OptimizerRun, CapitalMarketAssumption, HouseMatrix, BuildingBlock
 from models.profiling import RiskAssessment, current_investment_preference
 from models.review import MandateReportNotes
+from services import notes_versioning as _notes_versioning
 from schemas.allocation import (
     TargetAllocationCreate, TargetAllocationResponse,
     AllocationPublicationOverviewResponse, AllocationPublicationResponse, AllocationPublishRequest,
@@ -1313,14 +1314,12 @@ def _parse_json_list(raw: Optional[str]) -> list[str]:
 
 
 def _serialize_notes(
-    notes: "MandateReportNotes", *, history_limit: int = 20, history_offset: int = 0
+    notes, *, history_limit: int = 20, history_offset: int = 0
 ) -> dict:
-    # Sprint U-37b (2026-06-04): History aus previous_versions_json
-    # exponieren — schliesst U-37 Review-Lücke aus PR #140.
-    # RESOURCE-002 Teil 2 (Codex-Audit 2026-08-27): paginiert statt komplett
-    # -- die Historie waechst append-only unbegrenzt (services/notes_versioning.py).
-    from services.notes_versioning import load_history_page as _u37_load_history_page
-    page, total = _u37_load_history_page(
+    # L2c (H-192): ``notes`` ist die geoeffnete Sicht aus
+    # services.notes_versioning.report_notes_current (versiegelte, append-only
+    # Versionen); die Historie wird paginiert (RESOURCE-002 Teil 2).
+    page, total = _notes_versioning.history_page(
         notes, limit=history_limit, offset=history_offset
     )
     return {
@@ -1344,6 +1343,18 @@ def _serialize_notes(
     }
 
 
+_REPORT_NOTES_TAMPERED_DETAIL = {
+    "reason_code": "ADVISORY_LOG_INTEGRITY_FAILED",
+    "entry_kind": "report_notes",
+    "message": (
+        "Die Prüfsumme der Berichtsnotizen passt nicht zu ihrem Inhalt. Eine "
+        "gespeicherte Fassung wurde nach dem Speichern verändert oder ist "
+        "beschädigt. Bitte die Datenbank prüfen lassen (Sicherung); neue "
+        "Notizen werden bis dahin nicht gespeichert."
+    ),
+}
+
+
 @router.get("/mandates/{mandate_id}/report-notes", response_model=ReportNotesResponse)
 def get_report_notes(
     mandate_id: str,
@@ -1365,11 +1376,7 @@ def get_report_notes(
     fallen pro Feld auf den Auto-Default-Text zurueck.
     """
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    notes = (
-        db.query(MandateReportNotes)
-        .filter(MandateReportNotes.mandate_id == mandate.id)
-        .first()
-    )
+    notes = _notes_versioning.report_notes_current(db, mandate.id, client_id=mandate.client_id)
     if notes is None:
         return ReportNotesResponse(mandate_id=mandate.id)
     return ReportNotesResponse(
@@ -1387,12 +1394,17 @@ def put_report_notes(
 ):
     """U-P28: Upsert der Berater-Overrides.
 
-    Auth: nur Berater (require_advisor) — Kunden sehen den Report
-    read-only. Audit-Anchor (`last_edited_by` + `last_edited_at`) wird bei
-    jedem PUT aktualisiert; das `created_at` bleibt beim ersten Insert.
+    L2c (H-192): Versionierung statt Ueberschreiben -- jede Aenderung legt
+    eine append-only Version mit versiegelten Freitexten an (DSG-Loeschung
+    per Crypto-Shred). Die Kopfzeile traegt nur Metadaten (Audit-Anchor
+    `last_edited_by` + `last_edited_at`, `created_at` beim ersten Insert).
     """
+    report_notes_current = _notes_versioning.report_notes_current
     enforce_data_classification(body.data_classification)
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    current = report_notes_current(db, mandate.id, client_id=mandate.client_id)
+    if current is not None and current.text_state == "veraendert":
+        raise HTTPException(status_code=409, detail=_REPORT_NOTES_TAMPERED_DETAIL)
     notes = (
         db.query(MandateReportNotes)
         .filter(MandateReportNotes.mandate_id == mandate.id)
@@ -1411,63 +1423,31 @@ def put_report_notes(
         )
         db.add(notes)
 
-    # Sprint U-37: ALT-Werte snapshotten VOR Update fuer
-    # previous_versions_json History.
-    from services.notes_versioning import (
-        NOTES_VERSIONED_FIELDS as _u37_fields,
-        compute_changes as _u37_compute_changes,
-        _parse_history as _u37_parse_history,
-        _now_iso as _u37_now_iso,
-    )
-    _u37_old_values = {f: getattr(notes, f, None) for f in _u37_fields}
-    _u37_new_values: dict[str, Any] = {}
-
-    # Felder updaten — None laesst das bestehende Feld unangetastet
+    # Felder — None laesst das bestehende Feld unangetastet
     # (Schritt-fuer-Schritt-Bearbeitung in der Sub-App), `""` setzt explizit
     # auf leer und triggert damit den Auto-Default-Fallback im Aggregator.
-    if body.aa_anmerkungen is not None:
-        _u37_new_values["aa_anmerkungen"] = body.aa_anmerkungen or None
-        notes.aa_anmerkungen = body.aa_anmerkungen or None
-    if body.waehrungen_erklaerung is not None:
-        _u37_new_values["waehrungen_erklaerung"] = body.waehrungen_erklaerung or None
-        notes.waehrungen_erklaerung = body.waehrungen_erklaerung or None
-    if body.branchen_analyse is not None:
-        _u37_new_values["branchen_analyse"] = body.branchen_analyse or None
-        notes.branchen_analyse = body.branchen_analyse or None
-    if body.vorgehen_block_optimierungen is not None:
-        _u37_new_values["vorgehen_block_optimierungen"] = body.vorgehen_block_optimierungen or None
-        notes.vorgehen_block_optimierungen = body.vorgehen_block_optimierungen or None
-    if body.vorgehen_block_zielstrategie is not None:
-        _u37_new_values["vorgehen_block_zielstrategie"] = body.vorgehen_block_zielstrategie or None
-        notes.vorgehen_block_zielstrategie = body.vorgehen_block_zielstrategie or None
-    if body.vorgehen_offene_fragen is not None:
-        _val = json.dumps([str(item) for item in body.vorgehen_offene_fragen])
-        _u37_new_values["vorgehen_offene_fragen_json"] = _val
-        notes.vorgehen_offene_fragen_json = _val
-    if body.vorgehen_naechster_termin is not None:
-        _u37_new_values["vorgehen_naechster_termin"] = body.vorgehen_naechster_termin or None
-        notes.vorgehen_naechster_termin = body.vorgehen_naechster_termin or None
-    if body.vorgehen_todos is not None:
-        _val = json.dumps([str(item) for item in body.vorgehen_todos])
-        _u37_new_values["vorgehen_todos_json"] = _val
-        notes.vorgehen_todos_json = _val
-    if body.vorgehen_dokumente is not None:
-        _val = json.dumps([str(item) for item in body.vorgehen_dokumente])
-        _u37_new_values["vorgehen_dokumente_json"] = _val
-        notes.vorgehen_dokumente_json = _val
+    values: dict[str, Any] = {}
+    for field in (
+        "aa_anmerkungen", "waehrungen_erklaerung", "branchen_analyse",
+        "vorgehen_block_optimierungen", "vorgehen_block_zielstrategie",
+        "vorgehen_naechster_termin",
+    ):
+        raw = getattr(body, field)
+        if raw is not None:
+            values[field] = raw or None
+    for field in ("vorgehen_offene_fragen", "vorgehen_todos", "vorgehen_dokumente"):
+        raw = getattr(body, field)
+        if raw is not None:
+            values[f"{field}_json"] = json.dumps([str(item) for item in raw])
 
-    # U-37: bei tatsaechlichen Aenderungen Snapshot in History prependen.
-    _u37_changes = _u37_compute_changes(_u37_old_values, _u37_new_values)
-    if _u37_changes:
-        _u37_history = _u37_parse_history(
-            getattr(notes, "previous_versions_json", None)
+    try:
+        _notes_versioning.save_report_notes_version(
+            db, notes, client_id=mandate.client_id, values=values,
+            edited_by=current_user.id, edited_at=now,
         )
-        _u37_history.insert(0, {
-            "edited_at": _u37_now_iso(),
-            "edited_by": current_user.id,
-            "changes": _u37_changes,
-        })
-        notes.previous_versions_json = json.dumps(_u37_history)
+    except _notes_versioning.ProtocolTextSealError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     notes.last_edited_by = current_user.id
     notes.last_edited_at = now
@@ -1488,12 +1468,13 @@ def put_report_notes(
         ip_address=_extract_client_ip(request),
     )
     db.commit()
-    db.refresh(notes)
     # U-19: Cache invalidieren, damit die naechste GET /advisory-report den
     # frisch gespeicherten Override sofort sieht (statt bis zu TTL-Sekunden
     # auf Auto-Default-Cache zu zeigen).
     invalidate_advisory_cache(mandate.id)
-    return ReportNotesResponse(**_serialize_notes(notes))
+    return ReportNotesResponse(
+        **_serialize_notes(report_notes_current(db, mandate.id, client_id=mandate.client_id))
+    )
 
 
 @router.get("/mandates/{mandate_id}/backtest/stress-replays")

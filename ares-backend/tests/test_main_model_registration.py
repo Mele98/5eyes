@@ -82,7 +82,9 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # verschiebt sich durch den neuen FK advisory_channel_publications.mandate_id
 # -> mandates. Aus dem Tree neu berechnet.
 # Merge H-179 + P5b: 117 Tabellen, aus dem Tree neu berechnet.
-GOLDEN_SORTED_TABLES_SHA256 = "8646fc0d669e2430cdd34b3e48475143e7b2eae7102c036e4a3597e27b6ce0e9"
+# L2c (H-192): eine neue Tabelle (mandate_report_note_versions), 118 Tabellen,
+# keine bestehende Tabelle umbenannt/entfernt. Aus dem Tree neu berechnet.
+GOLDEN_SORTED_TABLES_SHA256 = "ef1bc00d02f20409bcc15254cba6b47235aab94dffe476759f6a8dfb410315f5"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -225,7 +227,10 @@ GOLDEN_SORTED_TABLES_SHA256 = "8646fc0d669e2430cdd34b3e48475143e7b2eae7102c036e4
 # Merge H-179 + P5b: beide additiv, aus dem Tree neu berechnet.
 # Merge r5/kern-integration (dedc2f24, L2/L3) in P5c: beide additiv, aus dem Tree
 # neu berechnet (api/openapi.json unveraendert gegen export_openapi.py).
-GOLDEN_OPENAPI_SHA256 = "075ead88dcc412905c4a3d38c764f294b37aab5c04165d54f3980ce80f73b609"
+# L2c (H-192): nur additiv -- ContractDocumentResponse.source_document_id
+# (optional) und Beschreibung von PUT /report-notes; kein Pfad und kein
+# bestehendes Feld geaendert (Feld-Diff api/openapi.json, export_openapi.py).
+GOLDEN_OPENAPI_SHA256 = "1eb2f68ee387913234293be692315bbf33b19c446ccbb888c9f647b5ac04b7d8"
 
 _PROBE = """
 import hashlib, json

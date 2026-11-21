@@ -149,6 +149,10 @@ def test_route_maps_the_failure_to_409_with_catalogued_code(monkeypatch):
     assert exc.value.detail == {
         "reason_code": ReasonCode.ADVISORY_LOG_INTEGRITY_FAILED.value,
         "message": ADVISORY_LOG_INTEGRITY_FAILED_MESSAGE,
+        # L2c / N-936-06: neutral entry_id + entry_kind; advisory_log_id nur
+        # bei echten Protokolleintraegen (hier ja).
+        "entry_id": "log-kn9",
+        "entry_kind": "advisory_log",
         "advisory_log_id": "log-kn9",
     }
 

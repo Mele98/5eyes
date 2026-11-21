@@ -42,7 +42,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-INVENTORY_VERSION = "2026-11-21.1"
+INVENTORY_VERSION = "2026-11-21.2"
 
 DELETE = "DELETE"
 ANONYMIZE = "ANONYMIZE"
@@ -373,24 +373,38 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
         _c(RECORD, "mandate_contract"),
     ),
     "review_triggers": _t(_MANDATE, _c(RECORD, "recommendation_evidence")),
+    # L2c (H-192): Protokoll-Freitexte mit dem Kundenschluessel versiegelt
+    # (services/pii_vault.py); Loeschung per Schluesselvernichtung. Bleiben
+    # Altzeilen im Klartext, scheitert die Zeile sichtbar (UNSEALED_LEGACY_ROWS).
     "advisory_log": _t(
         _MANDATE,
-        _c(FREE_TEXT, "advisory_protocol", "description", "participants_json"),
+        _c(SEALED_FREE_TEXT, "advisory_protocol",
+           "title", "description", "location", "participants_json",
+           method=CRYPTO_SHRED),
         _c(RECORD, "advisory_protocol"),
     ),
     "mandate_report_notes": _t(
         _MANDATE,
-        _c(FREE_TEXT, "advisory_protocol",
+        _c(SEALED_FREE_TEXT, "advisory_protocol",
            "aa_anmerkungen", "waehrungen_erklaerung", "branchen_analyse",
            "vorgehen_block_optimierungen", "vorgehen_block_zielstrategie",
            "vorgehen_offene_fragen_json", "vorgehen_naechster_termin", "vorgehen_todos_json",
-           "vorgehen_dokumente_json", "previous_versions_json"),
+           "vorgehen_dokumente_json", "previous_versions_json", method=CRYPTO_SHRED),
+        _c(RECORD, "advisory_protocol"),
+    ),
+    "mandate_report_note_versions": _t(
+        _MANDATE,
+        _c(SEALED_FREE_TEXT, "advisory_protocol",
+           "aa_anmerkungen", "waehrungen_erklaerung", "branchen_analyse",
+           "vorgehen_block_optimierungen", "vorgehen_block_zielstrategie",
+           "vorgehen_offene_fragen_json", "vorgehen_naechster_termin", "vorgehen_todos_json",
+           "vorgehen_dokumente_json", method=CRYPTO_SHRED),
         _c(RECORD, "advisory_protocol"),
     ),
     "mandate_baustein_selections": _t(_MANDATE, _c(RECORD, "advisory_protocol")),
     "conflict_of_interest_disclosures": _t(
         _MANDATE,
-        _c(FREE_TEXT, "advisory_protocol", "description"),
+        _c(SEALED_FREE_TEXT, "advisory_protocol", "description", method=CRYPTO_SHRED),
         _c(RECORD, "advisory_protocol"),
     ),
     "audit_log": _t(_CLIENT, _c(RECORD, "audit_trail")),

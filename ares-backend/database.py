@@ -23,6 +23,8 @@ from config import (
     settings,
 )
 from core import property_gate  # K1 Property-Gate (Stdlib-Blatt)
+# L2c: reines Modul ohne Projekt-Importe (Hash-Vertrag + Altbestand-Versiegelung).
+from services import advisory_log_integrity as _advisory_log_integrity
 from core.mandate_evidence_tenant_boundary import (
     MANDATE_BOUND_TENANT_TABLES,
     create_sqlite_guards_after_metadata_create,
@@ -1823,6 +1825,8 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             ('waiver_document_id', 'TEXT'),
             # N-861-1: optionale Produktbindung, siehe models/review.py.
             ('product_id', 'TEXT'),
+            # L2c (H-192): Siegel ueber die versiegelten Freitexte.
+            ('text_seal', 'TEXT'),
         ],
         # 2026-06-18 (#84): Miete-Teuerungsindexierung pro Immobilien-Position.
         # NOT NULL DEFAULT 0 -> Bestandszeilen werden auf 0 gesetzt (Response-Schema
@@ -2699,7 +2703,7 @@ def migrate_advisory_log_hash_scheme_cost_disclosure_snapshot(target_engine: Eng
     naechsten Lauf uebersprungen.
     """
     target_engine = _resolve_engine(target_engine)
-    from services.advisory_log_integrity import compute_integrity_hash
+    compute_integrity_hash = _advisory_log_integrity.compute_integrity_hash
 
     # Nur der SQLite-Legacy-Pfad ruft diese Funktion auf (siehe
     # _run_sqlite_legacy_schema_maintenance) -- Postgres erhaelt das
@@ -3806,6 +3810,27 @@ def neutralize_legacy_property_values(conn, *, recorded_at: str | None = None) -
     return cases
 
 
+def migrate_seal_protocol_texts(engine_to_use=None) -> dict:
+    """L2c (H-192), SQLite-Startpfad (gleiche Funktion wie Alembic
+    ``e2b7c4d9a1f3``): Altzeilen der Protokoll-Freitexte versiegeln
+    (advisory_log nur mit passendem Siegel, Interessenkonflikte,
+    Berichtsnotizen -> Version 1). Idempotent."""
+    eng = engine_to_use if engine_to_use is not None else engine
+    try:
+        with eng.begin() as conn:
+            counts = _advisory_log_integrity.seal_legacy_protocol_texts(conn)
+        if counts.get("advisory_log_skipped_tampered"):
+            logger.warning(
+                "L2c: %d Protokolleintrag/-eintraege mit nicht passendem Siegel bleiben im "
+                "Klartext (veraendert, Loeschung meldet UNSEALED_LEGACY_ROWS).",
+                counts["advisory_log_skipped_tampered"],
+            )
+        return counts
+    except Exception as exc:  # noqa: BLE001 - gezielt in _handle_startup_step_error
+        _handle_startup_step_error("migrate_seal_protocol_texts", exc)
+        return {}
+
+
 def migrate_property_advanced_gate(engine_to_use=None) -> int:
     """K1 Property-Gate, SQLite-Startpfad (gleiche Funktion wie Alembic
     ``63332bb56098``). Idempotent."""
@@ -4001,6 +4026,8 @@ def _run_sqlite_legacy_schema_maintenance(target_engine: Engine | None = None) -
     run_advisory_log_migration(eng)
     migrate_advisory_log_hash_scheme_cost_disclosure_snapshot(eng)
     migrate_advisory_log_retention_from_mandate_end(eng)
+    # L2c (H-192): nach Spalten-/Tabellen-Anlage und Hash-Migrationen.
+    migrate_seal_protocol_texts(eng)
     ensure_audit_log_actions(eng)
     # U-38: Indexes nach ensure_audit_log_actions, weil das die Tabelle
     # ggf. komplett neu baut (Index-Drift-Risk).

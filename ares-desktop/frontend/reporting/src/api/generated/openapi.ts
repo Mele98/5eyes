@@ -3995,9 +3995,10 @@ export interface paths {
          * Put Report Notes
          * @description U-P28: Upsert der Berater-Overrides.
          *
-         *     Auth: nur Berater (require_advisor) — Kunden sehen den Report
-         *     read-only. Audit-Anchor (`last_edited_by` + `last_edited_at`) wird bei
-         *     jedem PUT aktualisiert; das `created_at` bleibt beim ersten Insert.
+         *     L2c (H-192): Versionierung statt Ueberschreiben -- jede Aenderung legt
+         *     eine append-only Version mit versiegelten Freitexten an (DSG-Loeschung
+         *     per Crypto-Shred). Die Kopfzeile traegt nur Metadaten (Audit-Anchor
+         *     `last_edited_by` + `last_edited_at`, `created_at` beim ersten Insert).
          */
         put: operations["put_report_notes_mandates__mandate_id__report_notes_put"];
         post?: never;
@@ -9508,6 +9509,8 @@ export interface components {
             signed_by_advisor: number;
             /** Signed By Client */
             signed_by_client: number;
+            /** Source Document Id */
+            source_document_id?: string | null;
             /** Status */
             status: string;
             /** Supersedes Id */

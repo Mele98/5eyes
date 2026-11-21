@@ -66,6 +66,7 @@ from schemas.review import (
     KycReviewPolicyActivate, KycReviewPolicyCreate, KycReviewPolicyOverview, KycReviewPolicyResponse,
 )
 from price_updater import summarize_price_quality
+from services import advisory_log_service as _advisory_log
 from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, require_staff, same_person, assert_compliance_reviewer_ready, short_user_agent, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
 from services.recommendation_release_gate import assert_contract_layer_release_eligible  # H-179 L2/L3
 from services.audit import gate_block_audit, log, release_block_audit, restore_tenant_after_rollback
@@ -1436,7 +1437,7 @@ def list_advisory_log(
     if not include_history:
         q = q.filter(AdvisoryLog.superseded_by_id.is_(None))
     rows = q.order_by(AdvisoryLog.entry_date.desc()).all()
-    return [serialize_response(r) for r in rows]
+    return [serialize_response(r, db) for r in rows]
 
 
 @router.get(
@@ -1462,7 +1463,7 @@ def get_advisory_log_entry(
     mark_read(db, entry=entry, reader=current_user)
     db.commit()
     db.refresh(entry)
-    return serialize_response(entry)
+    return serialize_response(entry, db)
 
 
 @router.post("/mandates/{mandate_id}/advisory-log",
@@ -1478,7 +1479,7 @@ def create_advisory_log_entry(
     Aufbewahrungs-Datum und vollem Audit-Log.
     """
     from services.advisory_log_integrity import AdvisoryLogDatetimeError
-    from services.advisory_log_service import AdvisoryLogCostEvidenceError
+    from services.advisory_log_service import AdvisoryLogCostEvidenceError, ProtocolTextSealError
     from services.advisory_log_service import create_advisory_log, serialize_response
 
     enforce_data_classification(body.data_classification)
@@ -1534,6 +1535,11 @@ def create_advisory_log_entry(
         # darstellbare Aufbewahrungsfrist ergibt (z.B. Jahr 9999 + 10).
         db.rollback()
         raise HTTPException(status_code=422, detail=str(exc))
+    except ProtocolTextSealError as exc:
+        # L2c: Kunde nach DSG geloescht (Schluessel vernichtet) -> kein neuer
+        # Freitext, nie Klartext.
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except AdvisoryLogCostEvidenceError as exc:
         # COST-SNAPSHOT-BINDING-001: ungueltiger Kostennachweis -> 409 mit
         # stabilem Reason-Code, kein Protokoll mit Live-Ersatzzahlen.
@@ -1574,7 +1580,7 @@ def create_advisory_log_entry(
     # U-19: Cache invalidieren — Beratungsprotokoll-Sektion zeigt diesen
     # Eintrag ab dem naechsten GET, statt 60s zu warten.
     invalidate_advisory_cache(mandate_id)
-    return serialize_response(entry)
+    return serialize_response(entry, db)
 
 
 # ── Contract Documents ─────────────────────────────────────────────────────────
@@ -1606,6 +1612,7 @@ def create_advisory_log_from_report_generation(
     Report-Abruf (sonst Audit-Spam).
     """
     from services.advisory_log_service import (
+        ProtocolTextSealError,
         build_auto_log_payload,
         create_advisory_log,
         serialize_response,
@@ -1617,9 +1624,13 @@ def create_advisory_log_from_report_generation(
         entry_datetime=_now(),
     )
     payload = AdvisoryLogCreate(**payload_dict)
-    entry = create_advisory_log(
-        db, mandate_id=mandate_id, advisor=current_user, payload=payload, mandate=mandate,
-    )
+    try:
+        entry = create_advisory_log(
+            db, mandate_id=mandate_id, advisor=current_user, payload=payload, mandate=mandate,
+        )
+    except ProtocolTextSealError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     db.flush()
     log(
         db,
@@ -1637,7 +1648,7 @@ def create_advisory_log_from_report_generation(
     db.commit()
     db.refresh(entry)
     invalidate_advisory_cache(mandate_id)
-    return serialize_response(entry)
+    return serialize_response(entry, db)
 
 
 @router.put("/mandates/{mandate_id}/advisory-log/{log_id}", response_model=AdvisoryLogResponse)
@@ -1654,7 +1665,7 @@ def update_advisory_log_entry(
     Updates am Beratungsprotokoll).
     """
     from services.advisory_log_service import (
-        serialize_response, supersede_advisory_log,
+        ProtocolTextSealError, serialize_response, supersede_advisory_log,
     )
 
     _get_mandate_or_404(mandate_id, db, current_user)
@@ -1713,9 +1724,13 @@ def update_advisory_log_entry(
             update={"client_signed_at": linked_document.signature_client_signed_at}
         )
 
-    new_entry = supersede_advisory_log(
-        db, previous=entry, advisor=current_user, update=body,
-    )
+    try:
+        new_entry = supersede_advisory_log(
+            db, previous=entry, advisor=current_user, update=body,
+        )
+    except ProtocolTextSealError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     log(
         db,
         user_id=current_user.id,
@@ -1732,7 +1747,7 @@ def update_advisory_log_entry(
     db.commit()
     db.refresh(new_entry)
     invalidate_advisory_cache(mandate_id)
-    return serialize_response(new_entry)
+    return serialize_response(new_entry, db)
 
 
 @router.get("/mandates/{mandate_id}/documents", response_model=list[ContractDocumentResponse])
@@ -1760,9 +1775,21 @@ def list_documents(
         ContractDocumentResponse.model_validate(row).model_copy(update={
             "has_pdf": bool(row.pdf_base64),
             "created_by_name": creator_names.get(row.created_by),
+            "source_document_id": _archived_contract_source(row),
         })
         for row in rows
     ]
+
+
+def _archived_contract_source(row) -> str | None:
+    """L2c (N-936-02): Quell-Entwurf eines archivierten Beratungsvertrags."""
+    if row.document_type != "Beratungsvertrag" or not row.pdf_base64 or not row.content_json:
+        return None
+    try:
+        value = json.loads(row.content_json).get("source_document_id")
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return str(value) if value else None
 
 
 @router.get("/mandates/{mandate_id}/documents/{doc_id}/pdf")
@@ -2528,11 +2555,13 @@ def list_conflicts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    _get_mandate_or_404(mandate_id, db, current_user)
-    return db.query(ConflictOfInterestDisclosure).filter(
+    mandate = _get_mandate_or_404(mandate_id, db, current_user)
+    rows = db.query(ConflictOfInterestDisclosure).filter(
         ConflictOfInterestDisclosure.mandate_id == mandate_id,
         ConflictOfInterestDisclosure.deleted_at.is_(None)
     ).all()
+    # L2c (H-192): Freitexte geoeffnet, nie als Umschlag.
+    return [_conflict_response(row, db, client_id=mandate.client_id) for row in rows]
 
 
 @router.post("/mandates/{mandate_id}/conflicts",
@@ -2575,6 +2604,14 @@ def create_conflict(
         created_at=now, updated_at=now,
         **fields
     )
+    # L2c (H-192): Beschreibung mit dem Kundenschluessel versiegeln
+    # (DSG-Loeschung per Crypto-Shred), Siegel ueber den Umschlag. Die
+    # Massnahme ist eine Kategorie (CHECK-Liste), kein Freitext.
+    try:
+        _advisory_log.seal_conflict_texts(db, conflict, mandate.client_id)
+    except _advisory_log.ProtocolTextSealError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     db.add(conflict)
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="conflict_of_interest_disclosures", record_id=conflict.id,
@@ -2582,7 +2619,7 @@ def create_conflict(
         ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(conflict)
-    return conflict
+    return _conflict_response(conflict, db, client_id=mandate.client_id)
 
 
 # ── Interessenkonflikte: Aufloesung ───────────────────────────────────────────
@@ -2674,7 +2711,7 @@ def _validated_event_timestamp(
     return candidate
 
 
-def _conflict_response(conflict) -> dict:
+def _conflict_response(conflict, db: Session | None = None, *, client_id: str | None = None) -> dict:
     """Die Konfliktzeile samt abgeleitetem Nachweiszustand.
 
     Derselbe Resolver wie im Advisory-Report (CONFLICT-STATE-001), damit der
@@ -2692,6 +2729,12 @@ def _conflict_response(conflict) -> dict:
         column.name: getattr(conflict, column.name, None)
         for column in ConflictOfInterestDisclosure.__table__.columns
     }
+    # L2c: versiegelte Freitexte geoeffnet; geloescht -> «Gelöscht (DSG).»,
+    # veraendert -> leer (Kundenkanaele sperren separat).
+    texts = _advisory_log.conflict_text_view(db, conflict, client_id=client_id)
+    payload["description"] = texts["description"]
+    payload["mitigation_action"] = texts["mitigation_action"]
+    payload.pop("text_seal", None)
     payload["resolution_state"] = state
     payload["missing_evidence"] = missing
     return payload
@@ -2739,7 +2782,7 @@ def disclose_conflict(
         ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(conflict)
-    return _conflict_response(conflict)
+    return _conflict_response(conflict, db, client_id=mandate.client_id)
 
 
 @router.post("/mandates/{mandate_id}/conflicts/{conflict_id}/acknowledge",
@@ -2808,7 +2851,7 @@ def acknowledge_conflict(
         ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(conflict)
-    return _conflict_response(conflict)
+    return _conflict_response(conflict, db, client_id=mandate.client_id)
 
 
 @router.post("/mandates/{mandate_id}/conflicts/{conflict_id}/mitigate",
@@ -2828,6 +2871,15 @@ def mitigate_conflict(
     Der alte Wert bleibt deshalb im Audit-Log, nicht in der Zeile.
     """
     mandate, conflict = _get_conflict_or_404(mandate_id, conflict_id, db, current_user)
+    if _advisory_log.conflict_text_view(db, conflict, client_id=mandate.client_id)["text_state"] == (
+        _advisory_log.PROTOCOL_TEXT_TAMPERED
+    ):
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "ADVISORY_LOG_INTEGRITY_FAILED", "entry_kind": "conflict_disclosure",
+            "entry_id": conflict.id,
+            "message": "Die Prüfsumme dieses Interessenkonflikts passt nicht zu seinem Inhalt "
+                       "(nach dem Speichern verändert oder beschädigt). Er wird nicht geändert.",
+        })
     previous = getattr(conflict, "mitigation_action", None)
     conflict.mitigation_action = body.mitigation_action.strip()
     conflict.updated_at = _now()
@@ -2839,7 +2891,7 @@ def mitigate_conflict(
         ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(conflict)
-    return _conflict_response(conflict)
+    return _conflict_response(conflict, db, client_id=mandate.client_id)
 
 
 @router.post("/mandates/{mandate_id}/conflicts/{conflict_id}/attach-document",
@@ -2885,7 +2937,7 @@ def attach_conflict_document(
         ip_address=_extract_client_ip(request))
     db.commit()
     db.refresh(conflict)
-    return _conflict_response(conflict)
+    return _conflict_response(conflict, db, client_id=mandate.client_id)
 
 
 # ── Products ───────────────────────────────────────────────────────────────────

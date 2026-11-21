@@ -9295,6 +9295,17 @@
             "title": "Signed By Client",
             "type": "integer"
           },
+          "source_document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Document Id"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -43804,7 +43815,7 @@
         ]
       },
       "put": {
-        "description": "U-P28: Upsert der Berater-Overrides.\n\nAuth: nur Berater (require_advisor) — Kunden sehen den Report\nread-only. Audit-Anchor (`last_edited_by` + `last_edited_at`) wird bei\njedem PUT aktualisiert; das `created_at` bleibt beim ersten Insert.",
+        "description": "U-P28: Upsert der Berater-Overrides.\n\nL2c (H-192): Versionierung statt Ueberschreiben -- jede Aenderung legt\neine append-only Version mit versiegelten Freitexten an (DSG-Loeschung\nper Crypto-Shred). Die Kopfzeile traegt nur Metadaten (Audit-Anchor\n`last_edited_by` + `last_edited_at`, `created_at` beim ersten Insert).",
         "operationId": "put_report_notes_mandates__mandate_id__report_notes_put",
         "parameters": [
           {

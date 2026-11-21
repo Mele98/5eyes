@@ -3042,7 +3042,9 @@ def advice_rationale_view(db: Session, row: dict) -> dict:
     view["integrity_verified"] = row_seal(row, "rationale_hash") == row.get("rationale_hash")
     statuses = []
     for column in ADVICE_RATIONALE_TEXT_COLUMNS:
-        plain, status = reveal_protocol_text(db, row.get(column))
+        # L2c (N-936-04/-05): Schluessel muss zum Kunden der Zeile gehoeren,
+        # «gelöscht» nur mit belegter Loeschung -- sonst «verändert».
+        plain, status = reveal_protocol_text(db, row.get(column), str(row.get("client_id") or ""))
         view[column] = plain
         statuses.append(status)
     if not view["integrity_verified"] or "unlesbar" in statuses:

@@ -203,3 +203,86 @@ def test_readonly_sees_status_but_cannot_write(server):
     assert _contract_docs(api, mid) == []
     time.sleep(0.1)
     assert not errors, errors
+
+
+# --- L2c (H-192): N-936-02/-03 -- «final» ueber die Pruefsumme ---------------
+
+def test_l2c_final_is_detected_by_checksum_and_archived_contract_button(server):
+    """Die Server-Antworten werden im Browser nachgestellt (die Vorlage bleibt
+    unfreigegeben, Ares erfindet keinen Vertragstext):
+
+    a) Wiederholter finaler Abruf (Dedupe, keine neue Archiv-ID): PDF ohne
+       X-Ares-Draft, Pruefsumme = checksum_sha256 eines archivierten Vertrags
+       -> «final» (vorher faelschlich «Entwurf», N-936-02).
+    b) Race: X-Ares-Draft gesetzt, gleichzeitig fremdes Archiv mit derselben
+       Pruefsumme -> «Entwurf» (Header hat Vorrang, N-936-03).
+    c) Pruefsumme passt zu keinem Archiv -> «Entwurf».
+    d) Dokumentliste: finalisierter Entwurf zeigt «Archivierten Vertrag
+       öffnen» statt «Vertrag erstellen (PDF)».
+    """
+    import hashlib
+
+    sync_api = _sync_api()
+    api = _Api(server["base"]).login()
+    cid, mid, _ = _new_client(api, "Mia", "Pruefsumme-Fiktiv", "1980-02-02", [], risk=False,
+                              mandate_type="Anlageberatung")
+    st, draft = api("POST", f"/mandates/{mid}/documents", {
+        "document_type": "Beratungsvertrag", "title": "Beratungsvertrag – Anlageberatung",
+        "content_json": json.dumps({"ort_unterzeichnung": "Testort (fiktiv)"})})
+    assert st == 201, draft
+    final_pdf = b"%PDF-1.4\n% L2c final (fiktiv)\n%%EOF\n"
+    checksum = hashlib.sha256(final_pdf).hexdigest()
+    archived = {"id": "arch-l2c", "mandate_id": mid, "document_type": "Beratungsvertrag",
+                "title": "Beratungsvertrag – Anlageberatung", "status": "Archiviert", "signed_by_advisor": 0,
+                "signed_by_client": 0, "signed_at": None, "version": 2, "supersedes_id": None, "pdf_path": None,
+                "checksum_sha256": checksum, "has_pdf": True, "source_document_id": draft["id"],
+                "created_by": "x", "created_at": "2026-11-21T10:00:00.000Z", "updated_at": "2026-11-21T10:00:00.000Z"}
+    mode = {"draft_header": False, "with_archive": True}
+
+    def _pdf(route):
+        headers = {"Content-Type": "application/pdf", "Content-Disposition": 'attachment; filename="vertrag.pdf"'}
+        if mode["draft_header"]:
+            headers.update({"X-Ares-Draft": "vertragsvorlage", "X-Ares-Draft-Reasons": "CONTRACT_TEMPLATE_UNAPPROVED"})
+        route.fulfill(status=200, headers=headers, body=final_pdf if mode["with_archive"] else b"%PDF-anders")
+
+    def _docs(route):
+        if route.request.method != "GET":
+            return route.continue_()
+        resp = route.fetch()
+        data = resp.json()
+        route.fulfill(response=resp, json=([archived] + data) if mode["with_archive"] else data)
+
+    with sync_api.sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        errors: list[str] = []
+        try:
+            page = _page(browser, server, sync_api, errors)
+            page.route("**/reports/vertrag.pdf*", _pdf)
+            page.route(f"**/mandates/{mid}/documents", _docs)
+            _load(page, cid, "rv")
+
+            def _preview():
+                page.evaluate("() => { const r = document.getElementById('ac-result'); if (r) r.textContent = ''; }")
+                page.evaluate("(id) => openAdviceContractModal(id).then(() => previewAdviceContract(id))", draft["id"])
+                page.wait_for_function("() => (document.getElementById('ac-result').innerText || '').length > 0",
+                                       timeout=60000)
+                return page.inner_text("#ac-result")
+
+            text_a = _preview()
+            assert text_a.startswith("Vertrag final erstellt und archiviert"), text_a
+            mode["draft_header"] = True
+            text_b = _preview()
+            assert text_b.startswith("Entwurf (Wasserzeichen"), text_b
+            mode.update(draft_header=False, with_archive=False)
+            text_c = _preview()
+            assert text_c.startswith("Entwurf (Wasserzeichen"), text_c
+
+            mode["with_archive"] = True
+            page.evaluate(CLOSE)
+            page.evaluate("(mid) => refreshReviewUI(mid)", mid)
+            page.wait_for_selector("button[data-doc-action='advice-contract-open-archived']", timeout=30000)
+            assert page.inner_text("button[data-doc-action='advice-contract-open-archived']") == "Archivierten Vertrag öffnen"
+            assert page.locator("button[data-doc-action='advice-contract-preview']").count() == 0
+        finally:
+            browser.close()
+    assert not errors, errors

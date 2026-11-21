@@ -48,8 +48,8 @@ from models.wealth import WealthInflow, WealthPosition
 from services.fx_basis import FxBasisError, compute_wealth_totals, load_fx_basis, strict_model_fx_source
 # KN9a / N-934-01..02: eine Integritaetsregel fuer alle Kundenkanaele.
 from services.advisory_log_service import (  # noqa: F401  (Re-Export)
-    AdvisoryLogIntegrityFailed, advisory_log_integrity_message, assert_shown_entries_intact,
-    customer_protocol_entry)
+    PROTOCOL_TEXT_TAMPERED, AdvisoryLogIntegrityFailed, advisory_log_integrity_message,
+    assert_shown_entries_intact, conflict_text_view, customer_protocol_entry, report_notes_view)
 
 
 def assert_report_advisory_log_integrity(payload: dict[str, Any], *, document: str) -> None:
@@ -62,6 +62,33 @@ def assert_report_advisory_log_integrity(payload: dict[str, Any], *, document: s
     entry = protocol.get("latest_entry") if isinstance(protocol, dict) else None
     if isinstance(entry, dict):
         assert_shown_entries_intact([entry], document=document, latest_only=True)
+    # L2c (H-192): veraenderte versiegelte Freitexte der Berichtsnotizen und
+    # Interessenkonflikte sperren denselben Kanal (gleiche 409-Form).
+    failures = payload.get(PROTOCOL_TEXT_FAILURES_KEY) if isinstance(payload, dict) else None
+    for failure in failures or ():
+        raise AdvisoryLogIntegrityFailed(
+            failure.get("entry_id"), document=document, entry_kind=failure.get("entry_kind", ""),
+            message=(
+                f"{document} kann nicht als Kunden-PDF erzeugt werden: Die Prüfsumme "
+                f"{failure.get('label', 'eines Eintrags')} passt nicht zu ihrem Inhalt. Der "
+                "Eintrag wurde nach dem Speichern verändert oder ist beschädigt. Bitte die "
+                "Datenbank prüfen lassen (Sicherung) und den Eintrag neu erfassen."
+            ),
+        )
+
+
+PROTOCOL_TEXT_FAILURES_KEY = "protocol_text_integrity_failures"
+
+
+def _protocol_text_failures(notes: Any, conflicts: Any) -> list[dict[str, Any]]:
+    failures: list[dict[str, Any]] = []
+    if notes is not None and getattr(notes, "text_state", None) == PROTOCOL_TEXT_TAMPERED:
+        failures.append({"entry_kind": "report_notes", "entry_id": getattr(notes, "id", None),
+                         "label": "der Berichtsnotizen des Beraters"})
+    for conflict_id in (conflicts or {}).get("integrity_failed_ids") or () if isinstance(conflicts, dict) else ():
+        failures.append({"entry_kind": "conflict_disclosure", "entry_id": conflict_id,
+                         "label": "der Beschreibung eines Interessenkonflikts"})
+    return failures
 
 
 # ---------------------------------------------------------------------------
@@ -564,6 +591,8 @@ def compute_advisory_report(
 # sein sollen -- diese Liste kann bei Bedarf spaeter gelockert werden.
 PROTECTED_REPORT_SECTIONS = frozenset({
     "cover",
+    # L2c (H-192): Sperrgrund veraenderter versiegelter Freitexte.
+    "protocol_text_integrity_failures",
     "disclaimer",
     "cost_disclosure",
     "suitability_compliance",
@@ -754,6 +783,9 @@ def _compute_advisory_report_inner(
     # MC-CONTEXT-001 (Codex-Closure-Review PR #663): zentrale Publikations-
     # grenze nach dem Aggregator -- skalare Projektionsfelder sind bei
     # ausgeblendetem Gate None, auch wenn ein Builder den Guard vergisst.
+    failures = _protocol_text_failures(notes, payload.get("conflict_disclosures"))
+    if failures:
+        payload[PROTOCOL_TEXT_FAILURES_KEY] = failures
     from services.report_projection_redaction import redact_projection_channels
     return redact_projection_channels(payload, projection_gate)
 
@@ -783,14 +815,11 @@ def _load_report_notes(db: Session, mandate: Mandate) -> Any | None:
     in denen die Tabelle nicht angelegt wurde. Das ist konsistent zu den
     anderen Sektion-Buildern, die ihre Modelle ebenfalls lazy importieren.
     """
+    # L2c (H-192): geoeffnete Sicht der versiegelten, versionierten Notizen
+    # (gleiche Attributnamen wie die Kopfzeile). ``veraendert`` liefert leere
+    # Felder (Standardtexte) und sperrt die Kundenkanaele.
     try:
-        from models.review import MandateReportNotes
-
-        return (
-            db.query(MandateReportNotes)
-            .filter(MandateReportNotes.mandate_id == mandate.id)
-            .first()
-        )
+        return report_notes_view(db, str(mandate.id), client_id=getattr(mandate, "client_id", None))
     except Exception:  # noqa: BLE001 — robust gegen Schema-Mismatch in alten DBs
         return None
 
@@ -3585,7 +3614,7 @@ def _build_beratungsprotokoll(db: Session, mandate: Mandate) -> dict[str, Any]:
 
     return {
         "total_active": total_active,
-        "latest_entry": serialize_response(latest) if latest else None,
+        "latest_entry": serialize_response(latest, db) if latest else None,
         "last_review_date": last_review_date,
         "days_since_last_review": days_since,
         "suitability_mismatches": mismatches,
@@ -4209,6 +4238,7 @@ def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]
         }
 
     entries = []
+    integrity_failed_ids: list[str] = []
     counts_by_type: dict[str, int] = {}
     has_unacknowledged = False
     has_undisclosed = False
@@ -4227,10 +4257,13 @@ def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]
             has_undisclosed = True
         if resolution_state in _CONFLICT_INDETERMINATE_STATES:
             has_indeterminate = True
+        texts = conflict_text_view(db, row, client_id=getattr(mandate, "client_id", None))
+        if texts["text_state"] == PROTOCOL_TEXT_TAMPERED:
+            integrity_failed_ids.append(str(getattr(row, "id", "") or ""))
         entries.append({
             "id": getattr(row, "id", None),
             "conflict_type": ctype,
-            "description": getattr(row, "description", "") or "",
+            "description": texts["description"],
             "inducement_provider": getattr(row, "inducement_provider", None),
             "inducement_amount_rappen": getattr(row, "inducement_amount_rappen", None),
             "inducement_frequency": getattr(row, "inducement_frequency", None),
@@ -4238,7 +4271,7 @@ def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]
             "disclosed_at": getattr(row, "disclosed_at", None),
             "client_acknowledged": ack,
             "client_acknowledged_at": getattr(row, "client_acknowledged_at", None),
-            "mitigation_action": getattr(row, "mitigation_action", None),
+            "mitigation_action": texts["mitigation_action"],
             "document_id": getattr(row, "document_id", None),
             "resolution_state": resolution_state,
             "missing_evidence": missing_evidence,
@@ -4264,7 +4297,7 @@ def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]
     else:
         evidence_status = "clear"
 
-    return {
+    result = {
         "entries": entries,
         "counts": {"total": len(entries), "by_type": counts_by_type},
         "has_unacknowledged": has_unacknowledged,
@@ -4273,6 +4306,10 @@ def _build_conflict_disclosures(db: Session, mandate: Mandate) -> dict[str, Any]
         "evidence_status": evidence_status,
         "fidleg_basis": "Art. 9 / Art. 26 FIDLEG",
     }
+    if integrity_failed_ids:
+        # L2c: nur bei veraenderten Freitexten (Kundenkanaele sperren).
+        result["integrity_failed_ids"] = integrity_failed_ids
+    return result
 
 
 # ---------------------------------------------------------------------------

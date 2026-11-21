@@ -490,7 +490,7 @@
   "status": 200
  },
  "privacy.subject_request.export": {
-  "sha256": "63e877afea671ed6c6ac327875d7d5a3b7dd1836505d5bd4a0b266773cb9908d",
+  "sha256": "aa9bbbdb81b4811da7716c1aa54aa3549ffc78551e4205b4c0122f2f0294112d",
   "shape": {
    "decision": "str",
    "export": {
@@ -508,6 +508,7 @@
      }
     },
     "manifest": {
+     "advice_rationales": "int",
      "advisory_log": "int",
      "audit_log": "int",
      "cashflows": "int",
@@ -517,7 +518,11 @@
      "client_opt_history": "int",
      "conflict_of_interest_disclosure": "int",
      "contract_documents": "int",
+     "financial_coverage_attestations": "int",
+     "goal_revision_decisions": "int",
      "goals": "int",
+     "investment_preference_decisions": "int",
+     "mandate_report_note_versions": "int",
      "mandate_report_notes": "int",
      "mandates": "int",
      "planning_assumptions": "int",
@@ -528,6 +533,8 @@
      "review_trigger": "int",
      "risk_assessment_answers": "int",
      "risk_assessments": "int",
+     "risk_override_decisions": "int",
+     "risk_profile_signoffs": "int",
      "strategy_snapshots": "int",
      "suitability_checks": "int",
      "target_allocations": "int",
@@ -536,6 +543,7 @@
     },
     "restricted_sections": {},
     "retention_notes": {
+     "advice_rationales": "str",
      "advisory_log": "str",
      "audit_log": "str",
      "cashflows": "str",
@@ -545,7 +553,11 @@
      "clients": "str",
      "conflict_of_interest_disclosure": "str",
      "contract_documents": "str",
+     "financial_coverage_attestations": "str",
+     "goal_revision_decisions": "str",
      "goals": "str",
+     "investment_preference_decisions": "str",
+     "mandate_report_note_versions": "str",
      "mandate_report_notes": "str",
      "mandates": "str",
      "planning_assumptions": "str",
@@ -556,6 +568,8 @@
      "review_trigger": "str",
      "risk_assessment_answers": "str",
      "risk_assessments": "str",
+     "risk_override_decisions": "str",
+     "risk_profile_signoffs": "str",
      "strategy_snapshots": "str",
      "suitability_checks": "str",
      "target_allocations": "str",
@@ -565,13 +579,18 @@
     "schema_version": "int",
     "section_errors": {},
     "section_status": {
+     "advice_rationales": "str",
      "advisory_log": "str",
      "audit_log": "str",
      "cashflows": "str",
      "client_knowledge": "str",
      "conflict_of_interest_disclosure": "str",
      "contract_documents": "str",
+     "financial_coverage_attestations": "str",
+     "goal_revision_decisions": "str",
      "goals": "str",
+     "investment_preference_decisions": "str",
+     "mandate_report_note_versions": "str",
      "mandate_report_notes": "str",
      "planning_assumptions": "str",
      "protocol_baustein_selections": "str",
@@ -581,6 +600,8 @@
      "review_trigger": "str",
      "risk_assessment_answers": "str",
      "risk_assessments": "str",
+     "risk_override_decisions": "str",
+     "risk_profile_signoffs": "str",
      "strategy_snapshots": "str",
      "suitability_checks": "str",
      "target_allocations": "str",
@@ -588,6 +609,9 @@
      "wealth_positions": "str"
     },
     "sections": {
+     "advice_rationales": {
+      "list_of": []
+     },
      "advisory_log": {
       "list_of": []
      },
@@ -741,7 +765,19 @@
      "contract_documents": {
       "list_of": []
      },
+     "financial_coverage_attestations": {
+      "list_of": []
+     },
+     "goal_revision_decisions": {
+      "list_of": []
+     },
      "goals": {
+      "list_of": []
+     },
+     "investment_preference_decisions": {
+      "list_of": []
+     },
+     "mandate_report_note_versions": {
       "list_of": []
      },
      "mandate_report_notes": {
@@ -865,6 +901,12 @@
         "version": "int"
        }
       ]
+     },
+     "risk_override_decisions": {
+      "list_of": []
+     },
+     "risk_profile_signoffs": {
+      "list_of": []
      },
      "strategy_snapshots": {
       "list_of": []

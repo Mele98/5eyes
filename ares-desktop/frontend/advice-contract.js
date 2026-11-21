@@ -1,23 +1,7 @@
 /**
- * Beratungsvertrag in der Classic-Vertragsmaske (L2b, H-190; CTO-Entscheid 3
- * zu H-179). Ausgelagerter Monolith-Teil (EXTRACTED_MONOLITH_PARTS, eigenes
- * Budget), eingebunden nach owner-content.js; haengt sich selbst ein.
- *
- *   - Review & Abschluss > Dokumente: Knopf "Beratungsvertrag" (je Mandatstyp
- *     Vermoegensverwaltung / Anlageberatung / Finanzplanung, Vorlage vom Server).
- *   - Maske: Mandatstyp und Status der Vertragsvorlage, Ort der Unterzeichnung
- *     (Pflicht, kein Vorgabewert), Datum, Sondervereinbarungen (optional).
- *   - Vorschau: Vertrags-PDF; solange Vorlage/Vertragsschicht nicht frei ist,
- *     ein Entwurf mit Wasserzeichen (Server, X-Ares-Draft) -- die Gruende stehen
- *     auf Deutsch in der Maske. Ein finaler Vertrag wird vom Server archiviert
- *     und ueber den bestehenden Signaturpfad unterzeichnet (Vertragsschicht-Gate).
- *   - Rollen: Berater/Admin erstellen; "Lesend" sieht den Status, schreibt nicht.
- *
- * Ares formuliert keinen Vertragstext: Klauseln kommen aus der freigegebenen
- * Vertragsvorlage der Firma (Administration > Compliance > Vertragsschicht).
- *
- * Ausserdem (Monolith-Budget): saveContractDocumentDraft (Anlagestrategie-
- * Entwurf) unveraendert aus ares.html hierher umgezogen.
+ * Beratungsvertrag in der Classic-Maske (L2b H-190, L2c H-192), eigener
+ * Monolith-Teil. Entwurf/final entscheidet der Server; Ares formuliert keinen
+ * Vertragstext. Dazu saveContractDocumentDraft, unveraendert aus ares.html.
  */
 async function saveContractDocumentDraft(){
   var title=getInputValue('contract-title').trim();
@@ -83,10 +67,8 @@ async function saveContractDocumentDraft(){
   var state = { mandateId: null, layer: null, docId: null };
 
   function esc(v){
-    if (typeof escapeHtml === 'function') return escapeHtml(String(v == null ? '' : v));
-    return String(v == null ? '' : v).replace(/[&<>"']/g, function(c){
-      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
-    });
+    v = String(v == null ? '' : v);
+    return (typeof escapeHtml === 'function') ? escapeHtml(v) : v.replace(/[&<>"']/g, function(c){ return '&#' + c.charCodeAt(0) + ';'; });
   }
   function el(id){ return document.getElementById(id); }
   function val(id){ var e = el(id); return e ? String(e.value || '').trim() : ''; }
@@ -145,9 +127,7 @@ async function saveContractDocumentDraft(){
   function show(id, text, color){
     var e = el(id);
     if (!e) return;
-    e.textContent = text || '';
-    if (color) e.style.color = color;
-    e.style.display = text ? 'block' : 'none';
+    e.textContent = text || ''; if (color) e.style.color = color; e.style.display = text ? 'block' : 'none';
   }
 
   function templateHtml(layer){
@@ -254,16 +234,20 @@ async function saveContractDocumentDraft(){
     setTimeout(function(){ try { document.body.removeChild(a); URL.revokeObjectURL(url); } catch(x) {} }, 60000);
   }
 
-  async function archivedContractIds(id){
-    var docs = await API.get('/mandates/' + encodeURIComponent(id) + '/documents');
-    return (Array.isArray(docs) ? docs : []).filter(function(d){ return d && d.document_type === DOC_TYPE && d.has_pdf; })
-      .map(function(d){ return String(d.id); });
+  async function pdfFetch(path){
+    var token = await API.getToken();
+    return fetch((await API.baseUrl()) + '/mandates/' + encodeURIComponent(state.mandateId || mid()) + path,
+      { headers: token ? { Authorization: 'Bearer ' + token } : {} });
+  }
+  async function sha256Hex(blob){
+    if (!(window.crypto && crypto.subtle && blob.arrayBuffer)) return '';
+    var h = new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()));
+    return Array.prototype.map.call(h, function(b){ return ('0' + b.toString(16)).slice(-2); }).join('');
   }
 
-  // Vorschau = Vertrags-PDF des gespeicherten Entwurfs. Der Server entscheidet
-  // Entwurf (Wasserzeichen) oder final (archiviert). Final heisst: danach liegt
-  // ein neues archiviertes PDF in der Dokumentliste -- das gilt auch in der
-  // Desktop-App, in der die X-Ares-Header (CORS) nicht lesbar sind.
+  // Vorschau: Entwurf/final entscheidet der Server. L2c (N-936-02/-03): final =
+  // SHA-256 des PDFs gleich checksum_sha256 eines archivierten Vertrags; ein
+  // lesbarer X-Ares-Draft (Browser, nicht Desktop/CORS) hat Vorrang.
   async function previewAdviceContract(docId){
     var docRef = docId || state.docId;
     var id = state.mandateId || mid();
@@ -272,27 +256,28 @@ async function saveContractDocumentDraft(){
     if (btn) btn.disabled = true;
     show('ac-error', '');
     try {
-      var before = await archivedContractIds(id);
-      var token = await API.getToken();
-      var res = await fetch((await API.baseUrl()) + '/mandates/' + encodeURIComponent(id) + '/reports/vertrag.pdf?document_id=' + encodeURIComponent(docRef),
-        { headers: token ? { Authorization: 'Bearer ' + token } : {} });
+      var res = await pdfFetch('/reports/vertrag.pdf?document_id=' + encodeURIComponent(docRef));
       if (!res.ok) {
         var body = await res.text();
         var text = contractErrorText({ body: body });
-        if (!text) { try { var d = JSON.parse(body).detail; text = typeof d === 'string' ? d : (d && d.message) || body; } catch(x) { text = body; } }
+        try { var d = JSON.parse(body).detail; text = text || (typeof d === 'string' ? d : (d && d.message) || body); } catch(x) { text = text || body; }
         show('ac-error', 'Vorschau nicht erstellt (HTTP ' + res.status + '): ' + String(text).slice(0, 800));
         return;
       }
+      var draft = res.headers.get('X-Ares-Draft');
       var reasons = (res.headers.get('X-Ares-Draft-Reasons') || '').split(',').filter(Boolean);
       var blob = await res.blob();
-      var archived = (await archivedContractIds(id)).filter(function(x){ return before.indexOf(x) < 0; });
+      var sum = await sha256Hex(blob);
+      var docs = await API.get('/mandates/' + encodeURIComponent(id) + '/documents');
+      var final = !draft && sum && (docs || []).some(function(x){ return x.document_type === DOC_TYPE && x.has_pdf && x.checksum_sha256 === sum; });
       await loadLayer(id);
-      if (!archived.length) {
+      if (!final) {
         var byCode = {};
         ((state.layer && state.layer.findings) || []).forEach(function(f){ byCode[f.reason_code] = f.message; });
         if (!reasons.length) reasons = Object.keys(byCode);
         var lines = reasons.map(function(c){ return '• ' + (CODE_TEXT[c] || byCode[c] || c); });
-        show('ac-result', 'Entwurf (Wasserzeichen «Entwurf»): nicht signierbar, nicht archiviert.' + (lines.length ? '\n' + lines.join('\n') : ''), 'var(--warn)');
+        show('ac-result', (sum || draft ? 'Entwurf (Wasserzeichen «Entwurf»): nicht signierbar, nicht archiviert.'
+          : 'Nicht prüfbar; massgebend ist die Dokumentliste.') + (lines.length ? '\n' + lines.join('\n') : ''), 'var(--warn)');
       } else {
         show('ac-result', 'Vertrag final erstellt und archiviert. Unterzeichnen Sie ihn in der Dokumentliste (Berater signieren / Kunde signieren).', 'var(--pos)');
         if (typeof refreshReviewUI === 'function') await refreshReviewUI(id);
@@ -304,9 +289,14 @@ async function saveContractDocumentDraft(){
       syncButtons();
     }
   }
+  async function openArchivedContract(docId){
+    state.mandateId = mid();
+    var res = await pdfFetch('/documents/' + encodeURIComponent(docId) + '/pdf');
+    if (res.ok) await savePdf(res, await res.blob());
+    else if (typeof showAppError === 'function') showAppError('Archivierter Vertrag nicht geöffnet (HTTP ' + res.status + ').');
+  }
 
-  // Dokumente-Karte: Einstieg "Beratungsvertrag" und Vorschau je gespeichertem
-  // Entwurf (Quelldokument ohne PDF).
+  // Dokumente-Karte: Einstieg "Beratungsvertrag", Vorschau je Entwurf.
   function decorateGrid(documents){
     var grid = el('rv-doc-grid');
     if (!grid || el('btn-rv-advice-contract')) return;
@@ -320,16 +310,21 @@ async function saveContractDocumentDraft(){
       actions.appendChild(b);
     }
     var docs = Array.isArray(documents) ? documents : [];
+    // L2c (N-936-02): finalisierter Entwurf -> "Archivierten Vertrag öffnen".
+    var bySource = {};
+    docs.forEach(function(d){ if (d && d.document_type === DOC_TYPE && d.has_pdf && d.source_document_id) bySource[d.source_document_id] = bySource[d.source_document_id] || d; });
     Array.prototype.forEach.call(grid.querySelectorAll('.doc-card'), function(card, idx){
       var doc = docs[idx];
-      if (!doc || doc.document_type !== DOC_TYPE || doc.has_pdf || !canWrite()) return;
+      var arch = doc && bySource[doc.id];
+      if (!doc || doc.document_type !== DOC_TYPE || doc.has_pdf || !(arch || canWrite())) return;
       var p = document.createElement('button');
       p.className = 'btn btn-sm';
-      p.setAttribute('data-doc-action', 'advice-contract-preview');
-      p.textContent = 'Vertrag erstellen (PDF)';
+      p.setAttribute('data-doc-action', arch ? 'advice-contract-open-archived' : 'advice-contract-preview');
+      p.textContent = arch ? 'Archivierten Vertrag öffnen' : 'Vertrag erstellen (PDF)';
       p.onclick = function(ev){
         if (ev) ev.preventDefault();
-        openAdviceContractModal(doc.id).then(function(){ return previewAdviceContract(doc.id); });
+        if (arch) openArchivedContract(arch.id);
+        else openAdviceContractModal(doc.id).then(function(){ return previewAdviceContract(doc.id); });
       };
       var box = card.querySelector('.rv-output-actions');
       if (box) box.appendChild(p);

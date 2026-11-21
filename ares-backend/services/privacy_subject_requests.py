@@ -59,7 +59,10 @@ EXPORT_SECTIONS = (
     "risk_assessments", "risk_assessment_answers", "suitability_checks", "target_allocations",
     "recommendation_runs", "recommendation_positions", "recommendation_holdings", "advisory_log",
     "wealth_positions", "cashflows", "wealth_inflows", "goals", "planning_assumptions",
-    "contract_documents", "conflict_of_interest_disclosure", "mandate_report_notes", "review_trigger",
+    "contract_documents", "conflict_of_interest_disclosure", "mandate_report_notes",
+    "mandate_report_note_versions", "advice_rationales", "risk_override_decisions", "risk_profile_signoffs",
+    "goal_revision_decisions", "financial_coverage_attestations", "investment_preference_decisions",
+    "review_trigger",
     "strategy_snapshots", "protocol_baustein_selections", "audit_log",
 )
 EXECUTED_ERASURE_STATUSES = ("EXECUTED", "PARTIALLY_EXECUTED")

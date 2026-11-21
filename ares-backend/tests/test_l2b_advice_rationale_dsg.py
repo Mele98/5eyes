@@ -104,7 +104,11 @@ def test_after_crypto_shred_seal_still_verifies_shows_deleted_dsg_and_does_not_b
         _run(db)
         _record(db)
         before = db.execute(text("SELECT rationale_hash, client_needs FROM advice_rationales")).one()
-        assert pii_vault.shred_client_keys(db, "c-1") == 1
+        # L2c (N-936-04): «gelöscht» nur mit belegter Loeschung -> echte
+        # Loeschung (Alt-Pfad erase_client_personal_data: erased_at + Shred).
+        from services.client_erasure import erase_client_personal_data
+
+        assert erase_client_personal_data(db, "c-1", reason="L2b-Test")["pii_keys_shredded"] == 1
         after = db.execute(text("SELECT rationale_hash, client_needs FROM advice_rationales")).one()
         assert tuple(after) == tuple(before)  # Zeile unveraendert (append-only)
         view = gate.latest_advice_rationale(db, "m-1", "run-1")

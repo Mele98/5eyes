@@ -355,7 +355,7 @@ def test_single_alembic_head_is_h8_revision():
     # K1 (Property-Gate): 63332bb56098 haengt an b3f1c9d2e4a7 (Integration H12+K1).
     # H-179 L2/L3: c7e1a9d3f5b2 (Vertragsschicht) haengt an 74e3e973ea09 (CCX-P5b).
     # CCX-P5 (Platz CCX_P5_REV): c2546c196134 haengt an 63332bb56098.
-    assert heads == ["c7e1a9d3f5b2"]  # H-179 hinter CCX-P5b hinter CCX-P5
+    assert heads == ["e2b7c4d9a1f3"]  # L2c hinter H-179 hinter CCX-P5b hinter CCX-P5
     chain = [
         ("c7e1a9d3f5b2", "74e3e973ea09"),
         ("c2546c196134", "63332bb56098"),
@@ -608,7 +608,12 @@ TEMPLATE_TEXT_PINS = {
     # KN3-B / E2E3-03: Aufsichtsstatus mit echten Umlauten ("Vermögensverwalter ...").
     "ARES-KI-FIDLEG-3": "f45160a1d75bd32203be2cacdcccc7cf449a136d21ebd68c18dcd2cae0c3b477",
     # H-179 D-1/R-1: Abschnitt Datenbearbeitung (Art. 19 DSG), Zuwendungen der Depotbank.
-    "ARES-KI-FIDLEG-4": "54d223edb21fe7e6289d7f3f8c6a33f2affc7810ac0c8b76241f436ec666de36",
+    # L2c (H-192): nur der Quelltext von _kundeninformation_ties_and_offer
+    # geaendert (Beschreibung ueber die zentrale Oeffnung, Sperre bei
+    # Veraenderung); der Kundentext ist fuer dieselben Daten byte-gleich
+    # (test_l2c_dsg_protocol_texts::test_kundeninformation_ties_text_is_unchanged_for_sealed_description),
+    # deshalb keine neue Vorlagenversion.
+    "ARES-KI-FIDLEG-4": "13b852922b3bdcd52b9d0a0c9ac0c444f85f3d4093a71c33ee49ff82cf325a61",
 }
 
 

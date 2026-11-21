@@ -254,6 +254,10 @@ class ConflictOfInterestDisclosure(Base):
     # der Router prueft, dass das Produkt fuer den Tenant sichtbar ist.
     # Alembic d4f7a9c2e1b6, SQLite-Runtime-Patch database.py.
     product_id = Column(String)
+    # L2c (H-192): Siegel ueber die versiegelten Freitexte (description,
+    # mitigation_action als pii_vault-Umschlag). NULL = Altbestand im
+    # Klartext. Alembic e2b7c4d9a1f3, SQLite-Runtime-Patch database.py.
+    text_seal = Column(String)
     disclosed_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
@@ -856,6 +860,40 @@ class W033ClientDeclaration(Base):
     declaration_hash = Column(String, nullable=False)
 
 
-for _model in (AdviceRationale, W033ClientDeclaration,):
+class MandateReportNoteVersion(Base):
+    """L2c (H-192): Berichtsnotizen als append-only Versionen (Versionierung
+    statt Ueberschreiben). Freitexte mit dem Kundenschluessel versiegelt
+    (``services/pii_vault.py``); ``content_hash`` ueber die Umschlaege bleibt
+    nach einer DSG-Loeschung (Crypto-Shred) pruefbar. tenant_id direkt
+    (INSERT-Guard aus dem Mandat), kein FK auf mandates/clients. Alembic
+    e2b7c4d9a1f3."""
+
+    __tablename__ = "mandate_report_note_versions"
+    __table_args__ = (
+        UniqueConstraint("mandate_id", "version", name="uq_mandate_report_note_versions_version"),
+        CheckConstraint("version > 0", name="ck_mandate_report_note_versions_version"),
+        Index("ix_mandate_report_note_versions_tenant_id", "tenant_id"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    mandate_id = Column(String, nullable=False)
+    client_id = Column(String, nullable=False)
+    version = Column(Integer, nullable=False)
+    aa_anmerkungen = Column(String)
+    waehrungen_erklaerung = Column(String)
+    branchen_analyse = Column(String)
+    vorgehen_block_optimierungen = Column(String)
+    vorgehen_block_zielstrategie = Column(String)
+    vorgehen_offene_fragen_json = Column(String)
+    vorgehen_naechster_termin = Column(String)
+    vorgehen_todos_json = Column(String)
+    vorgehen_dokumente_json = Column(String)
+    edited_by = Column(String, ForeignKey("users.id"), nullable=False)
+    edited_at = Column(String, nullable=False)
+    content_hash = Column(String, nullable=False)
+
+
+for _model in (AdviceRationale, W033ClientDeclaration, MandateReportNoteVersion):
     for _trigger_ddl in _h179_append_only_sqlite(_model.__tablename__):
         event.listen(_model.__table__, "after_create", DDL(_trigger_ddl).execute_if(dialect="sqlite"))
