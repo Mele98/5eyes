@@ -2,7 +2,8 @@
 
 A1 SQLCipher-Pflicht (Schluessel in DPAPI-Ablage, nie Klartext), A2 kein
 Laufzeit-Seeding von Hausannahmen (typisiert REFERENCE_DATA_PACKAGE_MISSING,
-einzige Ausnahme das TEST-Referenzpaket des Packaging-Smokes), A3 kein
+einzige Ausnahme das TEST-Referenzpaket im Strategie-Selbsttest
+``--self-test-strategy``, nie im Server -- N-935-01), A3 kein
 Gebuehren-Default (Kostenausweis ohne Gebuehrenvereinbarung = Entwurf).
 Die gepackte EXE wird hier ueber ``sys.frozen`` bzw. ``config.PACKAGED_BUILD``
 simuliert; den echten Lauf im Artefakt belegt der Packaging-Smoke.
@@ -192,7 +193,6 @@ def test_packaged_exe_never_seeds_house_assumptions(empty_session, monkeypatch):
     from core.risk_parameter_set import ReferenceDataPackageMissing
 
     monkeypatch.setattr(sys, "frozen", True, raising=False)
-    monkeypatch.setattr(pe.settings, "test_reference_package_file", "")
     assert pe.settings.production_mode and pe.settings.ic_release_required
     with empty_session() as session:
         with pytest.raises(ReferenceDataPackageMissing, match="freigegebene Referenzdaten"):
@@ -211,44 +211,42 @@ def test_source_mode_still_seeds_template_values(empty_session):
 
 
 @pytest.mark.no_test_fee_model
-def test_smoke_test_package_allows_seeding_without_fee_and_without_ic_release(empty_session, monkeypatch, tmp_path):
+def test_self_test_package_allows_seeding_without_fee_and_without_ic_release(empty_session, monkeypatch):
     import services.portfolio_engine as pe
 
     monkeypatch.setattr(sys, "frozen", True, raising=False)
-    package = tmp_path / "pkg.json"
-    package.write_text(SMOKE_PACKAGE.read_text(encoding="utf-8"), encoding="utf-8")
-    monkeypatch.setattr(pe.settings, "test_reference_package_file", str(package))
-    assert pe.settings.ic_release_required is False  # rechnen erlaubt ...
-    with empty_session() as session:
-        policy, _cma = pe.ensure_runtime_reference_data(session, "u-1", jurisdiction="CH")
-        assert policy.fee_model_json is None, "kein Gebuehren-Default (A3)"
+    package = config.load_test_reference_package(str(SMOKE_PACKAGE))
+    with config.strategy_self_test_reference_package(package):
+        assert pe.settings.ic_release_required is False  # rechnen erlaubt ...
+        with empty_session() as session:
+            policy, _cma = pe.ensure_runtime_reference_data(session, "u-1", jurisdiction="CH")
+            assert policy.fee_model_json is None, "kein Gebuehren-Default (A3)"
+    assert pe.settings.ic_release_required is True  # nur innerhalb des Selbsttests
     # ... aber nie als IC-freigegeben gekennzeichnet (Paket behauptet keine Freigabe).
     from core.risk_parameter_set import IC_RELEASE_UNRELEASED, ic_release_for
 
     assert ic_release_for(policy)[0] == IC_RELEASE_UNRELEASED
 
 
-def test_smoke_test_package_with_foreign_template_hash_is_rejected(empty_session, monkeypatch, tmp_path):
+def test_self_test_package_with_foreign_template_hash_is_rejected(empty_session, monkeypatch):
     import services.portfolio_engine as pe
     from core.risk_parameter_set import ReferenceDataPackageMissing
 
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     data = json.loads(SMOKE_PACKAGE.read_text(encoding="utf-8"))
     data["reference_data"]["sha256"] = "0" * 64
-    package = tmp_path / "pkg-foreign.json"
-    package.write_text(json.dumps(data), encoding="utf-8")
-    monkeypatch.setattr(pe.settings, "test_reference_package_file", str(package))
-    with empty_session() as session:
-        with pytest.raises(ReferenceDataPackageMissing, match="passt nicht"):
-            pe.ensure_runtime_reference_data(session, "u-1", jurisdiction="CH")
+    with config.strategy_self_test_reference_package(data):
+        with empty_session() as session:
+            with pytest.raises(ReferenceDataPackageMissing, match="passt nicht"):
+                pe.ensure_runtime_reference_data(session, "u-1", jurisdiction="CH")
 
 
-def test_smoke_package_is_ignored_outside_the_packaged_exe(monkeypatch):
-    """Ein Server mit app_env=production nimmt nie ein Testpaket an."""
-    cfg = Settings(app_env="development", test_reference_package_file=str(SMOKE_PACKAGE))
-    assert config.smoke_reference_package(cfg) is not None
-    monkeypatch.setattr(sys, "frozen", False, raising=False)
-    assert config.smoke_reference_package_active(cfg) is False
+def test_test_package_has_no_settings_load_path():
+    """N-935-01: der Server kennt keinen Ladepfad fuer ein Testpaket."""
+    assert "test_reference_package_file" not in Settings.model_fields
+    assert not hasattr(config, "smoke_reference_package")
+    assert not hasattr(config, "smoke_reference_package_active")
+    assert config.strategy_self_test_package() is None
 
 
 def test_smoke_fixture_is_marked_and_bound_to_current_template_values():

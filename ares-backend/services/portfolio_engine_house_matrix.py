@@ -2475,7 +2475,7 @@ def assert_runtime_reference_seed_allowed(
 ) -> None:
     """In Produktion bzw. der gepackten EXE keine Hausannahmen zur Laufzeit
     (``REFERENCE_DATA_PACKAGE_MISSING``). Einzige Ausnahme: das TEST-Paket des
-    Packaging-Smokes, und nur mit dem Pruefwert genau dieser Vorlagewerte."""
+    Strategie-Selbsttests (--self-test-strategy), nur mit dem Pruefwert dieser Vorlagewerte."""
     if not production_mode:
         return
     if not seed_allowed or package is None:

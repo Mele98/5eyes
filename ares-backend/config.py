@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 import base64
+import contextlib
+import contextvars
 import ctypes
 import functools
 import hashlib
@@ -262,14 +264,21 @@ def validate_objective_mode(raw: str | None) -> str:
     return normalized
 
 
-def resolve_env_file() -> str:
+def packaged_reads_no_env_file() -> bool:
+    """N-935-01 (H-187 Fixrunde 1, CTO-Entscheid): die gepackte EXE
+    (``sys.frozen``) liest KEINE ``.env``-Datei -- weder neben ``ares-api.exe``
+    noch in ``_MEIPASS`` noch im Arbeitsverzeichnis. Die Installation liegt
+    benutzerbeschreibbar; eine abgelegte Datei koennte sonst Sicherheits-
+    einstellungen aushebeln. Konfiguration nur aus der Umgebung, die die
+    Desktop-Shell setzt, plus DPAPI-Ablagen. Quellbetrieb/Tests unveraendert."""
+    return bool(getattr(sys, 'frozen', False))
+
+
+def resolve_env_file() -> str | None:
+    if packaged_reads_no_env_file():
+        return None
     env_override = Path.cwd() / '.env'
     candidates = []
-    if getattr(sys, '_MEIPASS', None):
-        candidates.extend([
-            Path(sys.executable).resolve().parent / '.env',
-            Path(getattr(sys, '_MEIPASS')).resolve() / '.env',
-        ])
     module_dir = Path(__file__).resolve().parent
     candidates.extend([
         env_override,
@@ -311,6 +320,15 @@ class Settings(BaseSettings):
         # gesamte Konfiguration inkl. DB_KEY/SECRET_KEY, in Exception und Log.
         hide_input_in_errors=True,
     )
+
+    @classmethod
+    def settings_customise_sources(cls, settings_cls, init_settings, env_settings, dotenv_settings,
+                                   file_secret_settings):
+        # N-935-01: in der gepackten EXE zur Laufzeit (nicht beim Klassenbau)
+        # entschieden -- keine .env-Quelle, auch nicht ueber ``_env_file``.
+        if packaged_reads_no_env_file():
+            return init_settings, env_settings, file_secret_settings
+        return init_settings, env_settings, dotenv_settings, file_secret_settings
 
     app_name: str = 'Ares API'
     app_version: str = '1.3.0'
@@ -684,11 +702,10 @@ class Settings(BaseSettings):
     # Spawn). Nur die gepackte EXE nutzt ihn; dort ist er Pflicht (fail-closed,
     # ``ensure_packaged_db_key``). Quellbetrieb/Tests: leer, unveraendert.
     db_key_file: str = ''
-    # EXE-P (H-187, N-926-01): NUR fuer den Packaging-Smoke. Pfad eines
-    # TEST-Referenzpakets (``ares-test-reference-package/1``, ``test_only``),
-    # mit dem die gepackte EXE einmal rechnen darf. Die Desktop-Shell reicht
-    # die Variable nie an das Backend weiter (main.js entfernt sie).
-    test_reference_package_file: str = ''
+    # N-935-01 (H-187 Fixrunde 1): KEIN Settings-Feld fuer ein TEST-
+    # Referenzpaket. Der Server nimmt nie ein Testpaket an; der Strategie-
+    # Nachweis des Packaging-Smokes laeuft als eigener Prozess
+    # ``ares-api.exe --self-test-strategy`` (packaging_selftest_strategy.py).
 
     # SEC-007 (Codex-Audit 2026-08-26): der bisherige `.sha256`-Sidecar neben
     # jedem Backup ist UNKEYED -- er beweist nur Zufallsintegritaet, nicht
@@ -739,18 +756,18 @@ class Settings(BaseSettings):
         """CCX P5 / N-925-05 (CTO-Entscheid H-180): ohne IC-Freigabe der
         Risikoparameter keine Berechnung in Produktion -- ``app_env=production``
         ODER gepackte Desktop-EXE (``sys.frozen``), dieselbe Linie wie
-        ``foundation_example_available``. Ausnahme nur fuer den Packaging-Smoke:
-        ein geladenes TEST-Referenzpaket (``smoke_reference_package_active``)
-        erlaubt das Rechnen; die Werte bleiben als nicht IC-freigegeben
-        gekennzeichnet."""
-        return self.production_mode and not smoke_reference_package_active(self)
+        ``foundation_example_available``. Einzige Ausnahme: der Strategie-
+        Selbsttest (``--self-test-strategy``, eigener Prozess ohne Server) mit
+        seinem TEST-Paket (``strategy_self_test_package``); die Werte bleiben
+        als nicht IC-freigegeben gekennzeichnet."""
+        return self.production_mode and strategy_self_test_package() is None
 
     @property
     def runtime_reference_seed_allowed(self) -> bool:
         """EXE-P (H-187): Hausannahmen (Vorlagewerte) zur Laufzeit anlegen nur
         im Quell-/Testbetrieb -- in Produktion und in der gepackten EXE nie,
-        ausser ein TEST-Referenzpaket des Packaging-Smokes ist geladen."""
-        return (not self.production_mode) or smoke_reference_package_active(self)
+        ausser im Strategie-Selbsttest (eigener Prozess, nie im Server)."""
+        return (not self.production_mode) or strategy_self_test_package() is not None
 
     @property
     def foundation_example_available(self) -> bool:
@@ -2008,22 +2025,29 @@ def packaged_plaintext_connection_refused(*, packaged: bool | None = None, cfg: 
 
 
 # ---------------------------------------------------------------------------
-# EXE-P (H-187, N-926-01): TEST-Referenzpaket fuer den Packaging-Smoke.
+# EXE-P (H-187, N-926-01) / N-935-01 (Fixrunde 1): TEST-Referenzpaket NUR fuer
+# den Strategie-Selbsttest ``ares-api.exe --self-test-strategy``.
 # Die gepackte EXE legt nie Hausannahmen zur Laufzeit an und rechnet ohne
-# IC-Freigabe nicht (N-925-05). Damit der Smoke trotzdem einmal eine Strategie
-# rechnen kann (Optimizer im Artefakt belegt), darf er ein ausdruecklich als
-# TEST markiertes Paket laden. Es behauptet nie eine IC-Freigabe: Ergebnisse
-# bleiben "Vorlagewerte -- nicht IC-freigegeben". Inhalt: Bezug auf die
-# Vorlagewerte im Code ueber deren Pruefwert (die Engine prueft ihn beim
-# Anlegen; jede Abweichung = Ablehnung), keine eigenen Zahlen, kein
-# Gebuehrenmodell.
+# IC-Freigabe nicht (N-925-05). Damit der Packaging-Smoke trotzdem belegen
+# kann, dass der Optimizer im Artefakt rechnet, laedt der Selbsttest (eigener
+# Prozess, temporaere DB, kein HTTP-Server, kein Kundendokument, kein Archiv)
+# ein ausdruecklich als TEST markiertes Paket -- nur in seinem Prozess, nur
+# innerhalb von ``strategy_self_test_reference_package``. Der Server kennt
+# keinen Ladepfad dafuer (kein Settings-Feld, keine Umgebungsvariable, keine
+# .env). Das Paket behauptet nie eine IC-Freigabe ("Vorlagewerte -- nicht
+# IC-freigegeben"), enthaelt keine eigenen Zahlen (nur den Pruefwert der
+# Vorlagewerte im Code) und kein Gebuehrenmodell.
 # ---------------------------------------------------------------------------
 TEST_REFERENCE_PACKAGE_FORMAT = "ares-test-reference-package/1"
 TEST_REFERENCE_PACKAGE_MARKER = "TESTPAKET - nur Packaging-Smoke, nie fuer Kunden"
 
+_STRATEGY_SELF_TEST_PACKAGE: "contextvars.ContextVar[dict | None]" = contextvars.ContextVar(
+    "ares_strategy_self_test_package", default=None)
 
-@functools.lru_cache(maxsize=4)
-def _load_test_reference_package(path: str) -> dict | None:
+
+def load_test_reference_package(path: str) -> dict | None:
+    """Liest und prueft ein TEST-Referenzpaket (``None`` = fehlt/ungueltig).
+    Aktiviert nichts; nur ``strategy_self_test_reference_package`` tut das."""
     import json as _json
 
     try:
@@ -2042,21 +2066,23 @@ def _load_test_reference_package(path: str) -> dict | None:
     return data
 
 
-def smoke_reference_package(cfg: "Settings | None" = None) -> dict | None:
-    """Das geladene TEST-Referenzpaket oder ``None`` (fehlt/ungueltig)."""
-    cfg = cfg if cfg is not None else settings
-    path = str(getattr(cfg, "test_reference_package_file", "") or "").strip()
-    if not path:
-        return None
-    return _load_test_reference_package(path)
+def strategy_self_test_package() -> dict | None:
+    """Das im Strategie-Selbsttest aktive TEST-Paket oder ``None`` (im Server immer)."""
+    return _STRATEGY_SELF_TEST_PACKAGE.get()
 
 
-def smoke_reference_package_active(cfg: "Settings | None" = None) -> bool:
-    """Nur in der gepackten EXE (Smoke); ein Server mit ``app_env=production``
-    nimmt nie ein Testpaket an."""
-    if not getattr(sys, "frozen", False):
-        return False
-    return smoke_reference_package(cfg) is not None
+@contextlib.contextmanager
+def strategy_self_test_reference_package(package: dict):
+    """Aktiviert das TEST-Paket fuer den laufenden Kontext des Selbsttests.
+    Einziger Aufrufer: ``packaging_selftest_strategy`` (Waechtertest)."""
+    if not (isinstance(package, dict) and package.get("test_only") is True
+            and package.get("marker") == TEST_REFERENCE_PACKAGE_MARKER):
+        raise ValueError("Kein gueltiges TEST-Referenzpaket.")
+    token = _STRATEGY_SELF_TEST_PACKAGE.set(package)
+    try:
+        yield package
+    finally:
+        _STRATEGY_SELF_TEST_PACKAGE.reset(token)
 
 
 _apply_packaged_db_key_at_import()

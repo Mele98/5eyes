@@ -149,6 +149,8 @@ const hiddenImports = [
   'services.advisory_log_service',
   // H-180 (EXE-01): Import-Selbsttest des Artefakts (main.py --self-test-imports).
   'packaging_selftest',
+  // N-935-01 (H-187): Strategie-Selbsttest (main.py --self-test-strategy).
+  'packaging_selftest_strategy',
 ];
 
 const collectSubmodules = [

@@ -380,23 +380,43 @@ function check(name, fn) {
   });
 
   // EXE-P (H-187): Ablageort des Datenbankschluessels im userData-Ordner; das
-  // TEST-Referenzpaket des Packaging-Smokes wird nie an das Backend vererbt.
-  await check('EXE-P Kind-Umgebung setzt DB_KEY_FILE und vererbt kein TEST-Referenzpaket', () => {
-    const before = process.env.TEST_REFERENCE_PACKAGE_FILE;
-    const beforeKey = process.env.DB_KEY_FILE;
-    process.env.TEST_REFERENCE_PACKAGE_FILE = path.join(os.tmpdir(), 'testpaket.json');
-    process.env.DB_KEY_FILE = path.join(os.tmpdir(), 'fremd-db-key.dpapi');
+  // TEST-Referenzpaket wird nie an das Backend vererbt -- N-935-01: auch nicht
+  // in anderer Schreibweise, und eine geerbte Variante eines Shell-Werts kommt nie an.
+  await check('EXE-P Kind-Umgebung setzt DB_KEY_FILE und vererbt kein TEST-Referenzpaket (jede Schreibweise)', () => {
+    const source = {
+      TEST_REFERENCE_PACKAGE_FILE: 'a.json',
+      test_reference_package_file: 'b.json',
+      Test_Reference_Package_File: 'c.json',
+      db_key_file: path.join(os.tmpdir(), 'fremd-db-key.dpapi'),
+      App_Port: '1',
+      KEEP_ME: 'ja',
+    };
+    const inherited = mainExports.inheritedBackendEnv(source);
+    for (const key of Object.keys(inherited)) {
+      assert.ok(key.toUpperCase() !== 'TEST_REFERENCE_PACKAGE_FILE', `geerbt: ${key}`);
+      assert.ok(!['DB_KEY_FILE', 'APP_PORT'].includes(key.toUpperCase()), `Shell-Wert geerbt: ${key}`);
+    }
+    assert.strictEqual(inherited.KEEP_ME, 'ja');
+    const before = { ...process.env };
     try {
+      Object.assign(process.env, source);
       const env = mainExports.buildBackendChildEnv({ host: '127.0.0.1', port: 8123 });
       assert.strictEqual(env.DB_KEY_FILE, path.join(tmpUserData, 'db-key.dpapi'));
       assert.strictEqual(env.DB_KEY_FILE, mainExports.DB_KEY_STORE_FILE);
-      assert.ok(!('TEST_REFERENCE_PACKAGE_FILE' in env), 'TEST-Referenzpaket darf nie vererbt werden');
+      assert.strictEqual(env.APP_PORT, '8123');
+      const keys = Object.keys(env).map((k) => k.toUpperCase());
+      assert.ok(!keys.includes('TEST_REFERENCE_PACKAGE_FILE'), 'TEST-Referenzpaket darf nie vererbt werden');
+      assert.strictEqual(keys.filter((k) => k === 'DB_KEY_FILE').length, 1);
     } finally {
-      if (before === undefined) delete process.env.TEST_REFERENCE_PACKAGE_FILE;
-      else process.env.TEST_REFERENCE_PACKAGE_FILE = before;
-      if (beforeKey === undefined) delete process.env.DB_KEY_FILE;
-      else process.env.DB_KEY_FILE = beforeKey;
+      for (const key of Object.keys(source)) delete process.env[key];
+      for (const [key, value] of Object.entries(before)) if (!(key in process.env)) process.env[key] = value;
     }
+  });
+
+  // N-935-01: die installierte App liest keine .env (nur der Entwicklungsstart).
+  await check('N-935-01 gepackte App liest keine .env-Datei', () => {
+    assert.deepStrictEqual(mainExports.envFileCandidates(true), []);
+    assert.ok(mainExports.envFileCandidates(false).length > 0);
   });
 
   await check('RB-1 Umgebung kann den KEK-Ablageort nicht umlenken', () => {

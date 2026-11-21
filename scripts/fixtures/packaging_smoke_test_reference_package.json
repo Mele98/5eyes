@@ -2,7 +2,7 @@
   "format": "ares-test-reference-package/1",
   "test_only": true,
   "marker": "TESTPAKET - nur Packaging-Smoke, nie fuer Kunden",
-  "purpose": "EXE-P (H-187, N-926-01): einmalige Strategieberechnung im Packaging-Smoke. Keine IC-Freigabe, kein Gebuehrenmodell, keine eigenen Zahlen.",
+  "purpose": "EXE-P (H-187, N-926-01/N-935-01): nur fuer ares-api.exe --self-test-strategy (eigener Prozess, temporaere DB, kein Server). Keine IC-Freigabe, kein Gebuehrenmodell, keine eigenen Zahlen.",
   "reference_data": {
     "source": "Vorlagewerte im Code (services.portfolio_engine._reference_template_values)",
     "sha256": "26b69732cf117fc4534ce049252c138516b451f671c00be9b01f41097191c182"

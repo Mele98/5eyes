@@ -91,6 +91,45 @@ def check_self_test_imports(exe_copy: Path, env: dict[str, str], fail, log, time
         f'({result["own_modules"]} eigene) importierbar, inkl. Optimizer/scipy und PDF')
 
 
+# ---------------------------------------------------------------------------
+# N-935-01 Strategie-Selbsttest (ersetzt das Testpaket im Server)
+# ---------------------------------------------------------------------------
+STRATEGY_SELF_TEST_MARKER = 'ARES_SELF_TEST_STRATEGY '
+
+
+def check_self_test_strategy(exe_copy: Path, env: dict[str, str], package: Path, ic_label: str,
+                             fallback_markers: tuple[str, ...], fail, log, timeout: float = 900.0) -> None:
+    """``ares-api.exe --self-test-strategy <paket>``: eigener Prozess mit temporaerer
+    DB, ohne Server und ohne Kundendokument. Verlangt den stochastischen Optimizer
+    ohne Rueckfall und den vollen Vermerk ``ic_label`` (N-935-02)."""
+    proc = subprocess.run([str(exe_copy), '--self-test-strategy', str(package)], cwd=str(exe_copy.parent),
+                          env=env, capture_output=True, text=True, encoding='utf-8', errors='replace',
+                          timeout=timeout)
+    output = (proc.stdout or '') + '\n' + (proc.stderr or '')
+    lines = [line for line in (proc.stdout or '').splitlines() if line.startswith(STRATEGY_SELF_TEST_MARKER)]
+    if not lines:
+        fail(f'Strategie-Selbsttest ohne Ergebniszeile (Exit {proc.returncode}).\n'
+             f'--- stdout ---\n{(proc.stdout or "")[-3000:]}\n--- stderr ---\n{(proc.stderr or "")[-3000:]}')
+    result = json.loads(lines[-1][len(STRATEGY_SELF_TEST_MARKER):])
+    if not result.get('frozen'):
+        fail('Strategie-Selbsttest lief nicht im gepackten Artefakt (frozen=false).')
+    if proc.returncode != 0 or not result.get('ok'):
+        fail('Strategie-Selbsttest der gepackten EXE rot: ' + json.dumps(result, ensure_ascii=False)
+             + f'\n--- stderr ---\n{(proc.stderr or "")[-3000:]}')
+    if result.get('optimizer') != 'stochastic' or int(result.get('constraints') or 0) < 1:
+        fail('Strategie-Selbsttest: kein stochastischer Optimizer-Lauf: ' + json.dumps(result, ensure_ascii=False))
+    if result.get('ic_label') != ic_label or result.get('ic_release_status') == 'RELEASED':
+        fail(f'Strategie-Selbsttest: Vermerk {ic_label!r} fehlt: ' + json.dumps(result, ensure_ascii=False))
+    if result.get('contract_documents'):
+        fail('Strategie-Selbsttest hat Kundendokumente angelegt.')
+    hits = [m for m in tuple(fallback_markers) + DEGRADED_LOG_MARKERS if m in output]
+    if hits:
+        fail(f'Strategie-Selbsttest meldet einen Rueckfall/ein fehlendes Modul: {hits}')
+    log(f'OK N-926-01/N-935-01 Strategie-Selbsttest im Artefakt: stochastischer Optimizer '
+        f'({result.get("status")}), {result["constraints"]} Constraints, kein Rueckfall, '
+        f'Vermerk "{ic_label}", Datenbank {result.get("database")}, keine Kundendokumente')
+
+
 def assert_no_degraded_modules(logtext: str, fail) -> None:
     hits = [marker for marker in DEGRADED_LOG_MARKERS if marker in logtext]
     if hits:
@@ -290,8 +329,7 @@ def run_shell_smoke(unpacked_dir: Path, *, isolated_env, free_port, http_get, po
         env = isolated_env(root, port, root / 'data' / 'shell.db')
         # Wie ein Benutzerstart: kein erzwungenes APP_ENV/DB-Verschluesselungs-Flag;
         # die Ablageorte (KEK, Datenbankschluessel) setzt die Shell selbst.
-        for key in ('APP_ENV', 'DB_USE_SQLCIPHER', 'TENANT_MASTER_KEK_FILE', 'DB_KEY_FILE',
-                    'TEST_REFERENCE_PACKAGE_FILE'):
+        for key in ('APP_ENV', 'DB_USE_SQLCIPHER', 'TENANT_MASTER_KEK_FILE', 'DB_KEY_FILE'):
             env.pop(key, None)
         log(f'Starte Shell {shell.name} isoliert (userData={user_data}, Port {port})')
         proc = subprocess.Popen([str(shell), f'--user-data-dir={user_data}'], cwd=str(root), env=env,

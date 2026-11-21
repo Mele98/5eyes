@@ -74,10 +74,9 @@ os.environ["LOG_DIR"] = str(_test_data_dir / "logs")
 # Ordner der Desktop-Shell). Leer gesetzt statt entfernt, damit auch eine
 # .env-Angabe nicht greift; Tests der Ablage arbeiten nur auf tmp_path.
 os.environ["TENANT_MASTER_KEK_FILE"] = ""
-# EXE-P (H-187): ebenso keine Ablage des Datenbankschluessels und nie ein
-# TEST-Referenzpaket des Packaging-Smokes aus einer .env.
+# EXE-P (H-187): ebenso keine Ablage des Datenbankschluessels. (Ein TEST-
+# Referenzpaket gibt es im Server seit N-935-01 nicht mehr.)
 os.environ["DB_KEY_FILE"] = ""
-os.environ["TEST_REFERENCE_PACKAGE_FILE"] = ""
 
 
 # W4-c: Die Master-KEK ist Pflicht (kein Rueckfall auf SECRET_KEY). Jede

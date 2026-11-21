@@ -135,8 +135,13 @@ SQLCIPHER_CIPHER_PRAGMAS = (
     'PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512',
 )
 SQLITE_PLAINTEXT_HEADER = b'SQLite format 3\x00'
-# N-926-01 (H-187): TEST-Referenzpaket, das NUR dieser Smoke laedt (siehe Datei).
+# N-926-01 / N-935-01 (H-187): TEST-Referenzpaket, das NUR der Strategie-Selbsttest
+# (ares-api.exe --self-test-strategy, eigener Prozess) laedt -- nie der Server.
 SMOKE_TEST_REFERENCE_PACKAGE = REPO_ROOT / 'scripts' / 'fixtures' / 'packaging_smoke_test_reference_package.json'
+# N-935-02: voller Vermerk (core/risk_parameter_set.py::IC_UNRELEASED_LABEL, Test haelt beide gleich).
+IC_UNRELEASED_LABEL = 'Vorlagewerte – nicht IC-freigegeben'
+# N-935-01: eine .env neben der EXE darf nie wirken (die gepackte EXE liest keine .env).
+ENV_FILE_PROBE_APP_NAME = 'Fremdname aus .env'
 # Antworttexte eines stillen Optimizer-Rueckfalls (services/portfolio_engine_optimizer_integration.py).
 OPTIMIZER_FALLBACK_MARKERS = ('House-Matrix-Default bleibt aktiv', 'Optimizer-Modul nicht verfuegbar',
                               'fallback_house_matrix', 'Stochastic Optimizer Fehler')
@@ -893,10 +898,12 @@ def strategy_inputs() -> dict:
 
 
 def run_strategy_smoke(call, token: str, client_id: str, mandate_id: str) -> None:
-    """N-926-01 (H-187): einmal target-allocation/generate im Artefakt rechnen und
-    belegen, dass der stochastische Optimizer lief (kein stiller Rueckfall auf die
-    House-Matrix). Rechnen darf die gepackte EXE nur mit dem TEST-Referenzpaket
-    (TEST_REFERENCE_PACKAGE_FILE), das ausschliesslich dieser Smoke setzt."""
+    """N-935-01 (H-187 Fixrunde 1): der Server der gepackten EXE nimmt NIE ein
+    Testpaket an. Dieser Start laeuft mit einer .env neben der EXE und mit der
+    Variable in Kleinschreibung (Direktstart ohne Shell) -- generate muss
+    trotzdem typisiert mit REFERENCE_DATA_PACKAGE_MISSING (409) ablehnen.
+    Den Optimizer im Artefakt belegt der Strategie-Selbsttest
+    (release_checks.check_self_test_strategy)."""
     inputs = strategy_inputs()
     status, _, body = call('POST', f'/mandates/{mandate_id}/risk-assessments', inputs['risk'], token)
     if status != 201:
@@ -915,19 +922,11 @@ def run_strategy_smoke(call, token: str, client_id: str, mandate_id: str) -> Non
     if status != 201:
         fail(f'Strategie-Smoke: Nachhaltigkeitspraeferenz antwortet HTTP {status}: {body[:300]!r}')
     status, _, body = call('POST', f'/mandates/{mandate_id}/target-allocation/generate', {'preferences': {}}, token)
-    if status != 200:
-        fail(f'Strategie-Smoke: target-allocation/generate antwortet HTTP {status}: {body[:500]!r}')
-    text = body.decode('utf-8', errors='replace')
-    hits = [marker for marker in OPTIMIZER_FALLBACK_MARKERS if marker in text]
-    if hits:
-        fail(f'Strategie-Smoke: Optimizer-Rueckfall in der Antwort ({hits}) -- die EXE rechnet anders als die Quelle.')
-    payload = json.loads(body)
-    if not payload.get('optimizer_constraints'):
-        fail('Strategie-Smoke: keine Optimizer-Constraints in der Antwort (Solver lief nicht).')
-    if 'IC-freigegeben' not in text:
-        fail('Strategie-Smoke: Ergebnis aus dem TEST-Referenzpaket ohne Vermerk "nicht IC-freigegeben".')
-    log(f'OK N-926-01 Strategie im Artefakt gerechnet: stochastischer Optimizer, '
-        f'{len(payload["optimizer_constraints"])} Constraints, kein Rueckfall, Vermerk nicht IC-freigegeben')
+    if status != 409 or b'REFERENCE_DATA_PACKAGE_MISSING' not in body:
+        fail(f'N-935-01: der Server der gepackten EXE rechnete mit einem Testpaket aus .env/Umgebung '
+             f'(generate HTTP {status}): {body[:500]!r}')
+    log('OK N-935-01 Server nimmt kein Testpaket an (.env neben der EXE, Variable in Kleinschreibung): '
+        'generate 409 REFERENCE_DATA_PACKAGE_MISSING')
 
 
 def assert_no_font_fallback(logtext: str) -> None:
@@ -1260,13 +1259,24 @@ def run_start_smoke(exe: Path, timeout: float, grace: float, keep: bool) -> None
             exe_copy, {k: v for k, v in env.items() if k != 'DB_KEY_FILE'}, fail, log)
         if db_key_store_path(root).exists():
             fail('Import-Selbsttest hat eine Ablage des Datenbankschluessels angelegt.')
+        # N-935-01: Strategie-Selbsttest (eigener Prozess, temporaere DB, kein Server);
+        # nur hier wird das TEST-Paket geladen (Kopie im Temp-Root).
+        smoke_package = root / 'test-reference-package.json'
+        shutil.copy2(SMOKE_TEST_REFERENCE_PACKAGE, smoke_package)
+        release_checks.check_self_test_strategy(
+            exe_copy, {k: v for k, v in env.items() if k != 'DB_KEY_FILE'}, smoke_package,
+            IC_UNRELEASED_LABEL, OPTIMIZER_FALLBACK_MARKERS, fail, log)
+        if db_key_store_path(root).exists() or db_path.exists():
+            fail('Strategie-Selbsttest hat die eingestellte Datenbank oder eine Schluesselablage angelegt.')
         run_refused_start_smoke(exe_copy, timeout)
 
         before = snapshot(live_paths())
-        # N-926-01: das TEST-Referenzpaket NUR fuer diesen Start (Kopie im Temp-Root).
-        smoke_package = root / 'test-reference-package.json'
-        shutil.copy2(SMOKE_TEST_REFERENCE_PACKAGE, smoke_package)
-        start_env = {**env, 'TEST_REFERENCE_PACKAGE_FILE': str(smoke_package)}
+        # N-935-01: dieser Start bekommt die Testpaket-Angabe auf beiden Wegen, die
+        # frueher wirkten -- .env neben der EXE und Variable in Kleinschreibung.
+        # Beides muss wirkungslos bleiben (APP_NAME aus der .env darf nicht greifen).
+        (run_dir / '.env').write_text(
+            f'APP_NAME={ENV_FILE_PROBE_APP_NAME}\ntest_reference_package_file={smoke_package}\n', encoding='utf-8')
+        start_env = {**env, 'test_reference_package_file': str(smoke_package)}
         log_file = root / 'backend.log'
         base = f'http://127.0.0.1:{port}'
         log(f'Starte {exe_copy} auf {base} (cwd={run_dir})')

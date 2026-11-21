@@ -44,7 +44,7 @@ from services.document_archive import (
     content_hash_for,
     current_preference_binding,
 )
-from services.cost_disclosure import build_cost_disclosure
+from services.cost_disclosure import build_cost_disclosure, fee_agreement_missing
 from core import sustainability_preference as sustainability
 from core.reason_codes import DomainError, ReasonCode
 from services.portfolio_engine_payload import ESG_CUSTOMER_CLAIM_LABELS
@@ -209,6 +209,20 @@ def _mark_unpublished(ctx: PDFContext, db: Session, mandate: Mandate) -> PDFCont
         return dataclasses.replace(ctx, decision_ref=decision.footer_ref())
     ic = {k: v for k, v in (ctx.decision_ref or {}).items() if k == "ic_release_status"}
     return dataclasses.replace(ctx, watermark_mode=mode, decision_ref=ic or None)
+
+
+def _mark_fee_draft(ctx: PDFContext) -> PDFContext:
+    """EXE-P (H-187) / N-935-03/-04: ohne Gebuehrenvereinbarung ist ein Kunden-
+    PDF mit Kostenteil ein Entwurf (Wasserzeichen ``gebuehren``, nie archiviert).
+    Wie bei den uebrigen Entwuerfen keine Pruefnummer im Fuss, nur der
+    IC-Vermerk; ein Dokument ohne Allokation behaelt seinen Fuss ohne Entscheid.
+    Ein bereits gesetzter Entwurfsmodus hat Vorrang."""
+    if (getattr(ctx, "watermark_mode", "none") or "none") != "none":
+        return ctx
+    ref = ctx.decision_ref or {}
+    if not ref.get("allocation_free"):
+        ref = {k: v for k, v in ref.items() if k == "ic_release_status"} or None
+    return dataclasses.replace(ctx, watermark_mode="gebuehren", decision_ref=ref or None)
 
 
 def _attach_provisional_notice(ctx: PDFContext, db: Session, mandate: Mandate) -> PDFContext:
@@ -3214,6 +3228,10 @@ def get_depotcheck_pdf(
     except ValueError as exc:  # Gates, Bewertungsluecken, Integritaetsfehler
         db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    # N-935-03: Kostentabelle ohne Gebuehrenvereinbarung -> Entwurf mit Hinweis.
+    if fee_agreement_missing(data.cost_disclosure):
+        ctx = _mark_fee_draft(ctx)
+        data = dataclasses.replace(data, warnings=[FEE_NOT_AGREED_NOTE, *list(data.warnings or [])])
     pdf_bytes = ReportLabRenderer().render_depotcheck(ctx, data)
     # ROHER Name, bewusst: die Umschrift auf ASCII passiert an EINER
     # Stelle, in content_disposition(). Wuerde hier vorsanitisiert,
@@ -3224,8 +3242,24 @@ def get_depotcheck_pdf(
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": content_disposition(filename, disposition="inline")},
+        headers={"Content-Disposition": content_disposition(filename, disposition="inline"),
+                 **_draft_headers(ctx)},
     )
+
+
+# N-935-03: gleicher Hinweis in Depotcheck und Kundeninformation (kein Satz erfunden).
+FEE_NOT_AGREED_NOTE = (
+    "Dienstleistungsgebühr: nicht vereinbart. Die Kostenangaben enthalten keine "
+    "Dienstleistungsgebühr; das Dokument ist ein Entwurf."
+)
+
+
+def _draft_headers(ctx: PDFContext) -> dict[str, str]:
+    """N-935-04: Entwurfskennung im Header wie beim Kostenausweis."""
+    mode = getattr(ctx, "watermark_mode", "none") or "none"
+    if mode == "none":
+        return {}
+    return {"X-Ares-Draft": "gebuehren" if mode == "gebuehren" else "vorvertrag"}
 
 
 def _now_iso() -> str:
@@ -3453,6 +3487,7 @@ def get_advisory_report_pdf(
             require_channel_envelope(db, mandate, channel=CHANNEL_PDF, user=current_user, decision=decision)
     else:  # Entwurf: nur der IC-Vermerk (N-925-05), keine Pruefnummer
         decision_ref = {k: v for k, v in (decision_ref or {}).items() if k == "ic_release_status"} or None
+    render_meta: dict = {}
     try:
         pdf_bytes = render_advisory_report_pdf(
             db, mandate, current_user,
@@ -3460,6 +3495,7 @@ def get_advisory_report_pdf(
             watermark_mode=unpublished
             or ("vorvertrag" if kyc_release_is_draft(db, mandate) else "none"),
             decision_ref=decision_ref,
+            meta=render_meta,
         )
     except AdvisoryLogIntegrityFailed as exc:
         # KN9 / N-931-01: Protokolleintrag mit nicht passender Pruefsumme ->
@@ -3483,10 +3519,15 @@ def get_advisory_report_pdf(
         )
     safe_mandate = str(mandate.mandate_number or "mandate")[:40]
     filename = f"advisory-report-{safe_mandate}.pdf"
+    mode = render_meta.get("watermark_mode") or "none"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": content_disposition(filename, disposition="attachment")},
+        headers={
+            "Content-Disposition": content_disposition(filename, disposition="attachment"),
+            # N-935-04: Entwurfskennung wie beim Kostenausweis.
+            **({"X-Ares-Draft": "gebuehren" if mode == "gebuehren" else "vorvertrag"} if mode != "none" else {}),
+        },
     )
 
 
@@ -3576,8 +3617,8 @@ def get_cost_disclosure_pdf(
         if (getattr(ctx, "watermark_mode", "none") or "none") == "none":
             ctx = dataclasses.replace(ctx, watermark_mode="depotbank")
     # EXE-P (H-187): ohne Gebuehrenvereinbarung Entwurf (Wasserzeichen, nie archiviert).
-    if fee_agreement_missing(payload) and (getattr(ctx, "watermark_mode", "none") or "none") == "none":
-        ctx = dataclasses.replace(ctx, watermark_mode="gebuehren")
+    if fee_agreement_missing(payload):
+        ctx = _mark_fee_draft(ctx)
     data = CostDisclosurePDFData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,
         advisory_wealth_rappen=int(payload.get("advisory_wealth_rappen") or 0),
@@ -3700,7 +3741,7 @@ def _kundeninformation_provider_lines(profile: dict) -> tuple:
     return tuple(lines)
 
 
-def _kundeninformation_cost_parts(db: Session, mandate: Mandate, profile: dict) -> tuple[tuple, str, tuple]:
+def _kundeninformation_cost_parts(db: Session, mandate: Mandate, profile: dict) -> tuple[tuple, str, tuple, bool]:
     # G7-Grundregel: Mandatswaehrung (mandates.base_currency NOT NULL), kein fester CHF-Ersatz.
     currency = str(mandate.base_currency).upper()
     cost_lines: list[tuple[str, str]] = []
@@ -3721,6 +3762,13 @@ def _kundeninformation_cost_parts(db: Session, mandate: Mandate, profile: dict) 
                 f"{item.get('label') or 'Kosten'} ({item.get('frequency') or ''})".strip(),
                 f"{_ki_bps(item.get('rate_bps'))} · {_ki_money(item.get('amount_rappen'), currency)}",
             ))
+    fee_missing = fee_agreement_missing(payload) and payload.get("evidence_status") != "blocked"
+    if fee_missing:
+        # N-935-03: ohne Gebuehrenvereinbarung kein Total (es waere zu tief);
+        # das Dokument ist ein Entwurf (Router: Wasserzeichen, nie archiviert).
+        cost_lines.append(("Dienstleistungsgebühr", "nicht vereinbart"))
+        note = FEE_NOT_AGREED_NOTE + " Massgebend ist der Kostenausweis."
+    elif not payload.get("data_pending") and payload.get("evidence_status") != "blocked":
         totals = payload.get("totals") or {}
         cost_lines.append((
             "Total erstes Jahr",
@@ -3754,7 +3802,7 @@ def _kundeninformation_cost_parts(db: Session, mandate: Mandate, profile: dict) 
             f"Empfohlene Produkte mit Retrozession: {present}; ohne erfassten Satz: {unknown}. "
             "Sätze und Beträge je Produkt stehen im Kostenausweis."
         )
-    return tuple(cost_lines), note, tuple(retro)
+    return tuple(cost_lines), note, tuple(retro), fee_missing
 
 
 # N-890-11: Klartext fuer Mandate.investment_universe [Compliance gegenlesen].
@@ -3807,7 +3855,7 @@ def _kundeninformation_ties_and_offer(db: Session, mandate: Mandate, tenant_id: 
 
 def _build_kundeninformation_data(db: Session, mandate: Mandate, profile: dict) -> KundeninformationData:
     tenant_id = mandate_tenant_id(db, mandate)
-    cost_lines, cost_note, retro_lines = _kundeninformation_cost_parts(db, mandate, profile)
+    cost_lines, cost_note, retro_lines, fee_missing = _kundeninformation_cost_parts(db, mandate, profile)
     ties, offer = _kundeninformation_ties_and_offer(db, mandate, tenant_id)
     return KundeninformationData(
         template_version=CLIENT_INFORMATION_TEMPLATE_VERSION,
@@ -3824,6 +3872,7 @@ def _build_kundeninformation_data(db: Session, mandate: Mandate, profile: dict) 
         economic_ties=ties,
         market_offer_lines=offer,
         depot_bank=getattr(mandate, "depot_bank", None),
+        fee_agreement_missing=fee_missing,
     )
 
 
@@ -3907,6 +3956,16 @@ def get_kundeninformation_pdf(
         privacy_lines=privacy["lines"],
         depot_bank_inducement_lines=_depot_bank_inducement_lines(inducement),
     )
+    if data.fee_agreement_missing:
+        # N-935-03: ohne Gebuehrenvereinbarung Entwurf -- Wasserzeichen, nie archiviert.
+        ctx = _mark_fee_draft(ctx)
+        safe_mandate = str(mandate.mandate_number or "mandat")[:40]
+        return Response(
+            content=ReportLabRenderer().render_vertrag(ctx, data),
+            media_type="application/pdf",
+            headers={"Content-Disposition": content_disposition(f"kundeninformation-{safe_mandate}.pdf"),
+                     **_draft_headers(ctx)},
+        )
     # N-925R-02: Fussformat ist Teil des Archivschluessels -- Fassungen mit dem
     # frueheren Entscheid-Fuss (alte Pruefnummer) werden nicht wiedergegeben.
     content_hash = hashlib.sha256(

@@ -88,6 +88,9 @@ EXEC_EXCEPTIONS: dict[str, str] = {
         "CI/Release-Werkzeug (H-187): sys.executable mit festem -c-Code im Repo (Testeingaben), kein Produktlauf.",
     "scripts/packaging_release_checks.py::check_self_test_imports#1":
         "CI/Release-Werkzeug (H-180): startet die eben gebaute Backend-EXE mit --self-test-imports, kein Produktlauf.",
+    "scripts/packaging_release_checks.py::check_self_test_strategy#1":
+        "CI/Release-Werkzeug (H-187 N-935-01): startet die eben gebaute Backend-EXE mit --self-test-strategy "
+        "(eigener Prozess, temporaere DB, kein Server), kein Produktlauf.",
     "scripts/packaging_release_checks.py::run_shell_smoke#1":
         "CI/Release-Werkzeug (H-180): startet die eben gebaute Electron-Shell im isolierten Profil, kein Produktlauf.",
     "scripts/pytest_supervisor.py::run#1":

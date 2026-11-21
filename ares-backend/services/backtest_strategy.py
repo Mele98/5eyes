@@ -38,7 +38,9 @@ from sqlalchemy.orm import Session
 
 from datetime import date as Date
 
+from config import settings
 from core.reason_codes import DomainError, ReasonCode
+from core.risk_parameter_set import ReferenceDataPackageMissing
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
 from models.snapshots import AssetClassAnnualReturn, AssetClassFxHistory, AssetClassPriceHistory
@@ -100,11 +102,21 @@ def load_annual_returns_matrix(db: Session) -> dict[int, dict[str, int]]:
             continue
         by_year.setdefault(year, {})[bucket_en] = bps
     # Filter: nur vollständige Jahre (alle 5 Buckets vorhanden)
-    return {
+    complete = {
         y: m
         for y, m in by_year.items()
         if all(b in m for b in BUCKETS)
     }
+    # N-935-05 (H-187): in Produktion bzw. der gepackten EXE gibt es kein
+    # Start-Seeding der Jahresrenditen; ohne freigegebene Daten typisierte
+    # Ablehnung (REFERENCE_DATA_PACKAGE_MISSING, 409) statt eines leeren Backtests.
+    if not complete and settings.production_mode:
+        raise ReferenceDataPackageMissing(
+            "Es fehlen freigegebene historische Jahresrenditen (Backtest). Die installierte "
+            "Version legt keine Referenzdaten automatisch an; sie kommen nur aus einem "
+            "freigegebenen Paket."
+        )
+    return complete
 
 
 # ---------------------------------------------------------------------------

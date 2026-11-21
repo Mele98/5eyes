@@ -349,4 +349,10 @@ if __name__ == '__main__':
         import importlib  # dynamisch: kein Laufzeit-Import im Produktpfad (PyInstaller: hidden-import)
 
         sys.exit(importlib.import_module('packaging_selftest').main())
+    # N-935-01 (H-187 Fixrunde 1): Strategie-Selbsttest fuer den Packaging-Smoke;
+    # eigener Prozess mit temporaerer DB, kein Server, kein Kundendokument.
+    if '--self-test-strategy' in sys.argv[1:]:
+        import importlib  # dynamisch, wie oben (PyInstaller: hidden-import)
+
+        sys.exit(importlib.import_module('packaging_selftest_strategy').main())
     run()

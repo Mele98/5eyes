@@ -193,7 +193,7 @@ def test_start_smoke_renders_pdfs_and_rejects_font_fallback():
     assert source.index(call) < source.index("stop_process(proc, port, grace)")
 
 
-# --- N-926-01 (H-187): der Smoke rechnet einmal eine Strategie ---------------
+# --- N-935-01 (H-187 Fixrunde 1): der Server nimmt nie ein Testpaket an -------
 def _strategy_api(generate_body: dict, generate_status: int = 200):
     calls = []
 
@@ -206,35 +206,106 @@ def _strategy_api(generate_body: dict, generate_status: int = 200):
     return call, calls
 
 
-_GOOD_GENERATE = {"optimizer_constraints": [{"name": "c"}],
-                  "target_allocation": {"messages": [{"text": "Vorlagewerte – nicht IC-freigegeben"}]}}
+_REFUSED = {"detail": {"reason_code": "REFERENCE_DATA_PACKAGE_MISSING"}}
 
 
-def test_strategy_smoke_accepts_optimizer_result(monkeypatch):
+def test_strategy_smoke_requires_typed_refusal_of_the_server(monkeypatch):
     monkeypatch.setattr(smoke, "strategy_inputs", lambda: {"risk": {}, "esg": {}})
-    call, calls = _strategy_api(_GOOD_GENERATE)
+    call, calls = _strategy_api(_REFUSED, 409)
     smoke.run_strategy_smoke(call, "tok", "c1", "m1")
     assert calls[-1] == ("POST", "/mandates/m1/target-allocation/generate")
 
 
-@pytest.mark.parametrize("body,needle", [
-    (dict(_GOOD_GENERATE, reasoning=["Stochastic Optimizer-Modul nicht verfuegbar — House-Matrix-Default bleibt aktiv."]),
-     "Optimizer-Rueckfall"),
-    (dict(_GOOD_GENERATE, optimizer_constraints=[]), "Solver lief nicht"),
-    ({"optimizer_constraints": [{"name": "c"}]}, "IC-freigegeben"),
+@pytest.mark.parametrize("body,status", [
+    ({"optimizer_constraints": [{"name": "c"}]}, 200),  # Server rechnete mit einem Testpaket
+    ({"detail": "anderer Konflikt"}, 409),
 ])
-def test_strategy_smoke_fails_on_fallback_or_missing_marker(monkeypatch, body, needle):
+def test_strategy_smoke_fails_when_server_computes_or_refuses_untyped(monkeypatch, body, status):
     monkeypatch.setattr(smoke, "strategy_inputs", lambda: {"risk": {}, "esg": {}})
-    call, _ = _strategy_api(body)
+    call, _ = _strategy_api(body, status)
+    with pytest.raises(smoke.SmokeError, match="N-935-01"):
+        smoke.run_strategy_smoke(call, "tok", "c1", "m1")
+
+
+def test_start_smoke_runs_strategy_self_test_and_probes_env_file():
+    source = inspect.getsource(smoke.run_start_smoke)
+    assert "release_checks.check_self_test_strategy(" in source
+    assert "'TEST_REFERENCE_PACKAGE_FILE'" not in source, "der Server-Start bekommt kein Testpaket"
+    assert "(run_dir / '.env').write_text(" in source
+    assert "'test_reference_package_file': str(smoke_package)" in source
+    assert source.index("check_self_test_strategy(") < source.index("subprocess.Popen(")
+
+
+def _fake_strategy_run(monkeypatch, result: dict, returncode: int = 0, stderr: str = ""):
+    import subprocess
+
+    import packaging_release_checks as rc
+
+    class _Proc:
+        def __init__(self):
+            self.returncode = returncode
+            self.stdout = rc.STRATEGY_SELF_TEST_MARKER + json.dumps(result, ensure_ascii=False) + "\n"
+            self.stderr = stderr
+
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        return _Proc()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    return rc, seen
+
+
+_GOOD_SELF_TEST = {"ok": True, "frozen": True, "optimizer": "stochastic", "status": "converged", "constraints": 11,
+                   "ic_label": "Vorlagewerte – nicht IC-freigegeben", "ic_release_status": "UNRELEASED",
+                   "contract_documents": 0, "database": "SQLCipher, temporaer"}
+
+
+def _raise(msg):
+    raise smoke.SmokeError(msg)
+
+
+def test_strategy_self_test_check_accepts_optimizer_result(monkeypatch, tmp_path):
+    rc, seen = _fake_strategy_run(monkeypatch, _GOOD_SELF_TEST)
+    logs = []
+    rc.check_self_test_strategy(tmp_path / "ares-api.exe", {}, tmp_path / "pkg.json", smoke.IC_UNRELEASED_LABEL,
+                                smoke.OPTIMIZER_FALLBACK_MARKERS, _raise, logs.append)
+    assert seen["cmd"][1:] == ["--self-test-strategy", str(tmp_path / "pkg.json")]
+    assert logs and "Strategie-Selbsttest" in logs[0]
+
+
+@pytest.mark.parametrize("change,needle", [
+    ({"frozen": False}, "frozen=false"),
+    ({"ok": False}, "rot"),
+    ({"optimizer": "house_matrix"}, "stochastischer"),
+    ({"constraints": 0}, "stochastischer"),
+    # N-935-02: der volle Vermerk, nicht nur "IC-freigegeben".
+    ({"ic_label": "Vorlagewerte – IC-freigegeben"}, "Vermerk"),
+    ({"ic_label": None}, "Vermerk"),
+    ({"ic_release_status": "RELEASED"}, "Vermerk"),
+    ({"contract_documents": 1}, "Kundendokumente"),
+])
+def test_strategy_self_test_check_fails_on_findings(monkeypatch, tmp_path, change, needle):
+    rc, _ = _fake_strategy_run(monkeypatch, dict(_GOOD_SELF_TEST, **change))
     with pytest.raises(smoke.SmokeError, match=needle):
-        smoke.run_strategy_smoke(call, "tok", "c1", "m1")
+        rc.check_self_test_strategy(tmp_path / "x.exe", {}, tmp_path / "p.json", smoke.IC_UNRELEASED_LABEL,
+                                    smoke.OPTIMIZER_FALLBACK_MARKERS, _raise, lambda m: None)
 
 
-def test_strategy_smoke_fails_on_refused_generate(monkeypatch):
-    monkeypatch.setattr(smoke, "strategy_inputs", lambda: {"risk": {}, "esg": {}})
-    call, _ = _strategy_api({"detail": {"reason_code": "REFERENCE_DATA_PACKAGE_MISSING"}}, 409)
-    with pytest.raises(smoke.SmokeError, match="HTTP 409"):
-        smoke.run_strategy_smoke(call, "tok", "c1", "m1")
+def test_strategy_self_test_check_fails_on_logged_fallback(monkeypatch, tmp_path):
+    rc, _ = _fake_strategy_run(monkeypatch, _GOOD_SELF_TEST, stderr="WARNING Stochastic optimizer crashed")
+    with pytest.raises(smoke.SmokeError, match="Rueckfall"):
+        rc.check_self_test_strategy(tmp_path / "x.exe", {}, tmp_path / "p.json", smoke.IC_UNRELEASED_LABEL,
+                                    smoke.OPTIMIZER_FALLBACK_MARKERS, _raise, lambda m: None)
+
+
+def test_smoke_ic_label_matches_backend():
+    from core.risk_parameter_set import IC_UNRELEASED_LABEL
+    import packaging_selftest_strategy as st
+
+    assert smoke.IC_UNRELEASED_LABEL == IC_UNRELEASED_LABEL
+    assert st.OPTIMIZER_FALLBACK_MARKERS == smoke.OPTIMIZER_FALLBACK_MARKERS
 
 
 # --- C-853-01 (Codex 2026-11-05): Einbettung am Font-Stream, nicht am Namen ---

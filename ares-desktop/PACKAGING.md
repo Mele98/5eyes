@@ -19,8 +19,16 @@
   ohne Ablage startet die EXE mit klarem Fehler und oeffnet nie eine Klartext-DB.
 - Keine Hausannahmen zur Laufzeit, kein Muster-Fondskatalog, kein
   Gebuehren-Default. Rechnen erst mit freigegebenem Referenzpaket und IC-Freigabe.
-- `TEST_REFERENCE_PACKAGE_FILE` (Datei `scripts/fixtures/packaging_smoke_test_reference_package.json`)
-  laedt nur der Packaging-Smoke; die Shell reicht die Variable nie weiter.
+- Der Server nimmt nie ein Testpaket an (N-935-01). Den Optimizer im Artefakt
+  belegt `ares-api.exe --self-test-strategy <paket>` (eigener Prozess, temporaere
+  DB, kein Server, kein Kundendokument); das Paket
+  `scripts/fixtures/packaging_smoke_test_reference_package.json` laedt nur dieser
+  Selbsttest.
+- Die gepackte EXE und die installierte Shell lesen keine `.env`-Datei.
+  Konfiguration kommt nur aus der Umgebung, die die Shell setzt (Ports,
+  Ablageorte von KEK und Datenbankschluessel, Update-Kanal) und aus geerbten
+  Prozessvariablen (z. B. API-Schluessel von Marktdatenquellen). Die Shell
+  entfernt verbotene Variablen unabhaengig von der Schreibweise.
 
 ## Build-Pipeline (One-Liner)
 

@@ -609,6 +609,8 @@ TEMPLATE_TEXT_PINS = {
     "ARES-KI-FIDLEG-3": "f45160a1d75bd32203be2cacdcccc7cf449a136d21ebd68c18dcd2cae0c3b477",
     # H-179 D-1/R-1: Abschnitt Datenbearbeitung (Art. 19 DSG), Zuwendungen der Depotbank.
     "ARES-KI-FIDLEG-4": "54d223edb21fe7e6289d7f3f8c6a33f2affc7810ac0c8b76241f436ec666de36",
+    # H-187 Fixrunde 1 (N-935-03): ohne Gebuehrenvereinbarung kein Total, Entwurf.
+    "ARES-KI-FIDLEG-5": "02f840a31ce6bad1916d247a01ed55b24b74a97c09e82cb452aaef0d2a16f696",
 }
 
 

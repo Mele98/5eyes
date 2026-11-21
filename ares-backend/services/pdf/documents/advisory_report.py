@@ -108,6 +108,7 @@ def render_advisory_report_pdf(
     *,
     watermark_mode: str = "none",
     decision_ref: dict | None = None,
+    meta: dict | None = None,
 ) -> bytes | None:
     """PDF-Bytes des Advisory-Reports für ein Mandat, oder ``None`` falls das
     Dokument unter dem Publikations-Gate nicht client-ready ist.
@@ -163,9 +164,13 @@ def render_advisory_report_pdf(
     provisional_notice = _resolve_advisory_report_provisional_notice(db, mandate)
     if provisional_notice is not None:
         payload["provisional_notice"] = provisional_notice
-    # EXE-P (H-187): ohne Gebuehrenvereinbarung ist der Bericht (mit Kostenteil) ein Entwurf.
+    # EXE-P (H-187): ohne Gebuehrenvereinbarung ist der Bericht (mit Kostenteil) ein Entwurf;
+    # N-935-04: wie jeder Entwurf ohne Pruefnummer im Fuss (nur der IC-Vermerk).
     if (watermark_mode or "none") == "none" and fee_agreement_missing(payload.get("cost_disclosure")):
         watermark_mode = "gebuehren"
+        decision_ref = {k: v for k, v in (decision_ref or {}).items() if k == "ic_release_status"} or None
+    if meta is not None:  # N-935-04: der Router setzt daraus X-Ares-Draft
+        meta["watermark_mode"] = watermark_mode or "none"
     return render_advisory_report_pdf_from_payload(
         payload, watermark_mode=watermark_mode, decision_ref=decision_ref,
     )

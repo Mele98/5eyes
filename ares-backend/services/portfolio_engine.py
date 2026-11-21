@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session, selectinload
 
-from config import RunContext, settings, smoke_reference_package
+from config import RunContext, settings, strategy_self_test_package
 from core.chf_amount import normalize_chf_amount_text
 from core.holdings_rule import select_valuation_runs
 from core.evidence import SCHEME_V1_ASCII, canonical_json, evidence_hash
@@ -1852,7 +1852,7 @@ def _ensure_runtime_reference_data_ch(
     def _guard_seed(what: str) -> None:
         assert_runtime_reference_seed_allowed(
             seed_allowed=settings.runtime_reference_seed_allowed, production_mode=settings.production_mode,
-            package=smoke_reference_package(settings), defaults=defaults, building_blocks=building_blocks,
+            package=strategy_self_test_package(), defaults=defaults, building_blocks=building_blocks,
             cma_values=cma_values, what=what)
     policy_candidates = db.query(OptimizerPolicy).filter(
         OptimizerPolicy.is_current == 1
@@ -1866,7 +1866,7 @@ def _ensure_runtime_reference_data_ch(
     if not policy:
         if not seed:
             raise JurisdictionReferenceDataMissingError("Keine aktuelle OptimizerPolicy (Lesepfad seedet nicht).")
-        _guard_seed("OptimizerPolicy")  # EXE-P: nie in Produktion/gepackter EXE (ausser Smoke-Testpaket)
+        _guard_seed("OptimizerPolicy")  # EXE-P: nie in Produktion/gepackter EXE (ausser Strategie-Selbsttest)
         policy = OptimizerPolicy(
             id=new_uuid(),
             policy_name=DEFAULT_POLICY_NAME,
