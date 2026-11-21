@@ -17,6 +17,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND = REPO_ROOT / "ares-desktop" / "frontend"
@@ -102,7 +103,7 @@ def test_stale_answer_for_previous_mandate_is_ignored():
 
 
 def test_monolith_loads_module_and_refreshes_on_every_allocation_load():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     assert '<script src="./goal-analysis-integrity.js"></script>' in html
     load = html[html.index("async function loadCurrentAllocationResult(mid){"):]
     load = load[: load.index("\n}\n")]
@@ -115,7 +116,7 @@ def test_monolith_loads_module_and_refreshes_on_every_allocation_load():
 
 
 def test_goal_table_renderer_moved_not_duplicated_and_packaged():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     module = MODULE_PATH.read_text(encoding="utf-8")
     assert "function renderGoalAchievementSollIst(" not in html
     assert module.count("function renderGoalAchievementSollIst(") == 1

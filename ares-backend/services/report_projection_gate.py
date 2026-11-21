@@ -32,7 +32,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+import services.allocation_input_staleness as input_staleness
+from core.fx_freshness import freshness_cause
 
 STATUS_CURRENT = "current"
 STATUS_STALE = "stale"
@@ -197,9 +201,7 @@ def resolve_report_projection_gate(
         )
         inputs_stale = False
         if not stale:
-            from services.allocation_input_staleness import allocation_inputs_stale
-
-            inputs_stale = allocation_inputs_stale(
+            inputs_stale = input_staleness.allocation_inputs_stale(
                 db, mandate, allocation, assessment=assessment,
             )
             stale = inputs_stale
@@ -263,3 +265,84 @@ def resolve_current_allocation_projection_gate(
         )
     except Exception:  # noqa: BLE001 - Gate-Fehler = fail-closed
         return gate_error()
+
+
+# ── KN-B / E2E2-05: abgeleiteter Frische-Status der Publikation ──────────────
+#
+# Der Publikationsdatensatz bleibt append-only. Die Status-API leitet ab, ob
+# die publizierte Soll-Allokation noch FRESH ist: (1) Invalidierungen des
+# versiegelten Entscheids (Ereignisse bzw. Pull-Abweichungen) und (2) dieselbe
+# Input-Pruefung wie der Payload-Pfad (``StaleAllocationInputError``) -- dort
+# entstehen z. B. "Wechselkurs USD geaendert", die keine Envelope-Kante sind.
+
+FRESHNESS_FRESH = "FRESH"
+FRESHNESS_STALE = "STALE"
+FRESHNESS_UNKNOWN = "UNKNOWN"
+_STALE_CODE = "CCX_INPUT_STALE"
+_UNKNOWN_CODE = "CCX_FRESHNESS_UNKNOWN"
+_PUBLISHED = "PUBLISHED"
+_INVALID = "PUBLICATION_INVALID"
+
+
+def _event_kinds(db: Session, envelope_id: str | None) -> list[str]:
+    if not envelope_id:
+        return []
+    rows = db.execute(text(
+        "SELECT source_kind FROM advisory_invalidation_events WHERE envelope_id = :e "
+        "ORDER BY invalidation_sequence"
+    ), {"e": str(envelope_id)}).all()
+    return [str(row[0]) for row in rows if row[0]]
+
+
+def _add(causes: list[dict], cause: dict) -> None:
+    if all((item["kind"], item["text"]) != (cause["kind"], cause["text"]) for item in causes):
+        causes.append(cause)
+
+
+def publication_freshness(db: Session, mandate: Any, state: Any) -> dict[str, Any]:
+    """Frische der aktiven Publikation mit konkreter Ursache.
+
+    ``status``: ``FRESH`` | ``STALE`` | ``UNKNOWN`` | ``None`` (keine
+    Publikation bzw. ungueltig aus anderem Grund). ``causes``: Liste von
+    ``{kind, text, currencies}`` (z. B. ``fx_rate`` / "Wechselkurs USD
+    geändert"). Reine Lesung."""
+    status = getattr(state, "status", None)
+    code = getattr(state, "reason_code", None)
+    ta_id = getattr(state, "target_allocation_id", None)
+    if not ta_id or (status != _PUBLISHED and code not in (_STALE_CODE, _UNKNOWN_CODE)):
+        return {"status": None, "reason_code": None, "message": None, "causes": []}
+    causes: list[dict] = []
+    for kind in _event_kinds(db, getattr(state, "envelope_id", None)):
+        _add(causes, freshness_cause(kind))
+    for edge, _part in getattr(state, "drift", ()) or ():
+        _add(causes, freshness_cause(str(getattr(edge, "dependency_kind", "") or "")))
+    from models.allocation import TargetAllocation
+
+    ta = db.query(TargetAllocation).filter(TargetAllocation.id == str(ta_id)).first()
+    reason = input_staleness.allocation_inputs_stale_reason(db, mandate, ta) if ta is not None else None
+    if reason is not None:
+        _add(causes, freshness_cause(getattr(reason, "kind", "inputs"), getattr(reason, "currencies", ())))
+    if code == _UNKNOWN_CODE and not causes:
+        return {"status": FRESHNESS_UNKNOWN, "reason_code": _UNKNOWN_CODE, "causes": [],
+                "message": "Die Aktualität der publizierten Soll-Allokation ist nicht belegt. "
+                           "Bitte neu berechnen, finalisieren und publizieren."}
+    if not causes and status == _PUBLISHED:
+        return {"status": FRESHNESS_FRESH, "reason_code": None, "message": None, "causes": []}
+    return {
+        "status": FRESHNESS_STALE, "reason_code": _STALE_CODE, "causes": causes,
+        "message": "Die publizierte Soll-Allokation ist veraltet: "
+                   + ("; ".join(cause["text"] for cause in causes) or "Beratungsdaten geändert")
+                   + ". Bitte neu berechnen, finalisieren und publizieren.",
+    }
+
+
+def apply_publication_freshness(overview: dict[str, Any], freshness: dict[str, Any]) -> dict[str, Any]:
+    """Status-API: eine publizierte, aber nicht mehr FRESHe Allokation gilt als
+    ``PUBLICATION_INVALID`` (abgeleitet; der Datensatz bleibt unveraendert)."""
+    out = {**overview, "freshness": freshness}
+    if freshness.get("status") == FRESHNESS_STALE and out.get("publication_status") == _PUBLISHED:
+        out["publication_status"] = _INVALID
+        active = dict(out.get("active_publication") or {})
+        active.update(status=_INVALID, reason_code=_STALE_CODE)
+        out["active_publication"] = active
+    return out

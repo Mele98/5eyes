@@ -520,8 +520,21 @@ def test_api_audit_advisory_log_strategy_and_pdfs_share_one_reference(seeded):
         risk_signoff_state=view["state"], risk_signoff_id=view["signoff_id"],
         risk_signoff_hash=view["signoff_hash"], risk_signoff_lines=view["lines"],
     ))
+    # KN7 (H-181, CTO-Nachtrag Punkte 3/4): Kunden-PDFs (Risikoprofil,
+    # Beratungsprotokoll) zeigen dieselbe Referenz gekuerzt auf 8 Zeichen; die
+    # vollen Werte stehen in der Berater-/Audit-Fassung und unveraendert in
+    # View, Audit und Strategie-Meldung (oben).
     for texts in (risk_texts, proto_texts):
-        assert sid in texts and shash in texts and did in texts and dhash in texts
+        assert all(full[:8] in texts for full in (sid, shash, did, dhash))
+        assert not any(full in texts for full in (sid, shash, did, dhash))
+    from functools import partial
+
+    audit_texts = _render_texts(partial(build_risikoprofil_flowables, advisor_annex=True), RisikoprofilData(
+        risk_profile_label="Defensiv", risk_capacity_score=50, risk_tolerance_score=50,
+        signoff_state=view["state"], signoff_id=view["signoff_id"],
+        signoff_hash=view["signoff_hash"], signoff_lines=view["lines"],
+    ))
+    assert sid in audit_texts and shash in audit_texts and did in audit_texts and dhash in audit_texts
 
 
 def test_signature_required_is_visible_in_strategy_and_pdf_lines(seeded):

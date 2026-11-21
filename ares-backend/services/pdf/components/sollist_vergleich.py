@@ -17,7 +17,12 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
 from services.pdf.components.header import _esc
-from services.pdf.components.swiss_numbers import format_bps_as_pct, format_chf_rappen
+from services.pdf.components.swiss_numbers import (
+    format_bps_as_pct,
+    format_chf_rappen,
+    format_end_of_year,
+    format_number,
+)
 from services.pdf.styles import (
     COLOR_BORDER,
     COLOR_TABLE_HEADER_BG,
@@ -29,6 +34,18 @@ from services.pdf.styles import (
     FONT_SIZE_TABLE_HEADER,
     PAGE_SIZE,
     make_paragraph_styles,
+)
+
+
+# E2E2-03: Bei Vermoegensverzehr (mittlerer Verlauf unter null) ergibt die
+# zeitgewichtete Median-Rendite -100 %, der Drawdown -100 % und die Sharpe-Ratio
+# eine sinnlose Zahl. Statt dieser Werte steht ein Hinweis wie in der App.
+# Eine Quelle fuer alle Kunden-PDFs (KN3-B): core/depletion_display.py.
+from core.depletion_display import (  # noqa: E402,F401  (Re-Export fuer bestehende Aufrufer)
+    NOT_MEANINGFUL,
+    TOTAL_LOSS_BPS as _TOTAL_LOSS_BPS,
+    depleted,
+    not_meaningful_text,
 )
 
 
@@ -45,7 +62,7 @@ def _sharpe_ratio(cagr_bps: int | None, vol_bps: int | None, risk_free_bps: int)
 
 
 def _fmt_sharpe(value: float | None) -> str:
-    return "—" if value is None else f"{value:.2f}"
+    return "—" if value is None else format_number(value, decimals=2)
 
 
 def _fmt_chf_pair_row(label: str, soll_rappen: int | None, ist_rappen: int | None, currency: str) -> list:
@@ -71,21 +88,28 @@ def make_sollist_kennzahlen_table(
     current_volatility_1y_bps: int | None,
     risk_free_bps: int = 80,
     currency: str = "CHF",
+    end_year_label: object = None,
+    target_depletion_note: str | None = None,
+    current_depletion_note: str | None = None,
 ) -> list:
     """SOLL/IST-Kennzahlentabelle: Endwerte, Volatilitaet, Rendite, Sharpe.
 
     Leere Liste (kein Render) wenn weder SOLL- noch IST-Monte-Carlo-Werte
     vorliegen -- z.B. bevor 'Anlagestrategie berechnen' je gelaufen ist.
     """
-    has_any = any([
-        target_median_end_rappen, current_median_end_rappen,
-        target_cagr_bps, current_cagr_bps,
-    ])
+    # N-858-12: Eine gerechnete Rendite von 0 bps ist ein Wert, keine Luecke.
+    has_any = any([target_median_end_rappen, current_median_end_rappen]) or any(
+        value is not None for value in (target_cagr_bps, current_cagr_bps)
+    )
     if not has_any:
         return []
 
+    target_depleted = depleted(target_depletion_note, target_cagr_bps)
+    current_depleted = depleted(current_depletion_note, current_cagr_bps)
     sharpe_target = _sharpe_ratio(target_cagr_bps, target_volatility_1y_bps, risk_free_bps)
     sharpe_current = _sharpe_ratio(current_cagr_bps, current_volatility_1y_bps, risk_free_bps)
+    target_na = not_meaningful_text(target_depletion_note)
+    current_na = not_meaningful_text(current_depletion_note)
 
     header_style = make_paragraph_styles().get("small_muted") or make_paragraph_styles().get("body")
     rows = [[
@@ -93,36 +117,43 @@ def make_sollist_kennzahlen_table(
         Paragraph("<b>SOLL-Strategie</b>", header_style),
         Paragraph("<b>IST-Portfolio (heute)</b>", header_style),
     ]]
+    # H9 Nachtrag 3: Endjahr wie in der App ("Endwert Ende 2040 – ...").
+    end_text = format_end_of_year(end_year_label)
+    end_suffix = f" {end_text}" if end_text else ""
     rows.append(_fmt_chf_pair_row(
-        "Erwartetes Endvermögen (Median)",
+        f"Erwartetes Endvermögen{end_suffix} (Median)",
         target_median_end_rappen, current_median_end_rappen, currency,
     ))
     rows.append(_fmt_chf_pair_row(
-        "Endvermögen optimistisch (P90)",
+        f"Endvermögen{end_suffix} optimistisch (P90)",
         target_p90_end_rappen, current_p90_end_rappen, currency,
     ))
     rows.append(_fmt_chf_pair_row(
-        "Endvermögen pessimistisch (P10)",
+        f"Endvermögen{end_suffix} pessimistisch (P10)",
         target_p10_end_rappen, current_p10_end_rappen, currency,
     ))
     cell_style = make_paragraph_styles().get("small_muted") or make_paragraph_styles().get("body")
     rows.append([
         Paragraph(_esc("Rendite p.a. (Median)"), cell_style),
-        Paragraph(_esc(format_bps_as_pct(target_cagr_bps, decimals=2)), cell_style),
-        Paragraph(_esc(format_bps_as_pct(current_cagr_bps, decimals=2)), cell_style),
+        Paragraph(_esc(target_na if target_depleted else format_bps_as_pct(target_cagr_bps, decimals=2)),
+                  cell_style),
+        Paragraph(_esc(current_na if current_depleted else format_bps_as_pct(current_cagr_bps, decimals=2)),
+                  cell_style),
     ])
     rows.append([
-        Paragraph(_esc("Volatilität (1 Jahr)"), cell_style),
+        # Live-Test 2026-11 M8: in der Monte-Carlo-Simulation realisiert (nicht
+        # die Modell-Volatilitaet der Kennzahlen-Kachel).
+        Paragraph(_esc("Volatilität 1 Jahr (simuliert)"), cell_style),
         Paragraph(_esc(format_bps_as_pct(target_volatility_1y_bps, decimals=2)), cell_style),
         Paragraph(_esc(format_bps_as_pct(current_volatility_1y_bps, decimals=2)), cell_style),
     ])
     rows.append([
         Paragraph(
             f'<font color="#475569">Rendite/Risiko (Sharpe, risikofrei '
-            f'{risk_free_bps / 100:.1f}%)</font>', cell_style,
+            f'{format_bps_as_pct(risk_free_bps, decimals=1)})</font>', cell_style,
         ),
-        Paragraph(_esc(_fmt_sharpe(sharpe_target)), cell_style),
-        Paragraph(_esc(_fmt_sharpe(sharpe_current)), cell_style),
+        Paragraph(_esc(target_na if target_depleted else _fmt_sharpe(sharpe_target)), cell_style),
+        Paragraph(_esc(current_na if current_depleted else _fmt_sharpe(sharpe_current)), cell_style),
     ])
 
     page_width, _ = PAGE_SIZE
@@ -148,7 +179,16 @@ def make_sollist_kennzahlen_table(
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
     ]))
-    return [table]
+    if not (target_depleted or current_depleted):
+        return [table]
+    # E2E2-03: Endwerte unter null sind die Finanzierungsluecke (wie in der App).
+    notes = [f"{side}: {note}" for side, note in (("SOLL-Strategie", target_depletion_note),
+                                                  ("IST-Portfolio", current_depletion_note)) if note]
+    hint = ("; ".join(notes) + " (mittlerer Verlauf). " if notes else "") + (
+        "Werte unter null zeigen die Finanzierungslücke. Rendite, Drawdown und Sharpe-Ratio "
+        "sind bei aufgebrauchtem Vermögen nicht aussagekräftig."
+    )
+    return [table, Paragraph(f'<font color="#7c2d12">{_esc(hint)}</font>', cell_style)]
 
 
 def make_sollist_goal_comparison_table(

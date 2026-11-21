@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.exc import IntegrityError
+from core.db_integrity import raise_if_check_violation
 from sqlalchemy.orm import Session
 
 from database import get_db, new_uuid
@@ -28,7 +29,11 @@ from models.portfolio_handoff import (
 )
 from models.review import RecommendationRun
 from models.users import User
-from routers.auth import _extract_client_ip
+# CCX-P4: direkt aus services.auth (derselbe Helfer, den routers.auth nur
+# weiterreicht) -- Router importieren keine Router.
+from services.auth import extract_client_ip as _extract_client_ip
+# CCX-P4: nur eine publizierte, frische Soll-Allokation geht in den Handoff.
+from services.allocation_publication_gate import require_published_allocation
 from services.data_classification import enforce_data_classification
 from schemas.portfolio_handoff import (
     PortfolioHandoffCancel,
@@ -37,8 +42,14 @@ from schemas.portfolio_handoff import (
     PortfolioHandoffPreviewResponse,
     PortfolioHandoffResponse,
 )
-from services.audit import log
-from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor
+from services.audit import gate_block_audit, log, release_block_audit
+from core.reason_codes import ReasonCode
+from services.allocation_publication_gate import (
+    CHANNEL_HANDOFF as P5_CHANNEL_HANDOFF,
+    record_channel_publication,
+    require_channel_envelope,
+)
+from services.auth import get_current_user, get_mandate_for_user_or_404, require_advisor, set_tenant_context
 from services.portfolio_handoff import (
     HoldingsValuationIncompleteError,
     NoTradeListAvailableError,
@@ -48,7 +59,10 @@ from services.portfolio_handoff import (
 )
 from services.recommendation_release_gate import (
     CHANNEL_HANDOFF,
+    assert_client_onboarding_release_eligible,
+    assert_preference_release_ready,
     assert_recommendation_release_eligible,
+    assert_retrocession_release_eligible,
     assert_risk_signoff_release_eligible,
 )
 
@@ -90,6 +104,28 @@ def _get_handoff_or_404(mandate_id: str, handoff_id: str, db: Session, current_u
     if not handoff:
         raise HTTPException(status_code=404, detail="Weiterleitung nicht gefunden")
     return handoff
+
+
+def _assert_run_is_published(db: Session, mandate: Mandate, run: RecommendationRun, user: User,
+                             ip_address: str | None):
+    """CCX-P4: Handoff nur fuer die gueltig publizierte Soll-Allokation und
+    einen Lauf genau dieser Allokation (sonst CCX_ALLOCATION_NOT_PUBLISHABLE)."""
+    state = require_published_allocation(
+        db, mandate, channel=CHANNEL_HANDOFF, user=user, ip_address=ip_address,
+    )
+    if str(getattr(run, "target_allocation_id", "") or "") != str(state.target_allocation_id or ""):
+        raise HTTPException(status_code=409, detail={
+            "reason_code": "CCX_ALLOCATION_NOT_PUBLISHABLE",
+            "message": "Diese Empfehlung gehört nicht zur publizierten Soll-Allokation.",
+            "channel": CHANNEL_HANDOFF,
+        })
+    # CCX P5 (Vertrag §8): Handoff nur aus dem auslieferbaren Envelope -- FX
+    # jetzt frisch, Parametersatz und Zielkennzahl gebunden; sonst 409
+    # (CCX_HANDOFF_ENVELOPE_OUTDATED bzw. FX-Code) mit Ursache.
+    return require_channel_envelope(
+        db, mandate, channel=P5_CHANNEL_HANDOFF, user=user, ip_address=ip_address,
+        outdated_code=ReasonCode.CCX_HANDOFF_ENVELOPE_OUTDATED,
+    )
 
 
 def _atomically_close_handoff_or_409(
@@ -167,6 +203,9 @@ def preview_portfolio_handoff(
     Grund (z.B. fehlende Neugeld-Bestaetigung) ausweisen kann."""
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     run = _get_recommendation_run_or_404(mandate_id, run_id, db, current_user)
+    # CCX-P4: auch die Vorschau zeigt nur die Handelsliste einer publizierten,
+    # frischen Soll-Allokation (Reason-Code statt Entwurfsliste).
+    _assert_run_is_published(db, mandate, run, current_user, None)
     try:
         trades, total_value_rappen, holdings_basis = snapshot_handoff(
             db, mandate, run, current_user.id,
@@ -216,8 +255,8 @@ def create_portfolio_handoff(
         raise HTTPException(
             status_code=403,
             detail=(
-                "Weiterleitung an die Ausfuehrungsstelle ist nur fuer "
-                "Vermoegensverwaltungsmandate vorgesehen (keine Ausfuehrungs-"
+                "Weiterleitung an die Ausführungsstelle ist nur für "
+                "Vermögensverwaltungsmandate vorgesehen (keine Ausführungs-"
                 "befugnis bei Anlageberatung/Finanzplanung/Reporting only)."
             ),
         )
@@ -242,7 +281,45 @@ def create_portfolio_handoff(
     # Persistierung.
     assert_recommendation_release_eligible(
         db, mandate, channel=CHANNEL_HANDOFF, run=run,
+        audit=gate_block_audit(
+            db, user=current_user, mandate=mandate, ip_address=_extract_client_ip(request),
+            table_name="investment_preference_decisions", field_name="sustainability_floor_blocked",
+            set_tenant_context=set_tenant_context,
+        ),
     )
+    # E2a (Negativfall 4/6): veraltete/nicht lesbare Nachhaltigkeitspraeferenz
+    # sperrt die Weiterleitung (mit Audit-Eintrag).
+    assert_preference_release_ready(
+        db, mandate, channel=CHANNEL_HANDOFF,
+        audit=gate_block_audit(
+            db, user=current_user, mandate=mandate, ip_address=_extract_client_ip(request),
+            table_name="investment_preference_decisions", field_name="sustainability_preference_blocked",
+            set_tenant_context=set_tenant_context,
+        ),
+    )
+    # H7 N-884-04: auch ein bereits finaler Lauf ohne geklaerte Retrozession
+    # wird nicht weitergeleitet (fail-closed, Sperre im Audit-Log).
+    assert_retrocession_release_eligible(
+        db, mandate, channel=CHANNEL_HANDOFF, run=run,
+        on_block=release_block_audit(
+                db, user=current_user, ip_address=_extract_client_ip(request),
+                mandate_id=mandate.id, field_name="handoff_blocked",
+                set_tenant_context=set_tenant_context,
+            ),
+    )
+    # H8 N-890-12: auch Laeufe, die VOR dem Kundeninformations-/KYC-Gate final
+    # wurden, gehen erst nach erfuellter Pruefung an das Asset Management.
+    assert_client_onboarding_release_eligible(
+        db, mandate, channel=CHANNEL_HANDOFF,
+        on_block=release_block_audit(
+            db, user=current_user, ip_address=_extract_client_ip(request),
+            mandate_id=mandate.id, field_name="handoff_blocked",
+            set_tenant_context=set_tenant_context,
+        ),
+    )
+    # CCX-P4: nur die publizierte, frische Soll-Allokation (Approval-Binding,
+    # Envelope SEALED+FRESH) und genau ihr Lauf werden weitergeleitet.
+    p5_decision = _assert_run_is_published(db, mandate, run, current_user, _extract_client_ip(request))
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
     from services.portfolio_data_release_gate import assert_portfolio_data_release_eligible
 
@@ -306,11 +383,19 @@ def create_portfolio_handoff(
         ip_address=_extract_client_ip(request),
     )
     try:
+        db.flush()
+        # CCX P5: Kanalzeile HANDOFF (Payload = Hash der gespeicherten Handelsliste).
+        record_channel_publication(
+            db, p5_decision, mandate=mandate, channel=P5_CHANNEL_HANDOFF, artifact_id=str(handoff.id),
+            channel_payload_hash=str(snapshot_sha256), render_hash=None, user=current_user,
+        )
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         # Paralleler identischer Request hat zwischen Pruefung und Commit
         # gewonnen (partieller Unique-Index) -> dessen Ergebnis liefern.
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         existing = _open_handoff_with_business_key(db, mandate_id, business_key)
         if existing is None:
             raise
@@ -343,7 +428,7 @@ def _idempotent_replay_or_409(existing: PortfolioHandoff, body: PortfolioHandoff
         detail={
             "reason_code": "HANDOFF_ALREADY_OPEN",
             "message": (
-                "Fuer diese Handelsliste und diesen Empfaenger besteht bereits eine "
+                "Für diese Handelsliste und diesen Empfänger besteht bereits eine "
                 "offene Weiterleitung. Bitte diese abschliessen oder stornieren."
             ),
             "handoff_id": existing.id,
@@ -370,7 +455,7 @@ def mark_portfolio_handoff_executed(
     if body.executed_on.isoformat() < str(handoff.created_at or "")[:10]:
         raise HTTPException(
             status_code=422,
-            detail="Das Ausfuehrungsdatum liegt vor dem Anlegen der Weiterleitung.",
+            detail="Das Ausführungsdatum liegt vor dem Anlegen der Weiterleitung.",
         )
     now = _now()
     _atomically_close_handoff_or_409(db, handoff_id, mandate_id, updates={

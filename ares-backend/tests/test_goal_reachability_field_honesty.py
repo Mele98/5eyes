@@ -107,8 +107,12 @@ def test_no_frontend_or_report_consumer_reads_the_reachability_fields():
     frontends = sorted(REPO_ROOT.glob("ares-desktop/frontend"))
     assert len(frontends) == 1
     frontend = frontends[0]
-    sources = sorted(frontend.glob("*.html"))
-    sources += sorted((frontend / "reporting" / "src").rglob("*.ts*"))
+    # N-875-06: Monolith nicht roh per Glob lesen, sondern Bundle + Module
+    # (ares.html, ausgelagerte Teile, eigenstaendige Frontend-Module).
+    from tests.monolith_source import read_frontend_sources
+
+    frontend_text = read_frontend_sources()
+    sources = sorted((frontend / "reporting" / "src").rglob("*.ts*"))
     sources += sorted((BACKEND_ROOT / "services" / "pdf").rglob("*.py"))
     sources += sorted((BACKEND_ROOT / "routers").rglob("*.py"))
     readers = [
@@ -117,5 +121,7 @@ def test_no_frontend_or_report_consumer_reads_the_reachability_fields():
         if path.is_file() and any(name in path.read_text(encoding="utf-8", errors="ignore")
                                   for name in names)
     ]
+    if any(name in frontend_text for name in names):
+        readers.append("ares-desktop/frontend (ares.html + ausgelagerte Teile + Module)")
     assert len(sources) > 10
     assert readers == []
