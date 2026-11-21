@@ -284,6 +284,10 @@
    "get_current_user",
    "require_staff"
   ],
+  "GET /compliance/owner-content": [
+   "get_current_user",
+   "require_staff"
+  ],
   "GET /dashboard/active-triggers": [
    "get_current_user"
   ],
@@ -352,6 +356,10 @@
   ],
   "GET /mandates/{mandate_id}/conflicts": [
    "get_current_user"
+  ],
+  "GET /mandates/{mandate_id}/contract-layer": [
+   "get_current_user",
+   "require_staff"
   ],
   "GET /mandates/{mandate_id}/cost-disclosure/ex-ante": [
    "get_current_user"
@@ -872,6 +880,14 @@
    "get_current_user",
    "require_compliance_approver"
   ],
+  "POST /compliance/owner-content": [
+   "get_current_user",
+   "require_admin"
+  ],
+  "POST /compliance/owner-content/{row_id}/approve": [
+   "get_current_user",
+   "require_compliance_approver"
+  ],
   "POST /jurisdictions/{code}/cma/compute-candidate": [
    "get_current_user",
    "require_portfolio_management"
@@ -1000,6 +1016,10 @@
    "get_current_user",
    "require_advisor"
   ],
+  "POST /mandates/{mandate_id}/recommendations/{run_id}/advice-rationale": [
+   "get_current_user",
+   "require_advisor"
+  ],
   "POST /mandates/{mandate_id}/recommendations/{run_id}/eligibility-overrides": [
    "get_current_user",
    "require_advisor"
@@ -1057,6 +1077,10 @@
    "require_advisor"
   ],
   "POST /mandates/{mandate_id}/triggers/system-refresh": [
+   "get_current_user",
+   "require_advisor"
+  ],
+  "POST /mandates/{mandate_id}/w033-declarations": [
    "get_current_user",
    "require_advisor"
   ],

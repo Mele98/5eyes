@@ -285,3 +285,35 @@ def test_reviewer_decides_open_kyc_second_approval_in_browser(server):
     confs = httpx.get(base + f"/clients/{cid}/kyc-confirmations", headers=owner, timeout=30).json()
     assert confs[0]["approval"]["approved_by"] != me["id"]
     assert confs[0]["approval"]["note"].startswith("PEP-Abklaerung")
+
+
+def test_reviewer_approves_owner_content_in_browser_without_capture_form(server):
+    """H-179 N-927R-03: Freigabe-Ansicht der Pruefperson fuer Owner-Inhalte
+    (owner-content.js): sie sieht den Entwurf mit Pruefwert, gibt ihn frei und
+    sieht kein Erfassungsformular und keine Mandatspruefung."""
+    base, httpx = server
+    owner = _seed(base, httpx)
+    key = "kundeninformation.datenschutz.zwecke"
+    r = httpx.post(base + "/compliance/owner-content", headers=owner, timeout=30, json={
+        "content_key": key, "body_text": "TEST-H179 Zwecke (Testwert)", "source_reference": "TEST-H179"})
+    assert r.status_code == 201, r.text
+    row_id = r.json()["created_row_id"]
+    rev, secret = _activate_reviewer(base, httpx, _invite_api(base, httpx, owner))
+    sync_api = _playwright_sync_api()
+    with sync_api.sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            _login(page, base, "extern", PW2, secret)
+            page.wait_for_selector(f"#oc-reviewer-body tr[data-owner-key='{key}'][data-owner-status='nicht_freigegeben']")
+            assert page.locator("#oc-reviewer-body #btn-oc-create").count() == 0
+            assert page.locator("#oc-reviewer-body #btn-oc-bank").count() == 0
+            assert page.locator("#oc-reviewer-body #btn-oc-mandate").count() == 0
+            assert len(page.inner_text(f"#oc-hash-{row_id}").strip()) == 64
+            page.fill(f"#oc-ref-{row_id}", "TEST-H179 Freigabe externe Compliance")
+            page.check(f"#oc-ok-{row_id}")
+            # N-927S-03: echter Klick auf den sichtbaren Button statt evaluate.
+            page.click(f"#oc-reviewer-body #oc-approve-{row_id}")
+            page.wait_for_selector(f"#oc-reviewer-body tr[data-owner-key='{key}'][data-owner-status='freigegeben']")
+        finally:
+            browser.close()

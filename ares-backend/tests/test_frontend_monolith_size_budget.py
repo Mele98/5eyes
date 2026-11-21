@@ -187,8 +187,12 @@ Reserve ausserhalb der Strategie (N-917R4-02; Label = PDF, +46 B nach N858-5), H
 allocationReserveBreakdown aus ares.html umgezogen -> Monolith gesenkt auf 26418/1622457.
 kn4-ui.js 250/14025: Toleranzschranke direkt in aresPortfolioDisplayPositions (N-917R4-05,
 Korrektur der bestehenden Apportionierung, keine neue Funktion; Hinweis in kn5-ui.js).
+H-179 L2/L3 Vertragsschicht (2026-11-21): neuer Teil ``owner-content.js`` (Budget = Stand
+bei Einfuehrung, 298/18904; Fixrunde 1 N-927-01 Freigabe-Ansicht der Pruefperson: 324/20182); im Monolithen nur die Einbindung (+42 B, gleiche Zeile) und
+der Vorgabe-Ort «Zürich» der Vertragsmaske entfernt (Ort = Pflichtfeld): 1622472 B.
 P5b-CI-Fix (H-185, CTO-Entscheid): refreshStrategyData rechnet bei 409/anderen Ladefehlern
 nicht mehr still neu (nur bei 404) -> Monolith gesenkt auf 26417/1622445.
+Merge H-179 + P5b (ca5da413): Monolith aus dem Tree gemessen 26417/1622460.
 P5c (H-186, CTO-Entscheide N-930-01/-02): neuer Teil ``p5c-ui.js`` (Budget = Stand bei
 Einfuehrung, 27/1932): goalStatusView (Zielstatus nur aus M-3) und loadStrategyOnly (keine
 stille Neuberechnung). Im Monolithen entfallen goalSuccessAmpel, rvGoalProbBadge,
@@ -198,6 +202,8 @@ P5c Fixrunde 1 (H-186-Pruefung, CTO-Entscheide): Schalter Auto-Recompute (schedu
 AUTO_RECOMPUTE_ENABLED) aus ares.html entfernt -> Monolith gesenkt auf 26341/1618586;
 finalize-attestation.js gesenkt auf 24/1621 (doppelter Kommentar weg). p5c-ui.js 34/2382:
 neue Sperre finalizeLocked (N-933-04) im eigenen Teil statt im Monolithen.
+Merge r5/kern-integration (dedc2f24, L2/L3) in P5c Fixrunde 1: aus dem Tree gemessen
+26341/1618601 (unter beiden Elternstaenden 26417/1622460 bzw. 26341/1618586 + Script-Zeile owner-content.js).
 """
 from __future__ import annotations
 
@@ -208,7 +214,7 @@ MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
 MONOLITH_MAX_LINES = 26341
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1618586
+MONOLITH_MAX_BYTES = 1618601
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -224,6 +230,7 @@ EXTRACTED_PART_BUDGETS = {
     "goal-review-runtime.js": (1561, 83782),
     "client-compliance.js": (469, 29962),
     "kyc-review-policy.js": (427, 25832),
+    "owner-content.js": (324, 20182),
     "privacy-governance.js": (500, 35256),
     "sustainability-preferences.js": (517, 26065),
     "wealth-inflows.js": (282, 16491),

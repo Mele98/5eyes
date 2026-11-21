@@ -67,6 +67,7 @@ from schemas.review import (
 )
 from price_updater import summarize_price_quality
 from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, require_staff, same_person, assert_compliance_reviewer_ready, short_user_agent, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
+from services.recommendation_release_gate import assert_contract_layer_release_eligible  # H-179 L2/L3
 from services.audit import gate_block_audit, log, release_block_audit, restore_tenant_after_rollback
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
@@ -1943,6 +1944,18 @@ def sign_document(
     if str(doc.document_type or "") in CONTRACT_CONCLUSION_DOCUMENT_TYPES:
         assert_client_onboarding_release_eligible(
             db, mandate, channel=CHANNEL_SIGNATURE,
+            on_block=release_block_audit(
+                db, user=current_user, ip_address=_extract_client_ip(request),
+                mandate_id=mandate.id, field_name="signature_blocked",
+                set_tenant_context=set_tenant_context,
+            ),
+        )
+        # H-179 L2/L3: kein Vertragsabschluss ohne freigegebene Vertragsvorlage,
+        # Datenschutzabschnitt, Angabe zu Zuwendungen der Depotbank und W033-
+        # Bestaetigungen; beim Beratungsvertrag zusaetzlich Ort und aktuelle
+        # Vorlage (fail-closed, auditiert, VOR jeder Mutation).
+        assert_contract_layer_release_eligible(
+            db, mandate, channel=CHANNEL_SIGNATURE, document=doc,
             on_block=release_block_audit(
                 db, user=current_user, ip_address=_extract_client_ip(request),
                 mandate_id=mandate.id, field_name="signature_blocked",
@@ -4743,6 +4756,17 @@ def finalize_recommendation(
             set_tenant_context=set_tenant_context,
         ),
     )
+    # H-179 L2/L3: Finalisierung nur mit freigegebener Vertragsvorlage,
+    # Datenschutzabschnitt, Zuwendungsangabe der Depotbank, W033-Bestaetigungen
+    # und (Anlageberatung) dokumentierten Gruenden der Empfehlung (Art. 15 FIDLEG).
+    assert_contract_layer_release_eligible(
+        db, mandate, channel=CHANNEL_FINALIZATION, run_id=run_id, http_status=422,
+        on_block=release_block_audit(
+            db, user=current_user, ip_address=_extract_client_ip(request),
+            mandate_id=mandate.id, field_name="finalization_blocked",
+            set_tenant_context=set_tenant_context,
+        ),
+    )
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
     assert_portfolio_data_release_eligible(db, mandate, action="finalize")
     # E2a (Negativfall 4): veraltete Text-/Policy-Version der
@@ -6021,3 +6045,335 @@ def get_strategy_option_coverage(
     kann. Nicht erfuellbare Optionen tragen einen kurzen Grund."""
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     return strategy_option_coverage_for_mandate(db, mandate)
+
+
+# ---------------------------------------------------------------------------
+# H-179 L2/L3 Vertragsschicht: Owner-Inhalte mit Vier-Augen-Freigabe (Muster
+# KYC-Wiedervorlage oben), Gruende der Empfehlung (Art. 15 FIDLEG) und
+# W033-Kundenbestaetigungen. Ares belegt keinen Text und keinen Wert vor.
+# ---------------------------------------------------------------------------
+
+from models.review import AdviceRationale, W033ClientDeclaration  # noqa: E402
+from models.tenant import OWNER_CONTENT_GENESIS, OwnerContentApproval, OwnerContentVersion  # noqa: E402
+from schemas.review import (  # noqa: E402
+    AdviceRationaleCreate, OwnerContentApprove, OwnerContentCreate, W033DeclarationCreate,
+)
+from services import recommendation_release_gate as _gate  # noqa: E402
+
+
+def _oc_seal(record, column: str) -> str:
+    return row_seal({c.name: getattr(record, c.name) for c in record.__table__.columns}, column)
+
+
+def _oc_owner_tenant(current_user: User) -> str:
+    if not getattr(current_user, "tenant_id", None) and _effective_strict_tenant_isolation(settings):
+        raise HTTPException(status_code=403, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_TENANT_REQUIRED.value,
+            "message": "Im Mehrmandanten-Betrieb braucht der Admin eine eigene Firma.",
+        })
+    return _resolve_tenant_id_for_user(current_user)
+
+
+def _oc_row_dict(row) -> dict:
+    return {c.name: getattr(row, c.name) for c in row.__table__.columns}
+
+
+def _oc_resolution_view(resolution: dict, entry: _gate.OwnerCatalogEntry | None) -> dict:
+    version = resolution.get("version") or {}
+    draft = resolution.get("latest_draft") or {}
+    return {
+        "key": resolution["key"],
+        "group": entry.group if entry else None,
+        "label": entry.label if entry else resolution["key"],
+        "kind": entry.kind if entry else None,
+        "placeholder": entry.placeholder if entry else None,
+        "owner_input": entry.owner_input if entry else None,
+        "visible_in": entry.visible_in if entry else None,
+        "required": entry.required if entry else None,
+        "status": resolution["status"],
+        "effective_version": version.get("version"),
+        "effective_row_id": version.get("id"),
+        "effective_content_hash": version.get("content_hash"),
+        "effective_body_text": version.get("body_text"),
+        "effective_value_json": version.get("value_json"),
+        "approved_at": (resolution.get("approval") or {}).get("approved_at"),
+        "draft_row_id": draft.get("id"),
+        "draft_version": draft.get("version"),
+        "draft_content_hash": draft.get("content_hash"),
+        "draft_body_text": draft.get("body_text"),
+        "draft_value_json": draft.get("value_json"),
+        "draft_created_by": draft.get("created_by"),
+    }
+
+
+@router.get("/compliance/owner-content")
+def list_owner_content(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff),
+):
+    """Katalog der Owner-Inhalte der eigenen Firma mit Status (fehlt, Entwurf,
+    freigegeben, Kette ungültig), wirksamer Version und offenem Entwurf.
+    Zusätzlich die bereits erfassten Bank-Schlüssel (Zuwendungen der Depotbank)."""
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    items = [
+        _oc_resolution_view(_gate.resolve_owner_content(db, tenant_id, entry.key), entry)
+        for entry in _gate.owner_content_catalog()
+    ]
+    bank_keys = sorted({
+        str(row[0]) for row in db.query(OwnerContentVersion.content_key).filter(
+            OwnerContentVersion.tenant_id == tenant_id,
+            OwnerContentVersion.content_key.like(_gate.DEPOT_BANK_KEY_PREFIX + "%"),
+        ).all()
+    })
+    for key in bank_keys:
+        items.append(_oc_resolution_view(_gate.resolve_owner_content(db, tenant_id, key), _gate.owner_catalog_entry(key)))
+    return {
+        "tenant_id": tenant_id,
+        "catalog_version": _gate.OWNER_CATALOG_VERSION,
+        "contract_mandate_types": list(_gate.CONTRACT_MANDATE_TYPES),
+        "contract_clauses": [{"clause": c[0], "label": c[1], "placeholder": c[3]} for c in _gate.CONTRACT_CLAUSES],
+        "items": items,
+    }
+
+
+@router.post("/compliance/owner-content", status_code=201)
+def create_owner_content(
+    body: OwnerContentCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Neue Version eines Owner-Inhalts (Firmen-Admin). Wirksam erst nach der
+    Freigabe durch eine zweite Person (``/approve``)."""
+    tenant_id = _oc_owner_tenant(current_user)
+    key = body.content_key.strip()
+    entry = _gate.owner_catalog_entry(key)
+    if entry is None:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_KEY_UNKNOWN.value,
+            "message": "Unbekannter Schlüssel; erlaubt sind nur Schlüssel aus dem Katalog.",
+        })
+    try:
+        body_text, value_json = _gate.normalize_owner_payload(entry, body.body_text, body.value)
+    except _gate.OwnerContentInvalid as exc:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_VALUE_INVALID.value, "message": str(exc),
+        }) from exc
+    versions, _approvals = _gate.owner_content_chain(db, tenant_id, key)
+    version = max((int(v["version"]) for v in versions.values()), default=0) + 1
+    record = OwnerContentVersion(
+        id=new_uuid(), tenant_id=tenant_id, content_key=key, catalog_version=_gate.OWNER_CATALOG_VERSION,
+        version=version, body_text=body_text, value_json=value_json,
+        source_reference=body.source_reference.strip(), created_by=current_user.id, created_at=_now(),
+    )
+    record.content_hash = _oc_seal(record, "content_hash")
+    db.add(record)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise_if_check_violation(exc)
+        raise HTTPException(status_code=409, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_VERSION_CONFLICT.value,
+            "message": "Gleichzeitig wurde eine andere Version erfasst; bitte neu laden.",
+        }) from exc
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="owner_content_versions", record_id=record.id, action="CREATE",
+        field_name="owner_content_proposed",
+        new_value=f"{key} v{version}; hash {record.content_hash}",
+        ip_address=_extract_client_ip(request), tenant_id=tenant_id)
+    db.commit()
+    return _oc_resolution_view(_gate.resolve_owner_content(db, tenant_id, key), entry) | {"created_row_id": record.id}
+
+
+@router.post("/compliance/owner-content/{row_id}/approve")
+def approve_owner_content(
+    row_id: str,
+    body: OwnerContentApprove,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_compliance_approver),
+):
+    """Vier-Augen-Freigabe einer Version durch eine zweite Person mit dem
+    gesehenen Inhalts-Hash. Die Freigaben bilden je Schlüssel eine lineare
+    Kette; zwei gleichzeitige Freigaben auf denselben Stand scheitern (409)."""
+    tenant_id = _oc_owner_tenant(current_user)
+    record = db.query(OwnerContentVersion).filter(
+        OwnerContentVersion.id == row_id, OwnerContentVersion.tenant_id == tenant_id,
+    ).first()
+    if record is None:
+        raise HTTPException(status_code=404, detail="Version nicht gefunden")
+    if db.query(OwnerContentApproval).filter(OwnerContentApproval.content_row_id == record.id).first():
+        raise HTTPException(status_code=409, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_ALREADY_APPROVED.value,
+            "message": "Diese Version ist bereits freigegeben.",
+        })
+    if same_person(db, record.created_by, current_user.id):
+        raise HTTPException(status_code=403, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_SAME_PERSON.value,
+            "message": "Die Freigabe muss durch eine zweite Person erfolgen.",
+        })
+    assert_compliance_reviewer_ready(current_user)
+    if _oc_seal(record, "content_hash") != record.content_hash or body.content_hash != record.content_hash:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_HASH_MISMATCH.value,
+            "message": "Der bestätigte Prüfwert stimmt nicht mit der Version überein.",
+        })
+    head = _gate.resolve_owner_content(db, tenant_id, record.content_key)
+    if head["status"] == _gate.OWNER_STATUS_INVALID:
+        # Nur ein STRUKTURFEHLER (Siegel, Luecke, Versionsfolge) sperrt; ein
+        # entwertetes Glied (Mangel der Person, N-927R-01) nicht.
+        raise HTTPException(status_code=409, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_CHAIN_INVALID.value,
+            "message": "Die bestehende Freigabekette ist ungültig; bitte Compliance informieren.",
+        })
+    chain_head = head.get("chain_head")
+    if chain_head is not None:
+        if int(record.version) <= int(chain_head["version"]["version"]):
+            raise HTTPException(status_code=409, detail={
+                "reason_code": ReasonCode.OWNER_CONTENT_VERSION_STALE.value,
+                "message": "Es ist bereits eine neuere Version freigegeben; bitte eine neue Version erfassen.",
+            })
+        # Die neue Freigabe haengt am letzten Glied an -- auch an einem
+        # entwerteten (z.B. widerrufenes Konto); so bleibt die Kette lueckenlos.
+        predecessor = str(chain_head["approval"]["id"])
+    else:
+        predecessor = OWNER_CONTENT_GENESIS
+    approval_id = new_uuid()
+    approval = OwnerContentApproval(
+        id=approval_id, tenant_id=tenant_id, content_key=record.content_key, content_row_id=record.id,
+        predecessor_approval_id=predecessor, approved_by=current_user.id, approved_at=_now(),
+        approval_reference=body.approval_reference.strip(), content_hash=record.content_hash,
+        # N-927R-01: Rolle und Bereitschaft beim Freigeben gesiegelt einfrieren
+        # (assert_compliance_reviewer_ready oben hat die Bereitschaft geprueft).
+        approver_role=str(current_user.role), approver_ready=1,
+        # N-927S-01: Postfach-Identitaeten von Freigeber und Erfasser ebenso
+        # (eine spaetere E-Mail-Aenderung aendert dann nichts mehr).
+        **_gate.owner_approval_frozen_identities(db, approval_id, current_user.id, record.created_by),
+    )
+    approval.approval_hash = _oc_seal(approval, "approval_hash")
+    db.add(approval)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise_if_check_violation(exc)
+        raise HTTPException(status_code=409, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_VERSION_CONFLICT.value,
+            "message": "Gleichzeitig wurde eine andere Freigabe erteilt; bitte neu laden.",
+        }) from exc
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="owner_content_approvals", record_id=approval.id, action="CREATE",
+        field_name="owner_content_approved",
+        new_value=f"{record.content_key} v{record.version}; hash {record.content_hash}",
+        ip_address=_extract_client_ip(request), tenant_id=tenant_id)
+    db.commit()
+    return _oc_resolution_view(_gate.resolve_owner_content(db, tenant_id, record.content_key),
+                            _gate.owner_catalog_entry(record.content_key))
+
+
+@router.get("/mandates/{mandate_id}/contract-layer")
+def get_contract_layer_status(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff),
+):
+    """Status der Vertragsschicht des Mandats (gleiche Quelle wie das Gate)."""
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    return _gate.contract_layer_status(db, mandate)
+
+
+@router.post("/mandates/{mandate_id}/recommendations/{run_id}/advice-rationale", status_code=201)
+def create_advice_rationale(
+    mandate_id: str,
+    run_id: str,
+    body: AdviceRationaleCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """P-1 (Art. 15 FIDLEG): Kundenbedürfnisse und Gründe der Empfehlung zu
+    einem Empfehlungslauf erfassen. Korrektur = neue Zeile."""
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    run = db.query(RecommendationRun).filter(
+        RecommendationRun.id == run_id, RecommendationRun.mandate_id == mandate.id,
+    ).first()
+    if run is None:
+        raise HTTPException(status_code=404, detail={
+            "reason_code": ReasonCode.ADVICE_RATIONALE_RUN_UNKNOWN.value,
+            "message": "Empfehlung nicht gefunden.",
+        })
+    record = AdviceRationale(
+        id=new_uuid(), tenant_id=mandate.tenant_id, mandate_id=mandate.id, client_id=mandate.client_id,
+        recommendation_run_id=run.id, client_needs=body.client_needs.strip(),
+        recommendation_reasons=body.recommendation_reasons.strip(),
+        recorded_by=current_user.id, recorded_at=_now(),
+    )
+    record.rationale_hash = _oc_seal(record, "rationale_hash")
+    db.add(record)
+    db.flush()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="advice_rationales", record_id=record.id, action="CREATE",
+        field_name="advice_rationale_recorded", new_value=f"run {run.id}; hash {record.rationale_hash}",
+        mandate_id=mandate.id, ip_address=_extract_client_ip(request))
+    db.commit()
+    return {k: v for k, v in _oc_row_dict(record).items()}
+
+
+@router.post("/mandates/{mandate_id}/w033-declarations", status_code=201)
+def create_w033_declaration(
+    mandate_id: str,
+    body: W033DeclarationCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """E-1: Bestätigung des Kunden zum aktuellen Risikoprofil erfassen, gebunden
+    an die gezeigte, freigegebene Textversion der Firma (Prüfwert)."""
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    state = _gate.w033_state(db, mandate)
+    if state["assessment_id"] is None:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": ReasonCode.W033_DECLARATION_NOT_APPLICABLE.value,
+            "message": "Für das Mandat liegt kein aktuelles Risikoprofil vor.",
+        })
+    binding = state["declaration_binding"] if body.declaration_kind == "angaben_wahr_meldepflicht" \
+        else state["advice_binding"]
+    if binding is None:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": ReasonCode.W033_TEXT_UNAPPROVED.value,
+            "message": "Der Text der Firma ist nicht freigegeben.",
+        })
+    if body.content_hash != binding["content_hash"]:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_HASH_MISMATCH.value,
+            "message": "Der bestätigte Prüfwert passt nicht zur freigegebenen Textversion.",
+        })
+    if body.declaration_kind == "horizont_abraten" and not state["advice_required"]:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": ReasonCode.W033_DECLARATION_NOT_APPLICABLE.value,
+            "message": "Der Anlagehorizont liegt nicht unter dem Mindesthorizont der Firma.",
+        })
+    record = W033ClientDeclaration(
+        id=new_uuid(), tenant_id=mandate.tenant_id, mandate_id=mandate.id, client_id=mandate.client_id,
+        risk_assessment_id=state["assessment_id"], declaration_kind=body.declaration_kind,
+        content_key=binding["key"], content_row_id=binding["content_row_id"],
+        content_hash=binding["content_hash"], horizon_years=state["horizon_years"],
+        min_horizon_years=state["min_horizon_years"], capture_channel=body.capture_channel,
+        confirmed_at=body.confirmed_at, recorded_by=current_user.id, recorded_at=_now(),
+    )
+    record.declaration_hash = _oc_seal(record, "declaration_hash")
+    db.add(record)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise_if_check_violation(exc)
+        raise
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="w033_client_declarations", record_id=record.id, action="CREATE",
+        field_name="w033_declaration_recorded",
+        new_value=f"{body.declaration_kind}; assessment {state['assessment_id']}; hash {record.declaration_hash}",
+        mandate_id=mandate.id, ip_address=_extract_client_ip(request))
+    db.commit()
+    return _oc_row_dict(record)

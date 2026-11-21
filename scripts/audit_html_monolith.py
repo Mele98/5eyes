@@ -54,6 +54,10 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     # durch eine zweite Person, Ansicht der Rolle compliance_reviewer);
     # adminUpdateNewUserRoleHint umgezogen.
     ("kyc-review-policy.js", "js"),
+    # H-179 L2/L3: Vertragsschicht -- Owner-Inhalte (Vertragsklauseln,
+    # Datenschutzabschnitt, W033, Zuwendungen der Depotbank) mit Vier-Augen-
+    # Freigabe; Mandatspruefung mit Gruenden der Empfehlung und W033-Bestaetigung.
+    ("owner-content.js", "js"),
     # H10 (DSG-Technikaudit 2026-11-11): Datenschutz-Governance (Verzeichnis,
     # Owner-Angaben, Betroffenenanfragen, Vorfaelle, Egress) +
     # renderAuditLogPagination (umgezogen, Monolith-Budget).

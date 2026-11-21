@@ -19,6 +19,28 @@
         "title": "AbortRequest",
         "type": "object"
       },
+      "AdviceRationaleCreate": {
+        "properties": {
+          "client_needs": {
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Client Needs",
+            "type": "string"
+          },
+          "recommendation_reasons": {
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Recommendation Reasons",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_needs",
+          "recommendation_reasons"
+        ],
+        "title": "AdviceRationaleCreate",
+        "type": "object"
+      },
       "AdviserRegistrationCreate": {
         "properties": {
           "notes": {
@@ -16489,6 +16511,73 @@
         "title": "OptimizerRunResponse",
         "type": "object"
       },
+      "OwnerContentApprove": {
+        "properties": {
+          "approval_reference": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Approval Reference",
+            "type": "string"
+          },
+          "content_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content_hash",
+          "approval_reference"
+        ],
+        "title": "OwnerContentApprove",
+        "type": "object"
+      },
+      "OwnerContentCreate": {
+        "description": "Neue Version eines Owner-Inhalts. Text (``body_text``) oder typisierter\nWert (``value``) je nach Katalogart; der Server vergibt die Version.",
+        "properties": {
+          "body_text": {
+            "anyOf": [
+              {
+                "maxLength": 20000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body Text"
+          },
+          "content_key": {
+            "maxLength": 200,
+            "minLength": 3,
+            "title": "Content Key",
+            "type": "string"
+          },
+          "source_reference": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Source Reference",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "content_key",
+          "source_reference"
+        ],
+        "title": "OwnerContentCreate",
+        "type": "object"
+      },
       "OwnerValueUpdate": {
         "properties": {
           "value": {
@@ -29583,6 +29672,48 @@
         "title": "VersionApproval",
         "type": "object"
       },
+      "W033DeclarationCreate": {
+        "properties": {
+          "capture_channel": {
+            "enum": [
+              "persoenlich_papier",
+              "vor_ort",
+              "kundenportal"
+            ],
+            "title": "Capture Channel",
+            "type": "string"
+          },
+          "confirmed_at": {
+            "maxLength": 40,
+            "minLength": 10,
+            "title": "Confirmed At",
+            "type": "string"
+          },
+          "content_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "declaration_kind": {
+            "enum": [
+              "angaben_wahr_meldepflicht",
+              "horizont_abraten"
+            ],
+            "title": "Declaration Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "declaration_kind",
+          "capture_channel",
+          "confirmed_at",
+          "content_hash"
+        ],
+        "title": "W033DeclarationCreate",
+        "type": "object"
+      },
       "WealthInflowCreate": {
         "properties": {
           "amount_rappen": {
@@ -37951,6 +38082,130 @@
         ]
       }
     },
+    "/compliance/owner-content": {
+      "get": {
+        "description": "Katalog der Owner-Inhalte der eigenen Firma mit Status (fehlt, Entwurf,\nfreigegeben, Kette ungültig), wirksamer Version und offenem Entwurf.\nZusätzlich die bereits erfassten Bank-Schlüssel (Zuwendungen der Depotbank).",
+        "operationId": "list_owner_content_compliance_owner_content_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Owner Content",
+        "tags": [
+          "Review & Dokumente"
+        ]
+      },
+      "post": {
+        "description": "Neue Version eines Owner-Inhalts (Firmen-Admin). Wirksam erst nach der\nFreigabe durch eine zweite Person (``/approve``).",
+        "operationId": "create_owner_content_compliance_owner_content_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnerContentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Owner Content",
+        "tags": [
+          "Review & Dokumente"
+        ]
+      }
+    },
+    "/compliance/owner-content/{row_id}/approve": {
+      "post": {
+        "description": "Vier-Augen-Freigabe einer Version durch eine zweite Person mit dem\ngesehenen Inhalts-Hash. Die Freigaben bilden je Schlüssel eine lineare\nKette; zwei gleichzeitige Freigaben auf denselben Stand scheitern (409).",
+        "operationId": "approve_owner_content_compliance_owner_content__row_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "row_id",
+            "required": true,
+            "schema": {
+              "title": "Row Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnerContentApprove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Owner Content",
+        "tags": [
+          "Review & Dokumente"
+        ]
+      }
+    },
     "/dashboard/active-triggers": {
       "get": {
         "operationId": "active_triggers_dashboard_active_triggers_get",
@@ -40103,6 +40358,52 @@
           }
         ],
         "summary": "Mitigate Conflict",
+        "tags": [
+          "Review & Dokumente"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/contract-layer": {
+      "get": {
+        "description": "Status der Vertragsschicht des Mandats (gleiche Quelle wie das Gate).",
+        "operationId": "get_contract_layer_status_mandates__mandate_id__contract_layer_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Contract Layer Status",
         "tags": [
           "Review & Dokumente"
         ]
@@ -42567,6 +42868,71 @@
         "summary": "Generate Recommendation Run Endpoint",
         "tags": [
           "Empfehlungen"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/recommendations/{run_id}/advice-rationale": {
+      "post": {
+        "description": "P-1 (Art. 15 FIDLEG): Kundenbedürfnisse und Gründe der Empfehlung zu\neinem Empfehlungslauf erfassen. Korrektur = neue Zeile.",
+        "operationId": "create_advice_rationale_mandates__mandate_id__recommendations__run_id__advice_rationale_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdviceRationaleCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Advice Rationale",
+        "tags": [
+          "Review & Dokumente"
         ]
       }
     },
@@ -45738,6 +46104,62 @@
           }
         ],
         "summary": "Resolve Trigger",
+        "tags": [
+          "Review & Dokumente"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/w033-declarations": {
+      "post": {
+        "description": "E-1: Bestätigung des Kunden zum aktuellen Risikoprofil erfassen, gebunden\nan die gezeigte, freigegebene Textversion der Firma (Prüfwert).",
+        "operationId": "create_w033_declaration_mandates__mandate_id__w033_declarations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/W033DeclarationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create W033 Declaration",
         "tags": [
           "Review & Dokumente"
         ]

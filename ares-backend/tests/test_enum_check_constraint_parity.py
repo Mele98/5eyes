@@ -71,6 +71,8 @@ WRITE_SUFFIX = re.compile(r"(Create|Update|Patch|Upsert|Base|In|Request|Body)$")
 
 # Schreib-Schemas, deren Name nicht dem ORM-Klassennamen folgt.
 EXPLICIT_TARGETS: dict[str, str] = {
+    # H-179 E-1: W033-Kundenbestaetigung.
+    "schemas.review.W033DeclarationCreate": "w033_client_declarations",
     "schemas.profiling.KnowledgeCreate": "client_knowledge",
     "schemas.review.ConflictDisclosureCreate": "conflict_of_interest_disclosures",
     "schemas.review.ReviewTriggerFrequencyUpdate": "review_triggers",

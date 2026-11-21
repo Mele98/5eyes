@@ -67,6 +67,36 @@ def build_protokoll_flowables(ctx: PDFContext, data) -> list:
         ))
         flowables.append(Spacer(1, 3 * mm))
 
+    # H-179 P-1 (Art. 15 FIDLEG): feste Abschnitte der Anlageberatung. Die
+    # Gruende formuliert der Berater; fehlen sie, steht das offen da (die
+    # Finalisierung ist dann gesperrt, services/recommendation_release_gate.py).
+    if getattr(data, "advice_sections_required", False):
+        _not_recorded = "Nicht erfasst."
+        for title, value in (
+            ("Bedürfnisse des Kunden", getattr(data, "client_needs", None)),
+            ("Gründe der Empfehlung", getattr(data, "recommendation_reasons", None)),
+        ):
+            flowables.append(_section_title(title))
+            flowables.append(Paragraph(
+                f'<font name="{FONT_DEFAULT}" size="{FONT_SIZE_BODY}" color="#334155">'
+                f'{_esc(str(value).strip() if value else _not_recorded)}</font>',
+                styles["body"],
+            ))
+            flowables.append(Spacer(1, 2 * mm))
+        for title, lines in (
+            ("Abgegebene Warnhinweise", tuple(getattr(data, "warnings_given", ()) or ()) or ("Keine erfasst.",)),
+            ("Abgegebene Informationen", tuple(getattr(data, "information_given", ()) or ())),
+        ):
+            if not lines:
+                continue
+            flowables.append(_section_title(title))
+            for line in lines:
+                flowables.append(Paragraph(
+                    f'<font name="{FONT_DEFAULT}" size="{FONT_SIZE_BODY}">• {_esc(str(line))}</font>',
+                    styles["body"],
+                ))
+            flowables.append(Spacer(1, 3 * mm))
+
     entries = list(getattr(data, "entries", []) or [])
     flowables.append(_section_title("Dokumentierte Entscheide"))
     if entries:

@@ -8831,7 +8831,7 @@ function protokolliereEreignis(){
         <textarea class="fi" rows="2" style="resize:vertical;min-height:50px" placeholder="Optional: Sondervereinbarungen, Abweichungen, individuelle Hinweise..."></textarea>
       </div></div>
       <div class="frow">
-        <div class="fg"><label class="fl">Ort der Unterzeichnung</label><input class="fi" value="Zürich"></div>
+        <div class="fg"><label class="fl">Ort der Unterzeichnung</label><input class="fi"></div>
         <div class="fg"><label class="fl">Datum</label><input class="fi" type="date" value="2025-09-14"></div>
       </div>
     </div>
@@ -16576,7 +16576,7 @@ function resetAdvisoryLogModal(){
     if(!getInputValue('contract-intro'))setInputValue('contract-intro','Auf Grundlage der gemeinsamen Analyse der persönlichen und finanziellen Situation sowie der Anlageziele wurde folgende individuelle Anlagestrategie vereinbart.');
     if(!getInputValue('contract-disclaimer'))setInputValue('contract-disclaimer','Diese Empfehlung basiert auf den zum Zeitpunkt der Beratung bekannten Informationen und stellt keine Garantie künftiger Wertentwicklungen dar. Die Umsetzung erfolgt eigenverantwortlich durch den Kunden.');
     if(getInputValue('contract-special')==='')setInputValue('contract-special',fullName?'Mandat für '+fullName+'.':'');
-    setInputValue('contract-place',getInputValue('contract-place')||'Zürich');
+    setInputValue('contract-place',getInputValue('contract-place'));
     setInputValue('contract-date',new Date().toISOString().slice(0,10));
     var err=document.getElementById('contract-error');
     if(err){err.style.display='none';err.textContent='';}
@@ -26336,6 +26336,6 @@ function openStammdatenModal(){
 </div>
 <!-- ─────────────────────────────────────────────────────────── -->
 
-<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./allocation-publication.js"></script><script src="./finalize-attestation.js"></script><script src="./fx-rates-editor.js"></script><script src="./advisor-guidance.js"></script><script src="./mandate-view.js"></script><script src="./kn3-ui.js"></script><script src="./kn4-ui.js"></script><script src="./kn5-ui.js"></script><script src="./p5c-ui.js"></script><script src="./sustainability-preferences.js"></script>
+<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./owner-content.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./allocation-publication.js"></script><script src="./finalize-attestation.js"></script><script src="./fx-rates-editor.js"></script><script src="./advisor-guidance.js"></script><script src="./mandate-view.js"></script><script src="./kn3-ui.js"></script><script src="./kn4-ui.js"></script><script src="./kn5-ui.js"></script><script src="./p5c-ui.js"></script><script src="./sustainability-preferences.js"></script>
 </body>
 </html>

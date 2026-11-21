@@ -321,6 +321,11 @@ _COMPLIANCE_REVIEWER_ALLOWED: tuple[tuple[str, str], ...] = (
     # Entscheid (freigeben/ablehnen) -- sonst kein Kunden-/Mandatszugriff.
     ("GET", r"/compliance/kyc-approvals"),
     ("POST", r"/compliance/kyc-approvals/[^/]+/decision"),
+    # H-179 N-927-01: Owner-Inhalte der Firma (Vertragsklauseln, DSG-Abschnitt,
+    # W033, Depotbank-Angaben; keine Kundendaten) lesen und als zweite Person
+    # freigeben -- Erfassen (POST /compliance/owner-content) bleibt gesperrt.
+    ("GET", r"/compliance/owner-content"),
+    ("POST", r"/compliance/owner-content/[^/]+/approve"),
 )
 
 

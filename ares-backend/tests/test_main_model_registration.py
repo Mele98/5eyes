@@ -75,10 +75,14 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # CCX-P5 Kanal-Envelope (2026-11-21): eine neue Tabelle
 # (advisory_channel_publications), 113 Tabellen, keine bestehende Tabelle
 # umbenannt/entfernt.
+# H-179 L2/L3 (2026-11-21): vier neue Tabellen (owner_content_versions,
+# owner_content_approvals, advice_rationales, w033_client_declarations),
+# keine bestehende Tabelle umbenannt/entfernt.
 # P5b (N-925-08): gleiche 113 Tabellen; nur die topologische Reihenfolge
 # verschiebt sich durch den neuen FK advisory_channel_publications.mandate_id
 # -> mandates. Aus dem Tree neu berechnet.
-GOLDEN_SORTED_TABLES_SHA256 = "d744651af0743ee170e565b6fe45bdff4a42593ff8578c8560f4d11f1ac8a2f9"
+# Merge H-179 + P5b: 117 Tabellen, aus dem Tree neu berechnet.
+GOLDEN_SORTED_TABLES_SHA256 = "8646fc0d669e2430cdd34b3e48475143e7b2eae7102c036e4a3597e27b6ce0e9"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -207,6 +211,10 @@ GOLDEN_SORTED_TABLES_SHA256 = "d744651af0743ee170e565b6fe45bdff4a42593ff8578c856
 # AdvisoryEnvelopeFreshnessResponse (E2E2-05).
 # KN5 (2026-11-20, N-917R4-02): AllocationBucketResponse liefert comparison_basis,
 # current_strategy_amount_rappen und reserve_*_rappen (Reserve ausserhalb der Strategie).
+# H-179 L2/L3 (2026-11-21): neue Pfade /compliance/owner-content (GET/POST,
+# /{row_id}/approve), /mandates/{id}/contract-layer, .../advice-rationale,
+# .../w033-declarations und Schemas OwnerContentCreate/OwnerContentApprove/
+# AdviceRationaleCreate/W033DeclarationCreate; kein bestehender Pfad geaendert.
 # P5b (N-925-04): nur additiv -- TargetAllocationResponse.decision_envelope/
 # risk_parameter_set, AllocationPublicationOverviewResponse.decision_envelope,
 # Schemas DecisionEnvelopeReference/ChannelPublicationReference; kein Pfad und
@@ -214,7 +222,10 @@ GOLDEN_SORTED_TABLES_SHA256 = "d744651af0743ee170e565b6fe45bdff4a42593ff8578c856
 # P5c (N-930-01): nur additiv -- GoalAnalysisResponse.status_label/status_tone/
 # status_color/status_bg (M-3-Anzeige, optional); kein Pfad und kein bestehendes
 # Feld geaendert (Feld-Diff api/openapi.json: 44 hinzugefuegte Zeilen, export_openapi.py).
-GOLDEN_OPENAPI_SHA256 = "e83c862d2ca22576f13cc1d01de0989684216fdacdcbcd8f3c57500f7fbf675d"
+# Merge H-179 + P5b: beide additiv, aus dem Tree neu berechnet.
+# Merge r5/kern-integration (dedc2f24, L2/L3) in P5c: beide additiv, aus dem Tree
+# neu berechnet (api/openapi.json unveraendert gegen export_openapi.py).
+GOLDEN_OPENAPI_SHA256 = "075ead88dcc412905c4a3d38c764f294b37aab5c04165d54f3980ce80f73b609"
 
 _PROBE = """
 import hashlib, json

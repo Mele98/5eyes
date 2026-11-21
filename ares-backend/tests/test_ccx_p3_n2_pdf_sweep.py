@@ -57,10 +57,13 @@ def _legal_profile(session_factory, mandate_id):
     (Voraussetzung der Kundeninformation, nicht Gegenstand dieses Tests)."""
     from models.mandates import Mandate
     from services.recommendation_release_gate import mandate_tenant_id
-    from tests.client_onboarding_fixture import ensure_test_legal_profile
+    from tests.client_onboarding_fixture import ensure_test_legal_profile, satisfy_contract_layer
 
     with session_factory() as db:
-        ensure_test_legal_profile(db, mandate_tenant_id(db, db.get(Mandate, mandate_id)))
+        mandate = db.get(Mandate, mandate_id)
+        ensure_test_legal_profile(db, mandate_tenant_id(db, mandate))
+        # H-179: Datenschutzabschnitt/Depotbank-Angabe der Kundeninformation (Testwerte).
+        satisfy_contract_layer(db, mandate)
         db.commit()
 
 

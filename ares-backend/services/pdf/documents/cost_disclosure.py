@@ -15,7 +15,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Mapping
 
 from reportlab.lib.units import mm
-from reportlab.platypus import PageBreak
+from xml.sax.saxutils import escape as _esc
+
+from reportlab.platypus import PageBreak, Paragraph, Spacer
 
 from jurisdictions.documents import default_documents
 from services.pdf.components.kostenausweis import build_kostenausweis_flowables
@@ -68,6 +70,14 @@ def build_cost_disclosure_flowables(
         styles,
         compact=True,
     ))
+    # H-179 R-1: Zuwendungen der Depotbank an den Finanzdienstleister
+    # (strukturierte, freigegebene Angabe der Firma; sachliche Wiedergabe).
+    inducement_lines = tuple(getattr(data, "depot_bank_inducement_lines", ()) or ())
+    if inducement_lines:
+        flowables.append(Spacer(1, 3 * mm))
+        flowables.append(Paragraph("Zuwendungen der Depotbank", styles["kicker"]))
+        for line in inducement_lines:
+            flowables.append(Paragraph(_esc(line), styles["body"]))
 
     return flowables
 

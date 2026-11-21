@@ -2,12 +2,12 @@
  "protokoll": {
   "page_text": [
    {
-    "chars": 907,
-    "sha256": "83256c68b4a3fa916c8cd0d0ffa149d9dceb662d43bd4d31618757621bb47571"
+    "chars": 819,
+    "sha256": "73d0e0f4b1b49a24e940d3d87a22c48b796178e3e4b14aec685d249e18b118a2"
    },
    {
-    "chars": 510,
-    "sha256": "39319716ad11662a9f4060bf04266dca76b6cfcf10d8aea0b8ef9427d94ebb5e"
+    "chars": 767,
+    "sha256": "c77c05847cb38abaee5a1e48be8269c74db333cbfb177f8923f8a8c4423aedc7"
    }
   ],
   "pages": 2
@@ -28,8 +28,8 @@
  "vertrag": {
   "page_text": [
    {
-    "chars": 921,
-    "sha256": "af4355b9f859feb7a5fb2724ff0ecdd24aa5c7102a019dd0137ea4f063e31958"
+    "chars": 927,
+    "sha256": "5236193b53c61e7ffd7f9f31fda0328c0675f7e942031e209ec74c9d5f8e9068"
    },
    {
     "chars": 475,

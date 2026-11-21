@@ -282,10 +282,18 @@ class VertragData:
     praeambel: str = ""
     haftungsklausel: str = ""
     sondervereinbarungen: str | None = None
-    ort_unterzeichnung: str = "Zürich"
+    # H-179 V-1: Ort ist Pflichtfeld ohne Vorgabewert (frueher "Zürich").
+    ort_unterzeichnung: str = ""
     vereinbarungs_datum: str = ""
     mandate_number: str | None = None
     advisory_wealth_rappen: int | None = None
+    # H-179 V-1: Klauseln der Vertragsvorlage (Bezeichnung, freigegebener Text
+    # oder None = Text der Firma ausstehend) -- nur beim Beratungsvertrag.
+    contract_clauses: tuple = ()
+    contract_catalog_version: str | None = None
+    contract_template_hash: str | None = None
+    # N-927-07: Herkunft (ContractDocument-ID des Quelldokuments), Archivnachweis.
+    source_document_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -317,6 +325,10 @@ class KundeninformationData:
     market_offer_lines: tuple = ()
     depot_bank: str | None = None
     document_kind: str = "kundeninformation"
+    # H-179 D-1 (Art. 19 DSG): (Bezeichnung, freigegebener Text der Firma).
+    privacy_lines: tuple = ()
+    # H-179 R-1: Zuwendungen der Depotbank (sachliche Wiedergabe der Angabe).
+    depot_bank_inducement_lines: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -414,6 +426,15 @@ class ProtokollData:
     sustainability_lines: tuple = ()
     sustainability_notes: tuple = ()
 
+    # H-179 P-1 (Art. 15 FIDLEG): Abschnitte der Anlageberatung. ``None`` beim
+    # Mandatstyp ohne Pflicht; sonst (Bezeichnung, Text) bzw. Hinweiszeilen.
+    advice_sections_required: bool = False
+    client_needs: str | None = None
+    recommendation_reasons: str | None = None
+    rationale_recorded_at: str | None = None
+    warnings_given: tuple = ()
+    information_given: tuple = ()
+
 
 @dataclass(frozen=True)
 class CostDisclosurePDFData:
@@ -427,6 +448,8 @@ class CostDisclosurePDFData:
     mandate_number: str | None = None
     advisory_wealth_rappen: int = 0
     payload: Mapping[str, object] = field(default_factory=dict)
+    # H-179 R-1: Zuwendungen der Depotbank (nur bei freigegebener, gueltiger Angabe).
+    depot_bank_inducement_lines: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -531,6 +554,9 @@ class RisikoprofilData:
     # RISK-CAPACITY-PLAUSIBILITY-001: neutraler Berater-Satz, wenn die
     # Fragebogen-Angaben den erfassten Finanzdaten widersprechen.
     capacity_plausibility_note: str = ""
+    # H-179 E-1 (W033): (Titel, freigegebener Text der Firma) -- Erklaerung
+    # "Angaben wahr / Meldepflicht", Abraten bei kurzem Horizont, Ausschuettung.
+    w033_lines: tuple = ()
 
 
 @dataclass(frozen=True)

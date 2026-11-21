@@ -47,6 +47,7 @@
       "frontend/goal-review-runtime.js",
       "frontend/client-compliance.js",
       "frontend/kyc-review-policy.js",
+      "frontend/owner-content.js",
       "frontend/privacy-governance.js",
       "frontend/sustainability-preferences.js",
       "frontend/wealth-inflows.js",
