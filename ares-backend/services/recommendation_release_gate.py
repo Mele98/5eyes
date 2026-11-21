@@ -2565,39 +2565,68 @@ def owner_content_chain(db: Session, tenant_id: str, key: str) -> tuple[dict[str
 
 
 def owner_content_approver_valid(db: Session, approval: dict, version: dict, tenant_id: str) -> bool:
-    """N-927-02: die zweite Person beim LESEN nachgerechnet (nicht nur bei der
-    API-Freigabe), gleiche Regel wie die KYC-Zweitfreigabe
-    (``kyc_second_person_valid``): Freigaberolle, nicht der Erfasser (ID oder
-    Postfach-Identitaet inkl. ``+alias``), kein als kompromittiert widerrufenes
-    Konto ab dem Widerruf, externe Compliance-Person nur mit selbst aktiviertem
-    Konto und eigener 2FA. Zusaetzlich: Freigeber gehoert zur Firma des Inhalts
-    (NULL = Standard-Mandant). Eine spaetere Deaktivierung entwertet eine vorher
-    gueltig erteilte Freigabe nicht (wie bei KYC)."""
-    if not kyc_second_person_valid(
-        db, approval.get("approved_by"), version.get("created_by"), decided_at=approval.get("approved_at"),
-    ):
+    """N-927-02 / N-927R-01: die zweite Person beim LESEN nachgerechnet --
+    Mangel der PERSON macht nur dieses Glied unwirksam (kein Kettenbruch).
+
+    Rolle und Bereitschaft gelten so, wie sie beim Freigeben gesiegelt in der
+    Freigabezeile eingefroren wurden (``approver_role``/``approver_ready``,
+    Muster ``frozen_ready`` der KYC-Zweitfreigabe, N-897-13); ein spaeterer
+    Rollenwechsel oder eine Deaktivierung entwertet eine gueltig erteilte
+    Freigabe nicht. Nur fuer Altzeilen ohne eingefrorenen Stand gilt der
+    heutige. Aktuell geprueft werden: nicht der Erfasser (ID oder Postfach-
+    Identitaet inkl. ``+alias``), dieselbe Firma (NULL = Standard-Mandant) und
+    ein auditierter Widerruf wegen Kompromittierung ab dessen Zeitpunkt."""
+    approver_id = str(approval.get("approved_by") or "")
+    creator_id = str(version.get("created_by") or "")
+    if not approver_id or approver_id == creator_id:
         return False
-    row = db.execute(
-        _sql_text("SELECT tenant_id FROM users WHERE id = :uid"), {"uid": str(approval.get("approved_by"))},
-    ).first()
-    approver_tenant = (str(row[0]) if row is not None and row[0] else _DEFAULT_TENANT_ID)
-    return row is not None and approver_tenant == str(tenant_id)
+    rows = {
+        str(r["id"]): r for r in db.execute(
+            _sql_text(
+                "SELECT id, role, email, tenant_id, invited_at, activated_at, credentials_set_by, "
+                "totp_enabled, totp_set_by, compromised_since FROM users WHERE id IN (:a, :b)"
+            ),
+            {"a": approver_id, "b": creator_id},
+        ).mappings().all()
+    }
+    approver = rows.get(approver_id)
+    if approver is None:
+        return False
+    role = str(approval.get("approver_role") or approver["role"] or "")
+    if role not in KYC_APPROVER_ROLES:
+        return False
+    approved_at = str(approval.get("approved_at") or "")
+    if approver["compromised_since"] and approved_at >= str(approver["compromised_since"]):
+        return False
+    if role == "compliance_reviewer":
+        frozen = approval.get("approver_ready")
+        ready = bool(int(frozen)) if frozen is not None else kyc_reviewer_account_ready(approver)
+        if not ready:
+            return False
+    creator = rows.get(creator_id)
+    a_mail = _email_identity(approver["email"])
+    if a_mail and creator is not None and a_mail == _email_identity(creator["email"]):
+        return False
+    approver_tenant = str(approver["tenant_id"]) if approver["tenant_id"] else _DEFAULT_TENANT_ID
+    return approver_tenant == str(tenant_id)
 
 
 def resolve_owner_content(db: Session, tenant_id: Optional[str], key: str) -> dict:
     """Wirksame Version eines Schluessels fuer eine Firma.
 
-    ``status``: freigegeben | nicht_freigegeben (nur Entwuerfe) | fehlt |
-    kette_ungueltig (Siegel- oder Kettenbruch -> nie wirksam)."""
-    result: dict[str, Any] = {"key": key, "status": OWNER_STATUS_MISSING, "version": None, "approval": None}
+    ``status``: freigegeben | nicht_freigegeben (kein gueltiges Glied) | fehlt |
+    kette_ungueltig (Fehler der STRUKTUR: Siegel, Luecke, doppelter Vorgaenger,
+    fremde/abweichende Version, Versionsfolge -> nie wirksam, keine Freigabe).
+    N-927R-01: ein Mangel der PERSON (Rolle, Firma, Postfach-Identitaet,
+    Kompromittierung, Bereitschaft) macht nur dieses Glied unwirksam; wirksam
+    ist das letzte gueltige Glied. ``chain_head`` = letztes Glied (auch ein
+    entwertetes) -- daran haengt die naechste Freigabe an (Kette lueckenlos)."""
+    result: dict[str, Any] = {"key": key, "status": OWNER_STATUS_MISSING, "version": None, "approval": None,
+                              "chain_head": None, "invalid_approvals": 0}
     if not tenant_id:
         return result
     versions, approvals = owner_content_chain(db, tenant_id, key)
     if not versions:
-        return result
-    if not approvals:
-        result["status"] = OWNER_STATUS_UNAPPROVED
-        result["latest_draft"] = max(versions.values(), key=lambda v: int(v["version"]))
         return result
     by_predecessor: dict[str, dict] = {}
     for approval in approvals:
@@ -2606,6 +2635,7 @@ def resolve_owner_content(db: Session, tenant_id: Optional[str], key: str) -> di
             result["status"] = OWNER_STATUS_INVALID
             return result
         by_predecessor[pred] = approval
+    effective = None
     head = None
     cursor = OWNER_CONTENT_GENESIS_MARKER
     seen = 0
@@ -2618,19 +2648,26 @@ def resolve_owner_content(db: Session, tenant_id: Optional[str], key: str) -> di
             or row_seal(approval, "approval_hash") != approval["approval_hash"]
             or row_seal(version, "content_hash") != version["content_hash"]
             or approval["content_hash"] != version["content_hash"]
-            or not owner_content_approver_valid(db, approval, version, tenant_id)
             or int(version["version"]) <= last_version
         ):
             result["status"] = OWNER_STATUS_INVALID
             return result
         last_version = int(version["version"])
         head = (version, approval)
+        if owner_content_approver_valid(db, approval, version, tenant_id):
+            effective = (version, approval)
+        else:
+            result["invalid_approvals"] += 1
         cursor = str(approval["id"])
         seen += 1
-    if seen != len(approvals) or head is None:
+    if seen != len(approvals):
         result["status"] = OWNER_STATUS_INVALID
         return result
-    result.update(status=OWNER_STATUS_APPROVED, version=head[0], approval=head[1])
+    result["chain_head"] = {"approval": head[1], "version": head[0]} if head else None
+    if effective is not None:
+        result.update(status=OWNER_STATUS_APPROVED, version=effective[0], approval=effective[1])
+    else:
+        result["status"] = OWNER_STATUS_UNAPPROVED
     newer = [v for v in versions.values() if int(v["version"]) > last_version]
     if newer:
         result["latest_draft"] = max(newer, key=lambda v: int(v["version"]))

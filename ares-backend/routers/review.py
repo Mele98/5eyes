@@ -6216,23 +6216,31 @@ def approve_owner_content(
         })
     head = _gate.resolve_owner_content(db, tenant_id, record.content_key)
     if head["status"] == _gate.OWNER_STATUS_INVALID:
+        # Nur ein STRUKTURFEHLER (Siegel, Luecke, Versionsfolge) sperrt; ein
+        # entwertetes Glied (Mangel der Person, N-927R-01) nicht.
         raise HTTPException(status_code=409, detail={
             "reason_code": ReasonCode.OWNER_CONTENT_CHAIN_INVALID.value,
             "message": "Die bestehende Freigabekette ist ungültig; bitte Compliance informieren.",
         })
-    if head["status"] == _gate.OWNER_STATUS_APPROVED:
-        if int(record.version) <= int(head["version"]["version"]):
+    chain_head = head.get("chain_head")
+    if chain_head is not None:
+        if int(record.version) <= int(chain_head["version"]["version"]):
             raise HTTPException(status_code=409, detail={
                 "reason_code": ReasonCode.OWNER_CONTENT_VERSION_STALE.value,
                 "message": "Es ist bereits eine neuere Version freigegeben; bitte eine neue Version erfassen.",
             })
-        predecessor = str(head["approval"]["id"])
+        # Die neue Freigabe haengt am letzten Glied an -- auch an einem
+        # entwerteten (z.B. widerrufenes Konto); so bleibt die Kette lueckenlos.
+        predecessor = str(chain_head["approval"]["id"])
     else:
         predecessor = OWNER_CONTENT_GENESIS
     approval = OwnerContentApproval(
         id=new_uuid(), tenant_id=tenant_id, content_key=record.content_key, content_row_id=record.id,
         predecessor_approval_id=predecessor, approved_by=current_user.id, approved_at=_now(),
         approval_reference=body.approval_reference.strip(), content_hash=record.content_hash,
+        # N-927R-01: Rolle und Bereitschaft beim Freigeben gesiegelt einfrieren
+        # (assert_compliance_reviewer_ready oben hat die Bereitschaft geprueft).
+        approver_role=str(current_user.role), approver_ready=1,
     )
     approval.approval_hash = _oc_seal(approval, "approval_hash")
     db.add(approval)

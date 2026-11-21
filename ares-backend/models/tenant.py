@@ -396,6 +396,11 @@ class OwnerContentApproval(Base):
     approval_reference = Column(String, nullable=False)
     content_hash = Column(String, nullable=False)
     approval_hash = Column(String, nullable=False)
+    # N-927R-01 (Alembic e5a9c3d7b1f4): Rolle und Bereitschaft des Freigebers zum
+    # Freigabezeitpunkt, im Siegel eingefroren (NULL = Altzeile, dann gilt der
+    # heutige Stand; Muster KycReviewPolicyActivation.approver_ready).
+    approver_role = Column(String)
+    approver_ready = Column(Integer)
 
 
 for _model in (OwnerContentVersion, OwnerContentApproval,):

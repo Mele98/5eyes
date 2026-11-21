@@ -317,7 +317,7 @@ def _test_owner_approver(db, actor_id: str, tenant_id: str) -> str:
     if db.query(User).filter(User.id == approver_id).first() is None:
         db.add(User(
             id=approver_id, username=approver_id, password_hash="x",
-            full_name=f"{TEST_CONTRACT_MARKER} Zweitfreigabe (Testwert)", role="admin", is_active=0,
+            full_name=f"{TEST_CONTRACT_MARKER} Zweitfreigabe (Testwert)", role="admin", is_active=1,
             tenant_id=None if tenant_id == "main" else tenant_id, created_at=_PAST, updated_at=_PAST,
         ))
         db.flush()
@@ -346,12 +346,15 @@ def ensure_test_owner_content(
     db.add(version)
     db.flush()
     if approve:
+        approver_id = _test_owner_approver(db, actor_id, tenant_id)
         approval = OwnerContentApproval(
             id=new_uuid(), tenant_id=tenant_id, content_key=key, content_row_id=version.id,
-            predecessor_approval_id=(head["approval"]["id"] if head["status"] == oc.OWNER_STATUS_APPROVED
+            predecessor_approval_id=(head["chain_head"]["approval"]["id"] if head.get("chain_head")
                                      else OWNER_CONTENT_GENESIS),
-            approved_by=_test_owner_approver(db, actor_id, tenant_id), approved_at=_PAST,
+            approved_by=approver_id, approved_at=_PAST,
             approval_reference=f"{TEST_CONTRACT_MARKER} Testfreigabe", content_hash=version.content_hash,
+            # N-927R-01: Stand des Freigebers eingefroren wie in der API.
+            approver_role=str(db.query(User).filter(User.id == approver_id).one().role), approver_ready=1,
         )
         approval.approval_hash = _seal(approval, "approval_hash")
         db.add(approval)

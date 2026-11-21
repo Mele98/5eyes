@@ -610,14 +610,14 @@ def test_approver_of_another_firm_is_never_effective_but_same_firm_is(sf):
     with sf() as db:
         db.add(Tenant(id="t-fremd", display_name="Fremd", slug="t-fremd", created_at=NOW, updated_at=NOW))
         _user(db, "adm-fremd", tenant="t-fremd")
-        assert _direct_approval(db, oc.PRIVACY_KEY_PREFIX + "zwecke", "adm-fremd") == oc.OWNER_STATUS_INVALID
+        assert _direct_approval(db, oc.PRIVACY_KEY_PREFIX + "zwecke", "adm-fremd") == oc.OWNER_STATUS_UNAPPROVED
         # Gegenprobe: Admin derselben Firma.
         assert _direct_approval(db, oc.PRIVACY_KEY_PREFIX + "rechte", "adm-2") == oc.OWNER_STATUS_APPROVED
 
 
 def test_approver_without_approver_role_is_never_effective(sf):
     with sf() as db:
-        assert _direct_approval(db, oc.PRIVACY_KEY_PREFIX + "zwecke", "adv-1") == oc.OWNER_STATUS_INVALID
+        assert _direct_approval(db, oc.PRIVACY_KEY_PREFIX + "zwecke", "adv-1") == oc.OWNER_STATUS_UNAPPROVED
         _user(db, "rev-1", role="compliance_reviewer", invited_at=NOW, activated_at=NOW,
               credentials_set_by="self", totp_enabled=1, totp_set_by="self")
         # Gegenprobe: bereite externe Pruefperson derselben Firma.
@@ -630,15 +630,24 @@ def test_alias_mailbox_of_the_creator_is_never_a_second_person(sf):
     with sf() as db:
         db.query(User).filter(User.id == "adm-1").update({"email": "chef@firma.example"})
         _user(db, "adm-alias", email="Chef+zweit@Firma.example")
-        assert _direct_approval(db, oc.PRIVACY_KEY_PREFIX + "zwecke", "adm-alias") == oc.OWNER_STATUS_INVALID
+        assert _direct_approval(db, oc.PRIVACY_KEY_PREFIX + "zwecke", "adm-alias") == oc.OWNER_STATUS_UNAPPROVED
         _user(db, "adm-anders", email="kollegin@firma.example")
         assert _direct_approval(db, oc.PRIVACY_KEY_PREFIX + "rechte", "adm-anders") == oc.OWNER_STATUS_APPROVED
 
 
+def _api_create(db, uid, key, text):
+    return _create(db, uid, key, body_text=text)
+
+
+def _api_approve(db, uid, created):
+    return _approve(db, uid, created["created_row_id"], created["draft_content_hash"])
+
+
 def test_later_deactivation_keeps_a_valid_approval_but_compromise_revokes_it(sf):
-    """Gleiche Regel wie die KYC-Zweitfreigabe (kyc_second_person_valid): eine
-    spaetere Deaktivierung entwertet eine vorher gueltige Freigabe nicht; ein
-    auditierter Widerruf wegen Kompromittierung ab dem Widerruf schon."""
+    """Gleiche Regel wie die KYC-Zweitfreigabe: eine spaetere Deaktivierung
+    entwertet eine vorher gueltige Freigabe nicht; ein auditierter Widerruf
+    wegen Kompromittierung ab dem Widerruf schon -- aber nur dieses Glied
+    (N-927R-01: kein Kettenbruch, der Entwurf bleibt freigebbar)."""
     from models.users import User
 
     with sf() as db:
@@ -649,11 +658,101 @@ def test_later_deactivation_keeps_a_valid_approval_but_compromise_revokes_it(sf)
         assert oc.resolve_owner_content(db, TENANT, key)["status"] == oc.OWNER_STATUS_APPROVED
         db.query(User).filter(User.id == "adm-2").update({"compromised_since": "2000-01-01T00:00:00.000Z"})
         db.flush()
-        assert oc.resolve_owner_content(db, TENANT, key)["status"] == oc.OWNER_STATUS_INVALID
+        assert oc.resolve_owner_content(db, TENANT, key)["status"] == oc.OWNER_STATUS_UNAPPROVED
         # Gegenprobe: Widerruf NACH der Freigabe laesst sie wirksam.
         db.query(User).filter(User.id == "adm-2").update({"compromised_since": "2999-01-01T00:00:00.000Z"})
         db.flush()
         assert oc.resolve_owner_content(db, TENANT, key)["status"] == oc.OWNER_STATUS_APPROVED
+
+
+def test_role_change_of_the_approver_keeps_the_frozen_approval_effective(sf):
+    """N-927R-01 (a): Rolle beim Freigeben gesiegelt eingefroren."""
+    from models.users import User
+
+    with sf() as db:
+        key = oc.PRIVACY_KEY_PREFIX + "zwecke"
+        created = _api_create(db, "adm-1", key, "Zwecke v1")
+        approved = _api_approve(db, "adm-2", created)
+        assert approved["status"] == oc.OWNER_STATUS_APPROVED
+        row = db.query(OwnerContentApproval).filter(OwnerContentApproval.content_key == key).one()
+        assert (row.approver_role, row.approver_ready) == ("admin", 1)
+        db.query(User).filter(User.id == "adm-2").update({"role": "advisor"})
+        db.flush()
+        assert oc.resolve_owner_content(db, TENANT, key)["status"] == oc.OWNER_STATUS_APPROVED
+        # Gegenprobe: Altzeile ohne eingefrorenen Stand rechnet mit der heutigen Rolle.
+        assert _direct_approval(db, oc.PRIVACY_KEY_PREFIX + "rechte", "adm-2") == oc.OWNER_STATUS_UNAPPROVED
+
+
+def test_compromised_approver_then_new_approval_by_another_person_is_effective_again(sf):
+    """N-927R-01 (b): nach dem Widerruf ist das Glied unwirksam, die Kette aber
+    NICHT gebrochen -- eine neue Version mit neuer Freigabe wird wirksam."""
+    from models.users import User
+
+    with sf() as db:
+        _user(db, "adm-3")
+        key = oc.PRIVACY_KEY_PREFIX + "zwecke"
+        _api_approve(db, "adm-2", _api_create(db, "adm-1", key, "Zwecke v1"))
+        db.query(User).filter(User.id == "adm-2").update({"compromised_since": "2000-01-01T00:00:00.000Z",
+                                                           "is_active": 0})
+        db.flush()
+        state = oc.resolve_owner_content(db, TENANT, key)
+        assert state["status"] == oc.OWNER_STATUS_UNAPPROVED and state["invalid_approvals"] == 1
+        assert "CLIENT_INFORMATION_PRIVACY_MISSING" in _codes(db)
+        v2 = _api_create(db, "adm-1", key, "Zwecke v2")
+        assert v2["draft_version"] == 2
+        result = _api_approve(db, "adm-3", v2)
+        assert result["status"] == oc.OWNER_STATUS_APPROVED and result["effective_version"] == 2
+        # Gegenprobe: die neue Freigabe haengt lueckenlos am entwerteten Glied.
+        rows = {r.content_row_id: r for r in db.query(OwnerContentApproval).filter(
+            OwnerContentApproval.content_key == key).all()}
+        first = next(r for r in rows.values() if r.predecessor_approval_id == "GENESIS")
+        assert any(r.predecessor_approval_id == first.id for r in rows.values())
+        # Gegenprobe: eine aeltere Version bleibt nicht nachtraeglich freigebbar.
+        with pytest.raises(HTTPException) as exc:
+            _approve(db, "adm-3", rows[first.content_row_id].content_row_id, first.content_hash)
+        assert exc.value.status_code == 409
+
+
+def test_structural_break_still_locks_the_key(sf):
+    """Gegenprobe zu N-927R-01: ein Strukturfehler (gefaelschtes Siegel) bleibt
+    kette_ungueltig und sperrt jede weitere Freigabe."""
+    key = oc.PRIVACY_KEY_PREFIX + "zwecke"
+    with sf() as db:
+        created = _api_create(db, "adm-1", key, "Zwecke v1")
+        db.add(OwnerContentApproval(
+            id=new_uuid(), tenant_id=TENANT, content_key=key, content_row_id=created["created_row_id"],
+            predecessor_approval_id="GENESIS", approved_by="adm-2", approved_at=NOW, approval_reference="x",
+            content_hash=created["draft_content_hash"], approval_hash="0" * 64,
+        ))
+        db.flush()
+        assert oc.resolve_owner_content(db, TENANT, key)["status"] == oc.OWNER_STATUS_INVALID
+        v2 = _api_create(db, "adm-1", key, "Zwecke v2")
+        row = db.get(OwnerContentVersion, v2["created_row_id"])
+        with pytest.raises(HTTPException) as exc:
+            _approve(db, "adm-2", row.id, row.content_hash)
+        assert exc.value.detail["reason_code"] == "OWNER_CONTENT_CHAIN_INVALID"
+
+
+def test_alembic_frozen_approver_columns_up_down_up(tmp_path):
+    from alembic import command
+
+    url = f"sqlite:///{tmp_path / 'r01.db'}"
+    command.upgrade(alembic_cfg(url), "e5a9c3d7b1f4")
+    engine = create_engine(url)
+    try:
+        with engine.connect() as conn:
+            cols = {r[1] for r in conn.execute(text("PRAGMA table_info(owner_content_approvals)"))}
+            triggers = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='trigger'"))}
+        assert {"approver_role", "approver_ready"} <= cols
+        assert "trg_owner_content_approvals_no_update" in triggers
+        command.downgrade(alembic_cfg(url), "c7e1a9d3f5b2")
+        with engine.connect() as conn:
+            cols = {r[1] for r in conn.execute(text("PRAGMA table_info(owner_content_approvals)"))}
+            triggers = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='trigger'"))}
+        assert "approver_role" not in cols and "trg_owner_content_approvals_no_update" in triggers
+        command.upgrade(alembic_cfg(url), "e5a9c3d7b1f4")
+    finally:
+        engine.dispose()
 
 
 # ---------------------------------------------------------------------------

@@ -269,3 +269,35 @@ def test_single_person_firm_admin_captures_external_reviewer_approves_chain_effe
     assert r.json()["status"] == gate.OWNER_STATUS_APPROVED
     with session_factory() as db:
         assert gate.resolve_owner_content(db, TENANT, key)["status"] == gate.OWNER_STATUS_APPROVED
+
+
+def test_single_person_firm_revoked_reviewer_new_reviewer_approves_effective_again(client, session_factory):
+    """N-927R-01 (c): das Konto der einzigen externen Pruefperson wird wegen
+    Kompromittierung widerrufen -> ihr Glied ist unwirksam, die Kette aber
+    nicht gebrochen; eine neue Pruefperson gibt eine neue Version frei."""
+    from models.users import User
+    from services import recommendation_release_gate as gate
+
+    admin, reviewer = _auth(client, "adm-1"), _auth(client, "rev-1")
+    key = gate.PRIVACY_KEY_PREFIX + "rechte"
+    body = {"content_key": key, "body_text": "Rechte v1 (Testwert)", "source_reference": "TEST"}
+    v1 = client.post("/compliance/owner-content", headers=admin, json=body).json()
+    r = client.post(f"/compliance/owner-content/{v1['created_row_id']}/approve", headers=reviewer,
+                    json={"content_hash": v1["draft_content_hash"], "approval_reference": "TEST extern 1"})
+    assert r.status_code == 200 and r.json()["status"] == gate.OWNER_STATUS_APPROVED
+    with session_factory() as db:
+        db.query(User).filter(User.id == "rev-1").update(
+            {"compromised_since": "2000-01-01T00:00:00.000Z", "is_active": 0})
+        db.add(User(id="rev-2", username="rev-2", password_hash=hash_password(PW), full_name="REV-2",
+                    role="compliance_reviewer", is_active=1, tenant_id=TENANT, created_at=NOW, updated_at=NOW,
+                    invited_by="adm-1", invited_at=NOW, activated_at=NOW, credentials_set_by="self",
+                    totp_enabled=1, totp_set_by="self", reviewer_organisation="TEST Org 2",
+                    reviewer_reference="TEST Mandat 2"))
+        db.commit()
+        assert gate.resolve_owner_content(db, TENANT, key)["status"] == gate.OWNER_STATUS_UNAPPROVED
+    v2 = client.post("/compliance/owner-content", headers=admin,
+                     json={**body, "body_text": "Rechte v2 (Testwert)"}).json()
+    r = client.post(f"/compliance/owner-content/{v2['created_row_id']}/approve", headers=_auth(client, "rev-2"),
+                    json={"content_hash": v2["draft_content_hash"], "approval_reference": "TEST extern 2"})
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == gate.OWNER_STATUS_APPROVED and r.json()["effective_version"] == 2

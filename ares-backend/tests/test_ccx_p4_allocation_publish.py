@@ -634,8 +634,9 @@ def test_alembic_single_head_p4_and_upgrade_downgrade_upgrade(tmp_path):
     # (b3f1c9d2e4a7, Schluesselversion), H12 hinter P4: genau ein Head.
     # CCX-P5 (c2546c196134) haengt hinter K1.
     # H-179 L2/L3: c7e1a9d3f5b2 (Vertragsschicht) haengt hinter CCX-P5.
-    assert script.get_heads() == ["c7e1a9d3f5b2"]
+    assert script.get_heads() == ["e5a9c3d7b1f4"]
     assert script.get_revision("c7e1a9d3f5b2").down_revision == "c2546c196134"
+    assert script.get_revision("e5a9c3d7b1f4").down_revision == "c7e1a9d3f5b2"  # N-927R-01
     assert script.get_revision("c2546c196134").down_revision == K1_REV
     assert script.get_revision(K1_REV).down_revision == H12_REV
     assert script.get_revision(H12_REV).down_revision == CCX_P4_REV
