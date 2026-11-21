@@ -466,12 +466,14 @@
   "status": 404
  },
  "optimizer_policy.current": {
-  "sha256": "8fcc484bd507446b0f5dd7d128c15c68bd001d1b98513f6b792576d800a43661",
+  "sha256": "41253ec6fcbd65178f66527f52329b5add704a70cb547e591787d3772fc9d53b",
   "shape": {
    "allow_other_assets_for_goals": "int",
    "created_at": "str",
    "created_by": "str",
    "fee_model_json": "str",
+   "ic_release_ref": "null",
+   "ic_released_at": "null",
    "id": "str",
    "is_current": "int",
    "max_alternatives_bps": "int",

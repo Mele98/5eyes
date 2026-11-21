@@ -9,6 +9,7 @@ from services.pdf.base import PDFContext, RisikoprofilData
 from services.pdf.components.eignungspruefung import make_eignungspruefung_section
 from services.pdf.components.header import _esc, make_banner_header
 from services.pdf.components.unterschrift import make_unterschrift_section
+from core.customer_terms import customer_reference_text, short_reference
 from core.presentation_rounding import format_amount_minor
 from services.pdf.styles import (
     COLOR_BORDER,
@@ -21,9 +22,15 @@ from services.pdf.styles import (
 
 
 def build_risikoprofil_flowables(
-    ctx: PDFContext, data: RisikoprofilData
+    ctx: PDFContext, data: RisikoprofilData, *, advisor_annex: bool = False,
 ) -> list:
-    """Rendert Risikoprofil, Fragebogen, Override-Nachweis und Signatur."""
+    """Rendert Risikoprofil, Fragebogen, Override-Nachweis und Signatur.
+
+    KN7 (H-181, CTO-Nachtrag Punkt 3): Das Kunden-PDF (Default) zeigt beim
+    Override nur «Entscheid-Nr. <8 Zeichen>»; die volle Decision-ID und der
+    volle SHA-256 stehen nur in der Berater-/Audit-Fassung
+    (``advisor_annex=True``). Daten, DB und Audit bleiben unverändert.
+    """
     styles = make_paragraph_styles()
     flowables: list = []
     advisory_label = (
@@ -45,7 +52,7 @@ def build_risikoprofil_flowables(
 
     if data.is_overridden:
         flowables.append(Spacer(1, 4 * mm))
-        flowables.append(_override_documentation(data, styles))
+        flowables.append(_override_documentation(data, styles, advisor_annex=advisor_annex))
 
     flowables.append(Spacer(1, 5 * mm))
     flowables.extend(make_eignungspruefung_section(
@@ -76,7 +83,7 @@ def build_risikoprofil_flowables(
     if data.signoff_lines:
         flowables.append(Spacer(1, 5 * mm))
         flowables.append(_section_title("Signatur-Nachweis"))
-        flowables.append(signoff_lines_table(data.signoff_lines, styles))
+        flowables.append(signoff_lines_table(data.signoff_lines, styles, advisor_annex=advisor_annex))
 
     flowables.append(Spacer(1, 8 * mm))
     flowables.extend(make_unterschrift_section(
@@ -151,7 +158,7 @@ def _metric_cell(label: str, value: str, styles) -> Paragraph:
     )
 
 
-def _override_documentation(data: RisikoprofilData, styles) -> Table:
+def _override_documentation(data: RisikoprofilData, styles, *, advisor_annex: bool = False) -> Table:
     page_width, _ = PAGE_SIZE
     table_width = page_width - 24 * mm
     rows = [
@@ -165,7 +172,8 @@ def _override_documentation(data: RisikoprofilData, styles) -> Table:
             "Warnhinweis",
             "Zugestellt" if data.override_warning_delivered else "Noch nicht dokumentiert",
         ],
-        ["Override-Entscheid", _decision_reference_text(data)],
+        (["Override-Entscheid", _decision_reference_text(data)] if advisor_annex
+         else ["Entscheid zur Übersteuerung", customer_decision_reference_text(data)]),
     ]
     table = Table(
         [[Paragraph(_esc(str(left)), styles["body"]), Paragraph(_esc(str(right)), styles["body"])]
@@ -187,13 +195,17 @@ def _override_documentation(data: RisikoprofilData, styles) -> Table:
     return table
 
 
-def signoff_lines_table(lines, styles) -> Table:
+def signoff_lines_table(lines, styles, *, advisor_annex: bool = False) -> Table:
     """RISK-PROFILE-SIGNOFF-001: Signoff-/Decision-Referenz als Tabelle --
-    von Risikoprofil- UND Beratungsprotokoll-PDF genutzt (eine Darstellung)."""
+    von Risikoprofil- UND Beratungsprotokoll-PDF genutzt (eine Darstellung).
+
+    KN7: im Kunden-PDF (Default) Kennungen gekürzt (UUID/Hash -> 8 Zeichen,
+    «SHA-256 …» -> «Prüfsumme …»); volle Werte nur mit ``advisor_annex``."""
     page_width, _ = PAGE_SIZE
     table_width = page_width - 24 * mm
+    shown = (lambda text: text) if advisor_annex else customer_reference_text
     table = Table(
-        [[Paragraph(_esc(str(left)), styles["body"]), Paragraph(_esc(str(right)), styles["body"])]
+        [[Paragraph(_esc(str(left)), styles["body"]), Paragraph(_esc(shown(str(right))), styles["body"])]
          for left, right in lines],
         colWidths=[table_width * 0.32, table_width * 0.68],
     )
@@ -207,6 +219,19 @@ def signoff_lines_table(lines, styles) -> Table:
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     return table
+
+
+def customer_decision_reference_text(data: RisikoprofilData) -> str:
+    """KN7: Kundenfassung des Override-Nachweises -- «Entscheid-Nr. <8 Zeichen>»
+    und das Prüfergebnis in Worten, ohne volle ID/Hash und ohne Klassennamen."""
+    if not data.override_decision_id:
+        return "Kein Entscheid-Nachweis (Übersteuerung vor Einführung der Entscheid-Nummer erfasst)"
+    status = (
+        "Nachweis geprüft"
+        if data.override_decision_verified
+        else "Nachweis nicht bestätigt – Ihr Berater prüft den Entscheid"
+    )
+    return f"Entscheid-Nr. {short_reference(data.override_decision_id)} · {status}"
 
 
 def _decision_reference_text(data: RisikoprofilData) -> str:

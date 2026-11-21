@@ -38,14 +38,14 @@ from models.mandates import Mandate
 from models.users import User
 from services.backtest_stress import STRESS_REPLAY_SCOPE_LABEL
 from services.cost_disclosure import build_cost_disclosure
-from services.advisory_report import compute_advisory_report
+from services.advisory_report import _build_suitability_compliance, compute_advisory_report
 from services.pdf.fonts import register_editorial_fonts
 from services.pdf.components.advisory_page_chrome import (
     AdvisoryNumberedCanvas,
     _format_swiss_datetime,
     make_advisory_page_chrome,
 )
-from services.pdf.components.compliance_audit import render_compliance_audit_section
+from services.pdf.components.compliance_audit import customer_suitability_text, render_compliance_audit_section
 from services.pdf.components.kostenausweis import build_kostenausweis_flowables
 from services.pdf.components.unterschrift import make_unterschrift_section
 from services.pdf.components.table_of_contents import (
@@ -183,6 +183,14 @@ def _resolve_advisory_report_provisional_notice(
     from services.pdf.provisional_notice import resolve_pdf_provisional_notice
 
     return resolve_pdf_provisional_notice(db, mandate)
+
+
+def suitability_compliance_for_mandate(db: Session, mandate: Mandate) -> dict[str, Any]:
+    """KN7: Suitability-Audit des Mandats, genau wie Sektion 19 ihn erhaelt
+    (services.advisory_report._build_suitability_compliance, fail-closed:
+    Fehler -> ``audit_degraded``). Der Beratungsentscheid nutzt dieselbe Quelle,
+    damit beide Dokumente dieselbe Pruefgrundlage nennen."""
+    return _build_suitability_compliance(db, mandate) or {}
 
 
 def render_advisory_report_pdf_from_payload(
@@ -376,6 +384,7 @@ def _build_all_flowables(
     flowables.append(_toc_anchor(toc_collector, "suitability_summary", "Eignungsprüfung"))
     flowables.extend(_build_suitability_summary_flowables(
         payload.get("suitability_summary") or {}, styles,
+        suitability_compliance=payload.get("suitability_compliance") or {},
     ))
     flowables.append(PageBreak())
     # Kostenausweis vor Compliance-Audit. Geschuetzt (FIDLEG Art. 8/9).
@@ -3053,14 +3062,23 @@ _DUTY_TYPE_LABEL = {
 }
 
 
-def _build_suitability_summary_flowables(ss: dict, styles: dict) -> list[Any]:
+def _build_suitability_summary_flowables(
+    ss: dict, styles: dict, *, suitability_compliance: dict | None = None,
+) -> list[Any]:
     """FINMA-Eignungspruefung als eigenstaendige PDF-Sektion.
 
     Stellt im Bericht sichtbar den juengsten SuitabilityCheck dar:
     Status-Pill (passed/mismatch/incomplete), wer hat wann was geprueft,
     Result-Notes, fehlende Infos, Warnungs-/Bestaetigungs-Spur falls
     Mismatch + Kunde weitergefuehrt, Referenzen, Empty-State.
+
+    KN7 / N-928-01: Sektion 27 widerspricht Sektion 19 (Compliance-Audit) nie.
+    Massgebend ist der Status aus ``customer_suitability_text`` (Pruefgrundlage
+    des Suitability-Audits): der Leerzustand richtet sich danach, und ein
+    erfasster Pruefdatensatz zeigt «Eignung gegeben» nur, wenn Sektion 19 die
+    Geeignetheitspruefung ebenfalls bestaetigt (Status ``ok``).
     """
+    status, status_text = customer_suitability_text(suitability_compliance or {})
     out: list[Any] = []
     out.append(Paragraph("Sektion 27", styles["kicker"]))
     out.append(Paragraph("Eignungsprüfung", styles["h1"]))
@@ -3073,11 +3091,19 @@ def _build_suitability_summary_flowables(ss: dict, styles: dict) -> list[Any]:
     # respektiert; die Pruefung bleibt intern (Evidenz + Audit).
 
     if not ss or not ss.get("has_check"):
-        out.append(_ss_empty_state(styles))
+        out.append(_ss_empty_state(styles, status=status, status_text=status_text))
         return out
 
-    out.append(_ss_summary_box(ss, styles))
+    out.append(_ss_summary_box(ss, styles, status=status))
     out.append(Spacer(1, 5 * mm))
+    if status != "ok":
+        # Der Pruefdatensatz bleibt sichtbar; die massgebende Aussage zur
+        # Pruefgrundlage ist dieselbe wie in Sektion 19.
+        out.append(Paragraph(
+            _escape(status_text),
+            _ar_paragraph_style(styles["body"], color=COLOR_INK_MUTED),
+        ))
+        out.append(Spacer(1, 4 * mm))
 
     notes = str(ss.get("result_notes") or "").strip()
     if notes:
@@ -3107,7 +3133,17 @@ def _build_suitability_summary_flowables(ss: dict, styles: dict) -> list[Any]:
     return out
 
 
-def _ss_summary_box(ss: dict, styles: dict) -> Table:
+# KN7 / N-928-01: «Eignung gegeben» nur, wenn Sektion 19 die Pruefung
+# bestaetigt; sonst ein Pill, das Sektion 19 nicht widerspricht.
+_SUITABILITY_STATUS_OVERRIDE_PILL = {
+    "not_required": ("nicht erforderlich",  "#E9EBEE", "#7A8395"),
+    "missing":      ("nicht gültig",        "#F0D9D9", "#9E4747"),
+    "undocumented": ("nicht dokumentiert",  "#F4EBD5", "#B59243"),
+    "degraded":     ("nicht bestätigt",     "#E9EBEE", "#7A8395"),
+}
+
+
+def _ss_summary_box(ss: dict, styles: dict, *, status: str = "ok") -> Table:
     """3-Spalten-Box: Status-Pill + Geprueft von + Pflichttyp/Datum."""
     from reportlab.lib.colors import HexColor
 
@@ -3118,6 +3154,10 @@ def _ss_summary_box(ss: dict, styles: dict) -> Table:
     pill_label, pill_fill, pill_text = _SUITABILITY_RESULT_PILL.get(
         result, ("Status unklar", "#E9EBEE", "#3B475A"),
     )
+    if result == "passed" and status != "ok":
+        pill_label, pill_fill, pill_text = _SUITABILITY_STATUS_OVERRIDE_PILL.get(
+            status, _SUITABILITY_STATUS_OVERRIDE_PILL["undocumented"],
+        )
     pill = Table(
         [[Paragraph(
             _escape(pill_label),
@@ -3345,21 +3385,33 @@ def _ss_references_table(refs: dict, ss: dict, styles: dict) -> Table:
     return table
 
 
-def _ss_empty_state(styles: dict) -> Table:
+# KN7 / N-928-01: Leerzustand je Status der Pruefgrundlage (Sektion 19).
+# Text = dieselbe Kundenaussage wie Sektion 19 -> kein Widerspruch moeglich.
+_SS_EMPTY_TITLES = {
+    "ok": "Eignungsprüfung im Risikoprofil dokumentiert",
+    "missing": "Noch keine gültige Eignungsprüfung dokumentiert",
+    "not_required": "Keine Eignungsprüfung vorgesehen",
+    "undocumented": "Prüfgrundlage nicht dokumentiert",
+    "degraded": "Eignungsprüfung nicht bestätigt",
+}
+
+
+def _ss_empty_state(styles: dict, *, status: str = "undocumented", status_text: str = "") -> Table:
     """Empty-State wenn kein SuitabilityCheck zum Mandat existiert."""
     page_width, _ = PAGE_SIZE
     inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
 
     title = Paragraph(
-        "<b>Noch keine Eignungsprüfung dokumentiert</b>",
+        f"<b>{_escape(_SS_EMPTY_TITLES.get(status, _SS_EMPTY_TITLES['undocumented']))}</b>",
         _ar_paragraph_style(styles["body"], color=COLOR_INK, font=FONT_SANS_BOLD),
     )
+    if status == "ok":
+        status_text = (
+            "Die Geeignetheitsprüfung stützt sich auf das dokumentierte Risikoprofil. "
+            + status_text
+        )
     body = Paragraph(
-        _escape(
-            "Vor der Umsetzung der Anlagestrategie ist eine FINMA-konforme "
-            "Eignungsprüfung (Suitability nach FIDLEG) durchzuführen und "
-            "im System zu hinterlegen. Sie erscheint danach an dieser Stelle."
-        ),
+        _escape(status_text),
         _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
     )
     box = Table([[title], [Spacer(1, 2 * mm)], [body]], colWidths=[inner_width])

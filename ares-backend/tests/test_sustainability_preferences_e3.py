@@ -142,7 +142,10 @@ def test_protocol_section_and_claim_guard(client, mandate_id, session_factory, c
     assert "bestätigt" in flat
     assert sp.format_date_ch(current["review_due_on"]) in flat
     assert sp.NO_RISK_EFFECT_TEXT in flat
-    assert current["decision_hash"] in flat.replace(" ", "")
+    # KN7 / N-928-02: Kunden-PDF zeigt die 8-stellige Prüfsumme, nicht den
+    # vollen SHA-256 (der bleibt in DB/Audit/Archivbindung).
+    assert "Prüfsumme Definition " in flat and f"Erfassung {current["decision_hash"][:8]}" in flat
+    assert current["decision_hash"] not in flat.replace(" ", "")
     for limit in current["limit_texts"]:
         assert " ".join(limit.split()) in flat
     if current["preference_waived"]:

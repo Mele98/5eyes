@@ -1,5 +1,5 @@
 {
- "dump_sha256": "6a9e50181c8998cce9c9956200928e0ac3fa2c05259b1168dda906badaf15a4b",
+ "dump_sha256": "b0233212ad7b666482594b7cadb9a83c66702bf61ca66e5874df83f0d9a1ef2c",
  "tables": {
   "asset_class_annual_returns": {
    "columns": [
@@ -317,6 +317,8 @@
     "created_at",
     "created_by",
     "fee_model_json",
+    "ic_release_ref",
+    "ic_released_at",
     "id",
     "is_current",
     "max_alternatives_bps",
@@ -332,7 +334,7 @@
    ],
    "row_count": 1,
    "row_sha256": [
-    "3defd1b670d0c13e70310968d487a554"
+    "87e1a991cfe285494ec34105a25d79f1"
    ]
   },
   "product_eligibility_rule_sets": {

@@ -53,13 +53,15 @@ class ReportLabRenderer:
         )
 
     def render_risikoprofil(
-        self, ctx: PDFContext, data: RisikoprofilData
+        self, ctx: PDFContext, data: RisikoprofilData, *, advisor_annex: bool = False,
     ) -> bytes:
+        """KN7: ``advisor_annex=True`` = Berater-/Audit-Fassung (volle
+        Decision-ID/Hash); Default = Kunden-PDF."""
         from services.pdf.documents.risikoprofil import build_risikoprofil_flowables
         return self._render_to_bytes(
             ctx=ctx,
             title="Risikoprofil",
-            build_flowables=lambda: build_risikoprofil_flowables(ctx, data),
+            build_flowables=lambda: build_risikoprofil_flowables(ctx, data, advisor_annex=advisor_annex),
         )
 
     def render_portfolio(self, ctx: PDFContext, data) -> bytes:
