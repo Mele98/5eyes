@@ -3,6 +3,7 @@ import datetime as _dt
 import hashlib
 import json
 import weakref
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -19,6 +20,8 @@ from database import (
     ADVISORY_TENANT_BOUNDARY_COLUMNS,
     ALLOCATION_PUBLICATION_SQLITE_TENANT_GUARDS,
     ALLOCATION_PUBLICATION_SQLITE_TRIGGERS,
+    CHANNEL_PUBLICATION_SQLITE_TENANT_GUARDS,
+    CHANNEL_PUBLICATION_SQLITE_TRIGGERS,
     ADVISORY_ENVELOPE_SQLITE_TENANT_GUARDS,
     ADVISORY_ENVELOPE_SQLITE_TRIGGERS,
     ADVISORY_FRESHNESS_SQLITE_TRIGGERS,
@@ -1012,12 +1015,29 @@ def _dml_table(orm_execute_state):
     return table
 
 
-def _sets_tenant_id(statement) -> bool:
-    """True, wenn ein UPDATE-Statement ``tenant_id`` setzt (ORM-Massen-UPDATE)."""
+def _sets_tenant_id(statement, params=None) -> bool:
+    """True, wenn ein UPDATE-Statement ``tenant_id`` setzt -- in ``.values()``
+    oder (KN5 / N-917R4-04) erst in den Ausfuehrungsparametern
+    (``execute(update(t), {"tenant_id": ...})`` bzw. Liste solcher dicts)."""
     values = getattr(statement, "_values", None) or {}
     ordered = getattr(statement, "_ordered_values", None) or ()
     keys = [getattr(key, "key", getattr(key, "name", key)) for key in list(values) + [k for k, _v in ordered]]
+    for item in _param_dicts(params):
+        keys.extend(item.keys())
     return "tenant_id" in {str(key) for key in keys}
+
+
+def _param_dicts(params) -> list:
+    if not params:
+        return []
+    if isinstance(params, Mapping):
+        return [params]
+    if isinstance(params, (list, tuple)):
+        out = []
+        for item in params:
+            out.extend(_param_dicts(item))
+        return out
+    return []
 
 
 def _bulk_orm_write(orm_execute_state):
@@ -1040,7 +1060,7 @@ def _bulk_orm_write(orm_execute_state):
             "Objekte einzeln ueber die Session anlegen."
         )
     if orm_execute_state.is_update and table.name in TENANT_LOCKED_TABLES and _sets_tenant_id(
-            orm_execute_state.statement):
+            orm_execute_state.statement, orm_execute_state.parameters):
         raise RuntimeError(f"{TENANT_CHANGE_ERROR}: Massen-UPDATE von {table.name}.tenant_id ist verboten.")
     session = orm_execute_state.session
     connection = session.connection()
@@ -1122,6 +1142,12 @@ def _guard_core_dml(conn, clauseelement, multiparams, params, execution_options)
     if not isinstance(clauseelement, UpdateBase):
         return
     table = getattr(clauseelement, "table", None)
+    # KN5 / N-917R4-04: auch Core-DML darf eine Mandantenzuordnung nicht
+    # umhaengen (ORM-Flush und ORM-Massen-UPDATE pruefen eigene Waechter).
+    if (clauseelement.is_update and getattr(table, "name", None) in TENANT_LOCKED_TABLES
+            and not _HOOK_SCOPE.get() and not _flush_in_progress()
+            and _sets_tenant_id(clauseelement, (multiparams, params))):
+        raise RuntimeError(f"{TENANT_CHANGE_ERROR}: Core-UPDATE von {table.name}.tenant_id ist verboten.")
     source = DEPENDENCY_SOURCES.get(getattr(table, "name", None))
     if source is None or _HOOK_SCOPE.get() or _flush_in_progress():
         return
@@ -1175,6 +1201,15 @@ TENANT_LOCKED_TABLES = frozenset({"clients", "mandates", "wealth_positions"})
 TENANT_CHANGE_ERROR = "TENANT_REASSIGNMENT_FORBIDDEN"
 
 
+def _stored_tenant_id(session, state):
+    """Gespeicherte ``tenant_id`` einer persistenten Zeile (Core-SELECT ueber
+    die Session-Verbindung, kein Autoflush)."""
+    table = state.mapper.local_table
+    pk_columns = list(state.mapper.primary_key)
+    where = [column == value for column, value in zip(pk_columns, state.key[1])]
+    return session.connection().execute(select(table.c.tenant_id).where(*where)).scalar()
+
+
 def _guard_tenant_reassignment(session, _flush_context, _instances) -> None:
     for obj in list(session.dirty):
         try:
@@ -1185,9 +1220,16 @@ def _guard_tenant_reassignment(session, _flush_context, _instances) -> None:
         if table not in TENANT_LOCKED_TABLES or "tenant_id" not in state.mapper.column_attrs.keys():
             continue
         history = state.attrs["tenant_id"].history
-        old = history.deleted[0] if history.deleted else None
+        if history.deleted:
+            old = history.deleted[0]
+        elif history.added and state.key is not None:
+            # KN5 / N-917R4-04: alter Wert nicht geladen (expired/refresh) ->
+            # ``deleted`` ist leer; den gespeicherten Wert aus der DB lesen.
+            old = _stored_tenant_id(session, state)
+        else:
+            continue
         new = state.dict.get("tenant_id")
-        if history.deleted and old not in (None, "") and str(new or "") != str(old):
+        if old not in (None, "") and str(new or "") != str(old):
             raise RuntimeError(
                 f"{TENANT_CHANGE_ERROR}: {table}.tenant_id einer bestehenden Zeile darf nicht "
                 "geaendert werden (nur Anlegen und Start-Backfill NULL -> Default-Mandant)."
@@ -1577,3 +1619,79 @@ def _create_allocation_publication_sqlite_triggers(_metadata, connection, **_kw)
 
 
 event.listen(Base.metadata, "after_create", _create_allocation_publication_sqlite_triggers)
+
+
+class AdvisoryChannelPublication(Base):
+    """CCX-P5 (Vertrag 2026-11-13 §8): append-only Kanalzeile je ausgeliefertem
+    Artefakt eines versiegelten Beratungsentscheids."""
+
+    __tablename__ = "advisory_channel_publications"
+    __table_args__ = (
+        CheckConstraint(
+            "channel IN ('API','CLASSIC','REACT','PDF','ADVISOR_SIGNATURE','ONSITE_SIGNATURE','HANDOFF','ARCHIVE')",
+            name="ck_advisory_channel_publications_channel",
+        ),
+        CheckConstraint("schema_version = 'ares/channel-publication/1'",
+                        name="ck_advisory_channel_publications_schema_version"),
+        CheckConstraint("length(channel_payload_hash) = 64", name="ck_advisory_channel_publications_payload"),
+        CheckConstraint("render_hash IS NULL OR length(render_hash) = 64",
+                        name="ck_advisory_channel_publications_render_hash"),
+        CheckConstraint("length(bound_envelope_hash) = 64", name="ck_advisory_channel_publications_envelope_hash"),
+        CheckConstraint("length(parameter_set_hash) = 64", name="ck_advisory_channel_publications_parameter"),
+        CheckConstraint("length(goal_metric_payload_hash) = 64", name="ck_advisory_channel_publications_goal"),
+        CheckConstraint("status = 'PUBLISHED'", name="ck_advisory_channel_publications_status"),
+        CheckConstraint(
+            "channel NOT IN ('PDF','ARCHIVE','ADVISOR_SIGNATURE','ONSITE_SIGNATURE') OR render_hash IS NOT NULL",
+            name="ck_advisory_channel_publications_render",
+        ),
+        UniqueConstraint("tenant_id", "id", name="uq_advisory_channel_publications_tenant_id"),
+        UniqueConstraint("envelope_id", "channel", "artifact_id", name="uq_advisory_channel_publications_artifact"),
+        ForeignKeyConstraint(
+            ["tenant_id", "envelope_id"],
+            ["advisory_decision_envelopes.tenant_id", "advisory_decision_envelopes.id"],
+            name="fk_advisory_channel_publications_envelope",
+        ),
+        Index("ix_advisory_channel_publications_tenant_id", "tenant_id"),
+        Index("ix_advisory_channel_publications_mandate", "tenant_id", "mandate_id"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
+    mandate_id = Column(String, nullable=False)
+    envelope_id = Column(String, nullable=False)
+    channel = Column(String, nullable=False)
+    artifact_id = Column(String, nullable=False)
+    schema_version = Column(String, nullable=False)
+    channel_payload_hash = Column(String, nullable=False)
+    render_hash = Column(String)
+    rounding_policy_version = Column(String, nullable=False)
+    bound_envelope_hash = Column(String, nullable=False)
+    parameter_contract_version = Column(String, nullable=False)
+    parameter_set_hash = Column(String, nullable=False)
+    goal_metric_contract_version = Column(String, nullable=False)
+    goal_metric_payload_hash = Column(String, nullable=False)
+    status = Column(String, nullable=False)
+    created_at = Column(String, nullable=False)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+
+
+def _create_channel_publication_sqlite_triggers(_metadata, connection, **_kw) -> None:
+    """Metadata-Hook (SQLite): Trigger erst, wenn Kanal- und Envelope-Tabelle
+    existieren; Mandanten-Guard nur mit ``mandates.tenant_id``."""
+    if connection.dialect.name != "sqlite":
+        return
+    tables = {row[0] for row in connection.exec_driver_sql(
+        "SELECT name FROM sqlite_master WHERE type = 'table'"
+    )}
+    if not {"advisory_channel_publications", "advisory_decision_envelopes"} <= tables:
+        return
+    for ddl in CHANNEL_PUBLICATION_SQLITE_TRIGGERS:
+        connection.exec_driver_sql(ddl)
+    if "mandates" in tables and "users" in tables and "tenant_id" in {
+        row[1] for row in connection.exec_driver_sql("PRAGMA table_info(mandates)")
+    }:
+        for ddl in CHANNEL_PUBLICATION_SQLITE_TENANT_GUARDS:
+            connection.exec_driver_sql(ddl)
+
+
+event.listen(Base.metadata, "after_create", _create_channel_publication_sqlite_triggers)

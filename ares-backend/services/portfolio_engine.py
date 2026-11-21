@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from config import RunContext, settings
 from core.chf_amount import normalize_chf_amount_text
+from core.holdings_rule import select_valuation_runs
 from core.evidence import SCHEME_V1_ASCII, canonical_json, evidence_hash
 from database import new_uuid
 from models.allocation import (
@@ -100,12 +101,19 @@ from services.jurisdiction.resolve import (
     resolve_home_bias_defaults,
 )
 from jurisdictions.resolve import resolve_pack
+from core.risk_parameter_set import (
+    allocation_parameter_set,
+    house_prior_from_model_basis,
+    release_notice_messages,
+    stored_risk_parameter_set,
+)
+from core.presentation_rounding import ROUNDING_POLICY_VERSION as _P5_ROUNDING
 from services.risk_matrix import (
     RiskBudgetExceeded,
     assert_risk_budget_ok,
     bucket_risky_fraction_bps_from_building_blocks,
     classify_limiting_factor,
-    compute_portfolio_risky_fraction_bps,
+    compute_portfolio_risky_fraction_bps,  # noqa: F401 -- Re-Export (Bestandsimporte)
 )
 import services.risk_assessment_semantics as risk_assessment_semantics  # noqa: E402 -- depot_check (Laufzeit-Lookup)
 from services.risk_assessment_semantics import (
@@ -188,13 +196,9 @@ ALLOWED_PRODUCT_TYPES = (
 )
 ALLOWED_PRODUCT_ASSET_CLASSES = ("Aktien", "Obligationen", "Immobilien", "Alternative", "Liquidität")
 
-DEFAULT_ASSET_RISKY_WEIGHTS_BPS = {
-    "equities": 7900,
-    "bonds": 2450,
-    "real_estate": 5000,
-    "alternatives": 6000,
-    "liquidity": 0,
-}
+# CCX P5 / M-2: der fruehere Bucket-Satz DEFAULT_ASSET_RISKY_WEIGHTS_BPS
+# (7900/2450/5000/6000) ist entfernt -- kanonisch sind die IC-Subklassenwerte x
+# Suballokation (core/risk_parameter_set.py), nie eine Konstante.
 ASSET_LIQUIDITY_PROFILES = {
     "equities": "T+2 liquide",
     "bonds": "liquide bis mittel",
@@ -1197,15 +1201,10 @@ def _amount_from_weight_bps(total_rappen: int, weight_bps: int) -> int:
 
 
 def _current_recommendation_run(db: Session, mandate_id: str) -> RecommendationRun | None:
-    current = db.query(RecommendationRun).filter(
+    # KN5 / N-917R4-03: dieselbe Regel wie der Depotcheck (core.holdings_rule).
+    return select_valuation_runs(db.query(RecommendationRun).filter(
         RecommendationRun.mandate_id == mandate_id,
-        RecommendationRun.result_status == "Final",
-    ).order_by(RecommendationRun.created_at.desc()).first()
-    if current:
-        return current
-    return db.query(RecommendationRun).filter(
-        RecommendationRun.mandate_id == mandate_id,
-    ).order_by(RecommendationRun.created_at.desc()).first()
+    ).order_by(RecommendationRun.created_at.desc(), RecommendationRun.id.desc()).all())[0]
 
 
 # ADR-014 Schritt 2 (2026-08-02): Live-Rebalancing-Cluster (Payload-Bau Phase A)
@@ -1264,7 +1263,6 @@ from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
     illiquid_limit_scope_note, policy_band_bound_keys, system_liquidity_floor_from_allocation, _manual_target_buckets,  # #859
     raise_if_locked_floor_infeasible, raise_liquidity_floor, resolve_liquidity_floor,  # #859 (I-01)
     disclose_final_allocation_deviations, with_band_deviation_messages,  # #859 (I-01)
-    _asset_risky_weight_fallbacks,
     _baseline_target_bands,
     house_matrix_bands_payload,
     policy_band_clamp_notes,
@@ -4131,6 +4129,9 @@ def generate_target_allocation(
     shadow_optimization_json = serialize_shadow_optimization(shadow_optimization_payload)  # SHADOW-ANALYSIS-INTEGRITY-001: Hash-Grundlage
 
     sub_allocations_json = canonical_json(sub_allocations)
+    risk_parameter_set = allocation_parameter_set(  # CCX P5 / M-2: eine Quelle
+        policy, sub_allocations, minimums, maximums, risk_budget_bps, house_matrix, asset_risky_weights,
+        house_prior=house_prior_from_model_basis(model_basis["optimization"]), release_required=settings.ic_release_required, rounding_policy_version=_P5_ROUNDING)
     effective_constraints_payload = {
         "engine_version": "stochastic_core_v2",
         "bounds_bps": {
@@ -4167,6 +4168,7 @@ def generate_target_allocation(
         "reserve_funding_ledger": ledger_reference(reserve_ledger, reserve_split),  # RESERVE-LEDGER-SNAPSHOT-001 / RESERVE-CEILING-001
         **goal_analysis_constraints(goal_achievability_json),  # GOAL-ANALYSIS-INTEGRITY-001: Zielanalyse-Referenz
         **shadow_analysis_constraints(shadow_optimization_json),  # SHADOW-ANALYSIS-INTEGRITY-001
+        "risk_parameter_set": risk_parameter_set,  # CCX P5 / M-2 (im allocation_context_hash gebunden)
     }
     pension_ledger_snapshot_json = bind_pension_transfer_ledger_snapshot(  # PENSION-TRANSFER-LEDGER-001
         effective_constraints_payload, external_foundation_projection)
@@ -4335,9 +4337,10 @@ def generate_target_allocation(
         "goal_achievability_basis_id": model_basis["optimization"]["basis_id"],
         "goal_analysis_basis_id": model_basis["reporting"]["basis_id"],
         "model_basis": model_basis,
-        "messages": messages,
+        "messages": messages + release_notice_messages(risk_parameter_set),  # N-925-05
         "warnings": warnings,
         "asset_class_risky_weights_bps": asset_risky_weights,
+        "risk_parameter_set": risk_parameter_set,  # CCX P5 / M-2
         "expected_return_bps": metrics["expected_return_bps"],
         "expected_volatility_bps": metrics["expected_volatility_bps"],
         "capital_market_assumption_set": cma.assumption_set_name,
@@ -5756,8 +5759,9 @@ def build_target_payload_from_allocation(
     persisted_risky_bps = getattr(allocation, "risky_fraction_bps_at_generation", None)
     if persisted_risky_bps is not None:
         risky_fraction_total_bps = int(persisted_risky_bps)
-    else:
-        risky_fraction_total_bps = compute_portfolio_risky_fraction_bps(targets, building_block_rows)
+    # CCX P5 / M-2: sonst gilt der kanonische, suballokationsgewichtete Wert
+    # aus ``_enrich_sub_allocations_with_risk`` (oben) -- nicht mehr das
+    # ungewichtete BuildingBlock-Mittel, das ein zweiter Zahlenkanal war.
     risk_budget_bps = int(
         getattr(allocation, "risk_budget_bps_at_generation", None)
         if getattr(allocation, "risk_budget_bps_at_generation", None) is not None
@@ -6197,8 +6201,11 @@ def build_target_payload_from_allocation(
         "goal_achievability_basis_id": model_basis["optimization"]["basis_id"],
         "goal_analysis_basis_id": model_basis["reporting"]["basis_id"],
         "model_basis": model_basis,
-        "messages": messages,
+        "messages": messages + release_notice_messages(stored_risk_parameter_set(allocation)),
         "asset_class_risky_weights_bps": asset_risky_weights,
+        # CCX P5 / M-2: der bei der Berechnung gespeicherte Satz (integritaets-
+        # gebunden ueber allocation_context_hash), nie neu abgeleitet.
+        "risk_parameter_set": stored_risk_parameter_set(allocation),
         "expected_return_bps": metrics["expected_return_bps"],
         "expected_volatility_bps": metrics["expected_volatility_bps"],
         "capital_market_assumption_set": cma.assumption_set_name,

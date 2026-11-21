@@ -52,6 +52,13 @@ Quellbaum:
    der Renderer still auf Standard-Fonts zurueck (Fonts im Paket nicht
    gefunden), ist der Smoke rot -- ebenso bei einer Font-Warnung im Log.
 
+9. Release-Pruefungen H-180 (``scripts/packaging_release_checks.py``):
+   Import-Selbsttest im Artefakt (EXE-01), Build-Kennung in ``/health``
+   (EXE-03), Demo-Systemfall in der EXE gesperrt, Produkt-Hygiene
+   (Dateieigenschaften, keine Fremd-/Altmarken in asar, Metadaten und
+   Backend-EXE; EXE-02) und Start der Electron-Shell im isolierten Profil bis
+   zum sauberen Beenden ohne Restprozesse (EXE-05).
+
 Fail-closed: jede Abweichung, jede fehlende Pruefgrundlage (z.B. PyInstaller
 nicht importierbar) und jeder Timeout fuehrt zu Exit 1. Nur Windows.
 
@@ -120,6 +127,10 @@ KEK_STORE_ENTROPY = b'ares.tenant-master-kek.store.v1'
 
 class SmokeError(RuntimeError):
     pass
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import packaging_release_checks as release_checks  # noqa: E402
 
 
 def log(msg: str) -> None:
@@ -832,6 +843,11 @@ def run_pdf_render_smoke(base: str, documents: tuple[str, ...] = PDF_SMOKE_DOCUM
         if status != 200 or 'application/pdf' not in ctype:
             fail(f'PDF-Smoke: {name}.pdf antwortet HTTP {status} ({ctype}): {pdf[:300]!r}')
         rendered.append(check_pdf_bytes(pdf, f'{name}.pdf', (footer, FOOTER_CREATED_MARKER)))
+    # H-180: Demo-/Dev-Seeds nur im Dev-Modus -- in der gepackten EXE gesperrt.
+    status, _, body = call('POST', '/admin/system/foundation-example', {}, token)
+    if status != 403:
+        fail(f'Demo-Systemfall in der gepackten EXE nicht gesperrt (HTTP {status}): {body[:200]!r}')
+    log('OK Demo-Systemfall (Foundation Case) in der gepackten EXE gesperrt (403)')
     return rendered
 
 
@@ -1072,6 +1088,8 @@ def run_start_smoke(exe: Path, timeout: float, grace: float, keep: bool) -> None
         if port_open(port):
             fail(f'Port {port} ist bereits belegt.')
 
+        release_checks.check_self_test_imports(exe_copy, env, fail, log)
+
         before = snapshot(live_paths())
         log_file = root / 'backend.log'
         base = f'http://127.0.0.1:{port}'
@@ -1108,6 +1126,7 @@ def run_start_smoke(exe: Path, timeout: float, grace: float, keep: bool) -> None
                     fail(f'/health/ready meldet app={ready_payload.get("app")!r}, erwartet {EXPECTED_APP!r}.')
                 if ready_payload.get('database') != 'ok':
                     fail(f'/health/ready meldet database={ready_payload.get("database")!r}.')
+                release_checks.check_build_identity(ready_payload, fail, log)
 
                 status, _, body = http_get(base + '/health/live')
                 if status != 200:
@@ -1153,6 +1172,7 @@ def run_start_smoke(exe: Path, timeout: float, grace: float, keep: bool) -> None
         if 'Reporting-Dist nicht gefunden' in logtext:
             fail('Backend-Log meldet fehlende Reporting-Dist.')
         assert_no_font_fallback(logtext)
+        release_checks.assert_no_degraded_modules(logtext, fail)
         log('OK Lifespan-Shutdown sauber durchlaufen (Application shutdown complete)')
 
         if not db_path.is_file():
@@ -1216,6 +1236,12 @@ def main(argv: list[str] | None = None) -> int:
         check_digests(exe, unpacked)
         check_archive(exe)
         run_start_smoke(exe, args.timeout, args.grace, args.keep_temp)
+        if unpacked is None:
+            fail('--unpacked-dir fehlt: Produkt-Hygiene und Shell-Start (H-180) brauchen die electron-builder-Ausgabe.')
+        release_checks.check_product_hygiene(exe, unpacked, fail, log)
+        release_checks.run_shell_smoke(unpacked, isolated_env=isolated_env, free_port=free_port,
+                                       http_get=http_get, port_open=port_open, fail=fail, log=log,
+                                       timeout=args.timeout, keep=args.keep_temp)
     except SmokeError as exc:
         log(f'FEHLER: {exc}')
         return 1

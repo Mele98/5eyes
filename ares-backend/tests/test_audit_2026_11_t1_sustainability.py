@@ -49,6 +49,11 @@ from services.product_eligibility_governance import (  # noqa: E402
 
 NOW = "2026-11-04T10:00:00.000Z"
 TODAY = date.today()
+
+# KN6 (CI 44840465176): jeder Test laeuft am Importtag (tests/import_day_clock.py).
+from tests.import_day_clock import fixed_import_clock  # noqa: E402
+
+_fixed_import_clock = fixed_import_clock(TODAY)
 AS_OF = (TODAY - timedelta(days=30)).isoformat()
 
 

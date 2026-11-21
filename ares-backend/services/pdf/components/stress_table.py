@@ -24,7 +24,7 @@ from services.pdf.styles import (
 
 def make_stress_table(scenarios: list) -> Table:
     """Returns Table mit Szenario | Zeitraum | Cumul | MaxDD | Recovery."""
-    rows = [["Szenario", "Zeitraum", "Cumul. Return", "Max-Drawdown", "Recovery"]]
+    rows = [["Szenario", "Zeitraum", "Rendite kumuliert", "Max. Verlust", "Erholung"]]
     for s in scenarios:
         label = str(s.get("label", "—") or "—")
         period = str(s.get("period", "") or "—")

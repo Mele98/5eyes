@@ -488,7 +488,7 @@
   "status": 200
  },
  "privacy.subject_request.export": {
-  "sha256": "95450635fa973066ee67af4cc08a9c7446a3779cbd16c312fc6d4f590ec04b76",
+  "sha256": "b13d9c7c536e02ae9d40346105c486e9161cb0312eab367b32a907a87bb7796a",
   "shape": {
    "decision": "str",
    "export": {

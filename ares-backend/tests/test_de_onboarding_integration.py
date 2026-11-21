@@ -241,6 +241,8 @@ def _seed_de_mandate(session_factory, *, suffix: str, cma_status: str) -> dict:
             id=cma_id, assumption_set_name=f"DE-Test-{suffix}", version=1,
             valid_from=today.isoformat(), is_current=1, jurisdiction=DE_CODE, tenant_id=None,
             status=cma_status,
+            # CCX P5 / M-2: ohne CMA-Inflationspfad fail-closed; explizite Testreihe (frueher stiller 70-bps-Ersatz).
+            inflation_path_json='{"2026": 70}',
             # CMA-001 / CMA-CORR-001: Nicht-CH-CMAs brauchen einen eigenen
             # Korrelations-Payload (sonst fail-closed). Test-Platzhalter mit
             # den Zahlen der bestehenden CH-Matrix, damit die Engine-Ausgabe
@@ -608,6 +610,8 @@ def test_router_compute_candidate_then_approve_then_get_current(client, session_
         cma = CapitalMarketAssumption(
             id="cma-router-de-1", assumption_set_name="DE-router-test", version=1,
             valid_from=as_of_date, is_current=0, jurisdiction=jurisdiction, tenant_id=None,
+            # CCX P5 / M-2: ohne CMA-Inflationspfad fail-closed; explizite Testreihe (frueher stiller 70-bps-Ersatz).
+            inflation_path_json='{"2026": 70}',
             status="data_derived", bonds_home_ig_return_bps=210,
             source_detail=json.dumps({"source": "fake-yield-curve-for-test"}),
             created_by=created_by_user_id, created_at=now, updated_at=now,

@@ -42,6 +42,11 @@ from services.valuation_completeness import classify_valuation_completeness
 
 TODAY = date.today()
 
+# KN6 (CI 44840465176): jeder Test laeuft am Importtag (tests/import_day_clock.py).
+from tests.import_day_clock import fixed_import_clock  # noqa: E402
+
+_fixed_import_clock = fixed_import_clock(TODAY)
+
 
 def _q(currency, rate, *, days_old=0, source="Manual", rid=None):
     return FxQuote(currency, rate, source, (TODAY - timedelta(days=days_old)).isoformat() + "T08:00:00",
@@ -1000,16 +1005,24 @@ def test_valuation_marks_rows_when_target_currency_rate_is_stale(session_factory
 
 
 def test_depot_price_after_cutoff_is_never_used(session_factory):
-    """N-909-03 R7: ein Preis nach dem Stichtag zaehlt nicht (Stichtagsgrenze)."""
+    """N-909-03 R7: ein Preis nach dem Stichtag zaehlt nicht (Stichtagsgrenze).
+
+    KN5 (H-176, CI 44641282250 Versuch 1): ``TODAY`` wird beim Import fixiert; lief
+    der Test nach Mitternacht, war «morgen» schon heute. Feste Wanduhr: der Test
+    laeuft am Tag ``TODAY`` (12:00 UTC, weiterlaufend)."""
+    import time_machine
+
     from models.review import PriceHistory
 
-    _advisor, mid, _aid, run_id = _finalizable_run(session_factory, "n1-r7")
-    hid, pid = _seed_depot_holding(session_factory, run_id)
-    with session_factory() as db:
-        db.query(PriceHistory).filter(PriceHistory.product_id == pid).update(
-            {"price_date": (TODAY + timedelta(days=1)).isoformat()})
-        db.commit()
-    row = next(r for r in _project(session_factory, mid).rows if r.position_id == hid)
+    with time_machine.travel(datetime.combine(TODAY, datetime.min.time().replace(hour=12), tzinfo=timezone.utc),
+                             tick=True):
+        _advisor, mid, _aid, run_id = _finalizable_run(session_factory, "n1-r7")
+        hid, pid = _seed_depot_holding(session_factory, run_id)
+        with session_factory() as db:
+            db.query(PriceHistory).filter(PriceHistory.product_id == pid).update(
+                {"price_date": (TODAY + timedelta(days=1)).isoformat()})
+            db.commit()
+        row = next(r for r in _project(session_factory, mid).rows if r.position_id == hid)
     assert row.data_quality == "MISSING_PRICE" and row.base_value_minor is None
 
 
@@ -1194,10 +1207,11 @@ def test_cashflow_projection_names_the_inflow_without_currency(session_factory):
     assert "987" not in exc.value.message
 
 
-def test_print_fx_gate_blocks_unsealed_run_and_exempts_the_sealed_run(session_factory):
-    """N-909-13: eingefrorene Kundendokumente pruefen beim Druck die heutige
-    strikte FX-Basis, solange der Lauf nicht versiegelt ist. Der versiegelte Lauf
-    traegt seine FX-Basis im Envelope und wird nicht erneut gegen heute geprueft."""
+def test_print_fx_gate_blocks_unsealed_and_sealed_live_rerender(session_factory):
+    """N-909-13 / CCX P5 (Vertrag §8.3, N-909-22): eingefrorene Kundendokumente
+    pruefen beim Druck die heutige strikte FX-Basis. Seit P5 gilt das auch fuer
+    den versiegelten Lauf: ein Live-Neurendern erhaelt keine Ausnahme mehr (nur
+    die Wiedergabe des gespeicherten, hashgebundenen P5-Artefakts)."""
     from models.mandates import Mandate
     from services.print_fx_gate import assert_print_fx_basis_current, run_is_sealed
 
@@ -1214,11 +1228,11 @@ def test_print_fx_gate_blocks_unsealed_run_and_exempts_the_sealed_run(session_fa
     with session_factory() as db:
         mandate = db.get(Mandate, mid)
         assert run_is_sealed(db, mandate, run_id)
+        assert_print_fx_basis_current(db, mandate)  # Kurs belegt: liefert
         _add_fx(db, "USD", 8_800, source="Default")
         db.commit()
-        assert_print_fx_basis_current(db, mandate)  # versiegelt: Basis im Envelope
-        assert_print_fx_basis_current(db, mandate, run_id=run_id)
-        # Ein nicht versiegelter Lauf (jeder andere) sperrt mit dem Ersatzkurs.
-        with pytest.raises(DomainError) as exc:
-            assert_print_fx_basis_current(db, mandate, run_id="ein-anderer-lauf")
-        assert exc.value.reason_code == "CCX_FX_BASIS_MISSING"
+        # Versiegelt, aber Live-Neurender mit Ersatzkurs: gesperrt (frueher Ausnahme).
+        for kwargs in ({}, {"run_id": run_id}, {"run_id": "ein-anderer-lauf"}):
+            with pytest.raises(DomainError) as exc:
+                assert_print_fx_basis_current(db, mandate, **kwargs)
+            assert exc.value.reason_code == "CCX_FX_BASIS_MISSING"

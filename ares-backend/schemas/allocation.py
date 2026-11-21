@@ -1315,6 +1315,16 @@ class AllocationBucketResponse(BaseModel):
     delta_weight_bps: int
     band_min_bps: int
     band_max_bps: int
+    # KN5 / N-917R4-02: Basis des Ist-Vergleichs und die Liquiditaetsreserve
+    # ausserhalb der Strategie (services/portfolio_engine_payload._bucket_rows).
+    # ``current_weight_bps`` ist der Strategieanteil auf der Strategiebasis
+    # (``current_strategy_amount_rappen``); ``current_amount_rappen`` bleibt der
+    # tatsaechliche Bestand. Reservefelder nur bei Liquiditaet (sonst None).
+    comparison_basis: Optional[str] = None
+    current_strategy_amount_rappen: Optional[int] = None
+    reserve_rappen: Optional[int] = None
+    reserve_funded_rappen: Optional[int] = None
+    reserve_gap_rappen: Optional[int] = None
 
 
 class AllocationSubBucketResponse(BaseModel):

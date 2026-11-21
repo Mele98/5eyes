@@ -193,7 +193,11 @@ FAN_OUT_EXEMPT_LEAVES = frozenset(
      "core.band_rule",
      # KN4-B (H-174): Praeferenz-Kundentexte und die eine Definition
      # "IST teilweise abgeleitet".
-     "core.preference_labels", "core.holdings_rule"}
+     "core.preference_labels", "core.holdings_rule",
+     # CCX P5 (H-178): kanonischer Risikoparametersatz (M-2) und kanonische
+     # Zielkennzahl (M-3) als reine Blaetter -- eine Quelle fuer Engine,
+     # Optimierer, Siegel und Kanaele ohne neue Modulkanten.
+     "core.risk_parameter_set", "core.goal_metric_contract"}
 )
 _STDLIB = frozenset(sys.stdlib_module_names) | {"__future__"}
 _DYNAMIC_IMPORT_CALLS = frozenset({"__import__", "import_module"})

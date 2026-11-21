@@ -719,7 +719,7 @@ def test_pdf_documents_allow_as_deviation_with_reason():
     ))
     assert "Tabak ausschliessen" not in text_
     assert "Alkohol ausschliessen" in text_
-    assert "Abweichungen von der ESG-Policy" in text_
+    assert "Abweichungen von der ESG-Vorgabe" in text_
     assert "Tabak bewusst zugelassen" in text_
     assert GOOD_REASON in text_
 
@@ -728,8 +728,8 @@ def test_pdf_flags_overweight_under_negative_screening_as_deviation():
     text_ = _pdf_preferences_text(_prefs(
         policy={"esg": "negative_screening"}, tilts={"alcohol": "overweight"},
     ))
-    assert "Abweichungen von der ESG-Policy" in text_
-    assert "Alkohol uebergewichtet" in text_
+    assert "Abweichungen von der ESG-Vorgabe" in text_
+    assert "Alkohol übergewichtet" in text_
 
 
 def test_pdf_screening_note_is_theme_specific():

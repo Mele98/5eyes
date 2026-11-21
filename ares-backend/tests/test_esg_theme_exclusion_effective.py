@@ -359,8 +359,8 @@ def test_pdf_lists_negative_screening_exclusions_from_ui_payload_and_discloses_l
     assert "Tabak ausschliessen" in text and "Kernenergie ausschliessen" in text
     # ESG-PREMIUM-CRITERIA-001: Uebergewichten trotz Negativ-Screening ist
     # eine dokumentierte Abweichung von der ESG-Policy (eigene Zeile).
-    assert "Alkohol uebergewichtet" in text and "Alkohol ausschliessen" not in text
-    assert "Abweichungen von der ESG-Policy" in text
+    assert "Alkohol übergewichtet" in text and "Alkohol ausschliessen" not in text
+    assert "Abweichungen von der ESG-Vorgabe" in text
     assert "nicht durchleuchtet" in text
 
 

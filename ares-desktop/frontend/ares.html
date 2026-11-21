@@ -7131,7 +7131,6 @@ function buildAT(){
   }
   t.innerHTML=aaChartQuotaHtml(aaChartAllocItems());
 }
-function allocationReserveBreakdown(result){var advisory=Math.max(0,Number(result&&result.advisory_wealth_rappen||0));var baseRaw=result&&result.strategy_base_rappen!=null?Number(result.strategy_base_rappen):(result&&result.investable_advisory_wealth_rappen!=null?Number(result.investable_advisory_wealth_rappen):advisory);var base=(isFinite(baseRaw)&&baseRaw>0&&baseRaw<=advisory)?baseRaw:advisory;return {advisoryRappen:advisory,strategyBaseRappen:base,reserveRappen:Math.max(0,advisory-base)};} // Live-Test 2026-11 H2: SOLL-Quoten gelten fuer die Strategiebasis (Beratungsvermoegen - externe Reserve, Engine strategy_base_rappen); Reserve separat ausweisen
 function buildDLegend(){
   const el=document.getElementById('dnleg');if(!el)return;
   el.className='alloc-legend';
@@ -26414,6 +26413,6 @@ function openStammdatenModal(){
 </div>
 <!-- ─────────────────────────────────────────────────────────── -->
 
-<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./owner-content.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./allocation-publication.js"></script><script src="./finalize-attestation.js"></script><script src="./fx-rates-editor.js"></script><script src="./advisor-guidance.js"></script><script src="./mandate-view.js"></script><script src="./kn3-ui.js"></script><script src="./kn4-ui.js"></script><script src="./sustainability-preferences.js"></script>
+<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./owner-content.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./allocation-publication.js"></script><script src="./finalize-attestation.js"></script><script src="./fx-rates-editor.js"></script><script src="./advisor-guidance.js"></script><script src="./mandate-view.js"></script><script src="./kn3-ui.js"></script><script src="./kn4-ui.js"></script><script src="./kn5-ui.js"></script><script src="./sustainability-preferences.js"></script>
 </body>
 </html>

@@ -710,6 +710,14 @@ class Settings(BaseSettings):
     sub_class_intra_correlation: float = 1.0
 
     @property
+    def ic_release_required(self) -> bool:
+        """CCX P5 / N-925-05 (CTO-Entscheid H-180): ohne IC-Freigabe der
+        Risikoparameter keine Berechnung in Produktion -- ``app_env=production``
+        ODER gepackte Desktop-EXE (``sys.frozen``), dieselbe Linie wie
+        ``foundation_example_available``."""
+        return self.app_env == 'production' or bool(getattr(sys, 'frozen', False))
+
+    @property
     def foundation_example_available(self) -> bool:
         """KN-B / E2E2-10: Der Demo-Systemfall ("Foundation Case laden") nur im
         Entwicklungs-/Demo-/Testbetrieb. Gesperrt in ``app_env=production`` und
@@ -1713,3 +1721,49 @@ def ensure_tenant_master_kek(
         raise KekStoreError(f"Die neu angelegte KEK-Ablage {store} liess sich nicht zuruecklesen.")
     cfg.tenant_master_kek = new_kek
     return "generated"
+
+
+# ---------------------------------------------------------------------------
+# H-180 (EXE-03): Build-Kennung des ausgelieferten Artefakts.
+# ares-desktop/scripts/build-backend.js legt ``ares_build_info.json``
+# (Produktname, Version aus ares-desktop/package.json, Git-SHA des Builds) in
+# die PyInstaller-EXE. Im Quellbetrieb gibt es die Datei nicht; dann bleibt es
+# bei ``settings.app_version`` und ``build_sha()`` ist ``None``. Hier statt in
+# einem eigenen Modul, damit main/health keine neue Import-Kante brauchen
+# (Architektur-Ratsche fan_out).
+# ---------------------------------------------------------------------------
+BUILD_INFO_FILE = "ares_build_info.json"
+
+
+def _build_info_candidates() -> list[Path]:
+    paths: list[Path] = []
+    bundle = getattr(sys, "_MEIPASS", None)
+    if bundle:
+        paths.append(Path(bundle) / BUILD_INFO_FILE)
+    return paths
+
+
+@functools.lru_cache(maxsize=1)
+def build_info() -> dict | None:
+    """``{"product", "version", "git_sha"}`` des gepackten Builds oder ``None``."""
+    for path in _build_info_candidates():
+        try:
+            import json as _json
+
+            data = _json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict) and data.get("version"):
+            return {"product": str(data.get("product") or ""), "version": str(data["version"]),
+                    "git_sha": str(data.get("git_sha") or "unknown")}
+    return None
+
+
+def effective_version(default: str) -> str:
+    info = build_info()
+    return info["version"] if info else default
+
+
+def build_sha() -> str | None:
+    info = build_info()
+    return info["git_sha"] if info else None

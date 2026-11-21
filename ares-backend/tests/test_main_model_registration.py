@@ -72,10 +72,13 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # keine bestehende Tabelle umbenannt/entfernt.
 # CCX-P4 Nachtrag 1 (N-910-06): FK allocation_publication_decisions.target_allocation_id
 # -> target_allocations aendert nur die Abhaengigkeitsreihenfolge (112 Tabellen).
+# CCX-P5 Kanal-Envelope (2026-11-21): eine neue Tabelle
+# (advisory_channel_publications), 113 Tabellen, keine bestehende Tabelle
+# umbenannt/entfernt.
 # H-179 L2/L3 (2026-11-21): vier neue Tabellen (owner_content_versions,
 # owner_content_approvals, advice_rationales, w033_client_declarations),
 # keine bestehende Tabelle umbenannt/entfernt.
-GOLDEN_SORTED_TABLES_SHA256 = "2ee5c5d1b0e638e00173bb1ed3b6e61d0c1e148e36f5d0139e9a3d0714c4e631"
+GOLDEN_SORTED_TABLES_SHA256 = "19983e5e674605b4e73491308d0e7aaf03b575a34b46b64655c3a814e84dc77a"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -202,11 +205,13 @@ GOLDEN_SORTED_TABLES_SHA256 = "2ee5c5d1b0e638e00173bb1ed3b6e61d0c1e148e36f5d0139
 # ter_status in Empfehlungspositionen; property_gate_review_json in Vermoegenspositionen.
 # KN-B (2026-11-19): freshness in AllocationPublicationOverviewResponse, causes in
 # AdvisoryEnvelopeFreshnessResponse (E2E2-05).
+# KN5 (2026-11-20, N-917R4-02): AllocationBucketResponse liefert comparison_basis,
+# current_strategy_amount_rappen und reserve_*_rappen (Reserve ausserhalb der Strategie).
 # H-179 L2/L3 (2026-11-21): neue Pfade /compliance/owner-content (GET/POST,
 # /{row_id}/approve), /mandates/{id}/contract-layer, .../advice-rationale,
 # .../w033-declarations und Schemas OwnerContentCreate/OwnerContentApprove/
 # AdviceRationaleCreate/W033DeclarationCreate; kein bestehender Pfad geaendert.
-GOLDEN_OPENAPI_SHA256 = "0dc75ae777dd775c31c1bb25db1af28ce9090474d02fe2b02fbcc57590db631a"
+GOLDEN_OPENAPI_SHA256 = "ddfe91083e005127c7afb659fc731eb1757301dfbef1b3dbcca21aa259fe47b4"
 
 _PROBE = """
 import hashlib, json

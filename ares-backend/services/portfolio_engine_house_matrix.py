@@ -60,16 +60,16 @@ Extraktion betroffen (false positives beim initialen breiten Grep).
 Zirkular-Import-Haertung (identisches Muster zu den Schritten 1-7): CORE-
 Namen aus `services.portfolio_engine` (`_norm_text`, `_bucket_key`,
 `_coerce_band_bps`, `BUCKET_LABELS`, `BUCKET_FIELDS`,
-`DEFAULT_ASSET_RISKY_WEIGHTS_BPS`, `_normalize_preferences`,
+`_normalize_preferences`,
 `ALLOWED_HOUSE_MATRIX_PROFILES`, `_ILLIQUID_SUB_ASSET_CLASSES`,
 `_SAA_LIQUIDITY_HARD_CAP_BPS`, `_bps`) sowie bereits extrahierte
 Cross-Cluster-Namen (`_goal_hardness_key`/`_goal_projection_years` aus
 Schritt 7, `_resolve_home_equity_label` aus Schritt 3,
 `_compute_reserve_for_inputs` aus Schritt 4 -- alle ueber den bestehenden
 Re-Export von `services.portfolio_engine` erreichbar) werden function-local
-(lazy) importiert, NIE auf Modul-Ebene. `DEFAULT_ASSET_RISKY_WEIGHTS_BPS`
-und `_ILLIQUID_SUB_ASSET_CLASSES` sind zwar Cluster-exklusiv genutzte
-Konstanten, bleiben aber bewusst in `portfolio_engine.py` (statt mitzuziehen)
+(lazy) importiert, NIE auf Modul-Ebene. `_ILLIQUID_SUB_ASSET_CLASSES` ist
+zwar eine Cluster-exklusiv genutzte Konstante (der fruehere Bucket-Satz
+`DEFAULT_ASSET_RISKY_WEIGHTS_BPS` ist seit CCX P5 entfernt), bleibt aber bewusst in `portfolio_engine.py` (statt mitzuziehen)
 -- geringeres Risiko fuer den hoechst-riskanten Schritt, per Lazy-Import
 zurueckgeholt statt dupliziert.
 
@@ -81,6 +81,7 @@ auf Modul-Ebene importiert (kein Zyklus moeglich). `Goal`/`Mandate`/
 annotations` + `TYPE_CHECKING`, wo kein echter Laufzeit-Gebrauch vorliegt.
 """
 from __future__ import annotations
+from core.risk_parameter_set import assert_weights_investable, canonical_bucket_coefficients
 
 import re
 from collections.abc import Collection
@@ -169,12 +170,6 @@ def _building_block_rows_for_policy(
     return resolve_building_blocks_for_jurisdiction(
         db, policy_id, jurisdiction, investment_universe=investment_universe,
     )
-
-
-def _asset_risky_weight_fallbacks() -> dict[str, int]:
-    from services.portfolio_engine import DEFAULT_ASSET_RISKY_WEIGHTS_BPS
-
-    return DEFAULT_ASSET_RISKY_WEIGHTS_BPS.copy()
 
 
 def _apply_band_preferences(
@@ -1539,15 +1534,17 @@ def _enrich_sub_allocations_with_risk(
         weighted_totals[bucket] += mix_weight * int(risky_fraction_bps)
         weight_totals[bucket] += mix_weight
         enriched.append({**sub, "risky_fraction_bps": int(risky_fraction_bps)})
-    asset_risky_weights = _asset_risky_weight_fallbacks()
-    for bucket in BUCKET_FIELDS:
-        if weight_totals[bucket] > 0:
-            asset_risky_weights[bucket] = int(round(weighted_totals[bucket] / weight_totals[bucket]))
+    # CCX P5 / M-2 (core/risk_parameter_set.py): eine Quelle. Bucket-
+    # Koeffizient = IC-Subklassenwerte x Mischgewicht; ein Bucket ohne Zeile ist
+    # nicht investierbar (Koeffizient 0, inert) -- kein hart codierter Satz mehr.
+    asset_risky_weights, coefficient_basis = canonical_bucket_coefficients(enriched)
+    del weighted_totals, weight_totals
     portfolio_weights = {bucket: 0 for bucket in BUCKET_FIELDS}
     for row in enriched:
         bucket = _bucket_key(row.get("asset_class"))
         if bucket in portfolio_weights:
             portfolio_weights[bucket] += int(row.get("target_weight_bps") or 0)
+    assert_weights_investable(portfolio_weights, coefficient_basis)
     # Round once from the exact integer bucket coefficients. This is the same
     # functional used for solver input, final audit and persistence; summing
     # separately rounded sleeve contributions can differ at a binding cap.

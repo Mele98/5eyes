@@ -23,7 +23,7 @@ from database import (  # noqa: E402
 from main import app  # noqa: E402
 from models.market_data_cache import MarketDataCacheEntry  # noqa: E402
 from models.users import User  # noqa: E402
-from services.auth import require_admin, require_advisor  # noqa: E402
+from services.auth import get_current_user, require_admin, require_advisor  # noqa: E402
 from services.market_data.cache_purge import (  # noqa: E402
     list_purge_history,
     run_daily_cache_purge,
@@ -152,7 +152,8 @@ def test_purge_now_endpoint_returns_report_for_advisor(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cache_purge, "run_daily_cache_purge", lambda db: expected)
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[require_advisor] = lambda: _user("advisor")
+    # H-180 (ROL-02): globaler Cache-Purge nur fuer Admin/Plattform-Rolle.
+    app.dependency_overrides[get_current_user] = lambda: _user("admin")
     try:
         with TestClient(app) as client:
             response = client.post("/admin/system/market-data/purge-now")

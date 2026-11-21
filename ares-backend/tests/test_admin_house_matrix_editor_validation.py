@@ -230,7 +230,11 @@ def test_parse_rejects_instead_of_silently_rounding(raw, code):
 
 
 def test_default_risky_fractions_mirror_backend_constant():
-    from services.optimizer.constraints import DEFAULT_BUCKET_RISKY_FRACTION
+    """CCX P5 / M-2: der Backend-Bucket-Satz ist entfernt (kein Rechenpfad mehr).
+    Die Admin-Vorschau beim Bearbeiten der Hausmatrix zeigt weiterhin dieselben
+    Vorlagewerte (nur Anzeige); eingefroren gegen den Testvektor, damit eine
+    Abweichung auffaellt. Offene Owner-/IC-Frage im Handoff H-178."""
+    from tests.p5_test_vectors import P5_TEST_RISKY_FRACTION as DEFAULT_BUCKET_RISKY_FRACTION
 
     out = _node("console.log(JSON.stringify(ADMIN_POLICY_DEFAULT_RISKY_BPS));")
     mapping = {"liq": "liquidity", "bonds": "bonds", "equity": "equities",

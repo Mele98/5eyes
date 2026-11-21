@@ -55,6 +55,7 @@ from services.recommendation_release_gate import (
     assert_recommendation_release_eligible,
     assert_retrocession_release_eligible,
     assert_risk_signoff_release_eligible,
+    require_signature_envelope,
 )
 
 router = APIRouter(tags=["Vor-Ort-Signatur"])
@@ -130,6 +131,13 @@ def _release_gates(
         assert_preference_document_bound(db, mandate, document, channel=CHANNEL_SIGNATURE)
         # E2b / N-888-09: gebundener Strategie-Inhalt gegen die Kundenausschluesse.
         assert_document_sustainability_floor(db, mandate, document, channel=CHANNEL_SIGNATURE)
+        # CCX P5 (Vertrag §8.4): dasselbe Envelope-/Artefakt-Gate wie die
+        # Berater-Signatur (SEALED+FRESH, FX jetzt, Parametersatz/Zielkennzahl,
+        # genau dieses archivierte PDF des aktuellen Envelopes).
+        require_signature_envelope(
+            db, mandate, document, channel="ONSITE_SIGNATURE", user=current_user,
+            ip_address=extract_client_ip(request) if request is not None else None,
+        )
         if document_type in CONTRACT_CONCLUSION_DOCUMENT_TYPES:
             # H8 N-890-01: die Vor-Ort-Signatur ist der In-App-Weg fuer die
             # Kundenunterschrift -- dasselbe Kundeninformations-/KYC-Gate wie

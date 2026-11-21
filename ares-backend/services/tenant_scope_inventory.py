@@ -51,6 +51,10 @@ TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
     # (Route ueber envelope_id) und Invalidationsereignisse (mandate_id) --
     # tenant_id NOT NULL, Mandant per (tenant_id, envelope_id)-FK.
     "advisory_dependency_edges",
+    # CCX-P5 Kanal-Envelope (2026-11-21): Kanalzeilen -- tenant_id NOT NULL,
+    # Mandant per INSERT-Guard aus Mandat/Ersteller, Envelope per (tenant_id,
+    # envelope_id)-FK.
+    "advisory_channel_publications",
     "advisory_effective_input_manifests",
     "advisory_envelope_bindings",
     "advisory_invalidation_events",

@@ -30,7 +30,7 @@ from tests.test_e2e_thierry_goessi_walkthrough import (  # noqa: F401 - pytest f
 from tests.sustainability_test_support import rc_release_preconditions  # noqa: F401 - RC-CH-1 autouse
 # CCX-P4: Altbestands-Kanaltest -- prueft andere Gates; Publikation siehe
 # tests/test_ccx_p4_allocation_publish.py (tests/ccx_p4_publication_support.py).
-from tests.ccx_p4_publication_support import assume_published_allocation  # noqa: E402,F401
+from tests.ccx_p4_publication_support import assume_published_allocation, assume_signable_decision  # noqa: E402,F401
 
 VOLATILE_KEYS = frozenset({
     "id", "run_id", "target_allocation_id", "allocation_id", "assessment_id", "based_on_assessment_id",
@@ -296,6 +296,7 @@ def _sign(api, mid, doc_id):
     })
 
 
+@pytest.mark.usefixtures("assume_signable_decision")
 def test_n07_new_preference_invalidates_old_customer_documents(api, scenario, session_factory):
     mid = scenario["mandate_id"]
     first = _ok_capture(api, mid)
@@ -379,6 +380,7 @@ def test_handoff_blocked_by_stale_preference(api, scenario, session_factory, mon
     assert _block_audits(session_factory)[-1]["channel"] == "handoff"
 
 
+@pytest.mark.usefixtures("assume_signable_decision")
 def test_onsite_signature_uses_the_same_document_binding(api, scenario, session_factory, advisor_user):
     """Vor-Ort-Signatur (Kanal signature): gleiche Bindung wie die Berater-
     Signatur. Audit-Eintrag folgt mit H7 (release_block_audit, N-888-13).

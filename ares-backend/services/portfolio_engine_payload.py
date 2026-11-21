@@ -108,6 +108,7 @@ dritte Zeichenkette `'"current_goal_analysis"'` bleibt dagegen unberuehrt
 """
 
 from __future__ import annotations
+from core.risk_parameter_set import ParameterSetMissing
 
 import json
 import logging
@@ -364,8 +365,14 @@ def _compute_goal_score(
 def _inflate_real_goal_target_rappen(target_rappen: int, years: int, inflation_series_bps: list[int] | None) -> int:
     target = max(1, int(target_rappen or 0))
     factor = 1.0
-    series = list(inflation_series_bps or [150])
-    last_bps = int(series[-1] if series else 150)
+    series = list(inflation_series_bps or [])
+    if not series and int(years or 0) > 0:
+        # CCX P5 / M-2: frueher lokal 150 bps -- eine zweite, nirgends
+        # freigegebene Inflationsannahme. Jetzt nur der CMA-Pfad.
+        raise ParameterSetMissing(
+            "Für die Teuerung des Ziels fehlt der Inflationspfad der Kapitalmarktannahmen."
+        )
+    last_bps = int(series[-1]) if series else 0
     for idx in range(max(0, int(years or 0))):
         infl_bps = int(series[idx]) if idx < len(series) else last_bps
         factor *= 1 + (infl_bps / 10000)
@@ -1259,7 +1266,7 @@ def theme_look_through_disclosure(theme_keys) -> str:
     if "fossil" in keys:
         parts.append(
             "Fossile Energie: Themenprodukte sowie Fonds mit Energie-Sektoranteil > 10 % "
-            "(GICS 'Energy' gemaess gepflegter Sektor-Aufschluesselung) ausgeschlossen "
+            "(GICS 'Energy' gemäss gepflegter Sektor-Aufschlüsselung) ausgeschlossen "
             "(Look-through); Produkte ohne gepflegte Sektordaten werden nicht durchleuchtet."
         )
     others = [THEME_DISPLAY_NAMES[key] for key in keys if key != "fossil"]
@@ -1269,13 +1276,13 @@ def theme_look_through_disclosure(theme_keys) -> str:
             "(Sub-Anlageklasse 'Thema ...' oder Themen-Tag im Produktkatalog); kein "
             "Look-through, da diese Themen Sub-Industrien und aus Sektordaten nicht "
             "ableitbar sind -- breit diversifizierte Index- und Fondsprodukte werden "
-            "nicht durchleuchtet und koennen Titel dieser Themen enthalten."
+            "nicht durchleuchtet und können Titel dieser Themen enthalten."
         )
     if parts:
         # THEME-MISSINGNESS-001: die fail-closed-Regel gehoert in den Text.
         parts.append(
             "Andere Produkte (z.B. Einzeltitel) ohne Themen-Zuordnung im "
-            "Produktkatalog werden nicht ausgewaehlt."
+            "Produktkatalog werden nicht ausgewählt."
         )
     return " ".join(parts)
 

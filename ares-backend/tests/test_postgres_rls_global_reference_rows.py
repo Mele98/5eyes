@@ -160,6 +160,13 @@ _VALID_ROW_VALUES: dict[str, dict[str, object]] = {
     "allocation_active_publications": {"optimistic_version": 1},
     # H-179: ck_owner_content_versions_payload verlangt Text oder Wert.
     "owner_content_versions": {"body_text": "seed"},
+    # CCX-P5: Einwert-CHECKs schema_version/status, Hash-Laengen; Kanal ohne
+    # Render-Pflicht (API), damit der Mehrspalten-CHECK erfuellt ist.
+    "advisory_channel_publications": {
+        "schema_version": "ares/channel-publication/1", "status": "PUBLISHED", "channel": "API",
+        "channel_payload_hash": "0" * 64, "bound_envelope_hash": "0" * 64,
+        "parameter_set_hash": "0" * 64, "goal_metric_payload_hash": "0" * 64, "render_hash": None,
+    },
     # H10 Nachtrag 1: Einwert-CHECK (result = 'BLOCKED') erkennt der Regex nicht.
     "privacy_egress_events": {"result": "BLOCKED"},
     "risk_override_decisions": {

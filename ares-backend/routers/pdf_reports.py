@@ -10,6 +10,7 @@ import dataclasses
 import hashlib
 import json
 import logging
+import re
 from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -71,6 +72,12 @@ from services.recommendation_release_gate import (
 )
 # CCX-P3-FX (N-909-01/-13): strikte FX-Basis und Druckpruefung ueber die Druck-Fassade.
 from services.print_fx_gate import assert_print_fx_basis_current, load_fx_basis
+from services.allocation_publication_gate import (
+    CHANNEL_PDF,
+    evaluate_channel_envelope,
+    record_channel_publication,
+    require_channel_envelope,
+)
 from services.portfolio_engine import run_exclusion_evidence_status
 from sqlalchemy import text as sql_text
 from services.pdf import ReportLabRenderer
@@ -150,6 +157,8 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session, *,
         jurisdiction=resolve_pdf_jurisdiction(mandate),
         # N-897-12: ohne jede KYC-Bestaetigung als Entwurf vor Vertragsabschluss.
         watermark_mode="vorvertrag" if draft_check and kyc_release_is_draft(db, mandate) else "none",
+        # CCX P5: Pruefnummer des auslieferbaren, versiegelten Entscheids (Fuss).
+        decision_ref=evaluate_channel_envelope(db, mandate).footer_ref(),
     )
 
 
@@ -160,8 +169,15 @@ def _mark_unpublished(ctx: PDFContext, db: Session, mandate: Mandate) -> PDFCont
     legt nur ``watermark_mode == "none"`` ab) -- damit auch nicht signierbar."""
     mode = customer_document_watermark(db, mandate)
     if mode is None:
-        return ctx
-    return dataclasses.replace(ctx, watermark_mode=mode)
+        # CCX P5: publiziert heisst noch nicht auslieferbar -- FX jetzt,
+        # Parametersatz und Zielkennzahl muessen zum versiegelten Entscheid
+        # passen. Sonst 409 mit Ursache (kein Entwurf, kein Fallback).
+        decision = evaluate_channel_envelope(db, mandate)
+        if decision.applicable and not decision.ok:
+            require_channel_envelope(db, mandate, channel=CHANNEL_PDF, user=None, decision=decision)
+        return dataclasses.replace(ctx, decision_ref=decision.footer_ref())
+    ic = {k: v for k, v in (ctx.decision_ref or {}).items() if k == "ic_release_status"}
+    return dataclasses.replace(ctx, watermark_mode=mode, decision_ref=ic or None)
 
 
 def _attach_provisional_notice(ctx: PDFContext, db: Session, mandate: Mandate) -> PDFContext:
@@ -1308,9 +1324,13 @@ def _archive_content_hash(data, ctx: PDFContext) -> str:
     eine Entwurfsfassung ("vorvertrag") hat nie denselben Hash wie die finale."""
     base = content_hash_for(data)
     mode = getattr(ctx, "watermark_mode", "none") or "none"
-    if mode == "none":
+    # CCX P5: der gebundene Entscheid ist Teil des Archiv-Schluessels -- gleiche
+    # Fachdaten unter einem anderen Envelope ergeben eine neue Fassung (das
+    # Dokument traegt dessen Pruefnummer), nie die alte wiederverwendet.
+    decision = (getattr(ctx, "decision_ref", None) or {}).get("envelope_hash")
+    if mode == "none" and not decision:
         return base
-    return hashlib.sha256(f"{base}|{mode}".encode("utf-8")).hexdigest()
+    return hashlib.sha256(f"{base}|{mode}|{decision or ''}".encode("utf-8")).hexdigest()
 
 
 def _archive_final(ctx: PDFContext, db: Session, **kwargs):
@@ -1353,7 +1373,20 @@ def _archive_final(ctx: PDFContext, db: Session, **kwargs):
             http_status=409,
             extra={"channel": "archive", "target_allocation_id": target_allocation_id},
         )
-    return archive_generated_pdf(db, **kwargs)
+    doc = archive_generated_pdf(db, **kwargs)
+    # CCX P5: die finale Fassung eines Entscheid-Dokuments wird als PDF-Artefakt
+    # genau dieses Envelopes festgehalten (Payload-/Render-Hash); nur so ist sie
+    # spaeter signierbar.
+    ref = getattr(ctx, "decision_ref", None) or {}
+    if doc is not None and ref.get("envelope_hash") and target_allocation_id:
+        decision = evaluate_channel_envelope(db, mandate)
+        if decision.ok and decision.envelope_hash == ref["envelope_hash"]:
+            record_channel_publication(
+                db, decision, mandate=mandate, channel=CHANNEL_PDF, artifact_id=str(doc.id),
+                channel_payload_hash=str(doc.content_hash), render_hash=str(doc.checksum_sha256),
+                user=kwargs["current_user"],
+            )
+    return doc
 
 
 def _archive_final_unbound(ctx: PDFContext, db: Session, **kwargs):
@@ -2419,6 +2452,28 @@ def _protocol_advice_sections(db: Session, mandate: Mandate, ta) -> dict:
     return result
 
 
+# KN5 / N-917R4-01: Die Engine speichert im Lauf eine interne Zielbeschreibung
+# (``objective_summary``, z. B. «TBI V1 - strategische Soll-Allokation mit
+# produktiver Titelselektion»). Sie bleibt im Lauf und im Audit unveraendert;
+# im Kunden-PDF steht ein Kundentext. Unbekannte Texte verlieren nur ein
+# internes Versionspraefix («XYZ V1 - »).
+_CUSTOMER_RECOMMENDATION_SUMMARIES = {
+    "TBI V1 - strategische Soll-Allokation mit produktiver Titelselektion":
+        "Strategische Soll-Allokation mit Titelauswahl aus dem Produktuniversum",
+}
+_INTERNAL_SUMMARY_PREFIX = re.compile(r"^[A-Z]{2,}\s+V\d+\s*[-–—]\s*")
+
+
+def _customer_recommendation_summary(raw) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    if text in _CUSTOMER_RECOMMENDATION_SUMMARIES:
+        return _CUSTOMER_RECOMMENDATION_SUMMARIES[text]
+    stripped = _INTERNAL_SUMMARY_PREFIX.sub("", text).strip()
+    return (stripped[:1].upper() + stripped[1:]) if stripped else ""
+
+
 def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
     """Beratungsprotokoll-Daten aus AdvisoryLog + letzter Empfehlung."""
     advisory_wealth = None
@@ -2463,9 +2518,9 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
         # ein Draft (oder sein roher Status-String) wird nie als finale
         # Empfehlung in Protokoll/Kunden-Signoff ausgewiesen.
         if latest_run is not None and getattr(latest_run, "result_status", None) == "Final":
-            latest_recommendation_summary = str(
-                getattr(latest_run, "objective_summary", None) or ""
-            ).strip() or (
+            latest_recommendation_summary = _customer_recommendation_summary(
+                getattr(latest_run, "objective_summary", None)
+            ) or (
                 "Finalisierte Empfehlung vom "
                 f"{str(getattr(latest_run, 'updated_at', '') or '')[:10]}"
             ).strip()
@@ -3314,11 +3369,21 @@ def get_advisory_report_pdf(
 
     assert_portfolio_data_release_eligible(db, mandate, action="pdf")
     _enforce_cma_currency_release(db, mandate)  # CMA-CURRENCY-GUARD-001
+    unpublished = customer_document_watermark(db, mandate)
+    decision = evaluate_channel_envelope(db, mandate)
+    decision_ref = decision.footer_ref()
+    if unpublished is None:
+        # CCX P5: wie die uebrigen Entscheid-Dokumente (FX jetzt, Bindungen).
+        if decision.applicable and not decision.ok:
+            require_channel_envelope(db, mandate, channel=CHANNEL_PDF, user=current_user, decision=decision)
+    else:  # Entwurf: nur der IC-Vermerk (N-925-05), keine Pruefnummer
+        decision_ref = {k: v for k, v in (decision_ref or {}).items() if k == "ic_release_status"} or None
     pdf_bytes = render_advisory_report_pdf(
         db, mandate, current_user,
         # CCX-P4: nicht publizierte Strategie -> Entwurf (Vorrang vor "vorvertrag").
-        watermark_mode=customer_document_watermark(db, mandate)
+        watermark_mode=unpublished
         or ("vorvertrag" if kyc_release_is_draft(db, mandate) else "none"),
+        decision_ref=decision_ref,
     )
     if pdf_bytes is None:
         # CERT-COST-PUBLICATION-001 (COST-PUBLICATION-GATE-001): degraded

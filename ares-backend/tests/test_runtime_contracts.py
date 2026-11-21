@@ -104,7 +104,7 @@ from schemas.wealth import PlanningAssumptionCreate
 from services.risk_scoring import profile_for_score_x10
 # CCX-P4: Altbestands-Kanaltest -- prueft andere Gates; Publikation siehe
 # tests/test_ccx_p4_allocation_publish.py (tests/ccx_p4_publication_support.py).
-from tests.ccx_p4_publication_support import assume_published_allocation  # noqa: E402,F401
+from tests.ccx_p4_publication_support import assume_published_allocation, assume_signable_decision  # noqa: E402,F401
 
 
 @pytest.fixture()
@@ -4447,6 +4447,7 @@ def _satisfy_onboarding(session, mandate_id):
     session.commit()
 
 
+@pytest.mark.usefixtures("assume_signable_decision")
 def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user, monkeypatch):
     _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 
@@ -4523,6 +4524,7 @@ def test_sign_document_preserves_initial_signed_at(session_factory, advisor_user
     assert doc.signature_client_signer_name is None
 
 
+@pytest.mark.usefixtures("assume_signable_decision")
 def test_sign_document_rejects_overwriting_an_existing_advisor_signature(session_factory, advisor_user, monkeypatch):
     """REC-006 (Codex-Audit 2026-08-25): ein zweiter Aufruf mit
     signed_by_advisor=True fuer dieselbe bereits signierte Seite muss

@@ -519,7 +519,7 @@ def test_alembic_head_creates_append_only_tables_with_mandate_guard(tmp_path):
                       "w033_client_declarations"):
             assert {f"trg_{table}_no_update", f"trg_{table}_no_delete"} <= triggers
         assert {"trg_advice_rationales_tenant_guard", "trg_w033_client_declarations_tenant_guard"} <= triggers
-        command.downgrade(alembic_cfg(url), "63332bb56098")  # leer -> erlaubt
+        command.downgrade(alembic_cfg(url), "c2546c196134")  # leer -> erlaubt
         command.upgrade(alembic_cfg(url), "c7e1a9d3f5b2")
     finally:
         engine.dispose()
@@ -531,7 +531,7 @@ def test_postgres_ddl_has_immutability_and_insert_guard():
     from alembic import command
 
     buf = io.StringIO()
-    command.upgrade(alembic_cfg("postgresql://u:p@localhost/db", buf), "63332bb56098:c7e1a9d3f5b2", sql=True)
+    command.upgrade(alembic_cfg("postgresql://u:p@localhost/db", buf), "c2546c196134:c7e1a9d3f5b2", sql=True)
     ddl = buf.getvalue()
     for table in ("owner_content_versions", "owner_content_approvals", "advice_rationales",
                   "w033_client_declarations"):

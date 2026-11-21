@@ -343,8 +343,10 @@ def test_finalize_seals_envelope_bindings_manifest_and_audit(session_factory):
         kinds = sorted(b.binding_kind for b in db.query(AdvisoryEnvelopeBinding).all())
         # CCX-P3 (2026-11-14): Bewertungs-Snapshot und Entscheid je Position
         # sind zusaetzliche Kind-Bindungen desselben Envelopes.
-        assert kinds == ["effective_input_manifest", "holdings_valuation_snapshot", "position_decision_ledger",
-                         "recommendation_positions", "recommendation_run", "target_allocation"]
+        # CCX-P5 (2026-11-21): Parametersatz (M-2) und Zielkennzahl (M-3).
+        assert kinds == ["effective_input_manifest", "goal_metric", "holdings_valuation_snapshot",
+                         "position_decision_ledger", "recommendation_positions", "recommendation_run",
+                         "risk_parameter_set", "target_allocation"]
         manifest = db.query(AdvisoryEffectiveInputManifest).one()
         assert manifest.rounding_policy_version == "ares-rounding/1"
         assert json.loads(envelope.canonical_payload_json)["effective_input_manifest_hash"] == manifest.manifest_hash

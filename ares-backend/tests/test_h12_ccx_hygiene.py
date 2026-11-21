@@ -194,7 +194,9 @@ def test_every_gated_pdf_route_uses_the_gate_result():
 
 
 def test_sealed_run_exemption_requires_fresh_decision_and_valuation_binding(session_factory, monkeypatch):
-    """Ein invalidierter (STALE) versiegelter Lauf bekommt keine FX-Ausnahme --
+    """Seit CCX P5 gibt es die FX-Ausnahme fuer versiegelte Laeufe gar nicht
+    mehr (§8.3); ``run_is_sealed`` bleibt als Zustandsabfrage. Historisch:
+    ein invalidierter (STALE) versiegelter Lauf bekam keine FX-Ausnahme --
     P2 laesst dabei ``status`` SEALED stehen und setzt nur ``freshness_status``
     (hier belegt). Ebenso nicht ohne Bewertungsbindung (P1-Altbestand)."""
     import services.print_fx_gate as gate
@@ -206,7 +208,11 @@ def test_sealed_run_exemption_requires_fresh_decision_and_valuation_binding(sess
     with session_factory() as db:
         mandate = db.get(Mandate, ids["mid"])
         assert gate.run_is_sealed(db, mandate, ids["run"]) is True
-        gate.assert_print_fx_basis_current(db, mandate, run_id=ids["run"])  # Ausnahme greift
+        # CCX P5 (Vertrag §8.3): auch der FRESHe versiegelte Lauf erhaelt beim
+        # Live-Neurendern keine FX-Ausnahme mehr.
+        with pytest.raises(FxBasisError) as exc:
+            gate.assert_print_fx_basis_current(db, mandate, run_id=ids["run"])
+        assert exc.value.reason_code == "CCX_FX_BASIS_MISSING"
     with session_factory() as db:
         db.info["ares_actor_user_id"] = ids["advisor"]
         _mutate_goal(db, ids)

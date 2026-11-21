@@ -339,6 +339,9 @@ def test_protokoll_pdf_renders_knowledge_gap_section():
     texts = [getattr(f, "text", "") for f in build_protokoll_flowables(ctx, data)]
     assert any("KENNTNISSE ZU DEN ANLAGEKLASSEN DER STRATEGIE" in t.upper() for t in texts)
     assert any("Kunde über Private Equity informieren und dokumentieren." in t for t in texts)
+    # KN5 / N-917R4-01: der Reason-Code bleibt im Reasoning, nicht im Kunden-PDF.
+    assert not any("KNOWLEDGE_GAP_ASSET_CLASS" in t for t in texts)
+    assert any("Kenntnislücke: Die SAA enthält Private Equity" in t for t in texts)
     assert any("Allokation wurde dadurch nicht" in t for t in texts)
 
     empty = [getattr(f, "text", "") for f in build_protokoll_flowables(ctx, ProtokollData())]

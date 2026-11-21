@@ -305,10 +305,12 @@ def test_pdf_shows_snapshot_identity_and_as_of():
     flat = " ".join(
         " ".join((page.extract_text() or "") for page in PdfReader(BytesIO(pdf)).pages).split()
     )
-    assert "dps-abcdef0123456789abcdef01" in flat
-    assert "ffffffffffff" in flat
-    assert "26.10.2026" in flat
-    assert "dca-0123456789abcdef01234567" in flat
+    # KN6 / N-917R5-02: Kundentext «Bestandsstichtag + Pruefsumme» (8 Zeichen des
+    # Snapshot-Hashes); die internen Kennungen stehen im gespeicherten
+    # Depot-Check/JSON und im Audit-Log, nicht im Kunden-PDF.
+    assert "Datenstand: Bestandsstichtag 26.10.2026, Prüfsumme ffffffff." in flat
+    assert "dps-abcdef0123456789abcdef01" not in flat
+    assert "dca-0123456789abcdef01234567" not in flat
 
 
 # --- Schema: Bootstrap, Runtime-Patch, Alembic -----------------------------

@@ -308,7 +308,10 @@ def test_exempt_leaves_allowlist_is_explicit_and_versioned(gate):
          "core.presentation_rounding", "core.sustainability_preference",
          "core.property_gate", "core.fx_freshness",
          "core.depletion_display", "core.customer_terms", "core.band_rule",
-         "core.preference_labels", "core.holdings_rule"}
+         "core.preference_labels", "core.holdings_rule",
+         # CCX P5 (Handoff H-178): kanonischer Risikoparametersatz (M-2) und
+         # Zielkennzahl (M-3) als Review-Entscheid.
+         "core.risk_parameter_set", "core.goal_metric_contract"}
     )
 
 

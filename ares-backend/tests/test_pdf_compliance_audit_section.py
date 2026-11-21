@@ -27,6 +27,32 @@ def _render_text(payload: dict) -> str:
     return _extract_text(render_advisory_report_pdf_from_payload(payload))
 
 
+def _advisor_text(payload: dict) -> str:
+    """KN5 / N-917R4-01: Berater-/Audit-Fassung des Abschnitts (advisor_annex)."""
+    from reportlab.platypus import Paragraph
+
+    from services.pdf.components.advisory_palette import make_advisory_styles
+    from services.pdf.components.compliance_audit import render_compliance_audit_section
+
+    story: list = []
+    render_compliance_audit_section(payload, story, make_advisory_styles(), advisor_annex=True)
+    out: list[str] = []
+
+    def walk(obj):
+        if isinstance(obj, Paragraph):
+            out.append(obj.getPlainText())
+        for attr in ("_cellvalues", "_content"):
+            for item in getattr(obj, attr, None) or []:
+                for sub in (item if isinstance(item, (list, tuple)) else [item]):
+                    walk(sub)
+        if isinstance(obj, (list, tuple)):
+            for item in obj:
+                walk(item)
+
+    walk(story)
+    return "\n".join(out)
+
+
 def test_compliance_audit_minimal_payload_renders_degraded_defaults():
     payload = _make_minimal_payload()
     for key in (
@@ -42,8 +68,11 @@ def test_compliance_audit_minimal_payload_renders_degraded_defaults():
 
     assert "Compliance-Audit" in text
     assert "Geeignetheitsprüfung" in text
-    assert "Methodology-Modelle" in text
+    assert "Methodik der Produktempfehlung" in text
     assert "Daten ausstehend" in text
+    # KN5: Modell-Statuszeilen nur in der Berater-/Audit-Fassung.
+    assert "Methodology-Modelle" not in text
+    assert "Methodology-Modelle" in _advisor_text(payload)
 
 
 def test_compliance_audit_suitability_violation_is_visible():
@@ -67,8 +96,13 @@ def test_compliance_audit_suitability_violation_is_visible():
 
     assert "Geeignetheitsprüfung" in text
     assert "rot" in text
-    assert "log-missing-1" in text
-    assert "no_suitability_check_linked" in text
+    assert "fehlt eine gültige Geeignetheitsprüfung" in text
+    # KN5: Log-Referenzen/Reason-Codes und Zaehler nur fuer Berater/Audit.
+    assert "log-missing-1" not in text and "no_suitability_check_linked" not in text
+    assert "TOTAL-LOGS" not in text
+    advisor = _advisor_text(payload)
+    assert "log-missing-1" in advisor
+    assert "no_suitability_check_linked" in advisor
 
 
 def test_compliance_audit_methodology_models_show_model_names():
@@ -95,10 +129,12 @@ def test_compliance_audit_methodology_models_show_model_names():
     }
 
     text = _render_text(payload)
+    assert "Methodology-Modelle" not in text and "Nelson-Siegel" not in text
 
-    assert "Methodology-Modelle" in text
-    assert "Nelson-Siegel" in text
-    assert "KGV-Mean-Reversion" in text
+    advisor = _advisor_text(payload)
+    assert "Methodology-Modelle" in advisor
+    assert "Nelson-Siegel" in advisor
+    assert "KGV-Mean-Reversion" in advisor
 
 
 def test_compliance_audit_mandate_lock_reasons_are_visible():
@@ -116,9 +152,15 @@ def test_compliance_audit_mandate_lock_reasons_are_visible():
 
     text = _render_text(payload)
 
-    assert "Mandate-Lock-Status" in text
-    assert "Read-only" in text
-    assert "Risky-Allokation verletzt" in text
+    assert "Bearbeitungsstand des Mandats" in text
+    assert "für Änderungen gesperrt" in text
+    for raw in ("Mandate-Lock-Status", "Read-only", "Risky-Allokation", "diverged_infeasible"):
+        assert raw not in text, raw
+
+    advisor = _advisor_text(payload)
+    assert "Mandate-Lock-Status" in advisor
+    assert "Read-only" in advisor
+    assert "Risky-Allokation verletzt" in advisor
 
 
 def test_compliance_audit_liquidity_emergency_warning_is_highlighted():
@@ -135,12 +177,40 @@ def test_compliance_audit_liquidity_emergency_warning_is_highlighted():
         "fidleg_basis": "Art. 11 / Art. 13 FIDLEG",
     }
 
-    text = _render_text(payload)
+    text = " ".join(_render_text(payload).split())
 
-    assert "Liquidity-Cascade" in text
-    assert "emergency" in text
-    assert "Liquidity-Cascade-Warnung" in text
-    assert "Emergency-Stage" in text
+    assert "Liquiditätsquote der Strategie: 9.00 % (übliche Obergrenze 3.00 %)" in text
+    assert "über dem üblichen Rahmen" in text
+    for raw in ("Liquidity-Cascade", "emergency", "Hard-Cap", "Emergency-Stage"):
+        assert raw not in text, raw
+
+    advisor = _advisor_text(payload)
+    assert "Liquidity-Cascade" in advisor
+    assert "emergency" in advisor
+    assert "Liquidity-Cascade-Warnung" in advisor
+    assert "Emergency-Stage" in advisor
+
+
+def test_customer_compliance_audit_never_prints_seed_or_optimizer_status():
+    """KN5 / N-917R4-01 (Befund d1dc, A_advisory-report.txt:1017-1024)."""
+    payload = _make_minimal_payload()
+    payload["recommendation_methodology"] = {
+        "is_compliant": True,
+        "latest_run": {"method": "stochastic", "is_acceptable": True,
+                       "seed": 5948716738976139969, "n_paths": 2000},
+    }
+    payload["mandate_lock_status"] = {
+        "is_editable": True, "lock_reasons": [], "lock_reason_labels": {},
+        "mandate_status": "Aktiv", "latest_optimizer_status": "converged",
+    }
+    text = " ".join(_render_text(payload).split())
+    for raw in ("Seed", "5948716738976139969", "2000 Pfade", "converged", "Optimizer", "Payload", "Reasons"):
+        assert raw not in text, raw
+    assert "Berechnungsmethode: stochastische Optimierung (Monte-Carlo)" in text
+    assert "Die Berechnung ist abgeschlossen" in text
+    assert "Das Mandat kann bei Bedarf angepasst werden." in text
+    advisor = _advisor_text(payload)
+    assert "Seed 5948716738976139969" in advisor and "converged" in advisor
 
 
 def test_compliance_audit_changes_pdf_bytes_against_without_section(monkeypatch):

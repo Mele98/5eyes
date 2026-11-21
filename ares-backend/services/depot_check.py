@@ -24,7 +24,7 @@ from sqlalchemy import exists
 from sqlalchemy.orm import Session
 
 from core.band_rule import in_band as band_in_band
-from core.holdings_rule import DERIVED_IST_STATUS, ist_fully_derived, ist_partially_derived  # noqa: F401
+from core.holdings_rule import DERIVED_IST_STATUS, ist_fully_derived, ist_partially_derived, select_valuation_runs  # noqa: F401
 from core.reason_codes import DomainError
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
@@ -327,17 +327,15 @@ def _select_latest_run(db: Session, mandate: Mandate) -> RecommendationRun | Non
     # bereits etabliert in routers/review.py:2520-2524 und
     # services/review_engine.py:396 -- EINE Quelle der Wahrheit fuer "welcher
     # Lauf gilt gerade" statt einer vierten, divergierenden Auswahl-Logik.
+    # KN5 / N-917R4-03: dieselbe Regel wie das Live-Rebalancing
+    # (core.holdings_rule.select_valuation_runs).
     runs = (
         db.query(RecommendationRun)
         .filter(RecommendationRun.mandate_id == mandate.id)
-        .order_by(RecommendationRun.created_at.desc())
+        .order_by(RecommendationRun.created_at.desc(), RecommendationRun.id.desc())
         .all()
     )
-    return (
-        next((r for r in runs if r.result_status == "Final"), None)
-        or next((r for r in runs if r.result_status == "Draft"), None)
-        or (runs[0] if runs else None)
-    )
+    return select_valuation_runs(runs)[0]
 
 
 def _load_snapshot_positions(
@@ -383,21 +381,28 @@ def _load_snapshot_positions(
 
 
 def _select_latest_run_with_holdings(db: Session, mandate: Mandate) -> tuple[RecommendationRun | None, bool]:
-    """Wie ``_select_latest_run``, plus "hat der Lauf Holdings?" in DERSELBEN
-    Abfrage (KN4-B / EXT-01: kein zusaetzlicher SELECT im Report-Pfad)."""
-    has_holdings = exists().where(RecommendationHolding.run_id == RecommendationRun.id)
+    """Wie ``_select_latest_run``, plus "gibt es Holdings?" in DERSELBEN
+    Abfrage (KN4-B / EXT-01: kein zusaetzlicher SELECT im Report-Pfad).
+
+    KN5 / N-917R4-03: Lauf und Holdings nach DERSELBEN Regel wie das Live-
+    Rebalancing (``core.holdings_rule.select_valuation_runs``): Holdings stehen
+    am bewerteten Lauf ODER am Holdings-Lauf (juengster Draft/Final; je Produkt
+    uebernommen). Welche Position tatsaechlich einen Bestand hat, entscheidet
+    danach die Live-Bewertung selbst (``holding_present``)."""
+    has_holdings = exists().where(
+        RecommendationHolding.run_id == RecommendationRun.id,
+        RecommendationHolding.deleted_at.is_(None),
+    )
     rows = (
         db.query(RecommendationRun, has_holdings)
         .filter(RecommendationRun.mandate_id == mandate.id)
-        .order_by(RecommendationRun.created_at.desc())
+        .order_by(RecommendationRun.created_at.desc(), RecommendationRun.id.desc())
         .all()
     )
-    chosen = (
-        next((r for r in rows if r[0].result_status == "Final"), None)
-        or next((r for r in rows if r[0].result_status == "Draft"), None)
-        or (rows[0] if rows else None)
-    )
-    return (chosen[0], bool(chosen[1])) if chosen else (None, False)
+    chosen, holdings_run = select_valuation_runs(rows, status=lambda row: row[0].result_status)
+    if chosen is None:
+        return None, False
+    return chosen[0], bool(chosen[1]) or bool(holdings_run is not None and holdings_run[1])
 
 
 def _live_holding_amounts(db: Session, mandate: Mandate, build_live_payload, run=None,
@@ -537,13 +542,14 @@ def _aggregate_warnings(result: dict) -> None:
     hhi = result["concentration_hhi"]
     if hhi["country"] > _HHI_COUNTRY_WARNING_THRESHOLD:
         result["warnings"].append(
-            f"Hohe Länder-Konzentration (HHI={hhi['country']}, "
-            f">{_HHI_COUNTRY_WARNING_THRESHOLD} = Single-Country-dominiert)"
+            # KN6 / N-917R5-03: Kundentext statt «Single-Country-dominiert».
+            f"Hohe Länder-Konzentration (Herfindahl-Index {hhi['country']}; "
+            f"über {_HHI_COUNTRY_WARNING_THRESHOLD} dominiert ein einzelnes Land)"
         )
     if hhi["sector"] > _HHI_SECTOR_WARNING_THRESHOLD:
         result["warnings"].append(
-            f"Hohe Sektor-Konzentration (HHI={hhi['sector']}, "
-            f">{_HHI_SECTOR_WARNING_THRESHOLD} = wenig diversifiziert)"
+            f"Hohe Sektor-Konzentration (Herfindahl-Index {hhi['sector']}; "
+            f"über {_HHI_SECTOR_WARNING_THRESHOLD} wenig diversifiziert)"
         )
     if hhi["top_positions"] > _HHI_TOP_POSITIONS_WARNING_THRESHOLD:
         top_3_weight = sum(p["weight_bps"] for p in result["top_positions"][:3])

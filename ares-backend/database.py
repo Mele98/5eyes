@@ -1608,6 +1608,69 @@ ALLOCATION_PUBLICATION_SQLITE_TENANT_GUARDS: tuple[str, ...] = (
 )
 
 
+# CCX-P5 Kanal-Envelope (Vertrag 2026-11-13 §8): append-only Kanalzeile je
+# ausgeliefertem Artefakt (PDF/Archiv, Signatur, Vor-Ort-Signatur, Handoff ...),
+# gebunden an Envelope-, Payload-, Render-, Parametersatz- und Zielkennzahl-Hash.
+# Kein Backfill (Bestand hat keine Kanalzeile). DDL textgleich ares_schema.sql;
+# PostgreSQL: Alembic CCX-P5-Revision.
+CHANNEL_PUBLICATION_SCHEMA = "ares/channel-publication/1"
+CHANNEL_PUBLICATION_SQLITE_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS advisory_channel_publications (
+    id                            TEXT PRIMARY KEY,
+    tenant_id                     TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id                    TEXT NOT NULL,
+    envelope_id                   TEXT NOT NULL,
+    channel                       TEXT NOT NULL CHECK(channel IN ('API','CLASSIC','REACT','PDF','ADVISOR_SIGNATURE','ONSITE_SIGNATURE','HANDOFF','ARCHIVE')),
+    artifact_id                   TEXT NOT NULL,
+    schema_version                TEXT NOT NULL CHECK(schema_version = 'ares/channel-publication/1'),
+    channel_payload_hash          TEXT NOT NULL CHECK(length(channel_payload_hash) = 64),
+    render_hash                   TEXT CHECK(render_hash IS NULL OR length(render_hash) = 64),
+    rounding_policy_version       TEXT NOT NULL,
+    bound_envelope_hash           TEXT NOT NULL CHECK(length(bound_envelope_hash) = 64),
+    parameter_contract_version    TEXT NOT NULL,
+    parameter_set_hash            TEXT NOT NULL CHECK(length(parameter_set_hash) = 64),
+    goal_metric_contract_version  TEXT NOT NULL,
+    goal_metric_payload_hash      TEXT NOT NULL CHECK(length(goal_metric_payload_hash) = 64),
+    status                        TEXT NOT NULL CHECK(status = 'PUBLISHED'),
+    created_at                    TEXT NOT NULL,
+    created_by                    TEXT NOT NULL REFERENCES users(id),
+    CONSTRAINT ck_advisory_channel_publications_render CHECK(
+        channel NOT IN ('PDF','ARCHIVE','ADVISOR_SIGNATURE','ONSITE_SIGNATURE') OR render_hash IS NOT NULL),
+    CONSTRAINT uq_advisory_channel_publications_tenant_id UNIQUE (tenant_id, id),
+    CONSTRAINT uq_advisory_channel_publications_artifact UNIQUE (envelope_id, channel, artifact_id),
+    CONSTRAINT fk_advisory_channel_publications_envelope FOREIGN KEY (tenant_id, envelope_id)
+        REFERENCES advisory_decision_envelopes(tenant_id, id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_advisory_channel_publications_tenant_id "
+    "ON advisory_channel_publications(tenant_id)",
+    "CREATE INDEX IF NOT EXISTS ix_advisory_channel_publications_mandate "
+    "ON advisory_channel_publications(tenant_id, mandate_id)",
+)
+
+CHANNEL_PUBLICATION_SQLITE_TRIGGERS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_envelope "
+    "BEFORE INSERT ON advisory_channel_publications FOR EACH ROW "
+    "WHEN NOT EXISTS (SELECT 1 FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id "
+    "AND e.tenant_id = NEW.tenant_id AND e.mandate_id = NEW.mandate_id AND e.status = 'SEALED' "
+    "AND e.envelope_hash = NEW.bound_envelope_hash) "
+    "BEGIN SELECT RAISE(ABORT, 'CCX_CHANNEL_BINDING_MISSING'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_no_update "
+    "BEFORE UPDATE ON advisory_channel_publications FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_channel_publications is append-only'); END",
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_no_delete "
+    "BEFORE DELETE ON advisory_channel_publications FOR EACH ROW "
+    "BEGIN SELECT RAISE(ABORT, 'advisory_channel_publications is append-only'); END",
+)
+
+# Mandanten-Guard (mandates.tenant_id): wie P1/P3/P4 nicht im Bootstrap-Schema.
+CHANNEL_PUBLICATION_SQLITE_TENANT_GUARDS: tuple[str, ...] = (
+    "CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_tenant_guard "
+    "BEFORE INSERT ON advisory_channel_publications FOR EACH ROW "
+    "WHEN NEW.tenant_id IS NOT (SELECT m.tenant_id FROM mandates m WHERE m.id = NEW.mandate_id) "
+    "OR NEW.tenant_id IS NOT (SELECT COALESCE(NULLIF(u.tenant_id, ''), 'main') FROM users u WHERE u.id = NEW.created_by) "
+    "BEGIN SELECT RAISE(ABORT, 'MANDATE_EVIDENCE_TENANT_MISMATCH'); END",
+)
+
 # N-869-4: einmaliger Nachtrag von audit_log_sequence_counter.last_hash aus der
 # Zeile mit sequence = value (nur solange last_hash noch NULL ist). Gleiche
 # Anweisung in Alembic c8a2f4e6b0d9 (dort unter Operator-Bypass, RLS).
@@ -2482,6 +2545,12 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             conn.execute(text(ddl))
         if 'tenant_id' in {row[1] for row in conn.execute(text("PRAGMA table_info(mandates)"))}:
             for ddl in ALLOCATION_PUBLICATION_SQLITE_TENANT_GUARDS:
+                conn.execute(text(ddl))
+        # CCX-P5 (2026-11-21): Kanalzeilen (idempotent; neue Tabelle, kein Backfill).
+        for ddl in CHANNEL_PUBLICATION_SQLITE_TABLE_DDL + CHANNEL_PUBLICATION_SQLITE_TRIGGERS:
+            conn.execute(text(ddl))
+        if 'tenant_id' in {row[1] for row in conn.execute(text("PRAGMA table_info(mandates)"))}:
+            for ddl in CHANNEL_PUBLICATION_SQLITE_TENANT_GUARDS:
                 conn.execute(text(ddl))
         # SIGN-001 (2026-10-27): append-only Vor-Ort-Signatur; DDL einzig aus
         # dem ORM (Indizes + after_create-Trigger), idempotent per checkfirst.
