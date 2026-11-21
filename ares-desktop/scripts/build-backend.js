@@ -296,9 +296,10 @@ if (buildWithSqlcipher) {
   const probe = spawnSync('python', ['-c', 'import sqlcipher3; print(sqlcipher3.connect(":memory:").execute("PRAGMA cipher_version").fetchone()[0])'], {
     cwd: backendRoot,
     encoding: 'utf8',
-    shell: isWindows,
+    shell: false, // ohne cmd.exe: das Python-Argument enthaelt Anfuehrungszeichen
   });
   if (probe.status !== 0 || !String(probe.stdout || '').trim()) {
+    console.error(String(probe.stderr || probe.error || '').slice(-2000));
     console.error('SQLCipher-Treiber (sqlcipher3) fehlt: pip install --require-hashes --only-binary=:all: -r ares-backend/requirements-sqlcipher.txt');
     process.exit(1);
   }

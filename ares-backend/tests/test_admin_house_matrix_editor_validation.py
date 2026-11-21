@@ -434,7 +434,7 @@ def _runtime_seed_tuples() -> list[tuple]:
     import ast
 
     src = (REPO_ROOT / "ares-backend" / "services" / "portfolio_engine.py").read_text(encoding="utf-8")
-    body = _function(src, "def _ensure_runtime_reference_data_ch(")
+    body = _function(src, "def _reference_template_values(")  # EXE-P (H-187): Vorlagewerte herausgeloest
     start = body.index("_normalize_house_matrix_defaults([")
     end = body.index("])", start)
     return list(ast.literal_eval("[" + body[start + len("_normalize_house_matrix_defaults(["):end] + "]"))
