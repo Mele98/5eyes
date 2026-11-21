@@ -4971,8 +4971,13 @@ def test_refresh_system_review_triggers_raises_on_invalid_persisted_anchor_date(
 @pytest.mark.parametrize(
     "goal_row,expect_goal_trigger",
     [
-        ({"label": "Fruehpensionierung", "achievement_score": 90, "success_probability_pct": 40}, True),
-        ({"label": "Fruehpensionierung", "achievement_score": 10, "success_probability_pct": 80}, False),
+        # P5c / N-930-01: Trigger folgt dem M-3-Status ("nicht_erreichbar"), nicht der Ampel.
+        ({"label": "Fruehpensionierung", "achievement_score": 90, "success_probability_pct": 40,
+          "status": "nicht_erreichbar"}, True),
+        ({"label": "Fruehpensionierung", "achievement_score": 10, "success_probability_pct": 40,
+          "status": "nicht_bewertbar"}, False),
+        ({"label": "Fruehpensionierung", "achievement_score": 10, "success_probability_pct": 80,
+          "status": "erreichbar"}, False),
     ],
 )
 def test_refresh_system_review_triggers_reuses_supplied_allocation_payload(session_factory, advisor_user, monkeypatch, goal_row, expect_goal_trigger):

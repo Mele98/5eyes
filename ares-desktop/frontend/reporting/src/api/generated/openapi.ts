@@ -9781,6 +9781,14 @@ export interface components {
             start_date?: string | null;
             /** Status */
             status: string;
+            /** Status Bg */
+            status_bg?: string | null;
+            /** Status Color */
+            status_color?: string | null;
+            /** Status Label */
+            status_label?: string | null;
+            /** Status Tone */
+            status_tone?: string | null;
             /** Success Probability */
             success_probability?: number | null;
             /** Success Probability Pct */

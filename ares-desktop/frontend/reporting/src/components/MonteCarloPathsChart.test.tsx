@@ -142,29 +142,38 @@ describe('MonteCarloPathsChart — Goal-Marker', () => {
     render(<MonteCarloPathsChart paths={makeMc()} goals={[goal]} />);
     const marker = screen.getByTestId('goal-marker-pension');
     expect(marker).toBeInTheDocument();
-    expect(marker.getAttribute('data-status')).toBe('erreichbar');
+    // P5c / N-930-01: ohne M-3-Status kein Status aus den Faecherquantilen.
+    expect(marker.getAttribute('data-status')).toBe('nicht_bewertbar');
   });
 
-  it('Marker-Farbe matched Status', () => {
+  it('P5c / N-930-01: Marker-Status und -Farbe nur aus dem M-3-Status', () => {
     const goals: GoalEntry[] = [
       makeGoal({
         goal_id: 'easy',
         target_date: '2030-01-01',
-        target_amount_rappen: 100_000_00,
+        target_amount_rappen: 100_000_00, // Faecher: klar ueber dem Ziel
+        status: 'nicht_erreichbar',
+        status_label: 'nicht erreichbar',
+        status_tone: 'bad',
+        status_color: '#7F1D1D',
       }),
       makeGoal({
         goal_id: 'hard',
         target_date: '2035-01-01',
-        target_amount_rappen: 50_000_000_00, // unrealistic
+        target_amount_rappen: 50_000_000_00, // Faecher: weit unter dem Ziel
+        status: 'knapp',
+        status_label: 'knapp',
+        status_tone: 'warn',
+        status_color: '#92400E',
       }),
     ];
     render(<MonteCarloPathsChart paths={makeMc()} goals={goals} />);
-    expect(screen.getByTestId('goal-marker-easy').getAttribute('data-status')).toBe(
-      'erreichbar',
-    );
-    expect(screen.getByTestId('goal-marker-hard').getAttribute('data-status')).toBe(
-      'nicht_erreichbar',
-    );
+    const easy = screen.getByTestId('goal-marker-easy');
+    expect(easy.getAttribute('data-status')).toBe('nicht_erreichbar');
+    expect(easy.querySelector('line')?.getAttribute('stroke')).toBe('#7F1D1D');
+    expect(screen.getByTestId('goal-marker-hard').getAttribute('data-status')).toBe('knapp');
+    expect(screen.getByTestId('mc-paths-legend')).toHaveTextContent(/Ziel nicht erreichbar/);
+    expect(screen.getByTestId('mc-paths-legend')).toHaveTextContent(/Ziel knapp/);
   });
 
   it('rendert KEINEN Marker fuer Goal jenseits des Horizonts', () => {
@@ -199,9 +208,8 @@ describe('MonteCarloPathsChart — Legende', () => {
     const legend = screen.getByTestId('mc-paths-legend');
     expect(legend).toHaveTextContent('Bandbreite P5–P75 (70 % der Verläufe, asymmetrisch)');
     expect(legend).toHaveTextContent(/Median \(P50\)/);
-    expect(legend).toHaveTextContent(/erreichbar/);
-    expect(legend).toHaveTextContent(/Knapp/);
-    expect(legend).toHaveTextContent(/Schwierig/);
+    // P5c / N-930-01: keine Status-Legende ohne Ziele (kein Faecher-Statuswort).
+    expect(legend.textContent).not.toMatch(/Schwierig|erreichbar|Knapp/);
     // Die fruehere, falsche Angabe "90%" fuer p5–p75 darf nie mehr erscheinen
     expect(legend.textContent).not.toMatch(/90\s?%/);
     expect(screen.queryByTestId('mc-paths-legend-inner')).toBeNull();

@@ -1455,7 +1455,9 @@ def test_goal_based_investing_returns_data_pending_goals_without_achievability(s
     assert len(gbi["goals"]) == 1
     assert gbi["goals"][0]["label"] == "Pension"
     assert gbi["goals"][0]["probability_bps"] is None
-    assert gbi["goals"][0]["status"] == "data_pending"
+    # P5c / N-930-01: ohne M-3 "nicht bewertbar" (fail-closed) statt "data_pending".
+    assert gbi["goals"][0]["status"] == "nicht_bewertbar"
+    assert gbi["goals"][0]["status_label"] == "nicht bewertbar"
     assert gbi["goal_achievement_score_bps"] is None
 
 
@@ -1491,7 +1493,9 @@ def test_goal_based_investing_aggregates_persisted_achievability(session_factory
     g0 = gbi["goals"][0]
     assert g0["label"] == "Hauskauf"
     assert g0["probability_bps"] == 8500
-    assert g0["status"] == "erreichbar"
+    # P5c / N-930-01: Zeile ohne Validierungsanker = keine zertifizierte M-3-
+    # Kennzahl -> "nicht bewertbar", nie der gespeicherte Optimierer-Status.
+    assert g0["status"] == "nicht_bewertbar"
     assert g0["target_amount_rappen"] == 500_000_00
     # Single-Goal Score = Goal-Probability
     assert gbi["goal_achievement_score_bps"] == 8500
@@ -2394,10 +2398,36 @@ def _ziel_check(report):
     )
 
 
-def test_ar1_primaer_unreachable_goal_flags_rot(session_factory):
+def _as_certified_m3(monkeypatch):
+    """P5c: die Fixture-Zeilen haben keinen Validierungsanker; fuer die AR-1-
+    Logik gelten sie hier als bereits kanonische M-3-Zeilen (Status unveraendert)."""
+    import services.advisory_report as ar
+
+    monkeypatch.setattr(ar, "canonical_goal_rows", lambda rows, ta: [dict(r) for r in rows])
+
+
+def test_p5c_uncertified_goal_rows_are_not_assessable_not_green(session_factory):
+    """P5c / N-930-01: ohne zertifizierte M-3-Kennzahl weder rot noch gruen."""
+    import json
+    with session_factory() as s:
+        mandate, _c, advisor = _seed_minimal_mandate(s)
+        payload = json.dumps([
+            {"goal_id": "g1", "label": "Rente", "probability": 0.95,
+             "status": "erreichbar", "hardness": "primär",
+             "evaluation_scope": "priority_funded"},
+        ])
+        _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id,
+                            goal_achievability_json=payload)
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    assert _ziel_check(report)["bewertung"] == "nicht_beurteilbar"
+
+
+def test_ar1_primaer_unreachable_goal_flags_rot(session_factory, monkeypatch):
     """AR-1: ein nicht erreichbares PRIMÄRES Ziel (Engine-Display 'primär') muss
     rot flaggen — vorher wurde nur 'hart' erkannt."""
     import json
+    _as_certified_m3(monkeypatch)
     with session_factory() as s:
         mandate, _c, advisor = _seed_minimal_mandate(s)
         payload = json.dumps([
@@ -2414,9 +2444,10 @@ def test_ar1_primaer_unreachable_goal_flags_rot(session_factory):
     assert "primär" in check["beurteilung"]
 
 
-def test_ar1_hart_unreachable_goal_still_rot(session_factory):
+def test_ar1_hart_unreachable_goal_still_rot(session_factory, monkeypatch):
     """AR-1: 'hart' bleibt rot (keine Regression)."""
     import json
+    _as_certified_m3(monkeypatch)
     with session_factory() as s:
         mandate, _c, advisor = _seed_minimal_mandate(s)
         payload = json.dumps([

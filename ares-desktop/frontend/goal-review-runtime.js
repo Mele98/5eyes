@@ -436,9 +436,7 @@ function renderGoalList(items,isDemo){
     var successPct=goalSuccessPct(successRow);
     var scored=successPct!==null;
     var pct=scored?successPct:0;
-    var tone=!scored?'fa':pct>=70?'fg':pct>=45?'fa':'fr';
-    var tagTone=!scored?'tn':pct>=70?'tg':pct>=45?'ta':'tr2';
-    var tagLabel=!scored?'Noch nicht bewertet':goalSuccessAmpel(pct).label;
+    var sv=goalStatusView(successRow),tone=sv.bar,tagTone=sv.tag,tagLabel=sv.label; // P5c / N-930-01: M-3
     var meta=[goalAmountSummary(goal),goalTimingLabel(goal)];
     if(isDemo)meta.push('Demo');
     var badges=goalBadgeHtml(goal);
@@ -1277,10 +1275,10 @@ function renderActionCards(reasoning){
   if(allocation&&Array.isArray(allocation.goal_analysis)&&allocation.goal_analysis.length){
     var primaryGoal=allocation.goal_analysis.slice().sort(function(a,b){return Number(a.rank||99)-Number(b.rank||99);})[0];
     var goalBody='Priorität 1 ist "'+String(primaryGoal.label||'Ziel')+'": '+strategyGoalTargetText(primaryGoal)+' · '+goalTimingLabel(primaryGoal)+'.';
-    // GOAL-STATUS-BY-SUCCESS-001: kritisch = Erfolgs-Wkt. < 45 % (Ampel 70/45), nicht Mischwert.
+    // P5c / N-930-01: kritisch = M-3-Status "nicht_erreichbar" (keine Ampel 70/45).
     var primarySuccess=goalSuccessPct(primaryGoal);
-    var primaryCritical=primarySuccess!=null&&primarySuccess<45;
-    if(primarySuccess!=null)goalBody+=' Aktuelle Erfolgswahrscheinlichkeit: '+fmtProbPct(primarySuccess)+' ('+goalSuccessAmpel(primarySuccess).label+(goalSuccessIsEstimate(primaryGoal)?(', '+GOAL_SUCCESS_ESTIMATE_HINT):'')+').';
+    var primaryCritical=goalStatusView(primaryGoal).key==='nicht_erreichbar';
+    if(primarySuccess!=null)goalBody+=' Aktuelle Erfolgswahrscheinlichkeit: '+fmtProbPct(primarySuccess)+' ('+goalStatusView(primaryGoal).label+(goalSuccessIsEstimate(primaryGoal)?(', '+GOAL_SUCCESS_ESTIMATE_HINT):'')+').';
     if(primaryGoal.evaluation_note)goalBody+=' '+String(primaryGoal.evaluation_note);
     else if(primaryCritical)goalBody+=' Das Ziel ist im aktuellen Setup kritisch und braucht eine explizite Besprechung im Review.';
     pushCard('Ziele & Timing','Relevant','ta',goalBody,primaryCritical?'warn':'good');
@@ -1502,7 +1500,7 @@ renderStrategySummary=function(){
   if(goals&&allocation){
     goals.innerHTML=(allocation.goal_analysis||[]).slice(0,4).map(function(goal){
       var success=goalSuccessPct(goal);
-      var ampel=goalSuccessAmpel(success);
+      var ampel=goalStatusView(goal);
       var score=success==null?0:success;
       var tone=ampel.tone;
       var statusLabel=ampel.label;

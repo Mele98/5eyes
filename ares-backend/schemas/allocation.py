@@ -1418,7 +1418,13 @@ class GoalAnalysisResponse(BaseModel):
     target_return_bps: Optional[int] = None
     projected_value_rappen: int
     achievement_score: int
+    # P5c / N-930-01: M-3-Status (core/goal_metric_contract.GOAL_STATUS_DISPLAY),
+    # ohne M-3 "nicht_bewertbar"; Wort und Farbe aus derselben Tabelle.
     status: str
+    status_label: Optional[str] = None
+    status_tone: Optional[str] = None
+    status_color: Optional[str] = None
+    status_bg: Optional[str] = None
     start_date: Optional[str] = None
     target_date: Optional[str] = None
     horizon_years: Optional[int] = None

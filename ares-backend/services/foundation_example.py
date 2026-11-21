@@ -19,7 +19,7 @@ from models.review import (
 )
 from models.users import User
 from models.wealth import Cashflow, Goal, PlanningAssumption, WealthPosition
-from services.goal_success_status import GOAL_SUCCESS_WARN_PCT, goal_items_weighted_success_bps
+from services.goal_success_status import goal_items_weighted_success_bps
 from services.portfolio_engine import (
     build_recommendation_payload_from_run,
     build_target_payload_from_allocation,
@@ -137,10 +137,9 @@ def _build_foundation_summary(db: Session, user: User, client: Client, mandate: 
     # kritische Ziele (< 45 %) wie Cockpit, Bericht und Review-Trigger.
     weighted_success_bps = goal_items_weighted_success_bps(goal_analysis)
     goal_score_weighted_pct = int(round(weighted_success_bps / 100)) if weighted_success_bps is not None else 0
+    # P5c / N-930-01: gefaehrdet = M-3-Status "nicht_erreichbar" (keine Ampel 70/45).
     goal_path_at_risk_count = len([
-        item for item in goal_analysis
-        if item.get("success_probability_pct") is not None
-        and int(item.get("success_probability_pct")) < GOAL_SUCCESS_WARN_PCT
+        item for item in goal_analysis if str(item.get("status") or "") == "nicht_erreichbar"
     ])
     monte_carlo = allocation_result.get("monte_carlo") or {}
     mc_target_series = monte_carlo.get("target_p50_series_rappen") or []

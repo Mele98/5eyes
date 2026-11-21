@@ -4,7 +4,7 @@
  * dass die erfassten Bewertungen aktuell sind; der Server bindet die Bestaetigung im
  * Bewertungs-Snapshot und im Audit. Teil des Monolith-Bundles. */
 async function confirmImplementationRecipe(){
-  var ok=await refreshStrategyData(true,true);
+  var ok=await loadStrategyOnly(true);
   if(!ok)return;
   var mid=getActiveMandateId();
   var runId=strategyState&&strategyState.recommendation&&strategyState.recommendation.run?strategyState.recommendation.run.id:null;

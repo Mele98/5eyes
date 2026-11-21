@@ -10259,6 +10259,50 @@
             "title": "Status",
             "type": "string"
           },
+          "status_bg": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Bg"
+          },
+          "status_color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Color"
+          },
+          "status_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Label"
+          },
+          "status_tone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Tone"
+          },
           "success_probability": {
             "anyOf": [
               {

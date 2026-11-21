@@ -24,6 +24,7 @@ from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 
+from core.goal_metric_contract import GOAL_STATUS_LEGACY, goal_status_display, goal_status_fields
 from services.pdf.components.header import _esc
 from core.presentation_rounding import format_pct_value
 from services.pdf.styles import (
@@ -80,33 +81,9 @@ def make_limiting_factor_line(limiting_factor: str | None) -> Paragraph:
 # Achievability-Tabelle: Ziel | Typ | Hardness | Wahrscheinlichkeit | Status
 # --------------------------------------------------------------------------
 
-# Status -> (Anzeige-Label, Farbe) — synchron zur Ampel im Review-Cockpit
-# (UX-Spec §3.3 rvGoalProbBadge).
-_STATUS_DISPLAY: dict[str, tuple[str, str]] = {
-    "erreichbar":       ("erreichbar",       "#166534"),   # grün
-    "knapp":            ("knapp",            "#92400e"),   # gelb-orange
-    "nicht_erreichbar": ("nicht erreichbar", "#7f1d1d"),   # rot
-    # OPTIMIZER-POST-SELECTION-CERTIFICATION-001 (2026-10-10): die
-    # Zertifizierung ruhte auf zu wenig unabhaengiger Evidenz (effektives
-    # Stichprobenmass zu klein, siehe services/optimizer/certification.py).
-    # Fachlich ist das KEINE Aussage ueber die Erreichbarkeit, sondern das
-    # Eingestaendnis, dass sie sich nicht beurteilen laesst -- deshalb
-    # neutral-grau und nicht in der Ampel-Logik gruen/gelb/rot. Ohne diesen
-    # Eintrag landete das rohe englische Token "unreliable" im
-    # kundensichtbaren PDF (der .get()-Fallback zeigt den Status-String).
-    "unreliable":       ("nicht beurteilbar", "#475569"),  # neutral-grau
-    # GOAL-OUTSIDE-HORIZON-001 (2026-10-12): der Zahlungsplan des Ziels liegt
-    # KOMPLETT hinter dem Simulationshorizont. Vorher meldete der Optimizer
-    # fuer genau diesen Zustand "erreichbar" mit 100 % -- gemessen an einer
-    # Pensionsausgabe von CHF 5 Mio PRO JAHR ab 2046 bei 20-Jahres-Horizont.
-    # Wie bei "unreliable" ist das keine Aussage ueber die Erreichbarkeit,
-    # sondern das Eingestaendnis, dass sie in diesem Horizont nicht gemessen
-    # wurde -- deshalb neutral-grau und ausserhalb der Ampel.
-    "ausserhalb_horizont": ("ausserhalb Horizont", "#475569"),
-    # GOAL-ACHIEVABILITY-ATTRIBUTION-001: Altbewertung ohne Scope -- ein
-    # gemeinsamer Planwert je Zeile, keine zielindividuelle Aussage.
-    "legacy_aggregate_unknown": ("Altbewertung", "#475569"),
-}
+# P5c / N-930-01: Status-Wort und -Farbe kommen aus der einen Tabelle
+# core/goal_metric_contract.GOAL_STATUS_DISPLAY (M-3; ohne M-3 "nicht bewertbar").
+# Die frueheren eigenen Tabellen (_STATUS_DISPLAY, _AMPEL_STATUS_COLORS) sind entfallen.
 
 # Ziel-Typ-Anzeige (technische Goal-Type-Werte -> Berater-Sprache).
 # Synchron zu services/optimizer/goal_liabilities.py _GOAL_TYPE_NORMS.
@@ -158,25 +135,11 @@ def _prob_cell(probability: float | None) -> str:
 _AMPEL_BAR_WIDTH_MM = 30.0
 _AMPEL_BAR_HEIGHT_MM = 4.5
 
-_AMPEL_STATUS_COLORS: dict[str, str] = {
-    "erreichbar":       "#16a34a",  # gruen (tailwind green-600)
-    "knapp":            "#eab308",  # gelb (tailwind yellow-500)
-    "nicht_erreichbar": "#dc2626",  # rot (tailwind red-600)
-    # Siehe _STATUS_DISPLAY: "nicht beurteilbar" gehoert bewusst NICHT in die
-    # Ampel-Semantik -- neutral-grau statt einer Farbe, die eine Bewertung
-    # suggeriert, die es nicht gibt.
-    "unreliable":       "#64748b",  # neutral-grau (tailwind slate-500)
-    # GOAL-OUTSIDE-HORIZON-001: aus demselben Grund neutral-grau. Ein gruener
-    # oder roter Balken wuerde eine Bewertung suggerieren, die in diesem
-    # Horizont nicht stattgefunden hat.
-    "ausserhalb_horizont": "#64748b",
-    "legacy_aggregate_unknown": "#64748b",
-}
 _AMPEL_BG_COLOR = "#e2e8f0"  # neutral hellgrau (tailwind slate-200)
 _AMPEL_BORDER_COLOR = "#cbd5e1"  # slate-300
 
 
-def _probability_bar_drawing(probability: float | None, status: str | None) -> Drawing:
+def _probability_bar_drawing(probability: float | None, color_hex: str | None) -> Drawing:
     """Sprint C1 (2026-06-07): visueller Ampel-Balken fuer eine Wahrscheinlichkeit.
 
     Returns ein ReportLab Drawing das in eine Table-Cell eingebettet werden
@@ -207,8 +170,7 @@ def _probability_bar_drawing(probability: float | None, status: str | None) -> D
     except (TypeError, ValueError):
         return _probability_bar_drawing(None, None)
 
-    status_key = str(status or "").strip().lower()
-    fg_color_hex = _AMPEL_STATUS_COLORS.get(status_key, "#64748b")
+    fg_color_hex = color_hex or goal_status_display(None)["status_color"]
 
     # Hintergrund-Rechteck (voll-Breite, hellgrau)
     drawing.add(Rect(
@@ -240,9 +202,8 @@ def _probability_bar_drawing(probability: float | None, status: str | None) -> D
     return drawing
 
 
-def _status_cell(status: str | None) -> str:
-    label, color = _STATUS_DISPLAY.get(str(status or "").strip().lower(), (str(status or "—"), "#475569"))
-    return f'<font color="{color}"><b>{_esc(label)}</b></font>'
+def _status_cell(fields: Mapping[str, str]) -> str:
+    return f'<font color="{fields["status_color"]}"><b>{_esc(fields["status_label"])}</b></font>'
 
 
 # UX-1 (Befund 8): dieselbe Primaerkennzahl wie App und React-Report.
@@ -319,14 +280,16 @@ def make_goal_achievability_table(achievability: Iterable[Mapping]) -> Table:
             hardness = _norm_hardness(goal.get("hardness"))
             # Sprint C1 (2026-06-07): Ampel-Balken statt nur Prozent-Text.
             # Visuelle Schnellerfassung (Referenz-UX-Restoration).
-            display_status = goal.get("status")
+            # P5c / N-930-01: M-3-Status der kanonischen Zeile (Wort und Farbe).
             if goal.get("evaluation_scope") == EVALUATION_SCOPE_LEGACY:
                 # Altbewertung: Wert unbekannter Semantik -> neutral, keine Ampel.
-                display_status = EVALUATION_SCOPE_LEGACY
+                fields = goal_status_display(GOAL_STATUS_LEGACY)
+            else:
+                fields = goal_status_fields(goal)
             prob_bar = _probability_bar_drawing(
-                goal.get("probability"), display_status,
+                goal.get("probability"), fields["status_color"],
             )
-            status = _status_cell(display_status)
+            status = _status_cell(fields)
             cell_style = make_paragraph_styles().get("small_muted") or make_paragraph_styles().get("body")
             rows.append([
                 Paragraph(_esc(label), cell_style),

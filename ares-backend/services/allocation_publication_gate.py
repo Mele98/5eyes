@@ -165,6 +165,9 @@ PUBLICATION_GUARD_MARKERS: tuple[str, ...] = (
     "MANDATE_EVIDENCE_TENANT_MISMATCH",
 )
 
+# P5c: Meldung des Nummern-Triggers der Kanalzeilen (P5b, SQLite RAISE / PG).
+CHANNEL_SEQUENCE_RACE_MARKER = "CCX_CHANNEL_SEQUENCE_RACE"
+
 BUCKETS: tuple[str, ...] = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
 TOTAL_BPS = 10_000
 # Wirksame Bindungen, ohne die keine Strategie kundenwirksam wird (P2-Kanten).
@@ -1219,8 +1222,23 @@ def record_channel_publication(
         goal_metric_payload_hash=decision.goal_metric_payload_hash, status=CHANNEL_STATUS_PUBLISHED,
         created_at=utc_now(), created_by=getattr(user, "id", None),
     )
-    db.add(row)
-    db.flush()
+    # P5c (H-183-Pruefung, Hinweis): verliert ein paralleles Schreiben die Nummer
+    # (Unique-Index / Trigger CCX_CHANNEL_SEQUENCE_RACE), ist das ein typisierter
+    # 409 statt eines 500. Der SAVEPOINT laesst die umgebende Transaktion intakt.
+    try:
+        with db.begin_nested():
+            db.add(row)
+            db.flush()
+    except OperationalError:
+        raise  # Lock/Verbindung: technischer Fehler, kein Wettlauf
+    except DBAPIError as exc:
+        message = str(getattr(exc, "orig", None) or exc)
+        if not isinstance(exc, IntegrityError) and CHANNEL_SEQUENCE_RACE_MARKER not in message:
+            raise
+        logger.info("P5c: Kanalzeile verloren (Nummernwettlauf) | mandate=%s", mandate.id)
+        raise DomainError(ReasonCode.CCX_CHANNEL_SEQUENCE_RACE,
+                          "Das Dokument wurde gleichzeitig ein zweites Mal ausgeliefert. Bitte erneut versuchen.",
+                          http_status=409, extra={"channel": channel}) from exc
     return row
 
 

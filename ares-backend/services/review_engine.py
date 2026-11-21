@@ -27,7 +27,6 @@ from services.portfolio_engine import (
     build_target_payload_from_allocation,
     ensure_runtime_reference_data,
 )
-from services.goal_success_status import GOAL_SUCCESS_WARN_PCT
 from jurisdictions.resolve import resolve_pack
 
 
@@ -442,13 +441,12 @@ def refresh_system_review_triggers(
                 ),
             )
 
-        # GOAL-STATUS-BY-SUCCESS-001: kritisch = Erfolgswahrscheinlichkeit
-        # < 45 % (Ampel 70/45, dieselbe Quelle wie Cockpit und Bericht);
-        # nicht mehr der Mischwert achievement_score. Ziele ohne Wert zaehlen nicht.
+        # P5c / N-930-01: gefaehrdet = M-3-Status "nicht_erreichbar" (einzige
+        # Quelle des Zielstatus, wie Cockpit und Bericht); keine Ampel 70/45.
+        # Nicht bewertbare Ziele zaehlen nicht.
         endangered_goals = [
             goal for goal in payload.get("goal_analysis", [])
-            if goal.get("success_probability_pct") is not None
-            and int(goal.get("success_probability_pct")) < GOAL_SUCCESS_WARN_PCT
+            if str(goal.get("status") or "") == "nicht_erreichbar"
         ]
         if not goal_analysis_trusted:
             endangered_goals = None

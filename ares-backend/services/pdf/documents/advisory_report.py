@@ -17,6 +17,7 @@ Risikoprofil, Building Blocks, Weiteres Vorgehen) folgen in U-P26 PR B-F.
 from __future__ import annotations
 
 from core.customer_terms import customer_term, decision_footer_label, short_reference
+from core.goal_metric_contract import GOAL_STATUS_LEGACY, goal_status_display, goal_status_fields
 import logging
 import time
 from datetime import datetime
@@ -77,7 +78,6 @@ from services.pdf.components.advisory_palette import (
     PAGE_SIZE,
     make_advisory_styles,
 )
-from services.pdf.components.goal_classification import classify_goals
 from core.presentation_rounding import allocation_pct_texts
 from services.pdf.components.mc_paths_chart import build_mc_paths_drawing
 from services.pdf.components.swiss_numbers import (
@@ -1449,18 +1449,9 @@ def _editorial_note(label: str, body: str, styles: dict) -> Table:
 # Sektion 11 — Goal-Based Investing
 # ---------------------------------------------------------------------------
 
-_GOAL_STATUS_PILL = {
-    "erreichbar":      ("Erreichbar",     "#E5EEDF", "#4E6F58"),
-    "knapp":           ("Knapp",          "#F4EBD5", "#B59243"),
-    "nicht_erreichbar":("Schwierig",      "#F0D9D9", "#9E4747"),
-    "data_pending":    ("Daten ausstehend","#E9EBEE", "#7A8395"),
-    "past":            ("Vergangen",      "#E9EBEE", "#7A8395"),
-    "beyond_horizon":  ("Jenseits Horizont","#E9EBEE", "#7A8395"),
-    "unknown":         ("Unklar",         "#E9EBEE", "#7A8395"),
-    # GOAL-ACHIEVABILITY-ATTRIBUTION-001: Altbewertung ohne Prioritaets-
-    # zuordnung -- gemeinsamer Planwert, keine Ampel.
-    "legacy_aggregate_unknown": ("Altbewertung", "#E9EBEE", "#7A8395"),
-}
+# P5c / N-930-01: Wort und Farbe der Status-Pille aus der einen Tabelle
+# core/goal_metric_contract.GOAL_STATUS_DISPLAY (M-3); die fruehere eigene
+# Pillen-Tabelle und die Spalte "MC-Status" (Faecherquantile) sind entfallen.
 
 
 def _amount_in(rappen: Any, currency: str | None) -> str:
@@ -1486,7 +1477,6 @@ def _build_goals_flowables(gbi: dict, styles: dict, *, currency: str = "CHF") ->
 
     goals = gbi.get("goals") or []
     mc = gbi.get("monte_carlo_paths") or {}
-    mc_classifications = classify_goals(goals, mc)
     # G7 N4: Pfade in der Waehrung, in der der Server sie liefert (amount_currency), nicht Mandatswaehrung.
     chart = build_mc_paths_drawing(mc, goals, currency=mc.get("amount_currency"))
     if chart is not None:
@@ -1515,7 +1505,7 @@ def _build_goals_flowables(gbi: dict, styles: dict, *, currency: str = "CHF") ->
         out.append(Spacer(1, 3 * mm))
 
     if goals:
-        out.append(_goals_table(goals, styles, mc_classifications, currency=currency))
+        out.append(_goals_table(goals, styles, currency=currency))
         out.append(Spacer(1, 2 * mm))
         out.append(Paragraph(
             "<b>Erfolgswahrscheinlichkeit (Erfolgs-Wkt.):</b> Anteil der simulierten "
@@ -1621,57 +1611,47 @@ def _achievement_score_kpi(score_bps: int, styles: dict):
 def _goals_table(
     goals: list[dict],
     styles: dict,
-    mc_classifications: list[dict] | None = None,
     *,
     currency: str = "CHF",
 ) -> Table:
-    """Goal-Achievability-Tabelle mit 8 Spalten.
+    """Goal-Achievability-Tabelle mit 7 Spalten.
 
-    Spalten: Ziel/Typ/Hartheit/Ziel-Datum/Zielwert/Status/MC-Status/
-    Wahrscheinlichkeit. U-72 (MC-Status-Spalte) und Stage-9 (Hartheit +
-    Ziel-Datum aus Stochastic-Optimizer goal_achievability_json) kombiniert.
+    Spalten: Ziel/Typ/Hartheit/Ziel-Datum/Zielwert/Status/Wahrscheinlichkeit.
+    P5c / N-930-01: einziger Status ist der M-3-Status der Zeile (Wort und
+    Farbe aus GOAL_STATUS_DISPLAY); die Spalte "MC-Status" (U-72, Einstufung
+    aus Faecherquantilen) entfaellt -- die Quantile bleiben als Grafik.
     """
     page_width, _ = PAGE_SIZE
     inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT
-    col_label = inner_width * 0.20
-    col_type = inner_width * 0.10
-    col_hardness = inner_width * 0.11
-    col_target_date = inner_width * 0.10
-    col_target = inner_width * 0.13
-    col_status = inner_width * 0.11
-    col_mc_status = inner_width * 0.13
+    col_label = inner_width * 0.22
+    col_type = inner_width * 0.12
+    col_hardness = inner_width * 0.12
+    col_target_date = inner_width * 0.11
+    col_target = inner_width * 0.14
+    col_status = inner_width * 0.13
     col_prob = (
         inner_width - col_label - col_type - col_hardness - col_target_date
-        - col_target - col_status - col_mc_status
+        - col_target - col_status
     )
 
     header = [
         _th("Ziel", styles), _th("Typ", styles),
         _th("Hartheit", styles), _th("Ziel-Datum", styles),
         _th("Zielwert", styles), _th("Status", styles),
-        _th("MC-Status", styles),
         _th("Erfolgs-Wkt. (nach Priorität)", styles),
     ]
     rows = [header]
-    mc_by_goal_id = {
-        str(c.get("goal_id") or ""): c
-        for c in (mc_classifications or [])
-        if isinstance(c, dict)
-    }
     for g in goals:
         label = _safe_string(g.get("label"))
         goal_type = _safe_string(g.get("goal_type"))
         hardness = _safe_string(g.get("hardness")) or "—"
         target_date = _safe_string(g.get("target_date")) or "—"
         target = format_chf_rappen(g.get("target_amount_rappen"), currency=currency)
-        status = str(g.get("status") or "data_pending").lower()
         if str(g.get("evaluation_scope") or "") == "legacy_aggregate_unknown":
-            # Altbewertung: gemeinsamer Planwert je Zeile, keine Ampel.
-            status = "legacy_aggregate_unknown"
-        mc_status = str(
-            (mc_by_goal_id.get(str(g.get("goal_id") or "")) or {}).get("status")
-            or "unknown"
-        ).lower()
+            # Altbewertung: gemeinsamer Planwert je Zeile, keine Einstufung.
+            status_fields = goal_status_display(GOAL_STATUS_LEGACY)
+        else:
+            status_fields = goal_status_fields(g)
         prob = format_bps_as_pct(g.get("probability_bps"))
         rows.append([
             Paragraph(_escape(label), _ar_paragraph_style(
@@ -1681,15 +1661,14 @@ def _goals_table(
             Paragraph(_escape(hardness), styles["caption"]),
             Paragraph(_escape(target_date), styles["caption_mono"]),
             Paragraph(_escape(target), styles["caption"]),
-            _goal_status_pill(status, styles),
-            _goal_status_pill(mc_status, styles),
+            _goal_status_pill(status_fields, styles),
             Paragraph(_escape(prob), _ar_paragraph_style(
                 styles["caption_mono"], color=COLOR_INK,
             )),
         ])
     table = Table(rows, colWidths=[
         col_label, col_type, col_hardness, col_target_date,
-        col_target, col_status, col_mc_status, col_prob,
+        col_target, col_status, col_prob,
     ])
     table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -1713,12 +1692,11 @@ def _th(text: str, styles: dict) -> Paragraph:
     )
 
 
-def _goal_status_pill(status: str, styles: dict):
+def _goal_status_pill(fields: dict, styles: dict):
+    """Status-Pille aus den M-3-Anzeigefeldern (GOAL_STATUS_DISPLAY)."""
     from reportlab.lib.colors import HexColor
 
-    label, fill_hex, text_hex = _GOAL_STATUS_PILL.get(
-        status, _GOAL_STATUS_PILL["data_pending"]
-    )
+    label, fill_hex, text_hex = fields["status_label"], fields["status_bg"], fields["status_color"]
     pill = Table(
         [[Paragraph(
             _escape(label),

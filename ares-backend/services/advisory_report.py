@@ -23,7 +23,12 @@ Alle Bezeichnungen sind Ares-eigen.
 Bezug: docs/planning/2026-05-24-sprint-u-p21-advisory-report-backend.md
 """
 from __future__ import annotations
-from core.goal_metric_contract import canonical_goal_rows
+from core.goal_metric_contract import (
+    GOAL_STATUS_NOT_ASSESSABLE,
+    canonical_goal_rows,
+    goal_status_display,
+    goal_status_fields,
+)
 
 from core.holdings_rule import ist_partially_derived
 
@@ -2262,6 +2267,16 @@ def _check_zielkompatibilitaet(db: Session, mandate: Mandate) -> dict[str, Any]:
             f"{n_knapp} Ziel(e) knapp erreichbar.",
             "Reserven oder Beitragsdisziplin diskutieren.",
         )
+    # P5c / N-930-01: fail-closed -- "komfortabel erreicht" nur, wenn jedes Ziel
+    # laut M-3 "erreichbar" ist (nicht bewertbar/nicht beurteilbar/ausserhalb
+    # Horizont sind keine Erreichbarkeitsaussage).
+    n_open = sum(1 for r in rows if isinstance(r, dict) and str(r.get("status", "")) != "erreichbar")
+    if n_open > 0:
+        return _verdict(
+            "Zielkompatibilität", "nicht_beurteilbar",
+            f"Für {n_open} Ziel(e) liegt keine bewertbare Zielerreichung vor.",
+            "Anlagestrategie neu berechnen.",
+        )
     return _verdict(
         "Zielkompatibilität", "gruen",
         "Alle definierten Ziele werden komfortabel erreicht.",
@@ -2728,7 +2743,8 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
                 "target_date": str(getattr(meta, "target_date", "") or ""),
                 "hardness": str(getattr(meta, "hardness", "") or ""),
                 "probability_bps": None,
-                "status": "data_pending",
+                # P5c / N-930-01: ohne M-3 "nicht bewertbar" (fail-closed).
+                **goal_status_display(GOAL_STATUS_NOT_ASSESSABLE),
                 # Formgleichheit mit dem Pfad unten: driften die beiden
                 # Rueckgabeformen auseinander, laeuft ein Konsument genau im
                 # Datenlueckenfall in einen KeyError.
@@ -2775,7 +2791,9 @@ def _build_goal_based_investing(db: Session, mandate: Mandate) -> dict[str, Any]
             "target_date": str(getattr(meta, "target_date", "") or ""),
             "hardness": str(r.get("hardness", "") or ""),
             "probability_bps": int(round(probability * 10000)),
-            "status": str(r.get("status", "") or ""),
+            # P5c / N-930-01: M-3-Status der kanonischen Zeile samt Wort/Farbe.
+            "status": str(r.get("status", "") or GOAL_STATUS_NOT_ASSESSABLE),
+            **goal_status_fields(r),
             # GOAL-OUTSIDE-HORIZON-001 (2026-10-12): mitgefuehrt, damit ein
             # Konsument die 0 % NICHT als Messung liest. Der Optimizer meldet
             # fuer ein Ziel, dessen Zahlungsplan komplett hinter dem Horizont

@@ -108,7 +108,12 @@ dritte Zeichenkette `'"current_goal_analysis"'` bleibt dagegen unberuehrt
 """
 
 from __future__ import annotations
-from core.goal_metric_contract import canonical_goal_rows
+from core.goal_metric_contract import (
+    GOAL_STATUS_NOT_ASSESSABLE,
+    canonical_goal_rows,
+    goal_status_display,
+    m3_status_by_goal,
+)
 from core.risk_parameter_set import ParameterSetMissing
 
 import json
@@ -129,7 +134,6 @@ from services.goal_success_status import (
     SUCCESS_SOURCE_OPTIMIZER,
     SUCCESS_SOURCE_SIMULATION,
     canonical_success_by_goal,
-    goal_status_from_success_pct,
 )
 
 logger = logging.getLogger(__name__)
@@ -683,9 +687,8 @@ def _build_goal_analysis(
                 funded_ratio_pct=funded_ratio_pct,
                 hardness_key=hardness_key,
             )
-        # Vorlaeufig (ohne Simulation keine Erfolgs-Wkt.); in Produktion ersetzt
-        # _merge_goal_analysis_with_monte_carlo ihn (GOAL-STATUS-BY-SUCCESS-001).
-        status = "On Track" if score >= 70 else ("Pruefen" if score >= 45 else "Gefaehrdet")
+        # P5c / N-930-01: kein Status aus dem Punktschaetzer; den M-3-Status setzt
+        # _merge_goal_analysis_with_monte_carlo bzw. apply_m3_goal_status.
         analysis.append(
             {
                 "goal_id": goal.id,
@@ -703,7 +706,7 @@ def _build_goal_analysis(
                 "target_return_bps": int(goal.target_return_bps) if goal.target_return_bps is not None else None,
                 "projected_value_rappen": projected_rappen,
                 "achievement_score": score,
-                "status": status,
+                **goal_status_display(GOAL_STATUS_NOT_ASSESSABLE),
                 "start_date": goal.start_date,
                 "target_date": goal.target_date,
                 "horizon_years": years,
@@ -762,10 +765,18 @@ def _merge_goal_analysis_with_monte_carlo(
                 "success_probability": probability,
                 "success_probability_pct": pct,
                 "success_probability_source": source,
-                "status": goal_status_from_success_pct(pct),
             })
         merged.append(row)
-    return merged
+    return apply_m3_goal_status(merged, achievability)
+
+
+def apply_m3_goal_status(goal_analysis: list[dict], achievability: list[dict] | None) -> list[dict]:
+    """P5c / N-930-01: ``goal_analysis[].status`` ausschliesslich aus dem M-3-Status
+    der kanonischen Zielzeilen (``canonical_goal_rows``); ohne M-3 fuer ein Ziel
+    "nicht bewertbar" -- nie die Ampel 70/45 auf dem Punktschaetzer."""
+    by_goal = m3_status_by_goal(achievability)
+    return [{**item, **goal_status_display(by_goal.get(str(item.get("goal_id") or ""), GOAL_STATUS_NOT_ASSESSABLE))}
+            for item in goal_analysis]
 
 
 def _stored_goal_achievability(allocation, *, log_invalid: bool = True) -> list[dict]:

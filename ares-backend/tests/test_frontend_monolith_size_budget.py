@@ -189,6 +189,11 @@ kn4-ui.js 250/14025: Toleranzschranke direkt in aresPortfolioDisplayPositions (N
 Korrektur der bestehenden Apportionierung, keine neue Funktion; Hinweis in kn5-ui.js).
 P5b-CI-Fix (H-185, CTO-Entscheid): refreshStrategyData rechnet bei 409/anderen Ladefehlern
 nicht mehr still neu (nur bei 404) -> Monolith gesenkt auf 26417/1622445.
+P5c (H-186, CTO-Entscheide N-930-01/-02): neuer Teil ``p5c-ui.js`` (Budget = Stand bei
+Einfuehrung, 27/1932): goalStatusView (Zielstatus nur aus M-3) und loadStrategyOnly (keine
+stille Neuberechnung). Im Monolithen entfallen goalSuccessAmpel, rvGoalProbBadge,
+goalAchievabilityStatusLabel und vier Ampel-70/45-Stellen -> Monolith gesenkt auf
+26388/1620987; goal-review-runtime.js gesenkt auf 1561/83782, finalize-attestation.js auf 27/1733.
 """
 from __future__ import annotations
 
@@ -197,9 +202,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26417
+MONOLITH_MAX_LINES = 26388
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1622445
+MONOLITH_MAX_BYTES = 1620987
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -212,19 +217,20 @@ EXTRACTED_PART_BUDGETS = {
     "session-boundary.js": (53, 2763),
     "ist-projection-basis.js": (87, 4627),
     "unsaved-changes.js": (82, 4342),
-    "goal-review-runtime.js": (1563, 83881),
+    "goal-review-runtime.js": (1561, 83782),
     "client-compliance.js": (469, 29962),
     "kyc-review-policy.js": (427, 25832),
     "privacy-governance.js": (500, 35256),
     "sustainability-preferences.js": (517, 26065),
     "wealth-inflows.js": (282, 16491),
     "allocation-publication.js": (272, 13780),
-    "finalize-attestation.js": (27, 1741),
+    "finalize-attestation.js": (27, 1733),
     "fx-rates-editor.js": (97, 5091),
     "mandate-view.js": (604, 35395),
     "kn3-ui.js": (259, 14886),
     "kn4-ui.js": (250, 14025),
     "kn5-ui.js": (105, 6960),
+    "p5c-ui.js": (27, 1932),
     "advisor-guidance.js": (728, 43963),
 }
 
