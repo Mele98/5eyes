@@ -983,6 +983,8 @@ _CHANNEL_CAUSES: dict[str, str] = {
         "Beratungsdaten wurden seit der Versiegelung geändert. Bitte neu berechnen, finalisieren und publizieren.",
     ReasonCode.CCX_FRESHNESS_UNKNOWN.value:
         "Die Aktualität des Beratungsentscheids ist nicht belegt. Bitte neu finalisieren.",
+    ReasonCode.CCX_ENVELOPE_MISSING.value:
+        "Der versiegelte Beratungsentscheid ist nicht auffindbar. Bitte neu finalisieren und publizieren.",
     ReasonCode.CCX_FX_BASIS_STALE.value:
         "Ein Wechselkurs des versiegelten Entscheids ist veraltet. Bitte einen aktuellen Kurs erfassen.",
     ReasonCode.CCX_FX_BASIS_MISSING.value:
@@ -1084,7 +1086,12 @@ def _evaluate_channel_envelope(db: Session, mandate: Any) -> ChannelDecision:
         if str(code) not in _CHANNEL_CAUSES:
             code = ReasonCode.CCX_ALLOCATION_NOT_PUBLISHABLE
         return _channel_blocked(code, envelope_id=state.envelope_id, target_allocation_id=str(ta.id), drift=state.drift)
-    envelope = db.get(AdvisoryDecisionEnvelope, str(state.envelope_id))
+    envelope = db.get(AdvisoryDecisionEnvelope, str(state.envelope_id)) if state.envelope_id else None
+    if envelope is None:
+        # P5b-CI-Fix: publiziert ohne auffindbaren Entscheid -> typisiert
+        # blockiert (nie AttributeError/500 in Anzeige- oder PDF-Pfaden).
+        return _channel_blocked(ReasonCode.CCX_ENVELOPE_MISSING, envelope_id=state.envelope_id,
+                                target_allocation_id=str(ta.id))
     base = {"envelope_id": envelope.id, "envelope_hash": envelope.envelope_hash,
             "schema_version": envelope.schema_version, "target_allocation_id": str(ta.id)}
     rows = db.query(AdvisoryEnvelopeBinding).filter(

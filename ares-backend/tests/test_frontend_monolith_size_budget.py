@@ -187,6 +187,8 @@ Reserve ausserhalb der Strategie (N-917R4-02; Label = PDF, +46 B nach N858-5), H
 allocationReserveBreakdown aus ares.html umgezogen -> Monolith gesenkt auf 26418/1622457.
 kn4-ui.js 250/14025: Toleranzschranke direkt in aresPortfolioDisplayPositions (N-917R4-05,
 Korrektur der bestehenden Apportionierung, keine neue Funktion; Hinweis in kn5-ui.js).
+P5b-CI-Fix (H-185, CTO-Entscheid): refreshStrategyData rechnet bei 409/anderen Ladefehlern
+nicht mehr still neu (nur bei 404) -> Monolith gesenkt auf 26417/1622445.
 """
 from __future__ import annotations
 
@@ -195,9 +197,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26418
+MONOLITH_MAX_LINES = 26417
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1622457
+MONOLITH_MAX_BYTES = 1622445
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
