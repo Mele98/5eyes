@@ -11,6 +11,7 @@ from services.pdf.base import DepotCheckData, PDFContext
 from services.pdf.components.backtest_metrics import make_backtest_metrics_table
 from services.pdf.components.depotcheck_soll import (
     make_concentration_table,
+    make_external_holdings_table,
     make_cost_table,
     make_diversification_heatmap,
     make_exposure_bars,
@@ -160,6 +161,16 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
     flowables.append(Spacer(1, 6 * mm))
     flowables.append(_section_title("Grösste Zielpositionen"))
     flowables.append(make_concentration_table(data.top_positions, ctx.base_currency))
+    if data.external_holdings:
+        # K3 / N-915-06: nie still weggelassen; Wert aus demselben Bestand wie das IST.
+        flowables.append(Spacer(1, 6 * mm))
+        flowables.append(_section_title("Titel ausserhalb der Empfehlung"))
+        flowables.append(_fallback(
+            "Gehaltene Titel, die nicht in der Empfehlung stehen. Ihr Wert zählt zum "
+            "IST-Bestand, ihr Ziel ist 0. Verkaufen oder halten ist ein Vorschlag; "
+            "der Entscheid liegt beim Kunden."
+        ))
+        flowables.append(make_external_holdings_table(data.external_holdings, ctx.base_currency))
     flowables.append(PageBreak())
 
     _start_page(

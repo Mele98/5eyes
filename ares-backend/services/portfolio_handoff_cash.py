@@ -15,7 +15,11 @@ nur das Vorhandensein geprueft.
 """
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy.orm import Session
+
+from core import external_holdings_rule as external_rule
 
 from models.mandates import Mandate
 from models.wealth import WealthPosition
@@ -115,5 +119,66 @@ def with_cash_actions(drifts: list[dict]) -> list[dict]:
                 int(entry["delta_weight_bps"]), int(entry["rebalance_amount_rappen"]), True,
             )
             entry = {**entry, "rebalance_action_code": code, "rebalance_action": label, "rebalance_action_label": label}
+        result.append(entry)
+    return result
+
+
+# K3 / N-915-06: Titel ausserhalb der Empfehlung (core/external_holdings_rule.py).
+def external_handoff_entries(db: Session, mandate: Mandate, exclude_isins=()) -> list[dict]:
+    """Bewerteter Fremdbestand als Live-Rebalancing-Eintraege (IST = Wert in
+    Mandatswaehrung, SOLL = 0) -- dieselbe Regel wie Depotcheck und
+    Depot-Snapshot. Nicht bewertbar -> ``AdvisoryCashValuationError``
+    (fail-closed, kein Ersatzwert)."""
+    rows = db.query(WealthPosition).filter(
+        WealthPosition.client_id == mandate.client_id,
+        WealthPosition.deleted_at.is_(None),
+        WealthPosition.position_type == "Depot",
+    ).order_by(WealthPosition.id.asc()).all()
+    depots = [(row.id, row.external_holdings_json) for row in rows
+              if external_rule.is_advisory_depot(row) and row.external_holdings_json]
+    if not depots:
+        return []
+    target_currency = str(getattr(mandate, "base_currency", "") or "CHF").upper().strip()
+    # Dieselbe strikte FX-Basis wie die Liquiditaet (lazy: nur bei Fremdwaehrung).
+    fx: dict = {}
+
+    def convert(amount: int, currency: str) -> int:
+        if currency != target_currency and "source" not in fx:
+            fx["source"] = FXRateSource.from_db_strict_for_model(db, tenant_id=getattr(mandate, "tenant_id", None))
+        return external_rule.strict_converter(fx.get("source"), target_currency)(amount, currency)
+
+    valuation = external_rule.evaluate(depots, convert=convert, exclude_isins=exclude_isins, today=date.today().isoformat())
+    if valuation["unvalued_count"]:
+        raise AdvisoryCashValuationError(external_rule.unvalued_message(valuation["items"]))
+    return [{
+        "id": item["id"],
+        "wealth_position_id": item["wealth_position_id"],
+        "product_id": None,
+        "product_name": item["label"],
+        "isin": item["isin"],
+        "asset_class": item["asset_class"],
+        "sub_asset_class": None,
+        "product_currency": item["currency"],
+        "target_weight_bps": 0,
+        "target_amount_rappen": 0,
+        "latest_price_rappen": None,
+        "reference_price_rappen": None,
+        "holding_present": True,
+        "holding_as_of_date": item["valuation_date"],
+        "valuation_basis": external_rule.VALUATION_BASIS_EXTERNAL,
+        "current_market_value_rappen": int(item["amount_base_rappen"]),
+        "holding_origin": external_rule.ORIGIN_EXTERNAL,
+    } for item in valuation["items"]]
+
+
+def with_external_actions(drifts: list[dict]) -> list[dict]:
+    """Fremdtitel: nie ein Verkaufsauftrag. Die Aktion ist ein gekennzeichneter
+    Vorschlag (``REVIEW``); Verkauf oder Halten entscheidet der Kunde."""
+    result = []
+    for entry in drifts:
+        if entry.get("holding_origin") == external_rule.ORIGIN_EXTERNAL:
+            label = external_rule.ACTION_REVIEW_LABEL
+            entry = {**entry, "rebalance_action_code": external_rule.ACTION_REVIEW, "rebalance_action": label,
+                     "rebalance_action_label": label}
         result.append(entry)
     return result

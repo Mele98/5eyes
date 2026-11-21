@@ -1842,6 +1842,8 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             ('pension_lumpsum_tax_bps', 'INTEGER'),
             # K1 Property-Gate (2026-11-19): siehe models/wealth.py.
             ('property_gate_review_json', 'TEXT'),
+            # K3 / N-915-06 (2026-11-21): Fremdbestand am Depot, siehe models/wealth.py.
+            ('external_holdings_json', 'TEXT'),
         ],
         # A2-Smoke-Test-Fund (2026-07-22): 'target_allocations' hatte einen
         # DOPPELTEN Dict-Key in diesem Literal (hier + weiter unten). In Python

@@ -48,7 +48,8 @@ from core.evidence import SCHEME_V1_ASCII, canonical_json, evidence_hash
 from models.mandates import Mandate
 from models.review import Product
 from services.backtest_stress import compute_stress_for_weights, stress_catalog_hash
-from services.depot_check import PRODUCT_ASSET_CLASS_ALIASES
+from core.external_holdings_rule import ORIGIN_EXTERNAL, VALUATION_BASIS_EXTERNAL, strict_converter, unvalued_message
+from services.depot_check import PRODUCT_ASSET_CLASS_ALIASES, _select_latest_run, external_holdings_valuation
 from services.portfolio_engine_live_rebalancing import value_mandate_holdings
 from services.portfolio_handoff import (
     HoldingsValuationIncompleteError,
@@ -113,9 +114,14 @@ def _product_bucket_weights(product: Product) -> tuple[dict | None, str | None]:
     return {bucket: 10000}, None
 
 
-def _complete_holdings_valuation(db: Session, mandate: Mandate, fx_source, target: str) -> dict:
-    """Bewertung des gesamten Bestands; jede Luecke -> ``HoldingsValuationIncompleteError``."""
+def _complete_holdings_valuation(db: Session, mandate: Mandate, fx_source, target: str,
+                                 *, external_present: bool = False) -> dict:
+    """Bewertung des gesamten Bestands; jede Luecke -> ``HoldingsValuationIncompleteError``.
+    K3: ist Fremdbestand erfasst, darf der Bestand der Empfehlung leer sein."""
     valuation = value_mandate_holdings(db, mandate.id, fx_source=fx_source, target_currency=target)
+    if not valuation["holding_positions_count"] and external_present:
+        assert_holdings_carried_over(valuation.get("holdings_not_carried_over") or [])
+        return valuation
     if not valuation["holding_positions_count"]:
         raise HoldingsValuationIncompleteError(
             "Kein erfasster Depotbestand: es gibt keinen IST-Bestand fuer einen Stress-Replay."
@@ -160,7 +166,13 @@ def build_depot_snapshot(db: Session, mandate: Mandate, *, as_of: date, fx_sourc
         fx_source = FXRateSource.from_db_strict_for_model(
             db, tenant_id=getattr(mandate, "tenant_id", None), as_of=as_of,
         )
-    valuation = _complete_holdings_valuation(db, mandate, fx_source, target)
+    # K3 / N-915-06: Fremdbestand mit derselben FX-Basis; nicht bewertbar -> kein Snapshot.
+    external = external_holdings_valuation(
+        db, mandate, _select_latest_run(db, mandate), convert=strict_converter(fx_source, target), today=as_of,
+    )
+    if external["unvalued_count"]:
+        raise HoldingsValuationIncompleteError(unvalued_message(external["items"]))
+    valuation = _complete_holdings_valuation(db, mandate, fx_source, target, external_present=bool(external["count"]))
     product_ids = sorted({p["product_id"] for p in valuation["positions"]})
     products = {p.id: p for p in db.query(Product).filter(Product.id.in_(product_ids)).all()}
     positions, currencies = [], set()
@@ -185,11 +197,18 @@ def build_depot_snapshot(db: Session, mandate: Mandate, *, as_of: date, fx_sourc
             "bucket_weights_bps": weights,
             "unclassified_reason": reason,
         })
+    for item in external["items"]:
+        currencies.add(item["currency"])
+        positions.append(_external_snapshot_position(item, target))
+    holdings_as_of = valuation["as_of_date"]
+    external_dates = [item["valuation_date"][:10] for item in external["items"]]
+    if external_dates:
+        holdings_as_of = min([d for d in (holdings_as_of, *external_dates) if d])
     body = {
         "snapshot_version": DEPOT_SNAPSHOT_VERSION,
         "mandate_id": str(getattr(mandate, "id", "") or ""),
         "as_of": as_of.isoformat(),
-        "holdings_as_of": valuation["as_of_date"],
+        "holdings_as_of": holdings_as_of,
         "currency": target,
         "fx_evidence": fx_source.canonical_model_signature(
             sorted(currencies | {target}), target_currency=target,
@@ -199,6 +218,30 @@ def build_depot_snapshot(db: Session, mandate: Mandate, *, as_of: date, fx_sourc
     }
     snapshot_hash = _sha256(body)
     return {**body, "snapshot_hash": snapshot_hash, "snapshot_id": f"dps-{snapshot_hash[:24]}"}
+
+
+def _external_snapshot_position(item: dict, target: str) -> dict:
+    """K3: Fremdtitel als Snapshot-Position (Marktwert mit Stichtag, kein Preis).
+    Eigene Schluessel nur bei Fremdtiteln -- bestehende Snapshots bleiben
+    inhaltsgleich."""
+    return {
+        "position_id": item["id"],
+        "product_id": None,
+        "isin": item["isin"],
+        "asset_class": item["asset_class"],
+        "holding_as_of_date": item["valuation_date"],
+        "units_milli": None,
+        "price_rappen": None,
+        "price_date": None,
+        "product_currency": item["currency"],
+        "fx_converted": item["currency"] != target,
+        "valuation_basis": VALUATION_BASIS_EXTERNAL,
+        "amount_base_rappen": int(item["amount_base_rappen"]),
+        "bucket_weights_bps": {item["bucket"]: 10000},
+        "unclassified_reason": None,
+        "source_kind": ORIGIN_EXTERNAL,
+        "label": item["label"],
+    }
 
 
 def verify_depot_snapshot(snapshot) -> dict:

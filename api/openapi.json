@@ -9994,6 +9994,243 @@
         "title": "ErasureCaseOpen",
         "type": "object"
       },
+      "ExternalHoldingItem": {
+        "description": "Ein gehaltener Titel, der nicht in der Empfehlung steht. Marktwert und\nStichtag duerfen fehlen -- der Titel ist dann \"nicht bewertbar\" (kein\nErsatzwert).",
+        "properties": {
+          "asset_class": {
+            "enum": [
+              "Aktien",
+              "Obligationen",
+              "Immobilien",
+              "Alternative Anlagen",
+              "Liquidität"
+            ],
+            "title": "Asset Class",
+            "type": "string"
+          },
+          "currency": {
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Currency",
+            "type": "string"
+          },
+          "isin": {
+            "anyOf": [
+              {
+                "maxLength": 20,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isin"
+          },
+          "label": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "market_value_rappen": {
+            "anyOf": [
+              {
+                "maximum": 9.223372036854776e+18,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Value Rappen"
+          },
+          "valuation_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valuation Date"
+          }
+        },
+        "required": [
+          "label",
+          "asset_class",
+          "currency"
+        ],
+        "title": "ExternalHoldingItem",
+        "type": "object"
+      },
+      "ExternalHoldingValuation": {
+        "properties": {
+          "amount_base_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Base Rappen"
+          },
+          "asset_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Class"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "isin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isin"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "market_value_rappen": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Value Rappen"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "status_text": {
+            "title": "Status Text",
+            "type": "string"
+          },
+          "valuation_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valuation Date"
+          }
+        },
+        "required": [
+          "label",
+          "status",
+          "status_text"
+        ],
+        "title": "ExternalHoldingValuation",
+        "type": "object"
+      },
+      "ExternalHoldingsDepot": {
+        "properties": {
+          "depot_label": {
+            "title": "Depot Label",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalHoldingValuation"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "wealth_position_id": {
+            "title": "Wealth Position Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "wealth_position_id",
+          "depot_label",
+          "items"
+        ],
+        "title": "ExternalHoldingsDepot",
+        "type": "object"
+      },
+      "ExternalHoldingsResponse": {
+        "properties": {
+          "base_currency": {
+            "title": "Base Currency",
+            "type": "string"
+          },
+          "depots": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalHoldingsDepot"
+            },
+            "title": "Depots",
+            "type": "array"
+          },
+          "mandate_id": {
+            "title": "Mandate Id",
+            "type": "string"
+          },
+          "total_base_rappen": {
+            "title": "Total Base Rappen",
+            "type": "integer"
+          },
+          "unvalued_count": {
+            "title": "Unvalued Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mandate_id",
+          "base_currency",
+          "depots",
+          "total_base_rappen",
+          "unvalued_count"
+        ],
+        "title": "ExternalHoldingsResponse",
+        "type": "object"
+      },
+      "ExternalHoldingsUpdate": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalHoldingItem"
+            },
+            "maxItems": 200,
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "title": "ExternalHoldingsUpdate",
+        "type": "object"
+      },
       "FXRateResponse": {
         "properties": {
           "currency": {
@@ -40962,6 +41199,121 @@
         "summary": "Sign Document",
         "tags": [
           "Review & Dokumente"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/external-holdings": {
+      "get": {
+        "description": "K3 / N-915-06: Titel ausserhalb der Empfehlung je Depot, mit Status\n(dieselbe Bewertung wie Depotcheck, Depot-Snapshot und Handelsliste).",
+        "operationId": "list_external_holdings_mandates__mandate_id__external_holdings_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalHoldingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List External Holdings",
+        "tags": [
+          "Allokation"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/external-holdings/{wp_id}": {
+      "put": {
+        "description": "K3 / N-915-06: ersetzt die Fremdtitel eines Depots im Beratungsvermoegen.\nWie jede Bestandsaenderung macht das den versiegelten Entscheid STALE\n(Freshness-Hook ``positions``); nichts wird automatisch neu berechnet.",
+        "operationId": "put_external_holdings_mandates__mandate_id__external_holdings__wp_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "wp_id",
+            "required": true,
+            "schema": {
+              "title": "Wp Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExternalHoldingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalHoldingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put External Holdings",
+        "tags": [
+          "Allokation"
         ]
       }
     },

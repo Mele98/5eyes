@@ -2953,6 +2953,7 @@ def _build_depotcheck_data(
             [str(item) for item in dc.get("warnings") or [] if str(item).strip()]
             + _depotcheck_data_quality_warnings(costs, performance)
         )),
+        external_holdings=list(dc.get("fremdbestand") or []),
         cost_disclosure=costs,
         performance=performance,
         qualitative_assessment=_build_depotcheck_qualitative_assessment(

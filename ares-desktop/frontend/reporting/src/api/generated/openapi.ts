@@ -3276,6 +3276,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/mandates/{mandate_id}/external-holdings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List External Holdings
+         * @description K3 / N-915-06: Titel ausserhalb der Empfehlung je Depot, mit Status
+         *     (dieselbe Bewertung wie Depotcheck, Depot-Snapshot und Handelsliste).
+         */
+        get: operations["list_external_holdings_mandates__mandate_id__external_holdings_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mandates/{mandate_id}/external-holdings/{wp_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put External Holdings
+         * @description K3 / N-915-06: ersetzt die Fremdtitel eines Depots im Beratungsvermoegen.
+         *     Wie jede Bestandsaenderung macht das den versiegelten Entscheid STALE
+         *     (Freshness-Hook ``positions``); nichts wird automatisch neu berechnet.
+         */
+        put: operations["put_external_holdings_mandates__mandate_id__external_holdings__wp_id__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/mandates/{mandate_id}/financial-coverage-attestation": {
         parameters: {
             query?: never;
@@ -9809,6 +9852,77 @@ export interface components {
             client_id: string;
             /** Relationship End Date */
             relationship_end_date?: string | null;
+        };
+        /**
+         * ExternalHoldingItem
+         * @description Ein gehaltener Titel, der nicht in der Empfehlung steht. Marktwert und
+         *     Stichtag duerfen fehlen -- der Titel ist dann "nicht bewertbar" (kein
+         *     Ersatzwert).
+         */
+        ExternalHoldingItem: {
+            /**
+             * Asset Class
+             * @enum {string}
+             */
+            asset_class: "Aktien" | "Obligationen" | "Immobilien" | "Alternative Anlagen" | "Liquidität";
+            /** Currency */
+            currency: string;
+            /** Isin */
+            isin?: string | null;
+            /** Label */
+            label: string;
+            /** Market Value Rappen */
+            market_value_rappen?: number | null;
+            /** Valuation Date */
+            valuation_date?: string | null;
+        };
+        /** ExternalHoldingValuation */
+        ExternalHoldingValuation: {
+            /** Amount Base Rappen */
+            amount_base_rappen?: number | null;
+            /** Asset Class */
+            asset_class?: string | null;
+            /** Currency */
+            currency?: string | null;
+            /** Isin */
+            isin?: string | null;
+            /** Label */
+            label: string;
+            /** Market Value Rappen */
+            market_value_rappen?: number | null;
+            /** Status */
+            status: string;
+            /** Status Text */
+            status_text: string;
+            /** Valuation Date */
+            valuation_date?: string | null;
+        };
+        /** ExternalHoldingsDepot */
+        ExternalHoldingsDepot: {
+            /** Depot Label */
+            depot_label: string;
+            /** Items */
+            items: components["schemas"]["ExternalHoldingValuation"][];
+            /** Wealth Position Id */
+            wealth_position_id: string;
+        };
+        /** ExternalHoldingsResponse */
+        ExternalHoldingsResponse: {
+            /** Base Currency */
+            base_currency: string;
+            /** Depots */
+            depots: components["schemas"]["ExternalHoldingsDepot"][];
+            /** Mandate Id */
+            mandate_id: string;
+            /** Total Base Rappen */
+            total_base_rappen: number;
+            /** Unvalued Count */
+            unvalued_count: number;
+        };
+        /** ExternalHoldingsUpdate */
+        ExternalHoldingsUpdate: {
+            /** Items */
+            items?: components["schemas"]["ExternalHoldingItem"][];
         };
         /** FXRateResponse */
         FXRateResponse: {
@@ -21825,6 +21939,73 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContractDocumentResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_external_holdings_mandates__mandate_id__external_holdings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalHoldingsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_external_holdings_mandates__mandate_id__external_holdings__wp_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+                wp_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExternalHoldingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalHoldingsResponse"];
                 };
             };
             /** @description Validation Error */

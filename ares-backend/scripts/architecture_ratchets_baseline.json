@@ -530,6 +530,7 @@
     "core.db_integrity": "b2221c8d06a7cb27e782d6ab1db7f765d699b166392a90f67c9d1769ae28fe58",
     "core.depletion_display": "e42c4b6f62d8cfa1d52261573fa586ece142dd57a5f33569664e0de1ed185c10",
     "core.evidence": "107ad66eeb7424fd9b9ea3c4786e895e2350aa1061fc43e35ae9b65033b93ae6",
+    "core.external_holdings_rule": "d016e1155229ec93301dc352c617782157886412d58f5a3a0ce6b4bda6de0400",
     "core.fx_freshness": "81eefa7fe99273ad27a4651215fac2ea2113595a32ff201716fa23ee0adfb7ea",
     "core.goal_metric_contract": "3a08bb933f3540b46deabe55c2f190d36e8c8d0e0c61b744d324e8a821ebf802",
     "core.goal_vocabulary": "2ce6455a657546ddbc54b665215e899d9e0d4e6df4a79aeaa2562857b0867b82",
