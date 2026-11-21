@@ -168,10 +168,13 @@ def test_pdf_one_click_stores_snapshot_and_analysis_idempotently(session_factory
         )
         assert _counts(session) == (1, 1)
     text = _pdf_text(first)
-    assert analysis["snapshot_id"] in text
-    assert analysis["analysis_snapshot_id"] in text
+    # KN6 / N-917R5-02: Kundentext «Bestandsstichtag + Pruefsumme» (8 Zeichen des
+    # Snapshot-Hashes) statt interner Kennungen; beide Abrufe zeigen dieselbe.
+    checksum = f"Prüfsumme {analysis['snapshot_hash'][:8]}."
+    assert checksum in text and "Bestandsstichtag" in text
+    assert analysis["snapshot_id"] not in text and analysis["analysis_snapshot_id"] not in text
     assert "kein Depot erfasst" not in text
-    assert analysis["snapshot_id"] in _pdf_text(second)
+    assert checksum in _pdf_text(second)
 
 
 @pytest.mark.timeout(300)
