@@ -108,5 +108,7 @@ def test_valid_timestamp_regex():
 def test_foundation_endpoint_blocked_in_production():
     # Code-Guard vorhanden: Foundation-Seed in Produktion gesperrt.
     src = (BACKEND_ROOT / "routers" / "system.py").read_text(encoding="utf-8")
-    assert 'app_env' in src and 'foundation-example' in src
-    assert 'in der Produktionsumgebung gesperrt' in src
+    # KN-B / E2E2-10: Sperre ueber settings.foundation_example_available
+    # (app_env=production ODER gepackte Produktivinstallation).
+    assert 'foundation_example_available' in src and 'foundation-example' in src
+    assert 'in der Produktivinstallation gesperrt' in src

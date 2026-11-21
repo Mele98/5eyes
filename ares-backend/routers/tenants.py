@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.exc import IntegrityError
+from core.db_integrity import raise_if_check_violation
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -36,12 +37,15 @@ from schemas.tenants import (
     TenantUpdate,
     UserAssignTenantRequest,
 )
+from core.reason_codes import DomainError, ReasonCode
+from services.allocation_publication_approval import publication_approver_ids
 from services.audit import log
-from services.auth import require_admin, require_super_admin
+# H12: IP-Helfer aus dem Service statt aus routers.auth (Router importieren keine
+# Router; haelt den Fan-out trotz der neuen Kante zur Approval-Zaehlung konstant).
+from services.auth import extract_client_ip as _extract_client_ip, require_admin, require_super_admin
 from services.quota import compute_tenant_usage
 from services.refresh_tokens import revoke_all_for_user
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Tenant-Admin-Aktionen.
-from routers.auth import _extract_client_ip
 
 router = APIRouter(prefix="/tenants", tags=["Tenants"])
 
@@ -94,6 +98,42 @@ def get_my_tenant(
     return TenantSelfResponse(**payload)
 
 
+def _single_person_firm_change(db: Session, tenant: Tenant, updates: dict) -> tuple[int, int] | None:
+    """CCX-P4 N-910-02: (alt, neu) der Konfiguration "Ein-Personen-Firma",
+    falls sie sich aendert.
+
+    H12 N-910-15: Das Setzen auf 1 ist nur plausibel, wenn der Mandant genau
+    EINEN aktiven Publish-Berechtigten hat (dieselbe Zaehlung wie die
+    Einzelfreigabe); sonst 409 ``CCX_SINGLE_PERSON_FIRM_IMPLAUSIBLE`` -- vor
+    jeder Aenderung und ohne Audit-Eintrag einer Aenderung. Das Zuruecksetzen
+    auf 0 ist immer zulaessig (konservative Richtung)."""
+    if updates.get("single_person_firm") is None:
+        updates.pop("single_person_firm", None)
+        return None
+    old, new = int(getattr(tenant, "single_person_firm", 0) or 0), int(bool(updates["single_person_firm"]))
+    if new == 1 and old != 1:
+        approvers = publication_approver_ids(db, tenant.id)
+        if len(approvers) != 1:
+            raise DomainError(
+                ReasonCode.CCX_SINGLE_PERSON_FIRM_IMPLAUSIBLE,
+                "Ein-Personen-Firma kann nur gesetzt werden, wenn genau eine aktive Person "
+                f"Soll-Allokationen publizieren darf (heute: {len(approvers)}).",
+                http_status=409, extra={"eligible_approver_count": len(approvers)},
+            )
+    return (old, new) if old != new else None
+
+
+def _audit_single_person_firm(db: Session, user: User, tenant: Tenant, request: Request,
+                              old: int, new: int) -> None:
+    """Eigener Audit-Eintrag mit altem und neuem Wert (Governance der
+    Einzelfreigabe; Mandant gebunden)."""
+    log(
+        db, user_id=user.id, user_name=user.full_name, table_name="tenants", record_id=tenant.id,
+        action="UPDATE", field_name="tenant.single_person_firm", old_value=str(old), new_value=str(new),
+        ip_address=_extract_client_ip(request), tenant_id=tenant.id,
+    )
+
+
 @router.put("/me", response_model=TenantResponse)
 def update_my_tenant(
     body: TenantSelfServiceUpdate,
@@ -114,9 +154,12 @@ def update_my_tenant(
     if tenant is None:
         raise HTTPException(status_code=404, detail="Eigene Firma nicht gefunden")
     updates = body.model_dump(exclude_unset=True)
+    single_person_change = _single_person_firm_change(db, tenant, updates)
     for field, value in updates.items():
-        setattr(tenant, field, value)
+        setattr(tenant, field, int(value) if field == "single_person_firm" else value)
     tenant.updated_at = _now_iso()
+    if single_person_change is not None:
+        _audit_single_person_firm(db, current_user, tenant, request, *single_person_change)
     log(
         db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="tenants", record_id=tenant.id, action="UPDATE",
@@ -181,13 +224,15 @@ def create_tenant(
     )
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as exc:
         # 2026-07-25 (Generalaudit, Wave 13): der Pre-Check oben ist TOCTOU-
         # racy -- analog zum bereits gefixten client_number-Fund in
         # routers/clients.py::create_client. Der UNIQUE-Constraint auf
         # slug (models/tenant.py) verhindert zuverlaessig ein Duplikat,
         # gab dem VERLIERENDEN Request bisher aber einen 500 statt 409.
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(status_code=409, detail=f"Slug '{body.slug}' ist bereits vergeben.")
     db.refresh(tenant)
     return tenant
@@ -251,9 +296,12 @@ def update_tenant(
             detail="Tenant nicht gefunden",
         )
     updates = body.model_dump(exclude_unset=True)
+    single_person_change = _single_person_firm_change(db, tenant, updates)
     for field, value in updates.items():
-        setattr(tenant, field, value)
+        setattr(tenant, field, int(value) if field == "single_person_firm" else value)
     tenant.updated_at = _now_iso()
+    if single_person_change is not None:
+        _audit_single_person_firm(db, current_user, tenant, request, *single_person_change)
     log(
         db,
         user_id=current_user.id,

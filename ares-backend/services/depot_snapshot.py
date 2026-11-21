@@ -155,7 +155,11 @@ def build_depot_snapshot(db: Session, mandate: Mandate, *, as_of: date, fx_sourc
 
     target = str(getattr(mandate, "base_currency", None) or "CHF").upper().strip() or "CHF"
     if fx_source is None:
-        fx_source = FXRateSource.from_db_for_model(db)
+        # CCX-P3-FX N-909-01: strikt; Kursfrische relativ zum Snapshot-Stichtag
+        # (derselbe Stichtag wie der Preisfilter price_date <= as_of).
+        fx_source = FXRateSource.from_db_strict_for_model(
+            db, tenant_id=getattr(mandate, "tenant_id", None), as_of=as_of,
+        )
     valuation = _complete_holdings_valuation(db, mandate, fx_source, target)
     product_ids = sorted({p["product_id"] for p in valuation["positions"]})
     products = {p.id: p for p in db.query(Product).filter(Product.id.in_(product_ids)).all()}

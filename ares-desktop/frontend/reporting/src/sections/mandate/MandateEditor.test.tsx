@@ -28,7 +28,7 @@ function makeMandate(overrides: Partial<MandateRecord> = {}): MandateRecord {
     status: 'Aktiv',
     base_currency: 'CHF',
     advisory_language: 'DE',
-    depot_bank: 'UBS',
+    depot_bank: 'Testbank Fiktiv',
     depot_account_number: '123',
     opened_at: '2026-01-01',
     closed_at: null,

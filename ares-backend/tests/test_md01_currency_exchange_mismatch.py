@@ -71,11 +71,11 @@ def test_no_mismatch_when_no_exchange_code_resolvable():
 
 
 def test_no_mismatch_for_proxy_lookup_mode():
-    """Proxy-Lookups (z.B. 'Swisscanto Bond CHF' via US-ETF 'BND') sind
+    """Proxy-Lookups (z.B. 'Musterprodukt Obligationen CHF IG' via US-ETF 'BND') sind
     bewusst ein andersartiges Stellvertreter-Wertpapier -- ein Waehrungs-
     Abgleich waere hier irrefuehrend, nicht ein echter Datenqualitaets-Fehler."""
     product = _product(
-        product_name="Swisscanto Bond CHF", currency="CHF",
+        product_name="Musterprodukt Obligationen CHF IG", currency="CHF",
         symbol=None, isin=None, exchange_code=None,
     )
     assert currency_mismatch_warning(product) is None

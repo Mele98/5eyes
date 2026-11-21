@@ -25,6 +25,7 @@ bestehende Aufrufstellen (``build_target_payload_from_allocation``,
 """
 
 from __future__ import annotations
+from core.risk_parameter_set import BASIS_NOT_INVESTABLE, canonical_bucket_coefficients
 
 import json
 import logging
@@ -340,11 +341,26 @@ def _verified_persisted_allocation_context(
     stored_bucket_risk_bps = stored_constraints.get(
         "risky_fraction_per_bucket_bps"
     )
+    # CCX P5 / M-2: ein Bucket ohne Suballokationszeile ist nicht investierbar
+    # (Gewicht 0, Koeffizient inert). Vor P5 stand dort ein Wert aus dem
+    # entfernten Code-Satz (z. B. 7900); er beeinflusst weder Budget noch
+    # Summe und wird deshalb nicht verglichen -- nur seine Form.
+    _coefficients, coefficient_basis = canonical_bucket_coefficients(_verified_rows)
+    compared = [b for b in BUCKET_FIELDS if coefficient_basis.get(b) != BASIS_NOT_INVESTABLE]
     expected_bucket_risk_bps = {
         bucket: int(verified_bucket_risk_bps[bucket])
-        for bucket in BUCKET_FIELDS
+        for bucket in compared
     }
-    if stored_bucket_risk_bps != expected_bucket_risk_bps:
+    if (
+        not isinstance(stored_bucket_risk_bps, dict)
+        or set(stored_bucket_risk_bps) != set(BUCKET_FIELDS)
+        or any(
+            isinstance(stored_bucket_risk_bps[b], bool)
+            or not isinstance(stored_bucket_risk_bps[b], int)
+            for b in BUCKET_FIELDS
+        )
+        or {b: stored_bucket_risk_bps[b] for b in compared} != expected_bucket_risk_bps
+    ):
         raise ValueError(
             "Persistierte Bucket-Risikokoeffizienten widersprechen dem "
             "kanonischen Sub-Allokationsplan."
