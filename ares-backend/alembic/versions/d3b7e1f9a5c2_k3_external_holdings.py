@@ -34,11 +34,11 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+# Wie K1 (63332bb56098): direktes ADD/DROP COLUMN, kein Tabellen-Neuaufbau
+# (der wuerde die View v_client_wealth_summary unter SQLite brechen).
 def upgrade() -> None:
-    with op.batch_alter_table("wealth_positions") as batch:
-        batch.add_column(sa.Column("external_holdings_json", sa.Text(), nullable=True))
+    op.add_column("wealth_positions", sa.Column("external_holdings_json", sa.Text(), nullable=True))
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("wealth_positions") as batch:
-        batch.drop_column("external_holdings_json")
+    op.drop_column("wealth_positions", "external_holdings_json")
