@@ -396,11 +396,15 @@ class OwnerContentApproval(Base):
     approval_reference = Column(String, nullable=False)
     content_hash = Column(String, nullable=False)
     approval_hash = Column(String, nullable=False)
-    # N-927R-01 (Alembic e5a9c3d7b1f4): Rolle und Bereitschaft des Freigebers zum
-    # Freigabezeitpunkt, im Siegel eingefroren (NULL = Altzeile, dann gilt der
-    # heutige Stand; Muster KycReviewPolicyActivation.approver_ready).
-    approver_role = Column(String)
-    approver_ready = Column(Integer)
+    # N-927R-01 / N-927S-01 (Alembic c7e1a9d3f5b2): Stand zum Freigabezeitpunkt,
+    # im Siegel eingefroren -- Rolle und Bereitschaft des Freigebers sowie die
+    # Postfach-Identitaeten von Freigeber und Erfasser (normalisiert, als an die
+    # Freigabe-ID gebundener Pruefwert, kein Klartext; "" = keine E-Mail).
+    # Beim Lesen gilt nur der eingefrorene Stand; NULL = Glied unwirksam.
+    approver_role = Column(String, nullable=False)
+    approver_ready = Column(Integer, nullable=False)
+    approver_mailbox_digest = Column(String, nullable=False)
+    creator_mailbox_digest = Column(String, nullable=False)
 
 
 for _model in (OwnerContentVersion, OwnerContentApproval,):

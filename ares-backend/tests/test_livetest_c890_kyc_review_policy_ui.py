@@ -312,7 +312,8 @@ def test_reviewer_approves_owner_content_in_browser_without_capture_form(server)
             assert len(page.inner_text(f"#oc-hash-{row_id}").strip()) == 64
             page.fill(f"#oc-ref-{row_id}", "TEST-H179 Freigabe externe Compliance")
             page.check(f"#oc-ok-{row_id}")
-            page.evaluate(f"approveOwnerContent('{row_id}')")
+            # N-927S-03: echter Klick auf den sichtbaren Button statt evaluate.
+            page.click(f"#oc-reviewer-body #oc-approve-{row_id}")
             page.wait_for_selector(f"#oc-reviewer-body tr[data-owner-key='{key}'][data-owner-status='freigegeben']")
         finally:
             browser.close()

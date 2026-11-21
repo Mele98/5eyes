@@ -1950,12 +1950,16 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         'kyc_review_policy_activations': [
             ('approver_ready', 'INTEGER'),
         ],
-        # H-179 N-927R-01 (Alembic e5a9c3d7b1f4): Rolle und Bereitschaft des
-        # Freigebers eingefroren (nullable, kein Backfill; ADD COLUMN feuert den
+        # H-179 N-927R-01 / N-927S-01 (Alembic c7e1a9d3f5b2): eingefrorener
+        # Stand des Freigebers und Postfach-Identitaeten (nur fuer SQLite-Dateien,
+        # die die Tabelle vor dieser Fixrunde angelegt haben; nullable, kein
+        # Backfill -> solche Glieder sind unwirksam; ADD COLUMN feuert den
         # Append-only-Trigger nicht).
         'owner_content_approvals': [
             ('approver_role', 'TEXT'),
             ('approver_ready', 'INTEGER'),
+            ('approver_mailbox_digest', 'TEXT'),
+            ('creator_mailbox_digest', 'TEXT'),
         ],
         'kyc_confirmations': [
             ('review_policy_row_id', 'TEXT'),

@@ -347,14 +347,16 @@ def ensure_test_owner_content(
     db.flush()
     if approve:
         approver_id = _test_owner_approver(db, actor_id, tenant_id)
+        approval_id = new_uuid()
         approval = OwnerContentApproval(
-            id=new_uuid(), tenant_id=tenant_id, content_key=key, content_row_id=version.id,
+            id=approval_id, tenant_id=tenant_id, content_key=key, content_row_id=version.id,
             predecessor_approval_id=(head["chain_head"]["approval"]["id"] if head.get("chain_head")
                                      else OWNER_CONTENT_GENESIS),
             approved_by=approver_id, approved_at=_PAST,
             approval_reference=f"{TEST_CONTRACT_MARKER} Testfreigabe", content_hash=version.content_hash,
-            # N-927R-01: Stand des Freigebers eingefroren wie in der API.
+            # N-927R-01 / N-927S-01: Stand des Freigebers eingefroren wie in der API.
             approver_role=str(db.query(User).filter(User.id == approver_id).one().role), approver_ready=1,
+            **oc.owner_approval_frozen_identities(db, approval_id, approver_id, actor_id),
         )
         approval.approval_hash = _seal(approval, "approval_hash")
         db.add(approval)

@@ -2564,48 +2564,74 @@ def owner_content_chain(db: Session, tenant_id: str, key: str) -> tuple[dict[str
     return {str(v["id"]): v for v in versions}, approvals
 
 
-def owner_content_approver_valid(db: Session, approval: dict, version: dict, tenant_id: str) -> bool:
-    """N-927-02 / N-927R-01: die zweite Person beim LESEN nachgerechnet --
-    Mangel der PERSON macht nur dieses Glied unwirksam (kein Kettenbruch).
+OWNER_MAILBOX_DIGEST_KIND = "owner_content_mailbox_identity"
 
-    Rolle und Bereitschaft gelten so, wie sie beim Freigeben gesiegelt in der
-    Freigabezeile eingefroren wurden (``approver_role``/``approver_ready``,
-    Muster ``frozen_ready`` der KYC-Zweitfreigabe, N-897-13); ein spaeterer
-    Rollenwechsel oder eine Deaktivierung entwertet eine gueltig erteilte
-    Freigabe nicht. Nur fuer Altzeilen ohne eingefrorenen Stand gilt der
-    heutige. Aktuell geprueft werden: nicht der Erfasser (ID oder Postfach-
-    Identitaet inkl. ``+alias``), dieselbe Firma (NULL = Standard-Mandant) und
-    ein auditierter Widerruf wegen Kompromittierung ab dessen Zeitpunkt."""
+
+def owner_mailbox_digest(approval_id: Any, email: Any) -> str:
+    """N-927S-01: Postfach-Identitaet (``normalize_email_identity``, hier
+    ``_email_identity`` -- gleiche Regel, Test) als zeilengebundener Pruefwert.
+    Gebunden an die Freigabe-ID: in der Zeile vergleichbar (Freigeber gegen
+    Erfasser), ueber Zeilen nicht verknuepfbar und kein Klartext in einer
+    append-only Tabelle (Inventar: Akteur nur als Benutzer-ID). Leere E-Mail
+    -> "" (dann kein Postfach-Vergleich, wie beim Schreiben ``same_person``)."""
+    identity = _email_identity(email)
+    if not identity:
+        return ""
+    return evidence_hash(
+        {"kind": OWNER_MAILBOX_DIGEST_KIND, "approval_id": str(approval_id), "identity": identity},
+        scheme=SCHEME_V1,
+    )
+
+
+def owner_approval_frozen_identities(db: Session, approval_id: Any, approver_id: Any, creator_id: Any) -> dict:
+    """Beim FREIGEBEN einzufrierende Postfach-Identitaeten (N-927S-01)."""
+    rows = {
+        str(r["id"]): r["email"] for r in db.execute(
+            _sql_text("SELECT id, email FROM users WHERE id IN (:a, :b)"),
+            {"a": str(approver_id or ""), "b": str(creator_id or "")},
+        ).mappings().all()
+    }
+    return {
+        "approver_mailbox_digest": owner_mailbox_digest(approval_id, rows.get(str(approver_id or ""))),
+        "creator_mailbox_digest": owner_mailbox_digest(approval_id, rows.get(str(creator_id or ""))),
+    }
+
+
+def owner_content_approver_valid(db: Session, approval: dict, version: dict, tenant_id: str) -> bool:
+    """N-927-02 / N-927R-01 / N-927S-01: die zweite Person beim LESEN.
+
+    Rolle, Bereitschaft und die Postfach-Identitaeten von Freigeber und
+    Erfasser gelten so, wie sie beim Freigeben gesiegelt in der Freigabezeile
+    eingefroren wurden (``approver_role``, ``approver_ready``,
+    ``approver_mailbox_digest``, ``creator_mailbox_digest``). Ein spaeterer
+    Rollenwechsel, eine Deaktivierung oder eine E-Mail-Aenderung aendert
+    nichts (kein Kippschalter). Fehlt ein eingefrorener Wert (NULL), ist das
+    Glied unwirksam. Live geprueft werden nur: nicht dieselbe Benutzer-ID,
+    dieselbe Firma (NULL = Standard-Mandant) und ein auditierter Widerruf
+    wegen Kompromittierung ab dessen Zeitpunkt."""
     approver_id = str(approval.get("approved_by") or "")
     creator_id = str(version.get("created_by") or "")
     if not approver_id or approver_id == creator_id:
         return False
-    rows = {
-        str(r["id"]): r for r in db.execute(
-            _sql_text(
-                "SELECT id, role, email, tenant_id, invited_at, activated_at, credentials_set_by, "
-                "totp_enabled, totp_set_by, compromised_since FROM users WHERE id IN (:a, :b)"
-            ),
-            {"a": approver_id, "b": creator_id},
-        ).mappings().all()
-    }
-    approver = rows.get(approver_id)
-    if approver is None:
+    role = approval.get("approver_role")
+    ready = approval.get("approver_ready")
+    approver_mail = approval.get("approver_mailbox_digest")
+    creator_mail = approval.get("creator_mailbox_digest")
+    if role is None or ready is None or approver_mail is None or creator_mail is None:
         return False
-    role = str(approval.get("approver_role") or approver["role"] or "")
-    if role not in KYC_APPROVER_ROLES:
+    if str(role) not in KYC_APPROVER_ROLES:
+        return False
+    if str(role) == "compliance_reviewer" and int(ready) != 1:
+        return False
+    if approver_mail and approver_mail == creator_mail:
+        return False
+    approver = db.execute(
+        _sql_text("SELECT id, tenant_id, compromised_since FROM users WHERE id = :a"), {"a": approver_id},
+    ).mappings().first()
+    if approver is None:
         return False
     approved_at = str(approval.get("approved_at") or "")
     if approver["compromised_since"] and approved_at >= str(approver["compromised_since"]):
-        return False
-    if role == "compliance_reviewer":
-        frozen = approval.get("approver_ready")
-        ready = bool(int(frozen)) if frozen is not None else kyc_reviewer_account_ready(approver)
-        if not ready:
-            return False
-    creator = rows.get(creator_id)
-    a_mail = _email_identity(approver["email"])
-    if a_mail and creator is not None and a_mail == _email_identity(creator["email"]):
         return False
     approver_tenant = str(approver["tenant_id"]) if approver["tenant_id"] else _DEFAULT_TENANT_ID
     return approver_tenant == str(tenant_id)
@@ -2614,15 +2640,21 @@ def owner_content_approver_valid(db: Session, approval: dict, version: dict, ten
 def resolve_owner_content(db: Session, tenant_id: Optional[str], key: str) -> dict:
     """Wirksame Version eines Schluessels fuer eine Firma.
 
-    ``status``: freigegeben | nicht_freigegeben (kein gueltiges Glied) | fehlt |
-    kette_ungueltig (Fehler der STRUKTUR: Siegel, Luecke, doppelter Vorgaenger,
-    fremde/abweichende Version, Versionsfolge -> nie wirksam, keine Freigabe).
-    N-927R-01: ein Mangel der PERSON (Rolle, Firma, Postfach-Identitaet,
-    Kompromittierung, Bereitschaft) macht nur dieses Glied unwirksam; wirksam
-    ist das letzte gueltige Glied. ``chain_head`` = letztes Glied (auch ein
-    entwertetes) -- daran haengt die naechste Freigabe an (Kette lueckenlos)."""
+    ``status``: freigegeben | nicht_freigegeben | fehlt | kette_ungueltig
+    (Fehler der STRUKTUR: Siegel, Luecke, doppelter Vorgaenger, fremde/
+    abweichende Version, Versionsfolge -> nie wirksam, keine Freigabe).
+
+    N-927S-01: wirksam kann NUR der Kettenkopf sein (letzte Freigabe der
+    hoechsten freigegebenen Version). Ist der Kopf wegen eines Mangels der
+    PERSON unwirksam (Firma, Kompromittierung ab Widerruf, eingefrorene Rolle/
+    Bereitschaft/Postfach-Identitaet), gilt ``nicht_freigegeben`` -- nie ein
+    Rueckfall auf ein aelteres Glied (sonst koennte ein einzelner Admin eine
+    ueberholte Fassung wieder wirksam machen). Wiederherstellen geht nur mit
+    einer neuen Version und einer neuen gueltigen Freigabe: sie haengt am Kopf
+    an (``chain_head``, auch an einem entwerteten; Kette lueckenlos, N-927R-01).
+    ``head_revoked`` = Kopf vorhanden, aber unwirksam."""
     result: dict[str, Any] = {"key": key, "status": OWNER_STATUS_MISSING, "version": None, "approval": None,
-                              "chain_head": None, "invalid_approvals": 0}
+                              "chain_head": None, "invalid_approvals": 0, "head_revoked": False}
     if not tenant_id:
         return result
     versions, approvals = owner_content_chain(db, tenant_id, key)
@@ -2635,8 +2667,8 @@ def resolve_owner_content(db: Session, tenant_id: Optional[str], key: str) -> di
             result["status"] = OWNER_STATUS_INVALID
             return result
         by_predecessor[pred] = approval
-    effective = None
     head = None
+    head_valid = False
     cursor = OWNER_CONTENT_GENESIS_MARKER
     seen = 0
     last_version = 0
@@ -2654,9 +2686,8 @@ def resolve_owner_content(db: Session, tenant_id: Optional[str], key: str) -> di
             return result
         last_version = int(version["version"])
         head = (version, approval)
-        if owner_content_approver_valid(db, approval, version, tenant_id):
-            effective = (version, approval)
-        else:
+        head_valid = owner_content_approver_valid(db, approval, version, tenant_id)
+        if not head_valid:
             result["invalid_approvals"] += 1
         cursor = str(approval["id"])
         seen += 1
@@ -2664,10 +2695,11 @@ def resolve_owner_content(db: Session, tenant_id: Optional[str], key: str) -> di
         result["status"] = OWNER_STATUS_INVALID
         return result
     result["chain_head"] = {"approval": head[1], "version": head[0]} if head else None
-    if effective is not None:
-        result.update(status=OWNER_STATUS_APPROVED, version=effective[0], approval=effective[1])
+    if head is not None and head_valid:
+        result.update(status=OWNER_STATUS_APPROVED, version=head[0], approval=head[1])
     else:
         result["status"] = OWNER_STATUS_UNAPPROVED
+        result["head_revoked"] = head is not None
     newer = [v for v in versions.values() if int(v["version"]) > last_version]
     if newer:
         result["latest_draft"] = max(newer, key=lambda v: int(v["version"]))
@@ -2744,7 +2776,9 @@ def contract_template_state(db: Session, mandate: Any) -> dict:
     for clause in CONTRACT_CLAUSE_KEYS:
         specific = resolve_owner_content(db, tenant_id, contract_clause_key(slug, clause))
         chosen = specific
-        if specific["status"] != OWNER_STATUS_APPROVED:
+        # N-927S-01: ein typspezifischer Schluessel mit entwertetem Kopf faellt
+        # NICHT auf den gemeinsamen Text zurueck (Sperre statt Rueckfall).
+        if specific["status"] != OWNER_STATUS_APPROVED and not specific.get("head_revoked"):
             shared = resolve_owner_content(
                 db, tenant_id, contract_clause_key(CONTRACT_SHARED_SLUG, clause),
             )

@@ -6234,13 +6234,17 @@ def approve_owner_content(
         predecessor = str(chain_head["approval"]["id"])
     else:
         predecessor = OWNER_CONTENT_GENESIS
+    approval_id = new_uuid()
     approval = OwnerContentApproval(
-        id=new_uuid(), tenant_id=tenant_id, content_key=record.content_key, content_row_id=record.id,
+        id=approval_id, tenant_id=tenant_id, content_key=record.content_key, content_row_id=record.id,
         predecessor_approval_id=predecessor, approved_by=current_user.id, approved_at=_now(),
         approval_reference=body.approval_reference.strip(), content_hash=record.content_hash,
         # N-927R-01: Rolle und Bereitschaft beim Freigeben gesiegelt einfrieren
         # (assert_compliance_reviewer_ready oben hat die Bereitschaft geprueft).
         approver_role=str(current_user.role), approver_ready=1,
+        # N-927S-01: Postfach-Identitaeten von Freigeber und Erfasser ebenso
+        # (eine spaetere E-Mail-Aenderung aendert dann nichts mehr).
+        **_gate.owner_approval_frozen_identities(db, approval_id, current_user.id, record.created_by),
     )
     approval.approval_hash = _oc_seal(approval, "approval_hash")
     db.add(approval)

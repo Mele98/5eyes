@@ -432,9 +432,8 @@ def test_alembic_k1_single_head_upgrade_downgrade_and_column_parity(tmp_path, mo
     script = ScriptDirectory.from_config(alembic_cfg("sqlite://"))
     # CCX-P5 haengt hinter K1 (c2546c196134 -> 63332bb56098).
     # H-179 L2/L3: c7e1a9d3f5b2 (Vertragsschicht) haengt hinter CCX-P5.
-    assert script.get_heads() == ["e5a9c3d7b1f4"]
+    assert script.get_heads() == ["c7e1a9d3f5b2"]
     assert script.get_revision("c7e1a9d3f5b2").down_revision == "c2546c196134"
-    assert script.get_revision("e5a9c3d7b1f4").down_revision == "c7e1a9d3f5b2"  # N-927R-01
     assert script.get_revision("c2546c196134").down_revision == K1_REV
     assert script.get_revision(K1_REV).down_revision == K1_DOWN_REV
     assert script.get_revision(K1_DOWN_REV).down_revision == P4_REV

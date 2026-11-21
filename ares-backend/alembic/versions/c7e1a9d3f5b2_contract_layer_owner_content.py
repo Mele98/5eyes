@@ -9,7 +9,9 @@ Dok. 112 Kap. 7.1 (V-1, A-1, D-1, R-1, P-1, E-1), Dok. 113 E-113-4/5:
   Ares legt KEINEN Inhalt an. UNIQUE (tenant_id, content_key, version).
 - ``owner_content_approvals``: Vier-Augen-Freigabe je Version (zweite Person,
   gesehener Hash, Freigabereferenz, Siegel); lineare Kette je Firma/Schluessel
-  (UNIQUE auf den Vorgaenger, erste Freigabe mit 'GENESIS').
+  (UNIQUE auf den Vorgaenger, erste Freigabe mit 'GENESIS'). Rolle,
+  Bereitschaft und Postfach-Identitaeten von Freigeber und Erfasser sind beim
+  Freigeben im Siegel eingefroren (N-927R-01/N-927S-01; vormals e5a9c3d7b1f4).
 - ``advice_rationales``: Kundenbeduerfnisse und Gruende der Empfehlung je
   Empfehlungslauf (P-1).
 - ``w033_client_declarations``: Kundenbestaetigung je Risikoprofil-Version,
@@ -125,6 +127,14 @@ def upgrade() -> None:
         sa.Column("approval_reference", sa.String(), nullable=False),
         sa.Column("content_hash", sa.String(), nullable=False),
         sa.Column("approval_hash", sa.String(), nullable=False),
+        # N-927R-01 / N-927S-01: Stand zum Freigabezeitpunkt, im Siegel
+        # eingefroren (Rolle, Bereitschaft, Postfach-Identitaeten als an die
+        # Freigabe-ID gebundener Pruefwert). Frueher eigene Revision
+        # e5a9c3d7b1f4; da c7e1a9d3f5b2 nie ausgeliefert wurde, hier gefaltet.
+        sa.Column("approver_role", sa.String(), nullable=False),
+        sa.Column("approver_ready", sa.Integer(), nullable=False),
+        sa.Column("approver_mailbox_digest", sa.String(), nullable=False),
+        sa.Column("creator_mailbox_digest", sa.String(), nullable=False),
         sa.ForeignKeyConstraint(["approved_by"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("content_row_id"),
