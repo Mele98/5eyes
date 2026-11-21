@@ -152,7 +152,7 @@ def test_purge_now_endpoint_returns_report_for_advisor(monkeypatch, tmp_path):
 
     monkeypatch.setattr(cache_purge, "run_daily_cache_purge", lambda db: expected)
     app.dependency_overrides[get_db] = override_get_db
-    # H-180 (ROL-03): globaler Cache-Purge nur fuer Admin/Plattform-Rolle.
+    # H-180 (ROL-02): globaler Cache-Purge nur fuer Admin/Plattform-Rolle.
     app.dependency_overrides[get_current_user] = lambda: _user("admin")
     try:
         with TestClient(app) as client:
