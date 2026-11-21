@@ -87,7 +87,8 @@ def test_seed_cube_and_path_count_are_mandatory(change):
     ta, goal, mandate = _ta([_row(**change.get("row", {}))], **change.get("ta", {}))
     with pytest.raises(GoalMetricUncertified):
         build_goal_metric_payload([goal], mandate=mandate, target_allocation=ta)
-    assert canonical_goal_rows([_row(**change.get("row", {}))], ta)[0]["status"] == "erreichbar"  # unveraendert
+    # P5c / N-930-01: ohne M-3 "nicht bewertbar" (fail-closed), nie der gespeicherte Status.
+    assert canonical_goal_rows([_row(**change.get("row", {}))], ta)[0]["status"] == "nicht_bewertbar"
 
 
 def test_cube_hash_and_path_count_change_the_payload_hash():

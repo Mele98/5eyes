@@ -48,6 +48,8 @@ export type GoalStatus =
    * Weder grün noch rot darstellen — es ist keine Bewertung.
    */
   | 'ausserhalb_horizont'
+  /** P5c / N-930-01: kein M-3-Status fuer dieses Ziel (fail-closed). */
+  | 'nicht_bewertbar'
   | 'data_pending'
   | '';
 
@@ -439,6 +441,15 @@ export interface GoalEntry {
   /** Wahrscheinlichkeit in bps (8500 = 85%) */
   probability_bps: number | null;
   status: GoalStatus;
+  /**
+   * P5c / N-930-01: Wort, Ton und Farbe des M-3-Status (Server-Tabelle
+   * core/goal_metric_contract.GOAL_STATUS_DISPLAY). Fehlen sie, zeigt die
+   * Oberflaeche "nicht bewertbar".
+   */
+  status_label?: string;
+  status_tone?: string;
+  status_color?: string;
+  status_bg?: string;
   /**
    * GOAL-OUTSIDE-HORIZON-001: true, wenn der Zahlungsplan komplett hinter dem
    * Simulationshorizont liegt. Dann ist `probability_bps` eine Konvention

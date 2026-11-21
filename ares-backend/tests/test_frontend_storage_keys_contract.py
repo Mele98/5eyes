@@ -22,7 +22,7 @@ HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / 
 _LITERAL_ACCESS = re.compile(
     r"(?:local|session)Storage\s*\.\s*(?:get|set|remove)Item\s*\(\s*(['\"`])([^'\"`]+)\1"
 )
-_NEUTRAL_KEYS = {"auto_recompute", "introShown"}
+_NEUTRAL_KEYS = {"introShown"}  # P5c Fixrunde 1: "auto_recompute" entfernt (Schalter weg)
 
 
 def _html() -> str:

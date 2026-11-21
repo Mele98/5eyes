@@ -1457,6 +1457,7 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _merge_goal_analysis_with_monte_carlo,
     _missing_ter_positions_count,
     _stored_goal_achievability,
+    apply_m3_goal_status,
     _parse_iso_date,
     _product_descriptor_text,
     _product_is_chf_or_fx_hedged,
@@ -1739,8 +1740,7 @@ def ensure_runtime_reference_data(
 
 
 def _default_cma_values() -> dict[str, object]:
-    """Vorlagewerte der CH-CMA (Quell-/Testbetrieb; EXE nur ueber das TEST-
-    Referenzpaket des Packaging-Smokes, gebunden ueber ``reference_template_sha256``)."""
+    """Vorlagewerte der CH-CMA (EXE nur ueber das TEST-Referenzpaket, ``reference_template_sha256``)."""
     return {
         "bonds_chf_ig_return_bps": 220,
         "bonds_chf_ig_vol_bps": 350,
@@ -1771,8 +1771,7 @@ def _default_cma_values() -> dict[str, object]:
 
 
 def _reference_template_values() -> tuple[list[tuple], list[tuple], dict[str, object]]:
-    """Vorlagewerte (House-Matrix, Bausteine, CMA) -- eine Quelle fuer das
-    Laufzeit-Seeding im Quellbetrieb und den Pruefwert des TEST-Referenzpakets."""
+    """Vorlagewerte (House-Matrix, Bausteine, CMA): Quell-Seeding + Pruefwert des TEST-Referenzpakets."""
     # max_risky_fraction_bps pro Profil (ASIP-Konvention, U-P23.2/3, 2026-05-26):
     #   Kapitalschutz 3000 (=30%, ASIP-Obergrenze „Sicherheit/Kapitalschutz")
     #   Defensiv      4500 (=45%, ASIP-Obergrenze „Defensiv")
@@ -4279,6 +4278,12 @@ def generate_target_allocation(
         db.flush()  # ensure persisted_run.id ist gesetzt
         target_allocation.optimization_run_id = persisted_run.id
 
+    # P5c / N-930-01: Zielstatus nur aus dem M-3-Payload der eben gespeicherten
+    # Soll-Allokation (dieselben kanonischen Zeilen wie der Lesepfad).
+    db.flush()
+    display_achievability = _stored_goal_achievability(target_allocation, log_invalid=False)
+    goal_analysis = apply_m3_goal_status(goal_analysis, display_achievability)
+
     current_amounts = advisory_summary.amounts_rappen
     bucket_response = _build_bucket_response(
         target_allocation,
@@ -4339,7 +4344,7 @@ def generate_target_allocation(
         "risky_fraction_total_bps": risky_fraction_total_bps,
         "risky_fraction_headroom_bps": risk_budget_bps - int(risky_fraction_total_bps),
         "limiting_factor": limiting_factor,
-        "goal_achievability": goal_achievability,
+        "goal_achievability": display_achievability or goal_achievability,
         "goal_achievability_basis_id": model_basis["optimization"]["basis_id"],
         "goal_analysis_basis_id": model_basis["reporting"]["basis_id"],
         "model_basis": model_basis,
@@ -6601,8 +6606,7 @@ def generate_recommendation_run(
     # WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): einmal pro Lauf aufgeloest.
     run_context = build_run_context(mandate)  # X2b: einmal pro Lauf
     jurisdiction = run_context.jurisdiction
-    # EXE-P (H-187): kein Muster-Fondskatalog in Produktion/gepackter EXE.
-    if not settings.production_mode:
+    if not settings.production_mode:  # EXE-P (H-187): kein Muster-Fondskatalog in Produktion/EXE
         ensure_default_products(db, jurisdiction=jurisdiction)
     # 2026-08-22 (hedgingRequired-Katalogluecke): additiver Backfill, laeuft
     # unabhaengig davon ob ensure_default_products() oben tatsaechlich

@@ -1,9 +1,9 @@
 /**
  * Sprint U-12 — Unit-Tests fuer Goal-Klassifikation gegen MC-Pfade.
  *
- * Wir testen ULTRA-genau jeden Edge-Case, weil diese Logik direkt
- * bestimmt welcher Goal-Pill (Erreichbar/Knapp/Schwierig) im Bericht
- * angezeigt wird — Berater entscheidet danach.
+ * Wir testen ULTRA-genau jeden Edge-Case. P5c / N-930-01: die Klassifikation
+ * bestimmt nur noch die Lage der Ziel-Marker im Faecher (t_index); sie erzeugt
+ * KEINEN sichtbaren Status mehr (einzige Quelle: M-3-Status vom Server).
  */
 import { describe, expect, it } from 'vitest';
 

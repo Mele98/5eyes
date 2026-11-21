@@ -9,6 +9,7 @@ from models.mandates import Mandate
 from models.profiling import RiskAssessment, current_investment_preference
 from core import sustainability_preference as _sustainability
 from core.band_rule import BAND_ABOVE, BAND_BELOW, band_status
+from core.goal_metric_contract import goal_status_display
 from models.review import AdvisoryLog, RecommendationPosition, RecommendationRun, ReviewTrigger
 from price_updater import summarize_price_quality
 from schemas.review import (
@@ -27,7 +28,6 @@ from services.portfolio_engine import (
     build_target_payload_from_allocation,
     ensure_runtime_reference_data,
 )
-from services.goal_success_status import GOAL_SUCCESS_WARN_PCT
 from jurisdictions.resolve import resolve_pack
 
 
@@ -38,6 +38,36 @@ SYSTEM_TRIGGER_GOALS = "Zielerreichung gefaehrdet (System)"
 # (Hauspolitik je Tenant). Nur ausgeloest bei Faelligkeit; nie Sperre.
 SYSTEM_TRIGGER_SUSTAINABILITY = "Nachhaltigkeitspraeferenz pruefen (System)"
 SYSTEM_TRIGGER_MARKET_DATA = "Marktdaten veraltet (System)"
+
+# P5c Fixrunde 1 / N-933-01 (CTO): Nur "erreichbar" und "knapp" sind eine
+# Entwarnung. "nicht erreichbar" und jeder nicht bewertbare Zustand (nicht
+# bewertbar, nicht beurteilbar, ausserhalb Horizont, Altbewertung, leer oder
+# unbekannt) brauchen Aufmerksamkeit -- Unwissen ist keine Entwarnung.
+GOAL_STATUS_ALL_CLEAR = frozenset({"erreichbar", "knapp"})
+GOAL_TRIGGER_NOTE = (
+    "Mindestens ein Ziel ist laut Zielanalyse nicht erreichbar oder nicht bewertbar."
+)
+GOAL_TRIGGER_RESOLVED_NOTE = (
+    "Systempruefung: alle Ziele laut Zielanalyse bewertbar, keines nicht erreichbar."
+)
+
+
+def goal_attention_items(goal_analysis) -> list[dict]:
+    """Ziele mit M-3-Status "nicht_erreichbar" oder nicht bewertbar.
+    Leer nur, wenn jedes Ziel laut M-3 erreichbar oder knapp ist."""
+    return [
+        goal for goal in (goal_analysis or [])
+        if str(goal.get("status") or "") not in GOAL_STATUS_ALL_CLEAR
+    ]
+
+
+def _goal_attention_value(goal: dict) -> str:
+    label = goal.get("label")
+    pct = goal.get("success_probability_pct")
+    if str(goal.get("status") or "") == "nicht_erreichbar" and pct is not None:
+        return f"{label}: {int(pct)}%"
+    word = goal.get("status_label") or goal_status_display(goal.get("status"))["status_label"]
+    return f"{label}: {word}"
 
 
 class ReviewAnchorDataError(ValueError):
@@ -442,14 +472,12 @@ def refresh_system_review_triggers(
                 ),
             )
 
-        # GOAL-STATUS-BY-SUCCESS-001: kritisch = Erfolgswahrscheinlichkeit
-        # < 45 % (Ampel 70/45, dieselbe Quelle wie Cockpit und Bericht);
-        # nicht mehr der Mischwert achievement_score. Ziele ohne Wert zaehlen nicht.
-        endangered_goals = [
-            goal for goal in payload.get("goal_analysis", [])
-            if goal.get("success_probability_pct") is not None
-            and int(goal.get("success_probability_pct")) < GOAL_SUCCESS_WARN_PCT
-        ]
+        # P5c Fixrunde 1 / N-933-01 (CTO): Zielerreichung gilt als gefaehrdet,
+        # wenn ein Ziel laut Zielanalyse (M-3) "nicht erreichbar" ODER nicht
+        # bewertbar ist -- Unwissen ist keine Entwarnung. Aufgeloest wird der
+        # Trigger nur, wenn alle Ziele bewertbar sind und keines nicht
+        # erreichbar ist. Keine Ampel 70/45.
+        endangered_goals = goal_attention_items(payload.get("goal_analysis", []))
         if not goal_analysis_trusted:
             endangered_goals = None
         if endangered_goals:
@@ -465,10 +493,10 @@ def refresh_system_review_triggers(
             goal_trigger.next_due_at = today
             goal_trigger.triggered_at = now
             goal_trigger.triggered_value = "; ".join(
-                f"{goal.get('label')}: {int(goal.get('success_probability_pct'))}%"
-                for goal in endangered_goals[:3]
+                _goal_attention_value(goal) for goal in sorted(  # nicht erreichbar zuerst
+                    endangered_goals, key=lambda g: str(g.get("status") or "") != "nicht_erreichbar")[:3]
             )
-            goal_trigger.triggered_notes = "Mindestens ein Ziel liegt unter 45% Erfolgswahrscheinlichkeit (Ampel kritisch)."
+            goal_trigger.triggered_notes = GOAL_TRIGGER_NOTE
             goal_trigger.updated_at = now
         elif endangered_goals is not None:
             _resolve_system_trigger(
@@ -477,7 +505,7 @@ def refresh_system_review_triggers(
                 trigger_type="Ereignis",
                 trigger_name=SYSTEM_TRIGGER_GOALS,
                 now=now,
-                note="Systempruefung: aktuell kein Ziel unter 45% Erfolgswahrscheinlichkeit (Ampel kritisch).",
+                note=GOAL_TRIGGER_RESOLVED_NOTE,
             )
 
     recommendation_runs = db.query(RecommendationRun).filter(

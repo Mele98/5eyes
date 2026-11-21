@@ -4964,68 +4964,83 @@ def test_refresh_system_review_triggers_raises_on_invalid_persisted_anchor_date(
             refresh_system_review_triggers(session, mandate, advisor_user.id)
 
 
+def _seed_review_reuse_allocation(session, mandate_id, advisor_user):
+    create_risk_assessment(
+        request=_FakeSignRequest(),
+        mandate_id=mandate_id,
+        body=RiskAssessmentCreate(
+            q_income_points=3,
+            q_obligations_points=3,
+            q_savings_points=6,
+            q_wealth_points=6,
+            investment_horizon_label="6 bis 7 Jahre",
+            investment_horizon_years=6,
+            q_investment_goal_points=3,
+            q_risk_preference_points=3,
+            q_risk_behavior_points=3,
+            answers=complete_risk_questionnaire_answers(income=3, oblig=1, savings=2, wealth=2, horizon=3, goal=2, pref=2, behav=2),
+        ),
+        db=session,
+        current_user=advisor_user,
+    )
+    session.add(
+        TargetAllocation(
+            id="allocation-review-reuse",
+            mandate_id=mandate_id,
+            version=1,
+            is_current=1,
+            target_equities_bps=6000,
+            target_bonds_bps=3000,
+            target_real_estate_bps=0,
+            target_alternatives_bps=0,
+            target_liquidity_bps=1000,
+            band_equities_min_bps=5000,
+            band_equities_max_bps=7000,
+            band_bonds_min_bps=2000,
+            band_bonds_max_bps=4000,
+            band_real_estate_min_bps=0,
+            band_real_estate_max_bps=0,
+            band_alternatives_min_bps=0,
+            band_alternatives_max_bps=0,
+            band_liquidity_min_bps=0,
+            band_liquidity_max_bps=2000,
+            policy_id="policy-review-reuse",
+            set_by=advisor_user.id,
+            set_at="2026-03-27T00:00:00.000Z",
+            created_at="2026-03-27T00:00:00.000Z",
+            updated_at="2026-03-27T00:00:00.000Z",
+        )
+    )
+    session.commit()
+
+
 # GOAL-STATUS-BY-SUCCESS-001 (CIO-Entscheid #667): der Ziel-Trigger folgt der
-# Erfolgswahrscheinlichkeit (< 45 % = Ampel kritisch), nicht mehr dem Mischwert
+# Zielerreichung (seit P5c: M-3-Status, keine Ampel), nicht mehr dem Mischwert
 # achievement_score. Vorher stand hier nur {"achievement_score": 40}; jetzt
 # belegen zwei Faelle, dass der Mischwert keine Rolle mehr spielt.
 @pytest.mark.parametrize(
-    "goal_row,expect_goal_trigger",
+    "goal_row,expect_goal_trigger,expect_value",
     [
-        ({"label": "Fruehpensionierung", "achievement_score": 90, "success_probability_pct": 40}, True),
-        ({"label": "Fruehpensionierung", "achievement_score": 10, "success_probability_pct": 80}, False),
+        # P5c / N-930-01: Trigger folgt dem M-3-Status ("nicht_erreichbar"), nicht der Ampel.
+        ({"label": "Fruehpensionierung", "achievement_score": 90, "success_probability_pct": 40,
+          "status": "nicht_erreichbar"}, True, "Fruehpensionierung: 40%"),
+        # P5c Fixrunde 1 / N-933-01 (CTO): nicht bewertbar ist keine Entwarnung.
+        # Vorher hielt dieser Fall "kein Trigger" als Soll fest (Unter-Warnung).
+        ({"label": "Fruehpensionierung", "achievement_score": 10, "success_probability_pct": 40,
+          "status": "nicht_bewertbar"}, True, "Fruehpensionierung: nicht bewertbar"),
+        ({"label": "Fruehpensionierung", "achievement_score": 10, "success_probability_pct": 60,
+          "status": "unreliable"}, True, "Fruehpensionierung: nicht beurteilbar"),
+        ({"label": "Fruehpensionierung", "achievement_score": 10, "success_probability_pct": 80,
+          "status": "erreichbar"}, False, None),
+        ({"label": "Fruehpensionierung", "achievement_score": 10, "success_probability_pct": 55,
+          "status": "knapp"}, False, None),
     ],
 )
-def test_refresh_system_review_triggers_reuses_supplied_allocation_payload(session_factory, advisor_user, monkeypatch, goal_row, expect_goal_trigger):
+def test_refresh_system_review_triggers_reuses_supplied_allocation_payload(session_factory, advisor_user, monkeypatch, goal_row, expect_goal_trigger, expect_value):
     _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
 
     with session_factory() as session:
-        create_risk_assessment(
-            request=_FakeSignRequest(),
-            mandate_id=mandate_id,
-            body=RiskAssessmentCreate(
-                q_income_points=3,
-                q_obligations_points=3,
-                q_savings_points=6,
-                q_wealth_points=6,
-                investment_horizon_label="6 bis 7 Jahre",
-                investment_horizon_years=6,
-                q_investment_goal_points=3,
-                q_risk_preference_points=3,
-                q_risk_behavior_points=3,
-                answers=complete_risk_questionnaire_answers(income=3, oblig=1, savings=2, wealth=2, horizon=3, goal=2, pref=2, behav=2),
-            ),
-            db=session,
-            current_user=advisor_user,
-        )
-        session.add(
-            TargetAllocation(
-                id="allocation-review-reuse",
-                mandate_id=mandate_id,
-                version=1,
-                is_current=1,
-                target_equities_bps=6000,
-                target_bonds_bps=3000,
-                target_real_estate_bps=0,
-                target_alternatives_bps=0,
-                target_liquidity_bps=1000,
-                band_equities_min_bps=5000,
-                band_equities_max_bps=7000,
-                band_bonds_min_bps=2000,
-                band_bonds_max_bps=4000,
-                band_real_estate_min_bps=0,
-                band_real_estate_max_bps=0,
-                band_alternatives_min_bps=0,
-                band_alternatives_max_bps=0,
-                band_liquidity_min_bps=0,
-                band_liquidity_max_bps=2000,
-                policy_id="policy-review-reuse",
-                set_by=advisor_user.id,
-                set_at="2026-03-27T00:00:00.000Z",
-                created_at="2026-03-27T00:00:00.000Z",
-                updated_at="2026-03-27T00:00:00.000Z",
-            )
-        )
-        session.commit()
+        _seed_review_reuse_allocation(session, mandate_id, advisor_user)
         mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
 
         def _fail_rebuild(*args, **kwargs):
@@ -5053,8 +5068,81 @@ def test_refresh_system_review_triggers_reuses_supplied_allocation_payload(sessi
     assert (SYSTEM_TRIGGER_GOALS in names) is expect_goal_trigger
     if expect_goal_trigger:
         goal_trigger = next(t for t in triggers if t.trigger_name == SYSTEM_TRIGGER_GOALS)
-        assert goal_trigger.triggered_value == "Fruehpensionierung: 40%"
-        assert "Erfolgswahrscheinlichkeit" in (goal_trigger.triggered_notes or "")
+        assert goal_trigger.triggered_value == expect_value
+        assert goal_trigger.triggered_notes == (
+            "Mindestens ein Ziel ist laut Zielanalyse nicht erreichbar oder nicht bewertbar."
+        )
+        assert "45" not in goal_trigger.triggered_notes and "Ampel" not in goal_trigger.triggered_notes
+
+
+def test_goal_attention_items_count_unassessable_goals_for_trigger_and_foundation():
+    """N-933-01 (analog Foundation-Zaehler): eine Quelle fuer «gefaehrdet» --
+    nicht erreichbar oder nicht bewertbar; nur erreichbar/knapp ist Entwarnung."""
+    import inspect
+
+    import services.foundation_example as foundation_example
+    from services.review_engine import goal_attention_items
+
+    goals = [{"goal_id": str(i), "status": status} for i, status in enumerate(
+        ["erreichbar", "knapp", "nicht_erreichbar", "nicht_bewertbar", "unreliable",
+         "ausserhalb_horizont", "legacy_aggregate_unknown", "", None])]
+    assert [g["goal_id"] for g in goal_attention_items(goals)] == ["2", "3", "4", "5", "6", "7", "8"]
+    assert goal_attention_items([]) == []
+    src = inspect.getsource(foundation_example)
+    assert "goal_path_at_risk_count = len(goal_attention_items(goal_analysis))" in src
+
+
+def test_goal_trigger_stays_open_when_goals_become_unassessable(session_factory, advisor_user, monkeypatch):
+    """P5c Fixrunde 1 / N-933-01 (Probe des Pruefers): offener Trigger, danach
+    dasselbe Ziel (30 %) mit M-3 "nicht_bewertbar" -> der Trigger bleibt
+    ausgeloest (vorher: "Erledigt" mit der falschen Notiz "kein Ziel unter 45%").
+    Aufgeloest wird er erst, wenn alle Ziele bewertbar und erreichbar sind."""
+    _, mandate_id = seed_client_and_mandate(session_factory, advisor_user)
+    buckets = [
+        {"asset_class": "Aktien", "current_weight_bps": 6000, "band_min_bps": 5000, "band_max_bps": 7000},
+        {"asset_class": "Obligationen", "current_weight_bps": 3000, "band_min_bps": 2000, "band_max_bps": 4000},
+        {"asset_class": "Immobilien", "current_weight_bps": 0, "band_min_bps": 0, "band_max_bps": 0},
+        {"asset_class": "Alternative", "current_weight_bps": 0, "band_min_bps": 0, "band_max_bps": 0},
+        {"asset_class": "Liquiditaet", "current_weight_bps": 1000, "band_min_bps": 0, "band_max_bps": 2000},
+    ]
+
+    def _fail_rebuild(*args, **kwargs):
+        raise AssertionError("payload should have been reused")
+
+    monkeypatch.setattr(review_engine_module, "build_target_payload_from_allocation", _fail_rebuild)
+
+    def _goal_trigger(session, status, pct=30, extra=None):
+        mandate = session.query(Mandate).filter(Mandate.id == mandate_id).one()
+        goals = [{"goal_id": "g1", "label": "Fruehpensionierung", "success_probability_pct": pct, "status": status}]
+        goals += list(extra or [])
+        refresh_system_review_triggers(
+            session, mandate, advisor_user.id,
+            allocation_payload={"goal_analysis": goals, "buckets": buckets},
+        )
+        session.flush()
+        return session.query(ReviewTrigger).filter(
+            ReviewTrigger.mandate_id == mandate_id,
+            ReviewTrigger.trigger_name == SYSTEM_TRIGGER_GOALS,
+        ).one()
+
+    with session_factory() as session:
+        _seed_review_reuse_allocation(session, mandate_id, advisor_user)
+        first = _goal_trigger(session, "nicht_erreichbar")
+        assert first.status == "Ausgelöst"
+        second = _goal_trigger(session, "nicht_bewertbar")
+        assert second.status == "Ausgelöst"
+        assert second.triggered_value == "Fruehpensionierung: nicht bewertbar"
+        assert "45" not in (second.triggered_notes or "")
+        # Ein bewertbares, erreichbares Ziel neben einem nicht bewertbaren loest nicht auf.
+        third = _goal_trigger(session, "erreichbar", pct=85, extra=[
+            {"goal_id": "g2", "label": "Ausbildung", "success_probability_pct": None, "status": "nicht_bewertbar"}])
+        assert third.status == "Ausgelöst"
+        assert third.triggered_value == "Ausbildung: nicht bewertbar"
+        resolved = _goal_trigger(session, "erreichbar", pct=85)
+        assert resolved.status == "Erledigt"
+        assert resolved.triggered_notes == (
+            "Systempruefung: alle Ziele laut Zielanalyse bewertbar, keines nicht erreichbar."
+        )
 
 
 def test_refresh_system_review_triggers_treats_zero_bands_as_upper_limit(session_factory, advisor_user):

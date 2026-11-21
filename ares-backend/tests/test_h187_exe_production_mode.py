@@ -279,7 +279,8 @@ def test_packaged_exe_does_not_seed_demo_product_catalog():
     import services.portfolio_engine as pe
 
     source = inspect.getsource(pe.generate_recommendation_run)
-    assert "if not settings.production_mode:\n        ensure_default_products(" in source
+    guard = source.index("if not settings.production_mode:  # EXE-P")
+    assert source[guard:].split("\n")[1].strip().startswith("ensure_default_products(db")
 
 
 # --------------------------------------------------------------------------- A3

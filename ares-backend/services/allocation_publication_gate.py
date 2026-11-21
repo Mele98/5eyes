@@ -165,6 +165,22 @@ PUBLICATION_GUARD_MARKERS: tuple[str, ...] = (
     "MANDATE_EVIDENCE_TENANT_MISMATCH",
 )
 
+# P5c: Meldung des Nummern-Triggers der Kanalzeilen (P5b, SQLite RAISE / PG).
+CHANNEL_SEQUENCE_RACE_MARKER = "CCX_CHANNEL_SEQUENCE_RACE"
+# N-933-05: Erkennungsmerkmale der Nummern-Verletzung -- Trigger-Meldung,
+# Unique-Index (PostgreSQL nennt den Namen, SQLite die Spalten).
+CHANNEL_SEQUENCE_RACE_MARKERS = (
+    CHANNEL_SEQUENCE_RACE_MARKER,
+    "ux_advisory_channel_publications_sequence",
+    "advisory_channel_publications.channel_sequence",
+)
+
+
+def is_channel_sequence_race(exc: BaseException) -> bool:
+    """True nur fuer die Verletzung der laufenden Kanalnummer (Unique/Trigger)."""
+    message = str(getattr(exc, "orig", None) or exc)
+    return any(marker in message for marker in CHANNEL_SEQUENCE_RACE_MARKERS)
+
 BUCKETS: tuple[str, ...] = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
 TOTAL_BPS = 10_000
 # Wirksame Bindungen, ohne die keine Strategie kundenwirksam wird (P2-Kanten).
@@ -1239,8 +1255,27 @@ def record_channel_publication(
         goal_metric_payload_hash=decision.goal_metric_payload_hash, status=CHANNEL_STATUS_PUBLISHED,
         created_at=utc_now(), created_by=getattr(user, "id", None),
     )
-    db.add(row)
+    # P5c (H-183-Pruefung, Hinweis): verliert ein paralleles Schreiben die Nummer
+    # (Unique-Index / Trigger CCX_CHANNEL_SEQUENCE_RACE), ist das ein typisierter
+    # 409 statt eines 500. Der SAVEPOINT laesst die umgebende Transaktion intakt.
+    # Fixrunde 1 / N-933-05: ausstehende Objekte der aeusseren Transaktion vorher
+    # schreiben (ihre Fehler sind kein Wettlauf), und nur die Verletzung der
+    # laufenden Nummer gilt als Wettlauf -- jeder andere Integritaetsfehler
+    # (FK, NOT NULL, CHECK, Bindung) bleibt unveraendert.
     db.flush()
+    try:
+        with db.begin_nested():
+            db.add(row)
+            db.flush()
+    except OperationalError:
+        raise  # Lock/Verbindung: technischer Fehler, kein Wettlauf
+    except DBAPIError as exc:
+        if not is_channel_sequence_race(exc):
+            raise
+        logger.info("P5c: Kanalzeile verloren (Nummernwettlauf) | mandate=%s", mandate.id)
+        raise DomainError(ReasonCode.CCX_CHANNEL_SEQUENCE_RACE,
+                          "Das Dokument wurde gleichzeitig ein zweites Mal ausgeliefert. Bitte erneut versuchen.",
+                          http_status=409, extra={"channel": channel}) from exc
     return row
 
 
