@@ -97,9 +97,11 @@ def build_vertrag_flowables(ctx: PDFContext, data) -> list:
             _format_amount(data.advisory_wealth_rappen, ctx.base_currency),
         ))
     kontext_lines.append(("Beratungsdatum", _format_date(getattr(data, "vereinbarungs_datum", ""))))
+    # H-179 V-1: kein Vorgabe-Ort mehr; fehlt er, steht "nicht erfasst" (das
+    # Dokument ist dann ein Entwurf, siehe routers/pdf_reports.py).
     kontext_lines.append((
         "Beratungsort",
-        str(getattr(data, "ort_unterzeichnung", "Zürich") or "Zürich"),
+        str(getattr(data, "ort_unterzeichnung", "") or "").strip() or "nicht erfasst",
     ))
 
     if kontext_lines:
@@ -136,6 +138,22 @@ def build_vertrag_flowables(ctx: PDFContext, data) -> list:
         ))
         flowables.append(Spacer(1, 3 * mm))
 
+    # ---- H-179 V-1: Klauseln der freigegebenen Vertragsvorlage ----
+    clauses = tuple(getattr(data, "contract_clauses", ()) or ())
+    if clauses:
+        flowables.append(_section_title("Vertragsbestimmungen"))
+        for label, text in clauses:
+            flowables.append(Paragraph(
+                f'<font name="{FONT_BOLD}" size="{FONT_SIZE_BODY}" color="#0f172a">{_esc(label)}</font>',
+                _para_compact(after=1),
+            ))
+            body = text if text else "Text der Firma ausstehend (Entwurf, nicht freigegeben)."
+            flowables.append(Paragraph(
+                f'<font name="{FONT_DEFAULT}" size="{FONT_SIZE_BODY}" color="#334155">{_esc(body)}</font>',
+                styles["body"],
+            ))
+        flowables.append(Spacer(1, 3 * mm))
+
     # ---- Sondervereinbarungen ----
     sonder = str(getattr(data, "sondervereinbarungen", "") or "")
     if sonder:
@@ -146,6 +164,16 @@ def build_vertrag_flowables(ctx: PDFContext, data) -> list:
             styles["body"],
         ))
         flowables.append(Spacer(1, 4 * mm))
+
+    if clauses:
+        template_hash = getattr(data, "contract_template_hash", None)
+        flowables.append(Paragraph(
+            f'<font name="{FONT_DEFAULT}" size="7" color="#64748b">'
+            f'Vertragsvorlage {_esc(getattr(data, "contract_catalog_version", None) or "")} · '
+            + (f'Prüfwert {_esc(str(template_hash)[:12])}' if template_hash else "nicht freigegeben")
+            + '</font>',
+            _para_compact(after=4),
+        ))
 
     # ---- Bestätigung & Unterschrift (Standard-Komponente) ----
     flowables.extend(make_unterschrift_section())
@@ -353,6 +381,9 @@ def build_kundeninformation_flowables(ctx: PDFContext, data) -> list:
         flowables.append(_ki_paragraph(data.cost_note, styles))
     for line in data.retrocession_lines:
         flowables.append(_ki_paragraph(line, styles))
+    # H-179 R-1: Zuwendungen der Depotbank (strukturierte Angabe der Firma).
+    for line in tuple(getattr(data, "depot_bank_inducement_lines", ()) or ()):
+        flowables.append(_ki_paragraph(line, styles))
     flowables.append(Spacer(1, 3 * mm))
 
     flowables.append(_section_title("Wirtschaftliche Bindungen an Dritte"))
@@ -373,6 +404,13 @@ def build_kundeninformation_flowables(ctx: PDFContext, data) -> list:
         styles,
     ))
     flowables.append(Spacer(1, 3 * mm))
+
+    # H-179 D-1: Datenbearbeitung (Art. 19 DSG) aus freigegebenen Texten der Firma.
+    privacy = tuple(getattr(data, "privacy_lines", ()) or ())
+    if privacy:
+        flowables.append(_section_title("Datenbearbeitung"))
+        flowables.append(_ki_pairs_table(privacy))
+        flowables.append(Spacer(1, 3 * mm))
 
     flowables.append(Paragraph(
         f'<font name="{FONT_DEFAULT}" size="7" color="#64748b">'

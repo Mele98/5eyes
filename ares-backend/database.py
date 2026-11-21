@@ -2493,6 +2493,10 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
         # append-only Mandats-Evidenz (ADD COLUMN feuert den UPDATE-Trigger
         # nicht); Backfill + Guard: core/mandate_evidence_tenant_boundary.py.
         for table_name in MANDATE_BOUND_TENANT_TABLES:
+            # H-179: neuere Tabellen (mit tenant_id ab Anlage) legt create_all an;
+            # in einer Alt-DB ohne sie gibt es nichts nachzuruesten.
+            if not inspect(conn).has_table(table_name):
+                continue
             ensure_column(conn, table_name, "tenant_id", "TEXT")
             conn.execute(text(
                 f"CREATE INDEX IF NOT EXISTS {tenant_index_name(table_name)} ON {table_name}(tenant_id)"

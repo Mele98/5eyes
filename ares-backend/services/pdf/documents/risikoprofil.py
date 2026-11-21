@@ -62,6 +62,13 @@ def build_risikoprofil_flowables(
         if data.capacity_plausibility_note:
             flowables.append(Paragraph(_esc(data.capacity_plausibility_note), styles["body"]))
 
+    # H-179 E-1 (W033): freigegebene Texte der Firma (Abraten bei kurzem
+    # Horizont, Ausschuettung, Kundenerklaerung "Angaben wahr/Meldepflicht").
+    for title, text in tuple(getattr(data, "w033_lines", ()) or ()):
+        flowables.append(Spacer(1, 4 * mm))
+        flowables.append(_section_title(title))
+        flowables.append(Paragraph(_esc(text), styles["body"]))
+
     flowables.append(Spacer(1, 6 * mm))
     flowables.append(_section_title("Rechtlicher Hinweis"))
     flowables.append(Paragraph(

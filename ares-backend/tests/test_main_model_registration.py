@@ -72,7 +72,10 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # keine bestehende Tabelle umbenannt/entfernt.
 # CCX-P4 Nachtrag 1 (N-910-06): FK allocation_publication_decisions.target_allocation_id
 # -> target_allocations aendert nur die Abhaengigkeitsreihenfolge (112 Tabellen).
-GOLDEN_SORTED_TABLES_SHA256 = "618e8a807ae327ccb92d47cc4e5aefae67ac5d8e664a8806df556fc397053f4c"
+# H-179 L2/L3 (2026-11-21): vier neue Tabellen (owner_content_versions,
+# owner_content_approvals, advice_rationales, w033_client_declarations),
+# keine bestehende Tabelle umbenannt/entfernt.
+GOLDEN_SORTED_TABLES_SHA256 = "2ee5c5d1b0e638e00173bb1ed3b6e61d0c1e148e36f5d0139e9a3d0714c4e631"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -199,7 +202,11 @@ GOLDEN_SORTED_TABLES_SHA256 = "618e8a807ae327ccb92d47cc4e5aefae67ac5d8e664a8806d
 # ter_status in Empfehlungspositionen; property_gate_review_json in Vermoegenspositionen.
 # KN-B (2026-11-19): freshness in AllocationPublicationOverviewResponse, causes in
 # AdvisoryEnvelopeFreshnessResponse (E2E2-05).
-GOLDEN_OPENAPI_SHA256 = "d0826606932ae89dac1d60f2ce51702ec8cd7d04e488fab750356914d4e2f53d"
+# H-179 L2/L3 (2026-11-21): neue Pfade /compliance/owner-content (GET/POST,
+# /{row_id}/approve), /mandates/{id}/contract-layer, .../advice-rationale,
+# .../w033-declarations und Schemas OwnerContentCreate/OwnerContentApprove/
+# AdviceRationaleCreate/W033DeclarationCreate; kein bestehender Pfad geaendert.
+GOLDEN_OPENAPI_SHA256 = "0672bb733bfcbb5c8488774455aa720b2bdd50b848c216d2cbaf7022543fc609"
 
 _PROBE = """
 import hashlib, json

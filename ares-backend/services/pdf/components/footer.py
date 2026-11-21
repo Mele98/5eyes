@@ -76,6 +76,8 @@ def _fit_disclaimer_lines(full_text: str, page_width: float) -> tuple[float, lis
 VORVERTRAG_TEXT = "Entwurf – vor Vertragsabschluss (ohne KYC-Bestätigung)"
 # CCX-P4: gleicher Text wie services/pdf/components/watermark.py::UNPUBLISHED_TEXT.
 UNPUBLISHED_TEXT = "Entwurf – Soll-Allokation nicht publiziert"
+# H-179 V-1: gleicher Text wie services/pdf/components/watermark.py::CONTRACT_DRAFT_TEXT.
+CONTRACT_DRAFT_TEXT = "Entwurf – Vertragsvorlage nicht freigegeben"
 
 
 def _draw_vorvertrag_mark(canvas: Canvas, page_width: float, page_height: float,
@@ -119,6 +121,8 @@ def make_footer_callback(ctx: PDFContext, disclaimer: str | None = None):
             _draw_vorvertrag_mark(canvas, page_width, PAGE_SIZE[1])
         elif mode == "unpublished":
             _draw_vorvertrag_mark(canvas, page_width, PAGE_SIZE[1], UNPUBLISHED_TEXT)
+        elif mode == "vertragsvorlage":
+            _draw_vorvertrag_mark(canvas, page_width, PAGE_SIZE[1], CONTRACT_DRAFT_TEXT)
 
         canvas.saveState()
         canvas.setFont(FONT_DEFAULT, FONT_SIZE_FOOTER)

@@ -386,7 +386,8 @@ KYC_APPROVER_ROLES: tuple[str, ...] = ("admin", "super_admin", "compliance_revie
 CLIENT_INFORMATION_DOCUMENT_TYPE = "Kundeninformation"
 # RC-CH-1 Teil 2b: -2 = Zahlendarstellung ueber den G7-Formatter (Half-up,
 # fehlender Betrag "—" statt 0) und Mandatswaehrung ohne CHF-Ersatz.
-CLIENT_INFORMATION_TEMPLATE_VERSION = "ARES-KI-FIDLEG-3"
+# H-179 -4: Abschnitt Datenbearbeitung (Art. 19 DSG) und Zuwendungen der Depotbank.
+CLIENT_INFORMATION_TEMPLATE_VERSION = "ARES-KI-FIDLEG-4"
 # Dokumenttypen, deren Unterzeichnung den Vertragsabschluss markiert. Die
 # Kundeninformation muss VOR der ersten Unterschrift auf einem davon liegen.
 CONTRACT_CONCLUSION_DOCUMENT_TYPES = frozenset({

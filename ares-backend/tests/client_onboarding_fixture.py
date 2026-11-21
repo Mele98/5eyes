@@ -22,6 +22,7 @@ import hashlib
 from datetime import date, timedelta
 
 from database import new_uuid
+import models.contract_layer  # noqa: F401  H-179: Tabellen vor create_all registrieren
 from models.clients import Client, ClientDueDiligence, KycConfirmation
 from models.review import ClientInformationDelivery, ContractDocument
 from models.tenant import (
@@ -258,6 +259,8 @@ def satisfy_client_onboarding(db, mandate, *, actor_id: str | None = None) -> No
     has_kyc = db.query(KycConfirmation).filter(KycConfirmation.client_id == mandate.client_id).first()
     if has_kyc is None:
         confirm_test_kyc(db, mandate.client_id, actor_id=actor, tenant_id=tenant_id)
+    # H-179 L2/L3: Owner-Inhalte, Depotbank-Angabe, W033 (Testwerte).
+    satisfy_contract_layer(db, mandate, actor_id=actor)
 
 
 def satisfy_client_onboarding_for_all_mandates(db) -> None:
@@ -266,3 +269,173 @@ def satisfy_client_onboarding_for_all_mandates(db) -> None:
 
     for mandate in db.query(Mandate).all():
         satisfy_client_onboarding(db, mandate)
+
+
+# ---------------------------------------------------------------------------
+# H-179 L2/L3 Vertragsschicht: TESTWERTE der Owner-Inhalte (keine Owner-Texte,
+# kein Produktdefault). Jeder Text traegt den Marker und ist sofort als
+# Testwert erkennbar; das Produkt selbst belegt keinen Inhalt vor.
+# ---------------------------------------------------------------------------
+
+TEST_CONTRACT_MARKER = "Testfixture H-179"
+TEST_DEPOT_BANK = "Testbank H-179 (Testwert)"
+# Bewusst 1 Jahr: kein Owner-Wert; sorgt dafuer, dass Bestandstests nicht in
+# den Abraten-Pfad laufen (der eigene Test setzt einen hoeheren Testwert).
+TEST_MIN_HORIZON_YEARS = 1
+
+
+def _owner_content_test_keys() -> list[tuple[str, str | None, dict | None]]:
+    from services import owner_content as oc
+
+    keys: list[tuple[str, str | None, dict | None]] = []
+    for clause in oc.CONTRACT_CLAUSE_KEYS:
+        key = oc.contract_clause_key(oc.CONTRACT_SHARED_SLUG, clause)
+        keys.append((key, f"{TEST_CONTRACT_MARKER} Testwert, kein Owner-Text: {key}", None))
+    for section, *_rest in oc.PRIVACY_SECTIONS:
+        key = oc.PRIVACY_KEY_PREFIX + section
+        keys.append((key, f"{TEST_CONTRACT_MARKER} Testwert, kein Owner-Text: {key}", None))
+    for key in (oc.W033_DECLARATION_KEY, oc.W033_HORIZON_ADVICE_KEY):
+        keys.append((key, f"{TEST_CONTRACT_MARKER} Testwert, kein Owner-Text: {key}", None))
+    keys.append((oc.W033_MIN_HORIZON_KEY, None, TEST_MIN_HORIZON_YEARS))
+    return keys
+
+
+def ensure_test_owner_content(
+    db, tenant_id: str, *, actor_id: str, key: str, body_text: str | None = None,
+    value=None, approve: bool = True,
+):
+    """Neue Version (+ Vier-Augen-Freigabe) eines Owner-Inhalts als TESTWERT."""
+    from models.contract_layer import OWNER_CONTENT_GENESIS, OwnerContentApproval, OwnerContentVersion
+    from services import owner_content as oc
+
+    head = oc.resolve_owner_content(db, tenant_id, key)
+    entry = oc.catalog_entry(key)
+    stored_text, stored_value = oc.normalize_payload(entry, body_text, value)
+    versions, _approvals = oc.owner_content_chain(db, tenant_id, key)
+    version = OwnerContentVersion(
+        id=new_uuid(), tenant_id=tenant_id, content_key=key, catalog_version=oc.CATALOG_VERSION,
+        version=max((int(v["version"]) for v in versions.values()), default=0) + 1,
+        body_text=stored_text, value_json=stored_value,
+        source_reference=f"{TEST_CONTRACT_MARKER} Testwert", created_by=actor_id, created_at=_PAST,
+    )
+    version.content_hash = _seal(version, "content_hash")
+    db.add(version)
+    db.flush()
+    if approve:
+        approval = OwnerContentApproval(
+            id=new_uuid(), tenant_id=tenant_id, content_key=key, content_row_id=version.id,
+            predecessor_approval_id=(head["approval"]["id"] if head["status"] == oc.STATUS_APPROVED
+                                     else OWNER_CONTENT_GENESIS),
+            approved_by=_test_review_approver(db, actor_id), approved_at=_PAST,
+            approval_reference=f"{TEST_CONTRACT_MARKER} Testfreigabe", content_hash=version.content_hash,
+        )
+        approval.approval_hash = _seal(approval, "approval_hash")
+        db.add(approval)
+        db.flush()
+    return oc.resolve_owner_content(db, tenant_id, key)
+
+
+def ensure_test_contract_layer_tenant(db, tenant_id: str, *, actor_id: str) -> None:
+    from services import owner_content as oc
+
+    for key, text, value in _owner_content_test_keys():
+        if oc.resolve_owner_content(db, tenant_id, key)["status"] == oc.STATUS_APPROVED:
+            continue
+        ensure_test_owner_content(db, tenant_id, actor_id=actor_id, key=key, body_text=text, value=value)
+
+
+def ensure_test_depot_bank_inducement(db, mandate, *, actor_id: str) -> None:
+    from services import owner_content as oc
+
+    from services.contract_layer import DEPOT_BANK_REQUIRED_MANDATE_TYPES
+
+    if not str(getattr(mandate, "depot_bank", "") or "").strip():
+        if str(getattr(mandate, "mandate_type", "") or "") not in DEPOT_BANK_REQUIRED_MANDATE_TYPES:
+            return
+        mandate.depot_bank = TEST_DEPOT_BANK
+        db.flush()
+    tenant_id = _tenant_for(db, mandate)
+    key = oc.depot_bank_key(mandate.depot_bank)
+    if oc.resolve_owner_content(db, tenant_id, key)["status"] == oc.STATUS_APPROVED:
+        return
+    ensure_test_owner_content(db, tenant_id, actor_id=actor_id, key=key, value={
+        "depot_bank": mandate.depot_bank, "status": "keine",
+        "evidence_reference": f"{TEST_CONTRACT_MARKER} Testbeleg", "valid_from": "2000-01-01",
+    })
+
+
+def confirm_test_w033(db, mandate, *, actor_id: str) -> None:
+    """W033-Bestaetigungen (Testwert) zum aktuellen Risikoprofil, falls vorhanden."""
+    from models.contract_layer import W033ClientDeclaration
+    from services.contract_layer import w033_state
+
+    state = w033_state(db, mandate)
+    if state["assessment_id"] is None:
+        return
+    todo = []
+    if not state["declaration_confirmed"] and state["declaration_binding"]:
+        todo.append(("angaben_wahr_meldepflicht", state["declaration_binding"]))
+    if state["advice_required"] and not state["advice_confirmed"] and state["advice_binding"]:
+        todo.append(("horizont_abraten", state["advice_binding"]))
+    for kind, binding in todo:
+        record = W033ClientDeclaration(
+            id=new_uuid(), tenant_id=mandate.tenant_id, mandate_id=mandate.id, client_id=mandate.client_id,
+            risk_assessment_id=state["assessment_id"], declaration_kind=kind,
+            content_key=binding["key"], content_row_id=binding["content_row_id"],
+            content_hash=binding["content_hash"], horizon_years=state["horizon_years"],
+            min_horizon_years=state["min_horizon_years"], capture_channel="persoenlich_papier",
+            confirmed_at=_PAST, recorded_by=actor_id, recorded_at=_PAST,
+        )
+        record.declaration_hash = _seal(record, "declaration_hash")
+        db.add(record)
+    db.flush()
+
+
+def record_test_advice_rationale(db, mandate, run_id: str, *, actor_id: str) -> None:
+    from models.contract_layer import AdviceRationale
+    from services.contract_layer import latest_advice_rationale
+
+    if latest_advice_rationale(db, str(mandate.id), run_id):
+        return
+    record = AdviceRationale(
+        id=new_uuid(), tenant_id=mandate.tenant_id, mandate_id=mandate.id, client_id=mandate.client_id,
+        recommendation_run_id=run_id,
+        client_needs=f"{TEST_CONTRACT_MARKER} Testwert Beduerfnisse",
+        recommendation_reasons=f"{TEST_CONTRACT_MARKER} Testwert Gruende",
+        recorded_by=actor_id, recorded_at=_PAST,
+    )
+    record.rationale_hash = _seal(record, "rationale_hash")
+    db.add(record)
+    db.flush()
+
+
+def satisfy_contract_layer(db, mandate, *, actor_id: str | None = None, run_id: str | None = None) -> None:
+    """H-179: alle L2/L3-Voraussetzungen (Testwerte) fuer ``mandate``;
+    mit ``run_id`` zusaetzlich die Gruende der Empfehlung (P-1)."""
+    client = db.query(Client).filter(Client.id == mandate.client_id).first()
+    actor = actor_id or (client.advisor_id if client is not None else None)
+    if actor is None:
+        raise RuntimeError("Testfixture H-179: kein Akteur (Berater) bekannt")
+    tenant_id = _tenant_for(db, mandate)
+    ensure_test_contract_layer_tenant(db, tenant_id, actor_id=actor)
+    ensure_test_depot_bank_inducement(db, mandate, actor_id=actor)
+    confirm_test_w033(db, mandate, actor_id=actor)
+    from models.review import RecommendationRun
+
+    run_ids = [run_id] if run_id else [
+        r.id for r in db.query(RecommendationRun).filter(RecommendationRun.mandate_id == mandate.id).all()
+    ]
+    for rid in run_ids:
+        record_test_advice_rationale(db, mandate, rid, actor_id=actor)
+
+
+def satisfy_contract_layer_for_all_mandates(db) -> None:
+    """H-179: ``satisfy_contract_layer`` fuer jedes Mandat (inkl. Gruende der
+    Empfehlung je vorhandenem Lauf), direkt vor einer Freigabeaktion."""
+    from models.mandates import Mandate
+
+    for mandate in db.query(Mandate).all():
+        client = db.query(Client).filter(Client.id == mandate.client_id).first()
+        if client is None or client.advisor_id is None:
+            continue
+        satisfy_contract_layer(db, mandate, actor_id=client.advisor_id)

@@ -43,7 +43,8 @@ from schemas.review import (  # noqa: E402
 from services import recommendation_release_gate as gate  # noqa: E402
 
 from client_onboarding_fixture import (  # noqa: E402
-    ensure_test_legal_profile, record_test_client_information, satisfy_client_onboarding,
+    ensure_test_contract_layer_tenant, ensure_test_legal_profile, record_test_client_information,
+    satisfy_client_onboarding,
 )
 from test_optimizer_shadow_mode import session_factory  # noqa: E402,F401
 
@@ -293,6 +294,12 @@ def test_kundeninformation_pdf_fail_closed_then_archived_with_profile_binding(sf
         assert "ombudsman_name" in exc.value.detail["missing_fields"]
         profile = ensure_test_legal_profile(db, TENANT)
         db.commit()
+        # H-179 D-1: ohne freigegebenen Abschnitt Datenbearbeitung kein Dokument.
+        with pytest.raises(HTTPException) as privacy:
+            get_kundeninformation_pdf(mandate_id="m-1", request=Req(), db=db, current_user=adv)
+        assert privacy.value.detail["reason_code"] == "CLIENT_INFORMATION_PRIVACY_MISSING"
+        ensure_test_contract_layer_tenant(db, TENANT, actor_id="adm-1")
+        db.commit()
         resp = get_kundeninformation_pdf(mandate_id="m-1", request=Req(), db=db, current_user=adv)
         assert resp.body.startswith(b"%PDF")
         doc = db.query(ContractDocument).filter(ContractDocument.document_type == "Kundeninformation").one()
@@ -346,8 +353,10 @@ def test_single_alembic_head_is_h8_revision():
     # CCX-P4 (Platz CCX_P4_REV): 24e7606245d3 haengt an 6814c14575e9.
     # H12 (N-910-14): b3f1c9d2e4a7 haengt an 24e7606245d3.
     # K1 (Property-Gate): 63332bb56098 haengt an b3f1c9d2e4a7 (Integration H12+K1).
-    assert heads == ["63332bb56098"]
+    # H-179 L2/L3: c7e1a9d3f5b2 (Vertragsschicht) haengt an 63332bb56098.
+    assert heads == ["c7e1a9d3f5b2"]
     chain = [
+        ("c7e1a9d3f5b2", "63332bb56098"),
         ("63332bb56098", "b3f1c9d2e4a7"),
         ("b3f1c9d2e4a7", "24e7606245d3"),
         ("24e7606245d3", "6814c14575e9"),
@@ -595,6 +604,8 @@ TEMPLATE_TEXT_PINS = {
     "ARES-KI-FIDLEG-2": "c2bccb7714fe51343931c907311141dc27aed96a23e4f4690ccd3c7ff44a3165",
     # KN3-B / E2E3-03: Aufsichtsstatus mit echten Umlauten ("Vermögensverwalter ...").
     "ARES-KI-FIDLEG-3": "f45160a1d75bd32203be2cacdcccc7cf449a136d21ebd68c18dcd2cae0c3b477",
+    # H-179 D-1/R-1: Abschnitt Datenbearbeitung (Art. 19 DSG), Zuwendungen der Depotbank.
+    "ARES-KI-FIDLEG-4": "54d223edb21fe7e6289d7f3f8c6a33f2affc7810ac0c8b76241f436ec666de36",
 }
 
 

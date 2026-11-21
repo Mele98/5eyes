@@ -67,6 +67,7 @@ from schemas.review import (
 )
 from price_updater import summarize_price_quality
 from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, require_staff, same_person, assert_compliance_reviewer_ready, short_user_agent, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
+from services.contract_layer import assert_contract_layer_release_eligible  # H-179 L2/L3
 from services.audit import gate_block_audit, log, release_block_audit, restore_tenant_after_rollback
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
@@ -1936,6 +1937,18 @@ def sign_document(
     if str(doc.document_type or "") in CONTRACT_CONCLUSION_DOCUMENT_TYPES:
         assert_client_onboarding_release_eligible(
             db, mandate, channel=CHANNEL_SIGNATURE,
+            on_block=release_block_audit(
+                db, user=current_user, ip_address=_extract_client_ip(request),
+                mandate_id=mandate.id, field_name="signature_blocked",
+                set_tenant_context=set_tenant_context,
+            ),
+        )
+        # H-179 L2/L3: kein Vertragsabschluss ohne freigegebene Vertragsvorlage,
+        # Datenschutzabschnitt, Angabe zu Zuwendungen der Depotbank und W033-
+        # Bestaetigungen; beim Beratungsvertrag zusaetzlich Ort und aktuelle
+        # Vorlage (fail-closed, auditiert, VOR jeder Mutation).
+        assert_contract_layer_release_eligible(
+            db, mandate, channel=CHANNEL_SIGNATURE, document=doc,
             on_block=release_block_audit(
                 db, user=current_user, ip_address=_extract_client_ip(request),
                 mandate_id=mandate.id, field_name="signature_blocked",
@@ -4717,6 +4730,17 @@ def finalize_recommendation(
     # N-890-07: die Sperre wird wie H7 im Audit-Log festgehalten.
     assert_client_onboarding_release_eligible(
         db, mandate, channel=CHANNEL_FINALIZATION, http_status=422,
+        on_block=release_block_audit(
+            db, user=current_user, ip_address=_extract_client_ip(request),
+            mandate_id=mandate.id, field_name="finalization_blocked",
+            set_tenant_context=set_tenant_context,
+        ),
+    )
+    # H-179 L2/L3: Finalisierung nur mit freigegebener Vertragsvorlage,
+    # Datenschutzabschnitt, Zuwendungsangabe der Depotbank, W033-Bestaetigungen
+    # und (Anlageberatung) dokumentierten Gruenden der Empfehlung (Art. 15 FIDLEG).
+    assert_contract_layer_release_eligible(
+        db, mandate, channel=CHANNEL_FINALIZATION, run_id=run_id, http_status=422,
         on_block=release_block_audit(
             db, user=current_user, ip_address=_extract_client_ip(request),
             mandate_id=mandate.id, field_name="finalization_blocked",

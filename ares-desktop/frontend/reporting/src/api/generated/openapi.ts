@@ -2250,6 +2250,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/compliance/owner-content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Owner Content
+         * @description Katalog der Owner-Inhalte der eigenen Firma mit Status (fehlt, Entwurf,
+         *     freigegeben, Kette ungültig), wirksamer Version und offenem Entwurf.
+         *     Zusätzlich die bereits erfassten Bank-Schlüssel (Zuwendungen der Depotbank).
+         */
+        get: operations["list_owner_content_compliance_owner_content_get"];
+        put?: never;
+        /**
+         * Create Owner Content
+         * @description Neue Version eines Owner-Inhalts (Firmen-Admin). Wirksam erst nach der
+         *     Freigabe durch eine zweite Person (``/approve``).
+         */
+        post: operations["create_owner_content_compliance_owner_content_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/owner-content/{row_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Owner Content
+         * @description Vier-Augen-Freigabe einer Version durch eine zweite Person mit dem
+         *     gesehenen Inhalts-Hash. Die Freigaben bilden je Schlüssel eine lineare
+         *     Kette; zwei gleichzeitige Freigaben auf denselben Stand scheitern (409).
+         */
+        post: operations["approve_owner_content_compliance_owner_content__row_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboard/active-triggers": {
         parameters: {
             query?: never;
@@ -3015,6 +3064,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/mandates/{mandate_id}/contract-layer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Contract Layer Status
+         * @description Status der Vertragsschicht des Mandats (gleiche Quelle wie das Gate).
+         */
+        get: operations["get_contract_layer_status_mandates__mandate_id__contract_layer_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/mandates/{mandate_id}/cost-disclosure/ex-ante": {
         parameters: {
             query?: never;
@@ -3717,6 +3786,27 @@ export interface paths {
         put?: never;
         /** Generate Recommendation Run Endpoint */
         post: operations["generate_recommendation_run_endpoint_mandates__mandate_id__recommendations_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mandates/{mandate_id}/recommendations/{run_id}/advice-rationale": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Advice Rationale
+         * @description P-1 (Art. 15 FIDLEG): Kundenbedürfnisse und Gründe der Empfehlung zu
+         *     einem Empfehlungslauf erfassen. Korrektur = neue Zeile.
+         */
+        post: operations["create_advice_rationale_mandates__mandate_id__recommendations__run_id__advice_rationale_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4675,6 +4765,27 @@ export interface paths {
          */
         put: operations["resolve_trigger_mandates__mandate_id__triggers__trigger_id__resolve_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mandates/{mandate_id}/w033-declarations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create W033 Declaration
+         * @description E-1: Bestätigung des Kunden zum aktuellen Risikoprofil erfassen, gebunden
+         *     an die gezeigte, freigegebene Textversion der Firma (Prüfwert).
+         */
+        post: operations["create_w033_declaration_mandates__mandate_id__w033_declarations_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6729,6 +6840,13 @@ export interface components {
              * @enum {string}
              */
             reason_code: "OFFLINE_ABORT" | "CUSTOMER_DECLINED" | "ADVISOR_CANCELLED";
+        };
+        /** AdviceRationaleCreate */
+        AdviceRationaleCreate: {
+            /** Client Needs */
+            client_needs: string;
+            /** Recommendation Reasons */
+            recommendation_reasons: string;
         };
         /** AdviserRegistrationCreate */
         AdviserRegistrationCreate: {
@@ -11676,6 +11794,28 @@ export interface components {
             /** Weights Bps Json */
             weights_bps_json: string;
         };
+        /** OwnerContentApprove */
+        OwnerContentApprove: {
+            /** Approval Reference */
+            approval_reference: string;
+            /** Content Hash */
+            content_hash: string;
+        };
+        /**
+         * OwnerContentCreate
+         * @description Neue Version eines Owner-Inhalts. Text (``body_text``) oder typisierter
+         *     Wert (``value``) je nach Katalogart; der Server vergibt die Version.
+         */
+        OwnerContentCreate: {
+            /** Body Text */
+            body_text?: string | null;
+            /** Content Key */
+            content_key: string;
+            /** Source Reference */
+            source_reference: string;
+            /** Value */
+            value?: unknown | null;
+        };
         /** OwnerValueUpdate */
         OwnerValueUpdate: {
             /** Value */
@@ -15584,6 +15724,23 @@ export interface components {
              * @description leer = alle Bearbeitungen bzw. Kanaele
              */
             keys?: string[];
+        };
+        /** W033DeclarationCreate */
+        W033DeclarationCreate: {
+            /**
+             * Capture Channel
+             * @enum {string}
+             */
+            capture_channel: "persoenlich_papier" | "vor_ort" | "kundenportal";
+            /** Confirmed At */
+            confirmed_at: string;
+            /** Content Hash */
+            content_hash: string;
+            /**
+             * Declaration Kind
+             * @enum {string}
+             */
+            declaration_kind: "angaben_wahr_meldepflicht" | "horizont_abraten";
         };
         /** WealthInflowCreate */
         WealthInflowCreate: {
@@ -19911,6 +20068,94 @@ export interface operations {
             };
         };
     };
+    list_owner_content_compliance_owner_content_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    create_owner_content_compliance_owner_content_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OwnerContentCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_owner_content_compliance_owner_content__row_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                row_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OwnerContentApprove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     active_triggers_dashboard_active_triggers_get: {
         parameters: {
             query?: never;
@@ -21147,6 +21392,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConflictDisclosureResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_contract_layer_status_mandates__mandate_id__contract_layer_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -22614,6 +22890,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RecommendationGenerateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_advice_rationale_mandates__mandate_id__recommendations__run_id__advice_rationale_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdviceRationaleCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -24407,6 +24719,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReviewTriggerResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_w033_declaration_mandates__mandate_id__w033_declarations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["W033DeclarationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
