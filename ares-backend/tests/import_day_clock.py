@@ -20,7 +20,11 @@ import pytest
 
 def _instant(anchor) -> datetime:
     if isinstance(anchor, str):
-        anchor = datetime.fromisoformat(anchor)
+        # KN7 / N-928-04: ein reiner Datums-String («2026-11-21») ist ein Datum
+        # -> 12:00 UTC wie ein date-Objekt (vorher 00:00 UTC = 01:00 Zuerich,
+        # wenige Minuten neben der Tagesgrenze).
+        anchor = (date.fromisoformat(anchor) if len(anchor.strip()) == 10
+                  else datetime.fromisoformat(anchor))
     if isinstance(anchor, datetime):
         return anchor if anchor.tzinfo else anchor.replace(tzinfo=timezone.utc)
     if isinstance(anchor, date):

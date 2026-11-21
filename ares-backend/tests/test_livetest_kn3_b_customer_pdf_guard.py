@@ -23,6 +23,9 @@ API. Danach wird jeder Kunden-PDF-Endpunkt abgerufen und der Text ausgelesen.
   Negativ-Screening mit bewusst zugelassenem und uebergewichtetem Thema ->
   Zeile «Abweichungen von der ESG-Vorgabe»). Damit laufen auch
   die bedingten Kundentext-Zweige durch alle Waechter.
+* KN7 / N-928-01/-02: keine UUID und keine Hex-Folge ab 16 Zeichen in
+  Kunden-PDFs (allgemeine Regel); Sektion 19 und 27 des Advisory-Reports
+  widersprechen sich zur Eignungspruefung nie.
 
 Kein Browser. Eigener CI-Job «KN3-B Kunden-PDF-Waechter» (das Budget des
 Frontend-Jobs ist ausgeschoepft); lokal mit ``ARES_KN3_PDF_GUARD=1``.
@@ -711,7 +714,62 @@ def test_conditional_branches_render_customer_text():
     texts = [make_limiting_factor_line("solver_konvergenz").getPlainText()]
     texts += list(CUSTOMER_SUITABILITY_TEXTS.values())
     texts.append(customer_suitability_text({"is_compliant": True})[1])
+    # KN7: Bestaetigungstexte des Beratungsentscheids, Leerzustaende/Pills von
+    # Sektion 27 und die Kundenfassung des Override-Nachweises (Risikoprofil).
+    from services.pdf.base import RisikoprofilData
+    from services.pdf.documents import advisory_report as ar, contract_signoff as cs
+    from services.pdf.documents.risikoprofil import customer_decision_reference_text
+
+    texts += [*cs._ADVISOR_CONFIRM_CHECKED.values(), *cs._ACK_CHECKED.values(),
+              cs._ADVISOR_CONFIRM_WITHOUT_CHECK, cs._ACK_WITHOUT_CHECK,
+              *ar._SS_EMPTY_TITLES.values(), *(v[0] for v in ar._SUITABILITY_STATUS_OVERRIDE_PILL.values())]
+    for kw in ({"override_decision_verified": True}, {"override_decision_verified": False},
+               {"override_decision_id": None}):
+        texts.append(customer_decision_reference_text(RisikoprofilData(**{
+            "risk_profile_label": "Ausgewogen", "risk_capacity_score": 50, "risk_tolerance_score": 50,
+            "override_decision_id": "3f1c2b9a-7d4e-4c21-9a8b-0c5d6e7f8a9b", **kw})))
     for text in texts:
         assert not technical_hits("advisory-report", text), text
         assert not umlaut_transliterations(text), text
     assert "Optimierer" not in texts[0] and "Fallback" not in texts[0]
+
+
+# -- KN7 (H-181-Pruefung, N-928-01/-02): Kennungen und Eignungsaussagen --------
+
+
+def test_no_uuid_or_long_hex_in_customer_pdfs(rendered_all):
+    """Allgemeine Regel (CTO-Nachtrag H-181, Punkt 4): kein Kunden-PDF zeigt eine
+    UUID oder eine Hex-Folge ab 16 Zeichen (volle Hashes, interne Kennungen).
+    Kunden sehen hoechstens eine 8-stellige Pruefsumme/Nummer; die vollen Werte
+    stehen in DB, Audit-Log und Berater-/Audit-Fassung. Gegenprobe:
+    test_kn7_customer_suitability_and_references::test_internal_id_rule_detects_the_old_output."""
+    from tests.test_kn7_customer_suitability_and_references import internal_id_hits
+
+    offenders = {}
+    for (case, name), text in _texts(rendered_all).items():
+        hits = internal_id_hits(text)
+        if hits:
+            offenders[f"{case}/{name}"] = sorted(set(hits))[:6]
+    assert not offenders, offenders
+    # Positivkontrolle: die Kurzform steht da (Protokoll: Nachhaltigkeits-Nachweis).
+    protokoll = " ".join(_texts(rendered_all)[("verzehr", "protokoll")].split())
+    assert re.search(r"Prüfsumme Definition [0-9a-f]{8} · Erfassung [0-9a-f]{8}", protokoll), protokoll[-1200:]
+
+
+def test_sections_19_and_27_never_contradict_in_live_cases(rendered_all):
+    """N-928-01: Sektion 27 (Eignungspruefung) und Sektion 19 (Compliance-Audit)
+    widersprechen sich im selben Kunden-PDF nie -- in allen Live-Faellen."""
+    from tests.test_kn7_customer_suitability_and_references import suitability_contradictions
+
+    offenders = {}
+    for (case, name), text in _texts(rendered_all).items():
+        if name != "advisory-report":
+            continue
+        found = suitability_contradictions(" ".join(text.split()))
+        if found:
+            offenders[case] = found
+    assert not offenders, offenders
+    advisory = " ".join(_texts(rendered_all)[("verzehr", "advisory-report")].split())
+    # Positivkontrolle: Sektion 19 bestaetigt die Pruefung, Sektion 27 sagt dasselbe.
+    assert "liegt die erforderliche Geeignetheitsprüfung vor" in advisory
+    assert "Eignungsprüfung im Risikoprofil dokumentiert" in advisory

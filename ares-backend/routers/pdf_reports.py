@@ -81,6 +81,13 @@ from services.allocation_publication_gate import (
 from services.portfolio_engine import run_exclusion_evidence_status
 from sqlalchemy import text as sql_text
 from services.pdf import ReportLabRenderer
+# KN7: Advisory-Report-Dokument auf Modulebene (vorher funktionslokal in
+# get_advisory_report_pdf); liefert auch den Suitability-Audit fuer den
+# Beratungsentscheid -- keine neue Import-Kante.
+from services.pdf.documents.advisory_report import (
+    render_advisory_report_pdf,
+    suitability_compliance_for_mandate,
+)
 from services.recommendation_release_gate import (
     CLIENT_INFORMATION_DOCUMENT_TYPE,
     CLIENT_INFORMATION_REGIME_UNSUPPORTED,
@@ -2049,6 +2056,9 @@ def _build_contract_signoff_data(
     orientation = strategy.optimizer_reasoning or _format_portfolio_orientation(
         strategy.allocation_preferences
     )
+    # KN7 (H-181, CTO-Nachtrag Punkt 1): Pruefgrundlage aus demselben Audit wie
+    # Sektion 19 des Advisory-Reports (fail-closed Wrapper: Fehler -> degraded).
+    suitability = suitability_compliance_for_mandate(db, mandate)
     return ContractSignoffData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,
         advisory_wealth_rappen=strategy.advisory_wealth_rappen,
@@ -2073,6 +2083,9 @@ def _build_contract_signoff_data(
         band_house_deviations=list(strategy.band_house_deviations or []),
         band_house_profile=strategy.band_house_profile,
         band_deviation_reason=strategy.band_deviation_reason,
+        suitability_basis=suitability.get("suitability_basis"),
+        suitability_is_compliant=suitability.get("is_compliant"),
+        suitability_audit_degraded=bool(suitability.get("audit_degraded")),
     )
 
 
@@ -3343,8 +3356,6 @@ def get_advisory_report_pdf(
     1:1 dieselben Daten. PR A liefert Cover + Disclaimer + Inhalts-
     verzeichnis + Page-Chrome; Sektionen 4-15 folgen in U-P26 PR B-F.
     """
-    from services.pdf.documents.advisory_report import render_advisory_report_pdf
-
     from services.recommendation_release_gate import (
         CHANNEL_ADVISORY_PDF,
         assert_recommendation_release_eligible,
