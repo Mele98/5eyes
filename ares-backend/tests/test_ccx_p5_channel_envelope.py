@@ -448,3 +448,41 @@ def test_new_fresh_rate_of_bound_currency_blocks_every_channel_foreign_rate_does
                                      outdated_code=ReasonCode.CCX_HANDOFF_ENVELOPE_OUTDATED)
         assert exc.value.reason_code == "CCX_FX_BASIS_CHANGED"
         assert "Wechselkurs" in exc.value.as_detail()["cause"]
+
+
+# ── P5b / N-925R-01: Kundenportal am Kanal-Gate ─────────────────────────────
+
+
+def test_client_portal_report_uses_the_channel_gate(session_factory):
+    """N-925R-01: das Kundenportal zeigte nach USD 0.88 -> 0.93 weiter den
+    Bericht (200), obwohl alle anderen Kanaele sperrten. Jetzt neutral 409,
+    Code nur im Audit; ein fremder Kurs (JPY) laesst den Bericht offen."""
+    from fastapi import HTTPException
+
+    from models.clients import Client
+    from models.mandates import Mandate
+    from routers.client_portal import _assert_portal_report_releasable
+
+    advisor_id, mid, _run = _published_usd(session_factory, "p5b-portal")
+
+    def check(db):
+        mandate = db.get(Mandate, mid)
+        return _assert_portal_report_releasable(db, mandate, db.get(Client, mandate.client_id),
+                                                _user(db, advisor_id))
+
+    with session_factory() as db:
+        _add_fx(db, "JPY", 61)
+        db.commit()
+    with session_factory() as db:
+        check(db)  # offen
+    with session_factory() as db:
+        _add_fx(db, "USD", 9_300)
+        db.commit()
+    with session_factory() as db:
+        with pytest.raises(HTTPException) as exc:
+            check(db)
+        assert exc.value.status_code == 409
+        assert "CCX_FX_BASIS_CHANGED" not in str(exc.value.detail)  # Kunde sieht neutral
+        audit = db.execute(text(
+            "SELECT new_value FROM audit_log WHERE field_name = 'client_portal_report_blocked'")).all()
+        assert audit and audit[-1][0] == "CCX_FX_BASIS_CHANGED"

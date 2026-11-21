@@ -30,7 +30,7 @@ from services.advisory_report import compute_advisory_report
 # weiterreicht) -- Router importieren keine Router.
 from services.auth import extract_client_ip as _extract_client_ip
 # CCX-P4: der Kunde sieht nie einen Entwurf -- nur die publizierte Strategie.
-from services.allocation_publication_gate import customer_document_watermark
+from services.allocation_publication_gate import customer_document_watermark, evaluate_channel_envelope
 from services.auth import get_linked_client_for_user_or_404, require_client
 
 
@@ -161,6 +161,13 @@ def _assert_portal_report_releasable(db: Session, mandate: Mandate, client: Clie
         if customer_document_watermark(db, mandate) is not None:
             raise DomainError("CCX_ALLOCATION_NOT_PUBLISHABLE",
                               "Soll-Allokation nicht publiziert.", http_status=409)
+        # CCX P5 / N-925R-01: derselbe Kanal-Gate wie Kunden-PDF, Signatur und
+        # Handoff -- SEALED+FRESH, heutige FX gleich der gebundenen, Parameter-
+        # satz und Zielkennzahl. Code nur in Log/Audit, Kunde sieht neutral.
+        decision = evaluate_channel_envelope(db, mandate)
+        if decision.applicable and not decision.ok:
+            raise DomainError(str(decision.reason_code), "Beratungsentscheid nicht auslieferbar.",
+                              http_status=409)
     except (HTTPException, DomainError) as exc:
         # K-2b: die Gates werfen DomainError (detail/status_code wie HTTPException).
         detail = exc.detail if isinstance(exc.detail, dict) else {}
