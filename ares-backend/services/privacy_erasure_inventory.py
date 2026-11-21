@@ -42,7 +42,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-INVENTORY_VERSION = "2026-11-14.3"
+INVENTORY_VERSION = "2026-11-21.1"
 
 DELETE = "DELETE"
 ANONYMIZE = "ANONYMIZE"
@@ -212,11 +212,15 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
     # H8 C-2: Abgabenachweis der Kundeninformation (append-only, keine
     # Personendaten ausser dem Bezug).
     "client_information_deliveries": _t(_MANDATE, _c(RECORD, "mandate_contract")),
-    # H-179 P-1 (Art. 15 FIDLEG): Beduerfnisse/Gruende im Klartext, append-only;
-    # keine Loeschmethode implementiert (Disposition scheitert sichtbar).
+    # H-179 P-1 (Art. 15 FIDLEG): Beduerfnisse/Gruende, append-only. L2b (H-190):
+    # versiegelt mit dem Kundenschluessel (pii_vault), geloescht per
+    # Crypto-Shredding; das Zeilensiegel bindet den Umschlag und bleibt
+    # pruefbar (Anzeige «Gelöscht (DSG)», keine Manipulation). Altzeilen von
+    # vor L2b im Klartext meldet die Erasure (count_unsealed_rows).
     "advice_rationales": _t(
         _MANDATE,
-        _c(FREE_TEXT, "advisory_protocol", "client_needs", "recommendation_reasons"),
+        _c(SEALED_FREE_TEXT, "advisory_protocol", "client_needs", "recommendation_reasons",
+           method=CRYPTO_SHRED),
         _c(RECORD, "advisory_protocol"),
     ),
     # H-179 E-1: Kundenbestaetigung zum Risikoprofil (W033), ohne Freitext.

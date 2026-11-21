@@ -213,6 +213,10 @@ KN9a (N-934-03): dirty kennt die Quelle (Bandbreiten = 'manual'); nach dem Speic
 der manuellen Soll-Allokation faellt nur dieser Anteil weg (afterManualTargetSave in
 p5c-ui.js, Hinweis in finalizeLocked je Quelle). Monolith gesenkt auf 26330/1616990;
 p5c-ui.js 44/3318 (neue Logik im eigenen Teil statt im Monolithen).
+L2b (H-190): neuer Teil ``advice-contract.js`` (Budget = Stand bei Einfuehrung):
+Beratungsvertrag in der Classic-Vertragsmaske; saveContractDocumentDraft aus dem
+Monolithen umgezogen -- der Monolith schrumpft trotz Script-Zeile auf 26282/1614959.
+owner-content.js 336/21153 (beim Erfassen: wo der Text erscheint).
 """
 from __future__ import annotations
 
@@ -221,9 +225,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26330
+MONOLITH_MAX_LINES = 26282
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1616990
+MONOLITH_MAX_BYTES = 1614959
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -239,7 +243,8 @@ EXTRACTED_PART_BUDGETS = {
     "goal-review-runtime.js": (1561, 83782),
     "client-compliance.js": (469, 29962),
     "kyc-review-policy.js": (427, 25832),
-    "owner-content.js": (324, 20182),
+    "owner-content.js": (336, 21153),
+    "advice-contract.js": (366, 19058),
     "privacy-governance.js": (500, 35256),
     "sustainability-preferences.js": (517, 26065),
     "wealth-inflows.js": (282, 16491),

@@ -48,6 +48,7 @@
       "frontend/client-compliance.js",
       "frontend/kyc-review-policy.js",
       "frontend/owner-content.js",
+      "frontend/advice-contract.js",
       "frontend/privacy-governance.js",
       "frontend/sustainability-preferences.js",
       "frontend/wealth-inflows.js",

@@ -74,7 +74,7 @@
     var draft = item.draft_body_text || item.draft_value_json;
     return '<tr data-owner-key="' + esc(item.key) + '" data-owner-status="' + esc(item.status) + '" style="border-top:1px solid var(--b1);vertical-align:top">'
       + '<td>' + esc(item.label) + '<div style="font-size:9px;color:var(--n5)">' + esc(item.key) + ' · ' + esc(item.placeholder) + '</div>'
-      + '<div style="font-size:9px;color:var(--n5)">Sichtbar in: ' + esc(item.visible_in) + '</div></td>'
+      + '<div class="oc-where" style="font-size:9px;color:var(--n5)">Erscheint in: ' + esc(item.visible_in) + '</div></td>'
       + '<td>' + esc(STATUS_LABELS[item.status] || item.status)
       + (effective ? '<div style="font-size:9px">Version ' + esc(item.effective_version) + ': ' + esc(short(effective)) + '</div>' : '')
       + (item.draft_row_id ? '<div style="font-size:9px;margin-top:4px">Entwurf Version ' + esc(item.draft_version) + ': ' + esc(short(draft)) + '</div>' + approvalHtml(item) : '')
@@ -98,6 +98,16 @@
     return html;
   }
 
+  // L2b: beim Erfassen zeigen, wo der Text erscheint (Dokument/Abschnitt) und
+  // was die Firma liefert -- beides 1:1 aus dem Katalog des Servers.
+  function firstKey(data){ var i = (data.items || []).filter(function(x){ return x.group !== 'depotbank'; })[0]; return i ? i.key : ''; }
+  function keyHintHtml(key){
+    var item = (state.items || []).filter(function(i){ return i.key === key; })[0];
+    if (!item) return '';
+    return 'Erscheint in: <b>' + esc(item.visible_in) + '</b><br>Die Firma liefert: ' + esc(item.owner_input) + ' · Platzhalter ' + esc(item.placeholder);
+  }
+  function ownerContentKeyHint(){ var el = document.getElementById('oc-key-hint'); if (el) el.innerHTML = keyHintHtml(val('oc-key')); }
+
   function createFormHtml(data){
     var options = (data.items || []).filter(function(i){ return i.group !== 'depotbank'; }).map(function(i){
       return '<option value="' + esc(i.key) + '" data-kind="' + esc(i.kind) + '">' + esc(i.label) + '</option>';
@@ -106,8 +116,9 @@
       + '<div style="font-size:9px;color:var(--n5);line-height:1.5">Erfassen Sie den von Geschäftsleitung bzw. Compliance freigegebenen Text der Firma. Ares schlägt keinen Text vor. '
       + 'Erst nach der Freigabe durch eine zweite Person ist die Version wirksam.</div>'
       + '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:4px">'
-      + '<div>' + L + 'Inhalt</label><select class="fi" id="oc-key" style="font-size:11px">' + options + '</select></div>'
+      + '<div>' + L + 'Inhalt</label><select class="fi" id="oc-key" style="font-size:11px" onchange="ownerContentKeyHint()">' + options + '</select></div>'
       + '<div>' + L + 'Quelle (Dokument-ID, Freigabe der Geschäftsleitung)</label><input class="fi" id="oc-source" style="font-size:11px"></div>'
+      + '<div id="oc-key-hint" style="grid-column:1/-1;font-size:9px;color:var(--n5);line-height:1.5">' + keyHintHtml(firstKey(data)) + '</div>'
       + '<div style="grid-column:1/-1">' + L + 'Text der Firma bzw. ganze Zahl (Mindesthorizont in Jahren)</label><textarea class="fi" id="oc-text" rows="4" style="font-size:11px"></textarea></div>'
       + '</div><button class="btn-p" id="btn-oc-create" style="margin-top:4px;font-size:10px;padding:3px 10px" onclick="createOwnerContent()">Version erfassen</button>'
       + '<div style="font-weight:600;font-size:10px;margin-top:12px">Zuwendungen einer Depotbank erfassen</div>'
@@ -318,6 +329,7 @@
   window.createOwnerContent = createOwnerContent;
   window.createDepotBankInducement = createDepotBankInducement;
   window.approveOwnerContent = approveOwnerContent;
+  window.ownerContentKeyHint = ownerContentKeyHint;
   window.loadContractLayerStatus = loadContractLayerStatus;
   window.saveAdviceRationale = saveAdviceRationale;
   window.recordW033Declaration = recordW033Declaration;

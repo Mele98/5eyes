@@ -68,6 +68,9 @@ from services.recommendation_release_gate import (
     contract_template_state,
     depot_bank_inducement_state,
     latest_advice_rationale,
+    ADVICE_RATIONALE_ERASED,
+    ADVICE_RATIONALE_ERASED_TEXT,
+    ADVICE_RATIONALE_TAMPERED,
     PROTOCOL_BIB_KEY,
     approved_text,
     privacy_section_state,
@@ -2450,7 +2453,20 @@ def _risk_profile_w033_lines(db: Session, mandate: Mandate) -> tuple:
     return tuple(lines)
 
 
-def _protocol_advice_sections(db: Session, mandate: Mandate, ta) -> dict:
+class AdviceRationaleIntegrityFailed(AdvisoryLogIntegrityFailed):
+    """L2b: Siegel der Gruende der Empfehlung passt nicht zum Inhalt."""
+
+    def __init__(self, entry_id: str | None = None, *, document: str = "Beratungsprotokoll") -> None:
+        super().__init__(entry_id, document=document)
+        self.args = (
+            f"{document} kann nicht als Kunden-PDF erzeugt werden: Die Prüfsumme der "
+            "erfassten Kundenbedürfnisse und Gründe der Empfehlung passt nicht zu ihrem "
+            "Inhalt. Sie wurden nach dem Speichern verändert oder sind beschädigt. Bitte "
+            "Bedürfnisse und Gründe der Empfehlung neu erfassen.",
+        )
+
+
+def _protocol_advice_sections(db: Session, mandate: Mandate, ta, document: str = "Beratungsprotokoll") -> dict:
     """H-179 P-1: Beduerfnisse/Gruende (vom Berater erfasst), abgegebene
     Warnhinweise (Eignungspruefung, Abweichung vom Risikoprofil) und
     abgegebene Informationen (Kundeninformation, Kostenausweis). Ares
@@ -2460,7 +2476,15 @@ def _protocol_advice_sections(db: Session, mandate: Mandate, ta) -> dict:
               "recorded_at": None, "warnings": (), "information": ()}
     run = resolve_current_recommendation_run(db, mandate.id, getattr(ta, "id", None))
     rationale = latest_advice_rationale(db, str(mandate.id), getattr(run, "id", None))
-    if rationale:
+    if rationale and rationale["state"] == ADVICE_RATIONALE_TAMPERED:
+        # L2b: dieselbe Regel wie KN9a -- ein verändertes Siegel sperrt das
+        # Kunden-PDF (409 vor der Archivierung), nie still gedruckt.
+        raise AdviceRationaleIntegrityFailed(str(rationale.get("id") or "") or None, document=document)
+    if rationale and rationale["state"] == ADVICE_RATIONALE_ERASED:
+        # L2b (DSG): erfasst, Freitext nach DSG geloescht (Schluessel vernichtet).
+        result.update(client_needs=ADVICE_RATIONALE_ERASED_TEXT, recommendation_reasons=ADVICE_RATIONALE_ERASED_TEXT,
+                      recorded_at=str(rationale["recorded_at"])[:10])
+    elif rationale:
         result.update(client_needs=rationale["client_needs"],
                       recommendation_reasons=rationale["recommendation_reasons"],
                       recorded_at=str(rationale["recorded_at"])[:10])
@@ -2701,7 +2725,7 @@ def _build_protokoll_data(
     _assert_sustainability_texts_claim_free(sustainability_view)
 
     # H-179 P-1 (Art. 15 FIDLEG): strukturierte Abschnitte der Anlageberatung.
-    advice = _protocol_advice_sections(db, mandate, ta)
+    advice = _protocol_advice_sections(db, mandate, ta, document)
 
     return ProtokollData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
