@@ -97,6 +97,9 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     # Ist-CHF auf derselben Basis), Hinweis ohne Apportionierung;
     # allocationReserveBreakdown umgezogen.
     ("kn5-ui.js", "js"),
+    # P5c (H-186): Zielstatus nur aus M-3 (goalStatusView) und keine stille
+    # Neuberechnung bei Klicks mit anderer Absicht (loadStrategyOnly).
+    ("p5c-ui.js", "js"),
     # E2 Nachhaltigkeitspraeferenzen (Dok. 106): Kundenmaske nach dem Risikoprofil.
     ("sustainability-preferences.js", "js"),
 )

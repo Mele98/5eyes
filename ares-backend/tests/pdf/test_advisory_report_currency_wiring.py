@@ -81,7 +81,7 @@ def test_goals_table_uses_given_currency_not_chf():
         "target_date": "2035", "target_amount_rappen": 8_000_000,
         "status": "on_track", "probability_bps": 7000, "goal_id": "g1",
     }]
-    table = _goals_table(goals, styles, [], currency="EUR")
+    table = _goals_table(goals, styles, currency="EUR")
     text = _render_text(table)
     assert "EUR 80'000" in text
     assert "CHF 80'000" not in text

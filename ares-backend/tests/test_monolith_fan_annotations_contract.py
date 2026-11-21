@@ -41,7 +41,7 @@ _TEXT_FNS = (
 )
 _APP_FNS = _TEXT_FNS + (
     "arrMin", "arrMax", "projectionChartValues", "_projAxisConfig",
-    "hasVisibleStrategyOutputs", "aaFanAnnotationsHidden", "aaFanGoalMarkers",
+    "hasVisibleStrategyOutputs", "aaFanAnnotationsHidden", "aaFanGoalMarkers", "goalStatusView",
     "_aaFanByKey", "renderAaFanRangeSentence", "_aaFanRoundRect",
     "aaDrawFanAnnotations", "syncAaProjectionAxisScales",
     "projectionEndOfYearText",  # H9 Nachtrag 2: gemeinsame Horizont-Beschriftung

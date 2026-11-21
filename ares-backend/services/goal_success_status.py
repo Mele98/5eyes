@@ -1,4 +1,10 @@
-"""GOAL-STATUS-BY-SUCCESS-001: Zielstatus aus der Erfolgswahrscheinlichkeit.
+"""GOAL-STATUS-BY-SUCCESS-001: Erfolgswahrscheinlichkeit je Ziel (Kennzahl).
+
+P5c / N-930-01 (CTO 2026-11-21): Der Zielstatus kommt NICHT mehr von hier.
+Einzige Quelle ist der M-3-Status (``core/goal_metric_contract.py``,
+``GOAL_STATUS_DISPLAY``); die Ampel 70/45 und die Statuswoerter
+``On Track``/``Pruefen``/``Gefaehrdet`` sind entfallen. Der Rest dieses
+Docstrings beschreibt die Vorgeschichte der Kennzahl.
 
 Seit #654 ist die Erfolgswahrscheinlichkeit (Anteil der simulierten
 Verlaeufe, in denen ein Ziel vollstaendig erreicht wird) die EINE
@@ -32,27 +38,6 @@ from __future__ import annotations
 
 import math
 from typing import Iterable, Mapping
-
-GOAL_SUCCESS_GOOD_PCT = 70
-GOAL_SUCCESS_WARN_PCT = 45
-
-GOAL_STATUS_ON_TRACK = "On Track"
-GOAL_STATUS_REVIEW = "Pruefen"
-GOAL_STATUS_AT_RISK = "Gefaehrdet"
-
-
-def goal_status_from_success_pct(success_rate_pct: int | float | None) -> str:
-    """Status nach der 70/45-Ampel der Erfolgswahrscheinlichkeit (0..100)."""
-    try:
-        pct = float(success_rate_pct or 0)
-    except (TypeError, ValueError):
-        pct = 0.0
-    if pct >= GOAL_SUCCESS_GOOD_PCT:
-        return GOAL_STATUS_ON_TRACK
-    if pct >= GOAL_SUCCESS_WARN_PCT:
-        return GOAL_STATUS_REVIEW
-    return GOAL_STATUS_AT_RISK
-
 
 SUCCESS_SOURCE_OPTIMIZER = "optimizer"
 SUCCESS_SOURCE_SIMULATION = "simulation"
@@ -124,10 +109,4 @@ __all__ = [
     "goal_items_weighted_success_bps",
     "report_goal_weight",
     "weighted_success_probability_bps",
-    "GOAL_SUCCESS_GOOD_PCT",
-    "GOAL_SUCCESS_WARN_PCT",
-    "GOAL_STATUS_ON_TRACK",
-    "GOAL_STATUS_REVIEW",
-    "GOAL_STATUS_AT_RISK",
-    "goal_status_from_success_pct",
 ]

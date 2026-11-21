@@ -49,12 +49,10 @@ def test_limiting_factor_mapping_and_story_builder_exist():
     assert "risky_fraction_bps_at_generation" in html
 
 
-def test_review_goal_probability_badge_logic_exists():
+def test_review_goal_status_badge_comes_from_m3():
     html = _html()
-    assert "function rvGoalProbBadge(prob)" in html
-    # UX-1 (CIO-Entscheid): Ampel einheitlich 70/45 wie die Legende.
-    assert "p>=0.70" in html
-    assert "p>=0.45" in html
-    assert "p>=0.80" not in html
-    # Der tau-basierte Optimizer-Status behaelt seine eigene Sprache.
-    assert "nicht plausibel" in html
+    # P5c / N-930-01: keine Ampel 70/45 und keine eigene Statussprache mehr.
+    assert "function rvGoalProbBadge(" not in html
+    assert "p>=0.70" not in html and "p>=0.45" not in html
+    assert "nicht plausibel" not in html
+    assert "function goalStatusView(item)" in html

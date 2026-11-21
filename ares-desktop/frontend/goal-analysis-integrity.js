@@ -71,18 +71,18 @@ function renderGoalAchievementSollIst(result){
   var istById={}; ist.forEach(function(g){ if(g&&g.goal_id!=null) istById[String(g.goal_id)]=g; });
   var pct=function(v){ var n=Number(v); return isFinite(n)?fmtProbPct(Math.max(0,Math.min(100,n))):'—'; };  // Rundung im Formatter (Half-up)
   var chf=function(r){ var n=Number(r||0); return n>0?formatRappen(n):'—'; };
-  var tone=function(v){ var n=Number(v||0); return n>=70?'var(--pos)':(n>=45?'var(--warn)':'var(--neg)'); };
+  // P5c / N-930-01: Farbe nur aus dem M-3-Status (SOLL); IST hat keinen M-3-Status -> neutral.
   // UX-1 (Befund 8): Primaerkennzahl = Erfolgswahrscheinlichkeit (path_success_rate_pct,
   // nur aus der Simulation; ohne Simulationswert '—', kein deterministischer 0/100-Ersatz).
   // Sekundaer: Erreichungsgrad im mittleren Szenario (median_achievement_pct = Median,
   // NICHT P25) und der Fehlbetrag im unguenstigen Szenario (P25-Pfad).
   var successOf=function(g){ return g&&g.path_success_rate_pct!=null?g.path_success_rate_pct:null; };
-  var successCell=function(v,strong){ return '<td style="text-align:right;padding:6px 8px;'+(strong?'font-weight:600;':'')+'color:'+(v==null?'var(--n5)':tone(v))+'">'+(v==null?'—':pct(v))+'</td>'; };
+  var successCell=function(v,strong,color){ return '<td style="text-align:right;padding:6px 8px;'+(strong?'font-weight:600;':'')+'color:'+(v==null?'var(--n5)':(color||'var(--n6)'))+'">'+(v==null?'—':pct(v))+'</td>'; };
   var rows=soll.map(function(g){
     var i=istById[String(g.goal_id)]||{};
     return '<tr style="border-bottom:1px solid var(--bg2)">'
       +'<td style="padding:6px 8px;font-family:var(--f);color:var(--n7)">'+escapeHtml(g.label||'Ziel')+'</td>'
-      +successCell(successOf(g),true)
+      +successCell(successOf(g),true,goalStatusView(g).tone)
       +successCell(successOf(i),false)
       +'<td style="text-align:right;padding:6px 8px;color:var(--n6)" title="Erreichungsgrad im mittleren Szenario (Median), SOLL / IST">'+pct(g.median_achievement_pct)+' / '+pct(i.median_achievement_pct)+'</td>'
       +'<td style="text-align:right;padding:6px 8px;color:var(--n6)" title="Fehlbetrag im ung\u00fcnstigen Szenario (P25), SOLL / IST">'+chf(g.pessimistic_shortfall_rappen)+' / '+chf(i.pessimistic_shortfall_rappen)+'</td>'

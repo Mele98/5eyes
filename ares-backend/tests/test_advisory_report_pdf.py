@@ -1103,9 +1103,10 @@ def test_goals_section_shows_status_pills():
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     normalized = "".join((reader.pages[10].extract_text() or "").split())
-    # Pills für die Stati
-    assert "Erreichbar" in normalized
-    assert "Knapp" in normalized
+    # Pills für die Stati -- P5c / N-930-01: Woerter aus GOAL_STATUS_DISPLAY (M-3).
+    assert "erreichbar" in normalized
+    assert "knapp" in normalized
+    assert "Schwierig" not in normalized
 
 
 def test_goals_section_renders_mc_pending_hint():
@@ -1154,28 +1155,37 @@ def test_goals_pdf_data_pending_keeps_hint_and_omits_chart():
     assert "Pfade werden live berechnet" in page_text
 
 
-def test_goals_pdf_mc_status_pills_follow_frontend_boundaries():
+def test_goals_pdf_has_no_mc_status_column_and_shows_only_the_m3_status():
+    """P5c / N-930-01 (CTO 2026-11-21): die Spalte "MC-Status" (Einstufung aus den
+    Faecherquantilen) entfaellt; einziger Status ist der M-3-Status der Zeile
+    (Wort aus core/goal_metric_contract.GOAL_STATUS_DISPLAY). Die Quantile bleiben
+    als Grafik (Klassifikation nur fuer die Markerlage)."""
+    from core.goal_metric_contract import goal_status_display
+
     payload = _make_payload_with_mc_paths()
     classifications = classify_goals(
         payload["goal_based_investing"]["goals"],
         payload["goal_based_investing"]["monte_carlo_paths"],
     )
     by_id = {c["goal_id"]: c["status"] for c in classifications}
-    assert by_id["g-reach"] == "erreichbar"
-    assert by_id["g-tight"] == "knapp"
-    assert by_id["g-hard"] == "nicht_erreichbar"
+    assert by_id["g-reach"] == "erreichbar"  # Faecher sagt "erreichbar" ...
+    goals = payload["goal_based_investing"]["goals"]
+    for goal in goals:
+        if goal["goal_id"] == "g-reach":
+            goal.update(goal_status_display("knapp"))  # ... M-3 sagt "knapp"
 
     pdf = render_advisory_report_pdf_from_payload(payload)
     pypdf = pytest.importorskip("pypdf")
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     normalized = "".join((reader.pages[10].extract_text() or "").split())
-    assert "MC-Status" in normalized
-    assert "Erreichbar" in normalized
-    assert "Knapp" in normalized
-    assert "Schwierig" in normalized
+    assert "MC-Status" not in normalized
+    assert "Schwierig" not in normalized and "Erreichbar" not in normalized
+    assert "knapp" in normalized
+    # Ohne M-3 (data_pending im Fixture): "nicht bewertbar", nie eine Ampel.
+    assert "nichtbewertbar" in normalized
 
 
-def test_goals_pdf_beyond_horizon_status_is_visible_in_mc_status_column():
+def test_goals_pdf_beyond_horizon_has_no_own_status_word():
     payload = _make_payload_with_mc_paths()
     classifications = classify_goals(
         payload["goal_based_investing"]["goals"],
@@ -1188,7 +1198,7 @@ def test_goals_pdf_beyond_horizon_status_is_visible_in_mc_status_column():
     pypdf = pytest.importorskip("pypdf")
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     normalized = "".join((reader.pages[10].extract_text() or "").split())
-    assert "JenseitsHorizont" in normalized
+    assert "JenseitsHorizont" not in normalized
 
 
 def test_goals_pdf_misaligned_mc_paths_do_not_crash_or_render_chart():

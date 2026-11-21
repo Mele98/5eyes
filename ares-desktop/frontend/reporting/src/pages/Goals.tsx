@@ -11,7 +11,6 @@ import { useMemo, useState } from 'react';
 import type {
   GoalBasedInvestingData,
   GoalEntry,
-  GoalStatus,
   ProjectionGateData,
 } from '@/api/types';
 import { AmpelPill } from '@/components/AmpelPill';
@@ -255,7 +254,7 @@ function GoalRow({ g }: { g: GoalEntry }) {
           // Altbewertung: gemeinsamer Planwert, keine Ampel.
           <AmpelPill status="nicht_beurteilbar" label="Altbewertung" />
         ) : (
-          <GoalStatusPill status={g.status} />
+          <GoalStatusPill goal={g} />
         )}
       </td>
       <td className="py-4 text-right align-top font-mono text-ink">
@@ -265,25 +264,22 @@ function GoalRow({ g }: { g: GoalEntry }) {
   );
 }
 
-const GOAL_STATUS_LABEL: Record<GoalStatus | string, string> = {
-  erreichbar: 'Erreichbar',
-  knapp: 'Knapp',
-  nicht_erreichbar: 'Schwierig',
-  data_pending: 'Daten ausstehend',
-  '': 'Daten ausstehend',
+/**
+ * P5c / N-930-01 (CTO 2026-11-21): Wort und Ton kommen nur aus dem M-3-Status
+ * des Servers (core/goal_metric_contract.GOAL_STATUS_DISPLAY); ohne ihn
+ * "nicht bewertbar" (fail-closed). Hier steht keine eigene Statustabelle.
+ */
+const TONE_TO_AMPEL: Record<string, 'gruen' | 'gelb' | 'rot' | 'nicht_beurteilbar'> = {
+  good: 'gruen',
+  warn: 'gelb',
+  bad: 'rot',
+  neutral: 'nicht_beurteilbar',
 };
 
-function GoalStatusPill({ status }: { status: GoalStatus | string }) {
-  // Mapping Goal-Status → Ampel
-  const ampelMap: Record<string, 'gruen' | 'gelb' | 'rot' | 'nicht_beurteilbar'> = {
-    erreichbar: 'gruen',
-    knapp: 'gelb',
-    nicht_erreichbar: 'rot',
-    data_pending: 'nicht_beurteilbar',
-    '': 'nicht_beurteilbar',
-  };
-  const ampel = ampelMap[status] ?? 'nicht_beurteilbar';
-  return <AmpelPill status={ampel} label={GOAL_STATUS_LABEL[status] ?? 'Daten ausstehend'} />;
+function GoalStatusPill({ goal }: { goal: GoalEntry }) {
+  const known = Boolean(goal.status && goal.status_label && goal.status_tone);
+  const ampel = known ? TONE_TO_AMPEL[goal.status_tone ?? ''] ?? 'nicht_beurteilbar' : 'nicht_beurteilbar';
+  return <AmpelPill status={ampel} label={known ? (goal.status_label as string) : 'nicht bewertbar'} />;
 }
 
 /**

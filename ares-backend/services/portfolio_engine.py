@@ -1456,6 +1456,7 @@ from services.portfolio_engine_payload import (  # noqa: F401,E402
     _merge_goal_analysis_with_monte_carlo,
     _missing_ter_positions_count,
     _stored_goal_achievability,
+    apply_m3_goal_status,
     _parse_iso_date,
     _product_descriptor_text,
     _product_is_chf_or_fx_hedged,
@@ -4273,6 +4274,12 @@ def generate_target_allocation(
         db.flush()  # ensure persisted_run.id ist gesetzt
         target_allocation.optimization_run_id = persisted_run.id
 
+    # P5c / N-930-01: Zielstatus nur aus dem M-3-Payload der eben gespeicherten
+    # Soll-Allokation (dieselben kanonischen Zeilen wie der Lesepfad).
+    db.flush()
+    display_achievability = _stored_goal_achievability(target_allocation, log_invalid=False)
+    goal_analysis = apply_m3_goal_status(goal_analysis, display_achievability)
+
     current_amounts = advisory_summary.amounts_rappen
     bucket_response = _build_bucket_response(
         target_allocation,
@@ -4333,7 +4340,7 @@ def generate_target_allocation(
         "risky_fraction_total_bps": risky_fraction_total_bps,
         "risky_fraction_headroom_bps": risk_budget_bps - int(risky_fraction_total_bps),
         "limiting_factor": limiting_factor,
-        "goal_achievability": goal_achievability,
+        "goal_achievability": display_achievability or goal_achievability,
         "goal_achievability_basis_id": model_basis["optimization"]["basis_id"],
         "goal_analysis_basis_id": model_basis["reporting"]["basis_id"],
         "model_basis": model_basis,
