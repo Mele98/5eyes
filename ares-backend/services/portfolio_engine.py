@@ -104,6 +104,7 @@ from jurisdictions.resolve import resolve_pack
 from core.risk_parameter_set import (
     allocation_parameter_set,
     house_prior_from_model_basis,
+    release_notice_messages,
     stored_risk_parameter_set,
 )
 from core.presentation_rounding import ROUNDING_POLICY_VERSION as _P5_ROUNDING
@@ -4130,7 +4131,7 @@ def generate_target_allocation(
     sub_allocations_json = canonical_json(sub_allocations)
     risk_parameter_set = allocation_parameter_set(  # CCX P5 / M-2: eine Quelle
         policy, sub_allocations, minimums, maximums, risk_budget_bps, house_matrix, asset_risky_weights,
-        house_prior=house_prior_from_model_basis(model_basis["optimization"]), app_env=settings.app_env, rounding_policy_version=_P5_ROUNDING)
+        house_prior=house_prior_from_model_basis(model_basis["optimization"]), release_required=settings.ic_release_required, rounding_policy_version=_P5_ROUNDING)
     effective_constraints_payload = {
         "engine_version": "stochastic_core_v2",
         "bounds_bps": {
@@ -4336,7 +4337,7 @@ def generate_target_allocation(
         "goal_achievability_basis_id": model_basis["optimization"]["basis_id"],
         "goal_analysis_basis_id": model_basis["reporting"]["basis_id"],
         "model_basis": model_basis,
-        "messages": messages,
+        "messages": messages + release_notice_messages(risk_parameter_set),  # N-925-05
         "warnings": warnings,
         "asset_class_risky_weights_bps": asset_risky_weights,
         "risk_parameter_set": risk_parameter_set,  # CCX P5 / M-2
@@ -6200,7 +6201,7 @@ def build_target_payload_from_allocation(
         "goal_achievability_basis_id": model_basis["optimization"]["basis_id"],
         "goal_analysis_basis_id": model_basis["reporting"]["basis_id"],
         "model_basis": model_basis,
-        "messages": messages,
+        "messages": messages + release_notice_messages(stored_risk_parameter_set(allocation)),
         "asset_class_risky_weights_bps": asset_risky_weights,
         # CCX P5 / M-2: der bei der Berechnung gespeicherte Satz (integritaets-
         # gebunden ueber allocation_context_hash), nie neu abgeleitet.

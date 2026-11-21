@@ -45,7 +45,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -56,7 +56,7 @@ from core.evidence import SCHEME_V1, advisory_domain, canonical_json, domain_sha
 from core.reason_codes import DomainError, ReasonCode
 from core.db_integrity import is_check_constraint_violation
 from core.goal_metric_contract import GOAL_METRIC_CONTRACT_VERSION, GoalMetricUncertified
-from core.risk_parameter_set import PARAMETER_CONTRACT_VERSION, ParameterSetMissing
+from core.risk_parameter_set import PARAMETER_CONTRACT_VERSION, ParameterSetMissing, stored_risk_parameter_set
 from database import CHANNEL_PUBLICATION_SCHEMA, new_uuid
 from models.allocation import TargetAllocation
 from models.review import RecommendationRun
@@ -272,7 +272,13 @@ def _current_fx_findings(db: Session, snapshot: Any, tenant_id: str | None) -> l
     Default 5 Tage) -- fehlt er oder gibt es nur einen Ersatzkurs (Quelle
     ``Default``), sperrt ``CCX_FX_BASIS_MISSING``; abgelaufen
     ``CCX_FX_BASIS_STALE``, nach dem Stichtag ``CCX_FX_BASIS_MISMATCH``. Die
-    gebundene Basis selbst bleibt unveraendert (kein Nachrechnen)."""
+    gebundene Basis selbst bleibt unveraendert (kein Nachrechnen).
+
+    CCX P5 / N-925-01: zusaetzlich muss der heutige Kurs jeder gebundenen
+    Waehrung GLEICH dem versiegelten ``rate_x10000`` sein. Ein neuer, frischer
+    Kurs mit anderem Wert (USD 0.88 -> 0.93) macht den Entscheid nicht mehr
+    auslieferbar (``CCX_FX_BASIS_CHANGED``) -- in Publikation, PDF, Signatur und
+    Handoff gleich. Ein Kurs einer nicht gebundenen Waehrung wirkt nicht."""
     try:
         basis = json.loads(snapshot.fx_basis_json or "")
     except (TypeError, ValueError):
@@ -282,10 +288,18 @@ def _current_fx_findings(db: Session, snapshot: Any, tenant_id: str | None) -> l
         return []  # nur Basiswaehrung im Spiel: kein Kurs noetig
     currencies = sorted(str(c) for c in statuses)
     current = load_fx_basis(db, basis.get("target_currency") or "CHF", currencies, tenant_id=tenant_id)
+    bound_rates = {
+        str(q.get("currency") or "").upper(): q.get("rate_x10000")
+        for q in (basis.get("quotes") or []) if isinstance(q, dict)
+    }
     findings: list[str] = []
     for currency in currencies:
         status = current.statuses.get(currency)
         if status == STATUS_OK:
+            quote = current.quote(currency)
+            bound = bound_rates.get(str(currency).upper())
+            if quote is not None and bound is not None and int(quote.rate_x10000) != int(bound):
+                findings.append(_finding(reason_code=ReasonCode.CCX_FX_BASIS_CHANGED))
             continue
         if status == STATUS_STALE:
             findings.append(_finding(reason_code=ReasonCode.CCX_FX_BASIS_STALE))
@@ -974,6 +988,9 @@ _CHANNEL_CAUSES: dict[str, str] = {
         "Für eine Währung des versiegelten Entscheids fehlt ein belegter Wechselkurs. Bitte einen Kurs erfassen.",
     ReasonCode.CCX_FX_BASIS_MISMATCH.value:
         "Der Wechselkurs liegt nach dem Stichtag des Entscheids. Bitte neu finalisieren.",
+    ReasonCode.CCX_FX_BASIS_CHANGED.value:
+        "Ein Wechselkurs einer gebundenen Währung hat sich seit der Versiegelung geändert. Bitte neu "
+        "berechnen, finalisieren und publizieren.",
     ReasonCode.CCX_CHANNEL_BINDING_MISSING.value:
         "Der Beratungsentscheid bindet keinen Risikoparametersatz bzw. keine Zielkennzahl (vor der "
         "Kanal-Bindung versiegelt). Bitte neu finalisieren und publizieren.",
@@ -987,7 +1004,7 @@ _CHANNEL_CAUSES: dict[str, str] = {
         "Für mindestens ein Ziel fehlt eine zertifizierte Erfolgswahrscheinlichkeit.",
 }
 _FX_CODES = {ReasonCode.CCX_FX_BASIS_STALE.value, ReasonCode.CCX_FX_BASIS_MISSING.value,
-             ReasonCode.CCX_FX_BASIS_MISMATCH.value}
+             ReasonCode.CCX_FX_BASIS_MISMATCH.value, ReasonCode.CCX_FX_BASIS_CHANGED.value}
 
 
 @dataclass(frozen=True)
@@ -1003,6 +1020,7 @@ class ChannelDecision:
     target_allocation_id: str | None = None
     parameter_set_hash: str | None = None
     goal_metric_payload_hash: str | None = None
+    ic_release_status: str | None = None
     drift: tuple = field(default=(), repr=False, compare=False)
 
     @property
@@ -1014,12 +1032,14 @@ class ChannelDecision:
         return _CHANNEL_CAUSES.get(str(self.reason_code or ""), "Der Beratungsentscheid ist nicht auslieferbar.")
 
     def footer_ref(self) -> dict[str, str] | None:
-        """Envelope-Hash/Version fuer den Fuss jedes Kunden-PDFs."""
+        """Envelope-Hash/Version fuer den Fuss jedes Kunden-PDFs; dazu der
+        IC-Status des Risikoparametersatzes der Soll-Allokation (N-925-05)."""
+        ic = {"ic_release_status": self.ic_release_status} if self.ic_release_status else {}
         if not self.ok:
-            return None
+            return ic or None
         version = str(self.schema_version or "").rsplit("/", 1)[-1]
         return {"envelope_hash": str(self.envelope_hash), "schema_version": str(self.schema_version),
-                "fassung": version}
+                "fassung": version, **ic}
 
 
 def _channel_blocked(code: Any, **kw: Any) -> ChannelDecision:
@@ -1027,6 +1047,19 @@ def _channel_blocked(code: Any, **kw: Any) -> ChannelDecision:
 
 
 def evaluate_channel_envelope(db: Session, mandate: Any) -> ChannelDecision:
+    """Kanal-Pruefung (siehe ``_evaluate_channel_envelope``) samt IC-Status
+    des gespeicherten Risikoparametersatzes der aktuellen Soll-Allokation."""
+    decision = _evaluate_channel_envelope(db, mandate)
+    try:
+        ta = current_target_allocation(db, str(mandate.id))
+    except ValueError:
+        ta = None
+    record = stored_risk_parameter_set(ta) if ta is not None else None
+    status = record.get("ic_release_status") if isinstance(record, dict) else None
+    return replace(decision, ic_release_status=str(status) if status else None)
+
+
+def _evaluate_channel_envelope(db: Session, mandate: Any) -> ChannelDecision:
     """Kanal-Pruefung ohne Schreibwirkung (Reihenfolge: P4, FX, P5-Bindung)."""
     try:
         ta = current_target_allocation(db, str(mandate.id))

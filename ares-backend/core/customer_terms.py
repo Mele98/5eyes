@@ -41,8 +41,19 @@ def customer_term(text) -> str:
 DECISION_NONE_TEXT = "Beratungsentscheid: keiner versiegelt"
 
 
+# N-925-05: solange der Risikoparametersatz nicht IC-freigegeben ist, traegt
+# jedes Kunden-PDF diesen Vermerk (Text = core.risk_parameter_set.IC_UNRELEASED_LABEL).
+IC_UNRELEASED_FOOTER = "Vorlagewerte – nicht IC-freigegeben"
+
+
 def decision_footer_label(decision_ref) -> str:
-    if not decision_ref or not decision_ref.get("envelope_hash"):
-        return DECISION_NONE_TEXT
-    return (f"Beratungsentscheid: {str(decision_ref['envelope_hash'])[:12]} "
-            f"· Fassung {decision_ref.get('fassung') or '1'}")
+    ref = decision_ref or {}
+    if not ref.get("envelope_hash"):
+        label = DECISION_NONE_TEXT
+    else:
+        label = (f"Beratungsentscheid: {str(ref['envelope_hash'])[:12]} "
+                 f"· Fassung {ref.get('fassung') or '1'}")
+    status = ref.get("ic_release_status")
+    if status is not None and status != "RELEASED":
+        label += " · " + IC_UNRELEASED_FOOTER
+    return label

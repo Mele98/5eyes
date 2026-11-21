@@ -161,7 +161,8 @@ def _mark_unpublished(ctx: PDFContext, db: Session, mandate: Mandate) -> PDFCont
         if decision.applicable and not decision.ok:
             require_channel_envelope(db, mandate, channel=CHANNEL_PDF, user=None, decision=decision)
         return dataclasses.replace(ctx, decision_ref=decision.footer_ref())
-    return dataclasses.replace(ctx, watermark_mode=mode, decision_ref=None)
+    ic = {k: v for k, v in (ctx.decision_ref or {}).items() if k == "ic_release_status"}
+    return dataclasses.replace(ctx, watermark_mode=mode, decision_ref=ic or None)
 
 
 def _attach_provisional_notice(ctx: PDFContext, db: Session, mandate: Mandate) -> PDFContext:
@@ -3191,13 +3192,14 @@ def get_advisory_report_pdf(
     assert_portfolio_data_release_eligible(db, mandate, action="pdf")
     _enforce_cma_currency_release(db, mandate)  # CMA-CURRENCY-GUARD-001
     unpublished = customer_document_watermark(db, mandate)
-    decision_ref = None
+    decision = evaluate_channel_envelope(db, mandate)
+    decision_ref = decision.footer_ref()
     if unpublished is None:
         # CCX P5: wie die uebrigen Entscheid-Dokumente (FX jetzt, Bindungen).
-        decision = evaluate_channel_envelope(db, mandate)
         if decision.applicable and not decision.ok:
             require_channel_envelope(db, mandate, channel=CHANNEL_PDF, user=current_user, decision=decision)
-        decision_ref = decision.footer_ref()
+    else:  # Entwurf: nur der IC-Vermerk (N-925-05), keine Pruefnummer
+        decision_ref = {k: v for k, v in (decision_ref or {}).items() if k == "ic_release_status"} or None
     pdf_bytes = render_advisory_report_pdf(
         db, mandate, current_user,
         # CCX-P4: nicht publizierte Strategie -> Entwurf (Vorrang vor "vorvertrag").

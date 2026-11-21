@@ -2024,18 +2024,6 @@ def sign_document(
     return doc
 
 
-    ip_address = _extract_client_ip(request) if request is not None else None
-    if document_type in DECISION_ARTIFACT_DOCUMENT_TYPES:
-        return require_signable_decision_artifact(
-            db, mandate, doc, channel=channel, user=current_user, ip_address=ip_address,
-        )
-    require_channel_envelope(
-        db, mandate, channel=channel, user=current_user, ip_address=ip_address,
-        outdated_code=ReasonCode.CCX_SIGNATURE_ENVELOPE_OUTDATED,
-    )
-    return None
-
-
 # ── H8 C-2: Rechtliche Angaben + Kundeninformation (Art. 8/9 FIDLEG) ──────────
 
 def _legal_profile_response(tenant_id: str, profile: dict | None) -> TenantLegalProfileResponse:

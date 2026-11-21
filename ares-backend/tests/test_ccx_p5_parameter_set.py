@@ -188,10 +188,19 @@ def test_unreleased_parameters_fail_closed_in_production(monkeypatch):
     record = _set([_row("Obligationen", "CHF IG", 2000, 10000)])
     assert record["ic_release_status"] == "UNRELEASED"  # nie als freigegeben behauptet
     monkeypatch.setattr(settings, "app_env", "development")
-    assert_release_allowed(record, app_env=settings.app_env)
+    assert settings.ic_release_required is False
+    assert_release_allowed(record, release_required=settings.ic_release_required)
     monkeypatch.setattr(settings, "app_env", "production")
     with pytest.raises(ParameterSetMissing):
-        assert_release_allowed(record, app_env=settings.app_env)
+        assert_release_allowed(record, release_required=settings.ic_release_required)
+    # N-925-05 (CTO-Entscheid H-180): gepackte EXE gilt als Produktion.
+    import sys
+
+    monkeypatch.setattr(settings, "app_env", "development")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    assert settings.ic_release_required is True
+    with pytest.raises(ParameterSetMissing):
+        assert_release_allowed(record, release_required=settings.ic_release_required)
 
 
 def test_cma_without_inflation_path_fails_closed():
@@ -231,3 +240,81 @@ def test_integrity_check_ignores_inert_legacy_coefficient_of_non_investable_buck
     targets = {"equities": 0, "bonds": 10000, "real_estate": 0, "alternatives": 0, "liquidity": 0}
     assert risk_from_targets(targets, legacy) == risk_from_targets(targets, coefficients) == 2000
     assert basis["equities"] == BASIS_NOT_INVESTABLE
+
+
+
+def test_unreleased_set_is_labelled_in_advisor_and_customer_channels():
+    """N-925-05: Kennzeichnung «Vorlagewerte – nicht IC-freigegeben» im
+    Beraterkanal (Allocation-Banner) und im Fuss jedes Kunden-PDFs."""
+    from core.customer_terms import decision_footer_label
+    from core.risk_parameter_set import IC_UNRELEASED_LABEL, release_notice_messages
+
+    record = _set([_row("Obligationen", "CHF IG", 2000, 10000)])
+    messages = release_notice_messages(record)
+    assert [m["code"] for m in messages] == ["WARN_RISK_PARAMETERS_UNRELEASED"]
+    assert messages[0]["title"] == IC_UNRELEASED_LABEL == "Vorlagewerte – nicht IC-freigegeben"
+    assert release_notice_messages({**record, "ic_release_status": "RELEASED"}) == []
+    sealed = {"envelope_hash": "a" * 64, "fassung": "1", "ic_release_status": "UNRELEASED"}
+    assert decision_footer_label(sealed).endswith(" · Vorlagewerte – nicht IC-freigegeben")
+    assert decision_footer_label({"ic_release_status": "UNRELEASED"}) == (
+        "Beratungsentscheid: keiner versiegelt · Vorlagewerte – nicht IC-freigegeben")
+    assert "IC" not in decision_footer_label({**sealed, "ic_release_status": "RELEASED"})
+
+
+@pytest.mark.p5_no_test_vector
+def test_optimizer_integration_does_not_swallow_missing_parameter_set():
+    """N-925-06: ohne Testvektor und mit unvollstaendigen BuildingBlocks endet
+    der Optimierer-Pfad mit CCX_PARAMETER_SET_MISSING (frueher zu None
+    geschluckt und vom session-weiten Testvektor verdeckt)."""
+    from services.optimizer.constraints import test_risky_fraction
+    from services.portfolio_engine_optimizer_integration import _run_stochastic_optimizer_pass
+
+    assert test_risky_fraction() is None
+    with pytest.raises(ParameterSetMissing):
+        _run_stochastic_optimizer_pass(
+            optimizer_mode="stochastic", apply_targets=False, cma=None, goals=[], house_matrix=None,
+            assessment=SimpleNamespace(final_score_x10=50, final_profile="Ausgewogen", is_overridden=0,
+                                  override_score_x10=None),
+            advisory_wealth_rappen=100_000_00, cashflow_projection_series_rappen=[0] * 10,
+            inflation_series_bps=[70] * 10, targets={}, minimums={}, maximums={}, reasoning=[],
+            building_blocks_rows=[SimpleNamespace(asset_class="Aktien", risky_fraction_bps=8000)],
+        )
+
+
+def test_parameter_set_missing_is_a_typed_409_everywhere():
+    """N-925-07: ungefangen (z. B. routers/clients.py Cashflow-Projektion,
+    routers/wealth.py) war es HTTP 500; ueber ``except ValueError ->
+    HTTPException(409, str(exc))`` ein 409 ohne Reason-Code. Beide Wege enden
+    jetzt in 409 + ``CCX_PARAMETER_SET_MISSING`` bzw. ``CCX_GOAL_METRIC_UNCERTIFIED``."""
+    from fastapi import FastAPI, HTTPException
+    from fastapi.testclient import TestClient
+
+    from core.goal_metric_contract import GoalMetricUncertified
+    from core.middleware import install_exception_handlers
+
+    app = FastAPI()
+    install_exception_handlers(app)
+
+    @app.get("/raw")
+    def raw():
+        raise ParameterSetMissing("Die Kapitalmarktannahmen enthalten keinen Inflationspfad.")
+
+    @app.get("/wrapped")
+    def wrapped():
+        try:
+            raise GoalMetricUncertified("keine Zertifizierung")
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/plain")
+    def plain():
+        raise HTTPException(status_code=409, detail="anderer Konflikt")
+
+    client = TestClient(app, raise_server_exceptions=False)
+    raw_resp = client.get("/raw")
+    assert raw_resp.status_code == 409
+    assert raw_resp.json()["detail"]["reason_code"] == "CCX_PARAMETER_SET_MISSING"
+    wrapped_resp = client.get("/wrapped")
+    assert wrapped_resp.status_code == 409
+    assert wrapped_resp.json()["detail"]["reason_code"] == "CCX_GOAL_METRIC_UNCERTIFIED"
+    assert client.get("/plain").json() == {"detail": "anderer Konflikt"}  # Gegenprobe: unveraendert

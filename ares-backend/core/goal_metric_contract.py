@@ -90,7 +90,9 @@ def build_goal_metric_payload(goals: Iterable[Any], *, mandate: Any, target_allo
     by_goal = _individual_rows(achievability)
     goals = [g for g in goals if int(getattr(g, "is_active", 1) or 0) == 1
              and int(getattr(g, "is_included", 1) or 0) == 1]
-    currency = str(getattr(mandate, "base_currency", None) or "CHF").upper()
+    currency = str(getattr(mandate, "base_currency", None) or "").strip().upper()
+    if not currency:  # N-925-08: kein stiller CHF-Default
+        raise GoalMetricUncertified("Die Referenzwährung des Mandats fehlt; die Zielkennzahl wird nicht gebildet.")
     entries: list[dict[str, Any]] = []
     uncertified: list[str] = []
     for goal in goals:

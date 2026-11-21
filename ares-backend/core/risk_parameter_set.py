@@ -180,15 +180,15 @@ def ic_release_for(policy: Any) -> tuple[str, str | None]:
     return IC_RELEASE_UNRELEASED, None
 
 
-def production_requires_release(app_env: Any) -> bool:
-    return str(app_env or "").strip().lower() == "production"
+IC_UNRELEASED_LABEL = "Vorlagewerte – nicht IC-freigegeben"
 
 
-def assert_release_allowed(record: Mapping[str, Any], *, app_env: Any) -> None:
+def assert_release_allowed(record: Mapping[str, Any], *, release_required: bool) -> None:
     """Produktion: ohne IC-Freigabe fail-closed (``CCX_PARAMETER_SET_MISSING``).
-    ``app_env`` liefert der Aufrufer (``config.settings.app_env``; dieses Modul
-    ist ein Stdlib-Blatt ohne Projekt-Importe)."""
-    if production_requires_release(app_env) and record.get("ic_release_status") != "RELEASED":
+    ``release_required`` liefert der Aufrufer (``config.settings.
+    ic_release_required``: ``app_env == production`` ODER gepackte EXE,
+    CTO-Entscheid N-925-05; dieses Modul ist ein Stdlib-Blatt)."""
+    if release_required and record.get("ic_release_status") != "RELEASED":
         raise ParameterSetMissing(
             "Die Risikoparameter (Risikoanteile je Unterklasse, Obergrenzen, Bänder) sind nicht "
             "vom Anlagekomitee freigegeben. In Produktion wird ohne Freigabe nicht gerechnet."
@@ -264,7 +264,7 @@ def build_parameter_set(
 def allocation_parameter_set(
     policy: Any, sub_allocations: Iterable[Mapping[str, Any]], minimums: Mapping[str, Any],
     maximums: Mapping[str, Any], risk_budget_bps: int, house_matrix: Any, asset_risky_weights: Mapping[str, Any],
-    *, house_prior: Mapping[str, Any], app_env: Any, rounding_policy_version: str,
+    *, house_prior: Mapping[str, Any], release_required: bool, rounding_policy_version: str,
 ) -> dict[str, Any]:
     """Satz einer neu berechneten Allokation (Generate): derselbe Vektor wie
     Solver-Constraint und Budgetpruefung, sonst ``CCX_PARAMETER_SET_MISSING``;
@@ -276,7 +276,7 @@ def allocation_parameter_set(
         max_risky_fraction_bps=getattr(house_matrix, "max_risky_fraction_bps", None),
         rounding_policy_version=rounding_policy_version, house_prior=house_prior,
     )
-    assert_release_allowed(record, app_env=app_env)
+    assert_release_allowed(record, release_required=release_required)
     if record["bucket_coefficients_bps"] != {b: int(asset_risky_weights[b]) for b in BUCKETS}:
         raise ParameterSetMissing("Risikoparametersatz und Allokationskoeffizienten weichen ab.")
     return record
@@ -328,6 +328,25 @@ def house_prior_from_model_basis(optimization_basis: Any) -> dict[str, Any]:
     }
 
 
+def release_notice_messages(record: Any) -> list[dict[str, Any]]:
+    """N-925-05: Beraterkanal (Allocation-Banner) -- solange der Satz nicht
+    IC-freigegeben ist, ausdruecklich als Vorlagewerte gekennzeichnet."""
+    if not isinstance(record, Mapping) or record.get("ic_release_status") == "RELEASED":
+        return []
+    return [{
+        "code": "WARN_RISK_PARAMETERS_UNRELEASED",
+        "severity": "warning",
+        "title": IC_UNRELEASED_LABEL,
+        "body_advisor": (
+            "Die Risikoanteile je Unterklasse, Obergrenzen und Bänder dieser Allokation sind "
+            "Vorlagewerte und vom Anlagekomitee nicht freigegeben."
+        ),
+        "body_client": IC_UNRELEASED_LABEL,
+        "actions": [],
+        "goal_id": None,
+    }]
+
+
 def stored_risk_parameter_set(allocation: Any) -> dict[str, Any] | None:
     """Der bei der Berechnung gespeicherte Satz einer Soll-Allokation (oder
     ``None`` bei Bestand vor P5). Nur lesen, nie neu ableiten."""
@@ -356,7 +375,8 @@ __all__ = [
     "ic_bucket_means_bps",
     "ic_release_for",
     "parameter_set_hash",
-    "production_requires_release",
+    "IC_UNRELEASED_LABEL",
+    "release_notice_messages",
     "risk_from_targets",
     "stored_risk_parameter_set",
     "verify_parameter_set",

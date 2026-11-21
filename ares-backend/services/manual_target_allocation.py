@@ -373,7 +373,7 @@ def build_manual_target_allocation(
             rounding_policy_version=ROUNDING_POLICY_VERSION,
             house_prior=house_prior_from_model_basis(None),  # manuell: kein Optimierer
         )
-        assert_release_allowed(risk_parameter_set, app_env=engine_settings.app_env)
+        assert_release_allowed(risk_parameter_set, release_required=engine_settings.ic_release_required)
     except ParameterSetMissing as exc:
         raise ManualAllocationRejected(str(exc)) from exc
     effective_constraints = {

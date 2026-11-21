@@ -286,3 +286,18 @@ def _ccx_p5_direct_solver_test_vector():
     previous = set_test_risky_fraction(P5_TEST_RISKY_FRACTION)
     yield
     set_test_risky_fraction(previous)
+
+
+@_pytest.fixture(autouse=True)
+def _ccx_p5_no_test_vector_marker(request):
+    """N-925-06: ``@pytest.mark.p5_no_test_vector`` loescht den Testvektor fuer
+    genau diesen Test -- dort muss jeder Pfad ohne uebergebenen Vektor mit
+    ``CCX_PARAMETER_SET_MISSING`` scheitern."""
+    if request.node.get_closest_marker("p5_no_test_vector") is None:
+        yield
+        return
+    from services.optimizer.constraints import set_test_risky_fraction
+
+    previous = set_test_risky_fraction(None)
+    yield
+    set_test_risky_fraction(previous)

@@ -395,3 +395,56 @@ def test_orm_bootstrap_runtime_patch_and_alembic_are_identical_for_p5(tmp_path, 
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
     assert migration._SQLITE_TRIGGERS == CHANNEL_PUBLICATION_SQLITE_TRIGGERS + CHANNEL_PUBLICATION_SQLITE_TENANT_GUARDS
+
+
+# ── Fixrunde 1 / N-925-01: neuer Kurs einer gebundenen Waehrung ─────────────
+
+
+def _status_of(call):
+    try:
+        response = call()
+    except Exception as exc:  # noqa: BLE001 -- DomainError/HTTPException
+        return int(getattr(exc, "status_code", 0) or 0), str(getattr(exc, "reason_code", "") or "")
+    return int(getattr(response, "status_code", 200) or 200), ""
+
+
+def test_new_fresh_rate_of_bound_currency_blocks_every_channel_foreign_rate_does_not(session_factory):
+    """N-925-01 (Pruefer R3): USD 0.88 -> 0.93, frisch belegt. Vorher blieb das
+    Kanal-Gate «auslieferbar» und Portfolio-/Protokoll-PDF wurden final mit der
+    alten Pruefnummer ausgeliefert, waehrend drei andere PDF-Routen sperrten.
+    Jetzt sperren Gate, Publikation, alle Entscheid-PDFs, Signatur und Handoff
+    einheitlich; ein fremder Kurs (JPY) aendert nichts."""
+    from core.reason_codes import ReasonCode
+    from models.mandates import Mandate
+    from services.allocation_publication_gate import evaluate_allocation_publication, require_channel_envelope
+    from tests.test_h12_ccx_hygiene import _gated_calls
+
+    advisor_id, mid, _run = _published_usd(session_factory, "p5-fxchg")
+    calls = dict(_gated_calls())
+    calls["get_anlagestrategie_pdf"] = lambda m, db, u: _anlagestrategie(db, m, u)
+    with session_factory() as db:  # Querschnitt: fremde Waehrung
+        _add_fx(db, "JPY", 61)
+        db.commit()
+    assert _decision(session_factory, mid).ok
+    with session_factory() as db:
+        assert {name: _status_of(lambda c=c: c(mid, db, _user(db, advisor_id)))[0]
+                for name, c in calls.items()} == {name: 200 for name in calls}
+        db.rollback()
+    with session_factory() as db:  # relevant: neuer, frischer USD-Kurs mit anderem Wert
+        _add_fx(db, "USD", 9_300)
+        db.commit()
+    decision = _decision(session_factory, mid)
+    assert decision.reason_code == "CCX_FX_BASIS_CHANGED"
+    with session_factory() as db:
+        assert "CCX_FX_BASIS_CHANGED" in evaluate_allocation_publication(db, db.get(Mandate, mid)).blockers
+    statuses = {}
+    for name, call in calls.items():
+        with session_factory() as db:
+            statuses[name] = _status_of(lambda c=call: c(mid, db, _user(db, advisor_id)))[0]
+    assert statuses == {name: 409 for name in calls}, statuses
+    with session_factory() as db:
+        with pytest.raises(DomainError) as exc:
+            require_channel_envelope(db, db.get(Mandate, mid), channel="HANDOFF", user=_user(db, advisor_id),
+                                     outdated_code=ReasonCode.CCX_HANDOFF_ENVELOPE_OUTDATED)
+        assert exc.value.reason_code == "CCX_FX_BASIS_CHANGED"
+        assert "Wechselkurs" in exc.value.as_detail()["cause"]
