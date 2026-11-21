@@ -44,6 +44,8 @@ from services.auth import (
     get_current_user,
     get_mandate_for_user_or_404,
     require_advisor,
+    require_staff,
+    tenant_id_for_new_record,
 )
 from services.data_classification import enforce_data_classification
 
@@ -154,7 +156,7 @@ def list_bausteine(
     category: Optional[str] = None,
     include_inactive: bool = False,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_staff),
 ):
     """Berater sieht: eigene Bausteine + global (advisor_id IS NULL).
     Admin sieht: alles -- aber IMMER nur innerhalb des eigenen Tenants (siehe
@@ -195,7 +197,8 @@ def create_baustein(
     b = ProtocolBaustein(
         id=str(uuid.uuid4()),
         advisor_id=current_user.id,
-        tenant_id=getattr(current_user, "tenant_id", None),
+        # KN3-B / N-917R2-01: wie der Start-Backfill, aber schon beim Anlegen.
+        tenant_id=tenant_id_for_new_record(current_user),
         title=body.title.strip(),
         content_md=body.content_md or "",
         category=(body.category or None),

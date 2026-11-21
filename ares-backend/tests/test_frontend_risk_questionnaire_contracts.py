@@ -1,11 +1,12 @@
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 
 
 def test_risk_questionnaire_stays_customer_friendly_without_transparency_boxes():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
 
     assert "Scoring-Logik:" not in html
     assert 'id="risk-live-scoreboard"' not in html
@@ -15,7 +16,7 @@ def test_risk_questionnaire_stays_customer_friendly_without_transparency_boxes()
 
 
 def test_risk_answer_options_do_not_expose_points_to_clients():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
 
     assert "(Income · 1 Punkt)" not in html
     assert "(Balanced · 2 Punkte)" not in html
@@ -33,7 +34,7 @@ def test_risk_answer_options_do_not_expose_points_to_clients():
 
 
 def test_risk_summary_and_override_controls_remain_visible():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
 
     assert "Final zählt immer der tiefere Wert" in html
     assert 'id="overr-badge"' in html
@@ -44,13 +45,13 @@ def test_risk_summary_and_override_controls_remain_visible():
 
 
 def test_no_goal_horizon_hint_is_hidden_when_no_basis_is_available():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
 
     assert "Noch kein Zielhorizont ableitbar. Bitte Anlagehorizont manuell erfassen." not in html
 
 
 def test_asset_allocation_expand_click_uses_data_attribute_binding():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
 
     assert 'data-allocation-group="' in html
     assert "bindAllocationTableInteractions" in html
@@ -58,7 +59,7 @@ def test_asset_allocation_expand_click_uses_data_attribute_binding():
 
 
 def test_asset_allocation_header_keeps_only_core_actions_visible():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     header = html.split('<div id="page-al" class="page">', 1)[1].split('<div id="al-dirty-banner"', 1)[0]
     visible_actions = header.split('<details class="aa-more"', 1)[0]
     more_menu = header.split('<details class="aa-more"', 1)[1].split("</details>", 1)[0]
@@ -84,7 +85,7 @@ def test_asset_allocation_header_keeps_only_core_actions_visible():
 
 
 def test_risk_profile_header_uses_single_server_pdf_action():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     header = html.split('<div id="page-rp" class="page">', 1)[1].split('<div class="pad">', 1)[0]
     visible_actions = header.split('<details class="ph-more"', 1)[0]
     more_menu = header.split('<details class="ph-more"', 1)[1].split("</details>", 1)[0]
@@ -103,7 +104,7 @@ def test_risk_profile_header_uses_single_server_pdf_action():
 
 
 def test_frontend_willingness_profile_labels_stay_in_sync_with_backend():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
 
     assert "services/risk_scoring.py:_willingness_profile()" in html
     assert "if(scoreX10 <= 24) return 'Kapitalschutz';" in html
@@ -115,7 +116,7 @@ def test_frontend_willingness_profile_labels_stay_in_sync_with_backend():
 
 
 def test_frontend_uses_safe_dom_bindings_for_dynamic_review_and_document_actions():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
 
     assert 'data-doc-action="print"' in html
     # 2026-08-05 (User-Direktive, E-Signing): die einzelne "sign"-Aktion wurde
@@ -129,14 +130,14 @@ def test_frontend_uses_safe_dom_bindings_for_dynamic_review_and_document_actions
 
 
 def test_frontend_no_longer_contains_accidental_refresh_goals_cashflow_binding_block():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     refresh_goals_block = html.split("async function refreshGoalsUI(mid){", 1)[1].split("async function loadPlanningAssumptions()", 1)[0]
 
     assert "(af||document.createElement('div')).querySelectorAll('.cf-row[data-cfid] .btn-ico')" not in refresh_goals_block
 
 
 def test_override_api_errors_are_shown_in_modal():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     apply_override_block = html.split("async function applyOv(){", 1)[1].split("// Init: hide subclass section", 1)[0]
 
     assert "errEl.textContent=parseApiError(e,'Override konnte nicht gespeichert werden.');" in apply_override_block
@@ -144,7 +145,7 @@ def test_override_api_errors_are_shown_in_modal():
 
 
 def test_allocation_warnings_are_rendered_when_recommendation_is_missing_or_loaded():
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
 
     assert "renderRecommendationWarnings(allocation.warnings||[],{},null,[]);" in html
     assert "var allocationWarnings=strategyState.allocation&&Array.isArray(strategyState.allocation.warnings)?strategyState.allocation.warnings:[];" in html

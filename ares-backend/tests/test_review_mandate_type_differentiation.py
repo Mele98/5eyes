@@ -18,13 +18,14 @@ Zwei unabhaengige Achsen:
 from __future__ import annotations
 
 from pathlib import Path
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _function_body(text: str, signature_start: str) -> str:
@@ -55,7 +56,7 @@ def test_review_band_state_meta_takes_asset_key_and_uses_both_helpers():
     # nur der discretionary+liquid-Zweig darf diesen String noch enthalten.
     assert "Rebalancing erforderlich" in body  # bleibt fuer discretionary+liquid
     assert "Empfehlung anpassen" in body
-    assert "Bei naechster Transaktion" in body
+    assert "Bei nächster Transaktion" in body
 
 
 def test_all_three_call_sites_pass_asset_key():

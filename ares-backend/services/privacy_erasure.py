@@ -46,12 +46,23 @@ from sqlalchemy.orm import Session
 from core.evidence import SCHEME_V1_ASCII, canonical_json
 from database import Base, new_uuid
 from models.privacy import (
+    OutboundManifestVersion,
+    OutboundProcessingEvent,
+    OutboundTransferDailyCount,
     PrivacyErasureCase,
     PrivacyErasureDisposition,
     PrivacyLegalHold,
+    PrivacyOwnerValue,
     PrivacyRetentionPolicy,
     PrivacyRoleDesignation,
+    PrivacySecurityIncident,
+    PrivacySecurityIncidentEvent,
+    PrivacySubjectRequest,
+    PrivacySubjectRequestEvent,
+    ProcessingActivityVersion,
+    SecurityIncidentArtifact,
 )
+from services import pii_vault
 from services import privacy_erasure_inventory as inv
 
 RECEIPT_SCHEMA = "PrivacyErasureReceiptV1"
@@ -90,7 +101,23 @@ PRIVACY_TABLES = (
     PrivacyLegalHold.__table__,
     PrivacyErasureCase.__table__,
     PrivacyErasureDisposition.__table__,
+    # H10 C-DSG-01: Angaben des Verantwortlichen (Restore aelterer Sicherungen).
+    PrivacyOwnerValue.__table__,
+    # H10 C-DSG-02: Betroffenenanfragen.
+    PrivacySubjectRequest.__table__,
+    # H10 C-DSG-04: Sicherheitsvorfaelle.
+    PrivacySecurityIncident.__table__,
+    # H10 Nachtrag 1: Freigabefassungen, Ereignisse, Egress-Protokoll
+    # (append-only-Trigger haengen am after_create der Tabellen).
+    ProcessingActivityVersion.__table__,
+    OutboundManifestVersion.__table__,
+    OutboundProcessingEvent.__table__,
+    PrivacySubjectRequestEvent.__table__,
+    PrivacySecurityIncidentEvent.__table__,
+    SecurityIncidentArtifact.__table__,
+    OutboundTransferDailyCount.__table__,
 )
+
 
 
 # --------------------------------------------------------------------------
@@ -355,6 +382,121 @@ def approved_policy(
         if row is not None:
             return row
     return None
+
+
+# --------------------------------------------------------------------------
+# H7 C-6: Vorschlag fuer die Aufbewahrungsmatrix
+# --------------------------------------------------------------------------
+# Nur die gesetzlich ableitbaren Werte je Nachweisart: Disposition,
+# Fristausloeser, Frist in Monaten, Rechtsgrundlage und Zweck. Die
+# Betreiberangaben (Verantwortlicher, Rollen, Methoden, Replikate, Backups
+# usw.) liefert Legal/Privacy; fehlen sie, ist die Zeile nicht
+# genehmigungsfaehig (policy_approval_problems). Der Vorschlag wirkt erst nach
+# Vier-Augen-Genehmigung -- er ersetzt sie nicht.
+# Fristbeginn ist das Ende der Kundenbeziehung (nicht der Eintrag). Unsichere
+# Normdetails sind konservativ formuliert; Gegenlesen durch Compliance offen.
+RETENTION_BASELINE_VERSION = "H7-C6-2026-11-07"
+_BASIS_GWG = "GwG Art. 7 Abs. 3 (Belege mindestens 10 Jahre nach Ende der Geschaeftsbeziehung)"
+_BASIS_EVIDENCE = "Beweissicherung waehrend der Verjaehrungsfrist (OR Art. 127)"
+_BASIS_FIDLEG = "Dokumentationspflicht Art. 15 FIDLEG (keine eigene Frist im FIDLEG)"
+_BASIS_BOOKS = "OR Art. 958f (Buecher und Buchungsbelege, 10 Jahre ab Ende des Geschaeftsjahres)"
+
+
+def _retain(purpose: str, legal_basis: str, months: int = 120) -> dict[str, Any]:
+    return {
+        "disposition": inv.RETAIN_RESTRICTED, "retention_trigger": "RELATIONSHIP_END",
+        "retention_months": months, "legal_basis": legal_basis, "purpose": purpose,
+    }
+
+
+RETENTION_BASELINE: dict[str, dict[str, Any]] = {
+    "client_master_data": _retain(
+        "Identifikation der Vertragspartei und Nachweis der Kundenbeziehung",
+        f"{_BASIS_GWG}; {_BASIS_EVIDENCE}"),
+    "client_classification": _retain(
+        "Nachweis der Kundensegmentierung und des Opting (Art. 4/5 FIDLEG)",
+        f"{_BASIS_FIDLEG}; {_BASIS_EVIDENCE}"),
+    "kyc_due_diligence": _retain(
+        "Nachweis der Sorgfaltspflichten nach GwG", _BASIS_GWG),
+    "client_portal_account": {
+        "disposition": inv.DELETE, "retention_trigger": None, "retention_months": None,
+        "legal_basis": "Kein Aufbewahrungsgrund nach Beziehungsende (DSG Art. 6 Abs. 4)",
+        "purpose": "Zugang zum Kundenportal",
+    },
+    "crypto_key_material": _retain(
+        "Lesbarkeit versiegelter, aufbewahrungspflichtiger Nachweise (folgt deren Frist)",
+        f"{_BASIS_FIDLEG}; {_BASIS_EVIDENCE}"),
+    # 12 Monate Reserve: OR 958f laeuft ab Ende des Geschaeftsjahres, das
+    # nach dem Beziehungsende liegen kann (nie kuerzer als gesetzlich).
+    "mandate_contract": _retain(
+        "Nachweis von Vertrag, Auftrag und Honorar",
+        f"{_BASIS_EVIDENCE}; {_BASIS_BOOKS}", months=132),
+    "financial_situation": _retain(
+        "Grundlage der Eignungspruefung (finanzielle Verhaeltnisse)",
+        f"{_BASIS_FIDLEG}; {_BASIS_EVIDENCE}"),
+    "goals_planning": _retain(
+        "Grundlage der Eignungspruefung (Anlageziele)",
+        f"{_BASIS_FIDLEG}; {_BASIS_EVIDENCE}"),
+    "risk_profile_evidence": _retain(
+        "Nachweis des Risikoprofils und der Eignungspruefung",
+        f"{_BASIS_FIDLEG}; {_BASIS_EVIDENCE}"),
+    "risk_capacity_plausibility_evidence": _retain(
+        "Nachweis der Plausibilisierung der Risikofaehigkeit",
+        f"{_BASIS_FIDLEG}; {_BASIS_EVIDENCE}"),
+    "suitability_evidence": _retain(
+        "Nachweis der Angemessenheits- und Eignungspruefung",
+        f"{_BASIS_FIDLEG}; {_BASIS_EVIDENCE}"),
+    "recommendation_evidence": _retain(
+        "Nachweis der Empfehlungen und Uebergaben",
+        f"{_BASIS_FIDLEG}; {_BASIS_EVIDENCE}"),
+    "advisory_protocol": _retain(
+        "Beratungsprotokoll, Offenlegung von Interessenkonflikten",
+        f"{_BASIS_FIDLEG}; {_BASIS_EVIDENCE}"),
+    "audit_trail": _retain(
+        "Nachvollziehbarkeit der Bearbeitung (Beweissicherung)", _BASIS_EVIDENCE),
+}
+
+
+def propose_retention_baseline(
+    db: Session,
+    *,
+    tenant_id: str | None,
+    proposed_by: str,
+    operator_matrix: dict[str, Any] | None = None,
+    now: datetime | None = None,
+) -> list[PrivacyRetentionPolicy]:
+    """Legt fuer jede Nachweisart ohne vorgeschlagene/genehmigte ``*``-Zeile
+    eine ``PROPOSED``-Zeile aus ``RETENTION_BASELINE`` an. Betreiberangaben
+    kommen aus ``operator_matrix`` (nur die Pflichtschluessel); der Zweck
+    stammt aus der Vorlage. Nichts wird genehmigt."""
+    if operator_matrix is not None and not isinstance(operator_matrix, dict):
+        raise _error(422, "PRIVACY_MATRIX_INVALID", "Matrix-Angaben muessen ein Objekt sein")
+    supplied = {
+        key: value for key, value in (operator_matrix or {}).items()
+        if key in REQUIRED_MATRIX_KEYS and key != "purpose" and value not in (None, "", [], {})
+    }
+    created: list[PrivacyRetentionPolicy] = []
+    for evidence_type, row in RETENTION_BASELINE.items():
+        existing = (
+            db.query(PrivacyRetentionPolicy)
+            .filter(
+                _same_tenant(PrivacyRetentionPolicy.tenant_id, tenant_id),
+                PrivacyRetentionPolicy.evidence_type == evidence_type,
+                PrivacyRetentionPolicy.data_category == "*",
+                PrivacyRetentionPolicy.status.in_(("PROPOSED", "APPROVED")),
+            )
+            .first()
+        )
+        if existing is not None:
+            continue
+        matrix = {**supplied, "purpose": row["purpose"], "baseline_version": RETENTION_BASELINE_VERSION}
+        created.append(propose_policy(
+            db, tenant_id=tenant_id, evidence_type=evidence_type, data_category="*",
+            disposition=row["disposition"], matrix=matrix, proposed_by=proposed_by,
+            legal_basis=row["legal_basis"], retention_trigger=row["retention_trigger"],
+            retention_months=row["retention_months"], now=now,
+        ))
+    return created
 
 
 # --------------------------------------------------------------------------
@@ -831,6 +973,17 @@ def execute_erasure_case(
     run_tier_a = tier_a_ok and any(line in todo for line in tier_a_lines)
     run_shred = crypto_ok and any(line in todo for line in crypto_lines) and not keys_were_shredded
 
+    # N-936-01 (L2c): Altzeilen im Klartext koennen per Schluesselvernichtung
+    # nicht geloescht werden. Bleiben solche Zeilen, endet die Crypto-Zeile
+    # der Tabelle mit FAILED (UNSEALED_LEGACY_ROWS) und die Quittung nennt
+    # Anzahl und Tabelle -- nie ein falsches APPLIED/EXECUTED.
+    unsealed_rows: dict[str, int] = {}
+    if any(line in todo and line.disposition in inv.ERASING_DISPOSITIONS for line in crypto_lines):
+        mandate_ids = [str(row[0]) for row in db.execute(
+            text("SELECT id FROM mandates WHERE client_id = :client_id"), {"client_id": case.client_id},
+        ).all()]
+        unsealed_rows = pii_vault.count_unsealed_rows(db, case.client_id, mandate_ids)
+
     client = _client_row(db, case.client_id)
     if run_tier_a and client is not None and not client[2]:
         from services.client_erasure import erase_client_personal_data
@@ -839,9 +992,7 @@ def execute_erasure_case(
             db, case.client_id, reason=f"PRIVACY-001 Loeschvorgang {case.id}", shred_pii_keys=run_shred,
         )
     elif run_shred:
-        from services.pii_vault import shred_client_keys
-
-        shred_client_keys(db, case.client_id)
+        pii_vault.shred_client_keys(db, case.client_id)
 
     for line in todo:
         failure: str | None = None
@@ -854,6 +1005,8 @@ def execute_erasure_case(
             failure = "TIER_A_NOT_SEPARABLE"
         elif line.method == inv.CRYPTO_SHRED and not crypto_ok:
             failure = "SHARED_KEY_RETAINED"
+        elif line.method == inv.CRYPTO_SHRED and unsealed_rows.get(line.table_name):
+            failure = "UNSEALED_LEGACY_ROWS"
         line.updated_at = stamp
         if failure:
             line.decision_status = "FAILED"
@@ -867,6 +1020,10 @@ def execute_erasure_case(
     case.executed_at = stamp
     case.updated_at = stamp
     receipt = _receipt(case, lines)
+    if unsealed_rows:
+        # N-936-01: Anzahl unversiegelter Altzeilen je Tabelle (nur wenn vorhanden,
+        # Quittungen ohne Altbestand bleiben unveraendert).
+        receipt["unsealed_legacy_rows"] = dict(sorted(unsealed_rows.items()))
     case.receipt_json = _canonical(receipt)
     case.receipt_sha256 = _sha256(case.receipt_json)
     db.flush()
@@ -934,9 +1091,7 @@ def process_retention_expiry(
         if not crypto_lines or any(line.decision_status == "APPLIED" for line in crypto_lines):
             continue
         if not _keys_already_shredded(db, client_id):
-            from services.pii_vault import shred_client_keys
-
-            shred_client_keys(db, client_id)
+            pii_vault.shred_client_keys(db, client_id)
             shredded_clients.append(client_id)
         for line in crypto_lines:
             if line.decision_status == "DISPOSAL_DUE":
@@ -1005,12 +1160,11 @@ def reapply_ledger_entries(db: Session, entries: list[dict[str, Any]]) -> dict[s
     if not relevant:
         return summary
     ensure_privacy_tables(db)
-    from services.pii_vault import shred_client_keys
 
     def _shred(client_id: str) -> None:
         if _client_row(db, client_id) is None or _keys_already_shredded(db, client_id):
             return
-        shred_client_keys(db, client_id)
+        pii_vault.shred_client_keys(db, client_id)
         summary["keys_shredded"].append(client_id)
 
     for entry in relevant:
@@ -1070,3 +1224,41 @@ def assert_evidence_readable(
 
 def evidence_types_for_table(table: str) -> frozenset[str]:
     return frozenset(category.evidence_type for category in inv.categories_for(table))
+
+
+# --------------------------------------------------------------------------
+# L2c (H-192): Auskunft nach Art. 25 DSG mit versiegelten Freitexten
+# --------------------------------------------------------------------------
+
+EXPORT_ERASED_TEXT = "Gelöscht (DSG)."
+EXPORT_UNREADABLE_TEXT = "[nicht lesbar: Inhalt nach dem Speichern verändert oder beschädigt]"
+
+
+def reveal_sealed_export_values(db: Session, client_id: str, sections: dict[str, Any]) -> dict[str, int]:
+    """Oeffnet jeden versiegelten Freitext (``pii-sealed:v1:``) im Export mit
+    dem Schluessel DIESES Kunden. Geloeschte (Schluessel nachweislich
+    vernichtet) erscheinen als «Gelöscht (DSG).», nicht oeffenbare
+    (fremder Schluessel, veraendert, Tombstone ohne Loeschbeleg) sichtbar als
+    «nicht lesbar». Nie ein Umschlag im Export. Rueckgabe: Zaehler je Zustand."""
+    counts = {"revealed": 0, "erased": 0, "unreadable": 0}
+
+    def _open(value: Any) -> Any:
+        if not pii_vault.is_sealed(value):
+            return value
+        plain, status = pii_vault.reveal_state(db, value, client_id=client_id)
+        if status == pii_vault.REVEAL_OPEN:
+            counts["revealed"] += 1
+            return plain
+        if status == pii_vault.REVEAL_SHREDDED:
+            counts["erased"] += 1
+            return EXPORT_ERASED_TEXT
+        counts["unreadable"] += 1
+        return EXPORT_UNREADABLE_TEXT
+
+    for name, section in sections.items():
+        rows = [section] if isinstance(section, dict) else section
+        for row in rows or ():
+            if isinstance(row, dict):
+                for key, value in list(row.items()):
+                    row[key] = _open(value)
+    return counts

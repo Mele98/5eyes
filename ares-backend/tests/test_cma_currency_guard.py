@@ -19,6 +19,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -39,6 +40,7 @@ from services.cma_currency_guard import (  # noqa: E402
 )
 from test_band_override_house_matrix_disclosure import _draft_run_with_position  # noqa: E402
 from test_optimizer_integration import _seed_realistic_mandate, session_factory  # noqa: F401,E402
+from tests.fx_test_support import seed_attested_fx  # noqa: E402
 
 MESSAGE_EUR = "Kapitalmarktannahmen in CHF – für Basiswährung EUR nicht freigegeben."
 GOOD_REASON = (
@@ -52,6 +54,9 @@ def _seed(SF, suffix: str, base_currency: str):
     with SF() as s:
         s.query(Mandate).filter(Mandate.id == mid).one().base_currency = base_currency
         s.commit()
+        # CCX-P3-FX (N-909-01): die CHF-Positionen eines EUR-Mandats brauchen
+        # einen belegten Kurs (Gegenstand hier ist der CMA-Waehrungsguard).
+        seed_attested_fx(s, [base_currency])
     return adv, mid, aid
 
 
@@ -298,7 +303,7 @@ def test_ch_chf_mandate_notice_stays_db_free():
 
 def _monolith() -> str:
     path = BACKEND_ROOT.parent / "ares-desktop" / "frontend" / "ares.html"
-    return path.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _function_body(html: str, name: str, length: int = 2500) -> str:

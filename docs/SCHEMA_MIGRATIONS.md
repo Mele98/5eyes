@@ -1,6 +1,6 @@
 # Schema-Migrations mit alembic (opt-in)
 
-Migrations-Workflow fuer das 5eyes-Backend-Schema mit alembic.
+Migrations-Workflow fuer das Ares-Backend-Schema mit alembic.
 
 **Stand:** 2026-08-07 (Folge-Sprint zu U-41 vom 2026-06-06)
 **Roadmap-Punkt:** #90 (Standpunkt 2026-08-07) — vormals #41
@@ -21,7 +21,7 @@ ist die kanonische, ausfuehrbare Version der hier skizzierten Beispiele.
 ## Warum opt-in?
 
 Aktuelle Realitaet:
-- Berater installiert frische 5eyes-App -> DB wird via
+- Berater installiert frische Ares-App -> DB wird via
   `Base.metadata.create_all` neu angelegt
 - Bei Schema-Aenderungen in einem Sprint MUSS der Berater die DB
   manuell migrieren (SQLite ALTER TABLE) oder neu anlegen
@@ -46,7 +46,7 @@ alembic init --template generic alembic
 ### `alembic.ini` anpassen
 
 ```ini
-sqlalchemy.url = sqlite:///./5eyes.db
+sqlalchemy.url = sqlite:///./ares.db
 ```
 
 ### `alembic/env.py` mit Project-Models verbinden
@@ -159,6 +159,5 @@ braucht das nicht.
 ## Weiterfuehrendes
 
 - [alembic docs](https://alembic.sqlalchemy.org)
-- `docs/CLAUDE_HANDOFF.md` — Migration-Strategie-Notes
 - ADR-005 — CHF-0-Disziplin (alembic ist gratis)
 - Roadmap-Punkt #42 (Postgres) — alembic ist Voraussetzung

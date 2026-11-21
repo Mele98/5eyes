@@ -192,6 +192,8 @@ def _seed_de_mandate(session_factory, *, suffix: str, cma_status: str) -> tuple[
             # den Zahlen der bestehenden CH-Matrix, damit die Engine-Ausgabe
             # dieser Tests unveraendert bleibt -- KEINE DE-Fachannahme.
             correlation_matrix_json=json.dumps(_DEFAULT_CORRELATION_MATRIX),
+            # CCX P5 / M-2: ohne CMA-Inflationspfad fail-closed; explizite Testreihe (frueher stiller 70-bps-Ersatz).
+            inflation_path_json='{"2026": 70}',
             equity_home_return_bps=650, equity_home_vol_bps=1500,
             bonds_home_ig_return_bps=200, bonds_home_ig_vol_bps=380,
             real_estate_home_return_bps=420, real_estate_home_vol_bps=800,

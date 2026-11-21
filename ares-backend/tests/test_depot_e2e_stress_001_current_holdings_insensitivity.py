@@ -60,6 +60,11 @@ from services.depot_snapshot import build_depot_snapshot, compute_ist_stress  # 
 _NOW = "2026-10-05T10:00:00.000Z"
 _TODAY = date.today().isoformat()
 
+# KN6 (CI 44840465176): jeder Test laeuft am Importtag (tests/import_day_clock.py).
+from tests.import_day_clock import fixed_import_clock  # noqa: E402
+
+_fixed_import_clock = fixed_import_clock(date.fromisoformat(_TODAY))
+
 # Identische SOLL-Gewichtung fuer BEIDE Mandate -- der einzige Unterschied
 # zwischen Mandat A und B sind die tatsaechlichen aktuellen Holdings weiter
 # unten (current_amount_rappen), niemals die TargetAllocation selbst.

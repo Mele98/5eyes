@@ -6,7 +6,10 @@ from sqlalchemy.orm import Session
 from database import new_uuid
 from models.allocation import TargetAllocation
 from models.mandates import Mandate
-from models.profiling import RiskAssessment
+from models.profiling import RiskAssessment, current_investment_preference
+from core import sustainability_preference as _sustainability
+from core.band_rule import BAND_ABOVE, BAND_BELOW, band_status
+from core.goal_metric_contract import goal_status_display
 from models.review import AdvisoryLog, RecommendationPosition, RecommendationRun, ReviewTrigger
 from price_updater import summarize_price_quality
 from schemas.review import (
@@ -25,14 +28,46 @@ from services.portfolio_engine import (
     build_target_payload_from_allocation,
     ensure_runtime_reference_data,
 )
-from services.goal_success_status import GOAL_SUCCESS_WARN_PCT
 from jurisdictions.resolve import resolve_pack
 
 
 SYSTEM_TRIGGER_REVIEW = "Jahres-Review (System)"
 SYSTEM_TRIGGER_DRIFT = "Bandbreitenverletzung (System)"
 SYSTEM_TRIGGER_GOALS = "Zielerreichung gefaehrdet (System)"
+# N-888-04 (Dok. 106): Ueberpruefung der Nachhaltigkeitspraeferenz faellig
+# (Hauspolitik je Tenant). Nur ausgeloest bei Faelligkeit; nie Sperre.
+SYSTEM_TRIGGER_SUSTAINABILITY = "Nachhaltigkeitspraeferenz pruefen (System)"
 SYSTEM_TRIGGER_MARKET_DATA = "Marktdaten veraltet (System)"
+
+# P5c Fixrunde 1 / N-933-01 (CTO): Nur "erreichbar" und "knapp" sind eine
+# Entwarnung. "nicht erreichbar" und jeder nicht bewertbare Zustand (nicht
+# bewertbar, nicht beurteilbar, ausserhalb Horizont, Altbewertung, leer oder
+# unbekannt) brauchen Aufmerksamkeit -- Unwissen ist keine Entwarnung.
+GOAL_STATUS_ALL_CLEAR = frozenset({"erreichbar", "knapp"})
+GOAL_TRIGGER_NOTE = (
+    "Mindestens ein Ziel ist laut Zielanalyse nicht erreichbar oder nicht bewertbar."
+)
+GOAL_TRIGGER_RESOLVED_NOTE = (
+    "Systempruefung: alle Ziele laut Zielanalyse bewertbar, keines nicht erreichbar."
+)
+
+
+def goal_attention_items(goal_analysis) -> list[dict]:
+    """Ziele mit M-3-Status "nicht_erreichbar" oder nicht bewertbar.
+    Leer nur, wenn jedes Ziel laut M-3 erreichbar oder knapp ist."""
+    return [
+        goal for goal in (goal_analysis or [])
+        if str(goal.get("status") or "") not in GOAL_STATUS_ALL_CLEAR
+    ]
+
+
+def _goal_attention_value(goal: dict) -> str:
+    label = goal.get("label")
+    pct = goal.get("success_probability_pct")
+    if str(goal.get("status") or "") == "nicht_erreichbar" and pct is not None:
+        return f"{label}: {int(pct)}%"
+    word = goal.get("status_label") or goal_status_display(goal.get("status"))["status_label"]
+    return f"{label}: {word}"
 
 
 class ReviewAnchorDataError(ValueError):
@@ -64,7 +99,7 @@ def _build_current_drift_buckets(
         if _norm_text(getattr(position, "assignment", None))
         == "Beratungsvermoegen"
     ]
-    fx_source = FXRateSource.from_db_for_model(db)
+    fx_source = FXRateSource.from_db_strict_for_model(db, tenant_id=getattr(mandate, "tenant_id", None))  # CCX-P3-FX N-909-01
     target_currency = str(
         getattr(mandate, "base_currency", "CHF") or "CHF"
     ).upper().strip()
@@ -73,10 +108,14 @@ def _build_current_drift_buckets(
         fx_source=fx_source,
         target_currency=target_currency,
     )
+    # KN4-B / E2E4-02: Ist und Soll auf derselben Basis -- die Reserve ausserhalb
+    # der Strategie (Stand der Berechnung) wird wie im Payload getrennt.
+    reserve = max(0, int(getattr(allocation, "external_reserve_at_generation_rappen", 0) or 0))
     return _build_bucket_response(
         allocation,
         summary.amounts_rappen,
         summary.total_rappen,
+        target_total_rappen=max(0, int(summary.total_rappen or 0) - reserve),
     )
 
 
@@ -122,6 +161,36 @@ def _add_months(value: str | None, months: int) -> str:
 def _format_bps(bps: int) -> str:
     return f"{bps / 100:.1f}%"
 
+
+
+def band_drifts(drift_source) -> list[dict]:
+    """Bandverletzungen fuer den Markt-Trigger. KN3-B Nachtrag 2 (CTO): 0/0 ist
+    Obergrenze 0 (core/band_rule.py); nur eine fehlende Bandangabe ist "nicht
+    bewertbar" (kein Trigger, aber auch kein "im Band")."""
+    drifts = []
+    for bucket in drift_source or []:
+        # KN4-B / N-917R3-05: fehlendes Ist ist "nicht bewertbar", nie 0 %.
+        status = band_status(bucket.get("current_weight_bps"), bucket.get("band_min_bps"), bucket.get("band_max_bps"))
+        current_weight = int(bucket.get("current_weight_bps") or 0)
+        if status == BAND_BELOW:
+            min_weight = int(bucket.get("band_min_bps"))
+            drifts.append(
+                {
+                    "label": bucket.get("asset_class") or "Allokation",
+                    "breach_bps": min_weight - current_weight,
+                    "detail": f"{bucket.get('asset_class')}: {_format_bps(current_weight)} unter Minimum {_format_bps(min_weight)}",
+                }
+            )
+        elif status == BAND_ABOVE:
+            max_weight = int(bucket.get("band_max_bps"))
+            drifts.append(
+                {
+                    "label": bucket.get("asset_class") or "Allokation",
+                    "breach_bps": current_weight - max_weight,
+                    "detail": f"{bucket.get('asset_class')}: {_format_bps(current_weight)} ueber Maximum {_format_bps(max_weight)}",
+                }
+            )
+    return drifts
 
 def _get_system_trigger(
     db: Session,
@@ -180,6 +249,30 @@ def _resolve_system_trigger(
     trigger.triggered_notes = note
     trigger.next_due_at = None if trigger_type != "Zeit" else trigger.next_due_at
     trigger.updated_at = now
+
+
+def _refresh_sustainability_trigger(db: Session, mandate: Mandate, *, now: str, today) -> None:
+    """N-888-04: Ereignis-Trigger, solange die Ueberpruefung der
+    Nachhaltigkeitspraeferenz faellig ist; danach aufgeloest."""
+    row = current_investment_preference(db, mandate.id)
+    due_on = getattr(row, "review_due_on", None)
+    if row is not None and _sustainability.review_status(due_on, str(today)) == _sustainability.REVIEW_DUE:
+        trigger = _get_or_create_system_trigger(
+            db=db, mandate_id=mandate.id, trigger_type="Ereignis",
+            trigger_name=SYSTEM_TRIGGER_SUSTAINABILITY, now=now,
+        )
+        trigger.status = "Ausgelöst"
+        trigger.next_due_at = today
+        trigger.triggered_at = now
+        trigger.triggered_value = f"Überprüfung fällig seit {_sustainability.format_date_ch(due_on)}"
+        trigger.triggered_notes = _sustainability.review_due_text(due_on)
+        trigger.updated_at = now
+        return
+    _resolve_system_trigger(
+        db=db, mandate_id=mandate.id, trigger_type="Ereignis",
+        trigger_name=SYSTEM_TRIGGER_SUSTAINABILITY, now=now,
+        note="Systempruefung: Nachhaltigkeitspraeferenz erfasst und nicht faellig.",
+    )
 
 
 def refresh_system_review_triggers(
@@ -303,6 +396,8 @@ def refresh_system_review_triggers(
     )
     review_trigger.updated_at = now
 
+    _refresh_sustainability_trigger(db, mandate, now=now, today=today)
+
     assessment = _current_risk_assessment_or_none(db, mandate.id)
     allocation = _current_target_allocation_or_none(db, mandate.id)
 
@@ -342,29 +437,7 @@ def refresh_system_review_triggers(
 
         live_rebalancing = payload.get("live_rebalancing") or {}
         drift_source = live_rebalancing.get("bucket_drifts") or payload.get("buckets", [])
-        drifts = []
-        for bucket in drift_source:
-            current_weight = int(bucket.get("current_weight_bps") or 0)
-            min_weight = int(bucket.get("band_min_bps") or 0)
-            max_weight = int(bucket.get("band_max_bps") or 0)
-            if min_weight == 0 and max_weight == 0:
-                continue
-            if current_weight < min_weight:
-                drifts.append(
-                    {
-                        "label": bucket.get("asset_class") or "Allokation",
-                        "breach_bps": min_weight - current_weight,
-                        "detail": f"{bucket.get('asset_class')}: {_format_bps(current_weight)} unter Minimum {_format_bps(min_weight)}",
-                    }
-                )
-            elif current_weight > max_weight:
-                drifts.append(
-                    {
-                        "label": bucket.get("asset_class") or "Allokation",
-                        "breach_bps": current_weight - max_weight,
-                        "detail": f"{bucket.get('asset_class')}: {_format_bps(current_weight)} ueber Maximum {_format_bps(max_weight)}",
-                    }
-                )
+        drifts = band_drifts(drift_source)
 
         if drifts:
             drift_trigger = _get_or_create_system_trigger(
@@ -399,14 +472,12 @@ def refresh_system_review_triggers(
                 ),
             )
 
-        # GOAL-STATUS-BY-SUCCESS-001: kritisch = Erfolgswahrscheinlichkeit
-        # < 45 % (Ampel 70/45, dieselbe Quelle wie Cockpit und Bericht);
-        # nicht mehr der Mischwert achievement_score. Ziele ohne Wert zaehlen nicht.
-        endangered_goals = [
-            goal for goal in payload.get("goal_analysis", [])
-            if goal.get("success_probability_pct") is not None
-            and int(goal.get("success_probability_pct")) < GOAL_SUCCESS_WARN_PCT
-        ]
+        # P5c Fixrunde 1 / N-933-01 (CTO): Zielerreichung gilt als gefaehrdet,
+        # wenn ein Ziel laut Zielanalyse (M-3) "nicht erreichbar" ODER nicht
+        # bewertbar ist -- Unwissen ist keine Entwarnung. Aufgeloest wird der
+        # Trigger nur, wenn alle Ziele bewertbar sind und keines nicht
+        # erreichbar ist. Keine Ampel 70/45.
+        endangered_goals = goal_attention_items(payload.get("goal_analysis", []))
         if not goal_analysis_trusted:
             endangered_goals = None
         if endangered_goals:
@@ -422,10 +493,10 @@ def refresh_system_review_triggers(
             goal_trigger.next_due_at = today
             goal_trigger.triggered_at = now
             goal_trigger.triggered_value = "; ".join(
-                f"{goal.get('label')}: {int(goal.get('success_probability_pct'))}%"
-                for goal in endangered_goals[:3]
+                _goal_attention_value(goal) for goal in sorted(  # nicht erreichbar zuerst
+                    endangered_goals, key=lambda g: str(g.get("status") or "") != "nicht_erreichbar")[:3]
             )
-            goal_trigger.triggered_notes = "Mindestens ein Ziel liegt unter 45% Erfolgswahrscheinlichkeit (Ampel kritisch)."
+            goal_trigger.triggered_notes = GOAL_TRIGGER_NOTE
             goal_trigger.updated_at = now
         elif endangered_goals is not None:
             _resolve_system_trigger(
@@ -434,7 +505,7 @@ def refresh_system_review_triggers(
                 trigger_type="Ereignis",
                 trigger_name=SYSTEM_TRIGGER_GOALS,
                 now=now,
-                note="Systempruefung: aktuell kein Ziel unter 45% Erfolgswahrscheinlichkeit (Ampel kritisch).",
+                note=GOAL_TRIGGER_RESOLVED_NOTE,
             )
 
     recommendation_runs = db.query(RecommendationRun).filter(
