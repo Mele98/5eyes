@@ -1633,9 +1633,13 @@ def test_ab_backtest_section_shows_stress_diff():
 # ---------------------------------------------------------------------------
 
 def test_suitability_section_renders_header_and_status_pill():
-    """Sektion 27 hat Header + Pill 'Eignung gegeben' bei result=passed."""
+    """Sektion 27 hat Header + Pill 'Eignung gegeben' bei result=passed.
+
+    KN7 / N-928-01: nur wenn Sektion 19 die Geeignetheitspruefung ebenfalls
+    bestaetigt (Pruefgrundlage risk_assessment, konform)."""
     pypdf = pytest.importorskip("pypdf")
     payload = _make_minimal_payload()
+    payload["suitability_compliance"] = {"suitability_basis": "risk_assessment", "is_compliant": True}
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     text = "\n".join((page.extract_text() or "") for page in reader.pages)
@@ -1732,7 +1736,14 @@ def test_suitability_section_empty_state_when_no_check():
     pdf = render_advisory_report_pdf_from_payload(payload)
     reader = pypdf.PdfReader(__import__("io").BytesIO(pdf))
     text = "\n".join((page.extract_text() or "") for page in reader.pages)
-    assert "Noch keine Eignungsprüfung" in text
+    # KN7 / N-928-01: Leerzustand je Pruefgrundlage; ohne dokumentierte
+    # Grundlage neutral, ohne Aufforderung «im System zu hinterlegen».
+    assert "Prüfgrundlage nicht dokumentiert" in text
+    assert "Noch keine Eignungsprüfung" not in text and "im System zu hinterlegen" not in text
+    payload["suitability_compliance"] = {"suitability_basis": "risk_assessment", "is_compliant": False}
+    pdf = render_advisory_report_pdf_from_payload(payload)
+    text = " ".join((page.extract_text() or "") for page in pypdf.PdfReader(__import__("io").BytesIO(pdf)).pages)
+    assert "Noch keine gültige Eignungsprüfung dokumentiert" in text
 
 
 # ---------------------------------------------------------------------------

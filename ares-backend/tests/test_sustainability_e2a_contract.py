@@ -348,7 +348,10 @@ def test_n10_browser_api_pdf_audit_archive_show_the_same_state(api, scenario, se
     pdf = api.get(f"/mandates/{mid}/reports/protokoll.pdf")
     flat = " ".join(" ".join(p.extract_text() or "" for p in PdfReader(BytesIO(pdf.content)).pages).split())
     assert sp.STATE_LABELS["preference_stated"] in flat
-    assert decision_hash in flat.replace(" ", "")
+    # KN7 / N-928-02: Kunden-PDF zeigt die 8-stellige Prüfsumme, nicht den
+    # vollen SHA-256 (der bleibt in DB/Audit/Archivbindung).
+    assert "Prüfsumme Definition " in flat and f"Erfassung {decision_hash[:8]}" in flat
+    assert decision_hash not in flat.replace(" ", "")
     doc = _protocol_doc(api, session_factory, mid)
     assert doc["bound_preference_decision_hash"] == decision_hash
     # Audit

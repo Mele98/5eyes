@@ -1954,6 +1954,11 @@ def _build_contract_signoff_data(
     orientation = strategy.optimizer_reasoning or _format_portfolio_orientation(
         strategy.allocation_preferences
     )
+    # KN7 (H-181, CTO-Nachtrag Punkt 1): Pruefgrundlage aus demselben Audit wie
+    # Sektion 19 des Advisory-Reports (fail-closed Wrapper: Fehler -> degraded).
+    from services.advisory_report import _build_suitability_compliance
+
+    suitability = _build_suitability_compliance(db, mandate) or {}
     return ContractSignoffData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,
         advisory_wealth_rappen=strategy.advisory_wealth_rappen,
@@ -1978,6 +1983,9 @@ def _build_contract_signoff_data(
         band_house_deviations=list(strategy.band_house_deviations or []),
         band_house_profile=strategy.band_house_profile,
         band_deviation_reason=strategy.band_deviation_reason,
+        suitability_basis=suitability.get("suitability_basis"),
+        suitability_is_compliant=suitability.get("is_compliant"),
+        suitability_audit_degraded=bool(suitability.get("audit_degraded")),
     )
 
 

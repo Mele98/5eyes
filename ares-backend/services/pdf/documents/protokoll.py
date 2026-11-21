@@ -208,7 +208,10 @@ def build_protokoll_flowables(ctx: PDFContext, data) -> list:
     # E2a (Dok. 106): Nachhaltigkeitspraeferenzen -- Zustand, Antworten, Version,
     # Bestaetigung, Review-Frist (Hauspolitik) und was im Portfolio heute nicht
     # beruecksichtigt wird. Neutrale Texte (Claim-Waechter-Test).
-    sustainability_lines = tuple(getattr(data, "sustainability_lines", ()) or ())
+    sustainability_lines = tuple(
+        _customer_sustainability_line(line)
+        for line in (getattr(data, "sustainability_lines", ()) or ())
+    )
     if sustainability_lines:
         flowables.append(Spacer(1, 4 * mm))
         flowables.append(_section_title("Nachhaltigkeitspräferenzen"))
@@ -223,6 +226,18 @@ def build_protokoll_flowables(ctx: PDFContext, data) -> list:
     flowables.append(Spacer(1, 8 * mm))
     flowables.extend(make_unterschrift_section())
     return flowables
+
+
+def _customer_sustainability_line(line):
+    """KN7 / N-928-02: Nachweiszeile im Kunden-PDF als 8-stellige Prüfsumme
+    (wie Depotcheck). Die vollen SHA-256 (Definition, Erfassung) bleiben in DB,
+    Audit-Log, Archivbindung (``bound_preference_decision_hash``) und Daten."""
+    label, text = line
+    if str(label) == "Nachweis":
+        from services.pdf.components.customer_reference import customer_reference_text
+
+        return label, "Prüfsumme " + customer_reference_text(str(text))
+    return line
 
 
 def _make_entries_table(entries: list):

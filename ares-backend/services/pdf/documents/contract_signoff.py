@@ -127,7 +127,7 @@ def build_contract_signoff_flowables(
         make_paragraph_styles()["body"],
     ))
     flowables.append(Spacer(1, 4 * mm))
-    acknowledgements = list(data.client_acknowledgements or _default_acknowledgements())
+    acknowledgements = list(data.client_acknowledgements or _default_acknowledgements(data))
     if data.band_house_deviations and not data.client_acknowledgements:
         acknowledgements.insert(2, (
             "Die Abweichung vom Eignungsrahmen des Risikoprofils (vereinbarte "
@@ -160,11 +160,7 @@ def build_contract_signoff_flowables(
             "wurden. Eine dokumentierte manuelle Anpassung des Risikoprofils "
             "habe ich ausdrücklich besprochen und bestätigt."
         ),
-        advisor_confirm_text=(
-            "Der Berater bestätigt, die Geeignetheit geprüft, die Empfehlung "
-            "begründet und die wesentlichen Risiken, Kosten sowie "
-            "Zielkonflikte dokumentiert zu haben."
-        ),
+        advisor_confirm_text=advisor_confirm_text(data),
         signature_space_mm=18,
     ))
     return flowables
@@ -323,10 +319,75 @@ def _acknowledgement_row(text: str) -> Table:
     return table
 
 
-def _default_acknowledgements() -> list[str]:
+# KN7 (H-181, CTO-Nachtrag Punkt 1): Bestaetigungstexte je Pruefgrundlage.
+# Status aus derselben Funktion wie Sektion 19 des Advisory-Reports
+# (customer_suitability_text). «Geeignetheit geprueft» nur bei einer
+# Geeignetheitspruefung (risk_assessment, konform); Execution-only und
+# institutionelle Kunden bestaetigen nie eine Pruefung, die nicht stattfand.
+_ADVISOR_CONFIRM_CHECKED = {
+    "risk_assessment": (
+        "Der Berater bestätigt, die Geeignetheit geprüft, die Empfehlung "
+        "begründet und die wesentlichen Risiken, Kosten sowie "
+        "Zielkonflikte dokumentiert zu haben."
+    ),
+    "appropriateness": (
+        "Der Berater bestätigt, die Angemessenheit geprüft, die Empfehlung "
+        "begründet und die wesentlichen Risiken, Kosten sowie "
+        "Zielkonflikte dokumentiert zu haben."
+    ),
+}
+_ADVISOR_CONFIRM_WITHOUT_CHECK = (
+    "Der Berater bestätigt, die Empfehlung begründet und die wesentlichen "
+    "Risiken, Kosten sowie Zielkonflikte dokumentiert zu haben."
+)
+_ACK_CHECKED = {
+    "risk_assessment": (
+        "Die Geeignetheit der Empfehlung, wesentliche Risiken, Bandbreiten, "
+        "Kosten und mögliche Zielkonflikte wurden erläutert."
+    ),
+    "appropriateness": (
+        "Die Angemessenheit der Dienstleistung, wesentliche Risiken, Bandbreiten, "
+        "Kosten und mögliche Zielkonflikte wurden erläutert."
+    ),
+}
+_ACK_WITHOUT_CHECK = (
+    "Wesentliche Risiken, Bandbreiten, Kosten und mögliche Zielkonflikte der "
+    "Empfehlung wurden erläutert."
+)
+
+
+def _suitability_status(data: ContractSignoffData) -> tuple[str, str, str]:
+    """(Status, Kundentext, Grundlage) -- dieselbe Regel wie Sektion 19."""
+    from services.pdf.components.compliance_audit import customer_suitability_text
+
+    basis = str(getattr(data, "suitability_basis", None) or "").strip()
+    status, text = customer_suitability_text({
+        "suitability_basis": basis,
+        "is_compliant": getattr(data, "suitability_is_compliant", None),
+        "audit_degraded": bool(getattr(data, "suitability_audit_degraded", False)),
+    })
+    return status, text, basis
+
+
+def advisor_confirm_text(data: ContractSignoffData) -> str:
+    status, text, basis = _suitability_status(data)
+    if status == "ok" and basis in _ADVISOR_CONFIRM_CHECKED:
+        return _ADVISOR_CONFIRM_CHECKED[basis]
+    # Keine (gueltige) Pruefung: nichts bestaetigen, den Grund nennen.
+    return f"{_ADVISOR_CONFIRM_WITHOUT_CHECK} {text}"
+
+
+def suitability_acknowledgement(data: ContractSignoffData) -> str:
+    status, _text, basis = _suitability_status(data)
+    if status == "ok" and basis in _ACK_CHECKED:
+        return _ACK_CHECKED[basis]
+    return _ACK_WITHOUT_CHECK
+
+
+def _default_acknowledgements(data: ContractSignoffData) -> list[str]:
     return [
         "Die Angaben zur persönlichen und finanziellen Situation sowie zum Risikoprofil sind vollständig und korrekt besprochen worden.",
-        "Die Geeignetheit der Empfehlung, wesentliche Risiken, Bandbreiten, Kosten und mögliche Zielkonflikte wurden erläutert.",
+        suitability_acknowledgement(data),
         "Eine allfällige manuelle Anpassung des Risikoprofils wurde mit Begründung dokumentiert und vom Kunden bewusst bestätigt.",
         "Der Kunde hat die relevanten Produkt-, Kosten- und Vertragsunterlagen erhalten oder weiss, wo diese verfügbar sind.",
         "Personendaten werden für Beratung, Dokumentation, gesetzliche Nachweise und Vertragserfüllung gemäss revDSG bearbeitet.",

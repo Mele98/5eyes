@@ -194,18 +194,28 @@ def customer_suitability_text(data: dict) -> tuple[str, str]:
     return "undocumented", CUSTOMER_SUITABILITY_UNDOCUMENTED
 
 
+def suitability_status_pill(status: str, styles) -> tuple[Table, Any]:
+    """(Pill, Akzentfarbe) zum Status aus ``customer_suitability_text``.
+
+    KN7: Kunden- UND Berater-/Audit-Fassung nutzen dieselbe Zuordnung -- grün
+    («konform») nur bei ``ok``; Ausnahmekunden «nicht erforderlich», nie grün.
+    """
+    if status == "ok":
+        return _compliance_pill(True, styles), COLOR_STATUS_GRUEN
+    if status == "missing":
+        return _compliance_pill(False, styles), COLOR_STATUS_ROT
+    if status == "not_required":
+        return _pill(*PILL_NOT_REQUIRED, styles=styles), COLOR_ACCENT
+    if status == "degraded":
+        return _pill(*PILL_PENDING, styles=styles), COLOR_ACCENT
+    return _pill(*PILL_NOT_DOCUMENTED, styles=styles), COLOR_GOLD
+
+
 def _customer_suitability_block(data: dict, styles) -> list:
     title = "Geeignetheitsprüfung"
     status, text = customer_suitability_text(data)
-    if status == "degraded":
-        return _customer_panel(title, _pill(*PILL_PENDING, styles=styles), text, styles, accent=COLOR_ACCENT)
-    if status == "ok":
-        return _customer_panel(title, _compliance_pill(True, styles), text, styles, accent=COLOR_STATUS_GRUEN)
-    if status == "missing":
-        return _customer_panel(title, _compliance_pill(False, styles), text, styles, accent=COLOR_STATUS_ROT)
-    if status == "not_required":
-        return _customer_panel(title, _pill(*PILL_NOT_REQUIRED, styles=styles), text, styles, accent=COLOR_ACCENT)
-    return _customer_panel(title, _pill(*PILL_NOT_DOCUMENTED, styles=styles), text, styles, accent=COLOR_GOLD)
+    pill, accent = suitability_status_pill(status, styles)
+    return _customer_panel(title, pill, text, styles, accent=accent)
 
 
 def _customer_recommendation_block(data: dict, styles) -> list:
@@ -306,10 +316,13 @@ def _customer_quota_text(quota: Any, cap: Any) -> str:
 
 def _suitability_block(data: dict, styles) -> list:
     # Fail-closed (2026-07-18): NUR der explizite audit_degraded-Marker
-    # (Audit-Exception) -> 'Pruefung nicht moeglich' (amber). Ein fehlendes
-    # is_compliant (leeres Minimal-Payload) bleibt beim bisherigen Verhalten.
+    # (Audit-Exception) -> 'Pruefung nicht moeglich' (amber).
+    # KN7 (H-181-Pruefung, CTO-Punkt 5): Pill und Akzent aus derselben
+    # Funktion wie die Kundenfassung (customer_suitability_text) -- ein
+    # Execution-only-/institutioneller Kunde ist «nicht erforderlich», nie
+    # grün/«konform»; eine fehlende Pruefgrundlage «nicht dokumentiert».
     is_degraded = bool(data.get("audit_degraded"))
-    is_compliant = bool(data.get("is_compliant", True))
+    status, status_text = customer_suitability_text(data)
     violations = _collect_suitability_violations(data)
     rows = [[
         _metric("Total-Logs", data.get("total_advisory_logs"), styles),
@@ -317,11 +330,13 @@ def _suitability_block(data: dict, styles) -> list:
         _metric("Mit Check", data.get("logs_with_suitability"), styles),
         _metric("Ohne Check", len(data.get("logs_without_suitability") or []), styles),
     ]]
-    pill = _pill(*PILL_PENDING, styles=styles) if is_degraded else _compliance_pill(is_compliant, styles)
+    pill, accent = suitability_status_pill(status, styles)
     out = [
         _block_header("Geeignetheitsprüfung", pill, styles),
         _metrics_row(rows, styles),
     ]
+    if status in ("not_required", "undocumented"):
+        out.append(_muted_note(status_text, styles))
     if is_degraded:
         out.append(_muted_note(
             "Prüfung nicht möglich: Suitability-Audit fehlgeschlagen. "
@@ -336,7 +351,6 @@ def _suitability_block(data: dict, styles) -> list:
         ))
     else:
         out.append(_muted_note("Keine Suitability-Verstösse im Audit-Payload.", styles))
-    accent = COLOR_ACCENT if is_degraded else (COLOR_STATUS_GRUEN if is_compliant else COLOR_STATUS_ROT)
     return [_panel(out, styles, accent=accent)]
 
 

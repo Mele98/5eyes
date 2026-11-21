@@ -339,6 +339,13 @@ class ContractSignoffData:
     band_house_deviations: list = field(default_factory=list)
     band_house_profile: str | None = None
     band_deviation_reason: str | None = None
+    # KN7 (H-181, CTO-Nachtrag Punkt 1): Pruefgrundlage aus dem Suitability-
+    # Audit (services/suitability_audit). Die Bestaetigungstexte richten sich
+    # danach (services/pdf/components/compliance_audit.customer_suitability_text);
+    # ohne Angabe gilt «Pruefgrundlage nicht dokumentiert», nie «geprueft».
+    suitability_basis: str | None = None
+    suitability_is_compliant: bool | None = None
+    suitability_audit_degraded: bool = False
 
 
 @dataclass(frozen=True)
