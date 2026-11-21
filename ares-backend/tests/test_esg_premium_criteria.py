@@ -42,6 +42,7 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import configure_mappers, sessionmaker
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 TESTS_ROOT = Path(__file__).resolve().parent
@@ -631,7 +632,7 @@ def test_csv_import_accepts_new_fields(tmp_path):
 
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _option_label(select_id: str, value: str) -> str:
@@ -718,7 +719,7 @@ def test_pdf_documents_allow_as_deviation_with_reason():
     ))
     assert "Tabak ausschliessen" not in text_
     assert "Alkohol ausschliessen" in text_
-    assert "Abweichungen von der ESG-Policy" in text_
+    assert "Abweichungen von der ESG-Vorgabe" in text_
     assert "Tabak bewusst zugelassen" in text_
     assert GOOD_REASON in text_
 
@@ -727,8 +728,8 @@ def test_pdf_flags_overweight_under_negative_screening_as_deviation():
     text_ = _pdf_preferences_text(_prefs(
         policy={"esg": "negative_screening"}, tilts={"alcohol": "overweight"},
     ))
-    assert "Abweichungen von der ESG-Policy" in text_
-    assert "Alkohol uebergewichtet" in text_
+    assert "Abweichungen von der ESG-Vorgabe" in text_
+    assert "Alkohol übergewichtet" in text_
 
 
 def test_pdf_screening_note_is_theme_specific():
@@ -940,7 +941,7 @@ def test_net_zero_criterion_text_requires_climate_benchmark():
     text_ = ESG_POLICY_CRITERIA["net_zero"]
     assert "PAB" in text_ and "CTB" in text_
     assert "SFDR Art. 9 oder" not in text_
-    assert "SFDR Art. 9 allein genuegt nicht" in text_
+    assert "SFDR Art. 9 allein genügt nicht" in text_
     # CIO-Entscheid 2026-10-18: Text nennt beide Pflichtbedingungen.
     assert "nur Produkte nach SFDR Art. 8 oder 9 mit EU-Klima-Benchmark" in text_
     assert "beides Pflicht" in text_
@@ -948,7 +949,7 @@ def test_net_zero_criterion_text_requires_climate_benchmark():
 
 @pytest.mark.parametrize("policy,fragment", [
     ("best_in_class", "AAA oder AA"),
-    ("net_zero", "SFDR Art. 9 allein genuegt nicht"),
+    ("net_zero", "SFDR Art. 9 allein genügt nicht"),
 ])
 def test_pdf_label_states_cio_criterion(policy, fragment):
     text_ = _pdf_preferences_text({"policy": {"esg": policy}})
@@ -975,13 +976,13 @@ _ESG_CRITERIA_VOCABULARY = frozenset({
     # Kunden-Label (CIO-Entscheid 2026-10-18: nur Kriterium, kein Claim-Name)
     "Produktauswahl",
     # Liquiditaets-Ausnahme
-    "Liquiditaet", "Konto", "Festgeld", "Geldmarktfonds", "Kriterium",
-    "ausgenommen", "die", "gesamte", "Anlageklasse", "und", "unabhaengig",
+    "Liquidität", "Konto", "Festgeld", "Geldmarktfonds", "Kriterium",
+    "ausgenommen", "die", "gesamte", "Anlageklasse", "und", "unabhängig",
     "deren",
     # Funktionswoerter
     "Produkte", "nur", "nach", "oder", "mit", "von", "vom", "der", "in",
-    "ist", "sind", "nicht", "ohne", "allein", "genuegt", "mindestens",
-    "zulaessig",
+    "ist", "sind", "nicht", "ohne", "allein", "genügt", "mindestens",
+    "zulässig",
 })
 # Policy-Namen duerfen NUR im Berater-Label stehen (nie im Kundendokument).
 _ESG_POLICY_NAME_VOCABULARY = frozenset({
@@ -1032,7 +1033,9 @@ def test_liquidity_exemption_text_and_matcher_share_one_asset_class_constant():
     import services.portfolio_engine_payload as payload
 
     assert payload.ESG_POLICY_EXEMPT_ASSET_CLASS == "Liquiditaet"
-    assert f"gesamte Anlageklasse {payload.ESG_POLICY_EXEMPT_ASSET_CLASS}" in payload.ESG_POLICY_LIQUIDITY_EXEMPTION
+    # KN4-B: Kundentext mit Anzeigeform (Umlaut), Bedingung mit Datenschluessel.
+    assert payload.ESG_POLICY_EXEMPT_ASSET_CLASS_LABEL.replace("ä", "ae") == payload.ESG_POLICY_EXEMPT_ASSET_CLASS
+    assert f"gesamte Anlageklasse {payload.ESG_POLICY_EXEMPT_ASSET_CLASS_LABEL}" in payload.ESG_POLICY_LIQUIDITY_EXEMPTION
     source = inspect.getsource(payload._product_matches_constraints)
     assert "asset_class != ESG_POLICY_EXEMPT_ASSET_CLASS" in source
     assert 'asset_class != "Liquiditaet" and not product_meets_esg_policy' not in source
@@ -1061,7 +1064,7 @@ def test_whole_liquidity_asset_class_is_exempt_as_the_text_states(policy, sub_as
     named = {"Geldmarktfonds": "Geldmarktfonds", "Kontoguthaben": "Konto", "Festgeld": "Festgeld"}
     assert named[sub_asset_class] in ESG_POLICY_LIQUIDITY_EXEMPTION
     if sfdr:
-        assert "unabhaengig von deren SFDR-Klassifikation" in ESG_POLICY_LIQUIDITY_EXEMPTION
+        assert "unabhängig von deren SFDR-Klassifikation" in ESG_POLICY_LIQUIDITY_EXEMPTION
 
 
 def test_every_seed_liquidity_product_kind_is_named_in_exemption_text():

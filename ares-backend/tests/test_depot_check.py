@@ -506,7 +506,7 @@ def test_large_unknown_liquidity_share_produces_data_quality_warning(session_fac
         s.commit()
         result = compute_depot_check(s, mandate)
     assert result["liquidity_profile"]["unknown_bps"] == 10000
-    assert any("Liquiditaets-Einstufung unklar" in w for w in result["warnings"])
+    assert any("Liquiditäts-Einstufung unklar" in w for w in result["warnings"])
 
 
 def test_multiple_country_drift_offenders_all_listed_not_just_worst(session_factory):
@@ -835,7 +835,7 @@ def test_target_allocation_predating_current_assessment_is_flagged_stale(session
     assert result["buckets"]["equities"]["in_band"] is None
     assert result["buckets"]["equities"]["soll_bps"] is None
     assert result["buckets"]["equities"]["ist_bps"] == 5000
-    assert any("frueheren" in w and "Risikoprofil" in w for w in result["warnings"])
+    assert any("früheren" in w and "Risikoprofil" in w for w in result["warnings"])
 
 
 def test_legacy_target_allocation_without_context_artifacts_not_flagged_stale(session_factory):

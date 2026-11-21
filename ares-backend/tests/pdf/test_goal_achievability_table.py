@@ -55,19 +55,20 @@ def _sample_goals() -> list[dict]:
     ]
 
 
-def test_table_has_8_columns():
-    """Header-Zeile + Daten haben jeweils 8 Spalten.
+def test_table_has_7_columns_without_mc_status():
+    """Header-Zeile + Daten haben jeweils 7 Spalten.
 
-    Stage-9: zur U-72-Tabelle (Ziel/Typ/Hartheit/Ziel-Datum/Zielwert/Status/
-    Wahrscheinlichkeit) kam die MC-Status-Spalte hinzu -> 8 Spalten.
+    P5c / N-930-01: die Spalte "MC-Status" (U-72, Faecherquantile) entfaellt;
+    einziger Status ist der M-3-Status der Zeile.
     """
     table = _goals_table(_sample_goals(), _styles())
     assert isinstance(table, Table)
-    # Internal data list — pruefen dass jede Zeile 8 Spalten hat
     data = table._cellvalues
     assert len(data) >= 4  # Header + 3 Goals
     for row in data:
-        assert len(row) == 8, f"Erwarte 8 Spalten, gefunden {len(row)}"
+        assert len(row) == 7, f"Erwarte 7 Spalten, gefunden {len(row)}"
+    header_text = " | ".join(getattr(p, "text", str(p)) for p in data[0])
+    assert "MC-Status" not in header_text
 
 
 def test_table_header_contains_all_7_labels():

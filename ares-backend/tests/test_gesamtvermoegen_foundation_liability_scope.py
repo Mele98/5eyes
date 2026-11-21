@@ -120,7 +120,7 @@ def test_non_mortgage_liability_does_not_erode_the_property_foundation(
             current_value_rappen=800_000_00, asset_expected_return_bps=0,
         )
         _add_position(
-            session, id="mortgage", position_type="Hypothek",
+            session, id="mortgage", position_type="Hypothek", mortgage_interest_rate_bps=0,  # K1 N-913-01: Satz erfasst (0 %), Testfokus unveraendert
             assignment="Verbindlichkeit", current_value_rappen=300_000_00,
         )
         _add_position(
@@ -153,7 +153,7 @@ def test_mortgage_only_liability_still_nets_correctly(orm_engine, monkeypatch):
             current_value_rappen=800_000_00, asset_expected_return_bps=0,
         )
         _add_position(
-            session, id="mortgage", position_type="Hypothek",
+            session, id="mortgage", position_type="Hypothek", mortgage_interest_rate_bps=0,  # K1 N-913-01: Satz erfasst (0 %), Testfokus unveraendert
             assignment="Verbindlichkeit", current_value_rappen=300_000_00,
         )
         session.commit()

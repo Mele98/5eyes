@@ -19,7 +19,7 @@ from models.review import (
 )
 from models.users import User
 from models.wealth import Cashflow, Goal, PlanningAssumption, WealthPosition
-from services.goal_success_status import GOAL_SUCCESS_WARN_PCT, goal_items_weighted_success_bps
+from services.goal_success_status import goal_items_weighted_success_bps
 from services.portfolio_engine import (
     build_recommendation_payload_from_run,
     build_target_payload_from_allocation,
@@ -27,11 +27,11 @@ from services.portfolio_engine import (
     generate_recommendation_run,
     generate_target_allocation,
 )
-from services.review_engine import refresh_system_review_triggers
+from services.review_engine import goal_attention_items, refresh_system_review_triggers
 from services.risk_scoring import compute_scores
 
 
-FOUNDATION_CLIENT_NUMBER = "EX-5E-FOUNDATION"
+FOUNDATION_CLIENT_NUMBER = "EX-FOUNDATION-01"
 FOUNDATION_MANDATE_NUMBER = "MX-FOUNDATION-01"
 
 
@@ -133,15 +133,12 @@ def _build_foundation_summary(db: Session, user: User, client: Client, mandate: 
     triggers = refresh_system_review_triggers(db, mandate, user.id, allocation_payload=allocation_result)
     db.flush()
     goal_analysis = allocation_result.get("goal_analysis") or []
-    # GOAL-STATUS-BY-SUCCESS-001: gewichtete Erfolgswahrscheinlichkeit und
-    # kritische Ziele (< 45 %) wie Cockpit, Bericht und Review-Trigger.
+    # GOAL-STATUS-BY-SUCCESS-001: gewichtete Erfolgswahrscheinlichkeit (Zahl, ohne Ampel).
     weighted_success_bps = goal_items_weighted_success_bps(goal_analysis)
     goal_score_weighted_pct = int(round(weighted_success_bps / 100)) if weighted_success_bps is not None else 0
-    goal_path_at_risk_count = len([
-        item for item in goal_analysis
-        if item.get("success_probability_pct") is not None
-        and int(item.get("success_probability_pct")) < GOAL_SUCCESS_WARN_PCT
-    ])
+    # P5c Fixrunde 1 / N-933-01: wie der Review-Trigger -- M-3 "nicht_erreichbar"
+    # oder nicht bewertbar (Unwissen ist keine Entwarnung); keine Ampel 70/45.
+    goal_path_at_risk_count = len(goal_attention_items(goal_analysis))
     monte_carlo = allocation_result.get("monte_carlo") or {}
     mc_target_series = monte_carlo.get("target_p50_series_rappen") or []
     mc_year_labels = monte_carlo.get("year_labels") or []
@@ -277,8 +274,8 @@ def upsert_foundation_example_case(db: Session, user: User) -> dict:
         status="Aktiv",
         base_currency="CHF",
         advisory_language="DE",
-        depot_bank="UBS AG Z\u00fcrich",
-        depot_account_number="CH93 0024 0024 0000 5501 T",
+        depot_bank="Depotbank (Muster)",
+        depot_account_number="MUSTER-DEPOT-0001",
         opened_at=today,
         created_at=now,
         updated_at=now,
@@ -338,13 +335,13 @@ def upsert_foundation_example_case(db: Session, user: User) -> dict:
         WealthPosition(
             id=new_uuid(),
             client_id=client.id,
-            label="UBS Advisory Depot",
+            label="Beratungsdepot (Muster)",
             position_type="Depot",
             assignment="Beratungsverm\u00f6gen",
             current_value_rappen=_rappen(2250000),
             currency="CHF",
             valuation_date=today,
-            depot_bank="UBS AG Z\u00fcrich",
+            depot_bank="Depotbank (Muster)",
             depot_account_number="DEP-FOUNDATION-01",
             alloc_equities_bps=6200,
             alloc_bonds_bps=2400,
@@ -360,7 +357,7 @@ def upsert_foundation_example_case(db: Session, user: User) -> dict:
         WealthPosition(
             id=new_uuid(),
             client_id=client.id,
-            label="ZKB Liquiditaetsreserve",
+            label="Liquiditaetsreserve (Muster)",
             position_type="Liquidit\u00e4t",
             assignment="Beratungsverm\u00f6gen",
             current_value_rappen=_rappen(450000),
@@ -406,12 +403,12 @@ def upsert_foundation_example_case(db: Session, user: User) -> dict:
             currency="CHF",
             valuation_date=today,
             pension_type="S\u00e4ule 3a",
-            pension_institution="VIAC",
+            pension_institution="Vorsorgestiftung (Muster)",  # N-917-04: kein realer Anbieter
             pension_retirement_age=63,
             pension_payout_form="Kapital",
             pension_wef_possible=1,
-            is_available_for_goal_funding=1,
-            goal_funding_method="Automatisch",
+            # K1 Property-Gate: Vorsorge ist illiquide -> keine Goal-Funding-Anrechnung.
+            is_available_for_goal_funding=0,
             notes="Der k\u00fcnftige Bezug wird zus\u00e4tzlich als datierter Cashflow modelliert.",
             created_at=now,
             updated_at=now,
@@ -425,11 +422,13 @@ def upsert_foundation_example_case(db: Session, user: User) -> dict:
             current_value_rappen=_rappen(900000),
             currency="CHF",
             valuation_date=today,
-            mortgage_bank="UBS AG Z\u00fcrich",
+            mortgage_bank="Hypothekarbank (Muster)",
             mortgage_type="Festhypothek",
             mortgage_interest_rate_bps=185,
             mortgage_maturity_date="2031-12-31",
-            mortgage_amortization_rappen=_rappen(30000),
+            # K1 Property-Gate: keine Amortisationsprojektion; Zins/Amortisation
+            # waeren als Ausgaben-Cashflow zu erfassen.
+            mortgage_amortization_rappen=0,
             mortgage_amortization_type="Direkt",
             mortgage_linked_property_id=property_position.id,
             notes="Verbindlichkeit mit echtem Immobilien-Link fuer die Stammdaten-Logik.",
