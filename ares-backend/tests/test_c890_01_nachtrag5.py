@@ -150,7 +150,7 @@ def _cost_pdf(monkeypatch, *, watermark, archived, db_queries):
     monkeypatch.setattr(cost_service, "build_cost_disclosure", lambda *a: {"advisory_wealth_rappen": 100,
                         # EXE-P (H-187): mit vereinbartem Satz (ohne waere es ein Entwurf).
                         "cost_items": [{"key": "default_advisory_fee_bps", "rate_bps": 75}]})
-    monkeypatch.setattr(pdf_reports, "_build_pdf_context", lambda *a: SimpleNamespace(watermark_mode=watermark))
+    monkeypatch.setattr(pdf_reports, "_build_pdf_context", lambda *a, **k: SimpleNamespace(watermark_mode=watermark))
     monkeypatch.setattr(pdf_reports, "_attach_provisional_notice", lambda ctx, *a: ctx)
     monkeypatch.setattr(pdf_reports, "_archive_content_hash", lambda *a: "hash-1")
     monkeypatch.setattr(pdf_reports, "_document_binding", lambda *a: {})

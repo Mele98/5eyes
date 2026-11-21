@@ -689,7 +689,7 @@
   ],
   "GET /products/eligibility-drafts": [
    "get_current_user",
-   "require_admin"
+   "require_compliance_approver"
   ],
   "GET /products/export/csv": [
    "get_current_user",
@@ -1354,7 +1354,7 @@
   ],
   "POST /products/{product_id}/eligibility-rule/approve": [
    "get_current_user",
-   "require_admin"
+   "require_compliance_approver"
   ],
   "POST /products/{product_id}/sustainability-attributes": [
    "get_current_user",

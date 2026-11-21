@@ -229,7 +229,12 @@ GOLDEN_SORTED_TABLES_SHA256 = "8646fc0d669e2430cdd34b3e48475143e7b2eae7102c036e4
 # /publication-inbox/{mandate_id}/approve (+ PublicationInboxItem/
 # PublicationInboxApproveRequest); kein bestehender Pfad, kein bestehendes Schema
 # geaendert (Feld-Diff api/openapi.json: 227 hinzugefuegte Zeilen, export_openapi.py).
-GOLDEN_OPENAPI_SHA256 = "643a1cbc522d855b43f8cf9368d67acf7a920ae0f9651364fb1027957d61ebc5"
+# H-193 ROL-b: nur additiv -- PublicationInboxItem.client_name,
+# ProductEligibilityDraftItem.product_name/isin/asset_class/authored_by_names/rules
+# (optional) und die descriptions der beiden Eignungsregel-Routen bzw. Schemas;
+# kein Pfad, kein bestehendes Feld geaendert (Feld-Diff api/openapi.json:
+# 62 hinzugefuegte, 3 geaenderte description-Zeilen, export_openapi.py).
+GOLDEN_OPENAPI_SHA256 = "a95a48e67706a18b53b03b18b0aa73997a3e41cfd304c803436613f6a69e88a0"
 
 _PROBE = """
 import hashlib, json

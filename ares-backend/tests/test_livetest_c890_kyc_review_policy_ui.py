@@ -317,3 +317,33 @@ def test_reviewer_approves_owner_content_in_browser_without_capture_form(server)
             page.wait_for_selector(f"#oc-reviewer-body tr[data-owner-key='{key}'][data-owner-status='freigegeben']")
         finally:
             browser.close()
+
+
+def test_reviewer_approves_product_eligibility_rule_in_browser(server):
+    """ROL-b (CTO-Entscheid H-187 Nachtrag 3): die Pruefperson sieht in ihrer
+    Freigabe-Ansicht die offene Eignungsregel eines vom Admin erfassten Fonds
+    (role-ui.js) und gibt sie per Klick als zweite Person frei."""
+    base, httpx = server
+    owner = _seed(base, httpx)
+    r = httpx.post(base + "/products", headers=owner, timeout=30, json={
+        "product_name": "TEST-ROLb Hausfonds (Testwert)", "product_type": "Fonds", "asset_class": "Aktien",
+        "currency": "CHF", "suitability_profile_from": 2, "suitability_profile_to": 7})
+    assert r.status_code == 201, r.text
+    pid = r.json()["id"]
+    rev, secret = _activate_reviewer(base, httpx, _invite_api(base, httpx, owner))
+    sync_api = _playwright_sync_api()
+    with sync_api.sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(viewport={"width": 1400, "height": 900})
+            _login(page, base, "extern", PW2, secret)
+            button = f"#elig-reviewer-body [data-elig-approve='{pid}']"
+            page.wait_for_selector(button)
+            text = page.inner_text("#elig-reviewer-body")
+            assert "TEST-ROLb Hausfonds (Testwert)" in text and "Risikoprofil 2–7" in text
+            page.click(button)
+            page.wait_for_selector("#elig-reviewer-list:has-text('Keine offenen Eignungsregeln.')")
+        finally:
+            browser.close()
+    drafts = httpx.get(base + "/products/eligibility-drafts", headers=owner, timeout=30).json()
+    assert pid not in {d["product_id"] for d in drafts["drafts"]}

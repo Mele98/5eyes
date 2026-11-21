@@ -27,9 +27,9 @@ from core.http_filenames import content_disposition
 from models.mandates import Mandate
 from models.review import ConflictOfInterestDisclosure, ContractDocument, Product
 from models.users import User
-from services.audit import release_block_audit
+from services.audit import log as audit_log, release_block_audit
 from services.auth import extract_client_ip as _extract_client_ip
-from services.auth import get_current_user, get_mandate_for_user_or_404, set_tenant_context
+from services.auth import READONLY_ROLE, get_current_user, get_mandate_for_user_or_404, set_tenant_context
 from services.advisory_decision_envelope import decision_freshness_for_allocation, persist_freshness_drift
 # CCX-P4: Kunden-PDFs lesen nur den publizierten Stand -- ein Entwurf traegt das
 # Wasserzeichen "Entwurf -- Soll-Allokation nicht publiziert" und wird nie als
@@ -152,13 +152,43 @@ def _channel_decision(db: Session, mandate: Mandate, *, refresh: bool = False):
     return cache[key]
 
 
+# ROL-b (CTO-Entscheid H-187): ein Kunden-PDF, das die Rolle "Lesend" abruft,
+# ist eine Ansicht -- auditiert, sichtbar gekennzeichnet, nie archiviert (kein
+# neues contract_documents, nicht signierbar). Archiviert wird nur, wenn ein
+# Mitarbeiter mit Schreibrecht ein Dokument abgibt.
+READONLY_VIEW_MODE = "ansicht"
+READONLY_VIEW_AUDIT_FIELD = "client_pdf_readonly_view"
+
+
+def _readonly_pdf_view(db: Session, mandate: Mandate, current_user: User, document: str | None) -> bool:
+    """True fuer die Rolle "Lesend"; schreibt dann den Abruf ins Audit-Log
+    (Tabelle mandates, Aktion EXPORT, Dokument) und committet ihn sofort,
+    damit er auch bei einer spaeteren fachlichen Sperre (409) erhalten bleibt."""
+    if getattr(current_user, "role", None) != READONLY_ROLE:
+        return False
+    audit_log(
+        db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="mandates", record_id=mandate.id, action="EXPORT",
+        field_name=READONLY_VIEW_AUDIT_FIELD, new_value=document or "Kunden-PDF",
+        mandate_id=mandate.id,
+    )
+    db.commit()
+    return True
+
+
 def _build_pdf_context(mandate: Mandate, current_user: User, db: Session, *,
-                       draft_check: bool = True, allocation_free: bool = False) -> PDFContext:
+                       draft_check: bool = True, allocation_free: bool = False,
+                       document: str | None = None) -> PDFContext:
     """Sammelt PDFContext-Daten aus Mandant + Client + User.
 
     Mandate-Anzeige: <Client.name> [<mandate_number>] — falls Client
     nicht ladbar (Test-Setup) Fallback auf mandate_number.
+
+    ROL-b: fuer die Rolle "Lesend" wird der Abruf auditiert und das PDF als
+    Ansicht markiert (``watermark_mode="ansicht"``, keine Pruefnummer im Fuss);
+    ``_archive_final`` legt nur ``watermark_mode == "none"`` ab.
     """
+    view_only = _readonly_pdf_view(db, mandate, current_user, document)
     # CCX-P3-FX (N-909-01): keine Request-weite Ersatzkurs-Quelle mehr. PDF-
     # Datenaufbereitungen rechnen mit der strikten, gebundenen FX-Basis
     # (services.fx_basis.load_fx_basis) und sperren typisiert vor dem Rendern.
@@ -187,13 +217,22 @@ def _build_pdf_context(mandate: Mandate, current_user: User, db: Session, *,
         mandate_type=getattr(mandate, "mandate_type", None),
         jurisdiction=resolve_pdf_jurisdiction(mandate),
         # N-897-12: ohne jede KYC-Bestaetigung als Entwurf vor Vertragsabschluss.
-        watermark_mode="vorvertrag" if draft_check and kyc_release_is_draft(db, mandate) else "none",
+        # ROL-b: Abruf durch "Lesend" -> Ansicht (Vorrang).
+        watermark_mode=(READONLY_VIEW_MODE if view_only
+                        else "vorvertrag" if draft_check and kyc_release_is_draft(db, mandate) else "none"),
         # CCX P5: Pruefnummer des auslieferbaren, versiegelten Entscheids (Fuss).
         # N-925R-02: Dokumente ohne Allokation (Risikoprofil, Vertrag,
         # Kundeninformation) tragen keinen Entscheid-Fuss.
         decision_ref=({"allocation_free": True} if allocation_free
-                      else _channel_decision(db, mandate, refresh=True).footer_ref()),
+                      else _view_decision_ref(_channel_decision(db, mandate, refresh=True).footer_ref(), view_only)),
     )
+
+
+def _view_decision_ref(ref: dict | None, view_only: bool) -> dict | None:
+    """ROL-b: eine Ansicht traegt wie jeder Entwurf keine Pruefnummer, nur den IC-Vermerk."""
+    if not view_only:
+        return ref
+    return {k: v for k, v in (ref or {}).items() if k == "ic_release_status"} or None
 
 
 def _mark_unpublished(ctx: PDFContext, db: Session, mandate: Mandate) -> PDFContext:
@@ -201,6 +240,7 @@ def _mark_unpublished(ctx: PDFContext, db: Session, mandate: Mandate) -> PDFCont
     wenn genau diese Allokation gueltig publiziert ist (tiefe Pruefung inkl.
     Frische). Sonst Entwurf: Wasserzeichen und nie archiviert (``_archive_final``
     legt nur ``watermark_mode == "none"`` ab) -- damit auch nicht signierbar."""
+    view_only = (getattr(ctx, "watermark_mode", "none") or "none") == READONLY_VIEW_MODE
     mode = customer_document_watermark(db, mandate)
     if mode is None:
         # CCX P5: publiziert heisst noch nicht auslieferbar -- FX jetzt,
@@ -209,7 +249,11 @@ def _mark_unpublished(ctx: PDFContext, db: Session, mandate: Mandate) -> PDFCont
         decision = _channel_decision(db, mandate)
         if decision.applicable and not decision.ok:
             require_channel_envelope(db, mandate, channel=CHANNEL_PDF, user=None, decision=decision)
+        if view_only:  # ROL-b: Ansicht bleibt Ansicht (ohne Pruefnummer)
+            return ctx
         return dataclasses.replace(ctx, decision_ref=decision.footer_ref())
+    if view_only:
+        return ctx
     ic = {k: v for k, v in (ctx.decision_ref or {}).items() if k == "ic_release_status"}
     return dataclasses.replace(ctx, watermark_mode=mode, decision_ref=ic or None)
 
@@ -1503,7 +1547,7 @@ def get_anlagestrategie_pdf(
     _assert_client_pdf_cma_hold(db, mandate)
     _assert_client_pdf_sustainability_floor(db, mandate, current_user, request)
     _assert_report_allocation_context(mandate, db, expected_allocation_id)
-    ctx = _build_pdf_context(mandate, current_user, db)
+    ctx = _build_pdf_context(mandate, current_user, db, document="Anlagestrategie")
     ctx = _attach_provisional_notice(ctx, db, mandate)
     ctx = _mark_unpublished(ctx, db, mandate)
     try:
@@ -1546,7 +1590,7 @@ def get_assetallocation_pdf(
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     _assert_report_allocation_context(mandate, db, expected_allocation_id)
-    ctx = _build_pdf_context(mandate, current_user, db)
+    ctx = _build_pdf_context(mandate, current_user, db, document="Assetallocation")
     ctx = _attach_provisional_notice(ctx, db, mandate)
     ctx = _mark_unpublished(ctx, db, mandate)
     try:
@@ -1587,7 +1631,7 @@ def get_risikoprofil_pdf(
     # sperrt typisiert CCX_FX_BASIS_* vor dem Rendern); keine Soll-Allokation,
     # daher kein Publish-Gate (Aufrufgraph-Waechter ALLOCATION_FREE_PDF_ROUTES).
     advisory_wealth_rappen = _advisory_wealth_from_capture(mandate, db)
-    ctx = _build_pdf_context(mandate, current_user, db, allocation_free=True)
+    ctx = _build_pdf_context(mandate, current_user, db, allocation_free=True, document="Risikoprofil")
 
     # Risikoprofil-Daten aus dem juengsten RiskAssessment laden (defensiv)
     risk_label = "Nicht definiert"
@@ -1902,7 +1946,7 @@ def get_portfolio_pdf(
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
     _assert_client_pdf_sustainability_floor(db, mandate, current_user, request)
-    ctx = _build_pdf_context(mandate, current_user, db)
+    ctx = _build_pdf_context(mandate, current_user, db, document="Portfolio")
     ctx = _attach_provisional_notice(ctx, db, mandate)
     ctx = _mark_unpublished(ctx, db, mandate)
     data = _build_portfolio_data(mandate, db)
@@ -2021,7 +2065,7 @@ def get_vertrag_pdf(
     # H12 N-910-11 / N-909-20: allokationsfrei; die FX-Pruefung steckt in der
     # Vermoegensangabe (_advisory_wealth_from_capture), vor dem Rendern.
     data = _build_vertrag_data(mandate, document_id, db)
-    ctx = _build_pdf_context(mandate, current_user, db, allocation_free=True)
+    ctx = _build_pdf_context(mandate, current_user, db, allocation_free=True, document="Vertrag")
     # H-179 V-1: der Beratungsvertrag traegt die Klauseln der freigegebenen
     # Vertragsvorlage des Mandatstyps und deren Pruefwert. Ohne Freigabe, ohne
     # Ort oder mit offenen L2/L3-Punkten ist er ein Entwurf (Wasserzeichen,
@@ -2195,7 +2239,7 @@ def get_contract_signoff_pdf(
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     _assert_client_pdf_signoff(db, mandate)
-    ctx = _build_pdf_context(mandate, current_user, db)
+    ctx = _build_pdf_context(mandate, current_user, db, document="Vertragsabschluss")
     # N-910-01 (CTO-Entscheid): der Beratungsentscheid traegt Zielallokation und
     # Baender. Ohne gueltige Publikation: Entwurf mit Wasserzeichen und statt des
     # Unterschriftsblocks "Nicht zur Unterzeichnung"; erst nach gueltiger
@@ -2783,7 +2827,7 @@ def get_protokoll_pdf(
     _assert_client_pdf_fx_basis(db, mandate)  # CCX-P3-FX N-909-13
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
-    ctx = _mark_unpublished(_build_pdf_context(mandate, current_user, db), db, mandate)
+    ctx = _mark_unpublished(_build_pdf_context(mandate, current_user, db, document="Beratungsprotokoll"), db, mandate)
     try:
         data = _build_protokoll_data(mandate, db)
     except AdvisoryLogIntegrityFailed as exc:
@@ -3223,7 +3267,7 @@ def get_depotcheck_pdf(
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_kyc_review(db, mandate, current_user, request)
-    ctx = _mark_unpublished(_build_pdf_context(mandate, current_user, db), db, mandate)
+    ctx = _mark_unpublished(_build_pdf_context(mandate, current_user, db, document="Depotcheck"), db, mandate)
     try:
         if analysis_snapshot_id is not None:
             analysis = load_depot_check_analysis(db, mandate, analysis_snapshot_id)
@@ -3278,12 +3322,18 @@ FEE_NOT_AGREED_NOTE = (
 )
 
 
+def _draft_header_value(mode: str | None) -> str:
+    """N-935-04 / ROL-b: Wert von ``X-Ares-Draft`` -- ``gebuehren``, ``ansicht``
+    (Abruf durch "Lesend") oder sonst ``vorvertrag``."""
+    return mode if mode in ("gebuehren", READONLY_VIEW_MODE) else "vorvertrag"
+
+
 def _draft_headers(ctx: PDFContext) -> dict[str, str]:
     """N-935-04: Entwurfskennung im Header wie beim Kostenausweis."""
     mode = getattr(ctx, "watermark_mode", "none") or "none"
     if mode == "none":
         return {}
-    return {"X-Ares-Draft": "gebuehren" if mode == "gebuehren" else "vorvertrag"}
+    return {"X-Ares-Draft": _draft_header_value(mode)}
 
 
 def _now_iso() -> str:
@@ -3415,7 +3465,7 @@ def get_backtest_pdf(
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_kyc_review(db, mandate, current_user, None)
     _assert_client_pdf_fx_basis(db, mandate)  # CCX-P3-FX N-909-13
-    ctx = _build_pdf_context(mandate, current_user, db)
+    ctx = _build_pdf_context(mandate, current_user, db, document="Backtest")
     ctx = _attach_provisional_notice(ctx, db, mandate)
     ctx = _mark_unpublished(ctx, db, mandate)
     bm_inputs = {
@@ -3512,6 +3562,10 @@ def get_advisory_report_pdf(
             require_channel_envelope(db, mandate, channel=CHANNEL_PDF, user=current_user, decision=decision)
     else:  # Entwurf: nur der IC-Vermerk (N-925-05), keine Pruefnummer
         decision_ref = {k: v for k, v in (decision_ref or {}).items() if k == "ic_release_status"} or None
+    if _readonly_pdf_view(db, mandate, current_user, "Advisory-Report"):
+        # ROL-b: Abruf durch "Lesend" -> Ansicht, ohne Pruefnummer (Vorrang).
+        unpublished = READONLY_VIEW_MODE
+        decision_ref = _view_decision_ref(decision_ref, True)
     render_meta: dict = {}
     try:
         pdf_bytes = render_advisory_report_pdf(
@@ -3551,7 +3605,7 @@ def get_advisory_report_pdf(
         headers={
             "Content-Disposition": content_disposition(filename, disposition="attachment"),
             # N-935-04: Entwurfskennung wie beim Kostenausweis.
-            **({"X-Ares-Draft": "gebuehren" if mode == "gebuehren" else "vorvertrag"} if mode != "none" else {}),
+            **({"X-Ares-Draft": _draft_header_value(mode)} if mode != "none" else {}),
         },
     )
 
@@ -3632,7 +3686,7 @@ def get_cost_disclosure_pdf(
                 ),
             },
         )
-    ctx = _build_pdf_context(mandate, current_user, db)
+    ctx = _build_pdf_context(mandate, current_user, db, document="Kostenausweis")
     ctx = _attach_provisional_notice(ctx, db, mandate)
     ctx = _mark_unpublished(ctx, db, mandate)
     inducement = depot_bank_inducement_state(db, mandate)
@@ -3700,7 +3754,7 @@ def get_cost_disclosure_pdf(
             media_type="application/pdf",
             headers={
                 "Content-Disposition": content_disposition(filename),
-                "X-Ares-Draft": "gebuehren" if ctx.watermark_mode == "gebuehren" else "vorvertrag",
+                "X-Ares-Draft": _draft_header_value(ctx.watermark_mode),
             },
         )
     return Response(
@@ -3973,7 +4027,7 @@ def get_kundeninformation_pdf(
     # N-890-07: eigene Fusszeile der Kundeninformation (H7-Footer je
     # Dokument-/Mandatstyp), nicht "Dokumentation der Anlageberatung".
     ctx = dataclasses.replace(
-        _build_pdf_context(mandate, current_user, db, draft_check=False, allocation_free=True),
+        _build_pdf_context(mandate, current_user, db, draft_check=False, allocation_free=True, document="Kundeninformation"),
         mandate_type=CLIENT_INFORMATION_DOCUMENT_TYPE,
     )
     data = dataclasses.replace(
@@ -3984,6 +4038,9 @@ def get_kundeninformation_pdf(
     if data.fee_agreement_missing:
         # N-935-03: ohne Gebuehrenvereinbarung Entwurf -- Wasserzeichen, nie archiviert.
         ctx = _mark_fee_draft(ctx)
+    if (getattr(ctx, "watermark_mode", "none") or "none") != "none":
+        # ROL-b: auch eine Ansicht ("Lesend") wird frisch gerendert und nie
+        # archiviert -- keine Wiedergabe der Archivfassung ohne Kennzeichnung.
         safe_mandate = str(mandate.mandate_number or "mandat")[:40]
         return Response(
             content=ReportLabRenderer().render_vertrag(ctx, data),

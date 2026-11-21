@@ -2511,9 +2511,17 @@ class ProductEligibilityApprovalResponse(BaseModel):
 
 
 class ProductEligibilityDraftItem(BaseModel):
+    """ROL-b (H-187 Nachtrag 3): zusaetzlich Produktbezeichnung, erfassende
+    Person und Inhalt der Regel(n), damit die externe Pruefperson ohne Zugriff
+    auf das Fondsuniversum beurteilen kann, was sie freigibt."""
     product_id: str
     rule_ids: list[str]
     authored_by_current_user: bool
+    product_name: str | None = None
+    isin: str | None = None
+    asset_class: str | None = None
+    authored_by_names: list[str] = Field(default_factory=list)
+    rules: list[dict] = Field(default_factory=list)
 
 
 class ProductEligibilityDraftsResponse(BaseModel):

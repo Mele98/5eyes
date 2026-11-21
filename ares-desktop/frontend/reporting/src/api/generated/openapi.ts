@@ -5829,6 +5829,11 @@ export interface paths {
          *     eigenen Verwaltung (fuer den Status "Entwurf -- Freigabe ausstehend" im
          *     Fondsuniversum) plus die Angabe, ob die Einzelberater-Ausnahme fuer den
          *     aktuellen Benutzer ueberhaupt in Frage kommt.
+         *
+         *     ROL-b (CTO-Entscheid H-187 Nachtrag 3): auch die externe Pruefperson
+         *     (``compliance_reviewer``) liest die offenen Regeln ihrer Firma, um sie als
+         *     zweite Person freizugeben (nicht zu erfassen). Dafuer je Produkt Name/ISIN,
+         *     erfassende Person und der Inhalt der Regel -- keine Kundendaten.
          */
         get: operations["list_product_eligibility_drafts_products_eligibility_drafts_get"];
         put?: never;
@@ -6401,6 +6406,13 @@ export interface paths {
          *     freigabeberechtigten Person in der Verwaltung; gespeichert als
          *     approval_mode='single_approver_attested' (Teil des rule_hash, Audit-Log).
          *     409 auch, wenn keine Entwurfsregel offen ist.
+         *
+         *     ROL-b (CTO-Entscheid H-187 Nachtrag 3): auch die externe Pruefperson darf
+         *     freigeben (nicht erfassen), analog KYC-Policy und Owner-Inhalte: nur als
+         *     zweite Person (nie Einzelfreigabe), eigene Firma (fremde -> 404), erst nach
+         *     Einladung + selbst gesetzter 2FA, und mit anderer Postfach-Identitaet als
+         *     die erfassende Person. Die Postfach-Regel gilt fuer jede freigebende Rolle;
+         *     die Einzelfreigabe des Admins bleibt als begruendeter Weg bestehen.
          */
         post: operations["approve_product_eligibility_rule_products__product_id__eligibility_rule_approve_post"];
         delete?: never;
@@ -12354,14 +12366,29 @@ export interface components {
             /** Product Id */
             product_id: string;
         };
-        /** ProductEligibilityDraftItem */
+        /**
+         * ProductEligibilityDraftItem
+         * @description ROL-b (H-187 Nachtrag 3): zusaetzlich Produktbezeichnung, erfassende
+         *     Person und Inhalt der Regel(n), damit die externe Pruefperson ohne Zugriff
+         *     auf das Fondsuniversum beurteilen kann, was sie freigibt.
+         */
         ProductEligibilityDraftItem: {
+            /** Asset Class */
+            asset_class?: string | null;
             /** Authored By Current User */
             authored_by_current_user: boolean;
+            /** Authored By Names */
+            authored_by_names?: string[];
+            /** Isin */
+            isin?: string | null;
             /** Product Id */
             product_id: string;
+            /** Product Name */
+            product_name?: string | null;
             /** Rule Ids */
             rule_ids: string[];
+            /** Rules */
+            rules?: Record<string, unknown>[];
         };
         /** ProductEligibilityDraftsResponse */
         ProductEligibilityDraftsResponse: {
@@ -13529,8 +13556,10 @@ export interface components {
         /**
          * PublicationInboxItem
          * @description ROL-05: eine zur Freigabe vorgelegte Akte, datenminimiert -- Mandat,
-         *     vorbereitende Person und die zu publizierende Soll-Allokation; keine
-         *     Personalien, Vermoegenswerte oder Kundendokumente.
+         *     Kundenname (ROL-b, CTO-Entscheid H-187: die freigebende Person darf die
+         *     Akte identifizieren), vorbereitende Person und die zu publizierende
+         *     Soll-Allokation; keine weiteren Personalien, keine Vermoegenswerte oder
+         *     Kundendokumente.
          */
         PublicationInboxItem: {
             /** Bands Bps */
@@ -13541,6 +13570,8 @@ export interface components {
             blocker_codes?: string[];
             /** Can Publish */
             can_publish: boolean;
+            /** Client Name */
+            client_name?: string | null;
             /** Mandate Id */
             mandate_id: string;
             /** Mandate Number */

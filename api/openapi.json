@@ -17885,20 +17885,68 @@
         "type": "object"
       },
       "ProductEligibilityDraftItem": {
+        "description": "ROL-b (H-187 Nachtrag 3): zusaetzlich Produktbezeichnung, erfassende\nPerson und Inhalt der Regel(n), damit die externe Pruefperson ohne Zugriff\nauf das Fondsuniversum beurteilen kann, was sie freigibt.",
         "properties": {
+          "asset_class": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Class"
+          },
           "authored_by_current_user": {
             "title": "Authored By Current User",
             "type": "boolean"
           },
+          "authored_by_names": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Authored By Names",
+            "type": "array"
+          },
+          "isin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Isin"
+          },
           "product_id": {
             "title": "Product Id",
             "type": "string"
+          },
+          "product_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Name"
           },
           "rule_ids": {
             "items": {
               "type": "string"
             },
             "title": "Rule Ids",
+            "type": "array"
+          },
+          "rules": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Rules",
             "type": "array"
           }
         },
@@ -21914,7 +21962,7 @@
         "type": "object"
       },
       "PublicationInboxItem": {
-        "description": "ROL-05: eine zur Freigabe vorgelegte Akte, datenminimiert -- Mandat,\nvorbereitende Person und die zu publizierende Soll-Allokation; keine\nPersonalien, Vermoegenswerte oder Kundendokumente.",
+        "description": "ROL-05: eine zur Freigabe vorgelegte Akte, datenminimiert -- Mandat,\nKundenname (ROL-b, CTO-Entscheid H-187: die freigebende Person darf die\nAkte identifizieren), vorbereitende Person und die zu publizierende\nSoll-Allokation; keine weiteren Personalien, keine Vermoegenswerte oder\nKundendokumente.",
         "properties": {
           "bands_bps": {
             "additionalProperties": {
@@ -21936,6 +21984,17 @@
           "can_publish": {
             "title": "Can Publish",
             "type": "boolean"
+          },
+          "client_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Name"
           },
           "mandate_id": {
             "title": "Mandate Id",
@@ -49057,7 +49116,7 @@
     },
     "/products/eligibility-drafts": {
       "get": {
-        "description": "ELIG-GOVERNANCE-001 (2026-10-22): offene Entwurfs-Eignungsregeln der\neigenen Verwaltung (fuer den Status \"Entwurf -- Freigabe ausstehend\" im\nFondsuniversum) plus die Angabe, ob die Einzelberater-Ausnahme fuer den\naktuellen Benutzer ueberhaupt in Frage kommt.",
+        "description": "ELIG-GOVERNANCE-001 (2026-10-22): offene Entwurfs-Eignungsregeln der\neigenen Verwaltung (fuer den Status \"Entwurf -- Freigabe ausstehend\" im\nFondsuniversum) plus die Angabe, ob die Einzelberater-Ausnahme fuer den\naktuellen Benutzer ueberhaupt in Frage kommt.\n\nROL-b (CTO-Entscheid H-187 Nachtrag 3): auch die externe Pruefperson\n(``compliance_reviewer``) liest die offenen Regeln ihrer Firma, um sie als\nzweite Person freizugeben (nicht zu erfassen). Dafuer je Produkt Name/ISIN,\nerfassende Person und der Inhalt der Regel -- keine Kundendaten.",
         "operationId": "list_product_eligibility_drafts_products_eligibility_drafts_get",
         "responses": {
           "200": {
@@ -50380,7 +50439,7 @@
     },
     "/products/{product_id}/eligibility-rule/approve": {
       "post": {
-        "description": "ELIG-GOVERNANCE-001 (2026-10-21/22): Freigabe der beim Erfassen/Import\neines Tenant-Produkts angelegten Entwurfs-Eignungsregel\n(services/product_eligibility.py::author_tenant_product_rule). Bis dahin\nist das Produkt `indeterminate` und fuer Generate nicht waehlbar.\n\nStandard Vier-Augen: 409, wenn der Genehmiger die Regel selbst verfasst\nhat. Einzelberater-Ausnahme (fail-closed): Selbstfreigabe nur mit\nsingle_approver_attestation=true + Begruendung UND genau einer\nfreigabeberechtigten Person in der Verwaltung; gespeichert als\napproval_mode='single_approver_attested' (Teil des rule_hash, Audit-Log).\n409 auch, wenn keine Entwurfsregel offen ist.",
+        "description": "ELIG-GOVERNANCE-001 (2026-10-21/22): Freigabe der beim Erfassen/Import\neines Tenant-Produkts angelegten Entwurfs-Eignungsregel\n(services/product_eligibility.py::author_tenant_product_rule). Bis dahin\nist das Produkt `indeterminate` und fuer Generate nicht waehlbar.\n\nStandard Vier-Augen: 409, wenn der Genehmiger die Regel selbst verfasst\nhat. Einzelberater-Ausnahme (fail-closed): Selbstfreigabe nur mit\nsingle_approver_attestation=true + Begruendung UND genau einer\nfreigabeberechtigten Person in der Verwaltung; gespeichert als\napproval_mode='single_approver_attested' (Teil des rule_hash, Audit-Log).\n409 auch, wenn keine Entwurfsregel offen ist.\n\nROL-b (CTO-Entscheid H-187 Nachtrag 3): auch die externe Pruefperson darf\nfreigeben (nicht erfassen), analog KYC-Policy und Owner-Inhalte: nur als\nzweite Person (nie Einzelfreigabe), eigene Firma (fremde -> 404), erst nach\nEinladung + selbst gesetzter 2FA, und mit anderer Postfach-Identitaet als\ndie erfassende Person. Die Postfach-Regel gilt fuer jede freigebende Rolle;\ndie Einzelfreigabe des Admins bleibt als begruendeter Weg bestehen.",
         "operationId": "approve_product_eligibility_rule_products__product_id__eligibility_rule_approve_post",
         "parameters": [
           {

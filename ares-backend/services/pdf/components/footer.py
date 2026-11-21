@@ -83,6 +83,8 @@ CONTRACT_DRAFT_TEXT = "Entwurf – Vertragsvorlage nicht freigegeben"
 DEPOT_BANK_DRAFT_TEXT = "Entwurf – Angabe zu Zuwendungen der Depotbank fehlt"
 # EXE-P (H-187): gleicher Text wie watermark.FEE_AGREEMENT_DRAFT_TEXT.
 FEE_AGREEMENT_DRAFT_TEXT = "Entwurf – keine Gebührenvereinbarung erfasst"
+# ROL-b: gleicher Text wie watermark.READONLY_VIEW_TEXT.
+READONLY_VIEW_TEXT = "Ansicht – nicht abgegeben"
 
 
 def _draw_vorvertrag_mark(canvas: Canvas, page_width: float, page_height: float,
@@ -133,6 +135,8 @@ def make_footer_callback(ctx: PDFContext, disclaimer: str | None = None):
             _draw_vorvertrag_mark(canvas, page_width, PAGE_SIZE[1], DEPOT_BANK_DRAFT_TEXT)
         elif mode == "gebuehren":
             _draw_vorvertrag_mark(canvas, page_width, PAGE_SIZE[1], FEE_AGREEMENT_DRAFT_TEXT)
+        elif mode == "ansicht":
+            _draw_vorvertrag_mark(canvas, page_width, PAGE_SIZE[1], READONLY_VIEW_TEXT)
 
         canvas.saveState()
         canvas.setFont(FONT_DEFAULT, FONT_SIZE_FOOTER)

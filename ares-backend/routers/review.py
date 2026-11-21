@@ -66,7 +66,7 @@ from schemas.review import (
     KycReviewPolicyActivate, KycReviewPolicyCreate, KycReviewPolicyOverview, KycReviewPolicyResponse,
 )
 from price_updater import summarize_price_quality
-from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, require_staff, same_person, assert_compliance_reviewer_ready, short_user_agent, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
+from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, require_staff, same_person, COMPLIANCE_REVIEWER_ROLE, READONLY_ROLE, assert_compliance_reviewer_ready, short_user_agent, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
 from services.recommendation_release_gate import assert_contract_layer_release_eligible  # H-179 L2/L3
 from services.audit import gate_block_audit, log, release_block_audit, restore_tenant_after_rollback
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
@@ -1785,6 +1785,14 @@ def get_document_pdf(
     doc = _get_document_or_404(mandate_id, doc_id, db)
     if not doc.pdf_base64:
         raise HTTPException(status_code=404, detail="Fuer dieses Dokument liegt kein PDF vor.")
+    if current_user.role == READONLY_ROLE:
+        # ROL-b: der Abruf eines Archivexemplars durch "Lesend" wird auditiert
+        # (nichts Neues archiviert; die Bytes bleiben das Archivexemplar).
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="contract_documents", record_id=doc.id, action="EXPORT",
+            field_name="client_pdf_readonly_view", new_value=f"Archivexemplar v{doc.version}",
+            mandate_id=mandate_id)
+        db.commit()
     safe_title = str(doc.title or "dokument")[:40]
     # N-897-12: als Archivexemplar gekennzeichnet (Dateiname + Header). Die
     # Bytes bleiben unveraendert -- ein Wasserzeichen wuerde die gesiegelte
@@ -3636,12 +3644,17 @@ def update_product(
 @products_router.get("/eligibility-drafts", response_model=ProductEligibilityDraftsResponse)
 def list_product_eligibility_drafts(
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_compliance_approver),
 ):
     """ELIG-GOVERNANCE-001 (2026-10-22): offene Entwurfs-Eignungsregeln der
     eigenen Verwaltung (fuer den Status "Entwurf -- Freigabe ausstehend" im
     Fondsuniversum) plus die Angabe, ob die Einzelberater-Ausnahme fuer den
-    aktuellen Benutzer ueberhaupt in Frage kommt."""
+    aktuellen Benutzer ueberhaupt in Frage kommt.
+
+    ROL-b (CTO-Entscheid H-187 Nachtrag 3): auch die externe Pruefperson
+    (``compliance_reviewer``) liest die offenen Regeln ihrer Firma, um sie als
+    zweite Person freizugeben (nicht zu erfassen). Dafuer je Produkt Name/ISIN,
+    erfassende Person und der Inhalt der Regel -- keine Kundendaten."""
     from models.product_eligibility import ProductEligibilityRule, ProductEligibilityRuleSet
     from services.product_eligibility_governance import rule_visible_to_tenant, tenant_approver_ids
 
@@ -3661,8 +3674,10 @@ def list_product_eligibility_drafts(
             product_id=rule.product_id, rule_ids=[], authored_by_current_user=False,
         ))
         item.rule_ids.append(rule.id)
+        item.rules.append(_eligibility_draft_rule_view(rule))
         if rule.created_by == current_user.id:
             item.authored_by_current_user = True
+    _attach_eligibility_draft_labels(db, by_product)
     approvers = tenant_approver_ids(db, tenant_id)
     return ProductEligibilityDraftsResponse(
         approver_count=len(approvers),
@@ -3671,12 +3686,63 @@ def list_product_eligibility_drafts(
     )
 
 
+def _eligibility_draft_rule_view(rule) -> dict:
+    """ROL-b: Inhalt einer offenen Eignungsregel fuer die Freigabe-Ansicht
+    (die Felder, die der rule_hash bindet; keine Kundendaten)."""
+    def _json_list(raw):
+        try:
+            value = json.loads(raw or "[]")
+        except (TypeError, ValueError):
+            return []
+        return value if isinstance(value, list) else []
+
+    return {
+        "rule_id": rule.id,
+        "jurisdiction": rule.jurisdiction,
+        "client_classifications": _json_list(rule.client_classifications_json),
+        "service_modes": _json_list(rule.service_modes_json),
+        "profile_from": rule.profile_from,
+        "profile_to": rule.profile_to,
+        "requires_knowledge_categories": _json_list(rule.requires_knowledge_categories_json),
+        "minimum_experience_level": rule.minimum_experience_level,
+        "requires_appropriateness": bool(rule.requires_appropriateness),
+        "requires_suitability": bool(rule.requires_suitability),
+        "requires_override": bool(rule.requires_override),
+        "max_position_bps": rule.max_position_bps,
+        "prohibited": bool(rule.prohibited),
+        "created_by": rule.created_by,
+        "created_at": rule.created_at,
+        "rule_hash": rule.rule_hash,
+    }
+
+
+def _attach_eligibility_draft_labels(db: Session, by_product: dict) -> None:
+    """ROL-b: Produktname/ISIN und Name der erfassenden Person je offenem
+    Entwurf -- die Pruefperson hat keinen Zugriff auf das Fondsuniversum."""
+    if not by_product:
+        return
+    products = {str(p.id): p for p in db.query(Product).filter(Product.id.in_(list(by_product))).all()}
+    author_ids = {r["created_by"] for item in by_product.values() for r in item.rules if r.get("created_by")}
+    names = {
+        str(u.id): u.full_name
+        for u in (db.query(User).filter(User.id.in_(author_ids)).all() if author_ids else [])
+    }
+    for product_id, item in by_product.items():
+        product = products.get(str(product_id))
+        item.product_name = getattr(product, "product_name", None)
+        item.isin = getattr(product, "isin", None)
+        item.asset_class = getattr(product, "asset_class", None)
+        item.authored_by_names = sorted(
+            {names.get(r["created_by"]) or r["created_by"] for r in item.rules if r.get("created_by")}
+        )
+
+
 @products_router.post("/{product_id}/eligibility-rule/approve", response_model=ProductEligibilityApprovalResponse)
 def approve_product_eligibility_rule(
     product_id: str,
     body: ProductEligibilityApprovalRequest | None = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_compliance_approver),
 ):
     """ELIG-GOVERNANCE-001 (2026-10-21/22): Freigabe der beim Erfassen/Import
     eines Tenant-Produkts angelegten Entwurfs-Eignungsregel
@@ -3688,21 +3754,46 @@ def approve_product_eligibility_rule(
     single_approver_attestation=true + Begruendung UND genau einer
     freigabeberechtigten Person in der Verwaltung; gespeichert als
     approval_mode='single_approver_attested' (Teil des rule_hash, Audit-Log).
-    409 auch, wenn keine Entwurfsregel offen ist."""
-    from models.product_eligibility import ProductEligibilityRule
-    from services.product_eligibility_governance import RuleApprovalConflict, approve_rule
+    409 auch, wenn keine Entwurfsregel offen ist.
+
+    ROL-b (CTO-Entscheid H-187 Nachtrag 3): auch die externe Pruefperson darf
+    freigeben (nicht erfassen), analog KYC-Policy und Owner-Inhalte: nur als
+    zweite Person (nie Einzelfreigabe), eigene Firma (fremde -> 404), erst nach
+    Einladung + selbst gesetzter 2FA, und mit anderer Postfach-Identitaet als
+    die erfassende Person. Die Postfach-Regel gilt fuer jede freigebende Rolle;
+    die Einzelfreigabe des Admins bleibt als begruendeter Weg bestehen."""
+    from models.product_eligibility import ProductEligibilityRule, ProductEligibilityRuleSet
+    from services.product_eligibility_governance import RuleApprovalConflict, approve_rule, rule_visible_to_tenant
 
     body = body or ProductEligibilityApprovalRequest()
+    is_reviewer = current_user.role == COMPLIANCE_REVIEWER_ROLE
     product = _get_product_for_write_or_404(product_id, db, current_user)
     tenant_id = _resolve_tenant_id_for_user(current_user)
-    draft_ids = [
-        row[0] for row in db.query(ProductEligibilityRule.id).filter(
-            ProductEligibilityRule.product_id == product.id,
-            ProductEligibilityRule.status == "draft",
-        ).order_by(ProductEligibilityRule.created_at, ProductEligibilityRule.id).all()
-    ]
+    drafts = db.query(ProductEligibilityRule, ProductEligibilityRuleSet).join(
+        ProductEligibilityRuleSet, ProductEligibilityRuleSet.id == ProductEligibilityRule.rule_set_id,
+    ).filter(
+        ProductEligibilityRule.product_id == product.id,
+        ProductEligibilityRule.status == "draft",
+    ).order_by(ProductEligibilityRule.created_at, ProductEligibilityRule.id).all()
+    if is_reviewer:
+        # Fremde Firma: keine Auskunft, ob dort ein Entwurf offen ist (404).
+        drafts = [(r, rs) for r, rs in drafts if rule_visible_to_tenant(r, rs, tenant_id)]
+        if not drafts:
+            raise HTTPException(status_code=404, detail="Eignungsregel nicht gefunden.")
+    draft_ids = [rule.id for rule, _rule_set in drafts]
     if not draft_ids:
         raise HTTPException(status_code=409, detail="Keine offene Entwurfs-Eignungsregel fuer dieses Produkt.")
+    for rule, rule_set in drafts:
+        authors = {rule.created_by, rule_set.created_by if rule_set.status == "draft" else None}
+        if any(a and str(a) != str(current_user.id) and same_person(db, a, current_user.id) for a in authors):
+            raise HTTPException(status_code=409, detail=(
+                "Vier-Augen-Prinzip: Die Eignungsregel muss von einer anderen Person genehmigt werden "
+                "als von ihrem Autor (gleiche E-Mail-Adresse)."))
+    if is_reviewer:
+        assert_compliance_reviewer_ready(current_user)
+        # Die Pruefperson ist immer die zweite Person -- nie eine Einzelfreigabe
+        # (eine eigene Regel scheitert in approve_rule an Vier Augen, 409).
+        body = ProductEligibilityApprovalRequest()
     approved: list[str] = []
     superseded: list[str] = []
     modes: set[str] = set()
