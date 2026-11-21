@@ -139,6 +139,8 @@ class _FakeApi:
             return 201, {}, json.dumps({"id": "m1"}).encode()
         if path.startswith("/mandates/m1/reports/"):
             return 200, {"Content-Type": "application/pdf"}, self.pdf
+        if path == "/admin/system/foundation-example":
+            return 403, {}, b'{"detail":"gesperrt"}'
         return 404, {}, b"{}"
 
 
@@ -151,6 +153,7 @@ def test_render_flow_creates_mandate_and_checks_each_pdf(monkeypatch):
     assert paths == [
         "/auth/bootstrap-admin", "/clients", "/clients/c1/mandates",
         "/mandates/m1/reports/risikoprofil.pdf", "/mandates/m1/reports/vertrag.pdf",
+        "/admin/system/foundation-example",
     ]
     assert all(c[2].get("Authorization") == "Bearer tok" for c in api.calls[1:])
 
@@ -164,8 +167,11 @@ def test_render_flow_creates_mandate_and_checks_each_pdf(monkeypatch):
          "vertrag.pdf antwortet HTTP 500"),
         ("risikoprofil.pdf", (200, {"Content-Type": "text/html"}, b"<html>"),
          "risikoprofil.pdf antwortet HTTP 200 \\(text/html\\)"),
+        # H-180: Demo-Systemfall muss in der gepackten EXE gesperrt sein.
+        ("/admin/system/foundation-example", (200, {}, b"{}"),
+         "Demo-Systemfall in der gepackten EXE nicht gesperrt"),
     ],
-    ids=["bootstrap_refused", "mandate_refused", "render_error", "wrong_content_type"],
+    ids=["bootstrap_refused", "mandate_refused", "render_error", "wrong_content_type", "demo_seed_open"],
 )
 def test_render_flow_fails_closed(monkeypatch, key, response, needle):
     monkeypatch.setattr(smoke, "http_request", _FakeApi(_pdf(), {key: response}))

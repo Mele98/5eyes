@@ -2049,7 +2049,7 @@ def _legal_profile_response(tenant_id: str, profile: dict | None) -> TenantLegal
 @router.get("/compliance/legal-profile", response_model=TenantLegalProfileResponse)
 def get_tenant_legal_profile(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_staff),
 ):
     """Rechtliche Angaben der eigenen Firma fuer die Kundeninformation nach
     Art. 8 Abs. 1 FIDLEG, samt Liste der fehlenden Pflichtangaben."""
@@ -2903,7 +2903,7 @@ def list_products(
         ),
     ),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_staff)
 ):
     """Sprint U-95 (2026-06-05): ESG/SFDR-Filter ergaenzt.
     Fondsuniversum (2026-08-05): Freitext-Suche (q) + Tenant-Scoping ergaenzt
@@ -5288,7 +5288,7 @@ def _create_sustainability_attribute(
 
 
 @products_router.get("/sustainability/catalog", response_model=SustainabilityCatalogResponse)
-def get_sustainability_catalog(current_user: User = Depends(get_current_user)):
+def get_sustainability_catalog(current_user: User = Depends(require_staff)):
     """Kategorien, zulaessige Arten, Quellentypen und Haus-Defaults (T-E1)."""
     standard_categories = set(sustainability_standard_categories())
     return SustainabilityCatalogResponse(
@@ -5313,7 +5313,7 @@ def get_sustainability_catalog(current_user: User = Depends(get_current_user)):
 @products_router.get("/sustainability/standards", response_model=SustainabilityStandardsResponse)
 def get_sustainability_standards(
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_staff),
 ):
     """Hausstandard der eigenen Verwaltung: Default (T-E1), Tenant-Wert, wirksam."""
     tenant_id = _resolve_tenant_id_for_user(current_user)
@@ -5488,7 +5488,7 @@ def list_sustainability_attributes(
     category: str | None = Query(default=None),
     product_id: str | None = Query(default=None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_staff),
 ):
     """Alle fuer die eigene Verwaltung sichtbaren Nachweise (Plattform +
     eigener Tenant), z. B. ``status=draft`` als Freigabe-Warteschlange."""
@@ -5855,7 +5855,7 @@ def delete_sustainability_attribute_draft(
 def list_product_sustainability_attributes(
     product_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_staff),
 ):
     product = _get_product_or_404(product_id, db, current_user)
     rows = _visible_sustainability_query(db, _resolve_tenant_id_for_user(current_user)).filter(

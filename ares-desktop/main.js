@@ -306,7 +306,11 @@ function readStoredRefreshToken() { return readStoredSecret(REFRESH_TOKEN_STORE_
 function writeStoredRefreshToken(token) { return writeStoredSecret(REFRESH_TOKEN_STORE_FILE, token, 'refresh token'); }
 function clearStoredRefreshToken() { return clearStoredSecret(REFRESH_TOKEN_STORE_FILE, 'refresh token'); }
 
-app.setAppUserModelId('ch.5eyes.wealtharchitekten');
+// H-180 (EXE-02): vorlaeufige App-ID ohne Altnamen -- identisch mit
+// package.json build.appId (tests/user-data-identity.test.js). Finale App-ID
+// ist Owner-Entscheid OWN-BRAND-03 und muss vor dem ersten verteilten
+// Installer feststehen (danach unveraenderlich: Upgrade-Pfad/Deinstallation).
+app.setAppUserModelId('ch.ares.desktop');
 
 // EM-4: Single-Instance-Lock-Ergebnis festhalten. app.quit() ist asynchron, daher
 // darf der whenReady-Bootstrap (Backend-Spawn + Fenster) bei fehlendem Lock NICHT

@@ -81,6 +81,10 @@ EXEC_EXCEPTIONS: dict[str, str] = {
         "CI/Release-Werkzeug: startet die eben gebaute Backend-EXE (Pfad aus dem Build), kein Produktlauf.",
     "scripts/packaging_smoke.py::run_start_smoke#1":
         "CI/Release-Werkzeug: startet die eben gebaute Backend-EXE (Pfad aus dem Build), kein Produktlauf.",
+    "scripts/packaging_release_checks.py::check_self_test_imports#1":
+        "CI/Release-Werkzeug (H-180): startet die eben gebaute Backend-EXE mit --self-test-imports, kein Produktlauf.",
+    "scripts/packaging_release_checks.py::run_shell_smoke#1":
+        "CI/Release-Werkzeug (H-180): startet die eben gebaute Electron-Shell im isolierten Profil, kein Produktlauf.",
     "scripts/pytest_supervisor.py::run#1":
         "CI-Werkzeug: fuehrt die uebergebene Test-Kommandozeile ohne Shell aus, kein Produktlauf.",
     "scripts/security_gate.py::_run_data_integrity_audit_smoke#1":

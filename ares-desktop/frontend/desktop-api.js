@@ -68,3 +68,14 @@
     },
   };
 })();
+
+// H-180 (EXE-03): Version/Build-Kennung im Anmeldefenster. Eigenes Modul
+// (frontend/build-info.js), nachgeladen statt im Monolithen eingebunden
+// (Groessenbudget von ares.html).
+(function () {
+  if (typeof document === 'undefined' || typeof document.createElement !== 'function') return;
+  var script = document.createElement('script');
+  script.src = './build-info.js';
+  script.defer = true;
+  (document.head || document.documentElement).appendChild(script);
+})();
