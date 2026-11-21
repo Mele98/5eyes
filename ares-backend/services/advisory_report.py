@@ -591,8 +591,6 @@ def compute_advisory_report(
 # sein sollen -- diese Liste kann bei Bedarf spaeter gelockert werden.
 PROTECTED_REPORT_SECTIONS = frozenset({
     "cover",
-    # L2c (H-192): Sperrgrund veraenderter versiegelter Freitexte.
-    "protocol_text_integrity_failures",
     "disclaimer",
     "cost_disclosure",
     "suitability_compliance",
@@ -630,7 +628,9 @@ def _apply_hidden_sections_filter(payload: dict[str, Any], mandate: Mandate) -> 
         return payload
     if not isinstance(hidden, list) or not hidden:
         return payload
-    hidden_keys = {str(key) for key in hidden} - PROTECTED_REPORT_SECTIONS
+    # L2c (H-192): der Sperrgrund veraenderter versiegelter Freitexte steht nur
+    # bei einem Befund im Payload und ist nie ausblendbar.
+    hidden_keys = {str(key) for key in hidden} - PROTECTED_REPORT_SECTIONS - {PROTOCOL_TEXT_FAILURES_KEY}
     if not hidden_keys:
         return payload
     return {key: value for key, value in payload.items() if key not in hidden_keys}

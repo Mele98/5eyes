@@ -275,11 +275,13 @@ def report_notes_view(db: Session, mandate_id: str, *, client_id: str | None = N
     liefert leere Felder (Report faellt auf Standardtexte zurueck) und
     sperrt die Kundenkanaele."""
     head = db.query(MandateReportNotes).filter(MandateReportNotes.mandate_id == str(mandate_id)).first()
+    if head is None:
+        # Versionen gibt es nur mit Kopfzeile (PUT legt beide an, die
+        # Migration versioniert nur bestehende Kopfzeilen).
+        return None
     if client_id is None:
         client_id = mandate_client_id(db, mandate_id)
     versions = _report_note_versions(db, mandate_id)
-    if head is None and not versions:
-        return None
     revealed = [_reveal_note_version(db, row, client_id) for row in versions]
     legacy, legacy_state = _legacy_history(db, head, client_id)
     if revealed:
@@ -1075,7 +1077,7 @@ def customer_protocol_entry(entry: Any) -> dict:
         "entry_type": str(get("entry_type") or ""),
         "title": str(texts.get("title") or ""),
         "description": str(texts.get("description") or ""),
-        "decision": str(texts.get("decision") or ""),
+        "decision": str(get("decision") or ""),
         "status": str(get("status") or ""),
     }
     if get("system_event") == RISK_PROFILE_SIGNOFF_SYSTEM_EVENT:
@@ -1093,10 +1095,7 @@ def serialize_response(entry: AdvisoryLog, db: Session | None = None) -> dict:
     ``integrity_verified`` auf False (sperrt die Kundenkanaele, KN9a)."""
     texts, text_state = advisory_entry_text_state(db, entry)
     if text_state == PROTOCOL_TEXT_ERASED:
-        texts = {
-            "title": ERASED_TEXT, "description": ERASED_TEXT, "decision": None,
-            "location": None, "participants_json": None,
-        }
+        texts = {"title": ERASED_TEXT, "description": ERASED_TEXT, "location": None, "participants_json": None}
     elif text_state == PROTOCOL_TEXT_TAMPERED:
         texts = {field: None for field in ADVISORY_LOG_SEALED_FIELDS}
     verified = verify_entry_integrity(entry)
@@ -1108,7 +1107,8 @@ def serialize_response(entry: AdvisoryLog, db: Session | None = None) -> dict:
         "entry_type": entry.entry_type,
         "title": texts.get("title") or "",
         "description": texts.get("description"),
-        "decision": texts.get("decision"),
+        # decision ist eine Kategorie (CHECK-Liste), nicht versiegelt.
+        "decision": entry.decision,
         "trigger_id": entry.trigger_id,
         "recommendation_run_id": entry.recommendation_run_id,
         "status": entry.status,

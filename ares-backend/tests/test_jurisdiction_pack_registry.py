@@ -65,7 +65,11 @@ CH_PACK_HASH = "sha256:e0d83f27c5b0d943bfa671bcd168826ea9025a804b3219a54753776e1
 # H7 C-6 (2026-11-07): RETENTION_NOTES bewusst neu (OR 958f statt OR 962,
 # Fristbeginn Beziehungs-/Mandatsende, keine FIDLEG-Fristzitate).
 # H7 N-884-03: FIDLEG_DISCLAIMER (Fusszeile) neutral.
-CH_REFERENCES_FINGERPRINT = "sha256:f0ce98eeb53e1a4418864597b4b8041a28ada331f214d6f0847ab4aa349b7605"
+# L2c (H-192): RETENTION_NOTES um sieben Auskunft-Sektionen ergaenzt
+# (advice_rationales, mandate_report_note_versions und die uebrigen versiegelten
+# Nachweise) -- nur bestehende Fristtexte zugeordnet, kein neues Zitat;
+# pack.yaml unveraendert.
+CH_REFERENCES_FINGERPRINT = "sha256:658e9de760fd2b6bf2e97aae7fa6ce335a1bb505a8c0e094507bd981cf22090b"
 
 
 def _legacy(mandate) -> object:

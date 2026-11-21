@@ -591,3 +591,13 @@ def test_kundeninformation_ties_text_is_unchanged_for_sealed_description(sf):
         plain_ties, _ = pdf_reports._kundeninformation_ties_and_offer(db, mandate(db), TENANT)
         assert sealed_ties == plain_ties == ("Sonstiger Interessenkonflikt: Retrozession Fonds A (fiktiv)",) or (
             list(sealed_ties) == list(plain_ties) and "Retrozession Fonds A (fiktiv)" in sealed_ties[0])
+
+
+def test_access_export_stays_blocked_for_readonly():
+    """CTO-Nachtrag: die Auskunft schreibt (Exportsiegel am Fall) -- fuer
+    «Lesend» bleibt sie zentral gesperrt (READONLY_SCOPE); ausgefuehrt wird sie
+    nur mit der bestehenden Datenschutz-Rollenpruefung."""
+    from services.auth import readonly_may_call
+
+    assert readonly_may_call("POST", "/privacy/subject-requests/x/export") is False
+    assert readonly_may_call("POST", "/api/privacy/subject-requests/x/export") is False
