@@ -82,8 +82,12 @@ MATRIX: list[tuple[str, str, str, object, bool, str]] = [
      "A A A - - - - - A A"),
     ("Kunde aendern", "PUT", "/clients/c-a", {"first_name": "Eva"}, True,
      "A A - - - - - - - -"),
-    ("KYC-Bestaetigung erfassen", "POST", "/clients/c-a/kyc-confirmations", {}, False,
+    # Nur das Rollen-Gate (leerer Body -> 422 vor der Sichtbarkeitspruefung im Handler);
+    # die Sichtbarkeit belegt die Lesezeile darunter (gleiche Pruefung _get_client_or_404).
+    ("KYC-Bestaetigung erfassen (Rollen-Gate)", "POST", "/clients/c-a/kyc-confirmations", {}, False,
      "A A A - - - - - A A"),
+    ("KYC-Bestaetigungen lesen", "GET", "/clients/c-a/kyc-confirmations", None, True,
+     "A A - - - - - - - -"),
     ("KYC-Zweitfreigabe entscheiden", "POST", "/compliance/kyc-approvals/x/decision", {}, False,
      "A - - - - A A - A -"),
     ("Risikoprofil lesen", "GET", "/mandates/m-a/risk-assessments", None, True,
@@ -340,6 +344,8 @@ def test_route_auth_inventory_has_no_unreviewed_weakening():
         elif method != "GET" and deps and set(deps) <= _IDENTITY_DEPS and key not in identity_only_writes:
             problems.append(f"neue schreibende Route nur mit Anmeldung (Rollenpruefung fehlt): {key}")
     for method, path in PUBLIC_ROUTES:
+        if path.startswith("/reporting"):
+            continue  # nur gemountet, wenn die Reporting-Sub-App gebaut ist
         assert f"{method} {path}" in current, f"oeffentliche Route verschwunden/umbenannt: {method} {path}"
     assert not problems, "\n".join(problems)
 
