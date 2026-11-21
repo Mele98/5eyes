@@ -37,6 +37,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import configure_mappers, sessionmaker
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 if str(BACKEND_ROOT) not in sys.path:
@@ -144,7 +145,7 @@ _VARS = ("var ADVISORY_LOG_ENTRY_TYPES=", "var ADVISORY_LOG_CHANNELS=")
 
 def _src() -> str:
     # Monolith + ausgelagertes Modul: jede Funktion existiert genau einmal.
-    return MONOLITH.read_text(encoding="utf-8") + "\n" + MODULE.read_text(encoding="utf-8")
+    return read_monolith_bundle() + "\n" + MODULE.read_text(encoding="utf-8")
 
 
 def _function(src: str, signature: str) -> str:
@@ -490,7 +491,7 @@ def test_unsaved_prefilled_entry_is_never_silently_dropped():
 
 
 def test_module_is_loaded_by_monolith_and_packaged():
-    html = MONOLITH.read_text(encoding="utf-8")
+    html = read_monolith_bundle()
     assert '<script src="./advisory-log-finma.js"></script>' in html
     assert "frontend/advisory-log-finma.js" in json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["build"]["files"]
     module = MODULE.read_text(encoding="utf-8")
@@ -668,7 +669,10 @@ def test_monolith_inline_scripts_still_parse():
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "chk.js"
         path.write_text(_PARSE_CHECK_JS, encoding="utf-8")
-        proc = subprocess.run([NODE, str(path), str(MONOLITH)], capture_output=True, text=True,
+        # H3/I-04: Gesamtquelle inkl. ausgelagerter Skripte parsen.
+        bundle = Path(tmp) / "bundle.html"
+        bundle.write_text(read_monolith_bundle(), encoding="utf-8")
+        proc = subprocess.run([NODE, str(path), str(bundle)], capture_output=True, text=True,
                               encoding="utf-8", timeout=120)
         assert proc.returncode == 0, proc.stderr
         assert json.loads(proc.stdout) == []

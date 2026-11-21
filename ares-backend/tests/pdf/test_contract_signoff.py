@@ -105,7 +105,7 @@ def test_contract_signoff_contains_all_decision_sections():
         "Zielallokation und Bandbreiten",
         "Subanlageklassen und Ausrichtung",
         "Beratungsinhalt und Empfehlung",
-        "Aufklaerung und Bestaetigung",
+        "Aufklärung und Bestätigung",
         "Band Min",
         "Band Max",
         "Aktien Welt",
@@ -122,7 +122,7 @@ def test_contract_signoff_documents_override_and_reason():
 
     assert "Manueller Risikoprofil-Override dokumentiert" in text
     assert "Kundenwunsch nach dokumentierter Besprechung" in text
-    assert "ausdruecklich besprochen und bestaetigt" in normalized
+    assert "ausdrücklich besprochen und bestätigt" in normalized
 
 
 def test_contract_signoff_documents_no_override():

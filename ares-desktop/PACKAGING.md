@@ -1,4 +1,4 @@
-# 5eyes WealthArchitekten — Packaging-Anleitung
+# Ares — Packaging-Anleitung
 
 > Roadmap-Punkt 6 (2026-05-29): Build-Pipeline wurde seit Sprint 11 nicht
 > mehr aktuell gehalten. Drift in `hiddenImports` und fehlender Sub-App-
@@ -89,7 +89,7 @@ Vor einem Release diese Schritte einmal lokal durchziehen:
    npm run preflight:release   # statische Checks
    npm run pack                # baut Installer-Layout ohne NSIS
    npm run dist:win            # voller NSIS-Installer
-   ls dist/                    # 5Eyes-Setup-<version>-x64.exe
+   ls dist/                    # *-Setup-<version>-x64.exe (Name gemaess artifactName)
    ```
 
 5. **Installer-Smoke:**
@@ -143,8 +143,28 @@ jobs:
       - actions/download-artifact backend-bundle
       - cd ares-desktop && npm ci
       - STRICT_RELEASE=1 npm run dist:win
-      - actions/upload-artifact 5Eyes-Setup
+      - actions/upload-artifact <Setup-Datei>
 ```
 
 Heute laeuft noch kein CI fuer Packaging (das gehoert zur Backend-Tests-
 Workflow als separater Job hinzu). Roadmap-Punkt 53 deckt CI-Cache ab.
+
+---
+
+## H-180 (2026-11-21): Release-Pruefungen und lokaler Build
+
+- `scripts/packaging_smoke.py` prueft zusaetzlich (Modul `scripts/packaging_release_checks.py`):
+  Import-Selbsttest im Artefakt (`ares-api.exe --self-test-imports`), Build-Kennung
+  (`/health`: Version aus `package.json`, `build_sha` = gebauter Git-SHA), Demo-Systemfall
+  gesperrt, Dateieigenschaften beider EXEs (ProductName `Ares`), keine Fremd-/Altmarken
+  (Digest-Pruefung, nie Klartext) in app.asar/Metadaten/Backend-EXE und den Start der
+  Electron-Shell im isolierten Profil bis zum sauberen Beenden.
+- Lokaler Build ohne Symlink-Recht (kein Entwicklermodus): electron-builder kann das
+  winCodeSign-Archiv nicht entpacken (`Cannot create symbolic link`, nur macOS-Dateien).
+  Abhilfe: das Archiv aus `%LOCALAPPDATA%\electron-builder\Cache\winCodeSign\<nr>.7z` mit
+  `node_modules\7zip-bin\win\x64\7za.exe x -y <nr>.7z -owinCodeSign-2.6.0` entpacken und
+  `npx electron-builder --dir` erneut starten. In CI (windows-latest) nicht noetig.
+- Gepackte App NIE mit dem normalen Profil testen: Electron ignoriert die Umgebungsvariable
+  `APPDATA` (Known-Folder-API). Nur `--user-data-dir=<Testordner>` lenkt userData sicher um;
+  dazu `USERPROFILE`/`HOME`/`TEMP` und `DB_PATH` auf einen Testordner setzen (das Backend
+  leitet seinen Datenpfad aus `USERPROFILE` ab).

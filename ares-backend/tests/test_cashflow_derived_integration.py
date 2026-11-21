@@ -239,3 +239,11 @@ def test_projection_indirect_amortization_constant_interest(auth_client, session
                   valuation_date=f"{this_year}-01-01")
     years = auth_client.get(f"/clients/{cid}/cashflow-projection?horizon_years=4").json()["years"]
     assert years[3]["recurring_expense_rappen"] == years[0]["recurring_expense_rappen"]
+
+
+# K1 Property-Gate: dieses Modul belegt die DORMANTE Mechanik (Wiedereinschaltung
+# nach P1); das Gate selbst belegt tests/test_k1_property_advanced_gate.py.
+import pytest  # noqa: E402
+from tests.property_gate_support import property_advanced_mechanics_enabled  # noqa: E402,F401
+
+pytestmark = pytest.mark.usefixtures("property_advanced_mechanics_enabled")
