@@ -89,6 +89,10 @@ EXTRACTED_MONOLITH_PARTS: tuple[tuple[str, str], ...] = (
     # Mandat, eine Rundungsquelle je Zahl, Portfolio bei veralteter Strategie,
     # fehlendes Ist nicht bewertbar; normalizeCashflowProjectionLabels umgezogen.
     ("kn4-ui.js", "js"),
+    # KN5 (H-176-Pruefung): Review mit Reserve ausserhalb der Strategie (Ist-% und
+    # Ist-CHF auf derselben Basis), Hinweis ohne Apportionierung;
+    # allocationReserveBreakdown umgezogen.
+    ("kn5-ui.js", "js"),
     # E2 Nachhaltigkeitspraeferenzen (Dok. 106): Kundenmaske nach dem Risikoprofil.
     ("sustainability-preferences.js", "js"),
 )

@@ -45,12 +45,40 @@ def render_compliance_audit_section(payload: dict, story: list, styles, *, advis
 
     The function is intentionally side-effect free except for appending
     ReportLab flowables to `story`.
+
+    KN5 / N-917R4-01: Das Kunden-PDF (Default) zeigt je Prüfung nur den
+    Status und eine verständliche Aussage. Interne Prüfwerte (Seed/Pfade,
+    Optimizer-Status, Log-Zähler, Audit-Payload-Hinweise, Lock-Reason-Codes,
+    Liquiditäts-Kaskade/Hard-Cap, Methodology-Modelle, Engine-Konfiguration)
+    stehen nur in der Berater-/Audit-Fassung (``advisor_annex=True``).
     """
-    story.append(Paragraph("Sektionen 19-23", styles["kicker"]))
+    # KN6 / N-917R5-03: Die Kundenfassung fasst die Prüfungen in EINER Sektion
+    # zusammen (Sektion 20 «Methodik-Modelle» gibt es dort nicht mehr); der
+    # Kicker «Sektionen 19-23» stimmte nicht. Die Berater-Fassung bleibt.
+    story.append(Paragraph("Sektionen 19-23" if advisor_annex else "Sektion 19", styles["kicker"]))
     story.append(Paragraph("Compliance-Audit", styles["h1"]))
     story.append(Spacer(1, 4 * mm))
     story.append(_hr())
     story.append(Spacer(1, 5 * mm))
+    if not advisor_annex:
+        story.append(Paragraph(
+            "Überblick über die Prüfungen, die zu dieser Empfehlung dokumentiert "
+            "sind. Der Abschnitt ist rein dokumentierend und löst keine "
+            "automatische Portfolio-Anpassung aus.",
+            _style(styles["caption"], color=COLOR_INK_MUTED),
+        ))
+        story.append(Spacer(1, 5 * mm))
+        customer_blocks = [
+            _customer_suitability_block(payload.get("suitability_compliance") or {}, styles),
+            _customer_recommendation_block(payload.get("recommendation_methodology") or {}, styles),
+            _customer_mandate_block(payload.get("mandate_lock_status") or {}, styles),
+            _customer_liquidity_block(payload.get("liquidity_cascade") or {}, styles),
+        ]
+        for index, block in enumerate(customer_blocks):
+            if index:
+                story.append(Spacer(1, 4 * mm))
+            story.append(KeepTogether(block))
+        return
     story.append(Paragraph(
         "Kompakte FINMA-Audit-Sicht auf Geeignetheitsprüfung, "
         "Methodik, Optimizer-Herleitung, Mandats-Sperren und "
@@ -73,12 +101,207 @@ def render_compliance_audit_section(payload: dict, story: list, styles, *, advis
     # KN4-B / DEMO-B3: interne Diagnosewerte (Optimizer-Modus, Importance
     # Sampling, Tax-Modus) nur im Berater-Anhang, nie im Kunden-PDF.
     engine_cfg = payload.get("engine_configuration")
-    if engine_cfg and advisor_annex:
+    if engine_cfg:
         blocks.append(_engine_configuration_block(engine_cfg, styles))
     for index, block in enumerate(blocks):
         if index:
             story.append(Spacer(1, 4 * mm))
         story.append(KeepTogether(block))
+
+
+# -- Kundenfassung (KN5 / N-917R4-01): Status + verständlicher Text ----------
+
+
+def _customer_panel(title: str, pill: Table, text: str, styles, *, accent) -> list:
+    return [_panel([_block_header(title, pill, styles), _customer_note(text, styles)], styles, accent=accent)]
+
+
+def _customer_note(text: str, styles) -> Table:
+    table = Table([[Paragraph(_escape(text), _style(styles["caption"], color=COLOR_INK))]])
+    table.setStyle(TableStyle([
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    return table
+
+
+# KN6 / N-917R5-01: Der Kundentext richtet sich nach der Prüfgrundlage
+# (``suitability_basis`` aus services/suitability_audit). Eine Prüfung wird nur
+# behauptet, wenn sie stattgefunden hat: Execution-only und institutionelle
+# Kunden sind von der Prüfpflicht ausgenommen -- dort steht, dass KEINE Prüfung
+# durchgeführt wurde. Eine unbekannte/fehlende Grundlage ergibt einen neutralen
+# Text mit Hinweis an den Berater, nie «liegt vor».
+# Heute erzeugt der Audit: risk_assessment, execution_only_exempt,
+# institutional_client_exempt, degraded (audit_degraded). «appropriateness»
+# (Angemessenheitsprüfung, Art. 11 FIDLEG) erzeugt noch kein Audit-Pfad; der
+# Text steht bereit, damit eine solche Grundlage nie als Geeignetheit erscheint.
+SUITABILITY_BASIS_GEEIGNETHEIT = "risk_assessment"
+SUITABILITY_BASIS_ANGEMESSENHEIT = "appropriateness"
+SUITABILITY_BASIS_EXECUTION_ONLY = "execution_only_exempt"
+SUITABILITY_BASIS_INSTITUTIONAL = "institutional_client_exempt"
+PILL_NOT_REQUIRED = ("nicht erforderlich", "#E9EBEE", "#7A8395")
+PILL_NOT_DOCUMENTED = ("nicht dokumentiert", "#F4EBD5", "#B59243")
+
+CUSTOMER_SUITABILITY_TEXTS = {
+    (SUITABILITY_BASIS_GEEIGNETHEIT, True):
+        "Für die dokumentierten Beratungen liegt die erforderliche Geeignetheitsprüfung vor.",
+    (SUITABILITY_BASIS_GEEIGNETHEIT, False):
+        "Für mindestens eine Beratung fehlt eine gültige Geeignetheitsprüfung. "
+        "Ihr Berater ergänzt sie vor einer Umsetzung.",
+    (SUITABILITY_BASIS_ANGEMESSENHEIT, True):
+        "Für die dokumentierten Dienstleistungen liegt die erforderliche Angemessenheitsprüfung "
+        "(Art. 11 FIDLEG) vor. Eine Geeignetheitsprüfung war dafür nicht vorgesehen.",
+    (SUITABILITY_BASIS_ANGEMESSENHEIT, False):
+        "Für mindestens eine Dienstleistung fehlt eine gültige Angemessenheitsprüfung. "
+        "Ihr Berater ergänzt sie vor einer Umsetzung.",
+    (SUITABILITY_BASIS_EXECUTION_ONLY, True):
+        "Keine Geeignetheits- oder Angemessenheitsprüfung durchgeführt: Das Mandat ist als reine "
+        "Auftragsausführung (Execution-only, Art. 13 FIDLEG) erfasst. Dafür ist keine solche "
+        "Prüfung vorgesehen.",
+    (SUITABILITY_BASIS_INSTITUTIONAL, True):
+        "Keine Geeignetheitsprüfung durchgeführt: Sie sind als institutioneller Kunde eingestuft. "
+        "Für institutionelle Kunden ist nach FIDLEG keine Geeignetheitsprüfung vorgesehen.",
+}
+CUSTOMER_SUITABILITY_UNDOCUMENTED = (
+    "Prüfgrundlage nicht dokumentiert: Für diesen Bericht ist nicht erfasst, ob eine "
+    "Geeignetheits- oder Angemessenheitsprüfung durchgeführt wurde oder eine Ausnahme gilt. "
+    "Hinweis für den Berater: Prüfgrundlage im Mandat dokumentieren, bevor die Empfehlung "
+    "umgesetzt wird."
+)
+
+
+def customer_suitability_text(data: dict) -> tuple[str, str]:
+    """(Status, Kundentext) der Geeignetheitsprüfung je Prüfgrundlage.
+
+    Status: ``ok`` | ``missing`` | ``not_required`` | ``undocumented`` | ``degraded``.
+    """
+    if data.get("audit_degraded"):
+        return "degraded", (
+            "Prüfung nicht möglich: Die Geeignetheit konnte für diesen Bericht nicht bestätigt "
+            "werden. Ihr Berater klärt dies vor einer Umsetzung.")
+    basis = str(data.get("suitability_basis") or "").strip()
+    compliant = data.get("is_compliant", True)
+    if compliant is False and basis in ("", SUITABILITY_BASIS_GEEIGNETHEIT):
+        # Fehlende/ungültige Prüfung: ohne Grundlage verlangt der Audit die
+        # Geeignetheitsprüfung (Regelfall Art. 12 FIDLEG).
+        return "missing", CUSTOMER_SUITABILITY_TEXTS[(SUITABILITY_BASIS_GEEIGNETHEIT, False)]
+    if basis in (SUITABILITY_BASIS_EXECUTION_ONLY, SUITABILITY_BASIS_INSTITUTIONAL):
+        return "not_required", CUSTOMER_SUITABILITY_TEXTS[(basis, True)]
+    if basis in (SUITABILITY_BASIS_GEEIGNETHEIT, SUITABILITY_BASIS_ANGEMESSENHEIT) and compliant in (True, False):
+        return ("ok" if compliant else "missing"), CUSTOMER_SUITABILITY_TEXTS[(basis, bool(compliant))]
+    return "undocumented", CUSTOMER_SUITABILITY_UNDOCUMENTED
+
+
+def _customer_suitability_block(data: dict, styles) -> list:
+    title = "Geeignetheitsprüfung"
+    status, text = customer_suitability_text(data)
+    if status == "degraded":
+        return _customer_panel(title, _pill(*PILL_PENDING, styles=styles), text, styles, accent=COLOR_ACCENT)
+    if status == "ok":
+        return _customer_panel(title, _compliance_pill(True, styles), text, styles, accent=COLOR_STATUS_GRUEN)
+    if status == "missing":
+        return _customer_panel(title, _compliance_pill(False, styles), text, styles, accent=COLOR_STATUS_ROT)
+    if status == "not_required":
+        return _customer_panel(title, _pill(*PILL_NOT_REQUIRED, styles=styles), text, styles, accent=COLOR_ACCENT)
+    return _customer_panel(title, _pill(*PILL_NOT_DOCUMENTED, styles=styles), text, styles, accent=COLOR_GOLD)
+
+
+def _customer_recommendation_block(data: dict, styles) -> list:
+    title = "Methodik der Produktempfehlung"
+    active_run = data.get("latest_active_run") or data.get("latest_run") or {}
+    has_run = isinstance(active_run, dict) and bool(active_run)
+    if data.get("audit_degraded"):
+        return _customer_panel(
+            title, _pill(*PILL_PENDING, styles=styles),
+            "Prüfung nicht möglich: Die Herleitung der Produktempfehlung konnte für diesen "
+            "Bericht nicht bestätigt werden.",
+            styles, accent=COLOR_ACCENT)
+    if not has_run:
+        return _customer_panel(
+            title, _pill(*PILL_PENDING, styles=styles),
+            "Daten ausstehend: Es liegt noch keine berechnete Produktempfehlung vor.",
+            styles, accent=COLOR_ACCENT)
+    is_compliant = bool(data.get("is_compliant", True))
+    method = method_label(active_run.get("method") or active_run.get("optimizer_mode"))
+    checked = (
+        "Die Berechnung ist abgeschlossen und erfüllt die Prüfkriterien."
+        if active_run.get("is_acceptable")
+        else "Die Berechnung wird von Ihrem Berater noch geprüft."
+    )
+    text = (f"Berechnungsmethode: {method}. " if method else "") + checked
+    return _customer_panel(
+        title, _compliance_pill(is_compliant, styles), text, styles,
+        accent=COLOR_STATUS_GRUEN if is_compliant else COLOR_STATUS_ROT)
+
+
+def _customer_mandate_block(data: dict, styles) -> list:
+    title = "Bearbeitungsstand des Mandats"
+    if data.get("audit_degraded"):
+        return _customer_panel(
+            title, _pill(*PILL_PENDING, styles=styles),
+            "Prüfung nicht möglich: Der Bearbeitungsstand des Mandats konnte nicht bestätigt werden.",
+            styles, accent=COLOR_ACCENT)
+    if bool(data.get("is_editable", True)):
+        return _customer_panel(
+            title, _pill("änderbar", "#E5EEDF", "#4E6F58", styles),
+            "Das Mandat kann bei Bedarf angepasst werden.",
+            styles, accent=COLOR_STATUS_GRUEN)
+    return _customer_panel(
+        title, _pill("gesperrt", "#F0D9D9", "#9E4747", styles),
+        "Das Mandat ist derzeit für Änderungen gesperrt. Ihr Berater erläutert Ihnen den Grund.",
+        styles, accent=COLOR_STATUS_ROT)
+
+
+def _customer_liquidity_block(data: dict, styles) -> list:
+    title = "Liquidität"
+    if data.get("audit_degraded"):
+        return _customer_panel(
+            title, _pill(*PILL_PENDING, styles=styles),
+            "Prüfung nicht möglich: Die Liquiditätsquote konnte nicht beurteilt werden.",
+            styles, accent=COLOR_ACCENT)
+    stage = str(data.get("stage") or "unknown")
+    quota_text = _customer_quota_text(data.get("liquidity_bps"), data.get("hard_cap_bps"))
+    if bool(data.get("warning_required")) or stage == "emergency":
+        return _customer_panel(
+            title, _pill("Hinweis", "#F0D9D9", "#9E4747", styles),
+            quota_text + "Die Liquidität liegt über dem üblichen Rahmen, damit das Risikobudget "
+            "eingehalten wird. Ihr Berater bespricht Risikoprofil, Ziele und Liquiditätsbedarf mit Ihnen.",
+            styles, accent=COLOR_STATUS_ROT)
+    if stage == "hard_cap":
+        return _customer_panel(
+            title, _pill("an Obergrenze", "#F4EBD5", "#B59243", styles),
+            quota_text + "Die Liquidität liegt an der vorgesehenen Obergrenze.",
+            styles, accent=COLOR_GOLD)
+    if stage == "normal":
+        return _customer_panel(
+            title, _pill("im Rahmen", "#E5EEDF", "#4E6F58", styles),
+            quota_text + "Die Liquidität liegt im vorgesehenen Rahmen.",
+            styles, accent=COLOR_GOLD)
+    return _customer_panel(
+        title, _pill(*PILL_PENDING, styles=styles),
+        "Daten ausstehend: Für die Liquiditätsquote liegt noch keine berechnete Strategie vor.",
+        styles, accent=COLOR_ACCENT)
+
+
+def _customer_quota_text(quota: Any, cap: Any) -> str:
+    """Quote und Obergrenze auf 0.01 % genau: ein knapp über der Grenze
+    liegender Wert (z. B. 3.02 % bei 3.00 %) darf nicht als «3.0 %» neben
+    «über dem Rahmen» stehen."""
+    try:
+        quota_bps = int(quota)
+    except (TypeError, ValueError):
+        return ""
+    text = f"Liquiditätsquote der Strategie: {format_bps_as_pct(quota_bps, decimals=2)}"
+    try:
+        text += f" (übliche Obergrenze {format_bps_as_pct(int(cap), decimals=2)})"
+    except (TypeError, ValueError):
+        pass
+    return text + ". "
+
+
+# -- Berater-/Audit-Fassung (advisor_annex=True) ------------------------------
 
 
 def _suitability_block(data: dict, styles) -> list:

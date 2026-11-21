@@ -46,7 +46,7 @@ def build_contract_signoff_flowables(
         mandate_number=data.mandate_number,
         advisory_wealth_label=advisory_label,
         focus_points=[
-            "Dokumentiertes Risikoprofil und allfälliger Override",
+            "Dokumentiertes Risikoprofil und allfällige manuelle Anpassung",
             "Gewählte Anlagestrategie mit Zielallokation und Bandbreiten",
             "Zusammenfassung der Beratung und finale Empfehlung",
             "Bestätigung durch Kunde und Berater",
@@ -61,7 +61,7 @@ def build_contract_signoff_flowables(
         flowables.append(_override_panel(data.risk_override_reason))
     else:
         flowables.append(_status_panel(
-            "Kein manueller Override",
+            "Keine manuelle Anpassung des Risikoprofils",
             "Die Strategiewahl basiert auf dem dokumentierten Risikoprofil.",
             colors.HexColor("#e8f2ec"),
             colors.HexColor("#2f6d4f"),
@@ -157,8 +157,8 @@ def build_contract_signoff_flowables(
         client_confirm_text=(
             "Ich bestätige, dass mir Risikoprofil, Zielallokation, "
             "Bandbreiten, Kosten, Risiken und die finale Empfehlung erklärt "
-            "wurden. Einen dokumentierten Override habe ich ausdrücklich "
-            "besprochen und bestätigt."
+            "wurden. Eine dokumentierte manuelle Anpassung des Risikoprofils "
+            "habe ich ausdrücklich besprochen und bestätigt."
         ),
         advisor_confirm_text=(
             "Der Berater bestätigt, die Geeignetheit geprüft, die Empfehlung "
@@ -230,7 +230,7 @@ def _risk_strategy_table(data: ContractSignoffData) -> Table:
 
 def _override_panel(reason: str | None) -> Table:
     return _status_panel(
-        "Manueller Risikoprofil-Override dokumentiert",
+        "Manuelle Anpassung des Risikoprofils dokumentiert",
         "Begründung: " + (reason or "Keine Begründung hinterlegt."),
         colors.HexColor("#fbf4df"),
         colors.HexColor("#8a6718"),
@@ -327,7 +327,7 @@ def _default_acknowledgements() -> list[str]:
     return [
         "Die Angaben zur persönlichen und finanziellen Situation sowie zum Risikoprofil sind vollständig und korrekt besprochen worden.",
         "Die Geeignetheit der Empfehlung, wesentliche Risiken, Bandbreiten, Kosten und mögliche Zielkonflikte wurden erläutert.",
-        "Ein allfälliger manueller Override des Risikoprofils wurde mit Begründung dokumentiert und vom Kunden bewusst bestätigt.",
+        "Eine allfällige manuelle Anpassung des Risikoprofils wurde mit Begründung dokumentiert und vom Kunden bewusst bestätigt.",
         "Der Kunde hat die relevanten Produkt-, Kosten- und Vertragsunterlagen erhalten oder weiss, wo diese verfügbar sind.",
         "Personendaten werden für Beratung, Dokumentation, gesetzliche Nachweise und Vertragserfüllung gemäss revDSG bearbeitet.",
         "Es bestehen keine Zusicherungen zu künftiger Rendite, Zielerreichung oder Verlustfreiheit.",

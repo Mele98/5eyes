@@ -53,7 +53,8 @@ LIMITING_FACTOR_LABELS: dict[str, str] = {
     # GOAL-ACHIEVABILITY-ATTRIBUTION-001: mehrere bindende Ziele scheitern am
     # SELBEN Engpass -- ein Konflikt, nicht mehrere.
     "gemeinsamer_engpass": "Gemeinsamer Engpass mehrerer Ziele (ein Konflikt)",
-    "solver_konvergenz": "Bandbreiten-Mittelwert (Optimierer-Fallback)",
+    # KN6 / N-917R5-02: kundengerecht statt «Optimierer-Fallback».
+    "solver_konvergenz": "Mittelwert der Profil-Bandbreiten (Ersatzberechnung, weil die Optimierung kein Ergebnis lieferte)",
 }
 
 

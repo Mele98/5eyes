@@ -255,7 +255,7 @@ def build_depotcheck_flowables(ctx: PDFContext, data: DepotCheckData) -> list:
         flowables.append(Paragraph(
             f'<font name="{FONT_BOLD}" size="8.5" color="#475569">'
             f'Datenstand: {_without_holdings_label(data)}. Reine SOLL-Zielportfolioanalyse '
-            'ohne Depot-Snapshot.</font>',
+            'ohne erfassten Depotbestand.</font>',
             make_paragraph_styles()["small"],
         ))
     if data.inputs_note:
@@ -285,15 +285,19 @@ def _without_holdings_label(data) -> str:
 
 
 def _snapshot_identity_line(data: DepotCheckData) -> str:
+    """DEPOT-E2E-SNAPSHOT-001: Identitätsnachweis des gespeicherten Bestands.
+
+    KN6 / N-917R5-02: im Kunden-PDF als Bestandsstichtag und Prüfsumme (die
+    ersten 8 Zeichen des Snapshot-Hashes), ohne interne Kennungen (UUIDs).
+    Die vollständigen Kennungen (Snapshot, Depot-Check, Hash) bleiben im
+    gespeicherten Depot-Check, im JSON und im Audit-Log; die Prüfsumme bindet
+    das PDF eindeutig an den gespeicherten Bestand."""
     try:
         stichtag = date.fromisoformat(str(data.as_of)).strftime("%d.%m.%Y")
     except ValueError:
         stichtag = str(data.as_of or "-")
-    return (
-        f"Datenstand: Depot-Snapshot {data.snapshot_id} "
-        f"(Hash {str(data.snapshot_hash or '')[:12]}), Stichtag {stichtag}; "
-        f"Depot-Check {data.analysis_snapshot_id or '-'}."
-    )
+    checksum = str(data.snapshot_hash or "")[:8] or "-"
+    return f"Datenstand: Bestandsstichtag {stichtag}, Prüfsumme {checksum}."
 
 
 def _start_page(

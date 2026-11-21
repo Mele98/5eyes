@@ -2,8 +2,8 @@
  "protokoll": {
   "page_text": [
    {
-    "chars": 918,
-    "sha256": "7f0aae489e5e7c357522acdcb79aed76c5604ebfcca3c1b368d2349dfc77eae9"
+    "chars": 907,
+    "sha256": "83256c68b4a3fa916c8cd0d0ffa149d9dceb662d43bd4d31618757621bb47571"
    },
    {
     "chars": 510,
@@ -15,8 +15,8 @@
  "risikoprofil": {
   "page_text": [
    {
-    "chars": 1889,
-    "sha256": "655594c409dd930a801857310e20ffd99da7dcf42c3e68bab73011cc6eea6375"
+    "chars": 1875,
+    "sha256": "d9662a6e9c37e607be37e15b44a291fd5bcd3c0f3d1db4c592dd0a2a2c7a91dc"
    },
    {
     "chars": 1587,

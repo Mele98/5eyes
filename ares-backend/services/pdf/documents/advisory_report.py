@@ -2735,9 +2735,9 @@ def _stress_replay_table(scenarios: list[dict], styles: dict) -> Table:
     ) or 1
     rows = [[
         _th("Szenario", styles),
-        _th("Return", styles),
-        _th("Max-Drawdown", styles),
-        _th("Recovery", styles),
+        _th("Rendite", styles),
+        _th("Max. Verlust", styles),
+        _th("Erholung", styles),
         _th("Zeitraum", styles),
     ]]
     for scenario in scenarios:
@@ -2819,7 +2819,7 @@ def _build_ab_backtest_flowables(ab: dict, styles: dict) -> list[Any]:
     """Read-only Policy-Vergleich im Advisory-Report-PDF."""
     out: list[Any] = []
     out.append(Paragraph("Sektion 18", styles["kicker"]))
-    out.append(Paragraph("Policy-A/B-Vergleich", styles["h1"]))
+    out.append(Paragraph("Strategievergleich A/B", styles["h1"]))
     out.append(Spacer(1, 4 * mm))
     out.append(_hr())
     out.append(Spacer(1, 5 * mm))
@@ -2835,9 +2835,10 @@ def _build_ab_backtest_flowables(ab: dict, styles: dict) -> list[Any]:
     policy_a = ab.get("policy_a") or {}
     policy_b = ab.get("policy_b") or {}
     out.append(Paragraph(
-        "Der Vergleich rechnet zwei House-Matrix-Policies auf demselben "
-        "Risikoprofil und derselben Kapitalmarktannahme. Er ist read-only "
-        "und isoliert den Policy-Effekt ohne Tilts, Goals oder Reserve-Logik.",
+        "Der Vergleich rechnet zwei hausinterne Strategiemodelle auf demselben "
+        "Risikoprofil und derselben Kapitalmarktannahme. Er dient nur der "
+        "Information und zeigt den Unterschied der Modelle ohne individuelle "
+        "Anpassungen, Ziele oder Liquiditätsreserve.",
         _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
     ))
     out.append(Spacer(1, 5 * mm))
@@ -2848,7 +2849,7 @@ def _build_ab_backtest_flowables(ab: dict, styles: dict) -> list[Any]:
     if stress:
         out.append(Spacer(1, 6 * mm))
         out.append(Paragraph(
-            "Stress-Replay-Differenz",
+            "Stress-Szenarien: Differenz",
             _ar_paragraph_style(
                 styles["caption"], color=COLOR_INK, font=FONT_SANS_BOLD,
             ),
@@ -2920,8 +2921,8 @@ def _ab_metrics_table(policy_a: dict, policy_b: dict, styles: dict) -> Table:
 def _ab_bucket_diff_table(rows_in: list[dict], styles: dict) -> Table:
     rows = [[
         _th("Anlageklasse", styles),
-        _th("Policy A", styles),
-        _th("Policy B", styles),
+        _th("Modell A", styles),
+        _th("Modell B", styles),
         _th("Delta B-A", styles),
     ]]
     for item in rows_in:
@@ -2951,10 +2952,10 @@ def _ab_bucket_diff_table(rows_in: list[dict], styles: dict) -> Table:
 def _ab_stress_diff_table(rows_in: list[dict], styles: dict) -> Table:
     rows = [[
         _th("Szenario", styles),
-        _th("Return A", styles),
-        _th("Return B", styles),
-        _th("Delta", styles),
-        _th("MaxDD A/B", styles),
+        _th("Rendite A", styles),
+        _th("Rendite B", styles),
+        _th("Differenz", styles),
+        _th("Max. Verlust A/B", styles),
     ]]
     for item in rows_in:
         rows.append([

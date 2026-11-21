@@ -120,7 +120,9 @@ def test_contract_signoff_documents_override_and_reason():
     )
     normalized = " ".join(text.split())
 
-    assert "Manueller Risikoprofil-Override dokumentiert" in text
+    # KN6 / N-917R5-03: «Override» -> «manuelle Anpassung des Risikoprofils».
+    assert "Manuelle Anpassung des Risikoprofils dokumentiert" in text
+    assert "Risikoprofil-Override" not in normalized and "dokumentierten Override" not in normalized
     assert "Kundenwunsch nach dokumentierter Besprechung" in text
     assert "ausdrücklich besprochen und bestätigt" in normalized
 
@@ -130,7 +132,8 @@ def test_contract_signoff_documents_no_override():
         ReportLabRenderer().render_contract_signoff(_ctx(), _data(overridden=False))
     )
 
-    assert "Kein manueller Override" in text
+    assert "Keine manuelle Anpassung des Risikoprofils" in text
+    assert "Kein manueller Override" not in text  # Fixture-Freitext darf «Override» enthalten
     assert "basiert auf dem dokumentierten Risikoprofil" in text
 
 

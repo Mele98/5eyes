@@ -52,6 +52,7 @@ from models.review import (
 )
 from price_updater import latest_price_snapshot, parse_iso_date, summarize_price_quality
 from core.band_rule import band_breach_bps
+from core.holdings_rule import CURRENT_RUN_STATUSES, select_valuation_runs
 from services.product_market_data import resolve_market_profile
 
 if TYPE_CHECKING:
@@ -708,7 +709,7 @@ def build_live_rebalancing_payload(
     }
 
 
-CURRENT_RUN_STATUSES = ("Draft", "Final")
+# CURRENT_RUN_STATUSES: aus core.holdings_rule (KN5 / N-917R4-03, eine Regel).
 
 
 def current_run_holdings(db: Session, mandate_id: str) -> tuple[RecommendationRun | None, list[RecommendationHolding]]:
@@ -720,10 +721,12 @@ def current_run_holdings(db: Session, mandate_id: str) -> tuple[RecommendationRu
     Quelle sind nur 'Draft'/'Final'. Je Position zaehlt die zuletzt geaenderte,
     nicht geloeschte Holding (wie ``upsert_position_holding``).
     """
-    run = db.query(RecommendationRun).filter(
+    # KN5 / N-917R4-03: Holdings-Lauf nach der gemeinsamen Regel
+    # (core.holdings_rule.select_valuation_runs, wie Depotcheck).
+    run = select_valuation_runs(db.query(RecommendationRun).filter(
         RecommendationRun.mandate_id == mandate_id,
         RecommendationRun.result_status.in_(CURRENT_RUN_STATUSES),
-    ).order_by(RecommendationRun.created_at.desc(), RecommendationRun.id.desc()).first()
+    ).order_by(RecommendationRun.created_at.desc(), RecommendationRun.id.desc()).all())[1]
     if run is None:
         return None, []
     rows = db.query(RecommendationHolding).filter(

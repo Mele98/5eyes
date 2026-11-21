@@ -784,9 +784,9 @@ def _make_preferences_section(preferences, styles, products=None) -> list:
     for key in THEME_DISPLAY_NAMES:
         mode = screened_themes.get(key) or tilts.get(key)
         if key in deviations:
-            continue  # eigene Zeile "Abweichungen von der ESG-Policy"
+            continue  # eigene Zeile "Abweichungen von der ESG-Vorgabe"
         if mode == "overweight":
-            restrictions.append(f"{THEME_DISPLAY_NAMES[key]} uebergewichten")
+            restrictions.append(f"{THEME_DISPLAY_NAMES[key]} übergewichten")
         elif mode == THEME_TILT_ALLOW:
             restrictions.append(f"{THEME_DISPLAY_NAMES[key]} bewusst zugelassen")
         elif mode in tilt_actions:
@@ -800,14 +800,15 @@ def _make_preferences_section(preferences, styles, products=None) -> list:
     if deviations:
         deviation_texts = []
         for key, item in deviations.items():
-            action = "bewusst zugelassen" if item["mode"] == THEME_TILT_ALLOW else "uebergewichtet"
+            action = "bewusst zugelassen" if item["mode"] == THEME_TILT_ALLOW else "übergewichtet"
             text_ = f"{THEME_DISPLAY_NAMES[key]} {action}"
             if item["reason"]:
                 text_ += f" -- Begründung: {item['reason']}"
             else:
                 text_ += " -- keine Begründung erfasst"
             deviation_texts.append(text_)
-        rows.append(["Abweichungen von der ESG-Policy", "; ".join(deviation_texts)])
+        # KN6 / N-917R5-02: Kundentext «ESG-Vorgabe» (wie die Zeile «ESG-Vorgabe») statt «ESG-Policy»; «Nachhaltig…» ist als ESG-Claim gesperrt (ESG_CUSTOMER_CLAIM_LABELS).
+        rows.append(["Abweichungen von der ESG-Vorgabe", "; ".join(deviation_texts)])
     # ESG-SEED-PROVENANCE-001: keine positive ESG-Aussage auf unbelegten Seed-Werten.
     from services.esg_data_provenance import customer_esg_data_caveat
 
@@ -920,7 +921,7 @@ def _make_kennzahlen_hinweise_section(styles) -> list:
         ),
         (
             "Dokumentation",
-            "Abweichungen, Berater-Overrides, fehlende Informationen und besondere "
+            "Abweichungen, manuelle Anpassungen durch den Berater, fehlende Informationen und besondere "
             "Kundenentscheide müssen im Beratungsprotokoll festgehalten werden. Eine "
             "Strategie darf nur umgesetzt werden, wenn die Eignungsprüfung vollständig "
             "und plausibel dokumentiert ist."

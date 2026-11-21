@@ -91,7 +91,7 @@ def make_backtest_metrics_table(
             cells.append(Paragraph(style, _cell_style()))
         rows.append(cells)
 
-    add_row("Total-Return",
+    add_row("Gesamtrendite",
             lambda m: _fmt_signed_pct_bps(int(m.get("total_return_bps", 0) or 0)))
     add_row("CAGR (annualisiert)",
             lambda m: _fmt_signed_pct_bps(int(m.get("cagr_bps", 0) or 0), decimals=2))

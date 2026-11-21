@@ -163,7 +163,8 @@ def _draw_advisory_page_chrome(
     canvas.drawString(
         MARGIN_LEFT + 16 * mm,
         header_y,
-        f"Depotcheck  ·  {mandate_number}",
+        # KN6 / N-917R5-03: Seitenkopf = Dokumentname (Advisory-Report), nicht «Depotcheck».
+        f"Advisory-Report  ·  {mandate_number}",
     )
 
     if total_pages:
