@@ -83,8 +83,9 @@ def _assert_mismatch(session, expected: str) -> dict:
     assert view["signoff_binding_verified"] is False
     assert expected in view["integrity_mismatches"], view["integrity_mismatches"]
     joined = _lines(view)
-    assert "Hash verifiziert" not in joined
-    assert "Fachliche Bindung NICHT verifiziert" in joined
+    # KN9 (H-182): Kundensprache (vorher «Hash verifiziert»/«Fachliche Bindung NICHT verifiziert»).
+    assert "Nachweis geprüft" not in joined
+    assert "Die Signatur passt nicht mehr zum aktuellen Risikoprofil (Abweichung: " in joined
     # API (ORM-Property) und Strategie-Meldung nutzen denselben Verifier.
     assert ra.signoff_state == STATE_INTEGRITY_MISMATCH
     if int(ra.is_overridden or 0) == 1 and ra.override_score_x10 is not None:
@@ -107,7 +108,7 @@ def test_unchanged_signoff_is_fully_verified_with_two_statements(seeded):
     assert view["signoff_row_verified"] is True and view["signoff_binding_verified"] is True
     assert view["integrity_mismatches"] == []
     joined = _lines(view)
-    assert "Hash verifiziert" in joined and "fachliche Bindung" in joined
+    assert "Nachweis geprüft: unverändert und an das aktuelle Risikoprofil gebunden" in joined
 
 
 @pytest.mark.parametrize(
@@ -209,13 +210,14 @@ def test_document_binding_verified_then_unverifiable_after_change(seeded):
     view = build_signoff_view(session, _fresh(session))
     assert view["signoff_verified"] is True
     assert view["document_binding_status"] == "verified"
-    assert "Dokument-Hash verifiziert" in _lines(view)
+    assert "Dokument unverändert (geprüft)" in _lines(view)
 
     session.execute(text("UPDATE contract_documents SET checksum_sha256 = 'd' WHERE id = 'doc-1'"))
     session.commit()
     view = _assert_mismatch(session, "document")
     assert view["document_binding_status"] == "document_unverifiable"
-    assert "Dokument-Hash verifiziert" not in _lines(view)
+    assert "Dokument unverändert (geprüft)" not in _lines(view)
+    assert "signiertes Dokument" in _lines(view)
 
 
 def test_document_soft_deleted_is_unverifiable(seeded):

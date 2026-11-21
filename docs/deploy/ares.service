@@ -1,0 +1,39 @@
+# systemd-Unit für das Ares-Backend (Phase-0 Staging).
+# -> /etc/systemd/system/ares.service
+#
+# Verzeichnisse (Ziel-Layout):
+#   /opt/ares          Programm (Git-Checkout + venv), nur lesbar
+#   /etc/ares          Konfiguration (ares.env)
+#   /var/lib/ares      Daten (DB, Backups, Erasure-Ledger)
+#   /var/log/ares      Logs
+[Unit]
+Description=Ares Backend (FastAPI/uvicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=ares
+Group=ares
+WorkingDirectory=/opt/ares/ares-backend
+EnvironmentFile=/etc/ares/ares.env
+# Gunicorn mit uvicorn-Workern; Bind NUR lokal (Caddy ist der öffentliche Eintritt).
+ExecStart=/opt/ares/ares-backend/.venv/bin/gunicorn main:app \
+    --workers 2 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind 127.0.0.1:8000 \
+    --timeout 120
+Restart=on-failure
+RestartSec=3
+# Legt /var/lib/ares, /var/log/ares und /etc/ares mit Eigentuemer ares an.
+StateDirectory=ares
+LogsDirectory=ares
+ConfigurationDirectory=ares
+# Härtung
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/ares /var/log/ares
+
+[Install]
+WantedBy=multi-user.target

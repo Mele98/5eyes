@@ -3,6 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
+from core.db_integrity import raise_if_check_violation
+from core.reason_codes import DomainError, ReasonCode
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timezone
 from database import get_db, new_uuid
@@ -18,12 +20,21 @@ from schemas.wealth import (
     WealthInflowCreate, WealthInflowUpdate, WealthInflowResponse,
     MaxPensionSpendingRequest, MaxPensionSpendingResponse,
     FinancialCoverageAttestationCreate,
+    allocation_total_is_100,
+    depot_allocation_message,
+    normalized_allocation,
 )
 from services.auth import get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, require_advisor
 from services.audit import log
 from services.advisory_report_cache import invalidate_mandate as invalidate_advisory_cache
 from services.cashflow_timeline import SUPPORTED_FREQUENCIES, normalize_frequency, normalize_nature
 from services.data_classification import enforce_data_classification
+from core.property_gate import (  # K1 Property-Gate
+    DISABLED_HINT as PROPERTY_GATE_HINT,
+    MIXED_HINT as MORTGAGE_MIXED_HINT,
+    disabled_features as property_disabled_features,
+    mixed_mortgage_rejected,
+)
 from services.goal_lifecycle_transitions import (
     invalidate_goal_achievability_evidence,
 )
@@ -41,6 +52,20 @@ router = APIRouter(tags=["Vermögen & Ziele"])
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def require_property_write_allowed(position_type, values: dict) -> None:
+    """K1 Property-Gate: 409 statt stillem Ignorieren (core.property_gate)."""
+    features = property_disabled_features(position_type, values)
+    if features:
+        raise DomainError(ReasonCode.PROPERTY_ADVANCED_FEATURE_DISABLED, PROPERTY_GATE_HINT,
+                          extra={"features": features})
+
+
+def require_mortgage_type_allowed(position_type, new_type, current_type=None) -> None:
+    """K1 PROP-2: "Gemischt" nur noch als unveraenderter Altbestand."""
+    if mixed_mortgage_rejected(position_type, new_type, current_type):
+        raise DomainError(ReasonCode.MORTGAGE_TYPE_MIXED_REJECTED, MORTGAGE_MIXED_HINT, http_status=422)
 
 
 def _validate_position_projection_or_422(
@@ -570,7 +595,13 @@ def _resolve_goal_rank_conflict(
     return int(max_rank or 0) + 1
 
 
-_AMORTIZATION_LABEL_RE = re.compile(r"\b(tilgung|amortisation|amortization)\b", re.IGNORECASE)
+# KN-B / N-917-01: ohne Wortgrenzen -- deutsche Komposita ("Hypothekar-
+# amortisation", "Amortisationszahlung (Hypothek)", "Hypothekartilgung") haben
+# keine interne Wortgrenze. Wirkt nur bei aktiver Hypothek des Kunden.
+_AMORTIZATION_LABEL_RE = re.compile(r"tilgung|amorti[sz]", re.IGNORECASE)
+# Hypothekarzins auch als "Hypozins", "Schuldzins (Eigenheim)", "Eigenheimzins";
+# nicht "Mietzins", "Sparzins", "Zinsertrag Sparkonto".
+_MORTGAGE_INTEREST_CONTEXT = ("hypo", "schuldzins", "eigenheim")
 # Mieteinnahmen werden von derive_wealth_cashflows() JEDER aktiven Immobilie
 # mit Wert > 0 automatisch als "Mieteinnahmen: {label}"-Income hinzugefuegt.
 _RENTAL_INCOME_LABEL_RE = re.compile(r"\bmiet\w*", re.IGNORECASE)
@@ -595,7 +626,7 @@ def _is_mortgage_interest_label(label) -> bool:
     if not label:
         return False
     normalized = str(label).lower()
-    return "hypothek" in normalized and "zins" in normalized
+    return "zins" in normalized and any(term in normalized for term in _MORTGAGE_INTEREST_CONTEXT)
 
 
 def _is_rental_income_label(label) -> bool:
@@ -701,7 +732,10 @@ def _validate_no_manual_flow_duplicated_by_new_position(
     derive_wealth_cashflows() denselben Flow zusaetzlich abzuleiten, ohne dass
     beim Anlegen der Position geprueft wurde. Audit-Repro: zuerst manueller
     Tilgungsflow (10'000), dann Hypothek angelegt -> 20'000 statt 10'000."""
-    if str(position_type or "") == "Hypothek" and str(assignment or "") == "Verbindlichkeit":
+    if (
+        str(position_type or "") == "Hypothek"
+        and str(assignment or "") == "Verbindlichkeit"
+    ):
         conflicting = db.query(Cashflow).filter(
             Cashflow.client_id == client_id,
             Cashflow.cashflow_type == "Expense",
@@ -750,6 +784,41 @@ def _validate_no_manual_flow_duplicated_by_new_position(
                         "Cashflow zuerst entfernen."
                     ),
                 )
+
+
+def _derives_rent(position_type, current_value_rappen, rental_income_rappen, is_active=1) -> bool:
+    """Exakt die Bedingung, unter der derive_wealth_cashflows() Miete ableitet."""
+    return (
+        str(position_type or "") == "Immobilien"
+        and int(is_active if is_active is not None else 1) == 1
+        and int(current_value_rappen or 0) > 0
+        and int(rental_income_rappen or 0) > 0
+    )
+
+
+def _validate_no_manual_flow_duplicated_by_position_update(
+    client_id: str, wp: WealthPosition, updates: dict, db: Session,
+) -> None:
+    """K1 / PROP-5 (Dok. 116): der Duplikat-Schutz galt nur beim Anlegen einer
+    Position. Eine Aenderung, die eine abgeleitete Miete NEU entstehen laesst
+    (Wert 0 -> > 0, Miete 0 -> > 0, Reaktivierung), wird gegen bestehende
+    manuelle Mietertrags-Cashflows geprueft wie der Create-Pfad. Hypothekar-
+    Cashflows leitet das Property-Gate nicht ab; dort entsteht keine Dublette."""
+    before = _derives_rent(
+        wp.position_type, wp.current_value_rappen, wp.property_rental_income_rappen, wp.is_active,
+    )
+    after = _derives_rent(
+        wp.position_type,
+        updates.get("current_value_rappen", wp.current_value_rappen),
+        updates.get("property_rental_income_rappen", wp.property_rental_income_rappen),
+        updates.get("is_active", wp.is_active),
+    )
+    if before or not after:
+        return
+    _validate_no_manual_flow_duplicated_by_new_position(
+        client_id, wp.position_type, wp.assignment,
+        updates.get("current_value_rappen", wp.current_value_rappen), db,
+    )
 
 
 def _validate_mortgage_link(client_id: str, data: dict, db: Session) -> None:
@@ -995,6 +1064,8 @@ def create_wealth_position(
         data.get("mortgage_amortization_type"),
         data.get("asset_expected_return_bps"),
     )
+    require_property_write_allowed(data.get("position_type"), data)
+    require_mortgage_type_allowed(data.get("position_type"), data.get("mortgage_type"))
     client = get_client_for_user_or_404(client_id, db, current_user)
     now = _now()
     # Convert booleans to integers for SQLite
@@ -1064,6 +1135,15 @@ def update_wealth_position(
             wp.asset_expected_return_bps,
         ),
     )
+    # N-913-05: gegen den zusammengefuehrten Zustand pruefen (z. B. Vehikelwechsel
+    # zur Police bei gesetztem Goal-Funding-Flag), nicht nur gegen die gesendeten Felder.
+    merged_gate_fields = ("is_available_for_goal_funding", "goal_funding_method", "asset_expected_return_bps",
+                          "pension_vehicle")
+    require_property_write_allowed(
+        wp.position_type, {f: updates.get(f, getattr(wp, f, None)) for f in merged_gate_fields},
+    )
+    if "mortgage_type" in updates:
+        require_mortgage_type_allowed(wp.position_type, updates["mortgage_type"], wp.mortgage_type)
     # C10.2: exclude_unset erlaubt explizites Null-Setzen ("clear"). exclude_none
     # haette ein None-Update verschluckt und keine Felder gecleared.
     # C10.2: Wenn alloc_*-Felder im Update sind, muss die GEMERGTE Verteilung
@@ -1081,15 +1161,22 @@ def update_wealth_position(
                     "Vorsorge-Positionen zulässig."
                 ),
             )
-        if total != 0 and total != 10000:
+        # KN3-B / E2E3-08: ein Depot braucht immer eine vollstaendige Aufteilung
+        # (keine angenommene Aufteilung); Vorsorge darf weiter "alle 0" tragen.
+        # KN4-B / N-917R3-08: gleiche Toleranz wie die Oberflaeche (100.0 % nach
+        # Rundung auf 0.1 %); der Rundungsrest wird auf exakt 10'000 bps normiert.
+        if wp.position_type == "Depot" and not allocation_total_is_100(total):
+            raise HTTPException(status_code=422, detail=depot_allocation_message(total))
+        if total != 0 and not allocation_total_is_100(total):
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    f"Allokation muss zusammen 10000 bps oder alle 0 ergeben "
-                    f"(aktuelle Summe: {total}). Bitte alle alloc_*-Felder zusammen "
-                    f"updaten oder auf 0 zuruecksetzen."
+                    "Die Aufteilung muss zusammen 100 % ergeben oder ganz leer bleiben "
+                    f"(erfasst: {total / 100:g} %)."
                 ),
             )
+        if total:
+            updates.update(normalized_allocation(merged))
     _validate_mortgage_link(client_id, updates, db)
     if (
         "is_active" in updates
@@ -1098,6 +1185,7 @@ def update_wealth_position(
     ):
         _block_if_property_has_active_linked_mortgages(wp, client_id, db)
     _block_if_pension_source_has_active_transfer(wp, client_id, db, updates=updates)
+    _validate_no_manual_flow_duplicated_by_position_update(client_id, wp, updates, db)
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0
@@ -1312,41 +1400,120 @@ def reorder_goals(
     Muss VOR ``/goals/{goal_id}`` registriert sein, sonst faengt die
     Einzelziel-Route den Pfad ``order`` ab.
     """
+    from sqlalchemy.exc import OperationalError
+
     from services.goal_reorder import (
+        GOAL_ORDER_CHANGED_DETAIL,
         GoalOrderConflictError,
         GoalOrderError,
+        acquire_goal_order_write_lock,
+        is_goal_order_lock_conflict,
+        is_goal_rank_unique_violation,
         resolve_goal_order,
     )
 
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
-    goals = db.query(Goal).filter(
-        Goal.mandate_id == mandate_id,
-        Goal.deleted_at.is_(None),
-        Goal.is_active == 1,
-    ).all()
+    # N-868-2: Sperre VOR dem Lesen, damit die expected_goal_ids-Pruefung
+    # (CAS) und das Schreiben denselben, nicht mehr aenderbaren Stand sehen.
+    try:
+        acquire_goal_order_write_lock(db)
+    except OperationalError as exc:
+        db.rollback()
+        if "locked" in str(getattr(exc, "orig", exc)).lower():
+            raise HTTPException(status_code=409, detail=GOAL_ORDER_CHANGED_DETAIL) from exc
+        raise
+    try:
+        goals = (
+            db.query(Goal)
+            .filter(
+                Goal.mandate_id == mandate_id,
+                Goal.deleted_at.is_(None),
+                Goal.is_active == 1,
+            )
+            # H-868-D1: feste Sperrreihenfolge (PG FOR UPDATE), sonst koennen
+            # zwei Reorders Zeilensperren gegenlaeufig nehmen -> Deadlock.
+            .order_by(Goal.id)
+            .with_for_update()
+            .populate_existing()
+            .all()
+        )
+    except OperationalError as exc:
+        # H-868-D1: PG-Deadlock/Lock-Timeout entsteht beim SELECT, nicht in
+        # acquire_goal_order_write_lock -> ebenfalls 409 statt 500.
+        db.rollback()
+        if is_goal_order_lock_conflict(exc):
+            raise HTTPException(status_code=409, detail=GOAL_ORDER_CHANGED_DETAIL) from exc
+        raise
     try:
         new_ranks = resolve_goal_order(goals, body.goal_ids, body.expected_goal_ids)
     except GoalOrderConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except GoalOrderError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        changed = _write_goal_ranks(db, goals, new_ranks, mandate, current_user)
+    except IntegrityError as exc:
+        # N-868-2, Restfall ohne Sperre (z.B. bereits laufende Transaktion):
+        # ein paralleler Reorder hat dazwischen committet. Kein 500, kein
+        # Teilstand -- der Client laedt neu und sortiert erneut.
+        db.rollback()
+        if is_goal_rank_unique_violation(exc):
+            raise HTTPException(status_code=409, detail=GOAL_ORDER_CHANGED_DETAIL) from exc
+        raise
+    except OperationalError as exc:
+        db.rollback()
+        if is_goal_order_lock_conflict(exc):
+            raise HTTPException(status_code=409, detail=GOAL_ORDER_CHANGED_DETAIL) from exc
+        raise
+    if changed:
+        invalidate_advisory_cache(mandate_id)
+    return sorted(goals, key=lambda g: int(g.rank))
+
+
+def _write_goal_ranks(db: Session, goals, new_ranks: dict, mandate, current_user) -> bool:
+    """Schreibt die neuen Raenge in zwei Phasen und committet."""
+    mandate_id = mandate.id
     now = _now()
-    changed = False
-    for goal in goals:
-        rank = new_ranks[str(goal.id)]
-        if int(goal.rank or 0) != rank:
-            goal.rank = rank
+    moved = [goal for goal in goals if int(goal.rank or 0) != new_ranks[str(goal.id)]]
+    changed = bool(moved)
+    if moved:
+        # N-865-1: Der partielle Unique-Index ux_goals_rank_active (Rohschema,
+        # Desktop/SQLite) wird nach JEDER Zeile geprueft. Ein direktes
+        # zeilenweises Umschreiben kollidierte beim ersten Tausch mit dem noch
+        # unveraenderten Nachbarn -> IntegrityError -> 500. Deshalb zwei
+        # Phasen in derselben Transaktion:
+        #   1) verschobene Ziele auf Zwischenraenge OBERHALB aller belegten
+        #      Raenge (CHECK rank >= 1 verbietet negative Werte), flush;
+        #   2) Zielraenge setzen. Unverschobene Ziele halten bereits ihren
+        #      Zielrang, die Zwischenraenge sind paarweise verschieden.
+        # Der Audit protokolliert nur den Endzustand (ein UPDATE je Ziel).
+        offset = max([int(goal.rank or 0) for goal in goals] + [len(goals)])
+        for goal in moved:
+            goal.rank = offset + new_ranks[str(goal.id)]
+        db.flush()
+        for goal in moved:
+            goal.rank = new_ranks[str(goal.id)]
             goal.updated_at = now
-            changed = True
             log(db, user_id=current_user.id, user_name=current_user.full_name,
                 table_name="goals", record_id=goal.id, action="UPDATE",
                 mandate_id=mandate_id, client_id=mandate.client_id)
     if changed:
         _invalidate_achievement_scores_for_mandate(mandate_id, db)
     db.commit()
-    if changed:
-        invalidate_advisory_cache(mandate_id)
-    return sorted(goals, key=lambda g: int(g.rank))
+    return changed
+
+
+GOAL_RANK_ADJUSTED_NOTICE = (
+    "Priorität angepasst – der frühere Rang ist inzwischen belegt, das Ziel "
+    "steht jetzt am Ende. Bitte Reihenfolge prüfen und Strategie neu berechnen."
+)
+# H-868-D2: Reaktivierung mit ausdruecklichem, aber belegtem Wunschrang; das
+# Ziel behaelt seinen frueheren (freien) Rang.
+GOAL_RANK_REQUEST_NOT_APPLIED_NOTICE = (
+    "Gewünschte Priorität nicht übernommen – der gewünschte Rang ist belegt, "
+    "das Ziel behält seinen früheren Rang. Reihenfolge bitte über „Reihenfolge "
+    "festlegen“ ändern und Strategie neu berechnen."
+)
 
 
 @router.put("/mandates/{mandate_id}/goals/{goal_id}", response_model=GoalResponse)
@@ -1369,11 +1536,35 @@ def update_goal(
     updates = _normalize_goal_payload(updates, goal)
     _validate_goal_link(mandate.client_id, updates, db)
     new_rank = updates.get("rank")
+    requested_rank = int(new_rank) if new_rank is not None else None
     if new_rank is not None and int(new_rank) != int(goal.rank or 0):
         # Sprint 2026-06-06 Fix: Rang-Konflikt beim Update auto-aufloesen statt 409.
         updates["rank"] = _resolve_goal_rank_conflict(
             mandate_id, int(new_rank), db, existing_id=goal_id,
         )
+    rank_adjustment: tuple[int, int] | None = None
+    rank_notice = GOAL_RANK_ADJUSTED_NOTICE
+    previous_rank = int(goal.rank or 0)
+    if updates.get("is_active") and not int(goal.is_active or 0):
+        # N-865-1 (Geschwister-Pfad): Ein reaktiviertes Ziel tritt wieder
+        # unter ux_goals_rank_active. Belegt inzwischen ein aktives Ziel
+        # seinen Rang, wuerde der Commit am Index scheitern (500).
+        # N-868-3 (Entscheid Owner-Vertretung): frueherer Rang frei -> das
+        # Ziel behaelt ihn; belegt -> ans Ende, aber NICHT still: Response
+        # und Audit nennen alten und neuen Rang, weil der Rang die
+        # Prioritaet (Gewicht, Hauptziel) bestimmt. Das Ziel selbst ist noch
+        # inaktiv und zaehlt in der Belegt-Pruefung nicht.
+        wanted = int(updates.get("rank") or goal.rank or 1)
+        updates["rank"] = _resolve_goal_rank_conflict(mandate_id, wanted, db)
+        if int(updates["rank"]) != wanted:
+            rank_adjustment = (requested_rank or wanted, int(updates["rank"]))
+        elif requested_rank is not None and requested_rank != int(updates["rank"]):
+            # H-868-D2: Der ausdrueckliche Wunschrang war belegt, der fruehere
+            # Rang ist frei. Kein Hochstufen per Edit (GOAL-RANK-HARDNESS-
+            # ROUNDTRIP-001), aber der verworfene Wunsch wird nicht still
+            # uebergangen: Response-Hinweis und Rang-Audit (Wunsch -> Ergebnis).
+            rank_adjustment = (requested_rank, int(updates["rank"]))
+            rank_notice = GOAL_RANK_REQUEST_NOT_APPLIED_NOTICE
     for field, value in updates.items():
         if isinstance(value, bool):
             value = 1 if value else 0
@@ -1381,12 +1572,32 @@ def update_goal(
     # Sprint 2026-06-08 Fix B: Achievability invalidieren — Goal-Target-Aenderung
     # macht alle gespeicherten Scores potenziell stale.
     _invalidate_achievement_scores_for_mandate(mandate_id, db)
+    # N-873-02: Das unveraenderliche Audit haelt nur tatsaechliche Werte fest:
+    # "rank" = bisheriger -> neuer Rang (nur bei echtem Wechsel). Ein
+    # verworfener Wunschrang (H-868-D2) ist ein eigener Eintrag
+    # "rank_requested", nie ein angeblicher Altwert.
+    final_rank = int(updates.get("rank", previous_rank) or 0)
+    rank_audit = (
+        {"field_name": "rank", "old_value": str(previous_rank), "new_value": str(final_rank)}
+        if rank_adjustment and final_rank != previous_rank else {}
+    )
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="goals", record_id=goal_id, action="UPDATE",
-        mandate_id=mandate_id, client_id=mandate.client_id)
+        mandate_id=mandate_id, client_id=mandate.client_id, **rank_audit)
+    if rank_adjustment and requested_rank is not None and requested_rank != final_rank:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="goals", record_id=goal_id, action="UPDATE",
+            mandate_id=mandate_id, client_id=mandate.client_id,
+            field_name="rank_requested", old_value=None, new_value=str(requested_rank))
     db.commit()
     db.refresh(goal)
     invalidate_advisory_cache(mandate_id)
+    if rank_adjustment:
+        return GoalResponse.model_validate(goal).model_copy(update={
+            "rank_adjusted_from": rank_adjustment[0],
+            "rank_adjusted_to": rank_adjustment[1],
+            "rank_adjustment_notice": rank_notice,
+        })
     return goal
 
 
@@ -1506,6 +1717,8 @@ def create_goal_revision_decision(
         ) from exc
     except IntegrityError as exc:
         db.rollback()
+        # RC-CH-1-F1: CHECK-Verstoss -> zentraler Handler (422), kein Konflikt.
+        raise_if_check_violation(exc)
         raise HTTPException(
             status_code=409,
             detail={

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 from typing import Any
 
 
@@ -113,175 +115,175 @@ TWELVEDATA_EXCHANGE_NAME_BY_CODE = {
 
 
 DEFAULT_PRODUCT_MARKET_CATALOG: dict[str, dict[str, Any]] = {
-    "iShares Core SPI ETF": {
+    "Musterprodukt Aktien Schweiz": {
         "lookup_mode": "proxy",
         "lookup_symbol": "EWL",
-        "pricing_note": "Proxy via iShares MSCI Switzerland ETF, bis exakte SIX-Titelkurse kuratiert sind.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "SPDR Swiss Small Cap ETF": {
+    "Musterprodukt Aktien Schweiz Small/Mid": {
         "lookup_mode": "proxy",
         "lookup_symbol": "IJR",
-        "pricing_note": "Small-cap Proxy bis ein dedizierter Schweiz Small/Mid Lookup gepflegt ist.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "iShares Core MSCI World UCITS ETF": {
+    "Musterprodukt Aktien Global": {
         "lookup_mode": "proxy",
         "lookup_symbol": "URTH",
-        "pricing_note": "World-Equity Proxy fuer die UCITS Share Class.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "Vanguard FTSE Developed Europe ETF": {
+    "Musterprodukt Aktien Europa": {
         "lookup_mode": "proxy",
         "lookup_symbol": "VGK",
-        "pricing_note": "Europa-Proxy ueber die liquide Vanguard Developed Europe Line.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "iShares Core MSCI EM IMI ETF": {
+    "Musterprodukt Aktien Schwellenlaender": {
         "lookup_mode": "proxy",
         "lookup_symbol": "IEMG",
-        "pricing_note": "Emerging-Markets IMI Proxy fuer die UCITS Share Class.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "VanEck Defense UCITS ETF": {
+    "Musterprodukt Thema Verteidigung": {
         "lookup_mode": "proxy",
         "lookup_symbol": "ITA",
-        "pricing_note": "Defense-Proxy bis exakte UCITS-Symbole final kuratiert sind.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "Energy Select Sector ETF": {
+    "Musterprodukt Thema Fossile Energie": {
         "lookup_mode": "direct",
         "lookup_symbol": "XLE",
-        "pricing_note": "Direkter Marktpreis ueber das gelistete Produkt.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis ueber das hinterlegte Symbol.",
     },
-    "Consumer Staples Tobacco Tilt ETF": {
+    "Musterprodukt Thema Tabak": {
         "lookup_mode": "proxy",
         "lookup_symbol": "PM",
-        "pricing_note": "Tobacco-Tilt Proxy ueber Philip Morris als Themen-Stellvertreter.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "Global Beverage Leaders ETF": {
+    "Musterprodukt Thema Alkohol": {
         "lookup_mode": "proxy",
         "lookup_symbol": "STZ",
-        "pricing_note": "Beverage-Proxy ueber Constellation Brands bis ein ETF-Lookup gepflegt ist.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "Roundhill Sports Betting ETF": {
+    "Musterprodukt Thema Gluecksspiel": {
         "lookup_mode": "direct",
         "lookup_symbol": "BETZ",
-        "pricing_note": "Direkter Marktpreis ueber das gelistete Produkt.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis ueber das hinterlegte Symbol.",
     },
-    "VanEck Uranium and Nuclear ETF": {
+    "Musterprodukt Thema Kernenergie": {
         "lookup_mode": "proxy",
         "lookup_symbol": "NLR",
-        "pricing_note": "Nuclear-Proxy bis exakte UCITS-Symbole final kuratiert sind.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "Swisscanto Bond CHF": {
+    "Musterprodukt Obligationen CHF IG": {
         "lookup_mode": "proxy",
         "lookup_symbol": "BND",
-        "pricing_note": "IG-Bond Proxy bis eine saubere CHF-Anleihen-Linie integriert ist.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "iShares Global Aggregate Bond CHF Hedged": {
+    "Musterprodukt Obligationen Global CHF-abgesichert": {
         "lookup_mode": "proxy",
         "lookup_symbol": "IAGG",
-        "pricing_note": "Global Aggregate Bond Proxy fuer die CHF-hedged Share Class.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "PIMCO High Yield Fund": {
+    "Musterprodukt Obligationen High Yield": {
         "lookup_mode": "proxy",
         "lookup_symbol": "HYG",
-        "pricing_note": "High-Yield Proxy ueber den liquiden ETF-Markt.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "EM Local Bond Opportunities": {
+    "Musterprodukt Obligationen Emerging": {
         "lookup_mode": "proxy",
         "lookup_symbol": "EMLC",
-        "pricing_note": "EM Local Bond Proxy ueber den liquiden ETF-Markt.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "Swisscanto Real Estate Fund": {
+    "Musterprodukt Immobilien Schweiz": {
         "lookup_mode": "proxy",
         "lookup_symbol": "RWO",
-        "pricing_note": "Immobilien-Proxy bis der exakte CHF-RE-Fund-Feed gepflegt ist.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "iShares Developed Markets Property Yield": {
+    "Musterprodukt Immobilien Global": {
         "lookup_mode": "proxy",
         "lookup_symbol": "REET",
-        "pricing_note": "Property-Yield Proxy ueber den liquiden REIT-Markt.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "ZKB Gold ETF": {
+    "Musterprodukt Gold / Rohstoffe": {
         "lookup_mode": "proxy",
         "lookup_symbol": "GLD",
-        "pricing_note": "Gold-Proxy bis der exakte ZKB-Lookup finalisiert ist.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "JPM Global Macro Opportunities": {
+    "Musterprodukt Liquid Alternatives": {
         "lookup_mode": "proxy",
         "lookup_symbol": "QAI",
-        "pricing_note": "Multi-Strategy Proxy fuer makrobasierten Alternatives-Exposure.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "Man AHL TargetRisk": {
+    "Musterprodukt Hedge Funds": {
         "lookup_mode": "proxy",
         "lookup_symbol": "KMLM",
-        "pricing_note": "Managed-Futures Proxy fuer die AHL-Strategieklasse.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "Partners Group Listed PE": {
+    "Musterprodukt Private Equity": {
         "lookup_mode": "proxy",
         "lookup_symbol": "PSP",
-        "pricing_note": "Listed-Private-Equity Proxy ueber den liquiden ETF-Markt.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "21Shares Core Bitcoin ETP": {
+    "Musterprodukt Krypto": {
         "lookup_mode": "proxy",
         "lookup_symbol": "IBIT",
-        "pricing_note": "Bitcoin-Proxy ueber den liquiden Spot-ETF-Markt.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
     # 2026-08-22 (hedgingRequired-Katalogluecke, siehe portfolio_engine.py::
     # ensure_default_products): CHF-gehedgte Pendants teilen sich denselben
     # Basiswert/Index wie ihr unhedged Original -- reiner Waehrungs-Hedge,
     # daher gleicher Proxy-Lookup wie das Original (die Kursverlaufsform ist
     # praktisch identisch, nur die Basiswaehrung unterscheidet sich).
-    "iShares Core MSCI World UCITS ETF CHF Hedged": {
+    "Musterprodukt Aktien Global CHF-abgesichert": {
         "lookup_mode": "proxy",
         "lookup_symbol": "URTH",
-        "pricing_note": "World-Equity Proxy fuer die CHF-gehedgte Share Class.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "Vanguard FTSE Developed Europe ETF CHF Hedged": {
+    "Musterprodukt Aktien Europa CHF-abgesichert": {
         "lookup_mode": "proxy",
         "lookup_symbol": "VGK",
-        "pricing_note": "Europa-Proxy fuer die CHF-gehedgte Share Class.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "iShares Core MSCI EM IMI ETF CHF Hedged": {
+    "Musterprodukt Aktien Schwellenlaender CHF-abgesichert": {
         "lookup_mode": "proxy",
         "lookup_symbol": "IEMG",
-        "pricing_note": "Emerging-Markets IMI Proxy fuer die CHF-gehedgte Share Class.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "VanEck Defense UCITS ETF CHF Hedged": {
+    "Musterprodukt Thema Verteidigung CHF-abgesichert": {
         "lookup_mode": "proxy",
         "lookup_symbol": "ITA",
-        "pricing_note": "Defense-Proxy fuer die CHF-gehedgte Share Class.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "Energy Select Sector ETF CHF Hedged": {
+    "Musterprodukt Thema Fossile Energie CHF-abgesichert": {
         "lookup_mode": "direct",
         "lookup_symbol": "XLE",
-        "pricing_note": "Direkter Marktpreis ueber das gelistete Produkt (CHF-gehedgte Share Class).",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis ueber das hinterlegte Symbol.",
     },
-    "Consumer Staples Tobacco Tilt ETF CHF Hedged": {
+    "Musterprodukt Thema Tabak CHF-abgesichert": {
         "lookup_mode": "proxy",
         "lookup_symbol": "PM",
-        "pricing_note": "Tobacco-Tilt Proxy fuer die CHF-gehedgte Share Class.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "Roundhill Sports Betting ETF CHF Hedged": {
+    "Musterprodukt Thema Gluecksspiel CHF-abgesichert": {
         "lookup_mode": "direct",
         "lookup_symbol": "BETZ",
-        "pricing_note": "Direkter Marktpreis ueber das gelistete Produkt (CHF-gehedgte Share Class).",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis ueber das hinterlegte Symbol.",
     },
-    "VanEck Uranium and Nuclear ETF CHF Hedged": {
+    "Musterprodukt Thema Kernenergie CHF-abgesichert": {
         "lookup_mode": "proxy",
         "lookup_symbol": "NLR",
-        "pricing_note": "Nuclear-Proxy fuer die CHF-gehedgte Share Class.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "EM Local Bond Opportunities CHF Hedged": {
+    "Musterprodukt Obligationen Emerging CHF-abgesichert": {
         "lookup_mode": "proxy",
         "lookup_symbol": "EMLC",
-        "pricing_note": "EM Local Bond Proxy fuer die CHF-gehedgte Share Class.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "iShares Developed Markets Property Yield CHF Hedged": {
+    "Musterprodukt Immobilien Global CHF-abgesichert": {
         "lookup_mode": "proxy",
         "lookup_symbol": "REET",
-        "pricing_note": "Property-Yield Proxy fuer die CHF-gehedgte Share Class.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: Preis nur ueber ein Stellvertreter-Symbol.",
     },
-    "UBS Geldmarktfonds CHF": {
+    "Musterprodukt Geldmarktfonds": {
         "lookup_mode": "synthetic_par",
         "synthetic_price_rappen": 100,
-        "pricing_note": "Synthetischer Par-Wert bis ein CHF-Geldmarkt-Feed angebunden ist.",
+        "pricing_note": "Musterprodukt ohne belegte Stammdaten: synthetischer Nennwert.",
     },
     "Kontoguthaben CHF": {
         "lookup_mode": "synthetic_par",
@@ -427,8 +429,64 @@ def provider_market_warning(provider_name: str, exchange_code: Any) -> str | Non
     return None
 
 
+# K2 / N-915-03: Seed-Katalog mit neutralen Musterbezeichnungen.
+#
+# Der automatische CH-Katalog (services/portfolio_engine.py::DEFAULT_CATALOG_PRODUCTS)
+# traegt keine Emittenten- oder Produktnamen mehr: TER und Ratings des Seeds sind
+# nicht belegt, reale Namen waeren irrefuehrend. Echte Produkte kommen nur ueber den
+# Product-Evidence-Pfad bzw. das Fonds-Universum.
+#
+# Bestehende Installationen behalten ihre frueher geseedeten Zeilen unveraendert (keine
+# stille Datenmigration: Produktnamen gehen in versiegelte Empfehlungsstaende ein).
+# Damit Marktprofil, ESG-Seed-Status und der Backfill der abgesicherten Varianten sie
+# weiter erkennen, ordnet diese Tabelle den SHA-256 des frueheren Seed-Namens dem
+# neuen Musternamen zu -- ohne die Altnamen im Klartext zu fuehren.
+LEGACY_SEED_NAME_SHA256: dict[str, str] = {
+    "28c190a5dfbf19dd88d8ec101288100506ca5f6a34160db5507c4d9006ce012b": "Musterprodukt Aktien Europa",
+    "2428033322364eafd3da03db9d177715eb06d198e93865f282dd2b36aac00624": "Musterprodukt Aktien Europa CHF-abgesichert",
+    "ca1350d9fb820af9229c1ecc4fa23dbbbe2e3e8613cb5e15da2e9d1d76f17d02": "Musterprodukt Aktien Global",
+    "4eff628c3ab0e2fae7866418f3b83eed48988db6a6088c998f50561a02cd04ae": "Musterprodukt Aktien Global CHF-abgesichert",
+    "9083e820d2d48e0d562c16fd6ff7d2aa10ccbe0278f49beac125d03f2ad2151f": "Musterprodukt Aktien Schweiz",
+    "2b949cf28d7fb4f28078e0b349aa0f50fdb319e6188a2ee5d2298c526acb54cc": "Musterprodukt Aktien Schweiz Small/Mid",
+    "592aa7d474b22c513a46073014abc6c2a94d5d9a0e761845a7b47b1254d200b6": "Musterprodukt Aktien Schwellenlaender",
+    "d3a7dd826b60e7f328d1e934dc27aa17eb25f64db6f61a089ffbeeab71639c26": "Musterprodukt Aktien Schwellenlaender CHF-abgesichert",
+    "2a49fcffecd90d798c74ce03e1da29dc3e693b27597e58ae44273463832e2b4e": "Musterprodukt Geldmarktfonds",
+    "e4026fbff4081e1f7695e26f75136d146bf8c7fe348a5e29a924aba9d45aaab1": "Musterprodukt Gold / Rohstoffe",
+    "61d8d02b4592a41e8fcae25515325babecfdca82484488d510181378196f2a65": "Musterprodukt Hedge Funds",
+    "c5a75675860739208327f88b6ed2961b2e144dbc5fbf3d8f4acc46720ecf031e": "Musterprodukt Immobilien Global",
+    "3c7463f63f7192d062075b9ad1ebeabe539d3cb7edba583d44250fec298dbcb0": "Musterprodukt Immobilien Global CHF-abgesichert",
+    "b08ff1c460378330261c79a097dd2951794b58217daa455a754c0f34003bef44": "Musterprodukt Immobilien Schweiz",
+    "844199e38d67860c53e42176da09211a408f42ca663f563d4b87e3b1f3d0441c": "Musterprodukt Krypto",
+    "347e3ba47f84346e26dfdf74cc198e9c19e08716d37fe2469ae2affafaaba3ec": "Musterprodukt Liquid Alternatives",
+    "73b8bdc8418a25bf482b426aebf6188df644ab816f1a58914261c8f0e12c767c": "Musterprodukt Obligationen CHF IG",
+    "e1838174501a812fd7fc8db22d477dd2df52d9cd4db9f983bdc9c717e54b7bae": "Musterprodukt Obligationen Emerging",
+    "365d63ec31ece07c78b24101e60a204877e45ccf47093b296bfce0629f330107": "Musterprodukt Obligationen Emerging CHF-abgesichert",
+    "e6179a149822100a6473c9a952197413ba1a6bad499fb49832e87506b4631b97": "Musterprodukt Obligationen Global CHF-abgesichert",
+    "ad700ff0be05ea47ec35d3e98cd5a20c88109aac68d870de535d5af5dc6b1fc2": "Musterprodukt Obligationen High Yield",
+    "54ab75731953b0e0e6619a55e80a714b9100b79fe368f79719edde29b23cdd39": "Musterprodukt Private Equity",
+    "65ea5074a703d4cf4ad88758e082f72d3ba877f743de56310a76aa3e4b792112": "Musterprodukt Thema Alkohol",
+    "9cac90e64d061ac95abd615d6dfd6576fca024c32cc6a1f0620de4960de4acfd": "Musterprodukt Thema Fossile Energie",
+    "b04a7b354b5923fdf9877dc807c6670fd6ed8dc4bfaf673b891f4e79a4e157ed": "Musterprodukt Thema Fossile Energie CHF-abgesichert",
+    "6b10fbfe622d5b8ab44275b9609704db350b122cf3d9f2425aa5599fd02f2527": "Musterprodukt Thema Gluecksspiel",
+    "5c7872cb538349fb596a419e6184114899cdbc8fd90100f0d20dc75548c71007": "Musterprodukt Thema Gluecksspiel CHF-abgesichert",
+    "27e50be894174b8f5727045faa6a265de9273b7ddc07458dd61e5bbaa93e1e73": "Musterprodukt Thema Kernenergie",
+    "04c9425f2774942730d198d610925062f4be86b11ac012496400482608b53a6a": "Musterprodukt Thema Kernenergie CHF-abgesichert",
+    "ff605ee8ef29c9dfac6edab5de65701e264f86db674d8f85741c99280d6bbee1": "Musterprodukt Thema Tabak",
+    "2ad138efc7fb402a6fe1e08fc03f638093195522e80bcf63897e17c9a4ec0e01": "Musterprodukt Thema Tabak CHF-abgesichert",
+    "080a8ea3a4b7bf8b93b8236e9f2a92b48fc4d3378767c37ff08bbcb415f4b782": "Musterprodukt Thema Verteidigung",
+    "490256717fd6e9407e8bb75acc8823194f8f1e4cc57ba33057b30b664abb7dff": "Musterprodukt Thema Verteidigung CHF-abgesichert",
+}
+
+
+def canonical_seed_name(name: object) -> str:
+    """Musterbezeichnung eines (auch frueher geseedeten) Katalognamens; sonst unveraendert."""
+    key = str(name or "").strip()
+    return LEGACY_SEED_NAME_SHA256.get(hashlib.sha256(key.encode("utf-8")).hexdigest(), key)
+
+
 def default_market_entry(product_name: str | None) -> dict[str, Any] | None:
-    key = str(product_name or "").strip()
+    # K2/N-915-03: frueher geseedete Katalognamen (Bestandsinstallationen) -> Musterbezeichnung.
+    key = canonical_seed_name(product_name)
     entry = DEFAULT_PRODUCT_MARKET_CATALOG.get(key)
     if not entry:
         return None

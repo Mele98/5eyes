@@ -1,4 +1,4 @@
-# 5eyes Multi-Source-Datenpipeline — Master-Index
+# Ares Multi-Source-Datenpipeline — Master-Index
 
 **Stand:** 2026-06-04 — P1-P22 fertig; Provider-Health-Registry Phase 1 erledigt.
 **Kosten Tier 1:** CHF 0/Jahr.
@@ -17,8 +17,6 @@
 | Live-Diagnose via API | `GET /admin/market-data/status` |
 | CMA-Werte quartalsweise importieren | [cma_import_workflow.md](cma_import_workflow.md) |
 | Provider-Strategie verstehen | [MARKET_DATA_PROVIDER_STRATEGY.md](MARKET_DATA_PROVIDER_STRATEGY.md) |
-| Merge-Reihenfolge der PRs | `docs/status_snapshot_2026-05-14.md` (parallele Branch, PR #39) |
-| Untracked-Dateien aufraeumen | `docs/wip_cleanup_2026-05-13.md` (parallele Branch, PR #37) |
 
 ---
 
@@ -229,4 +227,4 @@ Merge in numerischer Reihenfolge.
 | Live deployt | ⏳ Nach Merge-Sprint | **User** |
 | Produktiv ueberwacht | ⏳ 1 Woche danach | CI-Action + Logs |
 
-Naechster Step: **Merge der 38 offenen PRs**. Siehe `docs/status_snapshot_2026-05-14.md` auf PR #39.
+Naechster Step: **Merge der 38 offenen PRs**.

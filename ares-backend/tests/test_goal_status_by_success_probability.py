@@ -1,6 +1,10 @@
-"""GOAL-STATUS-BY-SUCCESS-001: Ziel-Status und Cockpit-Kachel folgen der
-Erfolgswahrscheinlichkeit (Ampel 70/45, #654), nicht dem Mischwert
-``achievement_score``.
+"""GOAL-STATUS-BY-SUCCESS-001: Cockpit-Kachel folgt der Erfolgswahrscheinlichkeit,
+nicht dem Mischwert ``achievement_score``.
+
+P5c / N-930-01 (CTO 2026-11-21): Der Zielstatus kommt NICHT mehr aus der
+Erfolgswahrscheinlichkeit (Ampel 70/45 entfallen), sondern ausschliesslich aus
+dem M-3-Status der kanonischen Zielzeile; ohne M-3 "nicht_bewertbar". Die Tests
+unten sind entsprechend umgestellt (Gegenprobe: alter Code -> rot).
 
 Backend: ``_merge_goal_analysis_with_monte_carlo`` leitete ``status`` aus
 ``summary["score"]`` (alpha * Erfolgsquote + (1 - alpha) * Deckungsgrad) ab.
@@ -24,11 +28,11 @@ from types import SimpleNamespace
 import pytest
 
 from services import advisory_report
-from services.goal_success_status import (
-    goal_items_weighted_success_bps,
-    goal_status_from_success_pct,
-)
+from core.goal_metric_contract import GOAL_STATUS_DISPLAY
+from services.goal_success_status import goal_items_weighted_success_bps
 from services.portfolio_engine_payload import _merge_goal_analysis_with_monte_carlo
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 HTML_PATH = Path(__file__).resolve().parents[2] / "ares-desktop" / "frontend" / "ares.html"
 
@@ -43,65 +47,67 @@ def _row(goal_id, probability, scope="priority_funded", rank=1):
     return {"goal_id": goal_id, "probability": probability, "evaluation_scope": scope, "funding_rank": rank}
 
 
-@pytest.mark.parametrize(
-    "pct,expected",
-    [(100, "On Track"), (70, "On Track"), (69, "Pruefen"), (45, "Pruefen"), (44, "Gefaehrdet"), (0, "Gefaehrdet"), (None, "Gefaehrdet")],
-)
-def test_status_thresholds_70_45(pct, expected):
-    assert goal_status_from_success_pct(pct) == expected
+def _m3(goal_id, probability, status, rank=1):
+    """Kanonische Zeile wie aus core/goal_metric_contract.canonical_goal_rows."""
+    return {**_row(goal_id, probability, rank=rank), "status": status, "goal_metric_payload_hash": "h" * 64}
 
 
-def test_high_mixed_score_but_low_success_is_at_risk():
-    merged = _merge(score=82, success=30)
-    assert merged["status"] == "Gefaehrdet"
-    assert merged["path_success_rate_pct"] == 30
+def test_status_never_from_success_probability_without_m3():
+    # Alt: 30 % -> "Gefaehrdet", 75 % -> "On Track" (Ampel 70/45).
+    low, high = _merge(score=82, success=30), _merge(score=40, success=75)
+    assert low["status"] == high["status"] == "nicht_bewertbar"
+    assert low["status_label"] == "nicht bewertbar"
+    assert low["path_success_rate_pct"] == 30
     # Der Mischwert bleibt als eigenes Feld erhalten, traegt aber keinen Status.
-    assert merged["achievement_score"] == 82
+    assert low["achievement_score"] == 82
 
 
-def test_low_mixed_score_but_high_success_is_on_track():
-    merged = _merge(score=40, success=75)
-    assert merged["status"] == "On Track"
+def test_m3_status_wins_over_a_good_point_estimate():
+    """H-183-Pruefung N-930-01: Punktschaetzer 91 %, M-3 "knapp" -> "knapp"."""
+    merged = _merge(score=95, success=91, achievability=[_m3("g1", 0.91, "knapp")])
+    assert merged["status"] == "knapp"
+    label, tone, color, background = GOAL_STATUS_DISPLAY["knapp"]
+    assert (merged["status_label"], merged["status_tone"], merged["status_color"], merged["status_bg"]) == (
+        label, tone, color, background)
 
 
-def test_tight_success_is_review():
-    assert _merge(score=90, success=60)["status"] == "Pruefen"
-
-
-def test_optimizer_evidence_is_canonical_over_simulation():
-    merged = _merge(score=90, success=85, achievability=[_row("g1", 0.30)])
+def test_raw_optimizer_row_without_m3_payload_is_not_assessable():
+    merged = _merge(score=90, success=85, achievability=[{**_row("g1", 0.30), "status": "nicht_erreichbar"}])
     assert merged["success_probability"] == pytest.approx(0.30)
-    assert merged["success_probability_pct"] == 30
     assert merged["success_probability_source"] == "optimizer"
-    assert merged["status"] == "Gefaehrdet"
+    assert merged["status"] == "nicht_bewertbar"
     # Simulationswert bleibt fuer den SOLL/IST-Vergleich (gleiche Basis) erhalten.
     assert merged["path_success_rate_pct"] == 85
 
 
-def test_simulation_is_fallback_only_without_optimizer_evidence():
+def test_simulation_is_fallback_only_for_the_number_never_for_the_status():
     merged = _merge(score=90, success=60, achievability=None)
     assert merged["success_probability_source"] == "simulation"
     assert merged["success_probability_pct"] == 60
-    assert merged["status"] == "Pruefen"
+    assert merged["status"] == "nicht_bewertbar"
 
 
 @pytest.mark.parametrize("scope", ["joint_plan", ""])
 def test_plan_solvency_and_legacy_rows_are_not_goal_evidence(scope):
-    merged = _merge(score=10, success=75, achievability=[_row("g1", 0.10, scope=scope)])
+    row = {**_m3("g1", 0.10, "erreichbar"), "evaluation_scope": scope}
+    merged = _merge(score=10, success=75, achievability=[row])
     assert merged["success_probability_source"] == "simulation"
-    assert merged["status"] == "On Track"
+    assert merged["status"] == "nicht_bewertbar"
 
 
-def test_optimizer_evidence_without_simulation_summary_still_sets_status():
+def test_m3_status_without_simulation_summary_still_sets_status():
     item = {"goal_id": "g1", "label": "Ziel", "achievement_score": 95, "status": "On Track"}
-    merged = _merge_goal_analysis_with_monte_carlo([item], None, achievability=[_row("g1", 0.2)])[0]
-    assert merged["status"] == "Gefaehrdet"
+    merged = _merge_goal_analysis_with_monte_carlo([item], None, achievability=[_m3("g1", 0.2, "nicht_erreichbar")])[0]
+    assert merged["status"] == "nicht_erreichbar"
+    assert merged["status_label"] == "nicht erreichbar"
     assert merged["success_probability_source"] == "optimizer"
 
 
-def test_status_words_stay_backend_contract():
-    # Statuswoerter unveraendert (GoalAnalysisResponse.status, Monolith-Mapping).
-    assert {goal_status_from_success_pct(p) for p in (0, 50, 90)} == {"On Track", "Pruefen", "Gefaehrdet"}
+def test_no_ampel_status_words_remain_in_the_backend_contract():
+    src = (Path(__file__).resolve().parents[1] / "services" / "goal_success_status.py").read_text(encoding="utf-8")
+    assert "def goal_status_from_success_pct" not in src
+    payload = (Path(__file__).resolve().parents[1] / "services" / "portfolio_engine_payload.py").read_text(encoding="utf-8")
+    assert '"On Track" if' not in payload
 
 
 def test_foundation_example_uses_same_weighted_success():
@@ -121,7 +127,7 @@ def test_foundation_example_uses_same_weighted_success():
 # --------------------------------------------------------------------------
 
 def _html() -> str:
-    return HTML_PATH.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 def _function_source(html: str, name: str) -> str:
@@ -141,17 +147,19 @@ def _function_source(html: str, name: str) -> str:
 def _run_js(goals: list, extra: str = "") -> dict:
     html = _html()
     names = (
-        "fmtNumber", "goalSuccessPct", "goalSuccessIsEstimate", "goalSuccessAmpel",
+        "fmtNumber", "goalSuccessPct", "goalSuccessIsEstimate", "goalStatusView",
         "goalSuccessSummary", "goalSuccessTileText", "goalSuccessSubText",
     )
     script = (
-        "var GOAL_SUCCESS_ESTIMATE_HINT='Schaetzung aus Simulation';\n"
+        rounding_module_source()
+        + "var GOAL_SUCCESS_ESTIMATE_HINT='Schaetzung aus Simulation';\n"
+        + "var GOAL_STATUS_TONE_UI={good:['tg','fg','o'],warn:['ta','fa','o'],bad:['tr2','fr','o'],neutral:['tn','fa','o']};\n"
         + "\n".join(_function_source(html, n) for n in names)
         + "\nvar r=goalSuccessSummary(" + json.dumps(goals) + ");"
         + "r.tile=goalSuccessTileText(r);r.sub=goalSuccessSubText(r);" + extra
         + "process.stdout.write(JSON.stringify(r));"
     )
-    out = subprocess.run(["node", "-e", script], capture_output=True, timeout=10, check=False)
+    out = subprocess.run(["node", "-"], input=script.encode("utf-8"), capture_output=True, timeout=10, check=False)
     assert out.returncode == 0, out.stderr.decode("utf-8", "replace")
     return json.loads(out.stdout.decode("utf-8"))
 
@@ -166,9 +174,21 @@ def test_tile_value_is_weighted_success_probability_not_mixed_score():
     s = _run_js(goals)
     # (3000*40 + 1000*80) / 4000 = 50 -- der Mischwert ergaebe 74.
     assert s["weighted"] == 50 and s["weightedBps"] == 5000
-    assert s["critical"] == 1 and s["tight"] == 0 and s["good"] == 1
-    assert s["ampel"]["label"] == "knapp"
+    # P5c / N-930-01: ohne M-3-Status keine Einstufung (frueher 1 kritisch, 1 gut).
+    assert s["critical"] == 0 and s["tight"] == 0 and s["good"] == 0
+    assert "ampel" not in s and s["sub"] == "2 Ziel(e) nicht bewertbar"
     assert s["estimated"] == 0 and "Simulation" not in s["sub"]
+
+
+def test_tile_counts_follow_the_m3_status():
+    def g(status, label, pct):
+        return {"success_probability_pct": pct, "success_probability_source": "optimizer", "status": status,
+                "status_label": label, "status_color": "#000000", "status_tone": "good"}
+    s = _run_js([g("erreichbar", "erreichbar", 40), g("knapp", "knapp", 91), g("nicht_erreichbar", "nicht erreichbar", 75)])
+    assert (s["good"], s["tight"], s["critical"]) == (1, 1, 1)
+    assert s["sub"].startswith("1 Ziel(e) nicht erreichbar") and s["sub"].endswith("1 knapp")
+    s = _run_js([g("erreichbar", "erreichbar", 10)])
+    assert s["sub"] == "Alle Ziele erreichbar"
 
 
 def test_tile_without_any_value_shows_no_number():
@@ -178,10 +198,10 @@ def test_tile_without_any_value_shows_no_number():
 
 def test_simulation_fallback_is_marked_as_estimate():
     s = _run_js([{"weight_bps": 0, "path_success_rate_pct": 44}])
-    assert s["ampel"]["label"] == "kritisch" and s["estimated"] == 1
+    assert s["critical"] == 0 and s["estimated"] == 1
     assert "Schaetzung aus Simulation" in s["sub"]
     s = _run_js([{"success_probability_pct": 70, "success_probability_source": "simulation"}])
-    assert s["ampel"]["label"] == "gut" and s["estimated"] == 1
+    assert s["good"] == 0 and s["estimated"] == 1
     assert "var GOAL_SUCCESS_ESTIMATE_HINT='Sch\\u00e4tzung aus Simulation';" in _html()
 
 

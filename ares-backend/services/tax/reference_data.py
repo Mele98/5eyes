@@ -13,6 +13,10 @@ from typing import Any
 
 CH_PARAMETER_YEAR = 2026
 CH_PARAMETER_VERSION = "CH-REF-2026-v1"
+# N-935-05 (H-187 Fixrunde 1): Quelle der Werte unten im Repository nicht
+# belegt (keine amtliche Tabelle zitiert). Owner-Frage: Quelle nachweisen oder
+# durch amtliche Werte ersetzen. Die Werte werden beim Start geseedet
+# (services/tax/parameters.py::seed_default_tax_parameter_sets).
 
 
 # Canton-level approximations used by the Switzerland reference plugin.

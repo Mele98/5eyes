@@ -36,6 +36,28 @@ Quellbaum:
    in den (temporaeren) userData-Ordner. Der Erststart erzeugt genau eine
    DPAPI-Ablage (Benutzer-Scope, Format-Kennung), der Schluessel steht in
    keinem Log; ein zweiter Start laedt dieselbe Ablage byte-identisch.
+8. PDF-Render (B-9, Laufzeit): auf der frischen Smoke-DB werden ueber die
+   HTTP-API ein Admin (Ersteinrichtung), ein synthetischer Kunde und ein
+   Mandat angelegt; danach rendert die gepackte EXE Kunden-PDFs
+   (``PDF_SMOKE_DOCUMENTS``). Jedes muss ein vollstaendiges PDF sein
+   (``%PDF-`` ... ``%%EOF``, mit pypdf lesbar), die Fusszeile aus dem
+   Laenderpaket-Text ``legal.footer.disclaimer`` tragen und die
+   Editorial-Fonts (Inter, Cormorant Garamond) eingebettet verwenden.
+   Geprueft wird jede Font-Resource, mit der tatsaechlich Text gezeigt wird
+   (Seite, Form-XObjects rekursiv, Annotation-Erscheinungsbilder N/D/R,
+   Tiling-Patterns, SMask-Gruppen, Type3-CharProcs, Type0-Descendants;
+   nicht auswertbare Inhaltstraeger sind rot): sie selbst braucht
+   einen lesbaren, nichtleeren /FontFile*-Stream; auch ein nicht
+   eingebetteter Standard-14-Font ist rot (C-853-02). Faellt
+   der Renderer still auf Standard-Fonts zurueck (Fonts im Paket nicht
+   gefunden), ist der Smoke rot -- ebenso bei einer Font-Warnung im Log.
+
+9. Release-Pruefungen H-180 (``scripts/packaging_release_checks.py``):
+   Import-Selbsttest im Artefakt (EXE-01), Build-Kennung in ``/health``
+   (EXE-03), Demo-Systemfall in der EXE gesperrt, Produkt-Hygiene
+   (Dateieigenschaften, keine Fremd-/Altmarken in asar, Metadaten und
+   Backend-EXE; EXE-02) und Start der Electron-Shell im isolierten Profil bis
+   zum sauberen Beenden ohne Restprozesse (EXE-05).
 
 Fail-closed: jede Abweichung, jede fehlende Pruefgrundlage (z.B. PyInstaller
 nicht importierbar) und jeder Timeout fuehrt zu Exit 1. Nur Windows.
@@ -52,13 +74,14 @@ import argparse
 import ctypes
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import re
+import secrets
 import shutil
 import signal
 import socket
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -82,14 +105,54 @@ ARCHIVE_REPORTING_INDEX = 'reporting_dist/index.html'
 JURISDICTIONS_ROOT = BACKEND_ROOT / 'jurisdictions'
 ARCHIVE_JURISDICTIONS_PREFIX = 'jurisdictions/'
 
+# B-9: PDF-Render in der gepackten EXE. Risikoprofil und Vertrag brauchen nur
+# ein Mandat (kein Risikoprofil, keine Empfehlung) und tragen die Fusszeile aus
+# dem Laenderpaket-Text (services/pdf/components/footer.py).
+PDF_SMOKE_DOCUMENTS = ('risikoprofil', 'vertrag')
+FOOTER_DISCLAIMER_KEY = 'legal.footer.disclaimer'
+# Die Fusszeile druckt den Disclaimer vollstaendig (umgebrochen, nie gekuerzt;
+# footer.py, N-858-1). Geprueft wird deshalb der volle Laenderpaket-Text plus
+# das Erstelldatum ("Erstellt am").
+FOOTER_CREATED_MARKER = 'Erstellt am'
+# services/pdf/fonts.py: eingebettete TrueType-Subsets heissen ``/ABCDEF+<Name>``.
+EDITORIAL_FONT_FAMILIES = ('Inter', 'CormorantGaramond')
+FONT_FALLBACK_LOG_MARKERS = ('Editorial PDF fonts missing', 'Editorial PDF font registration failed')
+
 # RB-1: Vertrag der KEK-Ablage (ares-backend/config.py, KEK_STORE_*).
 KEK_STORE_NAME = 'tenant-master-kek.dpapi'
 KEK_STORE_MAGIC = b'ARES-KEK-DPAPI/1\n'
 KEK_STORE_ENTROPY = b'ares.tenant-master-kek.store.v1'
+# EXE-P (H-187): Vertrag der Ablage des SQLCipher-Schluessels (config.py, DB_KEY_STORE_*).
+DB_KEY_STORE_NAME = 'db-key.dpapi'
+DB_KEY_STORE_MAGIC = b'ARES-DBKEY-DPAPI/1\n'
+DB_KEY_STORE_ENTROPY = b'ares.sqlcipher-db-key.store.v1'
+# Gleiche Cipher-Parameter wie ares-backend/database.py::SQLCIPHER_CIPHER_PRAGMAS
+# (test_h187_exe_production_mode.py haelt beide gleich).
+SQLCIPHER_CIPHER_PRAGMAS = (
+    'PRAGMA cipher_page_size = 4096',
+    'PRAGMA kdf_iter = 256000',
+    'PRAGMA cipher_hmac_algorithm = HMAC_SHA512',
+    'PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512',
+)
+SQLITE_PLAINTEXT_HEADER = b'SQLite format 3\x00'
+# N-926-01 / N-935-01 (H-187): TEST-Referenzpaket, das NUR der Strategie-Selbsttest
+# (ares-api.exe --self-test-strategy, eigener Prozess) laedt -- nie der Server.
+SMOKE_TEST_REFERENCE_PACKAGE = REPO_ROOT / 'scripts' / 'fixtures' / 'packaging_smoke_test_reference_package.json'
+# N-935-02: voller Vermerk (core/risk_parameter_set.py::IC_UNRELEASED_LABEL, Test haelt beide gleich).
+IC_UNRELEASED_LABEL = 'Vorlagewerte – nicht IC-freigegeben'
+# N-935-01: eine .env neben der EXE darf nie wirken (die gepackte EXE liest keine .env).
+ENV_FILE_PROBE_APP_NAME = 'Fremdname aus .env'
+# Antworttexte eines stillen Optimizer-Rueckfalls (services/portfolio_engine_optimizer_integration.py).
+OPTIMIZER_FALLBACK_MARKERS = ('House-Matrix-Default bleibt aktiv', 'Optimizer-Modul nicht verfuegbar',
+                              'fallback_house_matrix', 'Stochastic Optimizer Fehler')
 
 
 class SmokeError(RuntimeError):
     pass
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import packaging_release_checks as release_checks  # noqa: E402
 
 
 def log(msg: str) -> None:
@@ -139,6 +202,46 @@ def check_digests(exe: Path, unpacked_dir: Path | None) -> None:
         fail(f'Erwartet genau eine Electron-Shell-EXE in {unpacked_dir}, gefunden: {len(shells)}.')
     # Dateiname stammt aus build.productName; geloggt wird nur der Digest.
     log(f'DIGEST sha256 {sha256_file(shells[0])}  <win-unpacked>/<productName>.exe')
+    check_asar_frontend_resources(asar)
+
+
+def _asar_file_paths(asar: Path) -> set[str]:
+    """Pfade aller Dateien im asar-Header (Pickle: 4|hdr|payload|len|json)."""
+    with asar.open('rb') as fh:
+        head = fh.read(16)
+        json_len = int.from_bytes(head[12:16], 'little')
+        header = json.loads(fh.read(json_len).decode('utf-8'))
+    paths: set[str] = set()
+
+    def walk(node: dict, prefix: str) -> None:
+        for name, child in (node.get('files') or {}).items():
+            path = f'{prefix}{name}'
+            if 'files' in child:
+                walk(child, path + '/')
+            else:
+                paths.add(path)
+
+    walk(header, '')
+    return paths
+
+
+def check_asar_frontend_resources(asar: Path) -> None:
+    """H3/I-04: jede lokale Ressource von frontend/ares.html (ausgelagerte
+    Skripte/Stylesheets, Vendor) muss im gepackten app.asar liegen -- Electron
+    laedt ares.html per loadFile, eine fehlende Datei waere still kaputt."""
+    html = (REPO_ROOT / 'ares-desktop' / 'frontend' / 'ares.html').read_text(encoding='utf-8')
+    refs = re.findall(r'<(?:script|link)\b[^>]*\b(?:src|href)="([^"\'+]+)"', html)
+    local = sorted({r[2:] if r.startswith('./') else r for r in refs
+                    if not re.match(r'^[a-z]+:|^//|^#', r)})
+    if not local:
+        fail('ares.html: keine lokalen Skript-/Stylesheet-Referenzen gefunden (Regex pruefen).')
+    packed = _asar_file_paths(asar)
+    if 'frontend/ares.html' not in packed:
+        fail('frontend/ares.html fehlt im app.asar.')
+    missing = [ref for ref in local if f'frontend/{ref}' not in packed]
+    if missing:
+        fail(f'Frontend-Ressourcen fehlen im app.asar: {missing}')
+    log(f'OK Frontend-Ressourcen im app.asar: ares.html + {len(local)} lokale Referenzen')
 
 
 # ---------------------------------------------------------------------------
@@ -314,13 +417,522 @@ def port_open(port: int) -> bool:
         return s.connect_ex(('127.0.0.1', port)) == 0
 
 
-def http_get(url: str, timeout: float = 5.0) -> tuple[int, dict, bytes]:
-    req = urllib.request.Request(url, headers={'Accept': '*/*'})
+def http_request(url: str, *, method: str = 'GET', json_body: object | None = None,
+                 headers: Mapping[str, str] | None = None,
+                 timeout: float = 5.0) -> tuple[int, dict, bytes]:
+    all_headers = {'Accept': '*/*', **(headers or {})}
+    data = None
+    if json_body is not None:
+        data = json.dumps(json_body).encode('utf-8')
+        all_headers['Content-Type'] = 'application/json'
+    req = urllib.request.Request(url, data=data, headers=all_headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, dict(resp.headers), resp.read()
     except urllib.error.HTTPError as exc:
         return exc.code, dict(exc.headers or {}), exc.read() or b''
+
+
+def http_get(url: str, timeout: float = 5.0) -> tuple[int, dict, bytes]:
+    return http_request(url, timeout=timeout)
+
+
+# ---------------------------------------------------------------------------
+# 8. PDF-Render (B-9)
+# ---------------------------------------------------------------------------
+# H7 N-884-03: Fusszeile je Mandatstyp (gleiche Zuordnung wie
+# services/pdf/components/footer.py::footer_disclaimer_key).
+FOOTER_KEY_SUFFIX_BY_MANDATE_TYPE = {
+    'vermögensverwaltung': 'vermoegensverwaltung',
+    'vermoegensverwaltung': 'vermoegensverwaltung',
+    'anlageberatung': 'anlageberatung',
+    'finanzplanung': 'finanzplanung',
+    'reporting only': 'reporting',
+}
+
+
+def expected_footer_disclaimer(mandate_type: str | None = None) -> str:
+    """Voller Fusszeilen-Text aus dem Quellbaum (produktiver Loader), fuer den
+    Mandatstyp des gerenderten Mandats (ohne Typ: neutraler Text).
+
+    Die Paket-Bytes derselben Datei sind in ``check_jurisdiction_documents``
+    als byte-identisch belegt; der Text im gerenderten PDF stammt also aus der
+    Datei im Paket."""
+    documents_mod = _load_jurisdiction_loader('jurisdictions.documents')
+    suffix = FOOTER_KEY_SUFFIX_BY_MANDATE_TYPE.get(str(mandate_type or '').strip().casefold())
+    key = f'{FOOTER_DISCLAIMER_KEY}.{suffix}' if suffix else FOOTER_DISCLAIMER_KEY
+    text = documents_mod.default_documents().text(key)
+    if not isinstance(text, str) or not text.strip():
+        fail(f'{key} im Quellbaum leer -- PDF-Pruefung hat keine Grundlage.')
+    return text
+
+
+def _squash(text: str) -> str:
+    return ' '.join(text.split())
+
+
+def check_pdf_bytes(pdf: bytes, label: str, required_texts: tuple[str, ...]) -> str:
+    """Gerendertes PDF pruefen; liefert eine Kurzbeschreibung fuer das Log."""
+    if not pdf.startswith(b'%PDF-'):
+        fail(f'{label}: Antwort ist kein PDF (Anfang {pdf[:40]!r}).')
+    if b'%%EOF' not in pdf[-1024:]:
+        fail(f'{label}: PDF unvollstaendig (kein %%EOF am Ende, {len(pdf)} bytes).')
+    try:
+        import pypdf
+    except ImportError as exc:  # fail-closed: ohne Leser keine Inhaltspruefung
+        fail(f'pypdf nicht importierbar, PDF-Inhalt nicht pruefbar: {exc}')
+    try:
+        reader = pypdf.PdfReader(io.BytesIO(pdf))
+        pages = list(reader.pages)
+        text = _squash(' '.join(page.extract_text() or '' for page in pages))
+        used, declared = _font_resource_usage(pages)
+    except Exception as exc:  # pypdf-Fehler jeder Art -- fail-closed mit Ursache
+        fail(f'{label}: PDF nicht lesbar: {type(exc).__name__}: {exc}')
+    if not pages:
+        fail(f'{label}: PDF ohne Seiten.')
+    for needle in required_texts:
+        if _squash(needle) not in text:
+            fail(f'{label}: Pflichttext fehlt im PDF: {needle[:80]!r}')
+    for family in EDITORIAL_FONT_FAMILIES:
+        if not any(_editorial_family(u.base_font) == family
+                   and u.state.startswith('eingebettet (/FontFile') for u in used):
+            # C-853-01/02: weder der Subset-Name noch eine nur deklarierte
+            # (unbenutzte) eingebettete Resource belegt die Einbettung; ein
+            # Type3 mit Editorial-Namen ist kein eingebetteter Editorial-Font.
+            fail(f'{label}: Editorial-Font {family} nicht eingebettet '
+                 f'(Fallback auf Standard-Fonts?); verwendete Fonts: '
+                 f'{sorted(u.describe() for u in used)}')
+    # C-853-02: jede vom Inhalt TATSAECHLICH verwendete Font-Resource (Seite,
+    # Form-XObjects beliebig tief, Annotation-Erscheinungsbilder N/D/R,
+    # Tiling-Patterns, SMask-Gruppen, Type3-CharProcs) muss selbst
+    # einen lesbaren, nichtleeren /FontFile*-Stream haben -- auch ein nicht
+    # eingebetteter Standard-14-Font ist ein Befund. Kein Abgleich ueber den
+    # /BaseFont-Namen: eine eingebettete Dublette belegt nichts.
+    unembedded = [u for u in used if not u.embedded]
+    if unembedded:
+        fail(f'{label}: verwendete Font-Resource nicht eingebettet: '
+             f'{[u.describe() for u in unembedded]}')
+    # Konservativ (Codex C-853-02): auch jede deklarierte, unbenutzte
+    # Editorial-Font-Resource muss eingebettet sein.
+    broken = [d for d in declared if _editorial_family(d.base_font) and not d.embedded]
+    if broken:
+        fail(f'{label}: Editorial-Font-Resource nicht eingebettet: '
+             f'{[d.describe() for d in broken]}')
+    return (f'{label} ({len(pdf)} bytes, {len(pages)} Seite(n), '
+            f'{len(used)} verwendete Font-Resource(n) eingebettet)')
+
+
+FONT_FILE_KEYS = ('/FontFile', '/FontFile2', '/FontFile3')
+# Textausgabe-Operatoren (PDF 1.7, 9.4.3): erst sie verwenden den aktuellen Font.
+TEXT_SHOW_OPERATORS = (b'Tj', b'TJ', b"'", b'"')
+# Grenze gegen pathologisch tiefe Verschachtelung (Forms, Patterns, CharProcs).
+MAX_FORM_DEPTH = 32
+
+
+def _editorial_family(base_font: str) -> str | None:
+    """Editorial-Familie eines Subset-Namens (``ABCDEF+Inter-Bold`` -> ``Inter``)."""
+    for family in EDITORIAL_FONT_FAMILIES:
+        if re.fullmatch(r'[A-Z]{6}\+' + family + r'(-\w+)?', base_font):
+            return family
+    return None
+
+
+class FontUse:
+    """Eine Font-Resource an genau einer Stelle: Seite, Ort (Seite, Form-XObject-
+    Pfad, Annotation), Resource-Key, /BaseFont und Einbettungszustand."""
+
+    __slots__ = ('page', 'where', 'key', 'base_font', 'state')
+
+    def __init__(self, page: int, where: str, key: str, base_font: str, state: str):
+        self.page, self.where, self.key = page, where, key
+        self.base_font, self.state = base_font, state
+
+    @property
+    def embedded(self) -> bool:
+        return self.state.startswith('eingebettet')
+
+    def describe(self) -> str:
+        return f'Seite {self.page} {self.where} {self.key} {self.base_font or "?"}: {self.state}'
+
+
+def _font_embedding_state(font) -> str:
+    """C-853-01: Fontobjekt bis zum /FontDescriptor aufloesen (Type0 ueber
+    /DescendantFonts, jeder Descendant) und den Font-Stream lesen. Liefert
+    ``eingebettet (...)`` oder den Grund, warum nicht."""
+    try:
+        target = font.get_object()
+        if not hasattr(target, 'get'):
+            return f'keine Font-Resource ({type(target).__name__})'
+        if target.get('/Subtype') == '/Type3':
+            # N-853-7: Type3 ist ueber /CharProcs eingebettet; ein /FontFile* im
+            # Descriptor zaehlt nicht. Die in den CharProcs verwendeten Fonts
+            # prueft _font_resource_usage separat.
+            procs = target.get('/CharProcs')
+            procs = procs.get_object() if procs is not None else None
+            if not procs or not hasattr(procs, 'values'):
+                return 'Type3 ohne /CharProcs'
+            for proc in procs.values():
+                proc.get_object().get_data()
+            return f'eingebettet (Type3, {len(procs)} CharProcs)'
+        if target.get('/Subtype') == '/Type0':
+            descendants = target.get('/DescendantFonts')
+            descendants = descendants.get_object() if descendants is not None else None
+            if not descendants or not isinstance(descendants, list):
+                return 'Type0 ohne /DescendantFonts'
+            states = [_descriptor_stream_state(d.get_object()) for d in descendants]
+            bad = [st for st in states if not st.startswith('eingebettet')]
+            return f'Type0-Descendant {bad[0]}' if bad else states[0]
+        return _descriptor_stream_state(target)
+    except Exception as exc:  # kaputter Stream/Verweis -- fail-closed mit Ursache
+        return f'Font-Stream nicht lesbar ({type(exc).__name__}: {exc})'
+
+
+def _descriptor_stream_state(target) -> str:
+    try:
+        if not hasattr(target, 'get'):
+            return f'keine Font-Resource ({type(target).__name__})'
+        descriptor = target.get('/FontDescriptor')
+        if descriptor is None:
+            return 'ohne /FontDescriptor'
+        descriptor = descriptor.get_object()
+        keys = [k for k in FONT_FILE_KEYS if k in descriptor]
+        if not keys:
+            return 'ohne Font-Stream'
+        data = descriptor[keys[0]].get_object().get_data()
+    except Exception as exc:  # kaputter Stream/Verweis -- fail-closed mit Ursache
+        return f'Font-Stream nicht lesbar ({type(exc).__name__}: {exc})'
+    if not data:
+        return f'leerer Font-Stream ({keys[0]})'
+    return f'eingebettet ({keys[0]}, {len(data)} bytes)'
+
+
+def _font_resource_usage(pages) -> tuple[list[FontUse], list[FontUse]]:
+    """C-853-02: (verwendet, deklariert) je Font-Resource -- ohne Faltung nach
+    /BaseFont. ``verwendet`` = jede Font-Resource, mit der ein Textoperator
+    (Tj, TJ, ', ") Text zeigt, aufgeloest gegen die beim ``Tf`` (bzw. ``gs``
+    mit /Font) geltenden Resources. Ausgewertet werden alle Inhaltstraeger,
+    die gezeichnet werden koennen (N-853-7):
+
+    * Seiteninhalt und aufgerufene Form-XObjects (rekursiv, eigene
+      /Resources, Font aus dem Grafikzustand des Aufrufers geerbt);
+    * Annotation-Erscheinungsbilder /AP /N, /D und /R, auch als Zustands-Dict;
+      jeder Ort heisst ``Annotation[i]/<N|D|R>[/<Zustand>]`` (N-853-6);
+    * Tiling-Patterns (PatternType 1) und SMask-Gruppen (ExtGState /SMask /G)
+      -- konservativ jede deklarierte, nicht nur die tatsaechlich gemalte;
+    * Type3-CharProcs eines verwendeten Type3-Fonts (Type3-eigene
+      /Resources, sonst die des Aufrufers).
+
+    ``deklariert`` = jede Font-Resource in diesen Resource-Dicts. Unaufloesbare
+    Verweise, Zyklen, unbekannte XObject-/Pattern-Typen, Annotationen mit
+    Text ohne Erscheinungsbild, Widgets ohne gueltiges /AP /N, ein /AP, das
+    kein Dict ist, Redact mit /OverlayText und /NeedAppearances sind Fehler
+    (fail-closed, N-853-9)."""
+    from pypdf.generic import ContentStream
+
+    used: list[FontUse] = []
+    declared: list[FontUse] = []
+    seen_uses: set[tuple] = set()
+    walked: set[tuple] = set()
+
+    def get_dict(container, key):
+        value = container.get(key) if container is not None else None
+        return value.get_object() if value is not None else {}
+
+    def identity(ref, obj) -> object:
+        return getattr(ref, 'idnum', None) or id(obj)
+
+    def record(target: list, page_no: int, where: str, key: str, ref) -> None:
+        if ref is None:
+            target.append(FontUse(page_no, where, key, '', 'Resource fehlt'))
+            return
+        obj = ref.get_object()
+        base = obj.get('/BaseFont') if hasattr(obj, 'get') else None
+        target.append(FontUse(page_no, where, key, str(base or '').lstrip('/'),
+                              _font_embedding_state(ref)))
+
+    def walk_side_streams(resources, page_no: int, where: str, active: frozenset, pdf, depth: int):
+        """Tiling-Patterns und SMask-Gruppen der Resources (N-853-7)."""
+        for name, ref in get_dict(resources, '/Pattern').items():
+            pattern = ref.get_object()
+            kind = pattern.get('/PatternType') if hasattr(pattern, 'get') else None
+            if kind == 2:  # Shading-Pattern: kann keinen Text tragen
+                continue
+            if kind != 1 or not hasattr(pattern, 'get_data'):
+                raise ValueError(f'Pattern {name} nicht auswertbar (PatternType {kind}, {where})')
+            if '/Resources' not in pattern:
+                raise ValueError(f'Tiling-Pattern {name} ohne /Resources ({where})')
+            walk(pattern, pattern['/Resources'], page_no, f'{where}>Pattern{name}',
+                 active, pdf, depth + 1, ident=identity(ref, pattern))
+        for name, ref in get_dict(resources, '/ExtGState').items():
+            state = ref.get_object()
+            smask = state.get('/SMask') if hasattr(state, 'get') else None
+            smask = smask.get_object() if smask is not None else None
+            if smask is None or smask == '/None':
+                continue
+            if not hasattr(smask, 'get') or smask.get('/G') is None:
+                raise ValueError(f'ExtGState {name}: /SMask ohne Gruppe /G ({where})')
+            group_ref = smask.raw_get('/G') if hasattr(smask, 'raw_get') else smask['/G']
+            group = group_ref.get_object()
+            if not hasattr(group, 'get_data'):
+                raise ValueError(f'ExtGState {name}: /SMask /G ist kein Stream ({where})')
+            walk(group, group.get('/Resources', resources), page_no, f'{where}>SMask{name}',
+                 active, pdf, depth + 1, ident=identity(group_ref, group))
+
+    def use_font(font, page_no: int, where: str, active: frozenset, pdf, depth: int) -> None:
+        if font is None:
+            ident = (page_no, where, '?', None)
+            if ident not in seen_uses:
+                seen_uses.add(ident)
+                used.append(FontUse(page_no, where, '?', '', 'Textausgabe ohne Font (Tf)'))
+            return
+        tf_where, key, ref, tf_resources = font
+        obj = ref.get_object() if ref is not None else None
+        ident = (page_no, tf_where, key, identity(ref, obj) if obj is not None else None)
+        if ident in seen_uses:
+            return
+        seen_uses.add(ident)
+        record(used, page_no, tf_where, key, ref)
+        if hasattr(obj, 'get') and obj.get('/Subtype') == '/Type3':
+            # Type3 ist ueber seine CharProcs eingebettet; die darin verwendeten
+            # Fonts muessen ihrerseits eingebettet sein.
+            charprocs = get_dict(obj, '/CharProcs')
+            procs_resources = obj.get('/Resources', tf_resources)
+            for glyph, proc in charprocs.items():
+                walk(proc.get_object(), procs_resources, page_no, f'{tf_where}>{key}/CharProc{glyph}',
+                     active, pdf, depth + 1, ident=(identity(ref, obj), str(glyph)))
+
+    def walk(stream, resources, page_no: int, where: str, active: frozenset, pdf, depth: int,
+             font=None, ident=None):
+        """``font`` = (Ort, Key, Resource, Resources) des aktuellen Fonts im
+        Grafikzustand; ein Form-XObject erbt ihn vom Aufrufer, q/Q sichern und
+        stellen ihn her."""
+        if depth > MAX_FORM_DEPTH:
+            raise ValueError(f'Inhalte tiefer als {MAX_FORM_DEPTH} verschachtelt ({where})')
+        if ident is not None:
+            if ident in active:
+                raise ValueError(f'Zyklus bei {where}')
+            active = active | {ident}
+        resources = resources.get_object() if resources is not None else None
+        fonts = get_dict(resources, '/Font')
+        xobjects = get_dict(resources, '/XObject')
+        states = get_dict(resources, '/ExtGState')
+        for key, ref in fonts.items():
+            record(declared, page_no, where, str(key), ref)
+        side_key = (page_no, where, id(resources))
+        if side_key not in walked:
+            walked.add(side_key)
+            walk_side_streams(resources, page_no, where, active, pdf, depth)
+        stack: list = []
+        content = stream if isinstance(stream, ContentStream) else ContentStream(stream, pdf)
+        for operands, operator in content.operations:
+            if operator == b'q':
+                stack.append(font)
+            elif operator == b'Q':
+                if not stack:
+                    raise ValueError(f'Q ohne q ({where})')
+                font = stack.pop()
+            elif operator == b'Tf' and operands:
+                key = str(operands[0])
+                font = (where, key, fonts.get(key), resources)
+            elif operator == b'gs' and operands:
+                name = str(operands[0])
+                state = states.get(name)
+                if state is None:
+                    raise ValueError(f'ExtGState {name} fehlt in den Resources ({where})')
+                state = state.get_object()
+                if '/Font' in state:
+                    entry = state['/Font'].get_object()
+                    font = (where, f'{name}/Font', entry[0] if entry else None, resources)
+            elif operator in TEXT_SHOW_OPERATORS:
+                # Verwendet ist ein Font erst, wenn mit ihm Text gezeigt wird
+                # (ReportLab setzt z. B. je Seite ein ungenutztes /F1 Helvetica).
+                use_font(font, page_no, where, active, pdf, depth)
+            elif operator == b'Do' and operands:
+                name = str(operands[0])
+                ref = xobjects.get(name)
+                if ref is None:
+                    raise ValueError(f'XObject {name} fehlt in den Resources ({where})')
+                xobj = ref.get_object()
+                subtype = xobj.get('/Subtype')
+                if subtype == '/Image':
+                    continue
+                if subtype != '/Form':
+                    raise ValueError(f'XObject {name} nicht auswertbar (Subtype {subtype}, {where})')
+                # Form ohne eigene /Resources erbt die des Aufrufers (PDF 1.7, 8.10.1).
+                walk(xobj, xobj.get('/Resources', resources), page_no, f'{where}>{name}',
+                     active, pdf, depth + 1, font, ident=identity(ref, xobj))
+
+    root = pages[0].pdf.trailer['/Root'].get_object() if pages else {}
+    acroform = get_dict(root, '/AcroForm')
+    if acroform.get('/NeedAppearances'):
+        raise ValueError('/AcroForm /NeedAppearances: Erscheinungsbilder erzeugt erst der Leser')
+    for page_no, page in enumerate(pages, start=1):
+        resources = page.get('/Resources')
+        contents = page.get_contents()
+        if contents is not None:
+            walk(contents, resources, page_no, 'Seite', frozenset(), page.pdf, 0)
+        else:
+            res = resources.get_object() if resources is not None else None
+            for key, ref in get_dict(res, '/Font').items():
+                record(declared, page_no, 'Seite', str(key), ref)
+        for index, annot in enumerate(page.get('/Annots') or []):
+            annot = annot.get_object()
+            if not hasattr(annot, 'get'):
+                raise ValueError(f'Annotation[{index}] auf Seite {page_no} ist kein Dict')
+            subtype = annot.get('/Subtype')
+            if subtype == '/Redact' and annot.get('/OverlayText') is not None:
+                # N-853-9: den Overlay-Text setzt erst der Leser beim Anwenden,
+                # mit dem Font aus /DA bzw. dessen Standardfont.
+                raise ValueError(f'Annotation[{index}] auf Seite {page_no}: Redact mit '
+                                 f'/OverlayText (Text entsteht erst beim Anwenden)')
+            raw_ap = annot.get('/AP')
+            raw_ap = raw_ap.get_object() if raw_ap is not None else None
+            if raw_ap is not None and (hasattr(raw_ap, 'get_data') or not hasattr(raw_ap, 'items')):
+                # N-853-9: /AP muss ein Dict sein (PDF 1.7, 12.5.5); ein Stream
+                # an seiner Stelle ist ungueltig und wird vom Leser ersetzt.
+                raise ValueError(f'Annotation[{index}] auf Seite {page_no}: /AP ist kein Dict '
+                                 f'({type(raw_ap).__name__})')
+            appearances = raw_ap or {}
+            if subtype == '/Widget' and appearances.get('/N') is None:
+                # N-853-9: ein Widget ohne gueltiges /AP /N zeichnet der Leser
+                # selbst -- mit /DA aus Feld, Elternfeld oder /AcroForm und
+                # einem Font aus /DR, egal wo /DA steht.
+                raise ValueError(f'Annotation[{index}] auf Seite {page_no}: Widget ohne '
+                                 f'gueltiges Erscheinungsbild (/AP /N fehlt)')
+            if not appearances:
+                if subtype == '/FreeText' and annot.get('/DA') is not None:
+                    raise ValueError(f'Annotation[{index}] auf Seite {page_no}: Text ohne '
+                                     f'Erscheinungsbild (/DA ohne /AP)')
+                continue
+            for ap_key in ('/N', '/D', '/R'):
+                ap = appearances.get(ap_key)
+                if ap is None:
+                    continue
+                ap_ref = appearances.raw_get(ap_key)
+                ap = ap.get_object()
+                base = f'Annotation[{index}]{ap_key}'
+                if hasattr(ap, 'get_data'):
+                    entries = [(base, ap_ref, ap)]
+                elif hasattr(ap, 'items'):
+                    entries = [(f'{base}/{str(name).lstrip("/")}', ap.raw_get(name), ap[name])
+                               for name in ap]
+                else:
+                    raise ValueError(f'{base} auf Seite {page_no} nicht auswertbar')
+                for where, ref, stream in entries:
+                    stream = stream.get_object()
+                    if not hasattr(stream, 'get_data'):
+                        raise ValueError(f'{where} auf Seite {page_no} ist kein Stream')
+                    walk(stream, stream.get('/Resources', resources), page_no, where,
+                         frozenset(), page.pdf, 1, ident=identity(ref, stream))
+    return used, declared
+
+
+def run_pdf_render_smoke(base: str, documents: tuple[str, ...] = PDF_SMOKE_DOCUMENTS,
+                         after_pdfs: Callable | None = None) -> list[str]:
+    """Admin, Kunde und Mandat ueber die API anlegen und PDFs rendern lassen."""
+    password = 'Smoke-' + secrets.token_urlsafe(18) + '-9a'
+
+    def call(method: str, path: str, body: object | None = None,
+             token: str | None = None) -> tuple[int, dict, bytes]:
+        headers = {'Authorization': f'Bearer {token}'} if token else {}
+        return http_request(base + path, method=method, json_body=body, headers=headers,
+                            timeout=60.0)
+
+    def created(step: str, status: int, body: bytes) -> dict:
+        if status != 201:
+            fail(f'PDF-Smoke: {step} antwortet HTTP {status}: {body[:300]!r}')
+        return json.loads(body)
+
+    status, _, body = call('POST', '/auth/bootstrap-admin', {
+        'username': 'packaging-smoke', 'password': password, 'full_name': 'Packaging Smoke',
+    })
+    admin = created('Ersteinrichtung (/auth/bootstrap-admin)', status, body)
+    token = admin['access_token']
+    status, _, body = call('POST', '/clients', {
+        'client_number': 'SMOKE-1', 'first_name': 'Smoke', 'last_name': 'Paket',
+        'advisor_id': admin['user']['id'], 'data_classification': 'synthetic',
+    }, token)
+    client = created('Kunde anlegen (/clients)', status, body)
+    status, _, body = call('POST', f"/clients/{client['id']}/mandates", {
+        'mandate_number': 'SMOKE-M1', 'data_classification': 'synthetic',
+    }, token)
+    mandate = created('Mandat anlegen', status, body)
+    footer = expected_footer_disclaimer(mandate.get('mandate_type'))
+    rendered = []
+    for name in documents:
+        status, headers, pdf = call('GET', f"/mandates/{mandate['id']}/reports/{name}.pdf",
+                                    token=token)
+        ctype = {k.lower(): v for k, v in headers.items()}.get('content-type', '')
+        if status != 200 or 'application/pdf' not in ctype:
+            fail(f'PDF-Smoke: {name}.pdf antwortet HTTP {status} ({ctype}): {pdf[:300]!r}')
+        rendered.append(check_pdf_bytes(pdf, f'{name}.pdf', (footer, FOOTER_CREATED_MARKER)))
+    # H-180: Demo-/Dev-Seeds nur im Dev-Modus -- in der gepackten EXE gesperrt.
+    status, _, body = call('POST', '/admin/system/foundation-example', {}, token)
+    if status != 403:
+        fail(f'Demo-Systemfall in der gepackten EXE nicht gesperrt (HTTP {status}): {body[:200]!r}')
+    log('OK Demo-Systemfall (Foundation Case) in der gepackten EXE gesperrt (403)')
+    if after_pdfs is not None:  # N-926-01: run_strategy_smoke im Start-Smoke
+        after_pdfs(call, token, client['id'], mandate['id'])
+    return rendered
+
+
+def strategy_inputs() -> dict:
+    """Risikoprofil- und Nachhaltigkeits-Payload aus denselben Quellen wie die
+    Backend-Tests (Fragebogentexte aus dem Monolith), in einem isolierten
+    Python-Prozess im Repo gerechnet -- der Smoke-Prozess importiert kein Backend."""
+    root = Path(tempfile.mkdtemp(prefix='ares-smoke-inputs-'))
+    try:
+        env = isolated_env(root, free_port(), root / 'data' / 'unused.db')
+        code = ('import json; from tests.risk_fixture_helpers import standard_risk_payload; '
+                'from core import sustainability_preference as sp; '
+                'print("SMOKE_INPUTS " + json.dumps({"risk": standard_risk_payload(), '
+                '"esg": {"questionnaire_version": sp.QUESTIONNAIRE_VERSION, "definition_hash": sp.definition_hash()}}))')
+        proc = subprocess.run([sys.executable, '-c', code], cwd=str(BACKEND_ROOT), env=env, capture_output=True,
+                              text=True, encoding='utf-8', errors='replace', timeout=300, check=False)
+        lines = [line for line in (proc.stdout or '').splitlines() if line.startswith('SMOKE_INPUTS ')]
+        if proc.returncode != 0 or not lines:
+            fail(f'Strategie-Smoke: Eingaben nicht erzeugbar (Exit {proc.returncode}): {(proc.stderr or "")[-1500:]}')
+        return json.loads(lines[-1][len('SMOKE_INPUTS '):])
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def run_strategy_smoke(call, token: str, client_id: str, mandate_id: str) -> None:
+    """N-935-01 (H-187 Fixrunde 1): der Server der gepackten EXE nimmt NIE ein
+    Testpaket an. Dieser Start laeuft mit einer .env neben der EXE und mit der
+    Variable in Kleinschreibung (Direktstart ohne Shell) -- generate muss
+    trotzdem typisiert mit REFERENCE_DATA_PACKAGE_MISSING (409) ablehnen.
+    Den Optimizer im Artefakt belegt der Strategie-Selbsttest
+    (release_checks.check_self_test_strategy)."""
+    inputs = strategy_inputs()
+    status, _, body = call('POST', f'/mandates/{mandate_id}/risk-assessments', inputs['risk'], token)
+    if status != 201:
+        fail(f'Strategie-Smoke: Risikoprofil antwortet HTTP {status}: {body[:300]!r}')
+    status, _, body = call('POST', f'/clients/{client_id}/wealth-positions', {
+        'label': 'Depot CHF (Smoke, synthetisch)', 'position_type': 'Depot', 'assignment': 'Beratungsvermögen',
+        'current_value_rappen': 50_000_000, 'currency': 'CHF', 'depot_bank': 'Testbank (Smoke)',
+        'alloc_equities_bps': 4000, 'alloc_bonds_bps': 5000, 'alloc_liquidity_bps': 1000,
+    }, token)
+    if status not in (200, 201):
+        fail(f'Strategie-Smoke: Depot antwortet HTTP {status}: {body[:300]!r}')
+    status, _, body = call('POST', f'/mandates/{mandate_id}/sustainability-preferences', {
+        **inputs['esg'], 'response_status': 'declined', 'esg_relevance': None, 'esg_characteristic': None,
+        'exclusions': [], 'information_acknowledged': False, 'client_confirmed': True, 'capture_channel': 'in_person',
+    }, token)
+    if status != 201:
+        fail(f'Strategie-Smoke: Nachhaltigkeitspraeferenz antwortet HTTP {status}: {body[:300]!r}')
+    status, _, body = call('POST', f'/mandates/{mandate_id}/target-allocation/generate', {'preferences': {}}, token)
+    if status != 409 or b'REFERENCE_DATA_PACKAGE_MISSING' not in body:
+        fail(f'N-935-01: der Server der gepackten EXE rechnete mit einem Testpaket aus .env/Umgebung '
+             f'(generate HTTP {status}): {body[:500]!r}')
+    log('OK N-935-01 Server nimmt kein Testpaket an (.env neben der EXE, Variable in Kleinschreibung): '
+        'generate 409 REFERENCE_DATA_PACKAGE_MISSING')
+
+
+def assert_no_font_fallback(logtext: str) -> None:
+    hits = [m for m in FONT_FALLBACK_LOG_MARKERS if m in logtext]
+    if hits:
+        fail(f'Backend-Log meldet Font-Fallback beim PDF-Render: {", ".join(hits)}')
 
 
 def _load_db_location():
@@ -342,6 +954,37 @@ def live_paths() -> list[Path]:
     """
     live_db = Path(_load_db_location().default_db_path())
     return [live_db, live_db.parent, Path.home() / 'ares']
+
+
+def owner_paths() -> list[Path]:
+    """N-926-06: Owner-Ordner des ausfuehrenden Benutzers (Electron nutzt die
+    Known-Folder-API, nicht die Umgebungsvariablen des Kindprozesses)."""
+    paths = list(live_paths())
+    appdata = os.environ.get('APPDATA')
+    localappdata = os.environ.get('LOCALAPPDATA')
+    if appdata:
+        paths.append(Path(appdata) / 'Ares')
+    if localappdata:
+        paths += [Path(localappdata) / 'Programs' / 'Ares', Path(localappdata) / 'Ares',
+                  Path(localappdata) / 'ares-updater']
+    return paths
+
+
+def owner_listing(paths: list[Path], limit: int = 20000) -> dict[str, tuple | None]:
+    """Rekursives Listing (Groesse, mtime) -- nur lesend."""
+    out: dict[str, tuple | None] = {}
+    for base in paths:
+        if not base.exists():
+            out[str(base)] = None
+            continue
+        items = [base] + (sorted(base.rglob('*')) if base.is_dir() else [])
+        for item in items[:limit]:
+            try:
+                st = item.stat()
+            except OSError:
+                continue
+            out[str(item)] = ('dir',) if item.is_dir() else (st.st_size, st.st_mtime_ns)
+    return out
 
 
 def snapshot(paths: list[Path]) -> dict[str, tuple | None]:
@@ -376,7 +1019,6 @@ def isolated_env(root: Path, port: int, db_path: Path) -> dict[str, str]:
         'APP_HOST': '127.0.0.1',
         'APP_PORT': str(port),
         'DB_PATH': str(db_path),
-        'DB_USE_SQLCIPHER': 'false',
         'BACKUP_DIR': str(root / 'backups'),
         'LOG_DIR': str(root / 'logs'),
         'BACKUP_ENABLED': 'false',
@@ -388,8 +1030,14 @@ def isolated_env(root: Path, port: int, db_path: Path) -> dict[str, str]:
         'SMTP_ENABLED': 'false',
         # RB-1: wie die Desktop-Shell -- Ablage im (temporaeren) userData-Ordner.
         'TENANT_MASTER_KEK_FILE': str(kek_store_path(root)),
+        # EXE-P (H-187): Ablage des SQLCipher-Schluessels, ebenfalls wie die Shell.
+        'DB_KEY_FILE': str(db_key_store_path(root)),
     })
     return env
+
+
+def db_key_store_path(root: Path) -> Path:
+    return root / 'home' / 'AppData' / 'Roaming' / 'Ares' / DB_KEY_STORE_NAME
 
 
 def kek_store_path(root: Path) -> Path:
@@ -428,7 +1076,7 @@ def check_kek_store(root: Path) -> tuple[bytes, str]:
     store = kek_store_path(root)
     if not store.is_file():
         fail(f'Erststart hat keine KEK-Ablage angelegt: {store}')
-    others = [p.name for p in store.parent.iterdir() if p.name != KEK_STORE_NAME]
+    others = [p.name for p in store.parent.iterdir() if p.name not in (KEK_STORE_NAME, DB_KEY_STORE_NAME)]
     if others:
         fail(f'Neben der KEK-Ablage liegen unerwartete Dateien (Temp-Reste?): {others}')
     raw = store.read_bytes()
@@ -440,6 +1088,27 @@ def check_kek_store(root: Path) -> tuple[bytes, str]:
     if kek.encode('ascii') in raw:
         fail('KEK steht im Klartext in der Ablage.')
     return raw, kek
+
+
+def check_db_key_store(root: Path, db_path: Path) -> tuple[bytes, str]:
+    """EXE-P (H-187): Erststart legt die DPAPI-Ablage des Datenbankschluessels an;
+    die Datenbank ist SQLCipher-verschluesselt (kein Klartext-Kopf)."""
+    store = db_key_store_path(root)
+    if not store.is_file():
+        fail(f'Erststart hat keine Ablage des Datenbankschluessels angelegt: {store}')
+    raw = store.read_bytes()
+    if not raw.startswith(DB_KEY_STORE_MAGIC):
+        fail('Ablage des Datenbankschluessels hat nicht die erwartete Format-Kennung.')
+    key = dpapi_unprotect(raw[len(DB_KEY_STORE_MAGIC):], DB_KEY_STORE_ENTROPY).decode('ascii')
+    if not re.fullmatch(r'[0-9a-f]{64}', key):
+        fail('Ablage des Datenbankschluessels enthaelt keinen 64-stelligen Hex-Schluessel.')
+    if key.encode('ascii') in raw:
+        fail('Datenbankschluessel steht im Klartext in der Ablage.')
+    with db_path.open('rb') as handle:
+        head = handle.read(16)
+    if head == SQLITE_PLAINTEXT_HEADER:
+        fail(f'Smoke-DB ist eine Klartext-SQLite-Datei (kein SQLCipher): {db_path}')
+    return raw, key
 
 
 def assert_kek_not_logged(kek: str, paths: list[Path]) -> None:
@@ -485,6 +1154,36 @@ def run_restart_smoke(exe_copy: Path, env: dict[str, str], port: int, log_file: 
     text = log_file.read_text(encoding='utf-8', errors='replace')
     if 'Master-KEK: loaded' not in text:
         fail(f'Zweiter Start hat die KEK nicht aus der Ablage geladen.\n--- backend.log ---\n{tail(log_file)}')
+    if 'Datenbankschluessel (gepackte EXE): loaded' not in text:
+        fail(f'Zweiter Start hat den Datenbankschluessel nicht aus der Ablage geladen.\n'
+             f'--- backend.log ---\n{tail(log_file)}')
+
+
+def run_refused_start_smoke(exe_copy: Path, timeout: float) -> None:
+    """EXE-P (H-187): ohne Ablageort des Datenbankschluessels startet die gepackte
+    EXE nicht (klarer Startfehler, keine Datenbankdatei, nie Klartext)."""
+    root = Path(tempfile.mkdtemp(prefix='ares-packaging-refused-'))
+    try:
+        port = free_port()
+        db_path = root / 'data' / 'refused.db'
+        env = isolated_env(root, port, db_path)
+        env.pop('DB_KEY_FILE', None)
+        log_file = root / 'backend-refused.log'
+        with log_file.open('wb') as out:
+            proc = subprocess.run([str(exe_copy)], cwd=str(exe_copy.parent), env=env, stdin=subprocess.DEVNULL,
+                                  stdout=out, stderr=subprocess.STDOUT, timeout=timeout, check=False)
+        text = log_file.read_text(encoding='utf-8', errors='replace')
+        if proc.returncode == 0:
+            fail(f'Gepackte EXE ohne Datenbankschluessel endete mit Exit 0.\n--- log ---\n{tail(log_file)}')
+        if 'Start abgebrochen' not in text or 'DB_KEY_FILE' not in text:
+            fail(f'Gepackte EXE ohne Datenbankschluessel: kein klarer Startfehler im Log.\n--- log ---\n{tail(log_file)}')
+        if db_path.exists():
+            fail(f'Gepackte EXE ohne Datenbankschluessel hat eine Datenbankdatei angelegt: {db_path}')
+        log(f'OK EXE-P ohne Datenbankschluessel: Startfehler (Exit {proc.returncode}), keine Datenbankdatei')
+    except subprocess.TimeoutExpired:
+        fail('Gepackte EXE ohne Datenbankschluessel hat sich nicht selbst beendet (haengt statt Startfehler).')
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def assert_not_live(db_path: Path) -> None:
@@ -554,13 +1253,36 @@ def run_start_smoke(exe: Path, timeout: float, grace: float, keep: bool) -> None
         if port_open(port):
             fail(f'Port {port} ist bereits belegt.')
 
+        # Selbsttest ohne Ablageort des Datenbankschluessels: er oeffnet keine DB und
+        # legt keine Ablage an (sonst waere der folgende Erststart kein Erststart).
+        release_checks.check_self_test_imports(
+            exe_copy, {k: v for k, v in env.items() if k != 'DB_KEY_FILE'}, fail, log)
+        if db_key_store_path(root).exists():
+            fail('Import-Selbsttest hat eine Ablage des Datenbankschluessels angelegt.')
+        # N-935-01: Strategie-Selbsttest (eigener Prozess, temporaere DB, kein Server);
+        # nur hier wird das TEST-Paket geladen (Kopie im Temp-Root).
+        smoke_package = root / 'test-reference-package.json'
+        shutil.copy2(SMOKE_TEST_REFERENCE_PACKAGE, smoke_package)
+        release_checks.check_self_test_strategy(
+            exe_copy, {k: v for k, v in env.items() if k != 'DB_KEY_FILE'}, smoke_package,
+            IC_UNRELEASED_LABEL, OPTIMIZER_FALLBACK_MARKERS, fail, log)
+        if db_key_store_path(root).exists() or db_path.exists():
+            fail('Strategie-Selbsttest hat die eingestellte Datenbank oder eine Schluesselablage angelegt.')
+        run_refused_start_smoke(exe_copy, timeout)
+
         before = snapshot(live_paths())
+        # N-935-01: dieser Start bekommt die Testpaket-Angabe auf beiden Wegen, die
+        # frueher wirkten -- .env neben der EXE und Variable in Kleinschreibung.
+        # Beides muss wirkungslos bleiben (APP_NAME aus der .env darf nicht greifen).
+        (run_dir / '.env').write_text(
+            f'APP_NAME={ENV_FILE_PROBE_APP_NAME}\ntest_reference_package_file={smoke_package}\n', encoding='utf-8')
+        start_env = {**env, 'test_reference_package_file': str(smoke_package)}
         log_file = root / 'backend.log'
         base = f'http://127.0.0.1:{port}'
         log(f'Starte {exe_copy} auf {base} (cwd={run_dir})')
         with log_file.open('wb') as out:
             proc = subprocess.Popen(
-                [str(exe_copy)], cwd=str(run_dir), env=env,
+                [str(exe_copy)], cwd=str(run_dir), env=start_env,
                 stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
             )
@@ -590,6 +1312,7 @@ def run_start_smoke(exe: Path, timeout: float, grace: float, keep: bool) -> None
                     fail(f'/health/ready meldet app={ready_payload.get("app")!r}, erwartet {EXPECTED_APP!r}.')
                 if ready_payload.get('database') != 'ok':
                     fail(f'/health/ready meldet database={ready_payload.get("database")!r}.')
+                release_checks.check_build_identity(ready_payload, fail, log)
 
                 status, _, body = http_get(base + '/health/live')
                 if status != 200:
@@ -612,6 +1335,10 @@ def run_start_smoke(exe: Path, timeout: float, grace: float, keep: bool) -> None
                 if status_spa != 200:
                     fail(f'Reporting-SPA-Fallback antwortet HTTP {status_spa}.')
                 log(f'OK Reporting-Mount: /reporting, {asset_refs[0]} ({len(asset_body)} bytes), SPA-Fallback')
+
+                rendered = run_pdf_render_smoke(base, after_pdfs=run_strategy_smoke)
+                log('OK PDF-Render in der gepackten EXE: ' + '; '.join(rendered)
+                    + ' -- Fusszeile aus dem Laenderpaket-Text, Editorial-Fonts eingebettet')
             finally:
                 if proc.poll() is None:
                     graceful = stop_process(proc, port, grace)
@@ -630,18 +1357,34 @@ def run_start_smoke(exe: Path, timeout: float, grace: float, keep: bool) -> None
                  f'--- backend.log ---\n{tail(log_file)}')
         if 'Reporting-Dist nicht gefunden' in logtext:
             fail('Backend-Log meldet fehlende Reporting-Dist.')
+        assert_no_font_fallback(logtext)
+        release_checks.assert_no_degraded_modules(logtext, fail)
         log('OK Lifespan-Shutdown sauber durchlaufen (Application shutdown complete)')
 
         if not db_path.is_file():
             fail(f'Smoke-DB wurde nicht angelegt: {db_path}')
         expected_views = schema_view_names()
-        with sqlite3.connect(f'file:{db_path}?mode=ro', uri=True) as conn:
+        db_key_raw, db_key = check_db_key_store(root, db_path)
+        import sqlcipher3  # EXE-P: die Smoke-DB ist verschluesselt; CI installiert requirements-sqlcipher.txt
+
+        conn = sqlcipher3.connect(f'file:{db_path}?mode=ro', uri=True)
+        try:
+            conn.execute("PRAGMA key = '" + db_key + "'")
+            for pragma in SQLCIPHER_CIPHER_PRAGMAS:
+                conn.execute(pragma)
             present = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='view'")}
+        finally:
+            conn.close()
         missing = [v for v in expected_views if v not in present]
         if missing:
             fail(f'Schema aus dem Paket nicht angewendet -- Views fehlen in der Smoke-DB: {", ".join(missing)}')
         log(f'OK Schemafund: {len(expected_views)}/{len(expected_views)} Schema-Views in frischer DB '
             f'({", ".join(expected_views)})')
+        if 'Datenbankschluessel (gepackte EXE): generated' not in logtext:
+            fail('Erststart hat keinen Datenbankschluessel erzeugt.\n'
+                 f'--- backend.log ---\n{tail(log_file)}')
+        log('OK EXE-P SQLCipher-Pflicht: Erststart erzeugt den Datenbankschluessel in einer DPAPI-Ablage '
+            '(Benutzer-Scope), Smoke-DB ohne Klartext-Kopf, nur mit Schluessel lesbar')
 
         if 'Master-KEK: generated' not in logtext:
             fail('Erststart hat keine Master-KEK erzeugt ("Master-KEK: generated" fehlt).\n'
@@ -651,7 +1394,10 @@ def run_start_smoke(exe: Path, timeout: float, grace: float, keep: bool) -> None
         run_restart_smoke(exe_copy, env, port, log_file_2, timeout, grace)
         if kek_store_path(root).read_bytes() != store_bytes:
             fail('Zweiter Start hat die KEK-Ablage veraendert (darf nie ueberschrieben werden).')
+        if db_key_store_path(root).read_bytes() != db_key_raw:
+            fail('Zweiter Start hat die Ablage des Datenbankschluessels veraendert.')
         assert_kek_not_logged(kek, [log_file, log_file_2, root / 'logs'])
+        assert_kek_not_logged(db_key, [log_file, log_file_2, root / 'logs'])
         log('OK RB-1 Master-KEK: Erststart erzeugt genau eine DPAPI-Ablage (Benutzer-Scope), '
             'zweiter Start laedt sie byte-identisch, kein Klartext in Logs')
 
@@ -693,6 +1439,18 @@ def main(argv: list[str] | None = None) -> int:
         check_digests(exe, unpacked)
         check_archive(exe)
         run_start_smoke(exe, args.timeout, args.grace, args.keep_temp)
+        if unpacked is None:
+            fail('--unpacked-dir fehlt: Produkt-Hygiene und Shell-Start (H-180) brauchen die electron-builder-Ausgabe.')
+        release_checks.check_product_hygiene(exe, unpacked, fail, log)
+        owner_before = owner_listing(owner_paths())
+        release_checks.run_shell_smoke(unpacked, isolated_env=isolated_env, free_port=free_port,
+                                       http_get=http_get, port_open=port_open, fail=fail, log=log,
+                                       timeout=args.timeout, keep=args.keep_temp)
+        owner_after = owner_listing(owner_paths())
+        if owner_before != owner_after:
+            changed = sorted(set(owner_before.items()) ^ set(owner_after.items()))[:20]
+            fail(f'Shell-Smoke hat Owner-Ordner veraendert: {changed}')
+        log(f'OK N-926-06 Owner-Ordner vor/nach dem Shell-Smoke identisch ({len(owner_after)} Eintraege)')
     except SmokeError as exc:
         log(f'FEHLER: {exc}')
         return 1
