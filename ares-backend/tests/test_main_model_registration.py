@@ -211,7 +211,10 @@ GOLDEN_SORTED_TABLES_SHA256 = "d744651af0743ee170e565b6fe45bdff4a42593ff8578c856
 # risk_parameter_set, AllocationPublicationOverviewResponse.decision_envelope,
 # Schemas DecisionEnvelopeReference/ChannelPublicationReference; kein Pfad und
 # kein bestehendes Feld geaendert (Feld-Diff api/openapi.json, export_openapi.py).
-GOLDEN_OPENAPI_SHA256 = "a49c061417fdb6aaeb22b034c2b9f5991b2582cdea560e366bf2e5273dcf888b"
+# P5c (N-930-01): nur additiv -- GoalAnalysisResponse.status_label/status_tone/
+# status_color/status_bg (M-3-Anzeige, optional); kein Pfad und kein bestehendes
+# Feld geaendert (Feld-Diff api/openapi.json: 44 hinzugefuegte Zeilen, export_openapi.py).
+GOLDEN_OPENAPI_SHA256 = "e83c862d2ca22576f13cc1d01de0989684216fdacdcbcd8f3c57500f7fbf675d"
 
 _PROBE = """
 import hashlib, json

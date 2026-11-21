@@ -53,6 +53,10 @@ function makeGoal(overrides: Partial<GoalEntry> = {}): GoalEntry {
     evaluation_scope: overrides.evaluation_scope ?? 'priority_funded',
     funding_rank: overrides.funding_rank ?? null,
     failure_event_id: overrides.failure_event_id ?? null,
+    // P5c / N-930-01: M-3-Anzeigefelder (falls gesetzt) unveraendert durchreichen.
+    status_label: overrides.status_label,
+    status_tone: overrides.status_tone,
+    status_color: overrides.status_color,
   };
 }
 

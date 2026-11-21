@@ -193,7 +193,7 @@ P5c (H-186, CTO-Entscheide N-930-01/-02): neuer Teil ``p5c-ui.js`` (Budget = Sta
 Einfuehrung, 27/1932): goalStatusView (Zielstatus nur aus M-3) und loadStrategyOnly (keine
 stille Neuberechnung). Im Monolithen entfallen goalSuccessAmpel, rvGoalProbBadge,
 goalAchievabilityStatusLabel und vier Ampel-70/45-Stellen -> Monolith gesenkt auf
-26388/1620987; goal-review-runtime.js gesenkt auf 1561/83782, finalize-attestation.js auf 27/1733.
+26388/1620963; goal-review-runtime.js gesenkt auf 1561/83782, finalize-attestation.js auf 27/1733.
 """
 from __future__ import annotations
 
@@ -204,7 +204,7 @@ MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
 MONOLITH_MAX_LINES = 26388
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1620987
+MONOLITH_MAX_BYTES = 1620963
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
