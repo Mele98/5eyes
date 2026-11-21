@@ -18,6 +18,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 import test_golden_snapshot_ch_regression as G
+from product_evidence_test_support import add_synthetic_product_evidence
 from database import Base
 from models.mandates import Mandate
 from models.review import Product
@@ -45,7 +46,7 @@ def session_factory(tmp_path):
         engine.dispose()
 
 
-def _add_tie_products(session, ordered: list[tuple[str, str]]) -> None:
+def _add_tie_products(session, ordered: list[tuple[str, str]], *, actor_id: str, tenant_id: str) -> None:
     """Zwei fachlich identische Welt-Aktien-Produkte (gleicher Score)."""
     from services.product_eligibility import seed_default_catalog_suitability_and_rules
 
@@ -62,6 +63,9 @@ def _add_tie_products(session, ordered: list[tuple[str, str]]) -> None:
         session.flush()  # erzwingt die Einfuegereihenfolge
         created.append(product)
     seed_default_catalog_suitability_and_rules(session, products=created, jurisdiction="CH", now=now)
+    add_synthetic_product_evidence(
+        session, created, actor_id=actor_id, tenant_id=tenant_id,
+    )
 
 
 def _chosen_world_product(session_factory, ordered, suffix):
@@ -69,7 +73,10 @@ def _chosen_world_product(session_factory, ordered, suffix):
     with session_factory() as s:
         ensure_default_products(s)
         ensure_hedged_product_variants(s)
-        _add_tie_products(s, ordered)
+        mandate = s.query(Mandate).filter(Mandate.id == mid).one()
+        _add_tie_products(
+            s, ordered, actor_id=adv, tenant_id=str(mandate.tenant_id or "main"),
+        )
         s.commit()
     with session_factory() as s:
         mandate = s.query(Mandate).filter(Mandate.id == mid).first()

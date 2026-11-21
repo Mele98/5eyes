@@ -167,6 +167,7 @@ def test_dev_seed_marks_only_pattern_catalog_and_never_customer_product(db):
     db.flush()
     seed_synthetic_default_catalog_evidence(
         db, products=[pattern, customer], actor_id="user-1", jurisdiction="CH",
+        allowed_product_names=[pattern.product_name],
     )
     pattern_rows = db.query(ProductEvidenceItem).filter_by(product_id=pattern.id).all()
     assert {row.evidence_kind for row in pattern_rows} == set(PRODUCT_EVIDENCE_KINDS)

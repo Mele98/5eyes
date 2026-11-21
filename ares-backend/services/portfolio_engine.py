@@ -6611,14 +6611,16 @@ def generate_recommendation_run(
     if settings.app_env in {"development", "test"} and not getattr(sys, "frozen", False):
         from services.product_eligibility import seed_synthetic_default_catalog_evidence
 
+        synthetic_catalog_names = [row[0] for row in DEFAULT_CATALOG_PRODUCTS]
         synthetic_catalog = db.query(Product).filter(
             Product.tenant_id.is_(None),
-            Product.product_name.like("Musterprodukt%"),
+            Product.product_name.in_(synthetic_catalog_names),
             Product.deleted_at.is_(None),
         ).all()
         seed_synthetic_default_catalog_evidence(
             db, products=synthetic_catalog, actor_id=user_id,
             jurisdiction=resolve_pack(code=jurisdiction).code,
+            allowed_product_names=synthetic_catalog_names,
         )
     _normalize_preferences(preferences)  # fail-fast Vokabular; wirksam: TA-Snapshot unten
     policy, cma = ensure_runtime_reference_data(

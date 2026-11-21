@@ -1,7 +1,7 @@
 """C-COMP-02: granular product evidence and immutable run snapshot.
 
 Revision ID: 9f4c2a7e1b63
-Revises: 63332bb56098
+Revises: c2546c196134
 Create Date: 2026-11-19
 """
 from __future__ import annotations
@@ -13,7 +13,7 @@ from alembic import op
 
 
 revision: str = "9f4c2a7e1b63"
-down_revision: Union[str, Sequence[str], None] = "63332bb56098"
+down_revision: Union[str, Sequence[str], None] = "c2546c196134"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

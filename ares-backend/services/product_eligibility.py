@@ -1046,6 +1046,7 @@ def product_evidence_item_payload_hash(payload: dict) -> tuple[str, str]:
 
 def seed_synthetic_default_catalog_evidence(
     db: Session, *, products: Sequence[Product], actor_id: str, jurisdiction: str,
+    allowed_product_names: Sequence[str],
 ) -> None:
     """Legt klar bezeichnete Muster-Nachweise nur fuer Dev/Test an.
 
@@ -1056,8 +1057,9 @@ def seed_synthetic_default_catalog_evidence(
     """
     now = _now_iso()
     today = datetime.now(timezone.utc).date().isoformat()
+    allowed = frozenset(str(name) for name in allowed_product_names)
     for product in products:
-        if product.tenant_id is not None or not str(product.product_name or "").startswith("Musterprodukt"):
+        if product.tenant_id is not None or str(product.product_name) not in allowed:
             continue
         existing = {
             row[0] for row in db.query(ProductEvidenceItem.evidence_kind).filter(
