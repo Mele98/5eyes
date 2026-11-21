@@ -15,8 +15,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from sqlalchemy.exc import IntegrityError
+
 from config import settings
-from core.reason_codes import DomainError
+from core.db_integrity import check_constraint_label, is_check_constraint_violation
+from core.goal_metric_contract import GoalMetricUncertified
+from core.reason_codes import DomainError, ReasonCode
+from core.risk_parameter_set import ParameterSetMissing
 
 
 logger = logging.getLogger(__name__)
@@ -271,5 +276,85 @@ async def domain_error_handler(request: Request, exc: DomainError) -> Response:
     return response
 
 
+# ---------------------------------------------------------------------------
+# RC-CH-1-F1: CHECK-Verletzungen der Datenbank nie als 500
+# ---------------------------------------------------------------------------
+# Ein Wert ausserhalb einer CHECK-Werteliste ist ein Eingabefehler, kein
+# Serverfehler (Bugklasse Schema-Drift: Hypothek-Amortisationstyp,
+# contract_documents-Status, goal_type). Erkannt werden genau CHECK-
+# Verletzungen: PostgreSQL ueber SQLSTATE 23514 (check_violation), SQLite/
+# SQLCipher ueber die Meldung "CHECK constraint failed". Alle anderen
+# Integritaetsfehler (UNIQUE, FK, NOT NULL) laufen unveraendert weiter (die
+# Router bilden sie heute gezielt ab; unbehandelt bleiben sie 500). Die
+# Antwort nennt weder Werte noch Zeileninhalt -- PostgreSQL liefert im DETAIL
+# die komplette Zeile ("Failing row contains ..."), das bleibt auch im Log aus.
+
+CHECK_CONSTRAINT_VIOLATION_MESSAGE = (
+    "Ein Wert liegt ausserhalb des zulaessigen Wertebereichs und wurde nicht gespeichert."
+)
+
+
+def check_constraint_violation_error() -> DomainError:
+    return DomainError(
+        ReasonCode.DB_CHECK_CONSTRAINT_VIOLATION,
+        CHECK_CONSTRAINT_VIOLATION_MESSAGE,
+        http_status=422,
+    )
+
+
+async def integrity_error_handler(request: Request, exc: IntegrityError) -> Response:
+    if not is_check_constraint_violation(exc):
+        raise exc
+    logger.warning(
+        "CHECK-Verletzung als 422 beantwortet | method=%s path=%s constraint=%s",
+        request.method, request.url.path, check_constraint_label(exc),
+    )
+    return await domain_error_handler(request, check_constraint_violation_error())
+
+
+# ---------------------------------------------------------------------------
+# CCX P5 / N-925-07: fehlender Parametersatz / unzertifizierte Zielkennzahl
+# ---------------------------------------------------------------------------
+# ``ParameterSetMissing``/``GoalMetricUncertified`` sind ValueError-Unterklassen
+# (Engine-Fehlerpfade). Ungefangen waeren sie 500; viele Router bilden
+# ValueError zu einem 409 ohne Reason-Code ab (``raise HTTPException(409,
+# str(exc)) from exc``). Beide Wege enden hier typisiert: 409 mit
+# ``CCX_PARAMETER_SET_MISSING`` bzw. ``CCX_GOAL_METRIC_UNCERTIFIED``.
+_TYPED_ENGINE_ERRORS = {
+    ReasonCode.CCX_PARAMETER_SET_MISSING.value: ReasonCode.CCX_PARAMETER_SET_MISSING,
+    ReasonCode.CCX_GOAL_METRIC_UNCERTIFIED.value: ReasonCode.CCX_GOAL_METRIC_UNCERTIFIED,
+}
+
+
+def typed_engine_error(exc: BaseException | None) -> DomainError | None:
+    """``DomainError`` fuer eine (verkettete) P5-Ablehnung, sonst None."""
+    seen = 0
+    while exc is not None and seen < 8:
+        code = _TYPED_ENGINE_ERRORS.get(str(getattr(type(exc), "reason_code", "") or ""))
+        if code is not None:
+            return DomainError(code, str(exc), http_status=409)
+        exc = exc.__cause__ or exc.__context__
+        seen += 1
+    return None
+
+
+async def typed_engine_error_handler(request: Request, exc: Exception) -> Response:
+    typed = typed_engine_error(exc)
+    if typed is None:
+        raise exc
+    return await domain_error_handler(request, typed)
+
+
+async def http_exception_with_typed_cause_handler(request: Request, exc: StarletteHTTPException) -> Response:
+    typed = typed_engine_error(exc.__cause__ or exc.__context__)
+    if typed is not None and int(getattr(exc, "status_code", 0) or 0) in (400, 409, 422, 500):
+        return await http_exception_handler(request, domain_error_as_http_exception(typed))
+    return await http_exception_handler(request, exc)
+
+
 def install_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(DomainError, domain_error_handler)
+    app.add_exception_handler(IntegrityError, integrity_error_handler)
+    app.add_exception_handler(ParameterSetMissing, typed_engine_error_handler)
+    app.add_exception_handler(GoalMetricUncertified, typed_engine_error_handler)
+    app.add_exception_handler(StarletteHTTPException, http_exception_with_typed_cause_handler)

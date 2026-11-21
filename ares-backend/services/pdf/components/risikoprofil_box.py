@@ -68,7 +68,7 @@ def make_risikoprofil_box(
     right_content = []
     if horizon_years:
         right_content.append(Paragraph(
-            f'<font name="{FONT_DEFAULT}" size="7" color="#64748b">ANLAGEHORIZONT</font>',
+            f'<font name="{FONT_DEFAULT}" size="7" color="#64748b">ANLAGEHORIZONT (RISIKOPROFIL)</font>',
             _para_size(7, after=1),
         ))
         right_content.append(Paragraph(
@@ -86,11 +86,11 @@ def make_risikoprofil_box(
         ))
     if is_overridden:
         reason = (override_reason or "").strip()
-        note = "Das Risikoprofil wurde manuell uebersteuert."
+        note = "Das Risikoprofil wurde manuell übersteuert."
         if reason:
-            note += f" Begruendung: {reason}"
+            note += f" Begründung: {reason}"
         right_content.append(Paragraph(
-            f'<font name="{FONT_DEFAULT}" size="7" color="#64748b">MANUELLE UEBERSTEUERUNG</font>',
+            f'<font name="{FONT_DEFAULT}" size="7" color="#64748b">MANUELLE ÜBERSTEUERUNG</font>',
             _para_size(7, after=1),
         ))
         right_content.append(Paragraph(

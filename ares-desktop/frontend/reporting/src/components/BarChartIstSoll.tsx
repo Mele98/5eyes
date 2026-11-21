@@ -22,6 +22,7 @@
  */
 import { assetClassKey, type AssetClassKey } from '@/design/tokens';
 import { formatBpsAsPct, formatBpsSignedPct } from '@/lib/format';
+import { bucketPctMap } from '@/lib/presentationRounding';
 
 /** Vollständige Klassennamen (Tailwind-JIT sieht nur Literale). */
 const ASSET_CLASS_SWATCH: Record<AssetClassKey, string> = {
@@ -86,12 +87,15 @@ export function BarChartIstSoll({
       </p>
     );
   }
+  // G7 N-894-02: SOLL-Anteile gemeinsam apportioniert (gleiche Regel wie App/PDF).
+  const sollText = bucketPctMap(items.map((i) => ({ asset_class: i.label, target_weight_bps: i.soll_bps })), { typography: 'screen' });
   return (
     <div className="space-y-block">
       {items.map((item) => (
         <BarRow
           key={item.label}
           item={item}
+          sollText={sollText[item.label] ?? formatBpsAsPct(item.soll_bps)}
           showBands={showBands}
           driftThresholdBps={driftThresholdBps}
         />
@@ -102,11 +106,12 @@ export function BarChartIstSoll({
 
 interface BarRowProps {
   item: BarChartItem;
+  sollText: string;
   showBands: boolean;
   driftThresholdBps: number;
 }
 
-function BarRow({ item, showBands, driftThresholdBps }: BarRowProps) {
+function BarRow({ item, sollText, showBands, driftThresholdBps }: BarRowProps) {
   const status = bandStatus(item);
   let driftClass: string;
   if (status === 'outside') {
@@ -164,7 +169,7 @@ function BarRow({ item, showBands, driftThresholdBps }: BarRowProps) {
           testId="bar-ist-fill"
         />
         <Track
-          label={`SOLL ${formatBpsAsPct(item.soll_bps)}${bandText}`}
+          label={`SOLL ${sollText}${bandText}`}
           fillPct={sollPct}
           fillClass="bg-soll dark:bg-soll-dark"
           testId="bar-soll-fill"

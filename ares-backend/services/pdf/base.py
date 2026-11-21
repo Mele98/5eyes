@@ -10,6 +10,15 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Mapping, Protocol, Sequence, runtime_checkable
 
+from jurisdictions.resolve import resolve_pack
+
+
+def resolve_pdf_jurisdiction(mandate) -> str:
+    """H7 N-884-02: Laendercode des Mandats fuer PDF-Texte ueber den zentralen
+    Resolver (jurisdictions.resolve, NULL = Altsemantik CH) -- kein eigener
+    Inline-Rueckgriff in den Textbausteinen."""
+    return str(resolve_pack(mandate).code)
+
 
 @dataclass(frozen=True)
 class PDFContext:
@@ -35,6 +44,22 @@ class PDFContext:
     # Backtest) gesetzt/gerendert -- fuer CH IMMER None (kein DB-Zugriff,
     # siehe resolve_pdf_provisional_notice).
     provisional_notice: Mapping[str, object] | None = None
+    # H7 C-3: Mandatstyp und Jurisdiktion fuer den Disclaimer je Mandat
+    # (services/pdf/components/static_texts.py::disclaimer_paragraphs).
+    mandate_type: str | None = None
+    jurisdiction: str | None = None
+    # C-890-01 Nachtrag 4 (N-897-12): "vorvertrag" fuer kundenwirksame Berichte
+    # ohne jede KYC-Bestaetigung (Entwurf vor Vertragsabschluss), sonst "none".
+    watermark_mode: str = "none"
+    # CCX P5 (Vertrag §8): Envelope-Hash/Version des versiegelten, auslieferbaren
+    # Beratungsentscheids fuer den Fuss jedes Kunden-PDFs; None = kein solcher
+    # Entscheid gebunden (Entwurf oder Dokument ohne Entscheid).
+    decision_ref: Mapping[str, str] | None = None
+
+
+# E2E2-03: Verzehr-Hinweis fuer die Kunden-PDFs (pure Funktion, eine Quelle:
+# core/depletion_display.py; Re-Export fuer bestehende Aufrufer).
+from core.depletion_display import depletion_note  # noqa: E402,F401
 
 
 @dataclass(frozen=True)
@@ -99,7 +124,27 @@ class AnlagestrategieData:
     """{'equities': (min_bps, max_bps), ...} fuer Toleranzbaender-Spalte."""
 
     bucket_amounts_rappen: Mapping[str, int] = field(default_factory=dict)
-    """{'equities': target_amount_rappen, ...} fuer Betrag-Spalte."""
+    """{'equities': target_amount_rappen, ...} fuer Betrag-Spalte.
+
+    Live-Test 2026-11 H2/H3: Betraege auf der Strategiebasis
+    (``strategy_base_rappen``), auf die sich die SAA-Gewichte beziehen."""
+
+    strategy_base_rappen: int | None = None
+    """Strategiebasis = Beratungsvermoegen minus externe Liquiditaetsreserve
+    (Engine: ``strategy_base_rappen``). None = keine Reserve-Angabe."""
+
+    external_reserve_rappen: int = 0
+    """Ausserhalb der Anlagestrategie gehaltene Liquiditaetsreserve; wird als
+    eigene Zeile ausgewiesen, damit die Betraege auf das Beratungsvermoegen
+    summieren."""
+
+    strategy_basis_note: str | None = None
+    """N-858-2: Hinweis, wenn das aktuelle Beratungsvermoegen vom Vermoegen bei
+    Generierung der Strategie abweicht (Betraege beziehen sich auf letzteres)."""
+
+    sub_allocations: list = field(default_factory=list)
+    """SAA-Subanlageklassen (nicht Produktmix): dicts mit asset_class
+    (Bucket-Key), sub_asset_class, target_weight_bps, target_amount_rappen."""
 
     products: list = field(default_factory=list)
     """ISIN-Produkt-Liste. Jedes Element ist dict mit:
@@ -199,10 +244,20 @@ class AnlagestrategieData:
 
     target_volatility_1y_bps: int | None = None
     current_volatility_1y_bps: int | None = None
+    projection_end_year_label: str | None = None
+    """H9 Nachtrag 3: letztes Jahreslabel der Monte-Carlo-Pfade (Stand nach
+    dem letzten inklusiven Jahr); das PDF zeigt es als "Ende JJJJ" wie die App."""
     """1-Jahres-Volatilitaet aus der Monte-Carlo-Pfadsimulation (NICHT
     identisch zu cma_expected_vol_bps oben, das die theoretische CMA-Vola
     ist -- hier die tatsaechlich simulierte Pfad-Statistik, Basis fuer die
     Sharpe-Ratio)."""
+
+    target_depletion_note: str | None = None
+    current_depletion_note: str | None = None
+    """E2E2-03: "Vermögen aufgebraucht ab JJJJ" (bzw. "Finanzierungslücke ab
+    JJJJ"), wenn der mittlere Verlauf (P50) unter null faellt -- gleiche Regel
+    wie die App (advisor-guidance.js ``depletionYear``). Dann sind Median-
+    Rendite, Drawdown und Sharpe nicht aussagekraeftig (sonst -100 %)."""
 
     risk_free_bps: int = 80
     """Sharpe-Ratio-Referenzsatz. Konvention identisch zum Frontend
@@ -234,6 +289,37 @@ class VertragData:
 
 
 @dataclass(frozen=True)
+class KundeninformationData:
+    """H8 C-2 (Compliance-Audit 2026-11-07): Kundeninformation nach Art. 8/9
+    FIDLEG. Alle Angaben zum Finanzdienstleister stammen aus den rechtlichen
+    Angaben des Tenants (keine Vorbelegung); Kosten, Retrozessionen,
+    wirtschaftliche Bindungen und Marktangebot aus den bestehenden Daten.
+    ``template_version`` geht in den Inhalts-Hash ein -- eine Textaenderung der
+    Vorlage braucht eine neue Version (sonst liefert das Archiv die alte
+    Fassung)."""
+
+    template_version: str
+    legal_profile_revision: int
+    legal_profile_hash: str
+    provider_lines: tuple = ()
+    """(Bezeichnung, Wert)-Paare: Firma, Adresse, Kontakt, Taetigkeitsfeld,
+    Aufsichtsstatus, Aufsichtsbehoerde/-organisation, Register."""
+    ombudsman_name: str = ""
+    ombudsman_address: str = ""
+    mandate_number: str | None = None
+    mandate_type: str = ""
+    cost_lines: tuple = ()
+    """(Bezeichnung, Wert)-Paare aus dem Ex-ante-Kostenausweis; leer =
+    noch kein Kostenausweis (Hinweis wird gedruckt)."""
+    cost_note: str = ""
+    retrocession_lines: tuple = ()
+    economic_ties: tuple = ()
+    market_offer_lines: tuple = ()
+    depot_bank: str | None = None
+    document_kind: str = "kundeninformation"
+
+
+@dataclass(frozen=True)
 class ContractSignoffData:
     """Final customer sign-off for the documented advisory decision."""
 
@@ -257,6 +343,13 @@ class ContractSignoffData:
     band_house_deviations: list = field(default_factory=list)
     band_house_profile: str | None = None
     band_deviation_reason: str | None = None
+    # KN7 (H-181, CTO-Nachtrag Punkt 1): Pruefgrundlage aus dem Suitability-
+    # Audit (services/suitability_audit). Die Bestaetigungstexte richten sich
+    # danach (services/pdf/components/compliance_audit.customer_suitability_text);
+    # ohne Angabe gilt «Pruefgrundlage nicht dokumentiert», nie «geprueft».
+    suitability_basis: str | None = None
+    suitability_is_compliant: bool | None = None
+    suitability_audit_degraded: bool = False
 
 
 @dataclass(frozen=True)
@@ -309,6 +402,17 @@ class ProtokollData:
     # dokumentierte Kenntnis/Aufklaerung (Reason-Code KNOWLEDGE_GAP_ASSET_CLASS).
     # Reiner Hinweis -- die Allokation wurde dadurch nicht veraendert.
     knowledge_gap_hints: list = field(default_factory=list)
+
+    # H8 Luecke 10 (ZGB): erfasste Vertretungen/Verfuegungsberechtigungen als
+    # Hinweiszeilen (dokumentarisch). Leer = keine erfasst (kein Abschnitt).
+    representation_lines: tuple = ()
+
+    # E2a Nachhaltigkeitspraeferenzen (Dok. 106): Zeilen (Label, Wert) und
+    # Hinweise (was im Portfolio heute nicht beruecksichtigt wird, Review).
+    # state: Pflichtzustand (core/sustainability_preference.py::STATES).
+    sustainability_state: str | None = None
+    sustainability_lines: tuple = ()
+    sustainability_notes: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -381,6 +485,9 @@ class DepotCheckData:
     # True nur fuer Mandate ohne erfassten Depotbestand: reine SOLL-Analyse
     # ohne Snapshot-Bindung, im PDF sichtbar gekennzeichnet.
     without_holdings: bool = False
+    # KN4-B / E2E4-04: ein Depot ist als Vermoegensposition erfasst (Aufteilung
+    # je Anlageklasse), aber kein Bestand je Titel -- dann nie "kein Depot erfasst".
+    depot_position_recorded: bool = False
     # DEPOT-E2E-SNAPSHOT-001 (c): Hinweis, wenn die im Depot-Check gebundenen
     # Kosten-/Benchmark-/Stress-Inputs vom Live-Stand abweichen ("Stand vom").
     inputs_note: str | None = None

@@ -80,7 +80,7 @@ def test_convert_price_rappen_unsupported_currency_pair_reports_failure_not_raw_
 def _make_product(currency="CHF"):
     return SimpleNamespace(
         id="prod-xle",
-        product_name="Energy Select Sector ETF",
+        product_name="Musterprodukt Thema Fossile Energie",
         asset_class="Aktien",
         sub_asset_class="Aktien Global",
         currency=currency,

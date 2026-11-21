@@ -7,6 +7,7 @@
 import type { BuildingBlocksData } from '@/api/types';
 import { EditorialNote, ReportPage } from '@/components/ReportPage';
 import { formatBpsAsPct } from '@/lib/format';
+import { bucketPctMap } from '@/lib/presentationRounding';
 import { StaleTargetsNotice } from './AssetAllocation';
 
 interface BuildingBlocksProps {
@@ -15,6 +16,8 @@ interface BuildingBlocksProps {
 
 export function BuildingBlocks({ data }: BuildingBlocksProps) {
   const blocks = data.blocks ?? [];
+  // G7 N-894-02: Zielanteile gemeinsam apportioniert (Summe 100.0 %, wie App/PDF).
+  const targetText = bucketPctMap(blocks.map((b) => ({ asset_class: b.key, target_weight_bps: b.target_bps })), { typography: 'screen' });
   const constraints = data.constraints ?? [];
   return (
     <ReportPage
@@ -57,7 +60,7 @@ export function BuildingBlocks({ data }: BuildingBlocksProps) {
                   <tr key={b.key} className="border-b border-rule last:border-b-0">
                     <td className="py-3 pr-4 font-semibold text-ink">{b.label}</td>
                     <td className="py-3 pr-4 text-right font-mono text-ink">
-                      {formatBpsAsPct(b.target_bps)}
+                      {targetText[b.key] ?? formatBpsAsPct(b.target_bps)}
                     </td>
                     <td className="py-3 text-right font-mono text-ink-muted">
                       {formatBpsAsPct(b.band_min_bps)} – {formatBpsAsPct(b.band_max_bps)}

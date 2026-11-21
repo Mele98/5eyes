@@ -106,7 +106,7 @@ def test_pe_proxy_and_generic_cape_are_mixed_without_measurement_basis_compatibi
     monkeypatch.setattr(dp, "_fetch_pe_ticker_info", lambda ticker: {"trailingPE": 22.0})
 
     with session_factory() as db:
-        cma = dp.compute_cma_candidate_for_jurisdiction(db, "DE", "2026-07-30")
+        cma = dp.compute_cma_candidate_for_jurisdiction(db, "DE", "2026-07-30", created_by_user_id="test-user")
         db.commit()
 
         kgv_detail = json.loads(cma.source_detail)["equity_kgv_mean_reversion"]

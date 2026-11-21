@@ -37,7 +37,16 @@ EXCLUDED_DIRS = frozenset(
 
 # (Datei, Funktions-Qualname) -> Begruendung. Heute leer: alle Fundstellen
 # sind inventarisiert.
-UNINVENTORIED_EXCEPTIONS: dict[tuple[str, str], str] = {}
+UNINVENTORIED_EXCEPTIONS: dict[tuple[str, str], str] = {
+    # CCX P5: Stdlib-Blaetter (duerfen core.evidence nicht importieren);
+    # eigene Domaene b"Ares\x00ares/risk-parameter-set/1\x00" bzw.
+    # b"Ares\x00ares/goal-metric/1\x00", Integer-only, belegt in
+    # tests/test_ccx_p5_parameter_set.py / tests/test_ccx_p5_channel_envelope.py.
+    ("core/risk_parameter_set.py", "parameter_set_hash"):
+        "P5 M-2 Parametersatz-Hash (domaenensepariert, Stdlib-Blatt)",
+    ("core/goal_metric_contract.py", "goal_metric_hash"):
+        "P5 M-3 Zielkennzahl-Hash (domaenensepariert, Stdlib-Blatt)",
+}
 
 
 def _inventoried_sites() -> set[tuple[str, str]]:
