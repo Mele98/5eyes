@@ -58,10 +58,10 @@ def risk_data():
         risk_profile_label="Ausgewogen",
         risk_capacity_score=65,
         risk_tolerance_score=58,
-        knowledge_services={"Anlageberatung": True, "Vermoegensverwaltung": False},
+        knowledge_services={"Anlageberatung": True, "Vermögensverwaltung": False},
         knowledge_instruments={"Aktien": True, "Anleihen": True, "Derivate": False},
         experience_years=8,
-        suitability_note="Risikofaehigkeit und Toleranz sind kompatibel.",
+        suitability_note="Risikofähigkeit und Toleranz sind kompatibel.",
     )
 
 
@@ -143,7 +143,7 @@ def test_anlagestrategie_reference_structure_has_19_pages(ctx):
                 "target_weight_bps": 3195,
                 "target_amount_rappen": 170_964_00,
                 "ter_bps": 12,
-                "provider": "UBS",
+                "provider": "Musteranbieter",
             }
         ],
         advisory_positions=[
@@ -151,7 +151,7 @@ def test_anlagestrategie_reference_structure_has_19_pages(ctx):
             {"asset_class": "bonds", "sub_asset_class": "Obligationen", "current_amount_rappen": 99_000_00},
         ],
         other_wealth_positions=[
-            {"label": "Cash extern", "amount_rappen": 100_000_00, "kind": "Liquiditaet"}
+            {"label": "Cash extern", "amount_rappen": 100_000_00, "kind": "Liquidität"}
         ],
         cashflow_events=[
             {"name": "Freizuegigkeitsdepot", "recurrence": "Einmalig", "start_label": "03.2028", "amount_rappen": 169_000_00}
@@ -276,9 +276,9 @@ def test_assetallocation_pdf_contains_only_allocation_and_subclasses(ctx):
     assert "isolierter Auszug" in text
     assert "Risikoprofil" not in text
     assert "Eignungsprüfung" not in text
-    assert "Eignungspruefung" not in text
+    assert "Eignungsprüfung" not in text
     assert "Vermögensübersicht" not in text
-    assert "Vermoegensuebersicht" not in text
+    assert "Vermögensübersicht" not in text
     assert "Portfolio" not in text
     assert "Nicht im Asset-Allocation-PDF" not in text
     assert "Band Min" in text
@@ -300,8 +300,9 @@ def test_assetallocation_pdf_prints_target_bands_in_single_extract(ctx):
 
     assert "Band Min" in text
     assert "Band Max" in text
-    assert "55%" in text
-    assert "65%" in text
+    # G7: Baender ueber den gemeinsamen Formatter (1 Nachkommastelle, "55.0 %").
+    assert "55.0 %" in text
+    assert "65.0 %" in text
 
 
 def test_anlagestrategie_risk_questionnaire_formats_knowledge_answers(ctx):
@@ -415,7 +416,7 @@ def test_risikoprofil_pdf_documents_questions_and_signature(ctx):
         risk_answers=[
             {
                 "question_number": 3,
-                "question_section": "Risikofaehigkeit",
+                "question_section": "Risikofähigkeit",
                 "answer_label": "CHF 10'000 bis CHF 20'000",
                 "answer_points": 3,
             },
@@ -473,15 +474,15 @@ def test_portfolio_pdf_contains_only_positions(ctx):
     assert "Aktien:" in text
     assert "Aktien Welt" in text
     assert "Zielwert" in text
-    assert "Waehrung" in text
+    assert "Währung" in text
     assert "Test Fonds" in text
     assert "Wichtiger Hinweis" in text
     assert "Kundenwunsch" in text
     assert "isolierter Auszug" in text
     assert "Bestätigung" not in text
-    assert "Bestaetigung" not in text
+    assert "Bestätigung" not in text
     assert "Portfolio-Übersicht" not in text
-    assert "Portfolio-Uebersicht" not in text
+    assert "Portfolio-Übersicht" not in text
 
 
 def test_protokoll_pdf_magic_bytes(ctx):

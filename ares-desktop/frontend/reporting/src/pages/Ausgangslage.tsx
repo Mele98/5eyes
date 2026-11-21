@@ -8,6 +8,7 @@
  *
  * Default-Disziplin: 0/None wird als „—" gerendert (z. B. Alter 0).
  */
+import { useReportCurrency } from '@/lib/reportCurrency';
 import type { AusgangslageData, ProjectionGateData } from '@/api/types';
 import { ReportPage } from '@/components/ReportPage';
 import {
@@ -83,14 +84,16 @@ export function Ausgangslage({ data, projectionGate }: AusgangslageProps) {
 // ---------------------------------------------------------------------------
 
 function ClientInfoBlock({ ci }: { ci: AusgangslageData['client_info'] }) {
+  const currency = useReportCurrency(); // N-894-10
   const rows: Array<[string, string]> = [
     ['Alter', formatAge(ci.alter)],
     ['Anlagehorizont', formatHorizon(ci.anlagehorizont_jahre)],
     ['Risikoprofil', ci.risikoprofil || '—'],
     ['Anlageziel', ci.anlageziel || '—'],
-    ['Liquiditätsbedarf', formatChfRappen(ci.liquiditaetsbedarf_rappen)],
+    // G7 N4: Rohsumme der Ausgaben-Cashflows -> deren Waehrung (Server), nicht Mandatswaehrung.
+    ['Liquiditätsbedarf', formatChfRappen(ci.liquiditaetsbedarf_rappen, { currency: ci.liquiditaetsbedarf_currency ?? null })],
     ['Steuerdomizil', ci.steuerdomizil || '—'],
-    ['Referenzwährung', ci.referenzwaehrung || 'CHF'],
+    ['Referenzwährung', ci.referenzwaehrung || currency || '—'],
   ];
   return (
     <section className="border border-rule bg-canvas-panel p-5">
@@ -115,6 +118,7 @@ function ClientInfoBlock({ ci }: { ci: AusgangslageData['client_info'] }) {
 }
 
 function WealthSummaryBlock({ w }: { w: AusgangslageData['wealth_summary'] }) {
+  const currency = useReportCurrency(); // N-894-10
   const rows: Array<[string, number]> = [
     ['Gesamtvermögen', w.gesamtvermoegen_rappen],
     ['Beratungsvermögen', w.beratungsvermoegen_rappen],
@@ -135,7 +139,7 @@ function WealthSummaryBlock({ w }: { w: AusgangslageData['wealth_summary'] }) {
           >
             <dt className="text-caption text-ink-muted">{label}</dt>
             <dd className="text-right font-mono text-caption text-ink">
-              {formatChfRappen(value)}
+              {formatChfRappen(value, { currency })}
             </dd>
           </div>
         ))}

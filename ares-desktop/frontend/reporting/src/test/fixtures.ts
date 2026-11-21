@@ -75,6 +75,7 @@ export function makeAusgangslage(): AusgangslageData {
       risikoprofil: 'Defensiv',
       anlageziel: 'Frühpension mit 60',
       liquiditaetsbedarf_rappen: 6_600_000,
+      liquiditaetsbedarf_currency: 'CHF', // G7 N4: Server liefert die Waehrung der Rohsumme
       steuerdomizil: 'CH',
       referenzwaehrung: 'CHF',
     },
@@ -248,7 +249,12 @@ export function makeGoals(): GoalBasedInvestingData {
         target_date: '2042-09-18',
         hardness: 'Primaer',
         probability_bps: 7800,
+        // P5c / N-930-01: Anzeige-Felder wie vom Server (GOAL_STATUS_DISPLAY).
         status: 'erreichbar',
+        status_label: 'erreichbar',
+        status_tone: 'good',
+        status_color: '#166534',
+        status_bg: '#E5EEDF',
         outside_simulation_horizon: false,
         evaluation_scope: 'priority_funded',
         funding_rank: 1,
@@ -263,6 +269,10 @@ export function makeGoals(): GoalBasedInvestingData {
         hardness: 'Opportunistisch',
         probability_bps: 5500,
         status: 'knapp',
+        status_label: 'knapp',
+        status_tone: 'warn',
+        status_color: '#92400E',
+        status_bg: '#F4EBD5',
         outside_simulation_horizon: false,
         evaluation_scope: 'priority_funded',
         funding_rank: 2,
@@ -309,6 +319,7 @@ export function makeGoalsWithPaths(): GoalBasedInvestingData {
       seed: 42,
       horizon_years: 15,
       initial_wealth_rappen: start,
+      amount_currency: 'CHF', // G7 N4: Waehrung der Pfadwerte (Server)
     },
   };
 }

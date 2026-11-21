@@ -18,7 +18,11 @@ const backendRoot = path.join(projectRoot, 'ares-backend');
 const bundleBackendDir = path.join(projectRoot, 'ares-desktop', 'bundle', 'backend');
 const distExe = path.join(backendRoot, 'dist', 'ares-api.exe');
 const isWindows = process.platform === 'win32';
-const buildWithSqlcipher = process.env.BUILD_WITH_SQLCIPHER === '1';
+// EXE-P (H-187): SQLCipher ist im Release-Build Standard. Die gepackte EXE
+// startet nur mit verschluesselter Datenbank (config.ensure_packaged_db_key);
+// ein Build ohne SQLCipher (BUILD_WITH_SQLCIPHER=0, nur Diagnose) ergibt eine
+// EXE, die mit klarem Startfehler abbricht.
+const buildWithSqlcipher = process.env.BUILD_WITH_SQLCIPHER !== '0';
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
@@ -143,6 +147,10 @@ const hiddenImports = [
   // PyInstaller statisch-Analyse uebersieht das.
   'services.advisory_report',
   'services.advisory_log_service',
+  // H-180 (EXE-01): Import-Selbsttest des Artefakts (main.py --self-test-imports).
+  'packaging_selftest',
+  // N-935-01 (H-187): Strategie-Selbsttest (main.py --self-test-strategy).
+  'packaging_selftest_strategy',
 ];
 
 const collectSubmodules = [
@@ -172,6 +180,62 @@ const collectSubmodules = [
   'routers',
   'models',
   'jurisdictions',
+  // H-180 (EXE-01): core/ und schemas/ wurden bisher nur ueber statische
+  // Imports erfasst; scipy 1.18 laedt scipy._external.array_api_compat.*
+  // dynamisch -- ohne diese Zeile fiel die gepackte EXE still vom
+  // stochastischen Optimizer auf den House-Matrix-Default zurueck.
+  'core',
+  'schemas',
+  'scipy._external',
+];
+
+// H-180 (EXE-03): Build-Kennung (Version aus package.json, Git-SHA) wird in die
+// EXE eingebettet (ares_build_info.json, gelesen von config.build_info) und als
+// Windows-Dateieigenschaften gesetzt. Nur unter build/ (gitignored) erzeugt;
+// der Build veraendert keine versionierte Datei.
+const desktopPackage = JSON.parse(fs.readFileSync(path.join(projectRoot, 'ares-desktop', 'package.json'), 'utf8'));
+function gitHeadSha() {
+  const result = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: projectRoot, encoding: 'utf8' });
+  const sha = (result.stdout || '').trim();
+  return /^[0-9a-f]{40}$/.test(sha) ? sha : 'unknown';
+}
+const buildInfo = {
+  product: desktopPackage.productName,
+  version: desktopPackage.version,
+  git_sha: process.env.ARES_BUILD_SHA || gitHeadSha(),
+};
+const generatedDir = path.join(backendRoot, 'build', 'ares-generated');
+fs.mkdirSync(generatedDir, { recursive: true });
+const buildInfoFile = path.join(generatedDir, 'ares_build_info.json');
+fs.writeFileSync(buildInfoFile, `${JSON.stringify(buildInfo, null, 2)}\n`, 'utf8');
+const versionParts = String(buildInfo.version).split('.').map((n) => Number.parseInt(n, 10) || 0);
+while (versionParts.length < 4) versionParts.push(0);
+const versionTuple = versionParts.slice(0, 4).join(', ');
+const versionFile = path.join(generatedDir, 'ares-api-version.txt');
+fs.writeFileSync(versionFile, `VSVersionInfo(
+  ffi=FixedFileInfo(filevers=(${versionTuple}), prodvers=(${versionTuple}), mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
+  kids=[
+    StringFileInfo([StringTable('040704b0', [
+      StringStruct('ProductName', '${buildInfo.product}'),
+      StringStruct('FileDescription', '${buildInfo.product} Backend'),
+      StringStruct('FileVersion', '${buildInfo.version}'),
+      StringStruct('ProductVersion', '${buildInfo.version}'),
+      StringStruct('InternalName', 'ares-api'),
+      StringStruct('OriginalFilename', 'ares-api.exe'),
+      StringStruct('Comments', 'Build ${buildInfo.git_sha}')])]),
+    VarFileInfo([VarStruct('Translation', [0x0407, 1200])])
+  ]
+)
+`, 'utf8');
+console.log(`Build-Kennung: ${buildInfo.product} ${buildInfo.version} (${buildInfo.git_sha})`);
+
+// H10 (DSG-Technikaudit 2026-11-11): versionierte Datenschutz-Daten
+// (Bearbeitungsverzeichnis, Egress-Manifest) liegen unter config/ und werden
+// zur Laufzeit gelesen; fehlen sie, bleibt die kundenwirksame Ausgabe bzw.
+// jeder externe Kanal gesperrt (fail-closed).
+const privacyConfigFiles = [
+  'config/processing_activities.json',
+  'config/outbound_processing_manifest.json',
 ];
 
 const pyInstallerArgs = [
@@ -186,10 +250,19 @@ const pyInstallerArgs = [
   fontDataArg,
   '--add-data',
   reportingDataArg,
+  '--add-data',
+  // Relativ zu ares-backend (shell:true, siehe reportingDataArg).
+  isWindows ? 'build/ares-generated/ares_build_info.json;.' : 'build/ares-generated/ares_build_info.json:.',
+  '--version-file',
+  'build/ares-generated/ares-api-version.txt',
 ];
 for (const manifest of jurisdictionPackManifests) {
   const targetDir = path.posix.dirname(manifest);
   pyInstallerArgs.push('--add-data', isWindows ? `${manifest};${targetDir}` : `${manifest}:${targetDir}`);
+}
+
+for (const file of privacyConfigFiles) {
+  pyInstallerArgs.push('--add-data', isWindows ? `${file};config` : `${file}:config`);
 }
 
 for (const mod of hiddenImports) {
@@ -220,6 +293,19 @@ for (const pkg of [
 }
 
 if (buildWithSqlcipher) {
+  // Fail-closed: ohne installierten Treiber kein Release-Build (PyInstaller
+  // meldet einen fehlenden --hidden-import nur als Warnung).
+  const probe = spawnSync('python', ['-c', 'import sqlcipher3; print(sqlcipher3.connect(":memory:").execute("PRAGMA cipher_version").fetchone()[0])'], {
+    cwd: backendRoot,
+    encoding: 'utf8',
+    shell: false, // ohne cmd.exe: das Python-Argument enthaelt Anfuehrungszeichen
+  });
+  if (probe.status !== 0 || !String(probe.stdout || '').trim()) {
+    console.error(String(probe.stderr || probe.error || '').slice(-2000));
+    console.error('SQLCipher-Treiber (sqlcipher3) fehlt: pip install --require-hashes --only-binary=:all: -r ares-backend/requirements-sqlcipher.txt');
+    process.exit(1);
+  }
+  console.log(`SQLCipher im Build: ${String(probe.stdout).trim()}`);
   pyInstallerArgs.push('--hidden-import', 'sqlcipher3');
   pyInstallerArgs.push('--collect-submodules', 'sqlcipher3');
 }

@@ -18,6 +18,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
+from tests.monolith_source import rounding_module_source  # G7: AresRounding fuer extrahierte Formatter
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HTML_PATH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
@@ -53,7 +55,7 @@ def _run(edits: dict, stored: dict | None = None) -> dict:
     """edits: {bucket: {field: raw_text}} -- Eingaben im Editor."""
     if shutil.which("node") is None:
         pytest.skip("node binary not available to execute extracted JS")
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     fns = [
         _function(src, n)
         for n in (
@@ -99,7 +101,7 @@ console.log(JSON.stringify({valid:r.valid,fieldErrors:r.fieldErrors,rowErrors:r.
   sent:collectBandOverridesFromModal()}));
 """
     )
-    script = "\n".join(fns) + "\n" + harness
+    script = rounding_module_source() + "\n".join(fns) + "\n" + harness
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as fh:
         fh.write(script)
         path = fh.name
@@ -208,7 +210,7 @@ def test_stored_override_is_validated_like_a_fresh_edit():
 
 
 def test_editor_wiring_blocks_apply_and_persist_until_valid():
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     apply_fn = _function(src, "function applyAllocationBandOverrides(")
     assert apply_fn.index("validateBandEditorModal()") < apply_fn.index("persistAllocationPreferences()")
     assert "return false;" in apply_fn
@@ -234,7 +236,7 @@ TA = {"id": "ta-1", "policy_id": "pol-1", "based_on_assessment_id": "ra-1", "ris
 def _run_manual(edits: dict, reason: str, api_error: dict | None = None) -> dict:
     if shutil.which("node") is None:
         pytest.skip("node binary not available to execute extracted JS")
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     fns = [
         _function(src, n)
         for n in (
@@ -257,6 +259,7 @@ def _run_manual(edits: dict, reason: str, api_error: dict | None = None) -> dict
             "function renderManualTargetSaveState(",
             "function manualTargetSaveErrorText(",
             "async function saveManualTargetAllocationFromModal(",
+            "function afterManualTargetSave(",  # KN9a / N-934-03 (p5c-ui.js)
         )
     ]
     fns += [
@@ -269,7 +272,7 @@ def _run_manual(edits: dict, reason: str, api_error: dict | None = None) -> dict
         "var EDITS=" + json.dumps(edits) + ";var TA=" + json.dumps(TA) + ";"
         "var REASON=" + json.dumps(reason) + ";var API_ERROR=" + json.dumps(api_error) + ";"
         + r"""
-var strategyState={allocation:{house_matrix_bands:HOUSE,target_allocation:TA}};
+var strategyState={dirty:true,allocation:{house_matrix_bands:HOUSE,target_allocation:TA}};
 var allocationBandStoredOverrides={};
 var allocationBandBaseline={};
 var INPUTS=[];
@@ -288,6 +291,7 @@ var document={querySelectorAll:function(){return INPUTS;},getElementById:functio
 function getActiveMandateId(){return 'M1';}
 function isDemoMandateId(){return false;}
 var DIRTY=[];function markStrategyDirty(m){DIRTY.push(m);}
+function syncStrategyStaleView(){}function syncPortfolioUmsetzenButtonVisibility(){}function updateStrategyStatus(){}
 var POSTS=[];
 var API={post:async function(url,body){POSTS.push({url:url,body:body});
   if(API_ERROR){var e=new Error('x');e.status=API_ERROR.status;e.detail=API_ERROR.detail;throw e;}
@@ -297,11 +301,11 @@ var _origValidator=computeBandEditorValidation;
 computeBandEditorValidation=function(){VALIDATOR_CALLS++;return _origValidator.apply(this,arguments);};
 saveManualTargetAllocationFromModal().then(function(ok){
   console.log(JSON.stringify({ok:ok,posts:POSTS,validatorCalls:VALIDATOR_CALLS,
-    status:NODES['aa-manual-save-status'].innerHTML,disabled:NODES['btn-aa-manual-save'].disabled,dirty:DIRTY}));
+    status:NODES['aa-manual-save-status'].innerHTML,disabled:NODES['btn-aa-manual-save'].disabled,dirty:DIRTY,stateDirty:strategyState.dirty===true}));
 });
 """
     )
-    script = "\n".join(fns) + "\n" + harness
+    script = rounding_module_source() + "\n".join(fns) + "\n" + harness
     with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as fh:
         fh.write(script)
         path = fh.name
@@ -320,6 +324,8 @@ def test_manual_save_uses_same_validator_and_posts_exact_bps_body():
         GOOD_REASON,
     )
     assert out["ok"] is True
+    # N-933R-02: gespeicherte manuelle Soll-Allokation = aktuelle Strategie
+    assert out["stateDirty"] is False
     assert out["validatorCalls"] >= 1
     assert len(out["posts"]) == 1
     post = out["posts"][0]
@@ -378,7 +384,7 @@ def test_manual_save_shows_basis_409_understandably():
 
 
 def test_manual_save_is_a_separate_secondary_action_in_the_one_editor():
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     box = _function(src, "function buildManualTargetSaveBoxHtml(")
     assert "Als manuelle Soll-Allokation speichern (ohne Optimierung)" in box
     assert 'class="btn" id="btn-aa-manual-save"' in box  # sekundaer, nicht btn-p
@@ -394,7 +400,7 @@ def test_band_percent_parser_accepts_format_helper_output_and_both_apostrophes()
     eingebbar; Tausender-Apostroph gerade (U+0027) und typografisch (U+2019)."""
     if shutil.which("node") is None:
         pytest.skip("node binary not available to execute extracted JS")
-    src = HTML_PATH.read_text(encoding="utf-8")
+    src = read_monolith_bundle()
     fns = [
         _function(src, n)
         for n in (
@@ -404,7 +410,7 @@ def test_band_percent_parser_accepts_format_helper_output_and_both_apostrophes()
             "function parseBandPercentUserInput(",
         )
     ]
-    script = "\n".join(fns) + "\n" + (
+    script = rounding_module_source() + "\n".join(fns) + "\n" + (
         "console.log(JSON.stringify(["
         "parseBandPercentUserInput(fmtPct(4550,1)),"
         "parseBandPercentUserInput('12,5 %'),"

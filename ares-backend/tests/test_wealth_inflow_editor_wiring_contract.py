@@ -23,6 +23,7 @@ deshalb erwartungsgemaess fehl (rot), bis die Bruecke ergaenzt wird.
 """
 from pathlib import Path
 import re
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -86,7 +87,7 @@ def test_react_router_still_mounts_wealth_inflow_editor_at_expected_route():
 
 
 def test_html_bridge_opens_exact_same_route_the_react_router_exposes():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
 
     assert "async function openWealthInflowEditor(){" in html
     bridge_fn = html.split(
@@ -102,7 +103,7 @@ def test_html_bridge_opens_exact_same_route_the_react_router_exposes():
 
 
 def test_html_bridge_reuses_same_token_handoff_as_advisory_report_bridge():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
 
     assert "async function resolveReportingAppUrl(path){" in html
     # openReportingApp (Advisory-Report), openProfilingEditor UND
@@ -119,7 +120,7 @@ def test_html_bridge_reuses_same_token_handoff_as_advisory_report_bridge():
 
 
 def test_wealth_inflow_editor_entry_point_is_reachable_from_vermoegen_section():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
     vg_header = html.split('<div id="page-vg" class="page">', 1)[1].split(
         '<div class="pad">', 1
     )[0]
@@ -133,7 +134,7 @@ def test_wealth_inflow_editor_entry_point_is_reachable_from_vermoegen_section():
 
 
 def test_react_wealth_inflow_api_client_calls_same_endpoints_as_html_monolith():
-    html = _read(HTML_PATH)
+    html = read_monolith_bundle()
     api = _read(WEALTH_INFLOW_API_PATH)
 
     # Collection-Endpoint (GET Liste / POST Neuanlage) laeuft unter

@@ -52,11 +52,41 @@ async function openTradeList(confirmNoHoldings){
   renderPortfolioHandoffSection();
 }
 
+// K2/E2E-09: Ist im Vermoegen ein Wertschriftendepot (Beratungsvermoegen) erfasst,
+// ist Neugeld fachlich falsch -- angeboten wird die Bestandserfassung. Preis-
+// Sperren nennen den Weg zu Preisen. Technische Parameternamen nie im Text.
+function tradeListAdvisoryDepots(){
+  var list=typeof currentWealthPositions!=='undefined'&&Array.isArray(currentWealthPositions)?currentWealthPositions:[];
+  return list.filter(function(p){return p&&p.position_type==='Depot'&&p.assignment==='Beratungsvermögen';});
+}
+function tradeListGuideButton(label,action){
+  return '<button class="btn btn-sm" type="button" onclick="'+action+'">'+escapeHtml(label)+'</button>';
+}
 function renderTradeListUnavailable(body,detail){
-  var html='<div style="font-size:11px;color:var(--n6);padding:12px">'+escapeHtml(detail.message||'Keine Handelsliste verfügbar.')+'</div>';
+  var msg=String(detail.message||'Keine Handelsliste verfügbar.').replace(/\s*\(confirm_no_existing_holdings\)/g,'');
+  var html='<div style="font-size:11px;color:var(--n6);padding:12px">'+escapeHtml(msg)+'</div>';
+  var guide='';
   if(detail.reason_code===TRADE_LIST_NO_HOLDINGS_REASON){
-    html+='<div style="padding:0 12px 12px"><button class="btn" id="tl-confirm-no-holdings" onclick="confirmNoExistingHoldingsForTradeList()">Kein bestehender Bestand (Neugeld) bestätigen</button></div>';
+    var depots=tradeListAdvisoryDepots();
+    if(depots.length){
+      guide='<b>Umschichtung eines bestehenden Depots.</b> Im Vermögen ist ein Wertschriftendepot im Beratungsvermögen erfasst ('
+        +escapeHtml(depots.map(function(p){return p.label||'Depot';}).join(', '))+'). Erfassen Sie die gehaltenen Titel als Bestand '
+        +'(Stück oder Marktwert mit Stichtag); erst dann rechnet die Handelsliste Käufe und Verkäufe aus dem echten Bestand. '
+        +'Titel, die nicht in der Empfehlung stehen, lassen sich hier noch nicht erfassen – die Liste ist dann keine Handelsinstruktion.'
+        +'<div style="margin-top:8px">'+tradeListGuideButton('Bestand erfassen',"cm('m-tl');openPortfolioPositionHelper()")+'</div>';
+    }else{
+      html+='<div style="padding:0 12px 12px"><button class="btn" id="tl-confirm-no-holdings" onclick="confirmNoExistingHoldingsForTradeList()">Kein bestehender Bestand (Neugeld) bestätigen</button></div>';
+    }
+  }else if(/Marktpreis|Preise/.test(msg)){
+    guide='<b>Preise fehlen oder sind veraltet.</b> So kommen Preise ins System: '
+      +'1. Datenübermittlung an die Kursquellen freigeben (Administration › Compliance › Datenschutz, nur Admin). '
+      +'2. Portfolio › ⋯ › Live-Preise abrufen. Danach die Handelsliste neu öffnen.'
+      +'<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">'
+      +tradeListGuideButton('Live-Preise abrufen',"cm('m-tl');refreshLivePricesForMandate()")
+      +(typeof currentUser!=='undefined'&&currentUser&&currentUser.role==='admin'?tradeListGuideButton('Datenschutz-Freigabe öffnen',"cm('m-tl');openAdminModal();adminShowSection('sec-privacy-gov');loadPrivacyGovernance()"):'')
+      +'</div>';
   }
+  if(guide)html+='<div id="tl-guide" role="note" style="margin:0 12px 12px;padding:10px 12px;border:1px solid var(--b1);border-radius:var(--r);background:var(--bg);font-size:11px;line-height:1.5;color:var(--n7)">'+guide+'</div>';
   body.innerHTML=html;
 }
 
@@ -88,11 +118,12 @@ function renderTradeListPreview(body,preview){
     return 'var(--n5)';
   };
   var fmtDelta=function(rappen){
-    var chf=Math.round(Math.abs(rappen||0)/100);
+    var chf=Math.abs(rappen||0)/100,ccy=typeof appCurrency==='function'?appCurrency():null;
+    if(!ccy)return '—';  // G7 N4: Waehrung unbekannt -> keine geratene Einheit
     var sign=(rappen||0)<0?'−':'+';
-    if(chf>=1000000)return sign+'CHF '+formatCompactCHFAmount(chf);
-    if(chf>=1000)return sign+'CHF '+Math.round(chf/1000)+'k';
-    return sign+'CHF '+chf;
+    if(chf>=1000000)return sign+ccy+' '+formatCompactCHFAmount(chf);
+    if(chf>=1000)return sign+ccy+' '+fmtNumber(chf/1000,0)+'k';
+    return sign+ccy+' '+fmtNumber(chf,0);
   };
   var rows=trades.map(function(p){
     var color=actionColor(p.rebalance_action_code);

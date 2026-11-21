@@ -221,3 +221,34 @@ def test_rotating_calendar_feed_token_invalidates_previous_token(
 
     new_response = auth_client.get(f"/calendar/reviews.ics?token={new_token}")
     assert new_response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "configured_domain, expected_uid",
+    [
+        ("firma.example", "UID:ares-trigger-trig-cal-due@firma.example"),
+        ("", "UID:ares-trigger-trig-cal-due"),
+    ],
+    ids=["mit-ares-domain", "ohne-ares-domain"],
+)
+def test_calendar_feed_uid_domain_comes_from_settings(
+    session_factory, auth_client, advisor_user, monkeypatch, configured_domain, expected_uid,
+):
+    """A2b B-4: Verhaltenstest ueber den echten Feed-Endpoint. Die UID-Domain
+    kommt ausschliesslich aus ``settings.ares_domain`` (ARES_DOMAIN); ohne
+    Konfiguration traegt die UID gar keine Domain -- es gibt keine erfundene
+    Default-Domain."""
+    from config import settings
+
+    monkeypatch.setattr(settings, "ares_domain", configured_domain)
+    _seed_scenario(session_factory, advisor_user)
+    token = auth_client.post("/me/calendar-feed-token").json()["token"]
+
+    response = auth_client.get(f"/calendar/reviews.ics?token={token}")
+    assert response.status_code == 200
+    uid_lines = [
+        line for line in response.text.splitlines() if line.startswith("UID:")
+    ]
+    assert uid_lines == [expected_uid]
+    if not configured_domain:
+        assert all("@" not in line for line in uid_lines)

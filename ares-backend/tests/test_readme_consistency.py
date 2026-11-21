@@ -150,3 +150,21 @@ def test_readme_links_design_system_doc():
 def test_readme_links_release_tags_doc():
     text = _readme()
     assert "RELEASE_TAGS.md" in text
+
+
+def test_readme_doc_references_are_exported():
+    """README verweist nur auf Doku, die der Clean-Room-Export mitnimmt
+    (docs/DOCS_MANIFEST.md: alles ausser ARCHIVE)."""
+    import importlib.util
+    import re
+
+    script = REPO_ROOT / "scripts" / "clean_room_export_list.py"
+    spec = importlib.util.spec_from_file_location("clean_room_export_list", script)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    keep = set(mod.export_list(REPO_ROOT, "HEAD"))
+    refs = set(re.findall(r"[`(](docs/[^`)\s#]+)", _readme()))
+    assert refs, "README nennt keine Doku-Pfade mehr"
+    missing = sorted(r for r in refs if r.rstrip("/") not in keep
+                     and not any(p.startswith(r.rstrip("/") + "/") for p in keep))
+    assert missing == [], f"README verweist auf nicht exportierte Doku: {missing}"
