@@ -569,6 +569,10 @@ SITES: dict[tuple[str, str], tuple[tuple[str, str | None], ...]] = {
     # Definitions-Hash des Fragebogens: sortiert, kompakt, UTF-8 = v1 (eigene
     # json.dumps-Zeile, weil das Blatt core.evidence nicht importieren darf).
     ("core/sustainability_preference.py", "definition_hash"): ((J, SCHEME_V1),),
+    # EXE-P (H-187): Pruefwert der Vorlagewerte fuer das TEST-Referenzpaket des
+    # Packaging-Smokes (sortiert, kompakt, ASCII = v1-ascii; eigene json.dumps-
+    # Zeile, keine neue Modulkante zu core.evidence).
+    ("services/portfolio_engine_house_matrix.py", "reference_template_sha256"): ((J, SCHEME_V1_ASCII),),
     ("services/manual_target_allocation.py", "build_manual_target_allocation"): (
         (CJ, SCHEME_V1),                         # sub_allocations_json
         (CJ, SCHEME_V1),                         # effective_constraints_json

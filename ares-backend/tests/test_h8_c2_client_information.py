@@ -609,12 +609,14 @@ TEMPLATE_TEXT_PINS = {
     # KN3-B / E2E3-03: Aufsichtsstatus mit echten Umlauten ("Vermögensverwalter ...").
     "ARES-KI-FIDLEG-3": "f45160a1d75bd32203be2cacdcccc7cf449a136d21ebd68c18dcd2cae0c3b477",
     # H-179 D-1/R-1: Abschnitt Datenbearbeitung (Art. 19 DSG), Zuwendungen der Depotbank.
-    # L2c (H-192): nur der Quelltext von _kundeninformation_ties_and_offer
+    "ARES-KI-FIDLEG-4": "54d223edb21fe7e6289d7f3f8c6a33f2affc7810ac0c8b76241f436ec666de36",
+    # H-187 Fixrunde 1 (N-935-03): ohne Gebuehrenvereinbarung kein Total, Entwurf.
+    # L2c (H-192, Merge): nur der Quelltext von _kundeninformation_ties_and_offer
     # geaendert (Beschreibung ueber die zentrale Oeffnung, Sperre bei
     # Veraenderung); der Kundentext ist fuer dieselben Daten byte-gleich
     # (test_l2c_dsg_protocol_texts::test_kundeninformation_ties_text_is_unchanged_for_sealed_description),
-    # deshalb keine neue Vorlagenversion.
-    "ARES-KI-FIDLEG-4": "13b852922b3bdcd52b9d0a0c9ac0c444f85f3d4093a71c33ee49ff82cf325a61",
+    # deshalb keine neue Vorlagenversion. Aus dem Tree neu berechnet.
+    "ARES-KI-FIDLEG-5": "f9664784710d9664c860a517455ec4548b741590ee65be0dff0514af435c7c9a",
 }
 
 

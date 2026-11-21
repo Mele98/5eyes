@@ -87,7 +87,8 @@ EGRESS = {"runtime": {"active": True, "channels": [
 def _run(script: str) -> dict:
     if shutil.which("node") is None:
         pytest.skip("node binary not available")
-    code = HARNESS + MODULE_PATH.read_text(encoding="utf-8") + "\n" + (
+    # EXE-08 (H-187): das Banner fragt erst nach der Anmeldung; der Harness ist angemeldet.
+    code = HARNESS + "var currentUser = {id: 'u-harness'};\n" + MODULE_PATH.read_text(encoding="utf-8") + "\n" + (
         "(async function(){\n" + script
         + "\nconsole.log(JSON.stringify({calls:calls,DOM:Object.keys(DOM).reduce(function(a,k){"
         "a[k]={innerHTML:DOM[k].innerHTML,attrs:DOM[k].attrs};return a;},{})}));})()"
@@ -201,6 +202,14 @@ def test_banner_on_every_page_for_admins_and_advisors(is_admin, expected, absent
     assert "Datenstand Kurse: 2026-11-10" in banner["innerHTML"]
     assert "nicht aktualisiert – Datenübermittlung nicht freigegeben" in banner["innerHTML"]
     assert banner["attrs"]["role"] == "alert"
+
+
+def test_no_egress_status_request_before_login():
+    """EXE-08 (H-187): vor der Anmeldung keine Abfrage von /privacy/egress-status."""
+    result = _run("currentUser = null;RESP['/privacy/egress-status']=" + json.dumps(dict(STATUS_BLOCKED, is_admin=True))
+                  + ";await refreshEgressBanner();")
+    assert not any("/privacy/egress-status" in json.dumps(call) for call in result["calls"])
+    assert "pg-egress-banner" not in result["DOM"]
 
 
 def test_banner_disappears_after_approval():

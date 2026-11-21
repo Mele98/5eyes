@@ -9392,8 +9392,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/privacy-governance.js",
-      "sha256": "60fce8b18bf3057348e0e4088d155c972ace8a80a25baa965991615c2d026f62",
-      "size_bytes": 35256
+      "sha256": "61d8b2ead3cfb732aacd546d699e4dc6ef478a065c421bdc6bb09b83d91508a2",
+      "size_bytes": 35247
     },
     {
       "kind": "js",
@@ -25646,8 +25646,8 @@
     }
   ],
   "source_path": "ares-desktop/frontend/ares.html",
-  "source_sha256": "3114c3309346153f7c7d991b856408a1ae495daedf0b307b53bc7ab43542a8f1",
-  "source_size_bytes": 1614959,
+  "source_sha256": "7cf34d83817d60a8299ced13d16bebc433dd12692f4d1bcf73f37e9720a97b9a",
+  "source_size_bytes": 1614924,
   "sub_sections": [
     {
       "class": "sbb",

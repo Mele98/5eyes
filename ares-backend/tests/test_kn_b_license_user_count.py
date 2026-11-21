@@ -30,8 +30,10 @@ def _seed(db):
     if db.get(Tenant, DEFAULT_TENANT_ID) is None:
         db.add(Tenant(id=DEFAULT_TENANT_ID, display_name="Testfirma Fiktiv", slug="main", hosting_tier="tier1",
                       license_status="active", max_users=1, is_active=1, created_at=now, updated_at=now))
-    # Ersteinrichtung + eingeladene externe Pruefperson: beide ohne tenant_id.
-    for uid, role in (("admin-boot", "admin"), ("ext-review", "compliance_reviewer")):
+    # Altbestand: Ersteinrichtung + ein Berater ohne tenant_id (zaehlen fuer den
+    # Default-Mandanten); OWN-LIC-01 (CTO-Entscheid H-180): die externe
+    # Pruefperson zaehlt nicht gegen max_users.
+    for uid, role in (("admin-boot", "admin"), ("adv-legacy", "advisor"), ("ext-review", "compliance_reviewer")):
         db.add(User(id=uid, username=uid, password_hash="h", full_name=uid, role=role, is_active=1,
                     tenant_id=None, created_at=now, updated_at=now))
     db.add(User(id="gone", username="gone", password_hash="h", full_name="gone", role="advisor", is_active=0,

@@ -62,6 +62,14 @@ _ASSET_CLASS_TO_BUCKET = {
 }
 
 
+class ReferenceDataPackageMissing(ValueError):
+    """EXE-P (H-187): ``REFERENCE_DATA_PACKAGE_MISSING`` -- in Produktion bzw.
+    der gepackten EXE werden keine Hausannahmen zur Laufzeit angelegt;
+    Referenzdaten kommen nur aus einem freigegebenen Paket."""
+
+    reason_code = "REFERENCE_DATA_PACKAGE_MISSING"
+
+
 class ParameterSetMissing(ValueError):
     """``CCX_PARAMETER_SET_MISSING``: kein IC-Wert, wo einer gebraucht wird.
 
@@ -366,6 +374,7 @@ __all__ = [
     "IC_RELEASE_UNRELEASED",
     "PARAMETER_CONTRACT_VERSION",
     "ParameterSetMissing",
+    "ReferenceDataPackageMissing",
     "assert_release_allowed",
     "assert_weights_investable",
     "bucket_of",

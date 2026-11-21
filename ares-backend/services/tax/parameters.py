@@ -29,6 +29,14 @@ def seed_default_tax_parameter_sets(db: Session) -> int:
 
     Existing rows are not overwritten. That preserves local corrections while
     keeping fresh installs usable.
+
+    N-935-05 (H-187 Fixrunde 1, CTO-Entscheid): Steuerparameter duerfen weiter
+    beim Start angelegt werden, auch in der gepackten EXE, aber mit
+    dokumentierter Quelle. Quelle der Werte (services/tax/reference_data.py,
+    ``CH-REF-2026-v1``): im Repository NICHT belegt -- das Modul nennt sie
+    "versioned approximations", eine amtliche Tabelle wird nicht zitiert.
+    Offene Owner-Frage (H-187 Fixrunde 1): Quelle nachweisen oder durch
+    amtliche Werte ersetzen. Bis dahin unveraendert; nichts ergaenzt.
     """
     inserted = 0
     now = _utc_now()

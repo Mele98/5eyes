@@ -1,4 +1,94 @@
 {
+ "handler_checks": {
+  "POST /auth/2fa/disable": [],
+  "POST /auth/2fa/enable": [],
+  "POST /auth/2fa/recovery/regenerate": [],
+  "POST /auth/2fa/setup": [],
+  "POST /auth/change-password": [],
+  "POST /auth/logout": [],
+  "POST /privacy/egress-manifest/approve": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/incidents": [
+   "_require_staff"
+  ],
+  "POST /privacy/incidents/{incident_id}/artifacts/{artifact_id}/verify": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/incidents/{incident_id}/assessment": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/incidents/{incident_id}/close": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/incidents/{incident_id}/edoeb-notification": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/incidents/{incident_id}/evidence": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/incidents/{incident_id}/notification-decision": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/incidents/{incident_id}/notification-note": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/incidents/{incident_id}/remediation": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/incidents/{incident_id}/subject-notification": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/incidents/{incident_id}/subject-notification-decision": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/legal-holds": [
+   "_require_privacy_officer"
+  ],
+  "POST /privacy/legal-holds/{hold_id}/approve": [
+   "_require_privacy_officer"
+  ],
+  "POST /privacy/legal-holds/{hold_id}/extend": [
+   "_require_privacy_officer"
+  ],
+  "POST /privacy/legal-holds/{hold_id}/release": [
+   "_require_privacy_officer"
+  ],
+  "POST /privacy/policies/{policy_id}/approve": [
+   "_require_privacy_officer"
+  ],
+  "POST /privacy/processing-register/approve": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/subject-requests": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/subject-requests/{request_id}/action": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/subject-requests/{request_id}/decision": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/subject-requests/{request_id}/delivery": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/subject-requests/{request_id}/export": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/subject-requests/{request_id}/extension": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/subject-requests/{request_id}/identity": [
+   "_require_case_operator"
+  ],
+  "POST /privacy/subject-requests/{request_id}/withdraw": [
+   "_require_case_operator"
+  ],
+  "POST /tax/estimate": [],
+  "PUT /users/{user_id}/password": [
+   "_assert_user_visible_to"
+  ]
+ },
  "identity_only_writes": {
   "POST /auth/2fa/disable": "Selbstbedienung des eigenen Kontos (Logout, Passwort, 2FA); Handler prueft is_self bzw. eigenes Konto.",
   "POST /auth/2fa/enable": "Selbstbedienung des eigenen Kontos (Logout, Passwort, 2FA); Handler prueft is_self bzw. eigenes Konto.",
@@ -7,7 +97,7 @@
   "POST /auth/change-password": "Selbstbedienung des eigenen Kontos (Logout, Passwort, 2FA); Handler prueft is_self bzw. eigenes Konto.",
   "POST /auth/logout": "Selbstbedienung des eigenen Kontos (Logout, Passwort, 2FA); Handler prueft is_self bzw. eigenes Konto.",
   "POST /privacy/egress-manifest/approve": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
-  "POST /privacy/incidents": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
+  "POST /privacy/incidents": "Rollenpruefung im Handler: lokales _require_staff in routers/privacy.py (admin, super_admin, advisor) -- nicht case_operator/privacy_officer (N-926-07 c).",
   "POST /privacy/incidents/{incident_id}/artifacts/{artifact_id}/verify": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
   "POST /privacy/incidents/{incident_id}/assessment": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
   "POST /privacy/incidents/{incident_id}/close": "Rollenpruefung im Handler: _require_case_operator / _require_privacy_officer / Vier-Augen in privacy_erasure (H-180 geprueft).",
@@ -636,6 +726,10 @@
   "GET /protocol-bausteine": [
    "get_current_user",
    "require_staff"
+  ],
+  "GET /publication-inbox": [
+   "get_current_user",
+   "require_compliance_approver"
   ],
   "GET /reporting": [],
   "GET /reporting/{full_path:path}": [],
@@ -1270,6 +1364,10 @@
    "get_current_user",
    "require_advisor"
   ],
+  "POST /publication-inbox/{mandate_id}/approve": [
+   "get_current_user",
+   "require_compliance_approver"
+  ],
   "POST /tax/estimate": [
    "get_current_user"
   ],
@@ -1444,5 +1542,111 @@
    "get_current_user",
    "require_advisor"
   ]
+ },
+ "weak_reads": {
+  "GET /auth/2fa/recovery/status": "Eigenes Konto (Selbstauskunft zur 2FA-Wiederherstellung).",
+  "GET /auth/2fa/status": "Eigenes Konto (Selbstauskunft zum 2FA-Status).",
+  "GET /auth/me": "Eigenes Konto (Selbstauskunft des angemeldeten Benutzers).",
+  "GET /clients": "Kundenliste gefiltert nach Sichtbarkeit (advisor_id bzw. firmenweit fuer admin/readonly) und Mandant.",
+  "GET /clients/{client_id}": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /clients/{client_id}/cashflow-projection": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /clients/{client_id}/cashflow-summary": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /clients/{client_id}/cashflows": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /clients/{client_id}/cashflows-derived": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /clients/{client_id}/due-diligence": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /clients/{client_id}/knowledge": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /clients/{client_id}/kyc-confirmations": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /clients/{client_id}/mandates": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /clients/{client_id}/nationalities": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /clients/{client_id}/opt-history": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /clients/{client_id}/representations": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /clients/{client_id}/tax-residencies": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /clients/{client_id}/wealth-inflows": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /clients/{client_id}/wealth-positions": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /clients/{client_id}/wealth-summary": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /compliance/kyc-review-policies": "Firmen-Einstellung ohne Kundendaten; Pruefperson ueber Pfad-Allowlist.",
+  "GET /compliance/legal-profile": "Rechtliche Angaben der eigenen Firma ohne Kundendaten (Personal, H-180 ROL-01).",
+  "GET /compliance/owner-content": "Owner-Inhalte der eigenen Firma (Vertragsklauseln, DSG-Texte) ohne Kundendaten.",
+  "GET /dashboard/active-triggers": "Aggregat ueber get_accessible_mandate_ids (Sichtbarkeit des Benutzers).",
+  "GET /dashboard/summary": "Aggregat ueber get_accessible_client_ids/get_accessible_mandate_ids (Sichtbarkeit).",
+  "GET /fx-rates/current": "Referenzdaten (Wechselkurse) ohne Kundendaten.",
+  "GET /mandates/{mandate_id}": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/advisory-envelopes/current": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/advisory-envelopes/current/freshness": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/advisory-log": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/advisory-log/{log_id}": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/advisory-report": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/backtest/ab": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/backtest/strategy": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/backtest/stress-replays": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/client-onboarding/status": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/conflict-disclosures": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/conflicts": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/contract-layer": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/cost-disclosure/ex-ante": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/depot-check": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/depot-snapshots/{snapshot_id}/stress-replays": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/documents": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/documents/{doc_id}/pdf": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/financial-coverage-attestation": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/goals": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/goals/{goal_id}/revision-decisions": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/ist-projection-basis": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/optimizer-runs": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/planning-assumptions": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/planning-assumptions/current": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/portfolio-data/assessment": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/portfolio-handoffs": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/protocol-bausteine": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/recommendations": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/recommendations/current/payload": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/recommendations/{run_id}/holdings": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/recommendations/{run_id}/payload": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/recommendations/{run_id}/portfolio-handoff-preview": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/recommendations/{run_id}/positions": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/report-notes": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/reports/advisory-report.pdf": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/reports/anlagestrategie.pdf": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/reports/assetallocation.pdf": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/reports/backtest.pdf": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/reports/contract-signoff.pdf": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/reports/cost-disclosure.pdf": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/reports/depotcheck.pdf": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/reports/kundeninformation.pdf": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/reports/portfolio.pdf": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/reports/protokoll.pdf": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/reports/risikoprofil.pdf": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/reports/vertrag.pdf": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/risk-assessments": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/risk-assessments/current": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/risk-capacity-plausibility": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/risk-capacity-plausibility/evaluations": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/strategy-option-coverage": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/strategy-snapshots": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/strategy-snapshots/latest/drift": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/suitability-checks": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/sustainability-preferences": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/sustainability-preferences/exclusion-options": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/target-allocation/current": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/target-allocation/current/payload": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/target-allocation/published": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /mandates/{mandate_id}/triggers": "Kunden-/Mandatsbezug: Sichtbarkeit im Handler (get_client_for_user_or_404 / get_mandate_for_user_or_404); abgesichert durch die generische Fremdrollen-Probe test_weak_get_routes_never_return_foreign_client_data.",
+  "GET /onsite-signature/policy": "Firmen-Policy der Vor-Ort-Signatur ohne Kundendaten.",
+  "GET /privacy/egress-status": "Status des Egress-Manifests; lokales _require_staff im Handler, ohne Kundendaten.",
+  "GET /privacy/incidents": "Rollenpruefung im Handler (_require_case_operator).",
+  "GET /privacy/incidents/gate": "Rollenpruefung im Handler (_require_case_operator).",
+  "GET /privacy/incidents/{incident_id}": "Rollenpruefung im Handler (_require_case_operator).",
+  "GET /privacy/legal-holds": "Rollenpruefung im Handler (_require_privacy_officer).",
+  "GET /privacy/subject-requests": "Rollenpruefung im Handler (_require_case_operator).",
+  "GET /privacy/subject-requests/{request_id}": "Rollenpruefung im Handler (_require_case_operator).",
+  "GET /products": "Produktkatalog der Firma (Referenzdaten) ohne Kundendaten.",
+  "GET /products/sustainability/attributes": "Nachhaltigkeits-Referenzdaten der Produkte ohne Kundendaten.",
+  "GET /products/sustainability/catalog": "Nachhaltigkeits-Referenzdaten der Produkte ohne Kundendaten.",
+  "GET /products/sustainability/standards": "Nachhaltigkeits-Referenzdaten der Produkte ohne Kundendaten.",
+  "GET /products/{product_id}/sustainability-attributes": "Nachhaltigkeits-Referenzdaten eines Produkts ohne Kundendaten.",
+  "GET /protocol-bausteine": "Protokoll-Textbausteine der Firma (Vorlagen) ohne Kundendaten.",
+  "GET /sustainability-preferences/definition": "Definition des Nachhaltigkeits-Fragebogens (Referenz) ohne Kundendaten.",
+  "GET /tax/jurisdictions": "Referenzdaten (Steuer-Jurisdiktionen) ohne Kundendaten.",
+  "GET /users/{user_id}/adviser-registration": "Handler: eigenes Konto oder Admin, dazu Mandantensichtbarkeit (_assert_user_visible_to)."
  }
 }

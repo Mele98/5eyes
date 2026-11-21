@@ -101,6 +101,7 @@ SHELL = """<!doctype html><html><head><meta charset="utf-8"></head><body>
 <button id="asec-audit">Protokoll</button><div id="sec-audit"></div>
 <script>
 var TOKEN = %(token)s;
+var currentUser = {id: 'shell'};  // EXE-08 (H-187): das Banner fragt nur angemeldet (wie der Monolith nach dem Login)
 async function call(method, url, body){
   var r = await fetch('/api' + url, {method: method, headers: {'Content-Type': 'application/json',
     'Authorization': 'Bearer ' + TOKEN}, body: body === undefined ? undefined : JSON.stringify(body)});

@@ -81,7 +81,7 @@ auf Modul-Ebene importiert (kein Zyklus moeglich). `Goal`/`Mandate`/
 annotations` + `TYPE_CHECKING`, wo kein echter Laufzeit-Gebrauch vorliegt.
 """
 from __future__ import annotations
-from core.risk_parameter_set import assert_weights_investable, canonical_bucket_coefficients
+from core.risk_parameter_set import ReferenceDataPackageMissing, assert_weights_investable, canonical_bucket_coefficients
 
 import re
 from collections.abc import Collection
@@ -2442,6 +2442,52 @@ def _house_matrix_or_default(db: Session, policy: OptimizerPolicy, score_bucket:
     if candidates:
         return candidates[0]
     raise ValueError(f"HouseMatrix unvollstaendig fuer Score {score_bucket}")
+
+
+# ---------------------------------------------------------------------------
+# EXE-P (H-187): Laufzeit-Seeding der Vorlagewerte (Hausannahmen)
+# ---------------------------------------------------------------------------
+# Kein Gebuehren-Default: die Vorlage-Policy traegt KEIN Gebuehrenmodell (frueher
+# ``{"default_advisory_fee_bps": 75}`` -> erfundener Satz im Kostenausweis).
+# Tests setzen hier ein ausdrueckliches TEST-Gebuehrenmodell (tests/conftest.py).
+RUNTIME_SEED_FEE_MODEL_JSON: str | None = None
+
+
+def runtime_seed_fee_model_json() -> str | None:
+    return RUNTIME_SEED_FEE_MODEL_JSON
+
+
+def reference_template_sha256(defaults: list[tuple], building_blocks: list[tuple], cma_values: dict) -> str:
+    """Pruefwert der Vorlagewerte (House-Matrix, Bausteine, CMA) -- bindet ein
+    TEST-Referenzpaket an genau diese Werte."""
+    import hashlib
+    import json
+
+    body = {"house_matrix": [list(row) for row in defaults],
+            "building_blocks": [list(row) for row in building_blocks], "cma": cma_values}
+    canonical = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(b"Ares\x00ares/reference-template/1\x00" + canonical.encode("utf-8")).hexdigest()
+
+
+def assert_runtime_reference_seed_allowed(
+    *, seed_allowed: bool, production_mode: bool, package: dict | None,
+    defaults: list[tuple], building_blocks: list[tuple], cma_values: dict, what: str,
+) -> None:
+    """In Produktion bzw. der gepackten EXE keine Hausannahmen zur Laufzeit
+    (``REFERENCE_DATA_PACKAGE_MISSING``). Einzige Ausnahme: das TEST-Paket des
+    Strategie-Selbsttests (--self-test-strategy), nur mit dem Pruefwert dieser Vorlagewerte."""
+    if not production_mode:
+        return
+    if not seed_allowed or package is None:
+        raise ReferenceDataPackageMissing(
+            f"Es fehlen freigegebene Referenzdaten ({what}). Die installierte Version legt keine "
+            "Hausannahmen automatisch an; Referenzdaten kommen nur aus einem freigegebenen Paket."
+        )
+    expected = reference_template_sha256(defaults, building_blocks, cma_values)
+    if str((package.get("reference_data") or {}).get("sha256") or "") != expected:
+        raise ReferenceDataPackageMissing(
+            f"Das TEST-Referenzpaket passt nicht zu den Vorlagewerten dieser Version ({what})."
+        )
 
 
 def _validate_house_matrix_defaults(defaults: list[tuple]) -> None:

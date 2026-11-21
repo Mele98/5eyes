@@ -6490,6 +6490,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/publication-inbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Publication Inbox
+         * @description ROL-05: zur Freigabe vorgelegte Akten der eigenen Firma (datenminimiert).
+         */
+        get: operations["get_publication_inbox_publication_inbox_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/publication-inbox/{mandate_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve From Publication Inbox
+         * @description ROL-05: Vier-Augen-Freigabe einer vorgelegten Akte. Nicht vorgelegt,
+         *     fremde Firma oder eigene Vorbereitung -> 404 (keine Auskunft).
+         */
+        post: operations["approve_from_publication_inbox_publication_inbox__mandate_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sustainability-preferences/definition": {
         parameters: {
             query?: never;
@@ -13476,6 +13517,53 @@ export interface components {
             reason_code?: string | null;
             /** Status */
             status?: string | null;
+        };
+        /**
+         * PublicationInboxApproveRequest
+         * @description ROL-05: Vier-Augen-Freigabe aus der Inbox -- genau der gepruefte Stand
+         *     (keine Einzelfreigabe; die bleibt der Ein-Personen-Firma im Mandat).
+         */
+        PublicationInboxApproveRequest: {
+            /** Target Allocation Id */
+            target_allocation_id: string;
+            /** Validation Hash */
+            validation_hash: string;
+        };
+        /**
+         * PublicationInboxItem
+         * @description ROL-05: eine zur Freigabe vorgelegte Akte, datenminimiert -- Mandat,
+         *     vorbereitende Person und die zu publizierende Soll-Allokation; keine
+         *     Personalien, Vermoegenswerte oder Kundendokumente.
+         */
+        PublicationInboxItem: {
+            /** Bands Bps */
+            bands_bps?: {
+                [key: string]: number[];
+            };
+            /** Blocker Codes */
+            blocker_codes?: string[];
+            /** Can Publish */
+            can_publish: boolean;
+            /** Mandate Id */
+            mandate_id: string;
+            /** Mandate Number */
+            mandate_number?: string | null;
+            /** Mandate Type */
+            mandate_type?: string | null;
+            /** Prepared By */
+            prepared_by?: string | null;
+            /** Prepared By Name */
+            prepared_by_name?: string | null;
+            /** Sealed At */
+            sealed_at?: string | null;
+            /** Target Allocation Id */
+            target_allocation_id?: string | null;
+            /** Targets Bps */
+            targets_bps?: {
+                [key: string]: number;
+            };
+            /** Validation Hash */
+            validation_hash: string;
         };
         /**
          * RecommendationFinalizeResponse
@@ -27812,6 +27900,61 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_publication_inbox_publication_inbox_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationInboxItem"][];
+                };
+            };
+        };
+    };
+    approve_from_publication_inbox_publication_inbox__mandate_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationInboxApproveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AllocationPublicationResponse"];
+                };
             };
             /** @description Validation Error */
             422: {

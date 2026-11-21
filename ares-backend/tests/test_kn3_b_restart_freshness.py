@@ -245,5 +245,6 @@ def test_first_client_and_position_after_bootstrap_carry_the_default_tenant(tmp_
         position_tenant = s.execute(
             text("SELECT tenant_id FROM wealth_positions WHERE client_id = :c"), {"c": cid}).scalar()
     engine.dispose()
-    # Der Admin bleibt bis zum Start-Backfill ohne Mandant (Lizenzzaehlung unveraendert).
-    assert (admin, client_tenant, position_tenant) == (None, "main", "main")
+    # OWN-LIC-01 (H-187, CTO-Entscheid): der Bootstrap-Admin bekommt sofort den
+    # Standard-Mandanten (H-170), nicht erst beim Start-Backfill.
+    assert (admin, client_tenant, position_tenant) == ("main", "main", "main")

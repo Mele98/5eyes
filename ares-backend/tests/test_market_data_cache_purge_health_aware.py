@@ -133,7 +133,7 @@ def test_ensure_purge_history_table_idempotent_and_columns(tmp_path):
     engine.dispose()
 
 
-def test_purge_now_endpoint_returns_report_for_advisor(monkeypatch, tmp_path):
+def test_purge_now_endpoint_returns_report_for_admin(monkeypatch, tmp_path):
     _engine, factory = _session_factory(tmp_path)
     expected = {
         "purged_rows": 2,

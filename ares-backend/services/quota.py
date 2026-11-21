@@ -18,6 +18,16 @@ from services.tenant_context import is_postgres_bind
 
 QuotaKind = Literal["users", "mandates"]
 
+# OWN-LIC-01 (CTO-Entscheid H-180, technischer Standard; der Owner kann es
+# kommerziell uebersteuern): die externe Pruefperson ist eine Kontrollfunktion
+# mit minimalem Pfad-Umfang, keine Nutzerlizenz -- sie zaehlt nicht gegen
+# ``max_users`` und ihr Anlegen/Einladen wird nicht durch die Grenze gesperrt.
+QUOTA_EXEMPT_USER_ROLES: tuple[str, ...] = ("compliance_reviewer",)
+
+
+def _licensed_users(db: Session, tid: str):
+    return _tenant_rows(db, User, tid).filter(User.role.notin_(QUOTA_EXEMPT_USER_ROLES))
+
 
 def _tenant_rows(db: Session, model, tid: str):
     """Aktive Zeilen eines Mandanten. KN-B (Lizenzzaehlung): Zeilen ohne
@@ -31,10 +41,17 @@ def _tenant_rows(db: Session, model, tid: str):
     return db.query(model).filter(owner, model.deleted_at.is_(None))
 
 
-def assert_within_quota(db: Session, tenant_id: str | None, kind: QuotaKind) -> None:
-    """Raise HTTP 409 when creating ``kind`` would exceed the tenant quota."""
+def assert_within_quota(
+    db: Session, tenant_id: str | None, kind: QuotaKind, *, role: str | None = None,
+) -> None:
+    """Raise HTTP 409 when creating ``kind`` would exceed the tenant quota.
+
+    ``role``: Rolle des anzulegenden Kontos; eine quota-freie Rolle
+    (``QUOTA_EXEMPT_USER_ROLES``) wird nie durch ``max_users`` gesperrt."""
     tid = str(tenant_id or "").strip()
     if not tid:
+        return
+    if kind == "users" and role in QUOTA_EXEMPT_USER_ROLES:
         return
     # Kontrollrunde 2026-09-24: FOR UPDATE auf der Tenant-Zeile serialisiert
     # konkurrierende Aufrufe fuer denselben Tenant -- ohne diese Sperre
@@ -63,7 +80,7 @@ def assert_within_quota(db: Session, tenant_id: str | None, kind: QuotaKind) -> 
         limit = _quota_limit(getattr(tenant, "max_users", None))
         if limit is None:
             return
-        current = _tenant_rows(db, User, tid).count()
+        current = _licensed_users(db, tid).count()
         _raise_if_at_limit("max_users", current, limit)
         return
     if kind == "mandates":
@@ -87,7 +104,7 @@ def compute_tenant_usage(db: Session, tenant_id: str | None) -> dict[str, int]:
     tid = str(tenant_id or "").strip()
     if not tid:
         return {"current_users": 0, "current_mandates": 0}
-    current_users = _tenant_rows(db, User, tid).count()
+    current_users = _licensed_users(db, tid).count()
     current_mandates = _tenant_rows(db, Mandate, tid).count()
     return {"current_users": current_users, "current_mandates": current_mandates}
 

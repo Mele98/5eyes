@@ -148,6 +148,13 @@ def test_readonly_sees_status_but_cannot_write(server):
     Bestand: advisor_id), und darf dort nicht schreiben."""
     sync_api = _sync_api()
     api = _Api(server["base"]).login()
+    # OWN-LIC-01 (H-187): der Bootstrap-Admin zaehlt sofort gegen max_users
+    # (Ersteinrichtung: 1). Diese Probe braucht ein zweites Konto -- TESTWERT
+    # direkt in der Wegwerf-DB (wie KN4-U), die Lizenzpflege ist nicht Gegenstand.
+    import sqlite3
+
+    with sqlite3.connect(server["db"]) as conn:
+        conn.execute("UPDATE tenants SET max_users = NULL")
     st, body = api("POST", "/users", {"username": RO_USER, "password": RO_PWD, "full_name": "Lesend Fiktiv",
                                       "role": "readonly"})
     assert st == 201, body
@@ -176,7 +183,8 @@ def test_readonly_sees_status_but_cannot_write(server):
     assert ro("GET", f"/mandates/{mid}/contract-layer")[0] == 200
     st, body = ro("POST", f"/mandates/{mid}/documents", {"document_type": "Beratungsvertrag", "title": "x",
                                                         "content_json": json.dumps({"ort_unterzeichnung": "x"})})
-    assert st == 403 and b"Schreibberechtigung" in body, body
+    # ROL-04 (H-187): die zentrale Lesezugriffs-Sperre greift vor der Routenpruefung.
+    assert st == 403 and b"READONLY_SCOPE" in body, body
     with sync_api.sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         errors: list[str] = []

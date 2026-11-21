@@ -329,6 +329,9 @@ class KundeninformationData:
     privacy_lines: tuple = ()
     # H-179 R-1: Zuwendungen der Depotbank (sachliche Wiedergabe der Angabe).
     depot_bank_inducement_lines: tuple = ()
+    # N-935-03 (H-187): Kostenteil ohne vereinbarte Dienstleistungsgebuehr ->
+    # Entwurf (Router: Wasserzeichen, nie archiviert).
+    fee_agreement_missing: bool = False
 
 
 @dataclass(frozen=True)

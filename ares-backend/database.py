@@ -19,6 +19,7 @@ from config import (
     db_key_format_ok,
     guarded_sqlite_connect,
     owner_db_refusal,
+    packaged_plaintext_connection_refused,
     refuse_owner_db_file,
     settings,
 )
@@ -164,6 +165,12 @@ def attach_sqlite_pragmas(target_engine: Engine, db_key: str | None = None) -> N
 
     @event.listens_for(target_engine, 'connect')
     def _set_sqlite_pragma(dbapi_connection, connection_record):
+        # EXE-P (H-187): die gepackte EXE arbeitet nie auf einer Klartext-DB.
+        if packaged_plaintext_connection_refused():
+            raise RuntimeError(
+                'Unverschluesselte Datenbankverbindung in der installierten Version verweigert '
+                '(SQLCipher und Datenbankschluessel fehlen).'
+            )
         cursor = dbapi_connection.cursor()
         cursor.execute('PRAGMA foreign_keys = ON')
         cursor.execute('PRAGMA journal_mode = WAL')
@@ -3229,7 +3236,22 @@ SEED_ASSET_CLASS_RETURNS = [
 ]
 
 
+def annual_returns_release_required() -> bool:
+    """N-935-05: In Produktion bzw. der gepackten EXE kommen historische
+    Jahresrenditen nur aus einem freigegebenen Paket (kein Start-Seeding,
+    siehe ``_seed_asset_class_returns``); fehlen sie, lehnt der Backtest ab.
+    Fuer Aufrufer ohne eigene ``config``-Kante (z. B. PDF-Router)."""
+    return settings.production_mode
+
+
 def _seed_asset_class_returns(conn) -> None:
+    # N-935-05 (H-187 Fixrunde 1, CTO-Entscheid): historische Jahresrenditen
+    # fliessen in die Engine (Backtest) und kommen in Produktion bzw. der
+    # gepackten EXE nur aus einem freigegebenen Paket -- kein Start-Seeding.
+    # Fehlen sie dort, lehnt der Backtest typisiert ab
+    # (services.backtest_strategy.load_annual_returns_matrix). Quellbetrieb/Tests unveraendert.
+    if annual_returns_release_required():
+        return
     count = conn.execute(text("SELECT COUNT(*) FROM asset_class_annual_returns")).scalar()
     if count and count > 0:
         return

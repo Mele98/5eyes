@@ -79,3 +79,14 @@
   script.defer = true;
   (document.head || document.documentElement).appendChild(script);
 })();
+
+// H-180 Paket ROL (ROL-04/-05/-06): Rollenanzeige (Lesend ohne Schreibknoepfe,
+// Portfolio Management ohne Kundenmaske, Freigabe-Inbox fuer Admin/Pruefperson).
+// Eigenes Modul (frontend/role-ui.js), nachgeladen wie build-info.js.
+(function () {
+  if (typeof document === 'undefined' || typeof document.createElement !== 'function') return;
+  var script = document.createElement('script');
+  script.src = './role-ui.js';
+  script.defer = true;
+  (document.head || document.documentElement).appendChild(script);
+})();
