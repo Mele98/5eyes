@@ -291,7 +291,7 @@ def test_finalising_is_locked_while_local_strategy_changes_are_pending():
         assert not [c for c in case["calls"] if c[0] == "get"], (action, case)
         assert case["dirty"] is True, (action, case)
         errors = [c[1] for c in case["calls"] if c[0] == "status" and c[2]]
-        assert any("Zuerst «Anlagestrategie berechnen» bzw. Änderungen verwerfen" in e for e in errors), errors
+        assert any("Zuerst «Anlagestrategie berechnen» oder die manuelle Soll-Allokation speichern" in e for e in errors), errors
     for action in ("save", "del"):
         case = out[f"{action}_pending"]
         assert ["get", "/target-allocation/current/payload"] in case["calls"], (action, case)

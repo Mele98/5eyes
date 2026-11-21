@@ -6044,7 +6044,7 @@ function buildQT(id){
       var check=typeof validateBandEditorModal==='function'?validateBandEditorModal():{valid:true};
       if(!check.valid)return;
       updateBandOverrideStatus(collectBandOverridesFromModal()||{});
-      markStrategyDirty('Bandbreiten aktualisiert: Strategie neu berechnen.');
+      markStrategyDirty('Bandbreiten aktualisiert: Strategie neu berechnen.',0,'manual');
     });
     input.addEventListener('change',function(){
       var check=typeof validateBandEditorModal==='function'?validateBandEditorModal():{valid:true};
@@ -6371,7 +6371,7 @@ async function saveManualTargetAllocationFromModal(){
     var reasonEl=document.getElementById('aa-manual-save-reason');
     if(reasonEl)reasonEl.value='';
     renderManualTargetSaveState(computeManualTargetSaveValidation(),msg,false);
-    if(typeof markStrategyDirty==='function')markStrategyDirty('Manuelle Soll-Allokation gespeichert: die angezeigten Kennzahlen stammen aus der letzten Berechnung.',false);
+    afterManualTargetSave(); // N-933R-02 / N-934-03
     return true;
   }catch(e){
     renderManualTargetSaveState(computeManualTargetSaveValidation(),manualTargetSaveErrorText(e),true);
@@ -6468,7 +6468,7 @@ function applyAllocationBandOverrides(){
   persistAllocationPreferences();
   buildQT('qt-modal');
   updateBandOverrideStatus(collectBandOverridesFromModal()||{});
-  markStrategyDirty('Bandbreiten angepasst: Strategie neu berechnen.');
+  markStrategyDirty('Bandbreiten angepasst: Strategie neu berechnen.',0,'manual');
   return true;
 }
 function resetAllocationBandOverrides(){
@@ -6478,7 +6478,7 @@ function resetAllocationBandOverrides(){
   persistAllocationPreferences(prefs);
   buildQT('qt-modal');
   updateBandOverrideStatus({});
-  markStrategyDirty('Individuelle Bandbreiten zurückgesetzt: Strategie neu berechnen.');
+  markStrategyDirty('Individuelle Bandbreiten zurückgesetzt: Strategie neu berechnen.',0,'manual');
 }
 function formatIsoLocal(value){
   if(!value)return 'Nicht verfügbar';
@@ -19921,7 +19921,8 @@ function applyBufferedStrategyOutputs(wantsRecommendation,statusMessage){
   return true;
 }
 
-function markStrategyDirty(message,invalidateOutputs){
+function markStrategyDirty(message,invalidateOutputs,source){
+  strategyState.dirtyOther=!!(strategyState.dirty&&strategyState.dirtyOther)||source!=='manual'; // N-934-03
   strategyState.dirty=true;
   clearPendingStrategyOutputs();
   if(invalidateOutputs&&!hasVisibleStrategyOutputs())invalidateStrategyOutputs();
@@ -24173,19 +24174,7 @@ function renderAdvisoryLogList(logs){
     root.innerHTML='<div style="font-size:10px;color:var(--n4)">Noch keine Advisory-Einträge dokumentiert.</div>';
     return;
   }
-  root.innerHTML=items.map(function(entry){
-    var decision=entry.decision||entry.entry_type||'Dokumentiert';
-    var decisionClass=/keine/i.test(decision)?'tg':(/transaktion|kauf|verkauf|umschichtung/i.test(decision)?'ta':'tn');
-    var status=String(entry.status||'Empfohlen');
-    var statusClass=status==='Umgesetzt'?'tg':(status==='Beschlossen'?'tb':'ta');
-    var nextStatus=status==='Empfohlen'?'Beschlossen':(status==='Beschlossen'?'Umgesetzt':null);
-    var triggerMeta=entry.trigger_id?('Trigger: '+String(entry.trigger_id)):'Ohne Trigger-Verknüpfung';
-    var runMeta=entry.recommendation_run_id?('Berechnung '+String(entry.recommendation_run_id).slice(0,8)):'Keine Strategieberechnung verknüpft';
-    var actions=nextStatus
-      ? '<button class="btn" type="button" style="padding:4px 8px;font-size:10px">'+escapeHtml(nextStatus)+' setzen</button>'
-      : '<span style="font-size:10px;color:var(--pos);font-weight:500">Status abgeschlossen</span>';
-    return '<div class="logi" style="padding:10px 0"><div class="logh"><div class="logt">'+escapeHtml(entry.title||'Advisory-Eintrag')+'</div><div class="logm"><span class="logd">'+escapeHtml(formatDateSwiss(entry.entry_date||entry.created_at||''))+'</span><span class="tag '+decisionClass+'">'+escapeHtml(decision)+'</span><span class="tag '+statusClass+'">'+escapeHtml(status)+'</span></div></div><div class="logdesc">'+escapeHtml(entry.description||'Ohne Zusatzbegründung dokumentiert.')+'</div><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap"><div style="font-size:9px;color:var(--n4)">'+escapeHtml(triggerMeta)+' · '+escapeHtml(runMeta)+'</div>'+actions+'</div></div>';
-  }).join('');
+  root.innerHTML=items.map(advisoryLogCardHtml).join(''); // advisory-log-finma.js
   Array.prototype.forEach.call(root.querySelectorAll('.logi'),function(card,idx){
     var entry=items[idx];
     if(!entry)return;

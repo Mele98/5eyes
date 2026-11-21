@@ -46,6 +46,22 @@ from models.users import User
 from models.allocation import OptimizerPolicy
 from models.wealth import WealthInflow, WealthPosition
 from services.fx_basis import FxBasisError, compute_wealth_totals, load_fx_basis, strict_model_fx_source
+# KN9a / N-934-01..02: eine Integritaetsregel fuer alle Kundenkanaele.
+from services.advisory_log_service import (  # noqa: F401  (Re-Export)
+    AdvisoryLogIntegrityFailed, advisory_log_integrity_message, assert_shown_entries_intact,
+    customer_protocol_entry)
+
+
+def assert_report_advisory_log_integrity(payload: dict[str, Any], *, document: str) -> None:
+    """Fail-closed: der Report zeigt in Sektion 16 genau einen Eintrag
+    (``beratungsprotokoll.latest_entry``). Passt dessen Pruefsumme nicht zum
+    Inhalt (``integrity_verified is False``), geht der Report an keinen Kunden
+    (Advisory-Report-PDF 409, Kundenportal neutral). True und None bleiben
+    erlaubt."""
+    protocol = payload.get("beratungsprotokoll") if isinstance(payload, dict) else None
+    entry = protocol.get("latest_entry") if isinstance(protocol, dict) else None
+    if isinstance(entry, dict):
+        assert_shown_entries_intact([entry], document=document, latest_only=True)
 
 
 # ---------------------------------------------------------------------------

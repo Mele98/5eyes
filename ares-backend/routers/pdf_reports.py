@@ -89,6 +89,9 @@ from services.pdf import ReportLabRenderer
 # get_advisory_report_pdf); liefert auch den Suitability-Audit fuer den
 # Beratungsentscheid -- keine neue Import-Kante.
 from services.pdf.documents.advisory_report import (
+    AdvisoryLogIntegrityFailed,
+    assert_shown_entries_intact,
+    customer_protocol_entry,
     render_advisory_report_pdf,
     suitability_compliance_for_mandate,
 )
@@ -2077,7 +2080,9 @@ def _build_contract_signoff_data(
             "Bitte zuerst die Produktempfehlung (Portfolio) für die aktuelle "
             "Allokation generieren."
         )
-    protocol = _build_protokoll_data(mandate, db)
+    # KN9a: der Beratungsentscheid zeigt Protokolleintraege (Tabelle
+    # «Beratungsinhalt») -- dieselbe Integritaetsregel wie im Protokoll.
+    protocol = _build_protokoll_data(mandate, db, document="Beratungsentscheid")
     ta = _latest_target_allocation(mandate, db)
     method = str(getattr(ta, "optimization_method", "") or "").strip() or None
     orientation = strategy.optimizer_reasoning or _format_portfolio_orientation(
@@ -2181,6 +2186,8 @@ def get_contract_signoff_pdf(
     ctx = _mark_unpublished(ctx, db, mandate)
     try:
         data = _build_contract_signoff_data(mandate, db)
+    except AdvisoryLogIntegrityFailed as exc:
+        raise _advisory_log_integrity_409(exc) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     pdf_bytes = ReportLabRenderer().render_contract_signoff(ctx, data)
@@ -2200,7 +2207,7 @@ def get_contract_signoff_pdf(
 
 
 _SIGNOFF_LOAD_FAILED = ((
-    "Signatur-Status", "Signoff-Nachweis konnte nicht geladen werden -- prüfen",
+    "Signatur-Status", "Signatur-Nachweis konnte nicht geladen werden – bitte prüfen",
 ),)
 
 
@@ -2213,7 +2220,7 @@ def _risk_signoff_view(db: Session, ra) -> dict:
     if ra is not None and int(getattr(ra, "is_current", 0) or 0) != 1:
         return {"state": None, "lines": ((
             "Signatur-Status",
-            "Kein aktuelles Risikoprofil -- Signatur nicht ausweisbar",
+            "Kein aktuelles Risikoprofil – Signatur nicht ausweisbar",
         ),)}
     try:
         view = build_signoff_view(db, ra)
@@ -2527,8 +2534,25 @@ def _customer_recommendation_summary(raw) -> str:
     return (stripped[:1].upper() + stripped[1:]) if stripped else ""
 
 
-def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
-    """Beratungsprotokoll-Daten aus AdvisoryLog + letzter Empfehlung."""
+def _advisory_log_integrity_409(exc: AdvisoryLogIntegrityFailed) -> HTTPException:
+    """KN9 / KN9a: gleiche 409-Form fuer alle Kunden-PDFs mit Protokollinhalt
+    (Advisory-Report, Beratungsprotokoll, Beratungsentscheid)."""
+    return HTTPException(
+        status_code=409,
+        detail={"reason_code": "ADVISORY_LOG_INTEGRITY_FAILED", "message": str(exc),
+                "advisory_log_id": exc.entry_id},
+    )
+
+
+def _build_protokoll_data(
+    mandate: Mandate, db: Session, *, document: str = "Beratungsprotokoll",
+) -> ProtokollData:
+    """Beratungsprotokoll-Daten aus AdvisoryLog + letzter Empfehlung.
+
+    KN9a / N-934-01: jeder Eintrag, der ins Kunden-PDF geht, wird gegen seine
+    Pruefsumme geprueft (eine Regel mit dem Advisory-Report). Passt einer
+    nicht -> ``AdvisoryLogIntegrityFailed`` (Route: 409 vor der Archivierung).
+    """
     advisory_wealth = None
     ta = None
     try:
@@ -2552,15 +2576,9 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
             .limit(40)
             .all()
         )
-        for row in log_rows:
-            entries.append({
-                "entry_date": str(getattr(row, "entry_date", "") or ""),
-                "entry_type": str(getattr(row, "entry_type", "") or ""),
-                "title": str(getattr(row, "title", "") or ""),
-                "description": str(getattr(row, "description", "") or ""),
-                "decision": str(getattr(row, "decision", "") or ""),
-                "status": str(getattr(row, "status", "") or ""),
-            })
+        assert_shown_entries_intact(log_rows, document=document)
+        # KN9a: Kundenform (Systemeintrag der Portal-Signatur in Kundensprache).
+        entries.extend(customer_protocol_entry(row) for row in log_rows)
 
         # PDF-RUN-RESOLVER-001: "finale Empfehlung" im Protokoll/Beratungs-
         # entscheid nur aus dem Run der aktuellen Allokation.
@@ -2577,6 +2595,8 @@ def _build_protokoll_data(mandate: Mandate, db: Session) -> ProtokollData:
                 "Finalisierte Empfehlung vom "
                 f"{str(getattr(latest_run, 'updated_at', '') or '')[:10]}"
             ).strip()
+    except AdvisoryLogIntegrityFailed:
+        raise
     except Exception as exc:
         logger.warning("Protokoll data: AdvisoryLog load failed: %s", exc)
 
@@ -2726,7 +2746,11 @@ def get_protokoll_pdf(
     _assert_client_pdf_signoff(db, mandate)
     _assert_client_pdf_cma_hold(db, mandate)
     ctx = _mark_unpublished(_build_pdf_context(mandate, current_user, db), db, mandate)
-    data = _build_protokoll_data(mandate, db)
+    try:
+        data = _build_protokoll_data(mandate, db)
+    except AdvisoryLogIntegrityFailed as exc:
+        # KN9a / N-934-01: veraenderter Eintrag -> kein Kunden-PDF, nichts archiviert.
+        raise _advisory_log_integrity_409(exc) from exc
     pdf_bytes = ReportLabRenderer().render_protokoll(ctx, data)
     _archive_final(
         ctx, db, mandate_id=mandate.id, document_type="Beratungsprotokoll",
@@ -3429,13 +3453,18 @@ def get_advisory_report_pdf(
             require_channel_envelope(db, mandate, channel=CHANNEL_PDF, user=current_user, decision=decision)
     else:  # Entwurf: nur der IC-Vermerk (N-925-05), keine Pruefnummer
         decision_ref = {k: v for k, v in (decision_ref or {}).items() if k == "ic_release_status"} or None
-    pdf_bytes = render_advisory_report_pdf(
-        db, mandate, current_user,
-        # CCX-P4: nicht publizierte Strategie -> Entwurf (Vorrang vor "vorvertrag").
-        watermark_mode=unpublished
-        or ("vorvertrag" if kyc_release_is_draft(db, mandate) else "none"),
-        decision_ref=decision_ref,
-    )
+    try:
+        pdf_bytes = render_advisory_report_pdf(
+            db, mandate, current_user,
+            # CCX-P4: nicht publizierte Strategie -> Entwurf (Vorrang vor "vorvertrag").
+            watermark_mode=unpublished
+            or ("vorvertrag" if kyc_release_is_draft(db, mandate) else "none"),
+            decision_ref=decision_ref,
+        )
+    except AdvisoryLogIntegrityFailed as exc:
+        # KN9 / N-931-01: Protokolleintrag mit nicht passender Pruefsumme ->
+        # kein Kunden-PDF (fail-closed); die Berater-Ansicht warnt beim Eintrag.
+        raise _advisory_log_integrity_409(exc) from exc
     if pdf_bytes is None:
         # CERT-COST-PUBLICATION-001 (COST-PUBLICATION-GATE-001): degraded
         # cost-disclosure evidence blocks a client-ready export -- stable

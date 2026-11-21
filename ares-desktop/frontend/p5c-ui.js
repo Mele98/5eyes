@@ -29,6 +29,16 @@ async function loadStrategyOnly(withRec){
  * an der Strategie bestehen -- sonst wuerde die gespeicherte Strategie ohne sie finalisiert. */
 function finalizeLocked(){
   if(!strategyState.dirty)return false;
-  updateStrategyStatus('Empfehlung finalisieren ist gesperrt: Es gibt ungespeicherte Änderungen an der Strategie. Zuerst «Anlagestrategie berechnen» bzw. Änderungen verwerfen.',true);
+  updateStrategyStatus('Finalisieren gesperrt: ungespeicherte Änderungen an der Strategie. Zuerst «Anlagestrategie berechnen»'+(strategyState.dirtyOther?'.':' oder die manuelle Soll-Allokation speichern.'),true);
   return true;
+}
+/* KN9a / N-934-03 (CTO): markStrategyDirty(…,'manual') = Bandbreiten/Soll-Quoten, die
+ * die manuelle Soll-Allokation enthaelt; alles andere setzt dirtyOther. Nach dem Speichern
+ * faellt nur der manuelle Anteil weg; andere Aenderungen bleiben markiert. */
+function afterManualTargetSave(){
+  var keep=!!(strategyState.dirty&&strategyState.dirtyOther);
+  strategyState.dirty=keep;strategyState.dirtyOther=keep;
+  strategyState.staleNotice=keep?'Weitere Änderungen sind nicht in der manuellen Soll-Allokation enthalten: Strategie neu berechnen.':'';
+  syncStrategyStaleView();syncPortfolioUmsetzenButtonVisibility();
+  updateStrategyStatus('Manuelle Soll-Allokation gespeichert'+(keep?'. Weitere ungespeicherte Änderungen (z. B. Präferenzen, Tilts, Restriktionen) sind nicht enthalten: zuerst «Anlagestrategie berechnen».':': die angezeigten Kennzahlen stammen aus der letzten Berechnung.'),false);
 }

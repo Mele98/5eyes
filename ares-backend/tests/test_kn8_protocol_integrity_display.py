@@ -79,7 +79,7 @@ def integrity_claim_violations(line: str, integrity_verified) -> list[str]:
 
 @pytest.mark.parametrize("state,expected", [
     (True, "verifiziert"),
-    (False, "nicht verifiziert"),
+    # KN9 / N-931-01: False sperrt das Kunden-PDF (test_kn9_advisory_log_integrity).
     (None, "nicht geprüft"),
     (_MISSING, "nicht geprüft"),
     ("true", "nicht geprüft"),  # kein bool -> nie als bestanden gewertet
@@ -118,7 +118,7 @@ def test_old_rendering_fails_the_rules():
     assert "hex>=16" in integrity_claim_violations(old, True)
     assert "verifiziert ohne True" in integrity_claim_violations(old, False)
     assert "verifiziert ohne True" in integrity_claim_violations(old, None)
-    new_false = f"INTEGRITÄT Prüfsumme {SHORT} · nicht verifiziert – Ihr Berater prüft den Eintrag"
+    new_false = f"INTEGRITÄT Prüfsumme {SHORT} · nicht verifiziert"
     assert integrity_claim_violations(new_false, False) == []
 
 
@@ -146,12 +146,13 @@ def _service_entry():
 
 def test_service_value_reaches_the_pdf():
     """Echte Kette: Hash beim Erfassen -> serialize_response -> PDF. Unveraendert
-    «verifiziert»; nach Aenderung eines gehashten Feldes «nicht verifiziert»."""
+    «verifiziert»; nach Aenderung eines gehashten Feldes sperrt KN9 das PDF
+    (test_kn9_advisory_log_integrity::test_real_chain_…)."""
     from services.advisory_log_service import serialize_response
     from services.pdf.documents.advisory_report import render_advisory_report_pdf_from_payload
 
     entry = _service_entry()
-    for tamper, expected in ((False, True), (True, False)):
+    for tamper, expected in ((False, True),):
         if tamper:
             entry.description = entry.description + " Nachtraeglich geaendert."
         serialized = serialize_response(entry)

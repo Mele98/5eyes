@@ -401,6 +401,8 @@ class OwnerContentApproval(Base):
     # Postfach-Identitaeten von Freigeber und Erfasser (normalisiert, als an die
     # Freigabe-ID gebundener Pruefwert, kein Klartext; "" = keine E-Mail).
     # Beim Lesen gilt nur der eingefrorene Stand; NULL = Glied unwirksam.
+    # KN9 / N-927T-01: Altzeilen aus SQLite-Dateien von vor der Fixrunde
+    # (Laufzeitpatch in database.py) brechen das Siegel -> kette_ungueltig.
     approver_role = Column(String, nullable=False)
     approver_ready = Column(Integer, nullable=False)
     approver_mailbox_digest = Column(String, nullable=False)

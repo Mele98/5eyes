@@ -677,6 +677,112 @@ def verify_entry_integrity(entry: AdvisoryLog) -> bool | None:
     )
 
 
+# KN9 / N-931-01 + KN9a / N-934-01..02 (CTO-Entscheid): EINE Regel fuer alle
+# Kundenkanaele (Advisory-Report-PDF, Beratungsprotokoll-PDF, Beratungsentscheid,
+# Kundenportal). Jeder Eintrag, den der Kunde sieht, wird geprueft. Nur
+# ``False`` (Pruefsumme passt nicht zum Inhalt) sperrt; True und None
+# (Alteintrag ohne Pruefsumme) bleiben erlaubt. Gesperrt wird vor jeder
+# Archivierung; der Router antwortet 409 ``ADVISORY_LOG_INTEGRITY_FAILED``,
+# das Kundenportal neutral (Code nur in Log/Audit).
+LATEST_ENTRY_LABEL = "des letzten Beratungsprotokoll-Eintrags"
+
+
+def advisory_log_integrity_message(
+    document: str = "Advisory-Report", entry_label: str = LATEST_ENTRY_LABEL,
+) -> str:
+    """Deutsche Ursache fuer die Berater-Antwort (nie fuer den Kunden)."""
+    return (
+        f"{document} kann nicht als Kunden-PDF erzeugt werden: Die Prüfsumme "
+        f"{entry_label} passt nicht zu seinem Inhalt. Der Eintrag wurde nach dem "
+        "Speichern verändert oder ist beschädigt. Bitte den Eintrag in der "
+        "Beratungsprotokoll-Liste prüfen und neu erfassen."
+    )
+
+
+class AdvisoryLogIntegrityFailed(Exception):
+    """Ein gezeigter Protokolleintrag hat eine nicht passende Pruefsumme."""
+
+    def __init__(
+        self, entry_id: str | None = None, *, document: str = "Advisory-Report",
+        entry_label: str = LATEST_ENTRY_LABEL,
+    ) -> None:
+        super().__init__(advisory_log_integrity_message(document, entry_label))
+        self.entry_id = entry_id
+
+
+def entry_integrity_failed(entry: Any) -> bool:
+    """True nur, wenn die Pruefsumme nicht zum Inhalt passt. Nimmt eine
+    DB-Zeile (wird jetzt geprueft) oder ein serialisiertes Dict
+    (``integrity_verified`` aus ``serialize_response``)."""
+    if entry is None:
+        return False
+    if isinstance(entry, dict):
+        return entry.get("integrity_verified") is False
+    return verify_entry_integrity(entry) is False
+
+
+def _entry_label(entry: Any) -> str:
+    get = entry.get if isinstance(entry, dict) else (lambda key: getattr(entry, key, None))
+    raw_date = str(get("entry_datetime") or get("entry_date") or "")[:10]
+    try:
+        shown = datetime.strptime(raw_date, "%Y-%m-%d").strftime("%d.%m.%Y")
+    except ValueError:
+        shown = ""
+    title = str(get("title") or "").strip()
+    label = "des Beratungsprotokoll-Eintrags"
+    if shown:
+        label += f" vom {shown}"
+    if title:
+        label += f" («{title[:60]}»)"
+    return label
+
+
+def assert_shown_entries_intact(
+    entries, *, document: str, latest_only: bool = False,
+) -> None:
+    """Fail-closed: wirft ``AdvisoryLogIntegrityFailed`` beim ersten gezeigten
+    Eintrag mit nicht passender Pruefsumme. ``latest_only`` nennt ihn in der
+    Ursache «letzter Eintrag» (Advisory-Report zeigt nur diesen)."""
+    for entry in entries or ():
+        if entry_integrity_failed(entry):
+            entry_id = entry.get("id") if isinstance(entry, dict) else getattr(entry, "id", None)
+            raise AdvisoryLogIntegrityFailed(
+                str(entry_id or "") or None, document=document,
+                entry_label=LATEST_ENTRY_LABEL if latest_only else _entry_label(entry),
+            )
+
+
+# KN9a / N-934-05 (Folgefund): der Systemeintrag zur Portal-Signatur des
+# Risikoprofils (services.risk_profile_signoff.ADVISORY_SYSTEM_EVENT) traegt
+# Audit-Text («Systemeintrag RiskProfileSignoffV1 … SHA-256 …»). In Kunden-PDFs
+# (Beratungsprotokoll, Beratungsentscheid) steht dafuer Kundensprache; der
+# Nachweis selbst steht im Abschnitt «Signatur des Risikoprofils». DB, Hash und
+# Audit bleiben unveraendert.
+RISK_PROFILE_SIGNOFF_SYSTEM_EVENT = "risk_profile_signoff"
+CUSTOMER_SIGNOFF_ENTRY_TITLE = "Signatur des Risikoprofils"
+CUSTOMER_SIGNOFF_ENTRY_TEXT = (
+    "Signatur des Risikoprofils erfasst. Den Nachweis zeigt der Abschnitt "
+    "«Signatur des Risikoprofils»."
+)
+
+
+def customer_protocol_entry(entry: Any) -> dict:
+    """Ein Protokolleintrag in der Form der Kunden-PDFs (Beratungsprotokoll,
+    Beratungsentscheid)."""
+    view = {
+        "entry_date": str(getattr(entry, "entry_date", "") or ""),
+        "entry_type": str(getattr(entry, "entry_type", "") or ""),
+        "title": str(getattr(entry, "title", "") or ""),
+        "description": str(getattr(entry, "description", "") or ""),
+        "decision": str(getattr(entry, "decision", "") or ""),
+        "status": str(getattr(entry, "status", "") or ""),
+    }
+    if getattr(entry, "system_event", None) == RISK_PROFILE_SIGNOFF_SYSTEM_EVENT:
+        view.update(title=CUSTOMER_SIGNOFF_ENTRY_TITLE, description=CUSTOMER_SIGNOFF_ENTRY_TEXT,
+                    decision="")
+    return view
+
+
 def serialize_response(entry: AdvisoryLog) -> dict:
     """Wandelt AdvisoryLog-Row in API-Response-Dict (JSON-Felder → Listen)."""
     return {

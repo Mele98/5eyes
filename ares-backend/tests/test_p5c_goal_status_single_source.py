@@ -387,6 +387,11 @@ def test_other_integrity_errors_on_the_channel_row_are_not_reported_as_a_race(se
     ("CCX_CHANNEL_BINDING_MISSING", False),
     ("FOREIGN KEY constraint failed", False),
     ("NOT NULL constraint failed: advisory_channel_publications.channel", False),
+    # KN9 / N-933R-03: NOT NULL auf der Nummernspalte ist kein Wettlauf.
+    ("NOT NULL constraint failed: advisory_channel_publications.channel_sequence", False),
+    ('null value in column "channel_sequence" of relation "advisory_channel_publications" '
+     "violates not-null constraint", False),
+    ('new row violates check constraint "ck_advisory_channel_publications_sequence"', False),
     ("UNIQUE constraint failed: advisory_channel_publications.envelope_id, "
      "advisory_channel_publications.channel, advisory_channel_publications.artifact_id", False),
     ('new row violates check constraint "ck_advisory_channel_publications_payload"', False),

@@ -36,4 +36,10 @@ Deploy einplanen.
 - Der Review-Trigger «Zielerreichung gefährdet» löst auch aus, wenn ein Ziel laut
   Zielanalyse nicht bewertbar ist (Unwissen ist keine Entwarnung). Bei Mandaten mit
   einer alten Berechnung ohne bewertbare Zielanalyse erscheint er deshalb neu.
-  «Anlagestrategie berechnen» behebt das.
+  «Anlagestrategie berechnen» behebt das, wenn die Ursache eine alte Berechnung
+  ist. Ziele «ausserhalb Horizont» (Zieldatum nach dem Simulationshorizont) und
+  Ziele, die auch nach der Neuberechnung «nicht beurteilbar» bleiben (z. B. zu
+  kleine Stichprobe oder unzertifizierte Zielmetrik), halten den Trigger bewusst
+  offen: Die App warnt hier lieber zu viel als zu wenig. Dann Zieldatum, Horizont
+  oder Zielangaben prüfen. Der Trigger sperrt keine Funktion; er zählt nur im
+  Cockpit und im Kalender.

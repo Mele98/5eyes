@@ -233,7 +233,8 @@ def build_protokoll_flowables(ctx: PDFContext, data) -> list:
     signoff_lines = tuple(getattr(data, "risk_signoff_lines", ()) or ())
     if signoff_lines:
         flowables.append(Spacer(1, 4 * mm))
-        flowables.append(_section_title("Risikoprofil-Signoff"))
+        # KN9a / N-934-05: Kundensprache statt Fachwort (Titel in Grossbuchstaben).
+        flowables.append(_section_title("Signatur des Risikoprofils"))
         flowables.append(signoff_lines_table(signoff_lines, styles))
 
     # E2a (Dok. 106): Nachhaltigkeitspraeferenzen -- Zustand, Antworten, Version,

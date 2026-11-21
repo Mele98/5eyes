@@ -39,7 +39,11 @@ from models.mandates import Mandate
 from models.users import User
 from services.backtest_stress import STRESS_REPLAY_SCOPE_LABEL
 from services.cost_disclosure import build_cost_disclosure, fee_agreement_missing
-from services.advisory_report import _build_suitability_compliance, compute_advisory_report
+# KN9a: Integritaetsregel ueber den Aggregator (keine neue Import-Kante).
+from services.advisory_report import (  # noqa: F401  (Re-Export fuer routers.pdf_reports)
+    AdvisoryLogIntegrityFailed, _build_suitability_compliance, advisory_log_integrity_message,
+    assert_report_advisory_log_integrity, assert_shown_entries_intact, compute_advisory_report,
+    customer_protocol_entry)
 from services.pdf.fonts import register_editorial_fonts
 from services.pdf.components.advisory_page_chrome import (
     AdvisoryNumberedCanvas,
@@ -196,6 +200,23 @@ def suitability_compliance_for_mandate(db: Session, mandate: Mandate) -> dict[st
     return _build_suitability_compliance(db, mandate) or {}
 
 
+# KN9 / N-931-01 (CTO-Entscheid fail-closed): ein Protokolleintrag, dessen
+# Pruefsumme nicht zum Inhalt passt (``integrity_verified is False``), ist
+# veraendert oder beschaedigt. Das Kunden-PDF wird dann nicht erzeugt; der
+# Router antwortet 409 ``ADVISORY_LOG_INTEGRITY_FAILED``. Kein Hinweis an den
+# Kunden, die Warnung steht in der Berater-Ansicht beim Eintrag.
+# KN9a / N-934-01: die Regel selbst steht in services.advisory_log_service
+# (eine Regel fuer Advisory-Report, Beratungsprotokoll, Beratungsentscheid und
+# Kundenportal); hier nur die Anwendung auf den Report-Payload.
+ADVISORY_LOG_INTEGRITY_FAILED_MESSAGE = advisory_log_integrity_message()
+
+
+def assert_advisory_log_integrity(payload: dict[str, Any]) -> None:
+    """Fail-closed fuer das Advisory-Report-PDF (Regel: services.advisory_report.
+    assert_report_advisory_log_integrity, gleich wie Kundenportal)."""
+    assert_report_advisory_log_integrity(payload, document="Advisory-Report")
+
+
 def render_advisory_report_pdf_from_payload(
     payload: dict[str, Any], *, watermark_mode: str = "none",
     decision_ref: dict | None = None,
@@ -206,7 +227,11 @@ def render_advisory_report_pdf_from_payload(
     Seitenzustände und zeichnet den Page-Chrome beim Speichern mit bekannter
     Gesamtseitenzahl. Falls ReportLab in diesem Pfad scheitert, fällt der
     Renderer auf den bisherigen Two-Pass-Pfad zurück.
+
+    KN9: ein Protokolleintrag mit nicht passender Pruefsumme wirft
+    ``AdvisoryLogIntegrityFailed`` (kein Kunden-PDF).
     """
+    assert_advisory_log_integrity(payload)
     register_editorial_fonts()
     cover = payload.get("cover") or {}
     mandate_number = str(cover.get("mandate_number") or "—")
@@ -2505,6 +2530,12 @@ COMMUNICATION_CHANNEL_DISPLAY = {
 }
 
 
+def communication_channel_display(value) -> str:
+    """KN9 / N-931-02: Anzeigeform des Kanals; unbekannte oder leere Werte
+    ergeben «—», nie den Rohschluessel (die DB-Spalte ist frei)."""
+    return COMMUNICATION_CHANNEL_DISPLAY.get(str(value or "").strip(), "—")
+
+
 def _bp_latest_entry_block(entry: dict, styles: dict) -> Table:
     """Detail-Block: Header (Datum/Typ) + Channel/Dauer + Topics + Warnings + Hash."""
     page_width, _ = PAGE_SIZE
@@ -2516,8 +2547,7 @@ def _bp_latest_entry_block(entry: dict, styles: dict) -> Table:
     pretty_dt = _format_swiss_datetime(datetime_iso)
     duration = entry.get("duration_minutes")
     duration_text = f"{duration} min" if isinstance(duration, (int, float)) else "—"
-    raw_channel = _safe_string(entry.get("communication_channel"))
-    channel = COMMUNICATION_CHANNEL_DISPLAY.get(raw_channel, raw_channel.capitalize())
+    channel = communication_channel_display(entry.get("communication_channel"))
     status = str(entry.get("status") or "Empfohlen")
     topics = entry.get("topics") or []
     warnings = entry.get("risk_warnings_given") or []
@@ -2599,10 +2629,12 @@ def _bp_latest_entry_block(entry: dict, styles: dict) -> Table:
 # KN8 / N-929-01: Pruefergebnis der Protokoll-Integritaet in Worten. Quelle ist
 # ``integrity_verified`` aus services/advisory_log_service.verify_entry_integrity
 # (True = Hash stimmt, False = Hash stimmt nicht, None = nicht geprueft). Nur
-# ``True`` ergibt «verifiziert»; alles andere nie.
+# ``True`` ergibt «verifiziert»; alles andere nie. KN9 / N-931-01: False
+# erreicht das Kunden-PDF nicht mehr (assert_advisory_log_integrity sperrt);
+# der Eintrag bleibt als Rueckfall ohne Handlungszusage an den Kunden.
 INTEGRITY_STATUS_DISPLAY = {
     True: ("verifiziert", "#4E6F58"),
-    False: ("nicht verifiziert – Ihr Berater prüft den Eintrag", "#9E4747"),
+    False: ("nicht verifiziert", "#9E4747"),
     None: ("nicht geprüft", "#7A8395"),
 }
 

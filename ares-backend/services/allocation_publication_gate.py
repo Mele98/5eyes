@@ -172,14 +172,20 @@ CHANNEL_SEQUENCE_RACE_MARKER = "CCX_CHANNEL_SEQUENCE_RACE"
 CHANNEL_SEQUENCE_RACE_MARKERS = (
     CHANNEL_SEQUENCE_RACE_MARKER,
     "ux_advisory_channel_publications_sequence",
-    "advisory_channel_publications.channel_sequence",
 )
+# KN9 / N-933R-03: SQLite nennt beim Unique-Index nur die Spalten. Die Spalte
+# allein reicht nicht (auch «NOT NULL constraint failed: …channel_sequence»
+# enthaelt sie); gezaehlt wird sie nur in der Unique-Meldung.
+SQLITE_UNIQUE_PREFIX = "UNIQUE constraint failed:"
+SQLITE_SEQUENCE_COLUMN = "advisory_channel_publications.channel_sequence"
 
 
 def is_channel_sequence_race(exc: BaseException) -> bool:
     """True nur fuer die Verletzung der laufenden Kanalnummer (Unique/Trigger)."""
     message = str(getattr(exc, "orig", None) or exc)
-    return any(marker in message for marker in CHANNEL_SEQUENCE_RACE_MARKERS)
+    if any(marker in message for marker in CHANNEL_SEQUENCE_RACE_MARKERS):
+        return True
+    return message.lstrip().startswith(SQLITE_UNIQUE_PREFIX) and SQLITE_SEQUENCE_COLUMN in message
 
 BUCKETS: tuple[str, ...] = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
 TOTAL_BPS = 10_000
