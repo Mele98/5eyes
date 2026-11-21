@@ -44,6 +44,7 @@ from services.auth import (
     get_current_user,
     get_mandate_for_user_or_404,
     require_advisor,
+    require_staff,
     tenant_id_for_new_record,
 )
 from services.data_classification import enforce_data_classification
@@ -155,7 +156,7 @@ def list_bausteine(
     category: Optional[str] = None,
     include_inactive: bool = False,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_staff),
 ):
     """Berater sieht: eigene Bausteine + global (advisor_id IS NULL).
     Admin sieht: alles -- aber IMMER nur innerhalb des eigenen Tenants (siehe

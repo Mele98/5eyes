@@ -1506,7 +1506,7 @@ def get_backtest_stress_replays(
 def list_optimizer_policies_read(
     include_historic: bool = True,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_reference_data_reader),
 ):
     """Sprint U-P15: Read-only Policy-Liste für Advisor-UI (A/B-Backtest-
     Selektoren). Im Gegensatz zu /admin/optimizer-policies erfordert dieser
