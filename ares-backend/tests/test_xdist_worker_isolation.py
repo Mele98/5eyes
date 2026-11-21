@@ -115,7 +115,7 @@ def test_each_xdist_worker_uses_its_own_db_file(tmp_path):
         resolved = Path(raw).resolve()
         assert resolved != caller_db
         assert resolved.parent.parent == caller_db.parent  # created next to the caller's throwaway path
-        assert resolved != (Path.home() / "5eyes" / "5eyes.db").resolve()
+        assert resolved != (Path.home() / "ares" / "ares.db").resolve()
 
 
 def test_serial_run_keeps_the_callers_db_path(tmp_path):

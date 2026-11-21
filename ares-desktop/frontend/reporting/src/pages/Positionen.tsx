@@ -7,11 +7,13 @@
  * - Provider + Currency als Sub-Title unter dem Produktnamen
  * - Total am Ende der Sektion
  */
+import { useReportCurrency } from '@/lib/reportCurrency';
 import { useMemo, useState } from 'react';
 
 import type { PositionEntry, PositionGroup, PositionenData } from '@/api/types';
 import { ReportPage } from '@/components/ReportPage';
 import { formatBpsAsPct, formatChfRappen } from '@/lib/format';
+import { bucketPctMap } from '@/lib/presentationRounding';
 import { filterPositions } from '@/lib/filterPositions';
 
 interface PositionenProps {
@@ -19,6 +21,12 @@ interface PositionenProps {
 }
 
 export function Positionen({ data }: PositionenProps) {
+  // N-894-14: Gruppenanteile gemeinsam apportioniert (wie Soll-Tabellen, Summe 100.0 %).
+  const groupShares = useMemo(
+    () => bucketPctMap((data.groups ?? []).map((g) => ({ asset_class: g.key, target_weight_bps: g.share_bps })), { typography: 'screen' }),
+    [data.groups],
+  );
+  const currency = useReportCurrency(); // N-894-10
   const groups = data.groups ?? [];
   const total = data.total_rappen ?? 0;
 
@@ -60,14 +68,14 @@ export function Positionen({ data }: PositionenProps) {
       ) : (
         <div className="space-y-section">
           {filteredGroups.map((g) => (
-            <BucketGroup key={g.key} group={g} />
+            <BucketGroup key={g.key} group={g} shareText={groupShares[g.key]} />
           ))}
         </div>
       )}
 
       {total > 0 ? (
         <p className="mt-section border-t border-rule pt-3 text-right text-body text-ink">
-          Total: <span className="font-mono font-semibold">{formatChfRappen(total)}</span>
+          Total: <span className="font-mono font-semibold">{formatChfRappen(total, { currency })}</span>
         </p>
       ) : null}
     </ReportPage>
@@ -120,7 +128,8 @@ function PositionsSearchBar({
 
 // ---------------------------------------------------------------------------
 
-function BucketGroup({ group }: { group: PositionGroup }) {
+function BucketGroup({ group, shareText }: { group: PositionGroup; shareText?: string }) {
+  const currency = useReportCurrency(); // N-894-10
   return (
     <section>
       <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-rule pb-2">
@@ -129,13 +138,13 @@ function BucketGroup({ group }: { group: PositionGroup }) {
           <span>
             Anteil:{' '}
             <span className="font-mono text-ink">
-              {formatBpsAsPct(group.share_bps)}
+              {shareText ?? formatBpsAsPct(group.share_bps)}
             </span>
           </span>
           <span>
             Total:{' '}
             <span className="font-mono text-ink">
-              {formatChfRappen(group.total_rappen)}
+              {formatChfRappen(group.total_rappen, { currency })}
             </span>
           </span>
         </div>
@@ -178,6 +187,7 @@ function BucketGroup({ group }: { group: PositionGroup }) {
 }
 
 function PositionRow({ p }: { p: PositionEntry }) {
+  const currency = useReportCurrency(); // N-894-10
   const detailParts: string[] = [];
   if (p.provider && p.provider !== '—') detailParts.push(p.provider);
   if (p.currency && p.currency !== '—') detailParts.push(p.currency);
@@ -198,7 +208,7 @@ function PositionRow({ p }: { p: PositionEntry }) {
         {formatBpsAsPct(p.share_bps)}
       </td>
       <td className="py-3 text-right align-top font-mono text-ink">
-        {formatChfRappen(p.market_value_rappen)}
+        {formatChfRappen(p.market_value_rappen, { currency })}
       </td>
     </tr>
   );

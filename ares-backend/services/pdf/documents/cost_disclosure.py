@@ -15,7 +15,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Mapping
 
 from reportlab.lib.units import mm
-from reportlab.platypus import PageBreak
+from xml.sax.saxutils import escape as _esc
+
+from reportlab.platypus import PageBreak, Paragraph, Spacer
 
 from jurisdictions.documents import default_documents
 from services.pdf.components.kostenausweis import build_kostenausweis_flowables
@@ -23,6 +25,7 @@ from services.pdf.components.single_report_disclaimer import make_single_report_
 from services.pdf.components.advisory_palette import make_advisory_styles
 from services.pdf.provisional_notice import make_provisional_notice_flowables
 from services.pdf.styles import PAGE_SIZE
+from core.presentation_rounding import format_amount_minor
 
 if TYPE_CHECKING:  # nur Typannotationen; zur Laufzeit nicht benoetigt
     from services.pdf.base import CostDisclosurePDFData, PDFContext
@@ -67,6 +70,14 @@ def build_cost_disclosure_flowables(
         styles,
         compact=True,
     ))
+    # H-179 R-1: Zuwendungen der Depotbank an den Finanzdienstleister
+    # (strukturierte, freigegebene Angabe der Firma; sachliche Wiedergabe).
+    inducement_lines = tuple(getattr(data, "depot_bank_inducement_lines", ()) or ())
+    if inducement_lines:
+        flowables.append(Spacer(1, 3 * mm))
+        flowables.append(Paragraph("Zuwendungen der Depotbank", styles["kicker"]))
+        for line in inducement_lines:
+            flowables.append(Paragraph(_esc(line), styles["body"]))
 
     return flowables
 
@@ -77,5 +88,4 @@ def _format_amount(rappen: int, currency: str) -> str:
     # convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
     if not rappen:
         return ""
-    value = rappen / 100.0
-    return f"{currency} {value:,.0f}".replace(",", "'")
+    return format_amount_minor(rappen, currency or "CHF")

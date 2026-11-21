@@ -4,6 +4,8 @@ Hypothekarzins = Schuld * Satz; Amortisation, Miet- und Zinserträge aus den
 jeweiligen Vermögensfeldern. Reine Wertsteigerung wird NICHT abgeleitet.
 """
 from __future__ import annotations
+
+import pytest
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,6 +31,7 @@ def _by_label(rows):
     return {r.label: r for r in rows}
 
 
+@pytest.mark.usefixtures("property_advanced_mechanics_enabled")  # K1: dormante Mechanik
 def test_mortgage_interest_and_amortization():
     # CHF 500'000 Schuld @ 1.5% -> CHF 7'500 Zins/Jahr; Amortisation CHF 10'000.
     pos = _pos(id="h1", label="Hypothek EFH", position_type="Hypothek",
@@ -44,6 +47,7 @@ def test_mortgage_interest_and_amortization():
     assert by["Amortisation: Hypothek EFH"].cashflow_type == "Expense"
 
 
+@pytest.mark.usefixtures("property_advanced_mechanics_enabled")  # K1: dormante Mechanik
 def test_mortgage_negative_value_is_abs():
     # Falls Schuld als negativer Wert gespeichert ist, trotzdem positiver Zins.
     pos = _pos(id="h2", position_type="Hypothek", label="H",
@@ -109,6 +113,7 @@ def test_inactive_and_deleted_skipped():
     assert rows[0].origin_position_id == "a"
 
 
+@pytest.mark.usefixtures("property_advanced_mechanics_enabled")  # K1: dormante Mechanik
 def test_derived_objects_compatible_with_totals_for_year():
     """Die abgeleiteten Objekte müssen von cashflow_timeline summierbar sein."""
     from services.cashflow_timeline import totals_for_year
@@ -119,3 +124,6 @@ def test_derived_objects_compatible_with_totals_for_year():
     totals = totals_for_year(rows, 2026)
     assert totals["recurring_expense_rappen"] == 750_000
     assert totals["recurring_income_rappen"] == 0
+
+
+from tests.property_gate_support import property_advanced_mechanics_enabled  # noqa: E402,F401  (K1)
