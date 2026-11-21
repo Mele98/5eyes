@@ -23,8 +23,9 @@ def _instant(anchor) -> datetime:
         # KN7 / N-928-04: ein reiner Datums-String («2026-11-21») ist ein Datum
         # -> 12:00 UTC wie ein date-Objekt (vorher 00:00 UTC = 01:00 Zuerich,
         # wenige Minuten neben der Tagesgrenze).
-        anchor = (date.fromisoformat(anchor) if len(anchor.strip()) == 10
-                  else datetime.fromisoformat(anchor))
+        # KN8 / N-929-03: Rand-Leerzeichen fuer Laengenpruefung UND Parser entfernen.
+        text = anchor.strip()
+        anchor = date.fromisoformat(text) if len(text) == 10 else datetime.fromisoformat(text)
     if isinstance(anchor, datetime):
         return anchor if anchor.tzinfo else anchor.replace(tzinfo=timezone.utc)
     if isinstance(anchor, date):
@@ -33,8 +34,11 @@ def _instant(anchor) -> datetime:
 
 
 def fixed_import_clock(anchor):
-    """Autouse-Fixture: Wanduhr = Import-Anker (Datum -> 12:00 UTC desselben
-    Tages; ISO-String/Datetime -> genau dieser Zeitpunkt), weiterlaufend."""
+    """Autouse-Fixture: Wanduhr = Import-Anker, weiterlaufend.
+
+    * ``date`` oder reiner Datums-String («2026-11-21») -> 12:00 UTC dieses Tages;
+    * Datetime oder ISO-String mit Uhrzeit -> genau dieser Zeitpunkt (ohne
+      Zeitzone als UTC gelesen)."""
     instant = _instant(anchor)
 
     @pytest.fixture(autouse=True)
