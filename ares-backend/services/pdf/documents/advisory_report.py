@@ -16,7 +16,7 @@ Risikoprofil, Building Blocks, Weiteres Vorgehen) folgen in U-P26 PR B-F.
 """
 from __future__ import annotations
 
-from core.customer_terms import customer_term, decision_footer_label
+from core.customer_terms import customer_term, decision_footer_label, short_reference
 import logging
 import time
 from datetime import datetime
@@ -2515,6 +2515,15 @@ def _bp_status_pill(status: str, styles: dict) -> Table:
     return pill
 
 
+# KN8: Anzeigeform des Gespraechskanals (Werte aus schemas/review.py
+# CommunicationChannel; gleiche Beschriftung wie das Erfassungsformular in
+# ares.html). Vorher stand der Schluessel «Persoenlich» im Kunden-PDF.
+COMMUNICATION_CHANNEL_DISPLAY = {
+    "persoenlich": "Persönlich", "video": "Video", "telefon": "Telefon",
+    "schriftlich": "Schriftlich", "hybrid": "Hybrid",
+}
+
+
 def _bp_latest_entry_block(entry: dict, styles: dict) -> Table:
     """Detail-Block: Header (Datum/Typ) + Channel/Dauer + Topics + Warnings + Hash."""
     page_width, _ = PAGE_SIZE
@@ -2526,12 +2535,17 @@ def _bp_latest_entry_block(entry: dict, styles: dict) -> Table:
     pretty_dt = _format_swiss_datetime(datetime_iso)
     duration = entry.get("duration_minutes")
     duration_text = f"{duration} min" if isinstance(duration, (int, float)) else "—"
-    channel = _safe_string(entry.get("communication_channel")).capitalize()
+    raw_channel = _safe_string(entry.get("communication_channel"))
+    channel = COMMUNICATION_CHANNEL_DISPLAY.get(raw_channel, raw_channel.capitalize())
     status = str(entry.get("status") or "Empfohlen")
     topics = entry.get("topics") or []
     warnings = entry.get("risk_warnings_given") or []
     version = int(entry.get("version") or 1)
-    hash_short = (entry.get("integrity_hash") or "")[:16]
+    # KN8 / N-929-01: Kundenfassung -- Kurzreferenz (8 Zeichen) statt Hash-
+    # Ausschnitt, Pruefergebnis aus ``integrity_verified`` (nie fest).
+    integrity_hash = str(entry.get("integrity_hash") or "").strip()
+    hash_short = short_reference(integrity_hash) if integrity_hash else ""
+    integrity_verified = entry.get("integrity_verified")
     description = _safe_string(entry.get("description"))
 
     rows = []
@@ -2585,7 +2599,8 @@ def _bp_latest_entry_block(entry: dict, styles: dict) -> Table:
     out_table = Table(
         [
             [table],
-            [_bp_topics_block(topics, warnings, hash_short, styles)],
+            [_bp_topics_block(topics, warnings, hash_short, styles,
+                              integrity_verified=integrity_verified)],
         ],
         colWidths=[inner_width],
     )
@@ -2600,10 +2615,31 @@ def _bp_latest_entry_block(entry: dict, styles: dict) -> Table:
     return out_table
 
 
+# KN8 / N-929-01: Pruefergebnis der Protokoll-Integritaet in Worten. Quelle ist
+# ``integrity_verified`` aus services/advisory_log_service.verify_entry_integrity
+# (True = Hash stimmt, False = Hash stimmt nicht, None = nicht geprueft). Nur
+# ``True`` ergibt «verifiziert»; alles andere nie.
+INTEGRITY_STATUS_DISPLAY = {
+    True: ("verifiziert", "#4E6F58"),
+    False: ("nicht verifiziert – Ihr Berater prüft den Eintrag", "#9E4747"),
+    None: ("nicht geprüft", "#7A8395"),
+}
+
+
+def integrity_status_display(integrity_verified) -> tuple[str, str]:
+    """(Text, Farbe) zum Pruefergebnis; unbekannte Werte gelten als ungeprueft."""
+    if integrity_verified is True:
+        return INTEGRITY_STATUS_DISPLAY[True]
+    if integrity_verified is False:
+        return INTEGRITY_STATUS_DISPLAY[False]
+    return INTEGRITY_STATUS_DISPLAY[None]
+
+
 def _bp_topics_block(
     topics: list, warnings: list, hash_short: str, styles: dict,
+    *, integrity_verified=None,
 ) -> Table:
-    """Topics + Risk-Warnings + Hash-Marker als kompakter Block."""
+    """Topics + Risk-Warnings + Pruefsumme (Kurzreferenz) als kompakter Block."""
     page_width, _ = PAGE_SIZE
     inner_width = page_width - MARGIN_LEFT - MARGIN_RIGHT - 10
 
@@ -2639,6 +2675,7 @@ def _bp_topics_block(
         ])
 
     if hash_short:
+        status_text, status_color = integrity_status_display(integrity_verified)
         rows.append([
             Paragraph(
                 "INTEGRITÄT",
@@ -2647,8 +2684,8 @@ def _bp_topics_block(
                 ),
             ),
             Paragraph(
-                f"<font face='{FONT_MONO}'>{_escape(hash_short)}…</font>  "
-                "<font color='#4E6F58'><b>verifiziert</b></font>",
+                f"Prüfsumme <font face='{FONT_MONO}'>{_escape(hash_short)}</font>  &middot;  "
+                f"<font color='{status_color}'><b>{_escape(status_text)}</b></font>",
                 _ar_paragraph_style(styles["caption"], color=COLOR_INK_MUTED),
             ),
         ])
