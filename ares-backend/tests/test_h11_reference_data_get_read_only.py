@@ -38,6 +38,11 @@ from models.wealth import WealthPosition
 BACKEND = Path(__file__).resolve().parents[1]
 NOW = datetime.now(timezone.utc).isoformat()
 
+# KN6 (CI 44840465176): jeder Test laeuft am Importtag (tests/import_day_clock.py).
+from tests.import_day_clock import fixed_import_clock  # noqa: E402
+
+_fixed_import_clock = fixed_import_clock(NOW)
+
 
 @pytest.fixture()
 def session_factory(tmp_path):

@@ -36,6 +36,11 @@ from client_onboarding_fixture import ensure_test_kyc_review_policy  # noqa: E40
 
 TODAY = datetime.now(timezone.utc).date()
 
+# KN6 (CI 44840465176): jeder Test laeuft am Importtag (tests/import_day_clock.py).
+from tests.import_day_clock import fixed_import_clock  # noqa: E402
+
+_fixed_import_clock = fixed_import_clock(TODAY)
+
 
 def _iso(days: int) -> str:
     return (TODAY + timedelta(days=days)).isoformat()

@@ -1259,7 +1259,7 @@ def theme_look_through_disclosure(theme_keys) -> str:
     if "fossil" in keys:
         parts.append(
             "Fossile Energie: Themenprodukte sowie Fonds mit Energie-Sektoranteil > 10 % "
-            "(GICS 'Energy' gemaess gepflegter Sektor-Aufschluesselung) ausgeschlossen "
+            "(GICS 'Energy' gemäss gepflegter Sektor-Aufschlüsselung) ausgeschlossen "
             "(Look-through); Produkte ohne gepflegte Sektordaten werden nicht durchleuchtet."
         )
     others = [THEME_DISPLAY_NAMES[key] for key in keys if key != "fossil"]
@@ -1269,13 +1269,13 @@ def theme_look_through_disclosure(theme_keys) -> str:
             "(Sub-Anlageklasse 'Thema ...' oder Themen-Tag im Produktkatalog); kein "
             "Look-through, da diese Themen Sub-Industrien und aus Sektordaten nicht "
             "ableitbar sind -- breit diversifizierte Index- und Fondsprodukte werden "
-            "nicht durchleuchtet und koennen Titel dieser Themen enthalten."
+            "nicht durchleuchtet und können Titel dieser Themen enthalten."
         )
     if parts:
         # THEME-MISSINGNESS-001: die fail-closed-Regel gehoert in den Text.
         parts.append(
             "Andere Produkte (z.B. Einzeltitel) ohne Themen-Zuordnung im "
-            "Produktkatalog werden nicht ausgewaehlt."
+            "Produktkatalog werden nicht ausgewählt."
         )
     return " ".join(parts)
 

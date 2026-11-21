@@ -2051,23 +2051,23 @@ def _check_diversifikation(dc: dict[str, Any]) -> dict[str, Any]:
         return _verdict(
             "Diversifikation", "nicht_beurteilbar",
             "Länder-Verteilung kann nicht ermittelt werden.",
-            "Produkte mit Country-Exposure pflegen.",
+            "Länderdaten der Produkte ergänzen.",
         )
     if hhi < 1500:
         return _verdict(
             "Diversifikation", "gruen",
-            f"Länder-HHI {hhi}. Breite Streuung über Regionen.",
+            f"Länderkonzentration (Herfindahl-Index) {hhi}. Breite Streuung über Regionen.",
             "Keine Massnahme erforderlich.",
         )
     if hhi <= 2500:
         return _verdict(
             "Diversifikation", "gelb",
-            f"Länder-HHI {hhi}. Erkennbare Übergewichtung einzelner Märkte.",
-            "Globalere Streuung im Aktien-Sleeve prüfen.",
+            f"Länderkonzentration (Herfindahl-Index) {hhi}. Erkennbare Übergewichtung einzelner Märkte.",
+            "Globalere Streuung im Aktienanteil prüfen.",
         )
     return _verdict(
         "Diversifikation", "rot",
-        f"Länder-HHI {hhi}. Hohe Konzentration auf wenige Märkte.",
+        f"Länderkonzentration (Herfindahl-Index) {hhi}. Hohe Konzentration auf wenige Märkte.",
         "Globale Diversifikation erweitern.",
     )
 
@@ -2078,23 +2078,23 @@ def _check_branchen_konzentration(dc: dict[str, Any]) -> dict[str, Any]:
         return _verdict(
             "Branchenkonzentration", "nicht_beurteilbar",
             "Branchen-Verteilung kann nicht ermittelt werden.",
-            "Produkte mit Sektor-Exposure pflegen.",
+            "Branchendaten der Produkte ergänzen.",
         )
     if hhi < 1800:
         return _verdict(
             "Branchenkonzentration", "gruen",
-            f"Sektor-HHI {hhi}. Breite Sektor-Streuung.",
+            f"Branchenkonzentration (Herfindahl-Index) {hhi}. Breite Branchenstreuung.",
             "Keine Massnahme erforderlich.",
         )
     if hhi <= 2500:
         return _verdict(
             "Branchenkonzentration", "gelb",
-            f"Sektor-HHI {hhi}. Einzelne Sektoren leicht übergewichtet.",
-            "Sektor-Balance über Indextracker prüfen.",
+            f"Branchenkonzentration (Herfindahl-Index) {hhi}. Einzelne Branchen leicht übergewichtet.",
+            "Branchenausgleich über Indexfonds prüfen.",
         )
     return _verdict(
         "Branchenkonzentration", "rot",
-        f"Sektor-HHI {hhi}. Starke Übergewichtung einzelner Sektoren.",
+        f"Branchenkonzentration (Herfindahl-Index) {hhi}. Starke Übergewichtung einzelner Branchen.",
         "Sektor-Reduktion auf institutionelle Zielstruktur einleiten.",
     )
 

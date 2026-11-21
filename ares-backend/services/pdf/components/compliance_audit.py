@@ -52,7 +52,10 @@ def render_compliance_audit_section(payload: dict, story: list, styles, *, advis
     Liquiditäts-Kaskade/Hard-Cap, Methodology-Modelle, Engine-Konfiguration)
     stehen nur in der Berater-/Audit-Fassung (``advisor_annex=True``).
     """
-    story.append(Paragraph("Sektionen 19-23", styles["kicker"]))
+    # KN6 / N-917R5-03: Die Kundenfassung fasst die Prüfungen in EINER Sektion
+    # zusammen (Sektion 20 «Methodik-Modelle» gibt es dort nicht mehr); der
+    # Kicker «Sektionen 19-23» stimmte nicht. Die Berater-Fassung bleibt.
+    story.append(Paragraph("Sektionen 19-23" if advisor_annex else "Sektion 19", styles["kicker"]))
     story.append(Paragraph("Compliance-Audit", styles["h1"]))
     story.append(Spacer(1, 4 * mm))
     story.append(_hr())
@@ -124,24 +127,85 @@ def _customer_note(text: str, styles) -> Table:
     return table
 
 
-def _customer_suitability_block(data: dict, styles) -> list:
-    title = "Geeignetheitsprüfung"
-    if data.get("audit_degraded"):
-        return _customer_panel(
-            title, _pill(*PILL_PENDING, styles=styles),
-            "Prüfung nicht möglich: Die Geeignetheit konnte für diesen Bericht nicht bestätigt "
-            "werden. Ihr Berater klärt dies vor einer Umsetzung.",
-            styles, accent=COLOR_ACCENT)
-    if bool(data.get("is_compliant", True)):
-        return _customer_panel(
-            title, _compliance_pill(True, styles),
-            "Für die dokumentierten Beratungen liegt die erforderliche Geeignetheitsprüfung vor.",
-            styles, accent=COLOR_STATUS_GRUEN)
-    return _customer_panel(
-        title, _compliance_pill(False, styles),
+# KN6 / N-917R5-01: Der Kundentext richtet sich nach der Prüfgrundlage
+# (``suitability_basis`` aus services/suitability_audit). Eine Prüfung wird nur
+# behauptet, wenn sie stattgefunden hat: Execution-only und institutionelle
+# Kunden sind von der Prüfpflicht ausgenommen -- dort steht, dass KEINE Prüfung
+# durchgeführt wurde. Eine unbekannte/fehlende Grundlage ergibt einen neutralen
+# Text mit Hinweis an den Berater, nie «liegt vor».
+# Heute erzeugt der Audit: risk_assessment, execution_only_exempt,
+# institutional_client_exempt, degraded (audit_degraded). «appropriateness»
+# (Angemessenheitsprüfung, Art. 11 FIDLEG) erzeugt noch kein Audit-Pfad; der
+# Text steht bereit, damit eine solche Grundlage nie als Geeignetheit erscheint.
+SUITABILITY_BASIS_GEEIGNETHEIT = "risk_assessment"
+SUITABILITY_BASIS_ANGEMESSENHEIT = "appropriateness"
+SUITABILITY_BASIS_EXECUTION_ONLY = "execution_only_exempt"
+SUITABILITY_BASIS_INSTITUTIONAL = "institutional_client_exempt"
+PILL_NOT_REQUIRED = ("nicht erforderlich", "#E9EBEE", "#7A8395")
+PILL_NOT_DOCUMENTED = ("nicht dokumentiert", "#F4EBD5", "#B59243")
+
+CUSTOMER_SUITABILITY_TEXTS = {
+    (SUITABILITY_BASIS_GEEIGNETHEIT, True):
+        "Für die dokumentierten Beratungen liegt die erforderliche Geeignetheitsprüfung vor.",
+    (SUITABILITY_BASIS_GEEIGNETHEIT, False):
         "Für mindestens eine Beratung fehlt eine gültige Geeignetheitsprüfung. "
         "Ihr Berater ergänzt sie vor einer Umsetzung.",
-        styles, accent=COLOR_STATUS_ROT)
+    (SUITABILITY_BASIS_ANGEMESSENHEIT, True):
+        "Für die dokumentierten Dienstleistungen liegt die erforderliche Angemessenheitsprüfung "
+        "(Art. 11 FIDLEG) vor. Eine Geeignetheitsprüfung war dafür nicht vorgesehen.",
+    (SUITABILITY_BASIS_ANGEMESSENHEIT, False):
+        "Für mindestens eine Dienstleistung fehlt eine gültige Angemessenheitsprüfung. "
+        "Ihr Berater ergänzt sie vor einer Umsetzung.",
+    (SUITABILITY_BASIS_EXECUTION_ONLY, True):
+        "Keine Geeignetheits- oder Angemessenheitsprüfung durchgeführt: Das Mandat ist als reine "
+        "Auftragsausführung (Execution-only, Art. 13 FIDLEG) erfasst. Dafür ist keine solche "
+        "Prüfung vorgesehen.",
+    (SUITABILITY_BASIS_INSTITUTIONAL, True):
+        "Keine Geeignetheitsprüfung durchgeführt: Sie sind als institutioneller Kunde eingestuft. "
+        "Für institutionelle Kunden ist nach FIDLEG keine Geeignetheitsprüfung vorgesehen.",
+}
+CUSTOMER_SUITABILITY_UNDOCUMENTED = (
+    "Prüfgrundlage nicht dokumentiert: Für diesen Bericht ist nicht erfasst, ob eine "
+    "Geeignetheits- oder Angemessenheitsprüfung durchgeführt wurde oder eine Ausnahme gilt. "
+    "Hinweis für den Berater: Prüfgrundlage im Mandat dokumentieren, bevor die Empfehlung "
+    "umgesetzt wird."
+)
+
+
+def customer_suitability_text(data: dict) -> tuple[str, str]:
+    """(Status, Kundentext) der Geeignetheitsprüfung je Prüfgrundlage.
+
+    Status: ``ok`` | ``missing`` | ``not_required`` | ``undocumented`` | ``degraded``.
+    """
+    if data.get("audit_degraded"):
+        return "degraded", (
+            "Prüfung nicht möglich: Die Geeignetheit konnte für diesen Bericht nicht bestätigt "
+            "werden. Ihr Berater klärt dies vor einer Umsetzung.")
+    basis = str(data.get("suitability_basis") or "").strip()
+    compliant = data.get("is_compliant", True)
+    if compliant is False and basis in ("", SUITABILITY_BASIS_GEEIGNETHEIT):
+        # Fehlende/ungültige Prüfung: ohne Grundlage verlangt der Audit die
+        # Geeignetheitsprüfung (Regelfall Art. 12 FIDLEG).
+        return "missing", CUSTOMER_SUITABILITY_TEXTS[(SUITABILITY_BASIS_GEEIGNETHEIT, False)]
+    if basis in (SUITABILITY_BASIS_EXECUTION_ONLY, SUITABILITY_BASIS_INSTITUTIONAL):
+        return "not_required", CUSTOMER_SUITABILITY_TEXTS[(basis, True)]
+    if basis in (SUITABILITY_BASIS_GEEIGNETHEIT, SUITABILITY_BASIS_ANGEMESSENHEIT) and compliant in (True, False):
+        return ("ok" if compliant else "missing"), CUSTOMER_SUITABILITY_TEXTS[(basis, bool(compliant))]
+    return "undocumented", CUSTOMER_SUITABILITY_UNDOCUMENTED
+
+
+def _customer_suitability_block(data: dict, styles) -> list:
+    title = "Geeignetheitsprüfung"
+    status, text = customer_suitability_text(data)
+    if status == "degraded":
+        return _customer_panel(title, _pill(*PILL_PENDING, styles=styles), text, styles, accent=COLOR_ACCENT)
+    if status == "ok":
+        return _customer_panel(title, _compliance_pill(True, styles), text, styles, accent=COLOR_STATUS_GRUEN)
+    if status == "missing":
+        return _customer_panel(title, _compliance_pill(False, styles), text, styles, accent=COLOR_STATUS_ROT)
+    if status == "not_required":
+        return _customer_panel(title, _pill(*PILL_NOT_REQUIRED, styles=styles), text, styles, accent=COLOR_ACCENT)
+    return _customer_panel(title, _pill(*PILL_NOT_DOCUMENTED, styles=styles), text, styles, accent=COLOR_GOLD)
 
 
 def _customer_recommendation_block(data: dict, styles) -> list:

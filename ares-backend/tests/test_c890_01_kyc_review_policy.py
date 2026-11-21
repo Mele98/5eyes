@@ -50,6 +50,11 @@ from client_onboarding_fixture import (  # noqa: E402
 
 # Server rechnet in UTC (Policy-Wirksamkeit); Testdaten deshalb ebenfalls UTC.
 TODAY = datetime.now(timezone.utc).date()
+
+# KN6 (CI 44840465176): jeder Test laeuft am Importtag (tests/import_day_clock.py).
+from tests.import_day_clock import fixed_import_clock  # noqa: E402
+
+_fixed_import_clock = fixed_import_clock(TODAY)
 TEST_SOURCE = "TEST-C890 Testwert (keine Owner-Frist)"
 
 

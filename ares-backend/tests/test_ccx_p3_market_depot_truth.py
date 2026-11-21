@@ -42,6 +42,11 @@ from services.valuation_completeness import classify_valuation_completeness
 
 TODAY = date.today()
 
+# KN6 (CI 44840465176): jeder Test laeuft am Importtag (tests/import_day_clock.py).
+from tests.import_day_clock import fixed_import_clock  # noqa: E402
+
+_fixed_import_clock = fixed_import_clock(TODAY)
+
 
 def _q(currency, rate, *, days_old=0, source="Manual", rid=None):
     return FxQuote(currency, rate, source, (TODAY - timedelta(days=days_old)).isoformat() + "T08:00:00",

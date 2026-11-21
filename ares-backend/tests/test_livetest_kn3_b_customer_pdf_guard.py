@@ -18,6 +18,11 @@ API. Danach wird jeder Kunden-PDF-Endpunkt abgerufen und der Text ausgelesen.
   Bezeichner, Seeds, englische Statuswoerter, CamelCase/UPPER_SNAKE) -- in
   allen 12 Kunden-PDFs eines Verzehr- UND eines Reserve-Falls; begruendete,
   ortsgebundene Allowlist (``TECHNICAL_ALLOWLIST``).
+* KN6 / N-917R5-02: dritter Fall «Bestand + ESG-Abweichung» (Bestaende je
+  Titel erfasst -> Depotcheck mit gespeichertem Depot-Snapshot; ESG-Vorgabe
+  Negativ-Screening mit bewusst zugelassenem und uebergewichtetem Thema ->
+  Zeile «Abweichungen von der ESG-Vorgabe»). Damit laufen auch
+  die bedingten Kundentext-Zweige durch alle Waechter.
 
 Kein Browser. Eigener CI-Job «KN3-B Kunden-PDF-Waechter» (das Budget des
 Frontend-Jobs ist ausgeschoepft); lokal mit ``ARES_KN3_PDF_GUARD=1``.
@@ -151,11 +156,14 @@ def live():
         onboarding.TEST_LEGAL_PROFILE = CLEAN_LEGAL_PROFILE
         mid = _seed_case(api, db_path, advisor_id, DEPLETION_CASE)["mid"]
         reserve = _seed_case(api, db_path, advisor_id, RESERVE_CASE)
+        holdings_esg = _seed_case(api, db_path, advisor_id, HOLDINGS_ESG_CASE)
         results = _render_all(api, mid)
         reserve_results = _render_all(api, reserve["mid"])
+        holdings_esg_results = _render_all(api, holdings_esg["mid"])
         out = os.environ.get("ARES_KN3_PDF_GUARD_OUT")
         if out:
-            for case, rendered_case in (("verzehr", results), ("reserve", reserve_results)):
+            for case, rendered_case in (("verzehr", results), ("reserve", reserve_results),
+                                        ("bestand_esg", holdings_esg_results)):
                 Path(out, case).mkdir(parents=True, exist_ok=True)
                 for name, (status, text) in rendered_case.items():
                     Path(out, case, f"{name}.txt").write_text(f"{status}\n{text}", encoding="utf-8")
@@ -172,8 +180,9 @@ def live():
         api.token = body["access_token"]
         after = (_publication(api, mid), _dependency_rows(db_path))
         yield {"pdfs": results, "restart": (before, after),
-               "cases": {"verzehr": results, "reserve": reserve_results},
-               "reserve_generate": reserve["generate"]}
+               "cases": {"verzehr": results, "reserve": reserve_results,
+                         "bestand_esg": holdings_esg_results},
+               "reserve_generate": reserve["generate"], "holdings_esg": holdings_esg}
     finally:
         onboarding.TEST_LEGAL_PROFILE = original_profile
         _stop(proc)
@@ -204,6 +213,70 @@ RESERVE_CASE = {
     "depot_rappen": 400_000_00, "expense_rappen": None,
     "preferences": {"limits": {"minReserve": "CHF 150'000"}},
 }
+
+
+# KN6 / N-917R5-02: Bestand je Titel + ESG-Abweichung. Negativ-Screening mit
+# Tabak «bewusst zugelassen» (Begruendung Pflicht) und Verteidigung
+# «uebergewichten» -> beide sind dokumentierte Abweichungen von der Vorgabe.
+ESG_DEVIATION_REASON = (
+    "Kundin hält Tabaktitel bewusst aus Familientradition, im Beratungsgespräch "
+    "schriftlich bestätigt (fiktiv)"
+)
+HOLDINGS_ESG_CASE = {
+    "client_number": "KN6-BES-1", "first_name": "Bettina", "last_name": "Bestand-Fiktiv",
+    "date_of_birth": "1970-08-01", "mandate_number": "M-KN6-BES-1",
+    "depot_rappen": 600_000_00, "expense_rappen": None,
+    "preferences": {
+        "policy": {**UI_PREFERENCES["policy"], "esg": "negative_screening"},
+        "tilts": {"tobacco": "allow", "defense": "overweight"},
+        "tiltReasons": {"tobacco": ESG_DEVIATION_REASON},
+    },
+    "holdings": True,
+}
+
+
+SYNTHETIC_PRICE_RAPPEN = 100_00  # synthetischer Kurs CHF 100.00 je Anteil (Testvektor)
+
+
+def _record_holdings(api, db_path, mid):
+    """Bestand je Titel ueber die oeffentliche Route (manuell, heutiger
+    Stichtag) fuer die CHF-Titel der Empfehlung: Stueckzahl = Zielbetrag /
+    synthetischer Tageskurs (in der Wegwerf-DB hinterlegt, Quelle «manual»).
+    Danach erzeugt der Depotcheck einen gespeicherten Depot-Snapshot."""
+    import datetime as _dt
+    import sqlite3
+    import uuid
+
+    status, runs = api("GET", f"/mandates/{mid}/recommendations")
+    assert status == 200, runs
+    run_id = sorted(runs, key=lambda r: r.get("created_at") or "")[-1]["id"]
+    status, positions = api("GET", f"/mandates/{mid}/recommendations/{run_id}/positions")
+    assert status == 200 and positions, positions
+    today = _dt.date.today().isoformat()
+    con = sqlite3.connect(str(db_path))
+    try:
+        currency = dict(con.execute("SELECT id, currency FROM products").fetchall())
+        chf = [p for p in positions if int(p.get("target_amount_rappen") or 0) > 0
+               and str(currency.get(p["product_id"]) or "").upper() == "CHF"]
+        now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        for position in chf:
+            con.execute(
+                "INSERT OR IGNORE INTO price_history (id, product_id, price_date, price_rappen, currency, source, "
+                "fetched_at) VALUES (?, ?, ?, ?, 'CHF', 'manual', ?)",
+                (str(uuid.uuid4()), position["product_id"], today, SYNTHETIC_PRICE_RAPPEN, now))
+        con.commit()
+    finally:
+        con.close()
+    for position in chf:
+        amount = int(position["target_amount_rappen"])
+        units_milli = amount * 1000 // SYNTHETIC_PRICE_RAPPEN
+        status, body = api("PUT", f"/mandates/{mid}/recommendations/{run_id}/positions/{position['id']}/holding", {
+            "units_milli": units_milli, "market_value_rappen": units_milli * SYNTHETIC_PRICE_RAPPEN // 1000,
+            "as_of_date": today, "source": "manual", "depot_bank": "Testbank Fiktiv",
+            "notes": "Bestand (fiktiv)"})
+        assert status == 200, body
+    assert chf, positions
+    return len(chf)
 
 
 def _seed_case(api, db_path, advisor_id, case):
@@ -248,8 +321,9 @@ def _seed_case(api, db_path, advisor_id, case):
     assert status == 200, generate
     status, body = api("POST", f"/mandates/{mid}/recommendations/generate", {})
     assert status == 200, body
+    recorded = _record_holdings(api, db_path, mid) if case.get("holdings") else 0
     _finalize_and_publish(api, db_path, mid)
-    return {"mid": mid, "generate": generate}
+    return {"mid": mid, "generate": generate, "holdings": recorded}
 
 
 def _render_all(api, mid):
@@ -593,3 +667,40 @@ def test_technical_patterns_detect_the_old_output():
              "Max Drawdown 10.4 %, VaR 95 %, Länder-HHI 3171, CHF 1'227'410, 20.11.2026, "
              "Musterprodukt Aktien Schweiz, FIDLEG, FINMA, Retrozession, OK")
     assert technical_hits("advisory-report", clean) == []
+
+
+# -- KN6 / N-917R5-02: Fall «Bestand + ESG-Abweichung» -------------------------
+
+
+def test_every_customer_pdf_renders_for_the_holdings_esg_case(live):
+    rendered = live["cases"]["bestand_esg"]
+    failed = {name: (status, body[:300]) for name, (status, body) in rendered.items()
+              if status != 200 and name not in NOT_RENDERABLE}
+    assert not failed, failed
+    texts = {name: " ".join(text.split()) for name, text in _texts(rendered).items()}
+    # Positivkontrollen: der Fall hat wirklich Bestaende (gespeicherter
+    # Depot-Snapshot im Depotcheck) und eine dokumentierte ESG-Abweichung.
+    assert live["holdings_esg"]["holdings"] > 0
+    assert re.search(r"Datenstand: Bestandsstichtag \d{2}\.\d{2}\.\d{4}, Prüfsumme [0-9a-f]{8}\.",
+                     texts["depotcheck"]), texts["depotcheck"][-1500:]
+    assert "Abweichungen von der ESG-Vorgabe" in texts["anlagestrategie"]
+    assert "Tabak bewusst zugelassen" in texts["anlagestrategie"]
+    assert "Verteidigung übergewichtet" in texts["anlagestrategie"]
+    # Keine internen Kennungen des Snapshots im Kundentext.
+    assert "Depot-Snapshot" not in texts["depotcheck"] and "Hash " not in texts["depotcheck"]
+
+
+def test_conditional_branches_render_customer_text():
+    """Zweige, die kein Live-Fall erreicht (Solver ohne Ergebnis, Execution-only/
+    institutionell, Angemessenheit, unbekannte Pruefgrundlage), als
+    Unit-Rendering gegen dieselben Waechter."""
+    from services.pdf.components.compliance_audit import CUSTOMER_SUITABILITY_TEXTS, customer_suitability_text
+    from services.pdf.components.goal_achievability import make_limiting_factor_line
+
+    texts = [make_limiting_factor_line("solver_konvergenz").getPlainText()]
+    texts += list(CUSTOMER_SUITABILITY_TEXTS.values())
+    texts.append(customer_suitability_text({"is_compliant": True})[1])
+    for text in texts:
+        assert not technical_hits("advisory-report", text), text
+        assert not umlaut_transliterations(text), text
+    assert "Optimierer" not in texts[0] and "Fallback" not in texts[0]

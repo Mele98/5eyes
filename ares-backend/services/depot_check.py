@@ -542,13 +542,14 @@ def _aggregate_warnings(result: dict) -> None:
     hhi = result["concentration_hhi"]
     if hhi["country"] > _HHI_COUNTRY_WARNING_THRESHOLD:
         result["warnings"].append(
-            f"Hohe Länder-Konzentration (HHI={hhi['country']}, "
-            f">{_HHI_COUNTRY_WARNING_THRESHOLD} = Single-Country-dominiert)"
+            # KN6 / N-917R5-03: Kundentext statt «Single-Country-dominiert».
+            f"Hohe Länder-Konzentration (Herfindahl-Index {hhi['country']}; "
+            f"über {_HHI_COUNTRY_WARNING_THRESHOLD} dominiert ein einzelnes Land)"
         )
     if hhi["sector"] > _HHI_SECTOR_WARNING_THRESHOLD:
         result["warnings"].append(
-            f"Hohe Sektor-Konzentration (HHI={hhi['sector']}, "
-            f">{_HHI_SECTOR_WARNING_THRESHOLD} = wenig diversifiziert)"
+            f"Hohe Sektor-Konzentration (Herfindahl-Index {hhi['sector']}; "
+            f"über {_HHI_SECTOR_WARNING_THRESHOLD} wenig diversifiziert)"
         )
     if hhi["top_positions"] > _HHI_TOP_POSITIONS_WARNING_THRESHOLD:
         top_3_weight = sum(p["weight_bps"] for p in result["top_positions"][:3])
