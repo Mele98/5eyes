@@ -17,6 +17,7 @@ from .base import (
 from .exceptions import (
     MarketDataError,
     ProviderError,
+    ProviderUnavailableError,
     RateLimitError,
     SymbolNotFound,
 )
@@ -68,6 +69,7 @@ __all__ = [
     "ProductInfo",
     "MarketDataError",
     "ProviderError",
+    "ProviderUnavailableError",
     "RateLimitError",
     "SymbolNotFound",
     "AlphaVantageProvider",

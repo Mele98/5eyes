@@ -165,7 +165,7 @@ def test_compute_candidate_with_pe_proxy_is_data_derived(session_factory, monkey
     monkeypatch.setattr(dp, "_fetch_pe_ticker_info", lambda ticker: {"trailingPE": 22.0})
 
     with session_factory() as db:
-        cma = dp.compute_cma_candidate_for_jurisdiction(db, "DE", "2026-07-30")
+        cma = dp.compute_cma_candidate_for_jurisdiction(db, "DE", "2026-07-30", created_by_user_id="test-user")
         db.commit()
 
         assert cma.jurisdiction == "DE"
@@ -198,7 +198,7 @@ def test_compute_candidate_without_pe_proxy_leaves_equity_null(session_factory, 
     monkeypatch.setattr(dp, "_fetch_pe_ticker_info", lambda ticker: {})  # kein trailingPE
 
     with session_factory() as db:
-        cma = dp.compute_cma_candidate_for_jurisdiction(db, "DE", "2026-07-30")
+        cma = dp.compute_cma_candidate_for_jurisdiction(db, "DE", "2026-07-30", created_by_user_id="test-user")
         db.commit()
 
         assert cma.equity_home_return_bps is None
@@ -217,7 +217,7 @@ def test_compute_candidate_propagates_insufficient_yield_curve_error(session_fac
 
     with session_factory() as db:
         with pytest.raises(dp.InsufficientYieldCurveDataError):
-            dp.compute_cma_candidate_for_jurisdiction(db, "DE", "2026-07-30")
+            dp.compute_cma_candidate_for_jurisdiction(db, "DE", "2026-07-30", created_by_user_id="test-user")
         # Keine Zeile darf bei einem Fehler vor der Zinskurven-Pflicht persistiert werden.
         assert db.query(CapitalMarketAssumption).filter(
             CapitalMarketAssumption.jurisdiction == "DE"
@@ -227,7 +227,7 @@ def test_compute_candidate_propagates_insufficient_yield_curve_error(session_fac
 def test_compute_candidate_propagates_unknown_jurisdiction_error(session_factory):
     with session_factory() as db:
         with pytest.raises(dp.NoYieldCurveSourceConfiguredError):
-            dp.compute_cma_candidate_for_jurisdiction(db, "XX", "2026-07-30")
+            dp.compute_cma_candidate_for_jurisdiction(db, "XX", "2026-07-30", created_by_user_id="test-user")
 
 
 def test_compute_candidate_never_touches_ch_rows(session_factory, monkeypatch):
@@ -246,7 +246,7 @@ def test_compute_candidate_never_touches_ch_rows(session_factory, monkeypatch):
         db.add(ch_row)
         db.commit()
 
-        dp.compute_cma_candidate_for_jurisdiction(db, "DE", "2026-07-30")
+        dp.compute_cma_candidate_for_jurisdiction(db, "DE", "2026-07-30", created_by_user_id="test-user")
         db.commit()
 
         reloaded_ch = db.query(CapitalMarketAssumption).filter(

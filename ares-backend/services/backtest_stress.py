@@ -222,7 +222,7 @@ def compute_stress_replays(db: Session, mandate: Mandate) -> dict:
         "scope": STRESS_REPLAY_SCOPE,
         "scope_label": STRESS_REPLAY_SCOPE_LABEL,
         "scenarios": compute_stress_for_weights(weights_bps),
-        "note": "Replay mit historischen jährlichen Returns pro Asset-Klasse. Foundation-Variante mit hartcodierten Szenarien — volle Marktdaten-Pipeline kommt in Sprint U-P11.",
+        "note": "Nachrechnung mit historischen Jahresrenditen je Anlageklasse für fest definierte historische Krisenphasen.",
     }
 
 

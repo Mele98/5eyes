@@ -17,14 +17,8 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from pathlib import Path
 
-HTML_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "ares-desktop"
-    / "frontend"
-    / "ares.html"
-)
+from tests.monolith_source import read_monolith_bundle
 
 _TOP_LEVEL_FUNCTION_RE = re.compile(
     r"^(?:async\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
@@ -33,7 +27,10 @@ _TOP_LEVEL_FUNCTION_RE = re.compile(
 
 
 def _top_level_function_names() -> list[str]:
-    html = HTML_PATH.read_text(encoding="utf-8")
+    # H3/I-04: ares.html + ausgelagerte Teile (ares.css, intro-sequence.js,
+    # goal-review-runtime.js) -- klassische Skripte teilen sich den globalen
+    # Scope, ein Duplikat ueber Dateigrenzen hinweg ist genauso toedlich.
+    html = read_monolith_bundle()
     return _TOP_LEVEL_FUNCTION_RE.findall(html)
 
 

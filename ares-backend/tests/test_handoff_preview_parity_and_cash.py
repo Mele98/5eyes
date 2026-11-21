@@ -27,7 +27,8 @@ from models.review import AuditLog  # noqa: E402
 from models.wealth import WealthPosition  # noqa: E402
 from routers.portfolio_handoff import preview_portfolio_handoff  # noqa: E402
 from schemas.portfolio_handoff import PortfolioHandoffResponse  # noqa: E402
-from services.currency.fx_rates import FXRateSource  # noqa: E402
+from services.currency.fx_rates import FxBasisError, FXRateSource  # noqa: E402
+from tests.fx_test_support import seed_attested_fx  # noqa: E402
 
 from test_handoff_new_product_zero_holding import (  # noqa: E402
     _create,
@@ -42,6 +43,10 @@ from test_portfolio_handoff import (  # noqa: E402
     advisor_user,
     session_factory,
 )
+# CCX-P4: Altbestands-Kanaltest -- prueft andere Gates; Publikation siehe
+# tests/test_ccx_p4_allocation_publish.py (tests/ccx_p4_publication_support.py).
+from tests.ccx_p4_publication_support import assume_published_allocation  # noqa: E402,F401
+pytestmark = pytest.mark.usefixtures("assume_published_allocation")
 
 
 def _preview(session, advisor_user, confirm=False, mandate_id="mandate-1"):
@@ -214,11 +219,28 @@ def test_advisory_cash_in_foreign_currency_uses_model_fx_basis(session_factory, 
     _patch(monkeypatch, _payload(_existing_depot_with_new_product()))
 
     with session_factory() as session:
-        expected = int(round(100_000 * FXRateSource.from_db_for_model(session).cross_rate("EUR", "CHF")))
+        # CCX-P3-FX (N-909-01): Handoff-Liquiditaet nur zum belegten Kurs
+        # (Testvektor EUR 0.95): 100'000 * 9500 / 10000 = 95'000 exakt.
+        seed_attested_fx(session, {"EUR": 0.95})
+        expected = FXRateSource.from_db_strict_for_model(session).convert_storage_amount(100_000, "EUR", "CHF")
+        assert expected == 95_000
         handoff = _create(session, advisor_user)
     cash = next(t for t in _rows(handoff) if t.get("wealth_position_id") == "wp-cash")
     assert cash["current_market_value_rappen"] == expected
     assert handoff.live_total_value_rappen == 1_000_000 + expected
+
+
+def test_advisory_cash_in_foreign_currency_without_attested_rate_blocks_typed(session_factory, advisor_user, monkeypatch):
+    """CCX-P3-FX (N-909-01): EUR-Liquiditaet nur mit Ersatzkurs -> typisierte
+    Sperre CCX_FX_BASIS_MISSING, kein Handoff gespeichert."""
+    _seed_mandate_and_run(session_factory, advisor_user)
+    _add_cash(session_factory, currency="EUR", value=100_000)
+    _patch(monkeypatch, _payload(_existing_depot_with_new_product()))
+    with session_factory() as session:
+        with pytest.raises(FxBasisError) as exc:
+            _create(session, advisor_user)
+        assert exc.value.reason_code == "CCX_FX_BASIS_MISSING"
+        assert session.query(PortfolioHandoff).count() == 0
 
 
 @pytest.mark.parametrize("variant", ["missing_valuation_date", "missing_currency", "unknown_currency"])

@@ -10,10 +10,12 @@ NICHT absolut: es steht zurueck, wo eine gesetzliche Aufbewahrungspflicht
 entgegensteht. Fuer Ares als Vermoegensverwaltungs-/Beratungs-Software
 sind das insbesondere:
 
-- FIDLEG Art. 11/12/16/19/21 (Dokumentationspflicht Beratung, Eignungs-
-  pruefung, Kostenoffenlegung) -- i.d.R. 10 Jahre.
-- GwG Art. 7 (Sorgfaltspflicht-Belege) -- i.d.R. 10 Jahre.
-- OR Art. 962 (kaufmaennische Buchfuehrung/Aufbewahrung) -- 10 Jahre.
+- FIDLEG Art. 15 (Dokumentationspflicht Beratung, Eignungspruefung,
+  Kostenoffenlegung) -- keine eigene Frist; 10 Jahre aus Beweissicherung
+  (OR Art. 127) ab Mandatsende.
+- GwG Art. 7 Abs. 3 (Sorgfaltspflicht-Belege) -- mindestens 10 Jahre nach
+  Ende der Geschaeftsbeziehung.
+- OR Art. 958f (Buecher und Buchungsbelege) -- 10 Jahre.
 
 Die bestehende, bereits vor diesem Sprint gepflegte Aufstellung in
 ``services/data_export.py::RETENTION_NOTES`` dokumentiert diese Fristen
@@ -24,7 +26,7 @@ Design-Entscheidung: Zwei-Stufen-Modell statt Alles-oder-Nichts
 -----------------------------------------------------------------
 Ein voller Hard-Delete des gesamten Kunden-Fussabdrucks wuerde die oben
 genannten 10-Jahres-Pflichten verletzen, solange die Frist laeuft
-(genau das ist die "Retention-Abwaegung FIDLEG 10 Jahre vs. OR 962", die
+(genau das ist die "Retention-Abwaegung FIDLEG 10 Jahre vs. OR 962" (heute: OR 958f), die
 in docs/planning/2026-08-03-launch-readiness-update.md als offener
 Punkt gelistet ist). Ein reiner Soft-Delete (nur ``deleted_at`` setzen,
 wie der bestehende ``DELETE /clients/{id}``) loescht dagegen faktisch
@@ -344,6 +346,17 @@ def erase_client_personal_data(
         ],
     )
     _apply("client_tax_residencies", "client_id", [client_id], null_columns=["tax_id_number"])
+    # H8 N-890-09: KYC-Bestaetigungen bleiben als Nachweis erhalten (append-only,
+    # Trigger erlauben nur diese Redaktion); Freitexte werden markiert.
+    _apply("kyc_confirmations", "client_id", [client_id],
+           marker_columns=["external_reference", "note"])
+    _apply("kyc_confirmation_approvals", "client_id", [client_id], marker_columns=["note"])
+    _apply("kyc_confirmation_rejections", "client_id", [client_id], marker_columns=["reason"])
+    # H8 N-890-09: Vertretung -- Name der vertretenden Person (Dritter) und
+    # Freitexte redigiert; Art, Wirksamkeit und Widerruf bleiben als Nachweis.
+    _apply("client_representations", "client_id", [client_id],
+           marker_columns=["representative_name", "scope", "evidence_reference"],
+           null_columns=["note", "revocation_reason"])
 
     # --- Mandat: redundante PII-Kopien + Bankverbindung ---
     if mandate_ids:

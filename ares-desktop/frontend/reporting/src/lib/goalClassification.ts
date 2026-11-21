@@ -2,6 +2,10 @@
  * Sprint U-12 (Roadmap-Punkt 12): Goal-Klassifikation gegen
  * Monte-Carlo-Pfade. Reine Funktion, kein React, separat getestet.
  *
+ * P5c / N-930-01 (CTO 2026-11-21): Das Ergebnis bestimmt nur noch die Lage
+ * der Ziel-Marker (t_index). Der Klassifikations-Status wird nirgends mehr
+ * angezeigt; sichtbarer Zielstatus ist allein der M-3-Status vom Server.
+ *
  * Entscheidet pro Goal, ob das Ziel nach den p5/p50/p75-Pfaden im
  * `target_date`-Jahr erreichbar ist.
  *

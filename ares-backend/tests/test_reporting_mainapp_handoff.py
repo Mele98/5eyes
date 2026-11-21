@@ -24,6 +24,7 @@ import re
 from pathlib import Path
 
 from tests.brand_digest_support import assert_no_legacy_brand  # noqa: E402
+from tests.monolith_source import read_monolith_bundle  # H3/I-04: inkl. ausgelagerter Teile
 
 REPORTING_ROOT = (
     Path(__file__).resolve().parents[2]
@@ -42,7 +43,7 @@ def _read_reporting(rel: str) -> str:
 
 
 def _read_mainapp() -> str:
-    return MAINAPP_HTML.read_text(encoding="utf-8")
+    return read_monolith_bundle()
 
 
 # ---------------------------------------------------------------------------
