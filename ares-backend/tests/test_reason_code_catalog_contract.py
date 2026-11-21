@@ -49,6 +49,12 @@ KNOWN_UNRESOLVED: dict[tuple[str, str, str], int] = {
     # gepruefte Grund bzw. der Code der Ablehnung im Audit).
     ('routers/allocation.py', 'get_advisory_report', 'state.reason_code'): 1,
     ('services/allocation_publication_gate.py', '_reject', 'code.value'): 1,
+    # CCX-P5: Durchreichungen katalogisierter Codes im Kanal-Gate (P4-Status-
+    # grund, FX-Befund, Signatur-/Handoff-Code des Aufrufers).
+    ('services/allocation_publication_gate.py', '_channel_blocked', "str(getattr(code, 'value', code))"): 1,
+    ('services/allocation_publication_gate.py', 'evaluate_channel_envelope', 'code'): 1,
+    ('services/allocation_publication_gate.py', 'evaluate_channel_envelope', 'fx[0]'): 1,
+    ('services/allocation_publication_gate.py', 'require_channel_envelope', 'code'): 2,
     # H10 Nachtrag 1: Durchreichungen bereits katalogisierter Codes (Gate-Ergebnis
     # PROCESSING_ACTIVITY_* bzw. gespeicherter EGRESS_*-Code im Protokoll).
     ('routers/privacy.py', 'list_egress_events', 'r.reason_code'): 1,

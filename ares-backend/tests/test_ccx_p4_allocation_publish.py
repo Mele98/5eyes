@@ -632,7 +632,9 @@ def test_alembic_single_head_p4_and_upgrade_downgrade_upgrade(tmp_path):
     script = ScriptDirectory.from_config(_alembic_cfg("sqlite://"))
     # Integration H12+K1: K1 (63332bb56098, Property-Gate) haengt hinter H12
     # (b3f1c9d2e4a7, Schluesselversion), H12 hinter P4: genau ein Head.
-    assert script.get_heads() == [K1_REV]
+    # CCX-P5 (c2546c196134) haengt hinter K1.
+    assert script.get_heads() == ["c2546c196134"]
+    assert script.get_revision("c2546c196134").down_revision == K1_REV
     assert script.get_revision(K1_REV).down_revision == H12_REV
     assert script.get_revision(H12_REV).down_revision == CCX_P4_REV
     assert script.get_revision(CCX_P4_REV).down_revision == CCX_P3_REV

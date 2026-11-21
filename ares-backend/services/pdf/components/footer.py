@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from reportlab.pdfgen.canvas import Canvas
 
+from core.customer_terms import DECISION_NONE_TEXT, decision_footer_label  # noqa: F401 -- CCX P5
 from jurisdictions.documents import default_documents
 from services.pdf.styles import (
     COLOR_BORDER,
@@ -95,19 +96,6 @@ def _draw_vorvertrag_mark(canvas: Canvas, page_width: float, page_height: float,
     canvas.rotate(45)
     canvas.drawCentredString(0, 0, "ENTWURF")
     canvas.restoreState()
-
-
-# CCX P5 (Vertrag §8): jedes Kunden-PDF nennt den versiegelten Beratungsentscheid,
-# aus dem seine Zahlen stammen (Pruefnummer = erste 12 Zeichen des Envelope-
-# Hashes, Fassung = Schema-Version), oder ausdruecklich, dass keiner gebunden ist.
-DECISION_NONE_TEXT = "Beratungsentscheid: keiner versiegelt"
-
-
-def decision_footer_label(decision_ref) -> str:
-    if not decision_ref or not decision_ref.get("envelope_hash"):
-        return DECISION_NONE_TEXT
-    return (f"Beratungsentscheid: {str(decision_ref['envelope_hash'])[:12]} "
-            f"· Fassung {decision_ref.get('fassung') or '1'}")
 
 
 def make_footer_callback(ctx: PDFContext, disclaimer: str | None = None):

@@ -48,13 +48,10 @@ def _snapshot(session_factory, mid, run_id, envelope_id, monkeypatch):
         env = tuple(_envelope(db, envelope_id)[:2])
         sealed = fxgate.run_is_sealed(db, mandate, run_id)
         watermark = pub.customer_document_watermark(db, mandate)
-        with monkeypatch.context() as m:
-            m.setattr(fxgate, "mandate_amount_currencies", lambda _db, _m: {"CHF", "USD"})
-            exempt = True
-            try:
-                fxgate.assert_print_fx_basis_current(db, mandate, run_id=run_id)
-            except Exception:  # noqa: BLE001
-                exempt = False
+        # CCX P5 (Vertrag §8.3): die fruehere FX-Ausnahme des versiegelten Laufs
+        # gibt es nicht mehr; "exempt" ist jetzt die Auslieferbarkeit ueber das
+        # Kanal-Gate (P4 + FX jetzt + Parametersatz/Zielkennzahl).
+        exempt = pub.evaluate_channel_envelope(db, mandate).ok
     deep = _state(session_factory, mid)
     shallow = _state(session_factory, mid, deep=False)
     return {"envelope": env, "sealed": sealed, "exempt": exempt, "watermark": watermark,

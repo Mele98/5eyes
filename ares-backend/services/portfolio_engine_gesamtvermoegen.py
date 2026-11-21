@@ -24,6 +24,7 @@ der Cross-Cluster-Import ist function-local (lazy), nicht Modul-Top-Level
 annotations` keinen echten Import (PEP 563, Annotationen sind Strings).
 """
 from __future__ import annotations
+from core.risk_parameter_set import ParameterSetMissing
 
 from typing import TYPE_CHECKING
 
@@ -362,8 +363,6 @@ def _external_assets_inflation_value(
     series = list(inflation_series_bps or [])
     if not series and int(years or 0) > 0:
         # CCX P5 / M-2: frueher lokal 150 bps -- jetzt nur der CMA-Pfad.
-        from services.risk_parameter_set import ParameterSetMissing
-
         raise ParameterSetMissing(
             "Für die Teuerung der externen Vermögenswerte fehlt der Inflationspfad der "
             "Kapitalmarktannahmen."

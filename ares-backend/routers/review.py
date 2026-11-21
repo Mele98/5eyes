@@ -68,11 +68,6 @@ from schemas.review import (
 from price_updater import summarize_price_quality
 from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, require_staff, same_person, assert_compliance_reviewer_ready, short_user_agent, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
 from services.audit import gate_block_audit, log, release_block_audit, restore_tenant_after_rollback
-from services.channel_envelope_gate import (
-    CHANNEL_ADVISOR_SIGNATURE,
-    record_channel_publication,
-    require_signature_envelope,
-)
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
 # CCX-P1: direkt aus services.auth (derselbe Helfer, den routers.auth nur
@@ -147,6 +142,8 @@ from services.recommendation_release_gate import (
     row_seal,
     contract_concluded_at,
     risk_budget_release_errors,
+    record_signature_publication,
+    require_signature_envelope,
 )
 from services.review_engine import (
     ReviewAnchorDataError,
@@ -1971,7 +1968,7 @@ def sign_document(
     # Parametersatz/Zielkennzahl) und -- fuer Entscheid-Dokumente -- genau
     # dieses archivierte PDF als Artefakt dieses Envelopes ausgeliefert wurde.
     p5_signature = require_signature_envelope(
-        db, mandate, doc, channel=CHANNEL_ADVISOR_SIGNATURE, user=current_user,
+        db, mandate, doc, channel="ADVISOR_SIGNATURE", user=current_user,
         ip_address=_extract_client_ip(request),
     )
     # REC-006 (Codex-Audit 2026-08-25): dieser Endpoint hatte keinerlei
@@ -2018,12 +2015,9 @@ def sign_document(
         field_name="status", new_value=doc.status, mandate_id=mandate_id,
         ip_address=signer_ip)
     if p5_signature is not None:
-        decision, publication = p5_signature
-        record_channel_publication(
-            db, decision, mandate=mandate, channel=CHANNEL_ADVISOR_SIGNATURE,
-            artifact_id=f"{doc.id}:{'advisor' if body.signed_by_advisor else 'client'}",
-            channel_payload_hash=publication.channel_payload_hash, render_hash=publication.render_hash,
-            user=current_user,
+        record_signature_publication(
+            db, p5_signature, mandate=mandate,
+            artifact_id=f"{doc.id}:{'advisor' if body.signed_by_advisor else 'client'}", user=current_user,
         )
     db.commit()
     db.refresh(doc)

@@ -100,7 +100,12 @@ from services.jurisdiction.resolve import (
     resolve_home_bias_defaults,
 )
 from jurisdictions.resolve import resolve_pack
-from services.risk_parameter_set import stored_risk_parameter_set
+from core.risk_parameter_set import (
+    allocation_parameter_set,
+    house_prior_from_model_basis,
+    stored_risk_parameter_set,
+)
+from core.presentation_rounding import ROUNDING_POLICY_VERSION as _P5_ROUNDING
 from services.risk_matrix import (
     RiskBudgetExceeded,
     assert_risk_budget_ok,
@@ -191,7 +196,7 @@ ALLOWED_PRODUCT_ASSET_CLASSES = ("Aktien", "Obligationen", "Immobilien", "Altern
 
 # CCX P5 / M-2: der fruehere Bucket-Satz DEFAULT_ASSET_RISKY_WEIGHTS_BPS
 # (7900/2450/5000/6000) ist entfernt -- kanonisch sind die IC-Subklassenwerte x
-# Suballokation (services/risk_parameter_set.py), nie eine Konstante.
+# Suballokation (core/risk_parameter_set.py), nie eine Konstante.
 ASSET_LIQUIDITY_PROFILES = {
     "equities": "T+2 liquide",
     "bonds": "liquide bis mittel",
@@ -4127,10 +4132,9 @@ def generate_target_allocation(
     shadow_optimization_json = serialize_shadow_optimization(shadow_optimization_payload)  # SHADOW-ANALYSIS-INTEGRITY-001: Hash-Grundlage
 
     sub_allocations_json = canonical_json(sub_allocations)
-    from services.risk_parameter_set import allocation_parameter_set  # CCX P5 / M-2: eine Quelle
-
-    risk_parameter_set = allocation_parameter_set(policy, sub_allocations, minimums, maximums, risk_budget_bps,
-                                                  house_matrix, asset_risky_weights)
+    risk_parameter_set = allocation_parameter_set(  # CCX P5 / M-2: eine Quelle
+        policy, sub_allocations, minimums, maximums, risk_budget_bps, house_matrix, asset_risky_weights,
+        house_prior=house_prior_from_model_basis(model_basis["optimization"]), app_env=settings.app_env, rounding_policy_version=_P5_ROUNDING)
     effective_constraints_payload = {
         "engine_version": "stochastic_core_v2",
         "bounds_bps": {

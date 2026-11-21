@@ -72,7 +72,10 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # keine bestehende Tabelle umbenannt/entfernt.
 # CCX-P4 Nachtrag 1 (N-910-06): FK allocation_publication_decisions.target_allocation_id
 # -> target_allocations aendert nur die Abhaengigkeitsreihenfolge (112 Tabellen).
-GOLDEN_SORTED_TABLES_SHA256 = "618e8a807ae327ccb92d47cc4e5aefae67ac5d8e664a8806df556fc397053f4c"
+# CCX-P5 Kanal-Envelope (2026-11-21): eine neue Tabelle
+# (advisory_channel_publications), 113 Tabellen, keine bestehende Tabelle
+# umbenannt/entfernt.
+GOLDEN_SORTED_TABLES_SHA256 = "cef430c9f3792d27c6e90cd2b30d41ff7189088cca5f17fcb421820f512167fc"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema

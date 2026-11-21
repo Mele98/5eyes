@@ -44,7 +44,7 @@ from schemas.portfolio_handoff import (
 )
 from services.audit import gate_block_audit, log, release_block_audit
 from core.reason_codes import ReasonCode
-from services.channel_envelope_gate import (
+from services.allocation_publication_gate import (
     CHANNEL_HANDOFF as P5_CHANNEL_HANDOFF,
     record_channel_publication,
     require_channel_envelope,
@@ -368,12 +368,6 @@ def create_portfolio_handoff(
         updated_at=now,
     )
     db.add(handoff)
-    db.flush()
-    # CCX P5: Kanalzeile HANDOFF (Payload = Hash der gespeicherten Handelsliste).
-    record_channel_publication(
-        db, p5_decision, mandate=mandate, channel=P5_CHANNEL_HANDOFF, artifact_id=str(handoff.id),
-        channel_payload_hash=str(snapshot_sha256), render_hash=None, user=current_user,
-    )
     log(
         db,
         user_id=current_user.id,
@@ -389,6 +383,12 @@ def create_portfolio_handoff(
         ip_address=_extract_client_ip(request),
     )
     try:
+        db.flush()
+        # CCX P5: Kanalzeile HANDOFF (Payload = Hash der gespeicherten Handelsliste).
+        record_channel_publication(
+            db, p5_decision, mandate=mandate, channel=P5_CHANNEL_HANDOFF, artifact_id=str(handoff.id),
+            channel_payload_hash=str(snapshot_sha256), render_hash=None, user=current_user,
+        )
         db.commit()
     except IntegrityError as exc:
         # Paralleler identischer Request hat zwischen Pruefung und Commit

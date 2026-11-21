@@ -26,6 +26,13 @@ Der Kandidat wird VOR jeder Aenderung am Bestand mit dem Verifier geprueft.
 Der Aufrufer (Router) demoted die vorherige Allokation erst danach.
 """
 from __future__ import annotations
+from core.presentation_rounding import ROUNDING_POLICY_VERSION
+from core.risk_parameter_set import (
+    ParameterSetMissing,
+    assert_release_allowed,
+    build_parameter_set,
+    house_prior_from_model_basis,
+)
 
 import json
 from dataclasses import dataclass, field
@@ -281,6 +288,7 @@ def build_manual_target_allocation(
     from services.portfolio_engine import (
         BUCKET_FIELDS,
         StaleAllocationInputError,
+        settings as engine_settings,
         _risk_score_bucket,
         _sub_class_intra_correlation_x100,
         _verified_persisted_allocation_context,
@@ -356,9 +364,6 @@ def build_manual_target_allocation(
     ]
 
     # CCX P5 / M-2: derselbe kanonische Risikoparametersatz wie bei Generate.
-    from core.presentation_rounding import ROUNDING_POLICY_VERSION
-    from services.risk_parameter_set import ParameterSetMissing, assert_release_allowed, build_parameter_set
-
     try:
         risk_parameter_set = build_parameter_set(
             policy=policy, sub_allocations=sub_allocations,
@@ -366,8 +371,9 @@ def build_manual_target_allocation(
             risk_budget_bps=int(risk_budget_bps), house_matrix_profile=house_matrix.profile_name,
             max_risky_fraction_bps=getattr(house_matrix, "max_risky_fraction_bps", None),
             rounding_policy_version=ROUNDING_POLICY_VERSION,
+            house_prior=house_prior_from_model_basis(None),  # manuell: kein Optimierer
         )
-        assert_release_allowed(risk_parameter_set)
+        assert_release_allowed(risk_parameter_set, app_env=engine_settings.app_env)
     except ParameterSetMissing as exc:
         raise ManualAllocationRejected(str(exc)) from exc
     effective_constraints = {

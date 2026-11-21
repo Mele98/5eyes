@@ -44,6 +44,7 @@ Fehlern nie durch Swiss Defaults/Identity ersetzt. Erwartete Renditen bleiben
 vorzeichenbehaftet; negative Netto-Erwartungen werden nicht auf 0 bps geklemmt.
 """
 from __future__ import annotations
+from core.risk_parameter_set import ParameterSetMissing
 
 import json
 import math
@@ -819,8 +820,6 @@ def _inflation_path_series(cma: CapitalMarketAssumption, years: int, start_year:
     if not path:
         # CCX P5 / M-2: kein Ersatzwert (frueher 70 bps hier, 150 bps lokal in
         # zwei weiteren Modulen) -- nur der provenienzgebundene CMA-Pfad.
-        from services.risk_parameter_set import ParameterSetMissing
-
         raise ParameterSetMissing(
             "Die Kapitalmarktannahmen enthalten keinen Inflationspfad. Ohne freigegebenen "
             "Pfad werden reale Ziele, Cashflows und Reserven nicht gerechnet."

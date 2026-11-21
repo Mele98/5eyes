@@ -57,7 +57,7 @@ from services.recommendation_release_gate import (
 from services.audit import gate_block_audit
 # CCX-P3-FX (N-909-01/-13): strikte FX-Basis und Druckpruefung ueber die Druck-Fassade.
 from services.print_fx_gate import assert_print_fx_basis_current, load_fx_basis
-from services.channel_envelope_gate import (
+from services.allocation_publication_gate import (
     CHANNEL_PDF,
     evaluate_channel_envelope,
     record_channel_publication,

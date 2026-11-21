@@ -33,3 +33,16 @@ def customer_term(text) -> str:
         if old in value:
             value = value.replace(old, new)
     return value
+
+
+# CCX P5 (Vertrag §8): jedes Kunden-PDF nennt den versiegelten Beratungsentscheid,
+# aus dem seine Zahlen stammen (Pruefnummer = erste 12 Zeichen des Envelope-
+# Hashes, Fassung = Schema-Version), oder ausdruecklich, dass keiner gebunden ist.
+DECISION_NONE_TEXT = "Beratungsentscheid: keiner versiegelt"
+
+
+def decision_footer_label(decision_ref) -> str:
+    if not decision_ref or not decision_ref.get("envelope_hash"):
+        return DECISION_NONE_TEXT
+    return (f"Beratungsentscheid: {str(decision_ref['envelope_hash'])[:12]} "
+            f"· Fassung {decision_ref.get('fassung') or '1'}")

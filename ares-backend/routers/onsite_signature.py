@@ -54,6 +54,7 @@ from services.recommendation_release_gate import (
     assert_recommendation_release_eligible,
     assert_retrocession_release_eligible,
     assert_risk_signoff_release_eligible,
+    require_signature_envelope,
 )
 
 router = APIRouter(tags=["Vor-Ort-Signatur"])
@@ -132,10 +133,8 @@ def _release_gates(
         # CCX P5 (Vertrag §8.4): dasselbe Envelope-/Artefakt-Gate wie die
         # Berater-Signatur (SEALED+FRESH, FX jetzt, Parametersatz/Zielkennzahl,
         # genau dieses archivierte PDF des aktuellen Envelopes).
-        from services.channel_envelope_gate import CHANNEL_ONSITE_SIGNATURE, require_signature_envelope
-
         require_signature_envelope(
-            db, mandate, document, channel=CHANNEL_ONSITE_SIGNATURE, user=current_user,
+            db, mandate, document, channel="ONSITE_SIGNATURE", user=current_user,
             ip_address=extract_client_ip(request) if request is not None else None,
         )
         if document_type in CONTRACT_CONCLUSION_DOCUMENT_TYPES:

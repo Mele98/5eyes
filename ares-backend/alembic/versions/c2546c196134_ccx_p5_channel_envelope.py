@@ -82,10 +82,9 @@ BEGIN
        WHERE u.id = NEW.created_by) THEN
     RAISE EXCEPTION '{TENANT_ERROR}' USING ERRCODE = '23514';
   END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM {ENVELOPES} e WHERE e.id = NEW.envelope_id AND e.tenant_id = NEW.tenant_id
-      AND e.mandate_id = NEW.mandate_id AND e.status = 'SEALED' AND e.envelope_hash = NEW.bound_envelope_hash
-  ) THEN
+  PERFORM 1 FROM {ENVELOPES} e WHERE e.id = NEW.envelope_id AND e.tenant_id = NEW.tenant_id
+    AND e.mandate_id = NEW.mandate_id AND e.status = 'SEALED' AND e.envelope_hash = NEW.bound_envelope_hash;
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'CCX_CHANNEL_BINDING_MISSING';
   END IF;
   RETURN NEW;

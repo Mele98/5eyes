@@ -1,5 +1,8 @@
 """CCX P5 / M-3: eine kanonische Zielkennzahl (Vertrag 2026-11-13 §8.2).
 
+Stdlib-Blatt (architecture ratchets): keine Projekt-Importe; die Ziele liest
+der Aufrufer.
+
 Primaere Kennzahl je Ziel ist die auf der unabhaengigen Validierungs-
 stichprobe gemessene Zielerreichungswahrscheinlichkeit des Optimierers samt
 einseitiger Wilson-Untergrenze (``services/optimizer/certification.py``).
@@ -19,13 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
-import unicodedata
-from typing import Any, Mapping
-
-from sqlalchemy.orm import Session
-
-from core.reason_codes import ReasonCode
+from typing import Any, Iterable, Mapping
 
 GOAL_METRIC_CONTRACT_VERSION = "ares-goal-metric/1"
 GOAL_STATUS_POLICY_VERSION = "ares-goal-status/1"
@@ -34,7 +31,7 @@ GOAL_METRIC_HASH_DOMAIN = b"Ares\x00ares/goal-metric/1\x00"
 
 
 class GoalMetricUncertified(ValueError):
-    reason_code = ReasonCode.CCX_GOAL_METRIC_UNCERTIFIED
+    reason_code = "CCX_GOAL_METRIC_UNCERTIFIED"
 
 
 def _ppm(value: Any) -> int | None:
@@ -42,14 +39,12 @@ def _ppm(value: Any) -> int | None:
         number = float(value)
     except (TypeError, ValueError):
         return None
-    if not math.isfinite(number):
+    if number != number or number in (float("inf"), float("-inf")):
         return None
     return int(round(min(1.0, max(0.0, number)) * 1_000_000))
 
 
 def _nfc(value: Any) -> Any:
-    if isinstance(value, str):
-        return unicodedata.normalize("NFC", value)
     if isinstance(value, Mapping):
         return {str(k): _nfc(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
@@ -59,17 +54,22 @@ def _nfc(value: Any) -> Any:
 
 def goal_metric_hash(payload: Mapping[str, Any]) -> str:
     body = {key: value for key, value in payload.items() if key != "goal_metric_payload_hash"}
-    canonical = json.dumps(_nfc(body), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    canonical = json.dumps(_nfc(body), sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(GOAL_METRIC_HASH_DOMAIN + canonical.encode("utf-8")).hexdigest()
 
 
-def _individual_rows(achievability: Any) -> dict[str, dict]:
-    from services.optimizer.goal_attribution import is_individual_goal_row, split_goal_achievability
+# Zielindividuelle Evidenz (services/optimizer/goal_attribution.py:
+# EVALUATION_SCOPE_PRIORITY_FUNDED); Plan-Solvenz und Altzeilen ohne Scope zaehlen nicht.
+INDIVIDUAL_SCOPE = "priority_funded"
 
-    rows, _plan = split_goal_achievability(achievability or [])
+
+def _individual_rows(achievability: Any) -> dict[str, dict]:
     out: dict[str, dict] = {}
-    for row in rows:
-        if is_individual_goal_row(row) and row.get("goal_id"):
+    for row in achievability or []:
+        if not isinstance(row, Mapping):
+            continue
+        scope = str(row.get("evaluation_scope") or "").strip()
+        if scope == INDIVIDUAL_SCOPE and row.get("goal_id") and str(row["goal_id"]) not in out:
             out[str(row["goal_id"])] = dict(row)
     return out
 
@@ -79,20 +79,15 @@ def _requires_metric(goal: Any) -> bool:
                 or int(getattr(goal, "target_wealth_rappen", 0) or 0) > 0)
 
 
-def build_goal_metric_payload(db: Session, *, mandate: Any, target_allocation: Any) -> dict[str, Any]:
-    """Kanonischer Zielkennzahl-Payload einer Soll-Allokation (mit Hash)."""
-    from models.wealth import Goal
-    from services.goal_analysis_snapshot import goal_analysis_hash
-
+def build_goal_metric_payload(goals: Iterable[Any], *, mandate: Any, target_allocation: Any) -> dict[str, Any]:
+    """Kanonischer Zielkennzahl-Payload einer Soll-Allokation (mit Hash).
+    ``goals``: aktive Ziele des Mandats (Aufrufer liest sie aus der DB)."""
     raw = getattr(target_allocation, "goal_achievability_json", None)
     try:
         achievability = json.loads(raw) if raw else []
     except (TypeError, ValueError) as exc:
         raise GoalMetricUncertified("Die Zielanalyse der Soll-Allokation ist nicht lesbar.") from exc
     by_goal = _individual_rows(achievability)
-    goals = db.query(Goal).filter(
-        Goal.mandate_id == str(mandate.id), Goal.deleted_at.is_(None),
-    ).all()
     goals = [g for g in goals if int(getattr(g, "is_active", 1) or 0) == 1
              and int(getattr(g, "is_included", 1) or 0) == 1]
     currency = str(getattr(mandate, "base_currency", None) or "CHF").upper()
@@ -144,7 +139,8 @@ def build_goal_metric_payload(db: Session, *, mandate: Any, target_allocation: A
         "contract_version": GOAL_METRIC_CONTRACT_VERSION,
         "status_policy_version": GOAL_STATUS_POLICY_VERSION,
         "target_allocation_id": str(getattr(target_allocation, "id", "") or ""),
-        "goal_analysis_hash": goal_analysis_hash(raw) if raw else None,
+        # = services.goal_analysis_snapshot.goal_analysis_hash (sha256 der gespeicherten Bytes)
+        "goal_analysis_hash": hashlib.sha256(raw.encode("utf-8")).hexdigest() if raw else None,
         "goals": entries,
     }
     payload["goal_metric_payload_hash"] = goal_metric_hash(payload)

@@ -38,7 +38,7 @@ P5_TABLE = "advisory_channel_publications"
 
 
 def _decision(session_factory, mid):
-    from services.channel_envelope_gate import evaluate_channel_envelope
+    from services.allocation_publication_gate import evaluate_channel_envelope
 
     with session_factory() as db:
         return evaluate_channel_envelope(db, _mandate(db, mid))
@@ -79,7 +79,7 @@ def test_seal_binds_parameter_set_and_goal_metric_reproducibly(session_factory):
         p5_decision_hashes,
     )
     from services.allocation_publication_gate import current_target_allocation
-    from services.risk_parameter_set import stored_risk_parameter_set
+    from core.risk_parameter_set import stored_risk_parameter_set
 
     _advisor, _approver, mid, *_rest = _published(session_factory, "p5-seal")
     decision = _decision(session_factory, mid)
@@ -102,7 +102,7 @@ def test_seal_binds_parameter_set_and_goal_metric_reproducibly(session_factory):
 
 def test_seal_without_parameter_set_fails_closed(session_factory, monkeypatch):
     """Allokation ohne gespeicherten Satz (Bestand vor P5): kein Siegel."""
-    import services.risk_parameter_set as rps
+    import services.advisory_decision_envelope as rps  # Name dort gebunden
     from tests.test_ccx_p1_snapshot_hash import _finalizable_run
 
     advisor_id, mid, _aid, run_id = _finalizable_run(session_factory, "p5-noset")
@@ -113,7 +113,7 @@ def test_seal_without_parameter_set_fails_closed(session_factory, monkeypatch):
 
 
 def test_seal_without_certified_goal_metric_fails_closed(session_factory, monkeypatch):
-    import services.goal_metric_contract as gmc
+    import core.goal_metric_contract as gmc
     from tests.test_ccx_p1_snapshot_hash import _finalizable_run
 
     advisor_id, mid, _aid, run_id = _finalizable_run(session_factory, "p5-nogoal")
@@ -131,7 +131,7 @@ def test_goal_status_comes_from_lower_bound_not_point_estimate(monkeypatch):
     import json
     from types import SimpleNamespace
 
-    import services.goal_metric_contract as gmc
+    import core.goal_metric_contract as gmc
     from services.optimizer.certification import wilson_lower_bound
 
     lower = wilson_lower_bound(0.80, 20)
@@ -143,22 +143,14 @@ def test_goal_status_comes_from_lower_bound_not_point_estimate(monkeypatch):
                            target_wealth_rappen=None, target_date="2030-01-01", is_active=1, is_included=1,
                            label="Ziel")
 
-    class _Q:
-        def filter(self, *_a):
-            return self
-
-        def all(self):
-            return [goal]
-
-    db = SimpleNamespace(query=lambda *_a: _Q())
     ta = SimpleNamespace(id="ta", goal_achievability_json=json.dumps([row]))
-    payload = gmc.build_goal_metric_payload(db, mandate=SimpleNamespace(id="m", base_currency="CHF"),
+    payload = gmc.build_goal_metric_payload([goal], mandate=SimpleNamespace(id="m", base_currency="CHF"),
                                             target_allocation=ta)
     entry = payload["goals"][0]
     assert entry["status"] == "knapp" and entry["probability_ppm"] == 800_000
     assert entry["lower_bound_ppm"] < entry["tau_ppm"]
     row["probability"] = 0.95  # Sekundaerwert geaendert -> anderer Hash, Status bleibt
-    again = gmc.build_goal_metric_payload(db, mandate=SimpleNamespace(id="m", base_currency="CHF"),
+    again = gmc.build_goal_metric_payload([goal], mandate=SimpleNamespace(id="m", base_currency="CHF"),
                                           target_allocation=ta)
     assert again["goals"][0]["status"] == "knapp"
     assert again["goal_metric_payload_hash"] != payload["goal_metric_payload_hash"]
@@ -253,7 +245,7 @@ def test_irrelevant_fx_change_stays_deliverable_relevant_fx_staleness_blocks(ses
 def test_relevant_ic_value_change_makes_decision_undeliverable(session_factory):
     from models.allocation import BuildingBlock
     from services.allocation_publication_gate import current_target_allocation
-    from services.risk_parameter_set import stored_risk_parameter_set
+    from core.risk_parameter_set import stored_risk_parameter_set
 
     advisor_id, _approver, mid, *_rest = _published(session_factory, "p5-bb")
     assert _decision(session_factory, mid).ok
@@ -286,7 +278,7 @@ def test_parameter_hash_mismatch_is_detected(session_factory, monkeypatch):
 
 def test_handoff_gate_reports_outdated_and_records_channel(session_factory):
     from models.mandates import Mandate
-    from services.channel_envelope_gate import require_channel_envelope
+    from services.allocation_publication_gate import require_channel_envelope
     from core.reason_codes import ReasonCode
 
     advisor_id, _approver, mid, *_rest = _published(session_factory, "p5-ho")

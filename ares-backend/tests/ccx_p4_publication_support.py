@@ -71,10 +71,30 @@ def assume_published_allocation(monkeypatch):
     # CCX P5: derselbe Altbestand ersetzt auch das Kanal-Gate (es baut auf der
     # Publikation auf); der P5-Gate selbst ist in tests/test_ccx_p5_channel_
     # envelope.py gegen den echten Zustand belegt.
-    from services.channel_envelope_gate import ChannelDecision
+    from services.allocation_publication_gate import ChannelDecision
 
     monkeypatch.setattr(pdf_reports, "evaluate_channel_envelope", lambda *_a, **_k: ChannelDecision(applicable=False))
     monkeypatch.setattr(portfolio_handoff, "require_channel_envelope",
                         lambda *_a, **_k: ChannelDecision(applicable=False))
     monkeypatch.setattr(portfolio_handoff, "record_channel_publication", lambda *_a, **_k: None)
+    _bypass_signature_envelope(monkeypatch)
+    yield
+
+
+def _bypass_signature_envelope(monkeypatch):
+    import routers.onsite_signature as onsite
+    import routers.review as review
+
+    monkeypatch.setattr(review, "require_signature_envelope", lambda *_a, **_k: None)
+    monkeypatch.setattr(onsite, "require_signature_envelope", lambda *_a, **_k: None)
+
+
+@pytest.fixture()
+def assume_signable_decision(monkeypatch):
+    """CCX P5: nur fuer den Altbestand dieser Dateien -- Signatur-Tests, die
+    andere Gates (Signatur-Unveraenderlichkeit, Praeferenzbindung, ESG)
+    pruefen, ersetzen das Envelope-/Artefakt-Gate der Signatur. Der P5-Gate
+    selbst ist in tests/test_ccx_p5_channel_envelope.py gegen den echten
+    Zustand belegt."""
+    _bypass_signature_envelope(monkeypatch)
     yield

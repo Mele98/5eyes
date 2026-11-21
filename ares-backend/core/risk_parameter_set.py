@@ -1,5 +1,8 @@
 """CCX P5 / M-2: ein kanonischer Risikoparametersatz (Vertrag 2026-11-13 §8.1).
 
+Stdlib-Blatt (architecture ratchets, FAN_OUT_EXEMPT_LEAVES): keine Projekt-
+Importe; DB, Konfiguration und Hausprior liefert der Aufrufer.
+
 Kanonisch ist nach Dok. 113 (E-113-1, Nachtrag) und Codex-Vertrag §8.1 der
 Risikokoeffizient je Anlageklasse = **IC-Subklassenwerte (BuildingBlock-
 Risky-Fraction der Policy) x tatsaechliche Suballokation**. Bis P5 gab es
@@ -29,24 +32,19 @@ Produktion (``app_env == production``, dieselbe Linie wie das Verbot des
 Runtime-Autoseedings) ist das fail-closed: keine Allokation, kein Siegel, kein
 Kanal.
 
-Stdlib-/Engine-nah: keine DB-Zugriffe; der Aufrufer liefert Policy, Zeilen und
-Kontext.
 """
 from __future__ import annotations
 
 import hashlib
 import json
-import unicodedata
 from typing import Any, Iterable, Mapping
-
-from core.reason_codes import ReasonCode
 
 PARAMETER_CONTRACT_VERSION = "ares-risk-parameter-set/1"
 PARAMETER_HASH_DOMAIN = b"Ares\x00ares/risk-parameter-set/1\x00"
 IC_RELEASE_UNRELEASED = "UNRELEASED"
 BASIS_SUB_ALLOCATION = "sub_allocation"
 BASIS_NOT_INVESTABLE = "not_investable"
-BUCKETS: tuple[str, ...] = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
+BUCKETS = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
 
 _ASSET_CLASS_TO_BUCKET = {
     "aktien": "equities",
@@ -64,29 +62,6 @@ _ASSET_CLASS_TO_BUCKET = {
 }
 
 
-# Testlauf: Tests, die den Optimierer DIREKT (ohne Engine/BuildingBlocks)
-# aufrufen, setzen hier ausdruecklich einen Testvektor (tests/conftest.py ->
-# tests/p5_test_vectors.py). Nur unter pytest setzbar; der Produktivpfad setzt
-# ihn nie und bleibt fail-closed (Waechter tests/test_ccx_p5_parameter_set.py).
-_TEST_RISKY_FRACTION: dict[str, float] | None = None
-
-
-def set_test_risky_fraction(vector: Mapping[str, float] | None) -> Mapping[str, float] | None:
-    """Setzt den Testvektor (nur unter pytest); liefert den vorherigen Wert."""
-    import sys
-
-    global _TEST_RISKY_FRACTION
-    if "pytest" not in sys.modules:
-        raise RuntimeError("Testvektor fuer den Risikoanteil ist nur im Testlauf zulaessig.")
-    previous = _TEST_RISKY_FRACTION
-    _TEST_RISKY_FRACTION = None if vector is None else dict(vector)
-    return previous
-
-
-def test_risky_fraction() -> Mapping[str, float] | None:
-    return _TEST_RISKY_FRACTION
-
-
 class ParameterSetMissing(ValueError):
     """``CCX_PARAMETER_SET_MISSING``: kein IC-Wert, wo einer gebraucht wird.
 
@@ -94,7 +69,7 @@ class ParameterSetMissing(ValueError):
     usw.) ihn wie bisher als fachlichen Fehler behandeln; ``reason_code``
     erlaubt der API die typisierte Antwort."""
 
-    reason_code = ReasonCode.CCX_PARAMETER_SET_MISSING
+    reason_code = "CCX_PARAMETER_SET_MISSING"
 
     def __init__(self, message: str) -> None:
         super().__init__(message)
@@ -179,10 +154,9 @@ def ic_bucket_means_bps(risky_map: Mapping[tuple[str, str], Any]) -> dict[str, i
 
 
 def _nfc(value: Any) -> Any:
-    if isinstance(value, str):
-        return unicodedata.normalize("NFC", value)
+    """Kanonische Form (Integer-only; Texte unveraendert, ASCII-escaped im Hash)."""
     if isinstance(value, Mapping):
-        return {str(_nfc(k)): _nfc(v) for k, v in value.items()}
+        return {str(k): _nfc(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_nfc(v) for v in value]
     if isinstance(value, float):
@@ -193,7 +167,7 @@ def _nfc(value: Any) -> Any:
 def parameter_set_hash(record: Mapping[str, Any]) -> str:
     """SHA-256, domaenensepariert, ueber die kanonischen Bytes (ohne Hashfeld)."""
     body = {key: value for key, value in record.items() if key != "parameter_set_hash"}
-    canonical = json.dumps(_nfc(body), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    canonical = json.dumps(_nfc(body), sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(PARAMETER_HASH_DOMAIN + canonical.encode("utf-8")).hexdigest()
 
 
@@ -206,15 +180,15 @@ def ic_release_for(policy: Any) -> tuple[str, str | None]:
     return IC_RELEASE_UNRELEASED, None
 
 
-def production_requires_release() -> bool:
-    from config import settings
-
-    return str(getattr(settings, "app_env", "") or "").lower() == "production"
+def production_requires_release(app_env: Any) -> bool:
+    return str(app_env or "").strip().lower() == "production"
 
 
-def assert_release_allowed(record: Mapping[str, Any]) -> None:
-    """Produktion: ohne IC-Freigabe fail-closed (``CCX_PARAMETER_SET_MISSING``)."""
-    if production_requires_release() and record.get("ic_release_status") != "RELEASED":
+def assert_release_allowed(record: Mapping[str, Any], *, app_env: Any) -> None:
+    """Produktion: ohne IC-Freigabe fail-closed (``CCX_PARAMETER_SET_MISSING``).
+    ``app_env`` liefert der Aufrufer (``config.settings.app_env``; dieses Modul
+    ist ein Stdlib-Blatt ohne Projekt-Importe)."""
+    if production_requires_release(app_env) and record.get("ic_release_status") != "RELEASED":
         raise ParameterSetMissing(
             "Die Risikoparameter (Risikoanteile je Unterklasse, Obergrenzen, Bänder) sind nicht "
             "vom Anlagekomitee freigegeben. In Produktion wird ohne Freigabe nicht gerechnet."
@@ -230,15 +204,10 @@ def build_parameter_set(
     house_matrix_profile: str | None,
     max_risky_fraction_bps: int | None,
     rounding_policy_version: str,
+    house_prior: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Kanonischer Parametersatz einer Allokation inklusive Hash."""
-    from services.optimizer.house_prior import (
-        HOUSE_PRIOR_KAPPA,
-        HOUSE_PRIOR_PARAMETER_RELEASE,
-        HOUSE_PRIOR_PARAMETER_STATUS,
-        HOUSE_PRIOR_VERSION,
-    )
-
+    """Kanonischer Parametersatz einer Allokation inklusive Hash.
+    ``house_prior``: ``house_prior_from_model_basis(...)`` (Integer-Felder)."""
     rows = list(sub_allocations or ())
     coefficients, basis = canonical_bucket_coefficients(rows)
     status, release_ref = ic_release_for(policy)
@@ -285,12 +254,7 @@ def build_parameter_set(
             "max_risky_fraction_bps": None if max_risky_fraction_bps is None else int(max_risky_fraction_bps),
         },
         "risk_budget_bps": int(risk_budget_bps),
-        "house_prior": {
-            "version": HOUSE_PRIOR_VERSION,
-            "kappa_x100": int(round(float(HOUSE_PRIOR_KAPPA) * 100)),
-            "parameter_release": HOUSE_PRIOR_PARAMETER_RELEASE,
-            "parameter_status": HOUSE_PRIOR_PARAMETER_STATUS,
-        },
+        "house_prior": {key: house_prior[key] for key in sorted(house_prior)},
         "rounding_policy_version": str(rounding_policy_version),
     }
     record["parameter_set_hash"] = parameter_set_hash(record)
@@ -300,20 +264,19 @@ def build_parameter_set(
 def allocation_parameter_set(
     policy: Any, sub_allocations: Iterable[Mapping[str, Any]], minimums: Mapping[str, Any],
     maximums: Mapping[str, Any], risk_budget_bps: int, house_matrix: Any, asset_risky_weights: Mapping[str, Any],
+    *, house_prior: Mapping[str, Any], app_env: Any, rounding_policy_version: str,
 ) -> dict[str, Any]:
     """Satz einer neu berechneten Allokation (Generate): derselbe Vektor wie
     Solver-Constraint und Budgetpruefung, sonst ``CCX_PARAMETER_SET_MISSING``;
     ohne IC-Freigabe in Produktion fail-closed."""
-    from core.presentation_rounding import ROUNDING_POLICY_VERSION
-
     record = build_parameter_set(
         policy=policy, sub_allocations=sub_allocations,
         bounds_bps={bucket: (int(minimums[bucket]), int(maximums[bucket])) for bucket in BUCKETS},
         risk_budget_bps=int(risk_budget_bps), house_matrix_profile=getattr(house_matrix, "profile_name", None),
         max_risky_fraction_bps=getattr(house_matrix, "max_risky_fraction_bps", None),
-        rounding_policy_version=ROUNDING_POLICY_VERSION,
+        rounding_policy_version=rounding_policy_version, house_prior=house_prior,
     )
-    assert_release_allowed(record)
+    assert_release_allowed(record, app_env=app_env)
     if record["bucket_coefficients_bps"] != {b: int(asset_risky_weights[b]) for b in BUCKETS}:
         raise ParameterSetMissing("Risikoparametersatz und Allokationskoeffizienten weichen ab.")
     return record
@@ -337,6 +300,32 @@ def verify_parameter_set(record: Any, *, persisted_coefficients: Mapping[str, An
                 "Der Risikoparametersatz widerspricht den gespeicherten Risikoanteilen der Allokation."
             )
     return stored
+
+
+def house_prior_from_model_basis(optimization_basis: Any) -> dict[str, Any]:
+    """Hausprior-Version und kappa (x100, Integer) aus der gespeicherten
+    Optimierer-Modellbasis (``objective_contract``); ohne Optimierer (manuelle
+    Allokation, House-Matrix) ausdruecklich ``not_applicable``."""
+    found: dict[str, Any] = {}
+
+    def walk(node: Any) -> None:
+        if isinstance(node, Mapping):
+            for key, value in node.items():
+                if key in ("house_prior_policy", "house_prior_kappa") and key not in found:
+                    found[key] = value
+                walk(value)
+        elif isinstance(node, (list, tuple)):
+            for value in node:
+                walk(value)
+
+    walk(optimization_basis)
+    if "house_prior_policy" not in found:
+        return {"version": "not_applicable", "kappa_x100": None}
+    kappa = found.get("house_prior_kappa")
+    return {
+        "version": str(found["house_prior_policy"]),
+        "kappa_x100": None if kappa is None else int(round(float(kappa) * 100)),
+    }
 
 
 def stored_risk_parameter_set(allocation: Any) -> dict[str, Any] | None:
@@ -363,6 +352,7 @@ __all__ = [
     "bucket_of",
     "build_parameter_set",
     "canonical_bucket_coefficients",
+    "house_prior_from_model_basis",
     "ic_bucket_means_bps",
     "ic_release_for",
     "parameter_set_hash",

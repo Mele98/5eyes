@@ -116,7 +116,7 @@ def test_score_raises_above_100_instead_of_clamping():
 def test_risky_fraction_without_building_blocks_fails_closed():
     """CCX P5 / M-2: ohne IC-Werte (keine BuildingBlocks) kein Resultat -- frueher
     lieferte der Code-Fallback still 0 bzw. den Bucket-Satz."""
-    from services.risk_parameter_set import ParameterSetMissing
+    from core.risk_parameter_set import ParameterSetMissing
 
     for alloc in ({}, {"liquidity": 10000, "equities": 0, "bonds": 0, "real_estate": 0, "alternatives": 0}):
         with pytest.raises(ParameterSetMissing):
@@ -132,7 +132,7 @@ def test_bucket_rf_empty_building_blocks_fail_closed():
     CCX_PARAMETER_SET_MISSING."""
     import pytest
 
-    from services.risk_parameter_set import ParameterSetMissing
+    from core.risk_parameter_set import ParameterSetMissing
 
     with pytest.raises(ParameterSetMissing):
         bucket_risky_fraction_bps_from_building_blocks([])

@@ -42,6 +42,10 @@ fuer den Vorgaenger ``ccx.envelope.superseded``. Es gibt keinen Fallback auf
 einen aelteren oder unvollstaendigen Entscheid.
 """
 from __future__ import annotations
+import json
+
+from core.goal_metric_contract import GoalMetricUncertified, build_goal_metric_payload
+from core.risk_parameter_set import ParameterSetMissing, stored_risk_parameter_set, verify_parameter_set
 
 import logging
 from typing import Any
@@ -91,6 +95,7 @@ from services.advisory_envelope_integrity import MANIFEST_BINDING_KIND, envelope
 from services.advisory_snapshot_transaction import RETRY, classify_snapshot_consistency
 from services.audit import log, restore_tenant_after_rollback
 from services.effective_input_manifest import (
+    active_included_goals,
     build_manifest_record,
     collect_dependency_parts,
     collect_effective_input_components,
@@ -282,24 +287,18 @@ def _p5_bindings(ta: Any, parameter_set_hash: str | None, goal_metric_hash: str 
 def p5_decision_hashes(db: Session, *, mandate: Any, ta: Any) -> tuple[str, str]:
     """``(parameter_set_hash, goal_metric_payload_hash)`` der Soll-Allokation,
     fail-closed (``ParameterSetMissing`` / ``GoalMetricUncertified``)."""
-    import json as _json
-
-    from services.goal_metric_contract import build_goal_metric_payload
-    from services.risk_parameter_set import (
-        assert_release_allowed,
-        stored_risk_parameter_set,
-        verify_parameter_set,
-    )
-
     record = stored_risk_parameter_set(ta)
     try:
-        persisted = _json.loads(getattr(ta, "effective_constraints_json", None) or "{}").get(
+        persisted = json.loads(getattr(ta, "effective_constraints_json", None) or "{}").get(
             "risky_fraction_per_bucket_bps")
     except (TypeError, ValueError, AttributeError):
         persisted = None
     parameter_hash = verify_parameter_set(record, persisted_coefficients=persisted if isinstance(persisted, dict) else {})
-    assert_release_allowed(record)
-    goal_payload = build_goal_metric_payload(db, mandate=mandate, target_allocation=ta)
+    # IC-Freigabe: fail-closed bei der Berechnung (Produktion, Engine/manuell);
+    # hier nur Integritaet und Kohaerenz des gespeicherten Satzes.
+    goal_payload = build_goal_metric_payload(
+        active_included_goals(db, str(mandate.id)), mandate=mandate, target_allocation=ta,
+    )
     return parameter_hash, goal_payload["goal_metric_payload_hash"]
 
 
@@ -433,9 +432,6 @@ def seal_advisory_envelope(
     ledger_digest = valuation.ledger_hash
     # CCX P5 (M-2/M-3): ohne kanonischen Parametersatz und ohne zertifizierte
     # Zielkennzahl kein Siegel -- typisiert, auditiert, kein Fallback.
-    from services.goal_metric_contract import GoalMetricUncertified
-    from services.risk_parameter_set import ParameterSetMissing
-
     try:
         p5_hashes = p5_decision_hashes(db, mandate=mandate, ta=ta)
     except ParameterSetMissing as exc:

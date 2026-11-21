@@ -22,6 +22,9 @@ Inequality-Convention (scipy):
   'eq':   fun(w) == 0 ist feasible
 """
 from __future__ import annotations
+import sys
+
+from core.risk_parameter_set import ParameterSetMissing
 
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -48,8 +51,32 @@ _ASSET_CLASS_TO_BUCKET = {
 
 # CCX P5 / M-2: der fruehere Bucket-Satz DEFAULT_BUCKET_RISKY_FRACTION
 # (0.80/0.25/0.60/0.60) ist entfernt. Jeder Aufrufer liefert den kanonischen
-# Vektor (IC-Subklassenwerte x Suballokation, services/risk_parameter_set.py);
+# Vektor (IC-Subklassenwerte x Suballokation, core/risk_parameter_set.py);
 # fehlt er, gilt CCX_PARAMETER_SET_MISSING statt eines Code-Fallbacks.
+
+
+# Testlauf: Tests, die den Optimierer DIREKT (ohne Engine/BuildingBlocks)
+# aufrufen, setzen hier ausdruecklich einen Testvektor (tests/conftest.py ->
+# tests/p5_test_vectors.py). Nur unter pytest setzbar; der Produktivpfad setzt
+# ihn nie und bleibt fail-closed (Waechter tests/test_ccx_p5_parameter_set.py).
+_TEST_RISKY_FRACTION: dict | None = None
+
+
+def set_test_risky_fraction(vector: Mapping[str, float] | None) -> Mapping[str, float] | None:
+    """Setzt den Testvektor (nur unter pytest); liefert den vorherigen Wert."""
+    global _TEST_RISKY_FRACTION
+    if "pytest" not in sys.modules:
+        raise RuntimeError("Testvektor fuer den Risikoanteil ist nur im Testlauf zulaessig.")
+    previous = _TEST_RISKY_FRACTION
+    _TEST_RISKY_FRACTION = None if vector is None else dict(vector)
+    return previous
+
+
+def test_risky_fraction() -> Mapping[str, float] | None:
+    return _TEST_RISKY_FRACTION
+
+
+test_risky_fraction.__test__ = False  # kein pytest-Test
 
 
 def require_risky_fraction_per_bucket(
@@ -57,8 +84,6 @@ def require_risky_fraction_per_bucket(
 ) -> Mapping[str, float]:
     """Kanonischer Risikovektor oder ``CCX_PARAMETER_SET_MISSING``."""
     if risky_fraction_per_bucket is None:
-        from services.risk_parameter_set import ParameterSetMissing, test_risky_fraction
-
         vector = test_risky_fraction()  # nur im Testlauf gesetzt (direkte Solver-Tests)
         if vector is not None:
             return vector
@@ -576,8 +601,6 @@ def bucket_risky_fractions_from_building_blocks(
             out[bucket] = float(sum(vals) / len(vals))
     missing = [bucket for bucket in BUCKET_ORDER if bucket not in out]
     if missing:
-        from services.risk_parameter_set import ParameterSetMissing
-
         raise ParameterSetMissing(
             "Für folgende Anlageklassen fehlt jeder IC-Risikoanteil: " + ", ".join(missing) + "."
         )

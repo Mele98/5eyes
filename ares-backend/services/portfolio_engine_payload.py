@@ -108,6 +108,7 @@ dritte Zeichenkette `'"current_goal_analysis"'` bleibt dagegen unberuehrt
 """
 
 from __future__ import annotations
+from core.risk_parameter_set import ParameterSetMissing
 
 import json
 import logging
@@ -368,8 +369,6 @@ def _inflate_real_goal_target_rappen(target_rappen: int, years: int, inflation_s
     if not series and int(years or 0) > 0:
         # CCX P5 / M-2: frueher lokal 150 bps -- eine zweite, nirgends
         # freigegebene Inflationsannahme. Jetzt nur der CMA-Pfad.
-        from services.risk_parameter_set import ParameterSetMissing
-
         raise ParameterSetMissing(
             "Für die Teuerung des Ziels fehlt der Inflationspfad der Kapitalmarktannahmen."
         )

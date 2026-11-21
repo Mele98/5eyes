@@ -49,6 +49,47 @@ RELEASE_ALLOCATION_MISSING = "RELEASE_ALLOCATION_MISSING"
 
 CHANNEL_ADVISORY_PDF = "advisory_pdf"
 CHANNEL_SIGNATURE = "signature"
+
+# CCX P5 (Vertrag §8.4): Envelope-/Artefakt-Gate der Berater- und Vor-Ort-
+# Signatur. Implementiert im P4/P5-Gate (services/allocation_publication_gate.py),
+# das sich beim Import hier registriert -- Abhaengigkeit umgedreht, weil der
+# P4-Gate dieses Modul importiert (kein Zyklus, keine neue Modulkante der
+# Signatur-Router). Nicht registriert = fail-closed.
+_SIGNATURE_ENVELOPE_GATE: dict = {}
+
+
+def register_signature_envelope_gate(require, record, advisor_channel: str) -> None:
+    _SIGNATURE_ENVELOPE_GATE.update(require=require, record=record, advisor_channel=advisor_channel)
+
+
+def _signature_gate(name: str):
+    gate = _SIGNATURE_ENVELOPE_GATE.get(name)
+    if gate is None:
+        raise DomainError(
+            ReasonCode.CCX_CHANNEL_BINDING_MISSING,
+            "Signatur gesperrt: das Kanal-Gate des Beratungsentscheids ist nicht verfuegbar.",
+            http_status=409, extra={"channel": CHANNEL_SIGNATURE},
+        )
+    return gate
+
+
+def require_signature_envelope(db: Session, mandate: Any, document: Any, *, channel: str, user: Any,
+                               ip_address: Optional[str] = None):
+    """CCX P5: ``(decision, publication)`` fuer Entscheid-Dokumente, ``None`` fuer
+    Dokumente ohne Entscheidbezug; sonst 409 (``CCX_SIGNATURE_ENVELOPE_OUTDATED``
+    bzw. FX-Code)."""
+    return _signature_gate("require")(db, mandate, document, channel=channel, user=user, ip_address=ip_address)
+
+
+def record_signature_publication(db: Session, binding, *, mandate: Any, artifact_id: str, user: Any,
+                                 channel: Optional[str] = None):
+    """CCX P5: Kanalzeile der Signatur (Envelope-, Payload-, Render-Hash)."""
+    decision, publication = binding
+    return _signature_gate("record")(
+        db, decision, mandate=mandate, channel=channel or _signature_gate("advisor_channel"),
+        artifact_id=artifact_id, channel_payload_hash=publication.channel_payload_hash,
+        render_hash=publication.render_hash, user=user,
+    )
 CHANNEL_HANDOFF = "handoff"
 # H8: Finalisierung als eigener Kanal des Kundeninformations-/KYC-Gates.
 CHANNEL_FINALIZATION = "finalization"

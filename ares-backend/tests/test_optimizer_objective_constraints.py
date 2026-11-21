@@ -815,7 +815,7 @@ def test_bucket_risky_fractions_empty_rows_fail_closed():
     """CCX P5 / M-2: keine BuildingBlocks -> CCX_PARAMETER_SET_MISSING (frueher
     stiller Code-Fallback auf den Bucket-Satz)."""
     from services.optimizer.constraints import bucket_risky_fractions_from_building_blocks
-    from services.risk_parameter_set import ParameterSetMissing
+    from core.risk_parameter_set import ParameterSetMissing
 
     with pytest.raises(ParameterSetMissing):
         bucket_risky_fractions_from_building_blocks([])

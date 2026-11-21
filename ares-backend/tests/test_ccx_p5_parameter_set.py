@@ -18,7 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from services.risk_parameter_set import (
+from core.risk_parameter_set import (
     BASIS_NOT_INVESTABLE,
     BASIS_SUB_ALLOCATION,
     ParameterSetMissing,
@@ -49,7 +49,8 @@ BOUNDS = {b: (0, 10000) for b in ("equities", "bonds", "real_estate", "alternati
 def _set(rows):
     return build_parameter_set(policy=_policy(), sub_allocations=rows, bounds_bps=BOUNDS, risk_budget_bps=6000,
                                house_matrix_profile="Ausgewogen", max_risky_fraction_bps=6000,
-                               rounding_policy_version="ares-rounding/1")
+                               rounding_policy_version="ares-rounding/1",
+                               house_prior={"version": "test", "kappa_x100": 30000})
 
 
 def test_two_sub_allocations_of_one_bucket_give_different_coefficients():
@@ -112,7 +113,7 @@ def test_historic_hardcoded_sets_are_gone():
 
 @pytest.fixture()
 def no_test_vector():
-    from services.risk_parameter_set import set_test_risky_fraction
+    from services.optimizer.constraints import set_test_risky_fraction
 
     previous = set_test_risky_fraction(None)
     yield
@@ -138,11 +139,20 @@ def test_test_vector_is_only_settable_under_pytest_and_never_read_by_production_
         str(path.relative_to(BACKEND)) for path in (BACKEND / "services").rglob("*.py")
         if "test_risky_fraction()" in path.read_text(encoding="utf-8")
     ]
-    assert set(readers) <= {str(Path("services/optimizer/constraints.py")),
-                            str(Path("services/risk_parameter_set.py"))}
-    assert str(Path("services/optimizer/constraints.py")) in readers
+    assert readers == [str(Path("services/optimizer/constraints.py"))]
     for path in list((BACKEND / "services").rglob("*.py")) + list((BACKEND / "routers").rglob("*.py")):
         assert "p5_test_vectors" not in path.read_text(encoding="utf-8"), path
+
+
+def test_parameter_and_goal_metric_modules_are_stdlib_leaves():
+    """Eine Quelle ohne Modulkanten: beide Vertraege sind reine Stdlib-Blaetter."""
+    import ast
+
+    for rel in ("core/risk_parameter_set.py", "core/goal_metric_contract.py"):
+        tree = ast.parse((BACKEND / rel).read_text(encoding="utf-8"))
+        modules = {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)} | {
+            a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+        assert modules <= {"__future__", "hashlib", "json", "typing"}, (rel, modules)
 
 
 def test_building_block_mean_without_bucket_fails_closed():
@@ -178,10 +188,10 @@ def test_unreleased_parameters_fail_closed_in_production(monkeypatch):
     record = _set([_row("Obligationen", "CHF IG", 2000, 10000)])
     assert record["ic_release_status"] == "UNRELEASED"  # nie als freigegeben behauptet
     monkeypatch.setattr(settings, "app_env", "development")
-    assert_release_allowed(record)
+    assert_release_allowed(record, app_env=settings.app_env)
     monkeypatch.setattr(settings, "app_env", "production")
     with pytest.raises(ParameterSetMissing):
-        assert_release_allowed(record)
+        assert_release_allowed(record, app_env=settings.app_env)
 
 
 def test_cma_without_inflation_path_fails_closed():
@@ -214,7 +224,7 @@ def test_local_inflation_fallbacks_are_gone():
 def test_integrity_check_ignores_inert_legacy_coefficient_of_non_investable_bucket():
     """Bestand vor P5 speicherte 7900 fuer einen nicht investierbaren Bucket;
     der Wert ist inert (Gewicht 0) und macht die Allokation nicht ungueltig."""
-    from services.risk_parameter_set import risk_from_targets
+    from core.risk_parameter_set import risk_from_targets
 
     coefficients, basis = canonical_bucket_coefficients([_row("Obligationen", "CHF IG", 2000, 10000)])
     legacy = {**coefficients, "equities": 7900}

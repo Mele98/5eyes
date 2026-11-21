@@ -16,7 +16,7 @@ Risikoprofil, Building Blocks, Weiteres Vorgehen) folgen in U-P26 PR B-F.
 """
 from __future__ import annotations
 
-from core.customer_terms import customer_term
+from core.customer_terms import customer_term, decision_footer_label
 import logging
 import time
 from datetime import datetime
@@ -239,8 +239,6 @@ def render_advisory_report_pdf_from_payload(
     toc_section_ids = toc_collector.section_ids_by_title()
 
     out_buf, out_doc = _new_doc()
-    from services.pdf.components.footer import decision_footer_label
-
     chrome = make_advisory_page_chrome(
         mandate_number=mandate_number,
         generated_at_iso=generated_at,

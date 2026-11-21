@@ -81,6 +81,7 @@ auf Modul-Ebene importiert (kein Zyklus moeglich). `Goal`/`Mandate`/
 annotations` + `TYPE_CHECKING`, wo kein echter Laufzeit-Gebrauch vorliegt.
 """
 from __future__ import annotations
+from core.risk_parameter_set import assert_weights_investable, canonical_bucket_coefficients
 
 import re
 from collections.abc import Collection
@@ -1533,11 +1534,9 @@ def _enrich_sub_allocations_with_risk(
         weighted_totals[bucket] += mix_weight * int(risky_fraction_bps)
         weight_totals[bucket] += mix_weight
         enriched.append({**sub, "risky_fraction_bps": int(risky_fraction_bps)})
-    # CCX P5 / M-2 (services/risk_parameter_set.py): eine Quelle. Bucket-
+    # CCX P5 / M-2 (core/risk_parameter_set.py): eine Quelle. Bucket-
     # Koeffizient = IC-Subklassenwerte x Mischgewicht; ein Bucket ohne Zeile ist
     # nicht investierbar (Koeffizient 0, inert) -- kein hart codierter Satz mehr.
-    from services.risk_parameter_set import assert_weights_investable, canonical_bucket_coefficients
-
     asset_risky_weights, coefficient_basis = canonical_bucket_coefficients(enriched)
     del weighted_totals, weight_totals
     portfolio_weights = {bucket: 0 for bucket in BUCKET_FIELDS}

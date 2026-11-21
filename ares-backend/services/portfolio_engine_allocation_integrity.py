@@ -25,6 +25,7 @@ bestehende Aufrufstellen (``build_target_payload_from_allocation``,
 """
 
 from __future__ import annotations
+from core.risk_parameter_set import BASIS_NOT_INVESTABLE, canonical_bucket_coefficients
 
 import json
 import logging
@@ -344,8 +345,6 @@ def _verified_persisted_allocation_context(
     # (Gewicht 0, Koeffizient inert). Vor P5 stand dort ein Wert aus dem
     # entfernten Code-Satz (z. B. 7900); er beeinflusst weder Budget noch
     # Summe und wird deshalb nicht verglichen -- nur seine Form.
-    from services.risk_parameter_set import BASIS_NOT_INVESTABLE, canonical_bucket_coefficients
-
     _coefficients, coefficient_basis = canonical_bucket_coefficients(_verified_rows)
     compared = [b for b in BUCKET_FIELDS if coefficient_basis.get(b) != BASIS_NOT_INVESTABLE]
     expected_bucket_risk_bps = {

@@ -63,6 +63,8 @@ def _zero_return_cma() -> CapitalMarketAssumption:
         liquidity_vol_bps=0,
         correlation_matrix_json="",
         sub_asset_class_assumptions_json="",
+        # CCX P5 / M-2: ohne CMA-Inflationspfad fail-closed; explizite Testreihe (frueher stiller 70-bps-Ersatz).
+        inflation_path_json='{"2026": 70}',
         created_by="test",
         created_at="2026-01-01T00:00:00.000Z",
         updated_at="2026-01-01T00:00:00.000Z",
