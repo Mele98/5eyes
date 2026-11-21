@@ -22,7 +22,7 @@ auf PostgreSQL denselben INSERT-Guard wie die uebrige Mandats-Evidenz
 (Funktion ``mandate_evidence_tenant_from_mandate`` aus b8d4f2a6c9e1). Kein FK
 auf mandates/clients (Purge-fest), nur die Akteure verweisen auf users.
 Neue Tabellen, kein Backfill. SQLite legt dieselben Tabellen ueber create_all
-an (models/contract_layer.py).
+an (models/tenant.py, models/review.py).
 
 Downgrade (fail-closed): liegt irgendeine Zeile vor, bricht der Downgrade ab
 (freigegebene Owner-Inhalte und Kundenbestaetigungen sind Nachweise).

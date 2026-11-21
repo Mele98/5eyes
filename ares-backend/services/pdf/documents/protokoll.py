@@ -66,7 +66,7 @@ def build_protokoll_flowables(ctx: PDFContext, data) -> list:
 
     # H-179 P-1 (Art. 15 FIDLEG): feste Abschnitte der Anlageberatung. Die
     # Gruende formuliert der Berater; fehlen sie, steht das offen da (die
-    # Finalisierung ist dann gesperrt, services/contract_layer.py).
+    # Finalisierung ist dann gesperrt, services/recommendation_release_gate.py).
     if getattr(data, "advice_sections_required", False):
         _not_recorded = "Nicht erfasst."
         for title, value in (

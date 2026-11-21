@@ -206,7 +206,7 @@ GOLDEN_SORTED_TABLES_SHA256 = "2ee5c5d1b0e638e00173bb1ed3b6e61d0c1e148e36f5d0139
 # /{row_id}/approve), /mandates/{id}/contract-layer, .../advice-rationale,
 # .../w033-declarations und Schemas OwnerContentCreate/OwnerContentApprove/
 # AdviceRationaleCreate/W033DeclarationCreate; kein bestehender Pfad geaendert.
-GOLDEN_OPENAPI_SHA256 = "0672bb733bfcbb5c8488774455aa720b2bdd50b848c216d2cbaf7022543fc609"
+GOLDEN_OPENAPI_SHA256 = "0dc75ae777dd775c31c1bb25db1af28ce9090474d02fe2b02fbcc57590db631a"
 
 _PROBE = """
 import hashlib, json

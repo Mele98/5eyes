@@ -1,4 +1,4 @@
-from sqlalchemy import DDL, BigInteger, Column, String, Integer, ForeignKey, UniqueConstraint, Index, event, text
+from sqlalchemy import DDL, BigInteger, CheckConstraint, Column, String, Integer, ForeignKey, UniqueConstraint, Index, event, text
 from sqlalchemy.orm import relationship
 from database import CLIENT_INFORMATION_DELIVERY_SQLITE_TRIGGERS, Base
 
@@ -776,3 +776,86 @@ for _trigger_ddl in CLIENT_INFORMATION_DELIVERY_SQLITE_TRIGGERS:
         "after_create",
         DDL(_trigger_ddl).execute_if(dialect="sqlite"),
     )
+
+
+# ---------------------------------------------------------------------------
+# H-179 L2/L3: Mandats-Evidenz -- Gruende der Empfehlung (P-1, Art. 15 FIDLEG)
+# und W033-Kundenbestaetigung (E-1). tenant_id direkt, Mandant/Kunde aus dem
+# Mandat (INSERT-Guard, core/mandate_evidence_tenant_boundary.py), kein FK auf
+# mandates/clients (Purge-fest), append-only. Alembic c7e1a9d3f5b2.
+# ---------------------------------------------------------------------------
+
+
+def _h179_append_only_sqlite(table: str) -> tuple[str, str]:
+    return (
+        f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_update "
+        f"BEFORE UPDATE ON {table} FOR EACH ROW "
+        f"BEGIN SELECT RAISE(ABORT, '{table} is immutable'); END",
+        f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_delete "
+        f"BEFORE DELETE ON {table} FOR EACH ROW "
+        f"BEGIN SELECT RAISE(ABORT, '{table} is immutable'); END",
+    )
+
+
+class AdviceRationale(Base):
+    """P-1 (Art. 15 FIDLEG): Kundenbeduerfnisse und Gruende der Empfehlung je
+    Empfehlungslauf, vom Berater erfasst (nie von Ares formuliert). Korrektur =
+    neue Zeile; massgebend ist die juengste je Lauf."""
+
+    __tablename__ = "advice_rationales"
+    __table_args__ = (
+        Index("ix_advice_rationales_tenant_id", "tenant_id"),
+        Index("ix_advice_rationales_run", "mandate_id", "recommendation_run_id"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    mandate_id = Column(String, nullable=False)
+    client_id = Column(String, nullable=False)
+    recommendation_run_id = Column(String, nullable=False)
+    client_needs = Column(String, nullable=False)
+    recommendation_reasons = Column(String, nullable=False)
+    recorded_by = Column(String, ForeignKey("users.id"), nullable=False)
+    recorded_at = Column(String, nullable=False)
+    rationale_hash = Column(String, nullable=False)
+
+
+class W033ClientDeclaration(Base):
+    """E-1 (Dok. 112 Kap. 4.1): Kundenbestaetigung je Risikoprofil-Version,
+    gebunden an die gezeigte, freigegebene Owner-Textversion."""
+
+    __tablename__ = "w033_client_declarations"
+    __table_args__ = (
+        CheckConstraint(
+            "declaration_kind IN ('angaben_wahr_meldepflicht','horizont_abraten')",
+            name="ck_w033_client_declarations_kind",
+        ),
+        CheckConstraint(
+            "capture_channel IN ('persoenlich_papier','vor_ort','kundenportal')",
+            name="ck_w033_client_declarations_channel",
+        ),
+        Index("ix_w033_client_declarations_tenant_id", "tenant_id"),
+        Index("ix_w033_client_declarations_assessment", "mandate_id", "risk_assessment_id"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String)
+    mandate_id = Column(String, nullable=False)
+    client_id = Column(String, nullable=False)
+    risk_assessment_id = Column(String, nullable=False)
+    declaration_kind = Column(String, nullable=False)
+    content_key = Column(String, nullable=False)
+    content_row_id = Column(String, nullable=False)
+    content_hash = Column(String, nullable=False)
+    horizon_years = Column(Integer)
+    min_horizon_years = Column(Integer)
+    capture_channel = Column(String, nullable=False)
+    confirmed_at = Column(String, nullable=False)
+    recorded_by = Column(String, ForeignKey("users.id"), nullable=False)
+    recorded_at = Column(String, nullable=False)
+    declaration_hash = Column(String, nullable=False)
+
+
+for _model in (AdviceRationale, W033ClientDeclaration,):
+    for _trigger_ddl in _h179_append_only_sqlite(_model.__tablename__):
+        event.listen(_model.__table__, "after_create", DDL(_trigger_ddl).execute_if(dialect="sqlite"))

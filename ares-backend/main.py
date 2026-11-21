@@ -46,7 +46,6 @@ from routers.privacy import (  # PRIVACY-001 (2026-10-27); H10 C-DSG-03 Egress-S
 )
 from routers.eligibility_overrides import router as eligibility_overrides_router  # ELIG-OVERRIDE-CAPTURE-001
 from routers.cma_policy import router as cma_policy_router  # CMA-001
-from routers.contract_layer import router as contract_layer_router  # H-179 L2/L3 Vertragsschicht
 from routers.clients import kyc_approvals_router, router as clients_router
 from routers.health import router as health_router
 from routers.jurisdiction import (  # WP3 (2026-07-31) — Jurisdiktions-Verwaltung + CMA-Freigabe
@@ -223,7 +222,6 @@ app.include_router(privacy_router)  # PRIVACY-001 (2026-10-27)
 app.include_router(onsite_signature_router)  # SIGN-001 (2026-10-27)
 app.include_router(eligibility_overrides_router)  # ELIG-OVERRIDE-CAPTURE-001
 app.include_router(cma_policy_router)  # CMA-001 (2026-10-27)
-app.include_router(contract_layer_router)  # H-179 L2/L3 Vertragsschicht
 
 
 # ---------------------------------------------------------------------------

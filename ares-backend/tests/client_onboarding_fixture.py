@@ -22,7 +22,6 @@ import hashlib
 from datetime import date, timedelta
 
 from database import new_uuid
-import models.contract_layer  # noqa: F401  H-179: Tabellen vor create_all registrieren
 from models.clients import Client, ClientDueDiligence, KycConfirmation
 from models.review import ClientInformationDelivery, ContractDocument
 from models.tenant import (
@@ -285,7 +284,7 @@ TEST_MIN_HORIZON_YEARS = 1
 
 
 def _owner_content_test_keys() -> list[tuple[str, str | None, dict | None]]:
-    from services import owner_content as oc
+    from services import recommendation_release_gate as oc
 
     keys: list[tuple[str, str | None, dict | None]] = []
     for clause in oc.CONTRACT_CLAUSE_KEYS:
@@ -306,15 +305,15 @@ def ensure_test_owner_content(
     value=None, approve: bool = True,
 ):
     """Neue Version (+ Vier-Augen-Freigabe) eines Owner-Inhalts als TESTWERT."""
-    from models.contract_layer import OWNER_CONTENT_GENESIS, OwnerContentApproval, OwnerContentVersion
-    from services import owner_content as oc
+    from models.tenant import OWNER_CONTENT_GENESIS, OwnerContentApproval, OwnerContentVersion
+    from services import recommendation_release_gate as oc
 
     head = oc.resolve_owner_content(db, tenant_id, key)
-    entry = oc.catalog_entry(key)
-    stored_text, stored_value = oc.normalize_payload(entry, body_text, value)
+    entry = oc.owner_catalog_entry(key)
+    stored_text, stored_value = oc.normalize_owner_payload(entry, body_text, value)
     versions, _approvals = oc.owner_content_chain(db, tenant_id, key)
     version = OwnerContentVersion(
-        id=new_uuid(), tenant_id=tenant_id, content_key=key, catalog_version=oc.CATALOG_VERSION,
+        id=new_uuid(), tenant_id=tenant_id, content_key=key, catalog_version=oc.OWNER_CATALOG_VERSION,
         version=max((int(v["version"]) for v in versions.values()), default=0) + 1,
         body_text=stored_text, value_json=stored_value,
         source_reference=f"{TEST_CONTRACT_MARKER} Testwert", created_by=actor_id, created_at=_PAST,
@@ -325,7 +324,7 @@ def ensure_test_owner_content(
     if approve:
         approval = OwnerContentApproval(
             id=new_uuid(), tenant_id=tenant_id, content_key=key, content_row_id=version.id,
-            predecessor_approval_id=(head["approval"]["id"] if head["status"] == oc.STATUS_APPROVED
+            predecessor_approval_id=(head["approval"]["id"] if head["status"] == oc.OWNER_STATUS_APPROVED
                                      else OWNER_CONTENT_GENESIS),
             approved_by=_test_review_approver(db, actor_id), approved_at=_PAST,
             approval_reference=f"{TEST_CONTRACT_MARKER} Testfreigabe", content_hash=version.content_hash,
@@ -337,18 +336,18 @@ def ensure_test_owner_content(
 
 
 def ensure_test_contract_layer_tenant(db, tenant_id: str, *, actor_id: str) -> None:
-    from services import owner_content as oc
+    from services import recommendation_release_gate as oc
 
     for key, text, value in _owner_content_test_keys():
-        if oc.resolve_owner_content(db, tenant_id, key)["status"] == oc.STATUS_APPROVED:
+        if oc.resolve_owner_content(db, tenant_id, key)["status"] == oc.OWNER_STATUS_APPROVED:
             continue
         ensure_test_owner_content(db, tenant_id, actor_id=actor_id, key=key, body_text=text, value=value)
 
 
 def ensure_test_depot_bank_inducement(db, mandate, *, actor_id: str) -> None:
-    from services import owner_content as oc
+    from services import recommendation_release_gate as oc
 
-    from services.contract_layer import DEPOT_BANK_REQUIRED_MANDATE_TYPES
+    from services.recommendation_release_gate import DEPOT_BANK_REQUIRED_MANDATE_TYPES
 
     if not str(getattr(mandate, "depot_bank", "") or "").strip():
         if str(getattr(mandate, "mandate_type", "") or "") not in DEPOT_BANK_REQUIRED_MANDATE_TYPES:
@@ -357,7 +356,7 @@ def ensure_test_depot_bank_inducement(db, mandate, *, actor_id: str) -> None:
         db.flush()
     tenant_id = _tenant_for(db, mandate)
     key = oc.depot_bank_key(mandate.depot_bank)
-    if oc.resolve_owner_content(db, tenant_id, key)["status"] == oc.STATUS_APPROVED:
+    if oc.resolve_owner_content(db, tenant_id, key)["status"] == oc.OWNER_STATUS_APPROVED:
         return
     ensure_test_owner_content(db, tenant_id, actor_id=actor_id, key=key, value={
         "depot_bank": mandate.depot_bank, "status": "keine",
@@ -367,8 +366,8 @@ def ensure_test_depot_bank_inducement(db, mandate, *, actor_id: str) -> None:
 
 def confirm_test_w033(db, mandate, *, actor_id: str) -> None:
     """W033-Bestaetigungen (Testwert) zum aktuellen Risikoprofil, falls vorhanden."""
-    from models.contract_layer import W033ClientDeclaration
-    from services.contract_layer import w033_state
+    from models.review import W033ClientDeclaration
+    from services.recommendation_release_gate import w033_state
 
     state = w033_state(db, mandate)
     if state["assessment_id"] is None:
@@ -393,8 +392,8 @@ def confirm_test_w033(db, mandate, *, actor_id: str) -> None:
 
 
 def record_test_advice_rationale(db, mandate, run_id: str, *, actor_id: str) -> None:
-    from models.contract_layer import AdviceRationale
-    from services.contract_layer import latest_advice_rationale
+    from models.review import AdviceRationale
+    from services.recommendation_release_gate import latest_advice_rationale
 
     if latest_advice_rationale(db, str(mandate.id), run_id):
         return
@@ -421,6 +420,7 @@ def satisfy_contract_layer(db, mandate, *, actor_id: str | None = None, run_id: 
     ensure_test_contract_layer_tenant(db, tenant_id, actor_id=actor)
     ensure_test_depot_bank_inducement(db, mandate, actor_id=actor)
     confirm_test_w033(db, mandate, actor_id=actor)
+    bind_test_contract_documents(db, mandate)
     from models.review import RecommendationRun
 
     run_ids = [run_id] if run_id else [
@@ -440,3 +440,34 @@ def satisfy_contract_layer_for_all_mandates(db) -> None:
         if client is None or client.advisor_id is None:
             continue
         satisfy_contract_layer(db, mandate, actor_id=client.advisor_id)
+
+
+def bind_test_contract_documents(db, mandate) -> None:
+    """H-179: unsignierte Beratungsvertraege der Testwelt erhalten einen Ort
+    (Testwert) und die Bindung an die aktuelle Vertragsvorlage -- so, wie sie
+    das Vertrags-PDF beim finalen Archivieren setzt."""
+    import json as _json
+
+    from services.recommendation_release_gate import CONTRACT_DOCUMENT_TYPE, contract_template_binding
+
+    binding = contract_template_binding(db, mandate)
+    if binding is None:
+        return
+    docs = db.query(ContractDocument).filter(
+        ContractDocument.mandate_id == mandate.id,
+        ContractDocument.document_type == CONTRACT_DOCUMENT_TYPE,
+        ContractDocument.deleted_at.is_(None),
+        ContractDocument.signed_by_advisor == 0,
+        ContractDocument.signed_by_client == 0,
+    ).all()
+    for doc in docs:
+        try:
+            content = _json.loads(doc.content_json) if doc.content_json else {}
+        except (TypeError, ValueError):
+            content = {}
+        if not isinstance(content, dict):
+            content = {}
+        content.setdefault("ort_unterzeichnung", f"Testort ({TEST_CONTRACT_MARKER})")
+        content["contract_template"] = binding
+        doc.content_json = _json.dumps(content, sort_keys=True, ensure_ascii=False)
+    db.flush()

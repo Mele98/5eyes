@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models.review import ContractDocument
 from models.users import User
-from services.contract_layer import assert_contract_layer_release_eligible  # H-179 L2/L3
+from services.recommendation_release_gate import assert_contract_layer_release_eligible  # H-179 L2/L3
 from services.audit import release_block_audit
 from services.auth import (
     extract_client_ip,

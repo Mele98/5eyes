@@ -23,7 +23,6 @@ TESTS_ROOT = Path(__file__).resolve().parent
 if str(TESTS_ROOT) not in sys.path:
     sys.path.insert(0, str(TESTS_ROOT))
 
-import models.contract_layer  # noqa: E402,F401  vor create_all registrieren
 from h8_support import NOW, TENANT, Req, alembic_cfg, mandate, sf, user  # noqa: E402,F401
 
 import pytest  # noqa: E402
@@ -32,17 +31,17 @@ from sqlalchemy import create_engine, text  # noqa: E402
 
 from core.reason_codes import DomainError  # noqa: E402
 from database import new_uuid  # noqa: E402
-from models.contract_layer import OwnerContentApproval, OwnerContentVersion  # noqa: E402
+from models.tenant import OwnerContentApproval, OwnerContentVersion  # noqa: E402
 from models.review import ContractDocument  # noqa: E402
 from models.tenant import Tenant  # noqa: E402
-from routers import contract_layer as api  # noqa: E402
+from routers import review as api  # noqa: E402
 from routers.review import sign_document  # noqa: E402
-from schemas.contract_layer import (  # noqa: E402
+from schemas.review import (  # noqa: E402
     AdviceRationaleCreate, OwnerContentApprove, OwnerContentCreate, W033DeclarationCreate,
 )
 from schemas.review import ContractDocumentSign  # noqa: E402
-from services import contract_layer as layer  # noqa: E402
-from services import owner_content as oc  # noqa: E402
+from services import recommendation_release_gate as layer  # noqa: E402
+from services import recommendation_release_gate as oc  # noqa: E402
 from services.recommendation_release_gate import CHANNEL_FINALIZATION, CHANNEL_SIGNATURE  # noqa: E402
 
 from client_onboarding_fixture import (  # noqa: E402
@@ -99,7 +98,7 @@ def test_catalog_has_the_clause_keys_of_dok_112_and_placeholders_but_no_text():
         "beendigung", "recht_gerichtsstand",
     )
     assert set(oc.CONTRACT_MANDATE_TYPES) == {"Vermögensverwaltung", "Anlageberatung", "Finanzplanung"}
-    entries = oc.static_catalog()
+    entries = oc.owner_content_catalog()
     for entry in entries:
         assert re.fullmatch(r"__OWNER_[A-Z0-9_]+_REQUIRED__", entry.placeholder), entry.key
         assert not hasattr(entry, "body_text")
@@ -108,7 +107,7 @@ def test_catalog_has_the_clause_keys_of_dok_112_and_placeholders_but_no_text():
     rechenschaft = next(e for e in entries if e.key == "vertrag.gemeinsam.rechenschaft")
     assert rechenschaft.placeholder == "__OWNER_REPORTING_MODEL_REQUIRED__"  # A-1
     horizon = next(e for e in entries if e.key == oc.W033_MIN_HORIZON_KEY)
-    assert horizon.placeholder == "__OWNER_MIN_HORIZON_YEARS_REQUIRED__" and horizon.kind == oc.KIND_INTEGER
+    assert horizon.placeholder == "__OWNER_MIN_HORIZON_YEARS_REQUIRED__" and horizon.kind == oc.OWNER_KIND_INTEGER
 
 
 def test_place_default_zurich_is_gone():
@@ -166,7 +165,7 @@ def test_owner_content_needs_a_second_person_and_the_seen_hash(sf):
     key = "vertrag.gemeinsam.rechenschaft"
     with sf() as db:
         created = _create(db, "adm-1", key, body_text="Text der Firma A")
-        assert created["status"] == oc.STATUS_UNAPPROVED and created["draft_version"] == 1
+        assert created["status"] == oc.OWNER_STATUS_UNAPPROVED and created["draft_version"] == 1
         row_id, content_hash = created["created_row_id"], created["draft_content_hash"]
         with pytest.raises(HTTPException) as same:
             _approve(db, "adm-1", row_id, content_hash)
@@ -175,13 +174,13 @@ def test_owner_content_needs_a_second_person_and_the_seen_hash(sf):
             _approve(db, "adm-2", row_id, "0" * 64)
         assert wrong.value.detail["reason_code"] == "OWNER_CONTENT_HASH_MISMATCH"
         approved = _approve(db, "adm-2", row_id, content_hash)
-        assert approved["status"] == oc.STATUS_APPROVED and approved["effective_version"] == 1
+        assert approved["status"] == oc.OWNER_STATUS_APPROVED and approved["effective_version"] == 1
         with pytest.raises(HTTPException) as again:
             _approve(db, "adm-2", row_id, content_hash)
         assert again.value.detail["reason_code"] == "OWNER_CONTENT_ALREADY_APPROVED"
         # Korrektur = neue Version; bis zur Freigabe bleibt v1 wirksam.
         v2 = _create(db, "adm-1", key, body_text="Text der Firma A, korrigiert")
-        assert v2["status"] == oc.STATUS_APPROVED and v2["effective_version"] == 1 and v2["draft_version"] == 2
+        assert v2["status"] == oc.OWNER_STATUS_APPROVED and v2["effective_version"] == 1 and v2["draft_version"] == 2
 
 
 def test_unknown_key_placeholder_text_and_bad_values_are_rejected(sf):
@@ -218,7 +217,7 @@ def test_forged_or_self_approved_chain_is_never_effective(sf):
         )
         db.add(forged)
         db.flush()
-        assert oc.resolve_owner_content(db, TENANT, key)["status"] == oc.STATUS_INVALID
+        assert oc.resolve_owner_content(db, TENANT, key)["status"] == oc.OWNER_STATUS_INVALID
         with pytest.raises(Exception, match="immutable"):
             db.execute(text("UPDATE owner_content_approvals SET approved_by = 'adm-2'"))
 
@@ -285,7 +284,7 @@ def test_p5_binding_is_none_until_approved_and_names_every_clause(sf):
         assert layer.contract_template_binding(db, mandate(db)) is None
         ensure_test_contract_layer_tenant(db, TENANT, actor_id="adm-1")
         binding = layer.contract_template_binding(db, mandate(db))
-    assert binding["kind"] == "contract_template" and binding["catalog_version"] == oc.CATALOG_VERSION
+    assert binding["kind"] == "contract_template" and binding["catalog_version"] == oc.OWNER_CATALOG_VERSION
     assert len(binding["template_hash"]) == 64
     assert [c["clause"] for c in binding["clauses"]] == list(oc.CONTRACT_CLAUSE_KEYS)
     assert all(c["approval_hash"] and c["content_hash"] for c in binding["clauses"])
@@ -315,7 +314,10 @@ def test_depot_bank_inducement_missing_expired_and_ok(sf):
         })
         state = layer.depot_bank_inducement_state(db, m)
         assert state["status"] == "ok" and not any(c.startswith("DEPOT_BANK") for c in _codes(db))
-        assert "Bank Ä" in state["line"] and "Verzicht" in state["line"] and "Verzicht 3" in state["line"]
+        from routers.pdf_reports import _depot_bank_inducement_lines
+
+        (line,) = _depot_bank_inducement_lines(state)
+        assert "Bank Ä" in line and "Verzicht" in line and "Verzicht 3" in line
 
 
 def test_advisory_mandate_without_bank_needs_no_inducement_but_vv_does(sf):

@@ -3,9 +3,9 @@
     "css_selectors": 1176,
     "event_handlers": 435,
     "ids": 1011,
-    "js_functions": 1688,
+    "js_functions": 1710,
     "modal_structures": 102,
-    "script_blocks": 41,
+    "script_blocks": 42,
     "style_blocks": 2,
     "sub_sections": 42
   },
@@ -9376,6 +9376,12 @@
       "path": "ares-desktop/frontend/kyc-review-policy.js",
       "sha256": "d206077e6edd194f7606b3394a8cd9273abef307a73a11a1883e6f606cb72948",
       "size_bytes": 25832
+    },
+    {
+      "kind": "js",
+      "path": "ares-desktop/frontend/owner-content.js",
+      "sha256": "b2268cca1e1482e6cfe60fdfff909fce0614b59d8f8c09f4b86015cabc6adc5a",
+      "size_bytes": 18904
     },
     {
       "kind": "js",
@@ -22763,6 +22769,138 @@
     },
     {
       "declaration": "function",
+      "line": 54,
+      "name": "approvalHtml",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 212,
+      "name": "approveOwnerContent",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 189,
+      "name": "bankSlug",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 78,
+      "name": "catalogHtml",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 194,
+      "name": "createDepotBankInducement",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 95,
+      "name": "createFormHtml",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 175,
+      "name": "createOwnerContent",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 43,
+      "name": "errText",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 37,
+      "name": "esc",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 66,
+      "name": "itemHtml",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 226,
+      "name": "loadContractLayerStatus",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 161,
+      "name": "loadOwnerContent",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 128,
+      "name": "mandateBodyHtml",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 121,
+      "name": "mandateHtml",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 51,
+      "name": "me",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 261,
+      "name": "mountOwnerContent",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 46,
+      "name": "notify",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "var",
+      "line": 196,
+      "name": "num",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 248,
+      "name": "recordW033Declaration",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 238,
+      "name": "saveAdviceRationale",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 52,
+      "name": "short",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 50,
+      "name": "val",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
       "line": 108,
       "name": "approvalRows",
       "source": "privacy-governance.js"
@@ -25171,8 +25309,8 @@
     }
   ],
   "source_path": "ares-desktop/frontend/ares.html",
-  "source_sha256": "8d3a377c1f0f4c49711e09f10d58d97a3f57c3e02233cfb4f82e73c10d6ffa4e",
-  "source_size_bytes": 1623083,
+  "source_sha256": "67c94bc38f25c9ffef58b945c532ac8c203ac115f6d38a7126ae7bf6488edd72",
+  "source_size_bytes": 1623098,
   "sub_sections": [
     {
       "class": "sbb",

@@ -528,6 +528,9 @@ SITES: dict[tuple[str, str], tuple[tuple[str, str | None], ...]] = {
     # Inhalts-Hash der rechtlichen Angaben -- Router schreiben, Gate rechnet nach.
     ("routers/clients.py", "_row_seal"): ((EH, SCHEME_V1),),
     ("services/recommendation_release_gate.py", "legal_profile_hash"): ((EH, SCHEME_V1),),
+    # H-179 L2/L3: Vorlagen-Hash der Vertragsvorlage und Hash des Datenschutzabschnitts.
+    ("services/recommendation_release_gate.py", "contract_template_state"): ((EH, SCHEME_V1),),
+    ("services/recommendation_release_gate.py", "privacy_section_state"): ((EH, SCHEME_V1),),
     ("services/recommendation_release_gate.py", "row_seal"): ((EH, SCHEME_V1),),
     ("services/risk_profile_signoff.py", "_sha256"): ((EH, SCHEME_V1),),
     # --- delegiert: SCHEME_V1_ASCII ---

@@ -15,10 +15,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Mapping
 
 from reportlab.lib.units import mm
+from xml.sax.saxutils import escape as _esc
+
 from reportlab.platypus import PageBreak, Paragraph, Spacer
 
 from jurisdictions.documents import default_documents
-from services.pdf.components.header import _esc
 from services.pdf.components.kostenausweis import build_kostenausweis_flowables
 from services.pdf.components.single_report_disclaimer import make_single_report_cover
 from services.pdf.components.advisory_palette import make_advisory_styles

@@ -37815,7 +37815,7 @@
         ],
         "summary": "List Owner Content",
         "tags": [
-          "Vertragsschicht"
+          "Review & Dokumente"
         ]
       },
       "post": {
@@ -37858,7 +37858,7 @@
         ],
         "summary": "Create Owner Content",
         "tags": [
-          "Vertragsschicht"
+          "Review & Dokumente"
         ]
       }
     },
@@ -37914,7 +37914,7 @@
         ],
         "summary": "Approve Owner Content",
         "tags": [
-          "Vertragsschicht"
+          "Review & Dokumente"
         ]
       }
     },
@@ -40117,7 +40117,7 @@
         ],
         "summary": "Get Contract Layer Status",
         "tags": [
-          "Vertragsschicht"
+          "Review & Dokumente"
         ]
       }
     },
@@ -42644,7 +42644,7 @@
         ],
         "summary": "Create Advice Rationale",
         "tags": [
-          "Vertragsschicht"
+          "Review & Dokumente"
         ]
       }
     },
@@ -45873,7 +45873,7 @@
         ],
         "summary": "Create W033 Declaration",
         "tags": [
-          "Vertragsschicht"
+          "Review & Dokumente"
         ]
       }
     },

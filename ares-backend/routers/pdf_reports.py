@@ -57,7 +57,7 @@ from services.recommendation_release_gate import (
 from services.audit import gate_block_audit
 # H-179 L2/L3: Vertragsvorlage, Datenschutzabschnitt, Zuwendungen der Depotbank,
 # Gruende der Empfehlung (Art. 15 FIDLEG), W033-Restinhalte.
-from services.contract_layer import (
+from services.recommendation_release_gate import (
     CONTRACT_DOCUMENT_TYPE,
     DEPOT_BANK_REQUIRED_MANDATE_TYPES,
     RATIONALE_MANDATE_TYPES,
@@ -1955,7 +1955,10 @@ def get_vertrag_pdf(
         if not data.ort_unterzeichnung.strip():
             findings.append({"reason_code": "CONTRACT_PLACE_MISSING"})
         if findings or not template["template_hash"]:
-            ctx = dataclasses.replace(ctx, watermark_mode="vertragsvorlage")
+            # Vorrang hat ein bereits gesetzter Entwurfsgrund (z.B. "vorvertrag"
+            # ohne KYC-Bestaetigung); auch dann bleibt der Vertrag Entwurf.
+            if (getattr(ctx, "watermark_mode", "none") or "none") == "none":
+                ctx = dataclasses.replace(ctx, watermark_mode="vertragsvorlage")
             extra_headers["X-Ares-Draft"] = "vertragsvorlage"
             extra_headers["X-Ares-Draft-Reasons"] = ",".join(sorted({f["reason_code"] for f in findings}))
         if template["template_hash"]:
@@ -2317,6 +2320,28 @@ _KI_CHANNEL_LABELS = {
     "email": "per E-Mail",
     "kundenportal": "über das Kundenportal",
 }
+
+
+def _depot_bank_inducement_lines(state: dict) -> tuple:
+    """H-179 R-1: sachliche Wiedergabe der strukturierten, freigegebenen und
+    gueltigen Angabe der Firma (kein Rechtstext); sonst keine Zeile."""
+    value = state.get("value") if state.get("status") == "ok" else None
+    if not isinstance(value, dict):
+        return ()
+    status = value.get("status")
+    if status == "keine":
+        core = "keine Zuwendungen der Depotbank an den Finanzdienstleister"
+    elif status == "satz":
+        core = (f"Zuwendung der Depotbank an den Finanzdienstleister: "
+                f"{format_bps_as_pct(value.get('rate_bps'), decimals=2)} auf {value.get('basis')}")
+    else:
+        core = ("Zuwendungen der Depotbank: Verzicht des Kunden, Bandbreite "
+                f"{format_bps_as_pct(value.get('range_min_bps'), decimals=2)} bis "
+                f"{format_bps_as_pct(value.get('range_max_bps'), decimals=2)}")
+    validity = f"gültig ab {value.get('valid_from')}"
+    if value.get("valid_until"):
+        validity += f" bis {value.get('valid_until')}"
+    return (f"Depotbank {value.get('depot_bank')}: {core} ({validity}; Beleg {value.get('evidence_reference')}).",)
 
 
 def _risk_profile_w033_lines(db: Session, mandate: Mandate) -> tuple:
@@ -3405,8 +3430,8 @@ def get_cost_disclosure_pdf(
         advisory_wealth_rappen=int(payload.get("advisory_wealth_rappen") or 0),
         payload=payload,
         # H-179 R-1: nur eine gueltige, freigegebene Angabe wird gedruckt; ohne
-        # sie sperren Finalisierung und Signatur (services/contract_layer.py).
-        depot_bank_inducement_lines=(inducement["line"],) if inducement["line"] else (),
+        # sie sperren Finalisierung und Signatur (services/recommendation_release_gate.py).
+        depot_bank_inducement_lines=_depot_bank_inducement_lines(inducement),
     )
     content_hash = _archive_content_hash(data, ctx)
     is_draft = (getattr(ctx, "watermark_mode", "none") or "none") != "none"
@@ -3730,7 +3755,7 @@ def get_kundeninformation_pdf(
     data = dataclasses.replace(
         _build_kundeninformation_data(db, mandate, profile),
         privacy_lines=privacy["lines"],
-        depot_bank_inducement_lines=(inducement["line"],) if inducement["line"] else (),
+        depot_bank_inducement_lines=_depot_bank_inducement_lines(inducement),
     )
     content_hash = content_hash_for(data)
     existing = (
