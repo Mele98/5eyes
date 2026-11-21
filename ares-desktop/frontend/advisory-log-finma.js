@@ -310,7 +310,7 @@ async function saveAdvisoryLogEntry(){
 // integrity_verified===false (Pruefsumme passt nicht zum Inhalt) zeigen eine
 // Warnung; der Advisory-Report als Kunden-PDF ist dann gesperrt (409
 // ADVISORY_LOG_INTEGRITY_FAILED). true/null: keine Warnung.
-var ADVISORY_LOG_INTEGRITY_WARNING='Prüfsumme passt nicht zum Inhalt: Dieser Eintrag wurde nach dem Speichern verändert oder ist beschädigt. Solange er der letzte Eintrag ist, kann der Advisory-Report nicht als Kunden-PDF erzeugt werden. Bitte prüfen und neu erfassen.';
+var ADVISORY_LOG_INTEGRITY_WARNING='Prüfsumme passt nicht zum Inhalt: Dieser Eintrag wurde nach dem Speichern verändert oder ist beschädigt. Beratungsprotokoll, Beratungsentscheid und (solange er der letzte Eintrag ist) Advisory-Report können nicht als Kunden-PDF erzeugt werden; das Kundenportal zeigt den Bericht nicht. Bitte prüfen und neu erfassen.';
 function advisoryLogIntegrityWarningHtml(entry){
   if(!entry||entry.integrity_verified!==false)return '';
   return '<div class="adv-log-integrity-warning" role="alert" style="margin-bottom:6px;padding:6px 8px;border-left:3px solid var(--neg);font-size:10px;color:var(--neg);font-weight:500">'+escapeHtml(ADVISORY_LOG_INTEGRITY_WARNING)+'</div>';

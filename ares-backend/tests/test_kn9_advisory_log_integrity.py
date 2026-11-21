@@ -251,6 +251,9 @@ def test_classic_list_warns_only_at_the_failed_entry():
     warning = cards[1]
     assert "Prüfsumme passt nicht zum Inhalt" in warning
     assert "nicht als Kunden-PDF erzeugt" in warning
+    # KN9a / N-934-01..02: Warnung nennt alle gesperrten Kundenkanaele.
+    for channel in ("Beratungsprotokoll", "Beratungsentscheid", "Advisory-Report", "Kundenportal"):
+        assert channel in warning, channel
     # Karte sonst unveraendert (Titel, Status-Knopf).
     for card in cards:
         assert "Jahresgespräch (fiktiv)" in card and "Beschlossen setzen" in card

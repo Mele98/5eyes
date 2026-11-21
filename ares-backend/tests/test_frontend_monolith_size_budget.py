@@ -209,6 +209,10 @@ Integritaetswarnung) nach advisory-log-finma.js (eigenes Modul) umgezogen; KN9 /
 N-933R-02: nach manuellem Speichern der Soll-Allokation kein dirty (+1 Zeile). Nach
 dem Merge von b9574ed5 aus dem Tree gemessen: 26330/1617095. p5c-ui.js 34/2376
 (Hinweistext finalizeLocked gekuerzt und korrigiert).
+KN9a (N-934-03): dirty kennt die Quelle (Bandbreiten = 'manual'); nach dem Speichern
+der manuellen Soll-Allokation faellt nur dieser Anteil weg (afterManualTargetSave in
+p5c-ui.js, Hinweis in finalizeLocked je Quelle). Monolith gesenkt auf 26330/1616990;
+p5c-ui.js 44/3318 (neue Logik im eigenen Teil statt im Monolithen).
 """
 from __future__ import annotations
 
@@ -219,7 +223,7 @@ MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
 MONOLITH_MAX_LINES = 26330
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1617095
+MONOLITH_MAX_BYTES = 1616990
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -246,7 +250,7 @@ EXTRACTED_PART_BUDGETS = {
     "kn3-ui.js": (259, 14886),
     "kn4-ui.js": (250, 14025),
     "kn5-ui.js": (105, 6960),
-    "p5c-ui.js": (34, 2376),
+    "p5c-ui.js": (44, 3318),
     "advisor-guidance.js": (728, 43963),
 }
 

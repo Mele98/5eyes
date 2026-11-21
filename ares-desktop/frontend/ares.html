@@ -6044,7 +6044,7 @@ function buildQT(id){
       var check=typeof validateBandEditorModal==='function'?validateBandEditorModal():{valid:true};
       if(!check.valid)return;
       updateBandOverrideStatus(collectBandOverridesFromModal()||{});
-      markStrategyDirty('Bandbreiten aktualisiert: Strategie neu berechnen.');
+      markStrategyDirty('Bandbreiten aktualisiert: Strategie neu berechnen.',0,'manual');
     });
     input.addEventListener('change',function(){
       var check=typeof validateBandEditorModal==='function'?validateBandEditorModal():{valid:true};
@@ -6371,8 +6371,7 @@ async function saveManualTargetAllocationFromModal(){
     var reasonEl=document.getElementById('aa-manual-save-reason');
     if(reasonEl)reasonEl.value='';
     renderManualTargetSaveState(computeManualTargetSaveValidation(),msg,false);
-    strategyState.dirty=false;strategyState.staleNotice='';syncStrategyStaleView();syncPortfolioUmsetzenButtonVisibility(); // N-933R-02: gespeichert = aktuelle Strategie
-    updateStrategyStatus('Manuelle Soll-Allokation gespeichert: die angezeigten Kennzahlen stammen aus der letzten Berechnung.',false);
+    afterManualTargetSave(); // N-933R-02 / N-934-03
     return true;
   }catch(e){
     renderManualTargetSaveState(computeManualTargetSaveValidation(),manualTargetSaveErrorText(e),true);
@@ -6469,7 +6468,7 @@ function applyAllocationBandOverrides(){
   persistAllocationPreferences();
   buildQT('qt-modal');
   updateBandOverrideStatus(collectBandOverridesFromModal()||{});
-  markStrategyDirty('Bandbreiten angepasst: Strategie neu berechnen.');
+  markStrategyDirty('Bandbreiten angepasst: Strategie neu berechnen.',0,'manual');
   return true;
 }
 function resetAllocationBandOverrides(){
@@ -6479,7 +6478,7 @@ function resetAllocationBandOverrides(){
   persistAllocationPreferences(prefs);
   buildQT('qt-modal');
   updateBandOverrideStatus({});
-  markStrategyDirty('Individuelle Bandbreiten zurückgesetzt: Strategie neu berechnen.');
+  markStrategyDirty('Individuelle Bandbreiten zurückgesetzt: Strategie neu berechnen.',0,'manual');
 }
 function formatIsoLocal(value){
   if(!value)return 'Nicht verfügbar';
@@ -19922,7 +19921,8 @@ function applyBufferedStrategyOutputs(wantsRecommendation,statusMessage){
   return true;
 }
 
-function markStrategyDirty(message,invalidateOutputs){
+function markStrategyDirty(message,invalidateOutputs,source){
+  strategyState.dirtyOther=!!(strategyState.dirty&&strategyState.dirtyOther)||source!=='manual'; // N-934-03
   strategyState.dirty=true;
   clearPendingStrategyOutputs();
   if(invalidateOutputs&&!hasVisibleStrategyOutputs())invalidateStrategyOutputs();

@@ -39,7 +39,11 @@ from models.mandates import Mandate
 from models.users import User
 from services.backtest_stress import STRESS_REPLAY_SCOPE_LABEL
 from services.cost_disclosure import build_cost_disclosure
-from services.advisory_report import _build_suitability_compliance, compute_advisory_report
+# KN9a: Integritaetsregel ueber den Aggregator (keine neue Import-Kante).
+from services.advisory_report import (  # noqa: F401  (Re-Export fuer routers.pdf_reports)
+    AdvisoryLogIntegrityFailed, _build_suitability_compliance, advisory_log_integrity_message,
+    assert_report_advisory_log_integrity, assert_shown_entries_intact, compute_advisory_report,
+    customer_protocol_entry)
 from services.pdf.fonts import register_editorial_fonts
 from services.pdf.components.advisory_page_chrome import (
     AdvisoryNumberedCanvas,
@@ -198,30 +202,16 @@ def suitability_compliance_for_mandate(db: Session, mandate: Mandate) -> dict[st
 # veraendert oder beschaedigt. Das Kunden-PDF wird dann nicht erzeugt; der
 # Router antwortet 409 ``ADVISORY_LOG_INTEGRITY_FAILED``. Kein Hinweis an den
 # Kunden, die Warnung steht in der Berater-Ansicht beim Eintrag.
-ADVISORY_LOG_INTEGRITY_FAILED_MESSAGE = (
-    "Advisory-Report kann nicht als Kunden-PDF erzeugt werden: Die Prüfsumme des "
-    "letzten Beratungsprotokoll-Eintrags passt nicht zu seinem Inhalt. Der Eintrag "
-    "wurde nach dem Speichern verändert oder ist beschädigt. Bitte den Eintrag in "
-    "der Beratungsprotokoll-Liste prüfen und neu erfassen."
-)
-
-
-class AdvisoryLogIntegrityFailed(Exception):
-    """Der Protokolleintrag im Report hat eine nicht passende Pruefsumme."""
-
-    def __init__(self, entry_id: str | None = None) -> None:
-        super().__init__(ADVISORY_LOG_INTEGRITY_FAILED_MESSAGE)
-        self.entry_id = entry_id
+# KN9a / N-934-01: die Regel selbst steht in services.advisory_log_service
+# (eine Regel fuer Advisory-Report, Beratungsprotokoll, Beratungsentscheid und
+# Kundenportal); hier nur die Anwendung auf den Report-Payload.
+ADVISORY_LOG_INTEGRITY_FAILED_MESSAGE = advisory_log_integrity_message()
 
 
 def assert_advisory_log_integrity(payload: dict[str, Any]) -> None:
-    """Fail-closed: nur ``integrity_verified is False`` sperrt. True (geprueft)
-    und None (Alteintrag ohne Pruefsumme, dann ohne Integritaetszeile) bleiben
-    erlaubt. Geprueft wird der Eintrag, den das PDF zeigt (``latest_entry``)."""
-    protocol = payload.get("beratungsprotokoll")
-    entry = protocol.get("latest_entry") if isinstance(protocol, dict) else None
-    if isinstance(entry, dict) and entry.get("integrity_verified") is False:
-        raise AdvisoryLogIntegrityFailed(str(entry.get("id") or "") or None)
+    """Fail-closed fuer das Advisory-Report-PDF (Regel: services.advisory_report.
+    assert_report_advisory_log_integrity, gleich wie Kundenportal)."""
+    assert_report_advisory_log_integrity(payload, document="Advisory-Report")
 
 
 def render_advisory_report_pdf_from_payload(

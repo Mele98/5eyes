@@ -240,8 +240,9 @@ function LatestEntry({ entry }: { entry: BeratungsprotokollEntry }) {
           className="border-b border-status-rot/40 bg-status-rot/10 px-5 py-3 text-caption text-status-rot"
         >
           <strong>Prüfsumme passt nicht zum Inhalt.</strong> Dieser Eintrag wurde nach dem
-          Speichern verändert oder ist beschädigt. Der Advisory-Report kann so nicht als
-          Kunden-PDF erzeugt werden. Bitte den Eintrag prüfen und neu erfassen.
+          Speichern verändert oder ist beschädigt. Advisory-Report, Beratungsprotokoll und
+          Beratungsentscheid können so nicht als Kunden-PDF erzeugt werden, das Kundenportal
+          zeigt den Bericht nicht. Bitte den Eintrag prüfen und neu erfassen.
         </div>
       ) : null}
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-rule px-5 py-4">

@@ -259,6 +259,7 @@ def _run_manual(edits: dict, reason: str, api_error: dict | None = None) -> dict
             "function renderManualTargetSaveState(",
             "function manualTargetSaveErrorText(",
             "async function saveManualTargetAllocationFromModal(",
+            "function afterManualTargetSave(",  # KN9a / N-934-03 (p5c-ui.js)
         )
     ]
     fns += [
