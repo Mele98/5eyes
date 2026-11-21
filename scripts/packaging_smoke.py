@@ -877,7 +877,7 @@ def strategy_inputs() -> dict:
     Python-Prozess im Repo gerechnet -- der Smoke-Prozess importiert kein Backend."""
     root = Path(tempfile.mkdtemp(prefix='ares-smoke-inputs-'))
     try:
-        env = isolated_env(root, 0, root / 'data' / 'unused.db')
+        env = isolated_env(root, free_port(), root / 'data' / 'unused.db')
         code = ('import json; from tests.risk_fixture_helpers import standard_risk_payload; '
                 'from core import sustainability_preference as sp; '
                 'print("SMOKE_INPUTS " + json.dumps({"risk": standard_risk_payload(), '

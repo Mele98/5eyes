@@ -993,7 +993,10 @@ def generate_target_allocation_endpoint(
             # der Bandbreite, Min > Max, Minima ueber 100 % und Maxima unter 100 %.
             raise HTTPException(status_code=422, detail=str(exc))
         except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
+            # EXE-P (H-187): ``from exc`` -- typisierte Ablehnungen (z. B.
+            # REFERENCE_DATA_PACKAGE_MISSING, CCX_PARAMETER_SET_MISSING) behalten
+            # ihren Reason-Code (core.middleware, nur __cause__).
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         # CON-001 (Codex-Audit 2026-08-25): siehe create_target_allocation oben --
         # derselbe Partial-Unique-Index-Race, mit demselben SQLite-Luecken-Risiko.
         # refresh_system_review_triggers()/log() fuehren eigene Queries aus, die
