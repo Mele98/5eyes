@@ -971,19 +971,32 @@ def pull_freshness(
     ).first()
     if run is None or ta is None:
         return ReasonCode.CCX_FRESHNESS_UNKNOWN, "bound_objects=missing", []
+    # Zeitablauf erzeugt keine DB-Mutation. Deshalb wird die gebundene
+    # Produktevidenz zusätzlich bei jeder Pull-Prüfung aktuell bewertet.
+    # Widerruf/Ersatz werden bereits vom P2-Hook persistiert; Ablauf wird hier
+    # ohne erneutes Versiegeln sicher als STALE klassifiziert.
+    from services.product_eligibility import assert_run_product_evidence
+    try:
+        assert_run_product_evidence(db, mandate, run, channel="envelope_freshness")
+    except DomainError as exc:
+        return ReasonCode.CCX_INPUT_STALE, f"product_evidence={exc.reason_code}", []
     current_parts = collect_dependency_parts(db, mandate=mandate, run=run, target_allocation=ta)
-    current = {part.kind: part for part in current_parts}
+    # C-COMP-02 kann mehrere Produktnachweis-Kanten derselben Art besitzen.
+    # Deshalb ist (Art, Objekt) der Schlüssel; ein Dict nur nach Art würde
+    # alle bis auf das letzte Produkt verschlucken.
+    current = {(part.kind, part.object_id): part for part in current_parts}
     allow_legacy = legacy_projection_allowed(getattr(envelope, "sealed_at", None))
-    edge_kinds = {edge.dependency_kind for edge in edges}
-    unbound = sorted(set(current) - edge_kinds)
+    edge_keys = {(edge.dependency_kind, edge.dependency_object_id) for edge in edges}
+    unbound = sorted(set(current) - edge_keys)
     drift = [
-        (edge, current.get(edge.dependency_kind)) for edge in edges
-        if current.get(edge.dependency_kind) is None
-        or current[edge.dependency_kind].object_id != edge.dependency_object_id
+        (edge, current.get((edge.dependency_kind, edge.dependency_object_id))) for edge in edges
+        if current.get((edge.dependency_kind, edge.dependency_object_id)) is None
         # Heutige Projektion oder -- nur fuer Altsiegel (KN4-B N-917R3-06) --
         # Uebergangs-Hash frueherer Projektionen (KN-B Beruf, KN3-B
         # Mandantengrenze); unknown ist nie current.
-        or not current[edge.dependency_kind].accepts(edge.dependency_hash, allow_legacy=allow_legacy)
+        or not current[(edge.dependency_kind, edge.dependency_object_id)].accepts(
+            edge.dependency_hash, allow_legacy=allow_legacy,
+        )
     ]
     if drift and any(edge.dependency_kind in REFERENCE_KINDS for edge, _part in drift) \
             and decision_signed(db, envelope):
@@ -994,7 +1007,9 @@ def pull_freshness(
         kinds = ",".join(sorted(edge.dependency_kind for edge, _part in drift))
         return ReasonCode.CCX_INPUT_STALE, f"drift={kinds}", drift
     if unbound:
-        return ReasonCode.CCX_FRESHNESS_UNKNOWN, "unbound=" + ",".join(unbound), []
+        return ReasonCode.CCX_FRESHNESS_UNKNOWN, "unbound=" + ",".join(
+            f"{kind}:{object_id}" for kind, object_id in unbound
+        ), []
     empty = empty_required_kinds(current_parts)
     if empty:
         return ReasonCode.CCX_FRESHNESS_UNKNOWN, "empty=" + ",".join(empty), []
@@ -1064,8 +1079,17 @@ def current_envelope_freshness(db: Session, *, mandate: Any) -> dict[str, Any]:
         cause = freshness_cause(str(kind or ""))
         if cause not in causes:
             causes.append(cause)
+    pull_code, pull_detail, _drift = pull_freshness(db, envelope, mandate=mandate)
+    status = envelope_freshness_status(envelope)
+    if pull_code == ReasonCode.CCX_INPUT_STALE and status["freshness_status"] != FRESHNESS_STALE:
+        status["freshness_status"] = FRESHNESS_STALE
+        status["stale_reason_code"] = str(ReasonCode.CCX_INPUT_STALE)
+        if pull_detail.startswith("product_evidence="):
+            cause = freshness_cause("product_evidence")
+            if cause not in causes:
+                causes.append(cause)
     return {
-        **envelope_freshness_status(envelope),
+        **status,
         "invalidation_count": len(sequences),
         "last_invalidation_sequence": max(sequences) if sequences else None,
         "causes": causes,

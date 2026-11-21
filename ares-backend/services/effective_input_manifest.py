@@ -47,6 +47,7 @@ from models.allocation import BuildingBlock, CapitalMarketAssumption, HouseMatri
 from models.clients import ADVISORY_HASH_EXEMPT_INFO_KEY, ADVISORY_TENANT_BOUNDARY_COLUMNS, Client
 from models.cma_policy import CmaPolicy, CmaPolicyApproval, CmaPolicyComponent
 from models.mandates import Mandate
+from models.product_eligibility import ProductEvidenceItem, ProductEvidenceSnapshot
 from models.profiling import (
     InvestmentPreferenceDecision,
     RiskAssessment,
@@ -298,6 +299,19 @@ def collect_dependency_parts(
         .filter(InvestmentPreferenceDecision.mandate_id == mandate_id)
         .all()
     )
+    evidence_snapshot = db.query(ProductEvidenceSnapshot).filter(
+        ProductEvidenceSnapshot.recommendation_run_id == str(run.id),
+    ).first()
+    evidence_ids = []
+    if evidence_snapshot is not None:
+        try:
+            import json
+            evidence_ids = list(json.loads(evidence_snapshot.item_ids_json))
+        except (TypeError, ValueError):
+            evidence_ids = []
+    evidence_items = db.query(ProductEvidenceItem).filter(
+        ProductEvidenceItem.id.in_(evidence_ids),
+    ).all() if evidence_ids else []
     risk_id = getattr(ta, "based_on_assessment_id", None) or getattr(run, "assessment_id", None)
     cma_id = getattr(run, "capital_market_assumptions_id", None) or getattr(
         ta, "capital_market_assumptions_id", None,
@@ -317,6 +331,7 @@ def collect_dependency_parts(
         "wealth_inflows": len(inflows), "positions": len(positions), "run_holdings": len(run_holdings),
         "preference": len(preferences), "constraints": len(constraints_rows), "cma": len(cma_rows),
         "optimizer_policy": len(policy_rows), "benchmark": len(house_matrix),
+        "product_evidence": len(evidence_items),
     }
     def part(kind, object_id, version, hash_kind, model, rows, sort_fields, exempt_variants=(False,)):
         rows = list(rows)
@@ -355,6 +370,15 @@ def collect_dependency_parts(
              _int_or_none(getattr(policy_rows[0], "version", None)) if policy_rows else None,
              "benchmark", HouseMatrix, house_matrix, ("score_from", "score_to", "id")),
     ]
+    # C-COMP-02/P5-Schnittstelle: je gebundenem Evidence-Item eine eigene
+    # Kante. Dadurch invalidiert Retire/Revocation/Ersatz genau die Envelopes,
+    # die das Item tatsächlich verwendeten. ``note`` ist hash-exempt über den
+    # zentralen Hook und verändert die fachliche Bindung nicht.
+    for item in sorted(evidence_items, key=lambda row: (row.product_id, row.evidence_kind, row.id)):
+        parts.append(part(
+            "product_evidence", str(item.id), None, "product-evidence-item",
+            ProductEvidenceItem, [item], ("id",),
+        ))
     # N-908-04: auch die Tabellen, die der Hook bisher nur ueber die Reichweite
     # traf, bekommen eine Kante -- damit greift die Pull-Pruefung auch dort.
     def mandate_rows(model):

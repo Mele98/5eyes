@@ -141,6 +141,7 @@ FRESHNESS_CAUSE_TEXTS = {
     "cma_policy_approvals": "Hausmeinung geändert",
     "building_blocks": "Hausmeinung geändert",
     "benchmark": "Hausmeinung geändert",
+    "product_evidence": "Produktnachweis abgelaufen, widerrufen oder ersetzt",
 }
 
 

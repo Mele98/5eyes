@@ -238,6 +238,24 @@ def assert_recommendation_release_eligible(
         db, mandate, run.id if run is not None else current_run_id(db, mandate, allocation),
         channel=channel, audit=audit,
     )
+    # C-COMP-02: derselbe versiegelte Produktnachweis schützt Publikation,
+    # Kunden-PDF, Signatur, Vor-Ort-Signatur und Handoff. Kein Kanal darf
+    # live aus unverankerten Produktstammdaten neu interpretieren.
+    from models.review import RecommendationRun
+    from services.product_eligibility import assert_run_product_evidence
+
+    evidence_run = run
+    if evidence_run is None:
+        evidence_run_id = current_run_id(db, mandate, allocation)
+        evidence_run = db.get(RecommendationRun, evidence_run_id) if evidence_run_id else None
+    if evidence_run is None:
+        raise DomainError(
+            ReasonCode.PRODUCT_EVIDENCE_MISSING,
+            "Die Produktevidenz der aktuellen Empfehlung fehlt. Bitte die Empfehlung neu berechnen.",
+            http_status=409,
+            extra={"channel": channel, "product_id": None, "evidence_kind": "snapshot"},
+        )
+    assert_run_product_evidence(db, mandate, evidence_run, channel=channel)
     # CMA-001 / ADR-12a-Release-Hold: keine Freigabe, solange die CMA der
     # Allokation eine ungeklaerte KGV-Bewertungsanpassung traegt
     # (services/cma_valuation_hold.py).

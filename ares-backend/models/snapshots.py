@@ -583,6 +583,11 @@ DEPENDENCY_SOURCES: dict[str, DependencySource] = {
     "cma_policy_components": DependencySource("cma_policy_components", SCOPE_EDGE, "policy_row_id"),
     "cma_policy_approvals": DependencySource("cma_policy_approvals", SCOPE_EDGE, "policy_row_id"),
     "house_matrix": DependencySource("benchmark", SCOPE_EDGE, "policy_id"),
+    # C-COMP-02: nur fachliche Lifecycle-/Inhaltsänderungen invalidieren.
+    # Eine interne Notiz ist explizit irrelevant und bleibt FRESH.
+    "product_evidence_items": DependencySource(
+        "product_evidence", SCOPE_EDGE, "id", volatile=frozenset({"updated_at", "note"}),
+    ),
 }
 
 # Kanten, die die Versiegelung schreibt (services/effective_input_manifest.py
@@ -594,6 +599,7 @@ DEPENDENCY_KINDS = (
     "goal_revisions", "goal_transitions", "planning", "risk_overrides", "risk_signoffs",
     "risk_plausibility", "coverage_attestations", "building_blocks", "cma_policy_components",
     "cma_policy_approvals",
+    "product_evidence",
 )
 
 _AUDIT_SINKS: list = []

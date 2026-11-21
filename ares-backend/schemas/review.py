@@ -3075,3 +3075,97 @@ class StrategyOptionCoverageResponse(BaseModel):
     as_of: str
     needed_sub_asset_classes: list[str] = []
     options: list[StrategyOptionCoverage] = []
+
+
+# C-COMP-02: Product-Evidence v1. Payload-Werte bleiben typisiert; Geld wird
+# als Minor-Unit-Integer, Quoten als BPS und Dezimalwerte als String geliefert.
+ProductEvidenceKind = Literal[
+    "instrument_identity", "kid", "costs", "retrocession", "suitability",
+    "liquidity", "currency", "sustainability", "price_source",
+]
+ProductEvidenceScope = Literal["tenant", "global"]
+
+
+class ProductEvidenceItemCreate(BaseModel):
+    scope: ProductEvidenceScope = "tenant"
+    stable_instrument_id: str = Field(min_length=1, max_length=200)
+    share_class_id: Optional[str] = Field(default=None, max_length=200)
+    jurisdiction: str = Field(min_length=2, max_length=8)
+    evidence_kind: ProductEvidenceKind
+    source_type: str = Field(min_length=1, max_length=100)
+    source_reference: str = Field(min_length=1, max_length=500)
+    source_document_title: str = Field(min_length=1, max_length=300)
+    source_document_version: Optional[str] = Field(default=None, max_length=100)
+    source_document_date: Optional[date] = None
+    retrieved_at: datetime
+    source_document_sha256: str = Field(min_length=64, max_length=64, pattern="^[0-9a-fA-F]{64}$")
+    payload: dict[str, Any]
+    as_of: date
+    valid_from: date
+    valid_until: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=2000)
+    supersedes_id: Optional[str] = None
+
+    @field_validator(
+        "stable_instrument_id", "share_class_id", "jurisdiction", "source_type",
+        "source_reference", "source_document_title", "source_document_version", "note",
+        mode="before",
+    )
+    @classmethod
+    def _strip_product_evidence_text(cls, value):
+        return _strip_optional_text(value)
+
+    @field_validator("source_document_sha256", mode="before")
+    @classmethod
+    def _lower_product_evidence_sha(cls, value):
+        return value.strip().lower() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def _product_evidence_dates(self):
+        if self.valid_until is not None and self.valid_until < self.valid_from:
+            raise ValueError("Gültig-bis darf nicht vor Gültig-ab liegen.")
+        return self
+
+
+class ProductEvidenceApprovalRequest(BaseModel):
+    approval_mode: Optional[Literal["four_eyes", "single_approver_attested"]] = None
+    attestation: Optional[str] = Field(default=None, max_length=1000)
+
+
+class ProductEvidenceLifecycleRequest(BaseModel):
+    reason_code: str = Field(min_length=1, max_length=100)
+
+
+class ProductEvidenceItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    tenant_id: Optional[str] = None
+    product_id: str
+    stable_instrument_id: str
+    share_class_id: Optional[str] = None
+    jurisdiction: str
+    evidence_kind: str
+    source_type: str
+    source_reference: str
+    source_document_title: str
+    source_document_version: Optional[str] = None
+    source_document_date: Optional[str] = None
+    retrieved_at: str
+    source_document_sha256: str
+    canonical_payload_json: str
+    canonical_payload_hash: str
+    as_of: str
+    valid_from: str
+    valid_until: Optional[str] = None
+    status: str
+    note: Optional[str] = None
+    created_by: str
+    created_at: str
+    approved_by: Optional[str] = None
+    approved_at: Optional[str] = None
+    approval_mode: Optional[str] = None
+    supersedes_id: Optional[str] = None
+    retired_or_revoked_by: Optional[str] = None
+    retired_or_revoked_at: Optional[str] = None
+    reason_code: Optional[str] = None
+    updated_at: str

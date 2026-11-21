@@ -3,6 +3,7 @@ import hashlib
 import logging
 import math
 import random
+import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass, replace
@@ -6603,6 +6604,22 @@ def generate_recommendation_run(
     # HEDGED_PRODUCT_VARIANTS sind CH-spezifische Sub-Asset-Class-Namen.
     if jurisdiction in (None, "CH"):
         ensure_hedged_product_variants(db)
+    # C-COMP-02: Der neutrale Musterkatalog erhaelt nur im expliziten
+    # Development/Test-Modus klar synthetische Evidenz. Staging, Produktion
+    # und gepackte Builds bleiben fail-closed; kundeneigene Produkte werden
+    # von diesem Pfad nie beruehrt.
+    if settings.app_env in {"development", "test"} and not getattr(sys, "frozen", False):
+        from services.product_eligibility import seed_synthetic_default_catalog_evidence
+
+        synthetic_catalog = db.query(Product).filter(
+            Product.tenant_id.is_(None),
+            Product.product_name.like("Musterprodukt%"),
+            Product.deleted_at.is_(None),
+        ).all()
+        seed_synthetic_default_catalog_evidence(
+            db, products=synthetic_catalog, actor_id=user_id,
+            jurisdiction=resolve_pack(code=jurisdiction).code,
+        )
     _normalize_preferences(preferences)  # fail-fast Vokabular; wirksam: TA-Snapshot unten
     policy, cma = ensure_runtime_reference_data(
         db, user_id, jurisdiction=jurisdiction, tenant_id=getattr(mandate, "tenant_id", None) or None,
@@ -6798,7 +6815,13 @@ def generate_recommendation_run(
     # der fruehere Suitability-Relaxation-Fallback-Pfad ist entfernt -- ein
     # Produkt ausserhalb seines Risikobands/Service-Modus wird nicht mehr
     # als letzter Ausweg wieder zum Kandidaten (Spec Section 9.2).
-    from services.product_eligibility import customer_exclusion_evidence, derive_service_mode, is_eligible_candidate, mandate_tenant_id
+    from services.product_eligibility import (
+        customer_exclusion_evidence,
+        derive_service_mode,
+        is_eligible_candidate,
+        mandate_tenant_id,
+        snapshot_run_product_evidence,
+    )
     service_mode, run_tenant_id = derive_service_mode(mandate), mandate_tenant_id(mandate)
     exclusion_evidence = customer_exclusion_evidence(db, mandate)  # E2b N1: nur belegte Produkte
 
@@ -7070,6 +7093,11 @@ def generate_recommendation_run(
         warnings.append(
             f"TER fehlt fuer {missing_ter_count} Position(en); Durchschnittskosten basieren nur auf bekannter TER-Abdeckung."
         )
+    # C-COMP-02: Der interne Kandidatenlauf ist vollständig berechnet. Erst
+    # jetzt, aber noch vor Rückgabe/Commit der kundenwirksamen Empfehlung,
+    # werden alle selektierten Produkte fail-closed belegt und versiegelt.
+    # Ein Fehler rollt die gesamte Transaktion einschließlich Draft zurück.
+    snapshot_run_product_evidence(db, mandate, run)
     return {
         "run": run,
         "positions": positions_payload,

@@ -4763,6 +4763,8 @@ def finalize_recommendation(
             "event": "sustainability_evidence_missing", "channel": "finalize", "run_id": run.id,
         }, sort_keys=True), {"decision_id": None})
         raise exc
+    from services.product_eligibility import assert_run_product_evidence
+    assert_run_product_evidence(db, mandate, run, channel="finalization")
     assert_customer_exclusions_offerable(db, mandate, channel="finalize")
     if cma_currency_warning:
         warnings.append(cma_currency_warning)
@@ -6016,3 +6018,238 @@ def get_strategy_option_coverage(
     kann. Nicht erfuellbare Optionen tragen einen kurzen Grund."""
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     return strategy_option_coverage_for_mandate(db, mandate)
+
+
+# ===========================================================================
+# C-COMP-02 -- granularer Product-Evidence-Lebenszyklus. Bewusst im
+# bestehenden Produkte-/Eligibility-Router, keine zweite Freigabe-Engine.
+# ===========================================================================
+from models.product_eligibility import ProductEvidenceItem  # noqa: E402
+from schemas.review import (  # noqa: E402
+    ProductEvidenceApprovalRequest,
+    ProductEvidenceItemCreate,
+    ProductEvidenceItemResponse,
+    ProductEvidenceLifecycleRequest,
+)
+from services.product_eligibility import (  # noqa: E402
+    product_evidence_item_payload_hash,
+)
+
+
+def _product_evidence_visible(row: ProductEvidenceItem, current_user: User) -> bool:
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    return row.tenant_id is None or str(row.tenant_id) == str(tenant_id)
+
+
+def _product_evidence_or_404(
+    evidence_id: str, db: Session, current_user: User, *, for_write: bool = False,
+) -> ProductEvidenceItem:
+    row = db.get(ProductEvidenceItem, evidence_id)
+    if row is None or not _product_evidence_visible(row, current_user):
+        raise HTTPException(status_code=404, detail="Produktnachweis nicht gefunden")
+    if for_write and row.tenant_id is None and not _may_write_global_catalog(current_user):
+        raise HTTPException(status_code=403, detail=GLOBAL_CATALOG_WRITE_FORBIDDEN_DETAIL)
+    return row
+
+
+def _evidence_product_identity(product: Product) -> tuple[str, str | None]:
+    stable = str(product.isin or product.internal_product_id or product.figi or product.id)
+    share_class = str(product.share_class_figi) if product.share_class_figi else None
+    return stable, share_class
+
+
+@products_router.get(
+    "/{product_id}/evidence", response_model=list[ProductEvidenceItemResponse],
+)
+def list_product_evidence(
+    product_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    product = _get_product_or_404(product_id, db, current_user)
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    return db.query(ProductEvidenceItem).filter(
+        ProductEvidenceItem.product_id == product.id,
+        or_(ProductEvidenceItem.tenant_id.is_(None), ProductEvidenceItem.tenant_id == tenant_id),
+    ).order_by(ProductEvidenceItem.evidence_kind, ProductEvidenceItem.as_of.desc(), ProductEvidenceItem.id).all()
+
+
+@products_router.post(
+    "/{product_id}/evidence", response_model=ProductEvidenceItemResponse, status_code=201,
+)
+def create_product_evidence(
+    product_id: str,
+    body: ProductEvidenceItemCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    product = _get_product_or_404(product_id, db, current_user)
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    row_tenant = tenant_id
+    if body.scope == "global":
+        if product.tenant_id is not None or not _may_write_global_catalog(current_user):
+            raise HTTPException(status_code=403, detail=GLOBAL_CATALOG_WRITE_FORBIDDEN_DETAIL)
+        row_tenant = None
+    elif product.tenant_id is not None and str(product.tenant_id) != str(tenant_id):
+        raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
+
+    expected_stable, expected_share = _evidence_product_identity(product)
+    if body.stable_instrument_id != expected_stable or (
+        expected_share is not None and body.share_class_id != expected_share
+    ):
+        raise DomainError(
+            ReasonCode.PRODUCT_EVIDENCE_SHARE_CLASS_MISMATCH,
+            "Der Nachweis gehört nicht zur aktuellen Produkt- oder Anteilsklassenidentität.",
+            http_status=409,
+            extra={"product_id": product.id, "evidence_kind": body.evidence_kind},
+        )
+    if body.evidence_kind in {"costs", "retrocession"} and not (
+        body.payload.get("value") is not None or body.payload.get("status") == "not_applicable"
+    ):
+        code = (ReasonCode.PRODUCT_EVIDENCE_COST_MISSING if body.evidence_kind == "costs"
+                else ReasonCode.PRODUCT_EVIDENCE_RETROCESSION_MISSING)
+        raise DomainError(
+            code,
+            "Kosten oder Retrozession benötigen einen Wert oder einen belegten Nichtanwendungsstatus.",
+            http_status=409,
+            extra={"product_id": product.id, "evidence_kind": body.evidence_kind},
+        )
+    canonical, payload_hash = product_evidence_item_payload_hash(body.payload)
+    now = datetime.now(timezone.utc).isoformat()
+    row = ProductEvidenceItem(
+        id=new_uuid(), tenant_id=row_tenant, product_id=product.id,
+        stable_instrument_id=body.stable_instrument_id,
+        share_class_id=body.share_class_id, jurisdiction=body.jurisdiction.upper(),
+        evidence_kind=body.evidence_kind, source_type=body.source_type,
+        source_reference=body.source_reference,
+        source_document_title=body.source_document_title,
+        source_document_version=body.source_document_version,
+        source_document_date=body.source_document_date.isoformat() if body.source_document_date else None,
+        retrieved_at=body.retrieved_at.astimezone(timezone.utc).isoformat(),
+        source_document_sha256=body.source_document_sha256,
+        canonical_payload_json=canonical, canonical_payload_hash=payload_hash,
+        as_of=body.as_of.isoformat(), valid_from=body.valid_from.isoformat(),
+        valid_until=body.valid_until.isoformat() if body.valid_until else None,
+        status="draft", note=body.note, created_by=current_user.id,
+        created_at=now, supersedes_id=body.supersedes_id, updated_at=now,
+    )
+    if row.supersedes_id:
+        predecessor = _product_evidence_or_404(row.supersedes_id, db, current_user, for_write=True)
+        if predecessor.product_id != product.id or predecessor.evidence_kind != row.evidence_kind:
+            raise HTTPException(status_code=409, detail="Der ersetzte Nachweis gehört nicht zu Produkt und Nachweisart.")
+    db.add(row)
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="product_evidence_items", record_id=row.id, action="CREATE",
+        field_name="product_evidence_draft", new_value=f"product={product.id};kind={row.evidence_kind}",
+        ip_address=_extract_client_ip(request), tenant_id=tenant_id)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@products_router.post(
+    "/evidence/{evidence_id}/approve", response_model=ProductEvidenceItemResponse,
+)
+def approve_product_evidence(
+    evidence_id: str,
+    body: ProductEvidenceApprovalRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_compliance_approver),
+):
+    row = _product_evidence_or_404(evidence_id, db, current_user, for_write=True)
+    if row.status != "draft":
+        raise HTTPException(status_code=409, detail="Nur ein Entwurf kann freigegeben werden.")
+    same_actor = str(row.created_by) == str(current_user.id)
+    approval_mode = "four_eyes"
+    if same_actor:
+        from services.auth import COMPLIANCE_APPROVER_ROLES
+        from services.product_eligibility_governance import (
+            MIN_ATTESTATION_REASON_LENGTH,
+            tenant_approver_ids,
+        )
+
+        attestation = (body.attestation or "").strip()
+        tenant_id = _resolve_tenant_id_for_user(current_user)
+        approvers = tenant_approver_ids(db, tenant_id, roles=COMPLIANCE_APPROVER_ROLES)
+        if (
+            body.approval_mode != "single_approver_attested"
+            or len(attestation) < MIN_ATTESTATION_REASON_LENGTH
+            or approvers != [str(current_user.id)]
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Einzelfreigabe ist nur mit dokumentierter Begründung und genau einer "
+                    "freigabeberechtigten Person in der Verwaltung zulässig."
+                ),
+            )
+        approval_mode = "single_approver_attested"
+    now = datetime.now(timezone.utc).isoformat()
+    if row.supersedes_id:
+        predecessor = _product_evidence_or_404(row.supersedes_id, db, current_user, for_write=True)
+        if predecessor.status != "approved":
+            raise HTTPException(status_code=409, detail="Der zu ersetzende Nachweis ist nicht aktiv.")
+        predecessor.status = "retired"
+        predecessor.retired_or_revoked_by = current_user.id
+        predecessor.retired_or_revoked_at = now
+        predecessor.reason_code = "SUPERSEDED"
+        predecessor.updated_at = now
+    row.status = "approved"
+    row.approved_by = current_user.id
+    row.approved_at = now
+    row.approval_mode = approval_mode
+    row.updated_at = now
+    audit_value = f"hash={row.canonical_payload_hash};approval_mode={approval_mode}"
+    if approval_mode == "single_approver_attested":
+        audit_value += f";attestation={(body.attestation or '').strip()}"
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="product_evidence_items", record_id=row.id, action="UPDATE",
+        field_name="product_evidence_approved", new_value=audit_value,
+        ip_address=_extract_client_ip(request), tenant_id=_resolve_tenant_id_for_user(current_user))
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Für diese Produkt-, Anteilsklassen- und Stichtagslinie besteht bereits ein aktiver Nachweis.") from exc
+    db.refresh(row)
+    return row
+
+
+def _close_product_evidence(
+    evidence_id: str, body: ProductEvidenceLifecycleRequest, request: Request,
+    db: Session, current_user: User, *, status: str,
+) -> ProductEvidenceItem:
+    row = _product_evidence_or_404(evidence_id, db, current_user, for_write=True)
+    if row.status != "approved":
+        raise HTTPException(status_code=409, detail="Nur ein aktiver Nachweis kann geschlossen werden.")
+    now = datetime.now(timezone.utc).isoformat()
+    row.status = status
+    row.retired_or_revoked_by = current_user.id
+    row.retired_or_revoked_at = now
+    row.reason_code = body.reason_code
+    row.updated_at = now
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="product_evidence_items", record_id=row.id, action="UPDATE",
+        field_name=f"product_evidence_{status}", new_value=body.reason_code,
+        ip_address=_extract_client_ip(request), tenant_id=_resolve_tenant_id_for_user(current_user))
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@products_router.post("/evidence/{evidence_id}/retire", response_model=ProductEvidenceItemResponse)
+def retire_product_evidence(
+    evidence_id: str, body: ProductEvidenceLifecycleRequest, request: Request,
+    db: Session = Depends(get_db), current_user: User = Depends(require_compliance_approver),
+):
+    return _close_product_evidence(evidence_id, body, request, db, current_user, status="retired")
+
+
+@products_router.post("/evidence/{evidence_id}/revoke", response_model=ProductEvidenceItemResponse)
+def revoke_product_evidence(
+    evidence_id: str, body: ProductEvidenceLifecycleRequest, request: Request,
+    db: Session = Depends(get_db), current_user: User = Depends(require_compliance_approver),
+):
+    return _close_product_evidence(evidence_id, body, request, db, current_user, status="revoked")

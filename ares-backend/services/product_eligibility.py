@@ -24,17 +24,27 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import unicodedata
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Sequence
 
-from sqlalchemy import text
+from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
 
 from database import new_uuid
 from models.mandates import Mandate
 from core import sustainability_preference as sustainability
 from core.reason_codes import DomainError, ReasonCode
-from models.product_eligibility import ProductEligibilityRule, ProductEligibilityRuleSet, ProductSustainabilityAttribute
+from models.product_eligibility import (
+    PRODUCT_EVIDENCE_KINDS,
+    ProductEligibilityRule,
+    ProductEligibilityRuleSet,
+    ProductEvidenceItem,
+    ProductEvidenceSnapshot,
+    ProductSustainabilityAttribute,
+)
 from models.review import Product, RecommendationPosition
 from core.db_integrity import raise_if_check_violation
 from services.product_eligibility_governance import TENANT_PRODUCT_RULE_SOURCE as _TENANT_PRODUCT_RULE_SOURCE
@@ -980,6 +990,366 @@ def is_eligible_candidate(
 
 
 # ===========================================================================
+# C-COMP-02 -- Product-Evidence v1. Diese Logik erweitert bewusst dieselbe
+# Eligibility-Domaene; sie ist keine zweite Produktfreigabe-Engine.
+# ===========================================================================
+PRODUCT_EVIDENCE_SCHEMA = "ares-product-evidence/v1"
+PRODUCT_EVIDENCE_EVALUATOR = "ares-product-evidence/1"
+_PRODUCT_EVIDENCE_DOMAIN = b"ares-product-evidence/v1\n"
+_HEX64 = re.compile(r"^[0-9a-f]{64}$")
+_KIND_REASON = {
+    "kid": ReasonCode.PRODUCT_EVIDENCE_KID_MISSING,
+    "costs": ReasonCode.PRODUCT_EVIDENCE_COST_MISSING,
+    "retrocession": ReasonCode.PRODUCT_EVIDENCE_RETROCESSION_MISSING,
+    "suitability": ReasonCode.PRODUCT_EVIDENCE_SUITABILITY_MISSING,
+}
+
+
+def _canonical_value(value):
+    if isinstance(value, str):
+        return unicodedata.normalize("NFC", value)
+    if isinstance(value, Decimal):
+        normalized = format(value, "f")
+        if "." in normalized:
+            normalized = normalized.rstrip("0").rstrip(".")
+        return normalized or "0"
+    if isinstance(value, float):
+        raise ValueError("Binärfloat ist im Produktevidenz-Payload nicht zulässig")
+    if isinstance(value, dict):
+        return {unicodedata.normalize("NFC", str(key)): _canonical_value(item)
+                for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_canonical_value(item) for item in value]
+    if value is None or isinstance(value, (bool, int)):
+        return value
+    raise ValueError(f"Nicht kanonisierbarer Typ: {type(value).__name__}")
+
+
+def canonical_product_evidence_json(payload: dict) -> str:
+    """UTF-8/NFC, sortierte Schlüssel, kein Whitespace, keine Floats."""
+    return json.dumps(
+        _canonical_value(payload), ensure_ascii=False, sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def product_evidence_hash(payload: dict) -> tuple[str, str]:
+    canonical = canonical_product_evidence_json(payload)
+    digest = hashlib.sha256(_PRODUCT_EVIDENCE_DOMAIN + canonical.encode("utf-8")).hexdigest()
+    return canonical, digest
+
+
+def product_evidence_item_payload_hash(payload: dict) -> tuple[str, str]:
+    canonical = canonical_product_evidence_json(payload)
+    return canonical, hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def seed_synthetic_default_catalog_evidence(
+    db: Session, *, products: Sequence[Product], actor_id: str, jurisdiction: str,
+) -> None:
+    """Legt klar bezeichnete Muster-Nachweise nur fuer Dev/Test an.
+
+    Der Aufrufer muss den Laufzeitmodus pruefen. Die Funktion selbst schreibt
+    ausschliesslich globale Musterkatalog-Produkte und erfindet keine externen
+    Produktdaten: jeder Payload und jede Quellenreferenz ist als synthetisch
+    markiert. Kundeneigene Produkte werden nie automatisch belegt.
+    """
+    now = _now_iso()
+    today = datetime.now(timezone.utc).date().isoformat()
+    for product in products:
+        if product.tenant_id is not None or not str(product.product_name or "").startswith("Musterprodukt"):
+            continue
+        existing = {
+            row[0] for row in db.query(ProductEvidenceItem.evidence_kind).filter(
+                ProductEvidenceItem.product_id == product.id,
+                ProductEvidenceItem.tenant_id.is_(None),
+                ProductEvidenceItem.jurisdiction == jurisdiction,
+                ProductEvidenceItem.status == "approved",
+            ).all()
+        }
+        for kind in PRODUCT_EVIDENCE_KINDS:
+            if kind in existing:
+                continue
+            payload = {
+                "classification": "synthetic_dev_demo_fixture",
+                "evidence_kind": kind,
+                "product_id": str(product.id),
+                "status": "not_applicable" if kind in {"kid", "retrocession"} else "synthetic",
+            }
+            if kind == "costs":
+                payload["value"] = int(product.ter_bps or 0)
+                payload["unit"] = "bps_per_year"
+            canonical, payload_hash = product_evidence_item_payload_hash(payload)
+            source_reference = f"synthetic-dev-demo:{product.id}:{kind}"
+            db.add(ProductEvidenceItem(
+                id=new_uuid(), tenant_id=None, product_id=product.id,
+                stable_instrument_id=_product_stable_id(product),
+                share_class_id=_product_share_class_id(product),
+                jurisdiction=jurisdiction, evidence_kind=kind,
+                source_type="synthetic_dev_demo_fixture",
+                source_reference=source_reference,
+                source_document_title="Synthetischer Ares-Musternachweis",
+                source_document_version="ares-product-evidence-fixture/1",
+                source_document_date=today, retrieved_at=now,
+                source_document_sha256=hashlib.sha256(source_reference.encode("utf-8")).hexdigest(),
+                canonical_payload_json=canonical, canonical_payload_hash=payload_hash,
+                as_of=today, valid_from=today, valid_until=None,
+                status="approved", note="Nur Development/Test; nicht fuer Kundenbetrieb.",
+                created_by=actor_id, created_at=now, approved_by=actor_id,
+                approved_at=now, approval_mode="single_approver_attested",
+                updated_at=now,
+            ))
+    db.flush()
+
+
+def _product_stable_id(product: Product) -> str:
+    return str(
+        getattr(product, "isin", None)
+        or getattr(product, "internal_product_id", None)
+        or getattr(product, "figi", None)
+        or product.id
+    )
+
+
+def _product_share_class_id(product: Product) -> str | None:
+    value = getattr(product, "share_class_figi", None)
+    return str(value) if value else None
+
+
+def _evidence_issue(code, product: Product, kind: str, message: str, *, status: str) -> dict:
+    return {
+        "status": status,
+        "reason_code": str(code),
+        "product_id": str(product.id),
+        "evidence_kind": kind,
+        "message": message,
+    }
+
+
+def evaluate_product_evidence(
+    db: Session, mandate: Mandate, product: Product, *, as_of: str | None = None,
+) -> dict:
+    """Bewertet alle Pflichtarten für genau ein Produkt fail-closed.
+
+    Tenant-Nachweise übersteuern globale Nachweise. Mehr als ein am Stichtag
+    wirksamer Nachweis derselben Präzedenz ist ein Konflikt, nie "erster gewinnt".
+    """
+    today = as_of or datetime.now(timezone.utc).date().isoformat()
+    tenant_id = mandate_tenant_id(mandate)
+    jurisdiction = str(getattr(mandate, "jurisdiction", None) or "CH")
+    rows = db.query(ProductEvidenceItem).filter(
+        ProductEvidenceItem.product_id == product.id,
+        ProductEvidenceItem.jurisdiction == jurisdiction,
+        or_(ProductEvidenceItem.tenant_id.is_(None), ProductEvidenceItem.tenant_id == tenant_id),
+    ).all()
+    selected: list[ProductEvidenceItem] = []
+    issues: list[dict] = []
+    for kind in PRODUCT_EVIDENCE_KINDS:
+        kind_rows = [row for row in rows if row.evidence_kind == kind]
+        tenant_rows = [row for row in kind_rows if row.tenant_id == tenant_id]
+        scoped = tenant_rows if tenant_rows else [row for row in kind_rows if row.tenant_id is None]
+        approved = [row for row in scoped if row.status == "approved"]
+        active = [row for row in approved if row.valid_from <= today and (
+            row.valid_until is None or today <= row.valid_until
+        )]
+        if len(active) > 1:
+            issues.append(_evidence_issue(
+                ReasonCode.PRODUCT_EVIDENCE_CONFLICT, product, kind,
+                "Mehrere gleichzeitig gültige Produktnachweise stehen im Konflikt.",
+                status="conflict",
+            ))
+            continue
+        if not active:
+            if any(row.status == "revoked" for row in scoped):
+                issues.append(_evidence_issue(
+                    ReasonCode.PRODUCT_EVIDENCE_REVOKED, product, kind,
+                    "Der Produktnachweis wurde widerrufen.", status="revoked",
+                ))
+            elif approved:
+                issues.append(_evidence_issue(
+                    ReasonCode.PRODUCT_EVIDENCE_STALE, product, kind,
+                    "Der Produktnachweis ist noch nicht oder nicht mehr gültig.", status="stale",
+                ))
+            else:
+                reason = _KIND_REASON.get(kind, ReasonCode.PRODUCT_EVIDENCE_MISSING)
+                issues.append(_evidence_issue(
+                    reason, product, kind,
+                    "Für das Produkt fehlt ein freigegebener Pflichtnachweis.", status="missing",
+                ))
+            continue
+        item = active[0]
+        if item.stable_instrument_id != _product_stable_id(product) or (
+            _product_share_class_id(product) is not None
+            and item.share_class_id != _product_share_class_id(product)
+        ):
+            issues.append(_evidence_issue(
+                ReasonCode.PRODUCT_EVIDENCE_SHARE_CLASS_MISMATCH, product, kind,
+                "Der Produktnachweis gehört nicht zur aktuellen Anteilsklasse.", status="conflict",
+            ))
+            continue
+        try:
+            parsed = json.loads(item.canonical_payload_json)
+            canonical, digest = product_evidence_item_payload_hash(parsed)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            canonical, digest = "", ""
+        if (
+            canonical != item.canonical_payload_json
+            or digest != item.canonical_payload_hash
+            or not _HEX64.fullmatch(str(item.source_document_sha256 or ""))
+        ):
+            issues.append(_evidence_issue(
+                ReasonCode.PRODUCT_EVIDENCE_HASH_MISMATCH, product, kind,
+                "Die Integrität des Produktnachweises ist nicht belegt.", status="hash_mismatch",
+            ))
+            continue
+        if kind in {"costs", "retrocession"} and not (
+            parsed.get("value") is not None or parsed.get("status") == "not_applicable"
+        ):
+            reason = _KIND_REASON[kind]
+            issues.append(_evidence_issue(
+                reason, product, kind,
+                "Der Nachweis enthält weder einen Wert noch einen belegten Nichtanwendungsstatus.",
+                status="missing",
+            ))
+            continue
+        selected.append(item)
+    status = "verified" if not issues else issues[0]["status"]
+    return {"status": status, "issues": issues, "items": selected, "as_of": today}
+
+
+def _raise_product_evidence(issue: dict, *, channel: str) -> None:
+    raise DomainError(
+        issue["reason_code"],
+        f"{issue['message']} Bitte den Produktnachweis prüfen und erneut freigeben.",
+        http_status=409,
+        extra={
+            "channel": channel,
+            "product_id": issue["product_id"],
+            "evidence_kind": issue["evidence_kind"],
+        },
+    )
+
+
+def snapshot_run_product_evidence(db: Session, mandate: Mandate, run) -> ProductEvidenceSnapshot:
+    """Prüft nach der internen Kandidatenrechnung, vor Kundenpersistenz."""
+    positions = db.query(RecommendationPosition).filter(
+        RecommendationPosition.run_id == run.id,
+    ).all()
+    product_ids = sorted({str(position.product_id) for position in positions})
+    products = db.query(Product).filter(Product.id.in_(product_ids)).all() if product_ids else []
+    if len(products) != len(product_ids):
+        issue = _evidence_issue(
+            ReasonCode.PRODUCT_EVIDENCE_MISSING,
+            type("MissingProduct", (), {"id": "unknown"})(),
+            "instrument_identity", "Ein ausgewähltes Produkt ist nicht mehr verfügbar.", status="missing",
+        )
+        _raise_product_evidence(issue, channel="recommendation_generate")
+    evaluations = [evaluate_product_evidence(db, mandate, product) for product in products]
+    issues = [issue for result in evaluations for issue in result["issues"]]
+    if issues:
+        _raise_product_evidence(issues[0], channel="recommendation_generate")
+    items = sorted(
+        [item for result in evaluations for item in result["items"]],
+        key=lambda item: (item.product_id, item.evidence_kind, item.id),
+    )
+    as_of = datetime.now(timezone.utc).date().isoformat()
+    expires = sorted({item.valid_until for item in items if item.valid_until})
+    payload = {
+        "schema_version": PRODUCT_EVIDENCE_SCHEMA,
+        "evaluator_version": PRODUCT_EVIDENCE_EVALUATOR,
+        "tenant_id": mandate_tenant_id(mandate),
+        "mandate_id": str(mandate.id),
+        "recommendation_run_id": str(run.id),
+        "product_ids": product_ids,
+        "items": [{
+            "id": item.id,
+            "product_id": item.product_id,
+            "stable_instrument_id": item.stable_instrument_id,
+            "share_class_id": item.share_class_id,
+            "evidence_kind": item.evidence_kind,
+            "canonical_payload_hash": item.canonical_payload_hash,
+            "source_document_sha256": item.source_document_sha256,
+            "as_of": item.as_of,
+            "valid_from": item.valid_from,
+            "valid_until": item.valid_until,
+            "status": item.status,
+            "approved_by": item.approved_by,
+            "approved_at": item.approved_at,
+        } for item in items],
+        "as_of": as_of,
+        "expires_at": expires[0] if expires else None,
+        "status": "verified",
+    }
+    canonical, digest = product_evidence_hash(payload)
+    snapshot = ProductEvidenceSnapshot(
+        id=new_uuid(), tenant_id=mandate_tenant_id(mandate), mandate_id=mandate.id,
+        recommendation_run_id=run.id, product_ids_json=json.dumps(product_ids),
+        item_ids_json=json.dumps([item.id for item in items]),
+        item_hashes_json=json.dumps([item.canonical_payload_hash for item in items]),
+        eligibility_snapshot_id=None, cost_snapshot_id=None, conflict_snapshot_id=None,
+        as_of=as_of, evaluated_at=_now_iso(), expires_at=payload["expires_at"],
+        status="verified", reason_codes_json="[]", canonical_payload_json=canonical,
+        product_evidence_hash=digest, schema_version=PRODUCT_EVIDENCE_SCHEMA,
+        evaluator_version=PRODUCT_EVIDENCE_EVALUATOR, created_at=_now_iso(),
+    )
+    db.add(snapshot)
+    db.flush()
+    run.product_evidence_snapshot_id = snapshot.id
+    run.product_evidence_hash = snapshot.product_evidence_hash
+    run.product_evidence_status = "verified"
+    return snapshot
+
+
+def assert_run_product_evidence(
+    db: Session, mandate: Mandate, run, *, channel: str,
+) -> ProductEvidenceSnapshot:
+    snapshot_id = getattr(run, "product_evidence_snapshot_id", None)
+    snapshot = db.get(ProductEvidenceSnapshot, snapshot_id) if snapshot_id else None
+    if snapshot is None or getattr(run, "product_evidence_status", None) != "verified":
+        _raise_product_evidence(_evidence_issue(
+            ReasonCode.PRODUCT_EVIDENCE_MISSING,
+            type("MissingSnapshot", (), {"id": "unknown"})(),
+            "snapshot", "Der freigegebene Produktnachweis-Snapshot fehlt.", status="missing",
+        ), channel=channel)
+    try:
+        stored_payload = json.loads(snapshot.canonical_payload_json)
+        canonical, digest = product_evidence_hash(stored_payload)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        canonical, digest = "", ""
+    if (
+        canonical != snapshot.canonical_payload_json
+        or digest != snapshot.product_evidence_hash
+        or digest != getattr(run, "product_evidence_hash", None)
+    ):
+        _raise_product_evidence(_evidence_issue(
+            ReasonCode.PRODUCT_EVIDENCE_HASH_MISMATCH,
+            type("Snapshot", (), {"id": "unknown"})(),
+            "snapshot", "Die Integrität des Produktnachweis-Snapshots ist nicht belegt.",
+            status="hash_mismatch",
+        ), channel=channel)
+    product_ids = json.loads(snapshot.product_ids_json)
+    products = db.query(Product).filter(Product.id.in_(product_ids)).all() if product_ids else []
+    evaluations = [evaluate_product_evidence(db, mandate, product) for product in products]
+    issues = [issue for result in evaluations for issue in result["issues"]]
+    if issues:
+        _raise_product_evidence(issues[0], channel=channel)
+    current_items = sorted(
+        [item for result in evaluations for item in result["items"]],
+        key=lambda item: (item.product_id, item.evidence_kind, item.id),
+    )
+    if (
+        [item.id for item in current_items] != json.loads(snapshot.item_ids_json)
+        or [item.canonical_payload_hash for item in current_items] != json.loads(snapshot.item_hashes_json)
+    ):
+        _raise_product_evidence(_evidence_issue(
+            ReasonCode.PRODUCT_EVIDENCE_STALE,
+            type("Snapshot", (), {"id": "unknown"})(),
+            "snapshot", "Die Produktevidenz wurde ersetzt; die Empfehlung ist veraltet.", status="stale",
+        ), channel=channel)
+    return snapshot
+
+
+# ===========================================================================
 # E2b Nachtrag 1 (Owner-Vertretung 2026-11-12): Durchsetzung der
 # Kundenausschluesse AM PRODUKT. Ist in der aktuellen Nachhaltigkeits-
 # praeferenz ein Ausschluss erfasst, waehlt die Produktselektion nur Produkte,
@@ -1137,8 +1507,10 @@ def run_exclusion_evidence_status(db: Session, mandate: Mandate, run_id) -> str:
 
 
 def assert_product_evidenced(db: Session, mandate: Mandate, product) -> None:
-    """N-901-02: bei aktivem Ausschluss ist eine unbelegte Position nicht
-    hinzufuegbar (409, kurze Meldung)."""
+    """Ein Produkt muss allgemein und für Kundenausschlüsse belegt sein."""
+    product_evidence = evaluate_product_evidence(db, mandate, product)
+    if product_evidence["issues"]:
+        _raise_product_evidence(product_evidence["issues"][0], channel="position_add")
     check = customer_exclusion_evidence(db, mandate)
     if check is not None and not check(product):
         check._raise("Position kann nicht hinzugefügt werden", [str(product.product_name or product.id)])
