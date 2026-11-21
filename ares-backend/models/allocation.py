@@ -258,7 +258,7 @@ class CapitalMarketAssumption(Base):
          bleibt erhalten). valid_from = Datum, ab dem die neue Annahme in der
          Engine wirkt (scenario_inputs_from_cma liest nur is_current=1).
       3. Quelle/Datum dokumentieren (Roadmap #51 Kernforderung):
-         - source: Herkunft der Zahlen, z.B. "Pictet CMA 2026Q3" oder bei
+         - source: Herkunft der Zahlen, z.B. "Haus-CMA 2026Q3" oder bei
            manueller/konservativer Schaetzung "konservativ manuell".
          - source_date: ISO-Datum der zugrunde liegenden Publikation (kann
            von valid_from abweichen -- z.B. Research-Papier vom 2026-06-15,

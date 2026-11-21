@@ -38,20 +38,14 @@ from services.portfolio_engine_gesamtvermoegen import (
 _BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _monolith_path() -> Path:
-    """Locate the desktop monolith by structure (a frontend HTML that defines the projection)."""
-    repo_root = _BACKEND_ROOT.parent
-    for candidate in sorted(repo_root.glob("*/frontend/*.html")):
-        try:
-            text = candidate.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        if "function wealthProjectionInputs(" in text and "function mortgageLiabilityAndPledgedSeriesRappen(" in text:
-            return candidate
-    raise AssertionError(f"monolith with wealthProjectionInputs not found below {repo_root}")
+def _monolith_source() -> str:
+    """N-875-06: Monolith-Bundle (ares.html + ausgelagerte Teile), nicht roh per Glob."""
+    from tests.monolith_source import read_monolith_bundle
 
-
-HTML_PATH = _monolith_path()
+    text = read_monolith_bundle()
+    assert "function wealthProjectionInputs(" in text
+    assert "function mortgageLiabilityAndPledgedSeriesRappen(" in text
+    return text
 
 
 def _extract_js_function(source: str, name: str) -> str:
@@ -90,10 +84,12 @@ def _run_projection(
     years: int = 2,
     with_baseline: bool = False,
 ) -> dict:
-    html = HTML_PATH.read_text(encoding="utf-8")
+    html = _monolith_source()
     helpers = [
         _extract_js_function(html, "mortgageLiabilityAndPledgedSeriesRappen"),
         _extract_js_function(html, "wealthProjectionInputs"),
+        # G7 N4: Waehrung der Projektionseingaben (Grundregel) -- echte Helfer aus ares.html.
+        *(_extract_js_function(html, n) for n in ("ccyOf", "sameCcy", "positionsCurrency", "mandateCurrency", "appCurrency")),
     ]
     if with_baseline:
         helpers.append(_extract_js_function(html, "buildBaselineProjectionFromComponentSeries"))
@@ -127,9 +123,14 @@ const liabilities = [
     currency:'CHF'}},
   {json.dumps(other_debt, ensure_ascii=False)}
 ];
-const strategyState = {{allocation:{allocation}}};
-const ADMIN_CMA_DEFAULTS = {{equity_intl_return_bps:690,bonds_fx_hedged_return_bps:220,
-  real_estate_ch_return_bps:450,alternatives_gold_return_bps:300}};
+// H9 Nachtrag 2: die Snapshot-Basis kommt nicht mehr aus der Strategie,
+// sondern aus der strategieunabhaengigen Server-Basis (ist-projection-basis,
+// gleiche Felder wie total_allocation) samt Renditeannahmen der CMA.
+const __alloc = {allocation};
+function istProjectionServerBasisFor() {{
+  return Object.assign({{expected_return_bps:{{equities:690,bonds:220,real_estate:450,alternatives:300,liquidity:0}}}},
+    (__alloc && __alloc.total_allocation) || {{}});
+}}
 function isExternalPensionPosition(pos) {{ return false; }}
 function pensionProjectionRateBps(pos) {{ return null; }}
 function wealthScopePositions(scope) {{ return assets; }}
@@ -327,12 +328,13 @@ def test_report_wealth_summary_uses_engine_fx_conversion(tmp_path, monkeypatch):
     from models.wealth import WealthPosition
     from services.advisory_report import _build_wealth_summary
 
-    class _Fx:
-        def cross_rate(self, from_currency: str, to_currency: str) -> float:
-            assert (from_currency, to_currency) == ("USD", "CHF")
-            return 0.8
+    from datetime import datetime, timezone
 
-    monkeypatch.setattr(fx_rates.FXRateSource, "from_db", classmethod(lambda cls, db: _Fx()))
+    from models.fx_rate import FXRate
+
+    # CCX-P3-FX: der Bericht rechnet nur mit einer belegten, frischen FX-Basis
+    # (kein Ersatzkurs, kein Mock der Modellquelle); synthetischer Testvektor.
+    assert fx_rates is not None
     engine = create_engine(f"sqlite:///{tmp_path / 'report_fx.db'}")
     Base.metadata.create_all(bind=engine)
     now = "2026-10-24T00:00:00.000Z"
@@ -346,6 +348,9 @@ def test_report_wealth_summary_uses_engine_fx_conversion(tmp_path, monkeypatch):
                               mandate_type="Anlageberatung", opened_at=now, created_at=now, updated_at=now,
                               base_currency="CHF")
             s.add_all([advisor, client, mandate])
+            stamp = datetime.now(timezone.utc).isoformat()
+            s.add(FXRate(id="fx-usd", currency="USD", rate_x10000=8_000, valid_from=stamp, is_current=1,
+                         source="Manual", created_at=stamp, updated_at=stamp))
             s.flush()
             for label, ptype, assignment, value, currency in (
                 ("Depot", "Depot", "Beratungsvermögen", 10_000_000, "CHF"),
@@ -364,3 +369,4 @@ def test_report_wealth_summary_uses_engine_fx_conversion(tmp_path, monkeypatch):
     # engine's FX-normalized total_base_rappen), not raw 400k.
     assert summary["kredite_rappen"] == 46_000_000
     assert summary["gesamtvermoegen_rappen"] == 44_000_000
+    assert summary["amount_currency"] == "CHF" and summary["fx_status"] is None

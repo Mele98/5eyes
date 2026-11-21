@@ -54,7 +54,13 @@ from main import app  # noqa: F401 -- imports the full model graph for metadata.
 from models.wealth import Goal
 from services.optimizer.goal_liabilities import goal_to_liability
 
-_FUTURE_TARGET_DATE = (date.today() + timedelta(days=3 * 365)).isoformat()
+_IMPORT_DAY = date.today()
+_FUTURE_TARGET_DATE = (_IMPORT_DAY + timedelta(days=3 * 365)).isoformat()
+
+# KN6 (CI 44840465176): jeder Test laeuft am Importtag (tests/import_day_clock.py).
+from tests.import_day_clock import fixed_import_clock  # noqa: E402
+
+_fixed_import_clock = fixed_import_clock(_IMPORT_DAY)
 
 
 def _utc_now_iso() -> str:

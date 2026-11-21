@@ -54,7 +54,8 @@ def test_advisory_report_pdf_metadata_and_page_chrome():
     assert PRODUCT in cover
     second = reader.pages[1].extract_text() or ""
     assert "Ares Advisory Report" in second
-    assert "Depotcheck" in second
+    # KN6 / N-917R5-03: Seitenkopf = Dokumentname, nicht «Depotcheck».
+    assert "Advisory-Report" in second and "Depotcheck" not in second
 
 
 def test_generic_pdf_renderer_sets_creator_and_producer():

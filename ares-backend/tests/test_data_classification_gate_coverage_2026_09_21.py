@@ -63,6 +63,9 @@ from models.allocation import OptimizerPolicy
 
 import routers.portfolio_handoff as portfolio_handoff_router  # noqa: F401
 import services.portfolio_handoff as portfolio_handoff_service
+# CCX-P4: Altbestands-Kanaltest -- prueft andere Gates; Publikation siehe
+# tests/test_ccx_p4_allocation_publish.py (tests/ccx_p4_publication_support.py).
+from tests.ccx_p4_publication_support import assume_published_allocation  # noqa: E402,F401
 
 
 def _now() -> str:
@@ -310,6 +313,7 @@ def test_strategy_snapshot_real_blocked_when_gate_closed(session_factory, monkey
         ).count() == 0
 
 
+@pytest.mark.usefixtures("assume_published_allocation")
 def test_strategy_snapshot_synthetic_allowed_when_gate_closed(session_factory, monkeypatch):
     monkeypatch.setattr(settings, "allow_real_client_data", False)
     mandate_id = _seed_minimal_mandate(session_factory, mandate_id="mandate-snap2")
@@ -359,6 +363,12 @@ def _seed_handoff_prereqs(session_factory, *, mandate_id="mandate-handoff", run_
             run_type="Initial", result_status="Final", created_by="advisor-handoff",
             created_at=_now(), updated_at=_now(),
         ))
+        db.flush()
+        # H8 N-890-12: der Handoff verlangt Kundeninformation und KYC (Testwerte).
+        from client_onboarding_fixture import satisfy_client_onboarding
+        from models.mandates import Mandate as _Mandate
+
+        satisfy_client_onboarding(db, db.get(_Mandate, mandate_id), actor_id="advisor-handoff")
         db.commit()
     return mandate_id, run_id
 
@@ -405,13 +415,14 @@ def test_portfolio_handoff_real_blocked_when_gate_closed(session_factory, monkey
             create_portfolio_handoff(
                 mandate_id=mandate_id, run_id=run_id,
                 body=PortfolioHandoffCreate(
-                    recipient_name="UBS AG Zuerich", data_classification="real",
+                    recipient_name="Testbank Fiktiv", data_classification="real",
                 ),
                 request=_request_stub(), db=db, current_user=advisor,
             )
         _assert_phase_zero_block(exc)
 
 
+@pytest.mark.usefixtures("assume_published_allocation")
 def test_portfolio_handoff_synthetic_allowed_when_gate_closed(session_factory, monkeypatch):
     monkeypatch.setattr(settings, "allow_real_client_data", False)
     mandate_id, run_id = _seed_handoff_prereqs(session_factory, mandate_id="mandate-handoff2", run_id="run-handoff2")
@@ -424,8 +435,8 @@ def test_portfolio_handoff_synthetic_allowed_when_gate_closed(session_factory, m
         result = create_portfolio_handoff(
             mandate_id=mandate_id, run_id=run_id,
             body=PortfolioHandoffCreate(
-                recipient_name="UBS AG Zuerich", data_classification="synthetic",
+                recipient_name="Testbank Fiktiv", data_classification="synthetic",
             ),
             request=_request_stub(), db=db, current_user=advisor,
         )
-        assert result.recipient_name == "UBS AG Zuerich"
+        assert result.recipient_name == "Testbank Fiktiv"

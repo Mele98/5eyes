@@ -419,6 +419,12 @@ class TargetAllocationResponse(BaseResponse):
     # gesetzt -- Bandbreiten ausserhalb der Hausmatrix-Zeile (persistiert in
     # effective_constraints_json/optimizer_reasoning_json).
     manual_override_warnings: list[str] = Field(default_factory=list)
+    # CCX-P4: Publikationsstatus (Serverwahrheit, nie im Client berechnet).
+    # PUBLISHED nur fuer die gueltig publizierte Allokation; jede andere --
+    # generiert oder manuell -- ist ein Entwurf (DRAFT), eine publizierte, aber
+    # nicht mehr gueltige PUBLICATION_INVALID. ``approved_by``/``approved_at``
+    # unten sind Altfelder der Tabelle und keine Freigabe.
+    publication_status: str = "DRAFT"
     policy_id: str
     set_by: str
     set_at: str
@@ -1309,6 +1315,16 @@ class AllocationBucketResponse(BaseModel):
     delta_weight_bps: int
     band_min_bps: int
     band_max_bps: int
+    # KN5 / N-917R4-02: Basis des Ist-Vergleichs und die Liquiditaetsreserve
+    # ausserhalb der Strategie (services/portfolio_engine_payload._bucket_rows).
+    # ``current_weight_bps`` ist der Strategieanteil auf der Strategiebasis
+    # (``current_strategy_amount_rappen``); ``current_amount_rappen`` bleibt der
+    # tatsaechliche Bestand. Reservefelder nur bei Liquiditaet (sonst None).
+    comparison_basis: Optional[str] = None
+    current_strategy_amount_rappen: Optional[int] = None
+    reserve_rappen: Optional[int] = None
+    reserve_funded_rappen: Optional[int] = None
+    reserve_gap_rappen: Optional[int] = None
 
 
 class AllocationSubBucketResponse(BaseModel):
@@ -1775,3 +1791,116 @@ class TargetAllocationGenerateResponse(BaseModel):
     goal_analysis: list[GoalAnalysisResponse]
     current_goal_analysis: list[GoalAnalysisResponse] = Field(default_factory=list)
     live_rebalancing: Optional[LiveRebalancingResponse] = None
+
+
+class IstProjectionCmaReference(BaseModel):
+    """Wirksame CMA-Version (dieselbe Aufloesung wie der Allokationspfad)."""
+    id: str
+    assumption_set_name: str
+    version: int
+    valid_from: Optional[str] = None
+    valid_until: Optional[str] = None
+    jurisdiction: Optional[str] = None
+
+
+class IstProjectionBasisResponse(BaseModel):
+    """H9 Nachtrag 2: serverseitige Basis der IST-Vermoegensprojektion.
+
+    Unabhaengig vom Strategie-Zustand: Renditeannahmen je Anlageklasse aus der
+    wirksamen CMA (Anlageklassen-Ebene, keine Gewichtung mit einer Soll-
+    Sub-Allokation) und die FX-normalisierte Gesamtvermoegens-Basis
+    (Liability-Kaskade wie ``total_allocation``) aus den aktuellen Positionen.
+    """
+    mandate_id: str
+    cma: IstProjectionCmaReference
+    expected_return_bps: dict[str, int]
+    total_base_rappen: int
+    foundation_in_net_wealth_rappen: int
+    projection_basis: dict
+
+
+# ── CCX-P4 Allocation-Publish ────────────────────────────────────────────────
+
+
+class AllocationPublicationStateResponse(BaseModel):
+    """Aktive Publikation (vor der Auslieferung neu geprueft)."""
+    status: str
+    reason_code: Optional[str] = None
+    publication_id: Optional[str] = None
+    publication_sequence: Optional[int] = None
+    target_allocation_id: Optional[str] = None
+    envelope_id: Optional[str] = None
+    published_envelope_hash: Optional[str] = None
+    validation_hash: Optional[str] = None
+    approval_hash: Optional[str] = None
+    approved_at: Optional[str] = None
+    approved_by: Optional[str] = None
+    approval_mode: Optional[str] = None
+    # Sichtbare Kennzeichnung, z. B. "Einzelfreigabe (eine berechtigte Person)".
+    approval_mode_label: Optional[str] = None
+    # N-910-02: Basis der Freigabe -- aktive Publish-Berechtigte und die
+    # Tenant-Konfiguration "Ein-Personen-Firma" zum Zeitpunkt (im approval_hash).
+    eligible_approver_count: Optional[int] = None
+    single_person_firm: Optional[int] = None
+
+
+class PublicationFreshnessCause(BaseModel):
+    """KN-B / E2E2-05: eine Ursache der Veraltung."""
+    kind: str
+    text: str
+    currencies: list[str] = Field(default_factory=list)
+
+
+class PublicationFreshnessResponse(BaseModel):
+    """KN-B / E2E2-05: abgeleitete Frische der aktiven Publikation.
+    ``status``: FRESH | STALE | UNKNOWN | null (keine bzw. aus anderem Grund
+    ungueltige Publikation)."""
+    status: Optional[str] = None
+    reason_code: Optional[str] = None
+    message: Optional[str] = None
+    causes: list[PublicationFreshnessCause] = Field(default_factory=list)
+
+
+class AllocationPublicationOverviewResponse(BaseModel):
+    """CCX-P4: Publikationsstatus der aktuellen Soll-Allokation fuer die
+    Masken. ``can_publish`` nur, wenn alle Pruefungen gruen sind;
+    ``blocker_codes`` sind katalogisierte Reason-Codes."""
+    mandate_id: str
+    target_allocation_id: Optional[str] = None
+    envelope_id: Optional[str] = None
+    envelope_hash: Optional[str] = None
+    publication_status: str
+    validation_status: str
+    validation_hash: str
+    blocker_codes: list[str] = Field(default_factory=list)
+    can_publish: bool
+    already_published: bool
+    prepared_by: Optional[str] = None
+    active_publication: AllocationPublicationStateResponse
+    freshness: Optional[PublicationFreshnessResponse] = None
+
+
+class AllocationPublishRequest(BaseModel):
+    """CCX-P4: Freigabe genau des geprueften Stands (Approval-Binding)."""
+    target_allocation_id: str = Field(min_length=1, max_length=64)
+    validation_hash: str = Field(min_length=64, max_length=64, pattern="^[0-9a-f]{64}$")
+    single_approver_attestation: bool = False
+    attestation_reason: Optional[str] = Field(default=None, max_length=1000)
+
+
+class AllocationPublicationResponse(BaseModel):
+    """CCX-P4: geschriebener Publikationsentscheid."""
+    publication_id: str
+    mandate_id: str
+    target_allocation_id: str
+    envelope_id: str
+    publication_sequence: int
+    validation_hash: str
+    approval_hash: str
+    approval_mode: str
+    approval_mode_label: str
+    approved_at: str
+    approved_by: str
+    published_envelope_hash: str
+    eligible_approver_count: int
+    single_person_firm: int

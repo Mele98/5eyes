@@ -9,6 +9,61 @@ from config import settings, user_agent
 
 OPENFIGI_MAPPING_URL = "https://api.openfigi.com/v3/mapping"
 
+# Die internen Zielcodes muessen in services.product_market_data
+# (YFINANCE_/STOOQ_SUFFIX_BY_EXCHANGE bzw. US_EXCHANGE_CODES) existieren;
+# das prueft tests/test_of1_openfigi_exchange_codes.py. Die Tabelle steht
+# hier (ohne Import), damit der Client keine neue Abhaengigkeit bekommt.
+# OF-1 / Audit 2026-11/06 O5: OpenFIGI liefert Bloomberg-Boersencodes
+# (exchCode). Sie sind KEINE Yahoo-/stooq-Suffixe ("VWRL LN" ist an der LSE
+# "VWRL.L", nicht "VWRL.LN"). Diese explizite Tabelle bildet sie auf den
+# internen Boersencode ab, aus dem services.product_market_data.provider_lookup_symbol die Symbolik je
+# Provider ableitet (.L, .DE, .SW, .PA, .AS, .MI ...). Nicht gelistete Codes
+# werden NICHT geraten: map_openfigi_exchange_code -> None, der Aufrufer
+# markiert den Kandidaten bzw. lehnt die Uebernahme ab. Composite-Codes ohne
+# eindeutige Boerse (z. B. GR = Deutschland Composite) bleiben bewusst aussen vor.
+OPENFIGI_EXCHANGE_CODE_MAP: dict[str, str] = {
+    # USA (Composite und Einzelboersen; Yahoo/stooq ohne Suffix)
+    "US": "US", "UN": "US", "UW": "US", "UQ": "US", "UR": "US",
+    "UA": "US", "UP": "US", "UF": "US",
+    # Schweiz: SIX Swiss Exchange / Composite / SIX Swiss Exchange Europe
+    "SW": "SW", "SE": "SW", "VX": "VX",
+    # Europa
+    # [pruefen] LSE: viele Linien notieren bei Yahoo in GBp (Pence), nicht GBP.
+    # Das Symbol (.L) ist richtig, die Kurs-Skalierung (Faktor 100) ist im
+    # Preispfad NICHT behandelt (Audit 06, BBG-10 Pence-Listing).
+    "LN": "L",   # London Stock Exchange
+    "GY": "DE",  # Xetra
+    "GF": "F",   # Boerse Frankfurt
+    "FP": "PA",  # Euronext Paris
+    "NA": "AS",  # Euronext Amsterdam
+    "BB": "BR",  # Euronext Bruessel
+    "IM": "MI",  # Borsa Italiana
+    "SM": "MC",  # Bolsa de Madrid
+    "SS": "ST",  # Nasdaq Stockholm
+    "NO": "OL",  # Oslo Boers
+    "DC": "CO",  # Nasdaq Kopenhagen
+    "FH": "HE",  # Nasdaq Helsinki
+    "ID": "IR",  # Euronext Dublin
+    "AV": "VI",  # Wiener Boerse
+    # Uebrige
+    "CT": "TO",  # Toronto Stock Exchange
+    "CV": "V",   # TSX Venture
+    # "HK" bewusst NICHT gemappt [pruefen]: Bloomberg "700 HK", Yahoo erwartet
+    # vierstellig mit fuehrenden Nullen ("0700.HK"). Ohne bestaetigte Regel
+    # kein Raten -> unbekannt -> needs_review (N-862-5).
+    "JT": "T",   # Tokio
+    "AT": "AX",  # ASX
+    "NZ": "NZ",  # NZX
+}
+
+
+def map_openfigi_exchange_code(value: Any) -> str | None:
+    """Bloomberg-/OpenFIGI-exchCode -> interner Boersencode, sonst None."""
+    raw = str(value or "").strip().upper()
+    if not raw:
+        return None
+    return OPENFIGI_EXCHANGE_CODE_MAP.get(raw)
+
 
 def _build_mapping_job(
     *,
@@ -49,29 +104,46 @@ def _build_mapping_job(
     return job
 
 
-def _normalize_ticker(raw_ticker: Any) -> str | None:
-    """OpenFIGI liefert ticker fuer nicht-US-Listings als "UBSG SW"
-    (Bloomberg-Space-Notation). services/product_market_data.py erkennt
-    nur '.', ':', '/', '=' als expliziten Market-Suffix -- ein rohes
-    Leerzeichen wird NICHT erkannt, wodurch beim Preisabruf ein zweiter
-    Suffix angehaengt wird ("UBSG SW" + Exchange "SW" -> "UBSG SW.SW",
-    fuer keinen Provider aufloesbar). Analog zur bereits korrekten
-    Normalisierung in services/market_data/providers/openfigi_provider.py.
+def _split_ticker(raw_ticker: Any) -> tuple[str | None, str | None]:
+    """OpenFIGI liefert Ticker teils in Bloomberg-Space-Notation ("UBSG SW").
+
+    OF-1 / Audit O5: Der Boersenteil wird abgetrennt und NICHT als Suffix
+    angehaengt ("VWRL LN" -> "VWRL.LN" loeste kein Provider auf). Das Produkt
+    bekommt das blanke Symbol plus internen Boersencode; die Provider-
+    Symbolik entsteht erst in services/product_market_data.provider_lookup_symbol.
     """
     ticker = str(raw_ticker or "").strip() or None
     if ticker and " " in ticker:
         base, _sep, suffix = ticker.rpartition(" ")
-        if base and suffix:
-            ticker = f"{base}.{suffix}"
-    return ticker
+        if base.strip() and suffix:
+            return base.strip(), suffix.strip().upper()
+    return ticker, None
+
+
+def _normalize_ticker(raw_ticker: Any) -> str | None:
+    """Blankes Symbol ohne Bloomberg-Boersenteil (siehe _split_ticker)."""
+    return _split_ticker(raw_ticker)[0]
 
 
 def _candidate_payload(item: dict[str, Any]) -> dict[str, Any]:
+    ticker, ticker_exchange = _split_ticker(item.get("ticker"))
+    raw_exch_code = str(item.get("exchCode") or "").strip().upper() or ticker_exchange
+    mapped = map_openfigi_exchange_code(raw_exch_code)
+    if not raw_exch_code:
+        status = "missing"
+    elif mapped:
+        status = "mapped"
+    else:
+        status = "unknown"
     return {
         "figi": item.get("figi"),
-        "ticker": _normalize_ticker(item.get("ticker")),
+        "ticker": ticker,
         "name": item.get("name"),
-        "exch_code": item.get("exchCode"),
+        "exch_code": item.get("exchCode") or ticker_exchange,
+        # OF-1: interner Boersencode (Basis der Provider-Symbolik) bzw. None,
+        # wenn der Bloomberg-Code nicht in der expliziten Tabelle steht.
+        "exchange_code": mapped,
+        "exchange_code_status": status,
         "composite_figi": item.get("compositeFIGI"),
         "share_class_figi": item.get("shareClassFIGI"),
         "security_type": item.get("securityType"),

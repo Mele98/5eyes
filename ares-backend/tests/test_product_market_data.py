@@ -94,7 +94,7 @@ def seed_product(session_factory, **overrides) -> str:
         "id": "product-override-1",
         "isin": None,
         "symbol": None,
-        "product_name": "ZKB Gold ETF",
+        "product_name": "Musterprodukt Gold / Rohstoffe",
         "provider": "Test Provider",
         "product_type": "ETF",
         "asset_class": "Aktien",
@@ -114,7 +114,7 @@ def seed_product(session_factory, **overrides) -> str:
 def test_resolve_market_profile_override_wins_against_catalog():
     profile = resolve_market_profile(
         P(
-            product_name="ZKB Gold ETF",
+            product_name="Musterprodukt Gold / Rohstoffe",
             symbol=None,
             isin=None,
             exchange_code=None,
@@ -184,7 +184,7 @@ def test_resolve_market_profile_symbol_override_keeps_suffix_logic():
 def test_resolve_market_profile_without_override_uses_catalog():
     profile = resolve_market_profile(
         P(
-            product_name="ZKB Gold ETF",
+            product_name="Musterprodukt Gold / Rohstoffe",
             symbol=None,
             isin=None,
             exchange_code=None,

@@ -192,3 +192,11 @@ def test_negative_debt_is_abs():
               amortization_type="Indirekt", mortgage_type="Fest",
               maturity_date=None, horizon_years=2, start_year=2026)
     assert s == [1_000_000, 1_000_000]
+
+
+# K1 Property-Gate: dieses Modul belegt die DORMANTE Mechanik (Wiedereinschaltung
+# nach P1); das Gate selbst belegt tests/test_k1_property_advanced_gate.py.
+import pytest  # noqa: E402
+from tests.property_gate_support import property_advanced_mechanics_enabled  # noqa: E402,F401
+
+pytestmark = pytest.mark.usefixtures("property_advanced_mechanics_enabled")

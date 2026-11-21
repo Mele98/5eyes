@@ -244,7 +244,7 @@ def test_e2e_pdf_compliance_block_konsumiert_engine_config():
         },
     }
     story = []
-    render_compliance_audit_section(payload, story, styles)
+    render_compliance_audit_section(payload, story, styles, advisor_annex=True)
     # Story sollte 6 Bloecke enthalten (5 standard + 1 engine_config)
     # Die genaue Struktur ist komplex; reicht: deutlich mehr als ohne Engine-Cfg
     assert len(story) > 5
