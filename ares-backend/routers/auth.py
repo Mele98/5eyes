@@ -1342,6 +1342,10 @@ def update_user(
     # verhindert eine Tenant-Neuzuweisung bereits explizit, solange diese
     # Linkage aktiv ist -- dieselbe Invariante galt bisher nicht hier.
     is_leaving_client_role = is_role_changing and user.role == "client"
+    # H-179 N-927S-01: E-Mail-Aenderungen mit Feld und (maskiertem) alt/neu
+    # protokollieren -- vorher stand nur "UPDATE users" ohne Feld im Audit.
+    old_email = user.email
+    is_email_changing = "email" in updates and (updates["email"] or None) != (old_email or None)
 
     for field, value in updates.items():
         if field == "is_active":
@@ -1368,9 +1372,28 @@ def update_user(
         table_name="users", record_id=user_id, action="UPDATE",
         field_name="role" if is_role_changing else None,
         new_value=updates.get("role") if is_role_changing else None)
+    if is_email_changing:
+        log(db, user_id=current_user.id, user_name=current_user.full_name,
+            table_name="users", record_id=user_id, action="UPDATE", field_name="email",
+            old_value=_mask_email_for_audit(old_email), new_value=_mask_email_for_audit(updates["email"]))
     db.commit()
     db.refresh(user)
     return user
+
+
+def _mask_email_for_audit(value) -> str | None:
+    """Maskierte E-Mail fuers Audit: erstes Zeichen des lokalen Teils, ein
+    allfaelliges ``+alias`` als ``+…`` und die Domain (``c***+…@firma.example``).
+    Genug, um eine Aenderung der Postfach-Identitaet zu erkennen, ohne die
+    Adresse im Klartext ins Protokoll zu schreiben."""
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if "@" not in raw:
+        return raw[:1] + "***"
+    local, _, domain = raw.rpartition("@")
+    base, plus, _alias = local.partition("+")
+    return (base[:1] + "***") + ("+…" if plus else "") + "@" + domain
 
 
 COMPROMISE_MAX_BACKDATE_DAYS = 30

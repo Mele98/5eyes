@@ -23,7 +23,7 @@ Tenant-Name + hosting_tier + license_status leben hier. Auth-Layer
 """
 from __future__ import annotations
 
-from sqlalchemy import DDL, CheckConstraint, Column, ForeignKey, Integer, String, UniqueConstraint, event, text
+from sqlalchemy import DDL, CheckConstraint, Column, ForeignKey, Index, Integer, String, UniqueConstraint, event, text
 
 from database import (
     KYC_REVIEW_POLICY_ACTIVATION_SQLITE_TRIGGERS,
@@ -317,3 +317,98 @@ for _model, _ddls in (
             "after_create",
             DDL(_trigger_ddl).execute_if(dialect="sqlite"),
         )
+
+
+# ---------------------------------------------------------------------------
+# H-179 L2/L3 Vertragsschicht: Owner-Inhalte der Firma (Vertragsklauseln,
+# Datenschutzabschnitt der Kundeninformation, W033-Texte, Mindesthorizont,
+# Zuwendungen der Depotbank) und ihre Vier-Augen-Freigabe. Ares legt keinen
+# Inhalt an. Append-only (Korrektur = neue Version); die Freigaben bilden je
+# Firma und Schluessel eine lineare Kette (UNIQUE auf den Vorgaenger, erste mit
+# "GENESIS"), Muster KYC-Wiedervorlage oben. Alembic c7e1a9d3f5b2.
+# ---------------------------------------------------------------------------
+
+
+def _h179_append_only_sqlite(table: str) -> tuple[str, str]:
+    return (
+        f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_update "
+        f"BEFORE UPDATE ON {table} FOR EACH ROW "
+        f"BEGIN SELECT RAISE(ABORT, '{table} is immutable'); END",
+        f"CREATE TRIGGER IF NOT EXISTS trg_{table}_no_delete "
+        f"BEFORE DELETE ON {table} FOR EACH ROW "
+        f"BEGIN SELECT RAISE(ABORT, '{table} is immutable'); END",
+    )
+
+
+OWNER_CONTENT_GENESIS = "GENESIS"
+
+
+class OwnerContentVersion(Base):
+    """Version eines Owner-Inhalts (Vertragsklausel, DSG-Abschnitt, W033-Text,
+    Owner-Wert, Zuwendungsangabe einer Depotbank). ``body_text`` fuer Texte,
+    ``value_json`` fuer typisierte Werte; ``content_hash`` = Siegel ueber alle
+    Spalten ausser sich selbst (services/recommendation_release_gate.py::row_seal)."""
+
+    __tablename__ = "owner_content_versions"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "content_key", "version", name="uq_owner_content_versions_version"),
+        CheckConstraint("version > 0", name="ck_owner_content_versions_version"),
+        CheckConstraint(
+            "body_text IS NOT NULL OR value_json IS NOT NULL",
+            name="ck_owner_content_versions_payload",
+        ),
+        Index("ix_owner_content_versions_tenant_id", "tenant_id"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, nullable=False)
+    content_key = Column(String, nullable=False)
+    catalog_version = Column(String, nullable=False)
+    version = Column(Integer, nullable=False)
+    body_text = Column(String)
+    value_json = Column(String)
+    source_reference = Column(String, nullable=False)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(String, nullable=False)
+    content_hash = Column(String, nullable=False)
+
+
+class OwnerContentApproval(Base):
+    """Vier-Augen-Freigabe einer Version. Bindet den gesehenen
+    ``content_hash`` und die unveraenderliche Freigabereferenz."""
+
+    __tablename__ = "owner_content_approvals"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "content_key", "predecessor_approval_id",
+            name="uq_owner_content_approvals_chain",
+        ),
+        Index("ix_owner_content_approvals_tenant_id", "tenant_id"),
+    )
+
+    id = Column(String, primary_key=True)
+    tenant_id = Column(String, nullable=False)
+    content_key = Column(String, nullable=False)
+    content_row_id = Column(String, nullable=False, unique=True)
+    predecessor_approval_id = Column(String, nullable=False)
+    approved_by = Column(String, ForeignKey("users.id"), nullable=False)
+    approved_at = Column(String, nullable=False)
+    approval_reference = Column(String, nullable=False)
+    content_hash = Column(String, nullable=False)
+    approval_hash = Column(String, nullable=False)
+    # N-927R-01 / N-927S-01 (Alembic c7e1a9d3f5b2): Stand zum Freigabezeitpunkt,
+    # im Siegel eingefroren -- Rolle und Bereitschaft des Freigebers sowie die
+    # Postfach-Identitaeten von Freigeber und Erfasser (normalisiert, als an die
+    # Freigabe-ID gebundener Pruefwert, kein Klartext; "" = keine E-Mail).
+    # Beim Lesen gilt nur der eingefrorene Stand; NULL = Glied unwirksam.
+    # KN9 / N-927T-01: Altzeilen aus SQLite-Dateien von vor der Fixrunde
+    # (Laufzeitpatch in database.py) brechen das Siegel -> kette_ungueltig.
+    approver_role = Column(String, nullable=False)
+    approver_ready = Column(Integer, nullable=False)
+    approver_mailbox_digest = Column(String, nullable=False)
+    creator_mailbox_digest = Column(String, nullable=False)
+
+
+for _model in (OwnerContentVersion, OwnerContentApproval,):
+    for _trigger_ddl in _h179_append_only_sqlite(_model.__tablename__):
+        event.listen(_model.__table__, "after_create", DDL(_trigger_ddl).execute_if(dialect="sqlite"))

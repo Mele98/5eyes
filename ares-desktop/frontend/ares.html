@@ -6044,7 +6044,7 @@ function buildQT(id){
       var check=typeof validateBandEditorModal==='function'?validateBandEditorModal():{valid:true};
       if(!check.valid)return;
       updateBandOverrideStatus(collectBandOverridesFromModal()||{});
-      markStrategyDirty('Bandbreiten aktualisiert: Strategie neu berechnen.');
+      markStrategyDirty('Bandbreiten aktualisiert: Strategie neu berechnen.',0,'manual');
     });
     input.addEventListener('change',function(){
       var check=typeof validateBandEditorModal==='function'?validateBandEditorModal():{valid:true};
@@ -6371,7 +6371,7 @@ async function saveManualTargetAllocationFromModal(){
     var reasonEl=document.getElementById('aa-manual-save-reason');
     if(reasonEl)reasonEl.value='';
     renderManualTargetSaveState(computeManualTargetSaveValidation(),msg,false);
-    if(typeof markStrategyDirty==='function')markStrategyDirty('Manuelle Soll-Allokation gespeichert: die angezeigten Kennzahlen stammen aus der letzten Berechnung.',false);
+    afterManualTargetSave(); // N-933R-02 / N-934-03
     return true;
   }catch(e){
     renderManualTargetSaveState(computeManualTargetSaveValidation(),manualTargetSaveErrorText(e),true);
@@ -6468,7 +6468,7 @@ function applyAllocationBandOverrides(){
   persistAllocationPreferences();
   buildQT('qt-modal');
   updateBandOverrideStatus(collectBandOverridesFromModal()||{});
-  markStrategyDirty('Bandbreiten angepasst: Strategie neu berechnen.');
+  markStrategyDirty('Bandbreiten angepasst: Strategie neu berechnen.',0,'manual');
   return true;
 }
 function resetAllocationBandOverrides(){
@@ -6478,7 +6478,7 @@ function resetAllocationBandOverrides(){
   persistAllocationPreferences(prefs);
   buildQT('qt-modal');
   updateBandOverrideStatus({});
-  markStrategyDirty('Individuelle Bandbreiten zurückgesetzt: Strategie neu berechnen.');
+  markStrategyDirty('Individuelle Bandbreiten zurückgesetzt: Strategie neu berechnen.',0,'manual');
 }
 function formatIsoLocal(value){
   if(!value)return 'Nicht verfügbar';
@@ -6672,14 +6672,14 @@ function buildMonteCarloGoalsHtml(mc){
   // Reine Anzeige, die Werte kommen unveraendert aus dem Payload.
   return mc.goal_summaries.slice(0,4).map(function(item){
     var success=Number(item.success_rate_pct||0);
-    var tone=success>=70?'var(--pos)':(success>=45?'var(--warn)':'var(--neg)');
+    var tone='var(--n7)';
     return '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:7px 9px;background:var(--bg);border:1px solid var(--b1);border-radius:var(--r)"><div><div style="font-size:11px;font-weight:500;color:var(--n8)">'+escapeHtml(item.label||'Ziel')+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px">Medianverm\u00f6gen '+escapeHtml(formatRappen(item.projected_value_p50_rappen||0))+'</div></div><div style="text-align:right"><div style="font-size:10px;color:'+tone+';font-weight:600" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+'">Erfolgs-Wkt. '+escapeHtml(fmtProbPct(success))+'</div><div style="font-size:9px;color:var(--n5);margin-top:3px" title="Erreichter Anteil des Ziels im mittleren Szenario (Median), auf 100 % begrenzt">Erreichungsgrad (Median) '+escapeHtml(fmtProbPct(Math.min(100,Number(item.funded_ratio_p50||0)*100)))+'</div></div></div>';
-  }).join('')+goalAmpelLegendHtml();
+  }).join('');
 }
 // UX-1 (Befund 8): einheitliche Begriffe und sichtbare Ampel-Legende fuer
 // alle Anzeigen, die nach den Schwellen 70/45 eingefaerbt werden.
 var GOAL_SUCCESS_PROBABILITY_TOOLTIP='Anteil der simulierten Verl\u00e4ufe, in denen das Ziel vollst\u00e4ndig erreicht wird';
-var GOAL_AMPEL_LEGEND_TEXT='Ampel: \u2265 70 % gut \u00b7 45\u201369 % knapp \u00b7 < 45 % kritisch';
+var GOAL_AMPEL_LEGEND_TEXT='Status: Einstufung der Zielkennzahl (Untergrenze gegen\u00fcber Zielniveau)';
 // GOAL-STATUS-BY-SUCCESS-001 (CIO-Entscheid #667): EINE Quelle. Kanonisch
 // ist die priorisierte, vom Optimizer publizierte Erfolgswahrscheinlichkeit
 // (goal_analysis[].success_probability*, source 'optimizer') -- dieselbe wie
@@ -6698,12 +6698,6 @@ function goalSuccessIsEstimate(item){
   if(!item||goalSuccessPct(item)===null)return false;
   return item.success_probability_source!=='optimizer';
 }
-function goalSuccessAmpel(pct){
-  if(pct===null||pct===undefined)return {key:'none',label:'nicht bewertet',tone:'var(--n5)',bg:'var(--bg2)'};
-  if(pct>=70)return {key:'gut',label:'gut',tone:'var(--pos)',bg:'rgba(14,107,65,0.1)'};
-  if(pct>=45)return {key:'knapp',label:'knapp',tone:'var(--warn)',bg:'rgba(122,82,0,0.1)'};
-  return {key:'kritisch',label:'kritisch',tone:'var(--neg)',bg:'rgba(139,30,30,0.1)'};
-}
 // Spiegel von services/goal_success_status.weighted_success_probability_bps
 // (Bericht AR-2): Gewicht Goal.weight_bps roh (success_weight_bps), <= 0 -> 1.
 function goalSuccessSummary(goals){
@@ -6718,18 +6712,18 @@ function goalSuccessSummary(goals){
     if(!(w>0))w=1;
     weightedSum+=p*w;weightTotal+=w;scored+=1;
     if(goalSuccessIsEstimate(item))estimated+=1;
-    if(pct>=70)good+=1;else if(pct>=45)tight+=1;else critical+=1;
+    var k=goalStatusView(item).key;if(k==='erreichbar')good+=1;else if(k==='knapp')tight+=1;else if(k==='nicht_erreichbar')critical+=1;
   });
   var weightedBps=weightTotal>0?Math.round(weightedSum/weightTotal*10000):null;
   var weighted=weightedBps===null?null:Math.round(weightedBps/100);
-  return {weighted:weighted,weightedBps:weightedBps,scored:scored,good:good,tight:tight,critical:critical,estimated:estimated,ampel:goalSuccessAmpel(weighted)};
+  return {weighted:weighted,weightedBps:weightedBps,scored:scored,good:good,tight:tight,critical:critical,estimated:estimated};
 }
 function goalSuccessSubText(summary){
   if(!summary||!summary.scored)return 'Noch keine Simulation';
   var text;
-  if(summary.critical)text=summary.critical+' Ziel(e) kritisch'+(summary.tight?(' \u00b7 '+summary.tight+' knapp'):'');
+  if(summary.critical)text=summary.critical+' Ziel(e) nicht erreichbar'+(summary.tight?(' \u00b7 '+summary.tight+' knapp'):'');
   else if(summary.tight)text=summary.tight+' Ziel(e) knapp';
-  else text='Alle Ziele gut';
+  else text=summary.good===summary.scored?'Alle Ziele erreichbar':(summary.scored-summary.good)+' Ziel(e) nicht bewertbar';
   return summary.estimated?(text+' \u00b7 '+GOAL_SUCCESS_ESTIMATE_HINT):text;
 }
 function goalSuccessTileText(summary){
@@ -6738,7 +6732,7 @@ function goalSuccessTileText(summary){
 function setGoalSuccessTile(summary){
   setText('sr-goal-score',goalSuccessTileText(summary));
   var el=document.getElementById('sr-goal-score');
-  if(el)el.style.color=summary&&summary.weighted!=null?summary.ampel.tone:'var(--n6)';
+  if(el)el.style.color='var(--n6)';
 }
 // Ziele-Tab: Erfolgs-Wkt. aus der aktuellen (nicht veralteten) Allokation.
 function goalSuccessFromCurrentAllocation(goalId){
@@ -6842,22 +6836,8 @@ function hardnessDisplay(value){
   if(key.indexOf('opportun')===0)return 'Opportunistisch';
   return 'Prim\u00e4r';
 }
-function goalAchievabilityStatusLabel(status){
-  if(status==='erreichbar')return 'komfortabel';
-  if(status==='knapp')return 'knapp';
-  if(status==='nicht_erreichbar')return 'nicht plausibel';
-  return status||'offen';
-}
-// UX-1 (CIO-Entscheid): Ampel einheitlich 70/45 wie in Allokation und Legende
-// (GOAL_AMPEL_LEGEND_TEXT). Der tau-basierte Optimizer-Status
-// (goalAchievabilityStatusLabel) bleibt davon getrennt = "Zielniveau der Strategie".
+// P5c / N-930-01: Zielstatus nur aus M-3 (goalStatusView).
 var GOAL_STRATEGY_LEVEL_TOOLTIP='Zielniveau der Strategie: Einstufung des Optimierers gegen\u00fcber dem f\u00fcr dieses Ziel verlangten Sicherheitsniveau \u2013 nicht die Ampel';
-function rvGoalProbBadge(prob){
-  var p=Number(prob||0);
-  if(p>=0.70)return {icon:'●',color:'var(--pos)',label:'gut',tag:'tg'};
-  if(p>=0.45)return {icon:'◐',color:'var(--warn)',label:'knapp',tag:'ta'};
-  return {icon:'○',color:'var(--neg)',label:'kritisch',tag:'tr2'};
-}
 function limitingFactorMeta(factor){
   var map={
     risikoprofil:{label:'Risikoprofil limitiert',tone:'danger'},
@@ -6916,7 +6896,7 @@ function renderOptimizerAchievability(result){
       +'<td>'+escapeHtml(goalAchievabilityLabel(row))+'</td>'
       +'<td>'+escapeHtml(hardnessDisplay(row.hardness))+'</td>'
       +'<td class="num">'+escapeHtml(fmtProbPct(prob*100))+'</td>'
-      +'<td>'+escapeHtml(legacy?'Altbewertung':goalAchievabilityStatusLabel(row.status))+goalRevisionCellHtml(row)+'</td>'
+      +'<td>'+escapeHtml(legacy?'Altbewertung':goalStatusView(row).label)+goalRevisionCellHtml(row)+'</td>'
       +'</tr>';
   }).join('');
 }
@@ -7497,9 +7477,7 @@ function fmtCHF(n,ccy){if(n===null||n===undefined)return '–';var c=_ccyArg(arg
     const pc={'hoch':'p1','mittel':'p2','tief':'p3','niedrig':'p3'};
     zl.innerHTML=(p.goals||[]).map(function(g,i){
       const pct=Math.min(90,Math.round((p.netWorth/Math.max(1,g.target||1))*35+15));
-      const gcl=pct>=70?'fg':pct>=45?'fa':'fr';
-      const tcl=pct>=70?'tg':pct>=45?'ta':'tr2';
-      const lbl=pct>=70?'On Track':pct>=45?'Pr\u00fcfen':'Gef\u00e4hrdet';
+      const gcl='fa',tcl='tn',lbl='nicht bewertbar';
       return '<div class="goal" draggable="true"><div class="pd '+(pc[g.priority]||'p2')+'">'+(i+1)+'</div>'
         + '<div class="gi"><div class="gn">'+escapeHtml(g.label||'Ziel')+'</div>'
         + '<div class="gd">'+escapeHtml(fmtCHF(g.target,p.currency))+' \u00b7 '+escapeHtml(String(g.horizon||''))+' J. \u00b7 '+escapeHtml(g.type||'')+'</div></div>'
@@ -7720,10 +7698,6 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
     : (Array.isArray(currentPortfolioPositions)?currentPortfolioPositions:[]);
   // Bucket color
   function bucketColor(ac){ return assetClassPrintColor(ac); }
-  // Goal achievement color
-  function goalColor(score){
-    return Number(score||0)>=70?'#166534':(Number(score||0)>=45?'#92400e':'#991b1b');
-  }
   // Section 1: Header
   var headerHtml='<div style="background:#0f172a;padding:28px 36px 22px;margin:-36px -36px 0">'
     +'<div style="display:flex;justify-content:space-between;align-items:flex-start">'
@@ -7921,7 +7895,7 @@ function buildAnlagestrategieDocHtml(allocation,risk,persona,mandateData,recomme
     var goalRows=scoredGoals.map(function(goal){
       // GOAL-STATUS-BY-SUCCESS-001: Erfolgs-Wkt. statt Mischwert, ohne Simulation '—'.
       var success=goalSuccessPct(goal);
-      var color=success==null?'#64748b':goalColor(success);
+      var color=goalStatusView(goal).tone;
       var barPct=success==null?0:Math.min(100,success);
       return '<tr style="border-bottom:1px solid #f1f5f9">'
         +'<td style="padding:8px 12px;font-size:10px;color:#64748b;font-weight:600">RANG '+escapeHtml(String(goal.rank||'—'))+'</td>'
@@ -8196,8 +8170,7 @@ async function savePortfolioHolding(){
       notes:getInputValue('ap-notes').trim()||null
     });
     cm('m-ap');
-    await refreshStrategyData(true,true);
-    updateStrategyStatus('Bestand gespeichert und Live-Drift neu bewertet.',false);
+    if(await loadStrategyOnly(true))updateStrategyStatus('Bestand gespeichert und Live-Drift neu bewertet.',false);
   }catch(e){
     setPortfolioHoldingError(parseApiError(e,'Bestand konnte nicht gespeichert werden.'));
   }finally{
@@ -8219,8 +8192,7 @@ async function deletePortfolioHolding(){
   try{
     await API.del('/mandates/'+mid+'/recommendations/'+runId+'/positions/'+positionId+'/holding');
     cm('m-ap');
-    await refreshStrategyData(true,true);
-    updateStrategyStatus('Bestand entfernt. Live-Drift nutzt wieder die Rezept-Rekonstruktion.',false);
+    if(await loadStrategyOnly(true))updateStrategyStatus('Bestand entfernt. Live-Drift nutzt wieder die Rezept-Rekonstruktion.',false);
   }catch(e){
     setPortfolioHoldingError(parseApiError(e,'Bestand konnte nicht gelöscht werden.'));
   }finally{
@@ -8859,7 +8831,7 @@ function protokolliereEreignis(){
         <textarea class="fi" rows="2" style="resize:vertical;min-height:50px" placeholder="Optional: Sondervereinbarungen, Abweichungen, individuelle Hinweise..."></textarea>
       </div></div>
       <div class="frow">
-        <div class="fg"><label class="fl">Ort der Unterzeichnung</label><input class="fi" value="Zürich"></div>
+        <div class="fg"><label class="fl">Ort der Unterzeichnung</label><input class="fi"></div>
         <div class="fg"><label class="fl">Datum</label><input class="fi" type="date" value="2025-09-14"></div>
       </div>
     </div>
@@ -16604,7 +16576,7 @@ function resetAdvisoryLogModal(){
     if(!getInputValue('contract-intro'))setInputValue('contract-intro','Auf Grundlage der gemeinsamen Analyse der persönlichen und finanziellen Situation sowie der Anlageziele wurde folgende individuelle Anlagestrategie vereinbart.');
     if(!getInputValue('contract-disclaimer'))setInputValue('contract-disclaimer','Diese Empfehlung basiert auf den zum Zeitpunkt der Beratung bekannten Informationen und stellt keine Garantie künftiger Wertentwicklungen dar. Die Umsetzung erfolgt eigenverantwortlich durch den Kunden.');
     if(getInputValue('contract-special')==='')setInputValue('contract-special',fullName?'Mandat für '+fullName+'.':'');
-    setInputValue('contract-place',getInputValue('contract-place')||'Zürich');
+    setInputValue('contract-place',getInputValue('contract-place'));
     setInputValue('contract-date',new Date().toISOString().slice(0,10));
     var err=document.getElementById('contract-error');
     if(err){err.style.display='none';err.textContent='';}
@@ -19349,7 +19321,7 @@ function aaFanGoalMarkers(result,labels){
     var idx=lbl.indexOf(String(yr));
     if(idx<0)return;
     var pr=fanGoalProbability(achById[String(g.goal_id)]||null,g.path_success_rate_pct);
-    out.push({id:String(g.goal_id||g.label||idx),index:idx,valueK:target/100000,label:g.label||'Ziel',prob:pr?pr.pct:null,estimate:!!(pr&&pr.estimate)});
+    out.push({id:String(g.goal_id||g.label||idx),index:idx,valueK:target/100000,label:g.label||'Ziel',prob:pr?pr.pct:null,estimate:!!(pr&&pr.estimate),color:goalStatusView(g).tone});
   });
   return out;
 }
@@ -19415,7 +19387,7 @@ function aaDrawFanAnnotations(chart){
     if(!isFinite(x))return;
     var above=isFinite(yMax)&&g.valueK>yMax;
     var yT=above?area.top+8:ys.getPixelForValue(g.valueK);
-    var tone=g.prob==null?muted:(g.prob>=70?'rgb(14,107,65)':(g.prob>=45?'rgb(122,82,0)':'rgb(139,30,30)'));
+    var tone=g.color||muted;
     ctx.setLineDash([3,3]);ctx.lineWidth=1;ctx.strokeStyle=tone;ctx.globalAlpha=0.6;
     ctx.beginPath();ctx.moveTo(x,area.top);ctx.lineTo(x,area.bottom);ctx.stroke();
     ctx.setLineDash([]);ctx.globalAlpha=1;ctx.fillStyle=tone;ctx.beginPath();
@@ -19949,7 +19921,8 @@ function applyBufferedStrategyOutputs(wantsRecommendation,statusMessage){
   return true;
 }
 
-function markStrategyDirty(message,invalidateOutputs){
+function markStrategyDirty(message,invalidateOutputs,source){
+  strategyState.dirtyOther=!!(strategyState.dirty&&strategyState.dirtyOther)||source!=='manual'; // N-934-03
   strategyState.dirty=true;
   clearPendingStrategyOutputs();
   if(invalidateOutputs&&!hasVisibleStrategyOutputs())invalidateStrategyOutputs();
@@ -19960,57 +19933,8 @@ function markStrategyDirty(message,invalidateOutputs){
   // statischer Sammeltext.
   strategyState.staleNotice=message||(typeof STRATEGY_STALE_DEFAULT_NOTICE==='string'?STRATEGY_STALE_DEFAULT_NOTICE:'Eingaben geändert: Strategie neu berechnen.');
   if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();
-  // Auto-Recompute mit Debounce: falls aktiviert, wird nach Aenderungen
-  // verzoegert neu gerechnet. Der Default bleibt manuell, damit die sichtbare
-  // SOLL-Prognose stabil bleibt, bis der Berater bewusst neu berechnet.
-  scheduleAutoRecompute();
-}
-
-// Auto-Recompute-Konfiguration.
-// Bug-Fix 2026-05-17 (User-Report 'SAA setzt sich zurueck'): Default auf
-// false, weil das automatische Neu-Berechnen nach jeder Aenderung die
-// gerade angezeigte SOLL-Prognose ungewollt ersetzt hat. Berater erwarten
-// dass die berechnete Strategie sichtbar STABIL bleibt bis sie bewusst
-// auf «Anlagestrategie berechnen» klicken. Aktivierung via Console
-// `AUTO_RECOMPUTE_ENABLED=true` oder localStorage 'auto_recompute'='1'.
-var AUTO_RECOMPUTE_ENABLED = false;
-try {
-  if (typeof localStorage !== 'undefined' && localStorage.getItem('auto_recompute') === '1') {
-    AUTO_RECOMPUTE_ENABLED = true;
-  }
-} catch(e){}
-var AUTO_RECOMPUTE_DEBOUNCE_MS = 800;
-var _autoRecomputeTimer = null;
-
-function scheduleAutoRecompute(){
-  if(!AUTO_RECOMPUTE_ENABLED)return;
-  // Skip wenn der Solver gerade laeuft — Re-Trigger nach Abschluss erfolgt
-  // ueber den naechsten markStrategyDirty bei der naechsten Aenderung.
-  if(strategyState&&strategyState.loading)return;
-  // Skip wenn keine echte Mandate (Demo-Modus, Login-Screen, Onboarding etc.)
-  var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
-  if(!mid||typeof isDemoMandateId==='function'&&isDemoMandateId(mid))return;
-  // Bug-Fix 2026-05-17: nur auf der Asset-Allokation-Seite recomputen.
-  // Verhindert dass CMA-Edits auf Admin-Seite oder Risikoprofil-Save auf
-  // rp-Seite eine SOLL-Prognose-Aktualisierung triggern die der Berater
-  // gerade nicht sieht und nicht erwartet.
-  var currentPage = typeof activePageKey==='function' ? activePageKey() : null;
-  if (currentPage !== 'al') return;
-  // calculateInvestmentStrategy muss verfuegbar sein (Lazy-Load-Schutz)
-  if(typeof calculateInvestmentStrategy!=='function')return;
-  // Debounce: bei schnellen Aenderungen Timer reset
-  if(_autoRecomputeTimer){clearTimeout(_autoRecomputeTimer);_autoRecomputeTimer=null;}
-  _autoRecomputeTimer=setTimeout(function(){
-    _autoRecomputeTimer=null;
-    // Re-check Pre-Conditions zum Zeitpunkt der eigentlichen Ausfuehrung
-    if(!strategyState||!strategyState.dirty)return;
-    if(strategyState.loading)return;
-    var midNow=typeof getActiveMandateId==='function'?getActiveMandateId():null;
-    if(!midNow||(typeof isDemoMandateId==='function'&&isDemoMandateId(midNow)))return;
-    var pageNow=typeof activePageKey==='function'?activePageKey():null;
-    if(pageNow!=='al')return;
-    try{calculateInvestmentStrategy();}catch(e){/* defensive: kein Bruch wenn Solver-Pfad fehlt */}
-  },AUTO_RECOMPUTE_DEBOUNCE_MS);
+  // P5c Fixrunde 1 (CTO): Strategietreue ohne Ausnahme -- Aenderungen rechnen nie
+  // automatisch neu; neue Strategie nur per «Anlagestrategie berechnen».
 }
 function updateStrategyStatus(message,isError){
   // Live-Test 2026-11 M1: Meldung auch sichtbar auf der Portfolio-Seite (#po-status), nicht nur in der AA-Statuszeile
@@ -20732,7 +20656,7 @@ function renderStrategySummary(){
   var goals=document.getElementById('sr-goal-priority-list');
   if(goals){
     goals.innerHTML=(allocation.goal_analysis||[]).slice(0,3).map(function(goal){
-      var color=goalSuccessAmpel(goalSuccessPct(goal)).tone;
+      var color=goalStatusView(goal).tone;
       return '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:6px 8px;background:var(--bg);border-radius:var(--r);border:1px solid var(--b1)"><div><div><span style="font-size:9px;font-weight:600;color:var(--n5);margin-right:6px">RANG '+escapeHtml(goal.rank)+'</span><span style="font-size:11px;color:var(--n8)">'+escapeHtml(goal.label||'Ziel')+'</span></div>'+goalEvaluationNoteHtml(goal,true)+'</div><span style="font-size:10px;color:'+color+';font-weight:500">'+formatRappen(goal.target_amount_rappen||0,mandateCurrency())+'</span></div>';
     }).join('');
   }
@@ -20861,7 +20785,7 @@ if(cashflow&&cashflow.recurring_net_rappen!=null)goalSubParts.push('Laufend '+fo
   if(goals){
     goals.innerHTML=scoredGoals.slice(0,4).map(function(goal){
       var success=goalSuccessPct(goal);
-      var ampel=goalSuccessAmpel(success);
+      var ampel=goalStatusView(goal);
       var score=success==null?0:success;
       var tone=ampel.tone;
       var statusLabel=ampel.label;
@@ -21428,16 +21352,17 @@ async function refreshStrategyData(force,includeRecommendation,retriedAfterBandR
         }
         var currentPrefs=recommendationPreferencesForStoredAllocation(currentAllocation);
         var currentDepotBank=getInputValue('recipe-depot-bank')||null;
-        var hydratedRecommendation=await API.post('/mandates/'+mid+'/recommendations/generate',{preferences:currentPrefs,target_allocation_id:currentAllocation.target_allocation.id,run_type:'Optimizer',depot_bank:currentDepotBank});
+        var hydratedRecommendation;
+        try{hydratedRecommendation=await API.post('/mandates/'+mid+'/recommendations/generate',{preferences:currentPrefs,target_allocation_id:currentAllocation.target_allocation.id,run_type:'Optimizer',depot_bank:currentDepotBank});}
+        catch(recErr){updateStrategyStatus('Empfehlung konnte nicht erzeugt werden: '+finalizeErrorText(recErr),true);return false;} // N-933-02: Eignung/Produkt, nicht "veraltet"
         finalizeStrategyOutputs(currentAllocation,hydratedRecommendation,true,'Aktuelle Soll-Allokation geladen, Empfehlung aktualisiert: '+new Date().toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'}));
         return true;
       }
       finalizeStrategyOutputs(currentAllocation,null,false,'Aktuelle Strategie geladen: '+new Date().toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'}));
       return true;
     }catch(e){
-      if(!(e&&String(e.status||'')==='404')&&!(e&&String(e.status||'')==='409')){
-        updateStrategyStatus('Aktuelle Strategie konnte nicht geladen werden. Engine berechnet neu...',false);
-      }
+      if(e&&e.status==409){strategyState.dirty=true;return false;}
+      if(!(e&&e.status==404)){updateStrategyStatus('Aktuelle Strategie konnte nicht geladen werden.',true);return false;}
     }finally{
       strategyState.loading=false;
     }
@@ -21538,8 +21463,7 @@ async function openAllocationEngineModal(){
 }
 async function openImplementationRecipe(){
   if(typeof populateRecipeDepotBanks==='function')populateRecipeDepotBanks();
-  if(typeof eligOverrideReset==='function')eligOverrideReset();await refreshStrategyData(true,true);
-  om('m-ums');
+  if(typeof eligOverrideReset==='function')eligOverrideReset();if(finalizeLocked())return;if(await loadStrategyOnly(true))om('m-ums');
 }
 // RESERVE-LEDGER-SNAPSHOT-001: strukturierte Finalisierungs-Sperre
 // ({reason_code,message}) zeigt nur den Klartext mit Handlungsanweisung,
@@ -24250,19 +24174,7 @@ function renderAdvisoryLogList(logs){
     root.innerHTML='<div style="font-size:10px;color:var(--n4)">Noch keine Advisory-Einträge dokumentiert.</div>';
     return;
   }
-  root.innerHTML=items.map(function(entry){
-    var decision=entry.decision||entry.entry_type||'Dokumentiert';
-    var decisionClass=/keine/i.test(decision)?'tg':(/transaktion|kauf|verkauf|umschichtung/i.test(decision)?'ta':'tn');
-    var status=String(entry.status||'Empfohlen');
-    var statusClass=status==='Umgesetzt'?'tg':(status==='Beschlossen'?'tb':'ta');
-    var nextStatus=status==='Empfohlen'?'Beschlossen':(status==='Beschlossen'?'Umgesetzt':null);
-    var triggerMeta=entry.trigger_id?('Trigger: '+String(entry.trigger_id)):'Ohne Trigger-Verknüpfung';
-    var runMeta=entry.recommendation_run_id?('Berechnung '+String(entry.recommendation_run_id).slice(0,8)):'Keine Strategieberechnung verknüpft';
-    var actions=nextStatus
-      ? '<button class="btn" type="button" style="padding:4px 8px;font-size:10px">'+escapeHtml(nextStatus)+' setzen</button>'
-      : '<span style="font-size:10px;color:var(--pos);font-weight:500">Status abgeschlossen</span>';
-    return '<div class="logi" style="padding:10px 0"><div class="logh"><div class="logt">'+escapeHtml(entry.title||'Advisory-Eintrag')+'</div><div class="logm"><span class="logd">'+escapeHtml(formatDateSwiss(entry.entry_date||entry.created_at||''))+'</span><span class="tag '+decisionClass+'">'+escapeHtml(decision)+'</span><span class="tag '+statusClass+'">'+escapeHtml(status)+'</span></div></div><div class="logdesc">'+escapeHtml(entry.description||'Ohne Zusatzbegründung dokumentiert.')+'</div><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap"><div style="font-size:9px;color:var(--n4)">'+escapeHtml(triggerMeta)+' · '+escapeHtml(runMeta)+'</div>'+actions+'</div></div>';
-  }).join('');
+  root.innerHTML=items.map(advisoryLogCardHtml).join(''); // advisory-log-finma.js
   Array.prototype.forEach.call(root.querySelectorAll('.logi'),function(card,idx){
     var entry=items[idx];
     if(!entry)return;
@@ -24511,12 +24423,12 @@ function renderReviewGoalAchievability(result){
   list.innerHTML=planSolvencyHtml(allocationPlanSolvency(result))+rows.map(function(row){
     var prob=Number(row.probability||0);
     var legacy=goalAchievabilityIsLegacy(row);
-    var badge=legacy?{icon:'○',color:'var(--n4)',label:'Altbewertung',tag:'tn'}:rvGoalProbBadge(prob);
+    var badge=legacy?{icon:'○',color:'var(--n4)',label:'Altbewertung',tag:'tn'}:goalStatusView(row);
     return '<div class="rv-goal-list-item" data-scope="'+escapeHtml(legacy?'legacy_aggregate_unknown':'priority_funded')+'">'
       +'<div style="color:'+badge.color+';font-size:15px;line-height:1" title="'+escapeHtml(legacy?'Altbewertung ohne Ampel':GOAL_AMPEL_LEGEND_TEXT)+'">'+badge.icon+'</div>'
       +'<div><div class="rv-goal-list-label">'+escapeHtml(goalAchievabilityLabel(row))+'</div><div class="rv-goal-list-meta">'+escapeHtml(hardnessDisplay(row.hardness))+(legacy?'':' \u00b7 '+escapeHtml(PRIORITY_FUNDED_LABEL))+'</div></div>'
       +'<div style="font-family:var(--f-d);font-size:13px;color:var(--n8);text-align:right" title="'+escapeHtml(GOAL_SUCCESS_PROBABILITY_TOOLTIP)+'">'+escapeHtml(fmtProbPct(prob*100))+'</div>'
-      +'<span class="tag '+badge.tag+'" title="'+escapeHtml(legacy?'Altbewertung':GOAL_STRATEGY_LEVEL_TOOLTIP)+'">'+escapeHtml(legacy?'Altbewertung':goalAchievabilityStatusLabel(row.status))+'</span>'
+      +'<span class="tag '+badge.tag+'" title="'+escapeHtml(legacy?'Altbewertung':GOAL_STRATEGY_LEVEL_TOOLTIP)+'">'+escapeHtml(badge.label)+'</span>'
       +'</div>';
   }).join('')+goalAmpelLegendHtml();
 }
@@ -24564,7 +24476,7 @@ function renderReviewCockpit(state){
   if(main){
     var prob=main.probability==null?null:Number(main.probability||0);
     var mainLegacy=prob!=null&&goalAchievabilityIsLegacy(main);
-    var badge=prob==null?{icon:'○',color:'var(--n4)',label:'ausstehend',tag:'tn'}:(mainLegacy?{icon:'○',color:'var(--n4)',label:'Altbewertung',tag:'tn'}:rvGoalProbBadge(prob));
+    var badge=prob==null?{icon:'○',color:'var(--n4)',label:'ausstehend',tag:'tn'}:(mainLegacy?{icon:'○',color:'var(--n4)',label:'Altbewertung',tag:'tn'}:goalStatusView(main));
     if(labelEl)labelEl.textContent=goalAchievabilityLabel(main);
     if(probEl){probEl.textContent=prob==null?'—':fmtProbPct(prob*100);probEl.title=GOAL_SUCCESS_PROBABILITY_TOOLTIP;}
     if(iconEl){iconEl.textContent=badge.icon;iconEl.style.color=badge.color;iconEl.title=GOAL_AMPEL_LEGEND_TEXT;}
@@ -26413,6 +26325,6 @@ function openStammdatenModal(){
 </div>
 <!-- ─────────────────────────────────────────────────────────── -->
 
-<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./allocation-publication.js"></script><script src="./finalize-attestation.js"></script><script src="./fx-rates-editor.js"></script><script src="./advisor-guidance.js"></script><script src="./mandate-view.js"></script><script src="./kn3-ui.js"></script><script src="./kn4-ui.js"></script><script src="./kn5-ui.js"></script><script src="./sustainability-preferences.js"></script>
+<script src="./goal-review-runtime.js"></script><script src="./client-compliance.js"></script><script src="./kyc-review-policy.js"></script><script src="./owner-content.js"></script><script src="./privacy-governance.js"></script><script src="./wealth-inflows.js"></script><script src="./allocation-publication.js"></script><script src="./finalize-attestation.js"></script><script src="./fx-rates-editor.js"></script><script src="./advisor-guidance.js"></script><script src="./mandate-view.js"></script><script src="./kn3-ui.js"></script><script src="./kn4-ui.js"></script><script src="./kn5-ui.js"></script><script src="./p5c-ui.js"></script><script src="./sustainability-preferences.js"></script>
 </body>
 </html>

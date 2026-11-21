@@ -329,11 +329,14 @@ _TYPED_ENGINE_ERRORS = {
 def typed_engine_error(exc: BaseException | None) -> DomainError | None:
     """``DomainError`` fuer eine (verkettete) P5-Ablehnung, sonst None."""
     seen = 0
+    # N-925R-03: nur ``__cause__`` (``raise ... from exc``) -- ein Fehler, der
+    # bloss waehrend der Behandlung einer P5-Ablehnung entstand (``__context__``),
+    # wird nie umgedeutet.
     while exc is not None and seen < 8:
         code = _TYPED_ENGINE_ERRORS.get(str(getattr(type(exc), "reason_code", "") or ""))
         if code is not None:
             return DomainError(code, str(exc), http_status=409)
-        exc = exc.__cause__ or exc.__context__
+        exc = exc.__cause__
         seen += 1
     return None
 
@@ -346,8 +349,13 @@ async def typed_engine_error_handler(request: Request, exc: Exception) -> Respon
 
 
 async def http_exception_with_typed_cause_handler(request: Request, exc: StarletteHTTPException) -> Response:
-    typed = typed_engine_error(exc.__cause__ or exc.__context__)
-    if typed is not None and int(getattr(exc, "status_code", 0) or 0) in (400, 409, 422, 500):
+    typed = typed_engine_error(exc.__cause__)
+    if typed is not None and int(getattr(exc, "status_code", 0) or 0) in (400, 409, 422):
+        # N-925R-03: Original protokollieren; ein 500 wird nie umgedeutet.
+        logger.warning(
+            "P5-Ablehnung typisiert | method=%s path=%s original_status=%s original_detail=%r code=%s",
+            request.method, request.url.path, exc.status_code, exc.detail, typed.reason_code,
+        )
         return await http_exception_handler(request, domain_error_as_http_exception(typed))
     return await http_exception_handler(request, exc)
 

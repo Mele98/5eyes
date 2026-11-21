@@ -32,7 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Mapping, Sequence
 
-from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import inspect as sa_inspect, text
 from sqlalchemy.orm import Session
 
 from core.advisory_envelope_codec import (
@@ -47,7 +47,6 @@ from models.allocation import BuildingBlock, CapitalMarketAssumption, HouseMatri
 from models.clients import ADVISORY_HASH_EXEMPT_INFO_KEY, ADVISORY_TENANT_BOUNDARY_COLUMNS, Client
 from models.cma_policy import CmaPolicy, CmaPolicyApproval, CmaPolicyComponent
 from models.mandates import Mandate
-from models.product_eligibility import ProductEvidenceItem, ProductEvidenceSnapshot
 from models.profiling import (
     InvestmentPreferenceDecision,
     RiskAssessment,
@@ -299,19 +298,24 @@ def collect_dependency_parts(
         .filter(InvestmentPreferenceDecision.mandate_id == mandate_id)
         .all()
     )
-    evidence_snapshot = db.query(ProductEvidenceSnapshot).filter(
-        ProductEvidenceSnapshot.recommendation_run_id == str(run.id),
-    ).first()
+    evidence_snapshot = db.execute(text(
+        "SELECT item_ids_json FROM product_evidence_snapshots "
+        "WHERE recommendation_run_id = :run_id LIMIT 1"
+    ), {"run_id": str(run.id)}).mappings().first()
     evidence_ids = []
     if evidence_snapshot is not None:
         try:
             import json
-            evidence_ids = list(json.loads(evidence_snapshot.item_ids_json))
+            evidence_ids = list(json.loads(evidence_snapshot["item_ids_json"]))
         except (TypeError, ValueError):
             evidence_ids = []
-    evidence_items = db.query(ProductEvidenceItem).filter(
-        ProductEvidenceItem.id.in_(evidence_ids),
-    ).all() if evidence_ids else []
+    evidence_items = []
+    for evidence_id in evidence_ids:
+        row = db.execute(text(
+            "SELECT * FROM product_evidence_items WHERE id = :id"
+        ), {"id": str(evidence_id)}).mappings().first()
+        if row is not None:
+            evidence_items.append(row)
     risk_id = getattr(ta, "based_on_assessment_id", None) or getattr(run, "assessment_id", None)
     cma_id = getattr(run, "capital_market_assumptions_id", None) or getattr(
         ta, "capital_market_assumptions_id", None,
@@ -374,10 +378,15 @@ def collect_dependency_parts(
     # Kante. Dadurch invalidiert Retire/Revocation/Ersatz genau die Envelopes,
     # die das Item tatsächlich verwendeten. ``note`` ist hash-exempt über den
     # zentralen Hook und verändert die fachliche Bindung nicht.
-    for item in sorted(evidence_items, key=lambda row: (row.product_id, row.evidence_kind, row.id)):
-        parts.append(part(
-            "product_evidence", str(item.id), None, "product-evidence-item",
-            ProductEvidenceItem, [item], ("id",),
+    evidence_columns = tuple(
+        key for key in evidence_items[0].keys()
+        if key not in {"tenant_id", "updated_at", "note"}
+    ) if evidence_items else ()
+    for item in sorted(evidence_items, key=lambda row: (row["product_id"], row["evidence_kind"], row["id"])):
+        parts.append(DependencyPart(
+            "product_evidence", str(item["id"]), None,
+            rows_child_hash("product-evidence-item", evidence_columns, [dict(item)],
+                            lambda row: (none_sort_key(row["id"]),)),
         ))
     # N-908-04: auch die Tabellen, die der Hook bisher nur ueber die Reichweite
     # traf, bekommen eine Kante -- damit greift die Pull-Pruefung auch dort.

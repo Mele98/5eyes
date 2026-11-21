@@ -19,6 +19,28 @@
         "title": "AbortRequest",
         "type": "object"
       },
+      "AdviceRationaleCreate": {
+        "properties": {
+          "client_needs": {
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Client Needs",
+            "type": "string"
+          },
+          "recommendation_reasons": {
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Recommendation Reasons",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_needs",
+          "recommendation_reasons"
+        ],
+        "title": "AdviceRationaleCreate",
+        "type": "object"
+      },
       "AdviserRegistrationCreate": {
         "properties": {
           "notes": {
@@ -1687,6 +1709,16 @@
           "can_publish": {
             "title": "Can Publish",
             "type": "boolean"
+          },
+          "decision_envelope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionEnvelopeReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "envelope_hash": {
             "anyOf": [
@@ -6056,6 +6088,61 @@
         "title": "CashflowYearRow",
         "type": "object"
       },
+      "ChannelPublicationReference": {
+        "description": "P5b / N-925-04: eine Kanalzeile des Beratungsentscheids.",
+        "properties": {
+          "artifact_id": {
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "channel": {
+            "title": "Channel",
+            "type": "string"
+          },
+          "channel_payload_hash": {
+            "title": "Channel Payload Hash",
+            "type": "string"
+          },
+          "channel_sequence": {
+            "title": "Channel Sequence",
+            "type": "integer"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "goal_metric_payload_hash": {
+            "title": "Goal Metric Payload Hash",
+            "type": "string"
+          },
+          "parameter_set_hash": {
+            "title": "Parameter Set Hash",
+            "type": "string"
+          },
+          "render_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Render Hash"
+          }
+        },
+        "required": [
+          "channel",
+          "artifact_id",
+          "channel_sequence",
+          "channel_payload_hash",
+          "parameter_set_hash",
+          "goal_metric_payload_hash",
+          "created_at"
+        ],
+        "title": "ChannelPublicationReference",
+        "type": "object"
+      },
       "ClientCreate": {
         "properties": {
           "advisor_id": {
@@ -9646,6 +9733,109 @@
         "title": "CustomerConfirmRequest",
         "type": "object"
       },
+      "DecisionEnvelopeReference": {
+        "description": "P5b / N-925-04 (Vertrag §8 Tier 1): Envelope-Bezug der Soll-Allokation\nfuer API, Classic und React -- Pruefnummer und Fassung nur fuer einen\nauslieferbaren Entscheid; sonst Zustand und Grund.",
+        "properties": {
+          "channel_publications": {
+            "items": {
+              "$ref": "#/components/schemas/ChannelPublicationReference"
+            },
+            "title": "Channel Publications",
+            "type": "array"
+          },
+          "envelope_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Envelope Hash"
+          },
+          "fassung": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fassung"
+          },
+          "goal_metric_payload_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal Metric Payload Hash"
+          },
+          "ic_release_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ic Release Status"
+          },
+          "parameter_set_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parameter Set Hash"
+          },
+          "pruefnummer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pruefnummer"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "state": {
+            "enum": [
+              "deliverable",
+              "sealed_not_deliverable",
+              "none"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "DecisionEnvelopeReference",
+        "type": "object"
+      },
       "DriftResult": {
         "properties": {
           "advisory_assets_rappen": {
@@ -10090,6 +10280,50 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "status_bg": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Bg"
+          },
+          "status_color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Color"
+          },
+          "status_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Label"
+          },
+          "status_tone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Tone"
           },
           "success_probability": {
             "anyOf": [
@@ -16275,6 +16509,73 @@
           "created_at"
         ],
         "title": "OptimizerRunResponse",
+        "type": "object"
+      },
+      "OwnerContentApprove": {
+        "properties": {
+          "approval_reference": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Approval Reference",
+            "type": "string"
+          },
+          "content_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content_hash",
+          "approval_reference"
+        ],
+        "title": "OwnerContentApprove",
+        "type": "object"
+      },
+      "OwnerContentCreate": {
+        "description": "Neue Version eines Owner-Inhalts. Text (``body_text``) oder typisierter\nWert (``value``) je nach Katalogart; der Server vergibt die Version.",
+        "properties": {
+          "body_text": {
+            "anyOf": [
+              {
+                "maxLength": 20000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body Text"
+          },
+          "content_key": {
+            "maxLength": 200,
+            "minLength": 3,
+            "title": "Content Key",
+            "type": "string"
+          },
+          "source_reference": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Source Reference",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "content_key",
+          "source_reference"
+        ],
+        "title": "OwnerContentCreate",
         "type": "object"
       },
       "OwnerValueUpdate": {
@@ -27570,6 +27871,16 @@
             "title": "Created At",
             "type": "string"
           },
+          "decision_envelope": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionEnvelopeReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "effective_constraints_json": {
             "anyOf": [
               {
@@ -27784,6 +28095,17 @@
               }
             ],
             "title": "Risk Budget Bps At Generation"
+          },
+          "risk_parameter_set": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Parameter Set"
           },
           "risky_fraction_bps": {
             "anyOf": [
@@ -29807,6 +30129,48 @@
           }
         },
         "title": "VersionApproval",
+        "type": "object"
+      },
+      "W033DeclarationCreate": {
+        "properties": {
+          "capture_channel": {
+            "enum": [
+              "persoenlich_papier",
+              "vor_ort",
+              "kundenportal"
+            ],
+            "title": "Capture Channel",
+            "type": "string"
+          },
+          "confirmed_at": {
+            "maxLength": 40,
+            "minLength": 10,
+            "title": "Confirmed At",
+            "type": "string"
+          },
+          "content_hash": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "declaration_kind": {
+            "enum": [
+              "angaben_wahr_meldepflicht",
+              "horizont_abraten"
+            ],
+            "title": "Declaration Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "declaration_kind",
+          "capture_channel",
+          "confirmed_at",
+          "content_hash"
+        ],
+        "title": "W033DeclarationCreate",
         "type": "object"
       },
       "WealthInflowCreate": {
@@ -38177,6 +38541,130 @@
         ]
       }
     },
+    "/compliance/owner-content": {
+      "get": {
+        "description": "Katalog der Owner-Inhalte der eigenen Firma mit Status (fehlt, Entwurf,\nfreigegeben, Kette ungültig), wirksamer Version und offenem Entwurf.\nZusätzlich die bereits erfassten Bank-Schlüssel (Zuwendungen der Depotbank).",
+        "operationId": "list_owner_content_compliance_owner_content_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Owner Content",
+        "tags": [
+          "Review & Dokumente"
+        ]
+      },
+      "post": {
+        "description": "Neue Version eines Owner-Inhalts (Firmen-Admin). Wirksam erst nach der\nFreigabe durch eine zweite Person (``/approve``).",
+        "operationId": "create_owner_content_compliance_owner_content_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnerContentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Owner Content",
+        "tags": [
+          "Review & Dokumente"
+        ]
+      }
+    },
+    "/compliance/owner-content/{row_id}/approve": {
+      "post": {
+        "description": "Vier-Augen-Freigabe einer Version durch eine zweite Person mit dem\ngesehenen Inhalts-Hash. Die Freigaben bilden je Schlüssel eine lineare\nKette; zwei gleichzeitige Freigaben auf denselben Stand scheitern (409).",
+        "operationId": "approve_owner_content_compliance_owner_content__row_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "row_id",
+            "required": true,
+            "schema": {
+              "title": "Row Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OwnerContentApprove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Approve Owner Content",
+        "tags": [
+          "Review & Dokumente"
+        ]
+      }
+    },
     "/dashboard/active-triggers": {
       "get": {
         "operationId": "active_triggers_dashboard_active_triggers_get",
@@ -40329,6 +40817,52 @@
           }
         ],
         "summary": "Mitigate Conflict",
+        "tags": [
+          "Review & Dokumente"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/contract-layer": {
+      "get": {
+        "description": "Status der Vertragsschicht des Mandats (gleiche Quelle wie das Gate).",
+        "operationId": "get_contract_layer_status_mandates__mandate_id__contract_layer_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Contract Layer Status",
         "tags": [
           "Review & Dokumente"
         ]
@@ -42793,6 +43327,71 @@
         "summary": "Generate Recommendation Run Endpoint",
         "tags": [
           "Empfehlungen"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/recommendations/{run_id}/advice-rationale": {
+      "post": {
+        "description": "P-1 (Art. 15 FIDLEG): Kundenbedürfnisse und Gründe der Empfehlung zu\neinem Empfehlungslauf erfassen. Korrektur = neue Zeile.",
+        "operationId": "create_advice_rationale_mandates__mandate_id__recommendations__run_id__advice_rationale_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdviceRationaleCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Advice Rationale",
+        "tags": [
+          "Review & Dokumente"
         ]
       }
     },
@@ -45964,6 +46563,62 @@
           }
         ],
         "summary": "Resolve Trigger",
+        "tags": [
+          "Review & Dokumente"
+        ]
+      }
+    },
+    "/mandates/{mandate_id}/w033-declarations": {
+      "post": {
+        "description": "E-1: Bestätigung des Kunden zum aktuellen Risikoprofil erfassen, gebunden\nan die gezeigte, freigegebene Textversion der Firma (Prüfwert).",
+        "operationId": "create_w033_declaration_mandates__mandate_id__w033_declarations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mandate_id",
+            "required": true,
+            "schema": {
+              "title": "Mandate Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/W033DeclarationCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create W033 Declaration",
         "tags": [
           "Review & Dokumente"
         ]

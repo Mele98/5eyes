@@ -158,6 +158,8 @@ _VALID_ROW_VALUES: dict[str, dict[str, object]] = {
         "approval_hash": None, "approval_mode": None, "published_envelope_hash": None,
     },
     "allocation_active_publications": {"optimistic_version": 1},
+    # H-179: ck_owner_content_versions_payload verlangt Text oder Wert.
+    "owner_content_versions": {"body_text": "seed"},
     # CCX-P5: Einwert-CHECKs schema_version/status, Hash-Laengen; Kanal ohne
     # Render-Pflicht (API), damit der Mehrspalten-CHECK erfuellt ist.
     "advisory_channel_publications": {

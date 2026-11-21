@@ -206,6 +206,7 @@ derzeit 3 Dateien, deren Pfad einen frueheren Produktnamen enthaelt.
 | `docs/deploy/provisioning-runbook.md` | KEEP | Betreiber: Provisioning- und Onboarding-Runbook |
 | `docs/deploy/start-external-staging.ps1` | KEEP | Betreiber: Startskript externer Test mit Staging-DB (von Test gelesen) |
 | `docs/deploy/start-external.ps1` | KEEP | Betreiber: Startskript externer Zugriff (von Test gelesen) |
+| `docs/deploy/upgrade-hinweise.md` | KEEP | Betreiber: einmalige Schritte nach dem Deploy einer Version |
 | `docs/deployment/README.md` | KEEP | Betreiber: Hosting-Rezept je Tier |
 | `docs/deployment/phase1-cloudflare-tunnel.md` | KEEP | Betreiber: Hosting-Rezept je Tier |
 | `docs/deployment/tier1-self-hosted.md` | KEEP | Betreiber: Hosting-Rezept je Tier |

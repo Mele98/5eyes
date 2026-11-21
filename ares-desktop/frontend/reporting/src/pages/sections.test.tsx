@@ -432,10 +432,18 @@ describe('Section 11: Goals', () => {
     expect(screen.getByText(/7[23] %/)).toBeInTheDocument();
   });
 
-  it('rendert Goal-Status-Pills', () => {
+  it('rendert Goal-Status-Pills (P5c / N-930-01: Wort vom Server, M-3)', () => {
     render(withRouter(<Goals data={makeGoals()} />));
-    expect(screen.getByText('Erreichbar')).toBeInTheDocument();
-    expect(screen.getByText('Knapp')).toBeInTheDocument();
+    expect(screen.getByText('erreichbar')).toBeInTheDocument();
+    expect(screen.getByText('knapp')).toBeInTheDocument();
+  });
+
+  it('P5c / N-930-01: ohne M-3-Anzeigefelder "nicht bewertbar", nie eine eigene Ampel', () => {
+    const data = makeGoals();
+    data.goals = [{ ...data.goals[0], status_label: undefined, status_tone: undefined, status_color: undefined }];
+    render(withRouter(<Goals data={data} />));
+    expect(screen.getByText('nicht bewertbar')).toBeInTheDocument();
+    expect(screen.queryByText('erreichbar')).not.toBeInTheDocument();
   });
 
   it('zeigt MC-Hinweis-Text wenn data_pending=true', () => {
@@ -487,7 +495,7 @@ describe('Section 11: Goals', () => {
     data.goals = [{ ...data.goals[0], evaluation_scope: 'legacy_aggregate_unknown' }];
     render(withRouter(<Goals data={data} />));
     expect(screen.getByText('Altbewertung')).toBeInTheDocument();
-    expect(screen.queryByText('Erreichbar')).not.toBeInTheDocument();
+    expect(screen.queryByText('erreichbar')).not.toBeInTheDocument();
   });
 
   describe('GOAL-FAILURE-DISTRIBUTION-REPORT-001: verfehlte Verläufe', () => {
@@ -695,8 +703,56 @@ describe('Section 16: Beratungsprotokoll (U-FINMA-2.3)', () => {
     expect(screen.getByText('Beschlossen')).toBeInTheDocument();
     expect(screen.getByText(/SAA.*Pensionsplanung/)).toBeInTheDocument();
     expect(screen.getByText('Marktrisiko')).toBeInTheDocument();
-    // C1: ehrliche Anzeige statt irreführendem "verifiziert" (FE prüft den Hash nicht).
-    expect(screen.getByText('Integritäts-Hash hinterlegt')).toBeInTheDocument();
+    // KN9 / N-931-03: Kurzreferenz (8 Zeichen) statt 16 Zeichen Hash; ohne
+    // integrity_verified kein "verifiziert".
+    expect(screen.getByText('Prüfsumme aaaaaaaa')).toBeInTheDocument();
+    expect(screen.queryByText(/a{9,}/)).not.toBeInTheDocument();
+    expect(screen.getByText('nicht geprüft')).toBeInTheDocument();
+    expect(screen.queryByText('verifiziert')).not.toBeInTheDocument();
+    // KN9 / N-931-02: Anzeigeform statt Rohschlüssel («Persoenlich»).
+    expect(screen.getByText(/· Persönlich ·/)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  const kn9Entry = (overrides: Record<string, unknown>) => ({
+    ...makeBeratungsprotokoll(),
+    total_active: 1,
+    latest_entry: {
+      id: 'log-kn9', entry_type: 'Jahresreview', title: 'Jahresgespräch (fiktiv)',
+      description: null, decision: null, status: 'Empfohlen',
+      entry_datetime: '2026-11-20T10:00:00.000Z', duration_minutes: 45,
+      communication_channel: 'persoenlich', language: 'de', location: null,
+      participants: [], topics: ['Strategie'], risk_warnings_given: [],
+      cost_disclosure_given: 1, conflict_disclosure_ids: [], suitability_check_id: null,
+      integrity_hash: '7ad2dd92624e33ba0123456789abcdef0123456789abcdef0123456789abcdef',
+      integrity_verified: true, retain_until: null, version: 1, supersedes_id: null,
+      superseded_by_id: null, last_read_at: null, last_read_by: null,
+      created_at: '2026-11-20T10:00:00.000Z', updated_at: '2026-11-20T10:00:00.000Z',
+      ...overrides,
+    },
+  });
+
+  it('KN9: verifizierter Eintrag zeigt Kurzreferenz + verifiziert, keine Warnung', () => {
+    render(withRouter(<Beratungsprotokoll data={kn9Entry({})} mandateId="test-m" onReload={() => {}} />));
+    expect(screen.getByText('Prüfsumme 7ad2dd92')).toBeInTheDocument();
+    expect(screen.queryByText(/7ad2dd92624e33ba/)).not.toBeInTheDocument();
+    expect(screen.getByText('verifiziert')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('KN9 / N-931-01: integrity_verified=false warnt beim Eintrag', () => {
+    render(withRouter(<Beratungsprotokoll data={kn9Entry({ integrity_verified: false })} mandateId="test-m" onReload={() => {}} />));
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Prüfsumme passt nicht zum Inhalt.');
+    expect(alert).toHaveTextContent('nicht als Kunden-PDF erzeugt');
+    expect(screen.getByText(/nicht verifiziert – Eintrag verändert oder beschädigt/)).toBeInTheDocument();
+    expect(screen.queryByText('verifiziert')).not.toBeInTheDocument();
+  });
+
+  it('KN9 / N-931-02: unbekannter Kanal zeigt «—», nie den Rohschlüssel', () => {
+    render(withRouter(<Beratungsprotokoll data={kn9Entry({ communication_channel: 'vor_ort' })} mandateId="test-m" onReload={() => {}} />));
+    expect(screen.queryByText(/vor_ort|Vor_ort/)).not.toBeInTheDocument();
+    expect(screen.getByText(/· — ·/)).toBeInTheDocument();
   });
 
   it('zeigt Mismatch-Banner wenn has_active_mismatches=true', () => {

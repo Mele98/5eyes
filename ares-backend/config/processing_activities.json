@@ -326,6 +326,7 @@
         "suitability_checks",
         "product_eligibility_snapshots",
         "investment_preference_decisions",
+        "w033_client_declarations",
         "product_eligibility_decisions",
         "product_eligibility_overrides",
         "target_allocations",
@@ -394,7 +395,8 @@
         "advisory_log",
         "mandate_report_notes",
         "mandate_baustein_selections",
-        "conflict_of_interest_disclosures"
+        "conflict_of_interest_disclosures",
+        "advice_rationales"
       ],
       "recipients": [
         "Beraterinnen und Berater der Firma"
@@ -637,6 +639,8 @@
     "privacy_egress_daily_counts": "Zaehler erlaubter Uebertragungen je Kanal und Tag (ohne Inhalt, ohne Personenbezug)",
     "audit_chain_verification_status": "Status der Audit-Kettenpruefung (Sequenzen, Hashes, Zaehler; keine Inhalte, siehe PA-08)",
     "kyc_review_policies": "KYC-Wiedervorlage-Policy der Firma (Referenzdaten, Akteur nur als Benutzer-ID, siehe PA-08)",
+    "owner_content_approvals": "Vier-Augen-Freigaben der Owner-Inhalte der Firma (Akteur nur als Benutzer-ID, siehe PA-08)",
+    "owner_content_versions": "Owner-Inhalte der Firma: Vertragsklauseln, Datenschutzabschnitt, W033-Texte, Zuwendungen der Depotbank (Akteur nur als Benutzer-ID, siehe PA-08)",
     "kyc_review_policy_activations": "Freigaben der KYC-Wiedervorlage-Policy (Akteur nur als Benutzer-ID, siehe PA-08)"
   }
 }

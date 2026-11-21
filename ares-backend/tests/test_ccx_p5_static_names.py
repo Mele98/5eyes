@@ -68,8 +68,45 @@ def unreachable_statements(tree: ast.AST) -> list[int]:
     return lines
 
 
+def _module_level_names(tree: ast.Module) -> set[str]:
+    """N-925R-04: nur Bindungen der obersten Ebene (inkl. if/try/with/for auf
+    oberster Ebene); lokale Bindungen anderer Funktionen zaehlen nicht."""
+    names: set[str] = set()
+
+    def visit(stmts) -> None:
+        for stmt in stmts:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(stmt.name)
+            elif isinstance(stmt, (ast.Import, ast.ImportFrom)):
+                for alias in stmt.names:
+                    names.add((alias.asname or alias.name).split(".")[0])
+            elif isinstance(stmt, (ast.If, ast.Try, ast.With, ast.For, ast.While)):
+                if isinstance(stmt, ast.For):
+                    names.update(_bound_names(stmt.target))
+                if isinstance(stmt, ast.With):
+                    for item in stmt.items:
+                        if item.optional_vars is not None:
+                            names.update(_bound_names(item.optional_vars))
+                visit(getattr(stmt, "body", []))
+                visit(getattr(stmt, "orelse", []))
+                visit(getattr(stmt, "finalbody", []))
+                for handler in getattr(stmt, "handlers", []) or []:
+                    if handler.name:
+                        names.add(handler.name)
+                    visit(handler.body)
+            else:
+                for sub in ast.walk(stmt):
+                    if isinstance(sub, ast.Name) and isinstance(sub.ctx, (ast.Store, ast.Del)):
+                        names.add(sub.id)
+    visit(tree.body)
+    for node in ast.walk(tree):  # ``global x`` in einer Funktion bindet x modulweit
+        if isinstance(node, ast.Global):
+            names.update(node.names)
+    return names
+
+
 def undefined_names(tree: ast.Module) -> list[tuple[int, str]]:
-    module_names = _bound_names(tree) | set(dir(builtins)) | {"__file__", "__name__", "__doc__"}
+    module_names = _module_level_names(tree) | set(dir(builtins)) | {"__file__", "__name__", "__doc__"}
     found: list[tuple[int, str]] = []
 
     def visit(func: ast.AST, enclosing: set[str]) -> None:
@@ -79,9 +116,20 @@ def undefined_names(tree: ast.Module) -> list[tuple[int, str]]:
                     and sub.id not in module_names:
                 found.append((sub.lineno, sub.id))
 
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            visit(node, set())
+    def top_functions(stmts) -> None:
+        for stmt in stmts:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                visit(stmt, set())  # verschachtelte Funktionen sehen die Bindungen der aeusseren
+            elif isinstance(stmt, ast.ClassDef):
+                top_functions(stmt.body)
+            elif isinstance(stmt, (ast.If, ast.Try, ast.With, ast.For, ast.While)):
+                top_functions(getattr(stmt, "body", []))
+                top_functions(getattr(stmt, "orelse", []))
+                top_functions(getattr(stmt, "finalbody", []))
+                for handler in getattr(stmt, "handlers", []) or []:
+                    top_functions(handler.body)
+
+    top_functions(tree.body)
     return sorted(set(found))
 
 
@@ -90,6 +138,31 @@ def test_no_unreachable_code_and_no_undefined_names(rel):
     tree = ast.parse((BACKEND / rel).read_text(encoding="utf-8"))
     assert unreachable_statements(tree) == [], rel
     assert undefined_names(tree) == [], rel
+
+
+def test_guard_does_not_take_other_functions_locals_as_module_names():
+    """N-925R-04 (Pruefer-Gegenbeispiel): document_type lokal in other() gilt
+    nicht als modulweit gebunden."""
+    tree = ast.parse(
+        "def other():\n    document_type = 1\n    return document_type\n"
+        "def f():\n    if document_type in X:\n        return 1\n"
+    )
+    assert {name for _line, name in undefined_names(tree)} == {"document_type", "X"}
+
+
+def test_guard_detects_the_old_review_pattern_including_channel():
+    """N-925R-04 (Positivkontrolle): das alte review.py-Muster meldet auch
+    channel, das dort nur lokal in einer anderen Funktion gebunden war."""
+    source = (
+        "def helper(channel):\n    return channel\n"
+        "def sign_document(doc, current_user):\n"
+        "    return doc\n"
+        "    if document_type in DECISION_ARTIFACT_DOCUMENT_TYPES:\n"
+        "        return require_signable_decision_artifact(doc, channel=channel, user=current_user)\n"
+    )
+    names = {name for _line, name in undefined_names(ast.parse(source))}
+    assert {"channel", "document_type", "DECISION_ARTIFACT_DOCUMENT_TYPES",
+            "require_signable_decision_artifact"} <= names
 
 
 def test_guard_detects_the_h178_dead_block():

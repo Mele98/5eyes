@@ -4,19 +4,27 @@ Restoriert die visuelle Schnellerfassung der Referenz-UX — vorher war die Goal
 Achievability nur eine Tabelle ohne visuellen Bar (UX-Regression vs Referenz).
 Post-C1: Wahrscheinlichkeit-Cell zeigt Ampel-Balken (gruen/gelb/rot) plus
 Prozent-Text.
+
+P5c / N-930-01: Die Balkenfarbe ist die Farbe des M-3-Status aus der einen
+Tabelle core/goal_metric_contract.GOAL_STATUS_DISPLAY (Aufrufer uebergibt sie);
+die fruehere eigene Farbtabelle ``_AMPEL_STATUS_COLORS`` ist entfallen.
 """
 from __future__ import annotations
 
 import pytest
 from reportlab.graphics.shapes import Drawing, Rect, String
 
+from core.goal_metric_contract import goal_status_display
 from services.pdf.components.goal_achievability import (
     _AMPEL_BAR_HEIGHT_MM,
     _AMPEL_BAR_WIDTH_MM,
-    _AMPEL_STATUS_COLORS,
     _probability_bar_drawing,
     make_goal_achievability_table,
 )
+
+
+def _c(status):
+    return goal_status_display(status)["status_color"]
 
 
 # ===========================================================================
@@ -26,7 +34,7 @@ from services.pdf.components.goal_achievability import (
 
 def test_c1_probability_bar_ist_drawing():
     """Returnt ReportLab Drawing-Objekt (kein Crash bei valider Input)."""
-    d = _probability_bar_drawing(0.78, "erreichbar")
+    d = _probability_bar_drawing(0.78, _c("erreichbar"))
     assert isinstance(d, Drawing)
 
 
@@ -43,7 +51,7 @@ def test_c1_probability_bar_none_zeigt_dash():
 
 def test_c1_probability_bar_komplett_zeigt_bg_fg_text():
     """Vollwertige Wahrscheinlichkeit zeigt BG-Rect + FG-Rect + Text."""
-    d = _probability_bar_drawing(0.8, "erreichbar")
+    d = _probability_bar_drawing(0.8, _c("erreichbar"))
     rects = [el for el in d.contents if isinstance(el, Rect)]
     strings = [el for el in d.contents if isinstance(el, String)]
     assert len(rects) == 2  # BG + FG
@@ -52,36 +60,36 @@ def test_c1_probability_bar_komplett_zeigt_bg_fg_text():
 
 def test_c1_probability_bar_status_farbe_gruen_erreichbar():
     """Status 'erreichbar' fuellt mit gruen."""
-    d = _probability_bar_drawing(0.8, "erreichbar")
+    d = _probability_bar_drawing(0.8, _c("erreichbar"))
     rects = [el for el in d.contents if isinstance(el, Rect)]
     fg_rect = rects[1]  # zweites ist FG
     # Color-Spec hex check via fillColor → reportlab Color-Objekt
     assert fg_rect.fillColor.hexval() == "0x{}".format(
-        _AMPEL_STATUS_COLORS["erreichbar"].lstrip("#"),
+        _c("erreichbar").lstrip("#").lower(),
     )
 
 
 def test_c1_probability_bar_status_farbe_rot_nicht_erreichbar():
-    d = _probability_bar_drawing(0.2, "nicht_erreichbar")
+    d = _probability_bar_drawing(0.2, _c("nicht_erreichbar"))
     rects = [el for el in d.contents if isinstance(el, Rect)]
     fg_rect = rects[1]
     assert fg_rect.fillColor.hexval() == "0x{}".format(
-        _AMPEL_STATUS_COLORS["nicht_erreichbar"].lstrip("#"),
+        _c("nicht_erreichbar").lstrip("#").lower(),
     )
 
 
 def test_c1_probability_bar_status_farbe_gelb_knapp():
-    d = _probability_bar_drawing(0.6, "knapp")
+    d = _probability_bar_drawing(0.6, _c("knapp"))
     rects = [el for el in d.contents if isinstance(el, Rect)]
     fg_rect = rects[1]
     assert fg_rect.fillColor.hexval() == "0x{}".format(
-        _AMPEL_STATUS_COLORS["knapp"].lstrip("#"),
+        _c("knapp").lstrip("#").lower(),
     )
 
 
 def test_c1_probability_bar_unbekannter_status_neutral_farbe():
     """Unbekannter Status → neutrale Farbe, kein Crash."""
-    d = _probability_bar_drawing(0.5, "wat_iss_das")
+    d = _probability_bar_drawing(0.5, _c("wat_iss_das"))
     rects = [el for el in d.contents if isinstance(el, Rect)]
     # Sollte trotzdem 2 Rects haben
     assert len(rects) == 2
@@ -91,8 +99,8 @@ def test_c1_probability_bar_breite_skaliert_mit_wahrscheinlichkeit():
     """FG-Rect-Breite = probability * Total-Bar-Breite."""
     from reportlab.lib.units import mm
     expected_total_width = _AMPEL_BAR_WIDTH_MM * mm
-    d_full = _probability_bar_drawing(1.0, "erreichbar")
-    d_half = _probability_bar_drawing(0.5, "erreichbar")
+    d_full = _probability_bar_drawing(1.0, _c("erreichbar"))
+    d_half = _probability_bar_drawing(0.5, _c("erreichbar"))
     rects_full = [el for el in d_full.contents if isinstance(el, Rect)]
     rects_half = [el for el in d_half.contents if isinstance(el, Rect)]
     # FG-Rect-Width im full = total, im half = total/2
@@ -103,8 +111,8 @@ def test_c1_probability_bar_breite_skaliert_mit_wahrscheinlichkeit():
 def test_c1_probability_bar_clampt_auf_0_1():
     """probability > 1.0 oder < 0 wird auf [0,1] geclampt."""
     from reportlab.lib.units import mm
-    d_over = _probability_bar_drawing(1.5, "erreichbar")
-    d_neg = _probability_bar_drawing(-0.3, "nicht_erreichbar")
+    d_over = _probability_bar_drawing(1.5, _c("erreichbar"))
+    d_neg = _probability_bar_drawing(-0.3, _c("nicht_erreichbar"))
     rects_over = [el for el in d_over.contents if isinstance(el, Rect)]
     rects_neg = [el for el in d_neg.contents if isinstance(el, Rect)]
     # Over: 100% FG
@@ -116,7 +124,7 @@ def test_c1_probability_bar_clampt_auf_0_1():
 
 def test_c1_probability_bar_invalid_input_returnt_dash():
     """Nicht-numerische probability → defensive Fallback."""
-    d = _probability_bar_drawing("abc", "erreichbar")
+    d = _probability_bar_drawing("abc", _c("erreichbar"))
     rects = [el for el in d.contents if isinstance(el, Rect)]
     assert len(rects) == 0  # Kein Balken bei broken input
 
@@ -160,6 +168,6 @@ def test_c1_table_leere_achievability_funktioniert():
 def test_c1_table_default_drawing_dimensions():
     """Drawing soll Standard-Dimensionen aus den Konstanten haben."""
     from reportlab.lib.units import mm
-    d = _probability_bar_drawing(0.5, "knapp")
+    d = _probability_bar_drawing(0.5, _c("knapp"))
     expected_height = (_AMPEL_BAR_HEIGHT_MM + 1) * mm
     assert abs(d.height - expected_height) < 1.0

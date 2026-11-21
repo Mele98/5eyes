@@ -460,8 +460,9 @@ def test_legacy_signature_without_snapshot_is_marked_unbound(seeded):
     assert ra.signoff_state == "legacy_unbound"
     view = build_signoff_view(session, ra)
     joined = " ".join(t for _, t in signoff_view_lines(view))
-    assert "Altsignatur" in joined
-    assert "nicht an eine Override-Decision gebunden" in joined
+    # KN9 (H-182): Kundensprache statt «Altsignatur»/«Override-Decision».
+    assert "Ältere Signatur vom" in joined
+    assert "an keinen Entscheid gebunden" in joined
     from schemas.profiling import RiskAssessmentResponse
 
     payload = RiskAssessmentResponse.model_validate(ra).model_dump()
@@ -510,7 +511,7 @@ def test_api_audit_advisory_log_strategy_and_pdfs_share_one_reference(seeded):
     assert view["signoff_verified"] is True
     joined = " ".join(t for _, t in view["lines"])
     assert sid in joined and shash in joined and did in joined and dhash in joined
-    assert "Hash verifiziert" in joined
+    assert "Nachweis geprüft: unverändert" in joined  # KN9 (vorher «Hash verifiziert»)
     risk_texts = _render_texts(build_risikoprofil_flowables, RisikoprofilData(
         risk_profile_label="Defensiv", risk_capacity_score=50, risk_tolerance_score=50,
         signoff_state=view["state"], signoff_id=view["signoff_id"],
@@ -563,7 +564,9 @@ def test_tampered_signoff_row_is_flagged_in_pdf_view(seeded):
     session.commit()
     view = _risk_signoff_view(session, _fresh(session))
     assert view["signoff_verified"] is False
-    assert "NICHT verifiziert" in " ".join(t for _, t in view["lines"])
+    joined = " ".join(t for _, t in view["lines"])
+    assert "Nachweis nicht bestätigt" in joined  # KN9 (vorher «NICHT verifiziert»)
+    assert "Abweichung: Signatur-Nachweis verändert" in joined
 
 
 def test_portal_signoff_binds_decision_and_counts_as_client_signature(session_factory):  # noqa: F811

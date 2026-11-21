@@ -25,7 +25,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import sys
 import unicodedata
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -35,7 +34,6 @@ from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
 
 from database import new_uuid
-from config import settings
 from models.mandates import Mandate
 from core import sustainability_preference as sustainability
 from core.reason_codes import DomainError, ReasonCode
@@ -999,12 +997,19 @@ PRODUCT_EVIDENCE_SCHEMA = "ares-product-evidence/v1"
 PRODUCT_EVIDENCE_EVALUATOR = "ares-product-evidence/1"
 _PRODUCT_EVIDENCE_DOMAIN = b"ares-product-evidence/v1\n"
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
-_KIND_REASON = {
-    "kid": ReasonCode.PRODUCT_EVIDENCE_KID_MISSING,
-    "costs": ReasonCode.PRODUCT_EVIDENCE_COST_MISSING,
-    "retrocession": ReasonCode.PRODUCT_EVIDENCE_RETROCESSION_MISSING,
-    "suitability": ReasonCode.PRODUCT_EVIDENCE_SUITABILITY_MISSING,
-}
+
+
+def _missing_evidence_reason(kind: str) -> ReasonCode:
+    """Statisch sichtbare, geschlossene Abbildung fuer Katalog und Audit."""
+    if kind == "costs":
+        return ReasonCode.PRODUCT_EVIDENCE_COST_MISSING
+    if kind == "kid":
+        return ReasonCode.PRODUCT_EVIDENCE_KID_MISSING
+    if kind == "retrocession":
+        return ReasonCode.PRODUCT_EVIDENCE_RETROCESSION_MISSING
+    if kind == "suitability":
+        return ReasonCode.PRODUCT_EVIDENCE_SUITABILITY_MISSING
+    return ReasonCode.PRODUCT_EVIDENCE_MISSING
 
 
 def _canonical_value(value):
@@ -1044,87 +1049,6 @@ def product_evidence_hash(payload: dict) -> tuple[str, str]:
 def product_evidence_item_payload_hash(payload: dict) -> tuple[str, str]:
     canonical = canonical_product_evidence_json(payload)
     return canonical, hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-def seed_synthetic_default_catalog_evidence(
-    db: Session, *, products: Sequence[Product], actor_id: str, jurisdiction: str,
-    allowed_product_names: Sequence[str],
-) -> None:
-    """Legt klar bezeichnete Muster-Nachweise nur fuer Dev/Test an.
-
-    Der Aufrufer muss den Laufzeitmodus pruefen. Die Funktion selbst schreibt
-    ausschliesslich globale Musterkatalog-Produkte und erfindet keine externen
-    Produktdaten: jeder Payload und jede Quellenreferenz ist als synthetisch
-    markiert. Kundeneigene Produkte werden nie automatisch belegt.
-    """
-    now = _now_iso()
-    today = datetime.now(timezone.utc).date().isoformat()
-    allowed = frozenset(str(name) for name in allowed_product_names)
-    for product in products:
-        if product.tenant_id is not None or str(product.product_name) not in allowed:
-            continue
-        existing = {
-            row[0] for row in db.query(ProductEvidenceItem.evidence_kind).filter(
-                ProductEvidenceItem.product_id == product.id,
-                ProductEvidenceItem.tenant_id.is_(None),
-                ProductEvidenceItem.jurisdiction == jurisdiction,
-                ProductEvidenceItem.status == "approved",
-            ).all()
-        }
-        for kind in PRODUCT_EVIDENCE_KINDS:
-            if kind in existing:
-                continue
-            payload = {
-                "classification": "synthetic_dev_demo_fixture",
-                "evidence_kind": kind,
-                "product_id": str(product.id),
-                "status": "not_applicable" if kind in {"kid", "retrocession"} else "synthetic",
-            }
-            if kind == "costs":
-                payload["value"] = int(product.ter_bps or 0)
-                payload["unit"] = "bps_per_year"
-            canonical, payload_hash = product_evidence_item_payload_hash(payload)
-            source_reference = f"synthetic-dev-demo:{product.id}:{kind}"
-            db.add(ProductEvidenceItem(
-                id=new_uuid(), tenant_id=None, product_id=product.id,
-                stable_instrument_id=_product_stable_id(product),
-                share_class_id=_product_share_class_id(product),
-                jurisdiction=jurisdiction, evidence_kind=kind,
-                source_type="synthetic_dev_demo_fixture",
-                source_reference=source_reference,
-                source_document_title="Synthetischer Ares-Musternachweis",
-                source_document_version="ares-product-evidence-fixture/1",
-                source_document_date=today, retrieved_at=now,
-                source_document_sha256=hashlib.sha256(source_reference.encode("utf-8")).hexdigest(),
-                canonical_payload_json=canonical, canonical_payload_hash=payload_hash,
-                as_of=today, valid_from=today, valid_until=None,
-                status="approved", note="Nur Development/Test; nicht fuer Kundenbetrieb.",
-                created_by=actor_id, created_at=now, approved_by=actor_id,
-                approved_at=now, approval_mode="single_approver_attested",
-                updated_at=now,
-            ))
-    db.flush()
-
-
-def seed_synthetic_catalog_evidence_if_allowed(
-    db: Session, *, actor_id: str, jurisdiction: str,
-) -> None:
-    """Dev/Test-only adapter; production and packaged builds stay fail-closed."""
-    if settings.app_env not in {"development", "test"} or getattr(sys, "frozen", False):
-        return
-    # Deferred import avoids changing the portfolio engine's module graph.
-    from services.portfolio_engine import DEFAULT_CATALOG_PRODUCTS
-
-    allowed_names = [row[0] for row in DEFAULT_CATALOG_PRODUCTS]
-    products = db.query(Product).filter(
-        Product.tenant_id.is_(None),
-        Product.product_name.in_(allowed_names),
-        Product.deleted_at.is_(None),
-    ).all()
-    seed_synthetic_default_catalog_evidence(
-        db, products=products, actor_id=actor_id, jurisdiction=jurisdiction,
-        allowed_product_names=allowed_names,
-    )
 
 
 def _product_stable_id(product: Product) -> str:
@@ -1196,7 +1120,7 @@ def evaluate_product_evidence(
                     "Der Produktnachweis ist noch nicht oder nicht mehr gültig.", status="stale",
                 ))
             else:
-                reason = _KIND_REASON.get(kind, ReasonCode.PRODUCT_EVIDENCE_MISSING)
+                reason = _missing_evidence_reason(kind)
                 issues.append(_evidence_issue(
                     reason, product, kind,
                     "Für das Produkt fehlt ein freigegebener Pflichtnachweis.", status="missing",
@@ -1230,7 +1154,7 @@ def evaluate_product_evidence(
         if kind in {"costs", "retrocession"} and not (
             parsed.get("value") is not None or parsed.get("status") == "not_applicable"
         ):
-            reason = _KIND_REASON[kind]
+            reason = _missing_evidence_reason(kind)
             issues.append(_evidence_issue(
                 reason, product, kind,
                 "Der Nachweis enthält weder einen Wert noch einen belegten Nichtanwendungsstatus.",

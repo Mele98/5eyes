@@ -29,6 +29,12 @@ API. Danach wird jeder Kunden-PDF-Endpunkt abgerufen und der Text ausgelesen.
 * KN8 / N-929-01: der Fall «Bestand + ESG» hat einen Beratungsprotokoll-
   Eintrag, damit Sektion 16 (Pruefsumme, Pruefergebnis) durch alle Waechter
   laeuft.
+* KN9 / N-931-01: derselbe Eintrag, nachtraeglich in der DB veraendert, sperrt
+  das Advisory-Report-PDF (409 ADVISORY_LOG_INTEGRITY_FAILED); die Liste meldet
+  ``integrity_verified`` False. Zurueckgesetzt ist das PDF wieder frei.
+* KN9 (H-182 offen): der Fall «Bestand + ESG» signiert das Risikoprofil, damit
+  die Signatur-Nachweis-Zeilen (Risikoprofil, Protokoll) durch die Umlaut- und
+  Technik-Waechter laufen.
 
 Kein Browser. Eigener CI-Job «KN3-B Kunden-PDF-Waechter» (das Budget des
 Frontend-Jobs ist ausgeschoepft); lokal mit ``ARES_KN3_PDF_GUARD=1``.
@@ -166,6 +172,7 @@ def live():
         results = _render_all(api, mid)
         reserve_results = _render_all(api, reserve["mid"])
         holdings_esg_results = _render_all(api, holdings_esg["mid"])
+        tamper = _tampered_protocol_probe(api, db_path, holdings_esg["mid"])
         out = os.environ.get("ARES_KN3_PDF_GUARD_OUT")
         if out:
             for case, rendered_case in (("verzehr", results), ("reserve", reserve_results),
@@ -188,7 +195,8 @@ def live():
         yield {"pdfs": results, "restart": (before, after),
                "cases": {"verzehr": results, "reserve": reserve_results,
                          "bestand_esg": holdings_esg_results},
-               "reserve_generate": reserve["generate"], "holdings_esg": holdings_esg}
+               "reserve_generate": reserve["generate"], "holdings_esg": holdings_esg,
+               "tamper": tamper}
     finally:
         onboarding.TEST_LEGAL_PROFILE = original_profile
         _stop(proc)
@@ -241,6 +249,8 @@ HOLDINGS_ESG_CASE = {
     # KN8 / N-929-01: ein Beratungsprotokoll-Eintrag, damit Sektion 16 des
     # Advisory-Reports (Pruefsumme + Pruefergebnis) im Waechter steht.
     "advisory_log": True,
+    # KN9 (H-182 offen): Risikoprofil signiert (Berater erfasst die Bestaetigung).
+    "sign_risk_profile": True,
 }
 
 # KN8: fiktiver Protokolleintrag ueber die echte API (Pflichtfelder U-FINMA-2.1).
@@ -316,6 +326,9 @@ def _seed_case(api, db_path, advisor_id, case):
     assert status == 201, mandate
     mid = mandate["id"]
     assert api("POST", f"/mandates/{mid}/risk-assessments", standard_risk_payload())[0] == 201
+    if case.get("sign_risk_profile"):
+        status, body = api("POST", f"/mandates/{mid}/risk-profile/sign", {})
+        assert status == 200 and body.get("signoff_id") and body.get("signoff_hash"), body
     status, body = api("POST", f"/clients/{cid}/wealth-positions", {
         "label": "Depot CHF (fiktiv)", "position_type": "Depot", "assignment": "Beratungsvermögen",
         "current_value_rappen": case["depot_rappen"], "currency": "CHF", "depot_bank": "Testbank Fiktiv",
@@ -347,6 +360,59 @@ def _seed_case(api, db_path, advisor_id, case):
         assert status == 201, body
         assert body["integrity_hash"] and body["integrity_verified"] is True, body
     return {"mid": mid, "generate": generate, "holdings": recorded}
+
+
+# KN9a / N-934-01: alle Kunden-PDFs mit Protokollinhalt (Advisory-Report zeigt
+# den letzten Eintrag, Beratungsprotokoll alle, Beratungsentscheid die Tabelle
+# «Beratungsinhalt»).
+TAMPER_PDFS = ("advisory-report", "protokoll", "contract-signoff")
+
+
+def _tampered_protocol_probe(api, db_path, mid):
+    """KN9 / N-931-01, KN9a / N-934-01: Protokolleintrag in der DB nachtraeglich
+    aendern (wie eine Manipulation ausserhalb der App), die Kunden-PDFs mit
+    Protokollinhalt und die Liste abfragen, dann den Originaltext zuruecksetzen
+    und erneut abfragen. Gezaehlt werden die archivierten Fassungen: eine
+    Sperre darf nichts archivieren."""
+    import json
+    import sqlite3
+
+    def archived(con):
+        return con.execute(
+            "SELECT document_type, COUNT(*) FROM contract_documents WHERE mandate_id = ? "
+            "GROUP BY document_type ORDER BY document_type", (mid,)).fetchall()
+
+    con = sqlite3.connect(str(db_path))
+    try:
+        log_id, original = con.execute(
+            "SELECT id, description FROM advisory_log WHERE mandate_id = ?", (mid,)).fetchone()
+        con.execute("UPDATE advisory_log SET description = ? WHERE id = ?",
+                    (original + " Nachträglich geändert (fiktiv).", log_id))
+        con.commit()
+        archive_before = archived(con)
+        blocked = {name: api("GET", f"/mandates/{mid}/reports/{name}.pdf", raw=True)
+                   for name in TAMPER_PDFS}
+        archive_after = archived(con)
+        listing = api("GET", f"/mandates/{mid}/advisory-log")
+        con.execute("UPDATE advisory_log SET description = ? WHERE id = ?", (original, log_id))
+        con.commit()
+    finally:
+        con.close()
+    restored = {name: api("GET", f"/mandates/{mid}/reports/{name}.pdf", raw=True)
+                for name in TAMPER_PDFS}
+
+    def detail(response):
+        if response[0] == 200:
+            return None
+        return json.loads(response[1]).get("detail")
+
+    return {"log_id": log_id,
+            "blocked": {name: (r[0], detail(r)) for name, r in blocked.items()},
+            "blocked_text": {name: (r[1].decode("utf-8", "replace") if r[0] != 200 else _pdf_text(r[1]))
+                             for name, r in blocked.items()},
+            "archive_before": archive_before, "archive_after": archive_after,
+            "listing": [(e["id"], e.get("integrity_verified")) for e in listing[1]],
+            "restored": {name: r[0] for name, r in restored.items()}}
 
 
 def _render_all(api, mid):
@@ -638,8 +704,20 @@ TECHNICAL_ALLOWLIST: dict[tuple[str, str], str] = {
 }
 
 
+# CCX-P5 / N-929-02: Kurzreferenzen hinter einem Etikett («Audit:»,
+# «Beratungsentscheid:», «FX-Basis», «Prüfwert», «Prüfsumme», «Entscheid-Nr.»)
+# sind gewollte Kundenhinweise (8 bis 12 Hex-Zeichen). Bestehen sie zufaellig
+# nur aus Ziffern, schlug das Muster «lange Kennzahl» an (H-179, lokal mit
+# 020970979213). Ohne Etikett bleibt jede lange Zahl rot.
+_SHORT_REFERENCE_LABELS = ("Audit:", "Beratungsentscheid:", "FX-Basis", "Prüfwert", "Prüfsumme", "Entscheid-Nr.")
+_SHORT_REFERENCE = re.compile(
+    "(" + "|".join(re.escape(label) for label in _SHORT_REFERENCE_LABELS) + ")"
+    + r":? ?[0-9a-f]{8,12}(?![0-9a-f])"
+)
+
+
 def technical_hits(name: str, text: str) -> list[str]:
-    flat = " ".join(text.split())
+    flat = _SHORT_REFERENCE.sub(lambda m: m.group(1) + " <Kurzreferenz>", " ".join(text.split()))
     return [hit for hit in (m.group(0) for m in _TECHNICAL.finditer(flat))
             if (name, hit) not in TECHNICAL_ALLOWLIST]
 
@@ -664,6 +742,16 @@ def test_allowlist_entries_are_used_and_located():
     assert all(name in CUSTOMER_PDFS and hit and reason for (name, hit), reason in TECHNICAL_ALLOWLIST.items())
     assert technical_hits("contract-signoff", "gemäss revDSG") == []
     assert technical_hits("portfolio", "gemäss revDSG") == ["revDSG"]
+
+
+def test_short_reference_labels_are_not_technical_values_but_other_long_numbers_are():
+    for label in _SHORT_REFERENCE_LABELS:
+        assert technical_hits("anlagestrategie", f"{label} 020970979213 · Fassung 1") == [], label
+    assert technical_hits("risikoprofil", "Entscheid-Nr. 02097097 · wirksam") == []
+    # Gegenproben: ohne Etikett, zu lang oder neben dem Etikett bleibt es rot.
+    assert technical_hits("anlagestrategie", "Lauf 020970979213") == ["020970979213"]
+    assert technical_hits("anlagestrategie", "Prüfwert 0209709792131") == ["0209709792131"]
+    assert technical_hits("anlagestrategie", "Prüfwert 0209709792 Lauf 4417709213") == ["4417709213"]
 
 
 def test_technical_patterns_detect_the_old_output():
@@ -788,3 +876,115 @@ def test_sections_19_and_27_never_contradict_in_live_cases(rendered_all):
     # Positivkontrolle: Sektion 19 bestaetigt die Pruefung, Sektion 27 sagt dasselbe.
     assert "liegt die erforderliche Geeignetheitsprüfung vor" in advisory
     assert "Eignungsprüfung im Risikoprofil dokumentiert" in advisory
+
+
+# -- KN9 (H-184-Pruefung N-931-01, H-182 offen) -----------------------------------
+
+
+def test_tampered_protocol_entry_blocks_the_advisory_report_pdf(live):
+    """Fail-closed ueber die echte Route: veraenderter Eintrag -> 409 mit
+    katalogisiertem Code und deutscher Ursache; die Liste (Berater-Ansicht)
+    meldet genau diesen Eintrag als nicht verifiziert. Zurueckgesetzt -> 200
+    (der verifizierte Fall bleibt gruen, siehe Positivkontrolle KN8)."""
+    tamper = live["tamper"]
+    status, detail = tamper["blocked"]["advisory-report"]
+    assert status == 409, tamper
+    assert detail["reason_code"] == "ADVISORY_LOG_INTEGRITY_FAILED", detail
+    assert "Prüfsumme" in detail["message"] and "verändert oder ist beschädigt" in detail["message"]
+    assert detail["message"].startswith("Advisory-Report kann nicht"), detail
+    assert detail["advisory_log_id"] == tamper["log_id"]
+    assert tamper["listing"] == [(tamper["log_id"], False)], tamper
+    assert tamper["restored"]["advisory-report"] == 200, tamper
+
+
+@pytest.mark.parametrize("name,document", [
+    ("protokoll", "Beratungsprotokoll"), ("contract-signoff", "Beratungsentscheid")])
+def test_tampered_protocol_entry_blocks_protocol_and_decision_pdfs(live, name, document):
+    """KN9a / N-934-01: derselbe veraenderte Eintrag erreicht den Kunden auch
+    nicht ueber das Beratungsprotokoll-PDF oder den Beratungsentscheid: 409 vor
+    jeder Archivierung, Ursache nennt Dokument und Eintrag; der veraenderte
+    Text steht nirgends. Zurueckgesetzt -> 200."""
+    tamper = live["tamper"]
+    status, detail = tamper["blocked"][name]
+    assert status == 409, (name, tamper["blocked"][name])
+    assert detail["reason_code"] == "ADVISORY_LOG_INTEGRITY_FAILED", detail
+    assert detail["advisory_log_id"] == tamper["log_id"], detail
+    assert detail["message"].startswith(f"{document} kann nicht als Kunden-PDF erzeugt werden"), detail
+    assert "des Beratungsprotokoll-Eintrags vom " in detail["message"], detail
+    assert "Nachträglich geändert" not in tamper["blocked_text"][name]
+    assert tamper["archive_after"] == tamper["archive_before"], tamper
+    assert tamper["restored"][name] == 200, tamper
+
+
+# KN9a / N-934-05: Fachwoerter, die in keinem Kunden-PDF stehen duerfen; geprueft
+# ohne Ruecksicht auf Gross-/Kleinschreibung.
+TECHNICAL_WORDS = ("Signoff", "Hash", "Decision", "Override", "unveraendert", "pruefen")
+
+
+def test_no_technical_words_in_any_customer_pdf_case_insensitive(rendered_all):
+    """KN9a / N-934-05: alle Kunden-PDFs aller Faelle, auch Titel in
+    Grossbuchstaben. Gegenprobe: die alte Protokoll-Ueberschrift faellt auf."""
+    offenders = {}
+    for (case, name), text in _texts(rendered_all).items():
+        low = text.lower()
+        hits = [word for word in TECHNICAL_WORDS if word.lower() in low]
+        if hits:
+            offenders[f"{case}/{name}"] = hits
+    assert not offenders, offenders
+    assert [w for w in TECHNICAL_WORDS if w.lower() in "RISIKOPROFIL-SIGNOFF".lower()] == ["Signoff"]
+
+
+def test_signed_risk_profile_lines_are_customer_language(rendered_all):
+    """Signatur-Nachweis im Risikoprofil- und Protokoll-PDF des signierten Falls:
+    echte Umlaute, keine Technikwoerter (die allgemeinen Waechter laufen ueber
+    dieselben Texte), Kennungen als 8-stellige Kurzform."""
+    texts = _texts(rendered_all)
+    for name in ("risikoprofil", "protokoll"):
+        text = " ".join(texts[("bestand_esg", name)].split())
+        assert "Signatur-Status Signiert" in text, (name, text[-2000:])
+        assert re.search(
+            r"Signatur-Nachweis Nr\. [0-9a-f]{8} · Prüfsumme [0-9a-f]{8} · Nachweis geprüft: "
+            r"unverändert und an das aktuelle Risikoprofil gebunden", text), (name, text[-2000:])
+        assert "Keine Übersteuerung (Ergebnis des Fragebogens signiert)" in text
+        # KN9a / N-934-05: ohne Rücksicht auf Gross-/Kleinschreibung (Titel
+        # stehen in Grossbuchstaben, «RISIKOPROFIL-SIGNOFF» rutschte durch).
+        for word in TECHNICAL_WORDS:
+            assert word.lower() not in text.lower(), (name, word)
+    assert "SIGNATUR DES RISIKOPROFILS" in " ".join(texts[("bestand_esg", "protokoll")].split())
+    # Gegenprobe der Waechter auf die alte Zeile (H-182 «offen»).
+    old = ("Signoff-Referenz 1a2b3c4d · Prüfsumme 5e6f7a8b · Signoff-Zeile unveraendert "
+           "(Hash verifiziert) · fachliche Bindung an das aktuelle Risikoprofil verifiziert")
+    assert umlaut_transliterations(old)
+
+
+def test_every_signoff_state_renders_customer_language():
+    """Alle Zustaende der Signatur-Zeilen (auch die, die kein Live-Fall
+    erreicht) gegen Umlaut- und Technik-Waechter, in der Kundenfassung."""
+    from core.customer_terms import customer_reference_text
+    from services import risk_profile_signoff as rs
+
+    uid, digest = "3f1c2b9a-7d4e-4c21-9a8b-0c5d6e7f8a9b", "ab" * 32
+    views = [
+        {"state": rs.STATUS_SIGNED, "signed_at": "2026-11-20", "method_label": rs.METHOD_LABELS[rs.METHOD_PORTAL],
+         "signoff_id": uid, "signoff_hash": digest, "signoff_verified": True,
+         "document_binding_status": rs.DOCUMENT_BINDING_VERIFIED, "override_binding": rs.BINDING_DECISION,
+         "override_decision_id": uid, "override_decision_hash": digest},
+        {"state": rs.STATUS_SIGNED, "signoff_id": uid, "signoff_hash": digest, "signoff_verified": False},
+        {"state": rs.STATE_INTEGRITY_MISMATCH, "signoff_id": uid, "signoff_hash": digest,
+         "signoff_row_verified": False, "document_binding_status": rs.DOCUMENT_BINDING_UNVERIFIABLE,
+         "integrity_mismatches": [*rs.MISMATCH_LABELS, "unbekanntes_feld"]},
+        {"state": rs.STATUS_SIGNATURE_REQUIRED, "current_override_decision_id": uid,
+         "current_override_decision_hash": digest},
+        {"state": rs.STATUS_SIGNATURE_REQUIRED},
+        {"state": rs.STATUS_LEGACY_UNBOUND, "legacy_signed_at": "2025-01-02",
+         "method_label": rs.METHOD_LABELS[rs.METHOD_ADVISOR]},
+        {"state": rs.STATE_REMEDIATION_REQUIRED},
+        {"state": rs.STATE_UNSIGNED},
+    ]
+    for view in views:
+        for label, value in rs.signoff_view_lines(view):
+            text = f"{label} {customer_reference_text(value)}"
+            assert not technical_hits("risikoprofil", text), text
+            assert not umlaut_transliterations(text), text
+            for word in (*TECHNICAL_WORDS, "unbekanntes_feld"):
+                assert word.lower() not in text.lower(), text

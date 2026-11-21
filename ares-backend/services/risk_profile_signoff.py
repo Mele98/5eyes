@@ -77,20 +77,56 @@ EVIDENCE_BY_METHOD = {
 }
 METHOD_LABELS = {
     METHOD_ADVISOR: "vom Berater erfasst (keine elektronische Kundensignatur)",
-    METHOD_PORTAL: "vom Kunden im Kundenportal bestaetigt",
+    METHOD_PORTAL: "vom Kunden im Kundenportal bestätigt",
 }
 
+# KN9 (H-182 offen): Kundensprache mit echten Umlauten, ohne Technikwoerter
+# (kein «Decision», «Override», «Hash», «Signoff», Klassenname). Dieselben
+# Texte stehen im Risikoprofil- und im Beratungsprotokoll-PDF.
 STATE_LABELS = {
     STATUS_SIGNED: "Signiert",
     STATUS_SIGNATURE_REQUIRED: "Neue Signatur erforderlich",
-    STATUS_LEGACY_UNBOUND: "Altsignatur, nicht an Decision gebunden",
+    STATUS_LEGACY_UNBOUND: "Ältere Signatur, nicht an einen Entscheid gebunden",
     STATE_UNSIGNED: "Noch nicht signiert",
-    STATE_REMEDIATION_REQUIRED: "Signatur gesperrt -- Override ohne verifizierbaren Decision-Nachweis",
+    STATE_REMEDIATION_REQUIRED: (
+        "Signatur gesperrt – Übersteuerung ohne prüfbaren Entscheid-Nachweis"
+    ),
     STATE_INTEGRITY_MISMATCH: (
-        "Signatur-Nachweis passt nicht zum aktuellen Risikoprofil -- "
-        "nicht gueltig, neue Signatur erforderlich"
+        "Signatur-Nachweis passt nicht zum aktuellen Risikoprofil – "
+        "nicht gültig, neue Signatur erforderlich"
     ),
 }
+
+# KN9: Anzeigeform der Abweichungen (verify_signoff_binding) statt Feldnamen.
+MISMATCH_LABELS = {
+    "signoff_missing": "Signatur-Nachweis fehlt",
+    "assessment_id": "Risikoprofil",
+    "signoff_pointer": "Verweis auf die Signatur",
+    "assessment_version": "Fassung des Risikoprofils",
+    "mandate_id": "Mandat",
+    "client_id": "Kunde",
+    "tenant_id": "Firma",
+    "assessment_input_hash": "Fragebogen und Antworten",
+    "final_score_x10": "Punktzahl",
+    "final_profile": "Risikoprofil-Ergebnis",
+    "is_overridden": "Übersteuerung",
+    "effective_score_x10": "wirksame Punktzahl",
+    "effective_profile": "wirksames Risikoprofil",
+    "override_binding": "Bindung der Übersteuerung",
+    "override_decision": "Entscheid zur Übersteuerung",
+    "override_decision_unverified": "Nachweis des Entscheids zur Übersteuerung",
+    "document": "signiertes Dokument",
+}
+
+
+def mismatch_text(mismatches) -> str:
+    """Abweichungen in Worten; unbekannte Namen als «weitere Angabe», nie roh."""
+    labels: list[str] = []
+    for name in mismatches or []:
+        label = MISMATCH_LABELS.get(str(name), "weitere Angabe")
+        if label not in labels:
+            labels.append(label)
+    return ", ".join(labels) or "–"
 
 DOCUMENT_BINDING_NONE = "none"
 DOCUMENT_BINDING_VERIFIED = "verified"
@@ -618,9 +654,13 @@ def build_signoff_view(db, assessment: Any) -> dict[str, Any]:
 
 def signoff_view_lines(view: dict[str, Any]) -> list[tuple[str, str]]:
     """(Label, Text)-Zeilen -- identisch in Risikoprofil- und
-    Beratungsprotokoll-PDF."""
+    Beratungsprotokoll-PDF. KN9: Kundensprache mit Umlauten, ohne
+    Technikwoerter. Kennungen stehen als «Nr. <ID> · SHA-256 <Hash>»; das
+    Kunden-PDF kuerzt sie (customer_reference_text: 8 Zeichen, «Prüfsumme»),
+    die Audit-Fassung zeigt sie voll."""
     state = view.get("state") or STATE_UNSIGNED
     lines: list[tuple[str, str]] = [("Signatur-Status", STATE_LABELS.get(state, state))]
+    reference = f"Nr. {view.get('signoff_id') or '-'} · SHA-256 {view.get('signoff_hash') or '-'}"
     if state == STATUS_SIGNED:
         signed = str(view.get("signed_at") or "")[:10] or "-"
         lines.append(("Signiert am", f"{signed} · {view.get('method_label') or '-'}"))
@@ -628,69 +668,67 @@ def signoff_view_lines(view: dict[str, Any]) -> list[tuple[str, str]]:
         # erreicht diesen Zweig nur mit vollstaendig verifizierter Bindung
         # (build_signoff_view stuft sonst auf integrity_mismatch ab).
         status = (
-            "Signoff-Zeile unveraendert (Hash verifiziert) · fachliche Bindung "
-            "an das aktuelle Risikoprofil verifiziert"
+            "Nachweis geprüft: unverändert und an das aktuelle Risikoprofil gebunden"
             if view.get("signoff_verified")
-            else "Hash NICHT verifiziert -- Signoff-Nachweis pruefen"
+            else "Nachweis nicht bestätigt – bitte prüfen"
         )
-        lines.append((
-            "Signoff-Referenz",
-            f"{view.get('signoff_id')} · SHA-256 {view.get('signoff_hash') or '-'} · {status}",
-        ))
+        lines.append(("Signatur-Nachweis", f"{reference} · {status}"))
         if view.get("document_binding_status") == DOCUMENT_BINDING_VERIFIED:
-            lines.append(("Gebundenes Dokument", "Dokument-Hash verifiziert"))
+            lines.append(("Signiertes Dokument", "Dokument unverändert (geprüft)"))
         if view.get("override_binding") == BINDING_DECISION:
             lines.append((
-                "Gebundener Override-Entscheid",
-                f"{view.get('override_decision_id')} · SHA-256 {view.get('override_decision_hash') or '-'}",
+                "Entscheid zur Übersteuerung",
+                f"Entscheid-Nr. {view.get('override_decision_id') or '-'} · "
+                f"SHA-256 {view.get('override_decision_hash') or '-'}",
             ))
         else:
             lines.append((
-                "Gebundener Override-Entscheid",
-                "Kein Override (Fragebogenergebnis signiert)",
+                "Entscheid zur Übersteuerung",
+                "Keine Übersteuerung (Ergebnis des Fragebogens signiert)",
             ))
     elif state == STATE_INTEGRITY_MISMATCH:
         row_status = (
-            "Signoff-Zeile unveraendert"
+            "Nachweis unverändert"
             if view.get("signoff_row_verified")
-            else "Signoff-Zeile NICHT verifiziert"
+            else "Nachweis nicht bestätigt"
         )
-        lines.append((
-            "Signoff-Referenz",
-            f"{view.get('signoff_id')} · SHA-256 {view.get('signoff_hash') or '-'} · {row_status}",
-        ))
-        mismatches = ", ".join(view.get("integrity_mismatches") or []) or "-"
+        lines.append(("Signatur-Nachweis", f"{reference} · {row_status}"))
+        deviation = mismatch_text(view.get("integrity_mismatches"))
+        if deviation == "–" and not view.get("signoff_row_verified"):
+            deviation = "Signatur-Nachweis verändert"
         lines.append((
             "Hinweis",
-            "Fachliche Bindung NICHT verifiziert (Abweichung: " + mismatches + "). "
-            "Die Signatur gilt nicht als gueltiger Nachweis fuer das aktuelle "
-            "Risikoprofil; bitte pruefen und neu signieren.",
+            "Die Signatur passt nicht mehr zum aktuellen Risikoprofil (Abweichung: "
+            + deviation + "). Sie gilt nicht "
+            "als gültiger Nachweis; bitte prüfen und neu signieren.",
         ))
         if view.get("document_binding_status") == DOCUMENT_BINDING_UNVERIFIABLE:
-            lines.append(("Gebundenes Dokument", "Dokumentbindung nicht verifizierbar"))
+            lines.append(("Signiertes Dokument", "Dokument nicht mehr prüfbar"))
     elif state == STATUS_SIGNATURE_REQUIRED:
         ref = view.get("current_override_decision_id")
         lines.append((
             "Hinweis",
-            "Das wirksame Risikoprofil wurde nach der letzten Signatur uebersteuert; "
-            "die fruehere Signatur gilt nicht fuer das aktuelle Profil. Eine neue "
+            "Das wirksame Risikoprofil wurde nach der letzten Signatur übersteuert; "
+            "die frühere Signatur gilt nicht für das aktuelle Profil. Eine neue "
             "Signatur ist erforderlich"
-            + (f" (Override-Entscheid {ref} · SHA-256 {view.get('current_override_decision_hash') or '-'})."
+            + (f" (Entscheid zur Übersteuerung Nr. {ref} · SHA-256 "
+               f"{view.get('current_override_decision_hash') or '-'})."
                if ref else "."),
         ))
     elif state == STATUS_LEGACY_UNBOUND:
         signed = str(view.get("legacy_signed_at") or "")[:10] or "-"
         lines.append((
             "Hinweis",
-            f"Altsignatur vom {signed} ({view.get('method_label') or '-'}) ohne "
-            "RiskProfileSignoffV1-Snapshot -- nicht an eine Override-Decision gebunden.",
+            f"Ältere Signatur vom {signed} ({view.get('method_label') or '-'}), "
+            "erfasst vor Einführung des Signatur-Nachweises; sie ist an keinen "
+            "Entscheid gebunden.",
         ))
     elif state == STATE_REMEDIATION_REQUIRED:
         lines.append((
             "Hinweis",
-            "Override aus Altbestand ohne verifizierbaren Decision-Nachweis -- bitte "
-            "bestaetigen (Risikoprofil-Ansicht, Aktion \"Override bestaetigen\"), bevor "
-            "das Risikoprofil signiert wird.",
+            "Übersteuerung aus dem Altbestand ohne prüfbaren Entscheid-Nachweis – bitte "
+            "zuerst in der Risikoprofil-Ansicht bestätigen, bevor das Risikoprofil "
+            "signiert wird.",
         ))
     return lines
 

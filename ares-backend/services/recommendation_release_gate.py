@@ -30,6 +30,9 @@ Verletzung).
 from __future__ import annotations
 
 import json
+import re as _re
+import unicodedata as _unicodedata
+from dataclasses import dataclass as _dataclass
 from datetime import date, date as _date, datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Callable, Optional
@@ -58,8 +61,10 @@ CHANNEL_SIGNATURE = "signature"
 _SIGNATURE_ENVELOPE_GATE: dict = {}
 
 
-def register_signature_envelope_gate(require, record, advisor_channel: str) -> None:
+def register_signature_envelope_gate(require, record, advisor_channel: str, replay=None) -> None:
     _SIGNATURE_ENVELOPE_GATE.update(require=require, record=record, advisor_channel=advisor_channel)
+    if replay is not None:
+        _SIGNATURE_ENVELOPE_GATE["replay"] = replay
 
 
 def _signature_gate(name: str):
@@ -79,6 +84,13 @@ def require_signature_envelope(db: Session, mandate: Any, document: Any, *, chan
     Dokumente ohne Entscheidbezug; sonst 409 (``CCX_SIGNATURE_ENVELOPE_OUTDATED``
     bzw. FX-Code)."""
     return _signature_gate("require")(db, mandate, document, channel=channel, user=user, ip_address=ip_address)
+
+
+def verify_archive_replay(db: Session, document: Any, pdf_bytes: bytes):
+    """P5b / N-925-04 (§8.3): Archiv-Wiedergabe nur bei Bytes-Hash-Gleichheit
+    mit der Kanalzeile; Rueckgabe = Envelope-Bezug (Pruefnummer, Fassung) oder
+    ``None`` fuer Dokumente ohne Kanalzeile (Wiedergabe wie bisher)."""
+    return _signature_gate("replay")(db, document, pdf_bytes)
 
 
 def record_signature_publication(db: Session, binding, *, mandate: Any, artifact_id: str, user: Any,
@@ -187,6 +199,57 @@ def _run_allocation(db: Session, mandate: Any, run: Any) -> Any:
     )
 
 
+def _assert_product_evidence_release(db: Session, run_id: str, *, channel: str) -> None:
+    """Fail-closed Release-Projektion ohne Kopplung an die Eligibility-Engine."""
+    row = db.execute(_sql_text(
+        "SELECT r.product_evidence_status, r.product_evidence_hash, "
+        "s.item_ids_json, s.item_hashes_json, s.product_evidence_hash AS snapshot_hash "
+        "FROM recommendation_runs r LEFT JOIN product_evidence_snapshots s "
+        "ON s.id = r.product_evidence_snapshot_id WHERE r.id = :run_id"
+    ), {"run_id": run_id}).mappings().first()
+    if row is None or row["product_evidence_status"] != "verified" or not row["snapshot_hash"]:
+        raise DomainError(
+            ReasonCode.PRODUCT_EVIDENCE_MISSING,
+            "Die Produktevidenz der aktuellen Empfehlung fehlt. Bitte die Empfehlung neu berechnen.",
+            http_status=409,
+            extra={"channel": channel, "product_id": None, "evidence_kind": "snapshot"},
+        )
+    code = None
+    if row["product_evidence_hash"] != row["snapshot_hash"]:
+        code = ReasonCode.PRODUCT_EVIDENCE_HASH_MISMATCH
+    try:
+        item_ids = [str(value) for value in json.loads(row["item_ids_json"])]
+        expected_hashes = [str(value) for value in json.loads(row["item_hashes_json"])]
+    except (TypeError, ValueError, json.JSONDecodeError):
+        item_ids, expected_hashes = [], ["invalid"]
+    current_hashes = []
+    today = datetime.now(timezone.utc).date().isoformat()
+    for item_id in item_ids:
+        item = db.execute(_sql_text(
+            "SELECT status, valid_from, valid_until, canonical_payload_hash "
+            "FROM product_evidence_items WHERE id = :id"
+        ), {"id": item_id}).mappings().first()
+        if item is None:
+            code = ReasonCode.PRODUCT_EVIDENCE_HASH_MISMATCH
+            break
+        if item["status"] != "approved":
+            code = ReasonCode.PRODUCT_EVIDENCE_REVOKED
+            break
+        if item["valid_from"] > today or (item["valid_until"] and today > item["valid_until"]):
+            code = ReasonCode.PRODUCT_EVIDENCE_STALE
+            break
+        current_hashes.append(str(item["canonical_payload_hash"]))
+    if code is None and current_hashes != expected_hashes:
+        code = ReasonCode.PRODUCT_EVIDENCE_STALE
+    if code is not None:
+        raise DomainError(
+            code,
+            "Die gebundene Produktevidenz ist nicht mehr gültig. Bitte die Empfehlung neu berechnen.",
+            http_status=409,
+            extra={"channel": channel, "product_id": None, "evidence_kind": "snapshot"},
+        )
+
+
 def assert_recommendation_release_eligible(
     db: Session,
     mandate: Any,
@@ -241,21 +304,15 @@ def assert_recommendation_release_eligible(
     # C-COMP-02: derselbe versiegelte Produktnachweis schützt Publikation,
     # Kunden-PDF, Signatur, Vor-Ort-Signatur und Handoff. Kein Kanal darf
     # live aus unverankerten Produktstammdaten neu interpretieren.
-    from models.review import RecommendationRun
-    from services.product_eligibility import assert_run_product_evidence
-
-    evidence_run = run
-    if evidence_run is None:
-        evidence_run_id = current_run_id(db, mandate, allocation)
-        evidence_run = db.get(RecommendationRun, evidence_run_id) if evidence_run_id else None
-    if evidence_run is None:
+    evidence_run_id = getattr(run, "id", None) if run is not None else current_run_id(db, mandate, allocation)
+    if evidence_run_id is None:
         raise DomainError(
             ReasonCode.PRODUCT_EVIDENCE_MISSING,
             "Die Produktevidenz der aktuellen Empfehlung fehlt. Bitte die Empfehlung neu berechnen.",
             http_status=409,
             extra={"channel": channel, "product_id": None, "evidence_kind": "snapshot"},
         )
-    assert_run_product_evidence(db, mandate, evidence_run, channel=channel)
+    _assert_product_evidence_release(db, str(evidence_run_id), channel=channel)
     # CMA-001 / ADR-12a-Release-Hold: keine Freigabe, solange die CMA der
     # Allokation eine ungeklaerte KGV-Bewertungsanpassung traegt
     # (services/cma_valuation_hold.py).
@@ -445,7 +502,8 @@ KYC_APPROVER_ROLES: tuple[str, ...] = ("admin", "super_admin", "compliance_revie
 CLIENT_INFORMATION_DOCUMENT_TYPE = "Kundeninformation"
 # RC-CH-1 Teil 2b: -2 = Zahlendarstellung ueber den G7-Formatter (Half-up,
 # fehlender Betrag "—" statt 0) und Mandatswaehrung ohne CHF-Ersatz.
-CLIENT_INFORMATION_TEMPLATE_VERSION = "ARES-KI-FIDLEG-3"
+# H-179 -4: Abschnitt Datenbearbeitung (Art. 19 DSG) und Zuwendungen der Depotbank.
+CLIENT_INFORMATION_TEMPLATE_VERSION = "ARES-KI-FIDLEG-4"
 # Dokumenttypen, deren Unterzeichnung den Vertragsabschluss markiert. Die
 # Kundeninformation muss VOR der ersten Unterschrift auf einem davon liegen.
 CONTRACT_CONCLUSION_DOCUMENT_TYPES = frozenset({
@@ -2250,3 +2308,970 @@ def assert_run_evidence(db: Session, mandate: Any, run_id: Any, *, channel: str,
         http_status=409,
         extra={"channel": channel, "run_id": run_id},
     )
+
+
+# ---------------------------------------------------------------------------
+# H-179 L2/L3 Vertragsschicht (Dok. 112 Kap. 4.1/7.1, Dok. 113 E-113-4/5)
+# ---------------------------------------------------------------------------
+#
+# Ares erfindet keinen Rechtstext und keinen Owner-Wert. Der Katalog kennt nur
+# SCHLUESSEL, Bezeichnungen und Platzhalter ``__OWNER_..._REQUIRED__``. Die
+# Firma erfasst Inhalte versioniert (owner_content_versions); wirksam ist nur
+# die juengste Version mit Vier-Augen-Freigabe (owner_content_approvals) in
+# einer lueckenlosen, siegelgleichen Kette (Muster KYC-Wiedervorlage).
+# Gruppen: Vertragsklauseln je Mandatstyp (V-1 inkl. A-1/D-1), Abschnitt
+# Datenbearbeitung der Kundeninformation (D-1, Art. 19 DSG), W033-Restinhalte
+# (E-1), Zuwendungen der Depotbank je Bank (R-1). Dazu die Gruende der
+# Empfehlung (P-1, Art. 15 FIDLEG). Gelesen wird per SQL (Muster dieses
+# Moduls, keine neuen Modulkanten). Ein Gate (``contract_layer_findings`` /
+# ``assert_contract_layer_release_eligible``) fuer Finalisierung, Berater- und
+# Vor-Ort-Signatur, Vertrags-PDF und Statusanzeige; bewusst NICHT fuer
+# Publikation und Portfolio-Generierung (KW47-Kernkette).
+# Schnittstelle P5: ``contract_template_binding``.
+
+OWNER_CONTENT_GENESIS_MARKER = "GENESIS"
+
+OWNER_CATALOG_VERSION = "ARES-OWNER-KATALOG-1"
+
+OWNER_KIND_TEXT = "text"
+OWNER_KIND_INTEGER = "integer"
+OWNER_KIND_DEPOT_BANK = "depot_bank_inducement"
+
+OWNER_STATUS_APPROVED = "freigegeben"
+OWNER_STATUS_UNAPPROVED = "nicht_freigegeben"
+OWNER_STATUS_MISSING = "fehlt"
+OWNER_STATUS_INVALID = "kette_ungueltig"
+
+# ---------------------------------------------------------------------------
+# V-1: Mandatstypen mit Vertragsvorlage und Pflichtklauseln (Dok. 112 7.1 V-1)
+# ---------------------------------------------------------------------------
+
+CONTRACT_MANDATE_TYPES: dict[str, str] = {
+    "Vermögensverwaltung": "vv",
+    "Anlageberatung": "anlageberatung",
+    "Finanzplanung": "finanzplanung",
+}
+CONTRACT_SHARED_SLUG = "gemeinsam"
+
+# (Klauselschluessel, Bezeichnung, was der Owner liefern muss, Platzhalter).
+CONTRACT_CLAUSES: tuple[tuple[str, str, str, str], ...] = (
+    ("parteien_personalien", "Parteien und Personalien",
+     "Wortlaut der Parteienbezeichnung (Firma, Kunde, Vertretung)", "__OWNER_VERTRAG_PARTEIEN_REQUIRED__"),
+    ("leistung", "Leistung",
+     "Leistungsumfang des Mandatstyps", "__OWNER_VERTRAG_LEISTUNG_REQUIRED__"),
+    ("bestandteile", "Vertragsbestandteile",
+     "Bestandteile (Strategiedokument, Gebührenvereinbarung, Kundeninformation)",
+     "__OWNER_VERTRAG_BESTANDTEILE_REQUIRED__"),
+    ("rechenschaft", "Rechenschaft",
+     "Abgrenzung der Rechenschaft: wer liefert Vermögensausweis, Performance und Ex-post-Kosten "
+     "(Depotbank-Auszüge), mit welcher Periodizität", "__OWNER_REPORTING_MODEL_REQUIRED__"),
+    ("kommunikation_zustellung", "Kommunikation und Zustellung",
+     "Kanäle, Zustellung über Portal/E-Mail inkl. Risikohinweis", "__OWNER_VERTRAG_KOMMUNIKATION_REQUIRED__"),
+    ("datenbearbeitung_geheimnisentbindung", "Datenbearbeitung und Geheimnisentbindung",
+     "Datenbearbeitung, Entbindung vom Geheimnis gegenüber Depotbank/Dritten",
+     "__OWNER_VERTRAG_DATENBEARBEITUNG_REQUIRED__"),
+    ("delegation", "Delegation",
+     "Beizug Dritter/Delegation von Aufgaben", "__OWNER_VERTRAG_DELEGATION_REQUIRED__"),
+    ("ausschluss_steuer_rechtsberatung", "Keine Steuer- und Rechtsberatung",
+     "Abgrenzung Steuer-/Rechtsberatung", "__OWNER_VERTRAG_STEUER_RECHT_REQUIRED__"),
+    ("segmentierung_kag_qualifikation", "Kundensegment und KAG-Qualifikation",
+     "Kundensegmentierung (FIDLEG) und Qualifikation nach KAG", "__OWNER_VERTRAG_SEGMENTIERUNG_REQUIRED__"),
+    ("meldepflicht_kunde", "Meldepflichten des Kunden",
+     "Pflicht des Kunden, wesentliche Änderungen zu melden", "__OWNER_VERTRAG_MELDEPFLICHT_REQUIRED__"),
+    ("wohnsitzwechsel", "Wohnsitzwechsel",
+     "Folgen eines Wohnsitzwechsels", "__OWNER_VERTRAG_WOHNSITZ_REQUIRED__"),
+    ("steuerkonformitaet", "Steuerkonformität",
+     "Steuerkonformität des Kunden", "__OWNER_VERTRAG_STEUERKONFORMITAET_REQUIRED__"),
+    ("beendigung", "Beendigung",
+     "Beendigung des Auftrags (OR 404)", "__OWNER_VERTRAG_BEENDIGUNG_REQUIRED__"),
+    ("recht_gerichtsstand", "Anwendbares Recht und Gerichtsstand",
+     "anwendbares Recht, Gerichtsstand/Sitz (OWN-BRAND-01)", "__OWNER_VERTRAG_GERICHTSSTAND_REQUIRED__"),
+)
+CONTRACT_CLAUSE_KEYS: tuple[str, ...] = tuple(c[0] for c in CONTRACT_CLAUSES)
+CONTRACT_CLAUSE_LABELS: dict[str, str] = {c[0]: c[1] for c in CONTRACT_CLAUSES}
+
+# ---------------------------------------------------------------------------
+# D-1: Datenbearbeitung in der Kundeninformation (DSG Art. 19 Abs. 2)
+# ---------------------------------------------------------------------------
+
+PRIVACY_SECTIONS: tuple[tuple[str, str, str, str], ...] = (
+    ("verantwortlicher", "Verantwortlicher", "Identität des Verantwortlichen", "__OWNER_DSG_VERANTWORTLICHER_REQUIRED__"),
+    ("kontakt", "Kontakt Datenschutz", "Kontaktdaten für Datenschutzanliegen", "__OWNER_DSG_KONTAKT_REQUIRED__"),
+    ("zwecke", "Bearbeitungszwecke", "Zwecke der Bearbeitung", "__OWNER_DSG_ZWECKE_REQUIRED__"),
+    ("empfaenger", "Empfänger", "Empfänger bzw. Kategorien von Empfängern", "__OWNER_DSG_EMPFAENGER_REQUIRED__"),
+    ("ausland", "Bekanntgabe ins Ausland", "Staaten und Garantien bzw. «keine Bekanntgabe ins Ausland»",
+     "__OWNER_DSG_AUSLAND_REQUIRED__"),
+    ("rechte", "Ihre Rechte", "Rechte der betroffenen Person und deren Ausübung", "__OWNER_DSG_RECHTE_REQUIRED__"),
+)
+PRIVACY_KEY_PREFIX = "kundeninformation.datenschutz."
+
+# ---------------------------------------------------------------------------
+# E-1: W033-Restinhalte (Dok. 112 Kap. 4.1)
+# ---------------------------------------------------------------------------
+
+W033_DECLARATION_KEY = "w033.angaben_wahr_meldepflicht"
+W033_HORIZON_ADVICE_KEY = "w033.horizont_abraten"
+W033_MIN_HORIZON_KEY = "w033.mindesthorizont_jahre"
+W033_DISTRIBUTION_KEY = "w033.ausschuettung_kapitalunterschreitung"
+# N-927-06: Hinweis zum Basisinformationsblatt unter "abgegebene Informationen"
+# im Protokoll (P-1) -- nur als Owner-Text, Ares formuliert ihn nicht.
+PROTOCOL_BIB_KEY = "protokoll.basisinformationsblatt"
+
+# ---------------------------------------------------------------------------
+# R-1: Zuwendungen der Depotbank (Bank-Ebene)
+# ---------------------------------------------------------------------------
+
+DEPOT_BANK_KEY_PREFIX = "depotbank_zuwendung."
+DEPOT_BANK_STATUSES = ("keine", "satz", "verzicht")
+DEPOT_BANK_PLACEHOLDER = "__OWNER_DEPOT_BANK_INDUCEMENT_REQUIRED__"
+
+
+@_dataclass(frozen=True)
+class OwnerCatalogEntry:
+    key: str
+    group: str
+    label: str
+    kind: str
+    placeholder: str
+    owner_input: str
+    visible_in: str
+    required: bool = True
+
+
+def contract_clause_key(type_slug: str, clause: str) -> str:
+    return f"vertrag.{type_slug}.{clause}"
+
+
+def owner_content_catalog() -> tuple[OwnerCatalogEntry, ...]:
+    """Alle festen Schluessel (ohne Bank-Schluessel, die je Bank entstehen)."""
+    entries: list[OwnerCatalogEntry] = []
+    for slug in (CONTRACT_SHARED_SLUG, *CONTRACT_MANDATE_TYPES.values()):
+        for clause, label, owner_input, placeholder in CONTRACT_CLAUSES:
+            entries.append(OwnerCatalogEntry(
+                key=contract_clause_key(slug, clause), group="vertrag",
+                label=f"Vertrag ({_contract_type_label(slug)}): {label}", kind=OWNER_KIND_TEXT,
+                placeholder=placeholder, owner_input=owner_input,
+                visible_in="Vertrags-PDF (Beratungsvertrag), Vertragsvorlagen-Hash",
+                # Je Typ genuegt der typspezifische ODER der gemeinsame Text.
+                required=False,
+            ))
+    for section, label, owner_input, placeholder in PRIVACY_SECTIONS:
+        entries.append(OwnerCatalogEntry(
+            key=PRIVACY_KEY_PREFIX + section, group="datenschutz",
+            label=f"Kundeninformation – Datenbearbeitung: {label}", kind=OWNER_KIND_TEXT,
+            placeholder=placeholder, owner_input=owner_input,
+            visible_in="Kundeninformation (Abschnitt Datenbearbeitung)",
+        ))
+    entries.extend((
+        OwnerCatalogEntry(
+            key=W033_DECLARATION_KEY, group="w033",
+            label="Erklärung: Angaben wahr, wesentliche Änderungen werden gemeldet", kind=OWNER_KIND_TEXT,
+            placeholder="__OWNER_W033_ANGABEN_WAHR_REQUIRED__",
+            owner_input="Wortlaut der Kundenerklärung",
+            visible_in="Risikoprofil-PDF, Kundenbestätigung (W033)",
+        ),
+        OwnerCatalogEntry(
+            key=W033_HORIZON_ADVICE_KEY, group="w033",
+            label="Abraten bei kurzem Anlagehorizont", kind=OWNER_KIND_TEXT,
+            placeholder="__OWNER_W033_HORIZONT_ABRATEN_REQUIRED__",
+            owner_input="Wortlaut des Abraten-Hinweises und der Kundenbestätigung",
+            visible_in="Risikoprofil-PDF, Kundenbestätigung (W033)",
+        ),
+        OwnerCatalogEntry(
+            key=W033_MIN_HORIZON_KEY, group="w033",
+            label="Mindestanlagehorizont in Jahren (Owner/IC)", kind=OWNER_KIND_INTEGER,
+            placeholder="__OWNER_MIN_HORIZON_YEARS_REQUIRED__",
+            owner_input="ganze Zahl Jahre (OWN-IC-05/06)",
+            visible_in="Gate Finalisierung/Signatur, Risikoprofil-PDF",
+        ),
+        OwnerCatalogEntry(
+            key=W033_DISTRIBUTION_KEY, group="w033",
+            label="Hinweis Ausschüttung bei Kapitalunterschreitung", kind=OWNER_KIND_TEXT,
+            placeholder="__OWNER_W033_AUSSCHUETTUNG_REQUIRED__",
+            owner_input="Wortlaut (nur nötig, wenn ausschüttende Lösungen im Universum sind)",
+            visible_in="Risikoprofil-PDF (nur wenn freigegeben)",
+            required=False,
+        ),
+        OwnerCatalogEntry(
+            key=PROTOCOL_BIB_KEY, group="protokoll",
+            label="Protokoll: Hinweis zum Basisinformationsblatt (BIB)", kind=OWNER_KIND_TEXT,
+            placeholder="__OWNER_PROTOKOLL_BIB_HINWEIS_REQUIRED__",
+            owner_input="Wortlaut des BIB-Hinweises unter «abgegebene Informationen»",
+            visible_in="Beratungsprotokoll (Anlageberatung, nur wenn freigegeben)",
+            required=False,
+        ),
+    ))
+    return tuple(entries)
+
+
+def _contract_type_label(slug: str) -> str:
+    if slug == CONTRACT_SHARED_SLUG:
+        return "alle Mandatstypen"
+    for label, value in CONTRACT_MANDATE_TYPES.items():
+        if value == slug:
+            return label
+    return slug
+
+
+def depot_bank_slug(name: Any) -> str:
+    """Stabiler Schluesselteil einer Depotbank (klein, ASCII, Bindestriche)."""
+    raw = str(name or "").strip().lower()
+    raw = raw.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
+    raw = _unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii")
+    return _re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
+
+
+def depot_bank_key(name: Any) -> Optional[str]:
+    slug = depot_bank_slug(name)
+    return DEPOT_BANK_KEY_PREFIX + slug if slug else None
+
+
+def owner_catalog_entry(key: str) -> Optional[OwnerCatalogEntry]:
+    for entry in owner_content_catalog():
+        if entry.key == key:
+            return entry
+    if key.startswith(DEPOT_BANK_KEY_PREFIX) and depot_bank_slug(key[len(DEPOT_BANK_KEY_PREFIX):]) == key[
+        len(DEPOT_BANK_KEY_PREFIX):
+    ] and key != DEPOT_BANK_KEY_PREFIX:
+        return OwnerCatalogEntry(
+            key=key, group="depotbank", label=f"Zuwendungen der Depotbank ({key[len(DEPOT_BANK_KEY_PREFIX):]})",
+            kind=OWNER_KIND_DEPOT_BANK, placeholder=DEPOT_BANK_PLACEHOLDER,
+            owner_input="keine | Satz + Basis | Verzicht mit Bandbreite; Beleg, Gültigkeit",
+            visible_in="Kundeninformation, Kostenausweis, Gate Finalisierung/Signatur",
+        )
+    return None
+
+
+class OwnerContentInvalid(ValueError):
+    """Inhalt passt nicht zum Katalog (Router: 422 mit ``code``)."""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+def _owner_iso_day(value: Any, field: str) -> str:
+    try:
+        return date.fromisoformat(str(value)[:10]).isoformat()
+    except (TypeError, ValueError) as exc:
+        raise OwnerContentInvalid("OWNER_CONTENT_VALUE_INVALID", f"{field}: Datum JJJJ-MM-TT erwartet.") from exc
+
+
+def _owner_non_negative_int(value: Any, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise OwnerContentInvalid("OWNER_CONTENT_VALUE_INVALID", f"{field}: ganze Zahl ≥ 0 erwartet.")
+    return value
+
+
+def normalize_owner_payload(entry: OwnerCatalogEntry, body_text: Any, value: Any) -> tuple[Optional[str], Optional[str]]:
+    """(body_text, value_json) fuer die Speicherung; wirft OwnerContentInvalid."""
+    if entry.kind == OWNER_KIND_TEXT:
+        text = str(body_text or "").strip()
+        if not text:
+            raise OwnerContentInvalid("OWNER_CONTENT_VALUE_INVALID", "Der Text der Firma fehlt.")
+        if "__OWNER_" in text:
+            raise OwnerContentInvalid(
+                "OWNER_CONTENT_VALUE_INVALID", "Der Text enthält noch einen Platzhalter.",
+            )
+        return text, None
+    if entry.kind == OWNER_KIND_INTEGER:
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise OwnerContentInvalid("OWNER_CONTENT_VALUE_INVALID", "Erwartet wird eine ganze Zahl > 0.")
+        return None, json.dumps({"value": value}, sort_keys=True)
+    if not isinstance(value, dict):
+        raise OwnerContentInvalid("OWNER_CONTENT_VALUE_INVALID", "Erwartet wird ein strukturierter Wert.")
+    status = str(value.get("status") or "")
+    if status not in DEPOT_BANK_STATUSES:
+        raise OwnerContentInvalid(
+            "OWNER_CONTENT_VALUE_INVALID", "status muss «keine», «satz» oder «verzicht» sein.",
+        )
+    bank = str(value.get("depot_bank") or "").strip()
+    evidence = str(value.get("evidence_reference") or "").strip()
+    if not bank:
+        raise OwnerContentInvalid("OWNER_CONTENT_VALUE_INVALID", "Name der Depotbank fehlt.")
+    if depot_bank_key(bank) != entry.key:
+        raise OwnerContentInvalid("OWNER_CONTENT_VALUE_INVALID", "Depotbank passt nicht zum Schlüssel.")
+    if not evidence:
+        raise OwnerContentInvalid("OWNER_CONTENT_VALUE_INVALID", "Beleg (Dokument-Referenz) fehlt.")
+    out: dict[str, Any] = {
+        "depot_bank": bank, "status": status, "evidence_reference": evidence,
+        "valid_from": _owner_iso_day(value.get("valid_from"), "valid_from"),
+        "valid_until": _owner_iso_day(value["valid_until"], "valid_until") if value.get("valid_until") else None,
+        "rate_bps": None, "basis": None, "range_min_bps": None, "range_max_bps": None,
+    }
+    if out["valid_until"] and out["valid_until"] < out["valid_from"]:
+        raise OwnerContentInvalid("OWNER_CONTENT_VALUE_INVALID", "Gültigkeitsende liegt vor dem Beginn.")
+    if status == "satz":
+        out["rate_bps"] = _owner_non_negative_int(value.get("rate_bps"), "rate_bps")
+        out["basis"] = str(value.get("basis") or "").strip()
+        if not out["basis"]:
+            raise OwnerContentInvalid("OWNER_CONTENT_VALUE_INVALID", "Bemessungsbasis des Satzes fehlt.")
+    elif status == "verzicht":
+        low = _owner_non_negative_int(value.get("range_min_bps"), "range_min_bps")
+        high = _owner_non_negative_int(value.get("range_max_bps"), "range_max_bps")
+        if low > high:
+            raise OwnerContentInvalid("OWNER_CONTENT_VALUE_INVALID", "Bandbreite: Minimum über Maximum.")
+        out["range_min_bps"], out["range_max_bps"] = low, high
+    return None, json.dumps(out, sort_keys=True, ensure_ascii=False)
+
+
+# ---------------------------------------------------------------------------
+# Aufloesung (gelesen per SQL wie die uebrigen Freigabe-Gates)
+# ---------------------------------------------------------------------------
+
+
+def _owner_rows(db: Session, sql: str, params: dict) -> list[dict]:
+    return [dict(r) for r in db.execute(_sql_text(sql), params).mappings().all()]
+
+
+def owner_content_chain(db: Session, tenant_id: str, key: str) -> tuple[dict[str, dict], list[dict]]:
+    versions = _owner_rows(
+        db, "SELECT * FROM owner_content_versions WHERE tenant_id = :tid AND content_key = :key",
+        {"tid": str(tenant_id), "key": key},
+    )
+    approvals = _owner_rows(
+        db, "SELECT * FROM owner_content_approvals WHERE tenant_id = :tid AND content_key = :key",
+        {"tid": str(tenant_id), "key": key},
+    )
+    return {str(v["id"]): v for v in versions}, approvals
+
+
+OWNER_MAILBOX_DIGEST_KIND = "owner_content_mailbox_identity"
+
+
+def owner_mailbox_digest(approval_id: Any, email: Any) -> str:
+    """N-927S-01: Postfach-Identitaet (``normalize_email_identity``, hier
+    ``_email_identity`` -- gleiche Regel, Test) als zeilengebundener Pruefwert.
+    Gebunden an die Freigabe-ID: in der Zeile vergleichbar (Freigeber gegen
+    Erfasser), ueber Zeilen nicht verknuepfbar und kein Klartext in einer
+    append-only Tabelle (Inventar: Akteur nur als Benutzer-ID). Leere E-Mail
+    -> "" (dann kein Postfach-Vergleich, wie beim Schreiben ``same_person``)."""
+    identity = _email_identity(email)
+    if not identity:
+        return ""
+    return evidence_hash(
+        {"kind": OWNER_MAILBOX_DIGEST_KIND, "approval_id": str(approval_id), "identity": identity},
+        scheme=SCHEME_V1,
+    )
+
+
+def owner_approval_frozen_identities(db: Session, approval_id: Any, approver_id: Any, creator_id: Any) -> dict:
+    """Beim FREIGEBEN einzufrierende Postfach-Identitaeten (N-927S-01)."""
+    rows = {
+        str(r["id"]): r["email"] for r in db.execute(
+            _sql_text("SELECT id, email FROM users WHERE id IN (:a, :b)"),
+            {"a": str(approver_id or ""), "b": str(creator_id or "")},
+        ).mappings().all()
+    }
+    return {
+        "approver_mailbox_digest": owner_mailbox_digest(approval_id, rows.get(str(approver_id or ""))),
+        "creator_mailbox_digest": owner_mailbox_digest(approval_id, rows.get(str(creator_id or ""))),
+    }
+
+
+def owner_content_approver_valid(db: Session, approval: dict, version: dict, tenant_id: str) -> bool:
+    """N-927-02 / N-927R-01 / N-927S-01: die zweite Person beim LESEN.
+
+    Rolle, Bereitschaft und die Postfach-Identitaeten von Freigeber und
+    Erfasser gelten so, wie sie beim Freigeben gesiegelt in der Freigabezeile
+    eingefroren wurden (``approver_role``, ``approver_ready``,
+    ``approver_mailbox_digest``, ``creator_mailbox_digest``). Ein spaeterer
+    Rollenwechsel, eine Deaktivierung oder eine E-Mail-Aenderung aendert
+    nichts (kein Kippschalter). Fehlt ein eingefrorener Wert (NULL), ist das
+    Glied unwirksam. Live geprueft werden nur: nicht dieselbe Benutzer-ID,
+    dieselbe Firma (NULL = Standard-Mandant) und ein auditierter Widerruf
+    wegen Kompromittierung ab dessen Zeitpunkt."""
+    approver_id = str(approval.get("approved_by") or "")
+    creator_id = str(version.get("created_by") or "")
+    if not approver_id or approver_id == creator_id:
+        return False
+    role = approval.get("approver_role")
+    ready = approval.get("approver_ready")
+    approver_mail = approval.get("approver_mailbox_digest")
+    creator_mail = approval.get("creator_mailbox_digest")
+    if role is None or ready is None or approver_mail is None or creator_mail is None:
+        return False
+    if str(role) not in KYC_APPROVER_ROLES:
+        return False
+    if str(role) == "compliance_reviewer" and int(ready) != 1:
+        return False
+    if approver_mail and approver_mail == creator_mail:
+        return False
+    approver = db.execute(
+        _sql_text("SELECT id, tenant_id, compromised_since FROM users WHERE id = :a"), {"a": approver_id},
+    ).mappings().first()
+    if approver is None:
+        return False
+    approved_at = str(approval.get("approved_at") or "")
+    if approver["compromised_since"] and approved_at >= str(approver["compromised_since"]):
+        return False
+    approver_tenant = str(approver["tenant_id"]) if approver["tenant_id"] else _DEFAULT_TENANT_ID
+    return approver_tenant == str(tenant_id)
+
+
+def resolve_owner_content(db: Session, tenant_id: Optional[str], key: str) -> dict:
+    """Wirksame Version eines Schluessels fuer eine Firma.
+
+    ``status``: freigegeben | nicht_freigegeben | fehlt | kette_ungueltig
+    (Fehler der STRUKTUR: Siegel, Luecke, doppelter Vorgaenger, fremde/
+    abweichende Version, Versionsfolge -> nie wirksam, keine Freigabe).
+
+    N-927S-01: wirksam kann NUR der Kettenkopf sein (letzte Freigabe der
+    hoechsten freigegebenen Version). Ist der Kopf wegen eines Mangels der
+    PERSON unwirksam (Firma, Kompromittierung ab Widerruf, eingefrorene Rolle/
+    Bereitschaft/Postfach-Identitaet), gilt ``nicht_freigegeben`` -- nie ein
+    Rueckfall auf ein aelteres Glied (sonst koennte ein einzelner Admin eine
+    ueberholte Fassung wieder wirksam machen). Wiederherstellen geht nur mit
+    einer neuen Version und einer neuen gueltigen Freigabe: sie haengt am Kopf
+    an (``chain_head``, auch an einem entwerteten; Kette lueckenlos, N-927R-01).
+    ``head_revoked`` = Kopf vorhanden, aber unwirksam."""
+    result: dict[str, Any] = {"key": key, "status": OWNER_STATUS_MISSING, "version": None, "approval": None,
+                              "chain_head": None, "invalid_approvals": 0, "head_revoked": False}
+    if not tenant_id:
+        return result
+    versions, approvals = owner_content_chain(db, tenant_id, key)
+    if not versions:
+        return result
+    by_predecessor: dict[str, dict] = {}
+    for approval in approvals:
+        pred = str(approval["predecessor_approval_id"])
+        if pred in by_predecessor:
+            result["status"] = OWNER_STATUS_INVALID
+            return result
+        by_predecessor[pred] = approval
+    head = None
+    head_valid = False
+    cursor = OWNER_CONTENT_GENESIS_MARKER
+    seen = 0
+    last_version = 0
+    while cursor in by_predecessor:
+        approval = by_predecessor[cursor]
+        version = versions.get(str(approval["content_row_id"]))
+        if (
+            version is None
+            or row_seal(approval, "approval_hash") != approval["approval_hash"]
+            or row_seal(version, "content_hash") != version["content_hash"]
+            or approval["content_hash"] != version["content_hash"]
+            or int(version["version"]) <= last_version
+        ):
+            result["status"] = OWNER_STATUS_INVALID
+            return result
+        last_version = int(version["version"])
+        head = (version, approval)
+        head_valid = owner_content_approver_valid(db, approval, version, tenant_id)
+        if not head_valid:
+            result["invalid_approvals"] += 1
+        cursor = str(approval["id"])
+        seen += 1
+    if seen != len(approvals):
+        result["status"] = OWNER_STATUS_INVALID
+        return result
+    result["chain_head"] = {"approval": head[1], "version": head[0]} if head else None
+    if head is not None and head_valid:
+        result.update(status=OWNER_STATUS_APPROVED, version=head[0], approval=head[1])
+    else:
+        result["status"] = OWNER_STATUS_UNAPPROVED
+        result["head_revoked"] = head is not None
+    newer = [v for v in versions.values() if int(v["version"]) > last_version]
+    if newer:
+        result["latest_draft"] = max(newer, key=lambda v: int(v["version"]))
+    return result
+
+
+def approved_text(resolution: dict) -> Optional[str]:
+    if resolution.get("status") != OWNER_STATUS_APPROVED:
+        return None
+    return str(resolution["version"].get("body_text") or "") or None
+
+
+def approved_value(resolution: dict) -> Any:
+    if resolution.get("status") != OWNER_STATUS_APPROVED:
+        return None
+    raw = resolution["version"].get("value_json")
+    try:
+        parsed = json.loads(raw) if raw else None
+    except (TypeError, ValueError):
+        return None
+    return parsed
+
+
+def binding_of(resolution: dict) -> dict:
+    """Kompakte, hashbare Bindung einer aufgeloesten Version."""
+    version = resolution.get("version") or {}
+    approval = resolution.get("approval") or {}
+    return {
+        "key": resolution.get("key"),
+        "content_row_id": version.get("id"),
+        "version": version.get("version"),
+        "content_hash": version.get("content_hash"),
+        "approval_id": approval.get("id"),
+        "approval_hash": approval.get("approval_hash"),
+    }
+
+
+CONTRACT_DOCUMENT_TYPE = "Beratungsvertrag"
+CONTRACT_BINDING_KIND = "contract_template"
+# Mandatstypen mit Eignungspruefung (W033).
+SUITABILITY_MANDATE_TYPES = ("Vermögensverwaltung", "Anlageberatung")
+# Ohne erfasste Depotbank fehlt die Zuwendungsangabe nur bei der Vermoegens-
+# verwaltung (Verwaltungsvollmacht der Depotbank mit Zuwendungsklausel, Dok. 112
+# Kap. 3.2/5). Ist eine Depotbank erfasst, ist die Angabe fuer jeden Typ Pflicht.
+DEPOT_BANK_REQUIRED_MANDATE_TYPES = ("Vermögensverwaltung",)
+# P-1: Gruende der Empfehlung sind fuer die Anlageberatung Pflicht (Dok. 112 7.1).
+RATIONALE_MANDATE_TYPES = ("Anlageberatung",)
+
+_ADMIN_ACTION = (
+    "Firmen-Admin: unter Administration > Compliance > Vertragsschicht den Text "
+    "bzw. Wert der Firma erfassen; eine zweite Person gibt ihn frei."
+)
+
+
+# ---------------------------------------------------------------------------
+# V-1: Vertragsvorlage je Mandatstyp
+# ---------------------------------------------------------------------------
+
+
+def contract_template_state(db: Session, mandate: Any) -> dict:
+    """Klauseln der Vertragsvorlage des Mandatstyps mit Status und Text.
+
+    ``template_hash`` nur, wenn jede Pflichtklausel einen freigegebenen Text
+    hat (typspezifisch vor gemeinsam)."""
+    mandate_type = str(getattr(mandate, "mandate_type", "") or "")
+    slug = CONTRACT_MANDATE_TYPES.get(mandate_type)
+    tenant_id = mandate_tenant_id(db, mandate)
+    state: dict[str, Any] = {
+        "catalog_version": OWNER_CATALOG_VERSION, "mandate_type": mandate_type, "supported": slug is not None,
+        "tenant_id": tenant_id, "clauses": [], "missing": [], "invalid": [], "template_hash": None,
+    }
+    if slug is None:
+        return state
+    for clause in CONTRACT_CLAUSE_KEYS:
+        specific = resolve_owner_content(db, tenant_id, contract_clause_key(slug, clause))
+        chosen = specific
+        # N-927S-01: ein typspezifischer Schluessel mit entwertetem Kopf faellt
+        # NICHT auf den gemeinsamen Text zurueck (Sperre statt Rueckfall).
+        if specific["status"] != OWNER_STATUS_APPROVED and not specific.get("head_revoked"):
+            shared = resolve_owner_content(
+                db, tenant_id, contract_clause_key(CONTRACT_SHARED_SLUG, clause),
+            )
+            if shared["status"] == OWNER_STATUS_APPROVED or specific["status"] == OWNER_STATUS_MISSING:
+                chosen = shared
+        entry = {
+            "clause": clause, "label": CONTRACT_CLAUSE_LABELS[clause], "status": chosen["status"],
+            "key": chosen["key"], "text": approved_text(chosen),
+            "binding": binding_of(chosen) if chosen["status"] == OWNER_STATUS_APPROVED else None,
+            "placeholder": next(c[3] for c in CONTRACT_CLAUSES if c[0] == clause),
+        }
+        state["clauses"].append(entry)
+        if chosen["status"] == OWNER_STATUS_INVALID or specific["status"] == OWNER_STATUS_INVALID:
+            state["invalid"].append(clause)
+        elif chosen["status"] != OWNER_STATUS_APPROVED:
+            state["missing"].append(clause)
+    if not state["missing"] and not state["invalid"]:
+        state["template_hash"] = evidence_hash({
+            "kind": CONTRACT_BINDING_KIND,
+            "catalog_version": OWNER_CATALOG_VERSION,
+            "mandate_type": mandate_type,
+            "tenant_id": tenant_id,
+            "clauses": [{"clause": c["clause"], **c["binding"]} for c in state["clauses"]],
+        }, scheme=SCHEME_V1)
+    return state
+
+
+def contract_template_binding(db: Session, mandate: Any) -> Optional[dict]:
+    """P5-Schnittstelle: Bindung der wirksamen Vertragsvorlage oder ``None``
+    (nicht freigegeben -> P5 darf nicht siegeln, das Gate sperrt ohnehin)."""
+    state = contract_template_state(db, mandate)
+    if not state["template_hash"]:
+        return None
+    return {
+        "kind": CONTRACT_BINDING_KIND,
+        "catalog_version": state["catalog_version"],
+        "mandate_type": state["mandate_type"],
+        "template_hash": state["template_hash"],
+        "clauses": [{"clause": c["clause"], **c["binding"]} for c in state["clauses"]],
+    }
+
+
+def _template_findings(state: dict) -> list[dict]:
+    if not state["supported"]:
+        return [_finding(
+            ReasonCode.CONTRACT_TEMPLATE_UNAPPROVED,
+            f"Für den Mandatstyp «{state['mandate_type'] or 'unbekannt'}» ist keine "
+            "Vertragsvorlage vorgesehen.",
+            "Owner/Compliance: Mandatstyp prüfen; Ares bildet Vertragsvorlagen nur für "
+            "Vermögensverwaltung, Anlageberatung und Finanzplanung ab.",
+            "tenant",
+        )]
+    labels_invalid = [CONTRACT_CLAUSE_LABELS[c] for c in state["invalid"]]
+    labels_missing = [CONTRACT_CLAUSE_LABELS[c] for c in state["missing"]]
+    if labels_invalid or len(labels_missing) == len(CONTRACT_CLAUSE_KEYS):
+        return [_finding(
+            ReasonCode.CONTRACT_TEMPLATE_UNAPPROVED,
+            f"Die Vertragsvorlage für «{state['mandate_type']}» ist nicht freigegeben"
+            + (f" (Freigabekette ungültig: {', '.join(labels_invalid)})." if labels_invalid else "."),
+            _ADMIN_ACTION, "tenant",
+            missing_clauses=state["missing"], invalid_clauses=state["invalid"],
+        )]
+    if labels_missing:
+        return [_finding(
+            ReasonCode.CONTRACT_TEMPLATE_CLAUSE_MISSING,
+            f"In der Vertragsvorlage für «{state['mandate_type']}» fehlen freigegebene "
+            "Pflichtklauseln: " + ", ".join(labels_missing) + ".",
+            _ADMIN_ACTION, "tenant", missing_clauses=state["missing"],
+        )]
+    return []
+
+
+def contract_document_place(content_json: Any) -> str:
+    try:
+        parsed = json.loads(content_json) if content_json else {}
+    except (TypeError, ValueError):
+        parsed = {}
+    if not isinstance(parsed, dict):
+        return ""
+    return str(parsed.get("ort_unterzeichnung") or parsed.get("ort") or parsed.get("place") or "").strip()
+
+
+def contract_document_binding(content_json: Any) -> Optional[str]:
+    try:
+        parsed = json.loads(content_json) if content_json else {}
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    binding = parsed.get("contract_template")
+    return str(binding.get("template_hash")) if isinstance(binding, dict) and binding.get("template_hash") else None
+
+
+def _contract_document_findings(state: dict, document: Any) -> list[dict]:
+    findings: list[dict] = []
+    if not contract_document_place(getattr(document, "content_json", None)):
+        findings.append(_finding(
+            ReasonCode.CONTRACT_PLACE_MISSING,
+            "Im Vertrag fehlt der Ort der Unterzeichnung (Pflichtfeld, kein Vorgabewert).",
+            "Berater: Ort der Unterzeichnung im Vertrag erfassen und das Vertrags-PDF neu erstellen.",
+            "document", document_id=getattr(document, "id", None),
+        ))
+    bound = contract_document_binding(getattr(document, "content_json", None))
+    if state["template_hash"] and bound != state["template_hash"]:
+        findings.append(_finding(
+            ReasonCode.CONTRACT_TEMPLATE_OUTDATED,
+            "Der Vertrag beruht nicht auf der aktuell freigegebenen Vertragsvorlage.",
+            "Berater: Vertrags-PDF neu erstellen; der neue Vertrag trägt die aktuelle Vorlage.",
+            "document", document_id=getattr(document, "id", None),
+            document_template_hash=bound, current_template_hash=state["template_hash"],
+        ))
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# D-1: Datenbearbeitung in der Kundeninformation (DSG Art. 19)
+# ---------------------------------------------------------------------------
+
+
+def privacy_section_state(db: Session, tenant_id: Optional[str]) -> dict:
+    lines: list[tuple[str, str]] = []
+    missing: list[str] = []
+    bindings: list[dict] = []
+    for section, label, _input, _placeholder in PRIVACY_SECTIONS:
+        resolution = resolve_owner_content(db, tenant_id, PRIVACY_KEY_PREFIX + section)
+        text = approved_text(resolution)
+        if text is None:
+            missing.append(section)
+            continue
+        lines.append((label, text))
+        bindings.append(binding_of(resolution))
+    return {
+        "lines": tuple(lines), "missing": missing,
+        "hash": evidence_hash({"privacy": bindings}, scheme=SCHEME_V1) if not missing else None,
+    }
+
+
+def _privacy_findings(state: dict) -> list[dict]:
+    if not state["missing"]:
+        return []
+    labels = [label for key, label, _i, _p in PRIVACY_SECTIONS if key in state["missing"]]
+    return [_finding(
+        ReasonCode.CLIENT_INFORMATION_PRIVACY_MISSING,
+        "Der Abschnitt Datenbearbeitung der Kundeninformation (Art. 19 DSG) ist nicht "
+        "vollständig freigegeben: " + ", ".join(labels) + ".",
+        _ADMIN_ACTION, "tenant", missing_sections=state["missing"],
+    )]
+
+
+# ---------------------------------------------------------------------------
+# R-1: Zuwendungen der Depotbank
+# ---------------------------------------------------------------------------
+
+
+def depot_bank_inducement_state(db: Session, mandate: Any, today: Optional[str] = None) -> dict:
+    """Wirksame Angabe zur Depotbank des Mandats: ``status`` ok | no_bank |
+    missing | expired | not_yet_valid; ``line`` = Klartext fuer Kundendokumente."""
+    today = today or _today()
+    bank = str(getattr(mandate, "depot_bank", "") or "").strip()
+    key = depot_bank_key(bank)
+    result: dict[str, Any] = {"depot_bank": bank or None, "key": key, "status": "no_bank",
+                              "value": None, "binding": None}
+    if not key:
+        return result
+    resolution = resolve_owner_content(db, mandate_tenant_id(db, mandate), key)
+    value = approved_value(resolution)
+    if not isinstance(value, dict):
+        result["status"] = "missing"
+        return result
+    result.update(value=value, binding=binding_of(resolution))
+    if str(value.get("valid_from") or "") > today:
+        result["status"] = "not_yet_valid"
+        return result
+    if value.get("valid_until") and str(value["valid_until"]) < today:
+        result["status"] = "expired"
+        return result
+    result["status"] = "ok"
+    return result
+
+
+def _depot_bank_findings(state: dict, mandate_type: str) -> list[dict]:
+    status = state["status"]
+    if status == "ok":
+        return []
+    if status == "no_bank":
+        if mandate_type not in DEPOT_BANK_REQUIRED_MANDATE_TYPES:
+            return []
+        return [_finding(
+            ReasonCode.DEPOT_BANK_INDUCEMENT_MISSING,
+            "Für das Mandat ist keine Depotbank erfasst; die Angabe zu Zuwendungen der "
+            "Depotbank fehlt deshalb.",
+            "Berater: Depotbank im Mandat erfassen; Firmen-Admin: Zuwendungen dieser "
+            "Depotbank erfassen und freigeben lassen.",
+            "mandate",
+        )]
+    if status == "missing":
+        return [_finding(
+            ReasonCode.DEPOT_BANK_INDUCEMENT_MISSING,
+            f"Zu Zuwendungen der Depotbank «{state['depot_bank']}» liegt keine freigegebene "
+            "Angabe der Firma vor (keine / Satz und Basis / Verzicht mit Bandbreite).",
+            _ADMIN_ACTION, "tenant", depot_bank=state["depot_bank"], content_key=state["key"],
+        )]
+    return [_finding(
+        ReasonCode.DEPOT_BANK_INDUCEMENT_EXPIRED,
+        f"Die freigegebene Angabe zu Zuwendungen der Depotbank «{state['depot_bank']}» ist "
+        + ("abgelaufen." if status == "expired" else "noch nicht gültig."),
+        _ADMIN_ACTION, "tenant", depot_bank=state["depot_bank"], content_key=state["key"],
+    )]
+
+
+# ---------------------------------------------------------------------------
+# P-1: Gruende der Empfehlung (Art. 15 FIDLEG)
+# ---------------------------------------------------------------------------
+
+
+def latest_advice_rationale(db: Session, mandate_id: str, run_id: Optional[str]) -> Optional[dict]:
+    if not run_id:
+        return None
+    row = db.execute(_sql_text(
+        "SELECT * FROM advice_rationales WHERE mandate_id = :mid AND recommendation_run_id = :rid "
+        "ORDER BY recorded_at DESC, id DESC LIMIT 1"
+    ), {"mid": str(mandate_id), "rid": str(run_id)}).mappings().first()
+    return dict(row) if row is not None else None
+
+
+def _rationale_findings(db: Session, mandate: Any, run_id: Optional[str]) -> list[dict]:
+    if str(getattr(mandate, "mandate_type", "") or "") not in RATIONALE_MANDATE_TYPES or not run_id:
+        return []
+    row = latest_advice_rationale(db, str(mandate.id), run_id)
+    if row and str(row.get("client_needs") or "").strip() and str(row.get("recommendation_reasons") or "").strip():
+        return []
+    return [_finding(
+        ReasonCode.ADVICE_RATIONALE_MISSING,
+        "Für diese Empfehlung sind die Kundenbedürfnisse und die Gründe der Empfehlung "
+        "nicht dokumentiert (Art. 15 FIDLEG).",
+        "Berater: Bedürfnisse und Gründe der Empfehlung zur Empfehlung erfassen.",
+        "mandate", recommendation_run_id=str(run_id),
+    )]
+
+
+# ---------------------------------------------------------------------------
+# E-1: W033-Restinhalte
+# ---------------------------------------------------------------------------
+
+
+def current_risk_assessment(db: Session, mandate_id: str) -> Optional[dict]:
+    row = db.execute(_sql_text(
+        "SELECT id, investment_horizon_years FROM risk_assessments "
+        "WHERE mandate_id = :mid AND is_current = 1 AND deleted_at IS NULL"
+    ), {"mid": str(mandate_id)}).mappings().first()
+    return dict(row) if row is not None else None
+
+
+def w033_declarations(db: Session, mandate_id: str, assessment_id: str) -> list[dict]:
+    return [dict(r) for r in db.execute(_sql_text(
+        "SELECT * FROM w033_client_declarations WHERE mandate_id = :mid AND risk_assessment_id = :aid "
+        "ORDER BY recorded_at"
+    ), {"mid": str(mandate_id), "aid": str(assessment_id)}).mappings().all()]
+
+
+def w033_state(db: Session, mandate: Any) -> dict:
+    tenant_id = mandate_tenant_id(db, mandate)
+    assessment = current_risk_assessment(db, str(mandate.id))
+    declaration = resolve_owner_content(db, tenant_id, W033_DECLARATION_KEY)
+    advice = resolve_owner_content(db, tenant_id, W033_HORIZON_ADVICE_KEY)
+    minimum = resolve_owner_content(db, tenant_id, W033_MIN_HORIZON_KEY)
+    distribution = resolve_owner_content(db, tenant_id, W033_DISTRIBUTION_KEY)
+    min_value = approved_value(minimum)
+    min_years = int(min_value["value"]) if isinstance(min_value, dict) and isinstance(min_value.get("value"), int) else None
+    state: dict[str, Any] = {
+        "assessment_id": assessment["id"] if assessment else None,
+        "horizon_years": (int(assessment["investment_horizon_years"])
+                          if assessment and assessment.get("investment_horizon_years") is not None else None),
+        "min_horizon_years": min_years,
+        "declaration_text": approved_text(declaration),
+        "declaration_binding": binding_of(declaration) if declaration["status"] == OWNER_STATUS_APPROVED else None,
+        "advice_text": approved_text(advice),
+        "advice_binding": binding_of(advice) if advice["status"] == OWNER_STATUS_APPROVED else None,
+        "distribution_text": approved_text(distribution),
+        "declaration_confirmed": False,
+        "advice_required": None,
+        "advice_confirmed": False,
+    }
+    if assessment is None:
+        return state
+    rows = w033_declarations(db, str(mandate.id), str(assessment["id"]))
+
+    def confirmed(kind: str, binding: Optional[dict]) -> bool:
+        return bool(binding) and any(
+            r["declaration_kind"] == kind and r["content_hash"] == binding["content_hash"] for r in rows
+        )
+
+    state["declaration_confirmed"] = confirmed("angaben_wahr_meldepflicht", state["declaration_binding"])
+    if min_years is not None and state["horizon_years"] is not None:
+        state["advice_required"] = state["horizon_years"] < min_years
+    state["advice_confirmed"] = confirmed("horizont_abraten", state["advice_binding"])
+    return state
+
+
+def _w033_findings(state: dict, mandate_type: str) -> list[dict]:
+    if mandate_type not in SUITABILITY_MANDATE_TYPES or state["assessment_id"] is None:
+        return []
+    findings: list[dict] = []
+    if not state["declaration_confirmed"]:
+        findings.append(_finding(
+            ReasonCode.W033_DECLARATION_MISSING,
+            "Die Kundenerklärung «Angaben wahr, wesentliche Änderungen werden gemeldet» zum "
+            "aktuellen Risikoprofil fehlt"
+            + (" (Text der Firma nicht freigegeben)." if state["declaration_binding"] is None else "."),
+            (_ADMIN_ACTION if state["declaration_binding"] is None
+             else "Berater: Bestätigung des Kunden zum aktuellen Risikoprofil erfassen."),
+            "tenant" if state["declaration_binding"] is None else "mandate",
+        ))
+    if state["min_horizon_years"] is None:
+        findings.append(_finding(
+            ReasonCode.W033_MIN_HORIZON_UNAPPROVED,
+            "Der Mindestanlagehorizont der Firma ist nicht freigegeben; Ares setzt keinen "
+            "eigenen Wert.",
+            _ADMIN_ACTION, "tenant",
+        ))
+    elif state["advice_required"] and not state["advice_confirmed"]:
+        findings.append(_finding(
+            ReasonCode.W033_HORIZON_ADVICE_UNCONFIRMED,
+            f"Der Anlagehorizont ({state['horizon_years']} Jahre) liegt unter dem Mindesthorizont "
+            f"der Firma ({state['min_horizon_years']} Jahre). Der Abraten-Hinweis und die "
+            "Bestätigung des Kunden fehlen"
+            + (" (Text der Firma nicht freigegeben)." if state["advice_binding"] is None else "."),
+            (_ADMIN_ACTION if state["advice_binding"] is None
+             else "Berater: Abraten-Hinweis abgeben und die Bestätigung des Kunden erfassen."),
+            "tenant" if state["advice_binding"] is None else "mandate",
+        ))
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Gate
+# ---------------------------------------------------------------------------
+
+
+def contract_layer_findings(
+    db: Session,
+    mandate: Any,
+    *,
+    channel: str,
+    run_id: Optional[str] = None,
+    document: Any = None,
+    today: Optional[str] = None,
+) -> list[dict]:
+    """Alle offenen L2/L3-Punkte fuer ``channel`` (leer = frei)."""
+    mandate_type = str(getattr(mandate, "mandate_type", "") or "")
+    template = contract_template_state(db, mandate)
+    findings = _template_findings(template)
+    findings += _privacy_findings(privacy_section_state(db, mandate_tenant_id(db, mandate)))
+    findings += _depot_bank_findings(depot_bank_inducement_state(db, mandate, today), mandate_type)
+    findings += _w033_findings(w033_state(db, mandate), mandate_type)
+    if channel == CHANNEL_FINALIZATION:
+        findings += _rationale_findings(db, mandate, run_id)
+    if document is not None and str(getattr(document, "document_type", "") or "") == CONTRACT_DOCUMENT_TYPE:
+        findings += _contract_document_findings(template, document)
+    return findings
+
+
+def assert_contract_layer_release_eligible(
+    db: Session,
+    mandate: Any,
+    *,
+    channel: str,
+    run_id: Optional[str] = None,
+    document: Any = None,
+    http_status: int = 409,
+    on_block: Optional[Callable[..., None]] = None,
+) -> None:
+    """Fail-closed: wirft ``CONTRACT_LAYER_INCOMPLETE`` (Liste ``findings``),
+    BEVOR der Kanal eine Wirkung hat. Fuer die Signatur nur bei Dokumenten,
+    deren Unterzeichnung den Vertragsabschluss markiert."""
+    if channel == CHANNEL_SIGNATURE and document is not None and (
+        str(getattr(document, "document_type", "") or "") not in CONTRACT_CONCLUSION_DOCUMENT_TYPES
+    ):
+        return
+    findings = contract_layer_findings(db, mandate, channel=channel, run_id=run_id, document=document)
+    if not findings:
+        return
+    if on_block is not None:
+        _call_on_block(on_block, ReasonCode.CONTRACT_LAYER_INCOMPLETE.value, findings)
+    raise DomainError(
+        ReasonCode.CONTRACT_LAYER_INCOMPLETE,
+        f"{_CHANNEL_LABELS.get(channel, 'Freigabe nicht möglich')}: "
+        + " ".join(f["message"] for f in findings),
+        http_status=http_status,
+        extra={
+            "channel": channel,
+            "findings": findings,
+            "finding_codes": [f["reason_code"] for f in findings],
+        },
+    )
+
+
+def contract_layer_status(db: Session, mandate: Any) -> dict:
+    """Anzeige fuer die Maske (gleiche Quelle wie das Gate)."""
+    template = contract_template_state(db, mandate)
+    w033 = w033_state(db, mandate)
+    latest_run = db.execute(_sql_text(
+        "SELECT id FROM recommendation_runs WHERE mandate_id = :mid ORDER BY created_at DESC, id DESC LIMIT 1"
+    ), {"mid": str(mandate.id)}).first()
+    return {
+        "mandate_id": str(mandate.id),
+        "latest_run_id": str(latest_run[0]) if latest_run is not None else None,
+        "catalog_version": OWNER_CATALOG_VERSION,
+        "contract_template": {
+            "mandate_type": template["mandate_type"], "supported": template["supported"],
+            "template_hash": template["template_hash"],
+            "clauses": [{k: c[k] for k in ("clause", "label", "status", "key", "placeholder")}
+                        for c in template["clauses"]],
+        },
+        "depot_bank_inducement": {
+            k: v for k, v in depot_bank_inducement_state(db, mandate).items() if k != "binding"
+        },
+        "w033": {
+            **{k: v for k, v in w033.items() if not k.endswith("_binding")},
+            "declaration_content_hash": (w033["declaration_binding"] or {}).get("content_hash"),
+            "advice_content_hash": (w033["advice_binding"] or {}).get("content_hash"),
+        },
+        "findings": contract_layer_findings(db, mandate, channel=CHANNEL_SIGNATURE),
+    }

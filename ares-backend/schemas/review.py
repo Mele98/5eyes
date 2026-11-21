@@ -3077,8 +3077,7 @@ class StrategyOptionCoverageResponse(BaseModel):
     options: list[StrategyOptionCoverage] = []
 
 
-# C-COMP-02: Product-Evidence v1. Payload-Werte bleiben typisiert; Geld wird
-# als Minor-Unit-Integer, Quoten als BPS und Dezimalwerte als String geliefert.
+# C-COMP-02: granularer, freizugebender Produktnachweis.
 ProductEvidenceKind = Literal[
     "instrument_identity", "kid", "costs", "retrocession", "suitability",
     "liquidity", "currency", "sustainability", "price_source",
@@ -3112,16 +3111,16 @@ class ProductEvidenceItemCreate(BaseModel):
         mode="before",
     )
     @classmethod
-    def _strip_product_evidence_text(cls, value):
+    def _strip_evidence_text(cls, value):
         return _strip_optional_text(value)
 
     @field_validator("source_document_sha256", mode="before")
     @classmethod
-    def _lower_product_evidence_sha(cls, value):
+    def _lower_evidence_sha(cls, value):
         return value.strip().lower() if isinstance(value, str) else value
 
     @model_validator(mode="after")
-    def _product_evidence_dates(self):
+    def _evidence_dates(self):
         if self.valid_until is not None and self.valid_until < self.valid_from:
             raise ValueError("Gültig-bis darf nicht vor Gültig-ab liegen.")
         return self
@@ -3169,3 +3168,31 @@ class ProductEvidenceItemResponse(BaseModel):
     retired_or_revoked_at: Optional[str] = None
     reason_code: Optional[str] = None
     updated_at: str
+
+
+# H-179 L2/L3 Vertragsschicht: Owner-Inhalte, Gruende der Empfehlung, W033.
+class OwnerContentCreate(BaseModel):
+    """Neue Version eines Owner-Inhalts. Text (``body_text``) oder typisierter
+    Wert (``value``) je nach Katalogart; der Server vergibt die Version."""
+
+    content_key: str = Field(min_length=3, max_length=200)
+    body_text: Optional[str] = Field(default=None, max_length=20000)
+    value: Optional[Any] = None
+    source_reference: str = Field(min_length=1, max_length=500)
+
+
+class OwnerContentApprove(BaseModel):
+    content_hash: str = Field(min_length=64, max_length=64, pattern="^[0-9a-f]{64}$")
+    approval_reference: str = Field(min_length=1, max_length=500)
+
+
+class AdviceRationaleCreate(BaseModel):
+    client_needs: str = Field(min_length=1, max_length=10000)
+    recommendation_reasons: str = Field(min_length=1, max_length=10000)
+
+
+class W033DeclarationCreate(BaseModel):
+    declaration_kind: Literal["angaben_wahr_meldepflicht", "horizont_abraten"]
+    capture_channel: Literal["persoenlich_papier", "vor_ort", "kundenportal"]
+    confirmed_at: str = Field(min_length=10, max_length=40)
+    content_hash: str = Field(min_length=64, max_length=64, pattern="^[0-9a-f]{64}$")

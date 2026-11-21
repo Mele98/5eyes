@@ -212,6 +212,15 @@ PERSONAL_DATA_INVENTORY: dict[str, TableEntry] = {
     # H8 C-2: Abgabenachweis der Kundeninformation (append-only, keine
     # Personendaten ausser dem Bezug).
     "client_information_deliveries": _t(_MANDATE, _c(RECORD, "mandate_contract")),
+    # H-179 P-1 (Art. 15 FIDLEG): Beduerfnisse/Gruende im Klartext, append-only;
+    # keine Loeschmethode implementiert (Disposition scheitert sichtbar).
+    "advice_rationales": _t(
+        _MANDATE,
+        _c(FREE_TEXT, "advisory_protocol", "client_needs", "recommendation_reasons"),
+        _c(RECORD, "advisory_protocol"),
+    ),
+    # H-179 E-1: Kundenbestaetigung zum Risikoprofil (W033), ohne Freitext.
+    "w033_client_declarations": _t(_MANDATE, _c(RECORD, "risk_profile_evidence")),
     "contract_documents": _t(
         _MANDATE,
         _c(SIGNATURE, "mandate_contract",

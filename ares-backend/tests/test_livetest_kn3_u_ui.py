@@ -119,6 +119,26 @@ def _server_cause(api, mid):
     return fresh.get("status"), "; ".join(texts)
 
 
+def _chip_shows_server_cause(page, api, mid, timeout_s=60.0):
+    """N-917R2-06 / H-185: Chip und Server-Ursache werden BEIDE wiederholt
+    gelesen. Fertig erst, wenn die Server-Ursache in zwei Lesungen in Folge
+    gleich ist UND der Chip genau sie zeigt ("Veraltet · " + Ursache). Sonst
+    AssertionError mit den letzten Lesungen (Chip, Server), damit ein CI-Fehler
+    zeigt, was die Oberflaeche tatsaechlich anzeigte."""
+    deadline = time.monotonic() + timeout_s
+    seen, prev = [], None
+    while True:
+        status, cause = _server_cause(api, mid)
+        chip = page.evaluate(CHIP)
+        seen.append({"status": status, "cause": cause, "chip": chip})
+        if cause and cause == prev and chip == "Veraltet · " + cause:
+            return status, cause, chip
+        prev = cause
+        if time.monotonic() > deadline:
+            raise AssertionError(f"Chip zeigt nicht die Server-Ursache (letzte Lesungen): {seen[-6:]}")
+        page.wait_for_timeout(500)
+
+
 def _page(browser, srv, sync_api, errors):
     page = browser.new_page(viewport={"width": 1440, "height": 900})
     page.on("pageerror", lambda exc: errors.append(str(exc)))
@@ -318,11 +338,10 @@ def test_kn3u_amounts_reload_after_fx_and_mortgage_change(server):
             cf_after = page.evaluate("document.getElementById('abfluss-rows').innerText")
             page_now = page.evaluate("(document.querySelector('.tstep.active')||{dataset:{}}).dataset.page")
             _shot(page, "kn3u_07_cashflow_hypothek_neu.png")
-            page.wait_for_timeout(2500)
-            status, cause = _server_cause(api, mid)
             _go(page, "al", 3000)
-            page.wait_for_function("(c) => (" + CHIP + ") === 'Veraltet · ' + c", arg=cause, timeout=60000)
-            aa_chip = page.evaluate(CHIP)
+            # H-185: Ursache nicht einmalig 2,5 s nach dem Speichern lesen, sondern
+            # Chip und Status-API gemeinsam pollen, bis beide uebereinstimmen.
+            status, cause, aa_chip = _chip_shows_server_cause(page, api, mid)
             _go(page, "po")
             po = page.evaluate("({status:(document.getElementById('po-status')||{textContent:''}).textContent,"
                                "umsetzen:(document.getElementById('btn-portfolio-umsetzen')||{style:{}}).style.display})")

@@ -1317,6 +1317,8 @@ CREATE TABLE IF NOT EXISTS optimizer_policies (
     created_by              TEXT NOT NULL REFERENCES users(id) ON UPDATE CASCADE,
     created_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     updated_at              TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    ic_release_ref          TEXT,
+    ic_released_at          TEXT,
     CHECK(valid_to IS NULL OR valid_to >= valid_from)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_optimizer_one_current
@@ -2421,7 +2423,7 @@ CREATE TRIGGER IF NOT EXISTS trg_allocation_active_publications_no_delete BEFORE
 CREATE TABLE IF NOT EXISTS advisory_channel_publications (
     id                            TEXT PRIMARY KEY,
     tenant_id                     TEXT NOT NULL REFERENCES tenants(id),
-    mandate_id                    TEXT NOT NULL,
+    mandate_id                    TEXT NOT NULL REFERENCES mandates(id),
     envelope_id                   TEXT NOT NULL,
     channel                       TEXT NOT NULL CHECK(channel IN ('API','CLASSIC','REACT','PDF','ADVISOR_SIGNATURE','ONSITE_SIGNATURE','HANDOFF','ARCHIVE')),
     artifact_id                   TEXT NOT NULL,
@@ -2437,6 +2439,7 @@ CREATE TABLE IF NOT EXISTS advisory_channel_publications (
     status                        TEXT NOT NULL CHECK(status = 'PUBLISHED'),
     created_at                    TEXT NOT NULL,
     created_by                    TEXT NOT NULL REFERENCES users(id),
+    channel_sequence              INTEGER NOT NULL CHECK(channel_sequence >= 1),
     CONSTRAINT ck_advisory_channel_publications_render CHECK(
         channel NOT IN ('PDF','ARCHIVE','ADVISOR_SIGNATURE','ONSITE_SIGNATURE') OR render_hash IS NOT NULL),
     CONSTRAINT uq_advisory_channel_publications_tenant_id UNIQUE (tenant_id, id),
@@ -2446,6 +2449,8 @@ CREATE TABLE IF NOT EXISTS advisory_channel_publications (
 );
 CREATE INDEX IF NOT EXISTS ix_advisory_channel_publications_tenant_id ON advisory_channel_publications(tenant_id);
 CREATE INDEX IF NOT EXISTS ix_advisory_channel_publications_mandate ON advisory_channel_publications(tenant_id, mandate_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_advisory_channel_publications_sequence ON advisory_channel_publications(mandate_id, channel_sequence);
 CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_envelope BEFORE INSERT ON advisory_channel_publications FOR EACH ROW WHEN NOT EXISTS (SELECT 1 FROM advisory_decision_envelopes e WHERE e.id = NEW.envelope_id AND e.tenant_id = NEW.tenant_id AND e.mandate_id = NEW.mandate_id AND e.status = 'SEALED' AND e.envelope_hash = NEW.bound_envelope_hash) BEGIN SELECT RAISE(ABORT, 'CCX_CHANNEL_BINDING_MISSING'); END;
 CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_no_update BEFORE UPDATE ON advisory_channel_publications FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_channel_publications is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_no_delete BEFORE DELETE ON advisory_channel_publications FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'advisory_channel_publications is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS trg_advisory_channel_publications_sequence BEFORE INSERT ON advisory_channel_publications FOR EACH ROW WHEN NEW.channel_sequence IS NOT (SELECT COALESCE(MAX(p.channel_sequence), 0) + 1 FROM advisory_channel_publications p WHERE p.mandate_id = NEW.mandate_id) BEGIN SELECT RAISE(ABORT, 'CCX_CHANNEL_SEQUENCE_RACE'); END;

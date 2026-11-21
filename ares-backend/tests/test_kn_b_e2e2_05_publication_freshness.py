@@ -89,3 +89,35 @@ def test_endpoint_reports_cause_for_stale_published_allocation(api, advisor_user
     assert after["active_publication"]["status"] == "PUBLICATION_INVALID"
     assert after["active_publication"]["reason_code"] == "CCX_INPUT_STALE"
     assert after["freshness"]["causes"][0]["text"] == "Wechselkurs USD geändert"
+
+
+def test_published_state_without_envelope_is_typed_not_500(api, advisor_user, session_factory, monkeypatch):
+    """P5b-CI-Fix (H-183/H-185): ``decision_envelope_reference`` (GET
+    allocation-publication, target-allocation/current[/payload]) liest das
+    Kanal-Gate. Fehlt der Entscheid zu einer als publiziert gemeldeten
+    Allokation, antwortet es typisiert (``CCX_ENVELOPE_MISSING``, nicht
+    auslieferbar) statt mit AttributeError/500.
+    Gegenprobe: Absicherung ``envelope is None`` entfernen -> 500 -> rot."""
+    import routers.allocation as router
+    import services.allocation_publication_gate as gate
+    from models.allocation import TargetAllocation
+    from models.mandates import Mandate
+
+    mandate_id = _setup(api, advisor_user, usd=True)
+    with session_factory() as db:
+        ta_id = db.query(TargetAllocation).filter(TargetAllocation.mandate_id == mandate_id,
+                                                  TargetAllocation.is_current == 1).one().id
+    for envelope_id in (None, "envelope-gibt-es-nicht"):
+        published = gate.PublicationState("PUBLISHED", None, publication_id="pub-1",
+                                          target_allocation_id=ta_id, envelope_id=envelope_id)
+        monkeypatch.setattr(gate, "active_publication_state", lambda db, mandate, deep=True, _p=published: _p)
+        monkeypatch.setattr(router, "active_publication_state", lambda db, mandate, deep=True, _p=published: _p)
+        with session_factory() as db:
+            decision = gate.evaluate_channel_envelope(db, db.get(Mandate, mandate_id))
+        assert decision.applicable and not decision.ok and decision.reason_code == "CCX_ENVELOPE_MISSING", decision
+        assert decision.cause.startswith("Der versiegelte Beratungsentscheid ist nicht auffindbar"), decision.cause
+        response = api.get(f"/mandates/{mandate_id}/allocation-publication")
+        assert response.status_code == 200, response.text
+        reference = response.json()["decision_envelope"]
+        assert reference["state"] != "deliverable" and reference["reason_code"] == "CCX_ENVELOPE_MISSING", reference
+        assert reference["pruefnummer"] is None, reference

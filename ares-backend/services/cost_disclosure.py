@@ -43,6 +43,58 @@ class CostDisclosureDomainError(ValueError):
         self.location = location
 
 
+def _run_product_evidence_values(db: Session, run: Any) -> dict[str, dict[str, dict]]:
+    """Liest nur den versiegelten Evidenzsatz; kein Rückfall auf Live-Stammdaten."""
+    snapshot = db.execute(_sql_text(
+        "SELECT item_ids_json, item_hashes_json, product_evidence_hash "
+        "FROM product_evidence_snapshots WHERE id = :id"
+    ), {"id": str(getattr(run, "product_evidence_snapshot_id", ""))}).mappings().first()
+    if snapshot is None or snapshot["product_evidence_hash"] != getattr(run, "product_evidence_hash", None):
+        raise CostDisclosureDomainError(
+            "Der versiegelte Produktnachweis fehlt oder ist inkonsistent.",
+            reason_code="PRODUCT_EVIDENCE_HASH_MISMATCH", location="product_evidence",
+        )
+    try:
+        item_ids = [str(value) for value in json.loads(snapshot["item_ids_json"])]
+        expected_hashes = [str(value) for value in json.loads(snapshot["item_hashes_json"])]
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise CostDisclosureDomainError(
+            "Der versiegelte Produktnachweis ist nicht lesbar.",
+            reason_code="PRODUCT_EVIDENCE_HASH_MISMATCH", location="product_evidence",
+        ) from exc
+    values: dict[str, dict[str, dict]] = {}
+    current_hashes = []
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    for item_id in item_ids:
+        item = db.execute(_sql_text(
+            "SELECT * FROM product_evidence_items WHERE id = :id"
+        ), {"id": item_id}).mappings().first()
+        if item is None or item["status"] != "approved":
+            raise CostDisclosureDomainError(
+                "Ein gebundener Produktnachweis ist nicht mehr aktiv.",
+                reason_code="PRODUCT_EVIDENCE_STALE", location="product_evidence",
+            )
+        if item["valid_from"] > today or (item["valid_until"] and today > item["valid_until"]):
+            raise CostDisclosureDomainError(
+                "Ein gebundener Produktnachweis ist abgelaufen.",
+                reason_code="PRODUCT_EVIDENCE_STALE", location="product_evidence",
+            )
+        current_hashes.append(str(item["canonical_payload_hash"]))
+        values.setdefault(str(item["product_id"]), {})[str(item["evidence_kind"])] = {
+            "payload": json.loads(item["canonical_payload_json"]),
+            "source_reference": item["source_reference"],
+            "as_of": item["as_of"],
+            "item_id": item["id"],
+            "payload_hash": item["canonical_payload_hash"],
+        }
+    if current_hashes != expected_hashes:
+        raise CostDisclosureDomainError(
+            "Der versiegelte Produktnachweis wurde ersetzt.",
+            reason_code="PRODUCT_EVIDENCE_STALE", location="product_evidence",
+        )
+    return values
+
+
 # Stabile Begruendungscodes -- bewusst Konstanten, damit ein Aufrufer sie
 # vergleichen kann, ohne auf Meldungstexte zu matchen.
 REASON_RATE_NOT_A_NUMBER = "fee_rate_not_a_number"
@@ -487,9 +539,8 @@ def build_cost_disclosure_for_run(
                 latest_holding[position.id] = holding
     # C-COMP-02: Kosten/Retrozession stammen ausschliesslich aus dem beim
     # Generieren versiegelten Evidenzsatz, nie aus mutierbaren Produktfeldern.
-    from services.product_eligibility import run_product_evidence_values
     evidence = (
-        run_product_evidence_values(db, mandate, latest_run, channel="cost_disclosure")
+        _run_product_evidence_values(db, latest_run)
         if getattr(latest_run, "product_evidence_status", None) is not None else None
     )
     legacy_ter_overrides: dict[str, int] = {}

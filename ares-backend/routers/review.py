@@ -64,9 +64,12 @@ from schemas.review import (
     ClientInformationDeliveryCreate, ClientInformationDeliveryResponse,
     ClientOnboardingStatusResponse,
     KycReviewPolicyActivate, KycReviewPolicyCreate, KycReviewPolicyOverview, KycReviewPolicyResponse,
+    ProductEvidenceApprovalRequest, ProductEvidenceItemCreate,
+    ProductEvidenceItemResponse, ProductEvidenceLifecycleRequest,
 )
 from price_updater import summarize_price_quality
-from services.auth import get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, require_staff, same_person, assert_compliance_reviewer_ready, short_user_agent, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
+from services.auth import COMPLIANCE_APPROVER_ROLES, get_accessible_client_ids, get_accessible_mandate_ids, get_client_for_user_or_404, get_current_user, get_mandate_for_user_or_404, has_global_client_access, require_advisor, require_admin, require_compliance_approver, require_staff, same_person, assert_compliance_reviewer_ready, short_user_agent, _resolve_tenant_id_for_user, _effective_strict_tenant_isolation, set_tenant_context
+from services.recommendation_release_gate import assert_contract_layer_release_eligible  # H-179 L2/L3
 from services.audit import gate_block_audit, log, release_block_audit, restore_tenant_after_rollback
 # Bugfix 2026-08-07 (CEO/CFO/CIO-Audit): Quell-IP fuer Review-/Suitability-/
 # Empfehlungs-Aenderungen im Audit-Log.
@@ -127,6 +130,7 @@ from services.recommendation_release_gate import (
     assert_retrocession_release_eligible,
     assert_sustainability_preference_floor,
     preference_state,
+    verify_archive_replay,
     assert_risk_signoff_release_eligible,
     client_onboarding_status,
     kyc_approver_account,
@@ -162,6 +166,7 @@ from services.product_eligibility import (
     # RC-CH-1 Teil 2b: Alias -- gleichnamige Funktion (db, mandate) aus
     # recommendation_release_gate (H8) wird oben importiert.
     mandate_tenant_id as eligibility_mandate_tenant_id,
+    product_evidence_item_payload_hash,
 )
 from services.review_calendar_feed import (
     build_ics_feed,
@@ -1789,15 +1794,19 @@ def get_document_pdf(
     # Pruefsumme des Archivs brechen (Nachweis "was wurde dem Kunden gezeigt").
     archived_on = str(doc.pdf_generated_at or doc.created_at or "")[:10] or "unbekannt"
     filename = f"Archivexemplar_{archived_on}_{safe_title}_v{doc.version}.pdf"
-    return Response(
-        content=base64.b64decode(doc.pdf_base64),
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": content_disposition(filename),
-            "X-Ares-Archive-Copy": "true",
-            "X-Ares-Archived-On": archived_on,
-        },
-    )
+    pdf_bytes = base64.b64decode(doc.pdf_base64)
+    # P5b / N-925-04 (§8.3): Entscheid-Artefakte nur bei Bytes-Hash-Gleichheit
+    # mit der Kanalzeile; Bezug (Pruefnummer, Fassung) im Header.
+    reference = verify_archive_replay(db, doc, pdf_bytes)
+    headers = {
+        "Content-Disposition": content_disposition(filename),
+        "X-Ares-Archive-Copy": "true",
+        "X-Ares-Archived-On": archived_on,
+    }
+    if reference is not None:
+        headers["X-Ares-Pruefnummer"] = str(reference["pruefnummer"])
+        headers["X-Ares-Fassung"] = str(reference["fassung"] or "")
+    return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
 
 @router.post("/mandates/{mandate_id}/documents",
@@ -1938,6 +1947,18 @@ def sign_document(
     if str(doc.document_type or "") in CONTRACT_CONCLUSION_DOCUMENT_TYPES:
         assert_client_onboarding_release_eligible(
             db, mandate, channel=CHANNEL_SIGNATURE,
+            on_block=release_block_audit(
+                db, user=current_user, ip_address=_extract_client_ip(request),
+                mandate_id=mandate.id, field_name="signature_blocked",
+                set_tenant_context=set_tenant_context,
+            ),
+        )
+        # H-179 L2/L3: kein Vertragsabschluss ohne freigegebene Vertragsvorlage,
+        # Datenschutzabschnitt, Angabe zu Zuwendungen der Depotbank und W033-
+        # Bestaetigungen; beim Beratungsvertrag zusaetzlich Ort und aktuelle
+        # Vorlage (fail-closed, auditiert, VOR jeder Mutation).
+        assert_contract_layer_release_eligible(
+            db, mandate, channel=CHANNEL_SIGNATURE, document=doc,
             on_block=release_block_audit(
                 db, user=current_user, ip_address=_extract_client_ip(request),
                 mandate_id=mandate.id, field_name="signature_blocked",
@@ -4738,6 +4759,17 @@ def finalize_recommendation(
             set_tenant_context=set_tenant_context,
         ),
     )
+    # H-179 L2/L3: Finalisierung nur mit freigegebener Vertragsvorlage,
+    # Datenschutzabschnitt, Zuwendungsangabe der Depotbank, W033-Bestaetigungen
+    # und (Anlageberatung) dokumentierten Gruenden der Empfehlung (Art. 15 FIDLEG).
+    assert_contract_layer_release_eligible(
+        db, mandate, channel=CHANNEL_FINALIZATION, run_id=run_id, http_status=422,
+        on_block=release_block_audit(
+            db, user=current_user, ip_address=_extract_client_ip(request),
+            mandate_id=mandate.id, field_name="finalization_blocked",
+            set_tenant_context=set_tenant_context,
+        ),
+    )
     # PORTFOLIO-DATA-001: Depot-Frische/Abgleich; wirkt nur mit aktiver Policy.
     assert_portfolio_data_release_eligible(db, mandate, action="finalize")
     # E2a (Negativfall 4): veraltete Text-/Policy-Version der
@@ -4763,8 +4795,6 @@ def finalize_recommendation(
             "event": "sustainability_evidence_missing", "channel": "finalize", "run_id": run.id,
         }, sort_keys=True), {"decision_id": None})
         raise exc
-    from services.product_eligibility import assert_run_product_evidence
-    assert_run_product_evidence(db, mandate, run, channel="finalization")
     assert_customer_exclusions_offerable(db, mandate, channel="finalize")
     if cma_currency_warning:
         warnings.append(cma_currency_warning)
@@ -5119,6 +5149,7 @@ from models.product_eligibility import (  # noqa: E402
     SUSTAINABILITY_SOURCE_TYPES,
     SUSTAINABILITY_STATUSES,
     ProductSustainabilityAttribute,
+    ProductEvidenceItem,
 )
 from schemas.review import (  # noqa: E402
     ProductSustainabilityApprovalRequest,
@@ -5137,6 +5168,7 @@ from schemas.review import (  # noqa: E402
     SustainabilityStandardUpdate,
 )
 from services.product_eligibility_governance import (  # noqa: E402
+    MIN_ATTESTATION_REASON_LENGTH,
     RuleApprovalConflict,
     SustainabilityAttributeConflict,
     approve_sustainability_attribute,
@@ -5157,6 +5189,7 @@ from services.product_eligibility_governance import (  # noqa: E402
     sustainability_attribute_errors,
     sustainability_attribute_visible_to_tenant,
     sustainability_standard_categories,
+    tenant_approver_ids,
 )
 
 GLOBAL_SUSTAINABILITY_WRITE_FORBIDDEN_DETAIL = (
@@ -6020,52 +6053,354 @@ def get_strategy_option_coverage(
     return strategy_option_coverage_for_mandate(db, mandate)
 
 
-# ===========================================================================
-# C-COMP-02 -- granularer Product-Evidence-Lebenszyklus. Bewusst im
-# bestehenden Produkte-/Eligibility-Router, keine zweite Freigabe-Engine.
-# ===========================================================================
-from models.product_eligibility import ProductEvidenceItem  # noqa: E402
+
+
+# ---------------------------------------------------------------------------
+# H-179 L2/L3 Vertragsschicht: Owner-Inhalte mit Vier-Augen-Freigabe (Muster
+# KYC-Wiedervorlage oben), Gruende der Empfehlung (Art. 15 FIDLEG) und
+# W033-Kundenbestaetigungen. Ares belegt keinen Text und keinen Wert vor.
+# ---------------------------------------------------------------------------
+
+from models.review import AdviceRationale, W033ClientDeclaration  # noqa: E402
+from models.tenant import OWNER_CONTENT_GENESIS, OwnerContentApproval, OwnerContentVersion  # noqa: E402
 from schemas.review import (  # noqa: E402
-    ProductEvidenceApprovalRequest,
-    ProductEvidenceItemCreate,
-    ProductEvidenceItemResponse,
-    ProductEvidenceLifecycleRequest,
+    AdviceRationaleCreate, OwnerContentApprove, OwnerContentCreate, W033DeclarationCreate,
 )
-from services.product_eligibility import (  # noqa: E402
-    product_evidence_item_payload_hash,
-)
+from services import recommendation_release_gate as _gate  # noqa: E402
 
 
-def _product_evidence_visible(row: ProductEvidenceItem, current_user: User) -> bool:
+def _oc_seal(record, column: str) -> str:
+    return row_seal({c.name: getattr(record, c.name) for c in record.__table__.columns}, column)
+
+
+def _oc_owner_tenant(current_user: User) -> str:
+    if not getattr(current_user, "tenant_id", None) and _effective_strict_tenant_isolation(settings):
+        raise HTTPException(status_code=403, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_TENANT_REQUIRED.value,
+            "message": "Im Mehrmandanten-Betrieb braucht der Admin eine eigene Firma.",
+        })
+    return _resolve_tenant_id_for_user(current_user)
+
+
+def _oc_row_dict(row) -> dict:
+    return {c.name: getattr(row, c.name) for c in row.__table__.columns}
+
+
+def _oc_resolution_view(resolution: dict, entry: _gate.OwnerCatalogEntry | None) -> dict:
+    version = resolution.get("version") or {}
+    draft = resolution.get("latest_draft") or {}
+    return {
+        "key": resolution["key"],
+        "group": entry.group if entry else None,
+        "label": entry.label if entry else resolution["key"],
+        "kind": entry.kind if entry else None,
+        "placeholder": entry.placeholder if entry else None,
+        "owner_input": entry.owner_input if entry else None,
+        "visible_in": entry.visible_in if entry else None,
+        "required": entry.required if entry else None,
+        "status": resolution["status"],
+        "effective_version": version.get("version"),
+        "effective_row_id": version.get("id"),
+        "effective_content_hash": version.get("content_hash"),
+        "effective_body_text": version.get("body_text"),
+        "effective_value_json": version.get("value_json"),
+        "approved_at": (resolution.get("approval") or {}).get("approved_at"),
+        "draft_row_id": draft.get("id"),
+        "draft_version": draft.get("version"),
+        "draft_content_hash": draft.get("content_hash"),
+        "draft_body_text": draft.get("body_text"),
+        "draft_value_json": draft.get("value_json"),
+        "draft_created_by": draft.get("created_by"),
+    }
+
+
+@router.get("/compliance/owner-content")
+def list_owner_content(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff),
+):
+    """Katalog der Owner-Inhalte der eigenen Firma mit Status (fehlt, Entwurf,
+    freigegeben, Kette ungültig), wirksamer Version und offenem Entwurf.
+    Zusätzlich die bereits erfassten Bank-Schlüssel (Zuwendungen der Depotbank)."""
     tenant_id = _resolve_tenant_id_for_user(current_user)
-    return row.tenant_id is None or str(row.tenant_id) == str(tenant_id)
+    items = [
+        _oc_resolution_view(_gate.resolve_owner_content(db, tenant_id, entry.key), entry)
+        for entry in _gate.owner_content_catalog()
+    ]
+    bank_keys = sorted({
+        str(row[0]) for row in db.query(OwnerContentVersion.content_key).filter(
+            OwnerContentVersion.tenant_id == tenant_id,
+            OwnerContentVersion.content_key.like(_gate.DEPOT_BANK_KEY_PREFIX + "%"),
+        ).all()
+    })
+    for key in bank_keys:
+        items.append(_oc_resolution_view(_gate.resolve_owner_content(db, tenant_id, key), _gate.owner_catalog_entry(key)))
+    return {
+        "tenant_id": tenant_id,
+        "catalog_version": _gate.OWNER_CATALOG_VERSION,
+        "contract_mandate_types": list(_gate.CONTRACT_MANDATE_TYPES),
+        "contract_clauses": [{"clause": c[0], "label": c[1], "placeholder": c[3]} for c in _gate.CONTRACT_CLAUSES],
+        "items": items,
+    }
 
 
-def _product_evidence_or_404(
-    evidence_id: str, db: Session, current_user: User, *, for_write: bool = False,
-) -> ProductEvidenceItem:
+@router.post("/compliance/owner-content", status_code=201)
+def create_owner_content(
+    body: OwnerContentCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Neue Version eines Owner-Inhalts (Firmen-Admin). Wirksam erst nach der
+    Freigabe durch eine zweite Person (``/approve``)."""
+    tenant_id = _oc_owner_tenant(current_user)
+    key = body.content_key.strip()
+    entry = _gate.owner_catalog_entry(key)
+    if entry is None:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_KEY_UNKNOWN.value,
+            "message": "Unbekannter Schlüssel; erlaubt sind nur Schlüssel aus dem Katalog.",
+        })
+    try:
+        body_text, value_json = _gate.normalize_owner_payload(entry, body.body_text, body.value)
+    except _gate.OwnerContentInvalid as exc:
+        raise HTTPException(status_code=422, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_VALUE_INVALID.value, "message": str(exc),
+        }) from exc
+    versions, _approvals = _gate.owner_content_chain(db, tenant_id, key)
+    version = max((int(v["version"]) for v in versions.values()), default=0) + 1
+    record = OwnerContentVersion(
+        id=new_uuid(), tenant_id=tenant_id, content_key=key, catalog_version=_gate.OWNER_CATALOG_VERSION,
+        version=version, body_text=body_text, value_json=value_json,
+        source_reference=body.source_reference.strip(), created_by=current_user.id, created_at=_now(),
+    )
+    record.content_hash = _oc_seal(record, "content_hash")
+    db.add(record)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise_if_check_violation(exc)
+        raise HTTPException(status_code=409, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_VERSION_CONFLICT.value,
+            "message": "Gleichzeitig wurde eine andere Version erfasst; bitte neu laden.",
+        }) from exc
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="owner_content_versions", record_id=record.id, action="CREATE",
+        field_name="owner_content_proposed",
+        new_value=f"{key} v{version}; hash {record.content_hash}",
+        ip_address=_extract_client_ip(request), tenant_id=tenant_id)
+    db.commit()
+    return _oc_resolution_view(_gate.resolve_owner_content(db, tenant_id, key), entry) | {"created_row_id": record.id}
+
+
+@router.post("/compliance/owner-content/{row_id}/approve")
+def approve_owner_content(
+    row_id: str,
+    body: OwnerContentApprove,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_compliance_approver),
+):
+    """Vier-Augen-Freigabe einer Version durch eine zweite Person mit dem
+    gesehenen Inhalts-Hash. Die Freigaben bilden je Schlüssel eine lineare
+    Kette; zwei gleichzeitige Freigaben auf denselben Stand scheitern (409)."""
+    tenant_id = _oc_owner_tenant(current_user)
+    record = db.query(OwnerContentVersion).filter(
+        OwnerContentVersion.id == row_id, OwnerContentVersion.tenant_id == tenant_id,
+    ).first()
+    if record is None:
+        raise HTTPException(status_code=404, detail="Version nicht gefunden")
+    if db.query(OwnerContentApproval).filter(OwnerContentApproval.content_row_id == record.id).first():
+        raise HTTPException(status_code=409, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_ALREADY_APPROVED.value,
+            "message": "Diese Version ist bereits freigegeben.",
+        })
+    if same_person(db, record.created_by, current_user.id):
+        raise HTTPException(status_code=403, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_SAME_PERSON.value,
+            "message": "Die Freigabe muss durch eine zweite Person erfolgen.",
+        })
+    assert_compliance_reviewer_ready(current_user)
+    if _oc_seal(record, "content_hash") != record.content_hash or body.content_hash != record.content_hash:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_HASH_MISMATCH.value,
+            "message": "Der bestätigte Prüfwert stimmt nicht mit der Version überein.",
+        })
+    head = _gate.resolve_owner_content(db, tenant_id, record.content_key)
+    if head["status"] == _gate.OWNER_STATUS_INVALID:
+        # Nur ein STRUKTURFEHLER (Siegel, Luecke, Versionsfolge) sperrt; ein
+        # entwertetes Glied (Mangel der Person, N-927R-01) nicht.
+        raise HTTPException(status_code=409, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_CHAIN_INVALID.value,
+            "message": "Die bestehende Freigabekette ist ungültig; bitte Compliance informieren.",
+        })
+    chain_head = head.get("chain_head")
+    if chain_head is not None:
+        if int(record.version) <= int(chain_head["version"]["version"]):
+            raise HTTPException(status_code=409, detail={
+                "reason_code": ReasonCode.OWNER_CONTENT_VERSION_STALE.value,
+                "message": "Es ist bereits eine neuere Version freigegeben; bitte eine neue Version erfassen.",
+            })
+        # Die neue Freigabe haengt am letzten Glied an -- auch an einem
+        # entwerteten (z.B. widerrufenes Konto); so bleibt die Kette lueckenlos.
+        predecessor = str(chain_head["approval"]["id"])
+    else:
+        predecessor = OWNER_CONTENT_GENESIS
+    approval_id = new_uuid()
+    approval = OwnerContentApproval(
+        id=approval_id, tenant_id=tenant_id, content_key=record.content_key, content_row_id=record.id,
+        predecessor_approval_id=predecessor, approved_by=current_user.id, approved_at=_now(),
+        approval_reference=body.approval_reference.strip(), content_hash=record.content_hash,
+        # N-927R-01: Rolle und Bereitschaft beim Freigeben gesiegelt einfrieren
+        # (assert_compliance_reviewer_ready oben hat die Bereitschaft geprueft).
+        approver_role=str(current_user.role), approver_ready=1,
+        # N-927S-01: Postfach-Identitaeten von Freigeber und Erfasser ebenso
+        # (eine spaetere E-Mail-Aenderung aendert dann nichts mehr).
+        **_gate.owner_approval_frozen_identities(db, approval_id, current_user.id, record.created_by),
+    )
+    approval.approval_hash = _oc_seal(approval, "approval_hash")
+    db.add(approval)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise_if_check_violation(exc)
+        raise HTTPException(status_code=409, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_VERSION_CONFLICT.value,
+            "message": "Gleichzeitig wurde eine andere Freigabe erteilt; bitte neu laden.",
+        }) from exc
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="owner_content_approvals", record_id=approval.id, action="CREATE",
+        field_name="owner_content_approved",
+        new_value=f"{record.content_key} v{record.version}; hash {record.content_hash}",
+        ip_address=_extract_client_ip(request), tenant_id=tenant_id)
+    db.commit()
+    return _oc_resolution_view(_gate.resolve_owner_content(db, tenant_id, record.content_key),
+                            _gate.owner_catalog_entry(record.content_key))
+
+
+@router.get("/mandates/{mandate_id}/contract-layer")
+def get_contract_layer_status(
+    mandate_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_staff),
+):
+    """Status der Vertragsschicht des Mandats (gleiche Quelle wie das Gate)."""
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    return _gate.contract_layer_status(db, mandate)
+
+
+@router.post("/mandates/{mandate_id}/recommendations/{run_id}/advice-rationale", status_code=201)
+def create_advice_rationale(
+    mandate_id: str,
+    run_id: str,
+    body: AdviceRationaleCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """P-1 (Art. 15 FIDLEG): Kundenbedürfnisse und Gründe der Empfehlung zu
+    einem Empfehlungslauf erfassen. Korrektur = neue Zeile."""
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    run = db.query(RecommendationRun).filter(
+        RecommendationRun.id == run_id, RecommendationRun.mandate_id == mandate.id,
+    ).first()
+    if run is None:
+        raise HTTPException(status_code=404, detail={
+            "reason_code": ReasonCode.ADVICE_RATIONALE_RUN_UNKNOWN.value,
+            "message": "Empfehlung nicht gefunden.",
+        })
+    record = AdviceRationale(
+        id=new_uuid(), tenant_id=mandate.tenant_id, mandate_id=mandate.id, client_id=mandate.client_id,
+        recommendation_run_id=run.id, client_needs=body.client_needs.strip(),
+        recommendation_reasons=body.recommendation_reasons.strip(),
+        recorded_by=current_user.id, recorded_at=_now(),
+    )
+    record.rationale_hash = _oc_seal(record, "rationale_hash")
+    db.add(record)
+    db.flush()
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="advice_rationales", record_id=record.id, action="CREATE",
+        field_name="advice_rationale_recorded", new_value=f"run {run.id}; hash {record.rationale_hash}",
+        mandate_id=mandate.id, ip_address=_extract_client_ip(request))
+    db.commit()
+    return {k: v for k, v in _oc_row_dict(record).items()}
+
+
+@router.post("/mandates/{mandate_id}/w033-declarations", status_code=201)
+def create_w033_declaration(
+    mandate_id: str,
+    body: W033DeclarationCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_advisor),
+):
+    """E-1: Bestätigung des Kunden zum aktuellen Risikoprofil erfassen, gebunden
+    an die gezeigte, freigegebene Textversion der Firma (Prüfwert)."""
+    mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
+    state = _gate.w033_state(db, mandate)
+    if state["assessment_id"] is None:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": ReasonCode.W033_DECLARATION_NOT_APPLICABLE.value,
+            "message": "Für das Mandat liegt kein aktuelles Risikoprofil vor.",
+        })
+    binding = state["declaration_binding"] if body.declaration_kind == "angaben_wahr_meldepflicht" \
+        else state["advice_binding"]
+    if binding is None:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": ReasonCode.W033_TEXT_UNAPPROVED.value,
+            "message": "Der Text der Firma ist nicht freigegeben.",
+        })
+    if body.content_hash != binding["content_hash"]:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": ReasonCode.OWNER_CONTENT_HASH_MISMATCH.value,
+            "message": "Der bestätigte Prüfwert passt nicht zur freigegebenen Textversion.",
+        })
+    if body.declaration_kind == "horizont_abraten" and not state["advice_required"]:
+        raise HTTPException(status_code=409, detail={
+            "reason_code": ReasonCode.W033_DECLARATION_NOT_APPLICABLE.value,
+            "message": "Der Anlagehorizont liegt nicht unter dem Mindesthorizont der Firma.",
+        })
+    record = W033ClientDeclaration(
+        id=new_uuid(), tenant_id=mandate.tenant_id, mandate_id=mandate.id, client_id=mandate.client_id,
+        risk_assessment_id=state["assessment_id"], declaration_kind=body.declaration_kind,
+        content_key=binding["key"], content_row_id=binding["content_row_id"],
+        content_hash=binding["content_hash"], horizon_years=state["horizon_years"],
+        min_horizon_years=state["min_horizon_years"], capture_channel=body.capture_channel,
+        confirmed_at=body.confirmed_at, recorded_by=current_user.id, recorded_at=_now(),
+    )
+    record.declaration_hash = _oc_seal(record, "declaration_hash")
+    db.add(record)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise_if_check_violation(exc)
+        raise
+    log(db, user_id=current_user.id, user_name=current_user.full_name,
+        table_name="w033_client_declarations", record_id=record.id, action="CREATE",
+        field_name="w033_declaration_recorded",
+        new_value=f"{body.declaration_kind}; assessment {state['assessment_id']}; hash {record.declaration_hash}",
+        mandate_id=mandate.id, ip_address=_extract_client_ip(request))
+    db.commit()
+    return _oc_row_dict(record)
+
+
+# C-COMP-02 -- granularer Product-Evidence-Lebenszyklus.
+def _product_evidence_or_404(evidence_id, db, current_user, *, for_write=False):
     row = db.get(ProductEvidenceItem, evidence_id)
-    if row is None or not _product_evidence_visible(row, current_user):
+    tenant_id = _resolve_tenant_id_for_user(current_user)
+    if row is None or (row.tenant_id is not None and str(row.tenant_id) != str(tenant_id)):
         raise HTTPException(status_code=404, detail="Produktnachweis nicht gefunden")
     if for_write and row.tenant_id is None and not _may_write_global_catalog(current_user):
         raise HTTPException(status_code=403, detail=GLOBAL_CATALOG_WRITE_FORBIDDEN_DETAIL)
     return row
 
 
-def _evidence_product_identity(product: Product) -> tuple[str, str | None]:
-    stable = str(product.isin or product.internal_product_id or product.figi or product.id)
-    share_class = str(product.share_class_figi) if product.share_class_figi else None
-    return stable, share_class
-
-
-@products_router.get(
-    "/{product_id}/evidence", response_model=list[ProductEvidenceItemResponse],
-)
-def list_product_evidence(
-    product_id: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+@products_router.get("/{product_id}/evidence", response_model=list[ProductEvidenceItemResponse])
+def list_product_evidence(product_id: str, db: Session = Depends(get_db),
+                          current_user: User = Depends(get_current_user)):
     product = _get_product_or_404(product_id, db, current_user)
     tenant_id = _resolve_tenant_id_for_user(current_user)
     return db.query(ProductEvidenceItem).filter(
@@ -6074,16 +6409,10 @@ def list_product_evidence(
     ).order_by(ProductEvidenceItem.evidence_kind, ProductEvidenceItem.as_of.desc(), ProductEvidenceItem.id).all()
 
 
-@products_router.post(
-    "/{product_id}/evidence", response_model=ProductEvidenceItemResponse, status_code=201,
-)
-def create_product_evidence(
-    product_id: str,
-    body: ProductEvidenceItemCreate,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_advisor),
-):
+@products_router.post("/{product_id}/evidence", response_model=ProductEvidenceItemResponse, status_code=201)
+def create_product_evidence(product_id: str, body: ProductEvidenceItemCreate, request: Request,
+                            db: Session = Depends(get_db),
+                            current_user: User = Depends(require_advisor)):
     product = _get_product_or_404(product_id, db, current_user)
     tenant_id = _resolve_tenant_id_for_user(current_user)
     row_tenant = tenant_id
@@ -6091,38 +6420,28 @@ def create_product_evidence(
         if product.tenant_id is not None or not _may_write_global_catalog(current_user):
             raise HTTPException(status_code=403, detail=GLOBAL_CATALOG_WRITE_FORBIDDEN_DETAIL)
         row_tenant = None
-    elif product.tenant_id is not None and str(product.tenant_id) != str(tenant_id):
-        raise HTTPException(status_code=404, detail="Produkt nicht gefunden")
-
-    expected_stable, expected_share = _evidence_product_identity(product)
-    if body.stable_instrument_id != expected_stable or (
-        expected_share is not None and body.share_class_id != expected_share
-    ):
+    stable = str(product.isin or product.internal_product_id or product.figi or product.id)
+    share_class = str(product.share_class_figi) if product.share_class_figi else None
+    if body.stable_instrument_id != stable or (share_class is not None and body.share_class_id != share_class):
         raise DomainError(
             ReasonCode.PRODUCT_EVIDENCE_SHARE_CLASS_MISMATCH,
             "Der Nachweis gehört nicht zur aktuellen Produkt- oder Anteilsklassenidentität.",
-            http_status=409,
-            extra={"product_id": product.id, "evidence_kind": body.evidence_kind},
+            http_status=409, extra={"product_id": product.id, "evidence_kind": body.evidence_kind},
         )
     if body.evidence_kind in {"costs", "retrocession"} and not (
         body.payload.get("value") is not None or body.payload.get("status") == "not_applicable"
     ):
         code = (ReasonCode.PRODUCT_EVIDENCE_COST_MISSING if body.evidence_kind == "costs"
                 else ReasonCode.PRODUCT_EVIDENCE_RETROCESSION_MISSING)
-        raise DomainError(
-            code,
-            "Kosten oder Retrozession benötigen einen Wert oder einen belegten Nichtanwendungsstatus.",
-            http_status=409,
-            extra={"product_id": product.id, "evidence_kind": body.evidence_kind},
-        )
+        raise DomainError(code, "Kosten oder Retrozession benötigen einen Wert oder einen belegten Nichtanwendungsstatus.",
+                          http_status=409, extra={"product_id": product.id, "evidence_kind": body.evidence_kind})
     canonical, payload_hash = product_evidence_item_payload_hash(body.payload)
     now = datetime.now(timezone.utc).isoformat()
     row = ProductEvidenceItem(
         id=new_uuid(), tenant_id=row_tenant, product_id=product.id,
-        stable_instrument_id=body.stable_instrument_id,
-        share_class_id=body.share_class_id, jurisdiction=body.jurisdiction.upper(),
-        evidence_kind=body.evidence_kind, source_type=body.source_type,
-        source_reference=body.source_reference,
+        stable_instrument_id=body.stable_instrument_id, share_class_id=body.share_class_id,
+        jurisdiction=body.jurisdiction.upper(), evidence_kind=body.evidence_kind,
+        source_type=body.source_type, source_reference=body.source_reference,
         source_document_title=body.source_document_title,
         source_document_version=body.source_document_version,
         source_document_date=body.source_document_date.isoformat() if body.source_document_date else None,
@@ -6148,43 +6467,25 @@ def create_product_evidence(
     return row
 
 
-@products_router.post(
-    "/evidence/{evidence_id}/approve", response_model=ProductEvidenceItemResponse,
-)
-def approve_product_evidence(
-    evidence_id: str,
-    body: ProductEvidenceApprovalRequest,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_compliance_approver),
-):
+@products_router.post("/evidence/{evidence_id}/approve", response_model=ProductEvidenceItemResponse)
+def approve_product_evidence(evidence_id: str, body: ProductEvidenceApprovalRequest, request: Request,
+                             db: Session = Depends(get_db),
+                             current_user: User = Depends(require_compliance_approver)):
     row = _product_evidence_or_404(evidence_id, db, current_user, for_write=True)
     if row.status != "draft":
         raise HTTPException(status_code=409, detail="Nur ein Entwurf kann freigegeben werden.")
     same_actor = str(row.created_by) == str(current_user.id)
     approval_mode = "four_eyes"
     if same_actor:
-        from services.auth import COMPLIANCE_APPROVER_ROLES
-        from services.product_eligibility_governance import (
-            MIN_ATTESTATION_REASON_LENGTH,
-            tenant_approver_ids,
-        )
-
         attestation = (body.attestation or "").strip()
-        tenant_id = _resolve_tenant_id_for_user(current_user)
-        approvers = tenant_approver_ids(db, tenant_id, roles=COMPLIANCE_APPROVER_ROLES)
-        if (
-            body.approval_mode != "single_approver_attested"
-            or len(attestation) < MIN_ATTESTATION_REASON_LENGTH
-            or approvers != [str(current_user.id)]
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Einzelfreigabe ist nur mit dokumentierter Begründung und genau einer "
-                    "freigabeberechtigten Person in der Verwaltung zulässig."
-                ),
-            )
+        approvers = tenant_approver_ids(db, _resolve_tenant_id_for_user(current_user),
+                                        roles=COMPLIANCE_APPROVER_ROLES)
+        if (body.approval_mode != "single_approver_attested"
+                or len(attestation) < MIN_ATTESTATION_REASON_LENGTH
+                or approvers != [str(current_user.id)]):
+            raise HTTPException(status_code=409, detail=(
+                "Einzelfreigabe ist nur mit dokumentierter Begründung und genau einer "
+                "freigabeberechtigten Person in der Verwaltung zulässig."))
         approval_mode = "single_approver_attested"
     now = datetime.now(timezone.utc).isoformat()
     if row.supersedes_id:
@@ -6194,13 +6495,10 @@ def approve_product_evidence(
         predecessor.status = "retired"
         predecessor.retired_or_revoked_by = current_user.id
         predecessor.retired_or_revoked_at = now
-        predecessor.reason_code = "SUPERSEDED"
+        predecessor.reason_code = ReasonCode.SUPERSEDED
         predecessor.updated_at = now
-    row.status = "approved"
-    row.approved_by = current_user.id
-    row.approved_at = now
-    row.approval_mode = approval_mode
-    row.updated_at = now
+    row.status, row.approved_by, row.approved_at = "approved", current_user.id, now
+    row.approval_mode, row.updated_at = approval_mode, now
     audit_value = f"hash={row.canonical_payload_hash};approval_mode={approval_mode}"
     if approval_mode == "single_approver_attested":
         audit_value += f";attestation={(body.attestation or '').strip()}"
@@ -6212,24 +6510,19 @@ def approve_product_evidence(
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail="Für diese Produkt-, Anteilsklassen- und Stichtagslinie besteht bereits ein aktiver Nachweis.") from exc
+        raise HTTPException(status_code=409, detail=(
+            "Für diese Produkt-, Anteilsklassen- und Stichtagslinie besteht bereits ein aktiver Nachweis.")) from exc
     db.refresh(row)
     return row
 
 
-def _close_product_evidence(
-    evidence_id: str, body: ProductEvidenceLifecycleRequest, request: Request,
-    db: Session, current_user: User, *, status: str,
-) -> ProductEvidenceItem:
+def _close_product_evidence(evidence_id, body, request, db, current_user, *, status):
     row = _product_evidence_or_404(evidence_id, db, current_user, for_write=True)
     if row.status != "approved":
         raise HTTPException(status_code=409, detail="Nur ein aktiver Nachweis kann geschlossen werden.")
     now = datetime.now(timezone.utc).isoformat()
-    row.status = status
-    row.retired_or_revoked_by = current_user.id
-    row.retired_or_revoked_at = now
-    row.reason_code = body.reason_code
-    row.updated_at = now
+    row.status, row.retired_or_revoked_by, row.retired_or_revoked_at = status, current_user.id, now
+    row.reason_code, row.updated_at = body.reason_code, now
     log(db, user_id=current_user.id, user_name=current_user.full_name,
         table_name="product_evidence_items", record_id=row.id, action="UPDATE",
         field_name=f"product_evidence_{status}", new_value=body.reason_code,
@@ -6240,16 +6533,14 @@ def _close_product_evidence(
 
 
 @products_router.post("/evidence/{evidence_id}/retire", response_model=ProductEvidenceItemResponse)
-def retire_product_evidence(
-    evidence_id: str, body: ProductEvidenceLifecycleRequest, request: Request,
-    db: Session = Depends(get_db), current_user: User = Depends(require_compliance_approver),
-):
+def retire_product_evidence(evidence_id: str, body: ProductEvidenceLifecycleRequest, request: Request,
+                            db: Session = Depends(get_db),
+                            current_user: User = Depends(require_compliance_approver)):
     return _close_product_evidence(evidence_id, body, request, db, current_user, status="retired")
 
 
 @products_router.post("/evidence/{evidence_id}/revoke", response_model=ProductEvidenceItemResponse)
-def revoke_product_evidence(
-    evidence_id: str, body: ProductEvidenceLifecycleRequest, request: Request,
-    db: Session = Depends(get_db), current_user: User = Depends(require_compliance_approver),
-):
+def revoke_product_evidence(evidence_id: str, body: ProductEvidenceLifecycleRequest, request: Request,
+                            db: Session = Depends(get_db),
+                            current_user: User = Depends(require_compliance_approver)):
     return _close_product_evidence(evidence_id, body, request, db, current_user, status="revoked")

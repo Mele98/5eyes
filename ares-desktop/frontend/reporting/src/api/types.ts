@@ -48,6 +48,8 @@ export type GoalStatus =
    * Weder grün noch rot darstellen — es ist keine Bewertung.
    */
   | 'ausserhalb_horizont'
+  /** P5c / N-930-01: kein M-3-Status fuer dieses Ziel (fail-closed). */
+  | 'nicht_bewertbar'
   | 'data_pending'
   | '';
 
@@ -440,6 +442,15 @@ export interface GoalEntry {
   probability_bps: number | null;
   status: GoalStatus;
   /**
+   * P5c / N-930-01: Wort, Ton und Farbe des M-3-Status (Server-Tabelle
+   * core/goal_metric_contract.GOAL_STATUS_DISPLAY). Fehlen sie, zeigt die
+   * Oberflaeche "nicht bewertbar".
+   */
+  status_label?: string;
+  status_tone?: string;
+  status_color?: string;
+  status_bg?: string;
+  /**
    * GOAL-OUTSIDE-HORIZON-001: true, wenn der Zahlungsplan komplett hinter dem
    * Simulationshorizont liegt. Dann ist `probability_bps` eine Konvention
    * (0) mit Offenlegung, KEINE Messung — ohne dieses Flag wäre "nicht
@@ -661,6 +672,8 @@ export interface BeratungsprotokollEntry {
   conflict_disclosure_ids: string[];
   suitability_check_id: string | null;
   integrity_hash: string | null;
+  /** True = Prüfsumme passt, False = Eintrag verändert/beschädigt, null = kein Hash. */
+  integrity_verified?: boolean | null;
   retain_until: string | null;
   version: number;
   supersedes_id: string | null;
@@ -927,6 +940,13 @@ export interface AdvisoryReport {
     status: string;
     reason_code: string | null;
     approval_mode_label?: string | null;
+    /** P5b / N-925-04: Envelope-Bezug (Pruefnummer, Fassung) des Beratungsentscheids. */
+    decision_envelope?: {
+      state: 'deliverable' | 'sealed_not_deliverable' | 'none';
+      reason_code?: string | null;
+      pruefnummer?: string | null;
+      fassung?: number | null;
+    } | null;
   } | null;
   /** CCX-P4: Hinweis "Entwurf – Soll-Allokation nicht publiziert", sonst null. */
   allocation_draft_notice?: string | null;

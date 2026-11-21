@@ -36,6 +36,13 @@ SYSTEM_ONLY = "system_only"
 CATEGORIES = (TENANT_DIRECT, GLOBAL_REFERENCE, TENANT_DERIVED, SYSTEM_ONLY)
 
 TENANT_DIRECT_TABLES: frozenset[str] = frozenset({
+    # H-179 L2/L3 Vertragsschicht (2026-11-21): Owner-Inhalte der Firma samt
+    # Vier-Augen-Freigabe (append-only, tenant_id NOT NULL) und Mandats-Evidenz
+    # (Gruende der Empfehlung, W033-Bestaetigung) mit INSERT-Guard aus dem Mandat.
+    "advice_rationales",
+    "owner_content_approvals",
+    "owner_content_versions",
+    "w033_client_declarations",
     # CCX-P1 Snapshot und Hash (2026-11-14): versiegelter Beratungsentscheid,
     # Bindungen, Effective-Input-Manifest -- tenant_id NOT NULL, Mandant aus
     # dem Mandat (INSERT-Guard), Bindungen per (tenant_id, envelope_id)-FK.

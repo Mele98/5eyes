@@ -244,7 +244,8 @@ def test_signoff_lines_and_409_point_to_legacy_confirmation(seeded):
     _make_legacy(session)
     ra = _fresh(session)
     joined = " ".join(t for _, t in signoff_view_lines(build_signoff_view(session, ra)))
-    assert "Override aus Altbestand" in joined and "bitte bestaetigen" in joined
+    # KN9 (H-182): Kundensprache statt «Override»/«bestaetigen».
+    assert "Übersteuerung aus dem Altbestand" in joined and "bitte zuerst" in joined and "bestätigen" in joined
     with pytest.raises(DomainError) as exc:
         _sign(session, advisor)
     assert "legacy_remediation" in exc.value.detail["message"]

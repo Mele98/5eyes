@@ -2,7 +2,9 @@
 
 Frontend-Vorlage:
     Rang | Ziel | Zielerreichung (Bar+Score) | Zielgroesse
-    Color: >=70 gruen, 45-69 orange, <45 rot
+    P5c / N-930-01: Farbe = Farbe des M-3-Status des Ziels
+    (core/goal_metric_contract.GOAL_STATUS_DISPLAY); ohne M-3 neutral
+    ("nicht bewertbar"). Die fruehere Ampel 70/45 auf dem Score entfaellt.
 """
 from __future__ import annotations
 
@@ -15,6 +17,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, Table, TableStyle
 from reportlab.graphics.shapes import Drawing, Rect
 
+from core.goal_metric_contract import goal_status_fields
 from services.pdf.components.header import _esc
 from core.presentation_rounding import format_amount_minor
 from services.pdf.styles import (
@@ -27,7 +30,6 @@ from services.pdf.styles import (
     FONT_SIZE_TABLE,
     FONT_SIZE_TABLE_HEADER,
     PAGE_SIZE,
-    goal_color,
     make_paragraph_styles,
 )
 
@@ -77,7 +79,7 @@ def _achievement_segments(score_pct: int) -> int:
     return max(0, min(ACHIEVEMENT_SEGMENTS, _half_up(score_pct / 12.5)))
 
 
-def _make_achievement_segments(score_pct: int) -> Drawing:
+def _make_achievement_segments(score_pct: int, color_hex: str) -> Drawing:
     """N-877-01: Zielerreichung als gezeichnete 8-Segment-Leiste statt der
     Blockzeichen U+25B0/U+25B1 (in keinem eingebetteten Font enthalten).
 
@@ -89,7 +91,7 @@ def _make_achievement_segments(score_pct: int) -> Drawing:
     width = ACHIEVEMENT_SEGMENTS * seg_w + (ACHIEVEMENT_SEGMENTS - 1) * gap
     drawing = Drawing(width, seg_h + 1)
     filled = _achievement_segments(score_pct)
-    fill = goal_color(score_pct)
+    fill = colors.HexColor(color_hex)
     for i in range(ACHIEVEMENT_SEGMENTS):
         is_filled = i < filled
         drawing.add(Rect(
@@ -117,14 +119,14 @@ def make_ziele_section(goals: Iterable[Mapping], *, base_currency: str = "CHF") 
         target_text = str(g.get("target_text", "") or "")
         shortfall_rappen = int(g.get("shortfall_rappen", 0) or 0)
 
-        # Sprint 14 Phase 3 / N-877-01: gezeichnete Segmente in goal_color,
+        # Sprint 14 Phase 3 / N-877-01: gezeichnete Segmente in der M-3-Statusfarbe,
         # leere Segmente als Kontur, Score als Zahl darunter.
         if score_pct is None:
             achievement_cell = Paragraph(
                 '<font color="#64748b" size="7">nicht berechenbar</font>', _para_compact())
         else:
             achievement_cell = [
-                _make_achievement_segments(score_pct),
+                _make_achievement_segments(score_pct, goal_status_fields(g)["status_color"]),
                 Paragraph(f'<font color="#64748b" size="7">{score_pct}/100</font>', _para_compact()),
             ]
 
@@ -177,21 +179,6 @@ def _format_amount(rappen: int, currency: str = "CHF") -> str:
     # mandate.base_currency (siehe portfolio_engine._load_allocation_inputs).
     # Kein zweites convert_rappen("CHF"->currency) -- sonst doppelte FX-Konvertierung.
     return format_amount_minor(rappen, currency or "CHF")
-
-
-def _make_goal_bar(score: float) -> Drawing:
-    bar_width = 50 * mm
-    bar_height = 4 * mm
-    drawing = Drawing(bar_width, bar_height)
-    drawing.add(Rect(0, 0, bar_width, bar_height,
-                     fillColor=colors.HexColor("#e2e8f0"),
-                     strokeColor=None))
-    pct = max(0.0, min(1.0, score / 100.0))
-    if pct > 0:
-        drawing.add(Rect(0, 0, bar_width * pct, bar_height,
-                         fillColor=goal_color(score),
-                         strokeColor=None))
-    return drawing
 
 
 def _section_title(text: str):

@@ -28,14 +28,11 @@ from services.pdf.components.advisory_palette import (
     COLOR_INK_MUTED,
     COLOR_INK_SUBTLE,
     COLOR_RULE,
-    COLOR_STATUS_GELB,
-    COLOR_STATUS_GRUEN,
-    COLOR_STATUS_NEUTRAL,
-    COLOR_STATUS_ROT,
     FONT_MONO,
     FONT_SANS,
     FONT_SANS_BOLD,
 )
+from core.goal_metric_contract import goal_status_fields
 from services.pdf.components.goal_classification import classify_goals
 from services.pdf.components.swiss_numbers import format_chf_rappen
 
@@ -51,14 +48,9 @@ GOAL_SCALE_CAP = 2.0
 MAX_Y_INTERVALS = 4
 _MIO_RAPPEN = 1_000_000 * 100
 
-STATUS_COLOR = {
-    "erreichbar": COLOR_STATUS_GRUEN,
-    "knapp": COLOR_STATUS_GELB,
-    "nicht_erreichbar": COLOR_STATUS_ROT,
-    "past": COLOR_STATUS_NEUTRAL,
-    "beyond_horizon": COLOR_STATUS_NEUTRAL,
-    "unknown": COLOR_STATUS_NEUTRAL,
-}
+# P5c / N-930-01: Markerfarbe = Farbe des M-3-Status des Ziels
+# (core/goal_metric_contract.GOAL_STATUS_DISPLAY). Die Faecherquantile bestimmen
+# nur die Lage des Markers (t_index), nie einen eigenen Status.
 
 
 def build_mc_paths_drawing(
@@ -178,8 +170,7 @@ def build_mc_paths_drawing(
         target_amount = _as_float(goal.get("target_amount_rappen"))
         if target_amount is None:
             continue
-        status = str(classification.get("status") or "unknown")
-        marker_color = STATUS_COLOR.get(status, COLOR_STATUS_NEUTRAL)
+        marker_color = colors.HexColor(goal_status_fields(goal)["status_color"])
         x = x_for(int(t_index))
         above_scale = float(target_amount) > max_value
         any_above_scale = any_above_scale or above_scale

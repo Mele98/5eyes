@@ -21,7 +21,6 @@ from services.product_eligibility import (
     product_evidence_hash,
     product_evidence_item_payload_hash,
     run_product_evidence_values,
-    seed_synthetic_default_catalog_evidence,
     snapshot_run_product_evidence,
 )
 
@@ -162,21 +161,6 @@ def test_unbound_draft_note_is_irrelevant_but_revoke_and_replacement_are_stale(d
     with pytest.raises(DomainError) as stale:
         assert_run_product_evidence(db, mandate, run, channel="test")
     assert stale.value.reason_code == ReasonCode.PRODUCT_EVIDENCE_STALE
-
-
-def test_dev_seed_marks_only_pattern_catalog_and_never_customer_product(db):
-    pattern = _product("pattern", name="Musterprodukt Aktien Schweiz")
-    customer = _product("customer", name="Kundeneigenes Produkt")
-    db.add_all([pattern, customer])
-    db.flush()
-    seed_synthetic_default_catalog_evidence(
-        db, products=[pattern, customer], actor_id="user-1", jurisdiction="CH",
-        allowed_product_names=[pattern.product_name],
-    )
-    pattern_rows = db.query(ProductEvidenceItem).filter_by(product_id=pattern.id).all()
-    assert {row.evidence_kind for row in pattern_rows} == set(PRODUCT_EVIDENCE_KINDS)
-    assert all(row.source_type == "synthetic_dev_demo_fixture" for row in pattern_rows)
-    assert db.query(ProductEvidenceItem).filter_by(product_id=customer.id).count() == 0
 
 
 def test_snapshot_is_database_immutable(db):

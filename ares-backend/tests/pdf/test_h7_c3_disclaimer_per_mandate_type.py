@@ -190,6 +190,10 @@ def test_pdf_context_builder_carries_mandate_type_and_jurisdiction(monkeypatch):
             return None
 
     class _Db:
+        def __init__(self):
+            # wie Session.info: P5b / N-925-08 cacht das Kanal-Gate je PDF-Aufruf dort.
+            self.info = {}
+
         def query(self, *args, **kwargs):
             return _Query()
 

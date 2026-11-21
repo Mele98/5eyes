@@ -526,18 +526,18 @@
   "leaf_content_sha256": {
     "core": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "core.band_rule": "6004ad71ee0179d60a3d5c3b047b61300705d62116a0a8b9a96afc4097a561e2",
-    "core.customer_terms": "21134d4568a6cf1be0afbff0352b371854a06883e993baa5538e9b9fccd89d09",
+    "core.customer_terms": "5f702f9b55dfa30b2227ed69857b36cee0ac979478ab008611be4e12c9502bdd",
     "core.db_integrity": "b2221c8d06a7cb27e782d6ab1db7f765d699b166392a90f67c9d1769ae28fe58",
     "core.depletion_display": "e42c4b6f62d8cfa1d52261573fa586ece142dd57a5f33569664e0de1ed185c10",
     "core.evidence": "107ad66eeb7424fd9b9ea3c4786e895e2350aa1061fc43e35ae9b65033b93ae6",
-    "core.fx_freshness": "81eefa7fe99273ad27a4651215fac2ea2113595a32ff201716fa23ee0adfb7ea",
-    "core.goal_metric_contract": "70b6e420b839178c48264ae676e2e0babb6f9f363d01df88eda659eeb32c9e01",
+    "core.fx_freshness": "92fddee4748dce8c7cf999fb9a7855cc27bf274ccf9d8afa06a3738dd8cf424d",
+    "core.goal_metric_contract": "3a08bb933f3540b46deabe55c2f190d36e8c8d0e0c61b744d324e8a821ebf802",
     "core.goal_vocabulary": "2ce6455a657546ddbc54b665215e899d9e0d4e6df4a79aeaa2562857b0867b82",
     "core.holdings_rule": "5e13068b790057d7b40ff62a89bd52346c039c32c01919073df745690db356d1",
     "core.preference_labels": "5e2f8e3ab8afd5e5a95804a423b989372544afed8c4c172ff81830bcc6337122",
     "core.presentation_rounding": "be5c45fc1b51629e3bfc7093c74a3bc79855a63f70f1d23830b45486276dbed7",
     "core.property_gate": "a4f2c812f0a84c89b3868f363c14252a4ef0c8e0158f69e9028f5970412ec0d7",
-    "core.reason_codes": "e4dbad6c32d26014d768a02fcbcfe243c4d62ff579b8f72ed642712d9f8e5933",
+    "core.reason_codes": "1e5baa5e0bcab229df08887e7be4d12ad5847639bc6cac2438ffd0bb52f5606f",
     "core.risk_parameter_set": "834b0da0a0680fc2d88fe943d61450c51beaa7b86368f80e710ab5c63bf79c2e",
     "core.sustainability_preference": "6fe9be224f9d71e20beac49d2a6e35f8310415f2de34e419e7403efc7050a055"
   }

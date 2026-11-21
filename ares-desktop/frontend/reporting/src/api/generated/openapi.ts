@@ -2250,6 +2250,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/compliance/owner-content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Owner Content
+         * @description Katalog der Owner-Inhalte der eigenen Firma mit Status (fehlt, Entwurf,
+         *     freigegeben, Kette ungültig), wirksamer Version und offenem Entwurf.
+         *     Zusätzlich die bereits erfassten Bank-Schlüssel (Zuwendungen der Depotbank).
+         */
+        get: operations["list_owner_content_compliance_owner_content_get"];
+        put?: never;
+        /**
+         * Create Owner Content
+         * @description Neue Version eines Owner-Inhalts (Firmen-Admin). Wirksam erst nach der
+         *     Freigabe durch eine zweite Person (``/approve``).
+         */
+        post: operations["create_owner_content_compliance_owner_content_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/compliance/owner-content/{row_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve Owner Content
+         * @description Vier-Augen-Freigabe einer Version durch eine zweite Person mit dem
+         *     gesehenen Inhalts-Hash. Die Freigaben bilden je Schlüssel eine lineare
+         *     Kette; zwei gleichzeitige Freigaben auf denselben Stand scheitern (409).
+         */
+        post: operations["approve_owner_content_compliance_owner_content__row_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dashboard/active-triggers": {
         parameters: {
             query?: never;
@@ -3015,6 +3064,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/mandates/{mandate_id}/contract-layer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Contract Layer Status
+         * @description Status der Vertragsschicht des Mandats (gleiche Quelle wie das Gate).
+         */
+        get: operations["get_contract_layer_status_mandates__mandate_id__contract_layer_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/mandates/{mandate_id}/cost-disclosure/ex-ante": {
         parameters: {
             query?: never;
@@ -3717,6 +3786,27 @@ export interface paths {
         put?: never;
         /** Generate Recommendation Run Endpoint */
         post: operations["generate_recommendation_run_endpoint_mandates__mandate_id__recommendations_generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mandates/{mandate_id}/recommendations/{run_id}/advice-rationale": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Advice Rationale
+         * @description P-1 (Art. 15 FIDLEG): Kundenbedürfnisse und Gründe der Empfehlung zu
+         *     einem Empfehlungslauf erfassen. Korrektur = neue Zeile.
+         */
+        post: operations["create_advice_rationale_mandates__mandate_id__recommendations__run_id__advice_rationale_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4675,6 +4765,27 @@ export interface paths {
          */
         put: operations["resolve_trigger_mandates__mandate_id__triggers__trigger_id__resolve_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mandates/{mandate_id}/w033-declarations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create W033 Declaration
+         * @description E-1: Bestätigung des Kunden zum aktuellen Risikoprofil erfassen, gebunden
+         *     an die gezeigte, freigegebene Textversion der Firma (Prüfwert).
+         */
+        post: operations["create_w033_declaration_mandates__mandate_id__w033_declarations_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6730,6 +6841,13 @@ export interface components {
              */
             reason_code: "OFFLINE_ABORT" | "CUSTOMER_DECLINED" | "ADVISOR_CANCELLED";
         };
+        /** AdviceRationaleCreate */
+        AdviceRationaleCreate: {
+            /** Client Needs */
+            client_needs: string;
+            /** Recommendation Reasons */
+            recommendation_reasons: string;
+        };
         /** AdviserRegistrationCreate */
         AdviserRegistrationCreate: {
             /** Notes */
@@ -7244,6 +7362,7 @@ export interface components {
             blocker_codes?: string[];
             /** Can Publish */
             can_publish: boolean;
+            decision_envelope?: components["schemas"]["DecisionEnvelopeReference"] | null;
             /** Envelope Hash */
             envelope_hash?: string | null;
             /** Envelope Id */
@@ -8468,6 +8587,28 @@ export interface components {
             /** Year */
             year: number;
         };
+        /**
+         * ChannelPublicationReference
+         * @description P5b / N-925-04: eine Kanalzeile des Beratungsentscheids.
+         */
+        ChannelPublicationReference: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Channel */
+            channel: string;
+            /** Channel Payload Hash */
+            channel_payload_hash: string;
+            /** Channel Sequence */
+            channel_sequence: number;
+            /** Created At */
+            created_at: string;
+            /** Goal Metric Payload Hash */
+            goal_metric_payload_hash: string;
+            /** Parameter Set Hash */
+            parameter_set_hash: string;
+            /** Render Hash */
+            render_hash?: string | null;
+        };
         /** ClientCreate */
         ClientCreate: {
             /** Advisor Id */
@@ -9579,6 +9720,35 @@ export interface components {
             /** Displayed Document Hash */
             displayed_document_hash: string;
         };
+        /**
+         * DecisionEnvelopeReference
+         * @description P5b / N-925-04 (Vertrag §8 Tier 1): Envelope-Bezug der Soll-Allokation
+         *     fuer API, Classic und React -- Pruefnummer und Fassung nur fuer einen
+         *     auslieferbaren Entscheid; sonst Zustand und Grund.
+         */
+        DecisionEnvelopeReference: {
+            /** Channel Publications */
+            channel_publications?: components["schemas"]["ChannelPublicationReference"][];
+            /** Envelope Hash */
+            envelope_hash?: string | null;
+            /** Fassung */
+            fassung?: number | null;
+            /** Goal Metric Payload Hash */
+            goal_metric_payload_hash?: string | null;
+            /** Ic Release Status */
+            ic_release_status?: string | null;
+            /** Parameter Set Hash */
+            parameter_set_hash?: string | null;
+            /** Pruefnummer */
+            pruefnummer?: string | null;
+            /** Reason Code */
+            reason_code?: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "deliverable" | "sealed_not_deliverable" | "none";
+        };
         /** DriftResult */
         DriftResult: {
             /** Advisory Assets Rappen */
@@ -9729,6 +9899,14 @@ export interface components {
             start_date?: string | null;
             /** Status */
             status: string;
+            /** Status Bg */
+            status_bg?: string | null;
+            /** Status Color */
+            status_color?: string | null;
+            /** Status Label */
+            status_label?: string | null;
+            /** Status Tone */
+            status_tone?: string | null;
             /** Success Probability */
             success_probability?: number | null;
             /** Success Probability Pct */
@@ -11685,6 +11863,28 @@ export interface components {
             target_allocation_id?: string | null;
             /** Weights Bps Json */
             weights_bps_json: string;
+        };
+        /** OwnerContentApprove */
+        OwnerContentApprove: {
+            /** Approval Reference */
+            approval_reference: string;
+            /** Content Hash */
+            content_hash: string;
+        };
+        /**
+         * OwnerContentCreate
+         * @description Neue Version eines Owner-Inhalts. Text (``body_text``) oder typisierter
+         *     Wert (``value``) je nach Katalogart; der Server vergibt die Version.
+         */
+        OwnerContentCreate: {
+            /** Body Text */
+            body_text?: string | null;
+            /** Content Key */
+            content_key: string;
+            /** Source Reference */
+            source_reference: string;
+            /** Value */
+            value?: unknown | null;
         };
         /** OwnerValueUpdate */
         OwnerValueUpdate: {
@@ -14904,6 +15104,7 @@ export interface components {
             context_artifacts_required?: number;
             /** Created At */
             created_at: string;
+            decision_envelope?: components["schemas"]["DecisionEnvelopeReference"] | null;
             /** Effective Constraints Json */
             effective_constraints_json?: string | null;
             /** External Reserve At Generation Rappen */
@@ -14953,6 +15154,8 @@ export interface components {
             reserve_needed_at_generation_rappen?: number | null;
             /** Risk Budget Bps At Generation */
             risk_budget_bps_at_generation?: number | null;
+            /** Risk Parameter Set */
+            risk_parameter_set?: Record<string, unknown> | null;
             /** Risky Fraction Bps */
             risky_fraction_bps: number | null;
             /** Risky Fraction Bps At Generation */
@@ -15594,6 +15797,23 @@ export interface components {
              * @description leer = alle Bearbeitungen bzw. Kanaele
              */
             keys?: string[];
+        };
+        /** W033DeclarationCreate */
+        W033DeclarationCreate: {
+            /**
+             * Capture Channel
+             * @enum {string}
+             */
+            capture_channel: "persoenlich_papier" | "vor_ort" | "kundenportal";
+            /** Confirmed At */
+            confirmed_at: string;
+            /** Content Hash */
+            content_hash: string;
+            /**
+             * Declaration Kind
+             * @enum {string}
+             */
+            declaration_kind: "angaben_wahr_meldepflicht" | "horizont_abraten";
         };
         /** WealthInflowCreate */
         WealthInflowCreate: {
@@ -19921,6 +20141,94 @@ export interface operations {
             };
         };
     };
+    list_owner_content_compliance_owner_content_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    create_owner_content_compliance_owner_content_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OwnerContentCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    approve_owner_content_compliance_owner_content__row_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                row_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OwnerContentApprove"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     active_triggers_dashboard_active_triggers_get: {
         parameters: {
             query?: never;
@@ -21157,6 +21465,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConflictDisclosureResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_contract_layer_status_mandates__mandate_id__contract_layer_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -22624,6 +22963,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RecommendationGenerateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_advice_rationale_mandates__mandate_id__recommendations__run_id__advice_rationale_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdviceRationaleCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -24417,6 +24792,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReviewTriggerResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_w033_declaration_mandates__mandate_id__w033_declarations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mandate_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["W033DeclarationCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

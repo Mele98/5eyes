@@ -975,11 +975,9 @@ def pull_freshness(
     # Produktevidenz zusätzlich bei jeder Pull-Prüfung aktuell bewertet.
     # Widerruf/Ersatz werden bereits vom P2-Hook persistiert; Ablauf wird hier
     # ohne erneutes Versiegeln sicher als STALE klassifiziert.
-    from services.product_eligibility import assert_run_product_evidence
-    try:
-        assert_run_product_evidence(db, mandate, run, channel="envelope_freshness")
-    except DomainError as exc:
-        return ReasonCode.CCX_INPUT_STALE, f"product_evidence={exc.reason_code}", []
+    evidence_defect = _product_evidence_pull_defect(db, run)
+    if evidence_defect is not None:
+        return ReasonCode.CCX_INPUT_STALE, f"product_evidence={evidence_defect}", []
     current_parts = collect_dependency_parts(db, mandate=mandate, run=run, target_allocation=ta)
     # C-COMP-02 kann mehrere Produktnachweis-Kanten derselben Art besitzen.
     # Deshalb ist (Art, Objekt) der Schlüssel; ein Dict nur nach Art würde
@@ -1014,6 +1012,41 @@ def pull_freshness(
     if empty:
         return ReasonCode.CCX_FRESHNESS_UNKNOWN, "empty=" + ",".join(empty), []
     return None, "", []
+
+
+def _product_evidence_pull_defect(db: Session, run: RecommendationRun) -> str | None:
+    """Kleine SQL-Projektion fuer P2-Frische ohne neue Service-Abhängigkeit."""
+    snapshot_id = getattr(run, "product_evidence_snapshot_id", None)
+    if not snapshot_id or getattr(run, "product_evidence_status", None) != "verified":
+        return str(ReasonCode.PRODUCT_EVIDENCE_MISSING)
+    snapshot = db.execute(text(
+        "SELECT item_ids_json, item_hashes_json, product_evidence_hash "
+        "FROM product_evidence_snapshots WHERE id = :id"
+    ), {"id": str(snapshot_id)}).mappings().first()
+    if snapshot is None or snapshot["product_evidence_hash"] != getattr(run, "product_evidence_hash", None):
+        return str(ReasonCode.PRODUCT_EVIDENCE_HASH_MISMATCH)
+    try:
+        item_ids = [str(value) for value in json.loads(snapshot["item_ids_json"])]
+        expected_hashes = [str(value) for value in json.loads(snapshot["item_hashes_json"])]
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return str(ReasonCode.PRODUCT_EVIDENCE_HASH_MISMATCH)
+    current_hashes = []
+    today = utc_now()[:10]
+    for item_id in item_ids:
+        item = db.execute(text(
+            "SELECT status, valid_from, valid_until, canonical_payload_hash "
+            "FROM product_evidence_items WHERE id = :id"
+        ), {"id": item_id}).mappings().first()
+        if item is None:
+            return str(ReasonCode.PRODUCT_EVIDENCE_HASH_MISMATCH)
+        if item["status"] != "approved":
+            return str(ReasonCode.PRODUCT_EVIDENCE_REVOKED)
+        if item["valid_from"] > today or (item["valid_until"] and today > item["valid_until"]):
+            return str(ReasonCode.PRODUCT_EVIDENCE_STALE)
+        current_hashes.append(str(item["canonical_payload_hash"]))
+    if current_hashes != expected_hashes:
+        return str(ReasonCode.PRODUCT_EVIDENCE_STALE)
+    return None
 
 
 def _freshness_reason(code: str) -> ReasonCode:

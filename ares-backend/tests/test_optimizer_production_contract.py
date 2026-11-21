@@ -1703,7 +1703,13 @@ def test_fallback_analytics_are_recomputed_for_active_house_weights(
     assert len(calls) == 1
     target_allocation = result["target_allocation"]
     assert target_allocation.optimization_method == "fallback_house_matrix"
-    assert result["goal_achievability"] == active_analytics
+    # P5c / N-930-01: die Antwort traegt die kanonischen Anzeige-Zeilen (Status
+    # aus M-3 bzw. "nicht bewertbar" samt Anzeige-Feldern); gespeichert bleibt
+    # die Optimierer-Sicht unveraendert (unten).
+    def _sans_status(rows):
+        return [{k: v for k, v in r.items() if k != "status" and not k.startswith("status_")} for r in rows]
+
+    assert _sans_status(result["goal_achievability"]) == _sans_status(active_analytics)
     assert all(
         row.get("goal_id") != "discarded-candidate-only"
         for row in result["goal_achievability"]

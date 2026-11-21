@@ -74,6 +74,7 @@ def assume_published_allocation(monkeypatch):
     from services.allocation_publication_gate import ChannelDecision
 
     monkeypatch.setattr(pdf_reports, "evaluate_channel_envelope", lambda *_a, **_k: ChannelDecision(applicable=False))
+    monkeypatch.setattr(client_portal, "evaluate_channel_envelope", lambda *_a, **_k: ChannelDecision(applicable=False))
     monkeypatch.setattr(portfolio_handoff, "require_channel_envelope",
                         lambda *_a, **_k: ChannelDecision(applicable=False))
     monkeypatch.setattr(portfolio_handoff, "record_channel_publication", lambda *_a, **_k: None)

@@ -187,6 +187,32 @@ Reserve ausserhalb der Strategie (N-917R4-02; Label = PDF, +46 B nach N858-5), H
 allocationReserveBreakdown aus ares.html umgezogen -> Monolith gesenkt auf 26418/1622457.
 kn4-ui.js 250/14025: Toleranzschranke direkt in aresPortfolioDisplayPositions (N-917R4-05,
 Korrektur der bestehenden Apportionierung, keine neue Funktion; Hinweis in kn5-ui.js).
+H-179 L2/L3 Vertragsschicht (2026-11-21): neuer Teil ``owner-content.js`` (Budget = Stand
+bei Einfuehrung, 298/18904; Fixrunde 1 N-927-01 Freigabe-Ansicht der Pruefperson: 324/20182); im Monolithen nur die Einbindung (+42 B, gleiche Zeile) und
+der Vorgabe-Ort «Zürich» der Vertragsmaske entfernt (Ort = Pflichtfeld): 1622472 B.
+P5b-CI-Fix (H-185, CTO-Entscheid): refreshStrategyData rechnet bei 409/anderen Ladefehlern
+nicht mehr still neu (nur bei 404) -> Monolith gesenkt auf 26417/1622445.
+Merge H-179 + P5b (ca5da413): Monolith aus dem Tree gemessen 26417/1622460.
+P5c (H-186, CTO-Entscheide N-930-01/-02): neuer Teil ``p5c-ui.js`` (Budget = Stand bei
+Einfuehrung, 27/1932): goalStatusView (Zielstatus nur aus M-3) und loadStrategyOnly (keine
+stille Neuberechnung). Im Monolithen entfallen goalSuccessAmpel, rvGoalProbBadge,
+goalAchievabilityStatusLabel und vier Ampel-70/45-Stellen -> Monolith gesenkt auf
+26388/1620963; goal-review-runtime.js gesenkt auf 1561/83782, finalize-attestation.js auf 27/1733.
+P5c Fixrunde 1 (H-186-Pruefung, CTO-Entscheide): Schalter Auto-Recompute (scheduleAutoRecompute,
+AUTO_RECOMPUTE_ENABLED) aus ares.html entfernt -> Monolith gesenkt auf 26341/1618586;
+finalize-attestation.js gesenkt auf 24/1621 (doppelter Kommentar weg). p5c-ui.js 34/2382:
+neue Sperre finalizeLocked (N-933-04) im eigenen Teil statt im Monolithen.
+Merge r5/kern-integration (dedc2f24, L2/L3) in P5c Fixrunde 1: aus dem Tree gemessen
+26341/1618601 (unter beiden Elternstaenden 26417/1622460 bzw. 26341/1618586 + Script-Zeile owner-content.js).
+KN9 (N-931-01): Karte der Beratungsprotokoll-Liste (advisoryLogCardHtml, mit
+Integritaetswarnung) nach advisory-log-finma.js (eigenes Modul) umgezogen; KN9 /
+N-933R-02: nach manuellem Speichern der Soll-Allokation kein dirty (+1 Zeile). Nach
+dem Merge von b9574ed5 aus dem Tree gemessen: 26330/1617095. p5c-ui.js 34/2376
+(Hinweistext finalizeLocked gekuerzt und korrigiert).
+KN9a (N-934-03): dirty kennt die Quelle (Bandbreiten = 'manual'); nach dem Speichern
+der manuellen Soll-Allokation faellt nur dieser Anteil weg (afterManualTargetSave in
+p5c-ui.js, Hinweis in finalizeLocked je Quelle). Monolith gesenkt auf 26330/1616990;
+p5c-ui.js 44/3318 (neue Logik im eigenen Teil statt im Monolithen).
 """
 from __future__ import annotations
 
@@ -195,9 +221,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MONOLITH = REPO_ROOT / "ares-desktop" / "frontend" / "ares.html"
 
-MONOLITH_MAX_LINES = 26418
+MONOLITH_MAX_LINES = 26330
 TOLERANCE_LINES = 0
-MONOLITH_MAX_BYTES = 1622457
+MONOLITH_MAX_BYTES = 1616990
 TOLERANCE_BYTES = 0
 
 # Ausgelagerte Teile: Dateiname -> (max. Zeilen, max. Bytes LF-normalisiert).
@@ -210,19 +236,21 @@ EXTRACTED_PART_BUDGETS = {
     "session-boundary.js": (53, 2763),
     "ist-projection-basis.js": (87, 4627),
     "unsaved-changes.js": (82, 4342),
-    "goal-review-runtime.js": (1563, 83881),
+    "goal-review-runtime.js": (1561, 83782),
     "client-compliance.js": (469, 29962),
     "kyc-review-policy.js": (427, 25832),
+    "owner-content.js": (324, 20182),
     "privacy-governance.js": (500, 35256),
     "sustainability-preferences.js": (517, 26065),
     "wealth-inflows.js": (282, 16491),
     "allocation-publication.js": (272, 13780),
-    "finalize-attestation.js": (27, 1741),
+    "finalize-attestation.js": (24, 1621),
     "fx-rates-editor.js": (97, 5091),
     "mandate-view.js": (604, 35395),
     "kn3-ui.js": (259, 14886),
     "kn4-ui.js": (250, 14025),
     "kn5-ui.js": (105, 6960),
+    "p5c-ui.js": (44, 3318),
     "advisor-guidance.js": (728, 43963),
 }
 
