@@ -108,6 +108,7 @@ dritte Zeichenkette `'"current_goal_analysis"'` bleibt dagegen unberuehrt
 """
 
 from __future__ import annotations
+from core.goal_metric_contract import canonical_goal_rows
 from core.risk_parameter_set import ParameterSetMissing
 
 import json
@@ -786,7 +787,8 @@ def _stored_goal_achievability(allocation, *, log_invalid: bool = True) -> list[
                 getattr(allocation, "id", "?"), exc,
             )
         return []
-    return [item for item in parsed if isinstance(item, dict)] if isinstance(parsed, list) else []
+    rows = [item for item in parsed if isinstance(item, dict)] if isinstance(parsed, list) else []
+    return canonical_goal_rows(rows, allocation)  # P5b / N-925-03: Anzeige aus dem M-3-Payload
 
 
 def _build_bucket_response(

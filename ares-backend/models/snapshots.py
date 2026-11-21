@@ -1627,6 +1627,7 @@ class AdvisoryChannelPublication(Base):
 
     __tablename__ = "advisory_channel_publications"
     __table_args__ = (
+        CheckConstraint("channel_sequence >= 1", name="ck_advisory_channel_publications_sequence"),
         CheckConstraint(
             "channel IN ('API','CLASSIC','REACT','PDF','ADVISOR_SIGNATURE','ONSITE_SIGNATURE','HANDOFF','ARCHIVE')",
             name="ck_advisory_channel_publications_channel",
@@ -1653,11 +1654,12 @@ class AdvisoryChannelPublication(Base):
         ),
         Index("ix_advisory_channel_publications_tenant_id", "tenant_id"),
         Index("ix_advisory_channel_publications_mandate", "tenant_id", "mandate_id"),
+        Index("ux_advisory_channel_publications_sequence", "mandate_id", "channel_sequence", unique=True),
     )
 
     id = Column(String, primary_key=True)
     tenant_id = Column(String, ForeignKey("tenants.id"), nullable=False)
-    mandate_id = Column(String, nullable=False)
+    mandate_id = Column(String, ForeignKey("mandates.id"), nullable=False)
     envelope_id = Column(String, nullable=False)
     channel = Column(String, nullable=False)
     artifact_id = Column(String, nullable=False)
@@ -1673,6 +1675,8 @@ class AdvisoryChannelPublication(Base):
     status = Column(String, nullable=False)
     created_at = Column(String, nullable=False)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
+    # P5b (Vertrag §1 "monotone Version"): laufende Nummer je Mandat.
+    channel_sequence = Column(Integer, nullable=False)
 
 
 def _create_channel_publication_sqlite_triggers(_metadata, connection, **_kw) -> None:

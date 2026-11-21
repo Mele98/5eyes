@@ -46,6 +46,14 @@ UNINVENTORIED_EXCEPTIONS: dict[tuple[str, str], str] = {
         "P5 M-2 Parametersatz-Hash (domaenensepariert, Stdlib-Blatt)",
     ("core/goal_metric_contract.py", "goal_metric_hash"):
         "P5 M-3 Zielkennzahl-Hash (domaenensepariert, Stdlib-Blatt)",
+    # P5b / N-925-08: Ziel-Revision = Fingerabdruck der fachlichen Zielfelder
+    # (Stdlib-Blatt, Teil des M-3-Payloads und damit dessen Hash).
+    ("core/goal_metric_contract.py", "goal_revision"):
+        "P5b Ziel-Revision (Fingerabdruck, Teil des M-3-Payloads)",
+    # P5b / N-925R-02: Archivschluessel der Kundeninformation = bestehender
+    # content_hash + Fussformat (kein neues Evidenzobjekt).
+    ("routers/pdf_reports.py", "get_kundeninformation_pdf"):
+        "P5b Archivschluessel Kundeninformation (content_hash + Fussformat)",
 }
 
 

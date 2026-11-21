@@ -927,6 +927,13 @@ export interface AdvisoryReport {
     status: string;
     reason_code: string | null;
     approval_mode_label?: string | null;
+    /** P5b / N-925-04: Envelope-Bezug (Pruefnummer, Fassung) des Beratungsentscheids. */
+    decision_envelope?: {
+      state: 'deliverable' | 'sealed_not_deliverable' | 'none';
+      reason_code?: string | null;
+      pruefnummer?: string | null;
+      fassung?: number | null;
+    } | null;
   } | null;
   /** CCX-P4: Hinweis "Entwurf – Soll-Allokation nicht publiziert", sonst null. */
   allocation_draft_notice?: string | null;

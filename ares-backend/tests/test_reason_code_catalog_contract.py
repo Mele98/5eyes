@@ -55,6 +55,11 @@ KNOWN_UNRESOLVED: dict[tuple[str, str, str], int] = {
     ('services/allocation_publication_gate.py', 'require_channel_envelope', 'code'): 2,
     # N-925-07: Abbildung der zwei katalogisierten Engine-Codes (Mapping-Tabelle).
     ('core/middleware.py', 'typed_engine_error', 'code'): 1,
+    # P5b / N-925R-01: Kundenportal reicht den Kanal-Code ins Audit durch (Kunde neutral).
+    ('routers/client_portal.py', '_assert_portal_report_releasable', 'str(decision.reason_code)'): 1,
+    # P5b / N-925-04: Anzeige des Kanal-Grunds im Envelope-Bezug (kein Produzent).
+    ('services/allocation_publication_gate.py', 'decision_envelope_reference',
+     'None if decision.ok else decision.reason_code'): 1,
     # H10 Nachtrag 1: Durchreichungen bereits katalogisierter Codes (Gate-Ergebnis
     # PROCESSING_ACTIVITY_* bzw. gespeicherter EGRESS_*-Code im Protokoll).
     ('routers/privacy.py', 'list_egress_events', 'r.reason_code'): 1,

@@ -1,7 +1,6 @@
 // CCX-P4 Allocation-Publish (2026-11-14): Publikationsstatus der Soll-Allokation
 // und "Portfolio umsetzen" (aus ares.html ausgelagert, Monolith-Budget).
-// "Portfolio umsetzen" haelt nur die publizierte, frische Soll-Allokation fest
-// (Server-Gate POST /mandates/{id}/strategy-snapshots).
+// Umsetzen: nur publiziert+frisch (Gate POST .../strategy-snapshots).
 
 function syncPortfolioUmsetzenButtonVisibility(){
   // CCX-P4: "Portfolio umsetzen" nur fuer die publizierte Soll-Allokation.
@@ -162,13 +161,8 @@ async function savePortfolioUmsetzen(){
   }
 }
 
-// CCX-P4 Allocation-Publish (Vertrag 2026-11-13 §7): Publikationsstatus der
-// aktuellen Soll-Allokation -- ausschliesslich Serverwahrheit
-// (GET /mandates/{id}/allocation-publication), nie im Browser berechnet.
-// "Publizieren" ist nur aktiv, wenn der Server can_publish meldet; sonst steht
-// ein kurzer Grund daneben (Owner-UX: nur Erfuellbares anbieten, keine
-// Fehlerwand). "Portfolio umsetzen" erscheint erst fuer eine publizierte
-// Soll-Allokation.
+// CCX-P4 (§7): Publikationsstatus nur als Serverwahrheit (GET .../allocation-publication).
+// "Publizieren" nur bei can_publish, sonst kurzer Grund; "Portfolio umsetzen" erst publiziert.
 var allocationPublicationState=null;
 var allocationPublicationKey='';
 var allocationPublicationLoading=false;
@@ -199,6 +193,8 @@ function allocationPublicationTaId(){
   var a=strategyState&&strategyState.allocation;
   return a&&a.target_allocation&&a.target_allocation.id?String(a.target_allocation.id):'';
 }
+// P5b/N-925-04: Pruefnummer+Fassung (Server).
+function allocationEnvelopeReferenceText(r){return !r?'':r.state==='deliverable'&&r.pruefnummer?' · Prüfnummer '+r.pruefnummer+' · Fassung '+r.fassung:r.state==='sealed_not_deliverable'?' · versiegelt, nicht auslieferbar':'';}
 function renderAllocationPublication(){
   var chip=document.getElementById('aa-publication-status');
   var btn=document.getElementById('btn-aa-publish');
@@ -210,7 +206,7 @@ function renderAllocationPublication(){
       var published=s.publication_status==='PUBLISHED';
       var reason=published?'':allocationPublicationReason((s.blocker_codes||[])[0]||(s.active_publication&&s.active_publication.reason_code));
       var single=published&&s.active_publication&&s.active_publication.approval_mode==='single_approver_attested';
-      chip.textContent=published?('Publiziert'+(single?' · '+(s.active_publication.approval_mode_label||'Einzelfreigabe (eine berechtigte Person)'):'')):('Entwurf'+(reason&&!s.can_publish?' · '+reason:''));
+      chip.textContent=(published?('Publiziert'+(single?' · '+(s.active_publication.approval_mode_label||'Einzelfreigabe (eine berechtigte Person)'):'')):('Entwurf'+(reason&&!s.can_publish?' · '+reason:'')))+allocationEnvelopeReferenceText(s.decision_envelope);
       chip.title=published?'Diese Soll-Allokation ist freigegeben und publiziert.':'Diese Soll-Allokation ist ein Entwurf und noch nicht kundenwirksam.';
       chip.style.display='';
     }

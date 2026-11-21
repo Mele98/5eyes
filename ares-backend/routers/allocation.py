@@ -32,6 +32,7 @@ from schemas.allocation import (
 from schemas.review import ReportNotesResponse, ReportNotesUpdate
 from core import sustainability_preference as sustainability
 from core.reason_codes import DomainError, ReasonCode
+from core.risk_parameter_set import stored_risk_parameter_set
 from services.auth import (
     get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin,
     require_portfolio_management, require_reference_data_reader,
@@ -64,6 +65,7 @@ from services.allocation_publication_gate import (  # load_fx_basis: Re-Export v
     STATUS_DRAFT as PUBLICATION_STATUS_DRAFT,
     load_fx_basis,
     active_publication_state,
+    decision_envelope_reference,
     allocation_publication_status,
     approval_mode_label,
     publication_overview,
@@ -169,6 +171,13 @@ def seed_reference_data_at_bootstrap(db: Session, user_id: str) -> bool:
         return False
 
 
+def _attach_decision_envelope(db: Session, mandate, ta) -> None:
+    """P5b / N-925-04 (Tier 1): Envelope-Bezug (Pruefnummer, Fassung,
+    Kanalzeilen) und der gespeicherte Risikoparametersatz in der Antwort."""
+    ta.decision_envelope = decision_envelope_reference(db, mandate)
+    ta.risk_parameter_set = stored_risk_parameter_set(ta)
+
+
 @router.get("/mandates/{mandate_id}/target-allocation/current",
             response_model=TargetAllocationResponse)
 def get_current_allocation(
@@ -188,6 +197,7 @@ def get_current_allocation(
     ta.publication_status = allocation_publication_status(
         active_publication_state(db, mandate, deep=False), ta.id,
     )
+    _attach_decision_envelope(db, mandate, ta)
     return ta
 
 
@@ -291,6 +301,7 @@ def get_current_allocation_payload(
     ta.publication_status = allocation_publication_status(
         active_publication_state(db, mandate, deep=False), ta.id,
     )
+    _attach_decision_envelope(db, mandate, ta)
     # Sprint U-P6 Fix H6: CMA-Reload-Asymmetrie behoben — Metrics/MC werden
     # mit der zum Generate-Zeitpunkt persistierten CMA berechnet, nicht mit
     # der aktuellen. Vorher: Bands aus Snapshot, Returns/Vola aus aktueller CMA
@@ -1062,7 +1073,9 @@ def get_allocation_publication(
     mandate = _get_mandate_or_404(mandate_id, db, current_user)
     overview = publication_overview(db, mandate)
     state = active_publication_state(db, mandate)
-    return apply_publication_freshness(overview, publication_freshness(db, mandate, state))
+    out = apply_publication_freshness(overview, publication_freshness(db, mandate, state))
+    # P5b / N-925-04: Envelope-Bezug (Pruefnummer, Fassung) fuer Classic.
+    return {**out, "decision_envelope": decision_envelope_reference(db, mandate)}
 
 
 @router.post("/mandates/{mandate_id}/allocation-publication",
@@ -1267,6 +1280,8 @@ def get_advisory_report(
                        "freshness": freshness}
         if state.published and not published:
             publication.update(status="PUBLICATION_INVALID", reason_code=ReasonCode.CCX_INPUT_STALE.value)
+        # P5b / N-925-04: Envelope-Bezug (Pruefnummer, Fassung) fuer React.
+        publication["decision_envelope"] = decision_envelope_reference(db, mandate)
         report = {
             **report,
             # N-910-02: Kennzeichnung der Freigabeart in der Berater-Ansicht

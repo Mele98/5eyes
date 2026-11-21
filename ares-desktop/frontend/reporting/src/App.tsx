@@ -274,6 +274,7 @@ function ReportShell({ sectionId }: { sectionId: ReportSectionId }) {
       >
         <AllocationDraftNotice notice={data.allocation_draft_notice} />
         <AllocationApprovalNotice publication={data.allocation_publication} />
+        <DecisionEnvelopeNotice reference={data.allocation_publication?.decision_envelope} />
         <Suspense fallback={<SectionSkeleton />}>
           <ReportCurrencyContext.Provider value={reportCurrencyFrom(data)}>
             {renderSection(sectionId, data, mandateId, reload)}
@@ -318,6 +319,33 @@ export function AllocationApprovalNotice({
       className="mx-auto mt-block max-w-editorial px-page-x text-caption text-ink-muted"
     >
       Publiziert · {label}
+    </p>
+  );
+}
+
+/** P5b / N-925-04 (Vertrag §8 Tier 1): Envelope-Bezug des Beratungsentscheids
+ * (Pruefnummer, Fassung) als Serverwahrheit; versiegelt, aber nicht
+ * auslieferbar wird als solches benannt, sonst nichts. */
+export function DecisionEnvelopeNotice({
+  reference,
+}: {
+  reference?: { state: string; pruefnummer?: string | null; fassung?: number | null } | null;
+}) {
+  if (!reference) return null;
+  let text: string | null = null;
+  if (reference.state === 'deliverable' && reference.pruefnummer) {
+    text = `Beratungsentscheid · Prüfnummer ${reference.pruefnummer} · Fassung ${reference.fassung ?? 1}`;
+  } else if (reference.state === 'sealed_not_deliverable') {
+    text = 'Beratungsentscheid versiegelt, derzeit nicht auslieferbar';
+  }
+  if (!text) return null;
+  return (
+    <p
+      role="status"
+      data-testid="decision-envelope-notice"
+      className="mx-auto mt-block max-w-editorial px-page-x text-caption text-ink-muted"
+    >
+      {text}
     </p>
   );
 }

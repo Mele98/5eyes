@@ -39,6 +39,8 @@ def customer_term(text) -> str:
 # aus dem seine Zahlen stammen (Pruefnummer = erste 12 Zeichen des Envelope-
 # Hashes, Fassung = Schema-Version), oder ausdruecklich, dass keiner gebunden ist.
 DECISION_NONE_TEXT = "Beratungsentscheid: keiner versiegelt"
+# N-925R-02: versiegelt, aber derzeit nicht auslieferbar (veraltet, Kurs geaendert ...).
+DECISION_NOT_DELIVERABLE_TEXT = "Beratungsentscheid: versiegelt, derzeit nicht auslieferbar"
 
 
 # N-925-05: solange der Risikoparametersatz nicht IC-freigegeben ist, traegt
@@ -48,8 +50,11 @@ IC_UNRELEASED_FOOTER = "Vorlagewerte – nicht IC-freigegeben"
 
 def decision_footer_label(decision_ref) -> str:
     ref = decision_ref or {}
+    if ref.get("allocation_free"):
+        return ""  # N-925R-02: Dokument ohne Allokation traegt keinen Entscheid-Fuss
     if not ref.get("envelope_hash"):
-        label = DECISION_NONE_TEXT
+        label = DECISION_NOT_DELIVERABLE_TEXT if ref.get("decision_state") == "sealed_not_deliverable" \
+            else DECISION_NONE_TEXT
     else:
         label = (f"Beratungsentscheid: {str(ref['envelope_hash'])[:12]} "
                  f"· Fassung {ref.get('fassung') or '1'}")

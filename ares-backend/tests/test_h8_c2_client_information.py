@@ -347,9 +347,10 @@ def test_single_alembic_head_is_h8_revision():
     # H12 (N-910-14): b3f1c9d2e4a7 haengt an 24e7606245d3.
     # K1 (Property-Gate): 63332bb56098 haengt an b3f1c9d2e4a7 (Integration H12+K1).
     # CCX-P5 (Platz CCX_P5_REV): c2546c196134 haengt an 63332bb56098.
-    assert heads == ["c2546c196134"]
+    assert heads == ["74e3e973ea09"]  # CCX-P5b hinter CCX-P5
     chain = [
         ("c2546c196134", "63332bb56098"),
+        ("74e3e973ea09", "c2546c196134"),
         ("63332bb56098", "b3f1c9d2e4a7"),
         ("b3f1c9d2e4a7", "24e7606245d3"),
         ("24e7606245d3", "6814c14575e9"),

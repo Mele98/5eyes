@@ -75,7 +75,10 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 # CCX-P5 Kanal-Envelope (2026-11-21): eine neue Tabelle
 # (advisory_channel_publications), 113 Tabellen, keine bestehende Tabelle
 # umbenannt/entfernt.
-GOLDEN_SORTED_TABLES_SHA256 = "cef430c9f3792d27c6e90cd2b30d41ff7189088cca5f17fcb421820f512167fc"
+# P5b (N-925-08): gleiche 113 Tabellen; nur die topologische Reihenfolge
+# verschiebt sich durch den neuen FK advisory_channel_publications.mandate_id
+# -> mandates. Aus dem Tree neu berechnet.
+GOLDEN_SORTED_TABLES_SHA256 = "d744651af0743ee170e565b6fe45bdff4a42593ff8578c8560f4d11f1ac8a2f9"
 # N-869-0 (Pruefrunde #869): nachgefuehrt fuer GET /admin/system/audit-log/verify
 # und die Schemas AuditChainGap/AuditChainSection/AuditChainVerification/
 # AuditLegacySection (H-865-2). Kein bestehender Pfad, kein bestehendes Schema
@@ -204,7 +207,11 @@ GOLDEN_SORTED_TABLES_SHA256 = "cef430c9f3792d27c6e90cd2b30d41ff7189088cca5f17fcb
 # AdvisoryEnvelopeFreshnessResponse (E2E2-05).
 # KN5 (2026-11-20, N-917R4-02): AllocationBucketResponse liefert comparison_basis,
 # current_strategy_amount_rappen und reserve_*_rappen (Reserve ausserhalb der Strategie).
-GOLDEN_OPENAPI_SHA256 = "170370de7d0e10d5c802af18089fc4114b1385aaccfd7971e086179663d0cf58"
+# P5b (N-925-04): nur additiv -- TargetAllocationResponse.decision_envelope/
+# risk_parameter_set, AllocationPublicationOverviewResponse.decision_envelope,
+# Schemas DecisionEnvelopeReference/ChannelPublicationReference; kein Pfad und
+# kein bestehendes Feld geaendert (Feld-Diff api/openapi.json, export_openapi.py).
+GOLDEN_OPENAPI_SHA256 = "a49c061417fdb6aaeb22b034c2b9f5991b2582cdea560e366bf2e5273dcf888b"
 
 _PROBE = """
 import hashlib, json

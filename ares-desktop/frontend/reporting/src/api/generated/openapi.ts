@@ -7244,6 +7244,7 @@ export interface components {
             blocker_codes?: string[];
             /** Can Publish */
             can_publish: boolean;
+            decision_envelope?: components["schemas"]["DecisionEnvelopeReference"] | null;
             /** Envelope Hash */
             envelope_hash?: string | null;
             /** Envelope Id */
@@ -8468,6 +8469,28 @@ export interface components {
             /** Year */
             year: number;
         };
+        /**
+         * ChannelPublicationReference
+         * @description P5b / N-925-04: eine Kanalzeile des Beratungsentscheids.
+         */
+        ChannelPublicationReference: {
+            /** Artifact Id */
+            artifact_id: string;
+            /** Channel */
+            channel: string;
+            /** Channel Payload Hash */
+            channel_payload_hash: string;
+            /** Channel Sequence */
+            channel_sequence: number;
+            /** Created At */
+            created_at: string;
+            /** Goal Metric Payload Hash */
+            goal_metric_payload_hash: string;
+            /** Parameter Set Hash */
+            parameter_set_hash: string;
+            /** Render Hash */
+            render_hash?: string | null;
+        };
         /** ClientCreate */
         ClientCreate: {
             /** Advisor Id */
@@ -9578,6 +9601,35 @@ export interface components {
             consent_text_hash: string;
             /** Displayed Document Hash */
             displayed_document_hash: string;
+        };
+        /**
+         * DecisionEnvelopeReference
+         * @description P5b / N-925-04 (Vertrag §8 Tier 1): Envelope-Bezug der Soll-Allokation
+         *     fuer API, Classic und React -- Pruefnummer und Fassung nur fuer einen
+         *     auslieferbaren Entscheid; sonst Zustand und Grund.
+         */
+        DecisionEnvelopeReference: {
+            /** Channel Publications */
+            channel_publications?: components["schemas"]["ChannelPublicationReference"][];
+            /** Envelope Hash */
+            envelope_hash?: string | null;
+            /** Fassung */
+            fassung?: number | null;
+            /** Goal Metric Payload Hash */
+            goal_metric_payload_hash?: string | null;
+            /** Ic Release Status */
+            ic_release_status?: string | null;
+            /** Parameter Set Hash */
+            parameter_set_hash?: string | null;
+            /** Pruefnummer */
+            pruefnummer?: string | null;
+            /** Reason Code */
+            reason_code?: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "deliverable" | "sealed_not_deliverable" | "none";
         };
         /** DriftResult */
         DriftResult: {
@@ -14904,6 +14956,7 @@ export interface components {
             context_artifacts_required?: number;
             /** Created At */
             created_at: string;
+            decision_envelope?: components["schemas"]["DecisionEnvelopeReference"] | null;
             /** Effective Constraints Json */
             effective_constraints_json?: string | null;
             /** External Reserve At Generation Rappen */
@@ -14953,6 +15006,8 @@ export interface components {
             reserve_needed_at_generation_rappen?: number | null;
             /** Risk Budget Bps At Generation */
             risk_budget_bps_at_generation?: number | null;
+            /** Risk Parameter Set */
+            risk_parameter_set?: Record<string, unknown> | null;
             /** Risky Fraction Bps */
             risky_fraction_bps: number | null;
             /** Risky Fraction Bps At Generation */

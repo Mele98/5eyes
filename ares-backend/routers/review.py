@@ -127,6 +127,7 @@ from services.recommendation_release_gate import (
     assert_retrocession_release_eligible,
     assert_sustainability_preference_floor,
     preference_state,
+    verify_archive_replay,
     assert_risk_signoff_release_eligible,
     client_onboarding_status,
     kyc_approver_account,
@@ -1789,15 +1790,19 @@ def get_document_pdf(
     # Pruefsumme des Archivs brechen (Nachweis "was wurde dem Kunden gezeigt").
     archived_on = str(doc.pdf_generated_at or doc.created_at or "")[:10] or "unbekannt"
     filename = f"Archivexemplar_{archived_on}_{safe_title}_v{doc.version}.pdf"
-    return Response(
-        content=base64.b64decode(doc.pdf_base64),
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": content_disposition(filename),
-            "X-Ares-Archive-Copy": "true",
-            "X-Ares-Archived-On": archived_on,
-        },
-    )
+    pdf_bytes = base64.b64decode(doc.pdf_base64)
+    # P5b / N-925-04 (§8.3): Entscheid-Artefakte nur bei Bytes-Hash-Gleichheit
+    # mit der Kanalzeile; Bezug (Pruefnummer, Fassung) im Header.
+    reference = verify_archive_replay(db, doc, pdf_bytes)
+    headers = {
+        "Content-Disposition": content_disposition(filename),
+        "X-Ares-Archive-Copy": "true",
+        "X-Ares-Archived-On": archived_on,
+    }
+    if reference is not None:
+        headers["X-Ares-Pruefnummer"] = str(reference["pruefnummer"])
+        headers["X-Ares-Fassung"] = str(reference["fassung"] or "")
+    return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
 
 @router.post("/mandates/{mandate_id}/documents",
