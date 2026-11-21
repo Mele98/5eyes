@@ -297,6 +297,28 @@ def build_parameter_set(
     return record
 
 
+def allocation_parameter_set(
+    policy: Any, sub_allocations: Iterable[Mapping[str, Any]], minimums: Mapping[str, Any],
+    maximums: Mapping[str, Any], risk_budget_bps: int, house_matrix: Any, asset_risky_weights: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Satz einer neu berechneten Allokation (Generate): derselbe Vektor wie
+    Solver-Constraint und Budgetpruefung, sonst ``CCX_PARAMETER_SET_MISSING``;
+    ohne IC-Freigabe in Produktion fail-closed."""
+    from core.presentation_rounding import ROUNDING_POLICY_VERSION
+
+    record = build_parameter_set(
+        policy=policy, sub_allocations=sub_allocations,
+        bounds_bps={bucket: (int(minimums[bucket]), int(maximums[bucket])) for bucket in BUCKETS},
+        risk_budget_bps=int(risk_budget_bps), house_matrix_profile=getattr(house_matrix, "profile_name", None),
+        max_risky_fraction_bps=getattr(house_matrix, "max_risky_fraction_bps", None),
+        rounding_policy_version=ROUNDING_POLICY_VERSION,
+    )
+    assert_release_allowed(record)
+    if record["bucket_coefficients_bps"] != {b: int(asset_risky_weights[b]) for b in BUCKETS}:
+        raise ParameterSetMissing("Risikoparametersatz und Allokationskoeffizienten weichen ab.")
+    return record
+
+
 def verify_parameter_set(record: Any, *, persisted_coefficients: Mapping[str, Any] | None = None) -> str:
     """Prueft einen gespeicherten Satz (Version, Hash, Kohaerenz mit den
     integritaetsgeprueften Bucket-Koeffizienten). Liefert den Hash oder wirft
@@ -329,6 +351,7 @@ def stored_risk_parameter_set(allocation: Any) -> dict[str, Any] | None:
 
 
 __all__ = [
+    "allocation_parameter_set",
     "BASIS_NOT_INVESTABLE",
     "BASIS_SUB_ALLOCATION",
     "BUCKETS",

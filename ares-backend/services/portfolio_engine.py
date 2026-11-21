@@ -4127,25 +4127,10 @@ def generate_target_allocation(
     shadow_optimization_json = serialize_shadow_optimization(shadow_optimization_payload)  # SHADOW-ANALYSIS-INTEGRITY-001: Hash-Grundlage
 
     sub_allocations_json = canonical_json(sub_allocations)
-    # CCX P5 / M-2: ein kanonischer Risikoparametersatz je Allokation (IC-
-    # Subklassenwerte x Suballokation, Caps, Baender, Hausprior, Rundung);
-    # derselbe Vektor wie Solver-Constraint und Budgetpruefung. Ohne IC-
-    # Freigabe in Produktion fail-closed (CCX_PARAMETER_SET_MISSING).
-    from core.presentation_rounding import ROUNDING_POLICY_VERSION as _P5_ROUNDING
-    from services.risk_parameter_set import assert_release_allowed, build_parameter_set
+    from services.risk_parameter_set import allocation_parameter_set  # CCX P5 / M-2: eine Quelle
 
-    risk_parameter_set = build_parameter_set(
-        policy=policy, sub_allocations=sub_allocations,
-        bounds_bps={bucket: (int(minimums[bucket]), int(maximums[bucket])) for bucket in BUCKET_FIELDS},
-        risk_budget_bps=int(risk_budget_bps), house_matrix_profile=house_matrix.profile_name,
-        max_risky_fraction_bps=getattr(house_matrix, "max_risky_fraction_bps", None),
-        rounding_policy_version=_P5_ROUNDING,
-    )
-    assert_release_allowed(risk_parameter_set)
-    if risk_parameter_set["bucket_coefficients_bps"] != {b: int(asset_risky_weights[b]) for b in BUCKET_FIELDS}:
-        from services.risk_parameter_set import ParameterSetMissing
-
-        raise ParameterSetMissing("Risikoparametersatz und Allokationskoeffizienten weichen ab.")
+    risk_parameter_set = allocation_parameter_set(policy, sub_allocations, minimums, maximums, risk_budget_bps,
+                                                  house_matrix, asset_risky_weights)
     effective_constraints_payload = {
         "engine_version": "stochastic_core_v2",
         "bounds_bps": {
