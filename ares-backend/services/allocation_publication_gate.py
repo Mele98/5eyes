@@ -958,8 +958,7 @@ CHANNEL_ONSITE_SIGNATURE = "ONSITE_SIGNATURE"
 CHANNEL_HANDOFF = "HANDOFF"
 CHANNEL_ARCHIVE = "ARCHIVE"
 CHANNELS = ("API", "CLASSIC", "REACT", "PDF", "ADVISOR_SIGNATURE", "ONSITE_SIGNATURE", "HANDOFF", "ARCHIVE")
-AUDIT_CHANNEL_BLOCKED = "ccx.channel.blocked"
-AUDIT_CHANNEL_PUBLISHED = "ccx.channel.published"
+P5_AUDIT_CHANNEL_BLOCKED = "ccx.channel.blocked"
 CHANNEL_STATUS_PUBLISHED = "PUBLISHED"
 
 _CHANNEL_CAUSES: dict[str, str] = {
@@ -1117,7 +1116,7 @@ def require_channel_envelope(
         envelope = db.get(AdvisoryDecisionEnvelope, decision.envelope_id)
         if envelope is not None:
             persist_freshness_drift(db, envelope, list(decision.drift), user)
-    _channel_audit(db, user=user, mandate=mandate, ip_address=ip_address, field_name=AUDIT_CHANNEL_BLOCKED,
+    _channel_audit(db, user=user, mandate=mandate, ip_address=ip_address, field_name=P5_AUDIT_CHANNEL_BLOCKED,
            record_id=decision.envelope_id or str(mandate.id), reason_code=code, blocker_code=blocker,
            channel=channel, envelope_hash=decision.envelope_hash)
     db.commit()
@@ -1201,7 +1200,7 @@ def require_signable_decision_artifact(
             "neu gerechnet oder vor der Kanal-Bindung erzeugt). Bitte das Dokument neu erzeugen."
         )
         rollback_keeping_tenant(db)
-        _channel_audit(db, user=user, mandate=mandate, ip_address=ip_address, field_name=AUDIT_CHANNEL_BLOCKED,
+        _channel_audit(db, user=user, mandate=mandate, ip_address=ip_address, field_name=P5_AUDIT_CHANNEL_BLOCKED,
                record_id=decision.envelope_id, reason_code=ReasonCode.CCX_SIGNATURE_ENVELOPE_OUTDATED.value,
                blocker_code="artifact_not_bound", channel=channel, document_id=str(document.id),
                envelope_hash=decision.envelope_hash)

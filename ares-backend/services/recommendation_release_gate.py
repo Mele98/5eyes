@@ -67,7 +67,7 @@ def _signature_gate(name: str):
     if gate is None:
         raise DomainError(
             ReasonCode.CCX_CHANNEL_BINDING_MISSING,
-            "Signatur gesperrt: das Kanal-Gate des Beratungsentscheids ist nicht verfuegbar.",
+            "Signatur gesperrt: das Kanal-Gate des Beratungsentscheids ist nicht verfügbar.",
             http_status=409, extra={"channel": CHANNEL_SIGNATURE},
         )
     return gate
