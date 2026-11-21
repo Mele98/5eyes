@@ -1785,6 +1785,7 @@ def get_strategy_backtest(
         benchmark_fee_bps=benchmark_fee_bps,
         benchmark_sub_weights_bps=sub_benchmark,
         projection_gate=resolve_current_allocation_projection_gate(db, mandate),
+        production_mode=settings.production_mode,
     )
 
 

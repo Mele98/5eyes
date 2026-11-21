@@ -370,6 +370,31 @@ def test_backtest_without_released_annual_returns_is_typed_refusal_in_exe(tmp_pa
     engine.dispose()
 
 
+def test_backtest_refusal_follows_app_env_production_via_callers(tmp_path, monkeypatch):
+    """CI-Fix Fixrunde 1: ``services.backtest_strategy`` importiert ``config``
+    nicht mehr (Fan-out-Ratsche); die Aufrufer reichen ``production_mode``
+    herein. Auch ein Server mit app_env=production lehnt ohne Jahresrenditen ab."""
+    from sqlalchemy.orm import sessionmaker
+
+    import database
+    from core.risk_parameter_set import ReferenceDataPackageMissing
+    from services.backtest_strategy import load_annual_returns_matrix
+
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    monkeypatch.setattr(config.settings, "app_env", "production")
+    assert database.annual_returns_release_required() is True
+    engine = database.create_app_engine(db_path=str(tmp_path / "bt-prod.db"), db_key=None)
+    database.init_db(target_engine=engine)  # Produktion: kein Seeding der Jahresrenditen
+    with sessionmaker(bind=engine)() as db:
+        with pytest.raises(ReferenceDataPackageMissing, match="Jahresrenditen"):
+            load_annual_returns_matrix(db, production_mode=database.annual_returns_release_required())
+    engine.dispose()
+    alloc = (BACKEND / "routers" / "allocation.py").read_text(encoding="utf-8")
+    pdf = (BACKEND / "routers" / "pdf_reports.py").read_text(encoding="utf-8")
+    assert "production_mode=settings.production_mode" in alloc
+    assert "production_mode=annual_returns_release_required()" in pdf
+
+
 def test_tax_parameter_seed_documents_its_source():
     import inspect
 

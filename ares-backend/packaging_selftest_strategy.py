@@ -32,6 +32,23 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Importe auf Modulebene (Architektur-Ratsche: keine funktionslokalen Importe).
+# Unbedenklich, weil dieses Modul nur ``main.py --self-test-strategy`` per
+# importlib laedt (der Server importiert es nie); ``config``/``database`` hat
+# ``main.py`` zu diesem Zeitpunkt ohnehin schon geladen. Beim Import passiert
+# nichts weiter: keine Engine-Umleitung, kein Paket -- beides nur im Lauf.
+import config
+import database
+from core.reason_codes import ReasonCode
+from core.risk_parameter_set import IC_UNRELEASED_LABEL, ParameterSetMissing, ReferenceDataPackageMissing
+from models.clients import Client
+from models.mandates import Mandate
+from models.profiling import RiskAssessment, RiskAssessmentAnswer
+from models.review import ContractDocument
+from models.users import User
+from models.wealth import WealthPosition
+from services.portfolio_engine import generate_target_allocation
+
 SELF_TEST_MARKER = "ARES_SELF_TEST_STRATEGY "
 # Antworttexte eines stillen Optimizer-Rueckfalls
 # (services/portfolio_engine_optimizer_integration.py); gleiche Liste wie im Smoke.
@@ -46,13 +63,11 @@ def _now() -> str:
 def _isolated_engine(root: Path):
     """Temporaere Engine; ``database.engine``/``SessionLocal`` zeigen waehrend
     des Selbsttests darauf, damit kein Pfad die eingestellte Datenbank oeffnet."""
-    import database
-    from config import PACKAGED_BUILD, settings
-
+    settings = config.settings
     saved = (settings.database_url, settings.db_use_sqlcipher, settings.db_key, database.engine)
     settings.database_url = None
     key = None
-    if PACKAGED_BUILD:
+    if config.PACKAGED_BUILD:
         # Die EXE oeffnet nie eine Klartext-Datei: Wegwerf-Schluessel nur im Speicher.
         key = secrets.token_hex(32)
         settings.db_use_sqlcipher = True
@@ -73,12 +88,6 @@ def _isolated_engine(root: Path):
 def _seed_synthetic_mandate(session) -> tuple[str, str]:
     """Synthetisches Testmandat (Depot CHF 500'000, Risikoprofil
     Wachstumsorientiert; wie der fruehere HTTP-Smoke) -- nur im temporaeren Speicher."""
-    from models.clients import Client
-    from models.mandates import Mandate
-    from models.profiling import RiskAssessment, RiskAssessmentAnswer
-    from models.users import User
-    from models.wealth import WealthPosition
-
     advisor_id, cid, mid, aid = (str(uuid.uuid4()) for _ in range(4))
     now = _now()
     session.add(User(id=advisor_id, username=f"selftest-{advisor_id[:8]}", password_hash="-",
@@ -127,8 +136,6 @@ def _seed_synthetic_mandate(session) -> tuple[str, str]:
 
 
 def _evaluate(result: dict, contract_documents: int) -> dict:
-    from core.risk_parameter_set import IC_UNRELEASED_LABEL
-
     ta = result["target_allocation"]
     texts = json.dumps({k: result.get(k) for k in ("reasoning", "warnings", "messages")},
                        ensure_ascii=False, default=str)
@@ -161,25 +168,18 @@ def _evaluate(result: dict, contract_documents: int) -> dict:
 
 
 def run_strategy_self_test(package_path: str) -> dict:
-    from config import load_test_reference_package, strategy_self_test_reference_package
-
     out: dict = {"ok": False, "frozen": bool(getattr(sys, "frozen", False))}
-    package = load_test_reference_package(package_path) if package_path else None
+    package = config.load_test_reference_package(package_path) if package_path else None
     if package is None:
         out["error"] = "TEST-Referenzpaket fehlt oder ist ungueltig."
         return out
     out["package_marker"] = package.get("marker")
     with tempfile.TemporaryDirectory(prefix="ares-strategy-selftest-", ignore_cleanup_errors=True) as tmp:
         try:
-            import database
-            from models.mandates import Mandate
-            from models.review import ContractDocument
-            from services.portfolio_engine import generate_target_allocation
-
             engine, out["database"], restore = _isolated_engine(Path(tmp))
             try:
                 database.init_db(target_engine=engine)
-                with strategy_self_test_reference_package(package):
+                with config.strategy_self_test_reference_package(package):
                     with database.SessionLocal() as session:
                         advisor_id, mandate_id = _seed_synthetic_mandate(session)
                         mandate = session.get(Mandate, mandate_id)
@@ -191,9 +191,12 @@ def run_strategy_self_test(package_path: str) -> dict:
                 restore()
         except Exception as exc:  # noqa: BLE001 - jede Ausnahme ist ein Befund
             out["error"] = f"{type(exc).__name__}: {exc}"[:600]
-            reason = getattr(exc, "reason_code", None) or getattr(exc.__cause__, "reason_code", None)
-            if reason:
-                out["reason_code"] = reason
+            # Katalogisierter Grund der bekannten typisierten Fehler (direkt oder als Ursache).
+            causes = (exc, exc.__cause__)
+            if any(isinstance(e, ReferenceDataPackageMissing) for e in causes):
+                out["reason_code"] = ReasonCode.REFERENCE_DATA_PACKAGE_MISSING
+            elif any(isinstance(e, ParameterSetMissing) for e in causes):
+                out["reason_code"] = ReasonCode.CCX_PARAMETER_SET_MISSING
             return out
     out["ok"] = not out.get("findings")
     return out

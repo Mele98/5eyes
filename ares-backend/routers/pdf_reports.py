@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from database import get_db
+from database import annual_returns_release_required, get_db
 from core.preference_labels import preference_label
 from models.clients import Client, ClientRepresentation
 
@@ -3313,6 +3313,7 @@ def _build_backtest_data(
         strategy_fee_bps=strategy_fee_bps,
         benchmark_fee_bps=benchmark_fee_bps,
         projection_gate=projection_gate,
+        production_mode=annual_returns_release_required(),
     )
     soll = result.get("soll") or {}
     rebal = (soll.get("rebalanced") if isinstance(soll, dict) else None) or {}
