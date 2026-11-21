@@ -1682,6 +1682,9 @@ CREATE TABLE IF NOT EXISTS recommendation_runs (
     weighting_regime            TEXT CHECK(weighting_regime IN ('Equal-Weight','Ranked-Weight','Custom')),
     fee_assumptions_json        TEXT CHECK(fee_assumptions_json IS NULL OR json_valid(fee_assumptions_json)),
     other_assets_included       INTEGER NOT NULL DEFAULT 0 CHECK(other_assets_included IN (0,1)),
+    product_evidence_snapshot_id TEXT REFERENCES product_evidence_snapshots(id),
+    product_evidence_hash       TEXT,
+    product_evidence_status     TEXT,
     result_status               TEXT NOT NULL DEFAULT 'Draft'
                                 CHECK(result_status IN ('Draft','Final','Rejected','Superseded')),
     created_by                  TEXT NOT NULL REFERENCES users(id) ON UPDATE CASCADE,
@@ -1709,6 +1712,77 @@ CREATE TABLE IF NOT EXISTS recommendation_positions (
 );
 CREATE INDEX IF NOT EXISTS idx_rec_positions_run ON recommendation_positions(run_id);
 CREATE INDEX IF NOT EXISTS idx_rec_positions_product ON recommendation_positions(product_id);
+
+-- C-COMP-02: granulare, nach Freigabe unveraenderliche Produktevidenz und
+-- unveraenderlicher Snapshot je Empfehlungslauf. Gleiche Spalten/Checks wie
+-- ORM und Alembic 9f4c2a7e1b63.
+CREATE TABLE IF NOT EXISTS product_evidence_items (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT REFERENCES tenants(id),
+    product_id TEXT NOT NULL REFERENCES products(id),
+    stable_instrument_id TEXT NOT NULL,
+    share_class_id TEXT,
+    jurisdiction TEXT NOT NULL,
+    evidence_kind TEXT NOT NULL CHECK(evidence_kind IN ('instrument_identity','kid','costs','retrocession','suitability','liquidity','currency','sustainability','price_source')),
+    source_type TEXT NOT NULL,
+    source_reference TEXT NOT NULL,
+    source_document_title TEXT NOT NULL,
+    source_document_version TEXT,
+    source_document_date TEXT,
+    retrieved_at TEXT NOT NULL,
+    source_document_sha256 TEXT NOT NULL,
+    canonical_payload_json TEXT NOT NULL,
+    canonical_payload_hash TEXT NOT NULL,
+    as_of TEXT NOT NULL,
+    valid_from TEXT NOT NULL,
+    valid_until TEXT,
+    status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','approved','retired','revoked')),
+    note TEXT,
+    created_by TEXT NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL,
+    approved_by TEXT REFERENCES users(id),
+    approved_at TEXT,
+    approval_mode TEXT,
+    supersedes_id TEXT REFERENCES product_evidence_items(id),
+    retired_or_revoked_by TEXT REFERENCES users(id),
+    retired_or_revoked_at TEXT,
+    reason_code TEXT,
+    updated_at TEXT NOT NULL,
+    CHECK(valid_until IS NULL OR valid_until >= valid_from),
+    CHECK(length(source_document_sha256) = 64 AND length(canonical_payload_hash) = 64),
+    CHECK(approved_by IS NULL OR approved_by <> created_by OR approval_mode = 'single_approver_attested')
+);
+CREATE INDEX IF NOT EXISTS ix_product_evidence_item_lookup ON product_evidence_items(product_id, tenant_id, jurisdiction, evidence_kind, status);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_product_evidence_item_active_tenant ON product_evidence_items(product_id, share_class_id, tenant_id, jurisdiction, evidence_kind, as_of) WHERE tenant_id IS NOT NULL AND status = 'approved';
+CREATE UNIQUE INDEX IF NOT EXISTS ux_product_evidence_item_active_global ON product_evidence_items(product_id, share_class_id, jurisdiction, evidence_kind, as_of) WHERE tenant_id IS NULL AND status = 'approved';
+CREATE TRIGGER IF NOT EXISTS trg_product_evidence_immutable_update BEFORE UPDATE ON product_evidence_items FOR EACH ROW WHEN OLD.status <> 'draft' AND NOT (OLD.status = 'approved' AND NEW.status IN ('retired','revoked') AND NEW.id IS OLD.id AND NEW.tenant_id IS OLD.tenant_id AND NEW.product_id IS OLD.product_id AND NEW.stable_instrument_id IS OLD.stable_instrument_id AND NEW.share_class_id IS OLD.share_class_id AND NEW.jurisdiction IS OLD.jurisdiction AND NEW.evidence_kind IS OLD.evidence_kind AND NEW.source_type IS OLD.source_type AND NEW.source_reference IS OLD.source_reference AND NEW.source_document_title IS OLD.source_document_title AND NEW.source_document_version IS OLD.source_document_version AND NEW.source_document_date IS OLD.source_document_date AND NEW.retrieved_at IS OLD.retrieved_at AND NEW.source_document_sha256 IS OLD.source_document_sha256 AND NEW.canonical_payload_json IS OLD.canonical_payload_json AND NEW.canonical_payload_hash IS OLD.canonical_payload_hash AND NEW.as_of IS OLD.as_of AND NEW.valid_from IS OLD.valid_from AND NEW.valid_until IS OLD.valid_until AND NEW.note IS OLD.note AND NEW.created_by IS OLD.created_by AND NEW.created_at IS OLD.created_at AND NEW.approved_by IS OLD.approved_by AND NEW.approved_at IS OLD.approved_at AND NEW.approval_mode IS OLD.approval_mode AND NEW.supersedes_id IS OLD.supersedes_id) BEGIN SELECT RAISE(ABORT, 'product_evidence_items: freigegebener Nachweis ist unveränderlich'); END;
+CREATE TRIGGER IF NOT EXISTS trg_product_evidence_immutable_delete BEFORE DELETE ON product_evidence_items FOR EACH ROW WHEN OLD.status <> 'draft' BEGIN SELECT RAISE(ABORT, 'product_evidence_items: freigegebener Nachweis ist unveränderlich'); END;
+
+CREATE TABLE IF NOT EXISTS product_evidence_snapshots (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL REFERENCES tenants(id),
+    mandate_id TEXT NOT NULL REFERENCES mandates(id),
+    recommendation_run_id TEXT NOT NULL REFERENCES recommendation_runs(id),
+    product_ids_json TEXT NOT NULL,
+    item_ids_json TEXT NOT NULL,
+    item_hashes_json TEXT NOT NULL,
+    eligibility_snapshot_id TEXT,
+    cost_snapshot_id TEXT,
+    conflict_snapshot_id TEXT,
+    as_of TEXT NOT NULL,
+    evaluated_at TEXT NOT NULL,
+    expires_at TEXT,
+    status TEXT NOT NULL CHECK(status IN ('verified','missing','stale','conflict','revoked','hash_mismatch')),
+    reason_codes_json TEXT NOT NULL DEFAULT '[]',
+    canonical_payload_json TEXT NOT NULL,
+    product_evidence_hash TEXT NOT NULL UNIQUE,
+    schema_version TEXT NOT NULL DEFAULT 'ares-product-evidence/v1',
+    evaluator_version TEXT NOT NULL DEFAULT 'ares-product-evidence/1',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_product_evidence_snapshot_run ON product_evidence_snapshots(recommendation_run_id);
+CREATE TRIGGER IF NOT EXISTS trg_product_evidence_snapshot_immutable_update BEFORE UPDATE ON product_evidence_snapshots FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'product_evidence_snapshots: Snapshot ist unveränderlich'); END;
+CREATE TRIGGER IF NOT EXISTS trg_product_evidence_snapshot_immutable_delete BEFORE DELETE ON product_evidence_snapshots FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'product_evidence_snapshots: Snapshot ist unveränderlich'); END;
 
 -- ============================================================
 -- 21. REPORT ARCHIV

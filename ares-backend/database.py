@@ -2142,6 +2142,12 @@ def ensure_runtime_columns(target_engine: Engine | None = None) -> None:
             ('cma_policy_row_id', 'TEXT'),
             # E2b Nachtrag 1: Belege der Produktauswahl (Alembic e7b3d9f1a2c4).
             ('sustainability_evidence_json', 'TEXT'),
+            # C-COMP-02: Snapshot-Bindung der vollstaendigen, freigegebenen
+            # Produktevidenz. Additiv fuer bestehende SQLite-Installationen;
+            # PostgreSQL-FK liegt in Alembic 9f4c2a7e1b63.
+            ('product_evidence_snapshot_id', 'TEXT'),
+            ('product_evidence_hash', 'TEXT'),
+            ('product_evidence_status', 'TEXT'),
         ],
         'optimizer_runs': [
             # U-9 Stage-9 Telemetry: pro Solver-Start n_paths/n_starts/Seed/
