@@ -74,7 +74,6 @@ page.querySelectorAll=function(){return cards;};
 var strategyState={allocation:null,dirty:false,lastGeneratedAt:0};
 function syncPortfolioUmsetzenButtonVisibility(){}
 function updateStrategyStatus(){}
-function scheduleAutoRecompute(){}
 function invalidateStrategyOutputs(){strategyState.allocation=null;}
 function applyAllocationEngineResult(r){strategyState.allocation=r;}
 function applyRecommendationEngineResult(){}

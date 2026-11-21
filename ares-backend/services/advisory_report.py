@@ -1149,23 +1149,34 @@ def _load_goal_achievability_view(ta) -> tuple[list[dict], dict | None]:
     Altbewertungen (``legacy_aggregate_unknown``) -- gemeinsame Aggregatwerte
     unbekannter Semantik, die keine individuelle Ampel tragen duerfen.
     """
+    from services.optimizer.goal_attribution import split_goal_achievability
+
+    parsed = _stored_goal_rows(ta)
+    if not parsed:
+        return [], None
+    # P5b / N-925-03: Anzeige aus dem kanonischen M-3-Payload.
+    return split_goal_achievability(canonical_goal_rows(parsed, ta))
+
+
+def _stored_goal_rows(ta) -> list[dict]:
+    """Gespeicherte Optimierer-Zeilen aus ``goal_achievability_json`` (gebunden,
+    roh). Leser: ``_load_goal_achievability_view`` (Anzeige ueber M-3) und die
+    Zielkompatibilitaet (N-933-03: gespeicherte Warnung als zusaetzliche Quelle)."""
     import json
 
     from services.portfolio_engine_allocation_integrity import bound_goal_achievability_json
-    from services.optimizer.goal_attribution import split_goal_achievability
 
     # GOAL-ANALYSIS-INTEGRITY-001: nur eine an den Context gebundene Analyse.
     raw = bound_goal_achievability_json(ta)
     if not raw:
-        return [], None
+        return []
     try:
         parsed = json.loads(raw) or []
     except (TypeError, ValueError):
-        return [], None
+        return []
     if not isinstance(parsed, list):
-        return [], None
-    # P5b / N-925-03: Anzeige aus dem kanonischen M-3-Payload.
-    return split_goal_achievability(canonical_goal_rows([r for r in parsed if isinstance(r, dict)], ta))
+        return []
+    return [r for r in parsed if isinstance(r, dict)]
 
 
 def _plan_solvency_payload(plan_row: dict | None) -> dict[str, Any] | None:
@@ -2244,33 +2255,54 @@ def _check_zielkompatibilitaet(db: Session, mandate: Mandate) -> dict[str, Any]:
     # bisher nur ("hart","hard") rot — ein nicht erreichbares primäres Ziel blieb damit
     # unauffällig, obwohl es in der Optimierung bindend ist. Kanonisches Set spiegeln.
     _PRIMARY_HARDNESS = ("hart", "hard", "primaer", "primär", "primary")
-    n_hart_unreachable = sum(
-        1 for r in rows
-        if isinstance(r, dict)
-        and str(r.get("status", "")).lower() == "nicht_erreichbar"
-        and str(r.get("hardness", "")).strip().lower() in _PRIMARY_HARDNESS
-    )
-    n_knapp = sum(
-        1 for r in rows
-        if isinstance(r, dict)
-        and str(r.get("status", "")).lower() == "knapp"
-    )
+    # P5c Fixrunde 1 / N-933-03 (CTO): es gilt die vorsichtigste verfuegbare
+    # Information je Ziel. Der M-3-Status traegt den gespeicherten Optimierer-
+    # Status bereits in sich (conservative_goal_status); ist M-3 nicht bewertbar,
+    # zaehlt eine gespeicherte Warnung ("nicht_erreichbar"/"knapp") trotzdem.
+    # Eine gespeicherte Entwarnung ("erreichbar") ohne M-3 ist kein Gruen.
+    stored = {str(r.get("goal_id")): str(r.get("status") or "").lower()
+              for r in _stored_goal_rows(ta) if r.get("goal_id") and is_individual_goal_row(r)}
+    n_hart_unreachable = n_weich_unreachable = n_knapp = n_open = 0
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        m3 = str(r.get("status", "")).lower()
+        known = [m3] if m3 in ("erreichbar", "knapp", "nicht_erreichbar") else []
+        saved = stored.get(str(r.get("goal_id") or ""), "")
+        if saved in ("knapp", "nicht_erreichbar"):
+            known.append(saved)
+        if "nicht_erreichbar" in known:
+            if str(r.get("hardness", "")).strip().lower() in _PRIMARY_HARDNESS:
+                n_hart_unreachable += 1
+            else:
+                n_weich_unreachable += 1
+        elif "knapp" in known:
+            n_knapp += 1
+        elif m3 != "erreichbar":
+            n_open += 1
+    open_note = (f" Für {n_open} weitere(s) Ziel(e) liegt keine bewertbare Zielerreichung vor."
+                 if n_open else "")
     if n_hart_unreachable > 0:
         return _verdict(
             "Zielkompatibilität", "rot",
-            f"{n_hart_unreachable} bindend (hart/primär) definiertes Ziel nicht erreichbar.",
+            f"{n_hart_unreachable} bindend (hart/primär) definiertes Ziel nicht erreichbar.{open_note}",
             "Zieldefinition oder Anlagestrategie anpassen.",
+        )
+    if n_weich_unreachable > 0:
+        return _verdict(
+            "Zielkompatibilität", "gelb",
+            f"{n_weich_unreachable} weich definierte(s) Ziel(e) nicht erreichbar.{open_note}",
+            "Zieldefinition, Priorität oder Anlagestrategie besprechen.",
         )
     if n_knapp > 0:
         return _verdict(
             "Zielkompatibilität", "gelb",
-            f"{n_knapp} Ziel(e) knapp erreichbar.",
+            f"{n_knapp} Ziel(e) knapp erreichbar.{open_note}",
             "Reserven oder Beitragsdisziplin diskutieren.",
         )
     # P5c / N-930-01: fail-closed -- "komfortabel erreicht" nur, wenn jedes Ziel
     # laut M-3 "erreichbar" ist (nicht bewertbar/nicht beurteilbar/ausserhalb
     # Horizont sind keine Erreichbarkeitsaussage).
-    n_open = sum(1 for r in rows if isinstance(r, dict) and str(r.get("status", "")) != "erreichbar")
     if n_open > 0:
         return _verdict(
             "Zielkompatibilität", "nicht_beurteilbar",

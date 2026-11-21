@@ -2423,6 +2423,58 @@ def test_p5c_uncertified_goal_rows_are_not_assessable_not_green(session_factory)
     assert _ziel_check(report)["bewertung"] == "nicht_beurteilbar"
 
 
+def _ziel_check_for(session_factory, rows):
+    import json
+    with session_factory() as s:
+        mandate, _c, advisor = _seed_minimal_mandate(s)
+        _make_ta_with_goals(s, mandate_id=mandate.id, advisor_id=advisor.id,
+                            goal_achievability_json=json.dumps(rows))
+        s.commit()
+        report = compute_advisory_report(s, mandate, advisor=advisor)
+    return _ziel_check(report)
+
+
+def _goal_row(goal_id, status, hardness, label="Ziel"):
+    return {"goal_id": goal_id, "label": label, "probability": 0.5, "status": status,
+            "hardness": hardness, "evaluation_scope": "priority_funded"}
+
+
+@pytest.mark.parametrize("hardness", ["hart", "primär"])
+def test_n933_03a_uncertified_hard_goal_stored_unreachable_stays_rot(session_factory, hardness):
+    """P5c Fixrunde 1 / N-933-03a (CTO): ohne zertifiziertes M-3 gilt die
+    vorsichtigste verfuegbare Information -- die gespeicherte Optimierer-Zeile
+    meldet das harte/primaere Ziel nicht erreichbar -> rot (vor der Fixrunde:
+    nicht_beurteilbar). Gegenprobe: alter Code -> nicht_beurteilbar -> rot."""
+    check = _ziel_check_for(session_factory, [_goal_row("g1", "nicht_erreichbar", hardness)])
+    assert check["bewertung"] == "rot", check
+
+
+@pytest.mark.parametrize("certified", [False, True])
+def test_n933_03_soft_unreachable_goal_is_gelb_with_matching_text(session_factory, monkeypatch, certified):
+    """N-933-03b: ein weich definiertes Ziel, das (laut M-3 oder gespeicherter
+    Zeile) nicht erreichbar ist -> gelb mit passendem Text, nicht «keine
+    bewertbare Zielerreichung -- neu berechnen»."""
+    if certified:
+        _as_certified_m3(monkeypatch)
+    check = _ziel_check_for(session_factory, [_goal_row("g1", "nicht_erreichbar", "opportunistisch")])
+    assert check["bewertung"] == "gelb", check
+    assert check["beurteilung"] == "1 weich definierte(s) Ziel(e) nicht erreichbar."
+
+
+@pytest.mark.parametrize("rows,expected,text", [
+    # Gespeicherte Entwarnung ohne M-3 ist kein Gruen.
+    ([_goal_row("g1", "erreichbar", "primär")], "nicht_beurteilbar",
+     "Für 1 Ziel(e) liegt keine bewertbare Zielerreichung vor."),
+    # Knappes Ziel neben einem unbekannten -> gelb mit Hinweis auf das unbekannte.
+    ([_goal_row("g1", "erreichbar", "primär"), _goal_row("g2", "knapp", "weich")], "gelb",
+     "1 Ziel(e) knapp erreichbar. Für 1 weitere(s) Ziel(e) liegt keine bewertbare Zielerreichung vor."),
+])
+def test_n933_03_only_unknown_goals_stay_not_assessable(session_factory, rows, expected, text):
+    """Nur wenn gar nichts Vorsichtiges bekannt ist -> nicht_beurteilbar."""
+    check = _ziel_check_for(session_factory, rows)
+    assert (check["bewertung"], check["beurteilung"]) == (expected, text), check
+
+
 def test_ar1_primaer_unreachable_goal_flags_rot(session_factory, monkeypatch):
     """AR-1: ein nicht erreichbares PRIMÄRES Ziel (Engine-Display 'primär') muss
     rot flaggen — vorher wurde nur 'hart' erkannt."""

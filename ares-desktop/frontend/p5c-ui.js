@@ -25,3 +25,10 @@ async function loadStrategyOnly(withRec){
   finally{if(was&&!strategyState.dirty){strategyState.dirty=true;strategyState.staleNotice=note;if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();}}
   return ok;
 }
+/* N-933-04 (CTO): Finalisieren ist gesperrt, solange ungespeicherte Aenderungen
+ * an der Strategie bestehen -- sonst wuerde die gespeicherte Strategie ohne sie finalisiert. */
+function finalizeLocked(){
+  if(!strategyState.dirty)return false;
+  updateStrategyStatus('Empfehlung finalisieren ist gesperrt: Es gibt ungespeicherte Änderungen an der Strategie. Zuerst «Anlagestrategie berechnen» bzw. Änderungen verwerfen.',true);
+  return true;
+}

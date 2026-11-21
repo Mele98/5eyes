@@ -19932,57 +19932,8 @@ function markStrategyDirty(message,invalidateOutputs){
   // statischer Sammeltext.
   strategyState.staleNotice=message||(typeof STRATEGY_STALE_DEFAULT_NOTICE==='string'?STRATEGY_STALE_DEFAULT_NOTICE:'Eingaben geändert: Strategie neu berechnen.');
   if(typeof syncStrategyStaleView==='function')syncStrategyStaleView();
-  // Auto-Recompute mit Debounce: falls aktiviert, wird nach Aenderungen
-  // verzoegert neu gerechnet. Der Default bleibt manuell, damit die sichtbare
-  // SOLL-Prognose stabil bleibt, bis der Berater bewusst neu berechnet.
-  scheduleAutoRecompute();
-}
-
-// Auto-Recompute-Konfiguration.
-// Bug-Fix 2026-05-17 (User-Report 'SAA setzt sich zurueck'): Default auf
-// false, weil das automatische Neu-Berechnen nach jeder Aenderung die
-// gerade angezeigte SOLL-Prognose ungewollt ersetzt hat. Berater erwarten
-// dass die berechnete Strategie sichtbar STABIL bleibt bis sie bewusst
-// auf «Anlagestrategie berechnen» klicken. Aktivierung via Console
-// `AUTO_RECOMPUTE_ENABLED=true` oder localStorage 'auto_recompute'='1'.
-var AUTO_RECOMPUTE_ENABLED = false;
-try {
-  if (typeof localStorage !== 'undefined' && localStorage.getItem('auto_recompute') === '1') {
-    AUTO_RECOMPUTE_ENABLED = true;
-  }
-} catch(e){}
-var AUTO_RECOMPUTE_DEBOUNCE_MS = 800;
-var _autoRecomputeTimer = null;
-
-function scheduleAutoRecompute(){
-  if(!AUTO_RECOMPUTE_ENABLED)return;
-  // Skip wenn der Solver gerade laeuft — Re-Trigger nach Abschluss erfolgt
-  // ueber den naechsten markStrategyDirty bei der naechsten Aenderung.
-  if(strategyState&&strategyState.loading)return;
-  // Skip wenn keine echte Mandate (Demo-Modus, Login-Screen, Onboarding etc.)
-  var mid=typeof getActiveMandateId==='function'?getActiveMandateId():null;
-  if(!mid||typeof isDemoMandateId==='function'&&isDemoMandateId(mid))return;
-  // Bug-Fix 2026-05-17: nur auf der Asset-Allokation-Seite recomputen.
-  // Verhindert dass CMA-Edits auf Admin-Seite oder Risikoprofil-Save auf
-  // rp-Seite eine SOLL-Prognose-Aktualisierung triggern die der Berater
-  // gerade nicht sieht und nicht erwartet.
-  var currentPage = typeof activePageKey==='function' ? activePageKey() : null;
-  if (currentPage !== 'al') return;
-  // calculateInvestmentStrategy muss verfuegbar sein (Lazy-Load-Schutz)
-  if(typeof calculateInvestmentStrategy!=='function')return;
-  // Debounce: bei schnellen Aenderungen Timer reset
-  if(_autoRecomputeTimer){clearTimeout(_autoRecomputeTimer);_autoRecomputeTimer=null;}
-  _autoRecomputeTimer=setTimeout(function(){
-    _autoRecomputeTimer=null;
-    // Re-check Pre-Conditions zum Zeitpunkt der eigentlichen Ausfuehrung
-    if(!strategyState||!strategyState.dirty)return;
-    if(strategyState.loading)return;
-    var midNow=typeof getActiveMandateId==='function'?getActiveMandateId():null;
-    if(!midNow||(typeof isDemoMandateId==='function'&&isDemoMandateId(midNow)))return;
-    var pageNow=typeof activePageKey==='function'?activePageKey():null;
-    if(pageNow!=='al')return;
-    try{calculateInvestmentStrategy();}catch(e){/* defensive: kein Bruch wenn Solver-Pfad fehlt */}
-  },AUTO_RECOMPUTE_DEBOUNCE_MS);
+  // P5c Fixrunde 1 (CTO): Strategietreue ohne Ausnahme -- Aenderungen rechnen nie
+  // automatisch neu; neue Strategie nur per «Anlagestrategie berechnen».
 }
 function updateStrategyStatus(message,isError){
   // Live-Test 2026-11 M1: Meldung auch sichtbar auf der Portfolio-Seite (#po-status), nicht nur in der AA-Statuszeile
@@ -21400,7 +21351,9 @@ async function refreshStrategyData(force,includeRecommendation,retriedAfterBandR
         }
         var currentPrefs=recommendationPreferencesForStoredAllocation(currentAllocation);
         var currentDepotBank=getInputValue('recipe-depot-bank')||null;
-        var hydratedRecommendation=await API.post('/mandates/'+mid+'/recommendations/generate',{preferences:currentPrefs,target_allocation_id:currentAllocation.target_allocation.id,run_type:'Optimizer',depot_bank:currentDepotBank});
+        var hydratedRecommendation;
+        try{hydratedRecommendation=await API.post('/mandates/'+mid+'/recommendations/generate',{preferences:currentPrefs,target_allocation_id:currentAllocation.target_allocation.id,run_type:'Optimizer',depot_bank:currentDepotBank});}
+        catch(recErr){updateStrategyStatus('Empfehlung konnte nicht erzeugt werden: '+finalizeErrorText(recErr),true);return false;} // N-933-02: Eignung/Produkt, nicht "veraltet"
         finalizeStrategyOutputs(currentAllocation,hydratedRecommendation,true,'Aktuelle Soll-Allokation geladen, Empfehlung aktualisiert: '+new Date().toLocaleTimeString('de-CH',{hour:'2-digit',minute:'2-digit'}));
         return true;
       }
@@ -21509,7 +21462,7 @@ async function openAllocationEngineModal(){
 }
 async function openImplementationRecipe(){
   if(typeof populateRecipeDepotBanks==='function')populateRecipeDepotBanks();
-  if(typeof eligOverrideReset==='function')eligOverrideReset();if(await loadStrategyOnly(true))om('m-ums');
+  if(typeof eligOverrideReset==='function')eligOverrideReset();if(finalizeLocked())return;if(await loadStrategyOnly(true))om('m-ums');
 }
 // RESERVE-LEDGER-SNAPSHOT-001: strukturierte Finalisierungs-Sperre
 // ({reason_code,message}) zeigt nur den Klartext mit Handlungsanweisung,

@@ -211,9 +211,48 @@ def test_clear_cases_are_unchanged():
 
 def _pdf_text(response) -> str:
     pypdf = pytest.importorskip("pypdf")
-    body = getattr(response, "body", None) or b""
+    body = response if isinstance(response, (bytes, bytearray)) else (getattr(response, "body", None) or b"")
     reader = pypdf.PdfReader(io.BytesIO(body))
-    return " ".join((page.extract_text() or "") for page in reader.pages)
+    return "\n".join((page.extract_text() or "") for page in reader.pages)
+
+
+_STATUS_WORDS = {label for label, *_rest in GOAL_STATUS_DISPLAY.values()}
+
+
+def _status_words_after_label(text: str, label: str, labels: set[str]) -> list[str]:
+    """N-933-06: Statuswort je Tabellenzeile im gerenderten PDF. pypdf liefert je
+    Zelle eine Zeile; nach der Zeile «Ziel-Label» folgt (vor dem naechsten Ziel)
+    die Zelle mit dem Statuswort. Verglichen wird die GANZE Zelle (Zeilenanker),
+    ein umbrochenes «nicht / erreichbar» wird zusammengesetzt -- «erreichbar»
+    passt so nie auf «nicht erreichbar»."""
+    lines = [line.strip() for line in text.splitlines()]
+    found: list[str] = []
+    for i, line in enumerate(lines):
+        if line != label:
+            continue
+        for j in range(i + 1, min(i + 12, len(lines))):
+            if lines[j] in labels:
+                break
+            joined = f"{lines[j - 1]} {lines[j]}"
+            if j - 1 > i and joined in _STATUS_WORDS:
+                found.append(joined)
+                break
+            if re.fullmatch(r"(?:" + "|".join(map(re.escape, _STATUS_WORDS)) + r")", lines[j]):
+                found.append(lines[j])
+                break
+    return found
+
+
+def test_pdf_status_reader_distinguishes_erreichbar_from_nicht_erreichbar():
+    """Selbstpruefung des Lesers: Wortgrenze und Zeilenumbruch."""
+    labels = {"Pension", "Haus"}
+    assert _status_words_after_label("Pension\nhart\nnicht erreichbar\nHaus\nerreichbar",
+                                     "Pension", labels) == ["nicht erreichbar"]
+    assert _status_words_after_label("Pension\nhart\nnicht\nerreichbar\nHaus\nerreichbar",
+                                     "Pension", labels) == ["nicht erreichbar"]
+    assert _status_words_after_label("Pension\nhart\nnicht\nerreichbar\nHaus\nerreichbar",
+                                     "Haus", labels) == ["erreichbar"]
+    assert _status_words_after_label("Pension\nhart\nHaus\nerreichbar", "Pension", labels) == []
 
 
 def test_app_report_and_strategy_pdf_show_the_same_status_per_goal(session_factory):
@@ -244,6 +283,12 @@ def test_app_report_and_strategy_pdf_show_the_same_status_per_goal(session_facto
         pdf_rows = {r["goal_id"]: r for r in _build_anlagestrategie_data(mandate, db).goal_achievability
                     if r.get("evaluation_scope") == "priority_funded"}
         strategy_pdf = _pdf_text(_anlagestrategie(db, mid, user))
+        from services.pdf.documents.advisory_report import render_advisory_report_pdf
+
+        advisory_bytes = render_advisory_report_pdf(db, mandate, user)
+        assert advisory_bytes, "Beratungsbericht-PDF nicht gerendert"
+        advisory_pdf = _pdf_text(advisory_bytes)
+        goal_labels = {str(r.get("label")) for r in canonical.values()}
         for goal_id, row in canonical.items():
             expected = (row["status"], row["status_label"], row["status_color"])
             assert row["goal_metric_payload_hash"]
@@ -256,8 +301,11 @@ def test_app_report_and_strategy_pdf_show_the_same_status_per_goal(session_facto
             assert report_goals[goal_id]["probability_bps"] == round(row["probability"] * 10000)
             assert (app_rows[goal_id]["goal_metric_payload_hash"] == report_rows[goal_id]["goal_metric_payload_hash"]
                     == pdf_rows[goal_id]["goal_metric_payload_hash"])
-            # Gerendert: dasselbe Wort im Anlagestrategie-PDF und in der Tabelle des Berichts.
-            assert row["status_label"] in strategy_pdf
+            # N-933-06: gerendert -- je Ziel die Zeile «Ziel-Label ... Statuswort» im
+            # Anlagestrategie-PDF UND im Beratungsbericht-PDF, ganze Zelle (Wortgrenze).
+            for channel, text in (("anlagestrategie-pdf", strategy_pdf), ("beratungsbericht-pdf", advisory_pdf)):
+                words = _status_words_after_label(text, str(row["label"]), goal_labels)
+                assert words and set(words) == {row["status_label"]}, (channel, row["label"], words)
             table = make_goal_achievability_table(list(pdf_rows.values()))
             cell = json.dumps([str(getattr(c, "text", c)) for r in table._cellvalues for c in r], ensure_ascii=False)
             assert row["status_label"] in cell
@@ -297,6 +345,58 @@ def test_lost_channel_sequence_is_a_typed_409_not_a_500(session_factory):
                 AdvisoryChannelPublication.mandate_id == mid).count() >= 1
     finally:
         event.remove(AdvisoryChannelPublication, "before_insert", lose_the_race)
+
+
+def test_other_integrity_errors_on_the_channel_row_are_not_reported_as_a_race(session_factory):
+    """Fixrunde 1 / N-933-05 (CTO): nur die Verletzung der laufenden Nummer ist
+    ein Wettlauf (409). Ein anderer Integritaetsfehler (hier CHECK auf
+    render_hash) wird unveraendert weitergeworfen. Gegenprobe: alter Code ->
+    DomainError CCX_CHANNEL_SEQUENCE_RACE -> rot."""
+    from sqlalchemy import event
+    from sqlalchemy.exc import IntegrityError
+
+    from models.snapshots import AdvisoryChannelPublication
+    from services.allocation_publication_gate import evaluate_channel_envelope, record_channel_publication
+
+    advisor_id, _approver, mid, *_rest = _published(session_factory, "p5c-check")
+
+    def break_a_check(_mapper, _conn, target):
+        target.render_hash = "kurz"  # verletzt ck_advisory_channel_publications_render_hash
+
+    event.listen(AdvisoryChannelPublication, "before_insert", break_a_check)
+    try:
+        with session_factory() as db:
+            mandate = _mandate(db, mid)
+            decision = evaluate_channel_envelope(db, mandate)
+            assert decision.ok
+            with pytest.raises(IntegrityError) as exc:
+                record_channel_publication(db, decision, mandate=mandate, channel="PDF", artifact_id="p5c-check-1",
+                                           channel_payload_hash="a" * 64, render_hash="b" * 64,
+                                           user=_user(db, advisor_id))
+            assert not isinstance(exc.value, DomainError)
+            assert "render_hash" in str(exc.value.orig)
+    finally:
+        event.remove(AdvisoryChannelPublication, "before_insert", break_a_check)
+
+
+@pytest.mark.parametrize("message,race", [
+    ("CCX_CHANNEL_SEQUENCE_RACE", True),  # SQLite-/PostgreSQL-Trigger
+    ('duplicate key value violates unique constraint "ux_advisory_channel_publications_sequence"', True),
+    ("UNIQUE constraint failed: advisory_channel_publications.mandate_id, "
+     "advisory_channel_publications.channel_sequence", True),
+    ("CCX_CHANNEL_BINDING_MISSING", False),
+    ("FOREIGN KEY constraint failed", False),
+    ("NOT NULL constraint failed: advisory_channel_publications.channel", False),
+    ("UNIQUE constraint failed: advisory_channel_publications.envelope_id, "
+     "advisory_channel_publications.channel, advisory_channel_publications.artifact_id", False),
+    ('new row violates check constraint "ck_advisory_channel_publications_payload"', False),
+])
+def test_only_the_channel_sequence_violation_counts_as_race(message, race):
+    from sqlalchemy.exc import IntegrityError
+
+    from services.allocation_publication_gate import is_channel_sequence_race
+
+    assert is_channel_sequence_race(IntegrityError("INSERT", {}, Exception(message))) is race
 
 
 def test_channel_sequence_race_code_is_catalogued():

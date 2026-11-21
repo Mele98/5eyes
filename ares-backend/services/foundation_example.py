@@ -27,7 +27,7 @@ from services.portfolio_engine import (
     generate_recommendation_run,
     generate_target_allocation,
 )
-from services.review_engine import refresh_system_review_triggers
+from services.review_engine import goal_attention_items, refresh_system_review_triggers
 from services.risk_scoring import compute_scores
 
 
@@ -133,14 +133,12 @@ def _build_foundation_summary(db: Session, user: User, client: Client, mandate: 
     triggers = refresh_system_review_triggers(db, mandate, user.id, allocation_payload=allocation_result)
     db.flush()
     goal_analysis = allocation_result.get("goal_analysis") or []
-    # GOAL-STATUS-BY-SUCCESS-001: gewichtete Erfolgswahrscheinlichkeit und
-    # kritische Ziele (< 45 %) wie Cockpit, Bericht und Review-Trigger.
+    # GOAL-STATUS-BY-SUCCESS-001: gewichtete Erfolgswahrscheinlichkeit (Zahl, ohne Ampel).
     weighted_success_bps = goal_items_weighted_success_bps(goal_analysis)
     goal_score_weighted_pct = int(round(weighted_success_bps / 100)) if weighted_success_bps is not None else 0
-    # P5c / N-930-01: gefaehrdet = M-3-Status "nicht_erreichbar" (keine Ampel 70/45).
-    goal_path_at_risk_count = len([
-        item for item in goal_analysis if str(item.get("status") or "") == "nicht_erreichbar"
-    ])
+    # P5c Fixrunde 1 / N-933-01: wie der Review-Trigger -- M-3 "nicht_erreichbar"
+    # oder nicht bewertbar (Unwissen ist keine Entwarnung); keine Ampel 70/45.
+    goal_path_at_risk_count = len(goal_attention_items(goal_analysis))
     monte_carlo = allocation_result.get("monte_carlo") or {}
     mc_target_series = monte_carlo.get("target_p50_series_rappen") or []
     mc_year_labels = monte_carlo.get("year_labels") or []

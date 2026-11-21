@@ -4,14 +4,11 @@
  * dass die erfassten Bewertungen aktuell sind; der Server bindet die Bestaetigung im
  * Bewertungs-Snapshot und im Audit. Teil des Monolith-Bundles. */
 async function confirmImplementationRecipe(){
-  var ok=await loadStrategyOnly(true);
-  if(!ok)return;
+  if(finalizeLocked()||!(await loadStrategyOnly(true)))return; // N-933-04: offene Aenderungen sperren
   var mid=getActiveMandateId();
   var runId=strategyState&&strategyState.recommendation&&strategyState.recommendation.run?strategyState.recommendation.run.id:null;
   try{
     if(mid&&runId&&!isDemoMandateId(mid)){
-      // CCX-P3 (N-909-07): ohne Owner-Frist bestaetigt der Berater bei jeder
-      // Finalisierung, dass die erfassten Bewertungen aktuell sind (auditiert).
       var attested=await uiConfirm({title:'Bewertungen bestätigen',message:'Ich bestätige, dass die erfassten Bewertungen (Wert und Stichtag je Vermögensposition) aktuell sind.'});
       if(!attested)return;
       await API.fetch('/mandates/'+mid+'/recommendations/'+runId+'/finalize?confirm_valuations_current=true',{method:'PUT'});
