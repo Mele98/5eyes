@@ -19,6 +19,7 @@ from models.review import MandateReportNotes
 from schemas.allocation import (
     TargetAllocationCreate, TargetAllocationResponse,
     AllocationPublicationOverviewResponse, AllocationPublicationResponse, AllocationPublishRequest,
+    PublicationInboxApproveRequest, PublicationInboxItem,
     IstProjectionBasisResponse,
     HouseMatrixResponse,
     CapitalMarketAssumptionCreate, CapitalMarketAssumptionResponse,
@@ -37,6 +38,8 @@ from services.auth import (
     get_current_user, get_mandate_for_user_or_404, require_advisor, require_admin,
     require_portfolio_management, require_reference_data_reader,
     enforce_cma_cross_tenant_read_scope, set_tenant_context,
+    COMPLIANCE_REVIEWER_ROLE, assert_compliance_reviewer_ready, require_compliance_approver,
+    same_person, tenant_id_for_new_record,
 )
 from services.audit import gate_block_audit, log, release_block_audit
 from services.recommendation_release_gate import (
@@ -68,6 +71,7 @@ from services.allocation_publication_gate import (  # load_fx_basis: Re-Export v
     decision_envelope_reference,
     allocation_publication_status,
     approval_mode_label,
+    publication_inbox_envelopes,
     publication_overview,
     publish_allocation,
     require_published_allocation,
@@ -1100,6 +1104,115 @@ def post_allocation_publication(
         expected_target_allocation_id=body.target_allocation_id,
         single_approver_attestation=body.single_approver_attestation,
         attestation_reason=body.attestation_reason,
+        ip_address=_extract_client_ip(request),
+    )
+    invalidate_advisory_cache(mandate_id)
+    return AllocationPublicationResponse(
+        publication_id=decision.id, mandate_id=decision.mandate_id,
+        target_allocation_id=decision.target_allocation_id, envelope_id=decision.envelope_id,
+        publication_sequence=decision.publication_sequence, validation_hash=decision.validation_hash,
+        approval_hash=decision.approval_hash, approval_mode=decision.approval_mode,
+        approval_mode_label=approval_mode_label(decision.approval_mode),
+        approved_at=decision.approved_at, approved_by=decision.approved_by,
+        published_envelope_hash=decision.published_envelope_hash,
+        eligible_approver_count=decision.eligible_approver_count,
+        single_person_firm=decision.single_person_firm,
+    )
+
+
+# ---------------------------------------------------------------------------
+# ROL-05 (CTO-Entscheid H-180): Freigabe-Inbox fuer die Vier-Augen-Publikation
+# ---------------------------------------------------------------------------
+# Die Zweitperson (Firmen-Admin oder die benannte externe Pruefperson) sieht
+# hier NUR die zur Freigabe vorgelegten Akten ihrer Firma (versiegelter
+# Beratungsentscheid ohne aktive Publikation), datenminimiert, und gibt genau
+# den geprueften Stand frei -- ohne volle Kundensicht. Eigene Vorbereitungen
+# erscheinen nicht (Vier Augen); Berater publizieren nicht allein, die
+# Einzelfreigabe der Ein-Personen-Firma bleibt im Mandat (POST oben).
+PUBLICATION_INBOX_ROLES: tuple[str, ...] = ("admin", COMPLIANCE_REVIEWER_ROLE)
+_INBOX_BUCKETS = ("equities", "bonds", "real_estate", "alternatives", "liquidity")
+
+
+def _publication_inbox_user(current_user: User = Depends(require_compliance_approver)) -> User:
+    if current_user.role not in PUBLICATION_INBOX_ROLES:
+        raise HTTPException(status_code=403, detail="Nur fuer die Zweitperson der Firma (Admin oder Pruefperson)")
+    return current_user
+
+
+def _inbox_allocation_fields(db: Session, target_allocation_id: str | None) -> dict:
+    ta = (db.query(TargetAllocation).filter(TargetAllocation.id == target_allocation_id).first()
+          if target_allocation_id else None)
+    if ta is None:
+        return {}
+    return {
+        "targets_bps": {b: int(getattr(ta, f"target_{b}_bps") or 0) for b in _INBOX_BUCKETS},
+        "bands_bps": {b: [int(getattr(ta, f"band_{b}_min_bps") or 0), int(getattr(ta, f"band_{b}_max_bps") or 0)]
+                      for b in _INBOX_BUCKETS},
+    }
+
+
+def _publication_inbox(db: Session, user: User) -> list[tuple[Mandate, dict]]:
+    tenant_id = tenant_id_for_new_record(user)
+    items: list[tuple[Mandate, dict]] = []
+    for envelope in publication_inbox_envelopes(db, tenant_id):
+        if envelope.sealed_by and same_person(db, user.id, envelope.sealed_by):
+            continue
+        mandate = db.query(Mandate).filter(
+            Mandate.id == envelope.mandate_id, Mandate.tenant_id == tenant_id, Mandate.deleted_at.is_(None),
+        ).first()
+        if mandate is None:
+            continue
+        overview = publication_overview(db, mandate)
+        if overview.get("already_published") or overview.get("envelope_id") != envelope.id:
+            continue
+        preparer = db.query(User).filter(User.id == envelope.sealed_by).first() if envelope.sealed_by else None
+        items.append((mandate, {
+            "mandate_id": str(mandate.id),
+            "mandate_number": mandate.mandate_number,
+            "mandate_type": getattr(mandate, "mandate_type", None),
+            "prepared_by": envelope.sealed_by,
+            "prepared_by_name": getattr(preparer, "full_name", None),
+            "sealed_at": envelope.sealed_at,
+            "target_allocation_id": overview.get("target_allocation_id"),
+            "validation_hash": overview["validation_hash"],
+            "can_publish": bool(overview.get("can_publish")),
+            "blocker_codes": list(overview.get("blocker_codes") or []),
+            **_inbox_allocation_fields(db, overview.get("target_allocation_id")),
+        }))
+    return items
+
+
+@router.get("/publication-inbox", response_model=list[PublicationInboxItem])
+def get_publication_inbox(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_publication_inbox_user),
+):
+    """ROL-05: zur Freigabe vorgelegte Akten der eigenen Firma (datenminimiert)."""
+    return [item for _mandate, item in _publication_inbox(db, current_user)]
+
+
+@router.post("/publication-inbox/{mandate_id}/approve",
+             response_model=AllocationPublicationResponse, status_code=201)
+def approve_from_publication_inbox(
+    mandate_id: str,
+    body: PublicationInboxApproveRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(_publication_inbox_user),
+):
+    """ROL-05: Vier-Augen-Freigabe einer vorgelegten Akte. Nicht vorgelegt,
+    fremde Firma oder eigene Vorbereitung -> 404 (keine Auskunft)."""
+    if current_user.role == COMPLIANCE_REVIEWER_ROLE:
+        assert_compliance_reviewer_ready(current_user)
+    match = next((m for m, item in _publication_inbox(db, current_user) if item["mandate_id"] == mandate_id), None)
+    if match is None:
+        raise HTTPException(status_code=404, detail="Keine zur Freigabe vorgelegte Akte gefunden")
+    decision = publish_allocation(
+        db, match, user=current_user,
+        expected_validation_hash=body.validation_hash,
+        expected_target_allocation_id=body.target_allocation_id,
+        single_approver_attestation=False,
+        attestation_reason=None,
         ip_address=_extract_client_ip(request),
     )
     invalidate_advisory_cache(mandate_id)

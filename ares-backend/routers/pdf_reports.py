@@ -3496,7 +3496,7 @@ def get_cost_disclosure_pdf(
     import base64
 
     from models.review import ContractDocument
-    from services.cost_disclosure import build_cost_disclosure
+    from services.cost_disclosure import build_cost_disclosure, fee_agreement_missing
 
     mandate = get_mandate_for_user_or_404(mandate_id, db, current_user)
     _assert_client_pdf_kyc_review(db, mandate, current_user, request)
@@ -3546,6 +3546,9 @@ def get_cost_disclosure_pdf(
     if _depot_bank_inducement_missing(mandate, inducement):
         if (getattr(ctx, "watermark_mode", "none") or "none") == "none":
             ctx = dataclasses.replace(ctx, watermark_mode="depotbank")
+    # EXE-P (H-187): ohne Gebuehrenvereinbarung Entwurf (Wasserzeichen, nie archiviert).
+    if fee_agreement_missing(payload) and (getattr(ctx, "watermark_mode", "none") or "none") == "none":
+        ctx = dataclasses.replace(ctx, watermark_mode="gebuehren")
     data = CostDisclosurePDFData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,
         advisory_wealth_rappen=int(payload.get("advisory_wealth_rappen") or 0),
@@ -3602,7 +3605,7 @@ def get_cost_disclosure_pdf(
             media_type="application/pdf",
             headers={
                 "Content-Disposition": content_disposition(filename),
-                "X-Ares-Draft": "vorvertrag",
+                "X-Ares-Draft": "gebuehren" if ctx.watermark_mode == "gebuehren" else "vorvertrag",
             },
         )
     return Response(

@@ -929,6 +929,26 @@ def require_published_allocation(
     )
 
 
+def publication_inbox_envelopes(db: Session, tenant_id: str | None) -> list[AdvisoryDecisionEnvelope]:
+    """ROL-05 (CTO-Entscheid H-180): die zur Freigabe vorgelegten Akten des
+    Mandanten -- versiegelte Beratungsentscheide (finalisiert), auf die noch
+    keine aktive Publikation zeigt. Ohne Mandant: keine (fail-closed)."""
+    if not tenant_id:
+        return []
+    envelopes = db.query(AdvisoryDecisionEnvelope).filter(
+        AdvisoryDecisionEnvelope.tenant_id == str(tenant_id),
+        AdvisoryDecisionEnvelope.status == "SEALED",
+    ).order_by(AdvisoryDecisionEnvelope.sealed_at.asc()).all()
+    pending: list[AdvisoryDecisionEnvelope] = []
+    for envelope in envelopes:
+        pointer = _active_pointer(db, str(tenant_id), envelope.mandate_id)
+        active = _decision(db, str(tenant_id), pointer.publication_id) if pointer is not None else None
+        if active is not None and active.envelope_id == envelope.id:
+            continue
+        pending.append(envelope)
+    return pending
+
+
 def publication_overview(db: Session, mandate: Any) -> dict[str, Any]:
     """Status fuer die Masken: aktive Publikation (tief geprueft) und die
     Pruefung der aktuellen Soll-Allokation. ``can_publish`` nur, wenn alle
@@ -1403,5 +1423,6 @@ __all__ = [
     "VALIDATION_PASS", "VALIDATION_REJECTED", "PublicationEvaluation", "PublicationState",
     "active_publication_state", "allocation_publication_status", "approval_hash_for", "approval_mode_for",
     "current_target_allocation", "evaluate_allocation_publication", "is_publishable", "publication_overview",
+    "publication_inbox_envelopes",
     "publish_allocation", "require_published_allocation", "validation_hash_for",
 ]

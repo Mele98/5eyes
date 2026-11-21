@@ -22,6 +22,13 @@ Routen-Inventar (``test_route_auth_inventory_has_no_unreviewed_weakening``):
 keine neue oeffentliche Route, keine schreibende Route ohne Rollenpruefung,
 keine Abschwaechung einer bekannten Route ohne Eintrag hier.
 
+Paket ROL (H-187, CTO-Entscheide H-180): ROL-03 Kundenportal-Token auf
+Mitarbeiter-Routern 403; ROL-04 readonly = firmenweite Lesesicht, jede
+Schreibroute 403 ``READONLY_SCOPE`` (isoliert, Sichtbarkeit gegeben, N-926-03);
+ROL-05 Freigabe-Inbox; N-926-02 Handler-Rollenpruefungen (``handler_checks``),
+GET-Routen nur mit Anmeldung/``require_staff`` (``weak_reads``) und generische
+Fremdrollen-Probe.
+
 Alle Namen/Werte sind fiktive Testwerte.
 """
 from __future__ import annotations
@@ -74,10 +81,14 @@ DEPOT = {"label": "Depot CHF (fiktiv)", "position_type": "Depot", "assignment": 
 # (Aktion, Methode, Pfad, Body, scoped, Erwartung je Spalte in COLUMNS-Reihenfolge)
 #               admin adv adv2 ro  pm  rev  sa  cl  admB advB
 MATRIX: list[tuple[str, str, str, object, bool, str]] = [
+    # ROL-03: Kundenportal-Token auf Mitarbeiter-Routern 403 (statt 200 leer).
     ("Kundenliste lesen", "GET", "/clients", None, False,
-     "A A A A A - A A A A"),
+     "A A A A A - A - A A"),
+    # ROL-04: readonly = firmenweite Lesesicht (Kunden, Mandate, Risikoprofile, PDFs).
     ("Kunde lesen", "GET", "/clients/c-a", None, True,
-     "A A - - - - - - - -"),
+     "A A - A - - - - - -"),
+    ("Mandat lesen", "GET", "/mandates/m-a", None, True,
+     "A A - A - - - - - -"),
     ("Kunde anlegen", "POST", "/clients", {}, False,
      "A A A - - - - - A A"),
     ("Kunde aendern", "PUT", "/clients/c-a", {"first_name": "Eva"}, True,
@@ -87,11 +98,11 @@ MATRIX: list[tuple[str, str, str, object, bool, str]] = [
     ("KYC-Bestaetigung erfassen (Rollen-Gate)", "POST", "/clients/c-a/kyc-confirmations", {}, False,
      "A A A - - - - - A A"),
     ("KYC-Bestaetigungen lesen", "GET", "/clients/c-a/kyc-confirmations", None, True,
-     "A A - - - - - - - -"),
+     "A A - A - - - - - -"),
     ("KYC-Zweitfreigabe entscheiden", "POST", "/compliance/kyc-approvals/x/decision", {}, False,
      "A - - - - A A - A -"),
     ("Risikoprofil lesen", "GET", "/mandates/m-a/risk-assessments", None, True,
-     "A A - - - - - - - -"),
+     "A A - A - - - - - -"),
     ("Vermoegensposition erfassen", "POST", "/clients/c-a/wealth-positions", DEPOT, True,
      "A A - - - - - - - -"),
     ("Strategie berechnen", "POST", "/mandates/m-a/target-allocation/generate", {"preferences": {}}, True,
@@ -104,7 +115,13 @@ MATRIX: list[tuple[str, str, str, object, bool, str]] = [
     ("Empfehlung finalisieren", "PUT", "/mandates/m-a/recommendations/run-x/finalize", None, True,
      "A A - - - - - - - -"),
     ("Kunden-PDF Risikoprofil", "GET", "/mandates/m-a/reports/risikoprofil.pdf", None, True,
-     "A A - - - - - - - -"),
+     "A A - A - - - - - -"),
+    # ROL-05: Freigabe-Inbox nur fuer die Zweitperson (Admin der Firma, Pruefperson).
+    ("Freigabe-Inbox lesen", "GET", "/publication-inbox", None, False,
+     "A - - - - A - - A -"),
+    ("Freigabe aus der Inbox", "POST", "/publication-inbox/m-a/approve",
+     {"target_allocation_id": "x", "validation_hash": "0" * 64}, False,
+     "A - - - - A - - A -"),
     ("FX-Kurse pflegen (Tier 1)", "PUT", "/fx-rates", {}, False,
      "A A A - A - A - A A"),
     ("CMA aendern (Tier 1)", "PUT", "/capital-market-assumptions", {}, False,
@@ -275,9 +292,15 @@ def test_tenant_separation_firm_b_sees_nothing_of_firm_a(client):
 def test_advisor_sees_only_own_clients_admin_sees_all_of_firm(client):
     assert {c["id"] for c in _call(client, "advisor", "GET", "/clients", None).json()} == {"c-a"}
     assert {c["id"] for c in _call(client, "advisor2", "GET", "/clients", None).json()} == set()
-    # Befund ROL-05 (Owner-Entscheid): readonly und Portfolio Management sehen keine Kunden.
-    assert _call(client, "readonly", "GET", "/clients", None).json() == []
+    # ROL-04 (CTO-Entscheid H-180): readonly sieht die ganze eigene Firma (nur
+    # lesend), Portfolio Management bleibt ohne Kundensicht.
+    ro = {c["id"] for c in _call(client, "readonly", "GET", "/clients", None).json()}
+    assert "c-a" in ro and "c-b" not in ro
+    assert _denied(_call(client, "readonly", "GET", "/clients/c-b", None), True)
     assert _call(client, "pm", "GET", "/clients", None).json() == []
+    # ROL-03: Kundenportal-Token bekommt auf Mitarbeiter-Listen 403 statt [].
+    assert _call(client, "client", "GET", "/clients", None).status_code == 403
+    assert _call(client, "client", "GET", "/dashboard/summary", None).status_code == 403
 
 
 # ---------------------------------------------------------------------------
@@ -285,6 +308,11 @@ def test_advisor_sees_only_own_clients_admin_sees_all_of_firm(client):
 # ---------------------------------------------------------------------------
 INVENTORY_FILE = Path(__file__).resolve().parent / "fixtures" / "h180_route_auth_inventory.json"
 _IDENTITY_DEPS = {"get_current_user", "get_current_tenant_id"}
+# N-926-02: ``require_staff`` (seit ROL-03 global an den Mitarbeiter-Routern)
+# ist nur "irgendeine Personal-Rolle" -- fuer das Inventar gleich schwach wie
+# die blosse Anmeldung. Schreibende Routen mit nur diesen Abhaengigkeiten
+# brauchen eine Begruendung UND eine belegte Rollenpruefung im Handler.
+_WEAK_DEPS = _IDENTITY_DEPS | {"require_staff"}
 # Oeffentliche Routen (ohne Anmeldung) -- abschliessend.
 PUBLIC_ROUTES = {
     ("GET", "/"), ("GET", "/health"), ("GET", "/health/live"), ("GET", "/health/ready"), ("GET", "/health/db"),
@@ -315,34 +343,122 @@ def _route_auth() -> dict[str, list[str]]:
     return out
 
 
+def _api_routes() -> dict[str, object]:
+    from fastapi.routing import APIRoute
+
+    out = {}
+    for route in app.routes:
+        if isinstance(route, APIRoute):
+            for method in route.methods:
+                out[f"{method} {route.path}"] = route
+    return out
+
+
+def _resolve_call(node, scope):
+    import ast
+
+    if isinstance(node, ast.Name):
+        return scope.get(node.id)
+    if isinstance(node, ast.Attribute):
+        base = _resolve_call(node.value, scope)
+        return getattr(base, node.attr, None) if base is not None else None
+    return None
+
+
+def _handler_reach(func, max_depth: int = 6) -> set[str]:
+    """N-926-02 (a): Namen aller Projektfunktionen, die ein Handler (transitiv,
+    bis ``max_depth``) aufruft -- statisch per AST ueber die echten Funktions-
+    objekte (Modul-Globals), damit eine entfernte Rollenpruefung im Handler oder
+    in einem Helfer/Service das Inventar rot macht."""
+    import ast
+    import inspect
+    import textwrap
+    import types
+
+    backend = str(BACKEND_ROOT.resolve())
+    seen: set[int] = set()
+    names: set[str] = set()
+    queue = [(func, 0)]
+    while queue:
+        fn, depth = queue.pop()
+        fn = inspect.unwrap(fn)
+        if not isinstance(fn, types.FunctionType) or id(fn) in seen:
+            continue
+        seen.add(id(fn))
+        source_file = getattr(fn.__code__, "co_filename", "") or ""
+        if not str(Path(source_file).resolve()).startswith(backend):
+            continue
+        names.add(fn.__name__)
+        if depth >= max_depth:
+            continue
+        try:
+            tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+        except (OSError, TypeError, SyntaxError):
+            continue
+        scope = dict(fn.__globals__)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                target = _resolve_call(node.func, scope)
+                if target is not None:
+                    queue.append((target, depth + 1))
+    return names
+
+
+def _snapshot():
+    return json.loads(INVENTORY_FILE.read_text(encoding="utf-8"))
+
+
+def _weak_get_routes(current: dict[str, list[str]]) -> set[str]:
+    return {
+        key for key, deps in current.items()
+        if key.startswith("GET ") and deps and set(deps) <= _WEAK_DEPS
+    }
+
+
 def test_route_auth_inventory_has_no_unreviewed_weakening():
     """Bekannte Routen behalten ihre Rollen-Dependency (Snapshot); neue Routen
-    sind nie oeffentlich und schreiben nie nur mit Anmeldung, ausser sie stehen
-    mit Begruendung im Snapshot (``identity_only_writes``). Aktualisieren nur
-    nach Pruefung: ``ARES_H180_UPDATE_INVENTORY=1``."""
+    sind nie oeffentlich und schreiben nie nur mit Anmeldung bzw. nur mit
+    ``require_staff``, ausser sie stehen mit Begruendung und belegter
+    Handler-Pruefung im Snapshot (``identity_only_writes``/``handler_checks``).
+    N-926-02 (b): jede GET-Route mit nur Anmeldung/``require_staff`` steht mit
+    Begruendung in ``weak_reads`` -- eine neue ist rot, bis sie geprueft ist
+    (Sichtbarkeitspruefung im Handler oder rein interne Personal-Daten).
+    Aktualisieren nur nach Pruefung: ``ARES_H180_UPDATE_INVENTORY=1`` (schreibt
+    nur ``routes``; Begruendungen werden von Hand gepflegt)."""
     import os
 
     current = _route_auth()
     if os.environ.get("ARES_H180_UPDATE_INVENTORY") == "1":
-        previous = json.loads(INVENTORY_FILE.read_text(encoding="utf-8")) if INVENTORY_FILE.exists() else {}
+        previous = _snapshot() if INVENTORY_FILE.exists() else {}
         INVENTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        # /reporting ist nur mit gebauter Reporting-Sub-App gemountet: bekannte
+        # Eintraege bleiben erhalten, auch wenn lokal nicht gebaut.
+        reporting = {k: v for k, v in previous.get("routes", {}).items() if k.startswith("GET /reporting")}
         INVENTORY_FILE.write_text(json.dumps({
-            "routes": current,
+            "routes": {**reporting, **current},
             "identity_only_writes": previous.get("identity_only_writes", {}),
-        }, indent=1, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
-    snapshot = json.loads(INVENTORY_FILE.read_text(encoding="utf-8"))
+            "handler_checks": previous.get("handler_checks", {}),
+            "weak_reads": previous.get("weak_reads", {}),
+        }, indent=1, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
+    snapshot = _snapshot()
     known: dict[str, list[str]] = snapshot["routes"]
     identity_only_writes: dict[str, str] = snapshot["identity_only_writes"]
+    weak_reads: dict[str, str] = snapshot["weak_reads"]
     problems: list[str] = []
     for key, deps in current.items():
         method, path = key.split(" ", 1)
         if not deps and (method, path) not in PUBLIC_ROUTES:
             problems.append(f"neue oeffentliche Route ohne Anmeldung: {key}")
-        if key in known:
-            if set(known[key]) - set(deps):
-                problems.append(f"Rollenpruefung abgeschwaecht: {key} vorher {known[key]}, jetzt {deps}")
-        elif method != "GET" and deps and set(deps) <= _IDENTITY_DEPS and key not in identity_only_writes:
-            problems.append(f"neue schreibende Route nur mit Anmeldung (Rollenpruefung fehlt): {key}")
+        if key in known and set(known[key]) - set(deps):
+            problems.append(f"Rollenpruefung abgeschwaecht: {key} vorher {known[key]}, jetzt {deps}")
+        if method != "GET" and deps and set(deps) <= _WEAK_DEPS and key not in identity_only_writes:
+            problems.append(f"schreibende Route ohne Rollen-Dependency und ohne Eintrag: {key}")
+    for key in sorted(_weak_get_routes(current) - set(weak_reads)):
+        problems.append(f"neue GET-Route nur mit Anmeldung/require_staff (pruefen, eintragen): {key}")
+    for key in sorted(set(weak_reads) - _weak_get_routes(current)):
+        problems.append(f"veralteter weak_reads-Eintrag (Route weg oder verschaerft): {key}")
+    for key in sorted(set(identity_only_writes) - set(current)):
+        problems.append(f"veralteter identity_only_writes-Eintrag (Route weg): {key}")
     for method, path in PUBLIC_ROUTES:
         if path.startswith("/reporting"):
             continue  # nur gemountet, wenn die Reporting-Sub-App gebaut ist
@@ -351,6 +467,131 @@ def test_route_auth_inventory_has_no_unreviewed_weakening():
 
 
 def test_inventory_records_inline_checked_identity_only_writes_with_reason():
-    snapshot = json.loads(INVENTORY_FILE.read_text(encoding="utf-8"))
-    for key, reason in snapshot["identity_only_writes"].items():
-        assert len(reason) >= 20, f"Begruendung fehlt fuer {key}"
+    snapshot = _snapshot()
+    for section in ("identity_only_writes", "weak_reads"):
+        for key, reason in snapshot[section].items():
+            assert len(reason) >= 20, f"Begruendung fehlt fuer {section}/{key}"
+
+
+def test_handler_role_checks_of_identity_only_writes_are_reached():
+    """N-926-02 (a): jede schreibende Ausnahme nennt die Rollenpruefung, die ihr
+    Handler (direkt oder ueber Helfer/Service) tatsaechlich aufruft. Fehlt der
+    Aufruf -- z. B. ``_require_case_operator`` aus ``_subject_request``
+    entfernt --, ist dieser Test rot. Leere Liste nur fuer die Selbstbedienung
+    des eigenen Kontos und die zustandslose Steuerschaetzung (Begruendung)."""
+    snapshot = _snapshot()
+    checks: dict[str, list[str]] = snapshot["handler_checks"]
+    routes = _api_routes()
+    assert set(checks) == set(snapshot["identity_only_writes"]), (
+        "handler_checks und identity_only_writes muessen dieselben Routen fuehren")
+    problems = []
+    for key, required in checks.items():
+        if not required:
+            assert key.startswith(("POST /auth/", "PUT /users/{user_id}/password", "POST /tax/estimate")), (
+                f"{key}: ohne Handler-Pruefung nur Selbstbedienung/Steuerschaetzung")
+            continue
+        reached = _handler_reach(routes[key].endpoint)
+        missing = [name for name in required if name not in reached]
+        if missing:
+            problems.append(f"{key}: Rollenpruefung nicht mehr erreicht: {missing}")
+    assert not problems, "\n".join(problems)
+
+
+def test_handler_reach_detects_removed_check():
+    """Kontrolle des Werkzeugs: eine Funktion ohne den Aufruf erreicht ihn nicht."""
+    def guarded():
+        from services.auth import require_admin  # noqa: F401
+        return _snapshot()
+
+    reached = _handler_reach(test_handler_role_checks_of_identity_only_writes_are_reached)
+    assert "_handler_reach" in reached and "_api_routes" in reached
+    assert "_require_case_operator" not in _handler_reach(guarded)
+
+
+_FOREIGN_PROBE_ROLES = ("advisor2", "pm", "reviewer", "client", "admin_b", "advisor_b")
+
+
+def _is_data(resp) -> bool:
+    if not (200 <= resp.status_code < 300):
+        return False
+    ctype = resp.headers.get("content-type", "")
+    if not ctype.startswith("application/json"):
+        return bool(resp.content)
+    body = resp.json()
+    return body not in ([], {}, None, "")
+
+
+def test_weak_get_routes_never_return_foreign_client_data(client):
+    """N-926-02 (b), generische Probe: jede GET-Route mit nur Anmeldung/
+    ``require_staff`` und Kunden-/Mandatsbezug liefert einer fremden Rolle
+    (anderer Berater, PM, Pruefperson, Kunde, Firma B) fuer Kunde ``c-a`` bzw.
+    Mandat ``m-a`` der Firma A nie 2xx mit Daten."""
+    import re
+
+    current = _route_auth()
+    leaks = []
+    for key in sorted(_weak_get_routes(current)):
+        _method, path = key.split(" ", 1)
+        if "{client_id}" not in path and "{mandate_id}" not in path:
+            continue
+        concrete = re.sub(r"\{[^}]+\}", "x", path.replace("{client_id}", "c-a").replace("{mandate_id}", "m-a"))
+        for role_key in _FOREIGN_PROBE_ROLES:
+            resp = _call(client, role_key, "GET", concrete, None)
+            assert resp.status_code < 500, f"{key} / {role_key}: {resp.status_code} {resp.text[:200]}"
+            if _is_data(resp):
+                leaks.append(f"{key} / {role_key}: {resp.status_code} {resp.text[:120]}")
+    assert not leaks, "\n".join(leaks)
+
+
+# ---------------------------------------------------------------------------
+# N-926-03 / ROL-04: isoliertes Rollen-Gate fuer readonly
+# ---------------------------------------------------------------------------
+_READONLY_SELF_SERVICE = {
+    "POST /auth/logout", "POST /auth/refresh", "POST /auth/change-password", "POST /auth/2fa/setup",
+    "POST /auth/2fa/enable", "POST /auth/2fa/disable", "POST /auth/2fa/recovery/regenerate",
+}
+
+
+def test_readonly_sees_firm_but_every_write_route_is_denied_by_role(client):
+    """readonly sieht Kunde/Mandat der eigenen Firma (Sichtbarkeit greift NICHT),
+    damit ist jede Sperre hier allein die Rolle: JEDE nicht lesende Route der App
+    (Pfadparameter = sichtbarer Kunde ``c-a``/Mandat ``m-a``) antwortet 403
+    ``READONLY_SCOPE`` -- ausser die Selbstbedienung des eigenen Kontos und die
+    oeffentlichen Routen."""
+    import re
+
+    assert _call(client, "readonly", "GET", "/clients/c-a", None).status_code == 200
+    assert _call(client, "readonly", "GET", "/mandates/m-a", None).status_code == 200
+    current = _route_auth()
+    wrong = []
+    for key, deps in sorted(current.items()):
+        method, path = key.split(" ", 1)
+        if method in ("GET", "HEAD", "OPTIONS") or not deps or key in _READONLY_SELF_SERVICE:
+            continue
+        concrete = re.sub(r"\{[^}]+\}", "x", path.replace("{client_id}", "c-a").replace("{mandate_id}", "m-a")
+                          .replace("{user_id}", "h180-adm"))
+        resp = _call(client, "readonly", method, concrete, {})
+        detail = resp.json().get("detail") if resp.headers.get("content-type", "").startswith("application/json") else None
+        code = detail.get("reason_code") if isinstance(detail, dict) else None
+        if resp.status_code != 403 or code != "READONLY_SCOPE":
+            wrong.append(f"{key}: {resp.status_code} {resp.text[:120]}")
+    assert not wrong, "\n".join(wrong)
+    # Eigenes Passwort bleibt Selbstbedienung (nicht READONLY_SCOPE).
+    own = _call(client, "readonly", "PUT", "/users/h180-ro/password", {})
+    assert own.status_code != 403 or "READONLY_SCOPE" not in own.text
+
+
+def test_readonly_write_with_valid_body_on_visible_client_is_denied(client):
+    """Gueltige Minimal-Bodies: die Sperre ist nicht nur eine 422-Folge."""
+    cases = [
+        ("PUT", "/clients/c-a", {"first_name": "Eva"}),
+        ("POST", "/clients", {"client_number": "K-RO-1", "first_name": "Eva", "last_name": "Fiktiv",
+                              "data_classification": "synthetic"}),
+        ("POST", "/clients/c-a/wealth-positions", DEPOT),
+        ("POST", "/clients/c-a/mandates", {"mandate_number": "M-RO-1", "data_classification": "synthetic"}),
+    ]
+    for method, path, body in cases:
+        resp = _call(client, "readonly", method, path, body)
+        assert resp.status_code == 403 and "READONLY_SCOPE" in resp.text, f"{method} {path}: {resp.status_code}"
+    # Gegenkontrolle (ohne weitere Datensaetze): der Admin derselben Firma kommt durch.
+    assert _call(client, "admin", "PUT", "/clients/c-a", {"first_name": "Eva"}).status_code == 200

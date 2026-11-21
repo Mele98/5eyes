@@ -18,7 +18,11 @@ const backendRoot = path.join(projectRoot, 'ares-backend');
 const bundleBackendDir = path.join(projectRoot, 'ares-desktop', 'bundle', 'backend');
 const distExe = path.join(backendRoot, 'dist', 'ares-api.exe');
 const isWindows = process.platform === 'win32';
-const buildWithSqlcipher = process.env.BUILD_WITH_SQLCIPHER === '1';
+// EXE-P (H-187): SQLCipher ist im Release-Build Standard. Die gepackte EXE
+// startet nur mit verschluesselter Datenbank (config.ensure_packaged_db_key);
+// ein Build ohne SQLCipher (BUILD_WITH_SQLCIPHER=0, nur Diagnose) ergibt eine
+// EXE, die mit klarem Startfehler abbricht.
+const buildWithSqlcipher = process.env.BUILD_WITH_SQLCIPHER !== '0';
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, {
@@ -287,6 +291,18 @@ for (const pkg of [
 }
 
 if (buildWithSqlcipher) {
+  // Fail-closed: ohne installierten Treiber kein Release-Build (PyInstaller
+  // meldet einen fehlenden --hidden-import nur als Warnung).
+  const probe = spawnSync('python', ['-c', 'import sqlcipher3; print(sqlcipher3.connect(":memory:").execute("PRAGMA cipher_version").fetchone()[0])'], {
+    cwd: backendRoot,
+    encoding: 'utf8',
+    shell: isWindows,
+  });
+  if (probe.status !== 0 || !String(probe.stdout || '').trim()) {
+    console.error('SQLCipher-Treiber (sqlcipher3) fehlt: pip install --require-hashes --only-binary=:all: -r ares-backend/requirements-sqlcipher.txt');
+    process.exit(1);
+  }
+  console.log(`SQLCipher im Build: ${String(probe.stdout).trim()}`);
   pyInstallerArgs.push('--hidden-import', 'sqlcipher3');
   pyInstallerArgs.push('--collect-submodules', 'sqlcipher3');
 }

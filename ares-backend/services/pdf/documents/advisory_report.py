@@ -37,7 +37,7 @@ from sqlalchemy.orm import Session
 from models.mandates import Mandate
 from models.users import User
 from services.backtest_stress import STRESS_REPLAY_SCOPE_LABEL
-from services.cost_disclosure import build_cost_disclosure
+from services.cost_disclosure import build_cost_disclosure, fee_agreement_missing
 from services.advisory_report import _build_suitability_compliance, compute_advisory_report
 from services.pdf.fonts import register_editorial_fonts
 from services.pdf.components.advisory_page_chrome import (
@@ -159,6 +159,9 @@ def render_advisory_report_pdf(
     provisional_notice = _resolve_advisory_report_provisional_notice(db, mandate)
     if provisional_notice is not None:
         payload["provisional_notice"] = provisional_notice
+    # EXE-P (H-187): ohne Gebuehrenvereinbarung ist der Bericht (mit Kostenteil) ein Entwurf.
+    if (watermark_mode or "none") == "none" and fee_agreement_missing(payload.get("cost_disclosure")):
+        watermark_mode = "gebuehren"
     return render_advisory_report_pdf_from_payload(
         payload, watermark_mode=watermark_mode, decision_ref=decision_ref,
     )

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 from sqlalchemy.orm import Session, selectinload
 
-from config import RunContext, settings
+from config import RunContext, settings, smoke_reference_package
 from core.chf_amount import normalize_chf_amount_text
 from core.holdings_rule import select_valuation_runs
 from core.evidence import SCHEME_V1_ASCII, canonical_json, evidence_hash
@@ -1254,6 +1254,7 @@ from services.portfolio_engine_live_rebalancing import (  # noqa: F401,E402
 # spending) -- der zweite Konsument wurde beim Draften dieses Schritts
 # gefunden, nicht im urspruenglichen ADR-014 gelistet.
 from services.portfolio_engine_house_matrix import (  # noqa: F401,E402
+    assert_runtime_reference_seed_allowed, reference_template_sha256, runtime_seed_fee_model_json,  # EXE-P (H-187)
     _apply_band_min_max_overrides,
     _apply_band_preferences,
     _apply_external_exposure_tilts,
@@ -1737,11 +1738,41 @@ def ensure_runtime_reference_data(
     return policy, cma
 
 
-def _ensure_runtime_reference_data_ch(
-    db: Session, user_id: str, seed: bool = True,
-) -> tuple[OptimizerPolicy, CapitalMarketAssumption]:
-    now = _now()
-    today = _today()
+def _default_cma_values() -> dict[str, object]:
+    """Vorlagewerte der CH-CMA (Quell-/Testbetrieb; EXE nur ueber das TEST-
+    Referenzpaket des Packaging-Smokes, gebunden ueber ``reference_template_sha256``)."""
+    return {
+        "bonds_chf_ig_return_bps": 220,
+        "bonds_chf_ig_vol_bps": 350,
+        "bonds_fx_hedged_return_bps": 220,
+        "bonds_fx_hedged_vol_bps": 430,
+        "bonds_hy_return_bps": 420,
+        "bonds_hy_vol_bps": 950,
+        "equity_ch_return_bps": 620,
+        "equity_ch_vol_bps": 1450,
+        "equity_intl_return_bps": 700,
+        "equity_intl_vol_bps": 1600,
+        "equity_em_return_bps": 760,
+        "equity_em_vol_bps": 1900,
+        "real_estate_ch_return_bps": 450,
+        "real_estate_ch_vol_bps": 820,
+        # 2026-06-18 konservativ (User "immer tieferer Wert"): Gold hat langfristig
+        # ~0% Realrendite -> nominale Annahme von 3.0% auf 1.2% gesenkt.
+        "alternatives_gold_return_bps": 120,
+        "alternatives_gold_vol_bps": 1200,
+        "liquidity_return_bps": 80,
+        "liquidity_vol_bps": 15,
+        "inflation_path_json": json.dumps({
+            "2026": 50, "2027": 70, "2028": 60, "2029": 50, "2030": 60, "2031": 70, "2032": 70, "2033": 70,
+            "2034": 70, "2035": 70, "2036": 70, "2037": 80, "2038": 90, "2039": 100, "2040": 110,
+        }),
+        "sub_asset_class_assumptions_json": json.dumps(_DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS),
+    }
+
+
+def _reference_template_values() -> tuple[list[tuple], list[tuple], dict[str, object]]:
+    """Vorlagewerte (House-Matrix, Bausteine, CMA) -- eine Quelle fuer das
+    Laufzeit-Seeding im Quellbetrieb und den Pruefwert des TEST-Referenzpakets."""
     # max_risky_fraction_bps pro Profil (ASIP-Konvention, U-P23.2/3, 2026-05-26):
     #   Kapitalschutz 3000 (=30%, ASIP-Obergrenze „Sicherheit/Kapitalschutz")
     #   Defensiv      4500 (=45%, ASIP-Obergrenze „Defensiv")
@@ -1803,7 +1834,27 @@ def _ensure_runtime_reference_data_ch(
         ("Liquiditaet", "Kontoguthaben", 0),
         ("Liquiditaet", "Festgeld", 0),
     ]
+    return defaults, building_blocks, _default_cma_values()
+
+
+def current_reference_template_sha256() -> str:
+    """EXE-P (H-187): Pruefwert der Vorlagewerte dieser Version (TEST-Referenzpaket)."""
+    return reference_template_sha256(*_reference_template_values())
+
+
+def _ensure_runtime_reference_data_ch(
+    db: Session, user_id: str, seed: bool = True,
+) -> tuple[OptimizerPolicy, CapitalMarketAssumption]:
+    now = _now()
+    today = _today()
+    defaults, building_blocks, cma_values = _reference_template_values()
     _validate_house_matrix_defaults(defaults)
+
+    def _guard_seed(what: str) -> None:
+        assert_runtime_reference_seed_allowed(
+            seed_allowed=settings.runtime_reference_seed_allowed, production_mode=settings.production_mode,
+            package=smoke_reference_package(settings), defaults=defaults, building_blocks=building_blocks,
+            cma_values=cma_values, what=what)
     policy_candidates = db.query(OptimizerPolicy).filter(
         OptimizerPolicy.is_current == 1
     ).all()
@@ -1816,11 +1867,7 @@ def _ensure_runtime_reference_data_ch(
     if not policy:
         if not seed:
             raise JurisdictionReferenceDataMissingError("Keine aktuelle OptimizerPolicy (Lesepfad seedet nicht).")
-        if settings.app_env == "production":
-            raise JurisdictionReferenceDataMissingError(
-                "In Produktion fehlen freigegebene OptimizerPolicy-"
-                "Referenzdaten. Runtime-Autoseeding ist nicht zulaessig."
-            )
+        _guard_seed("OptimizerPolicy")  # EXE-P: nie in Produktion/gepackter EXE (ausser Smoke-Testpaket)
         policy = OptimizerPolicy(
             id=new_uuid(),
             policy_name=DEFAULT_POLICY_NAME,
@@ -1832,7 +1879,7 @@ def _ensure_runtime_reference_data_ch(
             max_alternatives_bps=1000,
             min_liquidity_bps=0,
             allow_other_assets_for_goals=1,
-            fee_model_json=json.dumps({"default_advisory_fee_bps": 75}),
+            fee_model_json=runtime_seed_fee_model_json(),  # EXE-P: kein Gebuehren-Default (L1)
             notes="Automatisch erzeugte V1-Standard-Policy",
             created_by=user_id,
             created_at=now,
@@ -1851,55 +1898,14 @@ def _ensure_runtime_reference_data_ch(
     if not cma:
         if not seed:
             raise JurisdictionReferenceDataMissingError("Keine aktuelle CMA (Lesepfad seedet nicht).")
-        if settings.app_env == "production":
-            raise JurisdictionReferenceDataMissingError(
-                "In Produktion fehlt eine aktuelle CH-CMA. Runtime-"
-                "Autoseeding mit Hausannahmen ist nicht zulaessig."
-            )
+        _guard_seed("CH-CMA")
         cma = CapitalMarketAssumption(
             id=new_uuid(),
             assumption_set_name=DEFAULT_CMA_NAME,
             version=1,
             valid_from=today,
             is_current=1,
-            bonds_chf_ig_return_bps=220,
-            bonds_chf_ig_vol_bps=350,
-            bonds_fx_hedged_return_bps=220,
-            bonds_fx_hedged_vol_bps=430,
-            bonds_hy_return_bps=420,
-            bonds_hy_vol_bps=950,
-            equity_ch_return_bps=620,
-            equity_ch_vol_bps=1450,
-            equity_intl_return_bps=700,
-            equity_intl_vol_bps=1600,
-            equity_em_return_bps=760,
-            equity_em_vol_bps=1900,
-            real_estate_ch_return_bps=450,
-            real_estate_ch_vol_bps=820,
-            # 2026-06-18 konservativ (User "immer tieferer Wert"): Gold hat langfristig
-            # ~0% Realrendite -> nominale Annahme von 3.0% auf 1.2% gesenkt.
-            alternatives_gold_return_bps=120,
-            alternatives_gold_vol_bps=1200,
-            liquidity_return_bps=80,
-            liquidity_vol_bps=15,
-            inflation_path_json=json.dumps({
-                "2026": 50,
-                "2027": 70,
-                "2028": 60,
-                "2029": 50,
-                "2030": 60,
-                "2031": 70,
-                "2032": 70,
-                "2033": 70,
-                "2034": 70,
-                "2035": 70,
-                "2036": 70,
-                "2037": 80,
-                "2038": 90,
-                "2039": 100,
-                "2040": 110,
-            }),
-            sub_asset_class_assumptions_json=json.dumps(_DEFAULT_SUB_ASSET_CLASS_ASSUMPTIONS),
+            **cma_values,
             source="Ares Default Runtime",
             notes="Automatisch erzeugte Default-CMA fuer V1-Engine",
             created_by=user_id,
@@ -6595,13 +6601,15 @@ def generate_recommendation_run(
     # WP2 (Engine-Wiring Jurisdiktion, 2026-07-31): einmal pro Lauf aufgeloest.
     run_context = build_run_context(mandate)  # X2b: einmal pro Lauf
     jurisdiction = run_context.jurisdiction
-    ensure_default_products(db, jurisdiction=jurisdiction)
+    # EXE-P (H-187): kein Muster-Fondskatalog in Produktion/gepackter EXE.
+    if not settings.production_mode:
+        ensure_default_products(db, jurisdiction=jurisdiction)
     # 2026-08-22 (hedgingRequired-Katalogluecke): additiver Backfill, laeuft
     # unabhaengig davon ob ensure_default_products() oben tatsaechlich
     # geseedet hat (der ist idempotent pro-Produkt, nicht "Katalog leer?").
     # Gleiche Jurisdiktions-Gate wie ensure_default_products() -- die
     # HEDGED_PRODUCT_VARIANTS sind CH-spezifische Sub-Asset-Class-Namen.
-    if jurisdiction in (None, "CH"):
+    if jurisdiction in (None, "CH") and not settings.production_mode:
         ensure_hedged_product_variants(db)
     _normalize_preferences(preferences)  # fail-fast Vokabular; wirksam: TA-Snapshot unten
     policy, cma = ensure_runtime_reference_data(

@@ -49,6 +49,14 @@ def guarded_sqlite_connect(target, *, context: str, connector=None, **kwargs):
 
         connector = sqlite3.connect
     refuse_owner_db_file(str(target), context=context)
+    # EXE-P (H-187): die gepackte EXE oeffnet nie eine Klartext-Datei mit dem
+    # stdlib-Treiber (nur sqlcipher3; ``:memory:`` bleibt erlaubt).
+    import sqlite3 as _stdlib_sqlite3
+
+    if PACKAGED_BUILD and connector is _stdlib_sqlite3.connect and str(target) != ":memory:":
+        raise PackagedDatabaseError(
+            f"Unverschluesselte Datenbankverbindung in der installierten Version verweigert ({context})."
+        )
     if "factory" not in kwargs:
         factory = _guarded_factory_for(sys.modules.get(getattr(connector, "__module__", "") or ""))
         if factory is not None:
@@ -671,6 +679,16 @@ class Settings(BaseSettings):
     # KEK kommt dann ausschliesslich aus TENANT_MASTER_KEK (Server/Staging,
     # Tests). Siehe ``ensure_tenant_master_kek`` am Ende dieses Moduls.
     tenant_master_kek_file: str = ''
+    # EXE-P (H-187): Pfad der DPAPI-geschuetzten Ablage des SQLCipher-
+    # Datenbankschluessels (Datei im userData-Ordner, Electron setzt ihn beim
+    # Spawn). Nur die gepackte EXE nutzt ihn; dort ist er Pflicht (fail-closed,
+    # ``ensure_packaged_db_key``). Quellbetrieb/Tests: leer, unveraendert.
+    db_key_file: str = ''
+    # EXE-P (H-187, N-926-01): NUR fuer den Packaging-Smoke. Pfad eines
+    # TEST-Referenzpakets (``ares-test-reference-package/1``, ``test_only``),
+    # mit dem die gepackte EXE einmal rechnen darf. Die Desktop-Shell reicht
+    # die Variable nie an das Backend weiter (main.js entfernt sie).
+    test_reference_package_file: str = ''
 
     # SEC-007 (Codex-Audit 2026-08-26): der bisherige `.sha256`-Sidecar neben
     # jedem Backup ist UNKEYED -- er beweist nur Zufallsintegritaet, nicht
@@ -710,12 +728,29 @@ class Settings(BaseSettings):
     sub_class_intra_correlation: float = 1.0
 
     @property
+    def production_mode(self) -> bool:
+        """EXE-P (H-187): Produktionsregeln gelten bei ``app_env=production``
+        ODER in der gepackten Desktop-EXE (``sys.frozen``). Eine Linie fuer
+        IC-Sperre, Demo-Sperre und das Verbot des Laufzeit-Seedings."""
+        return self.app_env == 'production' or bool(getattr(sys, 'frozen', False))
+
+    @property
     def ic_release_required(self) -> bool:
         """CCX P5 / N-925-05 (CTO-Entscheid H-180): ohne IC-Freigabe der
         Risikoparameter keine Berechnung in Produktion -- ``app_env=production``
         ODER gepackte Desktop-EXE (``sys.frozen``), dieselbe Linie wie
-        ``foundation_example_available``."""
-        return self.app_env == 'production' or bool(getattr(sys, 'frozen', False))
+        ``foundation_example_available``. Ausnahme nur fuer den Packaging-Smoke:
+        ein geladenes TEST-Referenzpaket (``smoke_reference_package_active``)
+        erlaubt das Rechnen; die Werte bleiben als nicht IC-freigegeben
+        gekennzeichnet."""
+        return self.production_mode and not smoke_reference_package_active(self)
+
+    @property
+    def runtime_reference_seed_allowed(self) -> bool:
+        """EXE-P (H-187): Hausannahmen (Vorlagewerte) zur Laufzeit anlegen nur
+        im Quell-/Testbetrieb -- in Produktion und in der gepackten EXE nie,
+        ausser ein TEST-Referenzpaket des Packaging-Smokes ist geladen."""
+        return (not self.production_mode) or smoke_reference_package_active(self)
 
     @property
     def foundation_example_available(self) -> bool:
@@ -723,7 +758,7 @@ class Settings(BaseSettings):
         Entwicklungs-/Demo-/Testbetrieb. Gesperrt in ``app_env=production`` und
         in der gepackten Produktivinstallation (PyInstaller-EXE der Desktop-App,
         ``sys.frozen``) -- bestehende Modus-Merkmale, kein neuer Schalter."""
-        return self.app_env != 'production' and not getattr(sys, 'frozen', False)
+        return not self.production_mode
 
     @field_validator('app_env')
     @classmethod
@@ -1767,3 +1802,261 @@ def effective_version(default: str) -> str:
 def build_sha() -> str | None:
     info = build_info()
     return info["git_sha"] if info else None
+
+
+# ---------------------------------------------------------------------------
+# EXE-P (H-187): Produktionsmodus der gepackten EXE -- SQLCipher-Pflicht.
+# Die gepackte EXE (``sys.frozen``) oeffnet nie eine Klartext-Datenbank: der
+# SQLCipher-Schluessel liegt DPAPI-geschuetzt (Benutzer-Scope) im userData-
+# Ordner, im selben Ablageformat wie die Master-KEK (RB-1), mit eigener
+# Kennung und Entropie. Erststart ohne Datenbank: Schluessel erzeugen, ablegen,
+# zuruecklesen. Vorhandene Datenbank ohne Ablage: nie einen neuen Schluessel
+# erzeugen (Bestandsdaten waeren unlesbar bzw. Klartext) -> Startfehler.
+#
+# Die Datenbank-Engine entsteht beim Import von ``database`` aus ``settings``;
+# der Schluessel muss also VOR diesem Import gesetzt sein. Deshalb wendet das
+# Modulende von ``config`` die Regel in der gepackten EXE einmal an und merkt
+# sich ein Problem (``PACKAGED_DB_STATE``), statt beim Import zu werfen; der
+# Lifespan bricht dann vor ``init_db`` mit der deutschen Meldung ab
+# (``require_packaged_database``), und ``database`` verweigert jede
+# Klartext-Verbindung in der gepackten EXE.
+# ---------------------------------------------------------------------------
+DB_KEY_STORE_MAGIC = b"ARES-DBKEY-DPAPI/1\n"
+DB_KEY_STORE_ENTROPY = b"ares.sqlcipher-db-key.store.v1"
+DB_KEY_STORE_NAME = "db-key.dpapi"
+PACKAGED_BUILD = bool(getattr(sys, "frozen", False))
+
+
+class PackagedDatabaseError(RuntimeError):
+    """Die gepackte EXE kann die verschluesselte Datenbank nicht sicher oeffnen."""
+
+
+def _sqlcipher_importable() -> bool:
+    try:
+        import sqlcipher3  # noqa: F401
+    except Exception:  # noqa: BLE001 - jede Ausnahme heisst: nicht verfuegbar
+        return False
+    return True
+
+
+def _read_db_key_store(path: Path, protector) -> str:
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise PackagedDatabaseError(
+            f"Die Ablage des Datenbankschluessels laesst sich nicht lesen ({type(exc).__name__}). "
+            "Ares startet nicht und erzeugt keinen neuen Schluessel."
+        ) from exc
+    if not raw.startswith(DB_KEY_STORE_MAGIC):
+        raise PackagedDatabaseError(
+            "Die Ablage des Datenbankschluessels hat ein unbekanntes Format. Ares startet nicht."
+        )
+    try:
+        value = protector.unprotect(raw[len(DB_KEY_STORE_MAGIC):], DB_KEY_STORE_ENTROPY).decode("ascii")
+    except Exception as exc:  # noqa: BLE001 - jeder Entschluesselungsfehler ist ein Startfehler
+        raise PackagedDatabaseError(
+            "Die Ablage des Datenbankschluessels laesst sich nicht entschluesseln (anderes "
+            "Windows-Konto, fremdes Profil oder beschaedigte Datei). Ares startet nicht und "
+            "erzeugt keinen neuen Schluessel. Datei nicht loeschen; aus Sicherung wiederherstellen."
+        ) from exc
+    if not db_key_format_ok(value):
+        raise PackagedDatabaseError("Die Ablage des Datenbankschluessels enthaelt keinen gueltigen Schluessel.")
+    return value
+
+
+def _store_exists(path: Path) -> bool:
+    try:
+        return path.exists()
+    except OSError as exc:
+        raise PackagedDatabaseError(
+            f"Die Ablage des Datenbankschluessels laesst sich nicht pruefen ({type(exc).__name__}). "
+            "Ares startet nicht und erzeugt keinen neuen Schluessel."
+        ) from exc
+
+
+def ensure_packaged_db_key(
+    cfg: "Settings | None" = None,
+    *,
+    packaged: bool | None = None,
+    protector=None,
+    sqlcipher_available: bool | None = None,
+) -> str:
+    """Stellt in der gepackten EXE den SQLCipher-Schluessel bereit.
+
+    Ergebnisse (nie mit Schluessel): ``not-packaged`` (Quellbetrieb/Tests,
+    nichts geaendert), ``server-database`` (DATABASE_URL auf PostgreSQL),
+    ``configured`` (DB_KEY ausdruecklich gesetzt), ``loaded`` (aus der
+    Ablage), ``generated`` (Erststart). Jeder unsichere Zustand wirft
+    :class:`PackagedDatabaseError`; danach gilt immer ``db_use_sqlcipher``.
+    """
+    cfg = cfg if cfg is not None else settings
+    packaged = PACKAGED_BUILD if packaged is None else packaged
+    if not packaged:
+        return "not-packaged"
+    url = str(getattr(cfg, "database_url", None) or "").strip().lower()
+    if url.startswith(("postgresql://", "postgresql+")):
+        return "server-database"
+    available = _sqlcipher_importable() if sqlcipher_available is None else sqlcipher_available
+    if not available:
+        raise PackagedDatabaseError(
+            "Diese Ares-Installation enthaelt keine Datenbank-Verschluesselung (SQLCipher). "
+            "Die installierte Version oeffnet nie eine unverschluesselte Datenbank und startet "
+            "deshalb nicht. Bitte eine mit SQLCipher gebaute Version installieren."
+        )
+    protector = protector if protector is not None else WindowsDpapi()
+    explicit = str(getattr(cfg, "db_key", None) or "").strip()
+    store_setting = str(getattr(cfg, "db_key_file", "") or "").strip()
+    store = Path(store_setting).expanduser() if store_setting else None
+    if explicit:
+        if not db_key_format_ok(explicit):
+            raise PackagedDatabaseError(DB_KEY_FORMAT_MESSAGE)
+        if store is not None and _store_exists(store):
+            stored = _read_db_key_store(store, protector)
+            if not hmac.compare_digest(stored.encode("ascii"), explicit.encode("utf-8")):
+                raise PackagedDatabaseError(
+                    "DB_KEY widerspricht der Ablage des Datenbankschluessels. Ares startet nicht; "
+                    "eine der beiden Quellen entfernen."
+                )
+        cfg.db_use_sqlcipher = True
+        return "configured"
+    if store is None:
+        raise PackagedDatabaseError(
+            "Kein Ablageort fuer den Datenbankschluessel (DB_KEY_FILE) gesetzt. Die installierte "
+            "Version startet nur ueber die Ares-Desktop-App, die den Ablageort setzt."
+        )
+    if _store_exists(store):
+        cfg.db_key = _read_db_key_store(store, protector)
+        cfg.db_use_sqlcipher = True
+        return "loaded"
+    existing = _existing_database(cfg)
+    if existing is not None:
+        raise PackagedDatabaseError(
+            f"Die Datenbank {existing} existiert, aber es gibt keine Ablage des "
+            "Datenbankschluessels. Ares erzeugt keinen neuen Schluessel und oeffnet keine "
+            "unverschluesselte Datenbank. Ablage aus der Sicherung zurueckspielen bzw. "
+            "Bestandsdaten mit dem Migrator uebernehmen."
+        )
+    if not protector.available():
+        raise PackagedDatabaseError("Erststart ohne Datenbankschluessel, aber keine DPAPI verfuegbar.")
+    new_key = secrets.token_hex(32)
+    payload = DB_KEY_STORE_MAGIC + protector.protect(new_key.encode("ascii"), DB_KEY_STORE_ENTROPY)
+    if not _write_kek_store_exclusive(store, payload):
+        # Paralleler Start war schneller: dessen Schluessel gilt.
+        cfg.db_key = _read_db_key_store(store, protector)
+        cfg.db_use_sqlcipher = True
+        return "loaded"
+    try:
+        round_trip = _read_db_key_store(store, protector)
+    except PackagedDatabaseError:
+        round_trip = ""
+    if not hmac.compare_digest(round_trip.encode("ascii"), new_key.encode("ascii")):
+        try:
+            store.unlink()
+        except OSError:
+            pass
+        raise PackagedDatabaseError("Die neu angelegte Ablage des Datenbankschluessels liess sich nicht zuruecklesen.")
+    cfg.db_key = new_key
+    cfg.db_use_sqlcipher = True
+    return "generated"
+
+
+# Ergebnis der Anwendung beim Import: {"outcome": str | None, "problem": str | None}.
+PACKAGED_DB_STATE: dict[str, str | None] = {"outcome": None, "problem": None}
+
+
+def _apply_packaged_db_key_at_import() -> None:
+    if not PACKAGED_BUILD:
+        PACKAGED_DB_STATE["outcome"] = "not-packaged"
+        return
+    try:
+        PACKAGED_DB_STATE["outcome"] = ensure_packaged_db_key(settings)
+    except PackagedDatabaseError as exc:
+        PACKAGED_DB_STATE["problem"] = str(exc)
+        # Nie Klartext: ohne Schluessel bleibt die Engine ohne SQLCipher; die
+        # Verbindungssperre in ``database`` und der Lifespan verhindern jeden Zugriff.
+        settings.db_use_sqlcipher = False
+
+
+def require_packaged_database(cfg: "Settings | None" = None, *, packaged: bool | None = None,
+                              state: dict | None = None) -> str:
+    """Lifespan, vor ``init_db``: in der gepackten EXE nur mit SQLCipher und Schluessel."""
+    cfg = cfg if cfg is not None else settings
+    packaged = PACKAGED_BUILD if packaged is None else packaged
+    state = PACKAGED_DB_STATE if state is None else state
+    if not packaged:
+        return "not-packaged"
+    if state.get("problem"):
+        raise PackagedDatabaseError(str(state["problem"]))
+    url = str(getattr(cfg, "database_url", None) or "").strip().lower()
+    if url.startswith(("postgresql://", "postgresql+")):
+        return "server-database"
+    if not (getattr(cfg, "db_use_sqlcipher", False) and db_key_format_ok(getattr(cfg, "db_key", None))):
+        raise PackagedDatabaseError(
+            "Die installierte Version startet nur mit verschluesselter Datenbank (SQLCipher und "
+            "Schluessel). Ares startet nicht."
+        )
+    return str(state.get("outcome") or "configured")
+
+
+def packaged_plaintext_connection_refused(*, packaged: bool | None = None, cfg: "Settings | None" = None) -> bool:
+    """``database``: in der gepackten EXE jede SQLite-Verbindung ohne SQLCipher verweigern."""
+    cfg = cfg if cfg is not None else settings
+    packaged = PACKAGED_BUILD if packaged is None else packaged
+    if not packaged:
+        return False
+    return not (getattr(cfg, "db_use_sqlcipher", False) and db_key_format_ok(getattr(cfg, "db_key", None)))
+
+
+# ---------------------------------------------------------------------------
+# EXE-P (H-187, N-926-01): TEST-Referenzpaket fuer den Packaging-Smoke.
+# Die gepackte EXE legt nie Hausannahmen zur Laufzeit an und rechnet ohne
+# IC-Freigabe nicht (N-925-05). Damit der Smoke trotzdem einmal eine Strategie
+# rechnen kann (Optimizer im Artefakt belegt), darf er ein ausdruecklich als
+# TEST markiertes Paket laden. Es behauptet nie eine IC-Freigabe: Ergebnisse
+# bleiben "Vorlagewerte -- nicht IC-freigegeben". Inhalt: Bezug auf die
+# Vorlagewerte im Code ueber deren Pruefwert (die Engine prueft ihn beim
+# Anlegen; jede Abweichung = Ablehnung), keine eigenen Zahlen, kein
+# Gebuehrenmodell.
+# ---------------------------------------------------------------------------
+TEST_REFERENCE_PACKAGE_FORMAT = "ares-test-reference-package/1"
+TEST_REFERENCE_PACKAGE_MARKER = "TESTPAKET - nur Packaging-Smoke, nie fuer Kunden"
+
+
+@functools.lru_cache(maxsize=4)
+def _load_test_reference_package(path: str) -> dict | None:
+    import json as _json
+
+    try:
+        data = _json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    if data.get("format") != TEST_REFERENCE_PACKAGE_FORMAT or data.get("test_only") is not True:
+        return None
+    if data.get("marker") != TEST_REFERENCE_PACKAGE_MARKER:
+        return None
+    ref = data.get("reference_data")
+    if not isinstance(ref, dict) or not isinstance(ref.get("sha256"), str) or len(ref["sha256"]) != 64:
+        return None
+    return data
+
+
+def smoke_reference_package(cfg: "Settings | None" = None) -> dict | None:
+    """Das geladene TEST-Referenzpaket oder ``None`` (fehlt/ungueltig)."""
+    cfg = cfg if cfg is not None else settings
+    path = str(getattr(cfg, "test_reference_package_file", "") or "").strip()
+    if not path:
+        return None
+    return _load_test_reference_package(path)
+
+
+def smoke_reference_package_active(cfg: "Settings | None" = None) -> bool:
+    """Nur in der gepackten EXE (Smoke); ein Server mit ``app_env=production``
+    nimmt nie ein Testpaket an."""
+    if not getattr(sys, "frozen", False):
+        return False
+    return smoke_reference_package(cfg) is not None
+
+
+_apply_packaged_db_key_at_import()

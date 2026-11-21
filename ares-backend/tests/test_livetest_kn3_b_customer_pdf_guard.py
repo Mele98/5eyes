@@ -156,6 +156,9 @@ def live():
         status, body = api("POST", "/auth/login", {"username": USER, "password": PWD})
         assert status == 200, body
         api.token = body["access_token"]
+        from tests.fee_agreement_fixture import set_test_fee_agreement
+
+        set_test_fee_agreement(api)  # EXE-P (H-187): kein Gebuehren-Default mehr
         advisor_id = api("GET", "/auth/me")[1]["id"]
         # Rechtliche Angaben mit echten Umlauten (Benutzerdaten sind nicht Teil
         # des Umlaut-Waechters, sie sollen ihn aber auch nicht ausloesen).

@@ -147,7 +147,9 @@ def _cost_pdf(monkeypatch, *, watermark, archived, db_queries):
     monkeypatch.setattr(pdf_reports, "_mark_unpublished", lambda ctx, *a: ctx)
     mandate = SimpleNamespace(id="m-1", mandate_number="M-1")
     monkeypatch.setattr(pdf_reports, "get_mandate_for_user_or_404", lambda *a: mandate)
-    monkeypatch.setattr(cost_service, "build_cost_disclosure", lambda *a: {"advisory_wealth_rappen": 100})
+    monkeypatch.setattr(cost_service, "build_cost_disclosure", lambda *a: {"advisory_wealth_rappen": 100,
+                        # EXE-P (H-187): mit vereinbartem Satz (ohne waere es ein Entwurf).
+                        "cost_items": [{"key": "default_advisory_fee_bps", "rate_bps": 75}]})
     monkeypatch.setattr(pdf_reports, "_build_pdf_context", lambda *a: SimpleNamespace(watermark_mode=watermark))
     monkeypatch.setattr(pdf_reports, "_attach_provisional_notice", lambda ctx, *a: ctx)
     monkeypatch.setattr(pdf_reports, "_archive_content_hash", lambda *a: "hash-1")

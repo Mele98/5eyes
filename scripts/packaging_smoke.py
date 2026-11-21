@@ -82,7 +82,6 @@ import secrets
 import shutil
 import signal
 import socket
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -123,6 +122,24 @@ FONT_FALLBACK_LOG_MARKERS = ('Editorial PDF fonts missing', 'Editorial PDF font 
 KEK_STORE_NAME = 'tenant-master-kek.dpapi'
 KEK_STORE_MAGIC = b'ARES-KEK-DPAPI/1\n'
 KEK_STORE_ENTROPY = b'ares.tenant-master-kek.store.v1'
+# EXE-P (H-187): Vertrag der Ablage des SQLCipher-Schluessels (config.py, DB_KEY_STORE_*).
+DB_KEY_STORE_NAME = 'db-key.dpapi'
+DB_KEY_STORE_MAGIC = b'ARES-DBKEY-DPAPI/1\n'
+DB_KEY_STORE_ENTROPY = b'ares.sqlcipher-db-key.store.v1'
+# Gleiche Cipher-Parameter wie ares-backend/database.py::SQLCIPHER_CIPHER_PRAGMAS
+# (test_h187_exe_production_mode.py haelt beide gleich).
+SQLCIPHER_CIPHER_PRAGMAS = (
+    'PRAGMA cipher_page_size = 4096',
+    'PRAGMA kdf_iter = 256000',
+    'PRAGMA cipher_hmac_algorithm = HMAC_SHA512',
+    'PRAGMA cipher_kdf_algorithm = PBKDF2_HMAC_SHA512',
+)
+SQLITE_PLAINTEXT_HEADER = b'SQLite format 3\x00'
+# N-926-01 (H-187): TEST-Referenzpaket, das NUR dieser Smoke laedt (siehe Datei).
+SMOKE_TEST_REFERENCE_PACKAGE = REPO_ROOT / 'scripts' / 'fixtures' / 'packaging_smoke_test_reference_package.json'
+# Antworttexte eines stillen Optimizer-Rueckfalls (services/portfolio_engine_optimizer_integration.py).
+OPTIMIZER_FALLBACK_MARKERS = ('House-Matrix-Default bleibt aktiv', 'Optimizer-Modul nicht verfuegbar',
+                              'fallback_house_matrix', 'Stochastic Optimizer Fehler')
 
 
 class SmokeError(RuntimeError):
@@ -805,7 +822,8 @@ def _font_resource_usage(pages) -> tuple[list[FontUse], list[FontUse]]:
     return used, declared
 
 
-def run_pdf_render_smoke(base: str, documents: tuple[str, ...] = PDF_SMOKE_DOCUMENTS) -> list[str]:
+def run_pdf_render_smoke(base: str, documents: tuple[str, ...] = PDF_SMOKE_DOCUMENTS,
+                         after_pdfs: Callable | None = None) -> list[str]:
     """Admin, Kunde und Mandat ueber die API anlegen und PDFs rendern lassen."""
     password = 'Smoke-' + secrets.token_urlsafe(18) + '-9a'
 
@@ -848,7 +866,68 @@ def run_pdf_render_smoke(base: str, documents: tuple[str, ...] = PDF_SMOKE_DOCUM
     if status != 403:
         fail(f'Demo-Systemfall in der gepackten EXE nicht gesperrt (HTTP {status}): {body[:200]!r}')
     log('OK Demo-Systemfall (Foundation Case) in der gepackten EXE gesperrt (403)')
+    if after_pdfs is not None:  # N-926-01: run_strategy_smoke im Start-Smoke
+        after_pdfs(call, token, client['id'], mandate['id'])
     return rendered
+
+
+def strategy_inputs() -> dict:
+    """Risikoprofil- und Nachhaltigkeits-Payload aus denselben Quellen wie die
+    Backend-Tests (Fragebogentexte aus dem Monolith), in einem isolierten
+    Python-Prozess im Repo gerechnet -- der Smoke-Prozess importiert kein Backend."""
+    root = Path(tempfile.mkdtemp(prefix='ares-smoke-inputs-'))
+    try:
+        env = isolated_env(root, 0, root / 'data' / 'unused.db')
+        code = ('import json; from tests.risk_fixture_helpers import standard_risk_payload; '
+                'from core import sustainability_preference as sp; '
+                'print("SMOKE_INPUTS " + json.dumps({"risk": standard_risk_payload(), '
+                '"esg": {"questionnaire_version": sp.QUESTIONNAIRE_VERSION, "definition_hash": sp.definition_hash()}}))')
+        proc = subprocess.run([sys.executable, '-c', code], cwd=str(BACKEND_ROOT), env=env, capture_output=True,
+                              text=True, encoding='utf-8', errors='replace', timeout=300, check=False)
+        lines = [line for line in (proc.stdout or '').splitlines() if line.startswith('SMOKE_INPUTS ')]
+        if proc.returncode != 0 or not lines:
+            fail(f'Strategie-Smoke: Eingaben nicht erzeugbar (Exit {proc.returncode}): {(proc.stderr or "")[-1500:]}')
+        return json.loads(lines[-1][len('SMOKE_INPUTS '):])
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+def run_strategy_smoke(call, token: str, client_id: str, mandate_id: str) -> None:
+    """N-926-01 (H-187): einmal target-allocation/generate im Artefakt rechnen und
+    belegen, dass der stochastische Optimizer lief (kein stiller Rueckfall auf die
+    House-Matrix). Rechnen darf die gepackte EXE nur mit dem TEST-Referenzpaket
+    (TEST_REFERENCE_PACKAGE_FILE), das ausschliesslich dieser Smoke setzt."""
+    inputs = strategy_inputs()
+    status, _, body = call('POST', f'/mandates/{mandate_id}/risk-assessments', inputs['risk'], token)
+    if status != 201:
+        fail(f'Strategie-Smoke: Risikoprofil antwortet HTTP {status}: {body[:300]!r}')
+    status, _, body = call('POST', f'/clients/{client_id}/wealth-positions', {
+        'label': 'Depot CHF (Smoke, synthetisch)', 'position_type': 'Depot', 'assignment': 'Beratungsvermögen',
+        'current_value_rappen': 50_000_000, 'currency': 'CHF', 'depot_bank': 'Testbank (Smoke)',
+        'alloc_equities_bps': 4000, 'alloc_bonds_bps': 5000, 'alloc_liquidity_bps': 1000,
+    }, token)
+    if status not in (200, 201):
+        fail(f'Strategie-Smoke: Depot antwortet HTTP {status}: {body[:300]!r}')
+    status, _, body = call('POST', f'/mandates/{mandate_id}/sustainability-preferences', {
+        **inputs['esg'], 'response_status': 'declined', 'esg_relevance': None, 'esg_characteristic': None,
+        'exclusions': [], 'information_acknowledged': False, 'client_confirmed': True, 'capture_channel': 'in_person',
+    }, token)
+    if status != 201:
+        fail(f'Strategie-Smoke: Nachhaltigkeitspraeferenz antwortet HTTP {status}: {body[:300]!r}')
+    status, _, body = call('POST', f'/mandates/{mandate_id}/target-allocation/generate', {'preferences': {}}, token)
+    if status != 200:
+        fail(f'Strategie-Smoke: target-allocation/generate antwortet HTTP {status}: {body[:500]!r}')
+    text = body.decode('utf-8', errors='replace')
+    hits = [marker for marker in OPTIMIZER_FALLBACK_MARKERS if marker in text]
+    if hits:
+        fail(f'Strategie-Smoke: Optimizer-Rueckfall in der Antwort ({hits}) -- die EXE rechnet anders als die Quelle.')
+    payload = json.loads(body)
+    if not payload.get('optimizer_constraints'):
+        fail('Strategie-Smoke: keine Optimizer-Constraints in der Antwort (Solver lief nicht).')
+    if 'IC-freigegeben' not in text:
+        fail('Strategie-Smoke: Ergebnis aus dem TEST-Referenzpaket ohne Vermerk "nicht IC-freigegeben".')
+    log(f'OK N-926-01 Strategie im Artefakt gerechnet: stochastischer Optimizer, '
+        f'{len(payload["optimizer_constraints"])} Constraints, kein Rueckfall, Vermerk nicht IC-freigegeben')
 
 
 def assert_no_font_fallback(logtext: str) -> None:
@@ -876,6 +955,37 @@ def live_paths() -> list[Path]:
     """
     live_db = Path(_load_db_location().default_db_path())
     return [live_db, live_db.parent, Path.home() / 'ares']
+
+
+def owner_paths() -> list[Path]:
+    """N-926-06: Owner-Ordner des ausfuehrenden Benutzers (Electron nutzt die
+    Known-Folder-API, nicht die Umgebungsvariablen des Kindprozesses)."""
+    paths = list(live_paths())
+    appdata = os.environ.get('APPDATA')
+    localappdata = os.environ.get('LOCALAPPDATA')
+    if appdata:
+        paths.append(Path(appdata) / 'Ares')
+    if localappdata:
+        paths += [Path(localappdata) / 'Programs' / 'Ares', Path(localappdata) / 'Ares',
+                  Path(localappdata) / 'ares-updater']
+    return paths
+
+
+def owner_listing(paths: list[Path], limit: int = 20000) -> dict[str, tuple | None]:
+    """Rekursives Listing (Groesse, mtime) -- nur lesend."""
+    out: dict[str, tuple | None] = {}
+    for base in paths:
+        if not base.exists():
+            out[str(base)] = None
+            continue
+        items = [base] + (sorted(base.rglob('*')) if base.is_dir() else [])
+        for item in items[:limit]:
+            try:
+                st = item.stat()
+            except OSError:
+                continue
+            out[str(item)] = ('dir',) if item.is_dir() else (st.st_size, st.st_mtime_ns)
+    return out
 
 
 def snapshot(paths: list[Path]) -> dict[str, tuple | None]:
@@ -910,7 +1020,6 @@ def isolated_env(root: Path, port: int, db_path: Path) -> dict[str, str]:
         'APP_HOST': '127.0.0.1',
         'APP_PORT': str(port),
         'DB_PATH': str(db_path),
-        'DB_USE_SQLCIPHER': 'false',
         'BACKUP_DIR': str(root / 'backups'),
         'LOG_DIR': str(root / 'logs'),
         'BACKUP_ENABLED': 'false',
@@ -922,8 +1031,14 @@ def isolated_env(root: Path, port: int, db_path: Path) -> dict[str, str]:
         'SMTP_ENABLED': 'false',
         # RB-1: wie die Desktop-Shell -- Ablage im (temporaeren) userData-Ordner.
         'TENANT_MASTER_KEK_FILE': str(kek_store_path(root)),
+        # EXE-P (H-187): Ablage des SQLCipher-Schluessels, ebenfalls wie die Shell.
+        'DB_KEY_FILE': str(db_key_store_path(root)),
     })
     return env
+
+
+def db_key_store_path(root: Path) -> Path:
+    return root / 'home' / 'AppData' / 'Roaming' / 'Ares' / DB_KEY_STORE_NAME
 
 
 def kek_store_path(root: Path) -> Path:
@@ -962,7 +1077,7 @@ def check_kek_store(root: Path) -> tuple[bytes, str]:
     store = kek_store_path(root)
     if not store.is_file():
         fail(f'Erststart hat keine KEK-Ablage angelegt: {store}')
-    others = [p.name for p in store.parent.iterdir() if p.name != KEK_STORE_NAME]
+    others = [p.name for p in store.parent.iterdir() if p.name not in (KEK_STORE_NAME, DB_KEY_STORE_NAME)]
     if others:
         fail(f'Neben der KEK-Ablage liegen unerwartete Dateien (Temp-Reste?): {others}')
     raw = store.read_bytes()
@@ -974,6 +1089,27 @@ def check_kek_store(root: Path) -> tuple[bytes, str]:
     if kek.encode('ascii') in raw:
         fail('KEK steht im Klartext in der Ablage.')
     return raw, kek
+
+
+def check_db_key_store(root: Path, db_path: Path) -> tuple[bytes, str]:
+    """EXE-P (H-187): Erststart legt die DPAPI-Ablage des Datenbankschluessels an;
+    die Datenbank ist SQLCipher-verschluesselt (kein Klartext-Kopf)."""
+    store = db_key_store_path(root)
+    if not store.is_file():
+        fail(f'Erststart hat keine Ablage des Datenbankschluessels angelegt: {store}')
+    raw = store.read_bytes()
+    if not raw.startswith(DB_KEY_STORE_MAGIC):
+        fail('Ablage des Datenbankschluessels hat nicht die erwartete Format-Kennung.')
+    key = dpapi_unprotect(raw[len(DB_KEY_STORE_MAGIC):], DB_KEY_STORE_ENTROPY).decode('ascii')
+    if not re.fullmatch(r'[0-9a-f]{64}', key):
+        fail('Ablage des Datenbankschluessels enthaelt keinen 64-stelligen Hex-Schluessel.')
+    if key.encode('ascii') in raw:
+        fail('Datenbankschluessel steht im Klartext in der Ablage.')
+    with db_path.open('rb') as handle:
+        head = handle.read(16)
+    if head == SQLITE_PLAINTEXT_HEADER:
+        fail(f'Smoke-DB ist eine Klartext-SQLite-Datei (kein SQLCipher): {db_path}')
+    return raw, key
 
 
 def assert_kek_not_logged(kek: str, paths: list[Path]) -> None:
@@ -1019,6 +1155,36 @@ def run_restart_smoke(exe_copy: Path, env: dict[str, str], port: int, log_file: 
     text = log_file.read_text(encoding='utf-8', errors='replace')
     if 'Master-KEK: loaded' not in text:
         fail(f'Zweiter Start hat die KEK nicht aus der Ablage geladen.\n--- backend.log ---\n{tail(log_file)}')
+    if 'Datenbankschluessel (gepackte EXE): loaded' not in text:
+        fail(f'Zweiter Start hat den Datenbankschluessel nicht aus der Ablage geladen.\n'
+             f'--- backend.log ---\n{tail(log_file)}')
+
+
+def run_refused_start_smoke(exe_copy: Path, timeout: float) -> None:
+    """EXE-P (H-187): ohne Ablageort des Datenbankschluessels startet die gepackte
+    EXE nicht (klarer Startfehler, keine Datenbankdatei, nie Klartext)."""
+    root = Path(tempfile.mkdtemp(prefix='ares-packaging-refused-'))
+    try:
+        port = free_port()
+        db_path = root / 'data' / 'refused.db'
+        env = isolated_env(root, port, db_path)
+        env.pop('DB_KEY_FILE', None)
+        log_file = root / 'backend-refused.log'
+        with log_file.open('wb') as out:
+            proc = subprocess.run([str(exe_copy)], cwd=str(exe_copy.parent), env=env, stdin=subprocess.DEVNULL,
+                                  stdout=out, stderr=subprocess.STDOUT, timeout=timeout, check=False)
+        text = log_file.read_text(encoding='utf-8', errors='replace')
+        if proc.returncode == 0:
+            fail(f'Gepackte EXE ohne Datenbankschluessel endete mit Exit 0.\n--- log ---\n{tail(log_file)}')
+        if 'Start abgebrochen' not in text or 'DB_KEY_FILE' not in text:
+            fail(f'Gepackte EXE ohne Datenbankschluessel: kein klarer Startfehler im Log.\n--- log ---\n{tail(log_file)}')
+        if db_path.exists():
+            fail(f'Gepackte EXE ohne Datenbankschluessel hat eine Datenbankdatei angelegt: {db_path}')
+        log(f'OK EXE-P ohne Datenbankschluessel: Startfehler (Exit {proc.returncode}), keine Datenbankdatei')
+    except subprocess.TimeoutExpired:
+        fail('Gepackte EXE ohne Datenbankschluessel hat sich nicht selbst beendet (haengt statt Startfehler).')
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def assert_not_live(db_path: Path) -> None:
@@ -1088,15 +1254,25 @@ def run_start_smoke(exe: Path, timeout: float, grace: float, keep: bool) -> None
         if port_open(port):
             fail(f'Port {port} ist bereits belegt.')
 
-        release_checks.check_self_test_imports(exe_copy, env, fail, log)
+        # Selbsttest ohne Ablageort des Datenbankschluessels: er oeffnet keine DB und
+        # legt keine Ablage an (sonst waere der folgende Erststart kein Erststart).
+        release_checks.check_self_test_imports(
+            exe_copy, {k: v for k, v in env.items() if k != 'DB_KEY_FILE'}, fail, log)
+        if db_key_store_path(root).exists():
+            fail('Import-Selbsttest hat eine Ablage des Datenbankschluessels angelegt.')
+        run_refused_start_smoke(exe_copy, timeout)
 
         before = snapshot(live_paths())
+        # N-926-01: das TEST-Referenzpaket NUR fuer diesen Start (Kopie im Temp-Root).
+        smoke_package = root / 'test-reference-package.json'
+        shutil.copy2(SMOKE_TEST_REFERENCE_PACKAGE, smoke_package)
+        start_env = {**env, 'TEST_REFERENCE_PACKAGE_FILE': str(smoke_package)}
         log_file = root / 'backend.log'
         base = f'http://127.0.0.1:{port}'
         log(f'Starte {exe_copy} auf {base} (cwd={run_dir})')
         with log_file.open('wb') as out:
             proc = subprocess.Popen(
-                [str(exe_copy)], cwd=str(run_dir), env=env,
+                [str(exe_copy)], cwd=str(run_dir), env=start_env,
                 stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
                 creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
             )
@@ -1150,7 +1326,7 @@ def run_start_smoke(exe: Path, timeout: float, grace: float, keep: bool) -> None
                     fail(f'Reporting-SPA-Fallback antwortet HTTP {status_spa}.')
                 log(f'OK Reporting-Mount: /reporting, {asset_refs[0]} ({len(asset_body)} bytes), SPA-Fallback')
 
-                rendered = run_pdf_render_smoke(base)
+                rendered = run_pdf_render_smoke(base, after_pdfs=run_strategy_smoke)
                 log('OK PDF-Render in der gepackten EXE: ' + '; '.join(rendered)
                     + ' -- Fusszeile aus dem Laenderpaket-Text, Editorial-Fonts eingebettet')
             finally:
@@ -1178,13 +1354,27 @@ def run_start_smoke(exe: Path, timeout: float, grace: float, keep: bool) -> None
         if not db_path.is_file():
             fail(f'Smoke-DB wurde nicht angelegt: {db_path}')
         expected_views = schema_view_names()
-        with sqlite3.connect(f'file:{db_path}?mode=ro', uri=True) as conn:
+        db_key_raw, db_key = check_db_key_store(root, db_path)
+        import sqlcipher3  # EXE-P: die Smoke-DB ist verschluesselt; CI installiert requirements-sqlcipher.txt
+
+        conn = sqlcipher3.connect(f'file:{db_path}?mode=ro', uri=True)
+        try:
+            conn.execute("PRAGMA key = '" + db_key + "'")
+            for pragma in SQLCIPHER_CIPHER_PRAGMAS:
+                conn.execute(pragma)
             present = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='view'")}
+        finally:
+            conn.close()
         missing = [v for v in expected_views if v not in present]
         if missing:
             fail(f'Schema aus dem Paket nicht angewendet -- Views fehlen in der Smoke-DB: {", ".join(missing)}')
         log(f'OK Schemafund: {len(expected_views)}/{len(expected_views)} Schema-Views in frischer DB '
             f'({", ".join(expected_views)})')
+        if 'Datenbankschluessel (gepackte EXE): generated' not in logtext:
+            fail('Erststart hat keinen Datenbankschluessel erzeugt.\n'
+                 f'--- backend.log ---\n{tail(log_file)}')
+        log('OK EXE-P SQLCipher-Pflicht: Erststart erzeugt den Datenbankschluessel in einer DPAPI-Ablage '
+            '(Benutzer-Scope), Smoke-DB ohne Klartext-Kopf, nur mit Schluessel lesbar')
 
         if 'Master-KEK: generated' not in logtext:
             fail('Erststart hat keine Master-KEK erzeugt ("Master-KEK: generated" fehlt).\n'
@@ -1194,7 +1384,10 @@ def run_start_smoke(exe: Path, timeout: float, grace: float, keep: bool) -> None
         run_restart_smoke(exe_copy, env, port, log_file_2, timeout, grace)
         if kek_store_path(root).read_bytes() != store_bytes:
             fail('Zweiter Start hat die KEK-Ablage veraendert (darf nie ueberschrieben werden).')
+        if db_key_store_path(root).read_bytes() != db_key_raw:
+            fail('Zweiter Start hat die Ablage des Datenbankschluessels veraendert.')
         assert_kek_not_logged(kek, [log_file, log_file_2, root / 'logs'])
+        assert_kek_not_logged(db_key, [log_file, log_file_2, root / 'logs'])
         log('OK RB-1 Master-KEK: Erststart erzeugt genau eine DPAPI-Ablage (Benutzer-Scope), '
             'zweiter Start laedt sie byte-identisch, kein Klartext in Logs')
 
@@ -1239,9 +1432,15 @@ def main(argv: list[str] | None = None) -> int:
         if unpacked is None:
             fail('--unpacked-dir fehlt: Produkt-Hygiene und Shell-Start (H-180) brauchen die electron-builder-Ausgabe.')
         release_checks.check_product_hygiene(exe, unpacked, fail, log)
+        owner_before = owner_listing(owner_paths())
         release_checks.run_shell_smoke(unpacked, isolated_env=isolated_env, free_port=free_port,
                                        http_get=http_get, port_open=port_open, fail=fail, log=log,
                                        timeout=args.timeout, keep=args.keep_temp)
+        owner_after = owner_listing(owner_paths())
+        if owner_before != owner_after:
+            changed = sorted(set(owner_before.items()) ^ set(owner_after.items()))[:20]
+            fail(f'Shell-Smoke hat Owner-Ordner veraendert: {changed}')
+        log(f'OK N-926-06 Owner-Ordner vor/nach dem Shell-Smoke identisch ({len(owner_after)} Eintraege)')
     except SmokeError as exc:
         log(f'FEHLER: {exc}')
         return 1

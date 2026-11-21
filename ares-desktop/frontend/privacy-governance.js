@@ -146,7 +146,7 @@
   }
 
   async function refreshEgressBanner(){
-    var status;
+    var status; if (!currentUser) return null;
     try { status = await API.get('/privacy/egress-status'); } catch (e) { return null; }
     var el = document.getElementById('pg-egress-banner');
     if (!status || status.approved) {
@@ -392,7 +392,7 @@
       + (blocked ? '<div style="font-size:9px;margin-top:4px">Zuletzt blockiert:<ul style="margin:2px 0 0 14px;padding:0">' + blocked + '</ul></div>' : '');
   }
 
-  // ── Protokoll-Ansicht (aus ares.html umgezogen, unveraendert) ──
+  // ── Protokoll-Ansicht ──
   function renderAuditLogPagination(container) {
     if (!container) return;
     var from = _auditLogTotal > 0 ? (_auditLogOffset + 1) : 0;

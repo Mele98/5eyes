@@ -7,6 +7,21 @@
 
 ---
 
+## Produktionsmodus der gepackten EXE (EXE-P, H-187)
+
+- **SQLCipher ist Pflicht.** `build:backend` baut standardmaessig mit SQLCipher
+  (`BUILD_WITH_SQLCIPHER` ist `1`, wenn nicht ausdruecklich `0`) und bricht ab,
+  wenn `sqlcipher3` fehlt. Vorher installieren:
+  `pip install --require-hashes --only-binary=:all: -r ares-backend/requirements-sqlcipher.txt`.
+- Der Datenbankschluessel liegt DPAPI-geschuetzt (Benutzer-Scope) als
+  `db-key.dpapi` im userData-Ordner (wie die Master-KEK). Die Shell setzt
+  `DB_KEY_FILE`; ohne Ablageort, ohne SQLCipher oder bei vorhandener Datenbank
+  ohne Ablage startet die EXE mit klarem Fehler und oeffnet nie eine Klartext-DB.
+- Keine Hausannahmen zur Laufzeit, kein Muster-Fondskatalog, kein
+  Gebuehren-Default. Rechnen erst mit freigegebenem Referenzpaket und IC-Freigabe.
+- `TEST_REFERENCE_PACKAGE_FILE` (Datei `scripts/fixtures/packaging_smoke_test_reference_package.json`)
+  laedt nur der Packaging-Smoke; die Shell reicht die Variable nie weiter.
+
 ## Build-Pipeline (One-Liner)
 
 ```bash

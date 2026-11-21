@@ -35,7 +35,8 @@ ALLOWED: dict[str, str] = {
     "scripts/security_gate.py::_seed_clean_integrity_db":
         "CI-Werkzeug: legt eine synthetische DB in einem tempfile-Verzeichnis an (Pfad vom Aufrufer).",
     "scripts/packaging_smoke.py::run_start_smoke":
-        "CI/Release-Werkzeug: liest die Smoke-DB im isolierten Temp-Root nur lesend (mode=ro).",
+        "CI/Release-Werkzeug: liest die Smoke-DB im isolierten Temp-Root nur lesend (mode=ro; "
+        "seit H-187 SQLCipher-verschluesselt, mit dem Schluessel aus der Wegwerf-Ablage).",
 }
 
 

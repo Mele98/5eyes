@@ -2,6 +2,7 @@ import hashlib
 import logging
 import secrets
 import threading
+from types import SimpleNamespace as _SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -20,7 +21,7 @@ from services.auth import (
     hash_password, verify_password, create_access_token,
     get_current_user, require_admin, COMPLIANCE_REVIEWER_ROLE, CREDENTIALS_SET_BY_SELF,
     short_user_agent,
-    _effective_strict_tenant_isolation, tenant_access_block_reason,
+    _effective_strict_tenant_isolation, tenant_access_block_reason, tenant_id_for_new_record,
     extract_client_ip as _extract_client_ip,
 )
 from services.login_guard import login_attempt_guard
@@ -276,6 +277,19 @@ def _bootstrap_already_done(guard_key: str) -> HTTPException:
     return HTTPException(status_code=409, detail='Ersteinrichtung bereits abgeschlossen')
 
 
+def _bootstrap_tenant_id(db: Session) -> str | None:
+    """Mandant des Bootstrap-Admins: im Einzelmandanten-Betrieb der Default-
+    Mandant, sofern seine Zeile existiert (ensure_default_tenant beim Boot);
+    im Mehrmandanten-Betrieb ``None`` (Zuordnung ueber die Tenant-Admin-API).
+    Dieselbe Regel wie fuer neue Datensaetze (``tenant_id_for_new_record`` mit
+    einem Konto ohne Mandant)."""
+    tenant_id = tenant_id_for_new_record(_SimpleNamespace(tenant_id=None))
+    if not tenant_id:
+        return None
+    exists = db.query(Tenant.id).filter(Tenant.id == tenant_id).first()
+    return tenant_id if exists is not None else None
+
+
 @router.post('/bootstrap-admin', response_model=TokenResponse, status_code=201)
 def bootstrap_admin(body: BootstrapAdminRequest, request: Request, db: Session = Depends(get_db)):
     guard_key = _bootstrap_guard_key(request)
@@ -302,6 +316,13 @@ def bootstrap_admin(body: BootstrapAdminRequest, request: Request, db: Session =
             email=(body.email or None),
             role='admin',
             is_active=1,
+            # OWN-LIC-01 / ROL-07 (CTO-Entscheid H-180): der Bootstrap-Admin
+            # bekommt sofort seinen Mandanten (Einzelmandanten-Betrieb: den
+            # Default-Mandanten, dieselbe Regel wie der Start-Backfill und
+            # tenant_id_for_new_record). Vorher zaehlte er erst nach einem
+            # Neustart gegen max_users, und von ihm angelegte Konten wurden
+            # gar nicht quota-geprueft. Im Mehrmandanten-Betrieb wird nie geraten.
+            tenant_id=_bootstrap_tenant_id(db),
             created_at=now,
             updated_at=now,
         )
@@ -1041,7 +1062,7 @@ def create_user(
     # Privilege-Escalation-Pfad, um fremde Firmen-Quotas zu pruefen/umgehen).
     if current_user.role == "super_admin" and body.tenant_id:
         tenant_id = body.tenant_id
-    assert_within_quota(db, tenant_id, "users")
+    assert_within_quota(db, tenant_id, "users", role=body.role)
     user = User(
         id=new_uuid(),
         username=body.username,
@@ -1129,7 +1150,7 @@ def invite_user(
     # 2026-08-09: siehe identischer Kommentar in create_user() oben.
     if current_user.role == "super_admin" and body.tenant_id:
         tenant_id = body.tenant_id
-    assert_within_quota(db, tenant_id, "users")
+    assert_within_quota(db, tenant_id, "users", role=body.role)
     token = secrets.token_urlsafe(32)
     expires_at = (datetime.now(timezone.utc) + timedelta(days=_INVITE_TTL_DAYS)).strftime(
         "%Y-%m-%dT%H:%M:%S.%f"

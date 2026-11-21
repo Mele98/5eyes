@@ -187,9 +187,54 @@ def test_render_flow_with_fallback_pdf_fails(monkeypatch):
 
 def test_start_smoke_renders_pdfs_and_rejects_font_fallback():
     source = inspect.getsource(smoke.run_start_smoke)
-    assert "run_pdf_render_smoke(base)" in source
+    call = "run_pdf_render_smoke(base, after_pdfs=run_strategy_smoke)"
+    assert call in source
     assert "assert_no_font_fallback(logtext)" in source
-    assert source.index("run_pdf_render_smoke(base)") < source.index("stop_process(proc, port, grace)")
+    assert source.index(call) < source.index("stop_process(proc, port, grace)")
+
+
+# --- N-926-01 (H-187): der Smoke rechnet einmal eine Strategie ---------------
+def _strategy_api(generate_body: dict, generate_status: int = 200):
+    calls = []
+
+    def call(method, path, body=None, token=None):
+        calls.append((method, path))
+        if path.endswith("/target-allocation/generate"):
+            return generate_status, {}, json.dumps(generate_body).encode()
+        return 201, {}, b"{}"
+
+    return call, calls
+
+
+_GOOD_GENERATE = {"optimizer_constraints": [{"name": "c"}],
+                  "target_allocation": {"messages": [{"text": "Vorlagewerte – nicht IC-freigegeben"}]}}
+
+
+def test_strategy_smoke_accepts_optimizer_result(monkeypatch):
+    monkeypatch.setattr(smoke, "strategy_inputs", lambda: {"risk": {}, "esg": {}})
+    call, calls = _strategy_api(_GOOD_GENERATE)
+    smoke.run_strategy_smoke(call, "tok", "c1", "m1")
+    assert calls[-1] == ("POST", "/mandates/m1/target-allocation/generate")
+
+
+@pytest.mark.parametrize("body,needle", [
+    (dict(_GOOD_GENERATE, reasoning=["Stochastic Optimizer-Modul nicht verfuegbar — House-Matrix-Default bleibt aktiv."]),
+     "Optimizer-Rueckfall"),
+    (dict(_GOOD_GENERATE, optimizer_constraints=[]), "Solver lief nicht"),
+    ({"optimizer_constraints": [{"name": "c"}]}, "IC-freigegeben"),
+])
+def test_strategy_smoke_fails_on_fallback_or_missing_marker(monkeypatch, body, needle):
+    monkeypatch.setattr(smoke, "strategy_inputs", lambda: {"risk": {}, "esg": {}})
+    call, _ = _strategy_api(body)
+    with pytest.raises(smoke.SmokeError, match=needle):
+        smoke.run_strategy_smoke(call, "tok", "c1", "m1")
+
+
+def test_strategy_smoke_fails_on_refused_generate(monkeypatch):
+    monkeypatch.setattr(smoke, "strategy_inputs", lambda: {"risk": {}, "esg": {}})
+    call, _ = _strategy_api({"detail": {"reason_code": "REFERENCE_DATA_PACKAGE_MISSING"}}, 409)
+    with pytest.raises(smoke.SmokeError, match="HTTP 409"):
+        smoke.run_strategy_smoke(call, "tok", "c1", "m1")
 
 
 # --- C-853-01 (Codex 2026-11-05): Einbettung am Font-Stream, nicht am Namen ---

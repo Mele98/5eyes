@@ -74,6 +74,10 @@ os.environ["LOG_DIR"] = str(_test_data_dir / "logs")
 # Ordner der Desktop-Shell). Leer gesetzt statt entfernt, damit auch eine
 # .env-Angabe nicht greift; Tests der Ablage arbeiten nur auf tmp_path.
 os.environ["TENANT_MASTER_KEK_FILE"] = ""
+# EXE-P (H-187): ebenso keine Ablage des Datenbankschluessels und nie ein
+# TEST-Referenzpaket des Packaging-Smokes aus einer .env.
+os.environ["DB_KEY_FILE"] = ""
+os.environ["TEST_REFERENCE_PACKAGE_FILE"] = ""
 
 
 # W4-c: Die Master-KEK ist Pflicht (kein Rueckfall auf SECRET_KEY). Jede
@@ -286,6 +290,28 @@ def _ccx_p5_direct_solver_test_vector():
     previous = set_test_risky_fraction(P5_TEST_RISKY_FRACTION)
     yield
     set_test_risky_fraction(previous)
+
+
+# EXE-P (H-187): TESTWERT. Die Vorlage-Policy des Laufzeit-Seedings traegt im
+# Produkt KEIN Gebuehrenmodell mehr (frueher 75 bps "Automatisch erzeugte
+# V1-Standard-Policy" -> erfundener Satz im Kostenausweis). Die Bestandstests
+# rechnen mit genau diesem Testgebuehrenmodell (byte-gleich zum frueheren
+# Default, damit Golden/Snapshots unveraendert bleiben). Der Produktfall ohne
+# Gebuehrenvereinbarung ist mit ``@pytest.mark.no_test_fee_model`` belegt
+# (tests/test_h187_exe_production_mode.py).
+TEST_ONLY_SEED_FEE_MODEL_JSON = '{"default_advisory_fee_bps": 75}'
+
+
+@_pytest.fixture(autouse=True)
+def _h187_test_only_seed_fee_model(request):
+    import services.portfolio_engine_house_matrix as _hm
+
+    previous = _hm.RUNTIME_SEED_FEE_MODEL_JSON
+    _hm.RUNTIME_SEED_FEE_MODEL_JSON = (
+        None if request.node.get_closest_marker("no_test_fee_model") else TEST_ONLY_SEED_FEE_MODEL_JSON
+    )
+    yield
+    _hm.RUNTIME_SEED_FEE_MODEL_JSON = previous
 
 
 @_pytest.fixture(autouse=True)

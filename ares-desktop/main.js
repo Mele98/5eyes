@@ -483,6 +483,14 @@ async function pickBackendRuntime() {
 // Der Pfad wird immer hier gesetzt -- eine .env kann ihn nicht umlenken. Die
 // KEK selbst kennt Electron nicht und loggt sie folglich nie.
 const TENANT_MASTER_KEK_STORE_FILE = path.join(app.getPath('userData'), 'tenant-master-kek.dpapi');
+// EXE-P (H-187): Ablageort des SQLCipher-Datenbankschluessels (DPAPI, Benutzer-
+// Scope) im userData-Ordner. Die gepackte Backend-EXE startet nur mit
+// verschluesselter Datenbank (config.ensure_packaged_db_key); den Schluessel
+// selbst kennt Electron nicht.
+const DB_KEY_STORE_FILE = path.join(app.getPath('userData'), 'db-key.dpapi');
+// EXE-P (N-926-01): das TEST-Referenzpaket ist nur fuer den Packaging-Smoke des
+// Backends; die Shell reicht es nie weiter.
+const BACKEND_ENV_NEVER_INHERITED = ['TEST_REFERENCE_PACKAGE_FILE'];
 
 // N-899-13 (H10): Feed-URL aus der gepackten Build-Konfiguration (asar),
 // leer solange das Build-Gate zu ist. Das Backend liest keine package.json.
@@ -504,12 +512,14 @@ function buildBackendChildEnv(runtime = backendRuntime) {
     APP_HOST: runtime.host,
     APP_PORT: String(runtime.port),
     TENANT_MASTER_KEK_FILE: TENANT_MASTER_KEK_STORE_FILE,
+    DB_KEY_FILE: DB_KEY_STORE_FILE,
     // Immer gesetzt (auch leer): eine geerbte Umgebung kann den Kanal nicht vortaeuschen.
     DESKTOP_UPDATE_FEED_URL: desktopUpdateFeedUrl(),
   };
   // H11 N1: der gepackte Produktivstart gibt die Owner-DB (~/ares/ares.db) frei;
   // unter pytest/CI/Testmodus verweigert das Backend trotzdem.
   if (ownerDbOptInAllowed()) env.ARES_OWNER_DB_OPT_IN = '1';
+  for (const key of BACKEND_ENV_NEVER_INHERITED) delete env[key];
   return env;
 }
 
@@ -911,6 +921,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports.buildBackendChildEnv = buildBackendChildEnv;
   module.exports.ownerDbOptInAllowed = ownerDbOptInAllowed;
   module.exports.TENANT_MASTER_KEK_STORE_FILE = TENANT_MASTER_KEK_STORE_FILE;
+  module.exports.DB_KEY_STORE_FILE = DB_KEY_STORE_FILE;
   module.exports.notifyRendererUpdateState = notifyRendererUpdateState;
   module.exports._setMainWindowForTest = (win) => { mainWindow = win; };
 }

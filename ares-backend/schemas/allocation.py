@@ -1919,6 +1919,31 @@ class AllocationPublishRequest(BaseModel):
     attestation_reason: Optional[str] = Field(default=None, max_length=1000)
 
 
+class PublicationInboxItem(BaseModel):
+    """ROL-05: eine zur Freigabe vorgelegte Akte, datenminimiert -- Mandat,
+    vorbereitende Person und die zu publizierende Soll-Allokation; keine
+    Personalien, Vermoegenswerte oder Kundendokumente."""
+    mandate_id: str
+    mandate_number: Optional[str] = None
+    mandate_type: Optional[str] = None
+    prepared_by: Optional[str] = None
+    prepared_by_name: Optional[str] = None
+    sealed_at: Optional[str] = None
+    target_allocation_id: Optional[str] = None
+    validation_hash: str
+    can_publish: bool
+    blocker_codes: list[str] = Field(default_factory=list)
+    targets_bps: dict[str, int] = Field(default_factory=dict)
+    bands_bps: dict[str, list[int]] = Field(default_factory=dict)
+
+
+class PublicationInboxApproveRequest(BaseModel):
+    """ROL-05: Vier-Augen-Freigabe aus der Inbox -- genau der gepruefte Stand
+    (keine Einzelfreigabe; die bleibt der Ein-Personen-Firma im Mandat)."""
+    target_allocation_id: str = Field(min_length=1, max_length=64)
+    validation_hash: str = Field(min_length=64, max_length=64, pattern="^[0-9a-f]{64}$")
+
+
 class AllocationPublicationResponse(BaseModel):
     """CCX-P4: geschriebener Publikationsentscheid."""
     publication_id: str

@@ -379,6 +379,26 @@ function check(name, fn) {
     assert.strictEqual(env.APP_PORT, '8123');
   });
 
+  // EXE-P (H-187): Ablageort des Datenbankschluessels im userData-Ordner; das
+  // TEST-Referenzpaket des Packaging-Smokes wird nie an das Backend vererbt.
+  await check('EXE-P Kind-Umgebung setzt DB_KEY_FILE und vererbt kein TEST-Referenzpaket', () => {
+    const before = process.env.TEST_REFERENCE_PACKAGE_FILE;
+    const beforeKey = process.env.DB_KEY_FILE;
+    process.env.TEST_REFERENCE_PACKAGE_FILE = path.join(os.tmpdir(), 'testpaket.json');
+    process.env.DB_KEY_FILE = path.join(os.tmpdir(), 'fremd-db-key.dpapi');
+    try {
+      const env = mainExports.buildBackendChildEnv({ host: '127.0.0.1', port: 8123 });
+      assert.strictEqual(env.DB_KEY_FILE, path.join(tmpUserData, 'db-key.dpapi'));
+      assert.strictEqual(env.DB_KEY_FILE, mainExports.DB_KEY_STORE_FILE);
+      assert.ok(!('TEST_REFERENCE_PACKAGE_FILE' in env), 'TEST-Referenzpaket darf nie vererbt werden');
+    } finally {
+      if (before === undefined) delete process.env.TEST_REFERENCE_PACKAGE_FILE;
+      else process.env.TEST_REFERENCE_PACKAGE_FILE = before;
+      if (beforeKey === undefined) delete process.env.DB_KEY_FILE;
+      else process.env.DB_KEY_FILE = beforeKey;
+    }
+  });
+
   await check('RB-1 Umgebung kann den KEK-Ablageort nicht umlenken', () => {
     const before = process.env.TENANT_MASTER_KEK_FILE;
     process.env.TENANT_MASTER_KEK_FILE = path.join(os.tmpdir(), 'fremd.dpapi');

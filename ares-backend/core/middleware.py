@@ -21,7 +21,7 @@ from config import settings
 from core.db_integrity import check_constraint_label, is_check_constraint_violation
 from core.goal_metric_contract import GoalMetricUncertified
 from core.reason_codes import DomainError, ReasonCode
-from core.risk_parameter_set import ParameterSetMissing
+from core.risk_parameter_set import ParameterSetMissing, ReferenceDataPackageMissing
 
 
 logger = logging.getLogger(__name__)
@@ -323,6 +323,7 @@ async def integrity_error_handler(request: Request, exc: IntegrityError) -> Resp
 _TYPED_ENGINE_ERRORS = {
     ReasonCode.CCX_PARAMETER_SET_MISSING.value: ReasonCode.CCX_PARAMETER_SET_MISSING,
     ReasonCode.CCX_GOAL_METRIC_UNCERTIFIED.value: ReasonCode.CCX_GOAL_METRIC_UNCERTIFIED,
+    ReasonCode.REFERENCE_DATA_PACKAGE_MISSING.value: ReasonCode.REFERENCE_DATA_PACKAGE_MISSING,
 }
 
 
@@ -365,4 +366,5 @@ def install_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(IntegrityError, integrity_error_handler)
     app.add_exception_handler(ParameterSetMissing, typed_engine_error_handler)
     app.add_exception_handler(GoalMetricUncertified, typed_engine_error_handler)
+    app.add_exception_handler(ReferenceDataPackageMissing, typed_engine_error_handler)
     app.add_exception_handler(StarletteHTTPException, http_exception_with_typed_cause_handler)
