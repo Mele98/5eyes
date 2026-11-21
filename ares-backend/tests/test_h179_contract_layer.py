@@ -573,3 +573,162 @@ def test_finalization_blocked_without_advice_rationale_then_allowed(session_fact
             request=Req(), db=db, current_user=db.get(User, advisor_id),
         )
     assert _finalize(session_factory, mandate_id, run_id, advisor_id).result_status == "Final"
+
+
+# ---------------------------------------------------------------------------
+# N-927-02: die zweite Person wird beim LESEN nachgerechnet
+# ---------------------------------------------------------------------------
+
+
+def _direct_approval(db, key: str, approver_id: str, approved_at: str = NOW):
+    """Version durch adm-1, Freigabe direkt in der DB (gueltiges Siegel)."""
+    from services.recommendation_release_gate import row_seal
+
+    ensure_test_owner_content(db, TENANT, actor_id="adm-1", key=key, body_text="Text (Testwert)", approve=False)
+    version = db.query(OwnerContentVersion).filter(OwnerContentVersion.content_key == key).one()
+    approval = OwnerContentApproval(
+        id=new_uuid(), tenant_id=TENANT, content_key=key, content_row_id=version.id,
+        predecessor_approval_id="GENESIS", approved_by=approver_id, approved_at=approved_at,
+        approval_reference="direkt", content_hash=version.content_hash,
+    )
+    approval.approval_hash = row_seal({c.name: getattr(approval, c.name) for c in approval.__table__.columns},
+                                      "approval_hash")
+    db.add(approval)
+    db.flush()
+    return oc.resolve_owner_content(db, TENANT, key)["status"]
+
+
+def _user(db, uid, role="admin", tenant=TENANT, **extra):
+    from models.users import User
+
+    db.add(User(id=uid, username=uid, password_hash="x", full_name=uid.upper(), role=role, is_active=1,
+                tenant_id=tenant, created_at=NOW, updated_at=NOW, **extra))
+    db.flush()
+
+
+def test_approver_of_another_firm_is_never_effective_but_same_firm_is(sf):
+    with sf() as db:
+        db.add(Tenant(id="t-fremd", display_name="Fremd", slug="t-fremd", created_at=NOW, updated_at=NOW))
+        _user(db, "adm-fremd", tenant="t-fremd")
+        assert _direct_approval(db, oc.PRIVACY_KEY_PREFIX + "zwecke", "adm-fremd") == oc.OWNER_STATUS_INVALID
+        # Gegenprobe: Admin derselben Firma.
+        assert _direct_approval(db, oc.PRIVACY_KEY_PREFIX + "rechte", "adm-2") == oc.OWNER_STATUS_APPROVED
+
+
+def test_approver_without_approver_role_is_never_effective(sf):
+    with sf() as db:
+        assert _direct_approval(db, oc.PRIVACY_KEY_PREFIX + "zwecke", "adv-1") == oc.OWNER_STATUS_INVALID
+        _user(db, "rev-1", role="compliance_reviewer", invited_at=NOW, activated_at=NOW,
+              credentials_set_by="self", totp_enabled=1, totp_set_by="self")
+        # Gegenprobe: bereite externe Pruefperson derselben Firma.
+        assert _direct_approval(db, oc.PRIVACY_KEY_PREFIX + "rechte", "rev-1") == oc.OWNER_STATUS_APPROVED
+
+
+def test_alias_mailbox_of_the_creator_is_never_a_second_person(sf):
+    from models.users import User
+
+    with sf() as db:
+        db.query(User).filter(User.id == "adm-1").update({"email": "chef@firma.example"})
+        _user(db, "adm-alias", email="Chef+zweit@Firma.example")
+        assert _direct_approval(db, oc.PRIVACY_KEY_PREFIX + "zwecke", "adm-alias") == oc.OWNER_STATUS_INVALID
+        _user(db, "adm-anders", email="kollegin@firma.example")
+        assert _direct_approval(db, oc.PRIVACY_KEY_PREFIX + "rechte", "adm-anders") == oc.OWNER_STATUS_APPROVED
+
+
+def test_later_deactivation_keeps_a_valid_approval_but_compromise_revokes_it(sf):
+    """Gleiche Regel wie die KYC-Zweitfreigabe (kyc_second_person_valid): eine
+    spaetere Deaktivierung entwertet eine vorher gueltige Freigabe nicht; ein
+    auditierter Widerruf wegen Kompromittierung ab dem Widerruf schon."""
+    from models.users import User
+
+    with sf() as db:
+        key = oc.PRIVACY_KEY_PREFIX + "zwecke"
+        assert _direct_approval(db, key, "adm-2") == oc.OWNER_STATUS_APPROVED
+        db.query(User).filter(User.id == "adm-2").update({"is_active": 0})
+        db.flush()
+        assert oc.resolve_owner_content(db, TENANT, key)["status"] == oc.OWNER_STATUS_APPROVED
+        db.query(User).filter(User.id == "adm-2").update({"compromised_since": "2000-01-01T00:00:00.000Z"})
+        db.flush()
+        assert oc.resolve_owner_content(db, TENANT, key)["status"] == oc.OWNER_STATUS_INVALID
+        # Gegenprobe: Widerruf NACH der Freigabe laesst sie wirksam.
+        db.query(User).filter(User.id == "adm-2").update({"compromised_since": "2999-01-01T00:00:00.000Z"})
+        db.flush()
+        assert oc.resolve_owner_content(db, TENANT, key)["status"] == oc.OWNER_STATUS_APPROVED
+
+
+# ---------------------------------------------------------------------------
+# N-927-03 / -06 / -07
+# ---------------------------------------------------------------------------
+
+
+def test_handoff_route_runs_the_contract_layer_gate():
+    import inspect
+
+    from routers import portfolio_handoff
+
+    source = inspect.getsource(portfolio_handoff)
+    gate_at = source.index("assert_contract_layer_release_eligible(\n        db, mandate, channel=CHANNEL_HANDOFF")
+    assert source.index("assert_client_onboarding_release_eligible(\n        db, mandate, channel=CHANNEL_HANDOFF") < gate_at
+    assert gate_at < source.index("p5_decision = _assert_run_is_published")
+
+
+def test_handoff_gate_blocks_without_owner_release(sf):
+    from services.recommendation_release_gate import CHANNEL_HANDOFF
+
+    with sf() as db:
+        with pytest.raises(DomainError) as exc:
+            layer.assert_contract_layer_release_eligible(db, mandate(db), channel=CHANNEL_HANDOFF)
+        assert exc.value.reason_code == "CONTRACT_LAYER_INCOMPLETE"
+        assert "ADVICE_RATIONALE_MISSING" not in exc.value.extra["finding_codes"]
+        satisfy_client_onboarding(db, mandate(db), actor_id="adv-1")
+        layer.assert_contract_layer_release_eligible(db, mandate(db), channel=CHANNEL_HANDOFF)
+
+
+def test_bib_hint_only_as_owner_text(sf):
+    from routers.pdf_reports import _protocol_advice_sections
+
+    entry = oc.owner_catalog_entry(oc.PROTOCOL_BIB_KEY)
+    assert entry is not None and entry.placeholder == "__OWNER_PROTOKOLL_BIB_HINWEIS_REQUIRED__"
+    with sf() as db:
+        before = _protocol_advice_sections(db, mandate(db), None)["information"]
+        assert not any("Basisinformation" in line for line in before)
+        ensure_test_owner_content(db, TENANT, actor_id="adm-1", key=oc.PROTOCOL_BIB_KEY,
+                                  body_text="BIB-Hinweis der Firma (Testwert)")
+        after = _protocol_advice_sections(db, mandate(db), None)["information"]
+        assert "BIB-Hinweis der Firma (Testwert)" in after
+
+
+def test_archived_contract_names_its_source_document(sf):
+    with sf() as db:
+        satisfy_client_onboarding(db, mandate(db), actor_id="adv-1")
+        _contract_doc(db)
+        db.commit()
+        final = _vertrag_pdf(db, "vertrag-1")
+        archived = db.get(ContractDocument, final.headers["X-Ares-Contract-Document-Id"])
+        assert json.loads(archived.content_json)["source_document_id"] == "vertrag-1"
+
+
+def test_cost_disclosure_without_depot_bank_inducement_is_a_draft(sf):
+    import inspect
+
+    from routers import pdf_reports
+    from services.pdf.components import footer, watermark
+
+    assert watermark.DEPOT_BANK_DRAFT_TEXT == footer.DEPOT_BANK_DRAFT_TEXT and "depotbank" in watermark.WATERMARK_MODES
+    source = inspect.getsource(pdf_reports.get_cost_disclosure_pdf) if hasattr(
+        pdf_reports, "get_cost_disclosure_pdf") else inspect.getsource(pdf_reports)
+    assert 'watermark_mode="depotbank"' in source
+    with sf() as db:
+        m = mandate(db)
+        m.depot_bank = "Bank X"
+        db.flush()
+        assert pdf_reports._depot_bank_inducement_missing(m, layer.depot_bank_inducement_state(db, m))
+        ensure_test_owner_content(db, TENANT, actor_id="adm-1", key=oc.depot_bank_key("Bank X"), value={
+            "depot_bank": "Bank X", "status": "keine", "evidence_reference": "B", "valid_from": "2000-01-01"})
+        assert not pdf_reports._depot_bank_inducement_missing(m, layer.depot_bank_inducement_state(db, m))
+        m.depot_bank = None
+        db.flush()
+        assert not pdf_reports._depot_bank_inducement_missing(m, layer.depot_bank_inducement_state(db, m))
+        m.mandate_type = "Vermögensverwaltung"
+        db.flush()
+        assert pdf_reports._depot_bank_inducement_missing(m, layer.depot_bank_inducement_state(db, m))

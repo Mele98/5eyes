@@ -218,3 +218,54 @@ def test_role_is_accepted_by_bootstrap_schema_and_user_schemas(tmp_path):
     assert UserCreate(username="r", password="x" * 12, full_name="R", role="compliance_reviewer").role == (
         "compliance_reviewer")
     assert UserUpdate(role="compliance_reviewer").role == "compliance_reviewer"
+
+
+# ---------------------------------------------------------------------------
+# H-179 N-927-01: Owner-Inhalte -- die externe Pruefperson einer
+# Ein-Personen-Firma liest und gibt frei, erfasst aber nie.
+# ---------------------------------------------------------------------------
+
+
+def test_reviewer_allowlist_covers_owner_content_read_and_approve_only():
+    assert compliance_reviewer_may_call("GET", "/compliance/owner-content")
+    assert compliance_reviewer_may_call("POST", "/compliance/owner-content/abc/approve")
+    for method, path in (("POST", "/compliance/owner-content"),
+                         ("GET", "/compliance/owner-content/abc/approve"),
+                         ("POST", "/compliance/owner-content/abc/approve/x"),
+                         ("GET", "/mandates/m-1/contract-layer"),
+                         ("POST", "/mandates/m-1/w033-declarations"),
+                         ("POST", "/mandates/m-1/recommendations/r-1/advice-rationale")):
+        assert not compliance_reviewer_may_call(method, path), (method, path)
+
+
+def test_single_person_firm_admin_captures_external_reviewer_approves_chain_effective(client, session_factory):
+    from services import recommendation_release_gate as gate
+
+    admin, reviewer, foreign = _auth(client, "adm-1"), _auth(client, "rev-1"), _auth(client, "rev-f")
+    key = gate.PRIVACY_KEY_PREFIX + "zwecke"
+    # Die Pruefperson darf nicht erfassen.
+    r = client.post("/compliance/owner-content", headers=reviewer,
+                    json={"content_key": key, "body_text": "Zwecke (Testwert)", "source_reference": "TEST"})
+    assert r.status_code == 403
+    created = client.post("/compliance/owner-content", headers=admin,
+                          json={"content_key": key, "body_text": "Zwecke (Testwert)", "source_reference": "TEST"})
+    assert created.status_code == 201, created.text
+    row_id, content_hash = created.json()["created_row_id"], created.json()["draft_content_hash"]
+    listing = client.get("/compliance/owner-content", headers=reviewer)
+    assert listing.status_code == 200
+    item = next(i for i in listing.json()["items"] if i["key"] == key)
+    assert item["status"] == gate.OWNER_STATUS_UNAPPROVED and item["draft_row_id"] == row_id
+    # Gegenprobe: Pruefperson einer fremden Firma findet die Version nicht.
+    r = client.post(f"/compliance/owner-content/{row_id}/approve", headers=foreign,
+                    json={"content_hash": content_hash, "approval_reference": "fremd"})
+    assert r.status_code == 404
+    # Gegenprobe: Selbstfreigabe des einzigen Admins bleibt gesperrt.
+    r = client.post(f"/compliance/owner-content/{row_id}/approve", headers=admin,
+                    json={"content_hash": content_hash, "approval_reference": "selbst"})
+    assert r.status_code == 403
+    r = client.post(f"/compliance/owner-content/{row_id}/approve", headers=reviewer,
+                    json={"content_hash": content_hash, "approval_reference": "TEST Freigabe extern"})
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == gate.OWNER_STATUS_APPROVED
+    with session_factory() as db:
+        assert gate.resolve_owner_content(db, TENANT, key)["status"] == gate.OWNER_STATUS_APPROVED

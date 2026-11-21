@@ -300,6 +300,30 @@ def _owner_content_test_keys() -> list[tuple[str, str | None, dict | None]]:
     return keys
 
 
+def _test_owner_approver(db, actor_id: str, tenant_id: str) -> str:
+    """N-927-02: zweite Person mit Freigaberolle in DERSELBEN Firma und mit
+    anderer Postfach-Identitaet (das Gate rechnet beides beim Lesen nach)."""
+    from services.auth import normalize_email_identity
+
+    actor = db.query(User).filter(User.id == actor_id).first()
+    actor_mail = normalize_email_identity(getattr(actor, "email", None))
+    tenant_filter = (User.tenant_id.is_(None) | (User.tenant_id == "main")) if tenant_id == "main"         else (User.tenant_id == tenant_id)
+    for other in db.query(User).filter(
+        User.id != actor_id, User.role.in_(("admin", "super_admin")), tenant_filter,
+    ).order_by(User.id).all():
+        if not actor_mail or normalize_email_identity(other.email) != actor_mail:
+            return str(other.id)
+    approver_id = f"testfixture-h179-zweitfreigabe-{tenant_id}"
+    if db.query(User).filter(User.id == approver_id).first() is None:
+        db.add(User(
+            id=approver_id, username=approver_id, password_hash="x",
+            full_name=f"{TEST_CONTRACT_MARKER} Zweitfreigabe (Testwert)", role="admin", is_active=0,
+            tenant_id=None if tenant_id == "main" else tenant_id, created_at=_PAST, updated_at=_PAST,
+        ))
+        db.flush()
+    return approver_id
+
+
 def ensure_test_owner_content(
     db, tenant_id: str, *, actor_id: str, key: str, body_text: str | None = None,
     value=None, approve: bool = True,
@@ -326,7 +350,7 @@ def ensure_test_owner_content(
             id=new_uuid(), tenant_id=tenant_id, content_key=key, content_row_id=version.id,
             predecessor_approval_id=(head["approval"]["id"] if head["status"] == oc.OWNER_STATUS_APPROVED
                                      else OWNER_CONTENT_GENESIS),
-            approved_by=_test_review_approver(db, actor_id), approved_at=_PAST,
+            approved_by=_test_owner_approver(db, actor_id, tenant_id), approved_at=_PAST,
             approval_reference=f"{TEST_CONTRACT_MARKER} Testfreigabe", content_hash=version.content_hash,
         )
         approval.approval_hash = _seal(approval, "approval_hash")

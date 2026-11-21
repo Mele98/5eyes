@@ -2341,6 +2341,9 @@ W033_DECLARATION_KEY = "w033.angaben_wahr_meldepflicht"
 W033_HORIZON_ADVICE_KEY = "w033.horizont_abraten"
 W033_MIN_HORIZON_KEY = "w033.mindesthorizont_jahre"
 W033_DISTRIBUTION_KEY = "w033.ausschuettung_kapitalunterschreitung"
+# N-927-06: Hinweis zum Basisinformationsblatt unter "abgegebene Informationen"
+# im Protokoll (P-1) -- nur als Owner-Text, Ares formuliert ihn nicht.
+PROTOCOL_BIB_KEY = "protokoll.basisinformationsblatt"
 
 # ---------------------------------------------------------------------------
 # R-1: Zuwendungen der Depotbank (Bank-Ebene)
@@ -2415,6 +2418,14 @@ def owner_content_catalog() -> tuple[OwnerCatalogEntry, ...]:
             placeholder="__OWNER_W033_AUSSCHUETTUNG_REQUIRED__",
             owner_input="Wortlaut (nur nötig, wenn ausschüttende Lösungen im Universum sind)",
             visible_in="Risikoprofil-PDF (nur wenn freigegeben)",
+            required=False,
+        ),
+        OwnerCatalogEntry(
+            key=PROTOCOL_BIB_KEY, group="protokoll",
+            label="Protokoll: Hinweis zum Basisinformationsblatt (BIB)", kind=OWNER_KIND_TEXT,
+            placeholder="__OWNER_PROTOKOLL_BIB_HINWEIS_REQUIRED__",
+            owner_input="Wortlaut des BIB-Hinweises unter «abgegebene Informationen»",
+            visible_in="Beratungsprotokoll (Anlageberatung, nur wenn freigegeben)",
             required=False,
         ),
     ))
@@ -2553,6 +2564,26 @@ def owner_content_chain(db: Session, tenant_id: str, key: str) -> tuple[dict[str
     return {str(v["id"]): v for v in versions}, approvals
 
 
+def owner_content_approver_valid(db: Session, approval: dict, version: dict, tenant_id: str) -> bool:
+    """N-927-02: die zweite Person beim LESEN nachgerechnet (nicht nur bei der
+    API-Freigabe), gleiche Regel wie die KYC-Zweitfreigabe
+    (``kyc_second_person_valid``): Freigaberolle, nicht der Erfasser (ID oder
+    Postfach-Identitaet inkl. ``+alias``), kein als kompromittiert widerrufenes
+    Konto ab dem Widerruf, externe Compliance-Person nur mit selbst aktiviertem
+    Konto und eigener 2FA. Zusaetzlich: Freigeber gehoert zur Firma des Inhalts
+    (NULL = Standard-Mandant). Eine spaetere Deaktivierung entwertet eine vorher
+    gueltig erteilte Freigabe nicht (wie bei KYC)."""
+    if not kyc_second_person_valid(
+        db, approval.get("approved_by"), version.get("created_by"), decided_at=approval.get("approved_at"),
+    ):
+        return False
+    row = db.execute(
+        _sql_text("SELECT tenant_id FROM users WHERE id = :uid"), {"uid": str(approval.get("approved_by"))},
+    ).first()
+    approver_tenant = (str(row[0]) if row is not None and row[0] else _DEFAULT_TENANT_ID)
+    return row is not None and approver_tenant == str(tenant_id)
+
+
 def resolve_owner_content(db: Session, tenant_id: Optional[str], key: str) -> dict:
     """Wirksame Version eines Schluessels fuer eine Firma.
 
@@ -2587,7 +2618,7 @@ def resolve_owner_content(db: Session, tenant_id: Optional[str], key: str) -> di
             or row_seal(approval, "approval_hash") != approval["approval_hash"]
             or row_seal(version, "content_hash") != version["content_hash"]
             or approval["content_hash"] != version["content_hash"]
-            or str(approval["approved_by"]) == str(version["created_by"])
+            or not owner_content_approver_valid(db, approval, version, tenant_id)
             or int(version["version"]) <= last_version
         ):
             result["status"] = OWNER_STATUS_INVALID

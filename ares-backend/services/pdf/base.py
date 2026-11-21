@@ -292,6 +292,8 @@ class VertragData:
     contract_clauses: tuple = ()
     contract_catalog_version: str | None = None
     contract_template_hash: str | None = None
+    # N-927-07: Herkunft (ContractDocument-ID des Quelldokuments), Archivnachweis.
+    source_document_id: str | None = None
 
 
 @dataclass(frozen=True)

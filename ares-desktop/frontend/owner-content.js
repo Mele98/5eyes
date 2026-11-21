@@ -12,6 +12,9 @@
  *     mit Anzeige und Bestaetigung des Pruefwerts (Muster KYC-Wiedervorlage).
  *   - Mandat pruefen: Status der Vertragsschicht, Gruende der Empfehlung
  *     (Art. 15 FIDLEG) und W033-Bestaetigungen des Kunden erfassen.
+ *   - N-927-01: Rolle compliance_reviewer (externe Prueferson einer
+ *     Ein-Personen-Firma) sieht in ihrer Freigabe-Ansicht nur Katalog und
+ *     offene Entwuerfe zum Freigeben -- kein Erfassen, keine Mandate.
  *
  * Grundsaetze: Ares belegt keinen Text und keinen Wert vor; Status und
  * Sperrgruende kommen 1:1 vom Server.
@@ -29,7 +32,8 @@
     vertrag: 'Vertragsvorlage (Pflichtklauseln)',
     datenschutz: 'Kundeninformation – Datenbearbeitung (Art. 19 DSG)',
     w033: 'Eignungsprüfung (W033)',
-    depotbank: 'Zuwendungen der Depotbank'
+    depotbank: 'Zuwendungen der Depotbank',
+    protokoll: 'Beratungsprotokoll (Art. 15 FIDLEG)'
   };
   var L = '<label style="font-size:9px;color:var(--n4);display:block;margin-bottom:2px">';
   var state = { items: [], mandate: null };
@@ -49,6 +53,8 @@
   }
   function val(id){ var el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; }
   function me(){ return (typeof currentUser !== 'undefined' && currentUser) ? currentUser : null; }
+  function isReviewer(){ var u = me(); return !!(u && u.role === 'compliance_reviewer'); }
+  function hostEl(){ return document.getElementById('oc-reviewer-body') || document.getElementById('sec-owner-content'); }
   function short(text){ var t = String(text || ''); return t.length > 160 ? t.slice(0, 160) + ' …' : t; }
 
   function approvalHtml(item){
@@ -159,14 +165,14 @@
   }
 
   async function loadOwnerContent(){
-    var host = document.getElementById('sec-owner-content');
+    var host = hostEl();
     if (!host) return;
     try {
       var data = await API.get('/compliance/owner-content');
       state.items = data.items || [];
       host.innerHTML = '<div class="admin-section-title">Vertragsschicht (Texte und Werte der Firma)</div>'
         + '<div style="font-size:9px;color:var(--n5)">Ohne freigegebene Inhalte sperrt Ares Vertragsabschluss, Signatur, Finalisierung und die Kundeninformation. Katalog ' + esc(data.catalog_version) + '.</div>'
-        + catalogHtml(data) + createFormHtml(data) + mandateHtml();
+        + catalogHtml(data) + (isReviewer() ? '' : createFormHtml(data) + mandateHtml());
     } catch(e) {
       host.innerHTML = '<div style="color:var(--neg);font-size:10px">' + esc(errText(e, 'Vertragsschicht konnte nicht geladen werden.')) + '</div>';
     }
@@ -282,6 +288,26 @@
       auditPanel.parentNode.insertBefore(panel, auditPanel);
     }
   }
+  // N-927-01: Freigabe-Ansicht der Prueferson unter der KYC-Freigabe-Ansicht.
+  function wrapInitAppForReviewer(){
+    if (typeof window.initApp !== 'function' || window.initApp.__oc) return;
+    var original = window.initApp;
+    var wrapped = async function(){
+      var result = await original.apply(this, arguments);
+      var view = document.getElementById('krp-reviewer-view');
+      if (isReviewer() && view && !document.getElementById('oc-reviewer-body')) {
+        var box = document.createElement('div');
+        box.id = 'oc-reviewer-body';
+        box.style.cssText = 'display:grid;gap:8px;margin-top:16px';
+        view.appendChild(box);
+        await loadOwnerContent();
+      }
+      return result;
+    };
+    wrapped.__oc = true;
+    window.initApp = wrapped;
+  }
+  wrapInitAppForReviewer();
   if (typeof document !== 'undefined' && document.addEventListener) {
     // nach kyc-review-policy.js (Anker-Button), deshalb erst nach DOMContentLoaded.
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountOwnerContent);

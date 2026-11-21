@@ -618,14 +618,20 @@ TECHNICAL_ALLOWLIST: dict[tuple[str, str], str] = {
 }
 
 
-# CCX-P5: die Pruefnummer im Fuss («Beratungsentscheid: <12 hex>») ist ein
-# gewollter Kundenhinweis; besteht sie zufaellig nur aus Ziffern, schlug das
-# Muster «lange Kennzahl» an (H-179, gefunden lokal: 020970979213).
-_P5_FOOTER_NUMBER = re.compile(r"Beratungsentscheid: [0-9a-f]{12}(?![0-9a-f])")
+# CCX-P5 / N-929-02: Kurzreferenzen hinter einem Etikett («Audit:»,
+# «Beratungsentscheid:», «FX-Basis», «Prüfwert», «Prüfsumme», «Entscheid-Nr.»)
+# sind gewollte Kundenhinweise (8 bis 12 Hex-Zeichen). Bestehen sie zufaellig
+# nur aus Ziffern, schlug das Muster «lange Kennzahl» an (H-179, lokal mit
+# 020970979213). Ohne Etikett bleibt jede lange Zahl rot.
+_SHORT_REFERENCE_LABELS = ("Audit:", "Beratungsentscheid:", "FX-Basis", "Prüfwert", "Prüfsumme", "Entscheid-Nr.")
+_SHORT_REFERENCE = re.compile(
+    "(" + "|".join(re.escape(label) for label in _SHORT_REFERENCE_LABELS) + ")"
+    + r":? ?[0-9a-f]{8,12}(?![0-9a-f])"
+)
 
 
 def technical_hits(name: str, text: str) -> list[str]:
-    flat = _P5_FOOTER_NUMBER.sub("Beratungsentscheid: <Pruefnummer>", " ".join(text.split()))
+    flat = _SHORT_REFERENCE.sub(lambda m: m.group(1) + " <Kurzreferenz>", " ".join(text.split()))
     return [hit for hit in (m.group(0) for m in _TECHNICAL.finditer(flat))
             if (name, hit) not in TECHNICAL_ALLOWLIST]
 
@@ -652,9 +658,14 @@ def test_allowlist_entries_are_used_and_located():
     assert technical_hits("portfolio", "gemäss revDSG") == ["revDSG"]
 
 
-def test_p5_footer_number_is_not_a_technical_value_but_other_long_numbers_are():
-    assert technical_hits("anlagestrategie", "Beratungsentscheid: 020970979213 (Fassung 1)") == []
+def test_short_reference_labels_are_not_technical_values_but_other_long_numbers_are():
+    for label in _SHORT_REFERENCE_LABELS:
+        assert technical_hits("anlagestrategie", f"{label} 020970979213 · Fassung 1") == [], label
+    assert technical_hits("risikoprofil", "Entscheid-Nr. 02097097 · wirksam") == []
+    # Gegenproben: ohne Etikett, zu lang oder neben dem Etikett bleibt es rot.
     assert technical_hits("anlagestrategie", "Lauf 020970979213") == ["020970979213"]
+    assert technical_hits("anlagestrategie", "Prüfwert 0209709792131") == ["0209709792131"]
+    assert technical_hits("anlagestrategie", "Prüfwert 0209709792 Lauf 4417709213") == ["4417709213"]
 
 
 def test_technical_patterns_detect_the_old_output():

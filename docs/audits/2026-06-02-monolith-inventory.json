@@ -3,7 +3,7 @@
     "css_selectors": 1176,
     "event_handlers": 435,
     "ids": 1011,
-    "js_functions": 1723,
+    "js_functions": 1727,
     "modal_structures": 102,
     "script_blocks": 43,
     "style_blocks": 2,
@@ -9380,8 +9380,8 @@
     {
       "kind": "js",
       "path": "ares-desktop/frontend/owner-content.js",
-      "sha256": "b2268cca1e1482e6cfe60fdfff909fce0614b59d8f8c09f4b86015cabc6adc5a",
-      "size_bytes": 18904
+      "sha256": "9fca534838824ff7ce53b09d23516b819d3136e765f644504f87246f5f5ca25d",
+      "size_bytes": 20182
     },
     {
       "kind": "js",
@@ -22770,134 +22770,158 @@
     },
     {
       "declaration": "function",
-      "line": 54,
+      "line": 60,
       "name": "approvalHtml",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 212,
+      "line": 218,
       "name": "approveOwnerContent",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 189,
+      "line": 195,
       "name": "bankSlug",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 78,
+      "line": 84,
       "name": "catalogHtml",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 194,
+      "line": 200,
       "name": "createDepotBankInducement",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 95,
+      "line": 101,
       "name": "createFormHtml",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 175,
+      "line": 181,
       "name": "createOwnerContent",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 43,
+      "line": 47,
       "name": "errText",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 37,
+      "line": 41,
       "name": "esc",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 66,
+      "line": 57,
+      "name": "hostEl",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 56,
+      "name": "isReviewer",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 72,
       "name": "itemHtml",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 226,
+      "line": 232,
       "name": "loadContractLayerStatus",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 161,
+      "line": 167,
       "name": "loadOwnerContent",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 128,
+      "line": 134,
       "name": "mandateBodyHtml",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 121,
+      "line": 127,
       "name": "mandateHtml",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 51,
+      "line": 55,
       "name": "me",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 261,
+      "line": 267,
       "name": "mountOwnerContent",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 46,
+      "line": 50,
       "name": "notify",
       "source": "owner-content.js"
     },
     {
       "declaration": "var",
-      "line": 196,
+      "line": 202,
       "name": "num",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 248,
+      "line": 254,
       "name": "recordW033Declaration",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 238,
+      "line": 244,
       "name": "saveAdviceRationale",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 52,
+      "line": 58,
       "name": "short",
       "source": "owner-content.js"
     },
     {
       "declaration": "function",
-      "line": 50,
+      "line": 54,
       "name": "val",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "function",
+      "line": 292,
+      "name": "wrapInitAppForReviewer",
+      "source": "owner-content.js"
+    },
+    {
+      "declaration": "var",
+      "line": 295,
+      "name": "wrapped",
       "source": "owner-content.js"
     },
     {

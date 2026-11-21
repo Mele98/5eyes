@@ -18,7 +18,7 @@ from reportlab.lib.units import mm
 from reportlab.pdfgen.canvas import Canvas
 
 
-WATERMARK_MODES = ("none", "entwurf", "vertraulich", "vorvertrag", "unpublished", "vertragsvorlage")
+WATERMARK_MODES = ("none", "entwurf", "vertraulich", "vorvertrag", "unpublished", "vertragsvorlage", "depotbank")
 # C-890-01 Nachtrag 4 (N-897-12): kundenwirksamer Bericht ohne jede
 # KYC-Bestaetigung -> sichtbar als Entwurf vor Vertragsabschluss.
 VORVERTRAG_TEXT = "Entwurf – vor Vertragsabschluss (ohne KYC-Bestätigung)"
@@ -26,6 +26,8 @@ VORVERTRAG_TEXT = "Entwurf – vor Vertragsabschluss (ohne KYC-Bestätigung)"
 UNPUBLISHED_TEXT = "Entwurf – Soll-Allokation nicht publiziert"
 # H-179 V-1: Vertrag ohne freigegebene Vertragsvorlage bzw. ohne Ort.
 CONTRACT_DRAFT_TEXT = "Entwurf – Vertragsvorlage nicht freigegeben"
+# N-927-06: Kostenausweis ohne gueltige Angabe zu Zuwendungen der Depotbank.
+DEPOT_BANK_DRAFT_TEXT = "Entwurf – Angabe zu Zuwendungen der Depotbank fehlt"
 
 
 def _editorial_bold_font() -> str:
@@ -79,6 +81,8 @@ def draw_watermark(
             _draw_headline_watermark(canvas, page_width, page_height, UNPUBLISHED_TEXT)
         elif normalized == "vertragsvorlage":
             _draw_headline_watermark(canvas, page_width, page_height, CONTRACT_DRAFT_TEXT)
+        elif normalized == "depotbank":
+            _draw_headline_watermark(canvas, page_width, page_height, DEPOT_BANK_DRAFT_TEXT)
     finally:
         canvas.restoreState()
 

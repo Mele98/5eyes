@@ -188,7 +188,7 @@ allocationReserveBreakdown aus ares.html umgezogen -> Monolith gesenkt auf 26418
 kn4-ui.js 250/14025: Toleranzschranke direkt in aresPortfolioDisplayPositions (N-917R4-05,
 Korrektur der bestehenden Apportionierung, keine neue Funktion; Hinweis in kn5-ui.js).
 H-179 L2/L3 Vertragsschicht (2026-11-21): neuer Teil ``owner-content.js`` (Budget = Stand
-bei Einfuehrung, 298/18904); im Monolithen nur die Einbindung (+42 B, gleiche Zeile) und
+bei Einfuehrung, 298/18904; Fixrunde 1 N-927-01 Freigabe-Ansicht der Pruefperson: 324/20182); im Monolithen nur die Einbindung (+42 B, gleiche Zeile) und
 der Vorgabe-Ort «Zürich» der Vertragsmaske entfernt (Ort = Pflichtfeld): 1622472 B.
 """
 from __future__ import annotations
@@ -216,7 +216,7 @@ EXTRACTED_PART_BUDGETS = {
     "goal-review-runtime.js": (1563, 83881),
     "client-compliance.js": (469, 29962),
     "kyc-review-policy.js": (427, 25832),
-    "owner-content.js": (298, 18904),
+    "owner-content.js": (324, 20182),
     "privacy-governance.js": (500, 35256),
     "sustainability-preferences.js": (517, 26065),
     "wealth-inflows.js": (282, 16491),

@@ -67,7 +67,10 @@ from services.recommendation_release_gate import (
     contract_template_state,
     depot_bank_inducement_state,
     latest_advice_rationale,
+    PROTOCOL_BIB_KEY,
+    approved_text,
     privacy_section_state,
+    resolve_owner_content,
     w033_state,
 )
 # CCX-P3-FX (N-909-01/-13): strikte FX-Basis und Druckpruefung ueber die Druck-Fassade.
@@ -1906,6 +1909,7 @@ def _build_vertrag_data(mandate: Mandate, doc_id: str | None, db: Session) -> Ve
     sondervereinbarungen = None
     # H-179 V-1: kein Vorgabe-Ort (frueher «Zürich»); Pflichtfeld des Vertrags.
     ort = ""
+    source_document_id = None
     datum = date.today().isoformat()
 
     try:
@@ -1919,6 +1923,7 @@ def _build_vertrag_data(mandate: Mandate, doc_id: str | None, db: Session) -> Ve
         else:
             doc = q.order_by(ContractDocument.created_at.desc()).first()
         if doc is not None:
+            source_document_id = str(doc.id)
             document_title = str(getattr(doc, "title", None) or document_title)
             document_type = str(getattr(doc, "document_type", None) or document_type)
             content_raw = getattr(doc, "content_json", None)
@@ -1955,6 +1960,7 @@ def _build_vertrag_data(mandate: Mandate, doc_id: str | None, db: Session) -> Ve
         vereinbarungs_datum=datum,
         mandate_number=str(getattr(mandate, "mandate_number", "") or ""),
         advisory_wealth_rappen=advisory_wealth,
+        source_document_id=source_document_id,
     )
 
 
@@ -2014,6 +2020,7 @@ def get_vertrag_pdf(
             title=data.document_title, pdf_bytes=pdf_bytes,
             content_hash=content_hash_for(data), current_user=current_user,
             content_json=json.dumps({
+                "source_document_id": data.source_document_id,
                 "ort_unterzeichnung": data.ort_unterzeichnung,
                 "vereinbarungs_datum": data.vereinbarungs_datum,
                 "contract_template": binding,
@@ -2368,6 +2375,15 @@ _KI_CHANNEL_LABELS = {
 }
 
 
+def _depot_bank_inducement_missing(mandate: Mandate, state: dict) -> bool:
+    """H-179 R-1 / N-927-06: keine gueltige, freigegebene Angabe, obwohl eine
+    Depotbank erfasst ist (oder bei der Vermoegensverwaltung keine erfasst ist)."""
+    return state["status"] in ("missing", "expired", "not_yet_valid") or (
+        state["status"] == "no_bank"
+        and str(getattr(mandate, "mandate_type", "") or "") in DEPOT_BANK_REQUIRED_MANDATE_TYPES
+    )
+
+
 def _depot_bank_inducement_lines(state: dict) -> tuple:
     """H-179 R-1: sachliche Wiedergabe der strukturierten, freigegebenen und
     gueltigen Angabe der Firma (kein Rechtstext); sonst keine Zeile."""
@@ -2460,6 +2476,10 @@ def _protocol_advice_sections(db: Session, mandate: Mandate, ta) -> dict:
             f"(Prüfwert {str(cost['checksum_sha256'] or '')[:12]})."
         )
     information.append("Abgabe der Risikobroschüre: in Ares nicht erfasst.")
+    # N-927-06: BIB-Hinweis nur als freigegebener Owner-Text (sonst keine Zeile).
+    bib = approved_text(resolve_owner_content(db, mandate_tenant_id(db, mandate), PROTOCOL_BIB_KEY))
+    if bib:
+        information.append(bib)
     result["warnings"] = tuple(warnings)
     result["information"] = tuple(information)
     return result
@@ -3501,6 +3521,11 @@ def get_cost_disclosure_pdf(
     ctx = _attach_provisional_notice(ctx, db, mandate)
     ctx = _mark_unpublished(ctx, db, mandate)
     inducement = depot_bank_inducement_state(db, mandate)
+    # N-927-06 (CTO-Entscheid 6): ohne gueltige Angabe zu Zuwendungen der
+    # Depotbank ist der Kostenausweis ein Entwurf (Wasserzeichen, nie archiviert).
+    if _depot_bank_inducement_missing(mandate, inducement):
+        if (getattr(ctx, "watermark_mode", "none") or "none") == "none":
+            ctx = dataclasses.replace(ctx, watermark_mode="depotbank")
     data = CostDisclosurePDFData(
         mandate_number=str(getattr(mandate, "mandate_number", "") or "") or None,
         advisory_wealth_rappen=int(payload.get("advisory_wealth_rappen") or 0),
@@ -3802,10 +3827,7 @@ def get_kundeninformation_pdf(
             "missing_sections": privacy["missing"],
         })
     inducement = depot_bank_inducement_state(db, mandate)
-    if inducement["status"] in ("missing", "expired", "not_yet_valid") or (
-        inducement["status"] == "no_bank"
-        and str(getattr(mandate, "mandate_type", "") or "") in DEPOT_BANK_REQUIRED_MANDATE_TYPES
-    ):
+    if _depot_bank_inducement_missing(mandate, inducement):
         raise HTTPException(status_code=409, detail={
             "reason_code": (
                 "DEPOT_BANK_INDUCEMENT_EXPIRED" if inducement["status"] in ("expired", "not_yet_valid")

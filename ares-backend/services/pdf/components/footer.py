@@ -79,6 +79,8 @@ VORVERTRAG_TEXT = "Entwurf – vor Vertragsabschluss (ohne KYC-Bestätigung)"
 UNPUBLISHED_TEXT = "Entwurf – Soll-Allokation nicht publiziert"
 # H-179 V-1: gleicher Text wie services/pdf/components/watermark.py::CONTRACT_DRAFT_TEXT.
 CONTRACT_DRAFT_TEXT = "Entwurf – Vertragsvorlage nicht freigegeben"
+# N-927-06: gleicher Text wie services/pdf/components/watermark.py::DEPOT_BANK_DRAFT_TEXT.
+DEPOT_BANK_DRAFT_TEXT = "Entwurf – Angabe zu Zuwendungen der Depotbank fehlt"
 
 
 def _draw_vorvertrag_mark(canvas: Canvas, page_width: float, page_height: float,
@@ -125,6 +127,8 @@ def make_footer_callback(ctx: PDFContext, disclaimer: str | None = None):
             _draw_vorvertrag_mark(canvas, page_width, PAGE_SIZE[1], UNPUBLISHED_TEXT)
         elif mode == "vertragsvorlage":
             _draw_vorvertrag_mark(canvas, page_width, PAGE_SIZE[1], CONTRACT_DRAFT_TEXT)
+        elif mode == "depotbank":
+            _draw_vorvertrag_mark(canvas, page_width, PAGE_SIZE[1], DEPOT_BANK_DRAFT_TEXT)
 
         canvas.saveState()
         canvas.setFont(FONT_DEFAULT, FONT_SIZE_FOOTER)
