@@ -532,6 +532,8 @@ SITES: dict[tuple[str, str], tuple[tuple[str, str | None], ...]] = {
     ("services/recommendation_release_gate.py", "contract_template_state"): ((EH, SCHEME_V1),),
     ("services/recommendation_release_gate.py", "privacy_section_state"): ((EH, SCHEME_V1),),
     ("services/recommendation_release_gate.py", "row_seal"): ((EH, SCHEME_V1),),
+    # H-179 N-927S-01: eingefrorene Postfach-Identitaet (an die Freigabe-ID gebunden).
+    ("services/recommendation_release_gate.py", "owner_mailbox_digest"): ((EH, SCHEME_V1),),
     ("services/risk_profile_signoff.py", "_sha256"): ((EH, SCHEME_V1),),
     # --- delegiert: SCHEME_V1_ASCII ---
     ("services/backtest_stress.py", "stress_catalog_hash"): ((EH, SCHEME_V1_ASCII),),
