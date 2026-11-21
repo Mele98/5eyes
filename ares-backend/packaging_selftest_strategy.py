@@ -208,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
               flush=True)
         return 2
     result = run_strategy_self_test(args[0])
-    print(SELF_TEST_MARKER + json.dumps(result, ensure_ascii=False, default=str), flush=True)
+    print(SELF_TEST_MARKER + json.dumps(result, ensure_ascii=True, default=str), flush=True)
     return 0 if result.get("ok") else 1
 
 
